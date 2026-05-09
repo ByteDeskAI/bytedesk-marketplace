@@ -29,4 +29,4 @@ Initial pre-release. Extracted from `bytedesk-platform` PR #346 (BDP-367 hierarc
 
 - Plugin can't ship rule files. `docs/RULES.md` is documentation rather than a Claude-loaded context file. Project that want the rule loaded should `cat` it into their own `.claude/rules/`.
 - Per-user state at `~/.claude-sessions/` is created by the out-of-band `install.sh`, not the plugin.
-- Skill descriptions still reference legacy `/fleet-spawn` slash command form. Will be updated to `/fleet:spawn` once skill names are fully migrated.
+- Skill descriptions still reference the unprefixed `/fleet-spawn` slash command form. Will be updated to `/fleet:spawn` once skill names are migrated to the namespaced form (BDM-2).

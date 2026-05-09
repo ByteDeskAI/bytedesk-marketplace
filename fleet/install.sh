@@ -50,7 +50,7 @@ link_script() {
 
 copy_unit() {
   local name="$1"
-  local src="${SCRIPT_DIR}/legacy/systemd/${name}"
+  local src="${SCRIPT_DIR}/systemd/${name}"
   local dst="${UNIT_DIR}/${name}"
 
   if [[ ! -f "${src}" ]]; then

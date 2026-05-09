@@ -31,7 +31,7 @@ This sets up `~/.claude-sessions/` (per-session state, event logs) and is requir
 | `hooks/event-emitter.sh` | PostToolUse hook — emits structured JSONL events for `gh pr review`, `gh pr merge`, `git push` etc. |
 | `monitors/monitors.json` | Registers the `claude-sessions notify` daemon as a plugin-managed monitor (replaces systemd for users on the plugin path). |
 | `skills/{spawn,review,cleanup,tournament,wait,chain}/` | Slash commands: `/fleet:spawn`, `/fleet:review`, etc. |
-| `legacy/systemd/` | Original systemd user units for users who want OS-level service lifecycle independent of Claude Code. |
+| `systemd/` | systemd user units for OS-level service lifecycle (alternative to running the daemon as a Claude Code monitor). |
 
 ## Slash commands
 
