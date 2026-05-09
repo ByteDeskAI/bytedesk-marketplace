@@ -21,7 +21,7 @@ mkdir -p "${BIN_DIR}" "${UNIT_DIR}"
 
 link_script() {
   local name="$1"
-  local src="${SCRIPT_DIR}/${name}"
+  local src="${SCRIPT_DIR}/bin/${name}"
   local dst="${BIN_DIR}/${name}"
 
   if [[ ! -f "${src}" ]]; then
@@ -50,7 +50,7 @@ link_script() {
 
 copy_unit() {
   local name="$1"
-  local src="${SCRIPT_DIR}/systemd/${name}"
+  local src="${SCRIPT_DIR}/legacy/systemd/${name}"
   local dst="${UNIT_DIR}/${name}"
 
   if [[ ! -f "${src}" ]]; then
