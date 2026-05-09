@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "fleet",
+  "version": "0.1.0",
+  "description": "Parallel multi-session Claude orchestration with hierarchical authorization, depth-aware delegation, and tool-level event observability. Spawn agents on tickets, watch a dashboard, get notified when reviews land or merges happen.",
+  "author": {
+    "name": "ByteDesk AI",
+    "url": "https://github.com/ByteDeskAI"
+  },
+  "homepage": "https://github.com/ByteDeskAI/bytedesk-marketplace/tree/main/fleet",
+  "repository": "https://github.com/ByteDeskAI/bytedesk-marketplace",
+  "license": "MIT",
+  "keywords": [
+    "multi-session",
+    "orchestration",
+    "claude-code",
+    "fleet",
+    "tmux",
+    "worktree",
+    "parallel-agents",
+    "hierarchical-authorization"
+  ]
+}

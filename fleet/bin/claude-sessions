@@ -1,0 +1,1051 @@
+#!/usr/bin/env bash
+# claude-sessions — dashboard + control plane for spawn-claude-feature sessions.
+#
+# Usage:
+#   claude-sessions                       # list all sessions (status table)
+#   claude-sessions watch                 # live-update the table every 2s
+#   claude-sessions attach <ticket>       # tmux attach -d -t
+#   claude-sessions tail   <ticket>       # tail -f the log
+#   claude-sessions log    <ticket>       # less the log
+#   claude-sessions peek   <ticket> [N]   # last N pane lines (default 30)
+#   claude-sessions send   <ticket> <msg> # paste a message into the session
+#   claude-sessions kill   <ticket> [--children|--tree]  # stop session + cleanup
+#   claude-sessions tree   [<ticket>]     # show parent → child hierarchy
+#   claude-sessions cost   [<ticket>]     # token usage and rough cost per session
+#   claude-sessions tui                   # interactive menu (no fzf needed)
+#   claude-sessions clean                 # prune meta files for dead sessions
+#   claude-sessions notify [--interval N] [--once]   # desktop alerts + rules engine
+#   claude-sessions events <ticket> [--since=TS] [--kinds=K,..] [--json|--plain] [--follow]
+#                                         # tool-level events for a session (BDP-372)
+#   claude-sessions web    [--port N] [--bind ADDR] [--cred user:pass]  # ttyd browser view
+#
+# Background service control (systemd --user):
+#   claude-sessions service                         # status of notify + web
+#   claude-sessions service <action> [target]       # action: start|stop|restart|
+#                                                   #         enable|disable|logs
+#                                                   # target: notify|web|all (default all)
+#
+# Rules engine (chain orchestration that survives chat session ends):
+#   claude-sessions rules                           # list pending rules
+#   claude-sessions rules cancel <id>               # remove a pending rule
+#   claude-sessions rules clear                     # remove all rules
+#
+# All session metadata lives at ~/.claude-sessions/<TICKET>.{meta,log}.
+# Pending rules live at ~/.claude-sessions/rules/<id>.json.
+
+set -euo pipefail
+
+SESSIONS_DIR="$HOME/.claude-sessions"
+RULES_DIR="$SESSIONS_DIR/rules"
+RULES_LOG_DIR="$SESSIONS_DIR/rules/log"
+mkdir -p "$SESSIONS_DIR" "$RULES_DIR" "$RULES_LOG_DIR"
+
+# Color codes (auto-disabled if not a tty)
+if [[ -t 1 ]]; then
+  C_DIM=$'\033[2m'; C_BOLD=$'\033[1m'
+  C_GREEN=$'\033[32m'; C_YELLOW=$'\033[33m'; C_RED=$'\033[31m'
+  C_CYAN=$'\033[36m'; C_RESET=$'\033[0m'
+else
+  C_DIM=""; C_BOLD=""; C_GREEN=""; C_YELLOW=""; C_RED=""; C_CYAN=""; C_RESET=""
+fi
+
+# Read a key from a meta file. Usage: meta_get <file> <key>
+meta_get() {
+  awk -F= -v k="$2" '$1==k {sub(/^[^=]+=/, ""); print; exit}' "$1"
+}
+
+# All known sessions (from meta files). Echoes ticket names, one per line.
+list_known_sessions() {
+  shopt -s nullglob
+  local f
+  for f in "$SESSIONS_DIR"/*.meta; do
+    basename "$f" .meta
+  done
+}
+
+# Resolve a meta file by ticket. Errors if missing.
+meta_for() {
+  local ticket="$1"
+  local f="$SESSIONS_DIR/${ticket}.meta"
+  [[ -f "$f" ]] || { echo "no meta for ticket: $ticket" >&2; return 65; }
+  echo "$f"
+}
+
+# Determine session state by inspecting the last few lines of the log.
+session_state() {
+  local log="$1"
+  if [[ ! -s "$log" ]]; then echo "starting"; return; fi
+  local tail
+  tail=$(tail -n 20 "$log" 2>/dev/null || true)
+  # Heuristics — order matters; first match wins.
+  if grep -qiE '(error|failed|cannot|denied)' <<<"$tail"; then echo "error"
+  elif grep -qiE '(waiting|running|swirling|thinking|↓ [0-9]+ tokens)' <<<"$tail"; then echo "working"
+  elif grep -qiE '(approve|allow this|permission|y/n)' <<<"$tail"; then echo "needs-input"
+  elif grep -qiE '(✓|✅|complete|done|merged)' <<<"$tail"; then echo "done"
+  else echo "idle"
+  fi
+}
+
+# Color a state string.
+color_state() {
+  case "$1" in
+    working)     echo "${C_CYAN}${1}${C_RESET}" ;;
+    needs-input) echo "${C_YELLOW}${1}${C_RESET}" ;;
+    error)       echo "${C_RED}${1}${C_RESET}" ;;
+    done)        echo "${C_GREEN}${1}${C_RESET}" ;;
+    starting)    echo "${C_DIM}${1}${C_RESET}" ;;
+    *)           echo "${1}" ;;
+  esac
+}
+
+# Last activity = mtime of log file as relative time.
+ago() {
+  local f="$1"
+  [[ -f "$f" ]] || { echo "?"; return; }
+  local now mt
+  now=$(date +%s)
+  mt=$(stat -c %Y "$f")
+  local d=$((now - mt))
+  if   (( d < 60 ));    then echo "${d}s ago"
+  elif (( d < 3600 ));  then echo "$((d/60))m ago"
+  elif (( d < 86400 )); then echo "$((d/3600))h ago"
+  else                       echo "$((d/86400))d ago"
+  fi
+}
+
+# ─── Lineage helpers (parent / children / depth) ─────────────────────────────
+
+# Tickets whose meta declares parent=<ticket>.
+children_of() {
+  local parent="$1"
+  shopt -s nullglob
+  local f t p
+  for f in "$SESSIONS_DIR"/*.meta; do
+    p=$(meta_get "$f" parent)
+    if [[ "$p" == "$parent" ]]; then
+      basename "$f" .meta
+    fi
+  done
+}
+
+# All descendants of a ticket (BFS).
+descendants_of() {
+  local root="$1"
+  local -a queue=( "$root" )
+  while [[ ${#queue[@]} -gt 0 ]]; do
+    local cur="${queue[0]}"
+    queue=( "${queue[@]:1}" )
+    local child
+    while IFS= read -r child; do
+      [[ -n "$child" ]] || continue
+      echo "$child"
+      queue+=( "$child" )
+    done < <(children_of "$cur")
+  done
+}
+
+# Sessions with no parent (the roots).
+roots() {
+  shopt -s nullglob
+  local f p
+  for f in "$SESSIONS_DIR"/*.meta; do
+    p=$(meta_get "$f" parent)
+    [[ -z "$p" ]] && basename "$f" .meta
+  done
+}
+
+# ─── Cost / tokens / runtime ──────────────────────────────────────────────────
+
+# Approx blended price per million tokens (Opus 4.7 ~ $30/M assuming 90/10 split).
+# Override with CLAUDE_SESSIONS_USD_PER_M_TOKENS env var.
+USD_PER_M_TOKENS="${CLAUDE_SESSIONS_USD_PER_M_TOKENS:-30}"
+
+# Latest token count from a session log. The Claude REPL emits "<N> tokens"
+# (sometimes "<N>k tokens", sometimes the status bar collapses whitespace
+# producing "107772tokens"); we grab the largest integer match in the last
+# 200 lines. Always exits 0 so the caller's set -e doesn't trip on no-match.
+latest_tokens() {
+  local log="$1"
+  [[ -s "$log" ]] || { echo 0; return 0; }
+  local result
+  result=$(tail -n 200 "$log" 2>/dev/null \
+    | grep -oE '[0-9]+(\.[0-9]+)?k?[[:space:]]*tokens' 2>/dev/null \
+    | awk '{
+        s = $1; n = s; sub(/k$/, "", s);
+        v = s + 0;
+        if (n ~ /k$/) v *= 1000;
+        if (v > max) max = v;
+      } END { printf "%d\n", max+0 }' 2>/dev/null) || result=0
+  echo "${result:-0}"
+}
+
+# Rough USD estimate for a token count.
+est_cost_usd() {
+  local tokens="$1"
+  awk -v t="$tokens" -v r="$USD_PER_M_TOKENS" 'BEGIN { printf "%.2f", t / 1000000 * r }'
+}
+
+# Format token count compactly (1234 -> "1.2k", 87000 -> "87.0k").
+fmt_tokens() {
+  awk -v t="$1" 'BEGIN {
+    if (t >= 1000000) printf "%.2fM", t/1000000;
+    else if (t >= 1000) printf "%.1fk", t/1000;
+    else printf "%d", t;
+  }'
+}
+
+# Minutes since session started (from meta `started=` field).
+runtime_min() {
+  local meta="$1"
+  local s
+  s=$(meta_get "$meta" started)
+  [[ -n "$s" ]] || { echo 0; return; }
+  local started_epoch now
+  started_epoch=$(date -d "$s" +%s 2>/dev/null || echo 0)
+  now=$(date +%s)
+  echo $(( (now - started_epoch) / 60 ))
+}
+
+# ─── Tree view ────────────────────────────────────────────────────────────────
+
+# Recursively print a single subtree with depth-prefixed lines.
+_print_subtree() {
+  local ticket="$1" prefix="$2" is_last="$3"
+  local meta="$SESSIONS_DIR/${ticket}.meta"
+  [[ -f "$meta" ]] || return
+  local log session state branch tokens cost
+  log=$(meta_get "$meta" log)
+  session=$(meta_get "$meta" session)
+  branch=$(meta_get "$meta" branch)
+  state=$(session_state "$log")
+  tokens=$(latest_tokens "$log")
+  cost=$(est_cost_usd "$tokens")
+  local alive
+  if tmux has-session -t "$session" 2>/dev/null; then alive="${C_GREEN}●${C_RESET}"
+  else alive="${C_DIM}○${C_RESET}"; state="${C_DIM}gone${C_RESET}"; fi
+
+  local connector="├─"
+  [[ "$is_last" == "1" ]] && connector="└─"
+  if [[ -z "$prefix" ]]; then connector=""; fi
+
+  printf "%s%s %b %-12s %-21s %-8s %s\n" \
+    "$prefix" "$connector" "$alive" "$ticket" \
+    "$(color_state "$state")" \
+    "$(fmt_tokens "$tokens")/\$$cost" \
+    "${branch:0:50}"
+
+  local kids
+  mapfile -t kids < <(children_of "$ticket")
+  local n=${#kids[@]} i=0
+  for k in "${kids[@]}"; do
+    i=$((i+1))
+    local child_prefix="$prefix"
+    if [[ -n "$prefix" ]]; then
+      [[ "$is_last" == "1" ]] && child_prefix="${prefix}   " || child_prefix="${prefix}│  "
+    else
+      child_prefix="   "
+    fi
+    [[ $i -eq $n ]] && _print_subtree "$k" "$child_prefix" 1 || _print_subtree "$k" "$child_prefix" 0
+  done
+}
+
+cmd_tree() {
+  local root="${1:-}"
+  printf "${C_BOLD}%-2s   %-12s %-12s %-19s %s${C_RESET}\n" \
+    "" "TICKET" "STATE" "TOK / EST" "BRANCH"
+  if [[ -n "$root" ]]; then
+    _print_subtree "$root" "" 1
+  else
+    local r
+    mapfile -t r < <(roots)
+    if [[ ${#r[@]} -eq 0 ]]; then
+      echo "${C_DIM}No sessions.${C_RESET}"
+      return
+    fi
+    for t in "${r[@]}"; do
+      _print_subtree "$t" "" 1
+    done
+  fi
+}
+
+# ─── Cost view ────────────────────────────────────────────────────────────────
+
+cmd_cost() {
+  local target="${1:-}"
+  local total=0
+  printf "${C_BOLD}%-14s %-10s %-10s %-12s %s${C_RESET}\n" \
+    "TICKET" "TOKENS" "EST USD" "RUNTIME" "STATE"
+  local sessions
+  if [[ -n "$target" ]]; then
+    mapfile -t sessions < <(echo "$target"; descendants_of "$target")
+  else
+    mapfile -t sessions < <(list_known_sessions)
+  fi
+  for t in "${sessions[@]}"; do
+    [[ -n "$t" ]] || continue
+    local meta="$SESSIONS_DIR/${t}.meta"
+    [[ -f "$meta" ]] || continue
+    local log state tokens cost rt
+    log=$(meta_get "$meta" log)
+    state=$(session_state "$log")
+    tokens=$(latest_tokens "$log")
+    cost=$(est_cost_usd "$tokens")
+    rt=$(runtime_min "$meta")
+    total=$(awk -v a="$total" -v b="$cost" 'BEGIN { printf "%.2f", a+b }')
+    printf "%-14s %-10s \$%-9s %-12s %s\n" \
+      "$t" "$(fmt_tokens "$tokens")" "$cost" "${rt}m" "$(color_state "$state")"
+  done
+  echo
+  echo "${C_BOLD}Total estimated:${C_RESET} \$$total  (rate: \$${USD_PER_M_TOKENS}/M tokens; override CLAUDE_SESSIONS_USD_PER_M_TOKENS)"
+}
+
+# Print the dashboard table.
+cmd_list() {
+  local sessions
+  mapfile -t sessions < <(list_known_sessions)
+  if [[ ${#sessions[@]} -eq 0 ]]; then
+    echo "${C_DIM}No claude sessions. Spawn one: spawn-claude-feature BDP-N slug \"prompt\"${C_RESET}"
+    return
+  fi
+  printf "${C_BOLD}%-14s %-12s %-12s %-12s %-40s %s${C_RESET}\n" \
+    "TICKET" "STATE" "ACTIVITY" "PARENT" "BRANCH" "●"
+  for t in "${sessions[@]}"; do
+    local meta="$SESSIONS_DIR/${t}.meta"
+    local log session branch state alive parent
+    log=$(meta_get "$meta" log)
+    session=$(meta_get "$meta" session)
+    branch=$(meta_get "$meta" branch)
+    parent=$(meta_get "$meta" parent)
+    state=$(session_state "$log")
+    if tmux has-session -t "$session" 2>/dev/null; then alive="${C_GREEN}●${C_RESET}"
+    else alive="${C_DIM}○ dead${C_RESET}"; state="${C_DIM}gone${C_RESET}"; fi
+    printf "%-14s %-21s %-12s %-12s %-40s %b\n" \
+      "$t" "$(color_state "$state")" "$(ago "$log")" "${parent:--}" "${branch:0:40}" "$alive"
+  done
+  echo
+  echo "${C_DIM}For hierarchy view: claude-sessions tree   |   For cost: claude-sessions cost${C_RESET}"
+}
+
+cmd_watch() { exec watch -tcn 2 "claude-sessions"; }
+
+cmd_attach() {
+  local meta; meta=$(meta_for "$1") || return $?
+  exec tmux attach -d -t "$(meta_get "$meta" session)"
+}
+
+cmd_tail() {
+  local meta; meta=$(meta_for "$1") || return $?
+  exec tail -F "$(meta_get "$meta" log)"
+}
+
+cmd_log() {
+  local meta; meta=$(meta_for "$1") || return $?
+  exec less +G "$(meta_get "$meta" log)"
+}
+
+cmd_peek() {
+  local meta; meta=$(meta_for "$1") || return $?
+  local n="${2:-30}"
+  tmux capture-pane -pt "$(meta_get "$meta" session)" | tail -n "$n"
+}
+
+cmd_send() {
+  local meta; meta=$(meta_for "$1") || return $?
+  local session msg buf
+  session=$(meta_get "$meta" session)
+  shift
+  msg="$*"
+  [[ -n "$msg" ]] || { echo "send: message required" >&2; return 64; }
+  buf="${session}-msg-$$"
+  printf '%s' "$msg" | tmux load-buffer -b "$buf" -
+  tmux paste-buffer -d -t "$session" -b "$buf"
+  tmux send-keys -t "$session" Enter
+  echo "Sent to ${session}: ${msg}"
+}
+
+# Kill a single session + cleanup. Internal helper, no prompt.
+_kill_one() {
+  local ticket="$1"
+  local meta="$SESSIONS_DIR/${ticket}.meta"
+  [[ -f "$meta" ]] || { echo "  $ticket: no meta, skipping"; return; }
+  local session worktree branch
+  session=$(meta_get "$meta" session)
+  worktree=$(meta_get "$meta" worktree)
+  branch=$(meta_get "$meta" branch)
+  tmux kill-session -t "$session" 2>/dev/null || true
+  if [[ -d "$worktree" ]]; then
+    local canonical
+    canonical=$(git -C "$worktree" worktree list --porcelain 2>/dev/null \
+                | awk '/^worktree / {print $2; exit}')
+    if ! git -C "$canonical" worktree remove "$worktree" 2>/dev/null; then
+      echo "  $ticket: worktree remove failed (likely uncommitted work in $worktree)"
+      return 1
+    fi
+    git -C "$canonical" branch -D "$branch" >/dev/null 2>&1 || true
+  fi
+  # Per-session results dir
+  rm -rf "$SESSIONS_DIR/${ticket}"
+  rm -f "$meta"
+  echo "  $ticket: killed, workspace removed, branch deleted"
+}
+
+cmd_kill() {
+  local with_children=0 with_tree=0 yes=0
+  local positional=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --children) with_children=1; shift ;;
+      --tree)     with_tree=1; shift ;;
+      --yes|-y)   yes=1; shift ;;
+      -*)         echo "kill: unknown flag $1" >&2; return 64 ;;
+      *)          positional+=( "$1" ); shift ;;
+    esac
+  done
+  [[ ${#positional[@]} -eq 1 ]] || { echo "kill: exactly one ticket required" >&2; return 64; }
+  local ticket="${positional[0]}"
+  local meta; meta=$(meta_for "$ticket") || return $?
+
+  # Build the kill set
+  local -a victims=( "$ticket" )
+  if [[ "$with_tree" -eq 1 ]]; then
+    local d
+    while IFS= read -r d; do
+      [[ -n "$d" ]] && victims+=( "$d" )
+    done < <(descendants_of "$ticket")
+  elif [[ "$with_children" -eq 1 ]]; then
+    local c
+    while IFS= read -r c; do
+      [[ -n "$c" ]] && victims+=( "$c" )
+    done < <(children_of "$ticket")
+  fi
+
+  echo "About to kill ${#victims[@]} session(s):"
+  for v in "${victims[@]}"; do
+    local m="$SESSIONS_DIR/${v}.meta"
+    local b s
+    b=$(meta_get "$m" branch); s=$(meta_get "$m" session)
+    echo "  $v  ($s, $b)"
+  done
+  if [[ "$yes" -ne 1 ]]; then
+    read -rp "Confirm kill + cleanup of all ${#victims[@]}? [y/N] " ans
+    [[ "$ans" =~ ^[Yy]$ ]] || { echo "aborted"; return 0; }
+  fi
+
+  # Kill leaves first (descendants before parents) so worktree deletion order is safe.
+  for (( i=${#victims[@]}-1; i>=0; i-- )); do
+    _kill_one "${victims[$i]}" || true
+  done
+  echo "done"
+}
+
+cmd_clean() {
+  local meta ticket session
+  shopt -s nullglob
+  for meta in "$SESSIONS_DIR"/*.meta; do
+    ticket=$(basename "$meta" .meta)
+    session=$(meta_get "$meta" session)
+    if ! tmux has-session -t "$session" 2>/dev/null; then
+      echo "removing stale meta: $ticket (session $session is dead)"
+      rm -f "$meta"
+    fi
+  done
+}
+
+# ─── Rules engine ─────────────────────────────────────────────────────────────
+# A rule is a JSON file at $RULES_DIR/<id>.json with shape:
+#   { "id":"...", "wait_for":["BDP-A","BDP-B"], "wait_state":"done",
+#     "exec":"<shell command>", "timeout_min":60, "created":"<iso8601>",
+#     "label":"human-readable description" }
+# When the notify daemon polls, every rule whose wait_for tickets have all
+# reached wait_state has its `exec` run and the rule file is removed.
+# Rules survive chat session ends. Skills install rules and exit immediately
+# instead of polling in-process.
+
+# Returns 0 if every ticket in $1 (comma-separated) is in state $2 (or 'gone').
+all_in_state() {
+  local tickets="$1" target="$2"
+  local IFS=','
+  for t in $tickets; do
+    [[ -n "$t" ]] || continue
+    local meta="$SESSIONS_DIR/${t}.meta"
+    [[ -f "$meta" ]] || return 1
+    local log session
+    log=$(meta_get "$meta" log)
+    session=$(meta_get "$meta" session)
+    if ! tmux has-session -t "$session" 2>/dev/null; then
+      # session dead — count as terminal regardless of target
+      continue
+    fi
+    local state
+    state=$(session_state "$log")
+    [[ "$state" == "$target" || "$state" == "gone" ]] || return 1
+  done
+  return 0
+}
+
+# Walks $RULES_DIR and fires any rule whose preconditions are met.
+# Called once per notify-daemon poll cycle.
+evaluate_rules() {
+  command -v jq >/dev/null || return 0
+  shopt -s nullglob
+  local rule_file id wait_for wait_state exec_cmd timeout_min created label
+  for rule_file in "$RULES_DIR"/*.json; do
+    id=$(jq -r '.id' "$rule_file" 2>/dev/null) || continue
+    wait_for=$(jq -r '.wait_for | join(",")' "$rule_file")
+    wait_state=$(jq -r '.wait_state // "done"' "$rule_file")
+    exec_cmd=$(jq -r '.exec' "$rule_file")
+    timeout_min=$(jq -r '.timeout_min // 60' "$rule_file")
+    created=$(jq -r '.created' "$rule_file")
+    label=$(jq -r '.label // .id' "$rule_file")
+
+    # Timeout check
+    local created_epoch now elapsed_min
+    created_epoch=$(date -d "$created" +%s 2>/dev/null || echo 0)
+    now=$(date +%s)
+    elapsed_min=$(( (now - created_epoch) / 60 ))
+    if (( created_epoch > 0 && elapsed_min >= timeout_min )); then
+      notify-send -u low -a "claude-sessions" \
+        "Rule timed out: $label" "after ${elapsed_min}m, removing"
+      mv "$rule_file" "$RULES_LOG_DIR/${id}.timed-out.json" 2>/dev/null
+      continue
+    fi
+
+    # Trigger check
+    if all_in_state "$wait_for" "$wait_state"; then
+      notify-send -u normal -a "claude-sessions" \
+        "Rule firing: $label" "wait_for=$wait_for ($wait_state) → exec"
+      # Run the exec asynchronously so a long-running spawn doesn't block the daemon
+      nohup bash -c "$exec_cmd" > "$RULES_LOG_DIR/${id}.exec.log" 2>&1 &
+      mv "$rule_file" "$RULES_LOG_DIR/${id}.fired.json" 2>/dev/null
+    fi
+  done
+}
+
+cmd_rules() {
+  local action="${1:-list}"; [[ $# -gt 0 ]] && shift
+  case "$action" in
+    list)
+      shopt -s nullglob
+      local rule_file=( "$RULES_DIR"/*.json )
+      if [[ ${#rule_file[@]} -eq 0 ]]; then
+        echo "${C_DIM}No pending rules.${C_RESET}"
+        return 0
+      fi
+      printf "${C_BOLD}%-22s %-10s %-30s %-10s %s${C_RESET}\n" \
+        "ID" "AGE" "WAIT_FOR" "STATE" "LABEL"
+      command -v jq >/dev/null || { echo "jq required for rules"; return 1; }
+      local f id wait_for wait_state created label age
+      for f in "${rule_file[@]}"; do
+        id=$(jq -r '.id' "$f")
+        wait_for=$(jq -r '.wait_for | join(",")' "$f")
+        wait_state=$(jq -r '.wait_state // "done"' "$f")
+        created=$(jq -r '.created' "$f")
+        label=$(jq -r '.label // .id' "$f")
+        local created_epoch now d
+        created_epoch=$(date -d "$created" +%s 2>/dev/null || echo 0)
+        now=$(date +%s)
+        d=$((now - created_epoch))
+        if   (( d < 60 ));    then age="${d}s"
+        elif (( d < 3600 ));  then age="$((d/60))m"
+        else                       age="$((d/3600))h"; fi
+        printf "%-22s %-10s %-30s %-10s %s\n" "$id" "$age" "${wait_for:0:30}" "$wait_state" "${label:0:50}"
+      done
+      ;;
+    show)
+      local id="$1"
+      [[ -n "$id" ]] || { echo "rules show: id required" >&2; return 64; }
+      local f="$RULES_DIR/${id}.json"
+      [[ -f "$f" ]] || { echo "no such rule: $id" >&2; return 65; }
+      command -v jq >/dev/null && jq . "$f" || cat "$f"
+      ;;
+    cancel)
+      local id="$1"
+      [[ -n "$id" ]] || { echo "rules cancel: id required" >&2; return 64; }
+      local f="$RULES_DIR/${id}.json"
+      [[ -f "$f" ]] || { echo "no such rule: $id" >&2; return 65; }
+      mv "$f" "$RULES_LOG_DIR/${id}.cancelled.json"
+      echo "cancelled rule $id"
+      ;;
+    clear)
+      shopt -s nullglob
+      local files=( "$RULES_DIR"/*.json )
+      if [[ ${#files[@]} -eq 0 ]]; then
+        echo "no pending rules"
+        return 0
+      fi
+      read -rp "Cancel all ${#files[@]} pending rules? [y/N] " ans
+      [[ "$ans" =~ ^[Yy]$ ]] || { echo "aborted"; return 0; }
+      local f
+      for f in "${files[@]}"; do
+        mv "$f" "$RULES_LOG_DIR/$(basename "$f" .json).cancelled.json"
+      done
+      echo "cleared ${#files[@]} rules"
+      ;;
+    log)
+      # Show recent fired/timed-out/cancelled rules from log dir
+      shopt -s nullglob
+      local logs=( "$RULES_LOG_DIR"/*.json )
+      if [[ ${#logs[@]} -eq 0 ]]; then
+        echo "no rule history"
+        return 0
+      fi
+      ls -ltr "$RULES_LOG_DIR"/*.json | tail -20
+      ;;
+    *)
+      echo "rules: unknown action '$action' (list|show|cancel|clear|log)" >&2
+      return 64
+      ;;
+  esac
+}
+
+# === Event observability dispatch (BDP-372) ====================================
+# Tails ~/.claude-sessions/<TICKET>.events files (written by the PostToolUse
+# event-emitter hook) and dispatches each event through configured sinks.
+# See .claude/rules/fleet.md → "Event observability".
+
+NOTIFY_CONFIG="$SESSIONS_DIR/notify.config.toml"
+NOTIFY_FIFO="$SESSIONS_DIR/notifications.fifo"
+NOTIFY_LOG="$SESSIONS_DIR/notify.log"
+
+ensure_notify_config() {
+  [[ -f "$NOTIFY_CONFIG" ]] && return 0
+  cat >"$NOTIFY_CONFIG" <<'EOF'
+# claude-sessions notification routing — BDP-372 fleet event observability.
+# Per-event-kind list of sinks. Sinks: desktop, bell, fifo, slack.
+[events]
+review_summary = ["desktop"]
+merge          = ["desktop", "bell"]
+pr_opened      = ["desktop"]
+review_comment = []
+commit_pushed  = []
+EOF
+}
+
+# Echo one sink name per line for a given event kind.
+notify_sinks_for() {
+  local kind="$1"
+  [[ -f "$NOTIFY_CONFIG" ]] || return 0
+  awk -v kind="$kind" '
+    /^\[events\]/ { in_events=1; next }
+    /^\[/         { in_events=0 }
+    in_events && $0 ~ "^"kind"[[:space:]]*=" {
+      sub(/^[^=]*=[[:space:]]*\[/, "")
+      sub(/\][[:space:]]*$/, "")
+      gsub(/[" ]/, "")
+      n = split($0, arr, ",")
+      for (i=1; i<=n; i++) if (arr[i] != "") print arr[i]
+    }' "$NOTIFY_CONFIG"
+}
+
+sink_desktop() {
+  local title="$1" body="$2" kind="$3"
+  local urgency="normal"
+  case "$kind" in
+    error|merge)                  urgency="critical" ;;
+    review_comment|commit_pushed) urgency="low" ;;
+  esac
+  notify-send -u "$urgency" -a "claude-sessions" "$title" "$body" \
+    2>>"$NOTIFY_LOG" || true
+}
+
+sink_bell() {
+  local title="$1" body="$2"
+  printf '\a' >&2 || true
+  printf '🔔 %s — %s\n' "$title" "$body" >&2 || true
+}
+
+sink_fifo() {
+  local event="$1"
+  if [[ ! -p "$NOTIFY_FIFO" ]]; then
+    mkfifo "$NOTIFY_FIFO" 2>>"$NOTIFY_LOG" || return 0
+  fi
+  # Non-blocking — if no reader, drop rather than blocking the daemon
+  ( exec 3>"$NOTIFY_FIFO"; printf '%s\n' "$event" >&3; exec 3>&-; ) &
+  local writer_pid=$!
+  ( sleep 1; kill "$writer_pid" 2>/dev/null || true ) &
+}
+
+sink_slack() {
+  local title="$1" body="$2"
+  [[ -n "${CLAUDE_SESSIONS_SLACK_WEBHOOK:-}" ]] || return 0
+  local payload
+  payload="$(jq -nc --arg t "$title" --arg b "$body" \
+    '{text:"\($t)\n\($b)"}' 2>>"$NOTIFY_LOG")" || return 0
+  curl -fsS -m 5 -H 'Content-Type: application/json' \
+    --data "$payload" "$CLAUDE_SESSIONS_SLACK_WEBHOOK" \
+    >/dev/null 2>>"$NOTIFY_LOG" || true
+}
+
+# Dispatch one event through configured sinks.
+# Args: ticket kind detail_json event_json
+dispatch_event() {
+  local ticket="$1" kind="$2" detail="$3" event="$4"
+  local sinks
+  mapfile -t sinks < <(notify_sinks_for "$kind")
+  [[ "${#sinks[@]}" -eq 0 ]] && return 0
+  local title body
+  title="claude $ticket: $kind"
+  body="$(jq -r 'to_entries|map("\(.key)=\(.value)")|join(" ")' <<<"$detail" 2>/dev/null || echo "")"
+  for sink in "${sinks[@]}"; do
+    case "$sink" in
+      desktop) sink_desktop "$title" "$body" "$kind" ;;
+      bell)    sink_bell    "$title" "$body" ;;
+      fifo)    sink_fifo    "$event" ;;
+      slack)   sink_slack   "$title" "$body" ;;
+      *) printf '%s [warn] unknown sink %q for kind %q\n' \
+           "$(date -u +%FT%TZ)" "$sink" "$kind" >>"$NOTIFY_LOG" ;;
+    esac
+  done
+}
+
+# Read new event lines for one session and dispatch them.
+# On first encounter (no offset file), starts from current EOF — historical
+# events are NOT replayed, to avoid spam on daemon (re)start.
+tail_session_events() {
+  local ticket="$1"
+  local events_file="$SESSIONS_DIR/${ticket}.events"
+  [[ -f "$events_file" ]] || return 0
+  local offset_file="$SESSIONS_DIR/${ticket}.events.offset"
+  local prev_offset cur_size
+  prev_offset="$(cat "$offset_file" 2>/dev/null || true)"
+  cur_size="$(stat -c%s "$events_file" 2>/dev/null || echo 0)"
+  if [[ -z "$prev_offset" ]]; then
+    echo "$cur_size" > "$offset_file"
+    return 0
+  fi
+  if (( cur_size <= prev_offset )); then
+    return 0
+  fi
+  local new_chunk
+  new_chunk="$(tail -c +"$((prev_offset+1))" "$events_file" 2>>"$NOTIFY_LOG" || true)"
+  echo "$cur_size" > "$offset_file"
+  [[ -z "$new_chunk" ]] && return 0
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    local kind detail
+    kind="$(jq -r '.kind // empty' <<<"$line" 2>/dev/null || true)"
+    [[ -z "$kind" ]] && continue
+    detail="$(jq -c '.detail // {}' <<<"$line" 2>/dev/null || echo '{}')"
+    dispatch_event "$ticket" "$kind" "$detail" "$line" || true
+  done <<<"$new_chunk"
+}
+
+# === end event observability ===================================================
+
+# claude-sessions events <TICKET> [flags] — read tool-level events for a session.
+# See .claude/rules/fleet.md → "Event observability" / "Querying the event log".
+cmd_events() {
+  local ticket="" since="" kinds="" format="plain" follow=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --since=*)   since="${1#--since=}"; shift ;;
+      --since)     since="$2"; shift 2 ;;
+      --kinds=*)   kinds="${1#--kinds=}"; shift ;;
+      --kinds)     kinds="$2"; shift 2 ;;
+      --json)      format="json"; shift ;;
+      --plain)     format="plain"; shift ;;
+      --follow|-f) follow=1; shift ;;
+      -*) echo "events: unknown flag $1" >&2; return 64 ;;
+      *)
+        if [[ -z "$ticket" ]]; then ticket="$1"; shift
+        else echo "events: unexpected positional arg: $1" >&2; return 64
+        fi
+        ;;
+    esac
+  done
+
+  if [[ -z "$ticket" ]]; then
+    echo "events: missing <ticket>" >&2
+    echo "usage: claude-sessions events <ticket> [--since=TS] [--kinds=K,..] [--json|--plain] [--follow]" >&2
+    return 64
+  fi
+
+  local events_file="$SESSIONS_DIR/${ticket}.events"
+  # Empty/missing events file → exit 0 with no output (per spec).
+  if [[ ! -f "$events_file" ]]; then
+    [[ "$follow" -eq 1 ]] || return 0
+    # In follow mode, wait for the file to appear.
+    while [[ ! -f "$events_file" ]]; do sleep 0.5; done
+  fi
+
+  # Build a jq filter: optional since + kinds.
+  local filter='.'
+  if [[ -n "$since" ]]; then
+    filter="$filter | select(.ts >= \$since)"
+  fi
+  if [[ -n "$kinds" ]]; then
+    # Convert "a,b,c" to a jq array literal
+    local kinds_jq
+    kinds_jq="$(jq -nc --arg s "$kinds" '$s | split(",")')"
+    filter="$filter | select(.kind as \$k | $kinds_jq | index(\$k))"
+  fi
+
+  # Output stage — per format.
+  local emit
+  case "$format" in
+    json)  emit='.' ;;
+    plain) emit='
+      .ts as $t | .kind as $k | .detail as $d
+      | ($t | sub("^[0-9-]+T";"") | sub("Z$";"")) as $hms
+      | ($d | to_entries | map("\(.key)=\(.value)") | join(" ")) as $body
+      | "\($hms)  \($k)  \($body)"' ;;
+  esac
+
+  if [[ "$follow" -eq 0 ]]; then
+    jq -rc --arg since "$since" "$filter | $emit" "$events_file" 2>/dev/null || true
+    return 0
+  fi
+
+  # Follow mode — show existing events, then tail. SIGINT exits cleanly.
+  trap 'exit 0' INT
+  jq -rc --arg since "$since" "$filter | $emit" "$events_file" 2>/dev/null || true
+  tail -n0 -f "$events_file" 2>/dev/null \
+    | jq -rc --arg since "$since" --unbuffered "$filter | $emit" 2>/dev/null || true
+}
+
+cmd_notify() {
+  local interval=5 once=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --interval) interval="$2"; shift 2 ;;
+      --once)     once=1; shift ;;
+      *) echo "notify: unknown flag $1" >&2; return 64 ;;
+    esac
+  done
+
+  local pid_file="$SESSIONS_DIR/notify.pid"
+  if [[ "$once" -eq 0 && -f "$pid_file" ]] && kill -0 "$(cat "$pid_file")" 2>/dev/null; then
+    echo "notify daemon already running (pid $(cat "$pid_file"))" >&2
+    return 1
+  fi
+  [[ "$once" -eq 0 ]] && echo $$ > "$pid_file"
+  trap '[[ "$once" -eq 0 ]] && rm -f "$pid_file"; exit 0' INT TERM
+
+  command -v notify-send >/dev/null \
+    || { echo "notify-send not found (apt install libnotify-bin)" >&2; return 1; }
+
+  ensure_notify_config
+
+  echo "notify: polling every ${interval}s (Ctrl-C to stop)"
+  declare -A last_state
+  declare -A first_seen=()
+  declare -A ceiling_notified=()
+
+  while true; do
+    local sessions
+    mapfile -t sessions < <(list_known_sessions)
+    for t in "${sessions[@]}"; do
+      local meta="$SESSIONS_DIR/${t}.meta"
+      [[ -f "$meta" ]] || continue
+      local log session state prev
+      log=$(meta_get "$meta" log)
+      session=$(meta_get "$meta" session)
+      if ! tmux has-session -t "$session" 2>/dev/null; then
+        # session died — notify once then forget
+        if [[ -n "${last_state[$t]:-}" && "${last_state[$t]}" != "gone" ]]; then
+          notify-send -u low -a "claude-sessions" "claude $t: session ended" \
+            "tmux session '$session' is gone"
+          last_state[$t]="gone"
+        fi
+        continue
+      fi
+      state=$(session_state "$log")
+      prev="${last_state[$t]:-}"
+
+      if [[ -z "$prev" && -z "${first_seen[$t]:-}" ]]; then
+        # First time we've seen this session
+        notify-send -u low -a "claude-sessions" "claude $t: spawned" "branch $(meta_get "$meta" branch)"
+        first_seen[$t]=1
+      elif [[ "$prev" != "$state" ]]; then
+        case "$state" in
+          needs-input)
+            notify-send -u critical -a "claude-sessions" \
+              "claude $t: needs input" \
+              "Attach: claude-sessions attach $t" ;;
+          error)
+            notify-send -u critical -a "claude-sessions" \
+              "claude $t: error" \
+              "Tail: claude-sessions tail $t" ;;
+          done)
+            notify-send -u normal -a "claude-sessions" \
+              "claude $t: done" \
+              "Peek: claude-sessions peek $t" ;;
+          # working/idle/starting transitions are silent
+        esac
+      fi
+      last_state[$t]="$state"
+
+      # ─── Tool-level event observability (BDP-372) ──────────────────────────
+      # Tail ~/.claude-sessions/${t}.events for new lines and dispatch each
+      # through configured sinks per ~/.claude-sessions/notify.config.toml.
+      tail_session_events "$t" || true
+
+      # ─── Ceiling enforcement ───────────────────────────────────────────────
+      # If meta declares max_cost_usd or max_runtime_min, check and act.
+      local max_cost max_rt tokens cost rt
+      max_cost=$(meta_get "$meta" max_cost_usd)
+      max_rt=$(meta_get "$meta" max_runtime_min)
+      if [[ -n "$max_cost" || -n "$max_rt" ]]; then
+        tokens=$(latest_tokens "$log")
+        cost=$(est_cost_usd "$tokens")
+        rt=$(runtime_min "$meta")
+        local breached="" how=""
+        if [[ -n "$max_cost" ]] && awk -v c="$cost" -v m="$max_cost" 'BEGIN{exit !(c>=m)}'; then
+          breached=1; how="cost \$$cost ≥ \$$max_cost cap"
+        fi
+        if [[ -n "$max_rt" ]] && (( rt >= max_rt )); then
+          breached=1; how="${how:+$how, }runtime ${rt}m ≥ ${max_rt}m cap"
+        fi
+        if [[ -n "$breached" && -z "${ceiling_notified[$t]:-}" ]]; then
+          notify-send -u critical -a "claude-sessions" \
+            "claude $t: ceiling reached" \
+            "$how — sending graceful stop. claude-sessions kill $t to force."
+          # Send a graceful stop message to the session; do not kill outright.
+          local buf="${session}-ceiling-$$"
+          printf 'STOP — you have reached your declared ceiling (%s). Wrap up your current edit, push if appropriate, and exit. Do not start new work.' "$how" \
+            | tmux load-buffer -b "$buf" - 2>/dev/null
+          tmux paste-buffer -d -t "$session" -b "$buf" 2>/dev/null
+          tmux send-keys -t "$session" Enter 2>/dev/null
+          ceiling_notified[$t]=1
+        fi
+      fi
+    done
+    # Rules engine: fire any rule whose preconditions are met.
+    evaluate_rules
+    [[ "$once" -eq 1 ]] && break
+    sleep "$interval"
+  done
+  [[ "$once" -eq 0 ]] && rm -f "$pid_file"
+}
+
+cmd_web() {
+  local port=7681 bind="127.0.0.1" cred=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --port) port="$2"; shift 2 ;;
+      --bind) bind="$2"; shift 2 ;;
+      --cred) cred="$2"; shift 2 ;;
+      *) echo "web: unknown flag $1" >&2; return 64 ;;
+    esac
+  done
+  command -v ttyd >/dev/null || {
+    cat >&2 <<'MSG'
+ttyd not installed. Install one of:
+  sudo apt install ttyd                                     # Ubuntu 22.04+
+  sudo snap install ttyd --classic                          # any snap-enabled
+  https://github.com/tsl0922/ttyd/releases                  # static binary
+Then re-run: claude-sessions web
+MSG
+    return 127
+  }
+  local args=( -W -p "$port" -i "$bind" -t "fontSize=13" -t "theme={\"background\":\"#0d0d0d\"}" )
+  [[ -n "$cred" ]] && args+=( -c "$cred" )
+  echo "ttyd listening on http://${bind}:${port}/  (writable, Ctrl-C to stop)"
+  echo "  → opens 'claude-sessions tui' in the browser"
+  exec ttyd "${args[@]}" claude-sessions tui
+}
+
+cmd_service() {
+  local action="${1:-status}"; [[ $# -gt 0 ]] && shift
+  local target="${1:-all}"
+
+  case "$target" in
+    notify) local units=("claude-sessions-notify.service") ;;
+    web)    local units=("claude-sessions-web.service") ;;
+    all|"") local units=("claude-sessions-notify.service" "claude-sessions-web.service") ;;
+    *) echo "service: unknown target '$target' (notify|web|all)" >&2; return 64 ;;
+  esac
+
+  case "$action" in
+    status)
+      printf "${C_BOLD}%-32s %-10s %-10s %-8s %s${C_RESET}\n" "UNIT" "ACTIVE" "ENABLED" "PID" "DETAIL"
+      local u active enabled pid main detail
+      for u in "${units[@]}"; do
+        active=$(systemctl --user is-active "$u" 2>/dev/null || true)
+        enabled=$(systemctl --user is-enabled "$u" 2>/dev/null || echo "?")
+        pid=$(systemctl --user show -p MainPID --value "$u" 2>/dev/null || echo "?")
+        case "$active" in
+          active)   active="${C_GREEN}${active}${C_RESET}" ;;
+          inactive|failed) active="${C_RED}${active}${C_RESET}" ;;
+          *)        active="${C_DIM}${active}${C_RESET}" ;;
+        esac
+        case "$u" in
+          *notify*) detail="interval=5s, urgency=critical for needs-input/error" ;;
+          *web*)    detail="http://127.0.0.1:7681/  (browser dashboard)" ;;
+        esac
+        printf "%-32s %-19s %-10s %-8s %s\n" "$u" "$active" "$enabled" "${pid:-?}" "$detail"
+      done
+      ;;
+    start|stop|restart|enable|disable)
+      systemctl --user "$action" "${units[@]}"
+      echo "${action} → ${units[*]}"
+      ;;
+    logs)
+      # logs requires exactly one target
+      if [[ "${#units[@]}" -ne 1 ]]; then
+        echo "service logs: pick one target (notify|web)" >&2
+        return 64
+      fi
+      exec journalctl --user -u "${units[0]}" -f -n 50
+      ;;
+    *)
+      echo "service: unknown action '$action' (status|start|stop|restart|enable|disable|logs)" >&2
+      return 64
+      ;;
+  esac
+}
+
+cmd_tui() {
+  while true; do
+    clear
+    cmd_list
+    echo
+    mapfile -t sessions < <(list_known_sessions)
+    if [[ ${#sessions[@]} -eq 0 ]]; then exit 0; fi
+    PS3=$'\nticket # then action (or q to quit): '
+    select t in "${sessions[@]}"; do
+      [[ -n "$t" ]] || continue
+      echo
+      PS3=$'action: '
+      select a in attach tail peek send kill back; do
+        case "$a" in
+          attach) cmd_attach "$t"; break 2 ;;
+          tail)   cmd_tail "$t" ;;
+          peek)   cmd_peek "$t"; read -rp "[enter] " ;;
+          send)   read -rp "message: " m; cmd_send "$t" "$m" ;;
+          kill)   cmd_kill "$t"; break 2 ;;
+          back)   break ;;
+        esac
+      done
+      break
+    done
+  done
+}
+
+# Dispatch — skipped when this file is sourced (lets tests pull in the
+# helper functions without triggering the default "list" command).
+if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
+  return 0 2>/dev/null || true
+fi
+
+case "${1:-list}" in
+  ""|list) cmd_list ;;
+  watch)   cmd_watch ;;
+  attach)  shift; cmd_attach "$@" ;;
+  tail)    shift; cmd_tail "$@" ;;
+  log)     shift; cmd_log "$@" ;;
+  peek)    shift; cmd_peek "$@" ;;
+  send)    shift; cmd_send "$@" ;;
+  kill)    shift; cmd_kill "$@" ;;
+  clean)   cmd_clean ;;
+  tui)     cmd_tui ;;
+  notify)  shift; cmd_notify "$@" ;;
+  events)  shift; cmd_events "$@" ;;
+  web)     shift; cmd_web "$@" ;;
+  service|svc) shift; cmd_service "$@" ;;
+  rules)   shift; cmd_rules "$@" ;;
+  tree)    shift; cmd_tree "$@" ;;
+  cost)    shift; cmd_cost "$@" ;;
+  -h|--help|help) sed -n '2,20p' "$0" | sed 's/^# *//' ;;
+  *) echo "unknown subcommand: $1 (try: claude-sessions help)" >&2; exit 64 ;;
+esac

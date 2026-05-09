@@ -1,0 +1,25 @@
+# Per-user fleet state — never commit
+.claude-sessions/
+notifications.fifo
+notify.log
+notify.config.toml
+*.events
+*.events.offset
+*.events.err
+
+# Local agent stores
+ruvector.db
+ruvector.db.lock
+agentdb.rvf
+agentdb.rvf.lock
+.swarm/
+.claude-flow/
+
+# Editor / OS noise
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Test artifacts
+*.bak

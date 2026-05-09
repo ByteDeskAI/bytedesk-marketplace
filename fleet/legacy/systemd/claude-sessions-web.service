@@ -1,0 +1,15 @@
+[Unit]
+Description=claude-sessions web dashboard (ttyd serving claude-sessions tui)
+After=default.target
+
+[Service]
+Type=simple
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/bin/claude-sessions web --port 7681 --bind 127.0.0.1
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

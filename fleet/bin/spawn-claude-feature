@@ -1,0 +1,246 @@
+#!/usr/bin/env bash
+# spawn-claude-feature — spawn a git worktree + detached tmux session running claude
+#
+# Usage:
+#   spawn-claude-feature <ticket> <slug> <prompt|--prompt-file PATH>
+#                        [--repo PATH] [--base REF] [--full-auto] [--no-claude]
+#                        [--parent BDP-N] [--max-depth N] [--allow-recursion]
+#                        [--max-cost USD] [--max-runtime MIN]
+#
+# Examples:
+#   spawn-claude-feature BDP-364 react-fix --prompt-file /tmp/p.txt --full-auto
+#   spawn-claude-feature BDP-364-rev review-of-364 --prompt-file /tmp/r.txt --full-auto --parent BDP-364
+#
+# Recursion: if invoked from inside a session, the env var CLAUDE_SESSION_TICKET
+# is auto-detected as --parent. Spawns past depth 2 are rejected unless
+# --allow-recursion. Use --max-depth N to lift the cap.
+#
+# Ceilings: --max-cost USD and --max-runtime MIN are stored in meta; the notify
+# daemon enforces them and gracefully kills sessions that exceed.
+#
+# Long multi-line prompts: pass --prompt-file PATH instead of a quoted string.
+#
+# All output:    ~/.claude-sessions/<TICKET>.log     (ANSI-stripped, append-only)
+# All metadata:  ~/.claude-sessions/<TICKET>.meta    (key=value)
+# Results dir:   ~/.claude-sessions/<TICKET>/results/  (parent-child file passing)
+
+set -euo pipefail
+
+if [[ $# -lt 2 ]]; then
+  sed -n '2,25p' "$0" >&2
+  exit 64
+fi
+
+TICKET="$1"
+SLUG="$2"
+shift 2
+
+PROMPT=""
+PROMPT_FILE=""
+REPO=""
+BASE="origin/develop"
+USE_CLAUDE=1
+FULL_AUTO=0
+PARENT="${CLAUDE_SESSION_TICKET:-}"   # auto-detect parent from env if invoked from inside a session
+MAX_DEPTH=2
+ALLOW_RECURSION=0
+MAX_COST=""
+MAX_RUNTIME=""
+
+# Third positional arg (if present and not a flag) is an inline prompt.
+if [[ $# -gt 0 && "$1" != --* ]]; then
+  PROMPT="$1"
+  shift
+fi
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --prompt-file)     PROMPT_FILE="$2"; shift 2 ;;
+    --repo)            REPO="$2"; shift 2 ;;
+    --base)            BASE="$2"; shift 2 ;;
+    --full-auto)       FULL_AUTO=1; shift ;;
+    --no-claude)       USE_CLAUDE=0; shift ;;
+    --parent)          PARENT="$2"; shift 2 ;;
+    --no-parent)       PARENT=""; shift ;;
+    --max-depth)       MAX_DEPTH="$2"; shift 2 ;;
+    --allow-recursion) ALLOW_RECURSION=1; shift ;;
+    --max-cost)        MAX_COST="$2"; shift 2 ;;
+    --max-runtime)     MAX_RUNTIME="$2"; shift 2 ;;
+    *) echo "unknown flag: $1" >&2; exit 64 ;;
+  esac
+done
+
+if [[ -n "$PROMPT_FILE" ]]; then
+  [[ -f "$PROMPT_FILE" ]] || { echo "error: --prompt-file not found: $PROMPT_FILE" >&2; exit 65; }
+  if [[ -n "$PROMPT" ]]; then
+    echo "error: pass either an inline prompt or --prompt-file, not both" >&2
+    exit 64
+  fi
+elif [[ -z "$PROMPT" ]]; then
+  echo "error: prompt required (either inline or --prompt-file)" >&2
+  exit 64
+fi
+
+if [[ -z "$REPO" ]]; then
+  REPO="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+fi
+if [[ -z "$REPO" || ! -d "$REPO/.git" && ! -f "$REPO/.git" ]]; then
+  echo "error: --repo not given and cwd is not inside a git worktree" >&2
+  exit 65
+fi
+
+SESSIONS_DIR="$HOME/.claude-sessions"
+mkdir -p "$SESSIONS_DIR"
+
+# ─── Recursion depth ──────────────────────────────────────────────────────────
+# Compute depth: 0 if no parent, else parent's depth + 1.
+DEPTH=0
+if [[ -n "$PARENT" ]]; then
+  PARENT_META="$SESSIONS_DIR/${PARENT}.meta"
+  if [[ -f "$PARENT_META" ]]; then
+    PARENT_DEPTH=$(awk -F= '/^depth=/ {print $2; exit}' "$PARENT_META")
+    PARENT_DEPTH=${PARENT_DEPTH:-0}
+    DEPTH=$((PARENT_DEPTH + 1))
+  else
+    echo "warning: --parent $PARENT has no meta file; treating as depth-0 root" >&2
+    DEPTH=1
+  fi
+fi
+if (( DEPTH > MAX_DEPTH )) && [[ "$ALLOW_RECURSION" -eq 0 ]]; then
+  echo "error: spawn would create depth $DEPTH (max $MAX_DEPTH)." >&2
+  echo "       parent chain: $PARENT (depth $((DEPTH - 1)))" >&2
+  echo "       pass --allow-recursion to bypass, or --max-depth N to raise the cap." >&2
+  exit 68
+fi
+
+# ─── Resolve worktree path ────────────────────────────────────────────────────
+# Buffer git's output before parsing — `awk … exit` closes its stdin early,
+# which under `set -o pipefail` (above) propagates a SIGPIPE from git into a
+# script-killing exit 141 on repos with many worktrees.
+WORKTREE_LIST="$(git -C "$REPO" worktree list --porcelain)"
+CANONICAL="$(printf '%s\n' "$WORKTREE_LIST" | awk '/^worktree / {print $2; exit}')"
+WT="$CANONICAL/.claude/worktrees/${TICKET}-${SLUG}"
+BRANCH="feature/${TICKET}-${SLUG}"
+SESSION="$TICKET"
+
+if tmux has-session -t "$SESSION" 2>/dev/null; then
+  echo "error: session '$SESSION' already exists. claude-sessions kill $SESSION" >&2
+  exit 66
+fi
+if [[ -e "$WT" ]]; then
+  echo "error: worktree path already exists: $WT" >&2
+  exit 67
+fi
+
+echo "→ fetching $BASE"
+git -C "$CANONICAL" fetch origin "${BASE#origin/}" --quiet
+
+echo "→ creating worktree: $WT"
+git -C "$CANONICAL" worktree add "$WT" -b "$BRANCH" "$BASE"
+
+# ─── Per-session state directories ────────────────────────────────────────────
+LOG_FILE="$SESSIONS_DIR/${TICKET}.log"
+META_FILE="$SESSIONS_DIR/${TICKET}.meta"
+RESULTS_DIR="$SESSIONS_DIR/${TICKET}/results"
+mkdir -p "$RESULTS_DIR"
+
+echo "→ starting tmux session: $SESSION"
+tmux new-session -d -s "$SESSION" -c "$WT"
+tmux set-option -t "$SESSION" -g remain-on-exit on >/dev/null
+
+# Tee pane output to a log file with ANSI escapes stripped, append-only safe
+# across reattach. -O = include any output that occurred before this call.
+tmux pipe-pane -O -t "$SESSION" \
+  "exec sed -u 's/\x1b\[[0-9;?]*[a-zA-Z]//g; s/\r//g' >> '$LOG_FILE'"
+
+# ─── Meta file ────────────────────────────────────────────────────────────────
+{
+  printf 'ticket=%s\n'    "$TICKET"
+  printf 'slug=%s\n'      "$SLUG"
+  printf 'session=%s\n'   "$SESSION"
+  printf 'worktree=%s\n'  "$WT"
+  printf 'branch=%s\n'    "$BRANCH"
+  printf 'log=%s\n'       "$LOG_FILE"
+  printf 'results=%s\n'   "$RESULTS_DIR"
+  printf 'started=%s\n'   "$(date -Iseconds)"
+  printf 'full_auto=%s\n' "$FULL_AUTO"
+  printf 'parent=%s\n'    "$PARENT"
+  printf 'depth=%s\n'     "$DEPTH"
+  [[ -n "$MAX_COST" ]]    && printf 'max_cost_usd=%s\n' "$MAX_COST"
+  [[ -n "$MAX_RUNTIME" ]] && printf 'max_runtime_min=%s\n' "$MAX_RUNTIME"
+  [[ -n "$PROMPT_FILE" ]] && printf 'prompt_file=%s\n' "$PROMPT_FILE"
+} > "$META_FILE"
+
+deliver_prompt() {
+  local buf="${SESSION}-prompt-$$"
+
+  # Wait until the Claude Code REPL is ready to accept input before pasting.
+  # The TUI shows '❯' as the input-line indicator once the prompt is live.
+  # Without this wait, paste-buffer fires before bracketed-paste-mode is
+  # active; the prompt lands as input but the trailing Enter doesn't submit
+  # (the CLI swallows it as part of the still-arriving paste content).
+  # Times out after ~30s and proceeds anyway — the existing manual
+  # `tmux send-keys Enter` recovery still works as a fallback.
+  local i
+  for i in $(seq 1 30); do
+    if tmux capture-pane -t "$SESSION" -p 2>/dev/null | grep -q '❯'; then
+      break
+    fi
+    sleep 1
+  done
+
+  if [[ -n "$PROMPT_FILE" ]]; then
+    tmux load-buffer -b "$buf" "$PROMPT_FILE"
+  else
+    printf '%s' "$PROMPT" | tmux load-buffer -b "$buf" -
+  fi
+  tmux paste-buffer -d -t "$SESSION" -b "$buf"
+
+  # Let the CLI finish ingesting the paste before sending the submit. The
+  # paste arrives as a sequence of bracketed-paste escape sequences; if
+  # Enter races the closing escape, it ends up inside the paste rather than
+  # acting as submit. 0.5s is enough for prompts up to ~5KB on a local tty.
+  sleep 0.5
+  tmux send-keys -t "$SESSION" Enter
+}
+
+# ─── Boot the spawned shell with self-aware env vars ──────────────────────────
+# Children invoked from inside this session can auto-detect their parent and
+# their results dir without flags.
+ENV_PRELUDE="export CLAUDE_SESSION_TICKET='$TICKET' CLAUDE_PARENT_TICKET='$PARENT' CLAUDE_RESULTS_DIR='$RESULTS_DIR' CLAUDE_SESSION_DEPTH='$DEPTH'"
+
+if [[ "$USE_CLAUDE" -eq 1 ]]; then
+  CLAUDE_CMD="claude"
+  [[ "$FULL_AUTO" -eq 1 ]] && CLAUDE_CMD="claude --dangerously-skip-permissions"
+  tmux send-keys -t "$SESSION" "$ENV_PRELUDE && clear && $CLAUDE_CMD" Enter
+  sleep 3
+  deliver_prompt
+else
+  tmux send-keys -t "$SESSION" "$ENV_PRELUDE" Enter
+  sleep 1
+  deliver_prompt
+fi
+
+# ─── Summary ──────────────────────────────────────────────────────────────────
+NOTES=()
+[[ "$FULL_AUTO" -eq 1 ]] && NOTES+=("full-auto")
+[[ -n "$PARENT" ]]       && NOTES+=("child of $PARENT, depth $DEPTH")
+[[ -n "$MAX_COST" ]]     && NOTES+=("max \$$MAX_COST")
+[[ -n "$MAX_RUNTIME" ]]  && NOTES+=("max ${MAX_RUNTIME}m")
+NOTE_STR=""
+[[ ${#NOTES[@]} -gt 0 ]] && NOTE_STR="  ($(IFS=', '; echo "${NOTES[*]}"))"
+
+cat <<EOF
+
+Spawned ${TICKET}:${NOTE_STR}
+  Worktree: ${WT}
+  Branch:   ${BRANCH}
+  Results:  ${RESULTS_DIR}
+  Log:      ${LOG_FILE}
+
+Dashboard:  claude-sessions
+Tree view:  claude-sessions tree ${PARENT:-$TICKET}
+Attach:     claude-sessions attach ${TICKET}
+Send msg:   claude-sessions send ${TICKET} "your message"
+Kill:       claude-sessions kill ${TICKET}
+EOF

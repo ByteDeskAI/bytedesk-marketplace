@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-monitors.json",
+  "monitors": [
+    {
+      "name": "claude-sessions-notify",
+      "description": "Polls fleet sessions for state transitions, ceiling breaches, and tool-level events; dispatches notifications via desktop / bell / fifo / slack per ~/.claude-sessions/notify.config.toml.",
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/claude-sessions notify --interval 5",
+      "restart": "always",
+      "lifecycle": "plugin-active"
+    }
+  ]
+}
