@@ -3,6 +3,7 @@
 // back to overview.
 
 import { render } from 'preact';
+import { useEffect } from 'preact/hooks';
 import { OverviewPage } from './components/pages/OverviewPage';
 import { AuditPage } from './components/pages/AuditPage';
 import { ReplayPage } from './components/pages/ReplayPage';
@@ -18,6 +19,21 @@ import { useShortcuts } from './hooks/useShortcuts';
 import { useTheme } from './hooks/useTheme';
 import { ViewModeProvider } from './contexts/ViewModeContext';
 
+// Browser-tab title per route (BDM-44, WCAG 2.4.2). Each value is the
+// short page name; the App-level useEffect wraps it as "<name> · Fleet".
+const ROUTE_TITLES: Record<string, string> = {
+  overview: 'Overview',
+  grid: 'Grid',
+  timeline: 'Timeline',
+  chains: 'Chains',
+  tournaments: 'Tournaments',
+  audit: 'Audit',
+  search: 'Search',
+  rules: 'Rules',
+  settings: 'Settings',
+  replay: 'Replay',
+};
+
 function App() {
   // Drives the data-theme / data-font / accent custom property on <html>.
   useTheme();
@@ -26,6 +42,12 @@ function App() {
   // hints to the hash router. Per-page useShortcuts calls handle
   // page-specific keys (spawn, broadcast, density toggle).
   useShortcuts({ onNavigate: navigate });
+  // Keep the browser-tab title in sync with the active route so multi-
+  // tab operators can tell pages apart (WCAG 2.4.2 / BDM-44).
+  useEffect(() => {
+    const name = ROUTE_TITLES[route.name] ?? 'Fleet';
+    document.title = `${name} · Fleet`;
+  }, [route.name]);
   let page;
   switch (route.name) {
     case 'audit':       page = <AuditPage />; break;
