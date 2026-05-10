@@ -392,6 +392,20 @@ code, pre, .mono {
   outline-offset: -2px;
 }
 
+/* Filters subview rows (BDM-46). Same layout as nav rows but read-only —
+ * informational status with no click affordance until they're wired up
+ * as real filters. cursor:default + no hover so the UI doesn't lie. */
+.sidebar__filter-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-4);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  cursor: default;
+}
+
 .sidebar__nav-item--active {
   color: var(--color-accent);
   background: var(--color-bg-muted);
