@@ -19,7 +19,9 @@ After install, run the out-of-band installer once for the per-user state directo
 ~/.claude/plugins/fleet/install.sh
 ```
 
-This sets up `~/.claude-sessions/` (per-session state, event logs) and is required for the bin scripts and notify monitor to find their state.
+This symlinks `bin/claude-sessions` and `bin/spawn-claude-feature` into `~/.local/bin/` and installs the systemd user units. Per-session state lives under `${CLAUDE_PLUGIN_DATA}/projects/<KEY>/` (created lazily on first use; see [ADR-0002](./docs/adr/0002-plugin-data-directory.md)).
+
+> **Going away in v1.0:** the `install.sh` + systemd path is being removed in favor of plugin-managed deployment (BDM-10). New installs should rely on `/plugin install fleet@bytedesk` alone.
 
 ## What's in the box
 
@@ -70,7 +72,29 @@ See [`docs/adr/0001-hierarchical-authorization.md`](./docs/adr/0001-hierarchical
 
 ## Event observability
 
-See [`docs/RULES.md`](./docs/RULES.md) → "Event observability". Sessions emit structured events to `~/.claude-sessions/<TICKET>.events`; the notify monitor tails them and dispatches notifications via configurable sinks (desktop, bell, fifo, slack).
+See [`docs/RULES.md`](./docs/RULES.md) → "Event observability". Sessions emit structured events to `${CLAUDE_PLUGIN_DATA}/projects/<KEY>/sessions/<TICKET>/events`; the notify monitor tails them and dispatches notifications via configurable sinks (desktop, bell, fifo, slack). See [ADR-0002](./docs/adr/0002-plugin-data-directory.md) for the full state-directory layout and `PROJECT_KEY` derivation.
+
+## State directory
+
+All fleet state lives under `${CLAUDE_PLUGIN_DATA}` — the plugin owns its own namespace, so `/plugin uninstall fleet@bytedesk` cleans up completely.
+
+```text
+${CLAUDE_PLUGIN_DATA}/projects/<PROJECT_KEY>/
+├── sessions/<TICKET>/{meta,log,events,events.offset,events.err,results/}
+├── notify/{pid,config.toml,log,fifo}
+└── rules/{*.json,log/}
+```
+
+`PROJECT_KEY` is a 12-char `sha256` prefix of the canonical git working-tree path, resolved via `git rev-parse --git-common-dir` so secondary worktrees (e.g. fleet-spawned children at `<repo>/.claude/worktrees/<TICKET>-<slug>`) share the parent repo's key. To inspect:
+
+```bash
+# Where am I?
+echo "$CLAUDE_PLUGIN_DATA/projects/$(claude-sessions help | grep -oE '[0-9a-f]{12}' | head -1)"
+# All projects with fleet state on this machine:
+ls "$CLAUDE_PLUGIN_DATA/projects/"
+```
+
+Full design rationale + trade-offs in [ADR-0002](./docs/adr/0002-plugin-data-directory.md).
 
 ## Dependencies
 

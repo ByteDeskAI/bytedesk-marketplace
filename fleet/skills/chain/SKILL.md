@@ -20,7 +20,7 @@ Orchestrates dependency chains across the multi-session command center, **withou
 2. Writes one rule file per subsequent stage to the rules engine.
 3. Reports the chain plan and exits.
 
-The always-on notifier daemon (the rules engine) evaluates rules every 5s and fires the next stage's spawn the moment the previous stage's sessions all reach `done`. Because rules live as files in `~/.claude-sessions/rules/`, the chain continues to execute even after this chat session ends, after Claude restarts, or across reboots (rules persist; the daemon re-reads on startup).
+The always-on notifier daemon (the rules engine) evaluates rules every 5s and fires the next stage's spawn the moment the previous stage's sessions all reach `done`. Because rules live as files under `${CLAUDE_PLUGIN_DATA}/projects/<KEY>/rules/`, the chain continues to execute even after this chat session ends, after Claude restarts, or across reboots (rules persist; the daemon re-reads on startup).
 
 ```
 /fleet:chain BDP-A BDP-B then BDP-C
@@ -45,7 +45,10 @@ strictly serial — A spawned now, rule for B (waits A done), rule for C (waits 
    CHAIN_ID="chain-$(date +%s)-$$"
    STAGE_NUM=2
    RULE_ID="${CHAIN_ID}-stage${STAGE_NUM}"
-   RULE_FILE="$HOME/.claude-sessions/rules/${RULE_ID}.json"
+   # Resolve the project's rules dir via the helper exposed by claude-sessions
+   # (or use $CLAUDE_PLUGIN_DATA + your own _project_key derivation).
+   RULES_DIR="${CLAUDE_PLUGIN_DATA:-$HOME/.claude/plugins/data/fleet}/projects/$(claude-sessions help | grep -oE '[0-9a-f]{12}' | head -1)/rules"
+   RULE_FILE="$RULES_DIR/${RULE_ID}.json"
 
    # The exec for stage N is: spawn this stage's tickets via spawn-claude-feature
    # (one call per ticket, since spawn-claude-feature is one-ticket-per-invocation).

@@ -52,7 +52,7 @@ If only one or two sessions exist, drop the section headers and just list them i
 
 - Read-only — never kills, sends, or mutates anything. Just reports.
 - Don't truncate ticket keys, branch names, or peek lines below 80 chars; let chat wrap them.
-- If `claude-sessions` itself fails (e.g. `~/.claude-sessions/` doesn't exist), tell the user the command center isn't installed and link them to the Confluence doc.
+- If `claude-sessions` itself fails (e.g. the plugin isn't installed and `claude-sessions` isn't on `$PATH`), tell the user the command center isn't installed and link them to the Confluence doc.
 
 ## Examples
 

@@ -143,12 +143,12 @@ to its descendants. The blame surface is the spawn prompt itself.
 - A buggy or malicious parent spawn prompt has transitive blast radius across
   all descendants for PR-level actions. Mitigation: the only thing that
   authors a parent prompt is the human, and the spawn act itself is logged in
-  `~/.claude-sessions/<TICKET>.meta`.
+  `${CLAUDE_PLUGIN_DATA}/projects/<KEY>/sessions/<TICKET>/meta`.
 - Hooks need to know their own depth, which adds an env-var dependency. If
   `CLAUDE_SESSION_DEPTH` is ever set incorrectly (e.g., by a misconfigured
   spawner), authorization could be wrongly granted. Mitigation: only
   `spawn-claude-feature` sets the variable, and it does so deterministically
-  from depth-tracking state in `~/.claude-sessions/<TICKET>.meta`.
+  from depth-tracking state in `${CLAUDE_PLUGIN_DATA}/projects/<KEY>/sessions/<TICKET>/meta`.
 
 ### Neutral / Operational
 
