@@ -6,7 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-## [1.15.7] — 2026-05-10
+## [1.15.8] — 2026-05-10
+
+Patch release: Sidebar nav uses native `<a href>` so it's
+keyboard-focusable.
+
+### Fixed
+
+- **Sidebar nav not keyboard-reachable (BDM-45):** items were
+  rendered as `<li role="link">` with `onClick` and no `tabindex`.
+  Keyboard users couldn't Tab to them at all (WCAG 2.1.1 / 4.1.2).
+  Switched to `<li><a href="#/path">…</a></li>`. Anchors are
+  focusable by default, Enter activates, hash routing still works,
+  and screen readers announce as a link. Added `aria-current="page"`
+  on the active route. Each anchor gets a high-contrast
+  `:focus-visible` outline. Discovered via /loop iteration 10
+  a11y probe.
 
 Patch release: per-route browser-tab title.
 
