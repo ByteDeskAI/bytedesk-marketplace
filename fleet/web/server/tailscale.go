@@ -15,9 +15,11 @@ package main
 //   GET  /api/tailscale/log                                → SSE stream of tailscale status --watch
 //   GET  /api/tailscale/status                             → tailscale serve status --json (legacy)
 //
-// Auto-install is intentionally NOT here: it requires sudo and a TTY
-// prompt that a daemon can't drive cleanly. The UI shows the install
-// command + link instead.
+// Auto-install (BDM-50): on boot, if the CLI is missing AND
+// `[tailscale] auto_install` is true (the default), try one
+// non-interactive install. Linux-only, requires `sudo -n` (NOPASSWD).
+// Fails fast and quietly if any precondition isn't met — no retry
+// loop, no log spam.
 
 import (
 	"bufio"
@@ -26,9 +28,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os/exec"
+	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -284,4 +289,78 @@ func handleTailscale(w http.ResponseWriter, r *http.Request, deps *apiDeps, sub 
 	default:
 		writeError(w, http.StatusNotFound, fmt.Errorf("unknown tailscale subpath %q", sub))
 	}
+}
+
+// tailscaleAutoInstallOnce guards against a duplicate attempt within the
+// same Go process if startup logic ever fires twice (e.g. air reload).
+var tailscaleAutoInstallOnce sync.Once
+
+// tailscaleAutoInstall (BDM-50) tries one non-interactive install on
+// Linux. Preconditions: settings.Tailscale.AutoInstall true, CLI not
+// already present, GOOS == linux, curl + sudo available, `sudo -n true`
+// succeeds. On any precondition failure, log one line and return — no
+// retry loop. Called from main.go in a background goroutine so it
+// doesn't block startup.
+func tailscaleAutoInstall(ctx context.Context, settings Settings) {
+	tailscaleAutoInstallOnce.Do(func() {
+		if !settings.Tailscale.AutoInstall {
+			return
+		}
+		if _, found := tailscalePath(); found {
+			return // already installed
+		}
+		if runtime.GOOS != "linux" {
+			log.Printf("tailscale: auto-install skipped (only supported on Linux; GOOS=%s)", runtime.GOOS)
+			return
+		}
+		if _, err := exec.LookPath("curl"); err != nil {
+			log.Printf("tailscale: auto-install skipped (curl not on PATH)")
+			return
+		}
+		if _, err := exec.LookPath("sudo"); err != nil {
+			log.Printf("tailscale: auto-install skipped (sudo not on PATH)")
+			return
+		}
+		// Probe whether sudo can run non-interactively. If sudoers isn't
+		// configured for NOPASSWD, this exits non-zero immediately —
+		// much better than hanging the install on a TTY prompt.
+		probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		if err := exec.CommandContext(probeCtx, "sudo", "-n", "true").Run(); err != nil {
+			log.Printf("tailscale: auto-install skipped (sudo -n unavailable; add NOPASSWD to sudoers to enable, or set [tailscale] auto_install = false in settings.toml)")
+			return
+		}
+		log.Printf("tailscale: CLI not installed; attempting non-interactive install via https://tailscale.com/install.sh")
+		// 5-minute timeout covers a slow download + apt invocation.
+		installCtx, cancelInstall := context.WithTimeout(ctx, 5*time.Minute)
+		defer cancelInstall()
+		cmd := exec.CommandContext(installCtx, "bash", "-c",
+			"curl -fsSL https://tailscale.com/install.sh | sudo -n sh")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			// Log first + last few lines of output so the user can
+			// diagnose without grep'ing /tmp.
+			head := strings.SplitN(string(out), "\n", 6)
+			summary := strings.Join(head[:min(len(head), 5)], " | ")
+			log.Printf("tailscale: auto-install failed: %v — output(head): %s", err, summary)
+			return
+		}
+		if _, found := tailscalePath(); found {
+			log.Printf("tailscale: auto-install succeeded; CLI now at %s", mustLookup("tailscale"))
+		} else {
+			log.Printf("tailscale: install.sh exited 0 but CLI still not on PATH; you may need to refresh your shell")
+		}
+	})
+}
+
+func mustLookup(name string) string {
+	p, _ := exec.LookPath(name)
+	return p
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

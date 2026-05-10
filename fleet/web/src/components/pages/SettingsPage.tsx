@@ -371,8 +371,13 @@ function TailscaleSection({
     return () => window.clearInterval(id);
   }, []);
 
-  // Live log stream.
+  // Live log stream. Gated on info?.installed (BDM-50) — without the
+  // guard the EventSource opens, the server immediately closes it with
+  // "tailscale CLI not installed", EventSource auto-reconnects, and the
+  // log panel fills up with the same line. Re-runs when info.installed
+  // flips to true after auto-install.
   useEffect(() => {
+    if (!info?.installed) return;
     const es = new EventSource(tailscaleLogURL());
     es.addEventListener('log', (ev) => {
       try {
@@ -385,7 +390,7 @@ function TailscaleSection({
       } catch { /* ignore */ }
     });
     return () => es.close();
-  }, []);
+  }, [info?.installed]);
 
   const runCli = async () => {
     const args = cli.trim().split(/\s+/).filter(Boolean);

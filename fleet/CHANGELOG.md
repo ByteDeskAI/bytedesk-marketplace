@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.16.0] — 2026-05-10
+
+Minor release: tailscale CLI auto-install on Go boot + stop the
+"tailscale CLI not installed" log spam.
+
+### Added
+
+- **Tailscale auto-install on boot (BDM-50):** new
+  `tailscaleAutoInstall(ctx, settings)` runs in a background goroutine
+  on server startup. On Linux, if the CLI is missing and `sudo -n
+  true` succeeds (NOPASSWD configured), runs
+  `curl -fsSL https://tailscale.com/install.sh | sudo -n sh` once.
+  Skips quietly with a single log line if any precondition fails —
+  no retry loop, no spam. Gated by `[tailscale] auto_install` in
+  `settings.toml` (default `true`; set false to opt out).
+
+### Fixed
+
+- **"LIVE LOG + CLI OUTPUT" panel spammed "tailscale CLI not
+  installed" (BDM-50):** the frontend's `EventSource` to
+  `/api/tailscale/log` opened unconditionally; the server returned a
+  single "not installed" event then closed; `EventSource`
+  auto-reconnected; repeated indefinitely. `SettingsPage`'s log-stream
+  effect now gates on `info?.installed === true` and re-opens
+  automatically when the CLI becomes available (e.g. after the
+  auto-install above completes).
+
 ## [1.15.12] — 2026-05-10
 
 Patch release: focus moves to main content on every route change.

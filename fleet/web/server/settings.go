@@ -56,6 +56,11 @@ type MobileConfig struct {
 type TailscaleConfig struct {
 	Enabled bool `json:"enabled"`
 	Funnel  bool `json:"funnel"` // tailscale serve vs. tailscale funnel
+	// AutoInstall (BDM-50): when true and the tailscale CLI is missing
+	// on server boot, attempt a non-interactive install. Linux-only,
+	// requires sudo -n (NOPASSWD). Fails fast and quietly if any
+	// precondition isn't met. Default true; set false to opt out.
+	AutoInstall bool `json:"auto_install"`
 }
 
 type ThemeConfig struct {
@@ -111,7 +116,7 @@ func (r *SettingsRepo) Save(s Settings) error {
 func defaultSettings() Settings {
 	return Settings{
 		Mobile:    MobileConfig{NtfyURL: "https://ntfy.sh", Kinds: "merge,pr_opened,review_summary"},
-		Tailscale: TailscaleConfig{},
+		Tailscale: TailscaleConfig{AutoInstall: true},
 		Theme:     ThemeConfig{Theme: "light", Accent: "#2563eb", Font: "inter"},
 		AI:        AIConfig{Enabled: false, Model: "claude-haiku-4-5-20251001", KeyEnv: "ANTHROPIC_API_KEY"},
 	}
@@ -128,6 +133,7 @@ func formatSettingsTOML(s Settings) string {
 	sb.WriteString("\n[tailscale]\n")
 	sb.WriteString(fmt.Sprintf("enabled = %t\n", s.Tailscale.Enabled))
 	sb.WriteString(fmt.Sprintf("funnel = %t\n", s.Tailscale.Funnel))
+	sb.WriteString(fmt.Sprintf("auto_install = %t\n", s.Tailscale.AutoInstall))
 	sb.WriteString("\n[theme]\n")
 	sb.WriteString(fmt.Sprintf("theme = %q\n", s.Theme.Theme))
 	sb.WriteString(fmt.Sprintf("accent = %q\n", s.Theme.Accent))
@@ -181,6 +187,8 @@ func parseSettingsTOML(s string, out *Settings) {
 				out.Tailscale.Enabled = val == "true"
 			case "funnel":
 				out.Tailscale.Funnel = val == "true"
+			case "auto_install":
+				out.Tailscale.AutoInstall = val == "true"
 			}
 		case "theme":
 			switch key {
