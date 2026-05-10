@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.15.6] — 2026-05-10
+
+Patch release: skip-to-content link for keyboard users.
+
+### Fixed
+
+- **Missing WCAG 2.4.1 bypass mechanism (BDM-43):** keyboard users
+  had to Tab through 9 nav items + 5 filter items + the user footer
+  on every page load before reaching content. Added a Skip to content
+  link as the first focusable element in `AppShell`. Hidden off-screen
+  until focused (then slides into the top-left corner with the accent
+  color); pressing Enter focuses `#main-content` and the next Tab lands
+  inside the page content. Discovered via /loop iteration 7 a11y probe.
+
 ## [1.15.5] — 2026-05-10
 
 Patch release: lift `--color-text-tertiary` in both Operator + Operator

@@ -21,11 +21,27 @@ export interface AppShellProps {
 export function AppShell({ activeView, topBarTitle, onSpawnClick, banner, statBar, children }: AppShellProps) {
   return (
     <div class="app-shell">
+      {/* Skip link for keyboard users (WCAG 2.4.1 / BDM-43). Hidden until focused;
+       *  hash-routed so href="#main-content" doesn't navigate the SPA — the click
+       *  handler focuses the target programmatically and prevents the default. */}
+      <a
+        href="#main-content"
+        class="skip-link"
+        onClick={(e) => {
+          e.preventDefault();
+          const t = document.getElementById('main-content');
+          if (t) t.focus();
+        }}
+      >
+        Skip to content
+      </a>
       <Sidebar activeView={activeView} />
       <main class="app-shell__main">
         <TopBar title={topBarTitle} onSpawnClick={onSpawnClick} />
         {banner ?? null}
-        <div class="app-shell__content">{children}</div>
+        <div class="app-shell__content" id="main-content" tabIndex={-1}>
+          {children}
+        </div>
         <DefaultStatBar override={statBar} />
       </main>
     </div>
