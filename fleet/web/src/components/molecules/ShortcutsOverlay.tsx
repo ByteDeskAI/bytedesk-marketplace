@@ -17,9 +17,15 @@ const SHORTCUTS: { keys: string; desc: string }[] = [
 export function ShortcutsOverlay({ onClose }: { onClose: () => void }) {
   const modalRef = useRef<HTMLDivElement>(null);
   useModalFocus(modalRef);
+  // Escape-only close (BDM-47). Don't also handle `?` here — the
+  // parent's `useShortcuts({ onHelp: toggle })` already toggles on `?`,
+  // and a duplicate listener fights the parent's functional updater
+  // (one sets false, the other reads the just-set value and flips it
+  // back to true). Net effect was that `?` while open required two
+  // presses to close.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' || e.key === '?') onClose();
+      if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
