@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.15.9] — 2026-05-10
+
+Patch release: Sidebar Filters subview rows no longer advertise click.
+
+### Fixed
+
+- **Filters subview items lied about being interactive (BDM-46):**
+  the 5 Filters rows (Active Work, Waiting for Input, Reviewers, High
+  Cost, All Sessions) reused `.sidebar__nav-item`, which sets
+  `cursor: pointer` and a `:hover` color/background change. They have
+  no click handler — clicking did nothing. Introduced a
+  `.sidebar__filter-item` variant: same layout, `cursor: default`, no
+  hover state. Subview list now reads as informational status until
+  it's wired up to the session table's filter state. Discovered via
+  /loop iteration 11 functional probe.
+
 ## [1.15.8] — 2026-05-10
 
 Patch release: Sidebar nav uses native `<a href>` so it's

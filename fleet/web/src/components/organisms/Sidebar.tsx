@@ -63,14 +63,14 @@ export function Sidebar({ activeView = 'overview' }: SidebarProps) {
         </ul>
       </nav>
 
-      <div class="sidebar__section">
+      <div class="sidebar__section" aria-label="Filters (informational, not yet interactive)">
         <div class="sidebar__heading">Filters</div>
         <ul class="sidebar__nav">
           {SUBVIEWS.map((s) => (
-            <li key={s.id} class="sidebar__nav-item">
-              <span class="sidebar__nav-icon" style={{ opacity: 0.6 }}>·</span>
+            <li key={s.id} class="sidebar__filter-item">
+              <span class="sidebar__nav-icon" style={{ opacity: 0.6 }} aria-hidden="true">·</span>
               <span>{s.label}</span>
-              {s.tape ? <span class={`tape tape--${s.tape}`} style={{ marginLeft: 'auto' }}>•</span> : null}
+              {s.tape ? <span class={`tape tape--${s.tape}`} style={{ marginLeft: 'auto' }} aria-hidden="true">•</span> : null}
             </li>
           ))}
         </ul>

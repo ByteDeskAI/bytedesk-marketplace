@@ -28,7 +28,7 @@ import (
 // or server_dev.go (//go:build dev — reads from disk so hot-reload works).
 var distFS fs.FS
 
-const buildVersion = "v1.15.8-bdm45"
+const buildVersion = "v1.15.9-bdm46"
 
 var startTime = time.Now()
 
