@@ -444,12 +444,16 @@ function TailscaleSection({
       <Field label="Share / unshare">
         <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
           <Button
+            disabled={!info?.installed || busy}
+            title={!info?.installed ? 'Install tailscale CLI first' : undefined}
             onClick={async () => {
               try { const r = await tailscaleStart(settings.tailscale.funnel); setErr(r.error ?? null); refresh(); }
               catch (e) { setErr((e as Error).message); }
             }}
           >Start share</Button>
           <Button
+            disabled={!info?.installed || busy}
+            title={!info?.installed ? 'Install tailscale CLI first' : undefined}
             onClick={async () => {
               try { await tailscaleStop(); setErr(null); refresh(); }
               catch (e) { setErr((e as Error).message); }
@@ -475,10 +479,15 @@ function TailscaleSection({
             type="text"
             value={cli}
             onInput={(e) => setCli((e.currentTarget as HTMLInputElement).value)}
-            disabled={busy}
+            disabled={!info?.installed || busy}
+            title={!info?.installed ? 'Install tailscale CLI first' : undefined}
             placeholder="status / ip / netcheck / serve --bg / …"
           />
-          <Button onClick={runCli} disabled={busy}>{busy ? '…' : 'Run'}</Button>
+          <Button
+            onClick={runCli}
+            disabled={!info?.installed || busy}
+            title={!info?.installed ? 'Install tailscale CLI first' : undefined}
+          >{busy ? '…' : 'Run'}</Button>
         </form>
       </Field>
 

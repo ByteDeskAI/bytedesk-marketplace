@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.15.1] — 2026-05-10
+
+Patch release: disable Tailscale Settings controls when CLI is missing
+so users don't fire doomed `/api/tailscale/exec` calls and the warning
+tape and the controls stay in sync.
+
+### Fixed
+
+- **Tailscale Settings controls inconsistent with CLI-missing state
+  (BDM-38):** the page already showed a "CLI missing" tape badge from
+  `info?.installed === false`, but the Start share, Stop share, Run,
+  and CLI input controls remained interactive. Clicking any of them
+  fired an API call that returned HTTP 424 ("tailscale CLI not
+  installed"). Now all four controls disable when `info?.installed` is
+  not true, with a `title="Install tailscale CLI first"` tooltip
+  explaining why. Discovered via /loop iteration 3 playwright tour.
+
+### Build
+
+- **`Button` atom gains optional `title` prop:** lets callers add a
+  tooltip without dropping back to a raw `<button>` element. Used by
+  the disabled Tailscale controls above.
+
 ## [1.15.0] — 2026-05-10
 
 Minor release: tailscale automation, ntfy paid-tier support, storage
