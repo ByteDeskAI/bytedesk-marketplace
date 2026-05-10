@@ -59,13 +59,13 @@
   /* Typography */
   --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  --text-xs: 11px;
-  --text-sm: 12px;
-  --text-base: 13px;
-  --text-md: 14px;
-  --text-lg: 16px;
-  --text-xl: 18px;
-  --text-2xl: 22px;
+  --text-xs: 13px;
+  --text-sm: 14px;
+  --text-base: 15px;
+  --text-md: 16px;
+  --text-lg: 18px;
+  --text-xl: 21px;
+  --text-2xl: 26px;
   --text-3xl: 28px;
   --leading-tight: 1.2;
   --leading-base: 1.5;
@@ -301,7 +301,7 @@ code, pre, .mono {
 }
 
 .sidebar__brand-tag {
-  font-size: 10px;
+  font-size: 12px__;
   color: var(--color-text-tertiary);
   margin-left: auto;
   font-weight: 500;
@@ -315,7 +315,7 @@ code, pre, .mono {
 .sidebar__heading {
   padding: 0 var(--space-4) var(--space-1);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   font-weight: 600;
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
@@ -357,7 +357,7 @@ code, pre, .mono {
   width: 14px;
   text-align: center;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   color: var(--color-text-tertiary);
 }
 .sidebar__nav-item--active .sidebar__nav-icon { color: var(--color-accent); }
@@ -365,7 +365,7 @@ code, pre, .mono {
 .sidebar__nav-key {
   margin-left: auto;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   color: var(--color-text-tertiary);
 }
 
@@ -489,7 +489,7 @@ code, pre, .mono {
 
 .stat-card__label {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
   color: var(--color-text-tertiary);
@@ -603,7 +603,7 @@ code, pre, .mono {
   border-color: var(--color-border-strong);
 }
 
-.btn--sm { height: 22px; padding: 2px var(--space-2); font-size: 10px; }
+.btn--sm { height: 22px; padding: 2px var(--space-2); font-size: 12px__; }
 .btn--lg { height: 32px; padding: 6px var(--space-4); font-size: var(--text-sm); }
 
 /* ============================================================
@@ -617,7 +617,7 @@ code, pre, .mono {
   padding: 1px var(--space-2);
   border-radius: var(--radius-sm);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   font-weight: 600;
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
@@ -670,7 +670,7 @@ code, pre, .mono {
   background: var(--color-bg-app);
   border-bottom: 1px solid var(--color-border);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: var(--tracking-caps);
@@ -700,7 +700,7 @@ code, pre, .mono {
 .session-table--compact .session-table__header,
 .session-table--compact .session-table__row {
   padding: 3px var(--space-3);
-  font-size: 11px;
+  font-size: 13px__;
 }
 
 .session-table__progress {
@@ -869,7 +869,7 @@ code, pre, .mono {
   border-top: 1px solid var(--color-border);
   background: var(--color-bg-sidebar);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   color: var(--color-text-secondary);
 }
 .detail-panel__title {
@@ -885,7 +885,7 @@ code, pre, .mono {
 .detail-panel__chip {
   display: inline-block;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   padding: 1px 5px;
   border-radius: var(--radius-sm);
   background: var(--color-bg-app);
@@ -902,7 +902,7 @@ code, pre, .mono {
 .detail-panel__tool {
   display: inline-block;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   padding: 1px 5px;
   border-radius: var(--radius-sm);
   background: var(--color-accent-soft);
@@ -955,7 +955,7 @@ code, pre, .mono {
   color: var(--color-text-tertiary);
   text-transform: uppercase;
   letter-spacing: var(--tracking-caps);
-  font-size: 10px;
+  font-size: 12px__;
 }
 .detail-panel__meta dd {
   margin: 0;
@@ -1106,7 +1106,7 @@ code, pre, .mono {
 .spawn-form__label {
   display: block;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
   color: var(--color-text-tertiary);
@@ -1188,7 +1188,7 @@ code, pre, .mono {
   border-bottom-width: 2px;
   border-radius: var(--radius-sm);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   color: var(--color-text-secondary);
   letter-spacing: var(--tracking-mono);
 }
@@ -1251,7 +1251,7 @@ code, pre, .mono {
 .audit-list__detail { color: var(--color-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .audit-list__hash {
   color: var(--color-text-tertiary);
-  font-size: 10px;
+  font-size: 12px__;
   letter-spacing: 0;
 }
 .audit-list__hash--ok { color: var(--color-state-done); }
@@ -1272,7 +1272,7 @@ code, pre, .mono {
 }
 .audit-summary__item:last-child { border-right: 0; }
 .audit-summary__label {
-  font-size: 10px;
+  font-size: 12px__;
   text-transform: uppercase;
   letter-spacing: var(--tracking-caps);
   color: var(--color-text-tertiary);
@@ -1461,7 +1461,7 @@ code, pre, .mono {
   padding: 3px var(--space-2);
   background: var(--color-bg-app);
   color: var(--color-text-tertiary);
-  font-size: 10px;
+  font-size: 12px__;
   font-family: var(--font-mono);
   border-bottom: 1px solid var(--color-border);
   letter-spacing: var(--tracking-mono);
@@ -1528,7 +1528,7 @@ code, pre, .mono {
   padding: 2px var(--space-2);
   background: var(--color-bg-app);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   letter-spacing: var(--tracking-mono);
   border-bottom: 1px solid var(--color-border);
   height: 22px;
@@ -1550,7 +1550,7 @@ code, pre, .mono {
 }
 .pty-tile__tool {
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 11px__;
   padding: 0 4px;
   background: var(--color-accent-soft);
   border: 1px solid var(--color-accent);
@@ -1563,13 +1563,13 @@ code, pre, .mono {
 .pty-tile__spacer { flex: 1; }
 .pty-tile__cost {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   color: var(--color-text-secondary);
   font-variant-numeric: tabular-nums;
 }
 .pty-tile__ticket {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   color: var(--color-text-primary);
   background: var(--color-bg-muted);
   padding: 0 4px;
@@ -1578,7 +1578,7 @@ code, pre, .mono {
 }
 .pty-tile__subhead {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   color: var(--color-text-secondary);
   background: var(--color-bg-app);
   padding: 1px var(--space-2);
@@ -1603,7 +1603,7 @@ code, pre, .mono {
   display: inline-block;
   padding: 0 5px;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
   background: var(--color-bg-muted);
@@ -1636,14 +1636,14 @@ code, pre, .mono {
   border-bottom: 1px solid var(--color-border-grid);
 }
 .git-files li:last-child, .git-log li:last-child, .pr-checks li:last-child, .pr-files li:last-child { border-bottom: 0; }
-.git-files__status { font-family: var(--font-mono); font-size: 10px; color: var(--color-text-tertiary); width: 24px; font-weight: 700; }
+.git-files__status { font-family: var(--font-mono); font-size: 12px__; color: var(--color-text-tertiary); width: 24px; font-weight: 700; }
 .git-files__status--M, .git-files__status--A { color: var(--color-state-working); }
 .git-files__status--D { color: var(--color-state-error); }
 .git-files__status--untracked { color: var(--color-text-tertiary); }
-.git-log__hash { font-family: var(--font-mono); font-size: 10px; color: var(--color-accent); width: 60px; font-weight: 600; }
+.git-log__hash { font-family: var(--font-mono); font-size: 12px__; color: var(--color-accent); width: 60px; font-weight: 600; }
 .git-log__subject { flex: 1; color: var(--color-text-primary); }
-.git-log__when { color: var(--color-text-tertiary); font-size: 10px; }
-.pr-checks__workflow { color: var(--color-text-tertiary); font-size: 10px; margin-left: auto; }
+.git-log__when { color: var(--color-text-tertiary); font-size: 12px__; }
+.pr-checks__workflow { color: var(--color-text-tertiary); font-size: 12px__; margin-left: auto; }
 
 /* ============================================================
  * Tree view
@@ -1664,7 +1664,7 @@ code, pre, .mono {
   appearance: none; border: 0; background: transparent;
   width: 14px;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   color: var(--color-accent);
   cursor: pointer;
 }
@@ -1724,7 +1724,7 @@ code, pre, .mono {
 }
 .chain-list__table th {
   background: var(--color-bg-app);
-  font-size: 10px;
+  font-size: 12px__;
   text-transform: uppercase;
   letter-spacing: var(--tracking-caps);
   color: var(--color-text-tertiary);
@@ -1780,7 +1780,7 @@ code, pre, .mono {
 .chain-builder__id {
   color: var(--color-text-tertiary);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
 }
 .chain-builder__grid {
   display: grid;
@@ -1810,7 +1810,7 @@ code, pre, .mono {
 .chain-palette__heading {
   padding: var(--space-2) var(--space-3);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   text-transform: uppercase;
   letter-spacing: var(--tracking-caps);
   color: var(--color-text-tertiary);
@@ -1853,12 +1853,12 @@ code, pre, .mono {
   border: 1px solid var(--color-accent);
   font-family: var(--font-mono);
   font-weight: 700;
-  font-size: 10px;
+  font-size: 12px__;
   flex-shrink: 0;
 }
 .chain-palette__label-wrap { display: flex; flex-direction: column; min-width: 0; }
 .chain-palette__label { font-family: var(--font-mono); font-size: var(--text-xs); font-weight: 600; color: var(--color-text-primary); letter-spacing: var(--tracking-caps); text-transform: uppercase; }
-.chain-palette__hint { font-family: var(--font-mono); font-size: 10px; color: var(--color-text-tertiary); }
+.chain-palette__hint { font-family: var(--font-mono); font-size: 12px__; color: var(--color-text-tertiary); }
 
 /* ChainCanvas */
 .chain-canvas {
@@ -1937,13 +1937,13 @@ code, pre, .mono {
   border: 1px solid var(--color-accent);
   font-family: var(--font-mono);
   font-weight: 700;
-  font-size: 10px;
+  font-size: 12px__;
   flex-shrink: 0;
 }
 .chain-node__body { display: flex; flex-direction: column; min-width: 0; flex: 1; }
-.chain-node__type { font-weight: 600; color: var(--color-text-primary); text-transform: uppercase; letter-spacing: var(--tracking-caps); font-size: 10px; }
+.chain-node__type { font-weight: 600; color: var(--color-text-primary); text-transform: uppercase; letter-spacing: var(--tracking-caps); font-size: 12px__; }
 .chain-node__id {
-  font-size: 10px;
+  font-size: 12px__;
   color: var(--color-text-tertiary);
   font-family: var(--font-mono);
   overflow: hidden;
@@ -2005,7 +2005,7 @@ code, pre, .mono {
 }
 .chain-inspector__id {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   color: var(--color-text-tertiary);
   margin-left: auto;
 }
@@ -2024,7 +2024,7 @@ code, pre, .mono {
 }
 .chain-inspector__label {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   font-weight: 600;
   color: var(--color-text-tertiary);
   text-transform: uppercase;
@@ -2032,7 +2032,7 @@ code, pre, .mono {
 }
 .chain-inspector__hint {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   color: var(--color-text-tertiary);
 }
 .chain-inspector__input,
@@ -2060,7 +2060,7 @@ code, pre, .mono {
 .chain-inspector__note {
   margin: 0;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   color: var(--color-text-secondary);
   line-height: var(--leading-base);
   padding: var(--space-2);
@@ -2104,7 +2104,7 @@ code, pre, .mono {
   margin-bottom: 4px;
   font-size: var(--text-xs);
 }
-.search-hit__line { color: var(--color-text-tertiary); font-size: 10px; }
+.search-hit__line { color: var(--color-text-tertiary); font-size: 12px__; }
 .search-hit__body { font-family: var(--font-mono); font-size: var(--text-xs); margin: 0; white-space: pre-wrap; color: var(--color-text-secondary); }
 .search-hit__match { background: var(--color-accent-soft); color: var(--color-accent); border-bottom: 1px solid var(--color-accent); }
 .search-hit__ctx { color: var(--color-text-tertiary); }
@@ -2128,7 +2128,7 @@ code, pre, .mono {
   border-bottom: 1px solid var(--color-border-grid);
   text-align: left;
 }
-.tournament-table th { color: var(--color-text-tertiary); font-weight: 600; font-size: 10px; text-transform: uppercase; letter-spacing: var(--tracking-caps); background: var(--color-bg-app); }
+.tournament-table th { color: var(--color-text-tertiary); font-weight: 600; font-size: 12px__; text-transform: uppercase; letter-spacing: var(--tracking-caps); background: var(--color-bg-app); }
 .tournament-table tbody tr:hover { background: var(--color-bg-muted); }
 
 /* ============================================================
@@ -2189,7 +2189,7 @@ code, pre, .mono {
   align-items: baseline;
   gap: var(--space-2);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   color: var(--color-text-tertiary);
 }
 .thinking-pane__time { font-variant-numeric: tabular-nums; }
@@ -2243,7 +2243,7 @@ code, pre, .mono {
   display: inline-block;
   padding: 0 5px;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   font-weight: 600;
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
@@ -2289,7 +2289,7 @@ code, pre, .mono {
 }
 .session-stats__token-label {
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 11px__;
   text-transform: uppercase;
   letter-spacing: var(--tracking-caps);
   color: var(--color-text-tertiary);
@@ -2305,7 +2305,7 @@ code, pre, .mono {
 .session-stats__section-title {
   margin: 0 0 var(--space-1);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   text-transform: uppercase;
   letter-spacing: var(--tracking-caps);
   color: var(--color-text-tertiary);
@@ -2358,7 +2358,7 @@ code, pre, .mono {
 .session-stats__tool-count {
   text-align: right;
   font-variant-numeric: tabular-nums;
-  font-size: 10px;
+  font-size: 12px__;
   color: var(--color-text-secondary);
 }
 .session-stats__meta {
@@ -2371,7 +2371,7 @@ code, pre, .mono {
 }
 .session-stats__meta dt {
   color: var(--color-text-tertiary);
-  font-size: 10px;
+  font-size: 12px__;
   text-transform: uppercase;
   letter-spacing: var(--tracking-caps);
 }
@@ -2389,7 +2389,7 @@ code, pre, .mono {
 .tool-latency__title {
   margin: 0;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   text-transform: uppercase;
   letter-spacing: var(--tracking-caps);
   color: var(--color-text-tertiary);
@@ -2435,7 +2435,7 @@ code, pre, .mono {
 .tool-latency__ms {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: 10px;
+  font-size: 12px__;
   color: var(--color-text-secondary);
   text-align: right;
 }
@@ -2452,7 +2452,7 @@ code, pre, .mono {
 .sub-agent-tree__title {
   margin: 0;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   text-transform: uppercase;
   letter-spacing: var(--tracking-caps);
   color: var(--color-text-tertiary);
@@ -2489,7 +2489,7 @@ code, pre, .mono {
 }
 .sub-agent-tree__status {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   text-transform: uppercase;
   letter-spacing: var(--tracking-caps);
   padding: 0 var(--space-1);
@@ -2501,13 +2501,13 @@ code, pre, .mono {
 .sub-agent-tree__tokens,
 .sub-agent-tree__tool {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   color: var(--color-text-secondary);
   background: var(--color-bg-muted);
   padding: 0 var(--space-1);
   border-radius: var(--radius-sm);
 }
-.sub-agent-tree__err { color: var(--color-state-error); font-family: var(--font-mono); font-size: 10px; }
+.sub-agent-tree__err { color: var(--color-state-error); font-family: var(--font-mono); font-size: 12px__; }
 
 /* ============================================================
  * ChatTile + MessageBubble + SubAgentThread (BDM-32)
@@ -2633,7 +2633,7 @@ code, pre, .mono {
 }
 .tool-group__role {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   text-transform: uppercase;
   letter-spacing: var(--tracking-caps);
   color: var(--color-text-tertiary);
@@ -2695,7 +2695,7 @@ code, pre, .mono {
 }
 .auq-card__head {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   text-transform: uppercase;
   letter-spacing: var(--tracking-caps);
   color: var(--color-accent);
@@ -2728,7 +2728,7 @@ code, pre, .mono {
 }
 .auq-card__chip {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   text-transform: uppercase;
   letter-spacing: var(--tracking-caps);
   padding: 1px var(--space-1);
@@ -2902,7 +2902,7 @@ code, pre, .mono {
 }
 .message-bubble__role {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   text-transform: uppercase;
   letter-spacing: var(--tracking-caps);
   color: var(--color-accent);
@@ -3052,7 +3052,7 @@ code, pre, .mono {
 .message-bubble__tool-state {
   text-transform: uppercase;
   letter-spacing: var(--tracking-caps);
-  font-size: 10px;
+  font-size: 12px__;
   color: var(--color-text-tertiary);
 }
 .message-bubble__tool-chev {
@@ -3094,7 +3094,7 @@ code, pre, .mono {
   gap: var(--space-2);
   padding: var(--space-1) var(--space-2);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   text-transform: uppercase;
   letter-spacing: var(--tracking-caps);
   color: var(--color-accent);
@@ -3138,7 +3138,7 @@ code, pre, .mono {
   gap: var(--space-3);
   align-items: center;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   color: var(--color-text-tertiary);
   text-transform: uppercase;
   letter-spacing: var(--tracking-caps);
@@ -3174,7 +3174,7 @@ code, pre, .mono {
 }
 .tool-timeline__slug {
   color: var(--color-text-tertiary);
-  font-size: 10px;
+  font-size: 12px__;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3233,7 +3233,7 @@ code, pre, .mono {
 .tape {
   display: inline-block;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
   padding: 0 5px;
@@ -3254,7 +3254,7 @@ code, pre, .mono {
 }
 .field__label {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
   color: var(--color-text-tertiary);
@@ -3262,7 +3262,7 @@ code, pre, .mono {
 }
 .field__hint {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   color: var(--color-text-tertiary);
 }
 
@@ -3320,7 +3320,7 @@ code, pre, .mono {
 }
 .empty-state__icon {
   display: block;
-  font-size: 24px;
+  font-size: 28px__;
   color: var(--color-accent);
   margin-bottom: var(--space-2);
 }
@@ -3331,7 +3331,7 @@ code, pre, .mono {
   align-items: center;
   gap: var(--space-1);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
   padding: 1px var(--space-2);
@@ -3624,7 +3624,7 @@ code, pre, .mono {
 .viz-shell__pre--error { color: #fca5a5; }
 .viz-shell__meta {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   color: var(--color-text-tertiary);
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
@@ -3635,7 +3635,7 @@ code, pre, .mono {
   gap: var(--space-1);
   padding: 1px var(--space-2);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px__;
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
   border: 1px solid var(--color-border);
@@ -3941,7 +3941,7 @@ code, pre, .mono {
 .viz__state {
   text-transform: uppercase;
   letter-spacing: var(--tracking-caps);
-  font-size: 10px;
+  font-size: 12px__;
   color: var(--color-text-tertiary);
 }
 .viz--error .viz__state { color: var(--color-state-error); }
