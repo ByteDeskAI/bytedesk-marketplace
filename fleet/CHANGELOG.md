@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.15.7] — 2026-05-10
+
+Patch release: per-route browser-tab title.
+
+### Fixed
+
+- **`document.title` not updated per route (BDM-44):** every route
+  shared the static title from `index.html`. Multi-tab operators
+  couldn't tell pages apart, and screen readers read the same name
+  on every navigation (WCAG 2.4.2). App-level `useEffect` now sets
+  `document.title` to `"<Page name> · Fleet"` keyed on `route.name`
+  via a small `ROUTE_TITLES` map.
+
 ## [1.15.6] — 2026-05-10
 
 Patch release: skip-to-content link for keyboard users.

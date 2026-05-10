@@ -35,15 +35,19 @@ export function OverviewPage() {
     fetchVersion().then(setVersion);
   }, []);
 
-  // Live tab title (B2): "Fleet · 8/12 · 2 ⚠ — <project>"
+  // Live tab title (B2 + BDM-44): "Overview · 8/12 · 2 ⚠ · Fleet — <project>"
+  // Leads with the page name so multi-tab operators can tell pages
+  // apart (BDM-44 / WCAG 2.4.2). The live session counts stay so a
+  // glance at the tab tells you what needs attention.
   useEffect(() => {
     const rows = sessions.data ?? [];
     const active = rows.filter((r) => ['starting', 'working', 'reviewing'].includes(r.state)).length;
     const needs = rows.filter((r) => ['needs-input', 'blocked', 'error'].includes(r.state)).length;
     const proj = version?.project ?? '';
-    const parts = [`Fleet`];
+    const parts = ['Overview'];
     if (rows.length > 0) parts.push(`${active}/${rows.length}`);
     if (needs > 0) parts.push(`${needs} ⚠`);
+    parts.push('Fleet');
     document.title = parts.join(' · ') + (proj ? ` — ${proj}` : '');
   }, [sessions.data, version?.project]);
 
