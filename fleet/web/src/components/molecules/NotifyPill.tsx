@@ -1,6 +1,6 @@
 // NotifyPill — Phase 12.3 (BDM-28, A12). Polls /api/notify-state and
-// renders a tiny status pill: green (alive), amber (standby), grey (no
-// daemon).
+// renders a small status pill in the sidebar footer. Visual treatment is
+// the .notify-pill class in styles.css.
 
 import { useEffect, useState } from 'preact/hooks';
 import { fetchNotifyState, type NotifyState } from '../../api';
@@ -16,23 +16,18 @@ export function NotifyPill() {
   }, []);
 
   if (!state) return null;
-  const tone =
-    state.alive ? 'var(--color-state-done)' :
-    state.holder_pid > 0 ? 'var(--color-state-needs-input)' :
-    'var(--color-text-tertiary)';
+  const variant = state.alive ? 'active' : '';
   const label =
-    state.alive ? 'notify · live' :
-    state.holder_pid > 0 ? 'notify · stale lock' :
-    'notify · off';
+    state.alive ? 'notify' :
+    state.holder_pid > 0 ? 'stale' :
+    'off';
   return (
     <span
+      class={`notify-pill${variant ? ` notify-pill--${variant}` : ''}`}
       title={`Holder PID: ${state.holder_pid || '—'} · alive: ${state.alive} · ${state.notify_dir}`}
-      style={{
-        display: 'inline-flex', alignItems: 'center', gap: 4,
-        fontSize: 'var(--text-xs)', color: tone,
-      }}
     >
-      ● {label}
+      <span class="notify-pill__dot" />
+      {label}
     </span>
   );
 }

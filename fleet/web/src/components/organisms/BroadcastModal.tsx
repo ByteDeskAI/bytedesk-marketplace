@@ -19,14 +19,29 @@ export function BroadcastModal({ onClose }: BroadcastModalProps) {
   return (
     <div class="modal-backdrop" onClick={onClose}>
       <div class="modal modal--lg" onClick={(e) => e.stopPropagation()}>
-        <header class="modal__header">Broadcast input to all running sessions</header>
+        <header class="modal__header">
+          <span>BROADCAST INPUT</span>
+          <span style={{ marginLeft: 'auto' }}>
+            <span class="tape tape--warn">FAN-OUT · ALL ACTIVE</span>
+          </span>
+        </header>
         <div class="modal__body">
           {results == null ? (
             <>
-              <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>
-                The same message will be delivered to every session in <code>working</code>,
-                {' '}<code>needs-input</code>, <code>reviewing</code>, or <code>starting</code>.
-              </p>
+              <div style={{
+                fontFamily: 'var(--font-mono)',
+                fontSize: 'var(--text-xs)',
+                color: 'var(--color-text-secondary)',
+                padding: 'var(--space-2)',
+                background: 'var(--color-bg-app)',
+                borderLeft: '3px solid var(--color-accent)',
+              }}>
+                Targets:{' '}
+                <span class="tape">working</span>{' '}
+                <span class="tape">needs-input</span>{' '}
+                <span class="tape">reviewing</span>{' '}
+                <span class="tape">starting</span>
+              </div>
               <textarea
                 class="modal__textarea"
                 rows={6}
@@ -35,7 +50,15 @@ export function BroadcastModal({ onClose }: BroadcastModalProps) {
                 onInput={(e) => setMsg((e.currentTarget as HTMLTextAreaElement).value)}
                 autoFocus
               />
-              {err ? <div style={{ color: 'var(--color-state-error)', fontSize: 'var(--text-xs)' }}>{err}</div> : null}
+              {err ? (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 'var(--space-2)',
+                  fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)',
+                }}>
+                  <span class="tape tape--err">ERROR</span>
+                  <span style={{ color: 'var(--color-state-error)' }}>{err}</span>
+                </div>
+              ) : null}
               <div class="modal__actions">
                 <Button onClick={onClose}>Cancel</Button>
                 <Button
@@ -72,20 +95,53 @@ function BroadcastResults({ result, onClose }: { result: BroadcastResult; onClos
   const fail = result.results.length - ok;
   return (
     <>
-      <div style={{ fontSize: 'var(--text-sm)' }}>
-        Delivered to <strong>{ok}</strong> session{ok === 1 ? '' : 's'}{fail > 0 ? `, ${fail} failed` : ''}.
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 'var(--space-2)',
+        fontFamily: 'var(--font-mono)',
+        fontSize: 'var(--text-xs)',
+        letterSpacing: 'var(--tracking-caps)',
+        textTransform: 'uppercase',
+      }}>
+        <span class="tape tape--ok">OK · {ok}</span>
+        {fail > 0 ? <span class="tape tape--err">FAIL · {fail}</span> : null}
+        <span style={{ color: 'var(--color-text-tertiary)' }}>
+          / {result.results.length} sessions
+        </span>
       </div>
-      <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 4, maxHeight: 240, overflow: 'auto' }}>
+      <ul style={{
+        listStyle: 'none', padding: 0, margin: 0,
+        display: 'grid', gap: 0, maxHeight: 240, overflow: 'auto',
+        border: '1px solid var(--color-border)',
+        background: 'var(--color-bg-surface)',
+      }}>
         {result.results.map((r) => (
           <li
             key={r.ticket}
             style={{
-              fontSize: 'var(--text-xs)',
+              display: 'grid',
+              gridTemplateColumns: '60px 110px 1fr',
+              gap: 'var(--space-3)',
+              padding: '4px var(--space-3)',
+              borderBottom: '1px solid var(--color-border-grid)',
               fontFamily: 'var(--font-mono)',
-              color: r.ok ? 'var(--color-state-done)' : 'var(--color-state-error)',
+              fontSize: 'var(--text-xs)',
+              color: 'var(--color-text-secondary)',
             }}
           >
-            {r.ok ? '✓' : '✗'} {r.ticket}{r.error ? ` — ${r.error}` : ''}
+            <span style={{
+              fontWeight: 700,
+              color: r.ok ? 'var(--color-state-done)' : 'var(--color-state-error)',
+              textTransform: 'uppercase',
+              letterSpacing: 'var(--tracking-caps)',
+            }}>
+              {r.ok ? 'OK' : 'FAIL'}
+            </span>
+            <code style={{ color: 'var(--color-text-primary)', fontWeight: 600 }}>{r.ticket}</code>
+            <span style={{ color: r.ok ? 'var(--color-text-tertiary)' : 'var(--color-state-error)' }}>
+              {r.error ?? (r.ok ? 'delivered' : '—')}
+            </span>
           </li>
         ))}
       </ul>

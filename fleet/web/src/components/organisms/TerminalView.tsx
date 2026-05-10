@@ -61,7 +61,12 @@ export function TerminalView({ ticket, height = 360 }: TerminalViewProps) {
 
   return (
     <div class="terminal-view">
-      {error ? <div class="terminal-view__notice">{error}</div> : null}
+      {error ? (
+        <div class="terminal-view__notice">
+          <span class="tape tape--warn" style={{ marginRight: 'var(--space-2)' }}>RECONNECTING</span>
+          {error}
+        </div>
+      ) : null}
       <pre ref={ref} class="terminal-view__pre" style={{ height: typeof height === 'number' ? `${height}px` : height }}>
         {lines || '(waiting for output…)'}
       </pre>

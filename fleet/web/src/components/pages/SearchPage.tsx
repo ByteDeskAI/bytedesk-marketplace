@@ -41,50 +41,80 @@ export function SearchPage() {
     return () => { cancel = true; window.clearTimeout(id); };
   }, [q]);
 
+  const status = hits ? `${hits.length} hits` : busy ? 'searching…' : '';
+
   return (
     <AppShell activeView="search" topBarTitle="Search">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-        <h2 style={{ margin: 0, fontSize: 'var(--text-lg)', fontWeight: 600 }}>Full-text log search</h2>
-        <span style={{ flex: 1 }} />
-        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>
-          {hits ? `${hits.length} hits` : busy ? 'searching…' : ''}
+      <header class="page-header">
+        <h2 class="page-header__title">grep</h2>
+        <span class="page-header__sub">full-text · case-insensitive · max 200</span>
+        <span class={`tape ${busy ? 'tape--warn' : (hits && hits.length > 0 ? 'tape--ok' : '')}`}>
+          {busy ? 'SCAN' : (hits == null ? 'IDLE' : hits.length === 0 ? 'EMPTY' : 'HITS')}
         </span>
+        <span class="page-header__sub">{status}</span>
+        <span class="page-header__spacer" />
         <div style={{ width: 320 }}>
           <SearchField placeholder="Match across every session log…" initial={q} onChange={setQ} />
         </div>
-      </div>
+      </header>
 
-      {err ? <div style={{ color: 'var(--color-state-error)' }}>{err}</div> : null}
+      <pre class="code-block" aria-label="grep command preview">
+        {`grep -irn ${q.trim() ? JSON.stringify(q.trim()) : '<pattern>'} ~/.claude-sessions/*/log`}
+      </pre>
+
+      {err ? (
+        <div class="empty-state" style={{ color: 'var(--color-state-error)', marginTop: 'var(--space-3)' }}>
+          <span class="empty-state__icon" aria-hidden>!</span>
+          {err}
+        </div>
+      ) : null}
 
       {!q.trim() ? (
-        <div style={{ color: 'var(--color-text-tertiary)' }}>
-          Type a substring. Search walks every <code>sessions/*/log</code> file in this project.
-          Case-insensitive. Up to 200 hits.
+        <div class="empty-state" style={{ marginTop: 'var(--space-3)' }}>
+          <span class="empty-state__icon" aria-hidden>/</span>
+          Type a substring to grep every <code>sessions/*/log</code> file in this project.
         </div>
       ) : hits == null ? null : hits.length === 0 ? (
-        <div style={{ color: 'var(--color-text-tertiary)' }}>No matches.</div>
+        <div class="empty-state" style={{ marginTop: 'var(--space-3)' }}>
+          <span class="empty-state__icon" aria-hidden>∅</span>
+          No matches.
+        </div>
       ) : (
-        <ul class="search-hits">
-          {hits.map((h, i) => (
-            <li key={i} class="search-hit">
-              <header class="search-hit__header">
-                <strong>{h.ticket}</strong>
-                <span class="search-hit__line">line {h.line_no}</span>
-                <button
-                  type="button"
-                  class="link-button"
-                  onClick={() => { window.location.hash = `/sessions/${encodeURIComponent(h.ticket)}/replay`; }}
-                >open replay</button>
-              </header>
-              <pre class="search-hit__body">
-                {h.before ? <span class="search-hit__ctx">{h.before}{'\n'}</span> : null}
-                <span class="search-hit__match">{h.line}</span>
-                {h.after ? <span class="search-hit__ctx">{'\n'}{h.after}</span> : null}
-              </pre>
-            </li>
-          ))}
-        </ul>
+        <>
+          <h3 class="section-heading" style={{ marginTop: 'var(--space-3)' }}>
+            Matches
+            <span class="section-heading__divider" />
+            <span class="section-heading__count">{hits.length}</span>
+          </h3>
+          <ul class="search-hits">
+            {hits.map((h, i) => (
+              <li key={i} class="search-hit">
+                <header class="search-hit__header">
+                  <span style={{ color: 'var(--color-accent)' }}>&gt;</span>
+                  <strong>{h.ticket}</strong>
+                  <span class="search-hit__line">L{h.line_no}</span>
+                  <span class="page-header__spacer" />
+                  <button
+                    type="button"
+                    class="link-button"
+                    onClick={() => { window.location.hash = `/sessions/${encodeURIComponent(h.ticket)}/replay`; }}
+                  >open replay →</button>
+                </header>
+                <pre class="search-hit__body">
+                  {h.before ? <span class="search-hit__ctx">{`${pad(h.line_no - 1)}  ${h.before}\n`}</span> : null}
+                  <span class="search-hit__ctx">{pad(h.line_no) + '  '}</span>
+                  <span class="search-hit__match">{h.line}</span>
+                  {h.after ? <span class="search-hit__ctx">{`\n${pad(h.line_no + 1)}  ${h.after}`}</span> : null}
+                </pre>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
     </AppShell>
   );
+}
+
+function pad(n: number): string {
+  return String(n).padStart(5, ' ');
 }

@@ -38,10 +38,9 @@ export function SessionTable({ rows, loading, density = 'comfortable', onRowClic
 
   return (
     <div>
-      <header style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
-        <h2 style={{ margin: 0, fontSize: 'var(--text-lg)', fontWeight: 600, letterSpacing: '-0.01em' }}>
-          Session Table
-        </h2>
+      <header class="page-header" style={{ marginBottom: 'var(--space-3)' }}>
+        <h2 class="page-header__title">&gt; SESSIONS</h2>
+        <span class="page-header__sub">{filtered.length} / {rows.length} rows</span>
         <div class="filter-chips" role="group" aria-label="State filter">
           {STATE_FILTERS.map((f) => (
             <button
@@ -55,10 +54,7 @@ export function SessionTable({ rows, loading, density = 'comfortable', onRowClic
             </button>
           ))}
         </div>
-        <span style={{ flex: 1 }} />
-        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>
-          {filtered.length} / {rows.length}
-        </span>
+        <span class="page-header__spacer" />
         <div style={{ width: 240 }}>
           <SearchField placeholder="Filter ticket, slug, branch…" onChange={setQuery} />
         </div>
@@ -81,14 +77,14 @@ export function SessionTable({ rows, loading, density = 'comfortable', onRowClic
         </div>
 
         {loading && rows.length === 0 ? (
-          <EmptyRow>Loading sessions…</EmptyRow>
+          <EmptyRow icon="◌">Loading sessions…</EmptyRow>
         ) : filtered.length === 0 && rows.length > 0 ? (
-          <EmptyRow>No sessions match the current filter.</EmptyRow>
+          <EmptyRow icon="∅">No sessions match the current filter.</EmptyRow>
         ) : rows.length === 0 ? (
-          <EmptyRow>
+          <EmptyRow icon="▸">
             No sessions yet. Spawn one with{' '}
-            <code>spawn-claude-feature &lt;TICKET&gt; &lt;slug&gt; --prompt-file &lt;path&gt; --full-auto</code>{' '}
-            or <code>/fleet:spawn &lt;TICKET&gt;</code> from a Claude Code session.
+            <code class="pty-tile__ticket">spawn-claude-feature &lt;TICKET&gt; &lt;slug&gt; --prompt-file &lt;path&gt; --full-auto</code>{' '}
+            or <code class="pty-tile__ticket">/fleet:spawn &lt;TICKET&gt;</code> from a Claude Code session.
           </EmptyRow>
         ) : (
           filtered.map((r) => (
@@ -98,28 +94,29 @@ export function SessionTable({ rows, loading, density = 'comfortable', onRowClic
               role="row"
               onClick={() => onRowClick?.(r)}
             >
-              <div role="cell" style={{ fontWeight: 600 }}>{r.ticket}</div>
+              <div role="cell" class="session-table__ticket">{r.ticket}</div>
               <div role="cell" style={{ color: 'var(--color-text-secondary)' }}>{r.slug || '—'}</div>
               <div role="cell">
                 <Badge state={r.state} />
                 {r.drift != null && r.drift > 0.6 ? (
                   <span
                     title={`Drift score ${Math.round(r.drift * 100)}% — agent may be stuck`}
-                    style={{ marginLeft: 6, color: 'var(--color-state-needs-input)', fontSize: 'var(--text-xs)' }}
+                    class="tape tape--warn"
+                    style={{ marginLeft: 'var(--space-1)' }}
                   >
-                    ⚠
+                    DRIFT
                   </span>
                 ) : null}
               </div>
-              <div role="cell" style={{ color: 'var(--color-text-secondary)' }}>
+              <div role="cell" class="session-table__id" style={{ color: r.parent ? 'var(--color-text-secondary)' : 'var(--color-text-tertiary)' }}>
                 {r.parent || '—'}
               </div>
-              <div role="cell" style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>
+              <div role="cell" class="session-table__hash">
                 {r.branch || '—'}
               </div>
-              <div role="cell">{r.activity}</div>
-              <div role="cell">{r.cost}</div>
-              <div role="cell">{r.runtime}</div>
+              <div role="cell" style={{ color: 'var(--color-text-secondary)' }}>{r.activity}</div>
+              <div role="cell" style={{ fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', color: 'var(--color-text-primary)' }}>{r.cost}</div>
+              <div role="cell" style={{ fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', color: 'var(--color-text-secondary)' }}>{r.runtime}</div>
               <div role="cell">
                 <div class="session-table__progress" aria-label={`${Math.round(r.progress * 100)}% complete`}>
                   <div
@@ -136,17 +133,10 @@ export function SessionTable({ rows, loading, density = 'comfortable', onRowClic
   );
 }
 
-function EmptyRow({ children }: { children: preact.ComponentChildren }) {
+function EmptyRow({ children, icon = '∅' }: { children: preact.ComponentChildren; icon?: string }) {
   return (
-    <div
-      role="row"
-      style={{
-        padding: '32px 16px',
-        textAlign: 'center',
-        color: 'var(--color-text-secondary)',
-        fontSize: 'var(--text-sm)',
-      }}
-    >
+    <div role="row" class="empty-state" style={{ border: 0 }}>
+      <span class="empty-state__icon">{icon}</span>
       {children}
     </div>
   );

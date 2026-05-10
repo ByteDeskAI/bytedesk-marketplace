@@ -75,22 +75,28 @@ export function OverviewPage() {
           {stats.data ? (
             <StatRibbon stats={stats.data} />
           ) : stats.loading ? (
-            <div style={{ marginBottom: 24, color: 'var(--color-text-tertiary)' }}>Loading stats…</div>
+            <div class="empty-state" style={{ marginBottom: 'var(--space-4)', padding: 'var(--space-3)' }}>
+              <span class="empty-state__icon">▸</span>
+              Loading stats…
+            </div>
           ) : null}
 
           {sessions.error ? (
-            <div style={{ marginBottom: 16, color: 'var(--color-state-error)' }}>
-              Couldn't load sessions: {sessions.error.message}
+            <div class="empty-state" style={{ marginBottom: 'var(--space-3)', padding: 'var(--space-3)', color: 'var(--color-state-error)', borderColor: 'var(--color-state-error)' }}>
+              <span class="tape tape--err">ERR</span>{' '}
+              Couldn't load sessions: <code style={{ fontFamily: 'var(--font-mono)' }}>{sessions.error.message}</code>
             </div>
           ) : null}
 
           {showTree && sessions.data && sessions.data.length > 0 ? (
-            <div style={{ marginBottom: 16 }}>
-              <h3 style={{ fontSize: 'var(--text-sm)', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-text-tertiary)', marginBottom: 8 }}>
-                Parent → child tree
+            <section style={{ marginBottom: 'var(--space-4)' }}>
+              <h3 class="section-heading">
+                &gt; Parent → child tree
+                <span class="section-heading__count">{sessions.data.length}</span>
+                <span class="section-heading__divider" />
               </h3>
               <TreeView rows={sessions.data} onRowClick={(r) => setSelected(r.ticket)} />
-            </div>
+            </section>
           ) : null}
 
           <SessionTable
@@ -102,15 +108,28 @@ export function OverviewPage() {
 
           <footer
             style={{
-              marginTop: 32,
+              marginTop: 'var(--space-8)',
+              paddingTop: 'var(--space-3)',
+              borderTop: '1px solid var(--color-border)',
               display: 'flex',
               alignItems: 'center',
-              gap: 16,
+              gap: 'var(--space-3)',
+              flexWrap: 'wrap',
               color: 'var(--color-text-tertiary)',
+              fontFamily: 'var(--font-mono)',
               fontSize: 'var(--text-xs)',
+              letterSpacing: 'var(--tracking-mono)',
             }}
           >
-            {version ? <span>fleet-web {version.build} · project {version.project}</span> : null}
+            {version ? (
+              <span>
+                <span class="tape">FLEET-WEB</span>{' '}
+                <code>{version.build}</code>
+                <span style={{ margin: '0 var(--space-2)', color: 'var(--color-border-strong)' }}>·</span>
+                <span class="tape">PROJECT</span>{' '}
+                <code>{version.project}</code>
+              </span>
+            ) : null}
             <span style={{ flex: 1 }} />
             <button
               type="button"
@@ -191,19 +210,24 @@ export function OverviewPage() {
 
       {toast ? (
         <div
+          role="status"
+          aria-live="polite"
           style={{
             position: 'fixed',
-            bottom: 24,
-            right: 24,
-            padding: '10px 16px',
-            background: 'var(--color-state-done)',
-            color: '#fff',
-            borderRadius: 6,
-            fontSize: 'var(--text-sm)',
-            boxShadow: 'var(--shadow-md)',
+            bottom: 'var(--space-4)',
+            right: 'var(--space-4)',
+            padding: 'var(--space-2) var(--space-3)',
+            background: 'var(--color-bg-surface)',
+            color: 'var(--color-text-primary)',
+            border: '1px solid var(--color-state-done)',
+            borderLeft: '3px solid var(--color-state-done)',
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--text-xs)',
+            letterSpacing: 'var(--tracking-mono)',
             zIndex: 100,
           }}
         >
+          <span class="tape tape--ok" style={{ marginRight: 'var(--space-2)' }}>OK</span>
           {toast}
         </div>
       ) : null}

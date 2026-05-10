@@ -43,6 +43,7 @@ export function PtyTile({ row }: PtyTileProps) {
   return (
     <div class="pty-tile">
       <div class="pty-tile__header">
+        <code class="pty-tile__ticket">{row.ticket}</code>
         <strong class="pty-tile__title" title={stats?.ai_title || ''}>{title}</strong>
         <Badge state={row.state} />
         {tools.length > 0 && (
@@ -62,7 +63,6 @@ export function PtyTile({ row }: PtyTileProps) {
         )}
         <span class="pty-tile__spacer" />
         {cost > 0 && <span class="pty-tile__cost" title="cost so far">{fmtCost(cost)}</span>}
-        <code class="pty-tile__ticket">{row.ticket}</code>
       </div>
       {prompt && (
         <div class="pty-tile__subhead" title={stats?.last_prompt}>

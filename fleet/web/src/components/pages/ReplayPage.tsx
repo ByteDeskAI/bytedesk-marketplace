@@ -67,34 +67,55 @@ export function ReplayPage() {
   if (!route.ticket) {
     return (
       <AppShell activeView="sessions" topBarTitle="Replay">
-        <div>No ticket in route. Navigate from the session detail panel.</div>
+        <div class="empty-state">
+          <span class="empty-state__icon" aria-hidden>∅</span>
+          No ticket in route. Navigate from the session detail panel.
+        </div>
       </AppShell>
     );
   }
 
+  const total = Math.max(1, lines.length);
+  const pct = Math.round(((position + 1) / total) * 100);
+  // The "current" frame's tool-call hint: most recent event at-or-before
+  // this scrub position. We map events proportionally to lines.
+  const currentEvtIdx = events.length === 0 ? -1
+    : Math.min(events.length - 1, Math.floor(((position + 1) / total) * events.length) - 1);
+  const currentEvt = currentEvtIdx >= 0 ? events[currentEvtIdx] : null;
+
   return (
     <AppShell activeView="sessions" topBarTitle={`Replay — ${route.ticket}`}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+      <header class="page-header">
         <Button onClick={() => navigate('/')}>← Back to overview</Button>
-        <span style={{ flex: 1 }} />
-        <Button onClick={() => setPlaying((p) => !p)} disabled={lines.length === 0}>
-          {playing ? '⏸ Pause' : '▶ Play'}
-        </Button>
-        <span style={{ display: 'inline-flex', gap: 4 }} role="group" aria-label="Speed">
-          {[0.5, 1, 2, 4].map((s) => (
-            <button
-              key={s}
-              type="button"
-              class={`filter-chip${s === speed ? ' filter-chip--active' : ''}`}
-              onClick={() => setSpeed(s)}
-            >
-              {s}x
-            </button>
-          ))}
-        </span>
-      </div>
+        <h2 class="page-header__title">Replay</h2>
+        <span class="tape tape--accent">{route.ticket}</span>
+        <span class="page-header__sub">FRAME {position + 1} / {lines.length} · {pct}%</span>
+        <span class="page-header__spacer" />
+        <div class="page-header__actions">
+          <Button variant="primary" onClick={() => setPlaying((p) => !p)} disabled={lines.length === 0}>
+            {playing ? '⏸ Pause' : '▶ Play'}
+          </Button>
+          <span class="filter-chips" role="group" aria-label="Speed">
+            {[0.5, 1, 2, 4].map((s) => (
+              <button
+                key={s}
+                type="button"
+                class={`filter-chip${s === speed ? ' filter-chip--active' : ''}`}
+                onClick={() => setSpeed(s)}
+              >
+                {s}x
+              </button>
+            ))}
+          </span>
+        </div>
+      </header>
 
-      {error ? <div style={{ color: 'var(--color-state-error)' }}>Couldn't load log: {error}</div> : null}
+      {error ? (
+        <div class="empty-state" style={{ color: 'var(--color-state-error)', marginBottom: 'var(--space-3)' }}>
+          <span class="empty-state__icon" aria-hidden>!</span>
+          Couldn't load log: {error}
+        </div>
+      ) : null}
 
       <div class="replay">
         <pre class="replay__terminal" aria-label="Replay terminal">
@@ -114,36 +135,51 @@ export function ReplayPage() {
           aria-label="Scrub timeline"
         />
         <div class="replay__meta">
-          <span>line {position + 1} / {lines.length}</span>
-          {events.length > 0 ? (
-            <span style={{ marginLeft: 16 }}>
-              {events.length} event{events.length === 1 ? '' : 's'}
-            </span>
-          ) : null}
+          <span class="tape">FRAME</span>
+          <span>{String(position + 1).padStart(5, '0')} / {String(lines.length).padStart(5, '0')}</span>
+          <span class="tape">TOOL</span>
+          <span style={{ color: currentEvt ? 'var(--color-accent)' : 'var(--color-text-tertiary)' }}>
+            {currentEvt ? currentEvt.kind : 'none'}
+          </span>
+          <span class="tape">TS</span>
+          <span>{currentEvt ? new Date(currentEvt.ts).toLocaleTimeString() : '--:--:--'}</span>
+          <span class="page-header__spacer" />
+          <span class="tape">EVENTS</span>
+          <span>{events.length}</span>
         </div>
 
         {events.length > 0 ? (
-          <ol class="replay__events">
-            {events.map((e, i) => (
-              <li key={e.id} class="replay__event">
-                <button
-                  type="button"
-                  class="link-button"
-                  onClick={() => {
-                    // Map event index → proportional line position.
-                    const target = Math.round(((i + 1) / events.length) * (lines.length - 1));
-                    setPlaying(false);
-                    setPosition(target);
-                  }}
-                >
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>
-                    {new Date(e.ts).toLocaleTimeString()}
-                  </span>{' '}
-                  <strong>{e.kind}</strong>
-                </button>
-              </li>
-            ))}
-          </ol>
+          <>
+            <h3 class="section-heading">
+              Event timeline
+              <span class="section-heading__divider" />
+              <span class="section-heading__count">{events.length}</span>
+            </h3>
+            <ol class="replay__events">
+              {events.map((e, i) => (
+                <li key={e.id} class="replay__event">
+                  <button
+                    type="button"
+                    class="link-button"
+                    onClick={() => {
+                      // Map event index → proportional line position.
+                      const target = Math.round(((i + 1) / events.length) * (lines.length - 1));
+                      setPlaying(false);
+                      setPosition(target);
+                    }}
+                  >
+                    <span style={{ color: 'var(--color-text-tertiary)' }}>
+                      {String(i + 1).padStart(3, '0')}
+                    </span>{' '}
+                    <span style={{ color: 'var(--color-text-secondary)' }}>
+                      {new Date(e.ts).toLocaleTimeString()}
+                    </span>{' '}
+                    <strong style={{ color: 'var(--color-accent)' }}>{e.kind}</strong>
+                  </button>
+                </li>
+              ))}
+            </ol>
+          </>
         ) : null}
       </div>
     </AppShell>

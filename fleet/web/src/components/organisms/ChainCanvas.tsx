@@ -271,7 +271,12 @@ export function ChainCanvas({ nodes, edges, selection, onChange, onSelect }: Cha
 
       {nodes.length === 0 ? (
         <div class="chain-canvas__empty">
-          Drag a node from the left to get started, or click a node to add at the canvas center.
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', letterSpacing: 'var(--tracking-caps)', textTransform: 'uppercase', color: 'var(--color-text-tertiary)' }}>
+            &gt; CANVAS EMPTY
+          </div>
+          <div style={{ marginTop: 'var(--space-2)' }}>
+            Drag a node from the left to get started, or click a palette entry to add at canvas center.
+          </div>
         </div>
       ) : null}
     </div>

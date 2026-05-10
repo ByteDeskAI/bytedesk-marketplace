@@ -21,23 +21,51 @@ export function EventsTab({ ticket }: { ticket: string }) {
     return () => window.clearInterval(id);
   }, [ticket]);
 
-  if (err) return <div style={{ color: 'var(--color-state-error)' }}>{err}</div>;
-  if (!data) return <div style={{ color: 'var(--color-text-tertiary)' }}>Loading events…</div>;
-  if (data.length === 0) return <div style={{ color: 'var(--color-text-tertiary)' }}>No events yet for {ticket}.</div>;
+  if (err) {
+    return (
+      <div class="empty-state" style={{ borderColor: 'var(--color-state-error)', color: 'var(--color-state-error)' }}>
+        <span class="tape tape--err" style={{ marginRight: 'var(--space-2)' }}>ERR</span>
+        {err}
+      </div>
+    );
+  }
+  if (!data) {
+    return (
+      <div class="empty-state">
+        <span class="empty-state__icon">◌</span>
+        Loading events…
+      </div>
+    );
+  }
+  if (data.length === 0) {
+    return (
+      <div class="empty-state">
+        <span class="empty-state__icon">∅</span>
+        No events yet for <code style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-text-secondary)' }}>{ticket}</code>.
+      </div>
+    );
+  }
 
   return (
-    <ul class="audit-list" style={{ borderRadius: 'var(--radius-md)' }}>
-      {data.map((e) => (
-        <li key={e.id} class="audit-list__row">
-          <div class="audit-list__time">{new Date(e.ts).toLocaleString()}</div>
-          <div class="audit-list__ticket">{e.ticket}</div>
-          <div class="audit-list__kind">{e.kind}</div>
-          <div class="audit-list__detail">
-            <code style={{ fontSize: 'var(--text-xs)' }}>{summarize(e.detail)}</code>
-          </div>
-        </li>
-      ))}
-    </ul>
+    <>
+      <h3 class="section-heading">
+        &gt; Events stream
+        <span class="section-heading__count">{data.length}</span>
+        <span class="section-heading__divider" />
+      </h3>
+      <ul class="audit-list">
+        {data.map((e) => (
+          <li key={e.id} class="audit-list__row">
+            <div class="audit-list__time">{new Date(e.ts).toLocaleString()}</div>
+            <div class="audit-list__ticket">{e.ticket}</div>
+            <div class="audit-list__kind">{e.kind}</div>
+            <div class="audit-list__detail">
+              <code style={{ fontSize: 'var(--text-xs)' }}>{summarize(e.detail)}</code>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }
 

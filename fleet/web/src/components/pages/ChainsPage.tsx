@@ -78,19 +78,36 @@ function ChainList() {
     }
   }
 
+  const count = chains?.length ?? 0;
   return (
     <AppShell activeView="chains" topBarTitle="Chains">
-      <div class="chain-list">
-        <div class="chain-list__header">
-          <h2 class="chain-list__title">Persisted chains</h2>
-          <Button variant="primary" onClick={onCreate}>+ New chain</Button>
+      <header class="page-header">
+        <h2 class="page-header__title">&gt; Chains</h2>
+        <span class="page-header__sub">persisted DAG · spawn / wait / judge / condition / notify / script</span>
+        <span class="page-header__spacer" />
+        <span class="tape">{count} CHAIN{count === 1 ? '' : 'S'}</span>
+        <div class="page-header__actions">
+          <Button variant="primary" onClick={onCreate}>+ NEW CHAIN</Button>
         </div>
+      </header>
+
+      <h3 class="section-heading">
+        CHAIN REGISTRY
+        <span class="section-heading__count">{count}</span>
+        <span class="section-heading__divider" />
+      </h3>
+
+      <div class="chain-list">
         {err ? <div class="chain-list__err">{err}</div> : null}
         {chains == null ? (
-          <div class="chain-list__empty">Loading…</div>
+          <div class="empty-state">
+            <span class="empty-state__icon">…</span>
+            LOADING CHAIN REGISTRY
+          </div>
         ) : chains.length === 0 ? (
-          <div class="chain-list__empty">
-            No chains yet. Click <strong>+ New chain</strong> to compose one.
+          <div class="empty-state">
+            <span class="empty-state__icon">⌥</span>
+            NO CHAINS YET — CLICK <strong>+ NEW CHAIN</strong> TO COMPOSE ONE
           </div>
         ) : (
           <table class="chain-list__table">
@@ -128,9 +145,9 @@ function ChainRow({ chain, onDelete, onRun }: { chain: Chain; onDelete: (id: str
   return (
     <tr>
       <td><a href={`#/chains/${encodeURIComponent(chain.id)}`}>{chain.name || chain.id}</a></td>
-      <td><code>{chain.id}</code></td>
-      <td>{chain.nodes?.length ?? 0}</td>
-      <td>{chain.updated ? new Date(chain.updated).toLocaleString() : '—'}</td>
+      <td><code style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-text-secondary)' }}>{chain.id}</code></td>
+      <td><span style={{ fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums' }}>{chain.nodes?.length ?? 0}</span></td>
+      <td><span style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-text-tertiary)' }}>{chain.updated ? new Date(chain.updated).toLocaleString() : '—'}</span></td>
       <td>
         {lastRun ? (
           <span class={`badge badge--${lastRun.state === 'done' ? 'done' : lastRun.state === 'error' ? 'error' : 'working'}`}>
@@ -141,9 +158,9 @@ function ChainRow({ chain, onDelete, onRun }: { chain: Chain; onDelete: (id: str
         )}
       </td>
       <td class="chain-list__actions">
-        <Button onClick={() => onRun(chain.id)}>Run</Button>
-        <Button onClick={() => { window.location.hash = `#/chains/${encodeURIComponent(chain.id)}`; }}>Edit</Button>
-        <Button onClick={() => onDelete(chain.id)}>Delete</Button>
+        <Button onClick={() => onRun(chain.id)}>RUN</Button>
+        <Button onClick={() => { window.location.hash = `#/chains/${encodeURIComponent(chain.id)}`; }}>EDIT</Button>
+        <Button onClick={() => onDelete(chain.id)}>DEL</Button>
       </td>
     </tr>
   );
@@ -213,9 +230,21 @@ function ChainEditor({ chainID }: { chainID: string }) {
   if (!chain) {
     return (
       <AppShell activeView="chains" topBarTitle="Chain editor">
-        <div style={{ padding: 'var(--space-6)', color: 'var(--color-text-tertiary)' }}>
-          {err ? <div class="chain-list__err">{err}</div> : 'Loading chain…'}
-        </div>
+        <header class="page-header">
+          <h2 class="page-header__title">&gt; Chain Editor</h2>
+          <span class="page-header__sub">id: <code>{chainID}</code></span>
+        </header>
+        {err ? (
+          <div class="empty-state" style={{ borderColor: 'var(--color-state-error)', color: 'var(--color-state-error)' }}>
+            <span class="empty-state__icon">!</span>
+            {err}
+          </div>
+        ) : (
+          <div class="empty-state">
+            <span class="empty-state__icon">…</span>
+            LOADING CHAIN
+          </div>
+        )}
       </AppShell>
     );
   }
@@ -285,7 +314,7 @@ function ChainEditor({ chainID }: { chainID: string }) {
       <BuilderTemplate
         toolbar={
           <>
-            <a href="#/chains" class="chain-builder__back">← All chains</a>
+            <a href="#/chains" class="chain-builder__back">← ALL CHAINS</a>
             <input
               class="chain-builder__name"
               type="text"
@@ -293,17 +322,15 @@ function ChainEditor({ chainID }: { chainID: string }) {
               placeholder="Chain name"
               onInput={(e) => updateChain({ name: (e.currentTarget as HTMLInputElement).value })}
             />
-            <span class="chain-builder__id">id: <code>{chain.id}</code></span>
+            <span class="chain-builder__id">ID: <code>{chain.id}</code></span>
+            <span class="tape">{chain.nodes.length} NODES</span>
+            <span class="tape">{chain.edges.length} EDGES</span>
             <span style={{ flex: 1 }} />
-            {savedAt ? (
-              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-state-done)' }}>Saved.</span>
-            ) : null}
-            {err ? (
-              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-state-error)' }}>{err}</span>
-            ) : null}
-            <Button onClick={persist} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
+            {savedAt ? <span class="tape tape--ok">SAVED</span> : null}
+            {err ? <span class="tape tape--err">{err}</span> : null}
+            <Button onClick={persist} disabled={saving}>{saving ? 'SAVING…' : 'SAVE'}</Button>
             <Button variant="primary" onClick={startRun} disabled={running}>
-              {running ? 'Starting…' : 'Run Chain'}
+              {running ? 'STARTING…' : 'RUN CHAIN'}
             </Button>
           </>
         }
@@ -352,11 +379,17 @@ function EdgeInspector({
   onChange: (next: { from: string; to: string; on_success?: boolean; on_failure?: boolean }) => void;
   onDelete: () => void;
 }) {
+  const branchTape = edge.on_success
+    ? <span class="tape tape--ok">ON_SUCCESS</span>
+    : edge.on_failure
+      ? <span class="tape tape--err">ON_FAILURE</span>
+      : <span class="tape">UNCONDITIONAL</span>;
   return (
     <aside class="chain-inspector" aria-label="Edge inspector">
       <header class="chain-inspector__header">
-        <div class="chain-inspector__type">edge</div>
+        <div class="chain-inspector__type">&gt; EDGE</div>
         <div class="chain-inspector__id">{edge.from} → {edge.to}</div>
+        {branchTape}
       </header>
       <div class="chain-inspector__body">
         <p class="chain-inspector__note">
@@ -380,7 +413,7 @@ function EdgeInspector({
         </label>
       </div>
       <div class="chain-inspector__footer">
-        <button type="button" class="btn" onClick={onDelete}>Delete edge</button>
+        <button type="button" class="btn btn--danger" onClick={onDelete}>DELETE EDGE</button>
       </div>
     </aside>
   );
@@ -395,14 +428,18 @@ function RunStatusBar({ run }: { run: ChainRunStatus }) {
   return (
     <div class="chain-run-bar">
       <span class={`badge badge--${run.state === 'done' ? 'done' : run.state === 'error' ? 'error' : 'working'}`}>
-        run {run.state}
+        RUN {run.state.toUpperCase()}
       </span>
-      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>{run.run_id}</span>
-      <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)' }}>
-        done {counts.done} · running {counts.running} · pending {counts.pending} · skipped {counts.skipped} · error {counts.error}
+      <code style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)' }}>{run.run_id}</code>
+      <span style={{ display: 'inline-flex', gap: 'var(--space-1)', alignItems: 'center' }}>
+        <span class="tape tape--ok">DONE {counts.done}</span>
+        <span class="tape tape--warn">RUN {counts.running}</span>
+        <span class="tape">PEND {counts.pending}</span>
+        <span class="tape">SKIP {counts.skipped}</span>
+        <span class="tape tape--err">ERR {counts.error}</span>
       </span>
       {run.error ? (
-        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-state-error)' }}>{run.error}</span>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--color-state-error)' }}>{run.error}</span>
       ) : null}
     </div>
   );

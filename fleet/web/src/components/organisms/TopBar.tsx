@@ -1,3 +1,7 @@
+// TopBar — section breadcrumb, live indicator, time-range filter, spawn
+// CTA. Title is rendered as a mono breadcrumb (FLEET / <SECTION>) to
+// match the mission-control aesthetic.
+
 import { useState } from 'preact/hooks';
 import { Button } from '../atoms/Button';
 import { Icon } from '../atoms/Icon';
@@ -13,7 +17,13 @@ export function TopBar({ title, onSpawnClick }: TopBarProps) {
   const [range, setRange] = useState('Live');
   return (
     <div class="app-shell__topbar">
-      <div class="topbar__title">{title}</div>
+      <span class="topbar__crumb">FLEET</span>
+      <span class="topbar__crumb-sep">/</span>
+      <span class="topbar__title">{title}</span>
+      <span class="topbar__live" title="Server-Sent Events stream">
+        <span class="topbar__live-dot" />
+        live
+      </span>
       <div class="topbar__spacer" />
       <div class="topbar__time-range" role="group" aria-label="Time range">
         {RANGES.map((r) => (
@@ -28,7 +38,7 @@ export function TopBar({ title, onSpawnClick }: TopBarProps) {
         ))}
       </div>
       <Button variant="primary" onClick={onSpawnClick}>
-        <Icon name="plus" size={14} />
+        <Icon name="plus" size={12} />
         Spawn
       </Button>
     </div>
