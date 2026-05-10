@@ -13,7 +13,7 @@
 #   claude-sessions tree   [<ticket>]     # show parent → child hierarchy
 #   claude-sessions cost   [<ticket>]     # token usage and rough cost per session
 #   claude-sessions tui                   # interactive menu (no fzf needed)
-#   claude-sessions clean                 # prune meta files for dead sessions
+#   claude-sessions clean [--quiet|-q]    # prune meta files for dead sessions
 #   claude-sessions notify [--interval N] [--once]   # desktop alerts + rules engine
 #   claude-sessions events <ticket> [--since=TS] [--kinds=K,..] [--json|--plain] [--follow]
 #                                         # tool-level events for a session (BDP-372)
@@ -468,13 +468,22 @@ cmd_kill() {
 }
 
 cmd_clean() {
+  local quiet=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --quiet|-q) quiet=1; shift ;;
+      -*) echo "clean: unknown flag $1" >&2; return 64 ;;
+      *)  echo "clean: unexpected positional arg: $1" >&2; return 64 ;;
+    esac
+  done
+
   local meta ticket session
   shopt -s nullglob
   for meta in "$SESSIONS_DIR"/*/meta; do
     ticket=$(basename "$(dirname "$meta")")
     session=$(meta_get "$meta" session)
     if ! tmux has-session -t "$session" 2>/dev/null; then
-      echo "removing stale meta: $ticket (session $session is dead)"
+      [[ "$quiet" -eq 1 ]] || echo "removing stale meta: $ticket (session $session is dead)"
       # Remove only the meta file; preserves logs/events for forensics. The
       # full per-session dir is reclaimed by `kill <ticket>`.
       rm -f "$meta"
@@ -1103,7 +1112,7 @@ case "${1:-list}" in
   peek)    shift; cmd_peek "$@" ;;
   send)    shift; cmd_send "$@" ;;
   kill)    shift; cmd_kill "$@" ;;
-  clean)   cmd_clean ;;
+  clean)   shift; cmd_clean "$@" ;;
   tui)     cmd_tui ;;
   notify)  shift; cmd_notify "$@" ;;
   events)  shift; cmd_events "$@" ;;
