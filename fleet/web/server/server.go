@@ -28,7 +28,7 @@ import (
 //go:embed all:dist
 var distFS embed.FS
 
-const buildVersion = "v1.8.0-bdm22"
+const buildVersion = "v1.9.0-bdm24"
 
 var startTime = time.Now()
 
@@ -40,6 +40,7 @@ type apiDeps struct {
 	events     *EventsRepo
 	stats      *StatsCalculator
 	bus        *EventBus
+	judge      JudgeProvider
 }
 
 func newAPIDeps(projectKey string, cfg *WebConfig, projDir, dataRoot string) *apiDeps {
@@ -47,7 +48,7 @@ func newAPIDeps(projectKey string, cfg *WebConfig, projDir, dataRoot string) *ap
 	er := NewEventsRepo(projDir)
 	pr := NewProjectsRepo(dataRoot)
 	sc := NewStatsCalculator(sr, er)
-	return &apiDeps{projectKey, cfg, sr, pr, er, sc, NewEventBus()}
+	return &apiDeps{projectKey, cfg, sr, pr, er, sc, NewEventBus(), newJudgeProvider()}
 }
 
 func buildHandler(deps *apiDeps) (http.Handler, error) {
@@ -107,6 +108,9 @@ func buildHandler(deps *apiDeps) (http.Handler, error) {
 	})
 	mux.HandleFunc("/api/broadcast", func(w http.ResponseWriter, r *http.Request) {
 		handleBroadcast(w, r, deps)
+	})
+	mux.HandleFunc("/api/estimate-cost", func(w http.ResponseWriter, r *http.Request) {
+		handleEstimateCost(w, r, deps)
 	})
 	mux.Handle("/", http.FileServer(http.FS(sub)))
 	return mux, nil
@@ -173,7 +177,7 @@ func handleSessions(w http.ResponseWriter, r *http.Request, deps *apiDeps) {
 	now := time.Now()
 	out := make([]SessionView, 0, len(sl))
 	for _, s := range sl {
-		out = append(out, sessionToView(s, now))
+		out = append(out, sessionToViewWithJudge(s, now, deps.judge))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -217,7 +221,7 @@ func handleSessionDetail(w http.ResponseWriter, r *http.Request, deps *apiDeps) 
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, sessionToView(s, time.Now()))
+	writeJSON(w, http.StatusOK, sessionToViewWithJudge(s, time.Now(), deps.judge))
 }
 
 // sessionsRoot — used by log_stream.go.
@@ -248,6 +252,24 @@ func handleEvents(w http.ResponseWriter, r *http.Request, deps *apiDeps) {
 		return
 	}
 	writeJSON(w, http.StatusOK, evs)
+}
+
+// sessionToViewWithJudge composes a SessionView and overlays the
+// JudgeProvider's verdict (state confidence, drift score, objective).
+// Reading the log tail is best-effort: any error → empty tail and the
+// judge still runs against an empty string.
+func sessionToViewWithJudge(s Session, now time.Time, judge JudgeProvider) SessionView {
+	v := sessionToView(s, now)
+	if judge == nil {
+		return v
+	}
+	tail := readLogTail(s.LogPath, 4096)
+	state, conf, obj := judge.JudgeState(s, tail)
+	v.State = state
+	v.Confidence = conf
+	v.Drift = judge.DriftScore(s, tail)
+	v.Objective = obj
+	return v
 }
 
 func sessionToView(s Session, now time.Time) SessionView {

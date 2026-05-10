@@ -167,15 +167,61 @@ function ReviewModal({ ticket, onClose, onSpawned }: { ticket: string; onClose: 
 
 function OverviewTab({ row }: { row: SessionRow | null }) {
   if (!row) return <div style={{ color: 'var(--color-text-tertiary)' }}>Loading…</div>;
+  const conf = row.confidence ?? null;
+  const drift = row.drift ?? null;
   return (
-    <dl class="detail-panel__meta">
-      <dt>Branch</dt><dd><code>{row.branch || '—'}</code></dd>
-      <dt>Parent</dt><dd>{row.parent || '—'}</dd>
-      <dt>Activity</dt><dd>{row.activity}</dd>
-      <dt>Cost</dt><dd>{row.cost}</dd>
-      <dt>Runtime</dt><dd>{row.runtime}</dd>
-      <dt>Progress</dt><dd>{Math.round(row.progress * 100)}%</dd>
-    </dl>
+    <>
+      {row.objective ? (
+        <div style={{ marginBottom: 'var(--space-3)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>
+          <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>Objective: </span>
+          {row.objective}
+        </div>
+      ) : null}
+      <dl class="detail-panel__meta">
+        <dt>Branch</dt><dd><code>{row.branch || '—'}</code></dd>
+        <dt>Parent</dt><dd>{row.parent || '—'}</dd>
+        <dt>Activity</dt><dd>{row.activity}</dd>
+        <dt>Cost</dt><dd>{row.cost}</dd>
+        <dt>Runtime</dt><dd>{row.runtime}</dd>
+        <dt>Progress</dt><dd>{Math.round(row.progress * 100)}%</dd>
+        {conf != null ? (
+          <>
+            <dt>State confidence</dt>
+            <dd>
+              <ConfidenceBar value={conf} />
+            </dd>
+          </>
+        ) : null}
+        {drift != null && drift > 0.05 ? (
+          <>
+            <dt>Drift score</dt>
+            <dd>
+              <ConfidenceBar value={drift} tone="warn" />
+              {drift > 0.6 ? (
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-state-error)' }}>
+                  ⚠ The agent has been quiet for a while — consider attaching to check on it.
+                </div>
+              ) : null}
+            </dd>
+          </>
+        ) : null}
+      </dl>
+    </>
+  );
+}
+
+function ConfidenceBar({ value, tone = 'good' }: { value: number; tone?: 'good' | 'warn' }) {
+  const pct = Math.round(Math.max(0, Math.min(1, value)) * 100);
+  const color = tone === 'warn'
+    ? 'var(--color-state-needs-input)'
+    : 'var(--color-state-done)';
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div style={{ width: 80, height: 6, background: 'var(--color-bg-muted)', borderRadius: 999, overflow: 'hidden' }}>
+        <div style={{ width: `${pct}%`, height: '100%', background: color }} />
+      </div>
+      <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)' }}>{pct}%</span>
+    </div>
   );
 }
 

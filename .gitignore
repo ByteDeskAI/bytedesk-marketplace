@@ -1,5 +1,6 @@
 # Per-user fleet state — never commit
 .claude-sessions/
+.claude/worktrees/
 notifications.fifo
 notify.log
 notify.config.toml

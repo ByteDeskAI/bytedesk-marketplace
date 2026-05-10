@@ -4,9 +4,9 @@
 //
 // State machine: idle → submitting → success | error.
 
-import { useState } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
 import { Button } from '../atoms/Button';
-import { spawnFeature, type SpawnArgs } from '../../api';
+import { spawnFeature, estimateCost, type SpawnArgs, type CostEstimate } from '../../api';
 
 const TABS = ['Manual', 'From Jira', 'From Backlog'] as const;
 type Tab = typeof TABS[number];
@@ -59,6 +59,22 @@ function ManualTab({ onClose, onSpawned }: { onClose: () => void; onSpawned?: (t
   });
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [estimate, setEstimate] = useState<CostEstimate | null>(null);
+
+  // Debounced cost estimate (B12). 400ms after the user stops typing
+  // we ask the server for a low/high. Cancellation is implicit because
+  // we only render the *latest* estimate.
+  useEffect(() => {
+    if (!args.prompt.trim()) { setEstimate(null); return; }
+    let cancel = false;
+    const id = window.setTimeout(async () => {
+      try {
+        const r = await estimateCost(args.prompt, !!args.full_auto);
+        if (!cancel) setEstimate(r);
+      } catch { /* swallow — estimate is advisory */ }
+    }, 400);
+    return () => { cancel = true; window.clearTimeout(id); };
+  }, [args.prompt, args.full_auto]);
 
   const valid =
     /^[A-Z][A-Z0-9]+-\d+$/.test(args.ticket.trim()) &&
@@ -161,6 +177,13 @@ function ManualTab({ onClose, onSpawned }: { onClose: () => void; onSpawned?: (t
         />
         <span>--full-auto (skip per-step permission gate; recommended for autonomous runs)</span>
       </label>
+
+      {estimate ? (
+        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)' }}>
+          Estimated cost: <strong>${estimate.low.toFixed(2)}</strong> – <strong>${estimate.high.toFixed(2)}</strong>{' '}
+          <span style={{ color: 'var(--color-text-tertiary)' }}>(heuristic; Haiku-judged estimate lands later)</span>
+        </div>
+      ) : null}
 
       {err ? <div style={{ color: 'var(--color-state-error)', fontSize: 'var(--text-xs)' }}>{err}</div> : null}
 

@@ -9,6 +9,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - `/fleet:setup-cli` skill creates `~/.local/bin/` wrappers for the three public CLI binaries (`claude-sessions`, `claude-sessions-web`, `spawn-claude-feature`) so they're available on the user's interactive shell PATH without breaking on `/plugin update`. The wrappers resolve to the latest installed plugin version at exec time via `ls -dv … | tail -1`. Idempotent and sentinel-gated: re-running refreshes our own wrappers but refuses to clobber foreign files at the same path. Fills the gap left by BDM-3's removal of the `~/.local/bin/` symlinks (BDM-23).
+## [1.9.0] — 2026-05-10
+
+**Phase 8 of BDM-14: intelligence layer (BDM-24).** Stubs for B10/B11/B12 with a clear seam (`JudgeProvider`) for swapping in Haiku later.
+
+### Added
+
+- `JudgeProvider` interface (Strategy pattern) — `JudgeState`, `DriftScore`, `EstimateCost`. Default `heuristicJudge` is pure-function over fields the regex state-derivation already reads; a `HaikuProvider` can replace it without touching the wire shape.
+- `SessionView` grows `confidence` (0..1), `drift` (0..1, omitted when ≤0.05), and `objective` (first non-empty log line, ≤120 chars).
+- `POST /api/estimate-cost` (B12) — debounced from the SpawnModal as the user types.
+- `SpawnModal`: live `Estimated cost: $X – $Y` line beneath prompt.
+- `SessionDetailPanel` Overview tab: state-confidence bar; drift bar (only when drift > 5%) with a stuck-agent hint over 60%.
+- `SessionTable` row: ⚠ glyph next to state badge when drift > 60%.
+
+### Changed
+
+- Build version → `v1.9.0-bdm24`.
+- `sessionToView` rebranded as `sessionToViewWithJudge`; the older un-judged view is still available for tests.
 
 ## [1.8.0] — 2026-05-10
 
