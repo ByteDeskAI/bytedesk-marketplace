@@ -2608,6 +2608,15 @@ code, pre, .mono {
   color: var(--color-state-error);
   padding: var(--space-1) var(--space-3);
 }
+.chat-tile__composer--readonly {
+  justify-content: center;
+}
+.chat-tile__readonly-note {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-text-tertiary);
+  font-style: italic;
+}
 
 .message-bubble {
   display: flex;

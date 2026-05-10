@@ -24,6 +24,19 @@ import (
 	"time"
 )
 
+// sanitizeProjectDir mirrors Claude Code's cwd → project-dir mapping.
+// Both `/` and `.` get replaced with `-`, e.g.
+//   /home/u/repo/.claude/worktrees/X-slug
+//      → -home-u-repo--claude-worktrees-X-slug
+// This MUST match what claude itself produces under
+// `~/.claude/projects/`. The `.`-replacement step is the one that
+// trips up naive `filepath.Separator`-only sanitizers (worktrees
+// nested under a `.claude/` dir lose their transcripts otherwise).
+func sanitizeProjectDir(abs string) string {
+	r := strings.NewReplacer(string(filepath.Separator), "-", ".", "-")
+	return r.Replace(abs)
+}
+
 // idlePauseThreshold — if the last assistant turn ended `end_turn`
 // more than this ago, the agent is "done" (idle waiting). Below
 // this we treat it as `needs-input` (just paused, may resume).
@@ -59,9 +72,7 @@ func findTranscript(worktreePath string) string {
 	if err != nil {
 		return ""
 	}
-	// Sanitize: "/foo/bar" -> "-foo-bar"
-	sanitized := strings.ReplaceAll(abs, string(filepath.Separator), "-")
-	dir := filepath.Join(os.Getenv("HOME"), ".claude", "projects", sanitized)
+	dir := filepath.Join(os.Getenv("HOME"), ".claude", "projects", sanitizeProjectDir(abs))
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return ""
@@ -129,9 +140,15 @@ func sessionStateFromTranscript(worktreePath string) (string, bool) {
 		}
 	}
 
-	// If a recent tool error landed inside the working window, surface it.
+	// If a recent tool error landed inside the working window — and
+	// the agent hasn't subsequently posted another turn — surface it.
+	// Without the assistant-after-error guard, ANY tool error within
+	// the walked tail would lock the session into "error" forever
+	// even after a clean end_turn (BDM-32 follow-up).
 	if sawError && lastToolResult != nil && now.Sub(lastToolResult.Timestamp) < idlePauseThreshold {
-		return "error", true
+		if lastAssistant == nil || lastAssistant.Timestamp.Before(lastToolResult.Timestamp) {
+			return "error", true
+		}
 	}
 
 	if lastAssistant == nil {
@@ -212,8 +229,7 @@ func findSubAgentTranscripts(worktreePath string) []SubAgentFile {
 	if err != nil {
 		return nil
 	}
-	sanitized := strings.ReplaceAll(abs, string(filepath.Separator), "-")
-	subDir := filepath.Join(os.Getenv("HOME"), ".claude", "projects", sanitized, "subagents")
+	subDir := filepath.Join(os.Getenv("HOME"), ".claude", "projects", sanitizeProjectDir(abs), "subagents")
 	entries, err := os.ReadDir(subDir)
 	if err != nil {
 		return nil

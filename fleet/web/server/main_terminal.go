@@ -11,12 +11,15 @@ package main
 // the session, not the dashboard process).
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"time"
 
 	"golang.org/x/net/websocket"
 )
@@ -110,3 +113,102 @@ func handleMainInfo(w http.ResponseWriter, r *http.Request, deps *apiDeps) {
 		"project_key":  deps.projectKey,
 	})
 }
+
+// mainWorktree resolves the project worktree path that the
+// `fleet-main-<KEY>` tmux session is rooted in. Mirrors the lookup
+// `ensureMainTmux` does — read it from `web/worktree`, then fall back
+// to cwd. Returns "" if neither resolves.
+func mainWorktree(deps *apiDeps) string {
+	_, logPath := mainTmuxSession(deps)
+	cwd := readProjectLabel(filepath.Dir(filepath.Dir(logPath)))
+	if cwd == "" {
+		cwd, _ = os.Getwd()
+	}
+	return cwd
+}
+
+// handleMainMessages — chat-mode bootstrap for the main terminal.
+// Reads the most-recent jsonl in the main worktree's project dir and
+// projects it into UIMessage[]. Mirrors handleSessionMessages but
+// resolves the worktree from main's tmux config rather than from
+// SessionRepo.
+func handleMainMessages(w http.ResponseWriter, r *http.Request, deps *apiDeps) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, errors.New("GET only"))
+		return
+	}
+	limit := 200
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	wt := mainWorktree(deps)
+	path := findTranscript(wt)
+	if path == "" {
+		writeJSON(w, http.StatusOK, []UIMessage{})
+		return
+	}
+	msgs, err := readUIMessages(path, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if msgs == nil {
+		msgs = []UIMessage{}
+	}
+	writeJSON(w, http.StatusOK, msgs)
+}
+
+// handleMainTranscript — SSE stream of TranscriptEvent for the main
+// terminal. Subscribes to the same bus topic that TranscriptStream
+// publishes on for the synthetic `__main__` ticket.
+func handleMainTranscript(w http.ResponseWriter, r *http.Request, deps *apiDeps) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, errors.New("GET only"))
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	sub := deps.bus.Subscribe(Topic("transcript." + mainTicket))
+	defer deps.bus.Unsubscribe(sub)
+
+	if st, ok := deps.transcript.Stats(mainTicket); ok {
+		b, _ := json.Marshal(st)
+		fmt.Fprintf(w, "event: stats\ndata: %s\n\n", b)
+		flusher.Flush()
+	}
+
+	keep := time.NewTicker(15 * time.Second)
+	defer keep.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-keep.C:
+			fmt.Fprint(w, ": keepalive\n\n")
+			flusher.Flush()
+		case msg, ok := <-sub.C():
+			if !ok {
+				return
+			}
+			b, _ := json.Marshal(msg.Body)
+			fmt.Fprintf(w, "event: transcript\ndata: %s\n\n", b)
+			flusher.Flush()
+		}
+	}
+}
+
+// mainTicket is the synthetic ticket key TranscriptStream uses for
+// the always-on main terminal so it can ride the same tailer +
+// EventBus machinery as fleet child sessions.
+const mainTicket = "__main__"

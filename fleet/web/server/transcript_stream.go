@@ -25,7 +25,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 )
@@ -196,6 +195,13 @@ func (ts *TranscriptStream) reconcile() {
 				m[f.AgentID] = f.Path
 			}
 			wantSub[s.Ticket] = m
+		}
+	}
+	// Synthesise a tailer for the always-on main terminal so chat-
+	// mode in the main tile can subscribe to live deltas (BDM-32).
+	if main := mainWorktree(ts.deps); main != "" {
+		if p := findTranscript(main); p != "" {
+			wantPath[mainTicket] = p
 		}
 	}
 
@@ -679,5 +685,5 @@ func stripImages(content []map[string]any) []map[string]any {
 // helper exported for tests
 func transcriptDirFor(worktree string) string {
 	abs, _ := filepath.Abs(worktree)
-	return filepath.Join(os.Getenv("HOME"), ".claude", "projects", strings.ReplaceAll(abs, string(filepath.Separator), "-"))
+	return filepath.Join(os.Getenv("HOME"), ".claude", "projects", sanitizeProjectDir(abs))
 }

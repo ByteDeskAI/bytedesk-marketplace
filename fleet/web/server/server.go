@@ -153,6 +153,12 @@ func buildHandler(deps *apiDeps) (http.Handler, error) {
 	mux.HandleFunc("/api/main/pty", func(w http.ResponseWriter, r *http.Request) {
 		handleMainPty(w, r, deps)
 	})
+	mux.HandleFunc("/api/main/messages", func(w http.ResponseWriter, r *http.Request) {
+		handleMainMessages(w, r, deps)
+	})
+	mux.HandleFunc("/api/main/transcript", func(w http.ResponseWriter, r *http.Request) {
+		handleMainTranscript(w, r, deps)
+	})
 	mux.HandleFunc("/api/jira/issue", func(w http.ResponseWriter, r *http.Request) {
 		handleJiraIssue(w, r, deps)
 	})

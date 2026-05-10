@@ -4,7 +4,7 @@ When you write code that reads Claude Code's per-conversation transcript at `~/.
 
 ## Locate the transcript
 
-1. Compute `sanitized-cwd` = the cwd's absolute path with `/` → `-` and a leading `-`.
+1. Compute `sanitized-cwd` = the cwd's absolute path with **both `/` AND `.`** replaced by `-` (leading `-` included). The dot-replacement matters: a worktree at `/repo/.claude/worktrees/X` becomes `-repo--claude-worktrees-X` — naive `/`-only sanitizers miss this and look in the wrong directory.
 2. List `~/.claude/projects/<sanitized-cwd>/*.jsonl` and pick the **most-recently-modified** file as the active conversation.
 3. Sub-agent transcripts live under `<that-dir>/subagents/agent-<agentId>.jsonl` and have `isSidechain: true`.
 

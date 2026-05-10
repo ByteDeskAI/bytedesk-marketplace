@@ -169,6 +169,22 @@ func TestReadUIMessagesRespectsLimit(t *testing.T) {
 	}
 }
 
+func TestSanitizeProjectDir(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"/home/u/repo", "-home-u-repo"},
+		// Worktree under /.claude/ — both `/` AND `.` must be replaced
+		// to match what claude itself writes under ~/.claude/projects/.
+		{"/home/u/repo/.claude/worktrees/X", "-home-u-repo--claude-worktrees-X"},
+		{"/some/dotted.dir/path", "-some-dotted-dir-path"},
+	}
+	for _, c := range cases {
+		got := sanitizeProjectDir(c.in)
+		if got != c.want {
+			t.Errorf("sanitize(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
 func writeJSONL(t *testing.T, lines []string) string {
 	t.Helper()
 	dir := t.TempDir()

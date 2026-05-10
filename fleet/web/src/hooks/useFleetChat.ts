@@ -12,7 +12,7 @@
 //   results folding into prior tool-call parts, etc.).
 
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { fetchMessages, sendMessage as sendMessageAPI, type UIMessage, type UIPart, type TranscriptEvent } from '../api';
+import { sendMessage as sendMessageAPI, type UIMessage, type UIPart, type TranscriptEvent } from '../api';
 
 export interface FleetChatState {
   messages: UIMessage[];
@@ -24,10 +24,21 @@ export interface FleetChatState {
 interface Options {
   agentID?: string;     // for sub-agent threads
   limit?: number;       // initial history cap (default 200)
+  // Custom endpoints — used by the main tile (MainChatTile) which
+  // hits /api/main/{messages,transcript} instead of the per-session
+  // routes. `sendURL: null` disables the composer entirely (sub-agent
+  // threads + main tile read-only fallback).
+  messagesURL?: string;
+  transcriptURL?: string;
+  sendURL?: string | null;
 }
 
 export function useFleetChat(ticket: string | null, opts: Options = {}): FleetChatState {
   const { agentID, limit = 200 } = opts;
+  const baseURL = ticket ? `/api/sessions/${encodeURIComponent(ticket)}` : '';
+  const messagesURL = opts.messagesURL ?? `${baseURL}/messages`;
+  const transcriptURL = opts.transcriptURL ?? `${baseURL}/transcript`;
+  const sendURL = opts.sendURL === null ? null : (opts.sendURL ?? `${baseURL}/send`);
   const [messages, setMessages] = useState<UIMessage[]>([]);
   const [isLoading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -46,8 +57,13 @@ export function useFleetChat(ticket: string | null, opts: Options = {}): FleetCh
     setLoading(true);
     setError(null);
 
-    fetchMessages(ticket, { agent_id: agentID, limit })
-      .then((seed) => {
+    const params = new URLSearchParams();
+    if (agentID) params.set('agent_id', agentID);
+    if (limit) params.set('limit', String(limit));
+    const fullMessagesURL = `${messagesURL}${params.toString() ? `?${params.toString()}` : ''}`;
+    fetch(fullMessagesURL)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`${r.status} ${r.statusText}`))))
+      .then((seed: UIMessage[]) => {
         if (cancelled) return;
         setMessages(seed);
         // Rebuild tool-call index from the seed.
@@ -64,7 +80,7 @@ export function useFleetChat(ticket: string | null, opts: Options = {}): FleetCh
       .catch((e) => { if (!cancelled) setError((e as Error).message); })
       .finally(() => { if (!cancelled) setLoading(false); });
 
-    const es = new EventSource(`/api/sessions/${encodeURIComponent(ticket)}/transcript`);
+    const es = new EventSource(transcriptURL);
     es.addEventListener('transcript', (ev) => {
       if (cancelled) return;
       try {
@@ -78,13 +94,30 @@ export function useFleetChat(ticket: string | null, opts: Options = {}): FleetCh
     es.onerror = () => { /* EventSource auto-reconnects */ };
 
     return () => { cancelled = true; es.close(); };
-  }, [ticket, agentID, limit]);
+  }, [ticket, agentID, limit, messagesURL, transcriptURL]);
 
   const sendMessage = async (text: string) => {
-    if (!ticket || !text.trim()) return;
-    // Sub-agents have no own input channel — typing always lands in
-    // the parent's PTY. Caller (composer) should already gate on this.
-    await sendMessageAPI(ticket, text);
+    if (!text.trim()) return;
+    if (sendURL === null) {
+      // Read-only mode (sub-agent thread; main tile fallback). Composer
+      // should already be hidden — guarding here for safety.
+      return;
+    }
+    // For the default per-session URL we go through sendMessageAPI which
+    // already handles the wire shape; for custom sendURLs (main tile),
+    // POST directly so we don't depend on the ticket-keyed helper.
+    if (sendURL === `/api/sessions/${encodeURIComponent(ticket || '')}/send` && ticket) {
+      await sendMessageAPI(ticket, text);
+      return;
+    }
+    const r = await fetch(sendURL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: text }),
+    });
+    if (!r.ok) {
+      throw new Error(`${r.status} ${r.statusText}`);
+    }
   };
 
   return { messages, sendMessage, isLoading, error };
