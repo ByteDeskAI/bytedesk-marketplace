@@ -13,7 +13,6 @@ package main
 //   GET /                             static SPA (embedded dist/)
 
 import (
-	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,10 +24,11 @@ import (
 	"time"
 )
 
-//go:embed all:dist
-var distFS embed.FS
+// distFS is provided by either server_embed.go (production, //go:build !dev)
+// or server_dev.go (//go:build dev — reads from disk so hot-reload works).
+var distFS fs.FS
 
-const buildVersion = "v1.12.0-bdm27"
+const buildVersion = "v1.13.0-bdm28"
 
 var startTime = time.Now()
 

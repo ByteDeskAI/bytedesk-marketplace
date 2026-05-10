@@ -7,12 +7,14 @@
   "scripts": {
     "build": "node build.mjs",
     "watch": "node build.mjs --watch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "dev": "concurrently -k -n esbuild,go -c cyan,magenta 'npm run watch' 'cd server && air -c .air.toml'"
   },
   "dependencies": {
     "preact": "^10.22.0"
   },
   "devDependencies": {
+    "concurrently": "^8.2.2",
     "esbuild": "^0.21.5",
     "typescript": "^5.4.5"
   }

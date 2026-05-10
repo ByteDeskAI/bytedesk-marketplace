@@ -1,6 +1,2353 @@
-var Z,b,Me,At,F,Te,Be,Re,ue,J,U,Ie,fe,de,pe,Ft,Q={},X=[],$t=/acit|ex(?:s|g|n|p|$)|rph|grid|ows|mnc|ntw|ine[ch]|zoo|^ord|itera/i,ee=Array.isArray;function I(e,t){for(var o in t)e[o]=t[o];return e}function me(e){e&&e.parentNode&&e.parentNode.removeChild(e)}function Nt(e,t,o){var r,i,s,c={};for(s in t)s=="key"?r=t[s]:s=="ref"?i=t[s]:c[s]=t[s];if(arguments.length>2&&(c.children=arguments.length>3?Z.call(arguments,2):o),typeof e=="function"&&e.defaultProps!=null)for(s in e.defaultProps)c[s]===void 0&&(c[s]=e.defaultProps[s]);return q(e,c,r,i,null)}function q(e,t,o,r,i){var s={type:e,props:t,key:o,ref:r,__k:null,__:null,__b:0,__e:null,__c:null,constructor:void 0,__v:i??++Me,__i:-1,__u:0};return i==null&&b.vnode!=null&&b.vnode(s),s}function E(e){return e.children}function G(e,t){this.props=e,this.context=t}function j(e,t){if(t==null)return e.__?j(e.__,e.__i+1):null;for(var o;t<e.__k.length;t++)if((o=e.__k[t])!=null&&o.__e!=null)return o.__e;return typeof e.type=="function"?j(e):null}function Ht(e){if(e.__P&&e.__d){var t=e.__v,o=t.__e,r=[],i=[],s=I({},t);s.__v=t.__v+1,b.vnode&&b.vnode(s),ve(e.__P,s,t,e.__n,e.__P.namespaceURI,32&t.__u?[o]:null,r,o??j(t),!!(32&t.__u),i),s.__v=t.__v,s.__.__k[s.__i]=s,$e(r,s,i),t.__e=t.__=null,s.__e!=o&&Le(s)}}function Le(e){if((e=e.__)!=null&&e.__c!=null)return e.__e=e.__c.base=null,e.__k.some(function(t){if(t!=null&&t.__e!=null)return e.__e=e.__c.base=t.__e}),Le(e)}function Ce(e){(!e.__d&&(e.__d=!0)&&F.push(e)&&!Y.__r++||Te!=b.debounceRendering)&&((Te=b.debounceRendering)||Be)(Y)}function Y(){try{for(var e,t=1;F.length;)F.length>t&&F.sort(Re),e=F.shift(),t=F.length,Ht(e)}finally{F.length=Y.__r=0}}function Ae(e,t,o,r,i,s,c,u,d,l,p){var a,_,f,g,k,v,h,y=r&&r.__k||X,P=t.length;for(d=zt(o,t,y,d,P),a=0;a<P;a++)(f=o.__k[a])!=null&&(_=f.__i!=-1&&y[f.__i]||Q,f.__i=a,v=ve(e,f,_,i,s,c,u,d,l,p),g=f.__e,f.ref&&_.ref!=f.ref&&(_.ref&&he(_.ref,null,f),p.push(f.ref,f.__c||g,f)),k==null&&g!=null&&(k=g),(h=!!(4&f.__u))||_.__k===f.__k?(d=Fe(f,d,e,h),h&&_.__e&&(_.__e=null)):typeof f.type=="function"&&v!==void 0?d=v:g&&(d=g.nextSibling),f.__u&=-7);return o.__e=k,d}function zt(e,t,o,r,i){var s,c,u,d,l,p=o.length,a=p,_=0;for(e.__k=new Array(i),s=0;s<i;s++)(c=t[s])!=null&&typeof c!="boolean"&&typeof c!="function"?(typeof c=="string"||typeof c=="number"||typeof c=="bigint"||c.constructor==String?c=e.__k[s]=q(null,c,null,null,null):ee(c)?c=e.__k[s]=q(E,{children:c},null,null,null):c.constructor===void 0&&c.__b>0?c=e.__k[s]=q(c.type,c.props,c.key,c.ref?c.ref:null,c.__v):e.__k[s]=c,d=s+_,c.__=e,c.__b=e.__b+1,u=null,(l=c.__i=Dt(c,o,d,a))!=-1&&(a--,(u=o[l])&&(u.__u|=2)),u==null||u.__v==null?(l==-1&&(i>p?_--:i<p&&_++),typeof c.type!="function"&&(c.__u|=4)):l!=d&&(l==d-1?_--:l==d+1?_++:(l>d?_--:_++,c.__u|=4))):e.__k[s]=null;if(a)for(s=0;s<p;s++)(u=o[s])!=null&&!(2&u.__u)&&(u.__e==r&&(r=j(u)),He(u,u));return r}function Fe(e,t,o,r){var i,s;if(typeof e.type=="function"){for(i=e.__k,s=0;i&&s<i.length;s++)i[s]&&(i[s].__=e,t=Fe(i[s],t,o,r));return t}e.__e!=t&&(r&&(t&&e.type&&!t.parentNode&&(t=j(e)),o.insertBefore(e.__e,t||null)),t=e.__e);do t=t&&t.nextSibling;while(t!=null&&t.nodeType==8);return t}function Dt(e,t,o,r){var i,s,c,u=e.key,d=e.type,l=t[o],p=l!=null&&(2&l.__u)==0;if(l===null&&u==null||p&&u==l.key&&d==l.type)return o;if(r>(p?1:0)){for(i=o-1,s=o+1;i>=0||s<t.length;)if((l=t[c=i>=0?i--:s++])!=null&&!(2&l.__u)&&u==l.key&&d==l.type)return c}return-1}function Ee(e,t,o){t[0]=="-"?e.setProperty(t,o??""):e[t]=o==null?"":typeof o!="number"||$t.test(t)?o:o+"px"}function K(e,t,o,r,i){var s,c;e:if(t=="style")if(typeof o=="string")e.style.cssText=o;else{if(typeof r=="string"&&(e.style.cssText=r=""),r)for(t in r)o&&t in o||Ee(e.style,t,"");if(o)for(t in o)r&&o[t]==r[t]||Ee(e.style,t,o[t])}else if(t[0]=="o"&&t[1]=="n")s=t!=(t=t.replace(Ie,"$1")),c=t.toLowerCase(),t=c in e||t=="onFocusOut"||t=="onFocusIn"?c.slice(2):t.slice(2),e.l||(e.l={}),e.l[t+s]=o,o?r?o[U]=r[U]:(o[U]=fe,e.addEventListener(t,s?pe:de,s)):e.removeEventListener(t,s?pe:de,s);else{if(i=="http://www.w3.org/2000/svg")t=t.replace(/xlink(H|:h)/,"h").replace(/sName$/,"s");else if(t!="width"&&t!="height"&&t!="href"&&t!="list"&&t!="form"&&t!="tabIndex"&&t!="download"&&t!="rowSpan"&&t!="colSpan"&&t!="role"&&t!="popover"&&t in e)try{e[t]=o??"";break e}catch{}typeof o=="function"||(o==null||o===!1&&t[4]!="-"?e.removeAttribute(t):e.setAttribute(t,t=="popover"&&o==1?"":o))}}function Pe(e){return function(t){if(this.l){var o=this.l[t.type+e];if(t[J]==null)t[J]=fe++;else if(t[J]<o[U])return;return o(b.event?b.event(t):t)}}}function ve(e,t,o,r,i,s,c,u,d,l){var p,a,_,f,g,k,v,h,y,P,M,R,xe,W,ce,B=t.type;if(t.constructor!==void 0)return null;128&o.__u&&(d=!!(32&o.__u),s=[u=t.__e=o.__e]),(p=b.__b)&&p(t);e:if(typeof B=="function")try{if(h=t.props,y=B.prototype&&B.prototype.render,P=(p=B.contextType)&&r[p.__c],M=p?P?P.props.value:p.__:r,o.__c?v=(a=t.__c=o.__c).__=a.__E:(y?t.__c=a=new B(h,M):(t.__c=a=new G(h,M),a.constructor=B,a.render=jt),P&&P.sub(a),a.state||(a.state={}),a.__n=r,_=a.__d=!0,a.__h=[],a._sb=[]),y&&a.__s==null&&(a.__s=a.state),y&&B.getDerivedStateFromProps!=null&&(a.__s==a.state&&(a.__s=I({},a.__s)),I(a.__s,B.getDerivedStateFromProps(h,a.__s))),f=a.props,g=a.state,a.__v=t,_)y&&B.getDerivedStateFromProps==null&&a.componentWillMount!=null&&a.componentWillMount(),y&&a.componentDidMount!=null&&a.__h.push(a.componentDidMount);else{if(y&&B.getDerivedStateFromProps==null&&h!==f&&a.componentWillReceiveProps!=null&&a.componentWillReceiveProps(h,M),t.__v==o.__v||!a.__e&&a.shouldComponentUpdate!=null&&a.shouldComponentUpdate(h,a.__s,M)===!1){t.__v!=o.__v&&(a.props=h,a.state=a.__s,a.__d=!1),t.__e=o.__e,t.__k=o.__k,t.__k.some(function(O){O&&(O.__=t)}),X.push.apply(a.__h,a._sb),a._sb=[],a.__h.length&&c.push(a);break e}a.componentWillUpdate!=null&&a.componentWillUpdate(h,a.__s,M),y&&a.componentDidUpdate!=null&&a.__h.push(function(){a.componentDidUpdate(f,g,k)})}if(a.context=M,a.props=h,a.__P=e,a.__e=!1,R=b.__r,xe=0,y)a.state=a.__s,a.__d=!1,R&&R(t),p=a.render(a.props,a.state,a.context),X.push.apply(a.__h,a._sb),a._sb=[];else do a.__d=!1,R&&R(t),p=a.render(a.props,a.state,a.context),a.state=a.__s;while(a.__d&&++xe<25);a.state=a.__s,a.getChildContext!=null&&(r=I(I({},r),a.getChildContext())),y&&!_&&a.getSnapshotBeforeUpdate!=null&&(k=a.getSnapshotBeforeUpdate(f,g)),W=p!=null&&p.type===E&&p.key==null?Ne(p.props.children):p,u=Ae(e,ee(W)?W:[W],t,o,r,i,s,c,u,d,l),a.base=t.__e,t.__u&=-161,a.__h.length&&c.push(a),v&&(a.__E=a.__=null)}catch(O){if(t.__v=null,d||s!=null)if(O.then){for(t.__u|=d?160:128;u&&u.nodeType==8&&u.nextSibling;)u=u.nextSibling;s[s.indexOf(u)]=null,t.__e=u}else{for(ce=s.length;ce--;)me(s[ce]);_e(t)}else t.__e=o.__e,t.__k=o.__k,O.then||_e(t);b.__e(O,t,o)}else s==null&&t.__v==o.__v?(t.__k=o.__k,t.__e=o.__e):u=t.__e=Ot(o.__e,t,o,r,i,s,c,d,l);return(p=b.diffed)&&p(t),128&t.__u?void 0:u}function _e(e){e&&(e.__c&&(e.__c.__e=!0),e.__k&&e.__k.some(_e))}function $e(e,t,o){for(var r=0;r<o.length;r++)he(o[r],o[++r],o[++r]);b.__c&&b.__c(t,e),e.some(function(i){try{e=i.__h,i.__h=[],e.some(function(s){s.call(i)})}catch(s){b.__e(s,i.__v)}})}function Ne(e){return typeof e!="object"||e==null||e.__b>0?e:ee(e)?e.map(Ne):I({},e)}function Ot(e,t,o,r,i,s,c,u,d){var l,p,a,_,f,g,k,v=o.props||Q,h=t.props,y=t.type;if(y=="svg"?i="http://www.w3.org/2000/svg":y=="math"?i="http://www.w3.org/1998/Math/MathML":i||(i="http://www.w3.org/1999/xhtml"),s!=null){for(l=0;l<s.length;l++)if((f=s[l])&&"setAttribute"in f==!!y&&(y?f.localName==y:f.nodeType==3)){e=f,s[l]=null;break}}if(e==null){if(y==null)return document.createTextNode(h);e=document.createElementNS(i,y,h.is&&h),u&&(b.__m&&b.__m(t,s),u=!1),s=null}if(y==null)v===h||u&&e.data==h||(e.data=h);else{if(s=s&&Z.call(e.childNodes),!u&&s!=null)for(v={},l=0;l<e.attributes.length;l++)v[(f=e.attributes[l]).name]=f.value;for(l in v)f=v[l],l=="dangerouslySetInnerHTML"?a=f:l=="children"||l in h||l=="value"&&"defaultValue"in h||l=="checked"&&"defaultChecked"in h||K(e,l,null,f,i);for(l in h)f=h[l],l=="children"?_=f:l=="dangerouslySetInnerHTML"?p=f:l=="value"?g=f:l=="checked"?k=f:u&&typeof f!="function"||v[l]===f||K(e,l,f,v[l],i);if(p)u||a&&(p.__html==a.__html||p.__html==e.innerHTML)||(e.innerHTML=p.__html),t.__k=[];else if(a&&(e.innerHTML=""),Ae(t.type=="template"?e.content:e,ee(_)?_:[_],t,o,r,y=="foreignObject"?"http://www.w3.org/1999/xhtml":i,s,c,s?s[0]:o.__k&&j(o,0),u,d),s!=null)for(l=s.length;l--;)me(s[l]);u||(l="value",y=="progress"&&g==null?e.removeAttribute("value"):g!=null&&(g!==e[l]||y=="progress"&&!g||y=="option"&&g!=v[l])&&K(e,l,g,v[l],i),l="checked",k!=null&&k!=e[l]&&K(e,l,k,v[l],i))}return e}function he(e,t,o){try{if(typeof e=="function"){var r=typeof e.__u=="function";r&&e.__u(),r&&t==null||(e.__u=e(t))}else e.current=t}catch(i){b.__e(i,o)}}function He(e,t,o){var r,i;if(b.unmount&&b.unmount(e),(r=e.ref)&&(r.current&&r.current!=e.__e||he(r,null,t)),(r=e.__c)!=null){if(r.componentWillUnmount)try{r.componentWillUnmount()}catch(s){b.__e(s,t)}r.base=r.__P=null}if(r=e.__k)for(i=0;i<r.length;i++)r[i]&&He(r[i],t,o||typeof e.type!="function");o||me(e.__e),e.__c=e.__=e.__e=void 0}function jt(e,t,o){return this.constructor(e,o)}function ze(e,t,o){var r,i,s,c;t==document&&(t=document.documentElement),b.__&&b.__(e,t),i=(r=typeof o=="function")?null:o&&o.__k||t.__k,s=[],c=[],ve(t,e=(!r&&o||t).__k=Nt(E,null,[e]),i||Q,Q,t.namespaceURI,!r&&o?[o]:i?null:t.firstChild?Z.call(t.childNodes):null,s,!r&&o?o:i?i.__e:t.firstChild,r,c),$e(s,e,c)}Z=X.slice,b={__e:function(e,t,o,r){for(var i,s,c;t=t.__;)if((i=t.__c)&&!i.__)try{if((s=i.constructor)&&s.getDerivedStateFromError!=null&&(i.setState(s.getDerivedStateFromError(e)),c=i.__d),i.componentDidCatch!=null&&(i.componentDidCatch(e,r||{}),c=i.__d),c)return i.__E=i}catch(u){e=u}throw e}},Me=0,At=function(e){return e!=null&&e.constructor===void 0},G.prototype.setState=function(e,t){var o;o=this.__s!=null&&this.__s!=this.state?this.__s:this.__s=I({},this.state),typeof e=="function"&&(e=e(I({},o),this.props)),e&&I(o,e),e!=null&&this.__v&&(t&&this._sb.push(t),Ce(this))},G.prototype.forceUpdate=function(e){this.__v&&(this.__e=!0,e&&this.__h.push(e),Ce(this))},G.prototype.render=E,F=[],Be=typeof Promise=="function"?Promise.prototype.then.bind(Promise.resolve()):setTimeout,Re=function(e,t){return e.__v.__b-t.__v.__b},Y.__r=0,ue=Math.random().toString(8),J="__d"+ue,U="__a"+ue,Ie=/(PointerCapture)$|Capture$/i,fe=0,de=Pe(!1),pe=Pe(!0),Ft=0;var V,x,ge,De,ne=0,qe=[],T=b,Oe=T.__b,je=T.__r,Ue=T.diffed,Ve=T.__c,We=T.unmount,Ke=T.__;function be(e,t){T.__h&&T.__h(x,e,ne||t),ne=0;var o=x.__H||(x.__H={__:[],__h:[]});return e>=o.__.length&&o.__.push({}),o.__[e]}function m(e){return ne=1,Ut(Qe,e)}function Ut(e,t,o){var r=be(V++,2);if(r.t=e,!r.__c&&(r.__=[o?o(t):Qe(void 0,t),function(u){var d=r.__N?r.__N[0]:r.__[0],l=r.t(d,u);d!==l&&(r.__N=[l,r.__[1]],r.__c.setState({}))}],r.__c=x,!x.__f)){var i=function(u,d,l){if(!r.__c.__H)return!0;var p=r.__c.__H.__.filter(function(_){return _.__c});if(p.every(function(_){return!_.__N}))return!s||s.call(this,u,d,l);var a=r.__c.props!==u;return p.some(function(_){if(_.__N){var f=_.__[0];_.__=_.__N,_.__N=void 0,f!==_.__[0]&&(a=!0)}}),s&&s.call(this,u,d,l)||a};x.__f=!0;var s=x.shouldComponentUpdate,c=x.componentWillUpdate;x.componentWillUpdate=function(u,d,l){if(this.__e){var p=s;s=void 0,i(u,d,l),s=p}c&&c.call(this,u,d,l)},x.shouldComponentUpdate=i}return r.__N||r.__}function w(e,t){var o=be(V++,3);!T.__s&&Ge(o.__H,t)&&(o.__=e,o.u=t,x.__H.__h.push(o))}function H(e){return ne=5,z(function(){return{current:e}},[])}function z(e,t){var o=be(V++,7);return Ge(o.__H,t)&&(o.__=e(),o.__H=t,o.__h=e),o.__}function Vt(){for(var e;e=qe.shift();){var t=e.__H;if(e.__P&&t)try{t.__h.some(te),t.__h.some(ye),t.__h=[]}catch(o){t.__h=[],T.__e(o,e.__v)}}}T.__b=function(e){x=null,Oe&&Oe(e)},T.__=function(e,t){e&&t.__k&&t.__k.__m&&(e.__m=t.__k.__m),Ke&&Ke(e,t)},T.__r=function(e){je&&je(e),V=0;var t=(x=e.__c).__H;t&&(ge===x?(t.__h=[],x.__h=[],t.__.some(function(o){o.__N&&(o.__=o.__N),o.u=o.__N=void 0})):(t.__h.some(te),t.__h.some(ye),t.__h=[],V=0)),ge=x},T.diffed=function(e){Ue&&Ue(e);var t=e.__c;t&&t.__H&&(t.__H.__h.length&&(qe.push(t)!==1&&De===T.requestAnimationFrame||((De=T.requestAnimationFrame)||Wt)(Vt)),t.__H.__.some(function(o){o.u&&(o.__H=o.u),o.u=void 0})),ge=x=null},T.__c=function(e,t){t.some(function(o){try{o.__h.some(te),o.__h=o.__h.filter(function(r){return!r.__||ye(r)})}catch(r){t.some(function(i){i.__h&&(i.__h=[])}),t=[],T.__e(r,o.__v)}}),Ve&&Ve(e,t)},T.unmount=function(e){We&&We(e);var t,o=e.__c;o&&o.__H&&(o.__H.__.some(function(r){try{te(r)}catch(i){t=i}}),o.__H=void 0,t&&T.__e(t,o.__v))};var Je=typeof requestAnimationFrame=="function";function Wt(e){var t,o=function(){clearTimeout(r),Je&&cancelAnimationFrame(t),setTimeout(e)},r=setTimeout(o,35);Je&&(t=requestAnimationFrame(o))}function te(e){var t=x,o=e.__c;typeof o=="function"&&(e.__c=void 0,o()),x=t}function ye(e){var t=x;e.__c=e.__(),x=t}function Ge(e,t){return!e||e.length!==t.length||t.some(function(o,r){return o!==e[r]})}function Qe(e,t){return typeof t=="function"?t(e):t}var Kt=0,In=Array.isArray;function n(e,t,o,r,i,s){t||(t={});var c,u,d=t;if("ref"in d)for(u in d={},t)u=="ref"?c=t[u]:d[u]=t[u];var l={type:e,props:d,key:o,ref:c,__k:null,__:null,__b:0,__e:null,__c:null,constructor:void 0,__v:--Kt,__i:-1,__u:0,__source:i,__self:s};if(typeof e=="function"&&(c=e.defaultProps))for(u in c)d[u]===void 0&&(d[u]=c[u]);return b.vnode&&b.vnode(l),l}var Jt={overview:n("path",{d:"M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"}),sessions:n("path",{d:"M4 6h16v2H4zm0 5h16v2H4zm0 5h10v2H4z"}),chains:n("path",{d:"M10.59 13.41L4 6.83l1.41-1.42 6.59 6.59 6.59-6.59L20 6.83l-9.41 9.41z"}),tournaments:n("path",{d:"M5 4h14v3a5 5 0 0 1-4 4.9V14h2v2H7v-2h2v-2.1A5 5 0 0 1 5 7V4z"}),events:n("circle",{cx:"12",cy:"12",r:"9"}),search:n("path",{d:"M21 21l-4.35-4.35M11 19a8 8 0 1 1 0-16 8 8 0 0 1 0 16z"}),audit:n("path",{d:"M9 11H7v8h2v-8zm4-6h-2v14h2V5zm4 9h-2v5h2v-5z"}),settings:n("path",{d:"M19.14 12.94a7.07 7.07 0 0 0 0-1.88l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.04 7.04 0 0 0-1.62-.94L14.4 2.7a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.62a7.04 7.04 0 0 0-1.62.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.07 7.07 0 0 0 0 1.88L2.83 14.5a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.38 1.04.7 1.62.94l.36 2.62c.04.25.25.42.5.42h3.84a.5.5 0 0 0 .5-.42l.36-2.62c.58-.24 1.12-.56 1.62-.94l2.39.96c.23.09.5 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"}),plus:n("path",{d:"M12 5v14M5 12h14"})};function oe({name:e,size:t=16}){return n("svg",{width:t,height:t,viewBox:"0 0 24 24",fill:"none",stroke:"currentColor","stroke-width":"1.6","stroke-linecap":"round","stroke-linejoin":"round","aria-hidden":"true",children:Jt[e]})}var C={source:null,listeners:new Map,refCount:0};function qt(){if(C.source)return;let e=new EventSource("/api/stream");e.addEventListener("hello",()=>{});for(let[t]of C.listeners)e.addEventListener(t,Xe(t));C.source=e}function Xe(e){return()=>{let t=C.listeners.get(e);if(t)for(let o of t)try{o()}catch{}}}function Gt(e,t){let o=C.listeners.get(e);o||(o=new Set,C.listeners.set(e,o),C.source&&C.source.addEventListener(e,Xe(e))),o.add(t),C.refCount++,qt()}function Qt(e,t){let o=C.listeners.get(e);o&&(o.delete(t),o.size===0&&C.listeners.delete(e)),C.refCount=Math.max(0,C.refCount-1),C.refCount===0&&C.source&&(C.source.close(),C.source=null)}function Ye(e,t){w(()=>{let o=Array.isArray(e)?e:[e];return o.forEach(r=>Gt(r,t)),()=>{o.forEach(r=>Qt(r,t))}},[Array.isArray(e)?e.join(","):e])}function $(e,t,o){let[r,i]=m({data:null,loading:!0,error:null}),s=H(!1),c=H();return w(()=>{s.current=!1;let u,d=async()=>{try{let l=await fetch(e,{headers:{Accept:"application/json"}});if(!l.ok)throw new Error(`${l.status} ${l.statusText}`);let p=await l.json();s.current||i({data:p,loading:!1,error:null})}catch(l){s.current||i(p=>({...p,loading:!1,error:l}))}};return c.current=d,d(),u=window.setInterval(d,t),()=>{s.current=!0,u!==void 0&&window.clearInterval(u)}},[e,t]),Ye(o??"",()=>{o&&c.current?.()}),r}var Xt=3e4;function Ze(){return $("/api/projects",Xt,"projects")}var Yt=[{id:"overview",label:"Overview",icon:"overview",href:"/"},{id:"sessions",label:"Sessions",icon:"sessions",href:"/"},{id:"chains",label:"Chains",icon:"chains"},{id:"tournaments",label:"Tournaments",icon:"tournaments"},{id:"events",label:"Events",icon:"events",href:"/audit"},{id:"search",label:"Search",icon:"search"},{id:"audit",label:"Audit",icon:"audit",href:"/audit"},{id:"settings",label:"Settings",icon:"settings",href:"/settings"}],Zt=["Active Work","Waiting for Input","Reviewers","High Cost","All Sessions"];function et({activeView:e="overview",currentProjectKey:t}){let{data:o}=Ze();return n("aside",{class:"app-shell__sidebar",children:[n("div",{class:"sidebar__brand",children:[n("span",{class:"sidebar__brand-mark","aria-hidden":"true"}),"fleet"]}),n("nav",{class:"sidebar__section","aria-label":"Primary views",children:n("ul",{class:"sidebar__nav",children:Yt.map(r=>n("li",{class:`sidebar__nav-item${r.id===e?" sidebar__nav-item--active":""}`,onClick:()=>{r.href&&(window.location.hash=r.href)},role:r.href?"link":void 0,style:{cursor:r.href?"pointer":"default"},children:[n(oe,{name:r.icon}),r.label]},r.id))})}),n("div",{class:"sidebar__section",children:[n("div",{class:"sidebar__heading",children:"Views"}),n("ul",{class:"sidebar__nav",children:Zt.map(r=>n("li",{class:"sidebar__nav-item",children:r},r))})]}),n("div",{class:"sidebar__section",children:[n("div",{class:"sidebar__heading",children:"Projects"}),n("ul",{class:"sidebar__nav",children:[(o??[]).map(r=>{let i=r.key===t,s=en(r.key),c=n(E,{children:[n("span",{style:{flex:1},children:s}),r.port?n("span",{style:{fontSize:"var(--text-xs)",color:"var(--color-text-tertiary)"},children:[":",r.port]}):null]}),u=`sidebar__nav-item${i?" sidebar__nav-item--active":""}`;return r.url&&!i?n("li",{class:u,children:n("a",{href:r.url,style:{color:"inherit",textDecoration:"none",display:"flex",alignItems:"center",gap:8,width:"100%"},children:c})},r.key):n("li",{class:u,children:c},r.key)}),o&&o.length===0?n("li",{class:"sidebar__nav-item",style:{color:"var(--color-text-tertiary)",fontStyle:"italic"},children:"No projects discovered"}):null]})]}),n("div",{class:"sidebar__user",children:[n("div",{style:{width:28,height:28,borderRadius:"50%",background:"#cbd5e1"}}),n("div",{children:[n("div",{style:{fontWeight:600},children:"You"}),n("div",{style:{color:"var(--color-text-tertiary)",fontSize:"var(--text-xs)"},children:"local"})]})]})]})}function en(e){return e.length<=8?e:`${e.slice(0,4)}\u2026${e.slice(-4)}`}function S({variant:e="default",type:t="button",onClick:o,disabled:r,children:i}){return n("button",{class:e==="primary"?"btn btn--primary":"btn",type:t,onClick:o,disabled:r,children:i})}var tn=["Live","5m","15m","1h","6h","24h"];function tt({title:e,onSpawnClick:t}){let[o,r]=m("Live");return n("div",{class:"app-shell__topbar",children:[n("div",{class:"topbar__title",children:e}),n("div",{class:"topbar__spacer"}),n("div",{class:"topbar__time-range",role:"group","aria-label":"Time range",children:tn.map(i=>n("button",{type:"button","aria-pressed":i===o,onClick:()=>r(i),children:i},i))}),n(S,{variant:"primary",onClick:t,children:[n(oe,{name:"plus",size:14}),"Spawn"]})]})}function L({activeView:e,topBarTitle:t,onSpawnClick:o,children:r}){return n("div",{class:"app-shell",children:[n(et,{activeView:e}),n("main",{class:"app-shell__main",children:[n(tt,{title:t,onSpawnClick:o}),n("div",{class:"app-shell__content",children:r})]})]})}function nt({data:e,height:t=28,color:o="currentColor"}){if(e.length<2)return n("svg",{class:"sparkline",viewBox:`0 0 100 ${t}`,preserveAspectRatio:"none"});let r=100,i=Math.max(...e),s=Math.min(...e),c=i-s||1,u=r/(e.length-1),d=e.map((l,p)=>{let a=(p*u).toFixed(2),_=(t-(l-s)/c*(t-2)-1).toFixed(2);return`${a},${_}`}).join(" ");return n("svg",{class:"sparkline",viewBox:`0 0 ${r} ${t}`,preserveAspectRatio:"none","aria-hidden":"true",children:n("polyline",{fill:"none",stroke:o,"stroke-width":"1.5","stroke-linejoin":"round","stroke-linecap":"round",points:d})})}function D({label:e,value:t,delta:o,caption:r,series:i,accent:s}){return n("div",{class:"stat-card",children:[n("div",{class:"stat-card__label",children:e}),n("div",{class:"stat-card__value",children:t}),o?n("div",{class:`stat-card__delta stat-card__delta--${o.direction??"flat"}`,children:[o.direction==="up"?"\u2191":o.direction==="down"?"\u2193":""," ",o.value]}):null,r?n("div",{class:"stat-card__delta",children:r}):null,i?n("div",{class:"stat-card__sparkline",style:{color:s??"var(--color-accent)"},children:n(nt,{data:i})}):null]})}function ot({stats:e}){return n("section",{class:"stat-ribbon","aria-label":"Fleet statistics",children:[n(D,{label:"Active Sessions",value:e.active_sessions.value,caption:`/${e.active_sessions.total} running`}),n(D,{label:"Needs Input",value:e.needs_input.value,delta:{value:String(e.needs_input.delta),direction:e.needs_input.delta>0?"up":"flat"}}),n(D,{label:"Completed",value:e.completed.value,caption:e.completed.window}),n(D,{label:"Est. Cost (24h)",value:e.est_cost_24h.value,delta:{value:`${e.est_cost_24h.delta_pct}%`,direction:"up"},series:e.est_cost_24h.series}),n(D,{label:"Runtime (24h)",value:e.runtime_24h.value,caption:"Total",series:e.runtime_24h.series,accent:"var(--color-state-working)"}),n(D,{label:"Events (24h)",value:e.events_24h.value.toLocaleString(),delta:{value:`${e.events_24h.delta_pct}%`,direction:"up"},series:e.events_24h.series,accent:"var(--color-state-reviewing)"})]})}var nn={working:"Working","needs-input":"Needs Input",error:"Error",done:"Done",idle:"Idle",reviewing:"Reviewing",blocked:"Blocked",completed:"Completed"};function re({state:e,label:t}){let o=t??nn[e]??e;return n("span",{class:`badge badge--${e}`,children:o})}function ie({placeholder:e="Search\u2026",initial:t="",onChange:o}){let[r,i]=m(t);return n("div",{class:"search-field",children:n("input",{type:"text",value:r,placeholder:e,onInput:s=>{let c=s.currentTarget.value;i(c),o?.(c)}})})}var rt=[{id:"all",label:"All",match:()=>!0},{id:"active",label:"Active",match:e=>e==="starting"||e==="working"||e==="reviewing"},{id:"needs-input",label:"Needs Input",match:e=>e==="needs-input"||e==="blocked"||e==="error"},{id:"done",label:"Done",match:e=>e==="done"||e==="completed"||e==="idle"}];function it({rows:e,loading:t,density:o="comfortable",onRowClick:r}){let[i,s]=m(""),[c,u]=m("all"),d=z(()=>{let l=i.trim().toLowerCase(),p=rt.find(a=>a.id===c);return e.filter(a=>p.match(a.state)?l?a.ticket.toLowerCase().includes(l)||a.slug.toLowerCase().includes(l)||(a.branch||"").toLowerCase().includes(l)||(a.parent||"").toLowerCase().includes(l):!0:!1)},[e,i,c]);return n("div",{children:[n("header",{style:{display:"flex",alignItems:"center",gap:12,marginBottom:12,flexWrap:"wrap"},children:[n("h2",{style:{margin:0,fontSize:"var(--text-lg)",fontWeight:600,letterSpacing:"-0.01em"},children:"Session Table"}),n("div",{class:"filter-chips",role:"group","aria-label":"State filter",children:rt.map(l=>n("button",{type:"button",class:`filter-chip${l.id===c?" filter-chip--active":""}`,"aria-pressed":l.id===c,onClick:()=>u(l.id),children:l.label},l.id))}),n("span",{style:{flex:1}}),n("span",{style:{fontSize:"var(--text-xs)",color:"var(--color-text-tertiary)"},children:[d.length," / ",e.length]}),n("div",{style:{width:240},children:n(ie,{placeholder:"Filter ticket, slug, branch\u2026",onChange:s})})]}),n("div",{class:`session-table${o==="compact"?" session-table--compact":""}`,role:"table","aria-label":"Sessions",children:[n("div",{class:"session-table__header",role:"row",children:[n("div",{role:"columnheader",children:"Ticket"}),n("div",{role:"columnheader",children:"Session"}),n("div",{role:"columnheader",children:"State"}),n("div",{role:"columnheader",children:"Parent"}),n("div",{role:"columnheader",children:"Branch"}),n("div",{role:"columnheader",children:"Activity"}),n("div",{role:"columnheader",children:"Cost"}),n("div",{role:"columnheader",children:"Runtime"}),n("div",{role:"columnheader",children:"Progress"})]}),t&&e.length===0?n(we,{children:"Loading sessions\u2026"}):d.length===0&&e.length>0?n(we,{children:"No sessions match the current filter."}):e.length===0?n(we,{children:["No sessions yet. Spawn one with"," ",n("code",{children:"spawn-claude-feature <TICKET> <slug> --prompt-file <path> --full-auto"})," ","or ",n("code",{children:"/fleet:spawn <TICKET>"})," from a Claude Code session."]}):d.map(l=>n("div",{class:"session-table__row",role:"row",onClick:()=>r?.(l),children:[n("div",{role:"cell",style:{fontWeight:600},children:l.ticket}),n("div",{role:"cell",style:{color:"var(--color-text-secondary)"},children:l.slug||"\u2014"}),n("div",{role:"cell",children:[n(re,{state:l.state}),l.drift!=null&&l.drift>.6?n("span",{title:`Drift score ${Math.round(l.drift*100)}% \u2014 agent may be stuck`,style:{marginLeft:6,color:"var(--color-state-needs-input)",fontSize:"var(--text-xs)"},children:"\u26A0"}):null]}),n("div",{role:"cell",style:{color:"var(--color-text-secondary)"},children:l.parent||"\u2014"}),n("div",{role:"cell",style:{fontFamily:"var(--font-mono)",fontSize:"var(--text-xs)"},children:l.branch||"\u2014"}),n("div",{role:"cell",children:l.activity}),n("div",{role:"cell",children:l.cost}),n("div",{role:"cell",children:l.runtime}),n("div",{role:"cell",children:n("div",{class:"session-table__progress","aria-label":`${Math.round(l.progress*100)}% complete`,children:n("div",{class:"session-table__progress-bar",style:{width:`${Math.round(l.progress*100)}%`}})})})]},l.ticket))]})]})}function we({children:e}){return n("div",{role:"row",style:{padding:"32px 16px",textAlign:"center",color:"var(--color-text-secondary)",fontSize:"var(--text-sm)"},children:e})}function st(e){let t="";for(let o=0;o<e.length;o++){let r=e[o];if(r==="\\"&&o+1<e.length){let i=e[o+1];if(i==="n"){t+=`
-`,o++;continue}if(i==="r"){t+="\r",o++;continue}if(i==="\\"){t+="\\",o++;continue}}t+=r}return t}function at({ticket:e,height:t=360}){let[o,r]=m(""),[i,s]=m(null),c=H(null);return w(()=>{r(""),s(null);let u=new EventSource(`/api/sessions/${encodeURIComponent(e)}/stream`);return u.addEventListener("snapshot",d=>{let l=d.data;r(st(l))}),u.addEventListener("append",d=>{let l=d.data;r(p=>p+st(l))}),u.addEventListener("error",()=>{s("connection interrupted")}),()=>u.close()},[e]),w(()=>{c.current&&(c.current.scrollTop=c.current.scrollHeight)},[o]),n("div",{class:"terminal-view",children:[i?n("div",{class:"terminal-view__notice",children:i}):null,n("pre",{ref:c,class:"terminal-view__pre",style:{height:typeof t=="number"?`${t}px`:t},children:o||"(waiting for output\u2026)"})]})}async function lt(e,t){let o=await fetch(`/api/sessions/${encodeURIComponent(e)}/send`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message:t})});if(!o.ok)throw new Error(await N(o))}async function ct(e){let t=await fetch(`/api/sessions/${encodeURIComponent(e)}/kill`,{method:"POST"});if(!t.ok){let o=await N(t);throw t.status===409?new Error(`UNCOMMITTED: ${o}`):new Error(o)}}async function ut(e,t){let o=await fetch("/api/estimate-cost",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt:e,full_auto:t})});if(!o.ok)throw new Error(await N(o));return o.json()}async function dt(e){let t=await fetch("/api/spawn",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(e)});if(!t.ok)throw new Error(await N(t));return t.json()}async function pt(e){let t=await fetch("/api/broadcast",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message:e})});if(!t.ok)throw new Error(await N(t));return t.json()}async function _t(e,t,o=!0){let r=await fetch(`/api/sessions/${encodeURIComponent(e)}/review`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt:t??"",full_auto:o})});if(!r.ok)throw new Error(await N(r));return r.json()}async function N(e){try{return(await e.json()).error||`${e.status} ${e.statusText}`}catch{return`${e.status} ${e.statusText}`}}async function ft(){let e=await fetch("/api/settings");if(!e.ok)throw new Error(await N(e));return e.json()}async function mt(e){let t=await fetch("/api/settings",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(e)});if(!t.ok)throw new Error(await N(t));return t.json()}async function vt(){try{let e=await fetch("/api/version");if(e.ok)return e.json()}catch{}return{build:"dev",project:"unknown"}}var on=["Overview","Logs"];function gt({ticket:e,onClose:t,onKilled:o}){let[r,i]=m(null),[s,c]=m(null),[u,d]=m("Overview"),[l,p]=m(null),[a,_]=m(null);return w(()=>{i(null),c(null);let f=`/api/sessions/${encodeURIComponent(e)}`,g=()=>fetch(f).then(v=>v.ok?v.json():Promise.reject(new Error(`${v.status} ${v.statusText}`))).then(i).catch(v=>c(v.message));g();let k=window.setInterval(g,5e3);return()=>window.clearInterval(k)},[e]),n("aside",{class:"detail-panel",children:[n("header",{class:"detail-panel__header",children:[n("div",{class:"detail-panel__crumbs",children:[n("span",{style:{color:"var(--color-text-tertiary)"},children:"Sessions \u203A"}),n("strong",{children:e}),r?n("span",{style:{color:"var(--color-text-secondary)"},children:r.slug}):null,r?n(re,{state:r.state}):null]}),n("div",{class:"detail-panel__actions",children:[n(S,{onClick:()=>p("send"),children:"Send Input"}),n(S,{onClick:()=>p("review"),children:"Spawn Reviewer"}),n(S,{onClick:()=>{window.location.hash=`/sessions/${encodeURIComponent(e)}/replay`},children:"Replay"}),n(S,{onClick:()=>p("kill"),children:"Kill"}),t?n(S,{onClick:t,children:"Close"}):null]}),a?n("div",{style:{fontSize:"var(--text-xs)",color:"var(--color-state-done)"},children:a}):null]}),n("nav",{class:"detail-panel__tabs",role:"tablist",children:on.map(f=>n("button",{class:`detail-panel__tab${f===u?" detail-panel__tab--active":""}`,type:"button",role:"tab","aria-selected":f===u,onClick:()=>d(f),children:f},f))}),n("div",{class:"detail-panel__body",children:s?n("div",{style:{color:"var(--color-state-error)"},children:s}):u==="Overview"?n(sn,{row:r}):n(at,{ticket:e})}),l==="send"?n(an,{ticket:e,onClose:()=>p(null),onSent:f=>{p(null),_(`Sent: ${f.slice(0,40)}${f.length>40?"\u2026":""}`),window.setTimeout(()=>_(null),3e3)}}):null,l==="kill"?n(ln,{ticket:e,onClose:()=>p(null),onKilled:()=>{p(null),o?.(),t?.()}}):null,l==="review"?n(rn,{ticket:e,onClose:()=>p(null),onSpawned:f=>{p(null),_(`Spawned reviewer ${f}`),window.setTimeout(()=>_(null),4e3)}}):null]})}function rn({ticket:e,onClose:t,onSpawned:o}){let[r,i]=m(""),[s,c]=m(!1),[u,d]=m(null);return n(Se,{title:`Spawn reviewer for ${e}`,onClose:t,children:[n("p",{style:{fontSize:"var(--text-sm)",color:"var(--color-text-secondary)"},children:["Spawns a child session at ",n("code",{children:[e,"-rev"]})," with ",n("code",{children:["--parent ",e]})," and ",n("code",{children:"--full-auto"}),". The reviewer reads the parent's branch and posts a structured review."]}),n("textarea",{class:"modal__textarea",rows:5,value:r,onInput:l=>i(l.currentTarget.value),placeholder:`Optional review prompt \u2014 leave blank for the default (read branch/diff/PR for ${e}, post review).`}),u?n("div",{style:{color:"var(--color-state-error)",fontSize:"var(--text-xs)"},children:u}):null,n("div",{class:"modal__actions",children:[n(S,{onClick:t,children:"Cancel"}),n(S,{variant:"primary",disabled:s,onClick:async()=>{c(!0),d(null);try{let l=await _t(e,r.trim()||void 0,!0);o(l.ticket)}catch(l){d(l.message)}finally{c(!1)}},children:s?"Spawning\u2026":"Spawn Reviewer"})]})]})}function sn({row:e}){if(!e)return n("div",{style:{color:"var(--color-text-tertiary)"},children:"Loading\u2026"});let t=e.confidence??null,o=e.drift??null;return n(E,{children:[e.objective?n("div",{style:{marginBottom:"var(--space-3)",fontSize:"var(--text-sm)",color:"var(--color-text-secondary)"},children:[n("span",{style:{fontWeight:600,color:"var(--color-text-primary)"},children:"Objective: "}),e.objective]}):null,n("dl",{class:"detail-panel__meta",children:[n("dt",{children:"Branch"}),n("dd",{children:n("code",{children:e.branch||"\u2014"})}),n("dt",{children:"Parent"}),n("dd",{children:e.parent||"\u2014"}),n("dt",{children:"Activity"}),n("dd",{children:e.activity}),n("dt",{children:"Cost"}),n("dd",{children:e.cost}),n("dt",{children:"Runtime"}),n("dd",{children:e.runtime}),n("dt",{children:"Progress"}),n("dd",{children:[Math.round(e.progress*100),"%"]}),t!=null?n(E,{children:[n("dt",{children:"State confidence"}),n("dd",{children:n(ht,{value:t})})]}):null,o!=null&&o>.05?n(E,{children:[n("dt",{children:"Drift score"}),n("dd",{children:[n(ht,{value:o,tone:"warn"}),o>.6?n("div",{style:{fontSize:"var(--text-xs)",color:"var(--color-state-error)"},children:"\u26A0 The agent has been quiet for a while \u2014 consider attaching to check on it."}):null]})]}):null]})]})}function ht({value:e,tone:t="good"}){let o=Math.round(Math.max(0,Math.min(1,e))*100),r=t==="warn"?"var(--color-state-needs-input)":"var(--color-state-done)";return n("div",{style:{display:"flex",alignItems:"center",gap:8},children:[n("div",{style:{width:80,height:6,background:"var(--color-bg-muted)",borderRadius:999,overflow:"hidden"},children:n("div",{style:{width:`${o}%`,height:"100%",background:r}})}),n("span",{style:{fontSize:"var(--text-xs)",color:"var(--color-text-secondary)"},children:[o,"%"]})]})}function an({ticket:e,onClose:t,onSent:o}){let[r,i]=m(""),[s,c]=m(!1),[u,d]=m(null);return n(Se,{title:`Send input to ${e}`,onClose:t,children:[n("textarea",{class:"modal__textarea",rows:5,value:r,onInput:l=>i(l.currentTarget.value),placeholder:"Type a message; Enter sends, Shift+Enter for newline",autoFocus:!0}),u?n("div",{style:{color:"var(--color-state-error)",fontSize:"var(--text-xs)"},children:u}):null,n("div",{class:"modal__actions",children:[n(S,{onClick:t,children:"Cancel"}),n(S,{variant:"primary",disabled:!r.trim()||s,onClick:async()=>{c(!0),d(null);try{await lt(e,r),o(r)}catch(l){d(l.message)}finally{c(!1)}},children:s?"Sending\u2026":"Send"})]})]})}function ln({ticket:e,onClose:t,onKilled:o}){let[r,i]=m(!1),[s,c]=m(null),[u,d]=m(!1);return n(Se,{title:`Kill ${e}?`,onClose:t,children:[n("p",{children:"This stops the tmux session, removes the worktree, and deletes the branch."}),n("p",{children:"If the worktree has unpushed work, the kill will refuse \u2014 investigate before forcing (per BDM-13 safety)."}),s?n("div",{style:{color:"var(--color-state-error)",fontSize:"var(--text-xs)"},children:[u?"\u26A0 Worktree has uncommitted changes. ":"",s]}):null,n("div",{class:"modal__actions",children:[n(S,{onClick:t,children:"Cancel"}),n(S,{variant:"primary",disabled:r,onClick:async()=>{i(!0),c(null),d(!1);try{await ct(e),o()}catch(l){let p=l.message;p.startsWith("UNCOMMITTED:")?(d(!0),c(p.replace(/^UNCOMMITTED:\s*/,""))):c(p)}finally{i(!1)}},children:r?"Killing\u2026":"Confirm Kill"})]})]})}function Se({title:e,onClose:t,children:o}){return n("div",{class:"modal-backdrop",onClick:t,children:n("div",{class:"modal",onClick:r=>r.stopPropagation(),children:[n("header",{class:"modal__header",children:e}),n("div",{class:"modal__body",children:o})]})})}var cn=["Manual","From Jira","From Backlog"];function bt({onClose:e,onSpawned:t}){let[o,r]=m("Manual");return n("div",{class:"modal-backdrop",onClick:e,children:n("div",{class:"modal modal--lg",onClick:i=>i.stopPropagation(),children:[n("header",{class:"modal__header",children:"Spawn a new session"}),n("nav",{class:"modal__tabs",role:"tablist",children:cn.map(i=>n("button",{type:"button",role:"tab","aria-selected":i===o,class:`modal__tab${i===o?" modal__tab--active":""}`,onClick:()=>r(i),children:i},i))}),n("div",{class:"modal__body",children:o==="Manual"?n(un,{onClose:e,onSpawned:t}):o==="From Jira"?n(yt,{title:"Spawn from Jira ticket",hint:"Paste a ticket key (BDM-N); the modal will fetch summary/description and pre-fill the prompt. Lands with B7 in Phase 7."}):n(yt,{title:"Spawn from backlog",hint:"Pick from the project's open backlog as a list, optionally batch-spawn. Lands with B7 in Phase 7."})})]})})}function un({onClose:e,onSpawned:t}){let[o,r]=m({ticket:"",slug:"",prompt:"",full_auto:!0}),[i,s]=m(!1),[c,u]=m(null),[d,l]=m(null);w(()=>{if(!o.prompt.trim()){l(null);return}let _=!1,f=window.setTimeout(async()=>{try{let g=await ut(o.prompt,!!o.full_auto);_||l(g)}catch{}},400);return()=>{_=!0,window.clearTimeout(f)}},[o.prompt,o.full_auto]);let p=/^[A-Z][A-Z0-9]+-\d+$/.test(o.ticket.trim())&&/^[a-z0-9][a-z0-9-]{0,63}$/.test(o.slug.trim())&&o.prompt.trim().length>0;async function a(){s(!0),u(null);try{let _=await dt({ticket:o.ticket.trim(),slug:o.slug.trim(),prompt:o.prompt,full_auto:o.full_auto,parent:o.parent?.trim()||void 0,max_depth:o.max_depth||void 0});t?.(_.ticket),e()}catch(_){u(_.message)}finally{s(!1)}}return n("form",{class:"spawn-form",onSubmit:_=>{_.preventDefault(),p&&!i&&a()},children:[n("div",{class:"spawn-form__row",children:[n("label",{children:[n("span",{class:"spawn-form__label",children:"Ticket"}),n("input",{class:"spawn-form__input",type:"text",placeholder:"BDM-99",value:o.ticket,onInput:_=>r({...o,ticket:_.currentTarget.value}),autoFocus:!0})]}),n("label",{children:[n("span",{class:"spawn-form__label",children:"Slug"}),n("input",{class:"spawn-form__input",type:"text",placeholder:"fix-login-redirect",value:o.slug,onInput:_=>r({...o,slug:_.currentTarget.value})})]})]}),n("label",{children:[n("span",{class:"spawn-form__label",children:"Prompt"}),n("textarea",{class:"spawn-form__textarea",rows:8,placeholder:"Describe what the agent should do\u2026",value:o.prompt,onInput:_=>r({...o,prompt:_.currentTarget.value})})]}),n("div",{class:"spawn-form__row",children:[n("label",{children:[n("span",{class:"spawn-form__label",children:"Parent (optional)"}),n("input",{class:"spawn-form__input",type:"text",placeholder:"BDM-14",value:o.parent??"",onInput:_=>r({...o,parent:_.currentTarget.value})})]}),n("label",{children:[n("span",{class:"spawn-form__label",children:"Max depth"}),n("input",{class:"spawn-form__input",type:"number",min:0,max:5,value:o.max_depth??"",onInput:_=>{let f=_.currentTarget.value;r({...o,max_depth:f?Number(f):void 0})}})]})]}),n("label",{class:"spawn-form__check",children:[n("input",{type:"checkbox",checked:!!o.full_auto,onChange:_=>r({...o,full_auto:_.currentTarget.checked})}),n("span",{children:"--full-auto (skip per-step permission gate; recommended for autonomous runs)"})]}),d?n("div",{style:{fontSize:"var(--text-xs)",color:"var(--color-text-secondary)"},children:["Estimated cost: ",n("strong",{children:["$",d.low.toFixed(2)]})," \u2013 ",n("strong",{children:["$",d.high.toFixed(2)]})," ",n("span",{style:{color:"var(--color-text-tertiary)"},children:"(heuristic; Haiku-judged estimate lands later)"})]}):null,c?n("div",{style:{color:"var(--color-state-error)",fontSize:"var(--text-xs)"},children:c}):null,n("div",{class:"modal__actions",children:[n(S,{onClick:e,type:"button",children:"Cancel"}),n(S,{variant:"primary",disabled:!p||i,type:"submit",children:i?"Spawning\u2026":"Spawn"})]})]})}function yt({title:e,hint:t}){return n("div",{style:{display:"grid",gap:12,color:"var(--color-text-secondary)"},children:[n("div",{style:{fontSize:"var(--text-base)",fontWeight:600,color:"var(--color-text-primary)"},children:e}),n("div",{style:{fontSize:"var(--text-sm)"},children:t}),n("div",{style:{fontSize:"var(--text-xs)",color:"var(--color-text-tertiary)"},children:["Use the ",n("strong",{children:"Manual"})," tab today; it produces an identical result to ",n("code",{children:"spawn-claude-feature"}),"."]})]})}function wt({onClose:e}){let[t,o]=m(""),[r,i]=m(!1),[s,c]=m(null),[u,d]=m(null);return n("div",{class:"modal-backdrop",onClick:e,children:n("div",{class:"modal modal--lg",onClick:l=>l.stopPropagation(),children:[n("header",{class:"modal__header",children:"Broadcast input to all running sessions"}),n("div",{class:"modal__body",children:u==null?n(E,{children:[n("p",{style:{fontSize:"var(--text-sm)",color:"var(--color-text-secondary)"},children:["The same message will be delivered to every session in ",n("code",{children:"working"}),","," ",n("code",{children:"needs-input"}),", ",n("code",{children:"reviewing"}),", or ",n("code",{children:"starting"}),"."]}),n("textarea",{class:"modal__textarea",rows:6,placeholder:"Type the broadcast message\u2026",value:t,onInput:l=>o(l.currentTarget.value),autoFocus:!0}),s?n("div",{style:{color:"var(--color-state-error)",fontSize:"var(--text-xs)"},children:s}):null,n("div",{class:"modal__actions",children:[n(S,{onClick:e,children:"Cancel"}),n(S,{variant:"primary",disabled:!t.trim()||r,onClick:async()=>{i(!0),c(null);try{let l=await pt(t);d(l)}catch(l){c(l.message)}finally{i(!1)}},children:r?"Broadcasting\u2026":"Broadcast"})]})]}):n(dn,{result:u,onClose:e})})]})})}function dn({result:e,onClose:t}){let o=e.results.filter(i=>i.ok).length,r=e.results.length-o;return n(E,{children:[n("div",{style:{fontSize:"var(--text-sm)"},children:["Delivered to ",n("strong",{children:o})," session",o===1?"":"s",r>0?`, ${r} failed`:"","."]}),n("ul",{style:{listStyle:"none",padding:0,margin:0,display:"grid",gap:4,maxHeight:240,overflow:"auto"},children:e.results.map(i=>n("li",{style:{fontSize:"var(--text-xs)",fontFamily:"var(--font-mono)",color:i.ok?"var(--color-state-done)":"var(--color-state-error)"},children:[i.ok?"\u2713":"\u2717"," ",i.ticket,i.error?` \u2014 ${i.error}`:""]},i.ticket))}),n("div",{class:"modal__actions",children:n(S,{variant:"primary",onClick:t,children:"Done"})})]})}var pn=[{keys:"?",desc:"Toggle this overlay"},{keys:"/",desc:"Focus search"},{keys:"g o",desc:"Go to overview"},{keys:"d",desc:"Toggle density (compact \u2194 comfortable)"},{keys:"n",desc:"New session (open spawn modal)"},{keys:"b",desc:"Broadcast input to all running sessions"},{keys:"Esc",desc:"Close modals / clear selection"}];function St({onClose:e}){return w(()=>{let t=o=>{(o.key==="Escape"||o.key==="?")&&e()};return window.addEventListener("keydown",t),()=>window.removeEventListener("keydown",t)},[e]),n("div",{class:"modal-backdrop",onClick:e,children:n("div",{class:"modal",onClick:t=>t.stopPropagation(),children:[n("header",{class:"modal__header",children:"Keyboard shortcuts"}),n("div",{class:"modal__body",children:n("table",{class:"kbd-table",children:n("tbody",{children:pn.map(t=>n("tr",{children:[n("td",{children:t.keys.split(" ").map((o,r)=>n("span",{children:[n("kbd",{class:"kbd",children:o}),r<t.keys.split(" ").length-1?" ":""]},r))}),n("td",{children:t.desc})]},t.keys))})})})]})})}var _n=5e3;function kt(){return $("/api/sessions",_n,"sessions")}var fn=5e3;function xt(){return $("/api/stats",fn,"stats")}var mn=/^(input|textarea|select)$/i;function Tt(e){w(()=>{let t=o=>{let r=o.target,i=!!r&&(mn.test(r.tagName)||r.isContentEditable);if(o.key==="Escape"){e.onEscape?.();return}if(!i)switch(o.key){case"?":o.preventDefault(),e.onHelp?.();break;case"/":o.preventDefault(),e.onFocusSearch?.();break;case"d":e.onToggleDensity?.();break;case"n":e.onSpawn?.();break;case"b":e.onBroadcast?.();break}};return window.addEventListener("keydown",t),()=>window.removeEventListener("keydown",t)},[e])}function se(e,t){let[o,r]=m(()=>{try{let i=localStorage.getItem(e);return i==null?t:JSON.parse(i)}catch{return t}});return w(()=>{try{localStorage.setItem(e,JSON.stringify(o))}catch{}},[e,o]),[o,r]}function Ct(){let e=xt(),t=kt(),[o,r]=m(null),[i,s]=m(null),[c,u]=m(!1),[d,l]=m(!1),[p,a]=m(!1),[_,f]=m(null),[g,k]=se("fleet.density","comfortable");return w(()=>{vt().then(r)},[]),w(()=>{let v=t.data??[],h=v.filter(R=>["starting","working","reviewing"].includes(R.state)).length,y=v.filter(R=>["needs-input","blocked","error"].includes(R.state)).length,P=o?.project??"",M=["Fleet"];v.length>0&&M.push(`${h}/${v.length}`),y>0&&M.push(`${y} \u26A0`),document.title=M.join(" \xB7 ")+(P?` \u2014 ${P}`:"")},[t.data,o?.project]),Tt({onHelp:()=>a(v=>!v),onFocusSearch:()=>{document.querySelector(".search-field input")?.focus()},onToggleDensity:()=>k(g==="compact"?"comfortable":"compact"),onSpawn:()=>u(!0),onBroadcast:()=>l(!0),onEscape:()=>{c?u(!1):d?l(!1):p?a(!1):i&&s(null)}}),n(L,{activeView:"overview",topBarTitle:"Fleet Overview",onSpawnClick:()=>u(!0),children:[n("div",{class:`overview${i?" overview--with-detail":""}`,children:[n("main",{class:"overview__main",children:[e.data?n(ot,{stats:e.data}):e.loading?n("div",{style:{marginBottom:24,color:"var(--color-text-tertiary)"},children:"Loading stats\u2026"}):null,t.error?n("div",{style:{marginBottom:16,color:"var(--color-state-error)"},children:["Couldn't load sessions: ",t.error.message]}):null,n(it,{rows:t.data??[],loading:t.loading&&!t.data,density:g,onRowClick:v=>s(v.ticket)}),n("footer",{style:{marginTop:32,display:"flex",alignItems:"center",gap:16,color:"var(--color-text-tertiary)",fontSize:"var(--text-xs)"},children:[o?n("span",{children:["fleet-web ",o.build," \xB7 project ",o.project]}):null,n("span",{style:{flex:1}}),n("button",{type:"button",class:"link-button",onClick:()=>l(!0),title:"Broadcast input (b)",children:"Broadcast"}),n("button",{type:"button",class:"link-button",onClick:()=>k(g==="compact"?"comfortable":"compact"),title:"Toggle density (d)",children:g==="compact"?"Comfortable":"Compact"}),n("button",{type:"button",class:"link-button",onClick:()=>a(!0),title:"Shortcuts (?)",children:"? Shortcuts"})]})]}),i?n(gt,{ticket:i,onClose:()=>s(null)}):null]}),c?n(bt,{onClose:()=>u(!1),onSpawned:v=>{f(`Spawned ${v}`),window.setTimeout(()=>f(null),4e3)}}):null,d?n(wt,{onClose:()=>l(!1)}):null,p?n(St,{onClose:()=>a(!1)}):null,_?n("div",{style:{position:"fixed",bottom:24,right:24,padding:"10px 16px",background:"var(--color-state-done)",color:"#fff",borderRadius:6,fontSize:"var(--text-sm)",boxShadow:"var(--shadow-md)",zIndex:100},children:_}):null]})}var vn=5e3,hn=100;function Et(){return $(`/api/events?limit=${hn}`,vn,"events")}var gn={pr_opened:"var(--color-state-working)",merge:"var(--color-state-done)",review_comment:"var(--color-state-reviewing)",review_summary:"var(--color-state-reviewing)",commit_pushed:"var(--color-text-secondary)"};function Pt(){let e=Et(),[t,o]=m(""),r=z(()=>{let i=e.data??[],s=t.trim().toLowerCase();return s?i.filter(c=>c.ticket.toLowerCase().includes(s)||c.kind.toLowerCase().includes(s)||JSON.stringify(c.detail).toLowerCase().includes(s)):i},[e.data,t]);return n(L,{activeView:"audit",topBarTitle:"Audit log",children:[n("div",{style:{display:"flex",alignItems:"center",gap:12,marginBottom:16},children:[n("h2",{style:{margin:0,fontSize:"var(--text-lg)",fontWeight:600},children:"Audit log"}),n("span",{style:{flex:1}}),n("span",{style:{fontSize:"var(--text-xs)",color:"var(--color-text-tertiary)"},children:[r.length," / ",(e.data??[]).length]}),n("div",{style:{width:280},children:n(ie,{placeholder:"Filter ticket / kind / detail\u2026",onChange:o})})]}),e.error?n("div",{style:{color:"var(--color-state-error)"},children:["Couldn't load events: ",e.error.message]}):e.loading&&!e.data?n("div",{style:{color:"var(--color-text-tertiary)"},children:"Loading\u2026"}):r.length===0?n("div",{style:{color:"var(--color-text-tertiary)"},children:"No events match the current filter. Audit feed is sourced from the per-session events JSONL files."}):n("ol",{class:"audit-list",children:r.map(i=>n("li",{class:"audit-list__row",children:[n("div",{class:"audit-list__time",title:i.id,children:yn(i.ts)}),n("div",{class:"audit-list__ticket",children:i.ticket}),n("div",{class:"audit-list__kind",style:{color:gn[i.kind]??"var(--color-text-secondary)"},children:i.kind}),n("div",{class:"audit-list__detail",children:n("code",{style:{fontSize:"var(--text-xs)"},children:bn(i.detail)})})]},i.id))})]})}function yn(e){let t=new Date(e);return Number.isNaN(t.getTime())?String(e):t.toLocaleString()}function bn(e){let t=Object.keys(e);return t.length===0?"":t.slice(0,4).map(r=>{let i=e[r],s=typeof i=="string"?i:JSON.stringify(i),c=s.length>60?s.slice(0,57)+"\u2026":s;return`${r}=${c}`}).join(" \xB7 ")}function Mt(e){let t=(e||"").replace(/^#\/?/,"");if(!t||t==="/")return{name:"overview",params:{}};if(t==="audit")return{name:"audit",params:{}};if(t==="settings")return{name:"settings",params:{}};let o=/^sessions\/([^/]+)\/replay$/.exec(t);return o?{name:"replay",params:{ticket:decodeURIComponent(o[1])}}:{name:"overview",params:{}}}function ae(){let[e,t]=m(()=>Mt(window.location.hash));return w(()=>{let r=()=>t(Mt(window.location.hash));return window.addEventListener("hashchange",r),()=>window.removeEventListener("hashchange",r)},[]),[e,r=>{window.location.hash=r.startsWith("#")?r:`#${r}`}]}var wn=256*1024;function Bt(){let[,e]=ae(),t=Sn(),[o,r]=m(null),[i,s]=m(null),[c,u]=m([]),[d,l]=m(0),[p,a]=m(!1),[_,f]=m(1),g=H(null),k=z(()=>o==null?[]:o.split(`
-`),[o]);return w(()=>{if(!t.ticket)return;let v=new AbortController;return fetch(`/api/sessions/${encodeURIComponent(t.ticket)}/log?bytes=${wn}`,{signal:v.signal}).then(h=>h.ok?h.text():Promise.reject(new Error(`${h.status} ${h.statusText}`))).then(h=>{r(h),l(h.split(`
-`).length-1)}).catch(h=>{h.name!=="AbortError"&&s(h.message)}),fetch("/api/events?limit=200",{signal:v.signal}).then(h=>h.ok?h.json():Promise.reject(new Error(`${h.status} ${h.statusText}`))).then(h=>u(h.filter(y=>y.ticket===t.ticket))).catch(()=>{}),()=>v.abort()},[t.ticket]),w(()=>{if(!p)return;let v=Math.max(20,200/_);return g.current=window.setInterval(()=>{l(h=>h>=k.length-1?(a(!1),h):h+1)},v),()=>{g.current!=null&&window.clearInterval(g.current),g.current=null}},[p,_,k.length]),t.ticket?n(L,{activeView:"sessions",topBarTitle:`Replay \u2014 ${t.ticket}`,children:[n("div",{style:{display:"flex",alignItems:"center",gap:12,marginBottom:16},children:[n(S,{onClick:()=>e("/"),children:"\u2190 Back to overview"}),n("span",{style:{flex:1}}),n(S,{onClick:()=>a(v=>!v),disabled:k.length===0,children:p?"\u23F8 Pause":"\u25B6 Play"}),n("span",{style:{display:"inline-flex",gap:4},role:"group","aria-label":"Speed",children:[.5,1,2,4].map(v=>n("button",{type:"button",class:`filter-chip${v===_?" filter-chip--active":""}`,onClick:()=>f(v),children:[v,"x"]},v))})]}),i?n("div",{style:{color:"var(--color-state-error)"},children:["Couldn't load log: ",i]}):null,n("div",{class:"replay",children:[n("pre",{class:"replay__terminal","aria-label":"Replay terminal",children:k.slice(0,d+1).join(`
-`)}),n("input",{class:"replay__scrub",type:"range",min:0,max:Math.max(0,k.length-1),value:d,onInput:v=>{a(!1),l(Number(v.currentTarget.value))},"aria-label":"Scrub timeline"}),n("div",{class:"replay__meta",children:[n("span",{children:["line ",d+1," / ",k.length]}),c.length>0?n("span",{style:{marginLeft:16},children:[c.length," event",c.length===1?"":"s"]}):null]}),c.length>0?n("ol",{class:"replay__events",children:c.map((v,h)=>n("li",{class:"replay__event",children:n("button",{type:"button",class:"link-button",onClick:()=>{let y=Math.round((h+1)/c.length*(k.length-1));a(!1),l(y)},children:[n("span",{style:{fontFamily:"var(--font-mono)",fontSize:"var(--text-xs)"},children:new Date(v.ts).toLocaleTimeString()})," ",n("strong",{children:v.kind})]})},v.id))}):null]})]}):n(L,{activeView:"sessions",topBarTitle:"Replay",children:n("div",{children:"No ticket in route. Navigate from the session detail panel."})})}function Sn(){let e=/^#\/?sessions\/([^/]+)\/replay$/.exec(window.location.hash);return{ticket:e?decodeURIComponent(e[1]):null}}var kn={theme:"light",accent:"#2563eb",font:"inter"};function le(){let[e,t]=se("fleet.theme",kn);return w(()=>{let o=document.documentElement;e.theme==="light"?o.removeAttribute("data-theme"):o.setAttribute("data-theme",e.theme),e.font==="inter"?o.removeAttribute("data-font"):o.setAttribute("data-font",e.font),e.accent&&o.style.setProperty("--color-accent",e.accent)},[e]),[e,t]}var xn=[{id:"light",label:"Light"},{id:"dark",label:"Dark"},{id:"repllt-blue",label:"Repllt Blue"}],Tn=["#2563eb","#0ea5e9","#10b981","#f59e0b","#ef4444","#8b5cf6","#ec4899","#0f172a"],Cn=[{id:"inter",label:"Inter (default)"},{id:"jetbrains-mono",label:"JetBrains Mono"},{id:"system",label:"System"}];function It(){let[e,t]=m(null),[o,r]=m(null),[i,s]=m(!1),[c,u]=m(null),[d,l]=le();w(()=>{ft().then(t).catch(a=>r(a.message))},[]);async function p(){if(e){s(!0),r(null);try{let a={...e,theme:{theme:d.theme,accent:d.accent,font:d.font}},_=await mt(a);t(_),u(Date.now()),window.setTimeout(()=>u(null),2500)}catch(a){r(a.message)}finally{s(!1)}}}return n(L,{activeView:"settings",topBarTitle:"Settings",children:[o?n("div",{style:{color:"var(--color-state-error)",marginBottom:12},children:o}):null,e?n("div",{class:"settings",children:[n(ke,{title:"Mobile push (B15)",children:[n("p",{style:{fontSize:"var(--text-sm)",color:"var(--color-text-secondary)"},children:["Routes selected event kinds to an ",n("code",{children:"ntfy"})," topic. The notify daemon already supports webhook sinks; this page persists the config."]}),n(A,{label:"Enabled",children:n("input",{type:"checkbox",checked:e.mobile.enabled,onChange:a=>t({...e,mobile:{...e.mobile,enabled:a.currentTarget.checked}})})}),n(A,{label:"ntfy URL",children:n("input",{class:"settings__input",type:"url",value:e.mobile.ntfy_url,placeholder:"https://ntfy.sh",onInput:a=>t({...e,mobile:{...e.mobile,ntfy_url:a.currentTarget.value}})})}),n(A,{label:"Topic",children:n("input",{class:"settings__input",type:"text",placeholder:"fleet-alerts-abc123",value:e.mobile.topic,onInput:a=>t({...e,mobile:{...e.mobile,topic:a.currentTarget.value}})})}),n(A,{label:"Kinds (comma-separated)",children:n("input",{class:"settings__input",type:"text",placeholder:"merge,pr_opened,review_summary",value:e.mobile.kinds,onInput:a=>t({...e,mobile:{...e.mobile,kinds:a.currentTarget.value}})})}),e.mobile.enabled&&e.mobile.topic?n(Rt,{children:`curl -d "fleet event" ${e.mobile.ntfy_url.replace(/\/$/,"")}/${e.mobile.topic}`}):null]}),n(ke,{title:"Theme (C7)",children:[n("p",{style:{fontSize:"var(--text-sm)",color:"var(--color-text-secondary)"},children:["Live preview \u2014 changes apply to this browser immediately. Saving persists them to the project's ",n("code",{children:"settings.toml"}),"."]}),n(A,{label:"Theme",children:n("div",{style:{display:"flex",gap:8,flexWrap:"wrap"},children:xn.map(a=>n("button",{type:"button",class:`filter-chip${d.theme===a.id?" filter-chip--active":""}`,onClick:()=>l({...d,theme:a.id}),children:a.label},a.id))})}),n(A,{label:"Accent color",children:n("div",{style:{display:"flex",gap:6,flexWrap:"wrap"},children:Tn.map(a=>n("button",{type:"button","aria-label":a,onClick:()=>l({...d,accent:a}),style:{width:24,height:24,borderRadius:6,border:"2px solid",borderColor:d.accent===a?"var(--color-text-primary)":"var(--color-border)",background:a,cursor:"pointer"}},a))})}),n(A,{label:"Font",children:n("select",{class:"settings__input",value:d.font,onChange:a=>l({...d,font:a.currentTarget.value}),children:Cn.map(a=>n("option",{value:a.id,children:a.label},a.id))})})]}),n(ke,{title:"Tailscale share (B17)",children:[n("p",{style:{fontSize:"var(--text-sm)",color:"var(--color-text-secondary)"},children:["Expose this dashboard over your tailnet (or the public internet via funnel). The toggle is informational \u2014 you still run the ",n("code",{children:"tailscale"})," CLI yourself."]}),n(A,{label:"Enabled",children:n("input",{type:"checkbox",checked:e.tailscale.enabled,onChange:a=>t({...e,tailscale:{...e.tailscale,enabled:a.currentTarget.checked}})})}),n(A,{label:"Use funnel (public)",children:n("input",{type:"checkbox",checked:e.tailscale.funnel,onChange:a=>t({...e,tailscale:{...e.tailscale,funnel:a.currentTarget.checked}})})}),e.tailscale.enabled?n(Rt,{children:e.tailscale.funnel?`tailscale funnel --bg ${window.location.origin}`:`tailscale serve --bg ${window.location.origin}`}):null]}),n("div",{class:"modal__actions",style:{justifyContent:"flex-start"},children:[n(S,{variant:"primary",onClick:p,disabled:i,children:i?"Saving\u2026":"Save"}),c?n("span",{style:{fontSize:"var(--text-xs)",color:"var(--color-state-done)"},children:"Saved."}):null]})]}):n("div",{style:{color:"var(--color-text-tertiary)"},children:"Loading settings\u2026"})]})}function ke({title:e,children:t}){return n("section",{class:"settings__section",children:[n("h2",{class:"settings__section-title",children:e}),n("div",{class:"settings__rows",children:t})]})}function A({label:e,children:t}){return n("label",{class:"settings__field",children:[n("span",{class:"settings__label",children:e}),n("span",{class:"settings__control",children:t})]})}function Rt({children:e}){return n("pre",{style:{background:"#0b0e14",color:"#d4d4d4",padding:"var(--space-3)",borderRadius:"var(--radius-md)",fontSize:"var(--text-xs)",fontFamily:"var(--font-mono)",overflow:"auto",margin:"var(--space-2) 0 0"},children:e})}function En(){le();let[e]=ae();switch(e.name){case"audit":return n(Pt,{});case"replay":return n(Bt,{});case"settings":return n(It,{});default:return n(Ct,{})}}var Lt=document.getElementById("root");Lt?ze(n(En,{}),Lt):console.error("fleet-web: #root not found in DOM");
+// node_modules/preact/dist/preact.module.js
+var n;
+var l;
+var u;
+var t;
+var i;
+var r;
+var o;
+var e;
+var f;
+var c;
+var s;
+var a;
+var h;
+var p;
+var v;
+var y;
+var d = {};
+var w = [];
+var _ = /acit|ex(?:s|g|n|p|$)|rph|grid|ows|mnc|ntw|ine[ch]|zoo|^ord|itera/i;
+var g = Array.isArray;
+function m(n2, l3) {
+  for (var u4 in l3) n2[u4] = l3[u4];
+  return n2;
+}
+function b(n2) {
+  n2 && n2.parentNode && n2.parentNode.removeChild(n2);
+}
+function k(l3, u4, t3) {
+  var i4, r3, o3, e3 = {};
+  for (o3 in u4) "key" == o3 ? i4 = u4[o3] : "ref" == o3 ? r3 = u4[o3] : e3[o3] = u4[o3];
+  if (arguments.length > 2 && (e3.children = arguments.length > 3 ? n.call(arguments, 2) : t3), "function" == typeof l3 && null != l3.defaultProps) for (o3 in l3.defaultProps) void 0 === e3[o3] && (e3[o3] = l3.defaultProps[o3]);
+  return x(l3, e3, i4, r3, null);
+}
+function x(n2, t3, i4, r3, o3) {
+  var e3 = { type: n2, props: t3, key: i4, ref: r3, __k: null, __: null, __b: 0, __e: null, __c: null, constructor: void 0, __v: null == o3 ? ++u : o3, __i: -1, __u: 0 };
+  return null == o3 && null != l.vnode && l.vnode(e3), e3;
+}
+function S(n2) {
+  return n2.children;
+}
+function C(n2, l3) {
+  this.props = n2, this.context = l3;
+}
+function $(n2, l3) {
+  if (null == l3) return n2.__ ? $(n2.__, n2.__i + 1) : null;
+  for (var u4; l3 < n2.__k.length; l3++) if (null != (u4 = n2.__k[l3]) && null != u4.__e) return u4.__e;
+  return "function" == typeof n2.type ? $(n2) : null;
+}
+function I(n2) {
+  if (n2.__P && n2.__d) {
+    var u4 = n2.__v, t3 = u4.__e, i4 = [], r3 = [], o3 = m({}, u4);
+    o3.__v = u4.__v + 1, l.vnode && l.vnode(o3), q(n2.__P, o3, u4, n2.__n, n2.__P.namespaceURI, 32 & u4.__u ? [t3] : null, i4, null == t3 ? $(u4) : t3, !!(32 & u4.__u), r3), o3.__v = u4.__v, o3.__.__k[o3.__i] = o3, D(i4, o3, r3), u4.__e = u4.__ = null, o3.__e != t3 && P(o3);
+  }
+}
+function P(n2) {
+  if (null != (n2 = n2.__) && null != n2.__c) return n2.__e = n2.__c.base = null, n2.__k.some(function(l3) {
+    if (null != l3 && null != l3.__e) return n2.__e = n2.__c.base = l3.__e;
+  }), P(n2);
+}
+function A(n2) {
+  (!n2.__d && (n2.__d = true) && i.push(n2) && !H.__r++ || r != l.debounceRendering) && ((r = l.debounceRendering) || o)(H);
+}
+function H() {
+  try {
+    for (var n2, l3 = 1; i.length; ) i.length > l3 && i.sort(e), n2 = i.shift(), l3 = i.length, I(n2);
+  } finally {
+    i.length = H.__r = 0;
+  }
+}
+function L(n2, l3, u4, t3, i4, r3, o3, e3, f4, c3, s3) {
+  var a3, h3, p3, v3, y3, _2, g2, m3 = t3 && t3.__k || w, b2 = l3.length;
+  for (f4 = T(u4, l3, m3, f4, b2), a3 = 0; a3 < b2; a3++) null != (p3 = u4.__k[a3]) && (h3 = -1 != p3.__i && m3[p3.__i] || d, p3.__i = a3, _2 = q(n2, p3, h3, i4, r3, o3, e3, f4, c3, s3), v3 = p3.__e, p3.ref && h3.ref != p3.ref && (h3.ref && J(h3.ref, null, p3), s3.push(p3.ref, p3.__c || v3, p3)), null == y3 && null != v3 && (y3 = v3), (g2 = !!(4 & p3.__u)) || h3.__k === p3.__k ? (f4 = j(p3, f4, n2, g2), g2 && h3.__e && (h3.__e = null)) : "function" == typeof p3.type && void 0 !== _2 ? f4 = _2 : v3 && (f4 = v3.nextSibling), p3.__u &= -7);
+  return u4.__e = y3, f4;
+}
+function T(n2, l3, u4, t3, i4) {
+  var r3, o3, e3, f4, c3, s3 = u4.length, a3 = s3, h3 = 0;
+  for (n2.__k = new Array(i4), r3 = 0; r3 < i4; r3++) null != (o3 = l3[r3]) && "boolean" != typeof o3 && "function" != typeof o3 ? ("string" == typeof o3 || "number" == typeof o3 || "bigint" == typeof o3 || o3.constructor == String ? o3 = n2.__k[r3] = x(null, o3, null, null, null) : g(o3) ? o3 = n2.__k[r3] = x(S, { children: o3 }, null, null, null) : void 0 === o3.constructor && o3.__b > 0 ? o3 = n2.__k[r3] = x(o3.type, o3.props, o3.key, o3.ref ? o3.ref : null, o3.__v) : n2.__k[r3] = o3, f4 = r3 + h3, o3.__ = n2, o3.__b = n2.__b + 1, e3 = null, -1 != (c3 = o3.__i = O(o3, u4, f4, a3)) && (a3--, (e3 = u4[c3]) && (e3.__u |= 2)), null == e3 || null == e3.__v ? (-1 == c3 && (i4 > s3 ? h3-- : i4 < s3 && h3++), "function" != typeof o3.type && (o3.__u |= 4)) : c3 != f4 && (c3 == f4 - 1 ? h3-- : c3 == f4 + 1 ? h3++ : (c3 > f4 ? h3-- : h3++, o3.__u |= 4))) : n2.__k[r3] = null;
+  if (a3) for (r3 = 0; r3 < s3; r3++) null != (e3 = u4[r3]) && 0 == (2 & e3.__u) && (e3.__e == t3 && (t3 = $(e3)), K(e3, e3));
+  return t3;
+}
+function j(n2, l3, u4, t3) {
+  var i4, r3;
+  if ("function" == typeof n2.type) {
+    for (i4 = n2.__k, r3 = 0; i4 && r3 < i4.length; r3++) i4[r3] && (i4[r3].__ = n2, l3 = j(i4[r3], l3, u4, t3));
+    return l3;
+  }
+  n2.__e != l3 && (t3 && (l3 && n2.type && !l3.parentNode && (l3 = $(n2)), u4.insertBefore(n2.__e, l3 || null)), l3 = n2.__e);
+  do {
+    l3 = l3 && l3.nextSibling;
+  } while (null != l3 && 8 == l3.nodeType);
+  return l3;
+}
+function O(n2, l3, u4, t3) {
+  var i4, r3, o3, e3 = n2.key, f4 = n2.type, c3 = l3[u4], s3 = null != c3 && 0 == (2 & c3.__u);
+  if (null === c3 && null == e3 || s3 && e3 == c3.key && f4 == c3.type) return u4;
+  if (t3 > (s3 ? 1 : 0)) {
+    for (i4 = u4 - 1, r3 = u4 + 1; i4 >= 0 || r3 < l3.length; ) if (null != (c3 = l3[o3 = i4 >= 0 ? i4-- : r3++]) && 0 == (2 & c3.__u) && e3 == c3.key && f4 == c3.type) return o3;
+  }
+  return -1;
+}
+function z(n2, l3, u4) {
+  "-" == l3[0] ? n2.setProperty(l3, null == u4 ? "" : u4) : n2[l3] = null == u4 ? "" : "number" != typeof u4 || _.test(l3) ? u4 : u4 + "px";
+}
+function N(n2, l3, u4, t3, i4) {
+  var r3, o3;
+  n: if ("style" == l3) if ("string" == typeof u4) n2.style.cssText = u4;
+  else {
+    if ("string" == typeof t3 && (n2.style.cssText = t3 = ""), t3) for (l3 in t3) u4 && l3 in u4 || z(n2.style, l3, "");
+    if (u4) for (l3 in u4) t3 && u4[l3] == t3[l3] || z(n2.style, l3, u4[l3]);
+  }
+  else if ("o" == l3[0] && "n" == l3[1]) r3 = l3 != (l3 = l3.replace(a, "$1")), o3 = l3.toLowerCase(), l3 = o3 in n2 || "onFocusOut" == l3 || "onFocusIn" == l3 ? o3.slice(2) : l3.slice(2), n2.l || (n2.l = {}), n2.l[l3 + r3] = u4, u4 ? t3 ? u4[s] = t3[s] : (u4[s] = h, n2.addEventListener(l3, r3 ? v : p, r3)) : n2.removeEventListener(l3, r3 ? v : p, r3);
+  else {
+    if ("http://www.w3.org/2000/svg" == i4) l3 = l3.replace(/xlink(H|:h)/, "h").replace(/sName$/, "s");
+    else if ("width" != l3 && "height" != l3 && "href" != l3 && "list" != l3 && "form" != l3 && "tabIndex" != l3 && "download" != l3 && "rowSpan" != l3 && "colSpan" != l3 && "role" != l3 && "popover" != l3 && l3 in n2) try {
+      n2[l3] = null == u4 ? "" : u4;
+      break n;
+    } catch (n3) {
+    }
+    "function" == typeof u4 || (null == u4 || false === u4 && "-" != l3[4] ? n2.removeAttribute(l3) : n2.setAttribute(l3, "popover" == l3 && 1 == u4 ? "" : u4));
+  }
+}
+function V(n2) {
+  return function(u4) {
+    if (this.l) {
+      var t3 = this.l[u4.type + n2];
+      if (null == u4[c]) u4[c] = h++;
+      else if (u4[c] < t3[s]) return;
+      return t3(l.event ? l.event(u4) : u4);
+    }
+  };
+}
+function q(n2, u4, t3, i4, r3, o3, e3, f4, c3, s3) {
+  var a3, h3, p3, v3, y3, d3, _2, k3, x2, M, $2, I2, P2, A3, H2, T3 = u4.type;
+  if (void 0 !== u4.constructor) return null;
+  128 & t3.__u && (c3 = !!(32 & t3.__u), o3 = [f4 = u4.__e = t3.__e]), (a3 = l.__b) && a3(u4);
+  n: if ("function" == typeof T3) try {
+    if (k3 = u4.props, x2 = T3.prototype && T3.prototype.render, M = (a3 = T3.contextType) && i4[a3.__c], $2 = a3 ? M ? M.props.value : a3.__ : i4, t3.__c ? _2 = (h3 = u4.__c = t3.__c).__ = h3.__E : (x2 ? u4.__c = h3 = new T3(k3, $2) : (u4.__c = h3 = new C(k3, $2), h3.constructor = T3, h3.render = Q), M && M.sub(h3), h3.state || (h3.state = {}), h3.__n = i4, p3 = h3.__d = true, h3.__h = [], h3._sb = []), x2 && null == h3.__s && (h3.__s = h3.state), x2 && null != T3.getDerivedStateFromProps && (h3.__s == h3.state && (h3.__s = m({}, h3.__s)), m(h3.__s, T3.getDerivedStateFromProps(k3, h3.__s))), v3 = h3.props, y3 = h3.state, h3.__v = u4, p3) x2 && null == T3.getDerivedStateFromProps && null != h3.componentWillMount && h3.componentWillMount(), x2 && null != h3.componentDidMount && h3.__h.push(h3.componentDidMount);
+    else {
+      if (x2 && null == T3.getDerivedStateFromProps && k3 !== v3 && null != h3.componentWillReceiveProps && h3.componentWillReceiveProps(k3, $2), u4.__v == t3.__v || !h3.__e && null != h3.shouldComponentUpdate && false === h3.shouldComponentUpdate(k3, h3.__s, $2)) {
+        u4.__v != t3.__v && (h3.props = k3, h3.state = h3.__s, h3.__d = false), u4.__e = t3.__e, u4.__k = t3.__k, u4.__k.some(function(n3) {
+          n3 && (n3.__ = u4);
+        }), w.push.apply(h3.__h, h3._sb), h3._sb = [], h3.__h.length && e3.push(h3);
+        break n;
+      }
+      null != h3.componentWillUpdate && h3.componentWillUpdate(k3, h3.__s, $2), x2 && null != h3.componentDidUpdate && h3.__h.push(function() {
+        h3.componentDidUpdate(v3, y3, d3);
+      });
+    }
+    if (h3.context = $2, h3.props = k3, h3.__P = n2, h3.__e = false, I2 = l.__r, P2 = 0, x2) h3.state = h3.__s, h3.__d = false, I2 && I2(u4), a3 = h3.render(h3.props, h3.state, h3.context), w.push.apply(h3.__h, h3._sb), h3._sb = [];
+    else do {
+      h3.__d = false, I2 && I2(u4), a3 = h3.render(h3.props, h3.state, h3.context), h3.state = h3.__s;
+    } while (h3.__d && ++P2 < 25);
+    h3.state = h3.__s, null != h3.getChildContext && (i4 = m(m({}, i4), h3.getChildContext())), x2 && !p3 && null != h3.getSnapshotBeforeUpdate && (d3 = h3.getSnapshotBeforeUpdate(v3, y3)), A3 = null != a3 && a3.type === S && null == a3.key ? E(a3.props.children) : a3, f4 = L(n2, g(A3) ? A3 : [A3], u4, t3, i4, r3, o3, e3, f4, c3, s3), h3.base = u4.__e, u4.__u &= -161, h3.__h.length && e3.push(h3), _2 && (h3.__E = h3.__ = null);
+  } catch (n3) {
+    if (u4.__v = null, c3 || null != o3) if (n3.then) {
+      for (u4.__u |= c3 ? 160 : 128; f4 && 8 == f4.nodeType && f4.nextSibling; ) f4 = f4.nextSibling;
+      o3[o3.indexOf(f4)] = null, u4.__e = f4;
+    } else {
+      for (H2 = o3.length; H2--; ) b(o3[H2]);
+      B(u4);
+    }
+    else u4.__e = t3.__e, u4.__k = t3.__k, n3.then || B(u4);
+    l.__e(n3, u4, t3);
+  }
+  else null == o3 && u4.__v == t3.__v ? (u4.__k = t3.__k, u4.__e = t3.__e) : f4 = u4.__e = G(t3.__e, u4, t3, i4, r3, o3, e3, c3, s3);
+  return (a3 = l.diffed) && a3(u4), 128 & u4.__u ? void 0 : f4;
+}
+function B(n2) {
+  n2 && (n2.__c && (n2.__c.__e = true), n2.__k && n2.__k.some(B));
+}
+function D(n2, u4, t3) {
+  for (var i4 = 0; i4 < t3.length; i4++) J(t3[i4], t3[++i4], t3[++i4]);
+  l.__c && l.__c(u4, n2), n2.some(function(u5) {
+    try {
+      n2 = u5.__h, u5.__h = [], n2.some(function(n3) {
+        n3.call(u5);
+      });
+    } catch (n3) {
+      l.__e(n3, u5.__v);
+    }
+  });
+}
+function E(n2) {
+  return "object" != typeof n2 || null == n2 || n2.__b > 0 ? n2 : g(n2) ? n2.map(E) : m({}, n2);
+}
+function G(u4, t3, i4, r3, o3, e3, f4, c3, s3) {
+  var a3, h3, p3, v3, y3, w3, _2, m3 = i4.props || d, k3 = t3.props, x2 = t3.type;
+  if ("svg" == x2 ? o3 = "http://www.w3.org/2000/svg" : "math" == x2 ? o3 = "http://www.w3.org/1998/Math/MathML" : o3 || (o3 = "http://www.w3.org/1999/xhtml"), null != e3) {
+    for (a3 = 0; a3 < e3.length; a3++) if ((y3 = e3[a3]) && "setAttribute" in y3 == !!x2 && (x2 ? y3.localName == x2 : 3 == y3.nodeType)) {
+      u4 = y3, e3[a3] = null;
+      break;
+    }
+  }
+  if (null == u4) {
+    if (null == x2) return document.createTextNode(k3);
+    u4 = document.createElementNS(o3, x2, k3.is && k3), c3 && (l.__m && l.__m(t3, e3), c3 = false), e3 = null;
+  }
+  if (null == x2) m3 === k3 || c3 && u4.data == k3 || (u4.data = k3);
+  else {
+    if (e3 = e3 && n.call(u4.childNodes), !c3 && null != e3) for (m3 = {}, a3 = 0; a3 < u4.attributes.length; a3++) m3[(y3 = u4.attributes[a3]).name] = y3.value;
+    for (a3 in m3) y3 = m3[a3], "dangerouslySetInnerHTML" == a3 ? p3 = y3 : "children" == a3 || a3 in k3 || "value" == a3 && "defaultValue" in k3 || "checked" == a3 && "defaultChecked" in k3 || N(u4, a3, null, y3, o3);
+    for (a3 in k3) y3 = k3[a3], "children" == a3 ? v3 = y3 : "dangerouslySetInnerHTML" == a3 ? h3 = y3 : "value" == a3 ? w3 = y3 : "checked" == a3 ? _2 = y3 : c3 && "function" != typeof y3 || m3[a3] === y3 || N(u4, a3, y3, m3[a3], o3);
+    if (h3) c3 || p3 && (h3.__html == p3.__html || h3.__html == u4.innerHTML) || (u4.innerHTML = h3.__html), t3.__k = [];
+    else if (p3 && (u4.innerHTML = ""), L("template" == t3.type ? u4.content : u4, g(v3) ? v3 : [v3], t3, i4, r3, "foreignObject" == x2 ? "http://www.w3.org/1999/xhtml" : o3, e3, f4, e3 ? e3[0] : i4.__k && $(i4, 0), c3, s3), null != e3) for (a3 = e3.length; a3--; ) b(e3[a3]);
+    c3 || (a3 = "value", "progress" == x2 && null == w3 ? u4.removeAttribute("value") : null != w3 && (w3 !== u4[a3] || "progress" == x2 && !w3 || "option" == x2 && w3 != m3[a3]) && N(u4, a3, w3, m3[a3], o3), a3 = "checked", null != _2 && _2 != u4[a3] && N(u4, a3, _2, m3[a3], o3));
+  }
+  return u4;
+}
+function J(n2, u4, t3) {
+  try {
+    if ("function" == typeof n2) {
+      var i4 = "function" == typeof n2.__u;
+      i4 && n2.__u(), i4 && null == u4 || (n2.__u = n2(u4));
+    } else n2.current = u4;
+  } catch (n3) {
+    l.__e(n3, t3);
+  }
+}
+function K(n2, u4, t3) {
+  var i4, r3;
+  if (l.unmount && l.unmount(n2), (i4 = n2.ref) && (i4.current && i4.current != n2.__e || J(i4, null, u4)), null != (i4 = n2.__c)) {
+    if (i4.componentWillUnmount) try {
+      i4.componentWillUnmount();
+    } catch (n3) {
+      l.__e(n3, u4);
+    }
+    i4.base = i4.__P = null;
+  }
+  if (i4 = n2.__k) for (r3 = 0; r3 < i4.length; r3++) i4[r3] && K(i4[r3], u4, t3 || "function" != typeof n2.type);
+  t3 || b(n2.__e), n2.__c = n2.__ = n2.__e = void 0;
+}
+function Q(n2, l3, u4) {
+  return this.constructor(n2, u4);
+}
+function R(u4, t3, i4) {
+  var r3, o3, e3, f4;
+  t3 == document && (t3 = document.documentElement), l.__ && l.__(u4, t3), o3 = (r3 = "function" == typeof i4) ? null : i4 && i4.__k || t3.__k, e3 = [], f4 = [], q(t3, u4 = (!r3 && i4 || t3).__k = k(S, null, [u4]), o3 || d, d, t3.namespaceURI, !r3 && i4 ? [i4] : o3 ? null : t3.firstChild ? n.call(t3.childNodes) : null, e3, !r3 && i4 ? i4 : o3 ? o3.__e : t3.firstChild, r3, f4), D(e3, u4, f4);
+}
+n = w.slice, l = { __e: function(n2, l3, u4, t3) {
+  for (var i4, r3, o3; l3 = l3.__; ) if ((i4 = l3.__c) && !i4.__) try {
+    if ((r3 = i4.constructor) && null != r3.getDerivedStateFromError && (i4.setState(r3.getDerivedStateFromError(n2)), o3 = i4.__d), null != i4.componentDidCatch && (i4.componentDidCatch(n2, t3 || {}), o3 = i4.__d), o3) return i4.__E = i4;
+  } catch (l4) {
+    n2 = l4;
+  }
+  throw n2;
+} }, u = 0, t = function(n2) {
+  return null != n2 && void 0 === n2.constructor;
+}, C.prototype.setState = function(n2, l3) {
+  var u4;
+  u4 = null != this.__s && this.__s != this.state ? this.__s : this.__s = m({}, this.state), "function" == typeof n2 && (n2 = n2(m({}, u4), this.props)), n2 && m(u4, n2), null != n2 && this.__v && (l3 && this._sb.push(l3), A(this));
+}, C.prototype.forceUpdate = function(n2) {
+  this.__v && (this.__e = true, n2 && this.__h.push(n2), A(this));
+}, C.prototype.render = S, i = [], o = "function" == typeof Promise ? Promise.prototype.then.bind(Promise.resolve()) : setTimeout, e = function(n2, l3) {
+  return n2.__v.__b - l3.__v.__b;
+}, H.__r = 0, f = Math.random().toString(8), c = "__d" + f, s = "__a" + f, a = /(PointerCapture)$|Capture$/i, h = 0, p = V(false), v = V(true), y = 0;
+
+// node_modules/preact/hooks/dist/hooks.module.js
+var t2;
+var r2;
+var u2;
+var i2;
+var o2 = 0;
+var f2 = [];
+var c2 = l;
+var e2 = c2.__b;
+var a2 = c2.__r;
+var v2 = c2.diffed;
+var l2 = c2.__c;
+var m2 = c2.unmount;
+var s2 = c2.__;
+function p2(n2, t3) {
+  c2.__h && c2.__h(r2, n2, o2 || t3), o2 = 0;
+  var u4 = r2.__H || (r2.__H = { __: [], __h: [] });
+  return n2 >= u4.__.length && u4.__.push({}), u4.__[n2];
+}
+function d2(n2) {
+  return o2 = 1, h2(D2, n2);
+}
+function h2(n2, u4, i4) {
+  var o3 = p2(t2++, 2);
+  if (o3.t = n2, !o3.__c && (o3.__ = [i4 ? i4(u4) : D2(void 0, u4), function(n3) {
+    var t3 = o3.__N ? o3.__N[0] : o3.__[0], r3 = o3.t(t3, n3);
+    t3 !== r3 && (o3.__N = [r3, o3.__[1]], o3.__c.setState({}));
+  }], o3.__c = r2, !r2.__f)) {
+    var f4 = function(n3, t3, r3) {
+      if (!o3.__c.__H) return true;
+      var u5 = o3.__c.__H.__.filter(function(n4) {
+        return n4.__c;
+      });
+      if (u5.every(function(n4) {
+        return !n4.__N;
+      })) return !c3 || c3.call(this, n3, t3, r3);
+      var i5 = o3.__c.props !== n3;
+      return u5.some(function(n4) {
+        if (n4.__N) {
+          var t4 = n4.__[0];
+          n4.__ = n4.__N, n4.__N = void 0, t4 !== n4.__[0] && (i5 = true);
+        }
+      }), c3 && c3.call(this, n3, t3, r3) || i5;
+    };
+    r2.__f = true;
+    var c3 = r2.shouldComponentUpdate, e3 = r2.componentWillUpdate;
+    r2.componentWillUpdate = function(n3, t3, r3) {
+      if (this.__e) {
+        var u5 = c3;
+        c3 = void 0, f4(n3, t3, r3), c3 = u5;
+      }
+      e3 && e3.call(this, n3, t3, r3);
+    }, r2.shouldComponentUpdate = f4;
+  }
+  return o3.__N || o3.__;
+}
+function y2(n2, u4) {
+  var i4 = p2(t2++, 3);
+  !c2.__s && C2(i4.__H, u4) && (i4.__ = n2, i4.u = u4, r2.__H.__h.push(i4));
+}
+function A2(n2) {
+  return o2 = 5, T2(function() {
+    return { current: n2 };
+  }, []);
+}
+function T2(n2, r3) {
+  var u4 = p2(t2++, 7);
+  return C2(u4.__H, r3) && (u4.__ = n2(), u4.__H = r3, u4.__h = n2), u4.__;
+}
+function j2() {
+  for (var n2; n2 = f2.shift(); ) {
+    var t3 = n2.__H;
+    if (n2.__P && t3) try {
+      t3.__h.some(z2), t3.__h.some(B2), t3.__h = [];
+    } catch (r3) {
+      t3.__h = [], c2.__e(r3, n2.__v);
+    }
+  }
+}
+c2.__b = function(n2) {
+  r2 = null, e2 && e2(n2);
+}, c2.__ = function(n2, t3) {
+  n2 && t3.__k && t3.__k.__m && (n2.__m = t3.__k.__m), s2 && s2(n2, t3);
+}, c2.__r = function(n2) {
+  a2 && a2(n2), t2 = 0;
+  var i4 = (r2 = n2.__c).__H;
+  i4 && (u2 === r2 ? (i4.__h = [], r2.__h = [], i4.__.some(function(n3) {
+    n3.__N && (n3.__ = n3.__N), n3.u = n3.__N = void 0;
+  })) : (i4.__h.some(z2), i4.__h.some(B2), i4.__h = [], t2 = 0)), u2 = r2;
+}, c2.diffed = function(n2) {
+  v2 && v2(n2);
+  var t3 = n2.__c;
+  t3 && t3.__H && (t3.__H.__h.length && (1 !== f2.push(t3) && i2 === c2.requestAnimationFrame || ((i2 = c2.requestAnimationFrame) || w2)(j2)), t3.__H.__.some(function(n3) {
+    n3.u && (n3.__H = n3.u), n3.u = void 0;
+  })), u2 = r2 = null;
+}, c2.__c = function(n2, t3) {
+  t3.some(function(n3) {
+    try {
+      n3.__h.some(z2), n3.__h = n3.__h.filter(function(n4) {
+        return !n4.__ || B2(n4);
+      });
+    } catch (r3) {
+      t3.some(function(n4) {
+        n4.__h && (n4.__h = []);
+      }), t3 = [], c2.__e(r3, n3.__v);
+    }
+  }), l2 && l2(n2, t3);
+}, c2.unmount = function(n2) {
+  m2 && m2(n2);
+  var t3, r3 = n2.__c;
+  r3 && r3.__H && (r3.__H.__.some(function(n3) {
+    try {
+      z2(n3);
+    } catch (n4) {
+      t3 = n4;
+    }
+  }), r3.__H = void 0, t3 && c2.__e(t3, r3.__v));
+};
+var k2 = "function" == typeof requestAnimationFrame;
+function w2(n2) {
+  var t3, r3 = function() {
+    clearTimeout(u4), k2 && cancelAnimationFrame(t3), setTimeout(n2);
+  }, u4 = setTimeout(r3, 35);
+  k2 && (t3 = requestAnimationFrame(r3));
+}
+function z2(n2) {
+  var t3 = r2, u4 = n2.__c;
+  "function" == typeof u4 && (n2.__c = void 0, u4()), r2 = t3;
+}
+function B2(n2) {
+  var t3 = r2;
+  n2.__c = n2.__(), r2 = t3;
+}
+function C2(n2, t3) {
+  return !n2 || n2.length !== t3.length || t3.some(function(t4, r3) {
+    return t4 !== n2[r3];
+  });
+}
+function D2(n2, t3) {
+  return "function" == typeof t3 ? t3(n2) : t3;
+}
+
+// node_modules/preact/jsx-runtime/dist/jsxRuntime.module.js
+var f3 = 0;
+var i3 = Array.isArray;
+function u3(e3, t3, n2, o3, i4, u4) {
+  t3 || (t3 = {});
+  var a3, c3, p3 = t3;
+  if ("ref" in p3) for (c3 in p3 = {}, t3) "ref" == c3 ? a3 = t3[c3] : p3[c3] = t3[c3];
+  var l3 = { type: e3, props: p3, key: n2, ref: a3, __k: null, __: null, __b: 0, __e: null, __c: null, constructor: void 0, __v: --f3, __i: -1, __u: 0, __source: i4, __self: u4 };
+  if ("function" == typeof e3 && (a3 = e3.defaultProps)) for (c3 in a3) void 0 === p3[c3] && (p3[c3] = a3[c3]);
+  return l.vnode && l.vnode(l3), l3;
+}
+
+// src/components/atoms/Icon.tsx
+var PATHS = {
+  overview: /* @__PURE__ */ u3("path", { d: "M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z" }),
+  sessions: /* @__PURE__ */ u3("path", { d: "M4 6h16v2H4zm0 5h16v2H4zm0 5h10v2H4z" }),
+  chains: /* @__PURE__ */ u3("path", { d: "M10.59 13.41L4 6.83l1.41-1.42 6.59 6.59 6.59-6.59L20 6.83l-9.41 9.41z" }),
+  tournaments: /* @__PURE__ */ u3("path", { d: "M5 4h14v3a5 5 0 0 1-4 4.9V14h2v2H7v-2h2v-2.1A5 5 0 0 1 5 7V4z" }),
+  events: /* @__PURE__ */ u3("circle", { cx: "12", cy: "12", r: "9" }),
+  search: /* @__PURE__ */ u3("path", { d: "M21 21l-4.35-4.35M11 19a8 8 0 1 1 0-16 8 8 0 0 1 0 16z" }),
+  audit: /* @__PURE__ */ u3("path", { d: "M9 11H7v8h2v-8zm4-6h-2v14h2V5zm4 9h-2v5h2v-5z" }),
+  settings: /* @__PURE__ */ u3("path", { d: "M19.14 12.94a7.07 7.07 0 0 0 0-1.88l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.04 7.04 0 0 0-1.62-.94L14.4 2.7a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.62a7.04 7.04 0 0 0-1.62.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.07 7.07 0 0 0 0 1.88L2.83 14.5a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.38 1.04.7 1.62.94l.36 2.62c.04.25.25.42.5.42h3.84a.5.5 0 0 0 .5-.42l.36-2.62c.58-.24 1.12-.56 1.62-.94l2.39.96c.23.09.5 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z" }),
+  plus: /* @__PURE__ */ u3("path", { d: "M12 5v14M5 12h14" })
+};
+function Icon({ name, size = 16 }) {
+  return /* @__PURE__ */ u3(
+    "svg",
+    {
+      width: size,
+      height: size,
+      viewBox: "0 0 24 24",
+      fill: "none",
+      stroke: "currentColor",
+      "stroke-width": "1.6",
+      "stroke-linecap": "round",
+      "stroke-linejoin": "round",
+      "aria-hidden": "true",
+      children: PATHS[name]
+    }
+  );
+}
+
+// src/hooks/useSSE.ts
+var client = {
+  source: null,
+  listeners: /* @__PURE__ */ new Map(),
+  refCount: 0
+};
+function ensureOpen() {
+  if (client.source) return;
+  const src = new EventSource("/api/stream");
+  src.addEventListener("hello", () => {
+  });
+  for (const [topic] of client.listeners) {
+    src.addEventListener(topic, makeDispatcher(topic));
+  }
+  client.source = src;
+}
+function makeDispatcher(topic) {
+  return () => {
+    const set = client.listeners.get(topic);
+    if (!set) return;
+    for (const cb of set) {
+      try {
+        cb();
+      } catch {
+      }
+    }
+  };
+}
+function subscribe(topic, cb) {
+  let set = client.listeners.get(topic);
+  if (!set) {
+    set = /* @__PURE__ */ new Set();
+    client.listeners.set(topic, set);
+    if (client.source) {
+      client.source.addEventListener(topic, makeDispatcher(topic));
+    }
+  }
+  set.add(cb);
+  client.refCount++;
+  ensureOpen();
+}
+function unsubscribe(topic, cb) {
+  const set = client.listeners.get(topic);
+  if (set) {
+    set.delete(cb);
+    if (set.size === 0) client.listeners.delete(topic);
+  }
+  client.refCount = Math.max(0, client.refCount - 1);
+  if (client.refCount === 0 && client.source) {
+    client.source.close();
+    client.source = null;
+  }
+}
+function useSSE(topics, callback) {
+  y2(() => {
+    const ts = Array.isArray(topics) ? topics : [topics];
+    ts.forEach((t3) => subscribe(t3, callback));
+    return () => {
+      ts.forEach((t3) => unsubscribe(t3, callback));
+    };
+  }, [Array.isArray(topics) ? topics.join(",") : topics]);
+}
+
+// src/hooks/usePolling.ts
+function usePolling(url, intervalMs, sseTopic) {
+  const [state, setState] = d2({ data: null, loading: true, error: null });
+  const cancelled = A2(false);
+  const fetchRef = A2();
+  y2(() => {
+    cancelled.current = false;
+    let timer;
+    const tick = async () => {
+      try {
+        const r3 = await fetch(url, { headers: { Accept: "application/json" } });
+        if (!r3.ok) throw new Error(`${r3.status} ${r3.statusText}`);
+        const data = await r3.json();
+        if (!cancelled.current) {
+          setState({ data, loading: false, error: null });
+        }
+      } catch (e3) {
+        if (!cancelled.current) {
+          setState((prev) => ({ ...prev, loading: false, error: e3 }));
+        }
+      }
+    };
+    fetchRef.current = tick;
+    tick();
+    timer = window.setInterval(tick, intervalMs);
+    return () => {
+      cancelled.current = true;
+      if (timer !== void 0) window.clearInterval(timer);
+    };
+  }, [url, intervalMs]);
+  useSSE(sseTopic ?? "", () => {
+    if (sseTopic) fetchRef.current?.();
+  });
+  return state;
+}
+
+// src/hooks/useProjects.ts
+var POLL_INTERVAL_MS = 3e4;
+function useProjects() {
+  return usePolling("/api/projects", POLL_INTERVAL_MS, "projects");
+}
+
+// src/components/organisms/Sidebar.tsx
+var VIEWS = [
+  { id: "overview", label: "Overview", icon: "overview", href: "/" },
+  { id: "sessions", label: "Sessions", icon: "sessions", href: "/" },
+  { id: "chains", label: "Chains", icon: "chains" },
+  { id: "tournaments", label: "Tournaments", icon: "tournaments" },
+  { id: "events", label: "Events", icon: "events", href: "/audit" },
+  { id: "search", label: "Search", icon: "search" },
+  { id: "audit", label: "Audit", icon: "audit", href: "/audit" },
+  { id: "settings", label: "Settings", icon: "settings", href: "/settings" }
+];
+var SUBVIEWS = [
+  "Active Work",
+  "Waiting for Input",
+  "Reviewers",
+  "High Cost",
+  "All Sessions"
+];
+function Sidebar({ activeView = "overview", currentProjectKey }) {
+  const { data: projects } = useProjects();
+  return /* @__PURE__ */ u3("aside", { class: "app-shell__sidebar", children: [
+    /* @__PURE__ */ u3("div", { class: "sidebar__brand", children: [
+      /* @__PURE__ */ u3("span", { class: "sidebar__brand-mark", "aria-hidden": "true" }),
+      "fleet"
+    ] }),
+    /* @__PURE__ */ u3("nav", { class: "sidebar__section", "aria-label": "Primary views", children: /* @__PURE__ */ u3("ul", { class: "sidebar__nav", children: VIEWS.map((v3) => /* @__PURE__ */ u3(
+      "li",
+      {
+        class: `sidebar__nav-item${v3.id === activeView ? " sidebar__nav-item--active" : ""}`,
+        onClick: () => {
+          if (v3.href) window.location.hash = v3.href;
+        },
+        role: v3.href ? "link" : void 0,
+        style: { cursor: v3.href ? "pointer" : "default" },
+        children: [
+          /* @__PURE__ */ u3(Icon, { name: v3.icon }),
+          v3.label
+        ]
+      },
+      v3.id
+    )) }) }),
+    /* @__PURE__ */ u3("div", { class: "sidebar__section", children: [
+      /* @__PURE__ */ u3("div", { class: "sidebar__heading", children: "Views" }),
+      /* @__PURE__ */ u3("ul", { class: "sidebar__nav", children: SUBVIEWS.map((s3) => /* @__PURE__ */ u3("li", { class: "sidebar__nav-item", children: s3 }, s3)) })
+    ] }),
+    /* @__PURE__ */ u3("div", { class: "sidebar__section", children: [
+      /* @__PURE__ */ u3("div", { class: "sidebar__heading", children: "Projects" }),
+      /* @__PURE__ */ u3("ul", { class: "sidebar__nav", children: [
+        (projects ?? []).map((p3) => {
+          const isActive = p3.key === currentProjectKey;
+          const label = shortKey(p3.key);
+          const item = /* @__PURE__ */ u3(S, { children: [
+            /* @__PURE__ */ u3("span", { style: { flex: 1 }, children: label }),
+            p3.port ? /* @__PURE__ */ u3("span", { style: { fontSize: "var(--text-xs)", color: "var(--color-text-tertiary)" }, children: [
+              ":",
+              p3.port
+            ] }) : null
+          ] });
+          const cls = `sidebar__nav-item${isActive ? " sidebar__nav-item--active" : ""}`;
+          return p3.url && !isActive ? /* @__PURE__ */ u3("li", { class: cls, children: /* @__PURE__ */ u3("a", { href: p3.url, style: { color: "inherit", textDecoration: "none", display: "flex", alignItems: "center", gap: 8, width: "100%" }, children: item }) }, p3.key) : /* @__PURE__ */ u3("li", { class: cls, children: item }, p3.key);
+        }),
+        projects && projects.length === 0 ? /* @__PURE__ */ u3("li", { class: "sidebar__nav-item", style: { color: "var(--color-text-tertiary)", fontStyle: "italic" }, children: "No projects discovered" }) : null
+      ] })
+    ] }),
+    /* @__PURE__ */ u3("div", { class: "sidebar__user", children: [
+      /* @__PURE__ */ u3("div", { style: { width: 28, height: 28, borderRadius: "50%", background: "#cbd5e1" } }),
+      /* @__PURE__ */ u3("div", { children: [
+        /* @__PURE__ */ u3("div", { style: { fontWeight: 600 }, children: "You" }),
+        /* @__PURE__ */ u3("div", { style: { color: "var(--color-text-tertiary)", fontSize: "var(--text-xs)" }, children: "local" })
+      ] })
+    ] })
+  ] });
+}
+function shortKey(key) {
+  if (key.length <= 8) return key;
+  return `${key.slice(0, 4)}\u2026${key.slice(-4)}`;
+}
+
+// src/components/atoms/Button.tsx
+function Button({ variant = "default", type = "button", onClick, disabled, children }) {
+  const cls = variant === "primary" ? "btn btn--primary" : "btn";
+  return /* @__PURE__ */ u3("button", { class: cls, type, onClick, disabled, children });
+}
+
+// src/components/organisms/TopBar.tsx
+var RANGES = ["Live", "5m", "15m", "1h", "6h", "24h"];
+function TopBar({ title, onSpawnClick }) {
+  const [range, setRange] = d2("Live");
+  return /* @__PURE__ */ u3("div", { class: "app-shell__topbar", children: [
+    /* @__PURE__ */ u3("div", { class: "topbar__title", children: title }),
+    /* @__PURE__ */ u3("div", { class: "topbar__spacer" }),
+    /* @__PURE__ */ u3("div", { class: "topbar__time-range", role: "group", "aria-label": "Time range", children: RANGES.map((r3) => /* @__PURE__ */ u3(
+      "button",
+      {
+        type: "button",
+        "aria-pressed": r3 === range,
+        onClick: () => setRange(r3),
+        children: r3
+      },
+      r3
+    )) }),
+    /* @__PURE__ */ u3(Button, { variant: "primary", onClick: onSpawnClick, children: [
+      /* @__PURE__ */ u3(Icon, { name: "plus", size: 14 }),
+      "Spawn"
+    ] })
+  ] });
+}
+
+// src/components/templates/AppShell.tsx
+function AppShell({ activeView, topBarTitle, onSpawnClick, children }) {
+  return /* @__PURE__ */ u3("div", { class: "app-shell", children: [
+    /* @__PURE__ */ u3(Sidebar, { activeView }),
+    /* @__PURE__ */ u3("main", { class: "app-shell__main", children: [
+      /* @__PURE__ */ u3(TopBar, { title: topBarTitle, onSpawnClick }),
+      /* @__PURE__ */ u3("div", { class: "app-shell__content", children })
+    ] })
+  ] });
+}
+
+// src/components/atoms/Sparkline.tsx
+function Sparkline({ data, height = 28, color = "currentColor" }) {
+  if (data.length < 2) {
+    return /* @__PURE__ */ u3("svg", { class: "sparkline", viewBox: `0 0 100 ${height}`, preserveAspectRatio: "none" });
+  }
+  const w3 = 100;
+  const max = Math.max(...data);
+  const min = Math.min(...data);
+  const range = max - min || 1;
+  const step = w3 / (data.length - 1);
+  const points = data.map((d3, i4) => {
+    const x2 = (i4 * step).toFixed(2);
+    const y3 = (height - (d3 - min) / range * (height - 2) - 1).toFixed(2);
+    return `${x2},${y3}`;
+  }).join(" ");
+  return /* @__PURE__ */ u3(
+    "svg",
+    {
+      class: "sparkline",
+      viewBox: `0 0 ${w3} ${height}`,
+      preserveAspectRatio: "none",
+      "aria-hidden": "true",
+      children: /* @__PURE__ */ u3(
+        "polyline",
+        {
+          fill: "none",
+          stroke: color,
+          "stroke-width": "1.5",
+          "stroke-linejoin": "round",
+          "stroke-linecap": "round",
+          points
+        }
+      )
+    }
+  );
+}
+
+// src/components/molecules/StatCard.tsx
+function StatCard({ label, value, delta, caption, series, accent }) {
+  return /* @__PURE__ */ u3("div", { class: "stat-card", children: [
+    /* @__PURE__ */ u3("div", { class: "stat-card__label", children: label }),
+    /* @__PURE__ */ u3("div", { class: "stat-card__value", children: value }),
+    delta ? /* @__PURE__ */ u3("div", { class: `stat-card__delta stat-card__delta--${delta.direction ?? "flat"}`, children: [
+      delta.direction === "up" ? "\u2191" : delta.direction === "down" ? "\u2193" : "",
+      " ",
+      delta.value
+    ] }) : null,
+    caption ? /* @__PURE__ */ u3("div", { class: "stat-card__delta", children: caption }) : null,
+    series ? /* @__PURE__ */ u3("div", { class: "stat-card__sparkline", style: { color: accent ?? "var(--color-accent)" }, children: /* @__PURE__ */ u3(Sparkline, { data: series }) }) : null
+  ] });
+}
+
+// src/components/organisms/StatRibbon.tsx
+function StatRibbon({ stats }) {
+  return /* @__PURE__ */ u3("section", { class: "stat-ribbon", "aria-label": "Fleet statistics", children: [
+    /* @__PURE__ */ u3(
+      StatCard,
+      {
+        label: "Active Sessions",
+        value: stats.active_sessions.value,
+        caption: `/${stats.active_sessions.total} running`
+      }
+    ),
+    /* @__PURE__ */ u3(
+      StatCard,
+      {
+        label: "Needs Input",
+        value: stats.needs_input.value,
+        delta: { value: String(stats.needs_input.delta), direction: stats.needs_input.delta > 0 ? "up" : "flat" }
+      }
+    ),
+    /* @__PURE__ */ u3(
+      StatCard,
+      {
+        label: "Completed",
+        value: stats.completed.value,
+        caption: stats.completed.window
+      }
+    ),
+    /* @__PURE__ */ u3(
+      StatCard,
+      {
+        label: "Est. Cost (24h)",
+        value: stats.est_cost_24h.value,
+        delta: { value: `${stats.est_cost_24h.delta_pct}%`, direction: "up" },
+        series: stats.est_cost_24h.series
+      }
+    ),
+    /* @__PURE__ */ u3(
+      StatCard,
+      {
+        label: "Runtime (24h)",
+        value: stats.runtime_24h.value,
+        caption: "Total",
+        series: stats.runtime_24h.series,
+        accent: "var(--color-state-working)"
+      }
+    ),
+    /* @__PURE__ */ u3(
+      StatCard,
+      {
+        label: "Events (24h)",
+        value: stats.events_24h.value.toLocaleString(),
+        delta: { value: `${stats.events_24h.delta_pct}%`, direction: "up" },
+        series: stats.events_24h.series,
+        accent: "var(--color-state-reviewing)"
+      }
+    )
+  ] });
+}
+
+// src/components/atoms/Badge.tsx
+var LABEL = {
+  "working": "Working",
+  "needs-input": "Needs Input",
+  "error": "Error",
+  "done": "Done",
+  "idle": "Idle",
+  "reviewing": "Reviewing",
+  "blocked": "Blocked",
+  "completed": "Completed"
+};
+function Badge({ state, label }) {
+  const text = label ?? LABEL[state] ?? state;
+  return /* @__PURE__ */ u3("span", { class: `badge badge--${state}`, children: text });
+}
+
+// src/components/molecules/SearchField.tsx
+function SearchField({ placeholder = "Search\u2026", initial = "", onChange }) {
+  const [v3, setV] = d2(initial);
+  return /* @__PURE__ */ u3("div", { class: "search-field", children: /* @__PURE__ */ u3(
+    "input",
+    {
+      type: "text",
+      value: v3,
+      placeholder,
+      onInput: (e3) => {
+        const next = e3.currentTarget.value;
+        setV(next);
+        onChange?.(next);
+      }
+    }
+  ) });
+}
+
+// src/components/organisms/SessionTable.tsx
+var STATE_FILTERS = [
+  { id: "all", label: "All", match: () => true },
+  { id: "active", label: "Active", match: (s3) => s3 === "starting" || s3 === "working" || s3 === "reviewing" },
+  { id: "needs-input", label: "Needs Input", match: (s3) => s3 === "needs-input" || s3 === "blocked" || s3 === "error" },
+  { id: "done", label: "Done", match: (s3) => s3 === "done" || s3 === "completed" || s3 === "idle" }
+];
+function SessionTable({ rows, loading, density = "comfortable", onRowClick }) {
+  const [query, setQuery] = d2("");
+  const [filter, setFilter] = d2("all");
+  const filtered = T2(() => {
+    const q2 = query.trim().toLowerCase();
+    const sf = STATE_FILTERS.find((f4) => f4.id === filter);
+    return rows.filter((r3) => {
+      if (!sf.match(r3.state)) return false;
+      if (!q2) return true;
+      return r3.ticket.toLowerCase().includes(q2) || r3.slug.toLowerCase().includes(q2) || (r3.branch || "").toLowerCase().includes(q2) || (r3.parent || "").toLowerCase().includes(q2);
+    });
+  }, [rows, query, filter]);
+  return /* @__PURE__ */ u3("div", { children: [
+    /* @__PURE__ */ u3("header", { style: { display: "flex", alignItems: "center", gap: 12, marginBottom: 12, flexWrap: "wrap" }, children: [
+      /* @__PURE__ */ u3("h2", { style: { margin: 0, fontSize: "var(--text-lg)", fontWeight: 600, letterSpacing: "-0.01em" }, children: "Session Table" }),
+      /* @__PURE__ */ u3("div", { class: "filter-chips", role: "group", "aria-label": "State filter", children: STATE_FILTERS.map((f4) => /* @__PURE__ */ u3(
+        "button",
+        {
+          type: "button",
+          class: `filter-chip${f4.id === filter ? " filter-chip--active" : ""}`,
+          "aria-pressed": f4.id === filter,
+          onClick: () => setFilter(f4.id),
+          children: f4.label
+        },
+        f4.id
+      )) }),
+      /* @__PURE__ */ u3("span", { style: { flex: 1 } }),
+      /* @__PURE__ */ u3("span", { style: { fontSize: "var(--text-xs)", color: "var(--color-text-tertiary)" }, children: [
+        filtered.length,
+        " / ",
+        rows.length
+      ] }),
+      /* @__PURE__ */ u3("div", { style: { width: 240 }, children: /* @__PURE__ */ u3(SearchField, { placeholder: "Filter ticket, slug, branch\u2026", onChange: setQuery }) })
+    ] }),
+    /* @__PURE__ */ u3(
+      "div",
+      {
+        class: `session-table${density === "compact" ? " session-table--compact" : ""}`,
+        role: "table",
+        "aria-label": "Sessions",
+        children: [
+          /* @__PURE__ */ u3("div", { class: "session-table__header", role: "row", children: [
+            /* @__PURE__ */ u3("div", { role: "columnheader", children: "Ticket" }),
+            /* @__PURE__ */ u3("div", { role: "columnheader", children: "Session" }),
+            /* @__PURE__ */ u3("div", { role: "columnheader", children: "State" }),
+            /* @__PURE__ */ u3("div", { role: "columnheader", children: "Parent" }),
+            /* @__PURE__ */ u3("div", { role: "columnheader", children: "Branch" }),
+            /* @__PURE__ */ u3("div", { role: "columnheader", children: "Activity" }),
+            /* @__PURE__ */ u3("div", { role: "columnheader", children: "Cost" }),
+            /* @__PURE__ */ u3("div", { role: "columnheader", children: "Runtime" }),
+            /* @__PURE__ */ u3("div", { role: "columnheader", children: "Progress" })
+          ] }),
+          loading && rows.length === 0 ? /* @__PURE__ */ u3(EmptyRow, { children: "Loading sessions\u2026" }) : filtered.length === 0 && rows.length > 0 ? /* @__PURE__ */ u3(EmptyRow, { children: "No sessions match the current filter." }) : rows.length === 0 ? /* @__PURE__ */ u3(EmptyRow, { children: [
+            "No sessions yet. Spawn one with",
+            " ",
+            /* @__PURE__ */ u3("code", { children: "spawn-claude-feature <TICKET> <slug> --prompt-file <path> --full-auto" }),
+            " ",
+            "or ",
+            /* @__PURE__ */ u3("code", { children: "/fleet:spawn <TICKET>" }),
+            " from a Claude Code session."
+          ] }) : filtered.map((r3) => /* @__PURE__ */ u3(
+            "div",
+            {
+              class: "session-table__row",
+              role: "row",
+              onClick: () => onRowClick?.(r3),
+              children: [
+                /* @__PURE__ */ u3("div", { role: "cell", style: { fontWeight: 600 }, children: r3.ticket }),
+                /* @__PURE__ */ u3("div", { role: "cell", style: { color: "var(--color-text-secondary)" }, children: r3.slug || "\u2014" }),
+                /* @__PURE__ */ u3("div", { role: "cell", children: [
+                  /* @__PURE__ */ u3(Badge, { state: r3.state }),
+                  r3.drift != null && r3.drift > 0.6 ? /* @__PURE__ */ u3(
+                    "span",
+                    {
+                      title: `Drift score ${Math.round(r3.drift * 100)}% \u2014 agent may be stuck`,
+                      style: { marginLeft: 6, color: "var(--color-state-needs-input)", fontSize: "var(--text-xs)" },
+                      children: "\u26A0"
+                    }
+                  ) : null
+                ] }),
+                /* @__PURE__ */ u3("div", { role: "cell", style: { color: "var(--color-text-secondary)" }, children: r3.parent || "\u2014" }),
+                /* @__PURE__ */ u3("div", { role: "cell", style: { fontFamily: "var(--font-mono)", fontSize: "var(--text-xs)" }, children: r3.branch || "\u2014" }),
+                /* @__PURE__ */ u3("div", { role: "cell", children: r3.activity }),
+                /* @__PURE__ */ u3("div", { role: "cell", children: r3.cost }),
+                /* @__PURE__ */ u3("div", { role: "cell", children: r3.runtime }),
+                /* @__PURE__ */ u3("div", { role: "cell", children: /* @__PURE__ */ u3("div", { class: "session-table__progress", "aria-label": `${Math.round(r3.progress * 100)}% complete`, children: /* @__PURE__ */ u3(
+                  "div",
+                  {
+                    class: "session-table__progress-bar",
+                    style: { width: `${Math.round(r3.progress * 100)}%` }
+                  }
+                ) }) })
+              ]
+            },
+            r3.ticket
+          ))
+        ]
+      }
+    )
+  ] });
+}
+function EmptyRow({ children }) {
+  return /* @__PURE__ */ u3(
+    "div",
+    {
+      role: "row",
+      style: {
+        padding: "32px 16px",
+        textAlign: "center",
+        color: "var(--color-text-secondary)",
+        fontSize: "var(--text-sm)"
+      },
+      children
+    }
+  );
+}
+
+// src/components/organisms/TerminalView.tsx
+function unescapeMultiline(s3) {
+  let out = "";
+  for (let i4 = 0; i4 < s3.length; i4++) {
+    const c3 = s3[i4];
+    if (c3 === "\\" && i4 + 1 < s3.length) {
+      const n2 = s3[i4 + 1];
+      if (n2 === "n") {
+        out += "\n";
+        i4++;
+        continue;
+      }
+      if (n2 === "r") {
+        out += "\r";
+        i4++;
+        continue;
+      }
+      if (n2 === "\\") {
+        out += "\\";
+        i4++;
+        continue;
+      }
+    }
+    out += c3;
+  }
+  return out;
+}
+function TerminalView({ ticket, height = 360 }) {
+  const [lines, setLines] = d2("");
+  const [error, setError] = d2(null);
+  const ref = A2(null);
+  y2(() => {
+    setLines("");
+    setError(null);
+    const src = new EventSource(`/api/sessions/${encodeURIComponent(ticket)}/stream`);
+    src.addEventListener("snapshot", (e3) => {
+      const data = e3.data;
+      setLines(unescapeMultiline(data));
+    });
+    src.addEventListener("append", (e3) => {
+      const data = e3.data;
+      setLines((prev) => prev + unescapeMultiline(data));
+    });
+    src.addEventListener("error", () => {
+      setError("connection interrupted");
+    });
+    return () => src.close();
+  }, [ticket]);
+  y2(() => {
+    if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
+  }, [lines]);
+  return /* @__PURE__ */ u3("div", { class: "terminal-view", children: [
+    error ? /* @__PURE__ */ u3("div", { class: "terminal-view__notice", children: error }) : null,
+    /* @__PURE__ */ u3("pre", { ref, class: "terminal-view__pre", style: { height: typeof height === "number" ? `${height}px` : height }, children: lines || "(waiting for output\u2026)" })
+  ] });
+}
+
+// src/api.ts
+async function sendMessage(ticket, message) {
+  const r3 = await fetch(`/api/sessions/${encodeURIComponent(ticket)}/send`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message })
+  });
+  if (!r3.ok) throw new Error(await readError(r3));
+}
+async function killSession(ticket) {
+  const r3 = await fetch(`/api/sessions/${encodeURIComponent(ticket)}/kill`, { method: "POST" });
+  if (!r3.ok) {
+    const e3 = await readError(r3);
+    if (r3.status === 409) {
+      throw new Error(`UNCOMMITTED: ${e3}`);
+    }
+    throw new Error(e3);
+  }
+}
+async function estimateCost(prompt, fullAuto) {
+  const r3 = await fetch("/api/estimate-cost", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt, full_auto: fullAuto })
+  });
+  if (!r3.ok) throw new Error(await readError(r3));
+  return r3.json();
+}
+async function spawnFeature(args) {
+  const r3 = await fetch("/api/spawn", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(args)
+  });
+  if (!r3.ok) throw new Error(await readError(r3));
+  return r3.json();
+}
+async function broadcast(message) {
+  const r3 = await fetch("/api/broadcast", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message })
+  });
+  if (!r3.ok) throw new Error(await readError(r3));
+  return r3.json();
+}
+async function spawnReviewer(parentTicket, prompt, fullAuto = true) {
+  const r3 = await fetch(`/api/sessions/${encodeURIComponent(parentTicket)}/review`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt: prompt ?? "", full_auto: fullAuto })
+  });
+  if (!r3.ok) throw new Error(await readError(r3));
+  return r3.json();
+}
+async function readError(r3) {
+  try {
+    const j3 = await r3.json();
+    return j3.error || `${r3.status} ${r3.statusText}`;
+  } catch {
+    return `${r3.status} ${r3.statusText}`;
+  }
+}
+async function loadSettings() {
+  const r3 = await fetch("/api/settings");
+  if (!r3.ok) throw new Error(await readError(r3));
+  return r3.json();
+}
+async function saveSettings(s3) {
+  const r3 = await fetch("/api/settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(s3)
+  });
+  if (!r3.ok) throw new Error(await readError(r3));
+  return r3.json();
+}
+async function fetchVersion() {
+  try {
+    const r3 = await fetch("/api/version");
+    if (r3.ok) return r3.json();
+  } catch {
+  }
+  return { build: "dev", project: "unknown" };
+}
+
+// src/components/organisms/SessionDetailPanel.tsx
+var TABS = ["Overview", "Logs"];
+function SessionDetailPanel({ ticket, onClose, onKilled }) {
+  const [data, setData] = d2(null);
+  const [error, setError] = d2(null);
+  const [tab, setTab] = d2("Overview");
+  const [modal, setModal] = d2(null);
+  const [actionMsg, setActionMsg] = d2(null);
+  y2(() => {
+    setData(null);
+    setError(null);
+    const url = `/api/sessions/${encodeURIComponent(ticket)}`;
+    const load = () => fetch(url).then((r3) => r3.ok ? r3.json() : Promise.reject(new Error(`${r3.status} ${r3.statusText}`))).then(setData).catch((e3) => setError(e3.message));
+    load();
+    const id = window.setInterval(load, 5e3);
+    return () => window.clearInterval(id);
+  }, [ticket]);
+  return /* @__PURE__ */ u3("aside", { class: "detail-panel", children: [
+    /* @__PURE__ */ u3("header", { class: "detail-panel__header", children: [
+      /* @__PURE__ */ u3("div", { class: "detail-panel__crumbs", children: [
+        /* @__PURE__ */ u3("span", { style: { color: "var(--color-text-tertiary)" }, children: "Sessions \u203A" }),
+        /* @__PURE__ */ u3("strong", { children: ticket }),
+        data ? /* @__PURE__ */ u3("span", { style: { color: "var(--color-text-secondary)" }, children: data.slug }) : null,
+        data ? /* @__PURE__ */ u3(Badge, { state: data.state }) : null
+      ] }),
+      /* @__PURE__ */ u3("div", { class: "detail-panel__actions", children: [
+        /* @__PURE__ */ u3(Button, { onClick: () => setModal("send"), children: "Send Input" }),
+        /* @__PURE__ */ u3(Button, { onClick: () => setModal("review"), children: "Spawn Reviewer" }),
+        /* @__PURE__ */ u3(Button, { onClick: () => {
+          window.location.hash = `/sessions/${encodeURIComponent(ticket)}/replay`;
+        }, children: "Replay" }),
+        /* @__PURE__ */ u3(Button, { onClick: () => setModal("kill"), children: "Kill" }),
+        onClose ? /* @__PURE__ */ u3(Button, { onClick: onClose, children: "Close" }) : null
+      ] }),
+      actionMsg ? /* @__PURE__ */ u3("div", { style: { fontSize: "var(--text-xs)", color: "var(--color-state-done)" }, children: actionMsg }) : null
+    ] }),
+    /* @__PURE__ */ u3("nav", { class: "detail-panel__tabs", role: "tablist", children: TABS.map((t3) => /* @__PURE__ */ u3(
+      "button",
+      {
+        class: `detail-panel__tab${t3 === tab ? " detail-panel__tab--active" : ""}`,
+        type: "button",
+        role: "tab",
+        "aria-selected": t3 === tab,
+        onClick: () => setTab(t3),
+        children: t3
+      },
+      t3
+    )) }),
+    /* @__PURE__ */ u3("div", { class: "detail-panel__body", children: error ? /* @__PURE__ */ u3("div", { style: { color: "var(--color-state-error)" }, children: error }) : tab === "Overview" ? /* @__PURE__ */ u3(OverviewTab, { row: data }) : /* @__PURE__ */ u3(TerminalView, { ticket }) }),
+    modal === "send" ? /* @__PURE__ */ u3(
+      SendModal,
+      {
+        ticket,
+        onClose: () => setModal(null),
+        onSent: (text) => {
+          setModal(null);
+          setActionMsg(`Sent: ${text.slice(0, 40)}${text.length > 40 ? "\u2026" : ""}`);
+          window.setTimeout(() => setActionMsg(null), 3e3);
+        }
+      }
+    ) : null,
+    modal === "kill" ? /* @__PURE__ */ u3(
+      KillModal,
+      {
+        ticket,
+        onClose: () => setModal(null),
+        onKilled: () => {
+          setModal(null);
+          onKilled?.();
+          onClose?.();
+        }
+      }
+    ) : null,
+    modal === "review" ? /* @__PURE__ */ u3(
+      ReviewModal,
+      {
+        ticket,
+        onClose: () => setModal(null),
+        onSpawned: (child) => {
+          setModal(null);
+          setActionMsg(`Spawned reviewer ${child}`);
+          window.setTimeout(() => setActionMsg(null), 4e3);
+        }
+      }
+    ) : null
+  ] });
+}
+function ReviewModal({ ticket, onClose, onSpawned }) {
+  const [prompt, setPrompt] = d2("");
+  const [submitting, setSubmitting] = d2(false);
+  const [err, setErr] = d2(null);
+  return /* @__PURE__ */ u3(Modal, { title: `Spawn reviewer for ${ticket}`, onClose, children: [
+    /* @__PURE__ */ u3("p", { style: { fontSize: "var(--text-sm)", color: "var(--color-text-secondary)" }, children: [
+      "Spawns a child session at ",
+      /* @__PURE__ */ u3("code", { children: [
+        ticket,
+        "-rev"
+      ] }),
+      " with ",
+      /* @__PURE__ */ u3("code", { children: [
+        "--parent ",
+        ticket
+      ] }),
+      " and ",
+      /* @__PURE__ */ u3("code", { children: "--full-auto" }),
+      ". The reviewer reads the parent's branch and posts a structured review."
+    ] }),
+    /* @__PURE__ */ u3(
+      "textarea",
+      {
+        class: "modal__textarea",
+        rows: 5,
+        value: prompt,
+        onInput: (e3) => setPrompt(e3.currentTarget.value),
+        placeholder: `Optional review prompt \u2014 leave blank for the default (read branch/diff/PR for ${ticket}, post review).`
+      }
+    ),
+    err ? /* @__PURE__ */ u3("div", { style: { color: "var(--color-state-error)", fontSize: "var(--text-xs)" }, children: err }) : null,
+    /* @__PURE__ */ u3("div", { class: "modal__actions", children: [
+      /* @__PURE__ */ u3(Button, { onClick: onClose, children: "Cancel" }),
+      /* @__PURE__ */ u3(
+        Button,
+        {
+          variant: "primary",
+          disabled: submitting,
+          onClick: async () => {
+            setSubmitting(true);
+            setErr(null);
+            try {
+              const r3 = await spawnReviewer(ticket, prompt.trim() || void 0, true);
+              onSpawned(r3.ticket);
+            } catch (e3) {
+              setErr(e3.message);
+            } finally {
+              setSubmitting(false);
+            }
+          },
+          children: submitting ? "Spawning\u2026" : "Spawn Reviewer"
+        }
+      )
+    ] })
+  ] });
+}
+function OverviewTab({ row }) {
+  if (!row) return /* @__PURE__ */ u3("div", { style: { color: "var(--color-text-tertiary)" }, children: "Loading\u2026" });
+  const conf = row.confidence ?? null;
+  const drift = row.drift ?? null;
+  return /* @__PURE__ */ u3(S, { children: [
+    row.objective ? /* @__PURE__ */ u3("div", { style: { marginBottom: "var(--space-3)", fontSize: "var(--text-sm)", color: "var(--color-text-secondary)" }, children: [
+      /* @__PURE__ */ u3("span", { style: { fontWeight: 600, color: "var(--color-text-primary)" }, children: "Objective: " }),
+      row.objective
+    ] }) : null,
+    /* @__PURE__ */ u3("dl", { class: "detail-panel__meta", children: [
+      /* @__PURE__ */ u3("dt", { children: "Branch" }),
+      /* @__PURE__ */ u3("dd", { children: /* @__PURE__ */ u3("code", { children: row.branch || "\u2014" }) }),
+      /* @__PURE__ */ u3("dt", { children: "Parent" }),
+      /* @__PURE__ */ u3("dd", { children: row.parent || "\u2014" }),
+      /* @__PURE__ */ u3("dt", { children: "Activity" }),
+      /* @__PURE__ */ u3("dd", { children: row.activity }),
+      /* @__PURE__ */ u3("dt", { children: "Cost" }),
+      /* @__PURE__ */ u3("dd", { children: row.cost }),
+      /* @__PURE__ */ u3("dt", { children: "Runtime" }),
+      /* @__PURE__ */ u3("dd", { children: row.runtime }),
+      /* @__PURE__ */ u3("dt", { children: "Progress" }),
+      /* @__PURE__ */ u3("dd", { children: [
+        Math.round(row.progress * 100),
+        "%"
+      ] }),
+      conf != null ? /* @__PURE__ */ u3(S, { children: [
+        /* @__PURE__ */ u3("dt", { children: "State confidence" }),
+        /* @__PURE__ */ u3("dd", { children: /* @__PURE__ */ u3(ConfidenceBar, { value: conf }) })
+      ] }) : null,
+      drift != null && drift > 0.05 ? /* @__PURE__ */ u3(S, { children: [
+        /* @__PURE__ */ u3("dt", { children: "Drift score" }),
+        /* @__PURE__ */ u3("dd", { children: [
+          /* @__PURE__ */ u3(ConfidenceBar, { value: drift, tone: "warn" }),
+          drift > 0.6 ? /* @__PURE__ */ u3("div", { style: { fontSize: "var(--text-xs)", color: "var(--color-state-error)" }, children: "\u26A0 The agent has been quiet for a while \u2014 consider attaching to check on it." }) : null
+        ] })
+      ] }) : null
+    ] })
+  ] });
+}
+function ConfidenceBar({ value, tone = "good" }) {
+  const pct = Math.round(Math.max(0, Math.min(1, value)) * 100);
+  const color = tone === "warn" ? "var(--color-state-needs-input)" : "var(--color-state-done)";
+  return /* @__PURE__ */ u3("div", { style: { display: "flex", alignItems: "center", gap: 8 }, children: [
+    /* @__PURE__ */ u3("div", { style: { width: 80, height: 6, background: "var(--color-bg-muted)", borderRadius: 999, overflow: "hidden" }, children: /* @__PURE__ */ u3("div", { style: { width: `${pct}%`, height: "100%", background: color } }) }),
+    /* @__PURE__ */ u3("span", { style: { fontSize: "var(--text-xs)", color: "var(--color-text-secondary)" }, children: [
+      pct,
+      "%"
+    ] })
+  ] });
+}
+function SendModal({ ticket, onClose, onSent }) {
+  const [msg, setMsg] = d2("");
+  const [sending, setSending] = d2(false);
+  const [err, setErr] = d2(null);
+  return /* @__PURE__ */ u3(Modal, { title: `Send input to ${ticket}`, onClose, children: [
+    /* @__PURE__ */ u3(
+      "textarea",
+      {
+        class: "modal__textarea",
+        rows: 5,
+        value: msg,
+        onInput: (e3) => setMsg(e3.currentTarget.value),
+        placeholder: "Type a message; Enter sends, Shift+Enter for newline",
+        autoFocus: true
+      }
+    ),
+    err ? /* @__PURE__ */ u3("div", { style: { color: "var(--color-state-error)", fontSize: "var(--text-xs)" }, children: err }) : null,
+    /* @__PURE__ */ u3("div", { class: "modal__actions", children: [
+      /* @__PURE__ */ u3(Button, { onClick: onClose, children: "Cancel" }),
+      /* @__PURE__ */ u3(
+        Button,
+        {
+          variant: "primary",
+          disabled: !msg.trim() || sending,
+          onClick: async () => {
+            setSending(true);
+            setErr(null);
+            try {
+              await sendMessage(ticket, msg);
+              onSent(msg);
+            } catch (e3) {
+              setErr(e3.message);
+            } finally {
+              setSending(false);
+            }
+          },
+          children: sending ? "Sending\u2026" : "Send"
+        }
+      )
+    ] })
+  ] });
+}
+function KillModal({ ticket, onClose, onKilled }) {
+  const [killing, setKilling] = d2(false);
+  const [err, setErr] = d2(null);
+  const [uncommitted, setUncommitted] = d2(false);
+  return /* @__PURE__ */ u3(Modal, { title: `Kill ${ticket}?`, onClose, children: [
+    /* @__PURE__ */ u3("p", { children: "This stops the tmux session, removes the worktree, and deletes the branch." }),
+    /* @__PURE__ */ u3("p", { children: "If the worktree has unpushed work, the kill will refuse \u2014 investigate before forcing (per BDM-13 safety)." }),
+    err ? /* @__PURE__ */ u3("div", { style: { color: "var(--color-state-error)", fontSize: "var(--text-xs)" }, children: [
+      uncommitted ? "\u26A0 Worktree has uncommitted changes. " : "",
+      err
+    ] }) : null,
+    /* @__PURE__ */ u3("div", { class: "modal__actions", children: [
+      /* @__PURE__ */ u3(Button, { onClick: onClose, children: "Cancel" }),
+      /* @__PURE__ */ u3(
+        Button,
+        {
+          variant: "primary",
+          disabled: killing,
+          onClick: async () => {
+            setKilling(true);
+            setErr(null);
+            setUncommitted(false);
+            try {
+              await killSession(ticket);
+              onKilled();
+            } catch (e3) {
+              const msg = e3.message;
+              if (msg.startsWith("UNCOMMITTED:")) {
+                setUncommitted(true);
+                setErr(msg.replace(/^UNCOMMITTED:\s*/, ""));
+              } else {
+                setErr(msg);
+              }
+            } finally {
+              setKilling(false);
+            }
+          },
+          children: killing ? "Killing\u2026" : "Confirm Kill"
+        }
+      )
+    ] })
+  ] });
+}
+function Modal({ title, onClose, children }) {
+  return /* @__PURE__ */ u3("div", { class: "modal-backdrop", onClick: onClose, children: /* @__PURE__ */ u3("div", { class: "modal", onClick: (e3) => e3.stopPropagation(), children: [
+    /* @__PURE__ */ u3("header", { class: "modal__header", children: title }),
+    /* @__PURE__ */ u3("div", { class: "modal__body", children })
+  ] }) });
+}
+
+// src/components/organisms/SpawnModal.tsx
+var TABS2 = ["Manual", "From Jira", "From Backlog"];
+function SpawnModal({ onClose, onSpawned }) {
+  const [tab, setTab] = d2("Manual");
+  return /* @__PURE__ */ u3("div", { class: "modal-backdrop", onClick: onClose, children: /* @__PURE__ */ u3("div", { class: "modal modal--lg", onClick: (e3) => e3.stopPropagation(), children: [
+    /* @__PURE__ */ u3("header", { class: "modal__header", children: "Spawn a new session" }),
+    /* @__PURE__ */ u3("nav", { class: "modal__tabs", role: "tablist", children: TABS2.map((t3) => /* @__PURE__ */ u3(
+      "button",
+      {
+        type: "button",
+        role: "tab",
+        "aria-selected": t3 === tab,
+        class: `modal__tab${t3 === tab ? " modal__tab--active" : ""}`,
+        onClick: () => setTab(t3),
+        children: t3
+      },
+      t3
+    )) }),
+    /* @__PURE__ */ u3("div", { class: "modal__body", children: tab === "Manual" ? /* @__PURE__ */ u3(ManualTab, { onClose, onSpawned }) : tab === "From Jira" ? /* @__PURE__ */ u3(PlaceholderTab, { title: "Spawn from Jira ticket", hint: "Paste a ticket key (BDM-N); the modal will fetch summary/description and pre-fill the prompt. Lands with B7 in Phase 7." }) : /* @__PURE__ */ u3(PlaceholderTab, { title: "Spawn from backlog", hint: "Pick from the project's open backlog as a list, optionally batch-spawn. Lands with B7 in Phase 7." }) })
+  ] }) });
+}
+function ManualTab({ onClose, onSpawned }) {
+  const [args, setArgs] = d2({
+    ticket: "",
+    slug: "",
+    prompt: "",
+    full_auto: true
+  });
+  const [submitting, setSubmitting] = d2(false);
+  const [err, setErr] = d2(null);
+  const [estimate, setEstimate] = d2(null);
+  y2(() => {
+    if (!args.prompt.trim()) {
+      setEstimate(null);
+      return;
+    }
+    let cancel = false;
+    const id = window.setTimeout(async () => {
+      try {
+        const r3 = await estimateCost(args.prompt, !!args.full_auto);
+        if (!cancel) setEstimate(r3);
+      } catch {
+      }
+    }, 400);
+    return () => {
+      cancel = true;
+      window.clearTimeout(id);
+    };
+  }, [args.prompt, args.full_auto]);
+  const valid = /^[A-Z][A-Z0-9]+-\d+$/.test(args.ticket.trim()) && /^[a-z0-9][a-z0-9-]{0,63}$/.test(args.slug.trim()) && args.prompt.trim().length > 0;
+  async function submit() {
+    setSubmitting(true);
+    setErr(null);
+    try {
+      const r3 = await spawnFeature({
+        ticket: args.ticket.trim(),
+        slug: args.slug.trim(),
+        prompt: args.prompt,
+        full_auto: args.full_auto,
+        parent: args.parent?.trim() || void 0,
+        max_depth: args.max_depth || void 0
+      });
+      onSpawned?.(r3.ticket);
+      onClose();
+    } catch (e3) {
+      setErr(e3.message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+  return /* @__PURE__ */ u3(
+    "form",
+    {
+      class: "spawn-form",
+      onSubmit: (e3) => {
+        e3.preventDefault();
+        if (valid && !submitting) submit();
+      },
+      children: [
+        /* @__PURE__ */ u3("div", { class: "spawn-form__row", children: [
+          /* @__PURE__ */ u3("label", { children: [
+            /* @__PURE__ */ u3("span", { class: "spawn-form__label", children: "Ticket" }),
+            /* @__PURE__ */ u3(
+              "input",
+              {
+                class: "spawn-form__input",
+                type: "text",
+                placeholder: "BDM-99",
+                value: args.ticket,
+                onInput: (e3) => setArgs({ ...args, ticket: e3.currentTarget.value }),
+                autoFocus: true
+              }
+            )
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            /* @__PURE__ */ u3("span", { class: "spawn-form__label", children: "Slug" }),
+            /* @__PURE__ */ u3(
+              "input",
+              {
+                class: "spawn-form__input",
+                type: "text",
+                placeholder: "fix-login-redirect",
+                value: args.slug,
+                onInput: (e3) => setArgs({ ...args, slug: e3.currentTarget.value })
+              }
+            )
+          ] })
+        ] }),
+        /* @__PURE__ */ u3("label", { children: [
+          /* @__PURE__ */ u3("span", { class: "spawn-form__label", children: "Prompt" }),
+          /* @__PURE__ */ u3(
+            "textarea",
+            {
+              class: "spawn-form__textarea",
+              rows: 8,
+              placeholder: "Describe what the agent should do\u2026",
+              value: args.prompt,
+              onInput: (e3) => setArgs({ ...args, prompt: e3.currentTarget.value })
+            }
+          )
+        ] }),
+        /* @__PURE__ */ u3("div", { class: "spawn-form__row", children: [
+          /* @__PURE__ */ u3("label", { children: [
+            /* @__PURE__ */ u3("span", { class: "spawn-form__label", children: "Parent (optional)" }),
+            /* @__PURE__ */ u3(
+              "input",
+              {
+                class: "spawn-form__input",
+                type: "text",
+                placeholder: "BDM-14",
+                value: args.parent ?? "",
+                onInput: (e3) => setArgs({ ...args, parent: e3.currentTarget.value })
+              }
+            )
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            /* @__PURE__ */ u3("span", { class: "spawn-form__label", children: "Max depth" }),
+            /* @__PURE__ */ u3(
+              "input",
+              {
+                class: "spawn-form__input",
+                type: "number",
+                min: 0,
+                max: 5,
+                value: args.max_depth ?? "",
+                onInput: (e3) => {
+                  const v3 = e3.currentTarget.value;
+                  setArgs({ ...args, max_depth: v3 ? Number(v3) : void 0 });
+                }
+              }
+            )
+          ] })
+        ] }),
+        /* @__PURE__ */ u3("label", { class: "spawn-form__check", children: [
+          /* @__PURE__ */ u3(
+            "input",
+            {
+              type: "checkbox",
+              checked: !!args.full_auto,
+              onChange: (e3) => setArgs({ ...args, full_auto: e3.currentTarget.checked })
+            }
+          ),
+          /* @__PURE__ */ u3("span", { children: "--full-auto (skip per-step permission gate; recommended for autonomous runs)" })
+        ] }),
+        estimate ? /* @__PURE__ */ u3("div", { style: { fontSize: "var(--text-xs)", color: "var(--color-text-secondary)" }, children: [
+          "Estimated cost: ",
+          /* @__PURE__ */ u3("strong", { children: [
+            "$",
+            estimate.low.toFixed(2)
+          ] }),
+          " \u2013 ",
+          /* @__PURE__ */ u3("strong", { children: [
+            "$",
+            estimate.high.toFixed(2)
+          ] }),
+          " ",
+          /* @__PURE__ */ u3("span", { style: { color: "var(--color-text-tertiary)" }, children: "(heuristic; Haiku-judged estimate lands later)" })
+        ] }) : null,
+        err ? /* @__PURE__ */ u3("div", { style: { color: "var(--color-state-error)", fontSize: "var(--text-xs)" }, children: err }) : null,
+        /* @__PURE__ */ u3("div", { class: "modal__actions", children: [
+          /* @__PURE__ */ u3(Button, { onClick: onClose, type: "button", children: "Cancel" }),
+          /* @__PURE__ */ u3(Button, { variant: "primary", disabled: !valid || submitting, type: "submit", children: submitting ? "Spawning\u2026" : "Spawn" })
+        ] })
+      ]
+    }
+  );
+}
+function PlaceholderTab({ title, hint }) {
+  return /* @__PURE__ */ u3("div", { style: { display: "grid", gap: 12, color: "var(--color-text-secondary)" }, children: [
+    /* @__PURE__ */ u3("div", { style: { fontSize: "var(--text-base)", fontWeight: 600, color: "var(--color-text-primary)" }, children: title }),
+    /* @__PURE__ */ u3("div", { style: { fontSize: "var(--text-sm)" }, children: hint }),
+    /* @__PURE__ */ u3("div", { style: { fontSize: "var(--text-xs)", color: "var(--color-text-tertiary)" }, children: [
+      "Use the ",
+      /* @__PURE__ */ u3("strong", { children: "Manual" }),
+      " tab today; it produces an identical result to ",
+      /* @__PURE__ */ u3("code", { children: "spawn-claude-feature" }),
+      "."
+    ] })
+  ] });
+}
+
+// src/components/organisms/BroadcastModal.tsx
+function BroadcastModal({ onClose }) {
+  const [msg, setMsg] = d2("");
+  const [submitting, setSubmitting] = d2(false);
+  const [err, setErr] = d2(null);
+  const [results, setResults] = d2(null);
+  return /* @__PURE__ */ u3("div", { class: "modal-backdrop", onClick: onClose, children: /* @__PURE__ */ u3("div", { class: "modal modal--lg", onClick: (e3) => e3.stopPropagation(), children: [
+    /* @__PURE__ */ u3("header", { class: "modal__header", children: "Broadcast input to all running sessions" }),
+    /* @__PURE__ */ u3("div", { class: "modal__body", children: results == null ? /* @__PURE__ */ u3(S, { children: [
+      /* @__PURE__ */ u3("p", { style: { fontSize: "var(--text-sm)", color: "var(--color-text-secondary)" }, children: [
+        "The same message will be delivered to every session in ",
+        /* @__PURE__ */ u3("code", { children: "working" }),
+        ",",
+        " ",
+        /* @__PURE__ */ u3("code", { children: "needs-input" }),
+        ", ",
+        /* @__PURE__ */ u3("code", { children: "reviewing" }),
+        ", or ",
+        /* @__PURE__ */ u3("code", { children: "starting" }),
+        "."
+      ] }),
+      /* @__PURE__ */ u3(
+        "textarea",
+        {
+          class: "modal__textarea",
+          rows: 6,
+          placeholder: "Type the broadcast message\u2026",
+          value: msg,
+          onInput: (e3) => setMsg(e3.currentTarget.value),
+          autoFocus: true
+        }
+      ),
+      err ? /* @__PURE__ */ u3("div", { style: { color: "var(--color-state-error)", fontSize: "var(--text-xs)" }, children: err }) : null,
+      /* @__PURE__ */ u3("div", { class: "modal__actions", children: [
+        /* @__PURE__ */ u3(Button, { onClick: onClose, children: "Cancel" }),
+        /* @__PURE__ */ u3(
+          Button,
+          {
+            variant: "primary",
+            disabled: !msg.trim() || submitting,
+            onClick: async () => {
+              setSubmitting(true);
+              setErr(null);
+              try {
+                const r3 = await broadcast(msg);
+                setResults(r3);
+              } catch (e3) {
+                setErr(e3.message);
+              } finally {
+                setSubmitting(false);
+              }
+            },
+            children: submitting ? "Broadcasting\u2026" : "Broadcast"
+          }
+        )
+      ] })
+    ] }) : /* @__PURE__ */ u3(BroadcastResults, { result: results, onClose }) })
+  ] }) });
+}
+function BroadcastResults({ result, onClose }) {
+  const ok = result.results.filter((r3) => r3.ok).length;
+  const fail = result.results.length - ok;
+  return /* @__PURE__ */ u3(S, { children: [
+    /* @__PURE__ */ u3("div", { style: { fontSize: "var(--text-sm)" }, children: [
+      "Delivered to ",
+      /* @__PURE__ */ u3("strong", { children: ok }),
+      " session",
+      ok === 1 ? "" : "s",
+      fail > 0 ? `, ${fail} failed` : "",
+      "."
+    ] }),
+    /* @__PURE__ */ u3("ul", { style: { listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 4, maxHeight: 240, overflow: "auto" }, children: result.results.map((r3) => /* @__PURE__ */ u3(
+      "li",
+      {
+        style: {
+          fontSize: "var(--text-xs)",
+          fontFamily: "var(--font-mono)",
+          color: r3.ok ? "var(--color-state-done)" : "var(--color-state-error)"
+        },
+        children: [
+          r3.ok ? "\u2713" : "\u2717",
+          " ",
+          r3.ticket,
+          r3.error ? ` \u2014 ${r3.error}` : ""
+        ]
+      },
+      r3.ticket
+    )) }),
+    /* @__PURE__ */ u3("div", { class: "modal__actions", children: /* @__PURE__ */ u3(Button, { variant: "primary", onClick: onClose, children: "Done" }) })
+  ] });
+}
+
+// src/components/molecules/ShortcutsOverlay.tsx
+var SHORTCUTS = [
+  { keys: "?", desc: "Toggle this overlay" },
+  { keys: "/", desc: "Focus search" },
+  { keys: "g o", desc: "Go to overview" },
+  { keys: "d", desc: "Toggle density (compact \u2194 comfortable)" },
+  { keys: "n", desc: "New session (open spawn modal)" },
+  { keys: "b", desc: "Broadcast input to all running sessions" },
+  { keys: "Esc", desc: "Close modals / clear selection" }
+];
+function ShortcutsOverlay({ onClose }) {
+  y2(() => {
+    const onKey = (e3) => {
+      if (e3.key === "Escape" || e3.key === "?") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return /* @__PURE__ */ u3("div", { class: "modal-backdrop", onClick: onClose, children: /* @__PURE__ */ u3("div", { class: "modal", onClick: (e3) => e3.stopPropagation(), children: [
+    /* @__PURE__ */ u3("header", { class: "modal__header", children: "Keyboard shortcuts" }),
+    /* @__PURE__ */ u3("div", { class: "modal__body", children: /* @__PURE__ */ u3("table", { class: "kbd-table", children: /* @__PURE__ */ u3("tbody", { children: SHORTCUTS.map((s3) => /* @__PURE__ */ u3("tr", { children: [
+      /* @__PURE__ */ u3("td", { children: s3.keys.split(" ").map((k3, i4) => /* @__PURE__ */ u3("span", { children: [
+        /* @__PURE__ */ u3("kbd", { class: "kbd", children: k3 }),
+        i4 < s3.keys.split(" ").length - 1 ? " " : ""
+      ] }, i4)) }),
+      /* @__PURE__ */ u3("td", { children: s3.desc })
+    ] }, s3.keys)) }) }) })
+  ] }) });
+}
+
+// src/hooks/useSessionList.ts
+var POLL_INTERVAL_MS2 = 5e3;
+function useSessionList() {
+  return usePolling("/api/sessions", POLL_INTERVAL_MS2, "sessions");
+}
+
+// src/hooks/useStats.ts
+var POLL_INTERVAL_MS3 = 5e3;
+function useStats() {
+  return usePolling("/api/stats", POLL_INTERVAL_MS3, "stats");
+}
+
+// src/hooks/useShortcuts.ts
+var TYPING = /^(input|textarea|select)$/i;
+function useShortcuts(b2) {
+  y2(() => {
+    const handler = (e3) => {
+      const t3 = e3.target;
+      const isTyping = !!t3 && (TYPING.test(t3.tagName) || t3.isContentEditable);
+      if (e3.key === "Escape") {
+        b2.onEscape?.();
+        return;
+      }
+      if (isTyping) return;
+      switch (e3.key) {
+        case "?":
+          e3.preventDefault();
+          b2.onHelp?.();
+          break;
+        case "/":
+          e3.preventDefault();
+          b2.onFocusSearch?.();
+          break;
+        case "d":
+          b2.onToggleDensity?.();
+          break;
+        case "n":
+          b2.onSpawn?.();
+          break;
+        case "b":
+          b2.onBroadcast?.();
+          break;
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [b2]);
+}
+
+// src/hooks/usePersistentState.ts
+function usePersistentState(key, initial) {
+  const [v3, setV] = d2(() => {
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw == null) return initial;
+      return JSON.parse(raw);
+    } catch {
+      return initial;
+    }
+  });
+  y2(() => {
+    try {
+      localStorage.setItem(key, JSON.stringify(v3));
+    } catch {
+    }
+  }, [key, v3]);
+  return [v3, setV];
+}
+
+// src/components/pages/OverviewPage.tsx
+function OverviewPage() {
+  const stats = useStats();
+  const sessions = useSessionList();
+  const [version, setVersion] = d2(null);
+  const [selected, setSelected] = d2(null);
+  const [spawnOpen, setSpawnOpen] = d2(false);
+  const [broadcastOpen, setBroadcastOpen] = d2(false);
+  const [shortcutsOpen, setShortcutsOpen] = d2(false);
+  const [toast, setToast] = d2(null);
+  const [density, setDensity] = usePersistentState("fleet.density", "comfortable");
+  y2(() => {
+    fetchVersion().then(setVersion);
+  }, []);
+  y2(() => {
+    const rows = sessions.data ?? [];
+    const active = rows.filter((r3) => ["starting", "working", "reviewing"].includes(r3.state)).length;
+    const needs = rows.filter((r3) => ["needs-input", "blocked", "error"].includes(r3.state)).length;
+    const proj = version?.project ?? "";
+    const parts = [`Fleet`];
+    if (rows.length > 0) parts.push(`${active}/${rows.length}`);
+    if (needs > 0) parts.push(`${needs} \u26A0`);
+    document.title = parts.join(" \xB7 ") + (proj ? ` \u2014 ${proj}` : "");
+  }, [sessions.data, version?.project]);
+  useShortcuts({
+    onHelp: () => setShortcutsOpen((v3) => !v3),
+    onFocusSearch: () => {
+      const el = document.querySelector(".search-field input");
+      el?.focus();
+    },
+    onToggleDensity: () => setDensity(density === "compact" ? "comfortable" : "compact"),
+    onSpawn: () => setSpawnOpen(true),
+    onBroadcast: () => setBroadcastOpen(true),
+    onEscape: () => {
+      if (spawnOpen) setSpawnOpen(false);
+      else if (broadcastOpen) setBroadcastOpen(false);
+      else if (shortcutsOpen) setShortcutsOpen(false);
+      else if (selected) setSelected(null);
+    }
+  });
+  return /* @__PURE__ */ u3(
+    AppShell,
+    {
+      activeView: "overview",
+      topBarTitle: "Fleet Overview",
+      onSpawnClick: () => setSpawnOpen(true),
+      children: [
+        /* @__PURE__ */ u3("div", { class: `overview${selected ? " overview--with-detail" : ""}`, children: [
+          /* @__PURE__ */ u3("main", { class: "overview__main", children: [
+            stats.data ? /* @__PURE__ */ u3(StatRibbon, { stats: stats.data }) : stats.loading ? /* @__PURE__ */ u3("div", { style: { marginBottom: 24, color: "var(--color-text-tertiary)" }, children: "Loading stats\u2026" }) : null,
+            sessions.error ? /* @__PURE__ */ u3("div", { style: { marginBottom: 16, color: "var(--color-state-error)" }, children: [
+              "Couldn't load sessions: ",
+              sessions.error.message
+            ] }) : null,
+            /* @__PURE__ */ u3(
+              SessionTable,
+              {
+                rows: sessions.data ?? [],
+                loading: sessions.loading && !sessions.data,
+                density,
+                onRowClick: (r3) => setSelected(r3.ticket)
+              }
+            ),
+            /* @__PURE__ */ u3(
+              "footer",
+              {
+                style: {
+                  marginTop: 32,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 16,
+                  color: "var(--color-text-tertiary)",
+                  fontSize: "var(--text-xs)"
+                },
+                children: [
+                  version ? /* @__PURE__ */ u3("span", { children: [
+                    "fleet-web ",
+                    version.build,
+                    " \xB7 project ",
+                    version.project
+                  ] }) : null,
+                  /* @__PURE__ */ u3("span", { style: { flex: 1 } }),
+                  /* @__PURE__ */ u3(
+                    "button",
+                    {
+                      type: "button",
+                      class: "link-button",
+                      onClick: () => setBroadcastOpen(true),
+                      title: "Broadcast input (b)",
+                      children: "Broadcast"
+                    }
+                  ),
+                  /* @__PURE__ */ u3(
+                    "button",
+                    {
+                      type: "button",
+                      class: "link-button",
+                      onClick: () => setDensity(density === "compact" ? "comfortable" : "compact"),
+                      title: "Toggle density (d)",
+                      children: density === "compact" ? "Comfortable" : "Compact"
+                    }
+                  ),
+                  /* @__PURE__ */ u3(
+                    "button",
+                    {
+                      type: "button",
+                      class: "link-button",
+                      onClick: () => setShortcutsOpen(true),
+                      title: "Shortcuts (?)",
+                      children: "? Shortcuts"
+                    }
+                  )
+                ]
+              }
+            )
+          ] }),
+          selected ? /* @__PURE__ */ u3(SessionDetailPanel, { ticket: selected, onClose: () => setSelected(null) }) : null
+        ] }),
+        spawnOpen ? /* @__PURE__ */ u3(
+          SpawnModal,
+          {
+            onClose: () => setSpawnOpen(false),
+            onSpawned: (t3) => {
+              setToast(`Spawned ${t3}`);
+              window.setTimeout(() => setToast(null), 4e3);
+            }
+          }
+        ) : null,
+        broadcastOpen ? /* @__PURE__ */ u3(BroadcastModal, { onClose: () => setBroadcastOpen(false) }) : null,
+        shortcutsOpen ? /* @__PURE__ */ u3(ShortcutsOverlay, { onClose: () => setShortcutsOpen(false) }) : null,
+        toast ? /* @__PURE__ */ u3(
+          "div",
+          {
+            style: {
+              position: "fixed",
+              bottom: 24,
+              right: 24,
+              padding: "10px 16px",
+              background: "var(--color-state-done)",
+              color: "#fff",
+              borderRadius: 6,
+              fontSize: "var(--text-sm)",
+              boxShadow: "var(--shadow-md)",
+              zIndex: 100
+            },
+            children: toast
+          }
+        ) : null
+      ]
+    }
+  );
+}
+
+// src/hooks/useEventStream.ts
+var POLL_INTERVAL_MS4 = 5e3;
+var LIMIT = 100;
+function useEventStream() {
+  return usePolling(`/api/events?limit=${LIMIT}`, POLL_INTERVAL_MS4, "events");
+}
+
+// src/components/pages/AuditPage.tsx
+var KIND_TONES = {
+  pr_opened: "var(--color-state-working)",
+  merge: "var(--color-state-done)",
+  review_comment: "var(--color-state-reviewing)",
+  review_summary: "var(--color-state-reviewing)",
+  commit_pushed: "var(--color-text-secondary)"
+};
+function AuditPage() {
+  const evts = useEventStream();
+  const [q2, setQ] = d2("");
+  const filtered = T2(() => {
+    const list = evts.data ?? [];
+    const needle = q2.trim().toLowerCase();
+    if (!needle) return list;
+    return list.filter(
+      (e3) => e3.ticket.toLowerCase().includes(needle) || e3.kind.toLowerCase().includes(needle) || JSON.stringify(e3.detail).toLowerCase().includes(needle)
+    );
+  }, [evts.data, q2]);
+  return /* @__PURE__ */ u3(AppShell, { activeView: "audit", topBarTitle: "Audit log", children: [
+    /* @__PURE__ */ u3("div", { style: { display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }, children: [
+      /* @__PURE__ */ u3("h2", { style: { margin: 0, fontSize: "var(--text-lg)", fontWeight: 600 }, children: "Audit log" }),
+      /* @__PURE__ */ u3("span", { style: { flex: 1 } }),
+      /* @__PURE__ */ u3("span", { style: { fontSize: "var(--text-xs)", color: "var(--color-text-tertiary)" }, children: [
+        filtered.length,
+        " / ",
+        (evts.data ?? []).length
+      ] }),
+      /* @__PURE__ */ u3("div", { style: { width: 280 }, children: /* @__PURE__ */ u3(SearchField, { placeholder: "Filter ticket / kind / detail\u2026", onChange: setQ }) })
+    ] }),
+    evts.error ? /* @__PURE__ */ u3("div", { style: { color: "var(--color-state-error)" }, children: [
+      "Couldn't load events: ",
+      evts.error.message
+    ] }) : evts.loading && !evts.data ? /* @__PURE__ */ u3("div", { style: { color: "var(--color-text-tertiary)" }, children: "Loading\u2026" }) : filtered.length === 0 ? /* @__PURE__ */ u3("div", { style: { color: "var(--color-text-tertiary)" }, children: "No events match the current filter. Audit feed is sourced from the per-session events JSONL files." }) : /* @__PURE__ */ u3("ol", { class: "audit-list", children: filtered.map((e3) => /* @__PURE__ */ u3("li", { class: "audit-list__row", children: [
+      /* @__PURE__ */ u3("div", { class: "audit-list__time", title: e3.id, children: formatTime(e3.ts) }),
+      /* @__PURE__ */ u3("div", { class: "audit-list__ticket", children: e3.ticket }),
+      /* @__PURE__ */ u3("div", { class: "audit-list__kind", style: { color: KIND_TONES[e3.kind] ?? "var(--color-text-secondary)" }, children: e3.kind }),
+      /* @__PURE__ */ u3("div", { class: "audit-list__detail", children: /* @__PURE__ */ u3("code", { style: { fontSize: "var(--text-xs)" }, children: summarize(e3.detail) }) })
+    ] }, e3.id)) })
+  ] });
+}
+function formatTime(ts) {
+  const d3 = new Date(ts);
+  if (Number.isNaN(d3.getTime())) return String(ts);
+  return d3.toLocaleString();
+}
+function summarize(detail) {
+  const keys = Object.keys(detail);
+  if (keys.length === 0) return "";
+  const parts = keys.slice(0, 4).map((k3) => {
+    const v3 = detail[k3];
+    const s3 = typeof v3 === "string" ? v3 : JSON.stringify(v3);
+    const trim = s3.length > 60 ? s3.slice(0, 57) + "\u2026" : s3;
+    return `${k3}=${trim}`;
+  });
+  return parts.join(" \xB7 ");
+}
+
+// src/hooks/useRoute.ts
+function parseHash(h3) {
+  const path = (h3 || "").replace(/^#\/?/, "");
+  if (!path || path === "/") return { name: "overview", params: {} };
+  if (path === "audit") return { name: "audit", params: {} };
+  if (path === "settings") return { name: "settings", params: {} };
+  const m3 = /^sessions\/([^/]+)\/replay$/.exec(path);
+  if (m3) return { name: "replay", params: { ticket: decodeURIComponent(m3[1]) } };
+  return { name: "overview", params: {} };
+}
+function useRoute() {
+  const [route, setRoute] = d2(() => parseHash(window.location.hash));
+  y2(() => {
+    const onHash = () => setRoute(parseHash(window.location.hash));
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+  const navigate = (path) => {
+    window.location.hash = path.startsWith("#") ? path : `#${path}`;
+  };
+  return [route, navigate];
+}
+
+// src/components/pages/ReplayPage.tsx
+var FETCH_BYTES = 256 * 1024;
+function ReplayPage() {
+  const [, navigate] = useRoute();
+  const route = parseTicketRoute();
+  const [log, setLog] = d2(null);
+  const [error, setError] = d2(null);
+  const [events, setEvents] = d2([]);
+  const [position, setPosition] = d2(0);
+  const [playing, setPlaying] = d2(false);
+  const [speed, setSpeed] = d2(1);
+  const playRef = A2(null);
+  const lines = T2(() => log == null ? [] : log.split("\n"), [log]);
+  y2(() => {
+    if (!route.ticket) return;
+    const ac = new AbortController();
+    fetch(`/api/sessions/${encodeURIComponent(route.ticket)}/log?bytes=${FETCH_BYTES}`, { signal: ac.signal }).then((r3) => r3.ok ? r3.text() : Promise.reject(new Error(`${r3.status} ${r3.statusText}`))).then((txt) => {
+      setLog(txt);
+      setPosition(txt.split("\n").length - 1);
+    }).catch((e3) => {
+      if (e3.name !== "AbortError") setError(e3.message);
+    });
+    fetch(`/api/events?limit=200`, { signal: ac.signal }).then((r3) => r3.ok ? r3.json() : Promise.reject(new Error(`${r3.status} ${r3.statusText}`))).then((all) => setEvents(all.filter((e3) => e3.ticket === route.ticket))).catch(() => {
+    });
+    return () => ac.abort();
+  }, [route.ticket]);
+  y2(() => {
+    if (!playing) return;
+    const ms = Math.max(20, 200 / speed);
+    playRef.current = window.setInterval(() => {
+      setPosition((p3) => {
+        if (p3 >= lines.length - 1) {
+          setPlaying(false);
+          return p3;
+        }
+        return p3 + 1;
+      });
+    }, ms);
+    return () => {
+      if (playRef.current != null) window.clearInterval(playRef.current);
+      playRef.current = null;
+    };
+  }, [playing, speed, lines.length]);
+  if (!route.ticket) {
+    return /* @__PURE__ */ u3(AppShell, { activeView: "sessions", topBarTitle: "Replay", children: /* @__PURE__ */ u3("div", { children: "No ticket in route. Navigate from the session detail panel." }) });
+  }
+  return /* @__PURE__ */ u3(AppShell, { activeView: "sessions", topBarTitle: `Replay \u2014 ${route.ticket}`, children: [
+    /* @__PURE__ */ u3("div", { style: { display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }, children: [
+      /* @__PURE__ */ u3(Button, { onClick: () => navigate("/"), children: "\u2190 Back to overview" }),
+      /* @__PURE__ */ u3("span", { style: { flex: 1 } }),
+      /* @__PURE__ */ u3(Button, { onClick: () => setPlaying((p3) => !p3), disabled: lines.length === 0, children: playing ? "\u23F8 Pause" : "\u25B6 Play" }),
+      /* @__PURE__ */ u3("span", { style: { display: "inline-flex", gap: 4 }, role: "group", "aria-label": "Speed", children: [0.5, 1, 2, 4].map((s3) => /* @__PURE__ */ u3(
+        "button",
+        {
+          type: "button",
+          class: `filter-chip${s3 === speed ? " filter-chip--active" : ""}`,
+          onClick: () => setSpeed(s3),
+          children: [
+            s3,
+            "x"
+          ]
+        },
+        s3
+      )) })
+    ] }),
+    error ? /* @__PURE__ */ u3("div", { style: { color: "var(--color-state-error)" }, children: [
+      "Couldn't load log: ",
+      error
+    ] }) : null,
+    /* @__PURE__ */ u3("div", { class: "replay", children: [
+      /* @__PURE__ */ u3("pre", { class: "replay__terminal", "aria-label": "Replay terminal", children: lines.slice(0, position + 1).join("\n") }),
+      /* @__PURE__ */ u3(
+        "input",
+        {
+          class: "replay__scrub",
+          type: "range",
+          min: 0,
+          max: Math.max(0, lines.length - 1),
+          value: position,
+          onInput: (e3) => {
+            setPlaying(false);
+            setPosition(Number(e3.currentTarget.value));
+          },
+          "aria-label": "Scrub timeline"
+        }
+      ),
+      /* @__PURE__ */ u3("div", { class: "replay__meta", children: [
+        /* @__PURE__ */ u3("span", { children: [
+          "line ",
+          position + 1,
+          " / ",
+          lines.length
+        ] }),
+        events.length > 0 ? /* @__PURE__ */ u3("span", { style: { marginLeft: 16 }, children: [
+          events.length,
+          " event",
+          events.length === 1 ? "" : "s"
+        ] }) : null
+      ] }),
+      events.length > 0 ? /* @__PURE__ */ u3("ol", { class: "replay__events", children: events.map((e3, i4) => /* @__PURE__ */ u3("li", { class: "replay__event", children: /* @__PURE__ */ u3(
+        "button",
+        {
+          type: "button",
+          class: "link-button",
+          onClick: () => {
+            const target = Math.round((i4 + 1) / events.length * (lines.length - 1));
+            setPlaying(false);
+            setPosition(target);
+          },
+          children: [
+            /* @__PURE__ */ u3("span", { style: { fontFamily: "var(--font-mono)", fontSize: "var(--text-xs)" }, children: new Date(e3.ts).toLocaleTimeString() }),
+            " ",
+            /* @__PURE__ */ u3("strong", { children: e3.kind })
+          ]
+        }
+      ) }, e3.id)) }) : null
+    ] })
+  ] });
+}
+function parseTicketRoute() {
+  const m3 = /^#\/?sessions\/([^/]+)\/replay$/.exec(window.location.hash);
+  return { ticket: m3 ? decodeURIComponent(m3[1]) : null };
+}
+
+// src/hooks/useTheme.ts
+var DEFAULT = { theme: "light", accent: "#2563eb", font: "inter" };
+function useTheme() {
+  const [state, setState] = usePersistentState("fleet.theme", DEFAULT);
+  y2(() => {
+    const html = document.documentElement;
+    if (state.theme === "light") html.removeAttribute("data-theme");
+    else html.setAttribute("data-theme", state.theme);
+    if (state.font === "inter") html.removeAttribute("data-font");
+    else html.setAttribute("data-font", state.font);
+    if (state.accent) html.style.setProperty("--color-accent", state.accent);
+  }, [state]);
+  return [state, setState];
+}
+
+// src/components/pages/SettingsPage.tsx
+var THEME_OPTIONS = [
+  { id: "light", label: "Light" },
+  { id: "dark", label: "Dark" },
+  { id: "repllt-blue", label: "Repllt Blue" }
+];
+var ACCENTS = ["#2563eb", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#0f172a"];
+var FONT_OPTIONS = [
+  { id: "inter", label: "Inter (default)" },
+  { id: "jetbrains-mono", label: "JetBrains Mono" },
+  { id: "system", label: "System" }
+];
+function SettingsPage() {
+  const [s3, setS] = d2(null);
+  const [err, setErr] = d2(null);
+  const [saving, setSaving] = d2(false);
+  const [savedAt, setSavedAt] = d2(null);
+  const [theme, setTheme] = useTheme();
+  y2(() => {
+    loadSettings().then(setS).catch((e3) => setErr(e3.message));
+  }, []);
+  async function persist() {
+    if (!s3) return;
+    setSaving(true);
+    setErr(null);
+    try {
+      const merged = {
+        ...s3,
+        theme: { theme: theme.theme, accent: theme.accent, font: theme.font }
+      };
+      const next = await saveSettings(merged);
+      setS(next);
+      setSavedAt(Date.now());
+      window.setTimeout(() => setSavedAt(null), 2500);
+    } catch (e3) {
+      setErr(e3.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+  return /* @__PURE__ */ u3(AppShell, { activeView: "settings", topBarTitle: "Settings", children: [
+    err ? /* @__PURE__ */ u3("div", { style: { color: "var(--color-state-error)", marginBottom: 12 }, children: err }) : null,
+    !s3 ? /* @__PURE__ */ u3("div", { style: { color: "var(--color-text-tertiary)" }, children: "Loading settings\u2026" }) : /* @__PURE__ */ u3("div", { class: "settings", children: [
+      /* @__PURE__ */ u3(Section, { title: "Mobile push (B15)", children: [
+        /* @__PURE__ */ u3("p", { style: { fontSize: "var(--text-sm)", color: "var(--color-text-secondary)" }, children: [
+          "Routes selected event kinds to an ",
+          /* @__PURE__ */ u3("code", { children: "ntfy" }),
+          " topic. The notify daemon already supports webhook sinks; this page persists the config."
+        ] }),
+        /* @__PURE__ */ u3(Field, { label: "Enabled", children: /* @__PURE__ */ u3(
+          "input",
+          {
+            type: "checkbox",
+            checked: s3.mobile.enabled,
+            onChange: (e3) => setS({ ...s3, mobile: { ...s3.mobile, enabled: e3.currentTarget.checked } })
+          }
+        ) }),
+        /* @__PURE__ */ u3(Field, { label: "ntfy URL", children: /* @__PURE__ */ u3(
+          "input",
+          {
+            class: "settings__input",
+            type: "url",
+            value: s3.mobile.ntfy_url,
+            placeholder: "https://ntfy.sh",
+            onInput: (e3) => setS({ ...s3, mobile: { ...s3.mobile, ntfy_url: e3.currentTarget.value } })
+          }
+        ) }),
+        /* @__PURE__ */ u3(Field, { label: "Topic", children: /* @__PURE__ */ u3(
+          "input",
+          {
+            class: "settings__input",
+            type: "text",
+            placeholder: "fleet-alerts-abc123",
+            value: s3.mobile.topic,
+            onInput: (e3) => setS({ ...s3, mobile: { ...s3.mobile, topic: e3.currentTarget.value } })
+          }
+        ) }),
+        /* @__PURE__ */ u3(Field, { label: "Kinds (comma-separated)", children: /* @__PURE__ */ u3(
+          "input",
+          {
+            class: "settings__input",
+            type: "text",
+            placeholder: "merge,pr_opened,review_summary",
+            value: s3.mobile.kinds,
+            onInput: (e3) => setS({ ...s3, mobile: { ...s3.mobile, kinds: e3.currentTarget.value } })
+          }
+        ) }),
+        s3.mobile.enabled && s3.mobile.topic ? /* @__PURE__ */ u3(CodeBlock, { children: `curl -d "fleet event" ${s3.mobile.ntfy_url.replace(/\/$/, "")}/${s3.mobile.topic}` }) : null
+      ] }),
+      /* @__PURE__ */ u3(Section, { title: "Theme (C7)", children: [
+        /* @__PURE__ */ u3("p", { style: { fontSize: "var(--text-sm)", color: "var(--color-text-secondary)" }, children: [
+          "Live preview \u2014 changes apply to this browser immediately. Saving persists them to the project's ",
+          /* @__PURE__ */ u3("code", { children: "settings.toml" }),
+          "."
+        ] }),
+        /* @__PURE__ */ u3(Field, { label: "Theme", children: /* @__PURE__ */ u3("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" }, children: THEME_OPTIONS.map((opt) => /* @__PURE__ */ u3(
+          "button",
+          {
+            type: "button",
+            class: `filter-chip${theme.theme === opt.id ? " filter-chip--active" : ""}`,
+            onClick: () => setTheme({ ...theme, theme: opt.id }),
+            children: opt.label
+          },
+          opt.id
+        )) }) }),
+        /* @__PURE__ */ u3(Field, { label: "Accent color", children: /* @__PURE__ */ u3("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" }, children: ACCENTS.map((hex) => /* @__PURE__ */ u3(
+          "button",
+          {
+            type: "button",
+            "aria-label": hex,
+            onClick: () => setTheme({ ...theme, accent: hex }),
+            style: {
+              width: 24,
+              height: 24,
+              borderRadius: 6,
+              border: "2px solid",
+              borderColor: theme.accent === hex ? "var(--color-text-primary)" : "var(--color-border)",
+              background: hex,
+              cursor: "pointer"
+            }
+          },
+          hex
+        )) }) }),
+        /* @__PURE__ */ u3(Field, { label: "Font", children: /* @__PURE__ */ u3(
+          "select",
+          {
+            class: "settings__input",
+            value: theme.font,
+            onChange: (e3) => setTheme({ ...theme, font: e3.currentTarget.value }),
+            children: FONT_OPTIONS.map((opt) => /* @__PURE__ */ u3("option", { value: opt.id, children: opt.label }, opt.id))
+          }
+        ) })
+      ] }),
+      /* @__PURE__ */ u3(Section, { title: "Tailscale share (B17)", children: [
+        /* @__PURE__ */ u3("p", { style: { fontSize: "var(--text-sm)", color: "var(--color-text-secondary)" }, children: [
+          "Expose this dashboard over your tailnet (or the public internet via funnel). The toggle is informational \u2014 you still run the ",
+          /* @__PURE__ */ u3("code", { children: "tailscale" }),
+          " CLI yourself."
+        ] }),
+        /* @__PURE__ */ u3(Field, { label: "Enabled", children: /* @__PURE__ */ u3(
+          "input",
+          {
+            type: "checkbox",
+            checked: s3.tailscale.enabled,
+            onChange: (e3) => setS({ ...s3, tailscale: { ...s3.tailscale, enabled: e3.currentTarget.checked } })
+          }
+        ) }),
+        /* @__PURE__ */ u3(Field, { label: "Use funnel (public)", children: /* @__PURE__ */ u3(
+          "input",
+          {
+            type: "checkbox",
+            checked: s3.tailscale.funnel,
+            onChange: (e3) => setS({ ...s3, tailscale: { ...s3.tailscale, funnel: e3.currentTarget.checked } })
+          }
+        ) }),
+        s3.tailscale.enabled ? /* @__PURE__ */ u3(CodeBlock, { children: s3.tailscale.funnel ? `tailscale funnel --bg ${window.location.origin}` : `tailscale serve --bg ${window.location.origin}` }) : null
+      ] }),
+      /* @__PURE__ */ u3("div", { class: "modal__actions", style: { justifyContent: "flex-start" }, children: [
+        /* @__PURE__ */ u3(Button, { variant: "primary", onClick: persist, disabled: saving, children: saving ? "Saving\u2026" : "Save" }),
+        savedAt ? /* @__PURE__ */ u3("span", { style: { fontSize: "var(--text-xs)", color: "var(--color-state-done)" }, children: "Saved." }) : null
+      ] })
+    ] })
+  ] });
+}
+function Section({ title, children }) {
+  return /* @__PURE__ */ u3("section", { class: "settings__section", children: [
+    /* @__PURE__ */ u3("h2", { class: "settings__section-title", children: title }),
+    /* @__PURE__ */ u3("div", { class: "settings__rows", children })
+  ] });
+}
+function Field({ label, children }) {
+  return /* @__PURE__ */ u3("label", { class: "settings__field", children: [
+    /* @__PURE__ */ u3("span", { class: "settings__label", children: label }),
+    /* @__PURE__ */ u3("span", { class: "settings__control", children })
+  ] });
+}
+function CodeBlock({ children }) {
+  return /* @__PURE__ */ u3("pre", { style: {
+    background: "#0b0e14",
+    color: "#d4d4d4",
+    padding: "var(--space-3)",
+    borderRadius: "var(--radius-md)",
+    fontSize: "var(--text-xs)",
+    fontFamily: "var(--font-mono)",
+    overflow: "auto",
+    margin: "var(--space-2) 0 0"
+  }, children });
+}
+
+// src/main.tsx
+function App() {
+  useTheme();
+  const [route] = useRoute();
+  switch (route.name) {
+    case "audit":
+      return /* @__PURE__ */ u3(AuditPage, {});
+    case "replay":
+      return /* @__PURE__ */ u3(ReplayPage, {});
+    case "settings":
+      return /* @__PURE__ */ u3(SettingsPage, {});
+    default:
+      return /* @__PURE__ */ u3(OverviewPage, {});
+  }
+}
+var rootEl = document.getElementById("root");
+if (rootEl) {
+  R(/* @__PURE__ */ u3(App, {}), rootEl);
+} else {
+  console.error("fleet-web: #root not found in DOM");
+}
+try {
+  const es = new EventSource("/api/stream?topics=dist-rebuilt");
+  es.addEventListener("dist-rebuilt", () => {
+    console.log("[fleet-dev] dist rebuilt; reloading");
+    window.location.reload();
+  });
+} catch {
+}
 //# sourceMappingURL=app.js.map
