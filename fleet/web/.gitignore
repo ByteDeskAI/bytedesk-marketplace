@@ -1,0 +1,5 @@
+# Build dependencies — installed locally, not committed.
+node_modules/
+
+# esbuild metafiles
+*.metafile.json

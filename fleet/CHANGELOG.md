@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-05-10
+
+**Phase 2 of the BDM-14 web dashboard plan: SPA scaffold (BDM-16).** Preact + esbuild + the atomic-design file layout, with the first read-surface organisms wired against placeholder fixtures so the structure is real — not just empty dirs.
+
+### Added
+
+- `fleet/web/package.json`, `tsconfig.json`, `build.mjs`, `.gitignore` — Node toolchain for the SPA build.
+- `fleet/web/src/` — atomic-design layout under `components/{atoms,molecules,organisms,templates,pages}/`.
+  - **Atoms**: `Badge` (state-color variants tied to session state), `Button` (default + primary), `Icon` (inline SVG, 9 nav icons), `Sparkline` (SVG polyline from numeric series).
+  - **Molecules**: `StatCard` (label + value + delta + sparkline), `SearchField` (input with light state).
+  - **Organisms**: `Sidebar` (brand + Views nav + sub-views + Projects + user), `TopBar` (title + time-range pills + Spawn button), `StatRibbon` (6 StatCards from `FleetStats`), `SessionTable` (placeholder rows from `api.ts`).
+  - **Template**: `AppShell` (sidebar + topbar + content grid).
+  - **Page**: `OverviewPage` mirrors the screenshot's panel 1.
+- `fleet/web/src/styles.css` — design tokens via CSS custom properties. Light theme by default; dark / Repllt-Blue variants land in Phase 11 (C7).
+- `fleet/web/src/api.ts` — typed placeholder fixtures (`FleetStats`, `SessionRow`); Phase 3 swaps these for real `/api/*` + SSE.
+- `fleet/web/build.sh` extended: SPA build (`npm install` if needed → typecheck → esbuild) before the Go binary build.
+
+### Changed
+
+- `fleet/web/server/dist/index.html` is now the esbuild template; loads `/app.js` (24KB) + `/app.css` (7.5KB). Replaces the Phase 1 placeholder.
+- `claude-sessions-web` build version → `v1.2.0-bdm16`.
+
 ## [1.1.0] — 2026-05-09
 
 **Foundation release for the rich web dashboard (BDM-14, Phase 1).** No UI surface yet — this release lays the lifecycle plumbing under the dashboard so subsequent phases can drop in atoms / molecules / organisms / pages without re-deciding the server architecture. See [BDM-15](https://bytedesk.atlassian.net/browse/BDM-15).

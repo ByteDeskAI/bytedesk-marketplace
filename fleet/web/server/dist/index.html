@@ -1,24 +1,14 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>fleet</title>
-  <style>
-    body { margin:0; font:14px/1.5 system-ui,sans-serif; background:#0d0d0d; color:#e6e6e6; }
-    main { max-width:640px; margin:64px auto; padding:0 24px; }
-    h1 { margin:0 0 8px; font-weight:600; letter-spacing:-.01em; }
-    p { margin:8px 0; color:#9aa0a6; }
-    code { background:#1a1a1a; padding:2px 6px; border-radius:4px; color:#cfcfcf; }
-    a { color:#7aa2f7; }
-  </style>
-</head>
-<body>
-  <main>
-    <h1>fleet</h1>
-    <p>Web dashboard server running. SPA bundle hasn't shipped yet — Phase 1 is the foundation only (port assignment, lock, monitor lifecycle).</p>
-    <p>Probe: <a href="/healthz"><code>/healthz</code></a> · <a href="/api/version"><code>/api/version</code></a></p>
-    <p>Plan: <code>fleet/docs/adr/0003-web-dashboard-architecture.md</code> (forthcoming) · roadmap on Confluence BDM1.</p>
-  </main>
-</body>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>fleet</title>
+    <link rel="stylesheet" href="/app.css" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/app.js"></script>
+  </body>
 </html>
