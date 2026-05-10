@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -27,7 +28,7 @@ import (
 //go:embed all:dist
 var distFS embed.FS
 
-const buildVersion = "v1.4.0-bdm18"
+const buildVersion = "v1.5.0-bdm19"
 
 var startTime = time.Now()
 
@@ -169,10 +170,25 @@ func handleSessions(w http.ResponseWriter, r *http.Request, deps *apiDeps) {
 }
 
 func handleSessionDetail(w http.ResponseWriter, r *http.Request, deps *apiDeps) {
-	ticket := strings.TrimPrefix(r.URL.Path, "/api/sessions/")
-	if ticket == "" || strings.Contains(ticket, "/") {
-		writeError(w, http.StatusBadRequest, errors.New("expected /api/sessions/<TICKET>"))
+	rest := strings.TrimPrefix(r.URL.Path, "/api/sessions/")
+	parts := strings.SplitN(rest, "/", 2)
+	if len(parts) == 0 || parts[0] == "" {
+		writeError(w, http.StatusBadRequest, errors.New("expected /api/sessions/<TICKET>[/log|/stream]"))
 		return
+	}
+	ticket := parts[0]
+	if len(parts) == 2 {
+		switch parts[1] {
+		case "log":
+			handleSessionLog(w, r, deps, ticket)
+			return
+		case "stream":
+			handleSessionStream(w, r, deps, ticket)
+			return
+		default:
+			writeError(w, http.StatusBadRequest, fmt.Errorf("unknown sub-path %q", parts[1]))
+			return
+		}
 	}
 	s, err := deps.sessions.Get(ticket)
 	if err != nil {
@@ -184,6 +200,12 @@ func handleSessionDetail(w http.ResponseWriter, r *http.Request, deps *apiDeps) 
 		return
 	}
 	writeJSON(w, http.StatusOK, sessionToView(s, time.Now()))
+}
+
+// sessionsRoot — used by log_stream.go.
+func (d *apiDeps) sessionsRoot() string {
+	pd, _ := projectDir()
+	return filepath.Join(pd, "sessions")
 }
 
 func handleEvents(w http.ResponseWriter, r *http.Request, deps *apiDeps) {

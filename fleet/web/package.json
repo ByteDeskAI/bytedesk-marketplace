@@ -1,6 +1,6 @@
 {
   "name": "fleet-web",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "private": true,
   "type": "module",
   "description": "fleet plugin web dashboard SPA (Preact + esbuild). Bundle is committed to ../server/dist/ and embedded into the Go binary at build time.",
