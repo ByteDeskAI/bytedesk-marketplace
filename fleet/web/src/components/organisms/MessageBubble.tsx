@@ -12,6 +12,7 @@ import type { ComponentChildren } from 'preact';
 import type { UIMessage, UIPart } from '../../api';
 import { renderMarkdown } from '../../lib/markdown';
 import { AskUserQuestionCard } from '../molecules/AskUserQuestionCard';
+import { getToolVisualizer } from '../visualizers';
 
 export interface MessageBubbleProps {
   msg: UIMessage;
@@ -56,9 +57,29 @@ function PartView({
       );
     case 'thinking':
       return <ThinkingView text={part.text || ''} />;
-    case 'tool-call':
+    case 'tool-call': {
       if (part.tool_name === 'AskUserQuestion' && onAnswerKeys) {
         return <AskUserQuestionCard part={part} onSubmit={onAnswerKeys} />;
+      }
+      // Specialized per-tool visualizer (BDM-34). Falls back to the
+      // generic ToolCallView if the registry has no entry — that
+      // path is the original input/output JSON dump.
+      const Viz = getToolVisualizer(part.tool_name || '');
+      if (Viz) {
+        return (
+          <>
+            {Viz({
+              toolName: part.tool_name || '',
+              toolUseId: part.tool_use_id || '',
+              input: (part.input as Record<string, unknown>) || {},
+              output: part.output,
+              state: part.state,
+            })}
+            {part.sub_agent_id && renderSubAgent
+              ? renderSubAgent(part.sub_agent_id, part.tool_use_id || '')
+              : null}
+          </>
+        );
       }
       return (
         <ToolCallView part={part}>
@@ -67,6 +88,7 @@ function PartView({
             : null}
         </ToolCallView>
       );
+    }
     case 'tool-result':
       // Standalone tool-result (server failed to pair). Render compact.
       return (
