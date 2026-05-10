@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.15.12] — 2026-05-10
+
+Patch release: focus moves to main content on every route change.
+
+### Fixed
+
+- **Focus dropped to body on every SPA navigation (BDM-49):** each
+  page-component wraps `AppShell`, so route changes unmount the whole
+  tree and focus falls back to `<body>`. Keyboard users pressing
+  `gA` then Tab were dropped back to the skip-link instead of the
+  new page's content (WCAG 2.4.3). Added an App-level `useEffect`
+  on `route.name` that focuses `#main-content` after a one-frame
+  defer (skip on first mount so initial load lands at the natural
+  top). `#main-content` already has `tabIndex={-1}` from BDM-43.
+  Discovered via /loop iteration 14 probe.
+
 ## [1.15.11] — 2026-05-10
 
 Patch release: lock body scroll while modals are open.

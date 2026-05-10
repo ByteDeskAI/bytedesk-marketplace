@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "fleet",
-  "version": "1.15.11",
+  "version": "1.15.12",
   "description": "Parallel multi-session Claude orchestration with hierarchical authorization, depth-aware delegation, and tool-level event observability. Spawn agents on tickets, watch a dashboard, get notified when reviews land or merges happen.",
   "author": {
     "name": "ByteDesk AI",
