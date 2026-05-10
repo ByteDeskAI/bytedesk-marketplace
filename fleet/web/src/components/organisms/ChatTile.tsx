@@ -21,17 +21,13 @@ export interface ChatTileProps {
   row: SessionRow;
 }
 
+const INITIAL_FIRST_INDEX = 1_000_000;
+
 export function ChatTile({ row }: ChatTileProps) {
   const { messages, sendMessage, sendKeys, isLoading, error, loadMore, hasMore, loadingMore } =
     useFleetChat(row.ticket);
   const { stats } = useSessionStats(row.ticket);
   const vRef = useRef<VirtuosoHandle | null>(null);
-  // Post-load scroll restore: when older messages prepend, the items
-  // array length jumps. We capture the pre-load length and, after
-  // render, scroll to the index that USED TO BE the topmost so the
-  // user keeps reading where they were instead of getting bounced to
-  // the new (older) top.
-  const [pendingRestore, setPendingRestore] = useState<number | null>(null);
 
   // Sub-agent index — Task tool_use_id → agent_id, so the renderer
   // can look up which nested SubAgentThread to render under each
@@ -46,50 +42,58 @@ export function ChatTile({ row }: ChatTileProps) {
   // single ToolGroup card (BDM-33).
   const items = useMemo<RenderItem[]>(() => groupMessages(messages), [messages]);
 
-  // Bottom-tracking + unread badge (BDM-36). Virtuoso's followOutput
-  // already autoscrolls only when the user is at the bottom; we keep
-  // that as the autoscroll signal and surface a clickable "↓ N new"
-  // banner whenever new items land while the user is scrolled up.
+  // Virtuoso's `firstItemIndex` is the canonical recipe for infinite
+  // scroll up (BDM-35/37). We start it at a large constant; whenever
+  // older history prepends, decrement by the count of items that
+  // appeared above the previous first item. Virtuoso uses this to
+  // keep the visible region anchored on the same global index, so
+  // the user stays reading where they were AND can keep scrolling up
+  // to trigger more loads.
+  const [firstItemIndex, setFirstItemIndex] = useState(INITIAL_FIRST_INDEX);
+  const prevItemsRef = useRef<RenderItem[]>([]);
+
+  // Bottom-tracking + unread badge (BDM-36).
   const [atBottom, setAtBottom] = useState(true);
   const [unread, setUnread] = useState(0);
   const prevLastKeyRef = useRef<string>('');
 
-  // Post-load scroll restore — older messages just prepended. Jump
-  // to the item that was index 0 before so the user stays anchored
-  // on the message they were reading.
+  // Detect prepend: if the items array's previous first item is now
+  // at a non-zero index, that delta is how many items got prepended;
+  // shift firstItemIndex by that count.
   useEffect(() => {
-    if (!vRef.current || items.length === 0 || pendingRestore === null) return;
-    const newIdx = items.length - pendingRestore;
-    if (newIdx > 0) {
-      vRef.current.scrollToIndex({ index: newIdx, align: 'start', behavior: 'auto' });
+    const prev = prevItemsRef.current;
+    if (prev.length > 0 && items.length > prev.length) {
+      const prevFirstKey = prev[0].key;
+      const newIdxOfPrevFirst = items.findIndex((it) => it.key === prevFirstKey);
+      if (newIdxOfPrevFirst > 0) {
+        setFirstItemIndex((cur) => Math.max(0, cur - newIdxOfPrevFirst));
+      }
     }
-    setPendingRestore(null);
-  }, [items.length, pendingRestore]);
+    prevItemsRef.current = items;
+  }, [items]);
 
   // Track new messages at the bottom; bump unread when the user is
   // scrolled up. We key off the LAST item id so prepends don't count.
   useEffect(() => {
     if (items.length === 0) { prevLastKeyRef.current = ''; return; }
     const lastKey = items[items.length - 1].key;
-    if (prevLastKeyRef.current && prevLastKeyRef.current !== lastKey && pendingRestore === null && !atBottom) {
+    if (prevLastKeyRef.current && prevLastKeyRef.current !== lastKey && !atBottom) {
       setUnread((u) => u + 1);
     }
     prevLastKeyRef.current = lastKey;
-  }, [items, atBottom, pendingRestore]);
+  }, [items, atBottom]);
 
-  // Returning to the bottom clears the unread counter.
   useEffect(() => {
     if (atBottom) setUnread(0);
   }, [atBottom]);
 
   const onStartReached = () => {
     if (loadingMore || !hasMore) return;
-    setPendingRestore(items.length);
     void loadMore();
   };
 
   const scrollToBottom = () => {
-    vRef.current?.scrollToIndex({ index: items.length - 1, behavior: 'smooth' });
+    vRef.current?.scrollToIndex({ index: firstItemIndex + items.length - 1, behavior: 'smooth' });
     setUnread(0);
   };
 
@@ -106,10 +110,11 @@ export function ChatTile({ row }: ChatTileProps) {
           <Virtuoso
             ref={vRef}
             data={items}
+            firstItemIndex={firstItemIndex}
             followOutput={(isAtBottom) => (isAtBottom ? 'smooth' : false)}
             atBottomStateChange={setAtBottom}
             atBottomThreshold={48}
-            initialTopMostItemIndex={Math.max(0, items.length - 1)}
+            initialTopMostItemIndex={firstItemIndex + items.length - 1}
             startReached={onStartReached}
             components={{
               Header: () =>

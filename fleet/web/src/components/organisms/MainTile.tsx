@@ -49,28 +49,32 @@ function MainChatBody() {
     });
   const vRef = useRef<VirtuosoHandle | null>(null);
   const items = useMemo<RenderItem[]>(() => groupMessages(messages), [messages]);
-  const [pendingRestore, setPendingRestore] = useState<number | null>(null);
+  const [firstItemIndex, setFirstItemIndex] = useState(1_000_000);
+  const prevItemsRef = useRef<RenderItem[]>([]);
   const [atBottom, setAtBottom] = useState(true);
   const [unread, setUnread] = useState(0);
   const prevLastKeyRef = useRef<string>('');
 
   useEffect(() => {
-    if (!vRef.current || items.length === 0 || pendingRestore === null) return;
-    const newIdx = items.length - pendingRestore;
-    if (newIdx > 0) {
-      vRef.current.scrollToIndex({ index: newIdx, align: 'start', behavior: 'auto' });
+    const prev = prevItemsRef.current;
+    if (prev.length > 0 && items.length > prev.length) {
+      const prevFirstKey = prev[0].key;
+      const newIdxOfPrevFirst = items.findIndex((it) => it.key === prevFirstKey);
+      if (newIdxOfPrevFirst > 0) {
+        setFirstItemIndex((cur) => Math.max(0, cur - newIdxOfPrevFirst));
+      }
     }
-    setPendingRestore(null);
-  }, [items.length, pendingRestore]);
+    prevItemsRef.current = items;
+  }, [items]);
 
   useEffect(() => {
     if (items.length === 0) { prevLastKeyRef.current = ''; return; }
     const lastKey = items[items.length - 1].key;
-    if (prevLastKeyRef.current && prevLastKeyRef.current !== lastKey && pendingRestore === null && !atBottom) {
+    if (prevLastKeyRef.current && prevLastKeyRef.current !== lastKey && !atBottom) {
       setUnread((u) => u + 1);
     }
     prevLastKeyRef.current = lastKey;
-  }, [items, atBottom, pendingRestore]);
+  }, [items, atBottom]);
 
   useEffect(() => {
     if (atBottom) setUnread(0);
@@ -78,12 +82,11 @@ function MainChatBody() {
 
   const onStartReached = () => {
     if (loadingMore || !hasMore) return;
-    setPendingRestore(items.length);
     void loadMore();
   };
 
   const scrollToBottom = () => {
-    vRef.current?.scrollToIndex({ index: items.length - 1, behavior: 'smooth' });
+    vRef.current?.scrollToIndex({ index: firstItemIndex + items.length - 1, behavior: 'smooth' });
     setUnread(0);
   };
 
@@ -100,10 +103,11 @@ function MainChatBody() {
           <Virtuoso
             ref={vRef}
             data={items}
+            firstItemIndex={firstItemIndex}
             followOutput={(isAtBottom) => (isAtBottom ? 'smooth' : false)}
             atBottomStateChange={setAtBottom}
             atBottomThreshold={48}
-            initialTopMostItemIndex={Math.max(0, items.length - 1)}
+            initialTopMostItemIndex={firstItemIndex + items.length - 1}
             startReached={onStartReached}
             components={{
               Header: () =>
