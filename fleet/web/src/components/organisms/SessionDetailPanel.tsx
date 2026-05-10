@@ -8,9 +8,12 @@ import { Badge } from '../atoms/Badge';
 import { Button } from '../atoms/Button';
 import { TerminalView } from './TerminalView';
 import { InteractiveTerminal } from './InteractiveTerminal';
+import { GitTab } from './GitTab';
+import { PRTab } from './PRTab';
+import { EventsTab } from './EventsTab';
 import { sendMessage, killSession, spawnReviewer, type SessionRow } from '../../api';
 
-const TABS = ['Overview', 'Terminal', 'Logs'] as const;
+const TABS = ['Overview', 'Terminal', 'Logs', 'Events', 'Git', 'PR'] as const;
 type Tab = typeof TABS[number];
 
 export interface SessionDetailPanelProps {
@@ -85,8 +88,14 @@ export function SessionDetailPanel({ ticket, onClose, onKilled }: SessionDetailP
           <OverviewTab row={data} />
         ) : tab === 'Terminal' ? (
           <InteractiveTerminal ticket={ticket} />
-        ) : (
+        ) : tab === 'Logs' ? (
           <TerminalView ticket={ticket} />
+        ) : tab === 'Events' ? (
+          <EventsTab ticket={ticket} />
+        ) : tab === 'Git' ? (
+          <GitTab ticket={ticket} />
+        ) : (
+          <PRTab ticket={ticket} />
         )}
       </div>
 
@@ -183,6 +192,11 @@ function OverviewTab({ row }: { row: SessionRow | null }) {
           {row.objective}
         </div>
       ) : null}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 'var(--space-3)' }}>
+        <span class="auth-pill">depth {row.depth ?? 0}</span>
+        {row.full_auto ? <span class="auth-pill auth-pill--strong">--full-auto</span> : null}
+        {row.parent ? <span class="auth-pill">parent {row.parent}</span> : null}
+      </div>
       <dl class="detail-panel__meta">
         <dt>Branch</dt><dd><code>{row.branch || '—'}</code></dd>
         <dt>Parent</dt><dd>{row.parent || '—'}</dd>

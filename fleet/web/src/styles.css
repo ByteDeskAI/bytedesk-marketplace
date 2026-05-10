@@ -894,3 +894,55 @@ code, pre {
   border-bottom: 1px solid var(--color-border);
 }
 .pty-tile__body { flex: 1; min-height: 0; }
+
+/* Auth-context badges (Phase 12.2 / A23) */
+.auth-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: var(--text-xs);
+  background: var(--color-bg-muted);
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+}
+.auth-pill--strong {
+  background: var(--color-state-needs-input);
+  color: #fff;
+  font-weight: 600;
+}
+
+/* Git tab */
+.git-files, .git-log, .pr-checks, .pr-files {
+  list-style: none; padding: 0; margin: 0;
+  display: grid; gap: 4px;
+}
+.git-files li, .git-log li, .pr-checks li, .pr-files li {
+  display: flex; align-items: center; gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+.git-files__status { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-tertiary); width: 26px; }
+.git-files__status--M, .git-files__status--A { color: var(--color-state-working); }
+.git-files__status--D { color: var(--color-state-error); }
+.git-files__status--untracked { color: var(--color-text-tertiary); }
+.git-log__hash { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-tertiary); width: 60px; }
+.git-log__subject { flex: 1; }
+.git-log__when { color: var(--color-text-tertiary); font-size: var(--text-xs); }
+.pr-checks__workflow { color: var(--color-text-tertiary); font-size: var(--text-xs); margin-left: auto; }
+
+/* Tree view (A2) */
+.tree-view, .tree-view__children { list-style: none; padding: 0; margin: 0; }
+.tree-view__row {
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--color-border);
+  cursor: pointer;
+  font-size: var(--text-sm);
+}
+.tree-view__row:hover { background: var(--color-bg-muted); }
+.tree-view__toggle {
+  appearance: none; border: 0; background: transparent;
+  width: 18px;
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+}

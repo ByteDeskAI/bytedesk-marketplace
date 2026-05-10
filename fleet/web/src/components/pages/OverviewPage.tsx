@@ -9,6 +9,7 @@ import { SessionTable } from '../organisms/SessionTable';
 import { SessionDetailPanel } from '../organisms/SessionDetailPanel';
 import { SpawnModal } from '../organisms/SpawnModal';
 import { BroadcastModal } from '../organisms/BroadcastModal';
+import { TreeView } from '../organisms/TreeView';
 import { ShortcutsOverlay } from '../molecules/ShortcutsOverlay';
 import { useSessionList } from '../../hooks/useSessionList';
 import { useStats } from '../../hooks/useStats';
@@ -28,6 +29,7 @@ export function OverviewPage() {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [density, setDensity] = usePersistentState<Density>('fleet.density', 'comfortable');
+  const [showTree, setShowTree] = usePersistentState<boolean>('fleet.showTree', false);
 
   useEffect(() => {
     fetchVersion().then(setVersion);
@@ -82,6 +84,15 @@ export function OverviewPage() {
             </div>
           ) : null}
 
+          {showTree && sessions.data && sessions.data.length > 0 ? (
+            <div style={{ marginBottom: 16 }}>
+              <h3 style={{ fontSize: 'var(--text-sm)', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-text-tertiary)', marginBottom: 8 }}>
+                Parent → child tree
+              </h3>
+              <TreeView rows={sessions.data} onRowClick={(r) => setSelected(r.ticket)} />
+            </div>
+          ) : null}
+
           <SessionTable
             rows={sessions.data ?? []}
             loading={sessions.loading && !sessions.data}
@@ -108,6 +119,14 @@ export function OverviewPage() {
               title="Broadcast input (b)"
             >
               Broadcast
+            </button>
+            <button
+              type="button"
+              class="link-button"
+              onClick={() => setShowTree(!showTree)}
+              title="Toggle parent → child tree view"
+            >
+              {showTree ? 'Hide tree' : 'Show tree'}
             </button>
             <button
               type="button"

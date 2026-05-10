@@ -1,0 +1,17 @@
+{
+  "name": "fleet-judge-sidecar",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Newline-delimited JSON sidecar that proxies fleet web server intelligence calls (judge_state / drift / estimate_cost) to Claude Haiku via @anthropic-ai/claude-agent-sdk.",
+  "type": "module",
+  "main": "index.mjs",
+  "scripts": {
+    "start": "node index.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "latest"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

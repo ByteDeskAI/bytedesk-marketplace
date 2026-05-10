@@ -7218,6 +7218,16 @@ function InteractiveTerminal({ ticket }) {
 }
 
 // src/api.ts
+async function fetchGitStatus(ticket) {
+  const r3 = await fetch(`/api/sessions/${encodeURIComponent(ticket)}/git`);
+  if (!r3.ok) throw new Error(await readError(r3));
+  return r3.json();
+}
+async function fetchPRStatus(ticket) {
+  const r3 = await fetch(`/api/sessions/${encodeURIComponent(ticket)}/pr`);
+  if (!r3.ok) throw new Error(await readError(r3));
+  return r3.json();
+}
 async function sendMessage(ticket, message) {
   const r3 = await fetch(`/api/sessions/${encodeURIComponent(ticket)}/send`, {
     method: "POST",
@@ -7303,8 +7313,156 @@ async function fetchVersion() {
   return { build: "dev", project: "unknown" };
 }
 
+// src/components/organisms/GitTab.tsx
+function GitTab({ ticket }) {
+  const [data, setData] = d2(null);
+  const [err, setErr] = d2(null);
+  y2(() => {
+    setData(null);
+    setErr(null);
+    fetchGitStatus(ticket).then(setData).catch((e3) => setErr(e3.message));
+    const id = window.setInterval(() => {
+      fetchGitStatus(ticket).then(setData).catch(() => {
+      });
+    }, 5e3);
+    return () => window.clearInterval(id);
+  }, [ticket]);
+  if (err) return /* @__PURE__ */ u3("div", { style: { color: "var(--color-state-error)" }, children: err });
+  if (!data) return /* @__PURE__ */ u3("div", { style: { color: "var(--color-text-tertiary)" }, children: "Loading git status\u2026" });
+  return /* @__PURE__ */ u3("div", { style: { display: "grid", gap: "var(--space-4)" }, children: [
+    /* @__PURE__ */ u3("dl", { class: "detail-panel__meta", children: [
+      /* @__PURE__ */ u3("dt", { children: "Worktree" }),
+      /* @__PURE__ */ u3("dd", { children: /* @__PURE__ */ u3("code", { children: data.worktree }) }),
+      /* @__PURE__ */ u3("dt", { children: "Branch" }),
+      /* @__PURE__ */ u3("dd", { children: /* @__PURE__ */ u3("code", { children: data.branch || "\u2014" }) }),
+      /* @__PURE__ */ u3("dt", { children: "Status" }),
+      /* @__PURE__ */ u3("dd", { children: data.clean ? /* @__PURE__ */ u3("span", { style: { color: "var(--color-state-done)" }, children: "\u25CF clean" }) : /* @__PURE__ */ u3("span", { style: { color: "var(--color-state-needs-input)" }, children: [
+        "\u25CF ",
+        data.files.length,
+        " change",
+        data.files.length === 1 ? "" : "s"
+      ] }) })
+    ] }),
+    data.files.length > 0 ? /* @__PURE__ */ u3("div", { children: [
+      /* @__PURE__ */ u3("h3", { style: { margin: "0 0 8px", fontSize: "var(--text-sm)", textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--color-text-tertiary)" }, children: "Working tree" }),
+      /* @__PURE__ */ u3("ul", { class: "git-files", children: data.files.map((f4) => /* @__PURE__ */ u3("li", { children: [
+        /* @__PURE__ */ u3("code", { class: `git-files__status git-files__status--${(f4.status[0] || " ").trim() || "untracked"}`, children: f4.status }),
+        /* @__PURE__ */ u3("code", { children: f4.path })
+      ] }, f4.path)) })
+    ] }) : null,
+    data.log.length > 0 ? /* @__PURE__ */ u3("div", { children: [
+      /* @__PURE__ */ u3("h3", { style: { margin: "0 0 8px", fontSize: "var(--text-sm)", textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--color-text-tertiary)" }, children: "Recent commits" }),
+      /* @__PURE__ */ u3("ul", { class: "git-log", children: data.log.map((e3) => /* @__PURE__ */ u3("li", { children: [
+        /* @__PURE__ */ u3("code", { class: "git-log__hash", children: e3.hash }),
+        /* @__PURE__ */ u3("span", { class: "git-log__subject", children: e3.subject }),
+        /* @__PURE__ */ u3("span", { class: "git-log__when", children: [
+          e3.when,
+          " \xB7 ",
+          e3.author
+        ] })
+      ] }, e3.hash)) })
+    ] }) : null
+  ] });
+}
+
+// src/components/organisms/PRTab.tsx
+function PRTab({ ticket }) {
+  const [data, setData] = d2(null);
+  const [err, setErr] = d2(null);
+  y2(() => {
+    setData(null);
+    setErr(null);
+    fetchPRStatus(ticket).then(setData).catch((e3) => setErr(e3.message));
+  }, [ticket]);
+  if (err) return /* @__PURE__ */ u3("div", { style: { color: "var(--color-state-error)" }, children: err });
+  if (!data) return /* @__PURE__ */ u3("div", { style: { color: "var(--color-text-tertiary)" }, children: "Loading PR\u2026" });
+  if (!data.available) return /* @__PURE__ */ u3("div", { style: { color: "var(--color-text-tertiary)" }, children: data.error ?? "gh CLI not available" });
+  if (data.error) return /* @__PURE__ */ u3("div", { style: { color: "var(--color-text-tertiary)" }, children: data.error });
+  const stateColor = data.state === "OPEN" ? "var(--color-state-working)" : data.state === "MERGED" ? "var(--color-state-done)" : data.state === "CLOSED" ? "var(--color-state-error)" : "var(--color-text-secondary)";
+  return /* @__PURE__ */ u3("div", { style: { display: "grid", gap: "var(--space-4)" }, children: [
+    /* @__PURE__ */ u3("div", { style: { display: "flex", alignItems: "center", gap: "var(--space-3)" }, children: [
+      /* @__PURE__ */ u3("strong", { style: { fontSize: "var(--text-lg)" }, children: [
+        "#",
+        data.number
+      ] }),
+      /* @__PURE__ */ u3("span", { style: { fontWeight: 600, color: stateColor }, children: data.state }),
+      data.url ? /* @__PURE__ */ u3("a", { href: data.url, target: "_blank", rel: "noopener", children: "view on github" }) : null
+    ] }),
+    /* @__PURE__ */ u3("div", { style: { fontSize: "var(--text-md)" }, children: data.title }),
+    /* @__PURE__ */ u3("div", { style: { color: "var(--color-text-tertiary)", fontSize: "var(--text-sm)" }, children: [
+      "by ",
+      data.author
+    ] }),
+    data.checks && data.checks.length > 0 ? /* @__PURE__ */ u3("div", { children: [
+      /* @__PURE__ */ u3("h3", { style: { margin: "0 0 8px", fontSize: "var(--text-sm)", textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--color-text-tertiary)" }, children: "Checks" }),
+      /* @__PURE__ */ u3("ul", { class: "pr-checks", children: data.checks.map((c3, i4) => {
+        const tone = c3.conclusion === "success" ? "var(--color-state-done)" : c3.conclusion === "failure" ? "var(--color-state-error)" : "var(--color-state-needs-input)";
+        return /* @__PURE__ */ u3("li", { children: [
+          /* @__PURE__ */ u3("span", { style: { color: tone }, children: [
+            "\u25CF ",
+            c3.conclusion || c3.state
+          ] }),
+          /* @__PURE__ */ u3("span", { children: c3.name }),
+          c3.workflow ? /* @__PURE__ */ u3("span", { class: "pr-checks__workflow", children: c3.workflow }) : null
+        ] }, i4);
+      }) })
+    ] }) : null,
+    data.files && data.files.length > 0 ? /* @__PURE__ */ u3("div", { children: [
+      /* @__PURE__ */ u3("h3", { style: { margin: "0 0 8px", fontSize: "var(--text-sm)", textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--color-text-tertiary)" }, children: [
+        "Files changed (",
+        data.files.length,
+        ")"
+      ] }),
+      /* @__PURE__ */ u3("ul", { class: "pr-files", children: [
+        data.files.slice(0, 50).map((f4) => /* @__PURE__ */ u3("li", { children: /* @__PURE__ */ u3("code", { children: f4 }) }, f4)),
+        data.files.length > 50 ? /* @__PURE__ */ u3("li", { style: { color: "var(--color-text-tertiary)" }, children: [
+          "\u2026 ",
+          data.files.length - 50,
+          " more"
+        ] }) : null
+      ] })
+    ] }) : null
+  ] });
+}
+
+// src/components/organisms/EventsTab.tsx
+function EventsTab({ ticket }) {
+  const [data, setData] = d2(null);
+  const [err, setErr] = d2(null);
+  y2(() => {
+    setData(null);
+    setErr(null);
+    const load = () => fetch(`/api/events?limit=200`).then((r3) => r3.ok ? r3.json() : Promise.reject(new Error(`${r3.status} ${r3.statusText}`))).then((all) => setData(all.filter((e3) => e3.ticket === ticket))).catch((e3) => setErr(e3.message));
+    load();
+    const id = window.setInterval(load, 5e3);
+    return () => window.clearInterval(id);
+  }, [ticket]);
+  if (err) return /* @__PURE__ */ u3("div", { style: { color: "var(--color-state-error)" }, children: err });
+  if (!data) return /* @__PURE__ */ u3("div", { style: { color: "var(--color-text-tertiary)" }, children: "Loading events\u2026" });
+  if (data.length === 0) return /* @__PURE__ */ u3("div", { style: { color: "var(--color-text-tertiary)" }, children: [
+    "No events yet for ",
+    ticket,
+    "."
+  ] });
+  return /* @__PURE__ */ u3("ul", { class: "audit-list", style: { borderRadius: "var(--radius-md)" }, children: data.map((e3) => /* @__PURE__ */ u3("li", { class: "audit-list__row", children: [
+    /* @__PURE__ */ u3("div", { class: "audit-list__time", children: new Date(e3.ts).toLocaleString() }),
+    /* @__PURE__ */ u3("div", { class: "audit-list__ticket", children: e3.ticket }),
+    /* @__PURE__ */ u3("div", { class: "audit-list__kind", children: e3.kind }),
+    /* @__PURE__ */ u3("div", { class: "audit-list__detail", children: /* @__PURE__ */ u3("code", { style: { fontSize: "var(--text-xs)" }, children: summarize(e3.detail) }) })
+  ] }, e3.id)) });
+}
+function summarize(detail) {
+  const keys = Object.keys(detail);
+  if (keys.length === 0) return "";
+  return keys.slice(0, 4).map((k3) => {
+    const v3 = detail[k3];
+    const s3 = typeof v3 === "string" ? v3 : JSON.stringify(v3);
+    return `${k3}=${s3.length > 60 ? s3.slice(0, 57) + "\u2026" : s3}`;
+  }).join(" \xB7 ");
+}
+
 // src/components/organisms/SessionDetailPanel.tsx
-var TABS = ["Overview", "Terminal", "Logs"];
+var TABS = ["Overview", "Terminal", "Logs", "Events", "Git", "PR"];
 function SessionDetailPanel({ ticket, onClose, onKilled }) {
   const [data, setData] = d2(null);
   const [error, setError] = d2(null);
@@ -7351,7 +7509,7 @@ function SessionDetailPanel({ ticket, onClose, onKilled }) {
       },
       t3
     )) }),
-    /* @__PURE__ */ u3("div", { class: "detail-panel__body", children: error ? /* @__PURE__ */ u3("div", { style: { color: "var(--color-state-error)" }, children: error }) : tab === "Overview" ? /* @__PURE__ */ u3(OverviewTab, { row: data }) : tab === "Terminal" ? /* @__PURE__ */ u3(InteractiveTerminal, { ticket }) : /* @__PURE__ */ u3(TerminalView, { ticket }) }),
+    /* @__PURE__ */ u3("div", { class: "detail-panel__body", children: error ? /* @__PURE__ */ u3("div", { style: { color: "var(--color-state-error)" }, children: error }) : tab === "Overview" ? /* @__PURE__ */ u3(OverviewTab, { row: data }) : tab === "Terminal" ? /* @__PURE__ */ u3(InteractiveTerminal, { ticket }) : tab === "Logs" ? /* @__PURE__ */ u3(TerminalView, { ticket }) : tab === "Events" ? /* @__PURE__ */ u3(EventsTab, { ticket }) : tab === "Git" ? /* @__PURE__ */ u3(GitTab, { ticket }) : /* @__PURE__ */ u3(PRTab, { ticket }) }),
     modal === "send" ? /* @__PURE__ */ u3(
       SendModal,
       {
@@ -7455,6 +7613,17 @@ function OverviewTab({ row }) {
       /* @__PURE__ */ u3("span", { style: { fontWeight: 600, color: "var(--color-text-primary)" }, children: "Objective: " }),
       row.objective
     ] }) : null,
+    /* @__PURE__ */ u3("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", marginBottom: "var(--space-3)" }, children: [
+      /* @__PURE__ */ u3("span", { class: "auth-pill", children: [
+        "depth ",
+        row.depth ?? 0
+      ] }),
+      row.full_auto ? /* @__PURE__ */ u3("span", { class: "auth-pill auth-pill--strong", children: "--full-auto" }) : null,
+      row.parent ? /* @__PURE__ */ u3("span", { class: "auth-pill", children: [
+        "parent ",
+        row.parent
+      ] }) : null
+    ] }),
     /* @__PURE__ */ u3("dl", { class: "detail-panel__meta", children: [
       /* @__PURE__ */ u3("dt", { children: "Branch" }),
       /* @__PURE__ */ u3("dd", { children: /* @__PURE__ */ u3("code", { children: row.branch || "\u2014" }) }),
@@ -7881,6 +8050,51 @@ function BroadcastResults({ result, onClose }) {
   ] });
 }
 
+// src/components/organisms/TreeView.tsx
+function TreeView({ rows, onRowClick }) {
+  const tree = T2(() => buildTree(rows), [rows]);
+  return /* @__PURE__ */ u3("ul", { class: "tree-view", children: tree.map((n2) => /* @__PURE__ */ u3(TreeNode, { node: n2, onRowClick, depth: 0 }, n2.row.ticket)) });
+}
+function buildTree(rows) {
+  const byTicket = /* @__PURE__ */ new Map();
+  rows.forEach((r3) => byTicket.set(r3.ticket, { row: r3, children: [] }));
+  const roots = [];
+  byTicket.forEach((n2) => {
+    const p3 = n2.row.parent && byTicket.get(n2.row.parent);
+    if (p3) p3.children.push(n2);
+    else roots.push(n2);
+  });
+  return roots;
+}
+function TreeNode({ node, onRowClick, depth }) {
+  const [open, setOpen] = d2(true);
+  const hasChildren = node.children.length > 0;
+  return /* @__PURE__ */ u3("li", { class: "tree-view__node", children: [
+    /* @__PURE__ */ u3("div", { class: "tree-view__row", onClick: () => onRowClick?.(node.row), style: { paddingLeft: `${depth * 16 + 8}px` }, children: [
+      /* @__PURE__ */ u3(
+        "button",
+        {
+          type: "button",
+          class: "tree-view__toggle",
+          onClick: (e3) => {
+            e3.stopPropagation();
+            setOpen((v3) => !v3);
+          },
+          "aria-label": hasChildren ? open ? "Collapse" : "Expand" : "",
+          style: { visibility: hasChildren ? "visible" : "hidden" },
+          children: open ? "\u25BE" : "\u25B8"
+        }
+      ),
+      /* @__PURE__ */ u3("strong", { children: node.row.ticket }),
+      /* @__PURE__ */ u3("span", { style: { color: "var(--color-text-secondary)" }, children: node.row.slug || "\u2014" }),
+      /* @__PURE__ */ u3(Badge, { state: node.row.state }),
+      /* @__PURE__ */ u3("span", { style: { flex: 1 } }),
+      /* @__PURE__ */ u3("span", { style: { fontSize: "var(--text-xs)", color: "var(--color-text-tertiary)" }, children: node.row.activity })
+    ] }),
+    hasChildren && open ? /* @__PURE__ */ u3("ul", { class: "tree-view__children", children: node.children.map((c3) => /* @__PURE__ */ u3(TreeNode, { node: c3, onRowClick, depth: depth + 1 }, c3.row.ticket)) }) : null
+  ] });
+}
+
 // src/components/molecules/ShortcutsOverlay.tsx
 var SHORTCUTS = [
   { keys: "?", desc: "Toggle this overlay" },
@@ -7991,6 +8205,7 @@ function OverviewPage() {
   const [shortcutsOpen, setShortcutsOpen] = d2(false);
   const [toast, setToast] = d2(null);
   const [density, setDensity] = usePersistentState("fleet.density", "comfortable");
+  const [showTree, setShowTree] = usePersistentState("fleet.showTree", false);
   y2(() => {
     fetchVersion().then(setVersion);
   }, []);
@@ -8034,6 +8249,10 @@ function OverviewPage() {
               "Couldn't load sessions: ",
               sessions.error.message
             ] }) : null,
+            showTree && sessions.data && sessions.data.length > 0 ? /* @__PURE__ */ u3("div", { style: { marginBottom: 16 }, children: [
+              /* @__PURE__ */ u3("h3", { style: { fontSize: "var(--text-sm)", textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--color-text-tertiary)", marginBottom: 8 }, children: "Parent \u2192 child tree" }),
+              /* @__PURE__ */ u3(TreeView, { rows: sessions.data, onRowClick: (r3) => setSelected(r3.ticket) })
+            ] }) : null,
             /* @__PURE__ */ u3(
               SessionTable,
               {
@@ -8070,6 +8289,16 @@ function OverviewPage() {
                       onClick: () => setBroadcastOpen(true),
                       title: "Broadcast input (b)",
                       children: "Broadcast"
+                    }
+                  ),
+                  /* @__PURE__ */ u3(
+                    "button",
+                    {
+                      type: "button",
+                      class: "link-button",
+                      onClick: () => setShowTree(!showTree),
+                      title: "Toggle parent \u2192 child tree view",
+                      children: showTree ? "Hide tree" : "Show tree"
                     }
                   ),
                   /* @__PURE__ */ u3(
@@ -8177,7 +8406,7 @@ function AuditPage() {
       /* @__PURE__ */ u3("div", { class: "audit-list__time", title: e3.id, children: formatTime(e3.ts) }),
       /* @__PURE__ */ u3("div", { class: "audit-list__ticket", children: e3.ticket }),
       /* @__PURE__ */ u3("div", { class: "audit-list__kind", style: { color: KIND_TONES[e3.kind] ?? "var(--color-text-secondary)" }, children: e3.kind }),
-      /* @__PURE__ */ u3("div", { class: "audit-list__detail", children: /* @__PURE__ */ u3("code", { style: { fontSize: "var(--text-xs)" }, children: summarize(e3.detail) }) })
+      /* @__PURE__ */ u3("div", { class: "audit-list__detail", children: /* @__PURE__ */ u3("code", { style: { fontSize: "var(--text-xs)" }, children: summarize2(e3.detail) }) })
     ] }, e3.id)) })
   ] });
 }
@@ -8186,7 +8415,7 @@ function formatTime(ts) {
   if (Number.isNaN(d3.getTime())) return String(ts);
   return d3.toLocaleString();
 }
-function summarize(detail) {
+function summarize2(detail) {
   const keys = Object.keys(detail);
   if (keys.length === 0) return "";
   const parts = keys.slice(0, 4).map((k3) => {

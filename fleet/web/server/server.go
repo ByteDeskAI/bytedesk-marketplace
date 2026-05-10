@@ -42,6 +42,7 @@ type apiDeps struct {
 	bus        *EventBus
 	judge      JudgeProvider
 	settings   *SettingsRepo
+	chains     *ChainsRepo
 }
 
 func newAPIDeps(projectKey string, cfg *WebConfig, projDir, dataRoot, webPath string) *apiDeps {
@@ -50,7 +51,8 @@ func newAPIDeps(projectKey string, cfg *WebConfig, projDir, dataRoot, webPath st
 	pr := NewProjectsRepo(dataRoot)
 	sc := NewStatsCalculator(sr, er)
 	st := NewSettingsRepo(webPath)
-	return &apiDeps{projectKey, cfg, sr, pr, er, sc, NewEventBus(), newJudgeProvider(), st}
+	cr := NewChainsRepo(projDir)
+	return &apiDeps{projectKey, cfg, sr, pr, er, sc, NewEventBus(), newJudgeProvider(), st, cr}
 }
 
 func buildHandler(deps *apiDeps) (http.Handler, error) {
@@ -116,6 +118,12 @@ func buildHandler(deps *apiDeps) (http.Handler, error) {
 	})
 	mux.HandleFunc("/api/settings", func(w http.ResponseWriter, r *http.Request) {
 		handleSettings(w, r, deps)
+	})
+	mux.HandleFunc("/api/chains", func(w http.ResponseWriter, r *http.Request) {
+		handleChainsCollection(w, r, deps)
+	})
+	mux.HandleFunc("/api/chains/", func(w http.ResponseWriter, r *http.Request) {
+		handleChainItem(w, r, deps)
 	})
 	mux.Handle("/", http.FileServer(http.FS(sub)))
 	return mux, nil
@@ -215,6 +223,12 @@ func handleSessionDetail(w http.ResponseWriter, r *http.Request, deps *apiDeps) 
 		case "pty":
 			handleSessionPty(w, r, deps, ticket)
 			return
+		case "git":
+			handleSessionGit(w, r, deps, ticket)
+			return
+		case "pr":
+			handleSessionPR(w, r, deps, ticket)
+			return
 		default:
 			writeError(w, http.StatusBadRequest, fmt.Errorf("unknown sub-path %q", parts[1]))
 			return
@@ -282,12 +296,15 @@ func sessionToViewWithJudge(s Session, now time.Time, judge JudgeProvider) Sessi
 
 func sessionToView(s Session, now time.Time) SessionView {
 	v := SessionView{
-		Ticket: s.Ticket,
-		Slug:   s.Slug,
-		State:  s.State,
-		Parent: s.Parent,
-		Branch: s.Branch,
-		Cost:   fmt.Sprintf("$%.2f", s.CostUSD),
+		Ticket:   s.Ticket,
+		Slug:     s.Slug,
+		State:    s.State,
+		Parent:   s.Parent,
+		Branch:   s.Branch,
+		Cost:     fmt.Sprintf("$%.2f", s.CostUSD),
+		Depth:    s.Depth,
+		FullAuto: s.FullAuto,
+		Worktree: s.Worktree,
 	}
 	if !s.LastActivity.IsZero() {
 		v.Activity = formatRelative(int64(now.Sub(s.LastActivity).Seconds()))

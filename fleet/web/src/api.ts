@@ -15,6 +15,42 @@ export interface SessionRow {
   confidence?: number;
   drift?: number;
   objective?: string;
+  // Auth-context badges (Phase 12.2 / A23).
+  depth?: number;
+  full_auto?: boolean;
+  worktree?: string;
+}
+
+export interface GitStatus {
+  worktree: string;
+  branch: string;
+  clean: boolean;
+  files: { status: string; path: string }[];
+  log: { hash: string; subject: string; author: string; when: string }[];
+}
+
+export interface PRStatus {
+  available: boolean;
+  number?: number;
+  state?: string;
+  url?: string;
+  title?: string;
+  author?: string;
+  checks?: { name: string; state: string; conclusion: string; workflow?: string }[];
+  files?: string[];
+  error?: string;
+}
+
+export async function fetchGitStatus(ticket: string): Promise<GitStatus> {
+  const r = await fetch(`/api/sessions/${encodeURIComponent(ticket)}/git`);
+  if (!r.ok) throw new Error(await readError(r));
+  return r.json();
+}
+
+export async function fetchPRStatus(ticket: string): Promise<PRStatus> {
+  const r = await fetch(`/api/sessions/${encodeURIComponent(ticket)}/pr`);
+  if (!r.ok) throw new Error(await readError(r));
+  return r.json();
 }
 
 export type SessionState =
