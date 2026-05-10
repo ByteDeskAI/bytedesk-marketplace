@@ -851,21 +851,69 @@ cmd_notify() {
     esac
   done
 
+  # Fleet child sessions don't run their own daemon — the parent's daemon
+  # already covers the project. Exit 0 immediately to avoid log spam and
+  # pointless lock-poll wakeups when many children spawn (BDM-4 §4).
+  if (( "${CLAUDE_SESSION_DEPTH:-0}" >= 1 )); then
+    return 0
+  fi
+
   mkdir -p "$NOTIFY_DIR"
   local pid_file="$NOTIFY_DIR/pid"
-  if [[ "$once" -eq 0 && -f "$pid_file" ]] && kill -0 "$(cat "$pid_file")" 2>/dev/null; then
-    echo "notify daemon already running (pid $(cat "$pid_file"))" >&2
-    return 1
-  fi
-  [[ "$once" -eq 0 ]] && echo $$ > "$pid_file"
-  trap '[[ "$once" -eq 0 ]] && rm -f "$pid_file"; exit 0' INT TERM
 
   command -v notify-send >/dev/null \
     || { echo "notify-send not found (apt install libnotify-bin)" >&2; return 1; }
-
   ensure_notify_config
 
-  echo "notify: polling every ${interval}s (Ctrl-C to stop)"
+  # --once skips lock and standby — single-pass evaluation for testing/scripts.
+  if [[ "$once" -eq 1 ]]; then
+    _notify_run_loop "$interval" 1
+    return 0
+  fi
+
+  # Stand-by lock pattern (BDM-4): if another monitor in this project already
+  # holds the lock, poll until it's released. With two Claude Code sessions
+  # in the same project, exactly one monitor runs and the other stands by;
+  # when the active session closes (SIGTERM → trap → rm pid_file → exit),
+  # the stand-by takes over within ~$interval seconds. Continuous coverage
+  # as long as ANY session is alive in the project.
+  while true; do
+    if _try_acquire_pid_lock "$pid_file"; then
+      # Trap covers the signals Claude Code might use (undocumented; we trap
+      # all three for defensive coverage — see fleet/docs/research/0001).
+      trap 'rm -f "'"$pid_file"'"; exit 0' INT TERM HUP
+      echo "notify: lock acquired (pid $$), polling every ${interval}s (Ctrl-C to stop)"
+      _notify_run_loop "$interval" 0
+      rm -f "$pid_file"
+      return 0
+    fi
+    # Lock held by a live peer — stand by.
+    sleep "$interval"
+  done
+}
+
+# Try to acquire the per-project notify lock.
+#   - Returns 0 (acquired) if the file didn't exist OR holder PID is dead
+#     (stale-PID reclaim — necessary because no Claude Code respawn picks up
+#      after a crashed daemon, see fleet/docs/research/0001).
+#   - Returns 1 (held) if a live process owns the file.
+_try_acquire_pid_lock() {
+  local pid_file="$1" holder
+  if [[ -f "$pid_file" ]]; then
+    holder="$(cat "$pid_file" 2>/dev/null || true)"
+    if [[ -n "$holder" ]] && kill -0 "$holder" 2>/dev/null; then
+      return 1   # live holder
+    fi
+    # Stale — holder is dead. Fall through to reclaim.
+  fi
+  echo $$ > "$pid_file"
+  return 0
+}
+
+# Inner polling loop. Args: interval, once_flag (1=single pass, 0=loop).
+# Caller is responsible for the lock + trap.
+_notify_run_loop() {
+  local interval="$1" once="$2"
   declare -A last_state
   declare -A first_seen=()
   declare -A ceiling_notified=()
@@ -954,7 +1002,6 @@ cmd_notify() {
     [[ "$once" -eq 1 ]] && break
     sleep "$interval"
   done
-  [[ "$once" -eq 0 ]] && rm -f "$pid_file"
 }
 
 cmd_web() {
