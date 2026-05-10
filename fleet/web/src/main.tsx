@@ -8,8 +8,11 @@ import { AuditPage } from './components/pages/AuditPage';
 import { ReplayPage } from './components/pages/ReplayPage';
 import { SettingsPage } from './components/pages/SettingsPage';
 import { useRoute } from './hooks/useRoute';
+import { useTheme } from './hooks/useTheme';
 
 function App() {
+  // Drives the data-theme / data-font / accent custom property on <html>.
+  useTheme();
   const [route] = useRoute();
   switch (route.name) {
     case 'audit':    return <AuditPage />;

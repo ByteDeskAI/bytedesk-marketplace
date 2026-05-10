@@ -12,6 +12,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [1.9.0] — 2026-05-10
 ## [1.10.0] — 2026-05-10
 ## [1.11.0] — 2026-05-10
+## [1.12.0] — 2026-05-10
+
+**Phase 11 of BDM-14: themes (BDM-27 / C7).** Final phase. Light / Dark / Repllt-Blue + 8 accent colors + 3 font choices.
+
+### Added
+
+- `[data-theme="dark"]` and `[data-theme="repllt-blue"]` token overrides in `styles.css`. Light is the no-attribute default.
+- `[data-font]` override (jetbrains-mono, system).
+- `useTheme` hook — applies `data-theme` / `data-font` / `--color-accent` to `<html>`, persisted via `usePersistentState`.
+- SettingsPage Theme section: theme chips, 8 accent swatches, font dropdown. Live preview as you click; `Save` persists to the project's `settings.toml` so a second browser sees the same defaults.
+
+### Changed
+
+- Build version → `v1.12.0-bdm27`.
+
+
 
 **Phase 10 of BDM-14: settings page (BDM-26).** Per-project settings persisted at `${CLAUDE_PLUGIN_DATA}/projects/<KEY>/web/settings.toml`.
 

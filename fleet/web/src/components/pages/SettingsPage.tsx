@@ -11,12 +11,28 @@ import { useEffect, useState } from 'preact/hooks';
 import { AppShell } from '../templates/AppShell';
 import { Button } from '../atoms/Button';
 import { loadSettings, saveSettings, type FleetSettings } from '../../api';
+import { useTheme, type ThemeName, type FontName } from '../../hooks/useTheme';
+
+const THEME_OPTIONS: { id: ThemeName; label: string }[] = [
+  { id: 'light',        label: 'Light' },
+  { id: 'dark',         label: 'Dark' },
+  { id: 'repllt-blue',  label: 'Repllt Blue' },
+];
+
+const ACCENTS = ['#2563eb', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#0f172a'];
+
+const FONT_OPTIONS: { id: FontName; label: string }[] = [
+  { id: 'inter',          label: 'Inter (default)' },
+  { id: 'jetbrains-mono', label: 'JetBrains Mono' },
+  { id: 'system',         label: 'System' },
+];
 
 export function SettingsPage() {
   const [s, setS] = useState<FleetSettings | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [theme, setTheme] = useTheme();
 
   useEffect(() => {
     loadSettings().then(setS).catch((e) => setErr((e as Error).message));
@@ -27,7 +43,13 @@ export function SettingsPage() {
     setSaving(true);
     setErr(null);
     try {
-      const next = await saveSettings(s);
+      // Mirror the live theme state into the server-persisted settings
+      // so a different browser sees the same defaults next load.
+      const merged: FleetSettings = {
+        ...s,
+        theme: { theme: theme.theme, accent: theme.accent, font: theme.font },
+      };
+      const next = await saveSettings(merged);
       setS(next);
       setSavedAt(Date.now());
       window.setTimeout(() => setSavedAt(null), 2500);
@@ -89,6 +111,55 @@ export function SettingsPage() {
                 {`curl -d "fleet event" ${s.mobile.ntfy_url.replace(/\/$/, '')}/${s.mobile.topic}`}
               </CodeBlock>
             ) : null}
+          </Section>
+
+          <Section title="Theme (C7)">
+            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>
+              Live preview — changes apply to this browser immediately. Saving persists them
+              to the project's <code>settings.toml</code>.
+            </p>
+            <Field label="Theme">
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {THEME_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    class={`filter-chip${theme.theme === opt.id ? ' filter-chip--active' : ''}`}
+                    onClick={() => setTheme({ ...theme, theme: opt.id })}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </Field>
+            <Field label="Accent color">
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {ACCENTS.map((hex) => (
+                  <button
+                    key={hex}
+                    type="button"
+                    aria-label={hex}
+                    onClick={() => setTheme({ ...theme, accent: hex })}
+                    style={{
+                      width: 24, height: 24, borderRadius: 6, border: '2px solid',
+                      borderColor: theme.accent === hex ? 'var(--color-text-primary)' : 'var(--color-border)',
+                      background: hex, cursor: 'pointer',
+                    }}
+                  />
+                ))}
+              </div>
+            </Field>
+            <Field label="Font">
+              <select
+                class="settings__input"
+                value={theme.font}
+                onChange={(e) => setTheme({ ...theme, font: (e.currentTarget as HTMLSelectElement).value as FontName })}
+              >
+                {FONT_OPTIONS.map((opt) => (
+                  <option key={opt.id} value={opt.id}>{opt.label}</option>
+                ))}
+              </select>
+            </Field>
           </Section>
 
           <Section title="Tailscale share (B17)">

@@ -72,6 +72,45 @@
   --content-max-width: 1440px;
 }
 
+/* Theme variants — Phase 11 (BDM-27). Switch by setting
+ * `data-theme="dark|light|repllt-blue"` on the <html> element via the
+ * useTheme hook. Only the tokens that actually change per theme live
+ * here; everything else inherits from :root. */
+
+[data-theme="dark"] {
+  --color-bg-app: #0f172a;
+  --color-bg-surface: #1e293b;
+  --color-bg-sidebar: #0b1224;
+  --color-bg-muted: #243149;
+  --color-border: #334155;
+  --color-border-strong: #475569;
+  --color-text-primary: #f1f5f9;
+  --color-text-secondary: #cbd5e1;
+  --color-text-tertiary: #94a3b8;
+  --color-text-inverse: #0f172a;
+  --color-accent: #60a5fa;
+  --color-accent-soft: rgba(96, 165, 250, 0.15);
+}
+
+[data-theme="repllt-blue"] {
+  --color-bg-app: #0c1529;
+  --color-bg-surface: #122042;
+  --color-bg-sidebar: #07102b;
+  --color-bg-muted: #1a2a55;
+  --color-border: #1f2f5a;
+  --color-border-strong: #2d4485;
+  --color-text-primary: #f8fafc;
+  --color-text-secondary: #b6c4e2;
+  --color-text-tertiary: #7c8db5;
+  --color-text-inverse: #07102b;
+  --color-accent: #38bdf8;
+  --color-accent-soft: rgba(56, 189, 248, 0.18);
+}
+
+/* Per-font override — applied alongside data-theme. */
+[data-font="jetbrains-mono"] { --font-sans: "JetBrains Mono", ui-monospace, monospace; }
+[data-font="system"]         { --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+
 /* Reset + base */
 *, *::before, *::after { box-sizing: border-box; }
 
