@@ -6,6 +6,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.14.1] — 2026-05-10
+
+Patch release on top of 1.14.0 with chat-mode polish and the new
+reuse-or-reload launch path.
+
+### Added
+
+- **Web-server reuse-or-reload (BDM-44):** new `claude-sessions-web`
+  invocations now probe the existing server's `/api/version` and
+  defer to it when the running build matches our own
+  `buildVersion`. When the build differs (after a `/plugin update`
+  with a still-running old binary), the new launch falls through
+  to the existing preempt path so the latest version takes over —
+  effectively reloading the dashboard. Avoids the standby-polling
+  fight between concurrent claude sessions in the same project.
+
+### Fixed
+
+- **Chat connection pill stuck on "reconnecting…" (BDM-43):**
+  SSE handlers now write `: hello\n\n` and flush immediately
+  after the response headers so the browser's `EventSource.onopen`
+  fires within milliseconds (before, headers stayed buffered until
+  the first real event — up to 15s on a quiet conversation).
+- **Chat connection pill stretched as a tall stadium (BDM-43):**
+  scoped the `.chat-tile__list > div { height: 100% }` rule to
+  only Virtuoso's scroller (`[data-test-id="virtuoso-scroller"]`)
+  so the absolutely-positioned pill keeps its natural size; added
+  defensive `height: auto` on the pill + unread banner.
+- **Connection pill flickering on transient blips (BDM-43):**
+  `setConnection('reconnecting')` is now debounced through a 3s
+  timer that any subsequent `transcript`/`stats`/`onopen` event
+  cancels. Pill only appears when the SSE feed has been silent
+  for ≥3s.
+
 ## [1.14.0] — 2026-05-10
 
 **Chat-mode tile + tool visualizers + jsonl-driven UX (BDM-32 → BDM-42).**
