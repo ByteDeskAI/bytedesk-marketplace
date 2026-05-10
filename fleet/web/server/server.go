@@ -28,7 +28,7 @@ import (
 //go:embed all:dist
 var distFS embed.FS
 
-const buildVersion = "v1.11.0-bdm26"
+const buildVersion = "v1.12.0-bdm27"
 
 var startTime = time.Now()
 
