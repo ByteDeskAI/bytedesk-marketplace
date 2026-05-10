@@ -180,3 +180,16 @@ depths and the bypass forms identified by the BDP-367 review.
 - `.claude/hooks/pr-merge-guard.sh`
 - `.claude/hooks/tests/test-pr-merge-guard.sh`
 - PR review on #346 that surfaced the bypasses motivating this ADR
+
+## Policy revision — 2026-05-09 (BDM-11)
+
+The depth-aware delegation taxonomy in this ADR is unchanged. The depth-0
+transcript-pattern set, however, was widened: a bare word `merge` (without an
+accompanying PR#) now authorizes whichever PR the command names, provided the
+message contains no negation (`don't merge`, `do not merge`, `never merge`,
+or the compound `merge conflict`). The original "mechanical-not-contextual"
+property that required a literal PR# in the message is intentionally relaxed
+for the bare path; the strict path still applies whenever the user names any
+specific PR# (so `merge #999` while the command runs `gh pr merge 346` still
+blocks). See `docs/RULES.md` → "PR merge authorization" for the current rule
+text and the BDM-11 ticket for the rationale.

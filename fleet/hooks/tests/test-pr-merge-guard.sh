@@ -75,12 +75,14 @@ run_case "PR N pattern"                  0 0 'gh pr merge 346' "$(make_transcrip
 run_case "pull/N pattern"                0 0 'gh pr merge 346' "$(make_transcript "https://github.com/x/y/pull/346")"
 
 echo
-echo "=== Depth 0 — bypass forms now blocked (regression test for BDP-367 review) ==="
+echo "=== Depth 0 — bypass forms still blocked (regression test for BDP-367 review) ==="
+# T_VAGUE has no PR# AND no "merge" word → both STRICT and BARE paths block.
 T_VAGUE="$(make_transcript "ship it")"
 run_case "flag-before-number --squash"   2 0 'gh pr merge --squash 346'   "$T_VAGUE"
 run_case "flag-before-number --rebase"   2 0 'gh pr merge --rebase 346'   "$T_VAGUE"
 run_case "flag-before-number --merge"    2 0 'gh pr merge --merge 346'    "$T_VAGUE"
-run_case "wrong PR# in msg"              2 0 'gh pr merge --squash 346'   "$(make_transcript "merge #999")"
+# User named #999, command runs 346 → STRICT path blocks (BDM-11 preserved).
+run_case "wrong PR# in msg (strict)"     2 0 'gh pr merge --squash 346'   "$(make_transcript "merge #999")"
 
 echo
 echo "=== Depth 0 — flag-before-number with correct authorization is allowed ==="
@@ -92,6 +94,29 @@ echo "=== Depth 0 — word-boundary on PR digits ==="
 T_9999="$(make_transcript "merge #9999 please")"
 run_case "#9999 doesn't authorize 99999" 2 0 'gh pr merge 99999' "$T_9999"
 run_case "#9999 authorizes 9999"         0 0 'gh pr merge 9999'  "$T_9999"
+
+echo
+echo "=== Depth 0 — bare-merge authorization (BDM-11 loosened policy) ==="
+# No specific PR# in the message + word "merge" → authorize whatever command names.
+run_case "bare 'merge'"                  0 0 'gh pr merge 346' "$(make_transcript "merge")"
+run_case "'merge it'"                    0 0 'gh pr merge 346' "$(make_transcript "merge it")"
+run_case "'merge them all'"              0 0 'gh pr merge 346' "$(make_transcript "merge them all")"
+run_case "'go ahead and merge'"          0 0 'gh pr merge 346' "$(make_transcript "go ahead and merge")"
+run_case "'yes merge'"                   0 0 'gh pr merge 346' "$(make_transcript "yes merge")"
+run_case "'please merge'"                0 0 'gh pr merge 346' "$(make_transcript "please merge")"
+run_case "'merge all pending PRs'"       0 0 'gh pr merge 346' "$(make_transcript "Can you merge all pending PRs in the order desired.")"
+# Bare merge works even when command uses flag-before-number form.
+run_case "bare merge + --squash flag"    0 0 'gh pr merge --squash 346' "$(make_transcript "merge")"
+
+echo
+echo "=== Depth 0 — bare-merge negation guard ==="
+# Negation phrases suppress the bare-merge path → block.
+run_case "don't merge"                   2 0 'gh pr merge 346' "$(make_transcript "don't merge")"
+run_case "do not merge"                  2 0 'gh pr merge 346' "$(make_transcript "do not merge that one")"
+run_case "never merge"                   2 0 'gh pr merge 346' "$(make_transcript "never merge directly to main")"
+run_case "merge conflict (compound)"     2 0 'gh pr merge 346' "$(make_transcript "we have a merge conflict on the branch")"
+# 'ship it' has no merge word → still blocks (covered above as well, but explicit here).
+run_case "no 'merge' word at all"        2 0 'gh pr merge 346' "$(make_transcript "ship it")"
 
 echo
 echo "=== Depth 0 — non-literal forms blocked (real bypass — re-review BDP-367) ==="

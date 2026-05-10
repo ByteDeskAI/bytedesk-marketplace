@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 # PreToolUse hook: refuse `gh pr merge` unless authorized.
 #
-# Authorization model — see docs/architecture/adr/0046-hierarchical-fleet-authorization.md.
+# Authorization model — see docs/adr/0001-hierarchical-authorization.md and the
+# BDM-11 policy revision in docs/RULES.md → "PR merge authorization".
 #
 #   Depth 0 (root session, human user):
-#     PR number must appear explicitly in the user's most recent message
-#     (#N, "merge N", "PR N", "pull/N").
+#     STRICT path: if the user's message names a specific PR (#N, "merge N",
+#     "PR N", "pull/N"), the command's PR must match it.
+#     BARE path:   if the user's message contains no specific PR#, a bare
+#     "merge" word authorizes whatever PR the command names. Negations
+#     ("don't merge", "do not merge", "never merge", "merge conflict")
+#     suppress the bare path.
 #   Depth >= 1 (fleet child session):
 #     Parent agent's spawn act is the authorization. Allow without per-PR check.
 #
@@ -134,27 +139,62 @@ EOF
   exit 2
 fi
 
-# Authorization patterns — explicit PR-number references in the latest user
-# message. Word-boundary on the trailing digits prevents #12 matching #123.
-#   #${PR}        — most common
-#   merge ${PR}   — "merge 344"
-#   PR ${PR}      — "PR 344 ready"
-#   pull/${PR}    — full URL fragment
-if grep -qiE "(#${PR_NUM}\b|\bmerge[[:space:]]+${PR_NUM}\b|\bPR[[:space:]]+${PR_NUM}\b|pull/${PR_NUM}\b)" <<<"$LAST_USER_MSG"; then
+# Authorization at depth 0 has two paths (BDM-11):
+#
+#   STRICT.   If the user's message contains a specific PR# in any recognized
+#             form (#N, merge N, PR N, pull/N), the command's PR# MUST match.
+#             Catches "merge #999" → blocking `gh pr merge 346` mismatches.
+#
+#   BARE.     If the user's message contains NO specific PR#, the bare word
+#             "merge" alone authorizes whatever PR the command names. This
+#             is the loosened policy from BDM-11 — strictly mechanical was
+#             too friction-heavy for batch ship work. Negation phrases
+#             ("don't merge", "do not merge", "never merge", and the
+#             compound noun "merge conflict") suppress the bare-merge path.
+#
+# Word-boundary on trailing digits prevents #12 matching #123.
+
+# 1. STRICT path. Detect any user-stated PR# first.
+USER_PR_PATTERN='(#[0-9]+\b|\bmerge[[:space:]]+[0-9]+\b|\bPR[[:space:]]+[0-9]+\b|pull/[0-9]+\b)'
+if grep -qiE "$USER_PR_PATTERN" <<<"$LAST_USER_MSG"; then
+  if grep -qiE "(#${PR_NUM}\b|\bmerge[[:space:]]+${PR_NUM}\b|\bPR[[:space:]]+${PR_NUM}\b|pull/${PR_NUM}\b)" <<<"$LAST_USER_MSG"; then
+    exit 0
+  fi
+  cat >&2 <<EOF
+🛑 merge-guard: PR #${PR_NUM} doesn't match any PR# named in the user's latest message.
+
+The user named at least one specific PR (e.g. \`#N\`, \`merge N\`, \`PR N\`, \`pull/N\`),
+so the STRICT path applies — the command's PR# must match. Showing the diff with
+\`gh pr diff ${PR_NUM}\` and asking is the right move.
+
+Note: fleet child sessions (CLAUDE_SESSION_DEPTH >= 1) inherit authorization
+from their parent and are not subject to this transcript check — see ADR-0001.
+EOF
+  exit 2
+fi
+
+# 2. BARE path. No specific PR# in the user's message — accept bare "merge"
+#    unless the message contains an obvious negation.
+NEGATION_PATTERN="\b(don'?t[[:space:]]+merge|do[[:space:]]+not[[:space:]]+merge|never[[:space:]]+merge|merge[[:space:]]+conflict)\b"
+if grep -qiE '\bmerge\b' <<<"$LAST_USER_MSG" \
+   && ! grep -qiE "$NEGATION_PATTERN" <<<"$LAST_USER_MSG"; then
+  echo "merge-guard: bare-merge authorization (BDM-11 loosened policy) — allow #${PR_NUM}" >&2
   exit 0
 fi
 
 cat >&2 <<EOF
-🛑 merge-guard: PR #${PR_NUM} is not explicitly authorized in the user's latest message.
+🛑 merge-guard: PR #${PR_NUM} is not authorized in the user's latest message.
 
-Per project policy (see \`.claude/rules/fleet.md\` → "PR merge authorization"),
-every \`gh pr merge\` at depth 0 (root session) requires the PR number to appear
-in the user's latest message. Accepted patterns:
-  #${PR_NUM}    "merge ${PR_NUM}"    "PR ${PR_NUM}"    "pull/${PR_NUM}"
+Per project policy (see \`docs/RULES.md\` → "PR merge authorization"), depth-0
+\`gh pr merge\` requires either:
+  - a specific PR# in the user's message:   #${PR_NUM}, "merge ${PR_NUM}", "PR ${PR_NUM}", "pull/${PR_NUM}"
+  - OR a bare "merge" (no PR# anywhere):    "merge", "merge it", "merge them all", "yes merge"
 
-Show the user the diff with \`gh pr diff ${PR_NUM}\` and ask whether to merge.
+Negations like "don't merge", "do not merge", "never merge", and "merge conflict"
+suppress the bare-merge path. Show the user the diff with \`gh pr diff ${PR_NUM}\`
+and ask.
 
 Note: fleet child sessions (CLAUDE_SESSION_DEPTH >= 1) inherit authorization
-from their parent and are not subject to this transcript check — see ADR-0046.
+from their parent and are not subject to this transcript check — see ADR-0001.
 EOF
 exit 2
