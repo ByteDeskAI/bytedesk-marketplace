@@ -37,7 +37,7 @@ export function InteractiveTerminal({ ticket, wsPath }: InteractiveTerminalProps
     const term = new Terminal({
       cursorBlink: true,
       fontFamily: 'var(--font-mono), monospace',
-      fontSize: 14,
+      fontSize: 12,
       theme: {
         background: '#0b0e14',
         foreground: '#d4d4d4',
