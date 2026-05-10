@@ -2685,9 +2685,9 @@ code, pre, .mono {
   flex-direction: column;
   gap: var(--space-3);
   padding: var(--space-3);
-  border: 2px solid var(--color-state-needs-input);
+  border: 2px solid var(--color-accent);
   border-radius: var(--radius-md);
-  background: rgba(245, 158, 11, 0.04);
+  background: var(--color-accent-soft);
 }
 .auq-card--submitted {
   border-color: var(--color-state-done);
@@ -2698,7 +2698,7 @@ code, pre, .mono {
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: var(--tracking-caps);
-  color: var(--color-state-needs-input);
+  color: var(--color-accent);
   font-weight: 600;
 }
 .auq-card--submitted .auq-card__head { color: var(--color-state-done); }
@@ -2791,8 +2791,8 @@ code, pre, .mono {
   text-transform: uppercase;
   letter-spacing: var(--tracking-caps);
   padding: var(--space-1) var(--space-3);
-  border: 1px solid var(--color-state-needs-input);
-  background: var(--color-state-needs-input);
+  border: 1px solid var(--color-accent);
+  background: var(--color-accent);
   color: var(--color-text-inverse);
   border-radius: var(--radius-sm);
   cursor: pointer;
@@ -2839,11 +2839,10 @@ code, pre, .mono {
   margin-top: var(--space-3);
 }
 /* User — right-aligned light-blue bubble. Background uses the theme-
- * aware `--color-accent-soft` token so it adapts in dark mode; the
- * perimeter is a low-opacity accent mix; the right edge gets a 3px
- * solid accent spine ("anchored to the user's side"). Markdown
- * elements render against a light surface so tables, code, and
- * blockquotes keep their normal contrast. */
+ * aware `--color-accent-soft` token; perimeter is a low-opacity
+ * accent mix; right edge gets a 3px solid accent spine ("anchored
+ * to the user's side"). Markdown elements render against a light
+ * surface so tables, code, and blockquotes keep their normal contrast. */
 .message-bubble--user {
   margin-left: auto;
   max-width: min(75%, 640px);
@@ -2856,8 +2855,6 @@ code, pre, .mono {
   box-shadow: var(--shadow-sm);
   margin-top: var(--space-3);
 }
-/* Inside a user bubble the table-header tint is too close to the
- * bubble fill — bump to surface so headers stay legible. */
 .message-bubble--user .message-bubble__text th {
   background: var(--color-bg-surface);
 }
