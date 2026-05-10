@@ -54,6 +54,11 @@ type SessionView struct {
 	Confidence float64 `json:"confidence"`      // 0..1 — judge's confidence in `state`
 	Drift      float64 `json:"drift,omitempty"` // 0..1 — likelihood the agent is off-track
 	Objective  string  `json:"objective,omitempty"`
+
+	// Phase 12.2 — auth-context badges (from meta file).
+	Depth    int    `json:"depth"`
+	FullAuto bool   `json:"full_auto"`
+	Worktree string `json:"worktree,omitempty"`
 }
 
 // FleetStats — GET /api/stats. Mirrors the SPA's FleetStats type.

@@ -709,6 +709,28 @@ sink_slack() {
     >/dev/null 2>>"$NOTIFY_LOG" || true
 }
 
+# Phase 12.10 (BDM-28, B15). ntfy webhook sink. Reads the per-project
+# ${CLAUDE_PLUGIN_DATA}/projects/<KEY>/web/settings.toml [mobile] block
+# (written by the dashboard's Settings page) and POSTs to the topic
+# when mobile.enabled and the kind is in mobile.kinds.
+sink_ntfy() {
+  local title="$1" body="$2" kind="$3"
+  local cfg="${CLAUDE_PLUGIN_DATA:-$HOME/.claude/plugins/data}/projects/${CLAUDE_PROJECT_KEY:-}/web/settings.toml"
+  [[ -f "$cfg" ]] || return 0
+  local enabled url topic kinds
+  enabled="$(awk -F'=' '/^\[mobile\]/{f=1;next} /^\[/{f=0} f && $1~/^enabled/{gsub(/[ "]/,"",$2);print $2;exit}' "$cfg")"
+  [[ "$enabled" == "true" ]] || return 0
+  url="$(awk -F'=' '/^\[mobile\]/{f=1;next} /^\[/{f=0} f && $1~/^ntfy_url/{gsub(/^[ ]*"|"[ ]*$/,"",$2);print $2;exit}' "$cfg")"
+  topic="$(awk -F'=' '/^\[mobile\]/{f=1;next} /^\[/{f=0} f && $1~/^topic/{gsub(/^[ ]*"|"[ ]*$/,"",$2);print $2;exit}' "$cfg")"
+  kinds="$(awk -F'=' '/^\[mobile\]/{f=1;next} /^\[/{f=0} f && $1~/^kinds/{gsub(/^[ ]*"|"[ ]*$/,"",$2);print $2;exit}' "$cfg")"
+  [[ -n "$url" && -n "$topic" ]] || return 0
+  if [[ -n "$kinds" && ! "$kinds" =~ (^|,)"$kind"($|,) ]]; then
+    return 0
+  fi
+  curl -fsS -m 5 -H "Title: $title" --data "$body" "${url%/}/$topic" \
+    >/dev/null 2>>"$NOTIFY_LOG" || true
+}
+
 # Dispatch one event through configured sinks.
 # Args: ticket kind detail_json event_json
 dispatch_event() {
@@ -725,6 +747,7 @@ dispatch_event() {
       bell)    sink_bell    "$title" "$body" ;;
       fifo)    sink_fifo    "$event" ;;
       slack)   sink_slack   "$title" "$body" ;;
+      ntfy)    sink_ntfy    "$title" "$body" "$kind" ;;
       *) printf '%s [warn] unknown sink %q for kind %q\n' \
            "$(date -u +%FT%TZ)" "$sink" "$kind" >>"$NOTIFY_LOG" ;;
     esac

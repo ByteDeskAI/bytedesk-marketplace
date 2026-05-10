@@ -1,0 +1,23 @@
+# air dev-mode config. Builds with -tags dev so server_dev.go runs and
+# distFS is read from disk. Disables the per-project lock via DEV_MODE=1.
+# `npm run dev` (in fleet/web/) runs this together with esbuild --watch.
+
+root = "."
+tmp_dir = "tmp"
+
+[build]
+cmd = "go build -tags dev -o tmp/claude-sessions-web-dev ."
+bin = "tmp/claude-sessions-web-dev"
+full_bin = "DEV_MODE=1 FLEET_WEB_ROOT=. ./tmp/claude-sessions-web-dev"
+include_ext = ["go"]
+exclude_dir = ["tmp", "dist", "judge-sidecar"]
+delay = 200
+
+[log]
+time = false
+
+[color]
+main = "magenta"
+watcher = "cyan"
+build = "yellow"
+runner = "green"

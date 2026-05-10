@@ -7,9 +7,13 @@ import { useEffect, useState } from 'preact/hooks';
 import { Badge } from '../atoms/Badge';
 import { Button } from '../atoms/Button';
 import { TerminalView } from './TerminalView';
-import { sendMessage, killSession, spawnReviewer, type SessionRow } from '../../api';
+import { InteractiveTerminal } from './InteractiveTerminal';
+import { GitTab } from './GitTab';
+import { PRTab } from './PRTab';
+import { EventsTab } from './EventsTab';
+import { sendMessage, killSession, spawnReviewer, resumeSession, rebaseSession, type SessionRow } from '../../api';
 
-const TABS = ['Overview', 'Logs'] as const;
+const TABS = ['Overview', 'Terminal', 'Logs', 'Events', 'Git', 'PR'] as const;
 type Tab = typeof TABS[number];
 
 export interface SessionDetailPanelProps {
@@ -54,6 +58,20 @@ export function SessionDetailPanel({ ticket, onClose, onKilled }: SessionDetailP
           <Button onClick={() => { window.location.hash = `/sessions/${encodeURIComponent(ticket)}/replay`; }}>
             Replay
           </Button>
+          <Button
+            onClick={async () => {
+              try { await resumeSession(ticket); setActionMsg(`Resumed ${ticket}`); }
+              catch (e) { setActionMsg((e as Error).message); }
+              window.setTimeout(() => setActionMsg(null), 3000);
+            }}
+          >Resume</Button>
+          <Button
+            onClick={async () => {
+              try { const r = await rebaseSession(ticket); setActionMsg(`Rebased ${ticket}: ${r.stdout.slice(0, 60)}`); }
+              catch (e) { setActionMsg((e as Error).message); }
+              window.setTimeout(() => setActionMsg(null), 4000);
+            }}
+          >Rebase</Button>
           <Button onClick={() => setModal('kill')}>Kill</Button>
           {onClose ? <Button onClick={onClose}>Close</Button> : null}
         </div>
@@ -82,8 +100,16 @@ export function SessionDetailPanel({ ticket, onClose, onKilled }: SessionDetailP
           <div style={{ color: 'var(--color-state-error)' }}>{error}</div>
         ) : tab === 'Overview' ? (
           <OverviewTab row={data} />
-        ) : (
+        ) : tab === 'Terminal' ? (
+          <InteractiveTerminal ticket={ticket} />
+        ) : tab === 'Logs' ? (
           <TerminalView ticket={ticket} />
+        ) : tab === 'Events' ? (
+          <EventsTab ticket={ticket} />
+        ) : tab === 'Git' ? (
+          <GitTab ticket={ticket} />
+        ) : (
+          <PRTab ticket={ticket} />
         )}
       </div>
 
@@ -180,6 +206,11 @@ function OverviewTab({ row }: { row: SessionRow | null }) {
           {row.objective}
         </div>
       ) : null}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 'var(--space-3)' }}>
+        <span class="auth-pill">depth {row.depth ?? 0}</span>
+        {row.full_auto ? <span class="auth-pill auth-pill--strong">--full-auto</span> : null}
+        {row.parent ? <span class="auth-pill">parent {row.parent}</span> : null}
+      </div>
       <dl class="detail-panel__meta">
         <dt>Branch</dt><dd><code>{row.branch || '—'}</code></dd>
         <dt>Parent</dt><dd>{row.parent || '—'}</dd>

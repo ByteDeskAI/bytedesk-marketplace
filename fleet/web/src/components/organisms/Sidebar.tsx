@@ -4,16 +4,19 @@
 
 import { Icon, type IconName } from '../atoms/Icon';
 import { useProjects } from '../../hooks/useProjects';
+import { NotifyPill } from '../molecules/NotifyPill';
 
 interface NavItem { id: string; label: string; icon: IconName; href?: string; }
 
 const VIEWS: NavItem[] = [
   { id: 'overview',    label: 'Overview',    icon: 'overview',    href: '/' },
   { id: 'sessions',    label: 'Sessions',    icon: 'sessions',    href: '/' },
-  { id: 'chains',      label: 'Chains',      icon: 'chains' },
-  { id: 'tournaments', label: 'Tournaments', icon: 'tournaments' },
+  { id: 'grid',        label: 'Grid',        icon: 'sessions',    href: '/grid' },
+  { id: 'chains',      label: 'Chains',      icon: 'chains',      href: '/chains' },
+  { id: 'tournaments', label: 'Tournaments', icon: 'tournaments', href: '/tournaments' },
   { id: 'events',      label: 'Events',      icon: 'events',      href: '/audit' },
-  { id: 'search',      label: 'Search',      icon: 'search' },
+  { id: 'search',      label: 'Search',      icon: 'search',      href: '/search' },
+  { id: 'rules',       label: 'Rules',       icon: 'audit',       href: '/rules' },
   { id: 'audit',       label: 'Audit',       icon: 'audit',       href: '/audit' },
   { id: 'settings',    label: 'Settings',    icon: 'settings',    href: '/settings' },
 ];
@@ -109,6 +112,8 @@ export function Sidebar({ activeView = 'overview', currentProjectKey }: SidebarP
           <div style={{ fontWeight: 600 }}>You</div>
           <div style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--text-xs)' }}>local</div>
         </div>
+        <span style={{ flex: 1 }} />
+        <NotifyPill />
       </div>
     </aside>
   );

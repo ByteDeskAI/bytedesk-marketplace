@@ -26,6 +26,19 @@ type Settings struct {
 	Mobile    MobileConfig    `json:"mobile"`
 	Tailscale TailscaleConfig `json:"tailscale"`
 	Theme     ThemeConfig     `json:"theme"`
+	AI        AIConfig        `json:"ai"`
+	Jira      JiraConfig      `json:"jira"`
+}
+
+// JiraConfig — Phase 12.4 (A15 / B7). Used by /api/jira/* endpoints to
+// fetch issue + backlog. APIToken can be left empty; the server falls
+// back to the JIRA_API_TOKEN env var (preferred — keeps credentials
+// out of settings.toml).
+type JiraConfig struct {
+	BaseURL  string `json:"base_url"`  // e.g. https://acme.atlassian.net
+	Email    string `json:"email"`     // login email
+	APIToken string `json:"api_token"` // optional; env JIRA_API_TOKEN preferred
+	JQL      string `json:"jql"`       // default backlog query
 }
 
 type MobileConfig struct {
@@ -44,6 +57,17 @@ type ThemeConfig struct {
 	Theme  string `json:"theme"`  // light | dark | repllt-blue
 	Accent string `json:"accent"` // hex
 	Font   string `json:"font"`   // inter | jetbrains-mono | system
+}
+
+// AIConfig — Phase 12.9 (B10/B11/B12). Controls the Haiku sidecar that
+// powers the JudgeProvider. The actual API key is NEVER stored in
+// settings.toml; we only record which environment variable to read. By
+// default that's ANTHROPIC_API_KEY (which is also what the sidecar reads
+// directly).
+type AIConfig struct {
+	Enabled bool   `json:"enabled"` // explicit on/off; if true and KeyEnv unset, server still requires ANTHROPIC_API_KEY
+	Model   string `json:"model"`   // e.g. "claude-haiku-4-5-20251001"
+	KeyEnv  string `json:"key_env"` // env var name that holds the API key
 }
 
 type SettingsRepo struct {
@@ -84,6 +108,7 @@ func defaultSettings() Settings {
 		Mobile:    MobileConfig{NtfyURL: "https://ntfy.sh", Kinds: "merge,pr_opened,review_summary"},
 		Tailscale: TailscaleConfig{},
 		Theme:     ThemeConfig{Theme: "light", Accent: "#2563eb", Font: "inter"},
+		AI:        AIConfig{Enabled: false, Model: "claude-haiku-4-5-20251001", KeyEnv: "ANTHROPIC_API_KEY"},
 	}
 }
 
@@ -101,6 +126,15 @@ func formatSettingsTOML(s Settings) string {
 	sb.WriteString(fmt.Sprintf("theme = %q\n", s.Theme.Theme))
 	sb.WriteString(fmt.Sprintf("accent = %q\n", s.Theme.Accent))
 	sb.WriteString(fmt.Sprintf("font = %q\n", s.Theme.Font))
+	sb.WriteString("\n[ai]\n")
+	sb.WriteString(fmt.Sprintf("enabled = %t\n", s.AI.Enabled))
+	sb.WriteString(fmt.Sprintf("model = %q\n", s.AI.Model))
+	sb.WriteString(fmt.Sprintf("key_env = %q\n", s.AI.KeyEnv))
+	sb.WriteString("\n[jira]\n")
+	sb.WriteString(fmt.Sprintf("base_url = %q\n", s.Jira.BaseURL))
+	sb.WriteString(fmt.Sprintf("email = %q\n", s.Jira.Email))
+	sb.WriteString(fmt.Sprintf("api_token = %q\n", s.Jira.APIToken))
+	sb.WriteString(fmt.Sprintf("jql = %q\n", s.Jira.JQL))
 	return sb.String()
 }
 
@@ -148,6 +182,26 @@ func parseSettingsTOML(s string, out *Settings) {
 				out.Theme.Accent = val
 			case "font":
 				out.Theme.Font = val
+			}
+		case "ai":
+			switch key {
+			case "enabled":
+				out.AI.Enabled = val == "true"
+			case "model":
+				out.AI.Model = val
+			case "key_env":
+				out.AI.KeyEnv = val
+			}
+		case "jira":
+			switch key {
+			case "base_url":
+				out.Jira.BaseURL = val
+			case "email":
+				out.Jira.Email = val
+			case "api_token":
+				out.Jira.APIToken = val
+			case "jql":
+				out.Jira.JQL = val
 			}
 		}
 	}

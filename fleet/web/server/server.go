@@ -13,7 +13,6 @@ package main
 //   GET /                             static SPA (embedded dist/)
 
 import (
-	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,10 +24,11 @@ import (
 	"time"
 )
 
-//go:embed all:dist
-var distFS embed.FS
+// distFS is provided by either server_embed.go (production, //go:build !dev)
+// or server_dev.go (//go:build dev — reads from disk so hot-reload works).
+var distFS fs.FS
 
-const buildVersion = "v1.12.0-bdm27"
+const buildVersion = "v1.13.0-bdm28"
 
 var startTime = time.Now()
 
@@ -42,6 +42,7 @@ type apiDeps struct {
 	bus        *EventBus
 	judge      JudgeProvider
 	settings   *SettingsRepo
+	chains     *ChainsRepo
 }
 
 func newAPIDeps(projectKey string, cfg *WebConfig, projDir, dataRoot, webPath string) *apiDeps {
@@ -50,7 +51,8 @@ func newAPIDeps(projectKey string, cfg *WebConfig, projDir, dataRoot, webPath st
 	pr := NewProjectsRepo(dataRoot)
 	sc := NewStatsCalculator(sr, er)
 	st := NewSettingsRepo(webPath)
-	return &apiDeps{projectKey, cfg, sr, pr, er, sc, NewEventBus(), newJudgeProvider(), st}
+	cr := NewChainsRepo(projDir)
+	return &apiDeps{projectKey, cfg, sr, pr, er, sc, NewEventBus(), newJudgeProvider(), st, cr}
 }
 
 func buildHandler(deps *apiDeps) (http.Handler, error) {
@@ -117,8 +119,89 @@ func buildHandler(deps *apiDeps) (http.Handler, error) {
 	mux.HandleFunc("/api/settings", func(w http.ResponseWriter, r *http.Request) {
 		handleSettings(w, r, deps)
 	})
+	mux.HandleFunc("/api/wait", func(w http.ResponseWriter, r *http.Request) {
+		handleWait(w, r, deps)
+	})
+	mux.HandleFunc("/api/sweep", func(w http.ResponseWriter, r *http.Request) {
+		handleSweep(w, r)
+	})
+	mux.HandleFunc("/api/rules", func(w http.ResponseWriter, r *http.Request) {
+		handleRules(w, r, deps)
+	})
+	mux.HandleFunc("/api/rules/", func(w http.ResponseWriter, r *http.Request) {
+		id := strings.TrimPrefix(r.URL.Path, "/api/rules/")
+		handleRuleDelete(w, r, deps, id)
+	})
+	mux.HandleFunc("/api/notify-state", func(w http.ResponseWriter, r *http.Request) {
+		handleNotifyState(w, r, deps)
+	})
+	mux.HandleFunc("/api/search", func(w http.ResponseWriter, r *http.Request) {
+		handleSearch(w, r, deps)
+	})
+	mux.HandleFunc("/api/audit/verify", func(w http.ResponseWriter, r *http.Request) {
+		handleAuditVerify(w, r, deps)
+	})
+	mux.HandleFunc("/api/tournament", func(w http.ResponseWriter, r *http.Request) {
+		handleTournament(w, r, deps)
+	})
+	mux.HandleFunc("/api/jira/issue", func(w http.ResponseWriter, r *http.Request) {
+		handleJiraIssue(w, r, deps)
+	})
+	mux.HandleFunc("/api/jira/backlog", func(w http.ResponseWriter, r *http.Request) {
+		handleJiraBacklog(w, r, deps)
+	})
+	mux.HandleFunc("/api/tailscale/start", func(w http.ResponseWriter, r *http.Request) {
+		handleTailscale(w, r, deps, "start")
+	})
+	mux.HandleFunc("/api/tailscale/stop", func(w http.ResponseWriter, r *http.Request) {
+		handleTailscale(w, r, deps, "stop")
+	})
+	mux.HandleFunc("/api/tailscale/status", func(w http.ResponseWriter, r *http.Request) {
+		handleTailscale(w, r, deps, "status")
+	})
+	mux.HandleFunc("/api/chains", func(w http.ResponseWriter, r *http.Request) {
+		handleChainsCollection(w, r, deps)
+	})
+	mux.HandleFunc("/api/chains/", func(w http.ResponseWriter, r *http.Request) {
+		handleChainItem(w, r, deps)
+	})
 	mux.Handle("/", http.FileServer(http.FS(sub)))
-	return mux, nil
+
+	// Decorator chain (Phase 12.6 / C6). Applied to every request.
+	// /healthz, /api/version, and the static SPA at "/" stay reachable
+	// without auth so the page can prompt the user for a token; all
+	// other /api/* paths are gated when cfg.AuthToken is non-empty.
+	gated := func(r *http.Request) bool {
+		p := r.URL.Path
+		if !strings.HasPrefix(p, "/api/") {
+			return false
+		}
+		if p == "/api/version" {
+			return false
+		}
+		return true
+	}
+	authedHandler := chain(mux, requestIDMW, logMW, conditionalAuthMW(deps.cfg.AuthToken, gated))
+	return authedHandler, nil
+}
+
+// conditionalAuthMW applies the bearer/token check only to requests
+// that pass the predicate. Lets the SPA (/, /app.js, /app.css) and
+// /healthz + /api/version load without a token.
+func conditionalAuthMW(token string, gated func(*http.Request) bool) middleware {
+	if token == "" {
+		return func(h http.Handler) http.Handler { return h }
+	}
+	inner := authMW(token)
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if gated(r) {
+				inner(next).ServeHTTP(w, r)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // handleStream — SSE multiplex. Client subscribes to one or more topics
@@ -212,6 +295,21 @@ func handleSessionDetail(w http.ResponseWriter, r *http.Request, deps *apiDeps) 
 		case "review":
 			handleSessionReview(w, r, ticket)
 			return
+		case "pty":
+			handleSessionPty(w, r, deps, ticket)
+			return
+		case "git":
+			handleSessionGit(w, r, deps, ticket)
+			return
+		case "pr":
+			handleSessionPR(w, r, deps, ticket)
+			return
+		case "resume":
+			handleSessionResume(w, r, deps, ticket)
+			return
+		case "rebase":
+			handleSessionRebase(w, r, deps, ticket)
+			return
 		default:
 			writeError(w, http.StatusBadRequest, fmt.Errorf("unknown sub-path %q", parts[1]))
 			return
@@ -279,12 +377,15 @@ func sessionToViewWithJudge(s Session, now time.Time, judge JudgeProvider) Sessi
 
 func sessionToView(s Session, now time.Time) SessionView {
 	v := SessionView{
-		Ticket: s.Ticket,
-		Slug:   s.Slug,
-		State:  s.State,
-		Parent: s.Parent,
-		Branch: s.Branch,
-		Cost:   fmt.Sprintf("$%.2f", s.CostUSD),
+		Ticket:   s.Ticket,
+		Slug:     s.Slug,
+		State:    s.State,
+		Parent:   s.Parent,
+		Branch:   s.Branch,
+		Cost:     fmt.Sprintf("$%.2f", s.CostUSD),
+		Depth:    s.Depth,
+		FullAuto: s.FullAuto,
+		Worktree: s.Worktree,
 	}
 	if !s.LastActivity.IsZero() {
 		v.Activity = formatRelative(int64(now.Sub(s.LastActivity).Seconds()))

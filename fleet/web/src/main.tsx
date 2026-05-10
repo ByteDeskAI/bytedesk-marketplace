@@ -7,6 +7,11 @@ import { OverviewPage } from './components/pages/OverviewPage';
 import { AuditPage } from './components/pages/AuditPage';
 import { ReplayPage } from './components/pages/ReplayPage';
 import { SettingsPage } from './components/pages/SettingsPage';
+import { GridPage } from './components/pages/GridPage';
+import { ChainsPage } from './components/pages/ChainsPage';
+import { RulesPage } from './components/pages/RulesPage';
+import { SearchPage } from './components/pages/SearchPage';
+import { TournamentsPage } from './components/pages/TournamentsPage';
 import { useRoute } from './hooks/useRoute';
 import { useTheme } from './hooks/useTheme';
 
@@ -15,10 +20,15 @@ function App() {
   useTheme();
   const [route] = useRoute();
   switch (route.name) {
-    case 'audit':    return <AuditPage />;
-    case 'replay':   return <ReplayPage />;
-    case 'settings': return <SettingsPage />;
-    default:         return <OverviewPage />;
+    case 'audit':       return <AuditPage />;
+    case 'replay':      return <ReplayPage />;
+    case 'settings':    return <SettingsPage />;
+    case 'grid':        return <GridPage />;
+    case 'chains':      return <ChainsPage chainID={route.params.id} />;
+    case 'rules':       return <RulesPage />;
+    case 'search':      return <SearchPage />;
+    case 'tournaments': return <TournamentsPage />;
+    default:            return <OverviewPage />;
   }
 }
 
@@ -28,3 +38,19 @@ if (rootEl) {
 } else {
   console.error('fleet-web: #root not found in DOM');
 }
+
+// Dev-mode auto-reload (Phase 12.0). When the Go server is built with
+// -tags dev, it publishes "dist-rebuilt" on the bus whenever esbuild
+// rewrites server/dist/. Subscribe via SSE and hard-reload.
+//
+// Detection: the prod server still publishes /api/version with a build
+// string ending in "-bdm28" (or later); dev mode appends "-dev". We
+// just always subscribe — a bog-standard prod build never publishes
+// the topic, so the listener is harmless.
+try {
+  const es = new EventSource('/api/stream?topics=dist-rebuilt');
+  es.addEventListener('dist-rebuilt', () => {
+    console.log('[fleet-dev] dist rebuilt; reloading');
+    window.location.reload();
+  });
+} catch { /* SSE not available — ignore */ }

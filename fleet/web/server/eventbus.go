@@ -15,10 +15,11 @@ import (
 type Topic string
 
 const (
-	TopicSessions Topic = "sessions"
-	TopicStats    Topic = "stats"
-	TopicProjects Topic = "projects"
-	TopicEvents   Topic = "events"
+	TopicSessions    Topic = "sessions"
+	TopicStats       Topic = "stats"
+	TopicProjects    Topic = "projects"
+	TopicEvents      Topic = "events"
+	TopicDistRebuilt Topic = "dist-rebuilt" // dev mode only
 )
 
 type Message struct {

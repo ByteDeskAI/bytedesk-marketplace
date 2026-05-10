@@ -58,30 +58,53 @@ func main() {
 		log.Fatalf("claude-sessions-web: mkdir %s: %v", webPath, err)
 	}
 
-	lock := &Lock{Path: filepath.Join(webPath, "pid")}
-	for {
-		ok, err := lock.TryAcquire()
-		if err != nil {
-			log.Fatalf("claude-sessions-web: lock acquire error: %v", err)
+	devMode := os.Getenv("DEV_MODE") == "1"
+
+	var lock *Lock
+	if !devMode {
+		lock = &Lock{Path: filepath.Join(webPath, "pid")}
+		for {
+			ok, err := lock.TryAcquire()
+			if err != nil {
+				log.Fatalf("claude-sessions-web: lock acquire error: %v", err)
+			}
+			if ok {
+				break
+			}
+			log.Printf("claude-sessions-web: lock held by peer (project %s); standby polling every %ds", pkey, standbyPollSeconds)
+			time.Sleep(standbyPollSeconds * time.Second)
 		}
-		if ok {
-			break
-		}
-		log.Printf("claude-sessions-web: lock held by peer (project %s); standby polling every %ds", pkey, standbyPollSeconds)
-		time.Sleep(standbyPollSeconds * time.Second)
+	} else {
+		log.Println("claude-sessions-web: DEV_MODE=1 — skipping lock; will pick port from FLEET_DEV_PORT or OS-assigned")
 	}
 
-	cfg, err := loadOrAssignPort(webPath, pkey)
-	if err != nil {
-		_ = lock.Release()
-		log.Fatalf("claude-sessions-web: port assignment failed: %v", err)
+	var cfg *WebConfig
+	if devMode {
+		cfg = &WebConfig{Bind: "127.0.0.1"}
+		if v := os.Getenv("FLEET_DEV_PORT"); v != "" {
+			if p, err := strconv.Atoi(v); err == nil {
+				cfg.Port = p
+			}
+		}
+		if cfg.Port == 0 {
+			cfg.Port = 7690 // dev default; production lives on hashedPort range
+		}
+	} else {
+		var err error
+		cfg, err = loadOrAssignPort(webPath, pkey)
+		if err != nil {
+			_ = lock.Release()
+			log.Fatalf("claude-sessions-web: port assignment failed: %v", err)
+		}
 	}
 
 	projDir, _ := projectDir()
 	deps := newAPIDeps(pkey, cfg, projDir, dataRoot(), webPath)
 	handler, err := buildHandler(deps)
 	if err != nil {
-		_ = lock.Release()
+		if lock != nil {
+			_ = lock.Release()
+		}
 		log.Fatalf("claude-sessions-web: handler init: %v", err)
 	}
 	// Run the EventBus watcher; cancels with the main context.
@@ -89,6 +112,7 @@ func main() {
 	defer busCancel()
 	deps.bus.Run(busCtx, deps, 1000)
 	defer deps.bus.Close()
+	startDevDistWatcher(busCtx, deps.bus) // no-op outside `-tags dev`
 	addr := fmt.Sprintf("%s:%d", cfg.Bind, cfg.Port)
 	srv := &http.Server{
 		Addr:              addr,
@@ -128,6 +152,8 @@ func main() {
 	shutCtx, shutCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutCancel()
 	_ = srv.Shutdown(shutCtx)
-	_ = lock.Release()
+	if lock != nil {
+		_ = lock.Release()
+	}
 	log.Println("claude-sessions-web: shutdown complete")
 }

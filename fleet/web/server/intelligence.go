@@ -18,6 +18,7 @@ package main
 
 import (
 	"io"
+	"log"
 	"os"
 	"strings"
 	"time"
@@ -64,7 +65,39 @@ type JudgeProvider interface {
 // heuristicJudge — today's default. Pure function, no I/O, no LLM.
 type heuristicJudge struct{}
 
-func newJudgeProvider() JudgeProvider { return heuristicJudge{} }
+// newJudgeProvider returns the live JudgeProvider.
+//
+// Resolution order:
+//  1. ANTHROPIC_API_KEY is set → try to spawn the Haiku sidecar with the
+//     heuristic provider as its fallback. Health-check + ready → return it.
+//  2. Sidecar spawn or health-check fails → log + return heuristic.
+//  3. No API key → return heuristic.
+//
+// The interface is unchanged, so callers (newAPIDeps, sessionToViewWithJudge)
+// don't need to know which strategy is active.
+func newJudgeProvider() JudgeProvider {
+	heuristic := heuristicJudge{}
+	if os.Getenv("ANTHROPIC_API_KEY") == "" {
+		return heuristic
+	}
+	hp, err := NewHaikuJudgeProvider(heuristic)
+	if err != nil {
+		log.Printf("intelligence: Haiku judge unavailable, using heuristic: %v", err)
+		return heuristic
+	}
+	log.Printf("intelligence: Haiku judge active (model=%s)", haikuModelLabel())
+	return hp
+}
+
+// haikuModelLabel surfaces the configured model for the startup log line.
+// Mirrors the sidecar's default; settings.toml [ai].Model is informational
+// only — the sidecar honors the MODEL env var, which spawn() can set.
+func haikuModelLabel() string {
+	if v := os.Getenv("MODEL"); v != "" {
+		return v
+	}
+	return "claude-haiku-4-5-20251001"
+}
 
 // JudgeState — keeps state from the regex pass; computes a confidence
 // score that rises with how recently the heuristic-matched line ran.
