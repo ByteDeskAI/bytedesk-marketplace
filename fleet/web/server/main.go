@@ -201,6 +201,18 @@ func main() {
 	// so finished tournament variants don't linger as zombie tiles.
 	NewReaper(deps).Run(busCtx)
 
+	// Tailscale auto-install (BDM-50) — best-effort, non-blocking. If
+	// the CLI is missing and sudo -n NOPASSWD is configured, this
+	// installs it via the official tailscale.com/install.sh script.
+	// Linux-only; logs once and exits on any precondition failure.
+	go func() {
+		s, err := deps.settings.Load()
+		if err != nil {
+			return
+		}
+		tailscaleAutoInstall(busCtx, s)
+	}()
+
 	// Transcript stream tails each session's Claude Code jsonl and
 	// publishes typed events to the bus, keeping a per-ticket stats
 	// cache for /api/sessions/<T>/stats.
