@@ -99,7 +99,7 @@ Full design rationale + trade-offs in [ADR-0002](./docs/adr/0002-plugin-data-dir
 
 ## Status
 
-`v0.1.0` — pre-release. Extracted from `ByteDeskAI/bytedesk-platform`. Expect breaking changes until `v1.0.0`.
+`v1.0.0` — first public release (2026-05-09). Extracted from `ByteDeskAI/bytedesk-platform` and reshaped into a Claude-Code-native plugin (per-project state under `${CLAUDE_PLUGIN_DATA}`, plugin-managed monitor, no install.sh). Coming from v0.1? See [`docs/MIGRATION.md`](./docs/MIGRATION.md).
 
 ## License
 

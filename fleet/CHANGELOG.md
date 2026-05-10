@@ -6,13 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.0.0] — 2026-05-09
+
+First public release. The v0.1.0 → v1.0.0 sweep moves the plugin from a vendored-via-`install.sh` model to a fully Claude-Code-managed plugin: state, daemon, scripts, and skills all live inside the plugin's runtime contract. Read [`docs/MIGRATION.md`](./docs/MIGRATION.md) before upgrading from v0.1.
+
 ### Added
 
-- Initial extraction from `ByteDeskAI/bytedesk-platform` as a Claude Code marketplace plugin.
 - ADR-0002 documenting the per-project `${CLAUDE_PLUGIN_DATA}` state-directory layout (BDM-5).
 - Research note `docs/research/0001-plugin-manifest-lifecycle.md` capturing the manifest/lifecycle findings that informed the v1.0 design (BDM-6).
-- `fleet/tests/test-notify-lock.sh` — 10 assertions covering the notify-daemon PID lock + depth gate (BDM-4).
-- `fleet/docs/MIGRATION.md` — step-by-step v0.1 → v1.0 migration for users on the install.sh path (BDM-10).
+- `tests/test-notify-lock.sh` — 10 assertions covering the notify-daemon PID lock + depth gate (BDM-4).
+- `docs/MIGRATION.md` — step-by-step v0.1 → v1.0 migration for users on the install.sh path (BDM-10).
+- `docs/SMOKE-TEST.md` — repeatable install-verification checklist for fresh `/plugin install fleet@bytedesk` runs (BDM-7).
+- BDM-11 policy revision: bare word `merge` (no PR# required) now authorizes a depth-0 `gh pr merge`, with negation guard (`don't merge` / `do not merge` / `never merge` / `merge conflict`) suppressing the bare path. The strict path still applies whenever the user names a specific PR#.
 
 ### Changed
 
@@ -29,10 +34,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **BREAKING.** `fleet/install.sh` deleted. Plugin install is the only deployment path (BDM-10).
 - **BREAKING.** `fleet/systemd/` deleted (`claude-sessions-notify.service`, `claude-sessions-web.service`). Daemon lifetime is now Claude Code session-bound; the per-project lock + stand-by gives equivalent continuous coverage (BDM-10).
 - `claude-sessions service` subcommand removed (BDM-10).
-
-### Changed
-
-- Skill `name:` fields and prose migrated to plugin-namespaced form (BDM-2). Frontmatter is now `name: spawn`, `name: review`, etc.; the slash-command surface is `/fleet:spawn`, `/fleet:review`, `/fleet:cleanup`, `/fleet:tournament`, `/fleet:wait`, `/fleet:chain`. The `name: fleet` status skill (root `/fleet`) is unchanged. Tightened the BDP-367 glob-expansion regression test in `hooks/tests/test-pr-merge-guard.sh` so it actually fails when `set -f` is removed from the hook (BDM-9).
 
 ## [0.1.0] — 2026-05-09
 
