@@ -2838,22 +2838,20 @@ code, pre, .mono {
   border-left-color: var(--color-accent);
   margin-top: var(--space-3);
 }
-/* User — right-aligned violet-tinted bubble. We use the existing
- * `--color-state-reviewing` token (purple) instead of `--color-accent`
- * (blue) so the chat scans as a clear two-voice palette: cool blue
- * for the assistant rail / system UI, soft violet for the user.
- * Markdown elements render against a light surface, so tables, code,
- * blockquotes etc. keep their normal contrast. Identity is carried
- * by right-alignment + a 3px violet right-edge spine ("anchored to
- * the user's side"). */
+/* User — right-aligned light-blue bubble. Background uses the theme-
+ * aware `--color-accent-soft` token so it adapts in dark mode; the
+ * perimeter is a low-opacity accent mix; the right edge gets a 3px
+ * solid accent spine ("anchored to the user's side"). Markdown
+ * elements render against a light surface so tables, code, and
+ * blockquotes keep their normal contrast. */
 .message-bubble--user {
   margin-left: auto;
   max-width: min(75%, 640px);
   padding: var(--space-2) var(--space-4);
-  background: rgba(139, 92, 246, 0.08);
+  background: var(--color-accent-soft);
   color: var(--color-text-primary);
-  border: 1px solid rgba(139, 92, 246, 0.25);
-  border-right: 3px solid var(--color-state-reviewing);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 25%, transparent);
+  border-right: 3px solid var(--color-accent);
   border-radius: 12px 4px 12px 12px;
   box-shadow: var(--shadow-sm);
   margin-top: var(--space-3);
@@ -2869,7 +2867,7 @@ code, pre, .mono {
   border-color: var(--color-border);
 }
 .message-bubble--user .message-bubble__text blockquote {
-  border-left-color: var(--color-state-reviewing);
+  border-left-color: var(--color-accent);
 }
 /* System — centered chip flanked by dashed lines. Lowest contrast. */
 .message-bubble--system {
