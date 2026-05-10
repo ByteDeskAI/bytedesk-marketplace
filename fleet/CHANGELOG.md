@@ -6,6 +6,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.14.0] — 2026-05-10
+
+**Chat-mode tile + tool visualizers + jsonl-driven UX (BDM-32 → BDM-42).**
+
+### Added
+
+- **Chat-mode tile (BDM-32):** global Terminal/Chat toggle in GridPage. Chat renders structured UIMessages projected from Claude's jsonl via `react-virtuoso` (sticky-bottom autoscroll, infinite-scroll-up history). Composer wired to existing `/api/sessions/<T>/send` (and new `/api/main/send` for the main tile). Sub-agent threads render inline under their parent's `Task` tool-call card (in chat) or as tabs across the tile header (in terminal mode).
+- **Per-tool visualizers (BDM-34):** `fleet/web/src/components/visualizers/` registry with specialized cards for File tools (Read viewer, Edit unified diff, Write summary, MultiEdit, NotebookEdit/Read), Shell+Search (Bash terminal, BashOutput stream, Grep highlighted matches, Glob path-tree), Web+Tasks (WebFetch, WebSearch, TodoWrite checklist, TaskCreate/Update/List/Get/Stop/Output), and Misc (Agent/Task launch, ScheduleWakeup, Skill, ExitPlanMode, ToolSearch, …) plus an `mcp__*` wildcard fallback.
+- **Markdown rendering (BDM-33):** `marked + DOMPurify` pipeline with smart `MarkdownText` component that detects markdown markers and falls back to `<pre>` for raw indented code. Wired into MessageBubble text parts, AgentVisualizer prompt/report, ScheduleWakeup prompt, Skill output.
+- **AskUserQuestion structured form (BDM-33):** detects the tool by name, renders questions as radio/checkbox cards. Submit constructs an arrow-key sequence (`Up×N` + `Down×N` + `Space` + `Enter`) and POSTs to a new `/api/sessions/<T>/keys` endpoint that drives Claude's CLI list-picker.
+- **Tool-group collapse (BDM-33):** runs of ≥2 consecutive tool-only assistant messages render as a single expandable card (`▸ N tools — Bash×2, Edit, …`) instead of stacking individually.
+- **Per-tool key endpoint:** new `/api/sessions/<T>/keys` and `/api/main/keys` accept `{keys: string[]}` against a tmux key allowlist (`Up`, `Down`, `Space`, `Enter`, …) and shell `tmux send-keys`.
+- **Universal composer (BDM-33):** main tile now writable in chat mode via `/api/main/send`; sub-agent threads stay read-only by design.
+- **Sub-agent visualization (BDM-32):** server tails `subagents/agent-*.jsonl` per session; populates `TicketStats.SubAgents` with per-agent token + tool tally; `TranscriptEvent.agent_id` routes events to nested threads / per-agent tabs.
+- **JSONL transcript catalog:** `fleet/docs/research/0002-claude-code-jsonl-format.md` and `.claude/rules/parsing-claude-jsonl.md` codify the event types so future agents don't re-derive the schema.
+- **Optimistic send (BDM-39):** chat composer appends the user's message immediately on submit; deduped against the canonical `user_text` SSE event when claude's jsonl flushes. Roll-back on POST failure.
+- **SSE connection indicator (BDM-41):** small pill at top-right of the chat list when the SSE feed is `reconnecting` or `closed` (invisible while live). `useFleetChat` exposes a `connection` state.
+- **Infinite-scroll history (BDM-35/37):** `/api/sessions/<T>/messages?before=<id>` returns the prior batch. Client uses Virtuoso's `firstItemIndex` recipe (atomic items + index update) so subsequent scroll-ups continue to fire `startReached`.
+
+### Changed
+
+- **Visual hierarchy redesign (BDM-38):** message-role differentiation by alignment + treatment, not duplicate role labels. User = right-aligned light-blue bubble (3px accent right edge), assistant = plain prose with thin left rail, tool calls = visualizer cards, system = centered chip between dashed lines. CLAUDE / YOU role chips removed.
+- **AskUserQuestion card recoloring (BDM-38):** peach/amber → light blue to match the chat's accent voice.
+- **Chat-scoped type scale (BDM-40):** larger sizes (13/14/15/16/18/21/26 + 12px chips) inside `.chat-tile` only; rest of the dashboard stays on the original compact scale.
+- **Sanitizer fix (BDM-32 follow-up):** `findTranscript` now replaces both `/` and `.` so worktrees nested under `.claude/` resolve to the correct project dir.
+- **State cascade fix (BDM-32 follow-up):** error fast-path skipped when `lastAssistant` is more recent than `lastToolResult` — end_turn after a tool error wins.
+
+### Fixed
+
+- **Scroll-bounce on send (BDM-41):** guarded `loadMore` with an `atBottom` check so a tiny chat doesn't bounce to the top on every send.
+- **Duplicate user messages (BDM-42):** dropped the `last-prompt` projection on both server (`projectMessages`) and client (`applyDelta`); user prompts are captured purely via the `user` entry's text content. Reload re-projects existing conversations cleanly.
+- **Sent message not rendering live (BDM-39):** server now emits `user_text` events for `user` jsonl entries with text content (was silently dropping them as bare `user` events).
+
+### Build
+
+- Bumped `buildVersion` to `v1.14.0-bdm42`. Bundle: 399KB → 593KB across the BDM-32–42 stream (+`react-virtuoso`, `marked`, `dompurify`, preact/compat shim).
+
 ## [1.13.0] — 2026-05-10
 
 **Phase 12 of BDM-14: web-dashboard completion (BDM-28).** Closes the remaining ~20 features from the original 47-feature plan in a single PR. Branch: `feature/BDM-28-completion`.
