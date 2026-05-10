@@ -51,6 +51,9 @@ export function SessionDetailPanel({ ticket, onClose, onKilled }: SessionDetailP
         <div class="detail-panel__actions">
           <Button onClick={() => setModal('send')}>Send Input</Button>
           <Button onClick={() => setModal('review')}>Spawn Reviewer</Button>
+          <Button onClick={() => { window.location.hash = `/sessions/${encodeURIComponent(ticket)}/replay`; }}>
+            Replay
+          </Button>
           <Button onClick={() => setModal('kill')}>Kill</Button>
           {onClose ? <Button onClick={onClose}>Close</Button> : null}
         </div>

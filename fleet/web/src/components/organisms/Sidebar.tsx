@@ -1,22 +1,20 @@
 // Sidebar — fleet brand + Views nav + sub-views + Projects list + user.
-// Phase 3a wires the PROJECTS list to real /api/projects via useProjects().
-// Each entry hyperlinks to that project's own dashboard URL (per the
-// BDM-15 multi-project navigation decision: per-project servers; sidebar
-// is discovery, not multi-host rendering).
+// Phase 9 (BDM-25) wires the primary Views nav to the hash router so
+// Audit + Sessions become reachable.
 
 import { Icon, type IconName } from '../atoms/Icon';
 import { useProjects } from '../../hooks/useProjects';
 
-interface NavItem { id: string; label: string; icon: IconName; }
+interface NavItem { id: string; label: string; icon: IconName; href?: string; }
 
 const VIEWS: NavItem[] = [
-  { id: 'overview',    label: 'Overview',    icon: 'overview' },
-  { id: 'sessions',    label: 'Sessions',    icon: 'sessions' },
+  { id: 'overview',    label: 'Overview',    icon: 'overview',    href: '/' },
+  { id: 'sessions',    label: 'Sessions',    icon: 'sessions',    href: '/' },
   { id: 'chains',      label: 'Chains',      icon: 'chains' },
   { id: 'tournaments', label: 'Tournaments', icon: 'tournaments' },
-  { id: 'events',      label: 'Events',      icon: 'events' },
+  { id: 'events',      label: 'Events',      icon: 'events',      href: '/audit' },
   { id: 'search',      label: 'Search',      icon: 'search' },
-  { id: 'audit',       label: 'Audit',       icon: 'audit' },
+  { id: 'audit',       label: 'Audit',       icon: 'audit',       href: '/audit' },
   { id: 'settings',    label: 'Settings',    icon: 'settings' },
 ];
 
@@ -48,6 +46,11 @@ export function Sidebar({ activeView = 'overview', currentProjectKey }: SidebarP
             <li
               key={v.id}
               class={`sidebar__nav-item${v.id === activeView ? ' sidebar__nav-item--active' : ''}`}
+              onClick={() => {
+                if (v.href) window.location.hash = v.href;
+              }}
+              role={v.href ? 'link' : undefined}
+              style={{ cursor: v.href ? 'pointer' : 'default' }}
             >
               <Icon name={v.icon} />
               {v.label}
@@ -111,8 +114,8 @@ export function Sidebar({ activeView = 'overview', currentProjectKey }: SidebarP
   );
 }
 
-// shortKey trims the 12-char project key to "abc123…f456" so each row
-// stays narrow. The full key shows on hover via title attribute.
+// shortKey trims the 12-char project key to "abc1…f456" so each row
+// stays narrow.
 function shortKey(key: string): string {
   if (key.length <= 8) return key;
   return `${key.slice(0, 4)}…${key.slice(-4)}`;

@@ -10,6 +10,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `/fleet:setup-cli` skill creates `~/.local/bin/` wrappers for the three public CLI binaries (`claude-sessions`, `claude-sessions-web`, `spawn-claude-feature`) so they're available on the user's interactive shell PATH without breaking on `/plugin update`. The wrappers resolve to the latest installed plugin version at exec time via `ls -dv … | tail -1`. Idempotent and sentinel-gated: re-running refreshes our own wrappers but refuses to clobber foreign files at the same path. Fills the gap left by BDM-3's removal of the `~/.local/bin/` symlinks (BDM-23).
 ## [1.9.0] — 2026-05-10
+## [1.10.0] — 2026-05-10
+
+**Phase 9 of BDM-14: replay + audit (BDM-25).** Two new pages, hash-routed.
+
+### Added
+
+- `useRoute` hook — minimal hash-based router. `#/`, `#/audit`, `#/sessions/<T>/replay`.
+- `AuditPage` (B13) — chronological event feed sourced from `/api/events`. Search across ticket / kind / detail; per-kind color tones. Tamper-evident today via `id = ticket@offset`; a real hash chain lands when B13 server-side gets there.
+- `ReplayPage` (B16) — log-only time-travel scrub. Scrub bar, play/pause, 0.5×–4× speed chips. Event sidebar acts as anchor list (jump to closest tick).
+- `Replay` button on `SessionDetailPanel`.
+- Sidebar primary-nav items now navigate via the hash router.
+
+### Changed
+
+- Build version → `v1.10.0-bdm25`.
+- `main.tsx`: switched from single-page mount to a tiny hash-route switcher.
+
+
 
 **Phase 8 of BDM-14: intelligence layer (BDM-24).** Stubs for B10/B11/B12 with a clear seam (`JudgeProvider`) for swapping in Haiku later.
 
