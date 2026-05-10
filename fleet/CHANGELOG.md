@@ -6,6 +6,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.14.2] — 2026-05-10
+
+Patch release: ships a clean SPA bundle (1.14.1's binary embedded a
+stale `dist/` from a prior dev-mode watch) and surfaces the running
+build version in the UI so binary/SPA drift is observable at a
+glance going forward.
+
+### Added
+
+- **`<VersionPill>` in the sidebar brand row (BDM-45):** reads
+  `/api/version` live and renders the running server's
+  `buildVersion`. Replaces the hardcoded `v1.13` tag. Lets users
+  spot at a glance whether the dashboard they're hitting is the
+  binary they expect.
+
+### Fixed
+
+- **Stale embedded SPA bundle in 1.14.1 release (BDM-45):** the
+  v1.14.1 binary embedded a 392KB `app.js` while the source
+  `dist/` had a 593KB build. Cause: `dist/` is a build artifact
+  that can drift between dev-mode watches and the release `go
+  build`. Cut a clean rebuild for 1.14.2.
+
+### Build
+
+- `fleet/web/build.sh` now `rm -rf server/dist` before `npm run
+  build` so each release embed is guaranteed fresh, and prints the
+  md5 of the embedded `app.js` / `app.css` so log readers can
+  verify what landed in the binary.
+- `buildVersion` v1.14.1-bdm44 → v1.14.2-bdm45. `plugin.json` /
+  `marketplace.json` / `web/package.json` bumped to 1.14.2 in
+  lockstep per `.claude/rules/version-enforcement.md`.
+
 ## [1.14.1] — 2026-05-10
 
 Patch release on top of 1.14.0 with chat-mode polish and the new

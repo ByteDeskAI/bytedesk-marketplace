@@ -26,8 +26,10 @@ import (
 
 // sanitizeProjectDir mirrors Claude Code's cwd → project-dir mapping.
 // Both `/` and `.` get replaced with `-`, e.g.
-//   /home/u/repo/.claude/worktrees/X-slug
-//      → -home-u-repo--claude-worktrees-X-slug
+//
+//	/home/u/repo/.claude/worktrees/X-slug
+//	   → -home-u-repo--claude-worktrees-X-slug
+//
 // This MUST match what claude itself produces under
 // `~/.claude/projects/`. The `.`-replacement step is the one that
 // trips up naive `filepath.Separator`-only sanitizers (worktrees

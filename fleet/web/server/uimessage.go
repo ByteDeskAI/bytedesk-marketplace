@@ -34,11 +34,11 @@ import (
 // UIMessage — top-level message in a chat thread. Mirrors the shape
 // `@tanstack/ai-react` consumes (one `parts` array per role).
 type UIMessage struct {
-	ID        string     `json:"id"`
-	Role      string     `json:"role"` // user | assistant | system
-	Timestamp time.Time  `json:"timestamp"`
-	AgentID   string     `json:"agent_id,omitempty"` // sub-agent threads only
-	Parts     []UIPart   `json:"parts"`
+	ID        string    `json:"id"`
+	Role      string    `json:"role"` // user | assistant | system
+	Timestamp time.Time `json:"timestamp"`
+	AgentID   string    `json:"agent_id,omitempty"` // sub-agent threads only
+	Parts     []UIPart  `json:"parts"`
 }
 
 // UIPart — discriminated union over message-part types. The shape is
@@ -70,14 +70,14 @@ type UIPart struct {
 // does — we need full `tool_use_id`, `input`, and the raw content
 // blocks so we can pair tool_use ↔ tool_result.
 type richEntry struct {
-	Type      string    `json:"type"`
-	UUID      string    `json:"uuid"`
-	Timestamp time.Time `json:"timestamp"`
-	IsSidechain bool    `json:"isSidechain"`
-	Message   struct {
-		Role    string            `json:"role"`
-		StopReason string         `json:"stop_reason"`
-		Content []json.RawMessage `json:"content"`
+	Type        string    `json:"type"`
+	UUID        string    `json:"uuid"`
+	Timestamp   time.Time `json:"timestamp"`
+	IsSidechain bool      `json:"isSidechain"`
+	Message     struct {
+		Role       string            `json:"role"`
+		StopReason string            `json:"stop_reason"`
+		Content    []json.RawMessage `json:"content"`
 	} `json:"message"`
 	// Bare-text fallback (some legacy entries put the user prompt at
 	// the top level rather than under message.content).
@@ -89,15 +89,15 @@ type richEntry struct {
 }
 
 type contentBlock struct {
-	Type      string         `json:"type"`
-	Text      string         `json:"text"`
-	Thinking  string         `json:"thinking"`
-	Name      string         `json:"name"`        // tool_use
-	ID        string         `json:"id"`          // tool_use
-	Input     map[string]any `json:"input"`       // tool_use
-	ToolUseID string         `json:"tool_use_id"` // tool_result
-	IsError   bool           `json:"is_error"`    // tool_result
-	Content   json.RawMessage `json:"content"`    // tool_result body (string or array)
+	Type      string          `json:"type"`
+	Text      string          `json:"text"`
+	Thinking  string          `json:"thinking"`
+	Name      string          `json:"name"`        // tool_use
+	ID        string          `json:"id"`          // tool_use
+	Input     map[string]any  `json:"input"`       // tool_use
+	ToolUseID string          `json:"tool_use_id"` // tool_result
+	IsError   bool            `json:"is_error"`    // tool_result
+	Content   json.RawMessage `json:"content"`     // tool_result body (string or array)
 }
 
 // readUIMessages reads up to `limit` UIMessages from the tail of the
@@ -211,11 +211,11 @@ func projectMessages(entries []richEntry) []UIMessage {
 				})
 			}
 			// drop other subtypes — they're already in TicketStats
-		// last-prompt / ai-title / agent-name / permission-mode /
-		// pr-link / queue-operation are metadata — the user prompt
-		// itself is captured via the `user` entry's text content
-		// above, so projecting last-prompt as a separate user
-		// message would duplicate every typed prompt (BDM-42). Skip.
+			// last-prompt / ai-title / agent-name / permission-mode /
+			// pr-link / queue-operation are metadata — the user prompt
+			// itself is captured via the `user` entry's text content
+			// above, so projecting last-prompt as a separate user
+			// message would duplicate every typed prompt (BDM-42). Skip.
 		}
 	}
 	return msgs

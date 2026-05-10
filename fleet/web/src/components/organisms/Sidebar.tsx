@@ -5,6 +5,7 @@
 
 import { Icon, type IconName } from '../atoms/Icon';
 import { NotifyPill } from '../molecules/NotifyPill';
+import { VersionPill } from '../molecules/VersionPill';
 
 interface NavItem { id: string; label: string; icon: IconName; href?: string; glyph: string; hotkey?: string; }
 
@@ -38,7 +39,7 @@ export function Sidebar({ activeView = 'overview' }: SidebarProps) {
       <div class="sidebar__brand">
         <span class="sidebar__brand-mark" aria-hidden="true" />
         <span>fleet</span>
-        <span class="sidebar__brand-tag">v1.13</span>
+        <VersionPill />
       </div>
 
       <nav class="sidebar__section" aria-label="Primary views">

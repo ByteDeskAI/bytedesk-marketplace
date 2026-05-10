@@ -26,9 +26,9 @@ import (
 const reaperInterval = 10 * time.Second
 
 type Reaper struct {
-	deps    *apiDeps
-	mu      sync.Mutex
-	reaped  map[string]bool // tickets we've already kill-sessioned
+	deps   *apiDeps
+	mu     sync.Mutex
+	reaped map[string]bool // tickets we've already kill-sessioned
 }
 
 func NewReaper(deps *apiDeps) *Reaper {

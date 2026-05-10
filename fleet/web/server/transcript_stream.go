@@ -33,30 +33,30 @@ import (
 // ticket. Returned by /api/sessions/<T>/stats; used by tile headers
 // and the session detail panel.
 type TicketStats struct {
-	Ticket          string         `json:"ticket"`
-	AITitle         string         `json:"ai_title,omitempty"`
-	AgentName       string         `json:"agent_name,omitempty"`
-	LastPrompt      string         `json:"last_prompt,omitempty"`
-	PermissionMode  string         `json:"permission_mode,omitempty"`
-	PRNumber        int            `json:"pr_number,omitempty"`
-	PRURL           string         `json:"pr_url,omitempty"`
-	Tools           map[string]int `json:"tools,omitempty"` // tool_name → call count
-	ToolTotal       int            `json:"tool_total"`
-	TokensIn        int64          `json:"tokens_in"`
-	TokensOut       int64          `json:"tokens_out"`
-	TokensCacheHit  int64          `json:"tokens_cache_hit"`
-	CostUSD         float64        `json:"cost_usd"`
-	Errors          int            `json:"errors"`
-	APIErrors       int            `json:"api_errors"`
-	ThinkingChars   int            `json:"thinking_chars"`
-	Compactions     int            `json:"compactions"`
-	QueueDepth      int            `json:"queue_depth"`
-	LastTurnAt      time.Time      `json:"last_turn_at,omitempty"`
-	LastStopReason  string         `json:"last_stop_reason,omitempty"`
-	LastTurnDurMs   int64          `json:"last_turn_duration_ms,omitempty"`
-	ToolLatencyMs   map[string]int64 `json:"tool_latency_ms,omitempty"` // tool_name → p50 ms (rolling)
-	SubAgents       []SubAgentInfo  `json:"sub_agents,omitempty"`     // discovered sub-agent transcripts
-	UpdatedAt       time.Time      `json:"updated_at"`
+	Ticket         string           `json:"ticket"`
+	AITitle        string           `json:"ai_title,omitempty"`
+	AgentName      string           `json:"agent_name,omitempty"`
+	LastPrompt     string           `json:"last_prompt,omitempty"`
+	PermissionMode string           `json:"permission_mode,omitempty"`
+	PRNumber       int              `json:"pr_number,omitempty"`
+	PRURL          string           `json:"pr_url,omitempty"`
+	Tools          map[string]int   `json:"tools,omitempty"` // tool_name → call count
+	ToolTotal      int              `json:"tool_total"`
+	TokensIn       int64            `json:"tokens_in"`
+	TokensOut      int64            `json:"tokens_out"`
+	TokensCacheHit int64            `json:"tokens_cache_hit"`
+	CostUSD        float64          `json:"cost_usd"`
+	Errors         int              `json:"errors"`
+	APIErrors      int              `json:"api_errors"`
+	ThinkingChars  int              `json:"thinking_chars"`
+	Compactions    int              `json:"compactions"`
+	QueueDepth     int              `json:"queue_depth"`
+	LastTurnAt     time.Time        `json:"last_turn_at,omitempty"`
+	LastStopReason string           `json:"last_stop_reason,omitempty"`
+	LastTurnDurMs  int64            `json:"last_turn_duration_ms,omitempty"`
+	ToolLatencyMs  map[string]int64 `json:"tool_latency_ms,omitempty"` // tool_name → p50 ms (rolling)
+	SubAgents      []SubAgentInfo   `json:"sub_agents,omitempty"`      // discovered sub-agent transcripts
+	UpdatedAt      time.Time        `json:"updated_at"`
 }
 
 // SubAgentInfo summarizes one sub-agent transcript file
@@ -65,16 +65,16 @@ type TicketStats struct {
 // by the chat-mode UI to render nested threads + by the terminal-mode
 // UI to render per-agent tabs.
 type SubAgentInfo struct {
-	AgentID    string         `json:"agent_id"`
-	AgentName  string         `json:"agent_name,omitempty"`
-	Started    time.Time      `json:"started,omitempty"`
-	LastEvent  time.Time      `json:"last_event,omitempty"`
-	Status     string         `json:"status"` // "running" | "done" | "error"
-	Tools      map[string]int `json:"tools,omitempty"`
-	ToolTotal  int            `json:"tool_total"`
-	TokensIn   int64          `json:"tokens_in"`
-	TokensOut  int64          `json:"tokens_out"`
-	Errors     int            `json:"errors"`
+	AgentID   string         `json:"agent_id"`
+	AgentName string         `json:"agent_name,omitempty"`
+	Started   time.Time      `json:"started,omitempty"`
+	LastEvent time.Time      `json:"last_event,omitempty"`
+	Status    string         `json:"status"` // "running" | "done" | "error"
+	Tools     map[string]int `json:"tools,omitempty"`
+	ToolTotal int            `json:"tool_total"`
+	TokensIn  int64          `json:"tokens_in"`
+	TokensOut int64          `json:"tokens_out"`
+	Errors    int            `json:"errors"`
 }
 
 // TranscriptEvent — decoded jsonl line republished onto the EventBus
@@ -88,10 +88,10 @@ type SubAgentInfo struct {
 type TranscriptEvent struct {
 	Ticket    string         `json:"ticket"`
 	AgentID   string         `json:"agent_id,omitempty"`
-	Type      string         `json:"type"`               // text|thinking|tool_use|tool_result|stop|pr|error|prompt|compact|...
+	Type      string         `json:"type"` // text|thinking|tool_use|tool_result|stop|pr|error|prompt|compact|...
 	Timestamp time.Time      `json:"timestamp"`
 	ToolName  string         `json:"tool_name,omitempty"`
-	Text      string         `json:"text,omitempty"`     // truncated to ~512 chars
+	Text      string         `json:"text,omitempty"` // truncated to ~512 chars
 	Detail    map[string]any `json:"detail,omitempty"`
 }
 
@@ -175,9 +175,9 @@ func (ts *TranscriptStream) reconcile() {
 	if err != nil {
 		return
 	}
-	wantPath := map[string]string{}                   // ticket → parent jsonl path
-	wantSub := map[string]map[string]string{}         // ticket → agentID → sub-agent jsonl path
-	worktrees := map[string]string{}                  // ticket → worktree (for sub-agent discovery)
+	wantPath := map[string]string{}           // ticket → parent jsonl path
+	wantSub := map[string]map[string]string{} // ticket → agentID → sub-agent jsonl path
+	worktrees := map[string]string{}          // ticket → worktree (for sub-agent discovery)
 	for _, s := range sessions {
 		if s.State == "done" || s.State == "completed" {
 			continue
@@ -518,8 +518,9 @@ func (ts *TranscriptStream) applyEntry(ticket string, e *transcriptEntry, publis
 }
 
 // publish emits a TranscriptEvent on the bus. Topics:
-//   transcript                  — every event from every session
-//   transcript.<TICKET>         — only this session
+//
+//	transcript                  — every event from every session
+//	transcript.<TICKET>         — only this session
 func (ts *TranscriptStream) publish(ticket string, e *transcriptEntry, raw map[string]any) {
 	out := buildTranscriptEvent(ticket, e, raw)
 	ts.deps.bus.Publish(Message{Topic: Topic("transcript." + ticket), Body: out})
