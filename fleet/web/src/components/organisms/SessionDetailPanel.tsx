@@ -1,13 +1,13 @@
-// SessionDetailPanel — the right pane of the screenshot's panel 2.
-// Composes the meta header (breadcrumb + state + actions) and a tabbed
-// content region (Overview / Logs). Phase 4 ships Overview + Logs; later
-// phases add Events, Git/PR, Artifacts, Cost, Children, Replay, Audit.
+// SessionDetailPanel — Phase 5 wires action buttons. Send opens a
+// modal-textarea that POSTs /api/sessions/<TICKET>/send; Kill opens a
+// confirm modal that POSTs /api/sessions/<TICKET>/kill (with safety
+// branch on 409 / "UNCOMMITTED" — per BDM-13).
 
 import { useEffect, useState } from 'preact/hooks';
 import { Badge } from '../atoms/Badge';
 import { Button } from '../atoms/Button';
 import { TerminalView } from './TerminalView';
-import type { SessionRow } from '../../api';
+import { sendMessage, killSession, type SessionRow } from '../../api';
 
 const TABS = ['Overview', 'Logs'] as const;
 type Tab = typeof TABS[number];
@@ -15,27 +15,27 @@ type Tab = typeof TABS[number];
 export interface SessionDetailPanelProps {
   ticket: string;
   onClose?: () => void;
+  onKilled?: () => void;
 }
 
-export function SessionDetailPanel({ ticket, onClose }: SessionDetailPanelProps) {
+export function SessionDetailPanel({ ticket, onClose, onKilled }: SessionDetailPanelProps) {
   const [data, setData] = useState<SessionRow | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('Overview');
+  const [modal, setModal] = useState<'send' | 'kill' | null>(null);
+  const [actionMsg, setActionMsg] = useState<string | null>(null);
 
   useEffect(() => {
     setData(null);
     setError(null);
     const url = `/api/sessions/${encodeURIComponent(ticket)}`;
-    fetch(url)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`${r.status} ${r.statusText}`))))
-      .then(setData)
-      .catch((e) => setError((e as Error).message));
-    const id = window.setInterval(() => {
+    const load = () =>
       fetch(url)
-        .then((r) => (r.ok ? r.json() : null))
-        .then((d) => d && setData(d))
-        .catch(() => {/* swallow */});
-    }, 5000);
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`${r.status} ${r.statusText}`))))
+        .then(setData)
+        .catch((e) => setError((e as Error).message));
+    load();
+    const id = window.setInterval(load, 5000);
     return () => window.clearInterval(id);
   }, [ticket]);
 
@@ -49,11 +49,13 @@ export function SessionDetailPanel({ ticket, onClose }: SessionDetailPanelProps)
           {data ? <Badge state={data.state} /> : null}
         </div>
         <div class="detail-panel__actions">
-          <Button onClick={() => alert('Attach lands in Phase 4b (xterm.js).')}>Attach</Button>
-          <Button onClick={() => alert('Send Input lands in Phase 5.')}>Send Input</Button>
-          <Button onClick={() => alert('More menu lands in Phase 5.')}>More</Button>
+          <Button onClick={() => setModal('send')}>Send Input</Button>
+          <Button onClick={() => setModal('kill')}>Kill</Button>
           {onClose ? <Button onClick={onClose}>Close</Button> : null}
         </div>
+        {actionMsg ? (
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-state-done)' }}>{actionMsg}</div>
+        ) : null}
       </header>
 
       <nav class="detail-panel__tabs" role="tablist">
@@ -80,31 +82,140 @@ export function SessionDetailPanel({ ticket, onClose }: SessionDetailPanelProps)
           <TerminalView ticket={ticket} />
         )}
       </div>
+
+      {modal === 'send' ? (
+        <SendModal
+          ticket={ticket}
+          onClose={() => setModal(null)}
+          onSent={(text) => {
+            setModal(null);
+            setActionMsg(`Sent: ${text.slice(0, 40)}${text.length > 40 ? '…' : ''}`);
+            window.setTimeout(() => setActionMsg(null), 3000);
+          }}
+        />
+      ) : null}
+
+      {modal === 'kill' ? (
+        <KillModal
+          ticket={ticket}
+          onClose={() => setModal(null)}
+          onKilled={() => {
+            setModal(null);
+            onKilled?.();
+            onClose?.();
+          }}
+        />
+      ) : null}
     </aside>
   );
 }
 
 function OverviewTab({ row }: { row: SessionRow | null }) {
-  if (!row) {
-    return <div style={{ color: 'var(--color-text-tertiary)' }}>Loading…</div>;
-  }
+  if (!row) return <div style={{ color: 'var(--color-text-tertiary)' }}>Loading…</div>;
   return (
     <dl class="detail-panel__meta">
-      <Field label="Branch" value={<code>{row.branch || '—'}</code>} />
-      <Field label="Parent" value={row.parent || '—'} />
-      <Field label="Activity" value={row.activity} />
-      <Field label="Cost" value={row.cost} />
-      <Field label="Runtime" value={row.runtime} />
-      <Field label="Progress" value={`${Math.round(row.progress * 100)}%`} />
+      <dt>Branch</dt><dd><code>{row.branch || '—'}</code></dd>
+      <dt>Parent</dt><dd>{row.parent || '—'}</dd>
+      <dt>Activity</dt><dd>{row.activity}</dd>
+      <dt>Cost</dt><dd>{row.cost}</dd>
+      <dt>Runtime</dt><dd>{row.runtime}</dd>
+      <dt>Progress</dt><dd>{Math.round(row.progress * 100)}%</dd>
     </dl>
   );
 }
 
-function Field({ label, value }: { label: string; value: preact.ComponentChildren }) {
+function SendModal({ ticket, onClose, onSent }: { ticket: string; onClose: () => void; onSent: (msg: string) => void }) {
+  const [msg, setMsg] = useState('');
+  const [sending, setSending] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
   return (
-    <>
-      <dt>{label}</dt>
-      <dd>{value}</dd>
-    </>
+    <Modal title={`Send input to ${ticket}`} onClose={onClose}>
+      <textarea
+        class="modal__textarea"
+        rows={5}
+        value={msg}
+        onInput={(e) => setMsg((e.currentTarget as HTMLTextAreaElement).value)}
+        placeholder="Type a message; Enter sends, Shift+Enter for newline"
+        autoFocus
+      />
+      {err ? <div style={{ color: 'var(--color-state-error)', fontSize: 'var(--text-xs)' }}>{err}</div> : null}
+      <div class="modal__actions">
+        <Button onClick={onClose}>Cancel</Button>
+        <Button
+          variant="primary"
+          disabled={!msg.trim() || sending}
+          onClick={async () => {
+            setSending(true);
+            setErr(null);
+            try {
+              await sendMessage(ticket, msg);
+              onSent(msg);
+            } catch (e) {
+              setErr((e as Error).message);
+            } finally {
+              setSending(false);
+            }
+          }}
+        >
+          {sending ? 'Sending…' : 'Send'}
+        </Button>
+      </div>
+    </Modal>
+  );
+}
+
+function KillModal({ ticket, onClose, onKilled }: { ticket: string; onClose: () => void; onKilled: () => void }) {
+  const [killing, setKilling] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [uncommitted, setUncommitted] = useState(false);
+  return (
+    <Modal title={`Kill ${ticket}?`} onClose={onClose}>
+      <p>This stops the tmux session, removes the worktree, and deletes the branch.</p>
+      <p>If the worktree has unpushed work, the kill will refuse — investigate before forcing (per BDM-13 safety).</p>
+      {err ? (
+        <div style={{ color: 'var(--color-state-error)', fontSize: 'var(--text-xs)' }}>
+          {uncommitted ? '⚠ Worktree has uncommitted changes. ' : ''}{err}
+        </div>
+      ) : null}
+      <div class="modal__actions">
+        <Button onClick={onClose}>Cancel</Button>
+        <Button
+          variant="primary"
+          disabled={killing}
+          onClick={async () => {
+            setKilling(true);
+            setErr(null);
+            setUncommitted(false);
+            try {
+              await killSession(ticket);
+              onKilled();
+            } catch (e) {
+              const msg = (e as Error).message;
+              if (msg.startsWith('UNCOMMITTED:')) {
+                setUncommitted(true);
+                setErr(msg.replace(/^UNCOMMITTED:\s*/, ''));
+              } else {
+                setErr(msg);
+              }
+            } finally {
+              setKilling(false);
+            }
+          }}
+        >
+          {killing ? 'Killing…' : 'Confirm Kill'}
+        </Button>
+      </div>
+    </Modal>
+  );
+}
+
+function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: preact.ComponentChildren }) {
+  return (
+    <div class="modal-backdrop" onClick={onClose}>
+      <div class="modal" onClick={(e) => e.stopPropagation()}>
+        <header class="modal__header">{title}</header>
+        <div class="modal__body">{children}</div>
+      </div>
+    </div>
   );
 }
