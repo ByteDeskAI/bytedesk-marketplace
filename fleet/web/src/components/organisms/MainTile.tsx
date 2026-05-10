@@ -40,7 +40,7 @@ export function MainTile() {
 }
 
 function MainChatBody() {
-  const { messages, sendMessage, sendKeys, isLoading, error, loadMore, hasMore, loadingMore } =
+  const { messages, sendMessage, sendKeys, isLoading, error, loadMore, hasMore, loadingMore, connection } =
     useFleetChat('__main__', {
       messagesURL: '/api/main/messages',
       transcriptURL: '/api/main/transcript',
@@ -90,6 +90,7 @@ function MainChatBody() {
 
   const onStartReached = () => {
     if (loadingMore || !hasMore) return;
+    if (atBottom) return; // see ChatTile: don't auto-fetch on tiny chats
     void loadMore();
   };
 
@@ -143,6 +144,11 @@ function MainChatBody() {
           >
             ↓ {unread} new {unread === 1 ? 'message' : 'messages'}
           </button>
+        )}
+        {connection !== 'live' && messages.length > 0 && (
+          <div class={`chat-tile__conn chat-tile__conn--${connection}`} title="SSE connection state">
+            {connection === 'reconnecting' ? '◐ reconnecting…' : '○ disconnected'}
+          </div>
         )}
       </div>
       <ChatComposer

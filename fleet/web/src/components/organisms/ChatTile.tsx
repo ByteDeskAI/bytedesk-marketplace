@@ -24,7 +24,7 @@ export interface ChatTileProps {
 const INITIAL_FIRST_INDEX = 1_000_000;
 
 export function ChatTile({ row }: ChatTileProps) {
-  const { messages, sendMessage, sendKeys, isLoading, error, loadMore, hasMore, loadingMore } =
+  const { messages, sendMessage, sendKeys, isLoading, error, loadMore, hasMore, loadingMore, connection } =
     useFleetChat(row.ticket);
   const { stats } = useSessionStats(row.ticket);
   const vRef = useRef<VirtuosoHandle | null>(null);
@@ -98,6 +98,12 @@ export function ChatTile({ row }: ChatTileProps) {
 
   const onStartReached = () => {
     if (loadingMore || !hasMore) return;
+    // Don't auto-fetch when the chat fits in the viewport (start ===
+    // bottom). Otherwise sending a message bumps items.length, fires
+    // startReached as a side-effect of the scroll-to-bottom, and we
+    // bounce the user to the (now-prepended) top. Only fetch when
+    // the user has actually scrolled away from the bottom (BDM-41).
+    if (atBottom) return;
     void loadMore();
   };
 
@@ -164,6 +170,11 @@ export function ChatTile({ row }: ChatTileProps) {
           >
             ↓ {unread} new {unread === 1 ? 'message' : 'messages'}
           </button>
+        )}
+        {connection !== 'live' && messages.length > 0 && (
+          <div class={`chat-tile__conn chat-tile__conn--${connection}`} title="SSE connection state">
+            {connection === 'reconnecting' ? '◐ reconnecting…' : '○ disconnected'}
+          </div>
         )}
       </div>
       <ChatComposer

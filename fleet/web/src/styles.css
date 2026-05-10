@@ -4023,3 +4023,29 @@ code, pre, .mono {
 .chat-tile .sub-agent-thread__header {
   font-size: 12px;  /* hardcoded 10px chips bumped to 12px in chat */
 }
+
+/* SSE connection state pill (BDM-41) — visible only when the chat
+ * SSE feed is not `live` (reconnecting or closed). Anchored at the
+ * top-right of the chat list so it's easy to spot when responses
+ * stop arriving. */
+.chat-tile__conn {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 2px var(--space-2);
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
+  color: var(--color-text-tertiary);
+  z-index: 5;
+}
+.chat-tile__conn--reconnecting {
+  border-color: var(--color-state-needs-input);
+  color: var(--color-state-needs-input);
+}
+.chat-tile__conn--closed {
+  border-color: var(--color-state-error);
+  color: var(--color-state-error);
+}

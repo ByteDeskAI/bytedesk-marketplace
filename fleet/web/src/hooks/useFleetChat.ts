@@ -25,6 +25,10 @@ export interface FleetChatState {
   loadMore: () => Promise<number>;
   hasMore: boolean;
   loadingMore: boolean;
+  /** SSE connection state — `live` while the EventSource is open and
+   *  receiving events; `reconnecting` between drops; `closed` only
+   *  during teardown. Hosts can render a small status pill. */
+  connection: 'live' | 'reconnecting' | 'closed';
 }
 
 interface Options {
@@ -52,6 +56,7 @@ export function useFleetChat(ticket: string | null, opts: Options = {}): FleetCh
   const [error, setError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [connection, setConnection] = useState<'live' | 'reconnecting' | 'closed'>('reconnecting');
 
   // Live tool-call index across renders so SSE deltas can fold a
   // tool_result into the prior tool_use's UIMessage. Keyed by tool_use_id.
@@ -105,8 +110,11 @@ export function useFleetChat(ticket: string | null, opts: Options = {}): FleetCh
       .finally(() => { if (!cancelled) setLoading(false); });
 
     const es = new EventSource(transcriptURL);
+    es.onopen = () => { if (!cancelled) setConnection('live'); };
     es.addEventListener('transcript', (ev) => {
       if (cancelled) return;
+      // Receiving a transcript event implies the connection is healthy.
+      setConnection('live');
       try {
         const e = JSON.parse((ev as MessageEvent).data) as TranscriptEvent;
         // Filter by agent so a sub-agent thread ignores parent events
@@ -115,9 +123,9 @@ export function useFleetChat(ticket: string | null, opts: Options = {}): FleetCh
         applyDelta(e, setMessages, indexRef.current, pendingUserRef.current);
       } catch { /* ignore parse errors */ }
     });
-    es.onerror = () => { /* EventSource auto-reconnects */ };
+    es.onerror = () => { if (!cancelled) setConnection('reconnecting'); };
 
-    return () => { cancelled = true; es.close(); };
+    return () => { cancelled = true; setConnection('closed'); es.close(); };
   }, [ticket, agentID, limit, messagesURL, transcriptURL]);
 
   const sendMessage = async (text: string) => {
@@ -225,7 +233,7 @@ export function useFleetChat(ticket: string | null, opts: Options = {}): FleetCh
     }
   };
 
-  return { messages, sendMessage, sendKeys, isLoading, error, loadMore, hasMore, loadingMore };
+  return { messages, sendMessage, sendKeys, isLoading, error, loadMore, hasMore, loadingMore, connection };
 }
 
 // applyDelta translates a single TranscriptEvent into a state-setter
