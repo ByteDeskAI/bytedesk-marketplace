@@ -7,6 +7,7 @@ import { AppShell } from '../templates/AppShell';
 import { StatRibbon } from '../organisms/StatRibbon';
 import { SessionTable } from '../organisms/SessionTable';
 import { SessionDetailPanel } from '../organisms/SessionDetailPanel';
+import { SpawnModal } from '../organisms/SpawnModal';
 import { useSessionList } from '../../hooks/useSessionList';
 import { useStats } from '../../hooks/useStats';
 import { fetchVersion } from '../../api';
@@ -16,6 +17,8 @@ export function OverviewPage() {
   const sessions = useSessionList();
   const [version, setVersion] = useState<{ build: string; project: string } | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  const [spawnOpen, setSpawnOpen] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
     fetchVersion().then(setVersion);
@@ -25,7 +28,7 @@ export function OverviewPage() {
     <AppShell
       activeView="overview"
       topBarTitle="Fleet Overview"
-      onSpawnClick={() => alert('Spawn modal lands in Phase 6.')}
+      onSpawnClick={() => setSpawnOpen(true)}
     >
       <div class={`overview${selected ? ' overview--with-detail' : ''}`}>
         <main class="overview__main">
@@ -58,6 +61,35 @@ export function OverviewPage() {
           <SessionDetailPanel ticket={selected} onClose={() => setSelected(null)} />
         ) : null}
       </div>
+
+      {spawnOpen ? (
+        <SpawnModal
+          onClose={() => setSpawnOpen(false)}
+          onSpawned={(t) => {
+            setToast(`Spawned ${t}`);
+            window.setTimeout(() => setToast(null), 4000);
+          }}
+        />
+      ) : null}
+
+      {toast ? (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: 24,
+            right: 24,
+            padding: '10px 16px',
+            background: 'var(--color-state-done)',
+            color: '#fff',
+            borderRadius: 6,
+            fontSize: 'var(--text-sm)',
+            boxShadow: 'var(--shadow-md)',
+            zIndex: 100,
+          }}
+        >
+          {toast}
+        </div>
+      ) : null}
     </AppShell>
   );
 }

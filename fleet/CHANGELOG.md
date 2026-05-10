@@ -10,6 +10,56 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `/fleet:setup-cli` skill creates `~/.local/bin/` wrappers for the three public CLI binaries (`claude-sessions`, `claude-sessions-web`, `spawn-claude-feature`) so they're available on the user's interactive shell PATH without breaking on `/plugin update`. The wrappers resolve to the latest installed plugin version at exec time via `ls -dv … | tail -1`. Idempotent and sentinel-gated: re-running refreshes our own wrappers but refuses to clobber foreign files at the same path. Fills the gap left by BDM-3's removal of the `~/.local/bin/` symlinks (BDM-23).
 
+## [1.7.0] — 2026-05-10
+
+**Phase 6 of BDM-14: spawn surface (BDM-21).** TopBar `+ Spawn` button now opens a real modal. Reviewer spawn from any session detail panel.
+
+### Added
+
+- `POST /api/spawn` — Builder pattern. Validates ticket/slug/prompt, writes prompt to a temp file, shells `spawn-claude-feature` with proper argv. 400 on invalid input, 502 + stderr on CLI failure.
+- `POST /api/sessions/<TICKET>/review` — wraps `/fleet:review`. Spawns `<TICKET>-rev` with `--parent <TICKET>` and `--full-auto`.
+- `SpawnModal` organism (Manual / From Jira / From Backlog tabs). Manual is fully wired; Jira/Backlog tabs surface placeholder copy until B7.
+- `ReviewModal` inside `SessionDetailPanel`. Optional review prompt; defaults to a generic instruction.
+- Toast-style success indicator on `OverviewPage` after a spawn lands.
+
+### Changed
+
+- Build version → `v1.7.0-bdm21`.
+- `SessionDetailPanel` action bar: `Send Input | Spawn Reviewer | Kill | Close`.
+
+## [1.6.0] — 2026-05-10
+
+**Phase 5 of BDM-14: steer actions (BDM-20).** Send / Kill / Clean now actually mutate state.
+
+### Added
+
+- `actions.go` — Adapter wrapping `claude-sessions send|kill|clean` so the existing safety + lifecycle invariants stay in one place.
+- `POST /api/sessions/<TICKET>/send` body `{message}` — non-empty validation; surfaces CLI stderr as 502.
+- `POST /api/sessions/<TICKET>/kill` — pipes `y\n` to the CLI's interactive confirm. Returns **409 Conflict** when worktree has uncommitted changes (BDM-13 safety branch).
+- `POST /api/clean` — purge dead-session metas.
+- Client `sendMessage`, `killSession`, `cleanDeadMetas` API helpers; 409 → `UNCOMMITTED:` error prefix.
+- `SendModal` + `KillModal` in `SessionDetailPanel`. Kill modal renders a distinct warning banner on the safety branch.
+
+### Changed
+
+- Build version → `v1.6.0-bdm20`.
+
+## [1.5.0] — 2026-05-10
+
+**Phase 4 of BDM-14: session detail + log streaming (BDM-19).** Click any row on the overview to inline a detail panel.
+
+### Added
+
+- `SessionDetailPanel` organism — Overview / Logs tabs, breadcrumb, action bar.
+- `TerminalView` organism — xterm-style log viewer reading `/api/sessions/<T>/stream` (SSE).
+- `GET /api/sessions/<T>/log?tail=N` — last N bytes of the session log.
+- `GET /api/sessions/<T>/stream` — SSE stream of log appends. `\n` / `\r` are escape-encoded so the SSE framing survives terminal control characters.
+- `OverviewPage` split layout (`overview--with-detail`) when a row is selected.
+
+### Changed
+
+- Build version → `v1.5.0-bdm19`.
+
 ## [1.4.0] — 2026-05-10
 
 **Phase 3b of BDM-14: SSE multiplex + EventBus (BDM-18).** Replaces 5s polling with sub-second push. Hooks unchanged at the call site.

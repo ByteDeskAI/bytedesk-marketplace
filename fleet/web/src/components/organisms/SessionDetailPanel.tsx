@@ -7,7 +7,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { Badge } from '../atoms/Badge';
 import { Button } from '../atoms/Button';
 import { TerminalView } from './TerminalView';
-import { sendMessage, killSession, type SessionRow } from '../../api';
+import { sendMessage, killSession, spawnReviewer, type SessionRow } from '../../api';
 
 const TABS = ['Overview', 'Logs'] as const;
 type Tab = typeof TABS[number];
@@ -22,7 +22,7 @@ export function SessionDetailPanel({ ticket, onClose, onKilled }: SessionDetailP
   const [data, setData] = useState<SessionRow | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('Overview');
-  const [modal, setModal] = useState<'send' | 'kill' | null>(null);
+  const [modal, setModal] = useState<'send' | 'kill' | 'review' | null>(null);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
 
   useEffect(() => {
@@ -50,6 +50,7 @@ export function SessionDetailPanel({ ticket, onClose, onKilled }: SessionDetailP
         </div>
         <div class="detail-panel__actions">
           <Button onClick={() => setModal('send')}>Send Input</Button>
+          <Button onClick={() => setModal('review')}>Spawn Reviewer</Button>
           <Button onClick={() => setModal('kill')}>Kill</Button>
           {onClose ? <Button onClick={onClose}>Close</Button> : null}
         </div>
@@ -106,7 +107,61 @@ export function SessionDetailPanel({ ticket, onClose, onKilled }: SessionDetailP
           }}
         />
       ) : null}
+
+      {modal === 'review' ? (
+        <ReviewModal
+          ticket={ticket}
+          onClose={() => setModal(null)}
+          onSpawned={(child) => {
+            setModal(null);
+            setActionMsg(`Spawned reviewer ${child}`);
+            window.setTimeout(() => setActionMsg(null), 4000);
+          }}
+        />
+      ) : null}
     </aside>
+  );
+}
+
+function ReviewModal({ ticket, onClose, onSpawned }: { ticket: string; onClose: () => void; onSpawned: (child: string) => void }) {
+  const [prompt, setPrompt] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  return (
+    <Modal title={`Spawn reviewer for ${ticket}`} onClose={onClose}>
+      <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>
+        Spawns a child session at <code>{ticket}-rev</code> with <code>--parent {ticket}</code> and <code>--full-auto</code>. The reviewer reads the parent's branch and posts a structured review.
+      </p>
+      <textarea
+        class="modal__textarea"
+        rows={5}
+        value={prompt}
+        onInput={(e) => setPrompt((e.currentTarget as HTMLTextAreaElement).value)}
+        placeholder={`Optional review prompt — leave blank for the default (read branch/diff/PR for ${ticket}, post review).`}
+      />
+      {err ? <div style={{ color: 'var(--color-state-error)', fontSize: 'var(--text-xs)' }}>{err}</div> : null}
+      <div class="modal__actions">
+        <Button onClick={onClose}>Cancel</Button>
+        <Button
+          variant="primary"
+          disabled={submitting}
+          onClick={async () => {
+            setSubmitting(true);
+            setErr(null);
+            try {
+              const r = await spawnReviewer(ticket, prompt.trim() || undefined, true);
+              onSpawned(r.ticket);
+            } catch (e) {
+              setErr((e as Error).message);
+            } finally {
+              setSubmitting(false);
+            }
+          }}
+        >
+          {submitting ? 'Spawning…' : 'Spawn Reviewer'}
+        </Button>
+      </div>
+    </Modal>
   );
 }
 

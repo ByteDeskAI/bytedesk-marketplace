@@ -555,3 +555,67 @@ code, pre {
   gap: var(--space-2);
   margin-top: var(--space-2);
 }
+.modal--lg {
+  width: min(720px, 92vw);
+}
+.modal__tabs {
+  display: flex;
+  gap: var(--space-2);
+  padding: 0 var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-canvas);
+}
+.modal__tab {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: var(--space-3) var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.modal__tab--active {
+  color: var(--color-text-primary);
+  border-bottom-color: var(--color-accent);
+  font-weight: 600;
+}
+
+/* Spawn form */
+.spawn-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.spawn-form__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+.spawn-form__label {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--color-text-tertiary);
+  margin-bottom: var(--space-1);
+}
+.spawn-form__input,
+.spawn-form__textarea {
+  width: 100%;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  font-family: inherit;
+}
+.spawn-form__textarea {
+  font-family: var(--font-mono);
+  resize: vertical;
+}
+.spawn-form__check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
