@@ -94,7 +94,7 @@ Don't use them for:
          --argjson timeout 240 \
          --arg created "$(date -Iseconds)" \
          --arg label "Tournament BDP-N: spawn judge after all variants done" \
-         '{...}' > "$HOME/.claude-sessions/rules/tournament-<BDP-N>-judge.json"
+         '{...}' > "${CLAUDE_PLUGIN_DATA:-$HOME/.claude/plugins/data/fleet}/projects/<KEY>/rules/tournament-<BDP-N>-judge.json"
    ```
    Timeout 240min (4h) — generous because variants can take a while.
 10. Comment on the Jira ticket: "Tournament started, N variants spawned, judge will pick winner."

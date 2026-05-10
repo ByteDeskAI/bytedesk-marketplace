@@ -74,7 +74,7 @@ When spawning a child session via `spawn-claude-feature` or a `/fleet:*` skill:
 
 ## Event observability
 
-The fleet system emits structured events to `~/.claude-sessions/<TICKET>.events` (JSONL) for tool-level activity (review posted, PR merged, commit pushed, etc.). The notify daemon tails these files and dispatches notifications through pluggable sinks (desktop, terminal bell, fifo, Slack webhook). Parent agents can also poll the event log directly via `claude-sessions events <TICKET>`.
+The fleet system emits structured events to `${CLAUDE_PLUGIN_DATA}/projects/<KEY>/sessions/<TICKET>/events` (JSONL) for tool-level activity (review posted, PR merged, commit pushed, etc.). The notify daemon tails these files and dispatches notifications through pluggable sinks (desktop, terminal bell, fifo, Slack webhook). Parent agents can also poll the event log directly via `claude-sessions events <TICKET>`.
 
 Wired by `.claude/hooks/event-emitter.sh` (PostToolUse on Bash). The hook is intentionally an **observability hook**, not a gate — it always exits 0 even on internal failures, because blocking tool execution because of an event-logging error would be the wrong tradeoff.
 
@@ -107,7 +107,7 @@ Adding a new kind: extend the classification in `.claude/hooks/event-emitter.sh`
 
 ### Notification config
 
-User-controlled at `~/.claude-sessions/notify.config.toml` (auto-generated with sane defaults if missing). Per-kind list of sinks:
+User-controlled at `${CLAUDE_PLUGIN_DATA}/projects/<KEY>/notify/config.toml` (auto-generated with sane defaults if missing). Per-kind list of sinks:
 
 ```toml
 [events]
@@ -118,7 +118,7 @@ review_comment = []     # too noisy by default
 commit_pushed  = []
 ```
 
-Sinks today: `desktop` (notify-send-style toast), `bell` (terminal bell), `fifo` (append to `~/.claude-sessions/notifications.fifo`), `slack` (POST to `$CLAUDE_SESSIONS_SLACK_WEBHOOK` if set).
+Sinks today: `desktop` (notify-send-style toast), `bell` (terminal bell), `fifo` (append to `${CLAUDE_PLUGIN_DATA}/projects/<KEY>/notify/fifo`), `slack` (POST to `$CLAUDE_SESSIONS_SLACK_WEBHOOK` if set).
 
 ### Querying the event log
 
