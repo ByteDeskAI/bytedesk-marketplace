@@ -28,7 +28,7 @@ import (
 // or server_dev.go (//go:build dev — reads from disk so hot-reload works).
 var distFS fs.FS
 
-const buildVersion = "v1.16.0-bdm50"
+const buildVersion = "v1.16.1-bdm51"
 
 var startTime = time.Now()
 
@@ -182,6 +182,9 @@ func buildHandler(deps *apiDeps) (http.Handler, error) {
 	})
 	mux.HandleFunc("/api/tailscale/info", func(w http.ResponseWriter, r *http.Request) {
 		handleTailscaleInfo(w, r, deps)
+	})
+	mux.HandleFunc("/api/tailscale/install", func(w http.ResponseWriter, r *http.Request) {
+		handleTailscaleInstall(w, r, deps)
 	})
 	mux.HandleFunc("/api/tailscale/exec", func(w http.ResponseWriter, r *http.Request) {
 		handleTailscaleExec(w, r, deps)

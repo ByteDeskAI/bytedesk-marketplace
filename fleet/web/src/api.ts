@@ -317,6 +317,27 @@ export async function tailscaleInfo(): Promise<TailscaleInfo> {
   if (!r.ok) throw new Error(await readError(r));
   return r.json();
 }
+export interface TailscaleInstallResult {
+  ok: boolean;
+  already_installed?: boolean;
+  mode?: 'system-sudo' | 'userspace';
+  path?: string;
+  stdout?: string;
+  note?: string;
+  error?: string;
+}
+export async function tailscaleInstall(): Promise<TailscaleInstallResult> {
+  const r = await fetch('/api/tailscale/install', { method: 'POST' });
+  if (!r.ok) {
+    try {
+      const j = await r.json();
+      return j as TailscaleInstallResult;
+    } catch {
+      throw new Error(`${r.status} ${r.statusText}`);
+    }
+  }
+  return r.json();
+}
 export async function tailscaleExec(args: string[]): Promise<{ ok: boolean; args: string[]; stdout: string; error?: string }> {
   const r = await fetch('/api/tailscale/exec', {
     method: 'POST',

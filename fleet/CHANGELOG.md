@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.16.1] — 2026-05-10
+
+Patch release: tailscale CLI install now has a no-sudo userspace path.
+
+### Added
+
+- **Userspace tailscale install (BDM-51):** when sudo isn't available
+  non-interactively, the auto-installer (and the new
+  `POST /api/tailscale/install` endpoint) downloads the official
+  static tailscale + tailscaled tarball from
+  `https://pkgs.tailscale.com/stable/` and drops the binaries into
+  `${CLAUDE_PLUGIN_DATA}/bin/`. No `sudo`, no apt, no system writes
+  — survives plugin upgrades because it's outside the install cache.
+  `tailscalePath()` falls back to that location, so the rest of the
+  panel (status / exec / log) starts working immediately.
+- **Install button in Settings (BDM-51):** the Tailscale section now
+  shows an `Install tailscale CLI` button when the CLI isn't found.
+  Click → tries `curl … | sudo sh` first; if `sudo -n true` fails,
+  falls through to the userspace tarball drop. Output streams into
+  the existing log panel.
+
+### Changed
+
+- **Auto-install flow falls through to userspace (BDM-51):** the
+  boot-time `tailscaleAutoInstall` previously logged
+  `auto-install skipped (sudo -n unavailable)` and stopped. Now it
+  attempts the userspace install before giving up. Daemon startup
+  is still on the user; the install response includes the exact
+  `tailscaled --tun=userspace-networking --statedir=…` command to
+  run.
+
 ## [1.16.0] — 2026-05-10
 
 Minor release: tailscale CLI auto-install on Go boot + stop the

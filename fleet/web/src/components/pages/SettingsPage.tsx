@@ -13,7 +13,7 @@ import { Button } from '../atoms/Button';
 import {
   loadSettings, saveSettings,
   tailscaleStart, tailscaleStop,
-  tailscaleInfo, tailscaleExec, tailscaleLogURL,
+  tailscaleInfo, tailscaleExec, tailscaleLogURL, tailscaleInstall,
   fetchStorageInfo,
   type FleetSettings, type TailscaleInfo, type StorageInfo,
 } from '../../api';
@@ -408,13 +408,35 @@ function TailscaleSection({
     }
   };
 
+  const install = async () => {
+    setBusy(true);
+    setLogLines((prev) => [...prev, '$ tailscale install (attempting sudo → falling back to userspace)']);
+    try {
+      const r = await tailscaleInstall();
+      if (r.note) setLogLines((prev) => [...prev, r.note!]);
+      if (r.stdout) setLogLines((prev) => [...prev, ...r.stdout!.split('\n').filter(Boolean)]);
+      if (r.error) {
+        setErr(r.error);
+        setLogLines((prev) => [...prev, `error: ${r.error}`]);
+      } else if (r.ok && r.mode) {
+        setLogLines((prev) => [...prev, `installed (${r.mode}) → ${r.path}`]);
+      }
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+      refresh();
+    }
+  };
+
   return (
     <Section title="Tailscale automation (B17 / BDM-46)">
       <p style={HELP_STYLE}>
-        Real-time status + CLI passthrough. Auto-install is intentionally not
-        wired (requires <code>sudo</code>) — install the CLI from{' '}
-        <a href="https://tailscale.com/download" target="_blank" rel="noopener noreferrer">tailscale.com/download</a>{' '}
-        and this panel takes over.
+        Real-time status + CLI passthrough. The Install button tries
+        a sudo-based system install first; if sudo isn't available
+        non-interactively, it falls back to a userspace install
+        (static binary dropped under <code>${'{CLAUDE_PLUGIN_DATA}'}/bin/</code>,
+        no sudo required, no system writes).
       </p>
       <div class="settings__ts-status">
         <span class={`tape ${info?.installed ? 'tape--ok' : 'tape--warn'}`}>
@@ -430,6 +452,21 @@ function TailscaleSection({
         {info?.hostname ? <span class="settings__ts-host">{info.hostname}</span> : null}
         {info?.ip ? <span class="settings__ts-ip">{info.ip}</span> : null}
       </div>
+
+      {!info?.installed ? (
+        <Field label="Install">
+          <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+            <Button onClick={install} disabled={busy}>
+              {busy ? 'Installing…' : 'Install tailscale CLI'}
+            </Button>
+            <span style={{ ...HELP_STYLE, padding: 'var(--space-1) var(--space-2)', flex: 1 }}>
+              Tries <code>curl … | sudo sh</code> first, then falls back to a userspace tarball drop.
+              Daemon (<code>tailscaled</code>) still needs to be started separately —
+              the log panel will print the next command after install.
+            </span>
+          </div>
+        </Field>
+      ) : null}
 
       <Field label="Enabled (informational)">
         <input

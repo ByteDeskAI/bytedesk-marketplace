@@ -22,7 +22,9 @@ package main
 // loop, no log spam.
 
 import (
+	"archive/tar"
 	"bufio"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -30,16 +32,34 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
 	"time"
 )
 
+// userspaceBinDir is where we drop the static tailscale + tailscaled
+// binaries when the sudo-based install path isn't available. Lives in
+// ${CLAUDE_PLUGIN_DATA}/bin/ so it survives plugin upgrades.
+func userspaceBinDir() string {
+	return filepath.Join(dataRoot(), "bin")
+}
+
+// tailscalePath checks the standard PATH first (system install via
+// apt / install.sh / brew), then falls back to the userspace dir
+// where tailscaleUserspaceInstall drops static binaries (BDM-51).
 func tailscalePath() (string, bool) {
-	p, err := exec.LookPath("tailscale")
-	return p, err == nil
+	if p, err := exec.LookPath("tailscale"); err == nil {
+		return p, true
+	}
+	userspace := filepath.Join(userspaceBinDir(), "tailscale")
+	if info, err := os.Stat(userspace); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+		return userspace, true
+	}
+	return "", false
 }
 
 // tailscaleAllowedArgs limits what /api/tailscale/exec can run. Keep
@@ -291,6 +311,183 @@ func handleTailscale(w http.ResponseWriter, r *http.Request, deps *apiDeps, sub 
 	}
 }
 
+// tailscaleArchTarball maps Go's runtime.GOARCH to the suffix Tailscale
+// ships in its static linux tarballs at
+// https://pkgs.tailscale.com/stable/tailscale_<ver>_<arch>.tgz.
+var tailscaleArchTarball = map[string]string{
+	"amd64": "amd64",
+	"arm64": "arm64",
+	"arm":   "arm",
+	"386":   "386",
+}
+
+// resolveTailscaleVersion fetches the latest stable version string
+// (no leading "v"). Tries the GitHub releases API; falls back to a
+// known-good pin if the API is unreachable.
+func resolveTailscaleVersion(ctx context.Context) string {
+	const fallback = "1.80.0"
+	req, err := http.NewRequestWithContext(ctx, "GET", "https://api.github.com/repos/tailscale/tailscale/releases/latest", nil)
+	if err != nil {
+		return fallback
+	}
+	req.Header.Set("Accept", "application/json")
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fallback
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fallback
+	}
+	var body struct {
+		TagName string `json:"tag_name"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&body) != nil {
+		return fallback
+	}
+	v := strings.TrimPrefix(body.TagName, "v")
+	if v == "" {
+		return fallback
+	}
+	return v
+}
+
+// tailscaleUserspaceInstall downloads the official static tailscale +
+// tailscaled binaries into ${CLAUDE_PLUGIN_DATA}/bin/ — no sudo, no
+// package manager, no system writes (BDM-51). After it returns the
+// binaries are immediately discoverable via tailscalePath().
+//
+// The daemon (tailscaled) still needs to be started separately — TUN
+// devices require root, but tailscaled also supports userspace
+// networking via `--tun=userspace-networking`. The UI's install
+// button + log panel surfaces both the install output and the next
+// step ("run tailscaled --tun=userspace-networking" or "use sudo").
+func tailscaleUserspaceInstall(ctx context.Context) (string, error) {
+	if runtime.GOOS != "linux" {
+		return "", fmt.Errorf("userspace install only supported on Linux (GOOS=%s)", runtime.GOOS)
+	}
+	arch, ok := tailscaleArchTarball[runtime.GOARCH]
+	if !ok {
+		return "", fmt.Errorf("unsupported arch %s", runtime.GOARCH)
+	}
+	ver := resolveTailscaleVersion(ctx)
+	url := fmt.Sprintf("https://pkgs.tailscale.com/stable/tailscale_%s_%s.tgz", ver, arch)
+
+	binDir := userspaceBinDir()
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		return "", fmt.Errorf("mkdir %s: %w", binDir, err)
+	}
+
+	dlCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	req, err := http.NewRequestWithContext(dlCtx, "GET", url, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("download %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("download %s: HTTP %d", url, resp.StatusCode)
+	}
+
+	gz, err := gzip.NewReader(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("gunzip: %w", err)
+	}
+	defer gz.Close()
+	tr := tar.NewReader(gz)
+	extracted := map[string]string{}
+	for {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return "", fmt.Errorf("tar: %w", err)
+		}
+		base := filepath.Base(hdr.Name)
+		if hdr.Typeflag != tar.TypeReg {
+			continue
+		}
+		if base != "tailscale" && base != "tailscaled" {
+			continue
+		}
+		out := filepath.Join(binDir, base)
+		f, err := os.OpenFile(out, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o755)
+		if err != nil {
+			return "", fmt.Errorf("write %s: %w", out, err)
+		}
+		if _, err := io.Copy(f, tr); err != nil {
+			f.Close()
+			return "", fmt.Errorf("copy %s: %w", out, err)
+		}
+		f.Close()
+		extracted[base] = out
+	}
+	if _, ok := extracted["tailscale"]; !ok {
+		return "", fmt.Errorf("tarball missing tailscale binary")
+	}
+	log.Printf("tailscale: userspace install OK — %s (binaries in %s)", ver, binDir)
+	return extracted["tailscale"], nil
+}
+
+// handleTailscaleInstall — on-demand install endpoint for the UI's
+// "Install (userspace)" button. Tries sudo-based install first when
+// available; falls back to userspace tarball drop.
+func handleTailscaleInstall(w http.ResponseWriter, r *http.Request, _ *apiDeps) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, errors.New("POST"))
+		return
+	}
+	if _, found := tailscalePath(); found {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "already_installed": true})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 6*time.Minute)
+	defer cancel()
+
+	// Try sudo path first if available (system-wide install integrates
+	// with the package manager + tailscaled systemd service).
+	if runtime.GOOS == "linux" {
+		if _, err := exec.LookPath("sudo"); err == nil {
+			if exec.CommandContext(ctx, "sudo", "-n", "true").Run() == nil {
+				cmd := exec.CommandContext(ctx, "bash", "-c", "curl -fsSL https://tailscale.com/install.sh | sudo -n sh")
+				out, err := cmd.CombinedOutput()
+				if err == nil {
+					if p, ok := tailscalePath(); ok {
+						writeJSON(w, http.StatusOK, map[string]any{
+							"ok":     true,
+							"mode":   "system-sudo",
+							"path":   p,
+							"stdout": string(out),
+						})
+						return
+					}
+				}
+				log.Printf("tailscale: sudo install attempt failed; falling back to userspace: %v", err)
+			}
+		}
+	}
+
+	// Userspace fallback — no sudo, drop static binary in
+	// ${CLAUDE_PLUGIN_DATA}/bin/.
+	path, err := tailscaleUserspaceInstall(ctx)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":   true,
+		"mode": "userspace",
+		"path": path,
+		"note": "tailscaled daemon still needs to be started. For userspace networking: " + filepath.Join(filepath.Dir(path), "tailscaled") + " --tun=userspace-networking --statedir=" + filepath.Join(dataRoot(), "tailscale-state"),
+	})
+}
+
 // tailscaleAutoInstallOnce guards against a duplicate attempt within the
 // same Go process if startup logic ever fires twice (e.g. air reload).
 var tailscaleAutoInstallOnce sync.Once
@@ -317,17 +514,26 @@ func tailscaleAutoInstall(ctx context.Context, settings Settings) {
 			log.Printf("tailscale: auto-install skipped (curl not on PATH)")
 			return
 		}
-		if _, err := exec.LookPath("sudo"); err != nil {
-			log.Printf("tailscale: auto-install skipped (sudo not on PATH)")
-			return
-		}
 		// Probe whether sudo can run non-interactively. If sudoers isn't
-		// configured for NOPASSWD, this exits non-zero immediately —
-		// much better than hanging the install on a TTY prompt.
-		probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
-		if err := exec.CommandContext(probeCtx, "sudo", "-n", "true").Run(); err != nil {
-			log.Printf("tailscale: auto-install skipped (sudo -n unavailable; add NOPASSWD to sudoers to enable, or set [tailscale] auto_install = false in settings.toml)")
+		// configured for NOPASSWD, fall through to the userspace path
+		// below instead of giving up.
+		canSudo := false
+		if _, err := exec.LookPath("sudo"); err == nil {
+			probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			if exec.CommandContext(probeCtx, "sudo", "-n", "true").Run() == nil {
+				canSudo = true
+			}
+			cancel()
+		}
+		if !canSudo {
+			// No sudo → try userspace install (BDM-51). Downloads the
+			// static binary to ${CLAUDE_PLUGIN_DATA}/bin/; daemon
+			// startup is on the user (the UI surfaces the next step).
+			log.Printf("tailscale: sudo unavailable, attempting userspace install")
+			if _, err := tailscaleUserspaceInstall(ctx); err != nil {
+				log.Printf("tailscale: userspace auto-install failed: %v", err)
+				return
+			}
 			return
 		}
 		log.Printf("tailscale: CLI not installed; attempting non-interactive install via https://tailscale.com/install.sh")
