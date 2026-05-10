@@ -134,12 +134,54 @@ run_case "depth=1 command sub allowed"            0 1 'gh pr merge $(cat /tmp/pr
 
 echo
 echo "=== Depth 0 — glob chars in COMMAND don't expand against cwd ==="
-# Pathname expansion bug: `for tok in $COMMAND` would expand globs. With
-# set -f in place, a glob char that doesn't match anything stays as a literal
-# token and the hook proceeds normally. Verify a glob-bearing command still
-# extracts the digit and authorizes correctly.
-run_case "glob char in command + auth"            0 0 'gh pr merge --body "*x*" 346' "$T_OK346"
-run_case "glob char no auth"                      2 0 'gh pr merge --body "*y*" 999' "$T_OK346"
+# Regression test for the BDP-367 review finding (BDM-9): the PR-extraction
+# loop word-splits $COMMAND, and without `set -f` each resulting token
+# undergoes filename expansion against the hook's cwd. If the model writes
+# a bare `*` token and a digit-named file lives in cwd, the glob expands
+# to that filename — and the LAST bare-digit token in the loop becomes the
+# file's name rather than the PR the model named.
+#
+# Construction below: GLOB_DIR contains a single file named `999`. The
+# COMMAND names PR 346 explicitly and ends with a bare unquoted `*`. The
+# transcript only authorizes #346.
+#
+#   With `set -f` (current, correct):  tokens stay literal, last digit=346,
+#                                      auth on #346 matches  → exit 0.
+#   Without `set -f` (regression):     `*` expands to `999`, last digit=999,
+#                                      auth says #346 ≠ #999 → exit 2.
+#
+# So the assertion `expected=0` fails the moment the protection is removed.
+
+GLOB_DIR="$TMPDIR/glob-cwd"
+mkdir -p "$GLOB_DIR"
+: >"$GLOB_DIR/999"   # a digit-named file the bare `*` would expand to
+
+# Variant of run_case that runs the hook with cwd=$GLOB_DIR so filename
+# expansion has a real directory to (mis-)expand against.
+run_glob_case() {
+  local name="$1" expected="$2" depth="$3" command="$4" transcript="$5"
+  local payload
+  payload="$(jq -nc \
+    --arg cmd "$command" \
+    --arg t "$transcript" \
+    '{tool_name:"Bash", tool_input:{command:$cmd}, transcript_path:$t}')"
+
+  local actual=0
+  ( cd "$GLOB_DIR" && CLAUDE_SESSION_DEPTH="$depth" "$HOOK" <<<"$payload" >/dev/null 2>&1 ) \
+    || actual=$?
+
+  if [[ "$actual" == "$expected" ]]; then
+    printf '  \e[32mPASS\e[0m %s (depth=%s, exit=%s)\n' "$name" "$depth" "$actual"
+    PASS=$((PASS+1))
+  else
+    printf '  \e[31mFAIL\e[0m %s (depth=%s, expected=%s, got=%s)\n' "$name" "$depth" "$expected" "$actual"
+    FAIL=$((FAIL+1))
+  fi
+}
+
+run_glob_case "trailing * doesn't shadow named PR"  0 0 'gh pr merge 346 --body *'  "$T_OK346"
+# Sanity: same command shape, but auth doesn't cover 346 — must still block.
+run_glob_case "trailing * + no auth still blocks"   2 0 'gh pr merge 346 --body *'  "$(make_transcript "ship it")"
 
 echo
 echo "=== Depth 0 — fail-safe blocks ==="
