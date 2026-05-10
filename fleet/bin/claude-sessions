@@ -13,7 +13,8 @@
 #   claude-sessions tree   [<ticket>]     # show parent → child hierarchy
 #   claude-sessions cost   [<ticket>]     # token usage and rough cost per session
 #   claude-sessions tui                   # interactive menu (no fzf needed)
-#   claude-sessions clean                 # prune meta files for dead sessions
+#   claude-sessions clean [-q|--quiet]    # prune meta files for dead sessions
+#                                         # (alias: cleanup; --quiet silences stdout)
 #   claude-sessions notify [--interval N] [--once]   # desktop alerts + rules engine
 #   claude-sessions events <ticket> [--since=TS] [--kinds=K,..] [--json|--plain] [--follow]
 #                                         # tool-level events for a session (BDP-372)
@@ -468,18 +469,34 @@ cmd_kill() {
 }
 
 cmd_clean() {
-  local meta ticket session
-  shopt -s nullglob
-  for meta in "$SESSIONS_DIR"/*/meta; do
-    ticket=$(basename "$(dirname "$meta")")
-    session=$(meta_get "$meta" session)
-    if ! tmux has-session -t "$session" 2>/dev/null; then
-      echo "removing stale meta: $ticket (session $session is dead)"
-      # Remove only the meta file; preserves logs/events for forensics. The
-      # full per-session dir is reclaimed by `kill <ticket>`.
-      rm -f "$meta"
-    fi
+  local quiet=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -q|--quiet) quiet=1; shift ;;
+      -*)         echo "clean: unknown flag $1" >&2; return 64 ;;
+      *)          echo "clean: unexpected arg $1" >&2; return 64 ;;
+    esac
   done
+
+  # --quiet is implemented by redirecting fd 1 inside a subshell wrapping the
+  # body. The redirect dies with the subshell, so the parent shell's stdout
+  # is untouched, and the body below stays unchanged — any echo added later
+  # is silenced for free with no per-call $QUIET threading.
+  (
+    (( quiet )) && exec 1>/dev/null
+    local meta ticket session
+    shopt -s nullglob
+    for meta in "$SESSIONS_DIR"/*/meta; do
+      ticket=$(basename "$(dirname "$meta")")
+      session=$(meta_get "$meta" session)
+      if ! tmux has-session -t "$session" 2>/dev/null; then
+        echo "removing stale meta: $ticket (session $session is dead)"
+        # Remove only the meta file; preserves logs/events for forensics. The
+        # full per-session dir is reclaimed by `kill <ticket>`.
+        rm -f "$meta"
+      fi
+    done
+  )
 }
 
 # ─── Rules engine ─────────────────────────────────────────────────────────────
@@ -1103,7 +1120,7 @@ case "${1:-list}" in
   peek)    shift; cmd_peek "$@" ;;
   send)    shift; cmd_send "$@" ;;
   kill)    shift; cmd_kill "$@" ;;
-  clean)   cmd_clean ;;
+  clean|cleanup) shift; cmd_clean "$@" ;;
   tui)     cmd_tui ;;
   notify)  shift; cmd_notify "$@" ;;
   events)  shift; cmd_events "$@" ;;
