@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.0.1] — 2026-05-09
+
+Hot-fix for the manifest shapes shipped in v1.0.0. The actual Claude Code loader expects different top-level structures than the BDM-6 research had documented; the install on a real session surfaced the discrepancy with two `Failed to load ...` errors. No behavioral change to the plugin once it loads — the bug was purely manifest-shape-validation.
+
+### Fixed
+
+- `hooks/hooks.json` root must be `{ "hooks": { "PreToolUse": [...], "PostToolUse": [...] } }`, not `{ "PreToolUse": [...], "PostToolUse": [...] }`. Wrapped accordingly.
+- `monitors/monitors.json` root must be a bare array `[ {...} ]`, not `{ "monitors": [...] }`. Unwrapped accordingly.
+- `fleet/docs/research/0001-plugin-manifest-lifecycle.md` updated with the empirical correction so the next reader doesn't repeat the mistake.
+
 ## [1.0.0] — 2026-05-09
 
 First public release. The v0.1.0 → v1.0.0 sweep moves the plugin from a vendored-via-`install.sh` model to a fully Claude-Code-managed plugin: state, daemon, scripts, and skills all live inside the plugin's runtime contract. Read [`docs/MIGRATION.md`](./docs/MIGRATION.md) before upgrading from v0.1.

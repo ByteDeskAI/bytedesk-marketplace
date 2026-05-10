@@ -1,10 +1,8 @@
-{
-  "monitors": [
-    {
-      "name": "claude-sessions-notify",
-      "description": "Polls fleet sessions for state transitions, ceiling breaches, and tool-level events; dispatches notifications via desktop / bell / fifo / slack per ${CLAUDE_PLUGIN_DATA}/projects/<KEY>/notify/config.toml.",
-      "command": "${CLAUDE_PLUGIN_ROOT}/bin/claude-sessions notify --interval 5",
-      "when": "always"
-    }
-  ]
-}
+[
+  {
+    "name": "claude-sessions-notify",
+    "description": "Polls fleet sessions for state transitions, ceiling breaches, and tool-level events; dispatches notifications via desktop / bell / fifo / slack per ${CLAUDE_PLUGIN_DATA}/projects/<KEY>/notify/config.toml.",
+    "command": "${CLAUDE_PLUGIN_ROOT}/bin/claude-sessions notify --interval 5",
+    "when": "always"
+  }
+]

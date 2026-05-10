@@ -52,7 +52,10 @@ Canonical hook entry fields (from plugins-reference.md):
 }
 ```
 
-Our existing entries (matcher + type + command + timeout + optional statusMessage) match this shape.
+Our existing entries (matcher + type + command + timeout + optional statusMessage) match this entry shape.
+
+> **Empirical correction (BDM-12, 2026-05-09 — found at v1.0.0 install time):**
+> The `hooks.json` **root** is NOT `{ "PreToolUse": [...], "PostToolUse": [...] }`. The actual loader expects `{ "hooks": { "PreToolUse": [...], "PostToolUse": [...] } }` — the event-name keys live one level deeper, under a `hooks` field. This matches the shape used in `~/.claude/settings.json` for hook configuration. Real loader error at v1.0.0 install: `Failed to load hooks ...: expected record at path "hooks", received undefined`. Fixed in v1.0.1.
 
 ### Monitor entry — official schema is narrower than what we shipped
 
@@ -66,6 +69,9 @@ Documented monitor fields (plugins-reference.md → "Monitors"):
 | `when` | no | `"always"` (default — start at session start) or `"on-skill-invoke:<skill>"` |
 
 **Our v0.1 `monitors.json` used `lifecycle` and `restart` — those are NOT in the official schema.** Likely silently ignored. Replaced with the canonical `"when": "always"` in this PR.
+
+> **Empirical correction (BDM-12, 2026-05-09 — found at v1.0.0 install time):**
+> The `monitors.json` **root** is NOT `{ "monitors": [...] }`. The actual loader expects a **bare array** at root: `[ { "name": "...", "command": "...", "description": "...", "when": "..." } ]`. Real loader error at v1.0.0 install: `Failed to load monitors ...: expected array, received object` at root path. Fixed in v1.0.1.
 
 ### `${CLAUDE_PLUGIN_ROOT}` interpolation — confirmed
 
