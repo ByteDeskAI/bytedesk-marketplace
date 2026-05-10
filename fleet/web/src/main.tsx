@@ -3,7 +3,7 @@
 // back to overview.
 
 import { render } from 'preact';
-import { useEffect } from 'preact/hooks';
+import { useEffect, useRef } from 'preact/hooks';
 import { OverviewPage } from './components/pages/OverviewPage';
 import { AuditPage } from './components/pages/AuditPage';
 import { ReplayPage } from './components/pages/ReplayPage';
@@ -47,6 +47,22 @@ function App() {
   useEffect(() => {
     const name = ROUTE_TITLES[route.name] ?? 'Fleet';
     document.title = `${name} · Fleet`;
+  }, [route.name]);
+  // Move focus into the new page's main content on every route change
+  // (WCAG 2.4.3 / BDM-49). Each page-component wraps AppShell so the
+  // whole tree unmounts on nav and focus drops to <body>; without this
+  // re-anchor, keyboard users land at the start of the page (skip-link
+  // again) instead of at the new page's content.
+  const isFirstMount = useRef(true);
+  useEffect(() => {
+    if (isFirstMount.current) { isFirstMount.current = false; return; }
+    // Defer one frame so the new page has rendered and #main-content
+    // exists before we focus it.
+    const id = window.setTimeout(() => {
+      const main = document.getElementById('main-content');
+      if (main) main.focus({ preventScroll: false });
+    }, 0);
+    return () => window.clearTimeout(id);
   }, [route.name]);
   let page;
   switch (route.name) {
