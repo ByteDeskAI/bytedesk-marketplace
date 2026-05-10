@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
-# fleet/web/build.sh — build the web server binary.
+# fleet/web/build.sh — full release build.
 #
-# Phase 1 (BDM-15): builds the Go server only. The Preact SPA bundle pipeline
-# lands in Phase 2; this script will then also drive `npm run build` to write
-# the SPA into `fleet/web/dist/` before the Go binary embeds it.
+#   1. Preact SPA → server/dist/{index.html,app.js,app.css}   (esbuild via build.mjs)
+#   2. Go binary  → fleet/bin/claude-sessions-web              (embeds server/dist/)
 #
-# Output:
-#   fleet/bin/claude-sessions-web   (the binary registered as a plugin monitor)
+# Phase 2 (BDM-16) wires the SPA build in. Subsequent phases extend the SPA
+# but don't change the build chain.
 
 set -euo pipefail
 
@@ -15,6 +14,18 @@ SRC_DIR="$SCRIPT_DIR/server"
 PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 OUT="$PLUGIN_ROOT/bin/claude-sessions-web"
 
+# 1. SPA build.
+cd "$SCRIPT_DIR"
+if [[ ! -d node_modules ]]; then
+  echo "→ npm install (first run)"
+  npm install --no-audit --no-fund --prefer-offline
+fi
+echo "→ npm run typecheck"
+npm run typecheck
+echo "→ npm run build (esbuild)"
+npm run build
+
+# 2. Go binary build.
 cd "$SRC_DIR"
 echo "→ go fmt"
 go fmt ./...

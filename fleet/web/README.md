@@ -1,48 +1,83 @@
 # fleet/web
 
-Web dashboard server for the fleet plugin. Replaces the legacy `ttyd` + `cmd_tui` shim with a real Go HTTP server that (eventually) serves a Preact SPA. This directory holds the server source (`server/`), the SPA source (forthcoming), and the static `dist/` bundle that the Go binary embeds via `//go:embed`.
+Web dashboard for the fleet plugin: a Go HTTP server that serves a Preact SPA. The Go binary embeds the SPA's pre-built `dist/` via `//go:embed`, so plugin install ships a single binary — no Node toolchain required at install time.
 
 ## Layout
 
 ```
 fleet/web/
 ├── README.md
-├── build.sh                  # builds the Go binary into ../bin/claude-sessions-web
+├── package.json          # Preact + esbuild + typescript
+├── tsconfig.json
+├── build.mjs             # esbuild driver: src/ → server/dist/
+├── build.sh              # full release build (SPA + Go)
+├── .gitignore            # node_modules/, *.metafile.json
+├── src/
+│   ├── main.tsx          # SPA entry: mounts <OverviewPage /> at #root
+│   ├── api.ts            # API client (placeholder fixtures in Phase 2; real /api/* in Phase 3)
+│   ├── styles.css        # design tokens (CSS custom properties) + base styles
+│   └── components/       # atomic-design layout
+│       ├── atoms/        # Badge, Button, Icon, Sparkline
+│       ├── molecules/    # SearchField, StatCard
+│       ├── organisms/    # Sidebar, TopBar, StatRibbon, SessionTable
+│       ├── templates/    # AppShell
+│       └── pages/        # OverviewPage
 └── server/
-    ├── go.mod
-    ├── *.go                  # server source
-    ├── *_test.go             # unit tests
-    └── dist/                 # static SPA bundle, embedded via //go:embed
-        └── index.html        # placeholder until Phase 2 ships the Preact build
+    ├── *.go              # Go HTTP server source
+    ├── *_test.go         # unit tests
+    └── dist/             # esbuild output, embedded via //go:embed
+        ├── index.html    # template that loads /app.js + /app.css
+        ├── app.js        # bundled SPA (Preact + components)
+        ├── app.css       # bundled styles
+        └── app.js.map    # source map for browser devtools
 ```
 
-`dist/` lives inside `server/` because `//go:embed` requires sibling-or-below paths. The Phase 2 SPA build pipeline (esbuild) will write its output here.
-
-## Phase 1 (BDM-15) — Foundation
-
-Lifecycle (mirrors the BDM-4 notify-daemon pattern):
-
-1. `CLAUDE_SESSION_DEPTH >= 1` → exit 0. Fleet children don't run their own dashboard.
-2. Acquire per-project PID lock at `${CLAUDE_PLUGIN_DATA}/projects/<KEY>/web/pid`. If held by a live peer, stand by and re-poll every 5s. Stale PIDs (and empty files) are reclaimed.
-3. Load or assign port:
-   - First-load pick: `7681 + (sha256(PROJECT_KEY) mod 50)`.
-   - Walk 7681..7730 on bind failure; rewrite `web/config.toml` if the chosen port differs from disk.
-   - Range exhausted → ephemeral port + warn.
-4. Trap `SIGINT` / `SIGTERM` / `SIGHUP` → release lock + exit.
-5. Serve `/`, `/healthz`, `/api/version`. Real routes land in subsequent phases.
-
-## Build
+## Build / dev workflow
 
 ```bash
+# Full release build (SPA + Go binary)
 fleet/web/build.sh
+
+# Iterating on the SPA (esbuild watch mode)
+cd fleet/web
+npm install            # first run only
+npm run watch          # rebuilds server/dist/ on every src/ change
+
+# In another shell, restart the Go binary to pick up new dist/
+fleet/bin/claude-sessions-web   # serves the new bundle
 ```
 
-Runs `go fmt` / `go vet` / `go test ./...` and emits `fleet/bin/claude-sessions-web`. The binary is currently committed for the maintainer's platform (linux/amd64); cross-platform binary distribution is a Phase 2+ concern (see open questions in the BDM-14 epic).
+## Phases
 
-## Discovery
+- **Phase 1 (BDM-15, v1.1.0)** — Foundation: Go server, monitor registration, port assignment, PID lock, standby polling.
+- **Phase 2 (BDM-16, v1.2.0)** — SPA scaffold: Preact + esbuild + atomic-design layout + first organisms (`Sidebar`, `TopBar`, `StatRibbon`, `SessionTable`). Renders against placeholder fixtures from `src/api.ts` so the surface is real, not just empty dirs.
+- **Phase 3+** — Repos, EventBus, SSE fanout, real `/api/*` endpoints, PTY embed (xterm.js + tmux control mode), spawn / steer / coordinate surfaces, intelligence layer, replay, mobile, themes.
 
-`claude-sessions web` (no args, on the CLI) reads the project's `web/config.toml` and prints the URL the monitor is bound to. It does **not** start a server — the plugin monitor does. If the monitor isn't running (`web/pid` missing or stale), the CLI prints a hint.
+## Atomic design
 
-## Roadmap
+Components live in five tiers, with hard rules:
 
-The Preact SPA bundle, Repos, EventBus, SSE fanout, PTY bridge, command dispatch, and per-feature pages all land in subsequent BDM-14 phases. See the architecture decision record at `fleet/docs/adr/0003-web-dashboard-architecture.md` (forthcoming).
+- **Atoms** — primitives, no business state. Take only display props (variant, size, label).
+- **Molecules** — atoms composed; light state allowed (form-local, transient).
+- **Organisms** — feature regions. Own data binding via custom hooks (Phase 3).
+- **Templates** — slot-driven page skeletons. Today: `AppShell` (sidebar + topbar + content).
+- **Pages** — instances bound to routes. Today: `OverviewPage`. Each page is thin: composes hooks + organisms.
+
+## Patterns (server)
+
+The Go server (Phase 3+) lays down these patterns:
+
+- **Repository** — per state-file directory abstraction.
+- **Adapter** — `claude-sessions` subprocess wrapper.
+- **Observer / Mediator** — inotify watcher + `EventBus` per project.
+- **Strategy** — auth strategy, cost-source strategy.
+- **Decorator** — middleware stack (RequestID → Log → Auth → RateLimit → Handler → ErrorMap).
+- **Factory** — `SessionDetailFactory` composes a response from multiple repos.
+- **Command** — typed action dispatch to the `claude-sessions` adapter.
+- **Builder** — `SpawnRequestBuilder` for CLI-arg construction with prompt-file temp-file handling.
+- **`embed.FS`** — single-binary distribution.
+
+## Known limitations
+
+- **Multi-arch binary distribution.** The committed binary is linux-amd64 only. Cross-platform builds queued for a later phase.
+- Source maps (`app.js.map`, ~150KB) are committed alongside the bundle so browser devtools "view source" works.
