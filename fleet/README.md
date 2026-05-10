@@ -107,7 +107,7 @@ Full design rationale + trade-offs in [ADR-0002](./docs/adr/0002-plugin-data-dir
 
 ## Status
 
-`v1.3.0` (2026-05-10) — web dashboard read surface (BDM-14 Phase 3a): real `/api/*` endpoints (sessions, stats, projects, events) + polling hooks. SPA renders live data from `${CLAUDE_PLUGIN_DATA}/projects/<KEY>/sessions/`. SSE multiplex (Phase 3b) + PTY embed (Phase 4) + actions (Phase 5+) are next. Extracted from `ByteDeskAI/bytedesk-platform` and reshaped into a Claude-Code-native plugin (per-project state under `${CLAUDE_PLUGIN_DATA}`, plugin-managed monitor, no install.sh). Coming from v0.1? See [`docs/MIGRATION.md`](./docs/MIGRATION.md).
+`v1.4.0` (2026-05-10) — web dashboard SSE multiplex (BDM-14 Phase 3b): single shared `EventSource` per app, topic-keyed; sub-second push instead of 5s polling. Hooks unchanged at the call site. PTY embed (Phase 4) + actions (Phase 5+) are next. Extracted from `ByteDeskAI/bytedesk-platform` and reshaped into a Claude-Code-native plugin (per-project state under `${CLAUDE_PLUGIN_DATA}`, plugin-managed monitor, no install.sh). Coming from v0.1? See [`docs/MIGRATION.md`](./docs/MIGRATION.md).
 
 ## License
 

@@ -5,5 +5,5 @@ const POLL_INTERVAL_MS = 5_000;
 const LIMIT = 100;
 
 export function useEventStream() {
-  return usePolling<FleetEvent[]>(`/api/events?limit=${LIMIT}`, POLL_INTERVAL_MS);
+  return usePolling<FleetEvent[]>(`/api/events?limit=${LIMIT}`, POLL_INTERVAL_MS, 'events');
 }

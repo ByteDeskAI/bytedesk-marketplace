@@ -27,7 +27,7 @@ import (
 //go:embed all:dist
 var distFS embed.FS
 
-const buildVersion = "v1.3.0-bdm17"
+const buildVersion = "v1.4.0-bdm18"
 
 var startTime = time.Now()
 
@@ -38,6 +38,7 @@ type apiDeps struct {
 	projects   *ProjectsRepo
 	events     *EventsRepo
 	stats      *StatsCalculator
+	bus        *EventBus
 }
 
 func newAPIDeps(projectKey string, cfg *WebConfig, projDir, dataRoot string) *apiDeps {
@@ -45,7 +46,7 @@ func newAPIDeps(projectKey string, cfg *WebConfig, projDir, dataRoot string) *ap
 	er := NewEventsRepo(projDir)
 	pr := NewProjectsRepo(dataRoot)
 	sc := NewStatsCalculator(sr, er)
-	return &apiDeps{projectKey, cfg, sr, pr, er, sc}
+	return &apiDeps{projectKey, cfg, sr, pr, er, sc, NewEventBus()}
 }
 
 func buildHandler(deps *apiDeps) (http.Handler, error) {
@@ -94,8 +95,63 @@ func buildHandler(deps *apiDeps) (http.Handler, error) {
 	mux.HandleFunc("/api/events", func(w http.ResponseWriter, r *http.Request) {
 		handleEvents(w, r, deps)
 	})
+	mux.HandleFunc("/api/stream", func(w http.ResponseWriter, r *http.Request) {
+		handleStream(w, r, deps)
+	})
 	mux.Handle("/", http.FileServer(http.FS(sub)))
 	return mux, nil
+}
+
+// handleStream — SSE multiplex. Client subscribes to one or more topics
+// (sessions / stats / projects / events) via ?topics=…; server pushes
+// `event: <topic>\ndata: {}\n\n` whenever the bus publishes on that
+// topic. Browser EventSource handles reconnect.
+func handleStream(w http.ResponseWriter, r *http.Request, deps *apiDeps) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	// Parse subscription topics. Empty → all.
+	var topics []Topic
+	if v := r.URL.Query().Get("topics"); v != "" {
+		for _, t := range strings.Split(v, ",") {
+			t = strings.TrimSpace(t)
+			if t != "" {
+				topics = append(topics, Topic(t))
+			}
+		}
+	}
+	sub := deps.bus.Subscribe(topics...)
+	defer deps.bus.Unsubscribe(sub)
+
+	// Send a hello event so client knows the connection is live.
+	fmt.Fprintf(w, "event: hello\ndata: {\"build\":%q}\n\n", buildVersion)
+	flusher.Flush()
+
+	keepalive := time.NewTicker(15 * time.Second)
+	defer keepalive.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case msg, ok := <-sub.C():
+			if !ok {
+				return
+			}
+			fmt.Fprintf(w, "event: %s\ndata: {}\n\n", msg.Topic)
+			flusher.Flush()
+		case <-keepalive.C:
+			fmt.Fprint(w, ": keepalive\n\n")
+			flusher.Flush()
+		}
+	}
 }
 
 func handleSessions(w http.ResponseWriter, r *http.Request, deps *apiDeps) {
