@@ -11,7 +11,7 @@
 // /api/main/send (BDM-33) so users can drive the persistent shell
 // from chat mode.
 
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import { InteractiveTerminal } from './InteractiveTerminal';
 import { MessageBubble } from './MessageBubble';
@@ -48,24 +48,32 @@ function MainChatBody() {
       keysURL: '/api/main/keys',
     });
   const vRef = useRef<VirtuosoHandle | null>(null);
-  const items = useMemo<RenderItem[]>(() => groupMessages(messages), [messages]);
-  const [firstItemIndex, setFirstItemIndex] = useState(1_000_000);
-  const prevItemsRef = useRef<RenderItem[]>([]);
+  // Bundle items + firstItemIndex so a prepend updates both atomically
+  // — Virtuoso requires that to preserve scroll + re-arm startReached
+  // (see ChatTile.tsx for the full reasoning).
+  const [view, setView] = useState<{ items: RenderItem[]; firstItemIndex: number }>({
+    items: [],
+    firstItemIndex: 1_000_000,
+  });
+  const { items, firstItemIndex } = view;
   const [atBottom, setAtBottom] = useState(true);
   const [unread, setUnread] = useState(0);
   const prevLastKeyRef = useRef<string>('');
 
   useEffect(() => {
-    const prev = prevItemsRef.current;
-    if (prev.length > 0 && items.length > prev.length) {
-      const prevFirstKey = prev[0].key;
-      const newIdxOfPrevFirst = items.findIndex((it) => it.key === prevFirstKey);
-      if (newIdxOfPrevFirst > 0) {
-        setFirstItemIndex((cur) => Math.max(0, cur - newIdxOfPrevFirst));
+    const next = groupMessages(messages);
+    setView((prev) => {
+      if (prev.items.length === 0 || next.length <= prev.items.length) {
+        return { items: next, firstItemIndex: prev.firstItemIndex };
       }
-    }
-    prevItemsRef.current = items;
-  }, [items]);
+      const prevFirstKey = prev.items[0].key;
+      const newIdxOfPrevFirst = next.findIndex((it) => it.key === prevFirstKey);
+      if (newIdxOfPrevFirst > 0) {
+        return { items: next, firstItemIndex: Math.max(0, prev.firstItemIndex - newIdxOfPrevFirst) };
+      }
+      return { items: next, firstItemIndex: prev.firstItemIndex };
+    });
+  }, [messages]);
 
   useEffect(() => {
     if (items.length === 0) { prevLastKeyRef.current = ''; return; }

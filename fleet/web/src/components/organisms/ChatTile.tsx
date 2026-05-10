@@ -38,39 +38,48 @@ export function ChatTile({ row }: ChatTileProps) {
     return set;
   }, [stats?.sub_agents]);
 
-  // Collapse runs of consecutive tool-only assistant messages into a
-  // single ToolGroup card (BDM-33).
-  const items = useMemo<RenderItem[]>(() => groupMessages(messages), [messages]);
-
-  // Virtuoso's `firstItemIndex` is the canonical recipe for infinite
-  // scroll up (BDM-35/37). We start it at a large constant; whenever
-  // older history prepends, decrement by the count of items that
-  // appeared above the previous first item. Virtuoso uses this to
-  // keep the visible region anchored on the same global index, so
-  // the user stays reading where they were AND can keep scrolling up
-  // to trigger more loads.
-  const [firstItemIndex, setFirstItemIndex] = useState(INITIAL_FIRST_INDEX);
-  const prevItemsRef = useRef<RenderItem[]>([]);
+  // Items + firstItemIndex are stored together so a prepend (older
+  // history loaded) updates BOTH in a single render — Virtuoso
+  // requires that to anchor scroll correctly, and to re-arm
+  // `startReached` for the new top (BDM-37 follow-up). Tracking
+  // them as separate state values produced a one-render lag where
+  // Virtuoso saw `data` grow but `firstItemIndex` unchanged, which
+  // it interpreted as an APPEND — locking the user out of further
+  // scroll-ups.
+  const [view, setView] = useState<{ items: RenderItem[]; firstItemIndex: number }>({
+    items: [],
+    firstItemIndex: INITIAL_FIRST_INDEX,
+  });
+  const { items, firstItemIndex } = view;
 
   // Bottom-tracking + unread badge (BDM-36).
   const [atBottom, setAtBottom] = useState(true);
   const [unread, setUnread] = useState(0);
   const prevLastKeyRef = useRef<string>('');
 
-  // Detect prepend: if the items array's previous first item is now
-  // at a non-zero index, that delta is how many items got prepended;
-  // shift firstItemIndex by that count.
+  // Recompute items from messages, atomically updating firstItemIndex
+  // when growth is detected at the start of the array.
   useEffect(() => {
-    const prev = prevItemsRef.current;
-    if (prev.length > 0 && items.length > prev.length) {
-      const prevFirstKey = prev[0].key;
-      const newIdxOfPrevFirst = items.findIndex((it) => it.key === prevFirstKey);
-      if (newIdxOfPrevFirst > 0) {
-        setFirstItemIndex((cur) => Math.max(0, cur - newIdxOfPrevFirst));
+    const next = groupMessages(messages);
+    setView((prev) => {
+      // Initial seed or no growth → just swap items, keep firstItemIndex.
+      if (prev.items.length === 0 || next.length <= prev.items.length) {
+        return { items: next, firstItemIndex: prev.firstItemIndex };
       }
-    }
-    prevItemsRef.current = items;
-  }, [items]);
+      // Detect prepend by finding the previous first item's key in the
+      // new array.
+      const prevFirstKey = prev.items[0].key;
+      const newIdxOfPrevFirst = next.findIndex((it) => it.key === prevFirstKey);
+      if (newIdxOfPrevFirst > 0) {
+        return {
+          items: next,
+          firstItemIndex: Math.max(0, prev.firstItemIndex - newIdxOfPrevFirst),
+        };
+      }
+      // Append (or unchanged top) — no firstItemIndex shift.
+      return { items: next, firstItemIndex: prev.firstItemIndex };
+    });
+  }, [messages]);
 
   // Track new messages at the bottom; bump unread when the user is
   // scrolled up. We key off the LAST item id so prepends don't count.
