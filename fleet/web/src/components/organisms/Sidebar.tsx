@@ -43,22 +43,23 @@ export function Sidebar({ activeView = 'overview' }: SidebarProps) {
       <nav class="sidebar__section" aria-label="Primary views">
         <div class="sidebar__heading">Views</div>
         <ul class="sidebar__nav">
-          {VIEWS.map((v) => (
-            <li
-              key={v.id}
-              class={`sidebar__nav-item${v.id === activeView ? ' sidebar__nav-item--active' : ''}`}
-              onClick={() => {
-                if (v.href) window.location.hash = v.href;
-              }}
-              role={v.href ? 'link' : undefined}
-              style={{ cursor: v.href ? 'pointer' : 'default' }}
-              title={v.hotkey ? `${v.label} (${v.hotkey})` : v.label}
-            >
-              <span class="sidebar__nav-icon">{v.glyph}</span>
-              <span>{v.label}</span>
-              {v.hotkey ? <span class="sidebar__nav-key">{v.hotkey}</span> : null}
-            </li>
-          ))}
+          {VIEWS.map((v) => {
+            const isActive = v.id === activeView;
+            return (
+              <li key={v.id} class="sidebar__nav-list-item">
+                <a
+                  class={`sidebar__nav-item${isActive ? ' sidebar__nav-item--active' : ''}`}
+                  href={v.href ? `#${v.href}` : undefined}
+                  aria-current={isActive ? 'page' : undefined}
+                  title={v.hotkey ? `${v.label} (${v.hotkey})` : v.label}
+                >
+                  <span class="sidebar__nav-icon" aria-hidden="true">{v.glyph}</span>
+                  <span>{v.label}</span>
+                  {v.hotkey ? <span class="sidebar__nav-key" aria-hidden="true">{v.hotkey}</span> : null}
+                </a>
+              </li>
+            );
+          })}
         </ul>
       </nav>
 

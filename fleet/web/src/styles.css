@@ -362,6 +362,12 @@ code, pre, .mono {
   padding: 0;
 }
 
+.sidebar__nav-list-item {
+  list-style: none;
+}
+
+/* Nav rows. Now an `<a>` (BDM-45) for keyboard a11y; non-anchor instances
+ * are still styled the same (e.g. the Filters subview list as plain <li>). */
 .sidebar__nav-item {
   display: flex;
   align-items: center;
@@ -373,11 +379,17 @@ code, pre, .mono {
   cursor: pointer;
   border-left: 2px solid transparent;
   transition: background-color 80ms, color 80ms;
+  text-decoration: none;
 }
 
 .sidebar__nav-item:hover {
   color: var(--color-text-primary);
   background: var(--color-bg-muted);
+  text-decoration: none;
+}
+.sidebar__nav-item:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
 }
 
 .sidebar__nav-item--active {
