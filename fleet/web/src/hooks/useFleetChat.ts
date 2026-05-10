@@ -57,6 +57,13 @@ export function useFleetChat(ticket: string | null, opts: Options = {}): FleetCh
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [connection, setConnection] = useState<'live' | 'reconnecting' | 'closed'>('reconnecting');
+  // Debounce timer for connection→reconnecting transitions. Most
+  // EventSource `onerror` events are transient (auto-reconnect cycles,
+  // HTTP/2 stream rotations) and the next event arrives within
+  // milliseconds — flagging "reconnecting" on every blip makes the
+  // pill flicker. Only commit to reconnecting if no event arrives
+  // within RECONNECT_DEBOUNCE_MS.
+  const reconnectTimerRef = useRef<number | null>(null);
 
   // Live tool-call index across renders so SSE deltas can fold a
   // tool_result into the prior tool_use's UIMessage. Keyed by tool_use_id.
@@ -109,23 +116,49 @@ export function useFleetChat(ticket: string | null, opts: Options = {}): FleetCh
       .catch((e) => { if (!cancelled) setError((e as Error).message); })
       .finally(() => { if (!cancelled) setLoading(false); });
 
+    const RECONNECT_DEBOUNCE_MS = 3000;
+    const markLive = () => {
+      if (cancelled) return;
+      if (reconnectTimerRef.current !== null) {
+        window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+      setConnection('live');
+    };
+    const scheduleReconnecting = () => {
+      if (cancelled) return;
+      if (reconnectTimerRef.current !== null) return;
+      reconnectTimerRef.current = window.setTimeout(() => {
+        reconnectTimerRef.current = null;
+        if (!cancelled) setConnection('reconnecting');
+      }, RECONNECT_DEBOUNCE_MS);
+    };
+
     const es = new EventSource(transcriptURL);
-    es.onopen = () => { if (!cancelled) setConnection('live'); };
+    es.onopen = markLive;
     es.addEventListener('transcript', (ev) => {
       if (cancelled) return;
-      // Receiving a transcript event implies the connection is healthy.
-      setConnection('live');
+      markLive();
       try {
         const e = JSON.parse((ev as MessageEvent).data) as TranscriptEvent;
-        // Filter by agent so a sub-agent thread ignores parent events
-        // and vice versa.
         if ((agentID || '') !== (e.agent_id || '')) return;
         applyDelta(e, setMessages, indexRef.current, pendingUserRef.current);
       } catch { /* ignore parse errors */ }
     });
-    es.onerror = () => { if (!cancelled) setConnection('reconnecting'); };
+    // Stats events arrive on connect and after each turn — also a
+    // strong "alive" signal even before any transcript event lands.
+    es.addEventListener('stats', markLive);
+    es.onerror = scheduleReconnecting;
 
-    return () => { cancelled = true; setConnection('closed'); es.close(); };
+    return () => {
+      cancelled = true;
+      if (reconnectTimerRef.current !== null) {
+        window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+      setConnection('closed');
+      es.close();
+    };
   }, [ticket, agentID, limit, messagesURL, transcriptURL]);
 
   const sendMessage = async (text: string) => {
