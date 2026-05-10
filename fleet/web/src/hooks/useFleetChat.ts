@@ -17,6 +17,7 @@ import { sendMessage as sendMessageAPI, type UIMessage, type UIPart, type Transc
 export interface FleetChatState {
   messages: UIMessage[];
   sendMessage: (text: string) => Promise<void>;
+  sendKeys: (keys: string[]) => Promise<void>;
   isLoading: boolean;
   error: string | null;
 }
@@ -31,6 +32,7 @@ interface Options {
   messagesURL?: string;
   transcriptURL?: string;
   sendURL?: string | null;
+  keysURL?: string | null; // POST {keys: string[]}
 }
 
 export function useFleetChat(ticket: string | null, opts: Options = {}): FleetChatState {
@@ -39,6 +41,7 @@ export function useFleetChat(ticket: string | null, opts: Options = {}): FleetCh
   const messagesURL = opts.messagesURL ?? `${baseURL}/messages`;
   const transcriptURL = opts.transcriptURL ?? `${baseURL}/transcript`;
   const sendURL = opts.sendURL === null ? null : (opts.sendURL ?? `${baseURL}/send`);
+  const keysURL = opts.keysURL === null ? null : (opts.keysURL ?? `${baseURL}/keys`);
   const [messages, setMessages] = useState<UIMessage[]>([]);
   const [isLoading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -120,7 +123,17 @@ export function useFleetChat(ticket: string | null, opts: Options = {}): FleetCh
     }
   };
 
-  return { messages, sendMessage, isLoading, error };
+  const sendKeys = async (keys: string[]) => {
+    if (!keys.length || keysURL === null) return;
+    const r = await fetch(keysURL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keys }),
+    });
+    if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  };
+
+  return { messages, sendMessage, sendKeys, isLoading, error };
 }
 
 // applyDelta translates a single TranscriptEvent into a state-setter

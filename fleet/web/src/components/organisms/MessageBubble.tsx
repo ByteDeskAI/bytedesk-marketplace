@@ -10,6 +10,8 @@
 import { useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import type { UIMessage, UIPart } from '../../api';
+import { renderMarkdown } from '../../lib/markdown';
+import { AskUserQuestionCard } from '../molecules/AskUserQuestionCard';
 
 export interface MessageBubbleProps {
   msg: UIMessage;
@@ -17,15 +19,18 @@ export interface MessageBubbleProps {
   /** Optional render-prop for tool-call parts that have a sub_agent_id —
    * lets the host (ChatTile) inject the nested SubAgentThread. */
   renderSubAgent?: (subAgentID: string, toolUseID: string) => ComponentChildren;
+  /** Optional callback to submit AskUserQuestion answers as a tmux key
+   * stream. ChatTile / MainChatBody pass through useFleetChat.sendKeys. */
+  onAnswerKeys?: (keys: string[]) => Promise<void>;
 }
 
-export function MessageBubble({ msg, variant = 'default', renderSubAgent }: MessageBubbleProps) {
+export function MessageBubble({ msg, variant = 'default', renderSubAgent, onAnswerKeys }: MessageBubbleProps) {
   return (
     <article class={`message-bubble message-bubble--${msg.role} message-bubble--${variant}`}>
       <header class="message-bubble__role">{labelForRole(msg.role)}</header>
       <div class="message-bubble__parts">
         {msg.parts.map((p, i) => (
-          <PartView key={i} part={p} renderSubAgent={renderSubAgent} />
+          <PartView key={i} part={p} renderSubAgent={renderSubAgent} onAnswerKeys={onAnswerKeys} />
         ))}
       </div>
     </article>
@@ -35,16 +40,26 @@ export function MessageBubble({ msg, variant = 'default', renderSubAgent }: Mess
 function PartView({
   part,
   renderSubAgent,
+  onAnswerKeys,
 }: {
   part: UIPart;
   renderSubAgent?: (subAgentID: string, toolUseID: string) => ComponentChildren;
+  onAnswerKeys?: (keys: string[]) => Promise<void>;
 }) {
   switch (part.type) {
     case 'text':
-      return <div class="message-bubble__text">{part.text}</div>;
+      return (
+        <div
+          class="message-bubble__text"
+          dangerouslySetInnerHTML={{ __html: renderMarkdown(part.text || '') }}
+        />
+      );
     case 'thinking':
       return <ThinkingView text={part.text || ''} />;
     case 'tool-call':
+      if (part.tool_name === 'AskUserQuestion' && onAnswerKeys) {
+        return <AskUserQuestionCard part={part} onSubmit={onAnswerKeys} />;
+      }
       return (
         <ToolCallView part={part}>
           {part.sub_agent_id && renderSubAgent

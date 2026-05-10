@@ -159,6 +159,12 @@ func buildHandler(deps *apiDeps) (http.Handler, error) {
 	mux.HandleFunc("/api/main/transcript", func(w http.ResponseWriter, r *http.Request) {
 		handleMainTranscript(w, r, deps)
 	})
+	mux.HandleFunc("/api/main/send", func(w http.ResponseWriter, r *http.Request) {
+		handleMainSend(w, r, deps)
+	})
+	mux.HandleFunc("/api/main/keys", func(w http.ResponseWriter, r *http.Request) {
+		handleMainKeys(w, r, deps)
+	})
 	mux.HandleFunc("/api/jira/issue", func(w http.ResponseWriter, r *http.Request) {
 		handleJiraIssue(w, r, deps)
 	})
@@ -303,6 +309,9 @@ func handleSessionDetail(w http.ResponseWriter, r *http.Request, deps *apiDeps) 
 			return
 		case "send":
 			handleSessionSend(w, r, ticket)
+			return
+		case "keys":
+			handleSessionKeys(w, r, deps, ticket)
 			return
 		case "kill":
 			handleSessionKill(w, r, ticket)

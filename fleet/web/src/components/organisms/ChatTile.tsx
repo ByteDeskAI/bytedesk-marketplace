@@ -2,71 +2,48 @@
 // projected UIMessages via react-virtuoso for sticky-bottom autoscroll
 // and lazy DOM construction (jsonl can hit 30MB and 1000s of turns).
 //
-// A textarea composer at the bottom POSTs to the existing
-// /api/sessions/<T>/send endpoint (which wraps `tmux send-keys`) so
-// users can reply / interject without leaving chat mode.
+// Composer (textarea + send) is the shared ChatComposer molecule. It
+// POSTs to /api/sessions/<T>/send (existing tmux send-keys wrapper)
+// so users can reply / interject without leaving chat mode.
 
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useEffect, useMemo, useRef } from 'preact/hooks';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import { useFleetChat } from '../../hooks/useFleetChat';
 import { useSessionStats } from '../../hooks/useSessionStats';
 import { MessageBubble } from './MessageBubble';
 import { SubAgentThread } from './SubAgentThread';
-import type { SessionRow, UIMessage } from '../../api';
+import { ToolGroupCard } from '../molecules/ToolGroupCard';
+import { ChatComposer } from '../molecules/ChatComposer';
+import { groupMessages, type RenderItem } from '../../lib/groupMessages';
+import type { SessionRow } from '../../api';
 
 export interface ChatTileProps {
   row: SessionRow;
 }
 
 export function ChatTile({ row }: ChatTileProps) {
-  const { messages, sendMessage, isLoading, error } = useFleetChat(row.ticket);
+  const { messages, sendMessage, sendKeys, isLoading, error } = useFleetChat(row.ticket);
   const { stats } = useSessionStats(row.ticket);
-  const [draft, setDraft] = useState('');
-  const [sending, setSending] = useState(false);
-  const [sendErr, setSendErr] = useState<string | null>(null);
   const vRef = useRef<VirtuosoHandle | null>(null);
 
   // Sub-agent index — Task tool_use_id → agent_id, so the renderer
   // can look up which nested SubAgentThread to render under each
-  // tool-call. We prefer the explicit mapping from stats.sub_agents
-  // (where each entry's agent_id is canonical) but fall back to the
-  // Task input's `subagent_type` when the stats haven't caught up.
+  // tool-call.
   const subAgentIDs = useMemo(() => {
     const set = new Set<string>();
     for (const sa of stats?.sub_agents ?? []) set.add(sa.agent_id);
     return set;
   }, [stats?.sub_agents]);
 
-  // Stick to bottom on new messages.
+  // Collapse runs of consecutive tool-only assistant messages into a
+  // single ToolGroup card (BDM-33).
+  const items = useMemo<RenderItem[]>(() => groupMessages(messages), [messages]);
+
   useEffect(() => {
     if (!vRef.current) return;
-    if (messages.length === 0) return;
-    vRef.current.scrollToIndex({ index: messages.length - 1, behavior: 'smooth' });
-  }, [messages.length]);
-
-  const composerDisabled = sending || row.state === 'starting';
-
-  const onSend = async () => {
-    const text = draft.trim();
-    if (!text) return;
-    setSending(true);
-    setSendErr(null);
-    try {
-      await sendMessage(text);
-      setDraft('');
-    } catch (e) {
-      setSendErr((e as Error).message);
-    } finally {
-      setSending(false);
-    }
-  };
-
-  const onKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      void onSend();
-    }
-  };
+    if (items.length === 0) return;
+    vRef.current.scrollToIndex({ index: items.length - 1, behavior: 'smooth' });
+  }, [items.length]);
 
   return (
     <div class="chat-tile">
@@ -80,51 +57,40 @@ export function ChatTile({ row }: ChatTileProps) {
         ) : (
           <Virtuoso
             ref={vRef}
-            data={messages}
+            data={items}
             followOutput="smooth"
-            initialTopMostItemIndex={Math.max(0, messages.length - 1)}
-            computeItemKey={(_, m) => (m as UIMessage).id}
-            itemContent={(_, m) => (
-              <MessageBubble
-                msg={m as UIMessage}
-                renderSubAgent={(subID) =>
-                  subAgentIDs.has(subID) ? (
-                    <SubAgentThread ticket={row.ticket} agentID={subID} />
-                  ) : null
-                }
-              />
-            )}
+            initialTopMostItemIndex={Math.max(0, items.length - 1)}
+            computeItemKey={(_, it) => (it as RenderItem).key}
+            itemContent={(_, it) => {
+              const item = it as RenderItem;
+              if (item.kind === 'toolGroup') {
+                return <ToolGroupCard messages={item.messages} />;
+              }
+              return (
+                <MessageBubble
+                  msg={item.msg}
+                  onAnswerKeys={sendKeys}
+                  renderSubAgent={(subID) =>
+                    subAgentIDs.has(subID) ? (
+                      <SubAgentThread ticket={row.ticket} agentID={subID} />
+                    ) : null
+                  }
+                />
+              );
+            }}
             increaseViewportBy={{ top: 200, bottom: 800 }}
           />
         )}
       </div>
-      <form
-        class="chat-tile__composer"
-        onSubmit={(e) => { e.preventDefault(); void onSend(); }}
-      >
-        <textarea
-          class="chat-tile__input"
-          rows={1}
-          value={draft}
-          placeholder={
-            row.state === 'starting'
-              ? 'session starting…'
-              : `reply to ${row.ticket} (Enter sends, Shift+Enter newline)`
-          }
-          disabled={composerDisabled}
-          onInput={(e) => setDraft((e.currentTarget as HTMLTextAreaElement).value)}
-          onKeyDown={onKeyDown as any}
-        />
-        <button
-          type="submit"
-          class="chat-tile__send"
-          disabled={composerDisabled || !draft.trim()}
-          title="Send (Enter)"
-        >
-          {sending ? '…' : 'Send'}
-        </button>
-      </form>
-      {sendErr ? <div class="chat-tile__send-err">{sendErr}</div> : null}
+      <ChatComposer
+        onSend={sendMessage}
+        disabled={row.state === 'starting'}
+        placeholder={
+          row.state === 'starting'
+            ? 'session starting…'
+            : `reply to ${row.ticket} (Enter sends, Shift+Enter newline)`
+        }
+      />
     </div>
   );
 }

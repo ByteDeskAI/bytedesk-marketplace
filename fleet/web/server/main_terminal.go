@@ -212,3 +212,66 @@ func handleMainTranscript(w http.ResponseWriter, r *http.Request, deps *apiDeps)
 // the always-on main terminal so it can ride the same tailer +
 // EventBus machinery as fleet child sessions.
 const mainTicket = "__main__"
+
+// handleMainSend — POST /api/main/send. Mirrors handleSessionSend but
+// targets the persistent fleet-main tmux session instead of going
+// through `claude-sessions send` (which is keyed off a fleet ticket).
+// Composes the body text + Enter as a single tmux send-keys call so
+// the line commits to claude's stdin (BDM-33).
+func handleMainSend(w http.ResponseWriter, r *http.Request, deps *apiDeps) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, errors.New("POST required"))
+		return
+	}
+	var body struct {
+		Message string `json:"message"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid json: %w", err))
+		return
+	}
+	if body.Message == "" {
+		writeError(w, http.StatusBadRequest, errors.New("message required"))
+		return
+	}
+	session, _ := mainTmuxSession(deps)
+	// `-l` (literal) preserves arbitrary text without tmux interpreting
+	// it as named keys. Then a separate `Enter` to commit the line.
+	cmd := exec.Command(tmuxBin(), "send-keys", "-t", session, "-l", "--", body.Message)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		writeError(w, http.StatusBadGateway, fmt.Errorf("send literal: %v: %s", err, string(out)))
+		return
+	}
+	enter := exec.Command(tmuxBin(), "send-keys", "-t", session, "Enter")
+	if out, err := enter.CombinedOutput(); err != nil {
+		writeError(w, http.StatusBadGateway, fmt.Errorf("send enter: %v: %s", err, string(out)))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// handleMainKeys — POST /api/main/keys. Same shape + allowlist as
+// handleSessionKeys but targets the main tile's tmux session.
+func handleMainKeys(w http.ResponseWriter, r *http.Request, deps *apiDeps) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, errors.New("POST required"))
+		return
+	}
+	var body struct {
+		Keys []string `json:"keys"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid json: %w", err))
+		return
+	}
+	if len(body.Keys) == 0 {
+		writeError(w, http.StatusBadRequest, errors.New("keys required"))
+		return
+	}
+	session, _ := mainTmuxSession(deps)
+	if err := sendTmuxKeys(session, body.Keys); err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "keys": body.Keys})
+}
