@@ -2,8 +2,9 @@
 // active session. Server fans out to claude-sessions send per-ticket;
 // the modal renders per-target results.
 
-import { useState } from 'preact/hooks';
+import { useRef, useState } from 'preact/hooks';
 import { Button } from '../atoms/Button';
+import { useModalFocus } from '../../hooks/useModalFocus';
 import { broadcast, type BroadcastResult } from '../../api';
 
 export interface BroadcastModalProps {
@@ -15,10 +16,20 @@ export function BroadcastModal({ onClose }: BroadcastModalProps) {
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [results, setResults] = useState<BroadcastResult | null>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+  useModalFocus(modalRef);
 
   return (
     <div class="modal-backdrop" onClick={onClose}>
-      <div class="modal modal--lg" onClick={(e) => e.stopPropagation()}>
+      <div
+        ref={modalRef}
+        class="modal modal--lg"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Broadcast input to all sessions"
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+      >
         <header class="modal__header">
           <span>BROADCAST INPUT</span>
           <span style={{ marginLeft: 'auto' }}>
