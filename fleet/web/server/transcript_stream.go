@@ -559,13 +559,23 @@ func buildTranscriptEvent(ticket string, e *transcriptEntry, raw map[string]any)
 			}
 		}
 	case "user":
-		// surface tool_result errors as their own event
+		// User entries can carry tool_result blocks (claude's tool
+		// loop reporting back) OR plain text the user typed at the
+		// prompt. Distinguish so the chat can render typed input
+		// live as a user message; previously these were silently
+		// dropped on the SSE side and only appeared on /messages
+		// refresh (BDM-39).
 		for _, c := range e.Message.Content {
 			if c.Type == "tool_result" {
 				out.Type = "tool_result"
 				if c.IsError {
 					out.Type = "tool_error"
 				}
+				break
+			}
+			if c.Type == "text" && c.Text != "" {
+				out.Type = "user_text"
+				out.Text = truncate(c.Text, 1024)
 				break
 			}
 		}

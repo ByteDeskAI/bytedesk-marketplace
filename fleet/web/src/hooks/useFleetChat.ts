@@ -61,6 +61,10 @@ export function useFleetChat(ticket: string | null, opts: Options = {}): FleetCh
   // owns SSE on every messages update.
   const messagesRef = useRef<UIMessage[]>([]);
   messagesRef.current = messages;
+  // Pending optimistic user messages awaiting their canonical
+  // user_text SSE event. Used by applyDelta to replace the
+  // optimistic id with the canonical one rather than render twice.
+  const pendingUserRef = useRef<Array<{ id: string; text: string }>>([]);
 
   useEffect(() => {
     if (!ticket) {
@@ -108,7 +112,7 @@ export function useFleetChat(ticket: string | null, opts: Options = {}): FleetCh
         // Filter by agent so a sub-agent thread ignores parent events
         // and vice versa.
         if ((agentID || '') !== (e.agent_id || '')) return;
-        applyDelta(e, setMessages, indexRef.current);
+        applyDelta(e, setMessages, indexRef.current, pendingUserRef.current);
       } catch { /* ignore parse errors */ }
     });
     es.onerror = () => { /* EventSource auto-reconnects */ };
@@ -117,26 +121,47 @@ export function useFleetChat(ticket: string | null, opts: Options = {}): FleetCh
   }, [ticket, agentID, limit, messagesURL, transcriptURL]);
 
   const sendMessage = async (text: string) => {
-    if (!text.trim()) return;
+    const trimmed = text.trim();
+    if (!trimmed) return;
     if (sendURL === null) {
       // Read-only mode (sub-agent thread; main tile fallback). Composer
       // should already be hidden — guarding here for safety.
       return;
     }
-    // For the default per-session URL we go through sendMessageAPI which
-    // already handles the wire shape; for custom sendURLs (main tile),
-    // POST directly so we don't depend on the ticket-keyed helper.
-    if (sendURL === `/api/sessions/${encodeURIComponent(ticket || '')}/send` && ticket) {
-      await sendMessageAPI(ticket, text);
-      return;
-    }
-    const r = await fetch(sendURL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text }),
-    });
-    if (!r.ok) {
-      throw new Error(`${r.status} ${r.statusText}`);
+    // Optimistic: append the user message to the chat immediately so
+    // the user gets feedback. The canonical entry from claude's jsonl
+    // arrives later via SSE (`user_text` event); applyDelta dedupes
+    // by checking the pending map, so the optimistic id is replaced
+    // in-place rather than rendering twice (BDM-39).
+    const optimisticID = `optimistic-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    pendingUserRef.current.push({ id: optimisticID, text: trimmed });
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: optimisticID,
+        role: 'user',
+        timestamp: new Date().toISOString(),
+        parts: [{ type: 'text', text: trimmed }],
+      },
+    ]);
+    try {
+      if (sendURL === `/api/sessions/${encodeURIComponent(ticket || '')}/send` && ticket) {
+        await sendMessageAPI(ticket, trimmed);
+        return;
+      }
+      const r = await fetch(sendURL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: trimmed }),
+      });
+      if (!r.ok) {
+        throw new Error(`${r.status} ${r.statusText}`);
+      }
+    } catch (err) {
+      // Rollback on failure.
+      pendingUserRef.current = pendingUserRef.current.filter((p) => p.id !== optimisticID);
+      setMessages((prev) => prev.filter((m) => m.id !== optimisticID));
+      throw err;
     }
   };
 
@@ -212,6 +237,7 @@ function applyDelta(
   e: TranscriptEvent,
   setMessages: (updater: (prev: UIMessage[]) => UIMessage[]) => void,
   index: Map<string, { messageID: string; partIdx: number }>,
+  pendingUser: Array<{ id: string; text: string }>,
 ) {
   setMessages((prev) => {
     const next = prev.slice();
@@ -292,6 +318,36 @@ function applyDelta(
           role: 'system',
           timestamp: e.timestamp,
           parts: [{ type: 'system', subtype, text: subtype === 'compact_boundary' ? '↺ context compacted' : '⚠ API error' }],
+        });
+        return next;
+      }
+      case 'user_text': {
+        if (!e.text) return prev;
+        // If we have a pending optimistic with matching text, replace
+        // it in-place rather than rendering a duplicate.
+        const matchIdx = pendingUser.findIndex((p) => p.text === e.text);
+        if (matchIdx >= 0) {
+          const opt = pendingUser[matchIdx];
+          pendingUser.splice(matchIdx, 1);
+          for (let i = next.length - 1; i >= 0; i--) {
+            if (next[i].id === opt.id) {
+              next[i] = {
+                id: synthID(e),
+                role: 'user',
+                timestamp: e.timestamp,
+                agent_id: e.agent_id,
+                parts: [{ type: 'text', text: e.text }],
+              };
+              return next;
+            }
+          }
+        }
+        next.push({
+          id: synthID(e),
+          role: 'user',
+          timestamp: e.timestamp,
+          agent_id: e.agent_id,
+          parts: [{ type: 'text', text: e.text }],
         });
         return next;
       }
