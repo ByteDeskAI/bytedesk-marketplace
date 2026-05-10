@@ -68,6 +68,44 @@ export async function cleanDeadMetas(): Promise<void> {
   if (!r.ok) throw new Error(await readError(r));
 }
 
+// Spawn — Builder-on-the-server: client submits typed args, server
+// constructs the spawn-claude-feature CLI invocation.
+export interface SpawnArgs {
+  ticket: string;
+  slug: string;
+  prompt: string;
+  full_auto?: boolean;
+  parent?: string;
+  max_depth?: number;
+}
+
+export interface SpawnResult {
+  ok: boolean;
+  ticket: string;
+  slug?: string;
+  stdout: string;
+}
+
+export async function spawnFeature(args: SpawnArgs): Promise<SpawnResult> {
+  const r = await fetch('/api/spawn', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(args),
+  });
+  if (!r.ok) throw new Error(await readError(r));
+  return r.json();
+}
+
+export async function spawnReviewer(parentTicket: string, prompt?: string, fullAuto = true): Promise<SpawnResult> {
+  const r = await fetch(`/api/sessions/${encodeURIComponent(parentTicket)}/review`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt: prompt ?? '', full_auto: fullAuto }),
+  });
+  if (!r.ok) throw new Error(await readError(r));
+  return r.json();
+}
+
 async function readError(r: Response): Promise<string> {
   try {
     const j = await r.json();

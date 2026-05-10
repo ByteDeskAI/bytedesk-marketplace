@@ -28,7 +28,7 @@ import (
 //go:embed all:dist
 var distFS embed.FS
 
-const buildVersion = "v1.6.0-bdm20"
+const buildVersion = "v1.7.0-bdm21"
 
 var startTime = time.Now()
 
@@ -101,6 +101,9 @@ func buildHandler(deps *apiDeps) (http.Handler, error) {
 	})
 	mux.HandleFunc("/api/clean", func(w http.ResponseWriter, r *http.Request) {
 		handleClean(w, r)
+	})
+	mux.HandleFunc("/api/spawn", func(w http.ResponseWriter, r *http.Request) {
+		handleSpawn(w, r)
 	})
 	mux.Handle("/", http.FileServer(http.FS(sub)))
 	return mux, nil
@@ -193,6 +196,9 @@ func handleSessionDetail(w http.ResponseWriter, r *http.Request, deps *apiDeps) 
 			return
 		case "kill":
 			handleSessionKill(w, r, ticket)
+			return
+		case "review":
+			handleSessionReview(w, r, ticket)
 			return
 		default:
 			writeError(w, http.StatusBadRequest, fmt.Errorf("unknown sub-path %q", parts[1]))
