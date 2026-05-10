@@ -211,17 +211,11 @@ func projectMessages(entries []richEntry) []UIMessage {
 				})
 			}
 			// drop other subtypes — they're already in TicketStats
-		case "last-prompt":
-			if e.LastPrompt != "" {
-				msgs = append(msgs, UIMessage{
-					ID:        e.UUID,
-					Role:      "user",
-					Timestamp: e.Timestamp,
-					Parts:     []UIPart{{Type: "text", Text: e.LastPrompt}},
-				})
-			}
-		// ai-title / agent-name / permission-mode / pr-link / queue-operation
-		// are metadata — not chat content. Skip.
+		// last-prompt / ai-title / agent-name / permission-mode /
+		// pr-link / queue-operation are metadata — the user prompt
+		// itself is captured via the `user` entry's text content
+		// above, so projecting last-prompt as a separate user
+		// message would duplicate every typed prompt (BDM-42). Skip.
 		}
 	}
 	return msgs

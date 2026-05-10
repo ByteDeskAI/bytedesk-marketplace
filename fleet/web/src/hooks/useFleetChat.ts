@@ -359,16 +359,10 @@ function applyDelta(
         });
         return next;
       }
-      case 'last-prompt': {
-        if (!e.text) return prev;
-        next.push({
-          id: synthID(e),
-          role: 'user',
-          timestamp: e.timestamp,
-          parts: [{ type: 'text', text: e.text }],
-        });
-        return next;
-      }
+      // last-prompt: the user's typed prompt is already captured via
+      // the `user_text` event (server emits one per `user` jsonl
+      // entry with text content). last-prompt would duplicate the
+      // same text — skip to avoid double-rendering (BDM-42).
       // pr-link, stop, etc. — metadata; UI surfaces via TicketStats.
       default:
         return prev;
