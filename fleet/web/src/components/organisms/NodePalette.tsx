@@ -28,7 +28,7 @@ export interface NodePaletteProps {
 export function NodePalette({ onAdd }: NodePaletteProps) {
   return (
     <div class="chain-palette" aria-label="Node palette">
-      <div class="chain-palette__heading">Nodes</div>
+      <div class="chain-palette__heading">&gt; NODES · DRAG OR CLICK</div>
       <ul class="chain-palette__list">
         {PALETTE_ITEMS.map((item) => (
           <li

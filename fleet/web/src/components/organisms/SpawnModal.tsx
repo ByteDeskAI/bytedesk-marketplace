@@ -14,6 +14,44 @@ import {
 const TABS = ['Manual', 'From Jira', 'From Backlog', 'Tournament'] as const;
 type Tab = typeof TABS[number];
 
+const TAB_TAPE: Record<Tab, string> = {
+  'Manual': 'FREEFORM',
+  'From Jira': 'FROM JIRA',
+  'From Backlog': 'FROM BACKLOG',
+  'Tournament': 'N-VARIANT',
+};
+
+// Inline-style helpers — keep all colors as CSS variables, no hex.
+const STYLE_ROW: preact.JSX.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 'var(--space-2)',
+  fontFamily: 'var(--font-mono)',
+  fontSize: 'var(--text-xs)',
+  color: 'var(--color-text-secondary)',
+};
+const STYLE_LIST: preact.JSX.CSSProperties = {
+  listStyle: 'none',
+  margin: 0,
+  padding: 0,
+  display: 'grid',
+  gap: 0,
+  border: '1px solid var(--color-border)',
+  background: 'var(--color-bg-surface)',
+  maxHeight: 360,
+  overflowY: 'auto',
+};
+const STYLE_LIST_ROW: preact.JSX.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: '90px 1fr auto auto',
+  alignItems: 'center',
+  gap: 'var(--space-3)',
+  padding: '4px var(--space-3)',
+  borderBottom: '1px solid var(--color-border-grid)',
+  fontFamily: 'var(--font-mono)',
+  fontSize: 'var(--text-xs)',
+};
+
 export interface SpawnModalProps {
   onClose: () => void;
   onSpawned?: (ticket: string) => void;
@@ -24,8 +62,13 @@ export function SpawnModal({ onClose, onSpawned }: SpawnModalProps) {
   return (
     <div class="modal-backdrop" onClick={onClose}>
       <div class="modal modal--lg" onClick={(e) => e.stopPropagation()}>
-        <header class="modal__header">Spawn a new session</header>
-        <nav class="modal__tabs" role="tablist">
+        <header class="modal__header">
+          <span>SPAWN SESSION</span>
+          <span style={{ marginLeft: 'auto' }}>
+            <span class="tape tape--accent">{TAB_TAPE[tab]}</span>
+          </span>
+        </header>
+        <nav class="modal__tabs" role="tablist" aria-label="Spawn source">
           {TABS.map((t) => (
             <button
               key={t}
@@ -51,6 +94,15 @@ export function SpawnModal({ onClose, onSpawned }: SpawnModalProps) {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function ErrLine({ msg }: { msg: string }) {
+  return (
+    <div style={STYLE_ROW}>
+      <span class="tape tape--err">ERROR</span>
+      <span style={{ color: 'var(--color-state-error)' }}>{msg}</span>
     </div>
   );
 }
@@ -184,13 +236,16 @@ function ManualTab({ onClose, onSpawned }: { onClose: () => void; onSpawned?: (t
       </label>
 
       {estimate ? (
-        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)' }}>
-          Estimated cost: <strong>${estimate.low.toFixed(2)}</strong> – <strong>${estimate.high.toFixed(2)}</strong>{' '}
-          <span style={{ color: 'var(--color-text-tertiary)' }}>(heuristic; Haiku-judged estimate lands later)</span>
+        <div style={STYLE_ROW}>
+          <span class="tape tape--warn">EST. COST</span>
+          <span style={{ color: 'var(--color-text-primary)', fontVariantNumeric: 'tabular-nums' }}>
+            ${estimate.low.toFixed(2)} – ${estimate.high.toFixed(2)}
+          </span>
+          <span style={{ color: 'var(--color-text-tertiary)' }}>heuristic · haiku-judged later</span>
         </div>
       ) : null}
 
-      {err ? <div style={{ color: 'var(--color-state-error)', fontSize: 'var(--text-xs)' }}>{err}</div> : null}
+      {err ? <ErrLine msg={err} /> : null}
 
       <div class="modal__actions">
         <Button onClick={onClose} type="button">Cancel</Button>
@@ -243,15 +298,22 @@ function FromJiraTab({ onClose, onSpawned }: { onClose: () => void; onSpawned?: 
   }
 
   return (
-    <div style={{ display: 'grid', gap: 12 }}>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <input class="spawn-form__input" type="text" placeholder="BDM-99" value={key}
-          onInput={(e) => setKey((e.currentTarget as HTMLInputElement).value)} style={{ flex: 1 }} />
+    <div class="spawn-form">
+      <div style={{ ...STYLE_ROW, alignItems: 'stretch' }}>
+        <span class="tape" style={{ alignSelf: 'center' }}>FROM JIRA</span>
+        <input
+          class="spawn-form__input"
+          type="text"
+          placeholder="BDM-99"
+          value={key}
+          onInput={(e) => setKey((e.currentTarget as HTMLInputElement).value)}
+          style={{ flex: 1 }}
+        />
         <Button onClick={fetchTicket} disabled={!key.trim() || loading}>
           {loading ? 'Fetching…' : 'Fetch'}
         </Button>
       </div>
-      {err ? <div style={{ color: 'var(--color-state-error)', fontSize: 'var(--text-xs)' }}>{err}</div> : null}
+      {err ? <ErrLine msg={err} /> : null}
       {args ? (
         <>
           <div class="spawn-form__row">
@@ -272,8 +334,9 @@ function FromJiraTab({ onClose, onSpawned }: { onClose: () => void; onSpawned?: 
           </div>
         </>
       ) : (
-        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>
-          Configure <code>[jira]</code> in Settings → Jira first.
+        <div class="empty-state">
+          <span class="empty-state__icon">▢</span>
+          Configure [jira] in Settings · Jira to enable lookup
         </div>
       )}
     </div>
@@ -304,23 +367,26 @@ function FromBacklogTab({ onClose, onSpawned }: { onClose: () => void; onSpawned
     } catch (e) { setErr((e as Error).message); }
   }
 
-  if (err) return <div style={{ color: 'var(--color-state-error)' }}>{err}</div>;
-  if (!items) return <div style={{ color: 'var(--color-text-tertiary)' }}>Loading backlog…</div>;
-  if (items.length === 0) return <div style={{ color: 'var(--color-text-tertiary)' }}>No open issues match the configured JQL.</div>;
+  if (err) return <ErrLine msg={err} />;
+  if (!items) return <div class="empty-state"><span class="empty-state__icon">◌</span>Loading backlog…</div>;
+  if (items.length === 0) return <div class="empty-state"><span class="empty-state__icon">▢</span>No open issues match the configured JQL</div>;
 
   return (
-    <div style={{ display: 'grid', gap: 8, maxHeight: 360, overflowY: 'auto' }}>
-      {items.map((it) => (
-        <div key={it.key} style={{
-          display: 'flex', alignItems: 'center', gap: 12, padding: 8,
-          border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)',
-        }}>
-          <strong>{it.key}</strong>
-          <span style={{ flex: 1 }}>{it.summary}</span>
-          <span style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--text-xs)' }}>{it.status}</span>
-          <Button onClick={() => spawnFrom(it)}>Spawn</Button>
-        </div>
-      ))}
+    <div class="spawn-form">
+      <div style={STYLE_ROW}>
+        <span class="tape">FROM BACKLOG</span>
+        <span style={{ color: 'var(--color-text-tertiary)' }}>{items.length} OPEN</span>
+      </div>
+      <ul style={STYLE_LIST}>
+        {items.map((it) => (
+          <li key={it.key} style={STYLE_LIST_ROW}>
+            <code style={{ color: 'var(--color-text-primary)', fontWeight: 600 }}>{it.key}</code>
+            <span style={{ color: 'var(--color-text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.summary}</span>
+            <span class="tape">{it.status}</span>
+            <Button onClick={() => spawnFrom(it)}>Spawn</Button>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -348,7 +414,11 @@ function TournamentTab({ onClose, onSpawned }: { onClose: () => void; onSpawned?
   }
 
   return (
-    <div style={{ display: 'grid', gap: 12 }}>
+    <div class="spawn-form">
+      <div style={STYLE_ROW}>
+        <span class="tape">N-VARIANT</span>
+        <span style={{ color: 'var(--color-text-tertiary)' }}>SPAWN {args.n} PARALLEL VARIANTS</span>
+      </div>
       <div class="spawn-form__row">
         <label><span class="spawn-form__label">Parent ticket</span>
           <input class="spawn-form__input" placeholder="BDM-99" value={args.ticket}
@@ -368,7 +438,7 @@ function TournamentTab({ onClose, onSpawned }: { onClose: () => void; onSpawned?
           <input class="spawn-form__input" placeholder="grade 1-5 on …" value={args.judge_prompt}
             onInput={(e) => setArgs({ ...args, judge_prompt: (e.currentTarget as HTMLInputElement).value })} /></label>
       </div>
-      {err ? <div style={{ color: 'var(--color-state-error)', fontSize: 'var(--text-xs)' }}>{err}</div> : null}
+      {err ? <ErrLine msg={err} /> : null}
       <div class="modal__actions">
         <Button onClick={onClose} type="button">Cancel</Button>
         <Button variant="primary" disabled={!valid || submitting} onClick={submit}>

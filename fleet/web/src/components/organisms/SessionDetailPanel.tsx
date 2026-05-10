@@ -80,8 +80,8 @@ export function SessionDetailPanel({ ticket, onClose, onKilled }: SessionDetailP
     <aside class="detail-panel">
       <header class="detail-panel__header">
         <div class="detail-panel__crumbs">
-          <span style={{ color: 'var(--color-text-tertiary)' }}>Sessions ›</span>
-          <strong>{ticket}</strong>
+          <span style={{ color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: 'var(--tracking-caps)', fontSize: '10px' }}>SESSIONS ›</span>
+          <strong style={{ fontFamily: 'var(--font-mono)', letterSpacing: 'var(--tracking-mono)' }}>{ticket}</strong>
           {data ? <span style={{ color: 'var(--color-text-secondary)' }}>{data.slug}</span> : null}
           {data ? <Badge state={data.state} /> : null}
         </div>
@@ -109,7 +109,10 @@ export function SessionDetailPanel({ ticket, onClose, onKilled }: SessionDetailP
           {onClose ? <Button onClick={onClose}>Close</Button> : null}
         </div>
         {actionMsg ? (
-          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-state-done)' }}>{actionMsg}</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', letterSpacing: 'var(--tracking-mono)', color: 'var(--color-state-done)' }}>
+            <span class="tape tape--ok" style={{ marginRight: 'var(--space-1)' }}>OK</span>
+            {actionMsg}
+          </div>
         ) : null}
         {(stats?.ai_title || (stats?.cost_usd ?? 0) > 0 || topTools.length > 0) ? (
           <div class="detail-panel__ribbon">
@@ -169,7 +172,10 @@ export function SessionDetailPanel({ ticket, onClose, onKilled }: SessionDetailP
 
       <div class="detail-panel__body">
         {error ? (
-          <div style={{ color: 'var(--color-state-error)' }}>{error}</div>
+          <div class="empty-state" style={{ borderColor: 'var(--color-state-error)', color: 'var(--color-state-error)' }}>
+            <span class="tape tape--err" style={{ marginRight: 'var(--space-2)' }}>ERR</span>
+            {error}
+          </div>
         ) : tab === 'Overview' ? (
           <OverviewTab row={data} />
         ) : tab === 'Stats' ? (
@@ -235,7 +241,7 @@ function ReviewModal({ ticket, onClose, onSpawned }: { ticket: string; onClose: 
   return (
     <Modal title={`Spawn reviewer for ${ticket}`} onClose={onClose}>
       <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>
-        Spawns a child session at <code>{ticket}-rev</code> with <code>--parent {ticket}</code> and <code>--full-auto</code>. The reviewer reads the parent's branch and posts a structured review.
+        Spawns a child session at <code style={{ fontFamily: 'var(--font-mono)' }}>{ticket}-rev</code> with <code style={{ fontFamily: 'var(--font-mono)' }}>--parent {ticket}</code> and <code style={{ fontFamily: 'var(--font-mono)' }}>--full-auto</code>. The reviewer reads the parent's branch and posts a structured review.
       </p>
       <textarea
         class="modal__textarea"
@@ -244,7 +250,12 @@ function ReviewModal({ ticket, onClose, onSpawned }: { ticket: string; onClose: 
         onInput={(e) => setPrompt((e.currentTarget as HTMLTextAreaElement).value)}
         placeholder={`Optional review prompt — leave blank for the default (read branch/diff/PR for ${ticket}, post review).`}
       />
-      {err ? <div style={{ color: 'var(--color-state-error)', fontSize: 'var(--text-xs)' }}>{err}</div> : null}
+      {err ? (
+        <div style={{ marginTop: 'var(--space-2)', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--color-state-error)' }}>
+          <span class="tape tape--err" style={{ marginRight: 'var(--space-1)' }}>ERR</span>
+          {err}
+        </div>
+      ) : null}
       <div class="modal__actions">
         <Button onClick={onClose}>Cancel</Button>
         <Button
@@ -271,25 +282,32 @@ function ReviewModal({ ticket, onClose, onSpawned }: { ticket: string; onClose: 
 }
 
 function OverviewTab({ row }: { row: SessionRow | null }) {
-  if (!row) return <div style={{ color: 'var(--color-text-tertiary)' }}>Loading…</div>;
+  if (!row) {
+    return (
+      <div class="empty-state">
+        <span class="empty-state__icon">◌</span>
+        Loading…
+      </div>
+    );
+  }
   const conf = row.confidence ?? null;
   const drift = row.drift ?? null;
   return (
     <>
       {row.objective ? (
-        <div style={{ marginBottom: 'var(--space-3)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>
-          <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>Objective: </span>
-          {row.objective}
+        <div style={{ marginBottom: 'var(--space-3)', padding: 'var(--space-2) var(--space-3)', borderLeft: '2px solid var(--color-accent)', background: 'var(--color-bg-muted)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>
+          <span class="field__label" style={{ display: 'block', marginBottom: '2px' }}>OBJECTIVE</span>
+          <span style={{ color: 'var(--color-text-primary)' }}>{row.objective}</span>
         </div>
       ) : null}
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 'var(--space-3)' }}>
-        <span class="auth-pill">depth {row.depth ?? 0}</span>
-        {row.full_auto ? <span class="auth-pill auth-pill--strong">--full-auto</span> : null}
-        {row.parent ? <span class="auth-pill">parent {row.parent}</span> : null}
+      <div style={{ display: 'flex', gap: 'var(--space-1)', flexWrap: 'wrap', marginBottom: 'var(--space-3)' }}>
+        <span class="auth-pill">DEPTH {row.depth ?? 0}</span>
+        {row.full_auto ? <span class="auth-pill auth-pill--strong">--FULL-AUTO</span> : null}
+        {row.parent ? <span class="auth-pill">PARENT {row.parent}</span> : null}
       </div>
       <dl class="detail-panel__meta">
-        <dt>Branch</dt><dd><code>{row.branch || '—'}</code></dd>
-        <dt>Parent</dt><dd>{row.parent || '—'}</dd>
+        <dt>Branch</dt><dd><code style={{ fontFamily: 'var(--font-mono)' }}>{row.branch || '—'}</code></dd>
+        <dt>Parent</dt><dd style={{ fontFamily: 'var(--font-mono)' }}>{row.parent || '—'}</dd>
         <dt>Activity</dt><dd>{row.activity}</dd>
         <dt>Cost</dt><dd>{row.cost}</dd>
         <dt>Runtime</dt><dd>{row.runtime}</dd>
@@ -308,8 +326,9 @@ function OverviewTab({ row }: { row: SessionRow | null }) {
             <dd>
               <ConfidenceBar value={drift} tone="warn" />
               {drift > 0.6 ? (
-                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-state-error)' }}>
-                  ⚠ The agent has been quiet for a while — consider attaching to check on it.
+                <div style={{ marginTop: 'var(--space-1)', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', letterSpacing: 'var(--tracking-mono)', color: 'var(--color-state-error)' }}>
+                  <span class="tape tape--err" style={{ marginRight: 'var(--space-1)' }}>WARN</span>
+                  Agent has been quiet for a while — consider attaching to check on it.
                 </div>
               ) : null}
             </dd>
@@ -326,11 +345,11 @@ function ConfidenceBar({ value, tone = 'good' }: { value: number; tone?: 'good' 
     ? 'var(--color-state-needs-input)'
     : 'var(--color-state-done)';
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <div style={{ width: 80, height: 6, background: 'var(--color-bg-muted)', borderRadius: 999, overflow: 'hidden' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+      <div style={{ width: 80, height: 4, background: 'var(--color-bg-muted)', border: '1px solid var(--color-border)', overflow: 'hidden' }}>
         <div style={{ width: `${pct}%`, height: '100%', background: color }} />
       </div>
-      <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)' }}>{pct}%</span>
+      <span style={{ fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)' }}>{pct}%</span>
     </div>
   );
 }
@@ -349,7 +368,12 @@ function SendModal({ ticket, onClose, onSent }: { ticket: string; onClose: () =>
         placeholder="Type a message; Enter sends, Shift+Enter for newline"
         autoFocus
       />
-      {err ? <div style={{ color: 'var(--color-state-error)', fontSize: 'var(--text-xs)' }}>{err}</div> : null}
+      {err ? (
+        <div style={{ marginTop: 'var(--space-2)', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--color-state-error)' }}>
+          <span class="tape tape--err" style={{ marginRight: 'var(--space-1)' }}>ERR</span>
+          {err}
+        </div>
+      ) : null}
       <div class="modal__actions">
         <Button onClick={onClose}>Cancel</Button>
         <Button
@@ -381,11 +405,18 @@ function KillModal({ ticket, onClose, onKilled }: { ticket: string; onClose: () 
   const [uncommitted, setUncommitted] = useState(false);
   return (
     <Modal title={`Kill ${ticket}?`} onClose={onClose}>
-      <p>This stops the tmux session, removes the worktree, and deletes the branch.</p>
-      <p>If the worktree has unpushed work, the kill will refuse — investigate before forcing (per BDM-13 safety).</p>
+      <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>
+        This stops the tmux session, removes the worktree, and deletes the branch.
+      </p>
+      <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>
+        If the worktree has unpushed work, the kill will refuse — investigate before forcing (per <code style={{ fontFamily: 'var(--font-mono)' }}>BDM-13</code> safety).
+      </p>
       {err ? (
-        <div style={{ color: 'var(--color-state-error)', fontSize: 'var(--text-xs)' }}>
-          {uncommitted ? '⚠ Worktree has uncommitted changes. ' : ''}{err}
+        <div style={{ marginTop: 'var(--space-2)', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--color-state-error)' }}>
+          <span class="tape tape--err" style={{ marginRight: 'var(--space-1)' }}>
+            {uncommitted ? 'UNCOMMITTED' : 'ERR'}
+          </span>
+          {err}
         </div>
       ) : null}
       <div class="modal__actions">

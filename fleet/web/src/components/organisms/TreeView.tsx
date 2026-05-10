@@ -39,7 +39,11 @@ function TreeNode({ node, onRowClick, depth }: { node: Node; onRowClick?: (r: Se
   const hasChildren = node.children.length > 0;
   return (
     <li class="tree-view__node">
-      <div class="tree-view__row" onClick={() => onRowClick?.(node.row)} style={{ paddingLeft: `${depth * 16 + 8}px` }}>
+      <div
+        class="tree-view__row"
+        onClick={() => onRowClick?.(node.row)}
+        style={{ paddingLeft: `${depth * 16 + 8}px` }}
+      >
         <button
           type="button"
           class="tree-view__toggle"
@@ -49,11 +53,25 @@ function TreeNode({ node, onRowClick, depth }: { node: Node; onRowClick?: (r: Se
         >
           {open ? '▾' : '▸'}
         </button>
-        <strong>{node.row.ticket}</strong>
-        <span style={{ color: 'var(--color-text-secondary)' }}>{node.row.slug || '—'}</span>
+        <code style={{ color: 'var(--color-text-primary)', fontWeight: 600 }}>
+          {node.row.ticket}
+        </code>
+        <span style={{
+          color: 'var(--color-text-tertiary)',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          flex: 1,
+        }}>
+          {node.row.slug || '—'}
+        </span>
         <Badge state={node.row.state} />
-        <span style={{ flex: 1 }} />
-        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>
+        <span style={{
+          fontFamily: 'var(--font-mono)',
+          fontSize: '10px',
+          color: 'var(--color-text-tertiary)',
+          fontVariantNumeric: 'tabular-nums',
+        }}>
           {node.row.activity}
         </span>
       </div>

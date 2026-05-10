@@ -127,7 +127,7 @@ export function GridPage() {
     <AppShell activeView="grid" topBarTitle="Multi-Agent Grid">
       <div class="grid-page">
         <div class="grid-page__toolbar">
-          <strong style={{ fontSize: 'var(--text-sm)' }}>Layout:</strong>
+          <span class="grid-page__toolbar-label">LAYOUT</span>
           <span class="filter-chips" role="group" aria-label="Layout">
             {GRID_STRATEGIES.map((s) => (
               <button
@@ -141,8 +141,12 @@ export function GridPage() {
             ))}
           </span>
           <span style={{ flex: 1 }} />
-          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>
-            main + {fleetTiles.length} / {totalActive} active sessions
+          <span class="tape">MAIN</span>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', letterSpacing: 'var(--tracking-mono)' }}>
+            +<strong style={{ color: 'var(--color-text-primary)' }}>{fleetTiles.length}</strong>
+            <span style={{ color: 'var(--color-text-tertiary)' }}> / </span>
+            <strong style={{ color: 'var(--color-text-primary)' }}>{totalActive}</strong>
+            <span style={{ color: 'var(--color-text-tertiary)' }}> active</span>
           </span>
         </div>
 

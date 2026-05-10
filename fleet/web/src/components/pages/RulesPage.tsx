@@ -19,24 +19,59 @@ export function RulesPage() {
     return () => window.clearInterval(id);
   }, []);
 
+  const count = rules?.length ?? 0;
+
   return (
     <AppShell activeView="chains" topBarTitle="Pending rules">
-      <h2 style={{ margin: '0 0 16px', fontSize: 'var(--text-lg)', fontWeight: 600 }}>Pending rules</h2>
-      {err ? <div style={{ color: 'var(--color-state-error)' }}>{err}</div> : null}
+      <header class="page-header">
+        <h2 class="page-header__title">Pending rules</h2>
+        <span class={`tape ${count === 0 ? '' : 'tape--warn'}`}>
+          {rules == null ? 'LOAD' : count === 0 ? 'CLEAR' : 'PENDING'}
+        </span>
+        <span class="page-header__sub">{count} queued</span>
+        <span class="page-header__spacer" />
+        <span class="page-header__sub">poll · 5s</span>
+      </header>
+
+      {err ? (
+        <div class="empty-state" style={{ color: 'var(--color-state-error)', marginBottom: 'var(--space-3)' }}>
+          <span class="empty-state__icon" aria-hidden>!</span>
+          {err}
+        </div>
+      ) : null}
+
+      <h3 class="section-heading">
+        Rule queue
+        <span class="section-heading__divider" />
+        <span class="section-heading__count">{count}</span>
+      </h3>
+
       {!rules ? (
-        <div style={{ color: 'var(--color-text-tertiary)' }}>Loading…</div>
+        <div class="empty-state">
+          <span class="empty-state__icon" aria-hidden>·</span>
+          Loading…
+        </div>
       ) : rules.length === 0 ? (
-        <div style={{ color: 'var(--color-text-tertiary)' }}>
-          No pending rules. Rules are created by <code>/fleet:wait</code>, <code>/fleet:cleanup</code>, and chain runs.
+        <div class="empty-state">
+          <span class="empty-state__icon" aria-hidden>∅</span>
+          No pending rules.
+          <div style={{ marginTop: 'var(--space-2)', textTransform: 'none', letterSpacing: 0 }}>
+            Rules are created by <code>/fleet:wait</code>, <code>/fleet:cleanup</code>, and chain runs.
+          </div>
         </div>
       ) : (
         <ul class="audit-list">
           {rules.map((r) => (
-            <li key={r.id} class="audit-list__row" style={{ gridTemplateColumns: '180px 200px 1fr 90px' }}>
+            <li key={r.id} class="audit-list__row" style={{ gridTemplateColumns: '180px 220px 1fr 110px 90px' }}>
               <div class="audit-list__time">{new Date(r.created).toLocaleString()}</div>
               <div class="audit-list__ticket">{r.id}</div>
-              <div class="audit-list__detail"><code style={{ fontSize: 'var(--text-xs)' }}>{r.body ? JSON.stringify(r.body).slice(0, 120) : r.path}</code></div>
+              <div class="audit-list__detail">
+                <code>{r.body ? JSON.stringify(r.body).slice(0, 160) : r.path}</code>
+              </div>
               <div>
+                <span class="tape tape--warn">PENDING</span>
+              </div>
+              <div style={{ textAlign: 'right' }}>
                 <Button onClick={async () => { await deleteRule(r.id); reload(); }}>Cancel</Button>
               </div>
             </li>

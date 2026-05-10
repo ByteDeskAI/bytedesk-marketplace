@@ -1,30 +1,31 @@
-// Sidebar — fleet brand + Views nav + sub-views + user.
-// The multi-project list was removed (each dashboard is per-project; you
-// only ever see the project you're inside).
+// Sidebar — fleet brand, primary navigation, and per-user footer. Each
+// nav item carries a monospace one-letter glyph and an optional hotkey
+// hint. The visual treatment is intentionally Bloomberg-terminal: tight
+// rows, mono labels, sharp 1px chrome.
 
 import { Icon, type IconName } from '../atoms/Icon';
 import { NotifyPill } from '../molecules/NotifyPill';
 
-interface NavItem { id: string; label: string; icon: IconName; href?: string; }
+interface NavItem { id: string; label: string; icon: IconName; href?: string; glyph: string; hotkey?: string; }
 
 const VIEWS: NavItem[] = [
-  { id: 'overview',    label: 'Overview',    icon: 'overview',    href: '/' },
-  { id: 'grid',        label: 'Grid',        icon: 'sessions',    href: '/grid' },
-  { id: 'timeline',    label: 'Timeline',    icon: 'events',      href: '/timeline' },
-  { id: 'chains',      label: 'Chains',      icon: 'chains',      href: '/chains' },
-  { id: 'tournaments', label: 'Tournaments', icon: 'tournaments', href: '/tournaments' },
-  { id: 'audit',       label: 'Audit',       icon: 'audit',       href: '/audit' },
-  { id: 'search',      label: 'Search',      icon: 'search',      href: '/search' },
-  { id: 'rules',       label: 'Rules',       icon: 'audit',       href: '/rules' },
-  { id: 'settings',    label: 'Settings',    icon: 'settings',    href: '/settings' },
+  { id: 'overview',    label: 'Overview',    icon: 'overview',    href: '/',            glyph: '1', hotkey: 'gO' },
+  { id: 'grid',        label: 'Grid',        icon: 'sessions',    href: '/grid',        glyph: '2', hotkey: 'gG' },
+  { id: 'timeline',    label: 'Timeline',    icon: 'events',      href: '/timeline',    glyph: '3', hotkey: 'gT' },
+  { id: 'chains',      label: 'Chains',      icon: 'chains',      href: '/chains',      glyph: '4', hotkey: 'gC' },
+  { id: 'tournaments', label: 'Tournaments', icon: 'tournaments', href: '/tournaments', glyph: '5', hotkey: 'gN' },
+  { id: 'audit',       label: 'Audit',       icon: 'audit',       href: '/audit',       glyph: '6', hotkey: 'gA' },
+  { id: 'search',      label: 'Search',      icon: 'search',      href: '/search',      glyph: '7', hotkey: '/' },
+  { id: 'rules',       label: 'Rules',       icon: 'audit',       href: '/rules',       glyph: '8', hotkey: 'gR' },
+  { id: 'settings',    label: 'Settings',    icon: 'settings',    href: '/settings',    glyph: '9', hotkey: 'g,' },
 ];
 
-const SUBVIEWS = [
-  'Active Work',
-  'Waiting for Input',
-  'Reviewers',
-  'High Cost',
-  'All Sessions',
+const SUBVIEWS: { id: string; label: string; tape?: 'ok' | 'warn' | 'err' | 'accent' }[] = [
+  { id: 'active',     label: 'Active Work',       tape: 'accent' },
+  { id: 'waiting',    label: 'Waiting for Input', tape: 'warn' },
+  { id: 'reviewers',  label: 'Reviewers' },
+  { id: 'high-cost',  label: 'High Cost' },
+  { id: 'all',        label: 'All Sessions' },
 ];
 
 export interface SidebarProps {
@@ -36,10 +37,12 @@ export function Sidebar({ activeView = 'overview' }: SidebarProps) {
     <aside class="app-shell__sidebar">
       <div class="sidebar__brand">
         <span class="sidebar__brand-mark" aria-hidden="true" />
-        fleet
+        <span>fleet</span>
+        <span class="sidebar__brand-tag">v1.13</span>
       </div>
 
       <nav class="sidebar__section" aria-label="Primary views">
+        <div class="sidebar__heading">Views</div>
         <ul class="sidebar__nav">
           {VIEWS.map((v) => (
             <li
@@ -50,37 +53,40 @@ export function Sidebar({ activeView = 'overview' }: SidebarProps) {
               }}
               role={v.href ? 'link' : undefined}
               style={{ cursor: v.href ? 'pointer' : 'default' }}
+              title={v.hotkey ? `${v.label} (${v.hotkey})` : v.label}
             >
-              <Icon name={v.icon} />
-              {v.label}
+              <span class="sidebar__nav-icon">{v.glyph}</span>
+              <span>{v.label}</span>
+              {v.hotkey ? <span class="sidebar__nav-key">{v.hotkey}</span> : null}
             </li>
           ))}
         </ul>
       </nav>
 
       <div class="sidebar__section">
-        <div class="sidebar__heading">Views</div>
+        <div class="sidebar__heading">Filters</div>
         <ul class="sidebar__nav">
           {SUBVIEWS.map((s) => (
-            <li key={s} class="sidebar__nav-item">{s}</li>
+            <li key={s.id} class="sidebar__nav-item">
+              <span class="sidebar__nav-icon" style={{ opacity: 0.6 }}>·</span>
+              <span>{s.label}</span>
+              {s.tape ? <span class={`tape tape--${s.tape}`} style={{ marginLeft: 'auto' }}>•</span> : null}
+            </li>
           ))}
         </ul>
       </div>
 
-      {/* Multi-project list removed — each dashboard is per-project; you
-          only see the project you're inside. Currently active project
-          info still surfaces on the Settings page. */}
-
       <div class="sidebar__user">
-        <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#cbd5e1' }} />
-        <div>
-          <div style={{ fontWeight: 600 }}>You</div>
-          <div style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--text-xs)' }}>local</div>
+        <span class="sidebar__user-dot" aria-hidden="true" />
+        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+          <span style={{ color: 'var(--color-text-primary)', fontWeight: 600 }}>operator</span>
+          <span style={{ color: 'var(--color-text-tertiary)', fontSize: 10 }}>local · 127.0.0.1</span>
         </div>
         <span style={{ flex: 1 }} />
         <NotifyPill />
+        {/* Hidden Icon import to retain backward type ref (no visual). */}
+        <span style={{ display: 'none' }}><Icon name="settings" size={1} /></span>
       </div>
     </aside>
   );
 }
-

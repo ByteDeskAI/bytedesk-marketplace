@@ -77,18 +77,32 @@ State badges ("waiting on input?", "stuck on a test?") are produced by a `JudgeP
 - Hand-rolled HTTP / SSE / WebSocket means we own the bugs the framework would have caught. Mitigation: stdlib is small enough to test exhaustively.
 - Committing `dist/` means the repo carries built artifacts. Mitigation: the build is reproducible via `npm run build`, and a CI check in BDM-29 fails when `dist/` is stale relative to `src/`.
 - The Node sidecar is an optional second runtime that users opting into Haiku must have. Mitigation: heuristic fallback is the default, so the dashboard is fully functional without Node.
+- The "~3KB of JS" target in (3) is aspirational and was already exceeded once xterm.js + the chain canvas + the transcript reader (BDM-28 / bc88583) shipped. The current production bundle is ~418KB JS + 60KB CSS, dominated by xterm.js. The size is acceptable because (a) the dashboard is per-project and loaded once per work session, (b) the bundle is served from loopback, (c) Preact + esbuild keep the framework overhead near zero — the weight is genuine app surface. Future redesigns may amend the budget but should not pull in React/Vite/UI-kits.
 
 ### Neutral / operational
 
 - Future federation across machines (multi-host fleet) would need a second tier above the per-project server. Out of scope for this ADR; tracked as BDM-future.
 - The 50-port window in (2) sets an implicit cap on the number of distinct projects that can have stable first-pick URLs simultaneously. Beyond 50 projects the walk-on-conflict path takes over; the cap is not a correctness limit, only a stability one.
 
+## Amendment — 2026-05-10 — Operator design system (BDM-31)
+
+The Light / Dark / Repllt-Blue triple from BDM-27 is retired. The dashboard now ships with two themes:
+
+- **Operator** (default, dark) — `bg #0a0d10`, amber accent `#ff9e3d`, IBM Plex Sans for prose, JetBrains Mono for IDs/hashes/timestamps/numeric data.
+- **Operator Day** (light variant) — `bg #f7f7f5`, accent `#c2410c`, same fonts.
+
+The visual treatment is industrial / mission-control: sharp 1px chrome, no rounded cards above 4px radius, monospace metadata throughout, all-caps labels with caps-tracking, dense rows (4–8px vertical padding), terminal-style scrollbars, animated `live` dot in TopBar. `useTheme` migrates legacy persisted theme names (`light` → `day`, `dark` / `repllt-blue` → `operator`).
+
+The atomic-design layout in (4) is unchanged. No new dependencies were added. Bundle delta: +17.7KB JS (399.9 → 417.6KB), CSS unchanged at 60.3KB.
+
 ## References
 
 - BDM-28 — Phase 12 web dashboard tracking epic
+- BDM-31 — UI redesign (industrial mission-control / Operator theme)
 - ADR-0002 — `${CLAUDE_PLUGIN_DATA}` per-project state layout (the dashboard reads this)
 - ADR-0001 — Hierarchical authorization (surfaced in the dashboard's depth/auth badges)
 - `fleet/web/server/main.go`, `lock.go`, `config.go` — server lifetime, lock, port assignment
 - `fleet/web/src/components/` — atomic design layout
+- `fleet/web/src/styles.css` — Operator design tokens (BDM-31)
 - `fleet/web/sidecar/` — Haiku Node sidecar
 - `fleet/docs/SMOKE-TEST.md` — Phase 5 verifies the dashboard end-to-end

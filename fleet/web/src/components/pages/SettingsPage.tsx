@@ -14,18 +14,30 @@ import { loadSettings, saveSettings, tailscaleStart, tailscaleStop, type FleetSe
 import { useTheme, type ThemeName, type FontName } from '../../hooks/useTheme';
 
 const THEME_OPTIONS: { id: ThemeName; label: string }[] = [
-  { id: 'light',        label: 'Light' },
-  { id: 'dark',         label: 'Dark' },
-  { id: 'repllt-blue',  label: 'Repllt Blue' },
+  { id: 'operator',  label: 'Operator' },
+  { id: 'day',       label: 'Operator Day' },
 ];
 
-const ACCENTS = ['#2563eb', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#0f172a'];
+const ACCENTS = ['#ff9e3d', '#38bdf8', '#4ade80', '#fbbf24', '#ef4444', '#c084fc', '#fb923c', '#e6e8eb'];
 
 const FONT_OPTIONS: { id: FontName; label: string }[] = [
-  { id: 'inter',          label: 'Inter (default)' },
+  { id: 'inter',          label: 'IBM Plex Sans (default)' },
   { id: 'jetbrains-mono', label: 'JetBrains Mono' },
   { id: 'system',         label: 'System' },
 ];
+
+// Inline-paragraph styling used inside .settings__rows. Matches the
+// mono editorial voice of the surrounding chrome.
+const HELP_STYLE: preact.JSX.CSSProperties = {
+  margin: 0,
+  padding: 'var(--space-2)',
+  background: 'var(--color-bg-app)',
+  borderLeft: '2px solid var(--color-accent)',
+  fontFamily: 'var(--font-mono)',
+  fontSize: 'var(--text-xs)',
+  color: 'var(--color-text-secondary)',
+  lineHeight: 'var(--leading-base)',
+};
 
 export function SettingsPage() {
   const [s, setS] = useState<FleetSettings | null>(null);
@@ -62,13 +74,25 @@ export function SettingsPage() {
 
   return (
     <AppShell activeView="settings" topBarTitle="Settings">
-      {err ? <div style={{ color: 'var(--color-state-error)', marginBottom: 12 }}>{err}</div> : null}
+      {err ? (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 'var(--space-2)',
+          marginBottom: 'var(--space-3)',
+          fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)',
+        }}>
+          <span class="tape tape--err">ERROR</span>
+          <span style={{ color: 'var(--color-state-error)' }}>{err}</span>
+        </div>
+      ) : null}
       {!s ? (
-        <div style={{ color: 'var(--color-text-tertiary)' }}>Loading settings…</div>
+        <div class="empty-state">
+          <span class="empty-state__icon">◌</span>
+          Loading settings…
+        </div>
       ) : (
         <div class="settings">
           <Section title="Mobile push (B15)">
-            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>
+            <p style={HELP_STYLE}>
               Routes selected event kinds to an <code>ntfy</code> topic. The notify daemon already
               supports webhook sinks; this page persists the config.
             </p>
@@ -107,29 +131,31 @@ export function SettingsPage() {
               />
             </Field>
             {s.mobile.enabled && s.mobile.topic ? (
-              <CodeBlock>
+              <pre class="code-block">
                 {`curl -d "fleet event" ${s.mobile.ntfy_url.replace(/\/$/, '')}/${s.mobile.topic}`}
-              </CodeBlock>
+              </pre>
             ) : null}
           </Section>
 
           <Section title="Theme (C7)">
-            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>
+            <p style={HELP_STYLE}>
               Live preview — changes apply to this browser immediately. Saving persists them
               to the project's <code>settings.toml</code>.
             </p>
             <Field label="Theme">
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {THEME_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    class={`filter-chip${theme.theme === opt.id ? ' filter-chip--active' : ''}`}
-                    onClick={() => setTheme({ ...theme, theme: opt.id })}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
+              <div style={{ display: 'flex', gap: 0 }}>
+                <div class="filter-chips">
+                  {THEME_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      class={`filter-chip${theme.theme === opt.id ? ' filter-chip--active' : ''}`}
+                      onClick={() => setTheme({ ...theme, theme: opt.id })}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </Field>
             <Field label="Accent color">
@@ -138,13 +164,11 @@ export function SettingsPage() {
                   <button
                     key={hex}
                     type="button"
-                    aria-label={hex}
+                    aria-label={`Accent ${hex}`}
+                    aria-pressed={theme.accent === hex}
+                    class={`settings__swatch${theme.accent === hex ? ' settings__swatch--active' : ''}`}
                     onClick={() => setTheme({ ...theme, accent: hex })}
-                    style={{
-                      width: 24, height: 24, borderRadius: 6, border: '2px solid',
-                      borderColor: theme.accent === hex ? 'var(--color-text-primary)' : 'var(--color-border)',
-                      background: hex, cursor: 'pointer',
-                    }}
+                    style={{ background: hex }}
                   />
                 ))}
               </div>
@@ -163,7 +187,7 @@ export function SettingsPage() {
           </Section>
 
           <Section title="Tailscale share (B17)">
-            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>
+            <p style={HELP_STYLE}>
               Expose this dashboard over your tailnet (or the public internet via funnel). The
               toggle is informational — you still run the <code>tailscale</code> CLI yourself.
             </p>
@@ -182,14 +206,14 @@ export function SettingsPage() {
               />
             </Field>
             {s.tailscale.enabled ? (
-              <CodeBlock>
+              <pre class="code-block">
                 {s.tailscale.funnel
                   ? `tailscale funnel --bg ${window.location.origin}`
                   : `tailscale serve --bg ${window.location.origin}`}
-              </CodeBlock>
+              </pre>
             ) : null}
             <Field label="Run from server">
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
                 <Button
                   onClick={async () => {
                     try { const r = await tailscaleStart(s.tailscale.funnel); setErr(r.error ?? null); }
@@ -207,7 +231,7 @@ export function SettingsPage() {
           </Section>
 
           <Section title="Jira (A15 / B7)">
-            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>
+            <p style={HELP_STYLE}>
               Used by SpawnModal's <strong>From Jira</strong> + <strong>From Backlog</strong> tabs.
               Leave the API token blank to use the <code>JIRA_API_TOKEN</code> env var instead.
             </p>
@@ -250,7 +274,7 @@ export function SettingsPage() {
           </Section>
 
           <Section title="AI / Haiku (B10 / B11 / B12)">
-            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>
+            <p style={HELP_STYLE}>
               Routes state-confidence + drift + cost-estimate through real Haiku via
               the <code>@anthropic-ai/claude-agent-sdk</code> Node sidecar. Falls back
               to the heuristic when the API key env var is empty.
@@ -286,9 +310,7 @@ export function SettingsPage() {
             <Button variant="primary" onClick={persist} disabled={saving}>
               {saving ? 'Saving…' : 'Save'}
             </Button>
-            {savedAt ? (
-              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-state-done)' }}>Saved.</span>
-            ) : null}
+            {savedAt ? <span class="tape tape--ok">SAVED</span> : null}
           </div>
         </div>
       )}
@@ -311,20 +333,5 @@ function Field({ label, children }: { label: string; children: preact.ComponentC
       <span class="settings__label">{label}</span>
       <span class="settings__control">{children}</span>
     </label>
-  );
-}
-
-function CodeBlock({ children }: { children: preact.ComponentChildren }) {
-  return (
-    <pre style={{
-      background: '#0b0e14',
-      color: '#d4d4d4',
-      padding: 'var(--space-3)',
-      borderRadius: 'var(--radius-md)',
-      fontSize: 'var(--text-xs)',
-      fontFamily: 'var(--font-mono)',
-      overflow: 'auto',
-      margin: 'var(--space-2) 0 0',
-    }}>{children}</pre>
   );
 }

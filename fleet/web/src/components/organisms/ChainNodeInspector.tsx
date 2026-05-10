@@ -25,7 +25,10 @@ export function ChainNodeInspector({ node, onChange, onDelete }: ChainNodeInspec
     return (
       <aside class="chain-inspector chain-inspector--empty" aria-label="Inspector">
         <div class="chain-inspector__placeholder">
-          Select a node to edit its config.
+          &gt; NO NODE SELECTED
+          <div style={{ marginTop: 'var(--space-2)', textTransform: 'none', letterSpacing: 0, fontWeight: 400, color: 'var(--color-text-tertiary)' }}>
+            Select a node on the canvas to edit its config.
+          </div>
         </div>
       </aside>
     );
@@ -34,7 +37,7 @@ export function ChainNodeInspector({ node, onChange, onDelete }: ChainNodeInspec
   return (
     <aside class="chain-inspector" aria-label="Inspector">
       <header class="chain-inspector__header">
-        <div class="chain-inspector__type">{node.type}</div>
+        <div class="chain-inspector__type">&gt; {node.type}</div>
         <div class="chain-inspector__id">{node.id}</div>
       </header>
       <div class="chain-inspector__body">
@@ -47,7 +50,7 @@ export function ChainNodeInspector({ node, onChange, onDelete }: ChainNodeInspec
       </div>
       {onDelete ? (
         <div class="chain-inspector__footer">
-          <button type="button" class="btn" onClick={() => onDelete(node.id)}>Delete node</button>
+          <button type="button" class="btn btn--danger" onClick={() => onDelete(node.id)}>DELETE NODE</button>
         </div>
       ) : null}
     </aside>

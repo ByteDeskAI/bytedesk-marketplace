@@ -24,22 +24,38 @@ export function ShortcutsOverlay({ onClose }: { onClose: () => void }) {
   return (
     <div class="modal-backdrop" onClick={onClose}>
       <div class="modal" onClick={(e) => e.stopPropagation()}>
-        <header class="modal__header">Keyboard shortcuts</header>
+        <header class="modal__header">
+          <span>KEYBOARD SHORTCUTS</span>
+          <span style={{ marginLeft: 'auto' }}>
+            <span class="tape">PRESS <kbd class="kbd" style={{ marginLeft: 4 }}>ESC</kbd> TO CLOSE</span>
+          </span>
+        </header>
         <div class="modal__body">
           <table class="kbd-table">
             <tbody>
-              {SHORTCUTS.map((s) => (
-                <tr key={s.keys}>
-                  <td>
-                    {s.keys.split(' ').map((k, i) => (
-                      <span key={i}>
-                        <kbd class="kbd">{k}</kbd>{i < s.keys.split(' ').length - 1 ? ' ' : ''}
-                      </span>
-                    ))}
-                  </td>
-                  <td>{s.desc}</td>
-                </tr>
-              ))}
+              {SHORTCUTS.map((s) => {
+                const parts = s.keys.split(' ');
+                return (
+                  <tr key={s.keys}>
+                    <td>
+                      {parts.map((k, i) => (
+                        <span key={i}>
+                          <kbd class="kbd">{k}</kbd>
+                          {i < parts.length - 1 ? (
+                            <span style={{
+                              margin: '0 4px',
+                              color: 'var(--color-text-tertiary)',
+                              fontFamily: 'var(--font-mono)',
+                              fontSize: 10,
+                            }}>then</span>
+                          ) : null}
+                        </span>
+                      ))}
+                    </td>
+                    <td>{s.desc}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

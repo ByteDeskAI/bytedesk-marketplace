@@ -33,23 +33,36 @@ export function TournamentsPage() {
 
   return (
     <AppShell activeView="tournaments" topBarTitle="Tournaments">
-      <h2 style={{ margin: '0 0 16px', fontSize: 'var(--text-lg)', fontWeight: 600 }}>Tournaments</h2>
+      <header class="page-header">
+        <h2 class="page-header__title">&gt; Tournaments</h2>
+        <span class="page-header__sub">parent ticket · n variants · judge stub</span>
+        <span class="page-header__spacer" />
+        <span class="tape">{groups.length} GROUP{groups.length === 1 ? '' : 'S'}</span>
+      </header>
+
+      <h3 class="section-heading">
+        ACTIVE BRACKETS
+        <span class="section-heading__count">{groups.length}</span>
+        <span class="section-heading__divider" />
+      </h3>
+
       {groups.length === 0 ? (
-        <div style={{ color: 'var(--color-text-tertiary)' }}>
-          No tournaments yet. Spawn one from the <strong>+ Spawn</strong> button → Tournament tab.
+        <div class="empty-state">
+          <span class="empty-state__icon">⚙</span>
+          NO TOURNAMENTS YET — SPAWN ONE FROM <strong>+ SPAWN</strong> → TOURNAMENT TAB
         </div>
       ) : (
-        <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 8 }}>
+        <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 'var(--space-1)' }}>
           {groups.map((g) => (
             <li
               key={g.parent}
               class="tournament-card"
               onClick={() => navigate(`/tournaments/${encodeURIComponent(g.parent)}`)}
             >
-              <strong>{g.parent}</strong>
-              <span style={{ color: 'var(--color-text-secondary)' }}>{g.variants.length} variants</span>
+              <code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--color-text-primary)' }}>{g.parent}</code>
+              <span class="tape">{g.variants.length} VARIANTS</span>
               <span style={{ flex: 1 }} />
-              <span style={{ display: 'flex', gap: 4 }}>
+              <span style={{ display: 'flex', gap: 'var(--space-1)' }}>
                 {g.variants.map((v) => <Badge key={v.ticket} state={v.state} />)}
               </span>
             </li>
@@ -63,12 +76,25 @@ export function TournamentsPage() {
 function TournamentDetail({ group, parent, onBack }: { group: Group | undefined; parent: string; onBack: () => void }) {
   return (
     <AppShell activeView="tournaments" topBarTitle={`Tournament — ${parent}`}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-        <button type="button" class="link-button" onClick={onBack}>← Back</button>
-        <h2 style={{ margin: 0, fontSize: 'var(--text-lg)', fontWeight: 600 }}>{parent}</h2>
-      </div>
+      <header class="page-header">
+        <button type="button" class="link-button" onClick={onBack}>← ALL TOURNAMENTS</button>
+        <h2 class="page-header__title">&gt; {parent}</h2>
+        <span class="page-header__sub">bracket detail · {group ? `${group.variants.length} variants` : 'pending'}</span>
+        <span class="page-header__spacer" />
+        {group ? <span class="tape tape--accent">RUNNING</span> : <span class="tape tape--warn">SPAWNING</span>}
+      </header>
+
+      <h3 class="section-heading">
+        VARIANT ROSTER
+        <span class="section-heading__count">{group?.variants.length ?? 0}</span>
+        <span class="section-heading__divider" />
+      </h3>
+
       {!group ? (
-        <div style={{ color: 'var(--color-text-tertiary)' }}>No variants yet — spawning may still be in progress.</div>
+        <div class="empty-state">
+          <span class="empty-state__icon">…</span>
+          NO VARIANTS YET — SPAWN MAY STILL BE IN PROGRESS
+        </div>
       ) : (
         <table class="tournament-table">
           <thead>
@@ -105,13 +131,13 @@ function VariantRow({ v }: { v: SessionRow }) {
       onClick={() => { window.location.hash = '/'; window.setTimeout(() => { (document.querySelector(`[data-ticket="${v.ticket}"]`) as HTMLElement | null)?.click(); }, 50); }}
       style={{ cursor: 'pointer' }}
     >
-      <td><strong>{v.ticket}</strong></td>
+      <td><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--color-text-primary)' }}>{v.ticket}</code></td>
       <td>{agent === '—' ? <span style={{ color: 'var(--color-text-tertiary)' }}>—</span> : <code>{agent}</code>}</td>
       <td><Badge state={v.state} /></td>
       <td>{v.activity}</td>
-      <td>{cost}</td>
-      <td>{v.runtime}</td>
-      <td>{Math.round(v.progress * 100)}%</td>
+      <td><span style={{ fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums' }}>{cost}</span></td>
+      <td><span style={{ fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums' }}>{v.runtime}</span></td>
+      <td><span style={{ fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums' }}>{Math.round(v.progress * 100)}%</span></td>
     </tr>
   );
 }

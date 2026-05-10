@@ -162,14 +162,25 @@ export function InteractiveTerminal({ ticket, wsPath }: InteractiveTerminalProps
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const statusLabel =
+    status === 'open' ? 'LIVE' :
+    status === 'connecting' ? 'CONNECTING' :
+    status === 'closed' ? 'CLOSED' : 'ERROR';
+  const statusGlyph =
+    status === 'open' ? '●' :
+    status === 'connecting' ? '◌' :
+    status === 'closed' ? '○' : '✗';
+
   return (
     <div class="interactive-terminal">
       <div class="interactive-terminal__header">
         <span class={`interactive-terminal__status interactive-terminal__status--${status}`}>
-          {status === 'open' ? '● live' : status === 'connecting' ? '○ connecting' : status === 'closed' ? '○ closed' : '✗ error'}
+          {statusGlyph} {statusLabel}
         </span>
-        <span class="interactive-terminal__hint">PTY · {ticket}</span>
-        {errMsg ? <span class="interactive-terminal__err">{errMsg}</span> : null}
+        <span style={{ color: 'var(--color-border-strong)' }}>│</span>
+        <span class="interactive-terminal__hint">PTY</span>
+        <span style={{ color: 'var(--color-text-primary)', fontWeight: 600 }}>{ticket}</span>
+        {errMsg ? <span class="interactive-terminal__err">⚠ {errMsg}</span> : null}
       </div>
       <div ref={containerRef} class="interactive-terminal__xterm" />
     </div>

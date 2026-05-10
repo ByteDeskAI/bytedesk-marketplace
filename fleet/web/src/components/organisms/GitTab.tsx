@@ -17,8 +17,25 @@ export function GitTab({ ticket }: { ticket: string }) {
     return () => window.clearInterval(id);
   }, [ticket]);
 
-  if (err) return <div style={{ color: 'var(--color-state-error)' }}>{err}</div>;
-  if (!data) return <div style={{ color: 'var(--color-text-tertiary)' }}>Loading git status…</div>;
+  if (err) {
+    return (
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 'var(--space-2)',
+        fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)',
+      }}>
+        <span class="tape tape--err">ERROR</span>
+        <span style={{ color: 'var(--color-state-error)' }}>{err}</span>
+      </div>
+    );
+  }
+  if (!data) {
+    return (
+      <div class="empty-state">
+        <span class="empty-state__icon">◌</span>
+        Loading git status…
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: 'grid', gap: 'var(--space-4)' }}>
@@ -28,16 +45,21 @@ export function GitTab({ ticket }: { ticket: string }) {
         <dt>Status</dt>
         <dd>
           {data.clean ? (
-            <span style={{ color: 'var(--color-state-done)' }}>● clean</span>
+            <span class="tape tape--ok">CLEAN</span>
           ) : (
-            <span style={{ color: 'var(--color-state-needs-input)' }}>● {data.files.length} change{data.files.length === 1 ? '' : 's'}</span>
+            <span class="tape tape--warn">
+              {data.files.length} CHANGE{data.files.length === 1 ? '' : 'S'}
+            </span>
           )}
         </dd>
       </dl>
 
       {data.files.length > 0 ? (
         <div>
-          <h3 style={{ margin: '0 0 8px', fontSize: 'var(--text-sm)', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-text-tertiary)' }}>Working tree</h3>
+          <h3 class="section-heading">
+            <span>WORKING TREE</span>
+            <span class="section-heading__count">{data.files.length}</span>
+          </h3>
           <ul class="git-files">
             {data.files.map((f) => (
               <li key={f.path}>
@@ -51,7 +73,10 @@ export function GitTab({ ticket }: { ticket: string }) {
 
       {data.log.length > 0 ? (
         <div>
-          <h3 style={{ margin: '0 0 8px', fontSize: 'var(--text-sm)', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-text-tertiary)' }}>Recent commits</h3>
+          <h3 class="section-heading">
+            <span>RECENT COMMITS</span>
+            <span class="section-heading__count">{data.log.length}</span>
+          </h3>
           <ul class="git-log">
             {data.log.map((e) => (
               <li key={e.hash}>
