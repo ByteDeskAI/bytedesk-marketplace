@@ -16,7 +16,7 @@ Scope of "fleet":
 
 - `.claude/hooks/*` — PreToolUse / PostToolUse / SessionStart / etc. gates
 - `.claude/skills/fleet/*` — `fleet:*` skills (`/fleet:spawn`, `/fleet:review`, `/fleet:tournament`, `/fleet:chain`, `/fleet:cleanup`, `/fleet:wait`)
-- The `claude-sessions` dashboard / `spawn-claude-feature` launcher (currently `~/.local/bin/`, vendored under `scripts/` per BDP-366)
+- The `claude-sessions` dashboard / `spawn-claude-feature` launcher, distributed via the `fleet` plugin and PATH-injected from `${CLAUDE_PLUGIN_ROOT}/bin/`
 
 If a rule applies only to ByteDesk-specific concerns (Jira ticket conventions, Helm topology, .NET stack), it does **not** belong here. Put it in `general.md`, `backend.md`, `project-management.md`, etc.
 
