@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.15.5] — 2026-05-10
+
+Patch release: lift `--color-text-tertiary` in both Operator + Operator
+Day themes so tiny labels (10–11px) clear WCAG AA contrast against the
+page background.
+
+### Fixed
+
+- **Tertiary text contrast below WCAG AA (BDM-42):** measured 4.0:1
+  (Operator) and ~3.2:1 (Operator Day) for `.session-table__header`,
+  `.statbar-item`, and any other element using `--color-text-tertiary`
+  on the page bg. AA minimum is 4.5:1 for normal text. Bumped tertiary
+  to `#7d8693` (Operator, ≈4.7:1) and `#6b6f78` (Operator Day, ≈4.6:1).
+  Visual hierarchy preserved — tertiary stays clearly more muted than
+  secondary. Discovered via /loop iteration 7 contrast probe.
+
 ## [1.15.4] — 2026-05-10
 
 Patch release: modal focus trap + ARIA dialog roles. Keyboard and
