@@ -2555,8 +2555,19 @@ code, pre, .mono {
   padding: var(--space-2);
   position: relative;
 }
-.chat-tile__list > div {
+/* Only Virtuoso's scroller takes the full height; overlay siblings
+ * (connection pill, unread banner) keep their natural size (BDM-43). */
+.chat-tile__list > div[data-test-id="virtuoso-scroller"],
+.chat-tile__list > div[data-virtuoso-scroller] {
   height: 100%;
+}
+/* Defensive: if the absolutely-positioned pill ever does match the
+ * full-height rule above (e.g. on a Virtuoso version change), force
+ * its height back to content. */
+.chat-tile__conn,
+.chat-tile__unread {
+  height: auto;
+  width: auto;
 }
 .chat-tile__empty,
 .chat-tile__loading,

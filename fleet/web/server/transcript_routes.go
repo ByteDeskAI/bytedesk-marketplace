@@ -49,6 +49,14 @@ func handleSessionTranscriptStream(w http.ResponseWriter, r *http.Request, deps 
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
+	// Flush headers immediately so the client's EventSource fires
+	// `onopen` right away. Otherwise Go buffers the headers until the
+	// first Write — and on a quiet conversation the first event might
+	// be 15s away (the keepalive tick), leaving the chat connection
+	// pill stuck on "reconnecting…" for that whole window (BDM-43).
+	fmt.Fprint(w, ": hello\n\n")
+	flusher.Flush()
+
 	sub := deps.bus.Subscribe(Topic("transcript." + ticket))
 	defer deps.bus.Unsubscribe(sub)
 

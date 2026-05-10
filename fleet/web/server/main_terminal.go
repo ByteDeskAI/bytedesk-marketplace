@@ -178,6 +178,11 @@ func handleMainTranscript(w http.ResponseWriter, r *http.Request, deps *apiDeps)
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
+	// Flush headers immediately so onopen fires (BDM-43 — see
+	// handleSessionTranscriptStream for the full rationale).
+	fmt.Fprint(w, ": hello\n\n")
+	flusher.Flush()
+
 	sub := deps.bus.Subscribe(Topic("transcript." + mainTicket))
 	defer deps.bus.Unsubscribe(sub)
 
