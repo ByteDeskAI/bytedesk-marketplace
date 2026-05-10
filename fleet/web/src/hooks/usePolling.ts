@@ -1,9 +1,13 @@
-// Generic poll hook. The Phase 3a read-surface hooks (useSessionList,
-// useStats, useProjects, useEventStream) compose this. Phase 3b will
-// replace the polling with a single SSE multiplex; the hook signatures
-// stay the same, so consumers don't change.
+// usePolling — generic poll hook. Falls back to polling if SSE is
+// unavailable; if a topic name is supplied, also subscribes to that SSE
+// topic and refetches immediately when an event arrives.
+//
+// Phase 3b layered SSE on top of the Phase 3a polling. Hook callers
+// don't see the difference; they just get faster updates on busy
+// projects.
 
 import { useEffect, useRef, useState } from 'preact/hooks';
+import { useSSE } from './useSSE';
 
 export interface PollingState<T> {
   data: T | null;
@@ -11,9 +15,14 @@ export interface PollingState<T> {
   error: Error | null;
 }
 
-export function usePolling<T>(url: string, intervalMs: number): PollingState<T> {
+export function usePolling<T>(
+  url: string,
+  intervalMs: number,
+  sseTopic?: string
+): PollingState<T> {
   const [state, setState] = useState<PollingState<T>>({ data: null, loading: true, error: null });
   const cancelled = useRef(false);
+  const fetchRef = useRef<() => void>();
 
   useEffect(() => {
     cancelled.current = false;
@@ -33,6 +42,7 @@ export function usePolling<T>(url: string, intervalMs: number): PollingState<T> 
         }
       }
     };
+    fetchRef.current = tick;
 
     tick();
     timer = window.setInterval(tick, intervalMs);
@@ -41,6 +51,11 @@ export function usePolling<T>(url: string, intervalMs: number): PollingState<T> 
       if (timer !== undefined) window.clearInterval(timer);
     };
   }, [url, intervalMs]);
+
+  // SSE-driven immediate refetch.
+  useSSE(sseTopic ?? '', () => {
+    if (sseTopic) fetchRef.current?.();
+  });
 
   return state;
 }

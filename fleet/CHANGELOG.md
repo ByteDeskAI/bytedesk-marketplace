@@ -10,6 +10,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `/fleet:setup-cli` skill creates `~/.local/bin/` wrappers for the three public CLI binaries (`claude-sessions`, `claude-sessions-web`, `spawn-claude-feature`) so they're available on the user's interactive shell PATH without breaking on `/plugin update`. The wrappers resolve to the latest installed plugin version at exec time via `ls -dv … | tail -1`. Idempotent and sentinel-gated: re-running refreshes our own wrappers but refuses to clobber foreign files at the same path. Fills the gap left by BDM-3's removal of the `~/.local/bin/` symlinks (BDM-23).
 
+## [1.4.0] — 2026-05-10
+
+**Phase 3b of BDM-14: SSE multiplex + EventBus (BDM-18).** Replaces 5s polling with sub-second push. Hooks unchanged at the call site.
+
+### Added
+
+- `fleet/web/server/eventbus.go` — `EventBus` (Mediator pattern). Topic-based pub/sub with non-blocking publish + drop-on-slow-consumer.
+- `fleet/web/server/watcher.go` — internal poll-tick (1s) that hashes session/stats/projects/events outputs, detects changes, publishes on the bus. Stays in stdlib (no fsnotify dependency for now).
+- `GET /api/stream` — SSE handler. `?topics=sessions,stats,…` to subscribe. Sends `event: <topic>\ndata: {}` on changes; 15s keepalive.
+- `fleet/web/src/hooks/useSSE.ts` — single shared `EventSource` per app, topic-keyed callbacks, ref-counted teardown.
+- `usePolling` extended: optional `sseTopic` arg; on SSE event, immediate refetch (rather than waiting for the poll tick).
+
+### Changed
+
+- `claude-sessions-web` build version → `v1.4.0-bdm18`.
+- `useSessionList`, `useStats`, `useProjects`, `useEventStream` now subscribe to their respective SSE topics.
+
 ## [1.3.0] — 2026-05-10
 
 **Phase 3a of the BDM-14 web dashboard plan: read surface (BDM-17).** The SPA now renders against real session data from the project's `${CLAUDE_PLUGIN_DATA}/projects/<KEY>/sessions/` tree. Polling-based hooks; SSE multiplex (Phase 3b) is queued.
