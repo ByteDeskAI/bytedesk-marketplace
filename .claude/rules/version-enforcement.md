@@ -42,7 +42,19 @@ For a future plugin under `<plugin>/`: same five-marker structure; only the file
 
 ## Workflow
 
-1. Before staging any commit on a plugin path, check current versions:
+1. **Pull latest first.** Background sessions / other branches may have already shipped a bump; using a stale version would either overwrite their work or land on an outdated baseline. Stash WIP if you have uncommitted changes.
+   ```bash
+   # If you have uncommitted local changes:
+   git stash push -m "version-bump-rebase"
+   # Always:
+   git fetch origin main
+   git pull --ff-only origin main
+   # Then restore WIP:
+   git stash pop   # only if you stashed
+   ```
+   If `git pull --ff-only` fails (you have local commits ahead of `origin/main`), rebase: `git pull --rebase origin main`. Do NOT skip this step — landing a version that's already on `main` produces a no-op tag and a broken reuse-or-reload check.
+
+2. After pulling, check current versions:
    ```bash
    grep -E '"version"|buildVersion' \
      fleet/.claude-plugin/plugin.json \
@@ -50,11 +62,12 @@ For a future plugin under `<plugin>/`: same five-marker structure; only the file
      fleet/web/server/server.go \
      .claude-plugin/marketplace.json
    ```
-2. Decide the bump category using the table above.
-3. Update all five markers + write the CHANGELOG entry.
-4. Run typecheck / build / tests so the new version compiles into the binary.
-5. Commit with a message that calls out the version bump (e.g. `fleet: release vX.Y.Z — short summary`).
-6. The CHANGELOG block should reference Jira ticket keys (`BDM-N`) for traceability and group bullets under Added/Changed/Fixed/Removed/Build per Keep a Changelog.
+3. Decide the bump category using the table above (compare against what's now on disk, post-pull).
+4. Update all five markers + write the CHANGELOG entry.
+5. Run typecheck / build / tests so the new version compiles into the binary.
+6. Commit with a message that calls out the version bump (e.g. `fleet: release vX.Y.Z — short summary`).
+7. The CHANGELOG block should reference Jira ticket keys (`BDM-N`) for traceability and group bullets under Added/Changed/Fixed/Removed/Build per Keep a Changelog.
+8. `git push origin main` — re-pull if the push is rejected (someone else committed during steps 4–7) and re-bump if their commit also bumped.
 
 ## When to skip
 

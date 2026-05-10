@@ -723,11 +723,17 @@ sink_ntfy() {
   url="$(awk -F'=' '/^\[mobile\]/{f=1;next} /^\[/{f=0} f && $1~/^ntfy_url/{gsub(/^[ ]*"|"[ ]*$/,"",$2);print $2;exit}' "$cfg")"
   topic="$(awk -F'=' '/^\[mobile\]/{f=1;next} /^\[/{f=0} f && $1~/^topic/{gsub(/^[ ]*"|"[ ]*$/,"",$2);print $2;exit}' "$cfg")"
   kinds="$(awk -F'=' '/^\[mobile\]/{f=1;next} /^\[/{f=0} f && $1~/^kinds/{gsub(/^[ ]*"|"[ ]*$/,"",$2);print $2;exit}' "$cfg")"
+  local api_key
+  api_key="$(awk -F'=' '/^\[mobile\]/{f=1;next} /^\[/{f=0} f && $1~/^api_key/{gsub(/^[ ]*"|"[ ]*$/,"",$2);print $2;exit}' "$cfg")"
   [[ -n "$url" && -n "$topic" ]] || return 0
   if [[ -n "$kinds" && ! "$kinds" =~ (^|,)"$kind"($|,) ]]; then
     return 0
   fi
-  curl -fsS -m 5 -H "Title: $title" --data "$body" "${url%/}/$topic" \
+  # ntfy paid tier + self-hosted servers accept `Authorization: Bearer
+  # <token>` (BDM-46). Omitted when api_key is empty (public ntfy.sh).
+  local auth_args=()
+  [[ -n "$api_key" ]] && auth_args=(-H "Authorization: Bearer $api_key")
+  curl -fsS -m 5 -H "Title: $title" "${auth_args[@]}" --data "$body" "${url%/}/$topic" \
     >/dev/null 2>>"$NOTIFY_LOG" || true
 }
 

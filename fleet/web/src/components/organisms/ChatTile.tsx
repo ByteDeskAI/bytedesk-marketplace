@@ -24,7 +24,7 @@ export interface ChatTileProps {
 const INITIAL_FIRST_INDEX = 1_000_000;
 
 export function ChatTile({ row }: ChatTileProps) {
-  const { messages, sendMessage, sendKeys, isLoading, error, loadMore, hasMore, loadingMore, connection } =
+  const { messages, sendMessage, sendKeys, isLoading, error, loadMore, hasMore, loadingMore } =
     useFleetChat(row.ticket);
   const { stats } = useSessionStats(row.ticket);
   const vRef = useRef<VirtuosoHandle | null>(null);
@@ -170,11 +170,6 @@ export function ChatTile({ row }: ChatTileProps) {
           >
             ↓ {unread} new {unread === 1 ? 'message' : 'messages'}
           </button>
-        )}
-        {connection !== 'live' && messages.length > 0 && (
-          <div class={`chat-tile__conn chat-tile__conn--${connection}`} title="SSE connection state">
-            {connection === 'reconnecting' ? '◐ reconnecting…' : '○ disconnected'}
-          </div>
         )}
       </div>
       <ChatComposer

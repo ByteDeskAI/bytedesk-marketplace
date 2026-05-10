@@ -46,6 +46,11 @@ type MobileConfig struct {
 	NtfyURL string `json:"ntfy_url"` // e.g. https://ntfy.sh
 	Topic   string `json:"topic"`    // e.g. fleet-alerts-abc123
 	Kinds   string `json:"kinds"`    // comma list: "merge,pr_opened,review_summary"
+	// APIKey — optional bearer token for ntfy.sh paid tier (`Authorization:
+	// Bearer <key>`). Empty for the public ntfy.sh server. Stored in
+	// settings.toml; the bash notify daemon reads it and sets the
+	// header on each POST.
+	APIKey string `json:"api_key,omitempty"`
 }
 
 type TailscaleConfig struct {
@@ -119,6 +124,7 @@ func formatSettingsTOML(s Settings) string {
 	sb.WriteString(fmt.Sprintf("ntfy_url = %q\n", s.Mobile.NtfyURL))
 	sb.WriteString(fmt.Sprintf("topic = %q\n", s.Mobile.Topic))
 	sb.WriteString(fmt.Sprintf("kinds = %q\n", s.Mobile.Kinds))
+	sb.WriteString(fmt.Sprintf("api_key = %q\n", s.Mobile.APIKey))
 	sb.WriteString("\n[tailscale]\n")
 	sb.WriteString(fmt.Sprintf("enabled = %t\n", s.Tailscale.Enabled))
 	sb.WriteString(fmt.Sprintf("funnel = %t\n", s.Tailscale.Funnel))
@@ -166,6 +172,8 @@ func parseSettingsTOML(s string, out *Settings) {
 				out.Mobile.Topic = val
 			case "kinds":
 				out.Mobile.Kinds = val
+			case "api_key":
+				out.Mobile.APIKey = val
 			}
 		case "tailscale":
 			switch key {

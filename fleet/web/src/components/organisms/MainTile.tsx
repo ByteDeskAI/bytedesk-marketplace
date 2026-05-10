@@ -40,7 +40,7 @@ export function MainTile() {
 }
 
 function MainChatBody() {
-  const { messages, sendMessage, sendKeys, isLoading, error, loadMore, hasMore, loadingMore, connection } =
+  const { messages, sendMessage, sendKeys, isLoading, error, loadMore, hasMore, loadingMore } =
     useFleetChat('__main__', {
       messagesURL: '/api/main/messages',
       transcriptURL: '/api/main/transcript',
@@ -144,11 +144,6 @@ function MainChatBody() {
           >
             ↓ {unread} new {unread === 1 ? 'message' : 'messages'}
           </button>
-        )}
-        {connection !== 'live' && messages.length > 0 && (
-          <div class={`chat-tile__conn chat-tile__conn--${connection}`} title="SSE connection state">
-            {connection === 'reconnecting' ? '◐ reconnecting…' : '○ disconnected'}
-          </div>
         )}
       </div>
       <ChatComposer

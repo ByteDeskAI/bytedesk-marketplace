@@ -301,6 +301,56 @@ export async function tailscaleStatus(): Promise<{ raw: unknown; rawText: string
   return r.json();
 }
 
+// BDM-46 — automation surface
+export interface TailscaleInfo {
+  installed: boolean;
+  path?: string;
+  version?: string;
+  daemon_running: boolean;
+  logged_in: boolean;
+  hostname?: string;
+  ip?: string;
+  serve_url?: string;
+}
+export async function tailscaleInfo(): Promise<TailscaleInfo> {
+  const r = await fetch('/api/tailscale/info');
+  if (!r.ok) throw new Error(await readError(r));
+  return r.json();
+}
+export async function tailscaleExec(args: string[]): Promise<{ ok: boolean; args: string[]; stdout: string; error?: string }> {
+  const r = await fetch('/api/tailscale/exec', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ args }),
+  });
+  if (!r.ok) throw new Error(await readError(r));
+  return r.json();
+}
+export function tailscaleLogURL(): string {
+  return '/api/tailscale/log';
+}
+
+// BDM-47 — storage diagnostics
+export interface StorageInfo {
+  project_key: string;
+  canonical_dir: string;
+  data_root: string;
+  project_dir: string;
+  web_dir: string;
+  settings_path: string;
+  sessions_dir: string;
+  chains_dir: string;
+  rules_dir: string;
+  exists: Record<string, boolean>;
+  sizes_bytes: Record<string, number>;
+  persistent_note: string;
+}
+export async function fetchStorageInfo(): Promise<StorageInfo> {
+  const r = await fetch('/api/storage');
+  if (!r.ok) throw new Error(await readError(r));
+  return r.json();
+}
+
 export type SessionState =
   | 'starting' | 'working' | 'needs-input' | 'error' | 'done'
   | 'idle' | 'reviewing' | 'blocked' | 'completed';
@@ -437,7 +487,7 @@ async function readError(r: Response): Promise<string> {
 
 // Settings — Phase 10 (BDM-26).
 export interface FleetSettings {
-  mobile: { enabled: boolean; ntfy_url: string; topic: string; kinds: string };
+  mobile: { enabled: boolean; ntfy_url: string; topic: string; kinds: string; api_key?: string };
   tailscale: { enabled: boolean; funnel: boolean };
   theme: { theme: string; accent: string; font: string };
   ai?: { enabled: boolean; model: string; key_env: string };

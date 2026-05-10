@@ -5,6 +5,7 @@
 import type { ComponentChildren } from 'preact';
 import { Sidebar } from '../organisms/Sidebar';
 import { TopBar } from '../organisms/TopBar';
+import { VersionPill } from '../molecules/VersionPill';
 
 export interface AppShellProps {
   activeView?: string;
@@ -38,7 +39,7 @@ function DefaultStatBar({ override }: { override?: ComponentChildren }) {
         <>
           <span class="statbar-item">
             <span class="statbar-item__label">build</span>
-            <span class="statbar-item__value">v1.13.0</span>
+            <span class="statbar-item__value"><VersionPill /></span>
           </span>
           <span class="statbar-item">
             <span class="statbar-item__label">guard</span>

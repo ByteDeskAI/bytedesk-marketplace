@@ -6,6 +6,61 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.15.0] — 2026-05-10
+
+Minor release: tailscale automation, ntfy paid-tier support, storage
+diagnostics, settings checklist UX, version pill moved to footer,
+SSE reconnecting pill removed.
+
+### Added
+
+- **Tailscale automation (BDM-46):** new `/api/tailscale/info`,
+  `/exec`, `/log` endpoints. Settings page gains a full automation
+  panel: live status tape (CLI installed / daemon / login / IP /
+  hostname / version), share start/stop, an allow-listed CLI input
+  for arbitrary `tailscale` subcommands, and a live console
+  streaming `tailscale status --watch` over SSE.
+- **ntfy API key (BDM-46):** `MobileConfig.api_key` persisted in
+  `settings.toml`. Bash notify daemon sends
+  `Authorization: Bearer <key>` when set — enables ntfy.sh paid
+  tier and self-hosted servers that require auth. Public ntfy.sh
+  still works with the key empty.
+- **ntfy kinds checklist (BDM-46):** Mobile-push section replaces
+  the freeform comma-string with checkboxes for every event kind
+  the daemon emits (`merge`, `pr_opened`, `review_summary`, …).
+  Wire format unchanged (still a comma-joined string).
+- **Storage diagnostics (BDM-47):** new `/api/storage` endpoint +
+  Settings "Storage" section displaying the actual filesystem paths
+  the dashboard uses (project_key, data_root, settings_path,
+  sessions/, chains/, rules/) plus a persistence note. Makes it
+  observable whether settings + dashboard data live in a location
+  that survives `/plugin update`.
+- **Build version in footer (BDM-46):** `<VersionPill>` now lives
+  in the AppShell statbar, replacing the hardcoded `v1.13.0`
+  value. Reads live from `/api/version` so the displayed build
+  always matches the running binary.
+
+### Changed
+
+- **Sidebar brand cleanup (BDM-46):** removed the version pill
+  from the top of the sidebar (it now lives in the bottom statbar
+  where build telemetry belongs).
+- **Versioning rule (BDM-46):** `.claude/rules/version-enforcement.md`
+  now requires `git fetch + pull --ff-only origin main` BEFORE any
+  bump, with explicit guidance to stash WIP and rebase if needed.
+  Prevents bumping over a version that another session already
+  shipped (would produce a no-op tag and break the reuse-or-reload
+  check).
+
+### Removed
+
+- **Chat SSE "reconnecting…" pill (BDM-46):** the top-right pill
+  was more confusing than useful (flickered on every transient
+  EventSource onerror; persisted on quiet conversations even when
+  the connection was healthy). EventSource auto-reconnects;
+  refresh handles edge cases. State remains in `useFleetChat`
+  for future use but isn't rendered.
+
 ## [1.14.2] — 2026-05-10
 
 Patch release: ships a clean SPA bundle (1.14.1's binary embedded a

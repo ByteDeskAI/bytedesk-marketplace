@@ -28,7 +28,7 @@ import (
 // or server_dev.go (//go:build dev — reads from disk so hot-reload works).
 var distFS fs.FS
 
-const buildVersion = "v1.14.2-bdm45"
+const buildVersion = "v1.15.0-bdm46"
 
 var startTime = time.Now()
 
@@ -179,6 +179,18 @@ func buildHandler(deps *apiDeps) (http.Handler, error) {
 	})
 	mux.HandleFunc("/api/tailscale/status", func(w http.ResponseWriter, r *http.Request) {
 		handleTailscale(w, r, deps, "status")
+	})
+	mux.HandleFunc("/api/tailscale/info", func(w http.ResponseWriter, r *http.Request) {
+		handleTailscaleInfo(w, r, deps)
+	})
+	mux.HandleFunc("/api/tailscale/exec", func(w http.ResponseWriter, r *http.Request) {
+		handleTailscaleExec(w, r, deps)
+	})
+	mux.HandleFunc("/api/tailscale/log", func(w http.ResponseWriter, r *http.Request) {
+		handleTailscaleLog(w, r, deps)
+	})
+	mux.HandleFunc("/api/storage", func(w http.ResponseWriter, r *http.Request) {
+		handleStorageInfo(w, r, deps)
 	})
 	mux.HandleFunc("/api/chains", func(w http.ResponseWriter, r *http.Request) {
 		handleChainsCollection(w, r, deps)
