@@ -30,15 +30,48 @@
 #   claude-sessions rules cancel <id>               # remove a pending rule
 #   claude-sessions rules clear                     # remove all rules
 #
-# All session metadata lives at ~/.claude-sessions/<TICKET>.{meta,log}.
-# Pending rules live at ~/.claude-sessions/rules/<id>.json.
+# All session state lives under ${CLAUDE_PLUGIN_DATA:-$HOME/.claude/plugins/data/fleet}/
+# projects/<PROJECT_KEY>/, where PROJECT_KEY is a 12-char sha256 of the canonical
+# repo working-tree path. Layout per project:
+#   sessions/<TICKET>/{meta,log,events,events.offset,events.err,results/}
+#   notify/{config.toml,log,fifo,pid}
+#   rules/<id>.json   rules/log/<id>.{fired,cancelled,timed-out}.json
 
 set -euo pipefail
 
-SESSIONS_DIR="$HOME/.claude-sessions"
-RULES_DIR="$SESSIONS_DIR/rules"
-RULES_LOG_DIR="$SESSIONS_DIR/rules/log"
-mkdir -p "$SESSIONS_DIR" "$RULES_DIR" "$RULES_LOG_DIR"
+# ─── Per-project data layout (BDM-3) ──────────────────────────────────────────
+# Resolves the canonical working-tree dir for the current invocation. For
+# secondary git worktrees (e.g. a fleet child running in
+# <repo>/.claude/worktrees/<TICKET>-<slug>) `git rev-parse --git-common-dir`
+# returns the main repo's `.git` dir, so realpath+dirname yields the SAME
+# canonical path the main checkout sees. Outside any git tree, falls back to
+# CLAUDE_PROJECT_DIR (set by Claude Code) or PWD.
+_canonical_dir() {
+  local gcd
+  if gcd="$(git rev-parse --git-common-dir 2>/dev/null)" && [[ -n "$gcd" ]]; then
+    dirname "$(realpath "$gcd")"
+  else
+    realpath "${CLAUDE_PROJECT_DIR:-$PWD}"
+  fi
+}
+
+_project_key() { _canonical_dir | sha256sum | cut -d' ' -f1 | head -c 12; }
+
+# Base data dir. Falls back to $HOME/.claude/plugins/data/fleet for invocations
+# outside a Claude Code session (so ad-hoc CLI use still works).
+_data_root()    { echo "${CLAUDE_PLUGIN_DATA:-$HOME/.claude/plugins/data/fleet}"; }
+_project_dir()  { echo "$(_data_root)/projects/$(_project_key)"; }
+_sessions_root(){ echo "$(_project_dir)/sessions"; }
+_session_dir()  { echo "$(_sessions_root)/$1"; }   # arg: TICKET
+_notify_dir()   { echo "$(_project_dir)/notify"; }
+_rules_dir()    { echo "$(_project_dir)/rules"; }
+
+# Resolve once at load time so dependent vars (RULES_DIR, NOTIFY_CONFIG, etc.)
+# observe the same project even if cwd changes mid-run.
+SESSIONS_DIR="$(_sessions_root)"
+RULES_DIR="$(_rules_dir)"
+RULES_LOG_DIR="$(_rules_dir)/log"
+mkdir -p "$SESSIONS_DIR" "$RULES_LOG_DIR"
 
 # Color codes (auto-disabled if not a tty)
 if [[ -t 1 ]]; then
@@ -54,19 +87,20 @@ meta_get() {
   awk -F= -v k="$2" '$1==k {sub(/^[^=]+=/, ""); print; exit}' "$1"
 }
 
-# All known sessions (from meta files). Echoes ticket names, one per line.
+# All known sessions (from per-session meta files). Echoes ticket names,
+# one per line. Layout: $SESSIONS_DIR/<TICKET>/meta.
 list_known_sessions() {
   shopt -s nullglob
   local f
-  for f in "$SESSIONS_DIR"/*.meta; do
-    basename "$f" .meta
+  for f in "$SESSIONS_DIR"/*/meta; do
+    basename "$(dirname "$f")"
   done
 }
 
 # Resolve a meta file by ticket. Errors if missing.
 meta_for() {
   local ticket="$1"
-  local f="$SESSIONS_DIR/${ticket}.meta"
+  local f="$SESSIONS_DIR/${ticket}/meta"
   [[ -f "$f" ]] || { echo "no meta for ticket: $ticket" >&2; return 65; }
   echo "$f"
 }
@@ -120,10 +154,10 @@ children_of() {
   local parent="$1"
   shopt -s nullglob
   local f t p
-  for f in "$SESSIONS_DIR"/*.meta; do
+  for f in "$SESSIONS_DIR"/*/meta; do
     p=$(meta_get "$f" parent)
     if [[ "$p" == "$parent" ]]; then
-      basename "$f" .meta
+      basename "$(dirname "$f")"
     fi
   done
 }
@@ -148,9 +182,9 @@ descendants_of() {
 roots() {
   shopt -s nullglob
   local f p
-  for f in "$SESSIONS_DIR"/*.meta; do
+  for f in "$SESSIONS_DIR"/*/meta; do
     p=$(meta_get "$f" parent)
-    [[ -z "$p" ]] && basename "$f" .meta
+    [[ -z "$p" ]] && basename "$(dirname "$f")"
   done
 }
 
@@ -211,7 +245,7 @@ runtime_min() {
 # Recursively print a single subtree with depth-prefixed lines.
 _print_subtree() {
   local ticket="$1" prefix="$2" is_last="$3"
-  local meta="$SESSIONS_DIR/${ticket}.meta"
+  local meta="$SESSIONS_DIR/${ticket}/meta"
   [[ -f "$meta" ]] || return
   local log session state branch tokens cost
   log=$(meta_get "$meta" log)
@@ -283,7 +317,7 @@ cmd_cost() {
   fi
   for t in "${sessions[@]}"; do
     [[ -n "$t" ]] || continue
-    local meta="$SESSIONS_DIR/${t}.meta"
+    local meta="$SESSIONS_DIR/${t}/meta"
     [[ -f "$meta" ]] || continue
     local log state tokens cost rt
     log=$(meta_get "$meta" log)
@@ -310,7 +344,7 @@ cmd_list() {
   printf "${C_BOLD}%-14s %-12s %-12s %-12s %-40s %s${C_RESET}\n" \
     "TICKET" "STATE" "ACTIVITY" "PARENT" "BRANCH" "●"
   for t in "${sessions[@]}"; do
-    local meta="$SESSIONS_DIR/${t}.meta"
+    local meta="$SESSIONS_DIR/${t}/meta"
     local log session branch state alive parent
     log=$(meta_get "$meta" log)
     session=$(meta_get "$meta" session)
@@ -366,7 +400,7 @@ cmd_send() {
 # Kill a single session + cleanup. Internal helper, no prompt.
 _kill_one() {
   local ticket="$1"
-  local meta="$SESSIONS_DIR/${ticket}.meta"
+  local meta="$SESSIONS_DIR/${ticket}/meta"
   [[ -f "$meta" ]] || { echo "  $ticket: no meta, skipping"; return; }
   local session worktree branch
   session=$(meta_get "$meta" session)
@@ -383,9 +417,9 @@ _kill_one() {
     fi
     git -C "$canonical" branch -D "$branch" >/dev/null 2>&1 || true
   fi
-  # Per-session results dir
+  # Single rm reclaims meta/log/events/results since they all live inside the
+  # per-session directory now (BDM-3 layout).
   rm -rf "$SESSIONS_DIR/${ticket}"
-  rm -f "$meta"
   echo "  $ticket: killed, workspace removed, branch deleted"
 }
 
@@ -421,7 +455,7 @@ cmd_kill() {
 
   echo "About to kill ${#victims[@]} session(s):"
   for v in "${victims[@]}"; do
-    local m="$SESSIONS_DIR/${v}.meta"
+    local m="$SESSIONS_DIR/${v}/meta"
     local b s
     b=$(meta_get "$m" branch); s=$(meta_get "$m" session)
     echo "  $v  ($s, $b)"
@@ -441,11 +475,13 @@ cmd_kill() {
 cmd_clean() {
   local meta ticket session
   shopt -s nullglob
-  for meta in "$SESSIONS_DIR"/*.meta; do
-    ticket=$(basename "$meta" .meta)
+  for meta in "$SESSIONS_DIR"/*/meta; do
+    ticket=$(basename "$(dirname "$meta")")
     session=$(meta_get "$meta" session)
     if ! tmux has-session -t "$session" 2>/dev/null; then
       echo "removing stale meta: $ticket (session $session is dead)"
+      # Remove only the meta file; preserves logs/events for forensics. The
+      # full per-session dir is reclaimed by `kill <ticket>`.
       rm -f "$meta"
     fi
   done
@@ -467,7 +503,7 @@ all_in_state() {
   local IFS=','
   for t in $tickets; do
     [[ -n "$t" ]] || continue
-    local meta="$SESSIONS_DIR/${t}.meta"
+    local meta="$SESSIONS_DIR/${t}/meta"
     [[ -f "$meta" ]] || return 1
     local log session
     log=$(meta_get "$meta" log)
@@ -599,16 +635,18 @@ cmd_rules() {
 }
 
 # === Event observability dispatch (BDP-372) ====================================
-# Tails ~/.claude-sessions/<TICKET>.events files (written by the PostToolUse
-# event-emitter hook) and dispatches each event through configured sinks.
-# See .claude/rules/fleet.md → "Event observability".
+# Tails per-session events files (written by the PostToolUse event-emitter
+# hook at $SESSIONS_DIR/<TICKET>/events) and dispatches each event through
+# configured sinks. See .claude/rules/fleet.md → "Event observability".
 
-NOTIFY_CONFIG="$SESSIONS_DIR/notify.config.toml"
-NOTIFY_FIFO="$SESSIONS_DIR/notifications.fifo"
-NOTIFY_LOG="$SESSIONS_DIR/notify.log"
+NOTIFY_DIR="$(_notify_dir)"
+NOTIFY_CONFIG="$NOTIFY_DIR/config.toml"
+NOTIFY_FIFO="$NOTIFY_DIR/fifo"
+NOTIFY_LOG="$NOTIFY_DIR/log"
 
 ensure_notify_config() {
   [[ -f "$NOTIFY_CONFIG" ]] && return 0
+  mkdir -p "$NOTIFY_DIR"
   cat >"$NOTIFY_CONFIG" <<'EOF'
 # claude-sessions notification routing — BDP-372 fleet event observability.
 # Per-event-kind list of sinks. Sinks: desktop, bell, fifo, slack.
@@ -703,9 +741,9 @@ dispatch_event() {
 # events are NOT replayed, to avoid spam on daemon (re)start.
 tail_session_events() {
   local ticket="$1"
-  local events_file="$SESSIONS_DIR/${ticket}.events"
+  local events_file="$SESSIONS_DIR/${ticket}/events"
   [[ -f "$events_file" ]] || return 0
-  local offset_file="$SESSIONS_DIR/${ticket}.events.offset"
+  local offset_file="$SESSIONS_DIR/${ticket}/events.offset"
   local prev_offset cur_size
   prev_offset="$(cat "$offset_file" 2>/dev/null || true)"
   cur_size="$(stat -c%s "$events_file" 2>/dev/null || echo 0)"
@@ -760,7 +798,7 @@ cmd_events() {
     return 64
   fi
 
-  local events_file="$SESSIONS_DIR/${ticket}.events"
+  local events_file="$SESSIONS_DIR/${ticket}/events"
   # Empty/missing events file → exit 0 with no output (per spec).
   if [[ ! -f "$events_file" ]]; then
     [[ "$follow" -eq 1 ]] || return 0
@@ -813,7 +851,8 @@ cmd_notify() {
     esac
   done
 
-  local pid_file="$SESSIONS_DIR/notify.pid"
+  mkdir -p "$NOTIFY_DIR"
+  local pid_file="$NOTIFY_DIR/pid"
   if [[ "$once" -eq 0 && -f "$pid_file" ]] && kill -0 "$(cat "$pid_file")" 2>/dev/null; then
     echo "notify daemon already running (pid $(cat "$pid_file"))" >&2
     return 1
@@ -835,7 +874,7 @@ cmd_notify() {
     local sessions
     mapfile -t sessions < <(list_known_sessions)
     for t in "${sessions[@]}"; do
-      local meta="$SESSIONS_DIR/${t}.meta"
+      local meta="$SESSIONS_DIR/${t}/meta"
       [[ -f "$meta" ]] || continue
       local log session state prev
       log=$(meta_get "$meta" log)
@@ -876,8 +915,8 @@ cmd_notify() {
       last_state[$t]="$state"
 
       # ─── Tool-level event observability (BDP-372) ──────────────────────────
-      # Tail ~/.claude-sessions/${t}.events for new lines and dispatch each
-      # through configured sinks per ~/.claude-sessions/notify.config.toml.
+      # Tail $SESSIONS_DIR/${t}/events for new lines and dispatch each
+      # through configured sinks per $NOTIFY_DIR/config.toml.
       tail_session_events "$t" || true
 
       # ─── Ceiling enforcement ───────────────────────────────────────────────
@@ -1046,6 +1085,6 @@ case "${1:-list}" in
   rules)   shift; cmd_rules "$@" ;;
   tree)    shift; cmd_tree "$@" ;;
   cost)    shift; cmd_cost "$@" ;;
-  -h|--help|help) sed -n '2,20p' "$0" | sed 's/^# *//' ;;
+  -h|--help|help) sed -n '2,38p' "$0" | sed 's/^# *//' ;;
   *) echo "unknown subcommand: $1 (try: claude-sessions help)" >&2; exit 64 ;;
 esac

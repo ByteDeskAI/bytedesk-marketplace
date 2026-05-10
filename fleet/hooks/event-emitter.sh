@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # PostToolUse hook: classify Bash tool calls and emit structured events
-# to ~/.claude-sessions/<TICKET>.events for observability.
+# to ${CLAUDE_PLUGIN_DATA}/projects/<KEY>/sessions/<TICKET>/events for
+# observability.
 #
 # Part of the fleet event-observability system (BDP-372).
 # See .claude/rules/fleet.md → "Event observability".
@@ -12,7 +13,7 @@
 #   .tool_name              → "Bash" for Bash calls
 #   .tool_input.command     → the bash command that was run
 #
-# Event format (JSONL appended to ~/.claude-sessions/<TICKET>.events):
+# Event format (JSONL appended to <session_dir>/events):
 #   {"ts":"<ISO-8601 UTC>","ticket":"<TICKET>","depth":<int>,
 #    "kind":"<kind>","detail":{...}}
 #
@@ -29,13 +30,35 @@ set -u
 # never propagate.
 trap 'exit 0' ERR EXIT
 
-EVENTS_DIR="${HOME}/.claude-sessions"
-mkdir -p "$EVENTS_DIR"
+# ─── Per-project data layout (BDM-3) ──────────────────────────────────────────
+# Hook can run from anywhere; cwd is unreliable. Prefer CLAUDE_PROJECT_DIR
+# (set by Claude Code) over PWD for git-aware project keying. Mirrors the
+# helpers in fleet/bin/claude-sessions; kept inline to avoid sourcing.
+_canonical_dir() {
+  local cwd="${CLAUDE_PROJECT_DIR:-$PWD}"
+  local gcd
+  if gcd="$(git -C "$cwd" rev-parse --git-common-dir 2>/dev/null)" && [[ -n "$gcd" ]]; then
+    # `git -C $cwd rev-parse` may print a relative path; resolve it relative
+    # to $cwd so we land in the main repo's .git dir even from a worktree.
+    case "$gcd" in
+      /*) : ;;
+      *)  gcd="$cwd/$gcd" ;;
+    esac
+    dirname "$(realpath "$gcd")"
+  else
+    realpath "$cwd"
+  fi
+}
+_project_key()   { _canonical_dir | sha256sum | cut -d' ' -f1 | head -c 12; }
+_data_root()     { echo "${CLAUDE_PLUGIN_DATA:-$HOME/.claude/plugins/data/fleet}"; }
+_session_dir()   { echo "$(_data_root)/projects/$(_project_key)/sessions/$1"; }
 
 TICKET="${CLAUDE_SESSION_TICKET:-unknown}"
 DEPTH="${CLAUDE_SESSION_DEPTH:-0}"
-EVENTS_FILE="${EVENTS_DIR}/${TICKET}.events"
-ERR_FILE="${EVENTS_DIR}/${TICKET}.events.err"
+SESSION_DIR="$(_session_dir "$TICKET")"
+mkdir -p "$SESSION_DIR"
+EVENTS_FILE="${SESSION_DIR}/events"
+ERR_FILE="${SESSION_DIR}/events.err"
 
 PAYLOAD="$(cat || true)"
 

@@ -15,10 +15,19 @@ FAIL=0
 TMPDIR_TEST="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR_TEST"' EXIT
 
+# Pin plugin data root + project dir, then cd into the project dir so the
+# daemon (subprocess) computes a deterministic per-project sessions path.
+export CLAUDE_PLUGIN_DATA="$TMPDIR_TEST/data"
+export CLAUDE_PROJECT_DIR="$TMPDIR_TEST/project"
+mkdir -p "$CLAUDE_PROJECT_DIR"
+cd "$CLAUDE_PROJECT_DIR"
 HOME="$TMPDIR_TEST"
 export HOME
 
-SESSIONS_DIR="$HOME/.claude-sessions"
+# Compute the project key the daemon will derive (sha256 of canonical project
+# dir, 12 chars) so we can write events into the matching path.
+PROJECT_KEY="$(realpath "$CLAUDE_PROJECT_DIR" | sha256sum | cut -d' ' -f1 | head -c 12)"
+SESSIONS_DIR="$CLAUDE_PLUGIN_DATA/projects/$PROJECT_KEY/sessions"
 mkdir -p "$SESSIONS_DIR"
 
 assert_eq() {
@@ -62,7 +71,8 @@ assert_lines() {
 
 # --- Seed events ------------------------------------------------------------
 TICKET="TEST-9"
-EVENTS_FILE="$SESSIONS_DIR/${TICKET}.events"
+mkdir -p "$SESSIONS_DIR/$TICKET"
+EVENTS_FILE="$SESSIONS_DIR/$TICKET/events"
 
 cat >"$EVENTS_FILE" <<'EOF'
 {"ts":"2026-05-09T16:42:01Z","ticket":"TEST-9","depth":1,"kind":"review_comment","detail":{"pr":"346"}}

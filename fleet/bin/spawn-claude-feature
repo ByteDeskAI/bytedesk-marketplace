@@ -20,11 +20,33 @@
 #
 # Long multi-line prompts: pass --prompt-file PATH instead of a quoted string.
 #
-# All output:    ~/.claude-sessions/<TICKET>.log     (ANSI-stripped, append-only)
-# All metadata:  ~/.claude-sessions/<TICKET>.meta    (key=value)
-# Results dir:   ~/.claude-sessions/<TICKET>/results/  (parent-child file passing)
+# Per-project state lives at:
+#   ${CLAUDE_PLUGIN_DATA:-$HOME/.claude/plugins/data/fleet}/projects/<KEY>/sessions/<TICKET>/
+# where <KEY> is a 12-char sha256 of the canonical repo working-tree path.
+# Inside that dir:
+#   meta             key=value session metadata
+#   log              ANSI-stripped tmux pane output (append-only)
+#   results/         parent-child file-passing dir
+# Events files (events, events.offset, events.err) are written by the
+# PostToolUse event-emitter hook into the same per-session dir.
 
 set -euo pipefail
+
+# ─── Per-project data layout (BDM-3) ──────────────────────────────────────────
+# Mirrored from bin/claude-sessions; see that file for the full design rationale.
+_canonical_dir() {
+  local gcd
+  if gcd="$(git rev-parse --git-common-dir 2>/dev/null)" && [[ -n "$gcd" ]]; then
+    dirname "$(realpath "$gcd")"
+  else
+    realpath "${CLAUDE_PROJECT_DIR:-$PWD}"
+  fi
+}
+_project_key()   { _canonical_dir | sha256sum | cut -d' ' -f1 | head -c 12; }
+_data_root()     { echo "${CLAUDE_PLUGIN_DATA:-$HOME/.claude/plugins/data/fleet}"; }
+_project_dir()   { echo "$(_data_root)/projects/$(_project_key)"; }
+_sessions_root() { echo "$(_project_dir)/sessions"; }
+_session_dir()   { echo "$(_sessions_root)/$1"; }
 
 if [[ $# -lt 2 ]]; then
   sed -n '2,25p' "$0" >&2
@@ -89,14 +111,14 @@ if [[ -z "$REPO" || ! -d "$REPO/.git" && ! -f "$REPO/.git" ]]; then
   exit 65
 fi
 
-SESSIONS_DIR="$HOME/.claude-sessions"
+SESSIONS_DIR="$(_sessions_root)"
 mkdir -p "$SESSIONS_DIR"
 
 # ─── Recursion depth ──────────────────────────────────────────────────────────
 # Compute depth: 0 if no parent, else parent's depth + 1.
 DEPTH=0
 if [[ -n "$PARENT" ]]; then
-  PARENT_META="$SESSIONS_DIR/${PARENT}.meta"
+  PARENT_META="$(_session_dir "$PARENT")/meta"
   if [[ -f "$PARENT_META" ]]; then
     PARENT_DEPTH=$(awk -F= '/^depth=/ {print $2; exit}' "$PARENT_META")
     PARENT_DEPTH=${PARENT_DEPTH:-0}
@@ -138,10 +160,12 @@ git -C "$CANONICAL" fetch origin "${BASE#origin/}" --quiet
 echo "→ creating worktree: $WT"
 git -C "$CANONICAL" worktree add "$WT" -b "$BRANCH" "$BASE"
 
-# ─── Per-session state directories ────────────────────────────────────────────
-LOG_FILE="$SESSIONS_DIR/${TICKET}.log"
-META_FILE="$SESSIONS_DIR/${TICKET}.meta"
-RESULTS_DIR="$SESSIONS_DIR/${TICKET}/results"
+# ─── Per-session state directories (BDM-3 layout) ─────────────────────────────
+# All files for one ticket live inside one directory so cleanup is a single rm.
+SESSION_DIR="$(_session_dir "$TICKET")"
+LOG_FILE="$SESSION_DIR/log"
+META_FILE="$SESSION_DIR/meta"
+RESULTS_DIR="$SESSION_DIR/results"
 mkdir -p "$RESULTS_DIR"
 
 echo "→ starting tmux session: $SESSION"
