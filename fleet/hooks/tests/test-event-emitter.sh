@@ -15,21 +15,28 @@ HOOK="$(cd "$(dirname "$0")/.." && pwd)/event-emitter.sh"
 PASS=0
 FAIL=0
 
-# Run hook with isolated HOME so we don't pollute the real ~/.claude-sessions.
-# Returns the events file path on stdout.
+# Run hook with isolated CLAUDE_PLUGIN_DATA + CLAUDE_PROJECT_DIR so we don't
+# pollute real plugin state. Returns the events file path on stdout.
+#
+# CLAUDE_PROJECT_DIR is pinned to a fixed tmp path so we can compute the
+# 12-char project key the same way the hook does and find the events file.
 run_hook() {
   local ticket="$1" command="$2" depth="${3:-0}"
-  local home tmpdir
+  local tmpdir data_root project_dir project_key
   tmpdir="$(mktemp -d)"
-  home="$tmpdir/home"
-  mkdir -p "$home"
+  data_root="$tmpdir/data"
+  project_dir="$tmpdir/project"
+  mkdir -p "$project_dir"
+  # Match _project_key() in the hook: sha256 of canonical project dir, 12 chars.
+  project_key="$(realpath "$project_dir" | sha256sum | cut -d' ' -f1 | head -c 12)"
   local payload
   payload="$(jq -nc --arg cmd "$command" '{tool_name:"Bash", tool_input:{command:$cmd}}')"
-  HOME="$home" \
+  CLAUDE_PLUGIN_DATA="$data_root" \
+    CLAUDE_PROJECT_DIR="$project_dir" \
     CLAUDE_SESSION_TICKET="$ticket" \
     CLAUDE_SESSION_DEPTH="$depth" \
     "$HOOK" <<<"$payload" >/dev/null 2>&1
-  echo "$home/.claude-sessions/${ticket}.events"
+  echo "$data_root/projects/$project_key/sessions/${ticket}/events"
 }
 
 # Assert the events file contains a JSON line with kind=$2 (and optionally
@@ -125,11 +132,15 @@ echo "=== Missing CLAUDE_SESSION_TICKET → ticket=unknown ==="
 
 # Build a payload + run with no CLAUDE_SESSION_TICKET set
 tmpdir="$(mktemp -d)"
-home="$tmpdir/home"
-mkdir -p "$home"
+data_root="$tmpdir/data"
+project_dir="$tmpdir/project"
+mkdir -p "$project_dir"
+project_key="$(realpath "$project_dir" | sha256sum | cut -d' ' -f1 | head -c 12)"
 payload="$(jq -nc '{tool_name:"Bash", tool_input:{command:"gh pr merge 346"}}')"
-HOME="$home" "$HOOK" <<<"$payload" >/dev/null 2>&1
-expect_event "missing ticket env → unknown"   merge            "$home/.claude-sessions/unknown.events" \
+CLAUDE_PLUGIN_DATA="$data_root" CLAUDE_PROJECT_DIR="$project_dir" \
+  "$HOOK" <<<"$payload" >/dev/null 2>&1
+expect_event "missing ticket env → unknown"   merge \
+  "$data_root/projects/$project_key/sessions/unknown/events" \
   '.ticket == "unknown"' '.detail.pr == "346"'
 
 echo
@@ -148,10 +159,12 @@ echo "=== Hook never blocks tool execution ==="
 
 # Bad payload (not even valid JSON) — hook must still exit 0
 tmpdir="$(mktemp -d)"
-home="$tmpdir/home"
-mkdir -p "$home"
+data_root="$tmpdir/data"
+project_dir="$tmpdir/project"
+mkdir -p "$project_dir"
 exit_code=0
-HOME="$home" "$HOOK" <<<'this is not json' >/dev/null 2>&1 || exit_code=$?
+CLAUDE_PLUGIN_DATA="$data_root" CLAUDE_PROJECT_DIR="$project_dir" \
+  "$HOOK" <<<'this is not json' >/dev/null 2>&1 || exit_code=$?
 if [[ "$exit_code" == "0" ]]; then
   printf '  \e[32mPASS\e[0m bad payload still exits 0\n'
   PASS=$((PASS+1))
@@ -162,7 +175,8 @@ fi
 
 # Empty stdin — also exit 0
 exit_code=0
-HOME="$home" "$HOOK" </dev/null >/dev/null 2>&1 || exit_code=$?
+CLAUDE_PLUGIN_DATA="$data_root" CLAUDE_PROJECT_DIR="$project_dir" \
+  "$HOOK" </dev/null >/dev/null 2>&1 || exit_code=$?
 if [[ "$exit_code" == "0" ]]; then
   printf '  \e[32mPASS\e[0m empty stdin exits 0\n'
   PASS=$((PASS+1))

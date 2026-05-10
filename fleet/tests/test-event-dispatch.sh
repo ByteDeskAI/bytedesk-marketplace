@@ -14,11 +14,18 @@ DAEMON="$(cd "$(dirname "$0")/.." && pwd)/bin/claude-sessions"
 PASS=0
 FAIL=0
 
-# --- Setup: isolated tmpdir-as-SESSIONS_DIR ----------------------------------
+# --- Setup: isolated tmpdir-as-CLAUDE_PLUGIN_DATA ----------------------------
 TMPDIR_TEST="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR_TEST"' EXIT
 
-# Override HOME so $SESSIONS_DIR computes to our tmpdir
+# Pin the data root AND cd into a non-git project dir so the daemon's helpers
+# compute a deterministic per-project state path under our tmpdir (the
+# canonical-dir helper falls back to $CLAUDE_PROJECT_DIR / $PWD when not in
+# a git repo).
+export CLAUDE_PLUGIN_DATA="$TMPDIR_TEST/data"
+export CLAUDE_PROJECT_DIR="$TMPDIR_TEST/project"
+mkdir -p "$CLAUDE_PROJECT_DIR"
+cd "$CLAUDE_PROJECT_DIR"
 HOME="$TMPDIR_TEST"
 export HOME
 
@@ -94,8 +101,10 @@ assert_eq "custom review_summary → fifo,bell" "fifo,bell"       "$sinks_review
 echo
 echo "=== tail_session_events — first encounter writes offset, no replay ==="
 TICKET="TEST-1"
-EVENTS_FILE="$SESSIONS_DIR/${TICKET}.events"
-OFFSET_FILE="$SESSIONS_DIR/${TICKET}.events.offset"
+SESSION_DIR="$SESSIONS_DIR/$TICKET"
+mkdir -p "$SESSION_DIR"
+EVENTS_FILE="$SESSION_DIR/events"
+OFFSET_FILE="$SESSION_DIR/events.offset"
 
 # Pre-write some "historical" events
 cat >"$EVENTS_FILE" <<EOF
