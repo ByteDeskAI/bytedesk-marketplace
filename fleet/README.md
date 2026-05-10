@@ -26,6 +26,10 @@ That's it. Per-session state lives under `${CLAUDE_PLUGIN_DATA}/projects/<KEY>/`
 | `monitors/monitors.json` | Registers the `claude-sessions notify` daemon as a plugin-managed monitor; per-project PID lock + stand-by polling so multiple sessions in the same project coordinate cleanly (ADR-0002, BDM-4). |
 | `skills/{spawn,review,cleanup,tournament,wait,chain}/` | Slash commands: `/fleet:spawn`, `/fleet:review`, etc. |
 
+## Worktree isolation
+
+Every spawned session runs in a **fresh git worktree** at `<repo>/.claude/worktrees/<TICKET>-<slug>/`. That worktree is a clean checkout: no shared `node_modules/`, `bin/obj/`, `.next/`, `.venv/`, or other dep/build state from the parent tree. Wrapper skills that write prompts for `/fleet:spawn` must include the right install/restore step (`npm install`, `dotnet restore`, `uv sync`, etc.) before any build or test command. See [`/fleet:spawn`](./skills/spawn/SKILL.md) → "What spawning gives you" for the full set of consumer-relevant facts (worktree isolation, `--full-auto` semantics, `--prompt-file` rationale).
+
 ## Slash commands
 
 ```
@@ -99,7 +103,7 @@ Full design rationale + trade-offs in [ADR-0002](./docs/adr/0002-plugin-data-dir
 
 ## Status
 
-`v1.0.1` (2026-05-09) — first public release with a manifest-shape hot-fix. Extracted from `ByteDeskAI/bytedesk-platform` and reshaped into a Claude-Code-native plugin (per-project state under `${CLAUDE_PLUGIN_DATA}`, plugin-managed monitor, no install.sh). Coming from v0.1? See [`docs/MIGRATION.md`](./docs/MIGRATION.md).
+`v1.0.2` (2026-05-09) — docs-only follow-up to v1.0.1 (manifest hot-fix). v1.0.0 was the first public release. Extracted from `ByteDeskAI/bytedesk-platform` and reshaped into a Claude-Code-native plugin (per-project state under `${CLAUDE_PLUGIN_DATA}`, plugin-managed monitor, no install.sh). Coming from v0.1? See [`docs/MIGRATION.md`](./docs/MIGRATION.md).
 
 ## License
 

@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.0.2] — 2026-05-09
+
+Docs-only release. Companion repo `bytedesk-platform` PR #349 (BDP-377) stripped fleet implementation details out of its `bytedesk-feature-start` skill and delegated to `/fleet:*`. That audit surfaced four facts about fleet behavior that lived only in bytedesk-platform's skill — they belong here.
+
+### Added
+
+- `fleet/skills/spawn/SKILL.md` — new "What spawning gives you" section covering worktree isolation, `--full-auto` semantics (adds `--dangerously-skip-permissions`; safety must be encoded in the prompt), and the `--prompt-file` rationale (>~4KB inline prompts SIGPIPE; metacharacter escaping is fragile).
+- `fleet/skills/cleanup/SKILL.md` — new "Safety" subsection explaining the uncommitted-state refusal in `claude-sessions kill` and how to investigate (the friction is intentional).
+- `fleet/README.md` — brief "Worktree isolation" note pointing wrapper-skill authors at `/fleet:spawn` for the full set of consumer-relevant facts.
+
+No code, hook, monitor, or test changes. All 5 fixtures still green.
+
 ## [1.0.1] — 2026-05-09
 
 Hot-fix for the manifest shapes shipped in v1.0.0. The actual Claude Code loader expects different top-level structures than the BDM-6 research had documented; the install on a real session surfaced the discrepancy with two `Failed to load ...` errors. No behavioral change to the plugin once it loads — the bug was purely manifest-shape-validation.

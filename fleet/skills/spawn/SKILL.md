@@ -26,6 +26,34 @@ Spawns one or more sessions in the multi-session command center, with each sessi
 
 For new feature work without a ticket yet, use `/bytedesk-feature-start` instead — it handles ticket creation. This skill assumes the tickets already exist.
 
+## What spawning gives you
+
+Three facts about the `spawn-claude-feature` runtime that any wrapper skill (or any human writing prompts for it) needs to know:
+
+### Worktree isolation
+
+Every spawned session runs in a **fresh git worktree** under `<repo>/.claude/worktrees/<TICKET>-<slug>/`. It's a clean checkout — there's no shared `node_modules/`, `bin/obj/`, `.next/`, `.venv/`, or any other dep/build state from the parent tree. If the work needs to build, the prompt must include the install/restore step explicitly:
+
+- Node: `npm install` (or `pnpm install` / `yarn` per the project's lockfile)
+- .NET: `dotnet restore`
+- Python: `pip install -r requirements.txt` or `uv sync`
+- Rust: cargo handles this on first build; nothing extra needed
+
+Wrapper skills should match the language stack and inject the right command before any compile/test step in the prompt template they write.
+
+### `--full-auto` semantics
+
+`--full-auto` adds `--dangerously-skip-permissions` to the spawned `claude`. The session can run any command without asking — `git push`, `rm`, anything. Safety must be encoded in the prompt itself (the "Hard constraints" block in the template below). Omit `--full-auto` only when the work touches something destructive enough that step-by-step approval is warranted.
+
+### `--prompt-file` is required
+
+Use `spawn-claude-feature ... --prompt-file PATH`, never an inline prompt string. Two reasons:
+
+- Inline strings >~4KB SIGPIPE in some shells.
+- Any prompt with shell metacharacters needs escaping the caller doesn't want to think about.
+
+Always write the prompt to a temp file (`/tmp/<TICKET>-prompt.txt` is the convention) and pass the path.
+
 ## Steps
 
 For each ticket key in the arguments:
