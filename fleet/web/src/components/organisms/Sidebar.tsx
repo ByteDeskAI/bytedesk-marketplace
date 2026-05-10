@@ -1,8 +1,11 @@
 // Sidebar — fleet brand + Views nav + sub-views + Projects list + user.
-// Phase 2 placeholder: items are static; route wiring lands when the SPA
-// gets a real router.
+// Phase 3a wires the PROJECTS list to real /api/projects via useProjects().
+// Each entry hyperlinks to that project's own dashboard URL (per the
+// BDM-15 multi-project navigation decision: per-project servers; sidebar
+// is discovery, not multi-host rendering).
 
 import { Icon, type IconName } from '../atoms/Icon';
+import { useProjects } from '../../hooks/useProjects';
 
 interface NavItem { id: string; label: string; icon: IconName; }
 
@@ -25,13 +28,13 @@ const SUBVIEWS = [
   'All Sessions',
 ];
 
-const PROJECTS = ['acme-web', 'data-pipeline', 'mobile-app'];
-
 export interface SidebarProps {
   activeView?: string;
+  currentProjectKey?: string;
 }
 
-export function Sidebar({ activeView = 'overview' }: SidebarProps) {
+export function Sidebar({ activeView = 'overview', currentProjectKey }: SidebarProps) {
+  const { data: projects } = useProjects();
   return (
     <aside class="app-shell__sidebar">
       <div class="sidebar__brand">
@@ -65,24 +68,52 @@ export function Sidebar({ activeView = 'overview' }: SidebarProps) {
       <div class="sidebar__section">
         <div class="sidebar__heading">Projects</div>
         <ul class="sidebar__nav">
-          {PROJECTS.map((p, i) => (
-            <li
-              key={p}
-              class={`sidebar__nav-item${i === 0 ? ' sidebar__nav-item--active' : ''}`}
-            >
-              {p}
+          {(projects ?? []).map((p) => {
+            const isActive = p.key === currentProjectKey;
+            const label = shortKey(p.key);
+            const item = (
+              <>
+                <span style={{ flex: 1 }}>{label}</span>
+                {p.port ? (
+                  <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>:{p.port}</span>
+                ) : null}
+              </>
+            );
+            const cls = `sidebar__nav-item${isActive ? ' sidebar__nav-item--active' : ''}`;
+            return p.url && !isActive ? (
+              <li key={p.key} class={cls}>
+                <a href={p.url} style={{ color: 'inherit', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+                  {item}
+                </a>
+              </li>
+            ) : (
+              <li key={p.key} class={cls}>
+                {item}
+              </li>
+            );
+          })}
+          {projects && projects.length === 0 ? (
+            <li class="sidebar__nav-item" style={{ color: 'var(--color-text-tertiary)', fontStyle: 'italic' }}>
+              No projects discovered
             </li>
-          ))}
+          ) : null}
         </ul>
       </div>
 
       <div class="sidebar__user">
         <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#cbd5e1' }} />
         <div>
-          <div style={{ fontWeight: 600 }}>Alex Kim</div>
-          <div style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--text-xs)' }}>admin</div>
+          <div style={{ fontWeight: 600 }}>You</div>
+          <div style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--text-xs)' }}>local</div>
         </div>
       </div>
     </aside>
   );
+}
+
+// shortKey trims the 12-char project key to "abc123…f456" so each row
+// stays narrow. The full key shows on hover via title attribute.
+function shortKey(key: string): string {
+  if (key.length <= 8) return key;
+  return `${key.slice(0, 4)}…${key.slice(-4)}`;
 }

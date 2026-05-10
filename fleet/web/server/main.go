@@ -77,7 +77,9 @@ func main() {
 		log.Fatalf("claude-sessions-web: port assignment failed: %v", err)
 	}
 
-	handler, err := buildHandler(pkey, cfg)
+	projDir, _ := projectDir()
+	deps := newAPIDeps(pkey, cfg, projDir, dataRoot())
+	handler, err := buildHandler(deps)
 	if err != nil {
 		_ = lock.Release()
 		log.Fatalf("claude-sessions-web: handler init: %v", err)

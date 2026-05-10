@@ -3,3 +3,7 @@ node_modules/
 
 # esbuild metafiles
 *.metafile.json
+
+# Stray binary from `go build` invoked without -o (Go names the binary
+# after the package's last dir, which is `server`).
+server/server
