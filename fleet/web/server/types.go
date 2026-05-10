@@ -56,8 +56,8 @@ type SessionView struct {
 	Objective  string  `json:"objective,omitempty"`
 
 	// Phase 12.2 — auth-context badges (from meta file).
-	Depth    int  `json:"depth"`
-	FullAuto bool `json:"full_auto"`
+	Depth    int    `json:"depth"`
+	FullAuto bool   `json:"full_auto"`
 	Worktree string `json:"worktree,omitempty"`
 }
 

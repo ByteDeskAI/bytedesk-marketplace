@@ -27,6 +27,18 @@ type Settings struct {
 	Tailscale TailscaleConfig `json:"tailscale"`
 	Theme     ThemeConfig     `json:"theme"`
 	AI        AIConfig        `json:"ai"`
+	Jira      JiraConfig      `json:"jira"`
+}
+
+// JiraConfig — Phase 12.4 (A15 / B7). Used by /api/jira/* endpoints to
+// fetch issue + backlog. APIToken can be left empty; the server falls
+// back to the JIRA_API_TOKEN env var (preferred — keeps credentials
+// out of settings.toml).
+type JiraConfig struct {
+	BaseURL  string `json:"base_url"`  // e.g. https://acme.atlassian.net
+	Email    string `json:"email"`     // login email
+	APIToken string `json:"api_token"` // optional; env JIRA_API_TOKEN preferred
+	JQL      string `json:"jql"`       // default backlog query
 }
 
 type MobileConfig struct {
@@ -118,6 +130,11 @@ func formatSettingsTOML(s Settings) string {
 	sb.WriteString(fmt.Sprintf("enabled = %t\n", s.AI.Enabled))
 	sb.WriteString(fmt.Sprintf("model = %q\n", s.AI.Model))
 	sb.WriteString(fmt.Sprintf("key_env = %q\n", s.AI.KeyEnv))
+	sb.WriteString("\n[jira]\n")
+	sb.WriteString(fmt.Sprintf("base_url = %q\n", s.Jira.BaseURL))
+	sb.WriteString(fmt.Sprintf("email = %q\n", s.Jira.Email))
+	sb.WriteString(fmt.Sprintf("api_token = %q\n", s.Jira.APIToken))
+	sb.WriteString(fmt.Sprintf("jql = %q\n", s.Jira.JQL))
 	return sb.String()
 }
 
@@ -174,6 +191,17 @@ func parseSettingsTOML(s string, out *Settings) {
 				out.AI.Model = val
 			case "key_env":
 				out.AI.KeyEnv = val
+			}
+		case "jira":
+			switch key {
+			case "base_url":
+				out.Jira.BaseURL = val
+			case "email":
+				out.Jira.Email = val
+			case "api_token":
+				out.Jira.APIToken = val
+			case "jql":
+				out.Jira.JQL = val
 			}
 		}
 	}

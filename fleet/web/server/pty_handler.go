@@ -222,4 +222,3 @@ func tmuxPaneSize(session string) (cols, rows int, ok bool) {
 	rows, _ = strconv.Atoi(parts[1])
 	return cols, rows, cols > 0 && rows > 0
 }
-

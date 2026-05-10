@@ -11,7 +11,7 @@ import { InteractiveTerminal } from './InteractiveTerminal';
 import { GitTab } from './GitTab';
 import { PRTab } from './PRTab';
 import { EventsTab } from './EventsTab';
-import { sendMessage, killSession, spawnReviewer, type SessionRow } from '../../api';
+import { sendMessage, killSession, spawnReviewer, resumeSession, rebaseSession, type SessionRow } from '../../api';
 
 const TABS = ['Overview', 'Terminal', 'Logs', 'Events', 'Git', 'PR'] as const;
 type Tab = typeof TABS[number];
@@ -58,6 +58,20 @@ export function SessionDetailPanel({ ticket, onClose, onKilled }: SessionDetailP
           <Button onClick={() => { window.location.hash = `/sessions/${encodeURIComponent(ticket)}/replay`; }}>
             Replay
           </Button>
+          <Button
+            onClick={async () => {
+              try { await resumeSession(ticket); setActionMsg(`Resumed ${ticket}`); }
+              catch (e) { setActionMsg((e as Error).message); }
+              window.setTimeout(() => setActionMsg(null), 3000);
+            }}
+          >Resume</Button>
+          <Button
+            onClick={async () => {
+              try { const r = await rebaseSession(ticket); setActionMsg(`Rebased ${ticket}: ${r.stdout.slice(0, 60)}`); }
+              catch (e) { setActionMsg((e as Error).message); }
+              window.setTimeout(() => setActionMsg(null), 4000);
+            }}
+          >Rebase</Button>
           <Button onClick={() => setModal('kill')}>Kill</Button>
           {onClose ? <Button onClick={onClose}>Close</Button> : null}
         </div>

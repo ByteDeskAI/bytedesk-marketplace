@@ -12,7 +12,7 @@
 import { useEffect, useState } from 'preact/hooks';
 
 export interface Route {
-  name: 'overview' | 'audit' | 'replay' | 'settings' | 'grid';
+  name: 'overview' | 'audit' | 'replay' | 'settings' | 'grid' | 'chains' | 'rules' | 'search' | 'tournaments';
   params: Record<string, string>;
 }
 
@@ -22,6 +22,15 @@ function parseHash(h: string): Route {
   if (path === 'audit') return { name: 'audit', params: {} };
   if (path === 'settings') return { name: 'settings', params: {} };
   if (path === 'grid') return { name: 'grid', params: {} };
+  if (path === 'rules') return { name: 'rules', params: {} };
+  if (path === 'search' || path.startsWith('search?')) return { name: 'search', params: {} };
+  if (path === 'tournaments') return { name: 'tournaments', params: {} };
+  const tm = /^tournaments\/([^/]+)$/.exec(path);
+  if (tm) return { name: 'tournaments', params: { id: decodeURIComponent(tm[1]) } };
+  // Chains list + per-chain editor.
+  if (path === 'chains') return { name: 'chains', params: {} };
+  const cm = /^chains\/([^/]+)$/.exec(path);
+  if (cm) return { name: 'chains', params: { id: decodeURIComponent(cm[1]) } };
   const m = /^sessions\/([^/]+)\/replay$/.exec(path);
   if (m) return { name: 'replay', params: { ticket: decodeURIComponent(m[1]) } };
   return { name: 'overview', params: {} };

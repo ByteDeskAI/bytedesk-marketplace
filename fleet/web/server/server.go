@@ -119,6 +119,46 @@ func buildHandler(deps *apiDeps) (http.Handler, error) {
 	mux.HandleFunc("/api/settings", func(w http.ResponseWriter, r *http.Request) {
 		handleSettings(w, r, deps)
 	})
+	mux.HandleFunc("/api/wait", func(w http.ResponseWriter, r *http.Request) {
+		handleWait(w, r, deps)
+	})
+	mux.HandleFunc("/api/sweep", func(w http.ResponseWriter, r *http.Request) {
+		handleSweep(w, r)
+	})
+	mux.HandleFunc("/api/rules", func(w http.ResponseWriter, r *http.Request) {
+		handleRules(w, r, deps)
+	})
+	mux.HandleFunc("/api/rules/", func(w http.ResponseWriter, r *http.Request) {
+		id := strings.TrimPrefix(r.URL.Path, "/api/rules/")
+		handleRuleDelete(w, r, deps, id)
+	})
+	mux.HandleFunc("/api/notify-state", func(w http.ResponseWriter, r *http.Request) {
+		handleNotifyState(w, r, deps)
+	})
+	mux.HandleFunc("/api/search", func(w http.ResponseWriter, r *http.Request) {
+		handleSearch(w, r, deps)
+	})
+	mux.HandleFunc("/api/audit/verify", func(w http.ResponseWriter, r *http.Request) {
+		handleAuditVerify(w, r, deps)
+	})
+	mux.HandleFunc("/api/tournament", func(w http.ResponseWriter, r *http.Request) {
+		handleTournament(w, r, deps)
+	})
+	mux.HandleFunc("/api/jira/issue", func(w http.ResponseWriter, r *http.Request) {
+		handleJiraIssue(w, r, deps)
+	})
+	mux.HandleFunc("/api/jira/backlog", func(w http.ResponseWriter, r *http.Request) {
+		handleJiraBacklog(w, r, deps)
+	})
+	mux.HandleFunc("/api/tailscale/start", func(w http.ResponseWriter, r *http.Request) {
+		handleTailscale(w, r, deps, "start")
+	})
+	mux.HandleFunc("/api/tailscale/stop", func(w http.ResponseWriter, r *http.Request) {
+		handleTailscale(w, r, deps, "stop")
+	})
+	mux.HandleFunc("/api/tailscale/status", func(w http.ResponseWriter, r *http.Request) {
+		handleTailscale(w, r, deps, "status")
+	})
 	mux.HandleFunc("/api/chains", func(w http.ResponseWriter, r *http.Request) {
 		handleChainsCollection(w, r, deps)
 	})
@@ -126,7 +166,42 @@ func buildHandler(deps *apiDeps) (http.Handler, error) {
 		handleChainItem(w, r, deps)
 	})
 	mux.Handle("/", http.FileServer(http.FS(sub)))
-	return mux, nil
+
+	// Decorator chain (Phase 12.6 / C6). Applied to every request.
+	// /healthz, /api/version, and the static SPA at "/" stay reachable
+	// without auth so the page can prompt the user for a token; all
+	// other /api/* paths are gated when cfg.AuthToken is non-empty.
+	gated := func(r *http.Request) bool {
+		p := r.URL.Path
+		if !strings.HasPrefix(p, "/api/") {
+			return false
+		}
+		if p == "/api/version" {
+			return false
+		}
+		return true
+	}
+	authedHandler := chain(mux, requestIDMW, logMW, conditionalAuthMW(deps.cfg.AuthToken, gated))
+	return authedHandler, nil
+}
+
+// conditionalAuthMW applies the bearer/token check only to requests
+// that pass the predicate. Lets the SPA (/, /app.js, /app.css) and
+// /healthz + /api/version load without a token.
+func conditionalAuthMW(token string, gated func(*http.Request) bool) middleware {
+	if token == "" {
+		return func(h http.Handler) http.Handler { return h }
+	}
+	inner := authMW(token)
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if gated(r) {
+				inner(next).ServeHTTP(w, r)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // handleStream — SSE multiplex. Client subscribes to one or more topics
@@ -228,6 +303,12 @@ func handleSessionDetail(w http.ResponseWriter, r *http.Request, deps *apiDeps) 
 			return
 		case "pr":
 			handleSessionPR(w, r, deps, ticket)
+			return
+		case "resume":
+			handleSessionResume(w, r, deps, ticket)
+			return
+		case "rebase":
+			handleSessionRebase(w, r, deps, ticket)
 			return
 		default:
 			writeError(w, http.StatusBadRequest, fmt.Errorf("unknown sub-path %q", parts[1]))

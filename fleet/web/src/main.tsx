@@ -8,6 +8,10 @@ import { AuditPage } from './components/pages/AuditPage';
 import { ReplayPage } from './components/pages/ReplayPage';
 import { SettingsPage } from './components/pages/SettingsPage';
 import { GridPage } from './components/pages/GridPage';
+import { ChainsPage } from './components/pages/ChainsPage';
+import { RulesPage } from './components/pages/RulesPage';
+import { SearchPage } from './components/pages/SearchPage';
+import { TournamentsPage } from './components/pages/TournamentsPage';
 import { useRoute } from './hooks/useRoute';
 import { useTheme } from './hooks/useTheme';
 
@@ -16,11 +20,15 @@ function App() {
   useTheme();
   const [route] = useRoute();
   switch (route.name) {
-    case 'audit':    return <AuditPage />;
-    case 'replay':   return <ReplayPage />;
-    case 'settings': return <SettingsPage />;
-    case 'grid':     return <GridPage />;
-    default:         return <OverviewPage />;
+    case 'audit':       return <AuditPage />;
+    case 'replay':      return <ReplayPage />;
+    case 'settings':    return <SettingsPage />;
+    case 'grid':        return <GridPage />;
+    case 'chains':      return <ChainsPage chainID={route.params.id} />;
+    case 'rules':       return <RulesPage />;
+    case 'search':      return <SearchPage />;
+    case 'tournaments': return <TournamentsPage />;
+    default:            return <OverviewPage />;
   }
 }
 

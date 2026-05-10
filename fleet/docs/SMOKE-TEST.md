@@ -183,3 +183,26 @@ If everything passes, mark BDM-7 Done. If anything fails:
 - Cross-machine coordination (federated fleet).
 - Performance benchmarking under load.
 - Verifying systemd-fallback path — the path is gone (BDM-10).
+
+## Phase 5 — Web dashboard
+
+The Phase 12 (BDM-28) deliverable. Run sequentially; each step lists a one-line verification.
+
+1. **Dev server up.** `cd fleet/web && npm run dev` — verify hot-reload server up at http://127.0.0.1:7690/. Verify: `curl http://127.0.0.1:7690/api/version` returns the build JSON.
+2. **SPA loads.** Open the URL in a browser. Sidebar nav renders, footer shows `fleet-web v1.13.0-bdm28`. Verify: no console errors; `curl http://127.0.0.1:7690/` returns 200 with `<div id="app">`.
+3. **Spawn a real session.** Click `+ Spawn` → Manual tab → fill ticket + branch + prompt → Submit. Verify: a new row appears in the session table within ~5s (SSE-driven, no manual refresh).
+4. **Detail tabs.** Click the row to open Detail panel. Click each tab in turn: Overview, Terminal, Logs, Events, Git, PR. Open Terminal, type `ls\r`. Verify: xterm.js renders, ls output appears within ~1s; `/api/sessions/<T>/pty` WebSocket is open (browser devtools → Network → WS).
+5. **Auth-context badges.** In the Overview tab, locate the auth badges. Verify: `depth N` matches `claude-sessions get <T> CLAUDE_SESSION_DEPTH`; `--full-auto` badge present iff the spawn used `--dangerously-skip-permissions`.
+6. **Replay scrub.** Click Replay button on the open session. Verify: scrub bar populates from `log` length; play / pause / seek update the terminal viewport without re-fetching.
+7. **Keyboard shortcuts.** Hit `?` for the shortcuts overlay; `b` to open broadcast; `d` to toggle compact mode. Verify: each overlay opens and dismisses with the same key or `Esc`.
+8. **Grid view.** Visit `#/grid`. Verify: each running session renders as a PTY tile; layout chips (chips / split / focus) switch the grid template; switching does not reset PTY scrollback.
+9. **Chains.** Visit `#/chains`. Initial state: empty list. Create a new chain (any nodes) → Save → Run. Verify: `GET /api/chains/<id>/run` returns a run id; `useStream` polls `chains` topic and the run state advances.
+10. **Audit verify.** Visit `#/audit`. Verify: events list renders; `curl http://127.0.0.1:7690/api/audit/verify?session=<T>` returns `{"ok":true}`. Now manually edit one line of `${CLAUDE_PLUGIN_DATA}/projects/<KEY>/sessions/<T>/events` and re-curl. Verify: returns `{"ok":false,"bad_line":N}` with N pointing at the tampered line.
+11. **Search.** Visit `#/search?q=<term>` with `<term>` matching content in any session log. Verify: result rows appear; clicking a result jumps to the replay at the matching offset.
+12. **Rules.** Visit `#/rules`. Verify: pending rules list renders empty (unless one was created via `claude-sessions rules` earlier).
+13. **Settings persistence.** Visit `#/settings`. Toggle Dark theme; verify `[jira]`, `[ai]`, `[mobile]`, `[tailscale]` blocks visible. Save → reload page. Verify: theme + values still set; `${CLAUDE_PLUGIN_DATA}/projects/<KEY>/web/config.toml` reflects the change.
+14. **Haiku judge.** Set `ANTHROPIC_API_KEY` in env and `[ai] enabled = true` in settings. Restart the dev server. Hover a state badge on a running session. Verify: judge confidence string is higher / more specific than the heuristic baseline; `fleet/web/sidecar/` Node process is alive (`pgrep -f claude-agent-sdk`).
+15. **Mobile push.** Set `[mobile] enabled = true` and a real ntfy topic in settings. Trigger a `merge` event (e.g. `gh pr merge <real-pr>`). Verify: ntfy app on phone receives the push within ~3s.
+16. **Tailscale serve.** Click `Tailscale Start` in Settings. Verify: `tailscale serve status` lists the dashboard URL (`https://<host>.<tailnet>.ts.net/`); the URL loads from a second device on the tailnet.
+
+If steps 1–13 pass, the dashboard core is shippable. Steps 14–16 gate the optional integrations and can be deferred to follow-up tickets if their prerequisites (API key, ntfy topic, tailnet) aren't available on the smoke-test host.

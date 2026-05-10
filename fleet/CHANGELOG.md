@@ -6,12 +6,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.13.0] — 2026-05-10
+
+**Phase 12 of BDM-14: web-dashboard completion (BDM-28).** Closes the remaining ~20 features from the original 47-feature plan in a single PR. Branch: `feature/BDM-28-completion`.
+
 ### Added
 
-- `/fleet:setup-cli` skill creates `~/.local/bin/` wrappers for the three public CLI binaries (`claude-sessions`, `claude-sessions-web`, `spawn-claude-feature`) so they're available on the user's interactive shell PATH without breaking on `/plugin update`. The wrappers resolve to the latest installed plugin version at exec time via `ls -dv … | tail -1`. Idempotent and sentinel-gated: re-running refreshes our own wrappers but refuses to clobber foreign files at the same path. Fills the gap left by BDM-3's removal of the `~/.local/bin/` symlinks (BDM-23).
-## [1.9.0] — 2026-05-10
-## [1.10.0] — 2026-05-10
-## [1.11.0] — 2026-05-10
+- **Hot-reload dev mode** (12.0): `npm run dev` runs esbuild --watch + air with `-tags dev`; SSE `dist-rebuilt` topic auto-reloads the browser. `DEV_MODE=1` skips the per-project lock + uses port 7690 so the prod server can keep running on the hashed port.
+- **A4 interactive PTY** (12.1): WebSocket `/api/sessions/<T>/pty` (xterm.js + tmux send-keys/pipe-pane/resize-pane). New "Terminal" tab on SessionDetailPanel.
+- **B3 multi-PTY grid** (12.1): `#/grid` page with Strategy chips (2×2 / 3×3 / 1+N / Spotlight).
+- **A22 worktree git status** + **A21 PR integration** (12.2): new `/api/sessions/<T>/git` and `/pr` endpoints; new `Git` and `PR` tabs in SessionDetailPanel.
+- **A23 auth-context badges** (12.2): `depth N` / `--full-auto` / `parent X` chips in the Overview tab.
+- **A2 parent → child tree** (12.2): TreeView organism toggled from OverviewPage footer.
+- **A10 per-session events feed** (12.2): new Events tab in SessionDetailPanel.
+- **A9 clean dead metas** UI button (12.3) in OverviewPage footer.
+- **A11 pending rules** (12.3): `#/rules` page lists + cancels rules.
+- **A12 notify-daemon state pill** (12.3): Sidebar footer shows daemon liveness.
+- **A19 wait-for-state** (12.3): `POST /api/wait` long-poll endpoint.
+- **A20 sweep merged** (12.3): OverviewPage footer button wraps `claude-sessions cleanup`.
+- **B8 session resumption** + **B9 auto-rebase** (12.3): Resume / Rebase buttons in SessionDetailPanel.
+- **A15 spawn from Jira ticket** + **B7 backlog** (12.4): SpawnModal `From Jira` and `From Backlog` tabs are real now. `/api/jira/issue` + `/api/jira/backlog` use `[jira]` block from settings.toml; `JIRA_API_TOKEN` env preferred over stored token.
+- **A17 tournament spawn** (12.4): SpawnModal `Tournament` tab spawns N variants with deterministic slugs + parent linkage.
+- **A18 chain composer** (12.4): full DAG editor — `ChainCanvas` (vanilla pointer events, SVG edges), `NodePalette`, `ChainNodeInspector`. Persisted at `${plugin-data}/projects/<KEY>/chains/<id>.json`. Runner topologically sorts and dispatches Spawn / Wait / Judge / Condition / Notify / Script nodes.
+- **C1 full-text log search** (12.5): `/api/search?q=` walks every session log; `#/search` page renders hits with one line of context.
+- **C6 bearer auth middleware** (12.6): Decorator chain `RequestID → Log → Auth` wraps every `/api/*` route. Honors `Authorization: Bearer …` or `?token=`.
+- **B13 tamper-evident audit** (12.7): sha256 hash chain over `events.jsonl` written to sidecar `events.hashlog`. `/api/audit/verify[?ticket=]` reports first divergence.
+- **B14 tournament bracket** (12.8): `#/tournaments` lists parent-grouped variants; `/<parent>` shows per-variant rows with state + cost + runtime.
+- **B10/B11/B12 real Haiku** (12.9): `@anthropic-ai/claude-agent-sdk` Node sidecar invoked over stdio JSON; `HaikuJudgeProvider` with 60s LRU cache + heuristic fallback. `[ai]` block in settings.toml.
+- **B15 mobile push hook** (12.10): notify daemon grew an `ntfy` sink reading `[mobile]` from settings.toml.
+- **B17 tailscale runner** (12.10): `/api/tailscale/{start,stop,status}` shells the CLI.
+- ADR-0003 web dashboard architecture; SMOKE-TEST.md web phase.
+
+### Changed
+
+- Build version → `v1.13.0-bdm28`.
+- `distFS` is now `fs.FS`; `//go:embed` lives in `server_embed.go` (build tag `!dev`); `server_dev.go` (tag `dev`) reads from disk.
+- `apiDeps` grew `chains *ChainsRepo`.
+- Sidebar primary nav wires Chains, Tournaments, Search, Rules to real pages.
+
 ## [1.12.0] — 2026-05-10
 
 **Phase 11 of BDM-14: themes (BDM-27 / C7).** Final phase. Light / Dark / Repllt-Blue + 8 accent colors + 3 font choices.

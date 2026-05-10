@@ -145,6 +145,92 @@ func handleSpawn(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleTournament — Phase 12.4 (BDM-28, A17). Spawns N variants of a
+// ticket with deterministic slugs (<base-slug>-v1, <base-slug>-v2, …)
+// and a shared tournament_id. Each variant becomes a child of the
+// shared parent ticket so results can be compared in a tournament view.
+//
+//	POST /api/tournament  body: {
+//	  "ticket":   "BDM-99",      // parent ticket
+//	  "slug":     "fix-foo",
+//	  "prompt":   "fix the bar",
+//	  "n":        3,             // 2..6
+//	  "judge_prompt": "rate from 1-5 …",
+//	}
+func handleTournament(w http.ResponseWriter, r *http.Request, _ *apiDeps) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, errors.New("POST required"))
+		return
+	}
+	var req struct {
+		Ticket      string `json:"ticket"`
+		Slug        string `json:"slug"`
+		Prompt      string `json:"prompt"`
+		N           int    `json:"n"`
+		JudgePrompt string `json:"judge_prompt"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid json: %w", err))
+		return
+	}
+	if !ticketPattern.MatchString(req.Ticket) {
+		writeError(w, http.StatusBadRequest, errors.New("ticket must look like BDM-99"))
+		return
+	}
+	if !slugPattern.MatchString(req.Slug) {
+		writeError(w, http.StatusBadRequest, errors.New("slug invalid"))
+		return
+	}
+	if strings.TrimSpace(req.Prompt) == "" {
+		writeError(w, http.StatusBadRequest, errors.New("prompt required"))
+		return
+	}
+	if req.N < 2 || req.N > 6 {
+		writeError(w, http.StatusBadRequest, errors.New("n must be 2..6"))
+		return
+	}
+
+	// Write the prompt once.
+	f, err := os.CreateTemp("", "fleet-tournament-prompt-*.txt")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	promptPath := f.Name()
+	defer os.Remove(promptPath)
+	suffix := ""
+	if req.JudgePrompt != "" {
+		suffix = "\n\n---\nJudge rubric (each variant evaluated against this):\n" + req.JudgePrompt + "\n"
+	}
+	_, _ = f.WriteString(req.Prompt + suffix)
+	f.Close()
+
+	type variantResult struct {
+		Ticket string `json:"ticket"`
+		OK     bool   `json:"ok"`
+		Error  string `json:"error,omitempty"`
+	}
+	results := make([]variantResult, 0, req.N)
+	for i := 1; i <= req.N; i++ {
+		vTicket := fmt.Sprintf("%s-v%d", req.Ticket, i)
+		vSlug := fmt.Sprintf("%s-v%d", req.Slug, i)
+		args := []string{vTicket, vSlug, "--prompt-file", promptPath, "--parent", req.Ticket, "--full-auto"}
+		cmd := exec.Command(spawnBin(), args...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			results = append(results, variantResult{Ticket: vTicket, OK: false, Error: strings.TrimSpace(string(out))})
+		} else {
+			results = append(results, variantResult{Ticket: vTicket, OK: true})
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":           true,
+		"parent":       req.Ticket,
+		"variants":     results,
+		"judge_prompt": req.JudgePrompt,
+	})
+}
+
 // handleSessionReview wraps the /fleet:review skill by spawning a
 // reviewer feature pinned to the parent ticket. Reviewer slug defaults
 // to "review-of-<TICKET>" lowercased.

@@ -84,16 +84,16 @@ func handleSessionGit(w http.ResponseWriter, r *http.Request, deps *apiDeps, tic
 }
 
 type prStatus struct {
-	Available bool                   `json:"available"` // false if `gh` not installed
-	Number    int                    `json:"number,omitempty"`
-	State     string                 `json:"state,omitempty"` // OPEN/MERGED/CLOSED
-	URL       string                 `json:"url,omitempty"`
-	Title     string                 `json:"title,omitempty"`
-	Author    string                 `json:"author,omitempty"`
-	Checks    []map[string]any       `json:"checks,omitempty"`
-	Files     []string               `json:"files,omitempty"`
-	Raw       map[string]any         `json:"raw,omitempty"`
-	Error     string                 `json:"error,omitempty"`
+	Available bool             `json:"available"` // false if `gh` not installed
+	Number    int              `json:"number,omitempty"`
+	State     string           `json:"state,omitempty"` // OPEN/MERGED/CLOSED
+	URL       string           `json:"url,omitempty"`
+	Title     string           `json:"title,omitempty"`
+	Author    string           `json:"author,omitempty"`
+	Checks    []map[string]any `json:"checks,omitempty"`
+	Files     []string         `json:"files,omitempty"`
+	Raw       map[string]any   `json:"raw,omitempty"`
+	Error     string           `json:"error,omitempty"`
 }
 
 func handleSessionPR(w http.ResponseWriter, r *http.Request, deps *apiDeps, ticket string) {

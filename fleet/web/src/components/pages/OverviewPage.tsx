@@ -15,7 +15,7 @@ import { useSessionList } from '../../hooks/useSessionList';
 import { useStats } from '../../hooks/useStats';
 import { useShortcuts } from '../../hooks/useShortcuts';
 import { usePersistentState } from '../../hooks/usePersistentState';
-import { fetchVersion } from '../../api';
+import { fetchVersion, sweepMerged, cleanDeadMetas } from '../../api';
 
 type Density = 'comfortable' | 'compact';
 
@@ -119,6 +119,30 @@ export function OverviewPage() {
               title="Broadcast input (b)"
             >
               Broadcast
+            </button>
+            <button
+              type="button"
+              class="link-button"
+              onClick={async () => {
+                try { const r = await sweepMerged(); setToast(`Swept: ${r.stdout.slice(0, 60)}`); }
+                catch (e) { setToast((e as Error).message); }
+                window.setTimeout(() => setToast(null), 4000);
+              }}
+              title="Sweep merged sessions"
+            >
+              Sweep
+            </button>
+            <button
+              type="button"
+              class="link-button"
+              onClick={async () => {
+                try { await cleanDeadMetas(); setToast('Cleaned dead metas'); }
+                catch (e) { setToast((e as Error).message); }
+                window.setTimeout(() => setToast(null), 3000);
+              }}
+              title="Clean dead session metadata"
+            >
+              Clean
             </button>
             <button
               type="button"
