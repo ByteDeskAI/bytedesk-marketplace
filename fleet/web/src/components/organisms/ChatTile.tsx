@@ -6,7 +6,7 @@
 // POSTs to /api/sessions/<T>/send (existing tmux send-keys wrapper)
 // so users can reply / interject without leaving chat mode.
 
-import { useEffect, useMemo, useRef } from 'preact/hooks';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import { useFleetChat } from '../../hooks/useFleetChat';
 import { useSessionStats } from '../../hooks/useSessionStats';
@@ -22,9 +22,16 @@ export interface ChatTileProps {
 }
 
 export function ChatTile({ row }: ChatTileProps) {
-  const { messages, sendMessage, sendKeys, isLoading, error } = useFleetChat(row.ticket);
+  const { messages, sendMessage, sendKeys, isLoading, error, loadMore, hasMore, loadingMore } =
+    useFleetChat(row.ticket);
   const { stats } = useSessionStats(row.ticket);
   const vRef = useRef<VirtuosoHandle | null>(null);
+  // Post-load scroll restore: when older messages prepend, the items
+  // array length jumps. We capture the pre-load length and, after
+  // render, scroll to the index that USED TO BE the topmost so the
+  // user keeps reading where they were instead of getting bounced to
+  // the new (older) top.
+  const [pendingRestore, setPendingRestore] = useState<number | null>(null);
 
   // Sub-agent index — Task tool_use_id → agent_id, so the renderer
   // can look up which nested SubAgentThread to render under each
@@ -42,8 +49,25 @@ export function ChatTile({ row }: ChatTileProps) {
   useEffect(() => {
     if (!vRef.current) return;
     if (items.length === 0) return;
+    if (pendingRestore !== null) {
+      // Older history just prepended — jump to the item that was
+      // index 0 before, so the visible region doesn't snap to the
+      // (now-far-older) top.
+      const newIdx = items.length - pendingRestore;
+      if (newIdx > 0) {
+        vRef.current.scrollToIndex({ index: newIdx, align: 'start', behavior: 'auto' });
+      }
+      setPendingRestore(null);
+      return;
+    }
     vRef.current.scrollToIndex({ index: items.length - 1, behavior: 'smooth' });
-  }, [items.length]);
+  }, [items.length, pendingRestore]);
+
+  const onStartReached = () => {
+    if (loadingMore || !hasMore) return;
+    setPendingRestore(items.length);
+    void loadMore();
+  };
 
   return (
     <div class="chat-tile">
@@ -60,6 +84,15 @@ export function ChatTile({ row }: ChatTileProps) {
             data={items}
             followOutput="smooth"
             initialTopMostItemIndex={Math.max(0, items.length - 1)}
+            startReached={onStartReached}
+            components={{
+              Header: () =>
+                loadingMore ? (
+                  <div class="chat-tile__more">loading older…</div>
+                ) : !hasMore && items.length > 0 ? (
+                  <div class="chat-tile__more chat-tile__more--end">— start of conversation —</div>
+                ) : null,
+            }}
             computeItemKey={(_, it) => (it as RenderItem).key}
             itemContent={(_, it) => {
               const item = it as RenderItem;

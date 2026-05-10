@@ -3895,3 +3895,19 @@ code, pre, .mono {
   border-top: 1px dashed var(--color-border);
   background: var(--color-bg-surface);
 }
+
+/* Infinite-scroll history banner (BDM-35) */
+.chat-tile__more {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-text-tertiary);
+  text-align: center;
+  padding: var(--space-2);
+  font-style: italic;
+}
+.chat-tile__more--end {
+  color: var(--color-text-tertiary);
+  border-top: 1px dashed var(--color-border);
+  padding-top: var(--space-3);
+  margin-top: var(--space-2);
+}

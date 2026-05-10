@@ -121,7 +121,7 @@ func handleSessionMessages(w http.ResponseWriter, r *http.Request, deps *apiDeps
 		writeJSON(w, http.StatusOK, []UIMessage{})
 		return
 	}
-	msgs, err := readUIMessages(path, limit)
+	msgs, err := readUIMessages(path, limit, q.Get("before"))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return

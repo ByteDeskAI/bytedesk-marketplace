@@ -20,6 +20,11 @@ export interface FleetChatState {
   sendKeys: (keys: string[]) => Promise<void>;
   isLoading: boolean;
   error: string | null;
+  /** Fetch the next batch of older history. Returns the count of
+   *  messages added (0 means no more / already loading). */
+  loadMore: () => Promise<number>;
+  hasMore: boolean;
+  loadingMore: boolean;
 }
 
 interface Options {
@@ -45,10 +50,17 @@ export function useFleetChat(ticket: string | null, opts: Options = {}): FleetCh
   const [messages, setMessages] = useState<UIMessage[]>([]);
   const [isLoading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   // Live tool-call index across renders so SSE deltas can fold a
   // tool_result into the prior tool_use's UIMessage. Keyed by tool_use_id.
   const indexRef = useRef<Map<string, { messageID: string; partIdx: number }>>(new Map());
+  // Latest messages snapshot for loadMore — we want the cursor to
+  // reflect the freshest oldest-id without re-running the effect that
+  // owns SSE on every messages update.
+  const messagesRef = useRef<UIMessage[]>([]);
+  messagesRef.current = messages;
 
   useEffect(() => {
     if (!ticket) {
@@ -69,6 +81,11 @@ export function useFleetChat(ticket: string | null, opts: Options = {}): FleetCh
       .then((seed: UIMessage[]) => {
         if (cancelled) return;
         setMessages(seed);
+        // Reset pagination state on every (ticket, agentID) switch.
+        // If we got fewer than `limit` we know there's no older
+        // history left; otherwise keep hasMore=true and let loadMore
+        // discover the boundary.
+        setHasMore(seed.length >= limit);
         // Rebuild tool-call index from the seed.
         indexRef.current.clear();
         for (const m of seed) {
@@ -133,7 +150,57 @@ export function useFleetChat(ticket: string | null, opts: Options = {}): FleetCh
     if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
   };
 
-  return { messages, sendMessage, sendKeys, isLoading, error };
+  // Pagination — fetch older history when the user scrolls near the
+  // top. Cursor is the oldest currently-loaded message's id; server
+  // returns the previous batch (or empty when there's nothing older).
+  const loadMore = async (): Promise<number> => {
+    if (!ticket || loadingMore || !hasMore) return 0;
+    const oldest = messagesRef.current[0];
+    if (!oldest) return 0;
+    setLoadingMore(true);
+    try {
+      const params = new URLSearchParams();
+      if (agentID) params.set('agent_id', agentID);
+      params.set('limit', String(limit));
+      params.set('before', oldest.id);
+      const r = await fetch(`${messagesURL}?${params.toString()}`);
+      if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+      const more = (await r.json()) as UIMessage[];
+      if (more.length === 0) {
+        setHasMore(false);
+        return 0;
+      }
+      // Prepend, dedupe by id (defense — server should already exclude
+      // the cursor and everything after).
+      const existingIDs = new Set(messagesRef.current.map((m) => m.id));
+      const fresh = more.filter((m) => !existingIDs.has(m.id));
+      if (fresh.length === 0) {
+        setHasMore(false);
+        return 0;
+      }
+      // Update tool-call index for prepended tool-calls.
+      for (const m of fresh) {
+        for (let i = 0; i < m.parts.length; i++) {
+          const p = m.parts[i];
+          if (p.type === 'tool-call' && p.tool_use_id) {
+            indexRef.current.set(p.tool_use_id, { messageID: m.id, partIdx: i });
+          }
+        }
+      }
+      setMessages((prev) => [...fresh, ...prev]);
+      // If we got fewer than the requested page size, we've hit the
+      // beginning of the file.
+      if (more.length < limit) setHasMore(false);
+      return fresh.length;
+    } catch (e) {
+      setError((e as Error).message);
+      return 0;
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  return { messages, sendMessage, sendKeys, isLoading, error, loadMore, hasMore, loadingMore };
 }
 
 // applyDelta translates a single TranscriptEvent into a state-setter

@@ -101,8 +101,11 @@ type contentBlock struct {
 }
 
 // readUIMessages reads up to `limit` UIMessages from the tail of the
-// jsonl at `path`. Negative limit = unlimited.
-func readUIMessages(path string, limit int) ([]UIMessage, error) {
+// jsonl at `path`. Negative limit = unlimited. When `beforeID` is
+// non-empty, returns the slice ending at (but not including) the
+// message whose ID matches — used by the chat-mode infinite-scroll-up
+// path to load older history.
+func readUIMessages(path string, limit int, beforeID string) ([]UIMessage, error) {
 	if path == "" {
 		return nil, errors.New("empty path")
 	}
@@ -125,6 +128,21 @@ func readUIMessages(path string, limit int) ([]UIMessage, error) {
 		return nil, err
 	}
 	msgs := projectMessages(entries)
+	if beforeID != "" {
+		// Slice the array up to (not including) the matching ID.
+		// Unknown ID → return empty (caller will treat as "no more").
+		cut := -1
+		for i, m := range msgs {
+			if m.ID == beforeID {
+				cut = i
+				break
+			}
+		}
+		if cut <= 0 {
+			return []UIMessage{}, nil
+		}
+		msgs = msgs[:cut]
+	}
 	if limit > 0 && len(msgs) > limit {
 		msgs = msgs[len(msgs)-limit:]
 	}

@@ -11,7 +11,7 @@
 // /api/main/send (BDM-33) so users can drive the persistent shell
 // from chat mode.
 
-import { useEffect, useMemo, useRef } from 'preact/hooks';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import { InteractiveTerminal } from './InteractiveTerminal';
 import { MessageBubble } from './MessageBubble';
@@ -40,19 +40,35 @@ export function MainTile() {
 }
 
 function MainChatBody() {
-  const { messages, sendMessage, sendKeys, isLoading, error } = useFleetChat('__main__', {
-    messagesURL: '/api/main/messages',
-    transcriptURL: '/api/main/transcript',
-    sendURL: '/api/main/send',
-    keysURL: '/api/main/keys',
-  });
+  const { messages, sendMessage, sendKeys, isLoading, error, loadMore, hasMore, loadingMore } =
+    useFleetChat('__main__', {
+      messagesURL: '/api/main/messages',
+      transcriptURL: '/api/main/transcript',
+      sendURL: '/api/main/send',
+      keysURL: '/api/main/keys',
+    });
   const vRef = useRef<VirtuosoHandle | null>(null);
   const items = useMemo<RenderItem[]>(() => groupMessages(messages), [messages]);
+  const [pendingRestore, setPendingRestore] = useState<number | null>(null);
 
   useEffect(() => {
     if (!vRef.current || items.length === 0) return;
+    if (pendingRestore !== null) {
+      const newIdx = items.length - pendingRestore;
+      if (newIdx > 0) {
+        vRef.current.scrollToIndex({ index: newIdx, align: 'start', behavior: 'auto' });
+      }
+      setPendingRestore(null);
+      return;
+    }
     vRef.current.scrollToIndex({ index: items.length - 1, behavior: 'smooth' });
-  }, [items.length]);
+  }, [items.length, pendingRestore]);
+
+  const onStartReached = () => {
+    if (loadingMore || !hasMore) return;
+    setPendingRestore(items.length);
+    void loadMore();
+  };
 
   return (
     <div class="chat-tile">
@@ -69,6 +85,15 @@ function MainChatBody() {
             data={items}
             followOutput="smooth"
             initialTopMostItemIndex={Math.max(0, items.length - 1)}
+            startReached={onStartReached}
+            components={{
+              Header: () =>
+                loadingMore ? (
+                  <div class="chat-tile__more">loading older…</div>
+                ) : !hasMore && items.length > 0 ? (
+                  <div class="chat-tile__more chat-tile__more--end">— start of conversation —</div>
+                ) : null,
+            }}
             computeItemKey={(_, it) => (it as RenderItem).key}
             itemContent={(_, it) => {
               const item = it as RenderItem;

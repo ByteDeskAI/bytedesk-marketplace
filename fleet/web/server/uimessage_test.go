@@ -142,7 +142,7 @@ func TestProjectMessages(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			path := writeJSONL(t, tc.lines)
-			msgs, err := readUIMessages(path, 0)
+			msgs, err := readUIMessages(path, 0, "")
 			if err != nil {
 				t.Fatalf("read: %v", err)
 			}
@@ -154,13 +154,47 @@ func TestProjectMessages(t *testing.T) {
 	}
 }
 
+func TestReadUIMessagesBeforeID(t *testing.T) {
+	// Five turn-numbered assistant messages. The third's id is the
+	// cursor; we expect the first two back (in order) and an empty
+	// result when the cursor is the very first or unknown.
+	mk := func(uuid string) string {
+		return `{"type":"assistant","uuid":"` + uuid + `","timestamp":"2026-05-10T00:00:00Z","message":{"role":"assistant","content":[{"type":"text","text":"x"}]}}`
+	}
+	path := writeJSONL(t, []string{mk("u1"), mk("u2"), mk("u3"), mk("u4"), mk("u5")})
+
+	got, err := readUIMessages(path, 0, "u3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].ID != "u1" || got[1].ID != "u2" {
+		t.Errorf("before=u3: want [u1,u2], got %s", pretty(got))
+	}
+
+	got, err = readUIMessages(path, 0, "u1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Errorf("before=u1: want [], got %d", len(got))
+	}
+
+	got, err = readUIMessages(path, 0, "missing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Errorf("before=missing: want [], got %d", len(got))
+	}
+}
+
 func TestReadUIMessagesRespectsLimit(t *testing.T) {
 	lines := make([]string, 50)
 	for i := range lines {
 		lines[i] = `{"type":"assistant","uuid":"u","timestamp":"2026-05-10T00:00:00Z","message":{"role":"assistant","content":[{"type":"text","text":"x"}]}}`
 	}
 	path := writeJSONL(t, lines)
-	msgs, err := readUIMessages(path, 10)
+	msgs, err := readUIMessages(path, 10, "")
 	if err != nil {
 		t.Fatal(err)
 	}
