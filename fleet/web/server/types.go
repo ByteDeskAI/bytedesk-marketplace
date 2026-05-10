@@ -46,6 +46,14 @@ type SessionView struct {
 	Cost     string  `json:"cost"`
 	Runtime  string  `json:"runtime"`
 	Progress float64 `json:"progress"`
+
+	// Intelligence layer — Phase 8 (BDM-24). Today these are heuristic
+	// stubs derived from the same fields the regex state-derivation
+	// already reads. The seam is the JudgeProvider interface; swap in
+	// Haiku later without changing the wire shape.
+	Confidence float64 `json:"confidence"`      // 0..1 — judge's confidence in `state`
+	Drift      float64 `json:"drift,omitempty"` // 0..1 — likelihood the agent is off-track
+	Objective  string  `json:"objective,omitempty"`
 }
 
 // FleetStats — GET /api/stats. Mirrors the SPA's FleetStats type.

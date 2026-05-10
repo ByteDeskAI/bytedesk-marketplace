@@ -81,6 +81,27 @@ func spawnBin() string {
 	return "spawn-claude-feature"
 }
 
+// handleEstimateCost — Phase 8 (BDM-24, B12). Pre-spawn cost estimate.
+//
+//	POST /api/estimate-cost  body: {"prompt": "...", "full_auto": bool}
+//	→ {"low": 0.07, "high": 0.32}
+func handleEstimateCost(w http.ResponseWriter, r *http.Request, deps *apiDeps) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, errors.New("POST required"))
+		return
+	}
+	var body struct {
+		Prompt   string `json:"prompt"`
+		FullAuto bool   `json:"full_auto"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid json: %w", err))
+		return
+	}
+	low, high := deps.judge.EstimateCost(body.Prompt, body.FullAuto)
+	writeJSON(w, http.StatusOK, map[string]any{"low": low, "high": high})
+}
+
 func handleSpawn(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, errors.New("POST required"))

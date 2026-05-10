@@ -10,6 +10,11 @@ export interface SessionRow {
   cost: string;
   runtime: string;
   progress: number;
+  // Intelligence layer (Phase 8 / BDM-24). Optional — older binaries
+  // may not include them.
+  confidence?: number;
+  drift?: number;
+  objective?: string;
 }
 
 export type SessionState =
@@ -84,6 +89,21 @@ export interface SpawnResult {
   ticket: string;
   slug?: string;
   stdout: string;
+}
+
+export interface CostEstimate {
+  low: number;
+  high: number;
+}
+
+export async function estimateCost(prompt: string, fullAuto: boolean): Promise<CostEstimate> {
+  const r = await fetch('/api/estimate-cost', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt, full_auto: fullAuto }),
+  });
+  if (!r.ok) throw new Error(await readError(r));
+  return r.json();
 }
 
 export async function spawnFeature(args: SpawnArgs): Promise<SpawnResult> {

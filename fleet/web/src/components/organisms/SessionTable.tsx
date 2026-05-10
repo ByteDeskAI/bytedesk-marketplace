@@ -100,7 +100,17 @@ export function SessionTable({ rows, loading, density = 'comfortable', onRowClic
             >
               <div role="cell" style={{ fontWeight: 600 }}>{r.ticket}</div>
               <div role="cell" style={{ color: 'var(--color-text-secondary)' }}>{r.slug || '—'}</div>
-              <div role="cell"><Badge state={r.state} /></div>
+              <div role="cell">
+                <Badge state={r.state} />
+                {r.drift != null && r.drift > 0.6 ? (
+                  <span
+                    title={`Drift score ${Math.round(r.drift * 100)}% — agent may be stuck`}
+                    style={{ marginLeft: 6, color: 'var(--color-state-needs-input)', fontSize: 'var(--text-xs)' }}
+                  >
+                    ⚠
+                  </span>
+                ) : null}
+              </div>
               <div role="cell" style={{ color: 'var(--color-text-secondary)' }}>
                 {r.parent || '—'}
               </div>
