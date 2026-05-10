@@ -19,12 +19,6 @@
 #                                         # tool-level events for a session (BDP-372)
 #   claude-sessions web    [--port N] [--bind ADDR] [--cred user:pass]  # ttyd browser view
 #
-# Background service control (systemd --user):
-#   claude-sessions service                         # status of notify + web
-#   claude-sessions service <action> [target]       # action: start|stop|restart|
-#                                                   #         enable|disable|logs
-#                                                   # target: notify|web|all (default all)
-#
 # Rules engine (chain orchestration that survives chat session ends):
 #   claude-sessions rules                           # list pending rules
 #   claude-sessions rules cancel <id>               # remove a pending rule
@@ -1031,56 +1025,6 @@ MSG
   exec ttyd "${args[@]}" claude-sessions tui
 }
 
-cmd_service() {
-  local action="${1:-status}"; [[ $# -gt 0 ]] && shift
-  local target="${1:-all}"
-
-  case "$target" in
-    notify) local units=("claude-sessions-notify.service") ;;
-    web)    local units=("claude-sessions-web.service") ;;
-    all|"") local units=("claude-sessions-notify.service" "claude-sessions-web.service") ;;
-    *) echo "service: unknown target '$target' (notify|web|all)" >&2; return 64 ;;
-  esac
-
-  case "$action" in
-    status)
-      printf "${C_BOLD}%-32s %-10s %-10s %-8s %s${C_RESET}\n" "UNIT" "ACTIVE" "ENABLED" "PID" "DETAIL"
-      local u active enabled pid main detail
-      for u in "${units[@]}"; do
-        active=$(systemctl --user is-active "$u" 2>/dev/null || true)
-        enabled=$(systemctl --user is-enabled "$u" 2>/dev/null || echo "?")
-        pid=$(systemctl --user show -p MainPID --value "$u" 2>/dev/null || echo "?")
-        case "$active" in
-          active)   active="${C_GREEN}${active}${C_RESET}" ;;
-          inactive|failed) active="${C_RED}${active}${C_RESET}" ;;
-          *)        active="${C_DIM}${active}${C_RESET}" ;;
-        esac
-        case "$u" in
-          *notify*) detail="interval=5s, urgency=critical for needs-input/error" ;;
-          *web*)    detail="http://127.0.0.1:7681/  (browser dashboard)" ;;
-        esac
-        printf "%-32s %-19s %-10s %-8s %s\n" "$u" "$active" "$enabled" "${pid:-?}" "$detail"
-      done
-      ;;
-    start|stop|restart|enable|disable)
-      systemctl --user "$action" "${units[@]}"
-      echo "${action} → ${units[*]}"
-      ;;
-    logs)
-      # logs requires exactly one target
-      if [[ "${#units[@]}" -ne 1 ]]; then
-        echo "service logs: pick one target (notify|web)" >&2
-        return 64
-      fi
-      exec journalctl --user -u "${units[0]}" -f -n 50
-      ;;
-    *)
-      echo "service: unknown action '$action' (status|start|stop|restart|enable|disable|logs)" >&2
-      return 64
-      ;;
-  esac
-}
-
 cmd_tui() {
   while true; do
     clear
@@ -1128,10 +1072,9 @@ case "${1:-list}" in
   notify)  shift; cmd_notify "$@" ;;
   events)  shift; cmd_events "$@" ;;
   web)     shift; cmd_web "$@" ;;
-  service|svc) shift; cmd_service "$@" ;;
   rules)   shift; cmd_rules "$@" ;;
   tree)    shift; cmd_tree "$@" ;;
   cost)    shift; cmd_cost "$@" ;;
-  -h|--help|help) sed -n '2,38p' "$0" | sed 's/^# *//' ;;
+  -h|--help|help) sed -n '2,33p' "$0" | sed 's/^# *//' ;;
   *) echo "unknown subcommand: $1 (try: claude-sessions help)" >&2; exit 64 ;;
 esac

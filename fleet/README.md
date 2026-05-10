@@ -13,27 +13,18 @@ Add the [bytedesk-marketplace](https://github.com/ByteDeskAI/bytedesk-marketplac
 /plugin install fleet@bytedesk
 ```
 
-After install, run the out-of-band installer once for the per-user state directory:
-
-```
-~/.claude/plugins/fleet/install.sh
-```
-
-This symlinks `bin/claude-sessions` and `bin/spawn-claude-feature` into `~/.local/bin/` and installs the systemd user units. Per-session state lives under `${CLAUDE_PLUGIN_DATA}/projects/<KEY>/` (created lazily on first use; see [ADR-0002](./docs/adr/0002-plugin-data-directory.md)).
-
-> **Going away in v1.0:** the `install.sh` + systemd path is being removed in favor of plugin-managed deployment (BDM-10). New installs should rely on `/plugin install fleet@bytedesk` alone.
+That's it. Per-session state lives under `${CLAUDE_PLUGIN_DATA}/projects/<KEY>/` and is created lazily on first use; see [ADR-0002](./docs/adr/0002-plugin-data-directory.md). Coming from the v0.1 install.sh path? See [docs/MIGRATION.md](./docs/MIGRATION.md).
 
 ## What's in the box
 
 | Component | Purpose |
 |---|---|
-| `bin/claude-sessions` | Dashboard + control plane CLI. List sessions, attach, send messages, kill, query events. |
+| `bin/claude-sessions` | Dashboard + control plane CLI. List sessions, attach, send messages, kill, query events. Auto-PATH'd via `${CLAUDE_PLUGIN_ROOT}/bin/`. |
 | `bin/spawn-claude-feature` | Worktree + tmux session launcher with full-auto, parent tracking, depth-aware spawning. |
 | `hooks/pr-merge-guard.sh` | PreToolUse hook — blocks `gh pr merge` without per-PR authorization at depth 0; delegates at depth ≥ 1 (ADR-0001). |
 | `hooks/event-emitter.sh` | PostToolUse hook — emits structured JSONL events for `gh pr review`, `gh pr merge`, `git push` etc. |
-| `monitors/monitors.json` | Registers the `claude-sessions notify` daemon as a plugin-managed monitor (replaces systemd for users on the plugin path). |
+| `monitors/monitors.json` | Registers the `claude-sessions notify` daemon as a plugin-managed monitor; per-project PID lock + stand-by polling so multiple sessions in the same project coordinate cleanly (ADR-0002, BDM-4). |
 | `skills/{spawn,review,cleanup,tournament,wait,chain}/` | Slash commands: `/fleet:spawn`, `/fleet:review`, etc. |
-| `systemd/` | systemd user units for OS-level service lifecycle (alternative to running the daemon as a Claude Code monitor). |
 
 ## Slash commands
 

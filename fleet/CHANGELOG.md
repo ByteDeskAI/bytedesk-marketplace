@@ -9,6 +9,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - Initial extraction from `ByteDeskAI/bytedesk-platform` as a Claude Code marketplace plugin.
+- ADR-0002 documenting the per-project `${CLAUDE_PLUGIN_DATA}` state-directory layout (BDM-5).
+- Research note `docs/research/0001-plugin-manifest-lifecycle.md` capturing the manifest/lifecycle findings that informed the v1.0 design (BDM-6).
+- `fleet/tests/test-notify-lock.sh` — 10 assertions covering the notify-daemon PID lock + depth gate (BDM-4).
+- `fleet/docs/MIGRATION.md` — step-by-step v0.1 → v1.0 migration for users on the install.sh path (BDM-10).
+
+### Changed
+
+- **BREAKING.** Per-user state moved from `~/.claude-sessions/` (flat) to `${CLAUDE_PLUGIN_DATA}/projects/<PROJECT_KEY>/sessions/<TICKET>/` (per-project, per-ticket). Plugin owns its own data namespace; uninstall is clean. See ADR-0002 (BDM-3, BDM-5).
+- **BREAKING.** `bin/claude-sessions` and `bin/spawn-claude-feature` are now PATH-injected from `${CLAUDE_PLUGIN_ROOT}/bin/` by Claude Code. No more `~/.local/bin/` symlinks (BDM-3).
+- **BREAKING.** Notify daemon is now a plugin-managed monitor (`monitors/monitors.json`, `when: "always"`) with a per-project PID lock + stand-by polling pattern. Multiple sessions in the same project coordinate cleanly; one is active and the other(s) stand by, taking over when the holder's session exits (BDM-4).
+- `monitors/monitors.json` shape corrected to the documented `{name, command, description, when}` schema. The v0.1 `lifecycle: "plugin-active"` and `restart: "always"` fields don't exist in the documented schema and were silently ignored (BDM-6).
+- Removed bogus `$schema` URLs from `hooks/hooks.json` and `monitors/monitors.json` — neither schema is published by SchemaStore (BDM-6).
+- Skill `name:` fields and prose migrated to plugin-namespaced form: `name: spawn` etc., slash-command form `/fleet:spawn`. The status skill (`name: fleet`, root `/fleet`) is unchanged (BDM-2).
+- Tightened the BDP-367 glob-expansion regression test in `hooks/tests/test-pr-merge-guard.sh` so it actually fails when `set -f` is removed from the hook (BDM-9).
+
+### Removed
+
+- **BREAKING.** `fleet/install.sh` deleted. Plugin install is the only deployment path (BDM-10).
+- **BREAKING.** `fleet/systemd/` deleted (`claude-sessions-notify.service`, `claude-sessions-web.service`). Daemon lifetime is now Claude Code session-bound; the per-project lock + stand-by gives equivalent continuous coverage (BDM-10).
+- `claude-sessions service` subcommand removed (BDM-10).
 
 ### Changed
 
