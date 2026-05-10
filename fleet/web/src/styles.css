@@ -28,7 +28,7 @@
   --color-border-grid: #1a2026;
   --color-text-primary: #e6e8eb;
   --color-text-secondary: #9aa3ad;
-  --color-text-tertiary: #6b7480;
+  --color-text-tertiary: #7d8693; /* WCAG AA 4.5:1 vs --color-bg-app (BDM-42) */
   --color-text-inverse: #0a0d10;
 
   /* Accent — terminal amber (signals attention without alarming) */
@@ -119,7 +119,7 @@
   --color-border-grid: #e5e3dc;
   --color-text-primary: #0d0f12;
   --color-text-secondary: #525861;
-  --color-text-tertiary: #8a8f97;
+  --color-text-tertiary: #5e6068; /* WCAG AA ≥4.5:1 vs both --color-bg-app and --color-bg-sidebar (BDM-42) */
   --color-text-inverse: #ffffff;
 
   --color-accent: #c2410c;
