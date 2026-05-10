@@ -78,7 +78,7 @@ func main() {
 	}
 
 	projDir, _ := projectDir()
-	deps := newAPIDeps(pkey, cfg, projDir, dataRoot())
+	deps := newAPIDeps(pkey, cfg, projDir, dataRoot(), webPath)
 	handler, err := buildHandler(deps)
 	if err != nil {
 		_ = lock.Release()

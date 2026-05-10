@@ -150,6 +150,29 @@ async function readError(r: Response): Promise<string> {
   }
 }
 
+// Settings — Phase 10 (BDM-26).
+export interface FleetSettings {
+  mobile: { enabled: boolean; ntfy_url: string; topic: string; kinds: string };
+  tailscale: { enabled: boolean; funnel: boolean };
+  theme: { theme: string; accent: string; font: string };
+}
+
+export async function loadSettings(): Promise<FleetSettings> {
+  const r = await fetch('/api/settings');
+  if (!r.ok) throw new Error(await readError(r));
+  return r.json();
+}
+
+export async function saveSettings(s: FleetSettings): Promise<FleetSettings> {
+  const r = await fetch('/api/settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(s),
+  });
+  if (!r.ok) throw new Error(await readError(r));
+  return r.json();
+}
+
 export async function fetchVersion(): Promise<{ build: string; project: string }> {
   try {
     const r = await fetch('/api/version');

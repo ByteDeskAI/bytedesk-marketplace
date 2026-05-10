@@ -6,14 +6,16 @@ import { render } from 'preact';
 import { OverviewPage } from './components/pages/OverviewPage';
 import { AuditPage } from './components/pages/AuditPage';
 import { ReplayPage } from './components/pages/ReplayPage';
+import { SettingsPage } from './components/pages/SettingsPage';
 import { useRoute } from './hooks/useRoute';
 
 function App() {
   const [route] = useRoute();
   switch (route.name) {
-    case 'audit':  return <AuditPage />;
-    case 'replay': return <ReplayPage />;
-    default:       return <OverviewPage />;
+    case 'audit':    return <AuditPage />;
+    case 'replay':   return <ReplayPage />;
+    case 'settings': return <SettingsPage />;
+    default:         return <OverviewPage />;
   }
 }
 

@@ -160,7 +160,7 @@ func TestRouteSessionsReturnsList(t *testing.T) {
 			"started": started, "depth": "0",
 		},
 	})
-	deps := newAPIDeps("test-key", &WebConfig{Bind: "127.0.0.1", Port: 7681}, projDir, t.TempDir())
+	deps := newAPIDeps("test-key", &WebConfig{Bind: "127.0.0.1", Port: 7681}, projDir, t.TempDir(), t.TempDir())
 	h, err := buildHandler(deps)
 	if err != nil {
 		t.Fatal(err)
@@ -197,7 +197,7 @@ func TestRouteStatsAggregates(t *testing.T) {
 	// Empty logs → all sessions report state "starting" (which doesn't count
 	// as active or completed). The aggregation should still produce a valid
 	// stats object with total = 3.
-	deps := newAPIDeps("test-key", &WebConfig{Bind: "127.0.0.1", Port: 7681}, projDir, t.TempDir())
+	deps := newAPIDeps("test-key", &WebConfig{Bind: "127.0.0.1", Port: 7681}, projDir, t.TempDir(), t.TempDir())
 	h, _ := buildHandler(deps)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/stats", nil)
@@ -226,7 +226,7 @@ func TestRouteProjectsEnumerates(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	deps := newAPIDeps("abc123def456", &WebConfig{Bind: "127.0.0.1", Port: 7700}, filepath.Join(dataRoot, "projects", "abc123def456"), dataRoot)
+	deps := newAPIDeps("abc123def456", &WebConfig{Bind: "127.0.0.1", Port: 7700}, filepath.Join(dataRoot, "projects", "abc123def456"), dataRoot, t.TempDir())
 	h, _ := buildHandler(deps)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/projects", nil)

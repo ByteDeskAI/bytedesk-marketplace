@@ -735,3 +735,44 @@ code, pre {
   overflow: auto;
 }
 .replay__event { font-size: var(--text-sm); }
+
+/* Settings page (Phase 10 / BDM-26) */
+.settings {
+  display: grid;
+  gap: var(--space-6);
+  max-width: 720px;
+}
+.settings__section {
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+}
+.settings__section-title {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+.settings__rows {
+  display: grid;
+  gap: var(--space-3);
+}
+.settings__field {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: var(--space-3);
+  align-items: center;
+}
+.settings__label {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+.settings__input {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-family: inherit;
+}
