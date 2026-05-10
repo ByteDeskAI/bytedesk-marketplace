@@ -1,10 +1,12 @@
 // useModalFocus — keyboard + screen-reader plumbing for modal dialogs (BDM-41).
 //
 // On mount: stores the previously-focused element, then focuses the first
-//           focusable element inside the modal `ref`.
+//           focusable element inside the modal `ref`. Locks body scroll
+//           (BDM-48) so the underlying page doesn't slide.
 // While open: traps Tab / Shift+Tab inside the modal (Tab from last → first;
 //             Shift+Tab from first → last).
-// On unmount: restores focus to the previously-focused element.
+// On unmount: restores focus to the previously-focused element AND restores
+//             the body's prior `overflow` value.
 //
 // Pair with `role="dialog" aria-modal="true" aria-label="..."` on the modal
 // element. The backdrop div is just a click target — the dialog role goes
@@ -34,6 +36,11 @@ export function useModalFocus<T extends HTMLElement>(ref: RefObject<T>): void {
     if (!modal) return;
     const previouslyFocused = document.activeElement as HTMLElement | null;
 
+    // Lock body scroll while the modal is open (BDM-48). Stash the current
+    // inline value so we can restore it on unmount, even if it was empty.
+    const previousBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
     // Defer one frame so child inputs render before we look for them.
     const focusFrame = window.setTimeout(() => {
       const els = focusableIn(modal);
@@ -61,6 +68,8 @@ export function useModalFocus<T extends HTMLElement>(ref: RefObject<T>): void {
     return () => {
       window.clearTimeout(focusFrame);
       modal.removeEventListener('keydown', onKeyDown);
+      // Restore body scroll first so the page can move under restored focus.
+      document.body.style.overflow = previousBodyOverflow;
       // Restore focus only if the previously-focused element is still
       // attached and visible. Avoids ping-pong if the trigger unmounted.
       if (previouslyFocused && document.contains(previouslyFocused)) {
