@@ -13,7 +13,7 @@
 #   claude-sessions tree   [<ticket>]     # show parent → child hierarchy
 #   claude-sessions cost   [<ticket>]     # token usage and rough cost per session
 #   claude-sessions tui                   # interactive menu (no fzf needed)
-#   claude-sessions clean                 # prune meta files for dead sessions
+#   claude-sessions clean  [--quiet|-q]   # prune meta files for dead sessions
 #   claude-sessions notify [--interval N] [--once]   # desktop alerts + rules engine
 #   claude-sessions events <ticket> [--since=TS] [--kinds=K,..] [--json|--plain] [--follow]
 #                                         # tool-level events for a session (BDP-372)
@@ -468,6 +468,23 @@ cmd_kill() {
 }
 
 cmd_clean() {
+  local quiet=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -q|--quiet) quiet=1; shift ;;
+      --) shift; break ;;
+      -*) echo "unknown flag for clean: $1 (try: claude-sessions help)" >&2; return 64 ;;
+      *)  echo "clean takes no positional arguments (got: $1)" >&2; return 64 ;;
+    esac
+  done
+
+  # Quiet mode (BDM-29): save fd 1 to fd 3, point fd 1 at /dev/null. Existing
+  # echo/printf calls below silently drop into the void; stderr is untouched so
+  # `tmux has-session` errors and the like still surface to a user. Restored
+  # before return so a parent shell that sourced this file (tests do) keeps a
+  # working stdout.
+  if (( quiet )); then exec 3>&1 1>/dev/null; fi
+
   local meta ticket session
   shopt -s nullglob
   for meta in "$SESSIONS_DIR"/*/meta; do
@@ -480,6 +497,8 @@ cmd_clean() {
       rm -f "$meta"
     fi
   done
+
+  if (( quiet )); then exec 1>&3 3>&-; fi
 }
 
 # ─── Rules engine ─────────────────────────────────────────────────────────────
@@ -1103,7 +1122,7 @@ case "${1:-list}" in
   peek)    shift; cmd_peek "$@" ;;
   send)    shift; cmd_send "$@" ;;
   kill)    shift; cmd_kill "$@" ;;
-  clean)   cmd_clean ;;
+  clean)   shift; cmd_clean "$@" ;;
   tui)     cmd_tui ;;
   notify)  shift; cmd_notify "$@" ;;
   events)  shift; cmd_events "$@" ;;
