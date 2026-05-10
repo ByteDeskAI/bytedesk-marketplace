@@ -1,6 +1,6 @@
 ---
-name: fleet-spawn
-description: Spawn one or many parallel Claude agents on Jira tickets, with full-auto mode and Jira-aware prompt construction. Single-ticket form replaces a manual bytedesk-feature-start when you already know the ticket; multi-ticket form fires N sessions in parallel ("kick off the whole sprint"). Use when the user says "fleet spawn", "/fleet-spawn", "kick off these tickets", "spawn agents for", "/fleet-spawn BDP-N BDP-M", or any phrasing about launching one or more sessions from existing Jira tickets.
+name: spawn
+description: Spawn one or many parallel Claude agents on Jira tickets, with full-auto mode and Jira-aware prompt construction. Single-ticket form replaces a manual bytedesk-feature-start when you already know the ticket; multi-ticket form fires N sessions in parallel ("kick off the whole sprint"). Use when the user says "fleet spawn", "/fleet:spawn", "kick off these tickets", "spawn agents for", "/fleet:spawn BDP-N BDP-M", or any phrasing about launching one or more sessions from existing Jira tickets.
 user-invokable: true
 argument-hint: "<BDP-N> [BDP-M ...]    # one or more existing Jira ticket keys"
 allowed-tools:
@@ -91,8 +91,8 @@ If only one ticket was spawned, drop the count line; just print the single sessi
 ## Examples
 
 ```
-/fleet-spawn BDP-360
-/fleet-spawn BDP-360 BDP-361 BDP-362
-/fleet-spawn BDP-360=dns-host-ui                    # custom slug for one ticket
-/fleet-spawn BDP-360 BDP-361=deploy-tab BDP-362     # mix of default and custom
+/fleet:spawn BDP-360
+/fleet:spawn BDP-360 BDP-361 BDP-362
+/fleet:spawn BDP-360=dns-host-ui                    # custom slug for one ticket
+/fleet:spawn BDP-360 BDP-361=deploy-tab BDP-362     # mix of default and custom
 ```

@@ -1,6 +1,6 @@
 ---
-name: fleet-chain
-description: Dependency-aware multi-stage orchestration of parallel sessions. Spawn stage 1 in parallel; the always-on rules engine then spawns stage 2 once stage 1 is all done, stage 3 once stage 2 is done, and so on. The skill itself returns immediately — chains survive the chat session ending. Use when the user says "fleet chain", "/fleet-chain", "spawn A then B", "after BDP-N finishes spawn BDP-M", or any phrasing about multi-stage orchestration of sessions.
+name: chain
+description: Dependency-aware multi-stage orchestration of parallel sessions. Spawn stage 1 in parallel; the always-on rules engine then spawns stage 2 once stage 1 is all done, stage 3 once stage 2 is done, and so on. The skill itself returns immediately — chains survive the chat session ending. Use when the user says "fleet chain", "/fleet:chain", "spawn A then B", "after BDP-N finishes spawn BDP-M", or any phrasing about multi-stage orchestration of sessions.
 user-invokable: true
 argument-hint: "<stage1> then <stage2> [then <stage3> ...]    # each stage is space-separated tickets"
 allowed-tools:
@@ -16,29 +16,29 @@ allowed-tools:
 
 Orchestrates dependency chains across the multi-session command center, **without blocking the chat session**. The skill:
 
-1. Spawns stage 1 immediately (via `/fleet-spawn`).
+1. Spawns stage 1 immediately (via `/fleet:spawn`).
 2. Writes one rule file per subsequent stage to the rules engine.
 3. Reports the chain plan and exits.
 
 The always-on notifier daemon (the rules engine) evaluates rules every 5s and fires the next stage's spawn the moment the previous stage's sessions all reach `done`. Because rules live as files in `~/.claude-sessions/rules/`, the chain continues to execute even after this chat session ends, after Claude restarts, or across reboots (rules persist; the daemon re-reads on startup).
 
 ```
-/fleet-chain BDP-A BDP-B then BDP-C
+/fleet:chain BDP-A BDP-B then BDP-C
 ```
 spawns A and B immediately; installs one rule that, when both A and B are `done`, spawns C.
 
 ```
-/fleet-chain BDP-A then BDP-B then BDP-C
+/fleet:chain BDP-A then BDP-B then BDP-C
 ```
 strictly serial — A spawned now, rule for B (waits A done), rule for C (waits B done).
 
 ## Steps
 
-1. Parse the argument string by splitting on the literal token `then`. Each segment is one stage; each stage is one or more space-separated tickets (with optional `=slug` syntax matching `/fleet-spawn`).
+1. Parse the argument string by splitting on the literal token `then`. Each segment is one stage; each stage is one or more space-separated tickets (with optional `=slug` syntax matching `/fleet:spawn`).
 2. Validate every ticket exists in Jira (single `mcp__plugin_atlassian_atlassian__getJiraIssue` per ticket; abort the whole chain if any is invalid).
 3. **Pre-write all prompt files** — for every ticket in every stage, write its prompt to `/tmp/<TICKET>-prompt.txt` now. The rules engine references these paths when firing.
 4. Show the plan to the user; ask for confirmation if there are 3+ stages or 5+ total tickets.
-5. **Spawn stage 1 immediately** — invoke `/fleet-spawn` with stage 1's tickets (handles Jira transitions + spawn).
+5. **Spawn stage 1 immediately** — invoke `/fleet:spawn` with stage 1's tickets (handles Jira transitions + spawn).
 6. **Install rules for stages 2..N** — for each subsequent stage, write a rule file with `claude-sessions rules` semantics:
 
    ```bash
@@ -107,13 +107,13 @@ This skill is done — the chain runs in the background. Close this chat any tim
 
 ## Why this design
 
-The previous version of this skill polled `/fleet-wait` between stages, which meant the chat session was blocked for the entire chain duration (sometimes hours) and the chain died if Claude restarted. The rules-engine version moves orchestration into the always-on daemon: skill writes intent (rules), daemon executes intent. Skill returns in seconds; chain continues independently.
+The previous version of this skill polled `/fleet:wait` between stages, which meant the chat session was blocked for the entire chain duration (sometimes hours) and the chain died if Claude restarted. The rules-engine version moves orchestration into the always-on daemon: skill writes intent (rules), daemon executes intent. Skill returns in seconds; chain continues independently.
 
 ## Examples
 
 ```
-/fleet-chain BDP-360                                                    # degenerate single-stage; just spawns
-/fleet-chain BDP-360 BDP-361 then BDP-362                               # 2 in parallel, then 1
-/fleet-chain BDP-360 then BDP-361 then BDP-362                          # serial 3-stage
-/fleet-chain BDP-360 BDP-361 BDP-362 then BDP-363 then BDP-364 BDP-365  # 3 → 1 → 2
+/fleet:chain BDP-360                                                    # degenerate single-stage; just spawns
+/fleet:chain BDP-360 BDP-361 then BDP-362                               # 2 in parallel, then 1
+/fleet:chain BDP-360 then BDP-361 then BDP-362                          # serial 3-stage
+/fleet:chain BDP-360 BDP-361 BDP-362 then BDP-363 then BDP-364 BDP-365  # 3 → 1 → 2
 ```

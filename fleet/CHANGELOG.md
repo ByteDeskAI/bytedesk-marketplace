@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Initial extraction from `ByteDeskAI/bytedesk-platform` as a Claude Code marketplace plugin.
 
+### Changed
+
+- Skill `name:` fields and prose migrated to plugin-namespaced form (BDM-2). Frontmatter is now `name: spawn`, `name: review`, etc.; the slash-command surface is `/fleet:spawn`, `/fleet:review`, `/fleet:cleanup`, `/fleet:tournament`, `/fleet:wait`, `/fleet:chain`. The `name: fleet` status skill (root `/fleet`) is unchanged. Tightened the BDP-367 glob-expansion regression test in `hooks/tests/test-pr-merge-guard.sh` so it actually fails when `set -f` is removed from the hook (BDM-9).
+
 ## [0.1.0] — 2026-05-09
 
 Initial pre-release. Extracted from `bytedesk-platform` PR #346 (BDP-367 hierarchical authorization) and PR #347 (BDP-372 event observability).
@@ -29,4 +33,3 @@ Initial pre-release. Extracted from `bytedesk-platform` PR #346 (BDP-367 hierarc
 
 - Plugin can't ship rule files. `docs/RULES.md` is documentation rather than a Claude-loaded context file. Project that want the rule loaded should `cat` it into their own `.claude/rules/`.
 - Per-user state at `~/.claude-sessions/` is created by the out-of-band `install.sh`, not the plugin.
-- Skill descriptions still reference the unprefixed `/fleet-spawn` slash command form. Will be updated to `/fleet:spawn` once skill names are migrated to the namespaced form (BDM-2).

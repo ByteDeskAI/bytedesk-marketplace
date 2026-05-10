@@ -7,7 +7,7 @@ Accepted - 2026-05-09
 ## Context
 
 The multi-session Claude system in this repo (the `claude-sessions` dashboard,
-the `spawn-claude-feature` launcher, and the `fleet-*` skills) lets a parent
+the `spawn-claude-feature` launcher, and the `/fleet:*` skills) lets a parent
 Claude session spawn child sessions that run with `--dangerously-skip-permissions`.
 Children inherit the project's `.claude/settings.json` hook configuration but
 bypass the standard interactive permission prompts.

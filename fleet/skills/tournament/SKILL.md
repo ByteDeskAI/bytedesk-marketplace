@@ -1,6 +1,6 @@
 ---
-name: fleet-tournament
-description: Spawn N variant agents on the same Jira ticket, each with a different strategy hint, then auto-spawn a judge that reads all the resulting PRs and merges the best one. Recursive orchestration — implements the variants pattern from the Multi-Session Claude roadmap (#5.1). Use when the user says "fleet tournament", "/fleet-tournament", "spawn N variants on BDP-X", "tournament for BDP-X", "race variants", or any phrasing about parallel-strategy A/B/C-testing on a single ticket.
+name: tournament
+description: Spawn N variant agents on the same Jira ticket, each with a different strategy hint, then auto-spawn a judge that reads all the resulting PRs and merges the best one. Recursive orchestration — implements the variants pattern from the Multi-Session Claude roadmap (#5.1). Use when the user says "fleet tournament", "/fleet:tournament", "spawn N variants on BDP-X", "tournament for BDP-X", "race variants", or any phrasing about parallel-strategy A/B/C-testing on a single ticket.
 user-invokable: true
 argument-hint: "<BDP-N> [--variants N] [--strategies LIST]    # default 3 variants"
 allowed-tools:
@@ -18,7 +18,7 @@ allowed-tools:
 Tournament orchestration for the multi-session command center:
 
 ```
-/fleet-tournament BDP-360
+/fleet:tournament BDP-360
 ```
 spawns 3 variant sessions (`BDP-360-v1`, `BDP-360-v2`, `BDP-360-v3`) on the same ticket, each with a different strategy hint. Installs a rule that, when **all variants reach `done`**, spawns a judge session (`BDP-360-judge`). The judge:
 
@@ -195,7 +195,7 @@ To cancel the whole tournament:
 ## Examples
 
 ```
-/fleet-tournament BDP-360
-/fleet-tournament BDP-360 --variants 4
-/fleet-tournament BDP-360 --strategies "simple,clean-architecture,performance"
+/fleet:tournament BDP-360
+/fleet:tournament BDP-360 --variants 4
+/fleet:tournament BDP-360 --strategies "simple,clean-architecture,performance"
 ```

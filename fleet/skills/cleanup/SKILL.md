@@ -1,6 +1,6 @@
 ---
-name: fleet-cleanup
-description: Find sessions in the multi-session command center whose PRs have already merged on GitHub, and kill+cleanup each (with confirmation). Closes the loop on "spawn → ship → tidy up" without manual bookkeeping. Use when the user says "fleet cleanup", "/fleet-cleanup", "kill the merged sessions", "tidy up", "sweep done agents", or any phrasing about reclaiming finished sessions.
+name: cleanup
+description: Find sessions in the multi-session command center whose PRs have already merged on GitHub, and kill+cleanup each (with confirmation). Closes the loop on "spawn → ship → tidy up" without manual bookkeeping. Use when the user says "fleet cleanup", "/fleet:cleanup", "kill the merged sessions", "tidy up", "sweep done agents", or any phrasing about reclaiming finished sessions.
 user-invokable: true
 argument-hint: "[--dry-run]    # show what would be killed without doing it"
 allowed-tools:
@@ -73,6 +73,6 @@ Remaining sessions: BDP-364 (open PR), BDP-401 (no PR yet).
 ## Examples
 
 ```
-/fleet-cleanup
-/fleet-cleanup --dry-run
+/fleet:cleanup
+/fleet:cleanup --dry-run
 ```

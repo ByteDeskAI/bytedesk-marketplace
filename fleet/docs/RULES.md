@@ -3,7 +3,7 @@ description: Rules for the fleet multi-session Claude system — hooks, skills, 
 alwaysApply: false
 globs:
   - .claude/hooks/**
-  - .claude/skills/fleet-*/**
+  - .claude/skills/fleet/**
   - scripts/woodpecker-cli.py
   - scripts/claude-sessions/**
 ---
@@ -15,7 +15,7 @@ This file is the single source of truth for rules that apply to the **fleet** mu
 Scope of "fleet":
 
 - `.claude/hooks/*` — PreToolUse / PostToolUse / SessionStart / etc. gates
-- `.claude/skills/fleet-*/*` — fleet-* skills (`fleet-spawn`, `fleet-review`, `fleet-tournament`, `fleet-chain`, `fleet-cleanup`, `fleet-wait`)
+- `.claude/skills/fleet/*` — `fleet:*` skills (`/fleet:spawn`, `/fleet:review`, `/fleet:tournament`, `/fleet:chain`, `/fleet:cleanup`, `/fleet:wait`)
 - The `claude-sessions` dashboard / `spawn-claude-feature` launcher (currently `~/.local/bin/`, vendored under `scripts/` per BDP-366)
 
 If a rule applies only to ByteDesk-specific concerns (Jira ticket conventions, Helm topology, .NET stack), it does **not** belong here. Put it in `general.md`, `backend.md`, `project-management.md`, etc.
@@ -65,7 +65,7 @@ When adding or modifying a fleet hook:
 
 ## Spawn discipline
 
-When spawning a child session via `spawn-claude-feature` or a `fleet-*` skill:
+When spawning a child session via `spawn-claude-feature` or a `/fleet:*` skill:
 
 - Pass `--parent <BDP-N>` so the dashboard tree shows the parent-child relationship.
 - Pass `--max-cost` and `--max-runtime` only if you have a justified reason to override the default. Hardcoded literal caps in fleet skills are a code smell — see BDP-368 for the self-tuning replacement.
@@ -140,7 +140,7 @@ Fleet sessions follow a normal create-work-cleanup lifecycle. The cleanup step �
 - The session has uncommitted work in its worktree (the kill itself fail-safes by aborting `git worktree remove`, but the user may want to inspect or rescue the work before forcing).
 - The session is in `working` state mid-task.
 - The session has produced output the user has not yet seen.
-- Killing would orphan an active child session, or interrupt a chain of dependent sessions tracked by `fleet-chain`.
+- Killing would orphan an active child session, or interrupt a chain of dependent sessions tracked by `/fleet:chain`.
 - The session is the parent of one or more active children (always check `claude-sessions tree <ticket>` before killing a parent).
 
 ### Operational notes
