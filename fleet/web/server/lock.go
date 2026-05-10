@@ -56,6 +56,24 @@ func (l *Lock) Release() error {
 	return nil
 }
 
+// HolderInfo returns the lock holder's PID and whether it's a live
+// process. Used by the launch path to decide whether to defer to an
+// existing server (same build) or preempt + take over (different
+// build / dead peer). Returns (0, false) when the lock file doesn't
+// exist or contains a dead/invalid PID.
+func (l *Lock) HolderInfo() (int, bool) {
+	data, err := os.ReadFile(l.Path)
+	if err != nil {
+		return 0, false
+	}
+	s := strings.TrimSpace(string(data))
+	pid, err := strconv.Atoi(s)
+	if err != nil || pid <= 0 {
+		return 0, false
+	}
+	return pid, isAlive(pid)
+}
+
 // AcquirePreempt tries to acquire the lock; if a live peer holds it,
 // SIGTERM the peer, wait up to `grace` for it to die (polling 100ms),
 // SIGKILL on timeout, then take the lock. Returns the prior holder's

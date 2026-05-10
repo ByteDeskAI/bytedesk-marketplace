@@ -12,10 +12,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -26,6 +28,38 @@ import (
 	"syscall"
 	"time"
 )
+
+// probeRunningVersion does a short-timeout GET on /api/version of the
+// existing running server and returns its `build` string. Returns ""
+// on any failure (server unreachable, slow, returning unexpected
+// payload). Used by the reuse-or-reload launch flow (BDM-44) to
+// decide whether to defer to the running server or preempt it.
+func probeRunningVersion(cfg *WebConfig) string {
+	addr := net.JoinHostPort(cfg.Bind, strconv.Itoa(cfg.Port))
+	client := &http.Client{Timeout: 1500 * time.Millisecond}
+	req, err := http.NewRequest(http.MethodGet, "http://"+addr+"/api/version", nil)
+	if err != nil {
+		return ""
+	}
+	if cfg.AuthToken != "" {
+		req.Header.Set("Authorization", "Bearer "+cfg.AuthToken)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+	var body struct {
+		Build string `json:"build"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return ""
+	}
+	return body.Build
+}
 
 // Phase 12 note: standby polling was replaced by preemptive takeover
 // in lock.go's AcquirePreempt — one dashboard per project, last-launch
@@ -87,6 +121,27 @@ func main() {
 	var lock *Lock
 	if !devMode {
 		lock = &Lock{Path: filepath.Join(webPath, "pid")}
+
+		// Reuse-or-reload: if a live peer already holds the lock,
+		// fetch its build via /api/version. If it matches our own
+		// `buildVersion` (i.e. the running server is already at the
+		// latest binary on disk), exit cleanly and let the new
+		// claude session reuse the existing dashboard. If the
+		// versions differ, preempt + take over — effectively
+		// reloading the old version with the new one (BDM-44).
+		if pid, alive := lock.HolderInfo(); alive {
+			if cfg := readExistingConfig(webPath); cfg != nil {
+				running := probeRunningVersion(cfg)
+				if running != "" && running == buildVersion {
+					log.Printf("claude-sessions-web: server already running (pid=%d build=%s) at http://%s:%d — reusing", pid, running, cfg.Bind, cfg.Port)
+					return
+				}
+				if running != "" {
+					log.Printf("claude-sessions-web: peer running older build %s — reloading to %s", running, buildVersion)
+				}
+			}
+		}
+
 		// Preemptive takeover: if a peer holds the lock, SIGTERM it (grace
 		// 3s) then SIGKILL. One dashboard per project, last-launch wins.
 		prior, err := lock.AcquirePreempt(3 * time.Second)

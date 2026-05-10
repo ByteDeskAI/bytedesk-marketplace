@@ -59,6 +59,24 @@ func nextFreePort(bind string, start int) int {
 // responsible for actually binding the port (race-free reservation isn't
 // possible without holding the listener; small race window is acceptable for
 // this single-user, per-project model).
+// readExistingConfig reads `webPath/config.toml` without doing any
+// port assignment. Returns nil if the file doesn't exist or doesn't
+// declare a usable port — used by main.go to discover the running
+// server's port for a /api/version probe before deciding whether to
+// preempt or defer.
+func readExistingConfig(webPath string) *WebConfig {
+	data, err := os.ReadFile(filepath.Join(webPath, "config.toml"))
+	if err != nil {
+		return nil
+	}
+	cfg := &WebConfig{Bind: "127.0.0.1"}
+	parseTOML(string(data), cfg)
+	if cfg.Port == 0 {
+		return nil
+	}
+	return cfg
+}
+
 func loadOrAssignPort(webPath, projectKeyStr string) (*WebConfig, error) {
 	cfgPath := filepath.Join(webPath, "config.toml")
 	cfg := &WebConfig{Bind: "127.0.0.1"}
