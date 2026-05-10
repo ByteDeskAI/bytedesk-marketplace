@@ -104,3 +104,4 @@ PostToolUse classifies Bash commands into kinds (`review_comment`, `review_summa
 - `fleet/docs/adr/0003-web-dashboard-architecture.md` — fleet web dashboard design.
 - `fleet/docs/research/0001-plugin-manifest-lifecycle.md` — manifest lifecycle research.
 - `fleet/docs/research/0002-claude-code-jsonl-format.md` — **transcript jsonl event catalog** (what `~/.claude/projects/<…>/<uuid>.jsonl` contains; consult before parsing). Companion rule at `.claude/rules/parsing-claude-jsonl.md` is auto-loaded into Claude Code sessions in this repo.
+- **`.claude/rules/version-enforcement.md`** — gitflow-style semver policy. Auto-loaded; read it before any commit that touches a plugin directory. **Every plugin commit must bump all five version markers** (`plugin.json`, `marketplace.json` ×2, `package.json`, `server.go` `buildVersion`) + write a CHANGELOG entry. Major/minor/patch picked per the table in the rule, with explicit "bump major/minor" overrides.
