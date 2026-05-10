@@ -10,6 +10,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `/fleet:setup-cli` skill creates `~/.local/bin/` wrappers for the three public CLI binaries (`claude-sessions`, `claude-sessions-web`, `spawn-claude-feature`) so they're available on the user's interactive shell PATH without breaking on `/plugin update`. The wrappers resolve to the latest installed plugin version at exec time via `ls -dv … | tail -1`. Idempotent and sentinel-gated: re-running refreshes our own wrappers but refuses to clobber foreign files at the same path. Fills the gap left by BDM-3's removal of the `~/.local/bin/` symlinks (BDM-23).
 
+## [1.8.0] — 2026-05-10
+
+**Phase 7 of BDM-14: polish (BDM-22).** Filters, search, shortcuts, density toggle, broadcast, live tab title.
+
+### Added
+
+- Session-table state-filter chips (`All / Active / Needs Input / Done`) + client-side text search across ticket/slug/branch/parent.
+- `BroadcastModal` (B6) — server `POST /api/broadcast` fans out a message to every session in `starting/working/needs-input/reviewing`, returns per-ticket result; modal renders the result list.
+- `ShortcutsOverlay` (C3) bound to `?`; lists `/`, `g o`, `d`, `n`, `b`, `Esc`.
+- `useShortcuts` hook (Strategy: keyboard bindings honor text-input focus).
+- `usePersistentState` hook — localStorage-backed `useState` for UI prefs (density today; theme/accent in Phase 11).
+- Density toggle (C4) — compact rows on `d` or footer button.
+- Live tab title (B2) — `Fleet · 8/12 · 2 ⚠ — <project>` updates from session state.
+- Footer toggle row (Broadcast / density / shortcuts).
+
+### Changed
+
+- Build version → `v1.8.0-bdm22`.
+- `SessionTable` now takes `density` prop and filters in-memory before render.
+
 ## [1.7.0] — 2026-05-10
 
 **Phase 6 of BDM-14: spawn surface (BDM-21).** TopBar `+ Spawn` button now opens a real modal. Reviewer spawn from any session detail panel.

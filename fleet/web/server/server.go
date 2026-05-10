@@ -28,7 +28,7 @@ import (
 //go:embed all:dist
 var distFS embed.FS
 
-const buildVersion = "v1.7.0-bdm21"
+const buildVersion = "v1.8.0-bdm22"
 
 var startTime = time.Now()
 
@@ -104,6 +104,9 @@ func buildHandler(deps *apiDeps) (http.Handler, error) {
 	})
 	mux.HandleFunc("/api/spawn", func(w http.ResponseWriter, r *http.Request) {
 		handleSpawn(w, r)
+	})
+	mux.HandleFunc("/api/broadcast", func(w http.ResponseWriter, r *http.Request) {
+		handleBroadcast(w, r, deps)
 	})
 	mux.Handle("/", http.FileServer(http.FS(sub)))
 	return mux, nil
