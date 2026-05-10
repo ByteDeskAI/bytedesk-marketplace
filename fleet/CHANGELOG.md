@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.15.11] — 2026-05-10
+
+Patch release: lock body scroll while modals are open.
+
+### Fixed
+
+- **Modals didn't lock body scroll (BDM-48):** Spawn / Broadcast /
+  Shortcuts modals were open with `body { overflow: visible }`, so
+  mouse-wheel and arrow-key/space scrolling slid the underlying page
+  behind the dialog. Extended `useModalFocus` (already invoked by
+  every modal) to set `document.body.style.overflow = 'hidden'` on
+  mount and restore the prior value on unmount. Discovered via /loop
+  iteration 13 probe.
+
 ## [1.15.10] — 2026-05-10
 
 Patch release: fix the `?`-toggles-shortcuts-overlay race.

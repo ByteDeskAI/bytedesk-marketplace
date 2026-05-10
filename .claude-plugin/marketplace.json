@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
   "name": "bytedesk",
-  "version": "1.15.10",
+  "version": "1.15.11",
   "description": "ByteDesk's Claude Code marketplace — plugins for parallel multi-session orchestration, hierarchical authorization, and developer tooling.",
   "owner": {
     "name": "ByteDesk AI",
@@ -11,7 +11,7 @@
     {
       "name": "fleet",
       "description": "Parallel multi-session Claude orchestration. Spawn agents on Jira tickets, run them in parallel git worktrees, observe via dashboard, with hierarchical authorization (ADR-0001) and tool-level event observability.",
-      "version": "1.15.10",
+      "version": "1.15.11",
       "source": "./fleet"
     }
   ]
