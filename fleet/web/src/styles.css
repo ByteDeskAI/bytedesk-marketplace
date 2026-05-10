@@ -2553,6 +2553,7 @@ code, pre, .mono {
   min-height: 0;
   overflow: hidden;
   padding: var(--space-2);
+  position: relative;
 }
 .chat-tile__list > div {
   height: 100%;
@@ -3911,3 +3912,25 @@ code, pre, .mono {
   padding-top: var(--space-3);
   margin-top: var(--space-2);
 }
+
+/* Unread-messages banner (BDM-36). Anchored to the bottom-center of
+ * the chat list. Visible only when items grew while the user was
+ * scrolled up; click → scrollToIndex(items.length - 1). */
+.chat-tile__unread {
+  position: absolute;
+  left: 50%;
+  bottom: var(--space-3);
+  transform: translateX(-50%);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  background: var(--color-accent);
+  color: var(--color-text-inverse);
+  border: 0;
+  border-radius: 999px;
+  padding: var(--space-1) var(--space-3);
+  box-shadow: var(--shadow-md);
+  cursor: pointer;
+  white-space: nowrap;
+  z-index: 5;
+}
+.chat-tile__unread:hover { filter: brightness(1.05); }
