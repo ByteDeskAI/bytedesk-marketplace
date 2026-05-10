@@ -40,6 +40,24 @@ Expected:
 - [ ] `claude-sessions help` shows the trimmed usage block (no `service` subcommand mentioned).
 - [ ] `claude-sessions list` runs cleanly; `${CLAUDE_PLUGIN_DATA}/projects/<KEY>/sessions/` is created on first invocation.
 
+## Phase 2b — Interactive-shell PATH wrapper (BDM-23)
+
+In the Claude Code session, run `/fleet:setup-cli`. Then in a **fresh interactive zsh / bash shell** (a new terminal window — *not* the Claude Code tool host):
+
+```bash
+which claude-sessions          # → ~/.local/bin/claude-sessions
+which claude-sessions-web      # → ~/.local/bin/claude-sessions-web
+which spawn-claude-feature     # → ~/.local/bin/spawn-claude-feature
+claude-sessions help           # → prints usage; resolves to the latest installed version
+```
+
+Expected:
+
+- [ ] All three wrappers resolve to `~/.local/bin/<name>`.
+- [ ] `claude-sessions help` succeeds — wrapper `exec`'s into the highest-version installed plugin's binary.
+- [ ] Re-running `/fleet:setup-cli` reports each wrapper under `refreshed`, none under `created`, and never errors (idempotent).
+- [ ] If a foreign file is pre-placed at `~/.local/bin/claude-sessions` (e.g. an old user-owned script), the skill skips it and reports it under `skipped` rather than overwriting.
+
 ## Phase 3 — Hook firing (depth 0 merge guard)
 
 In a Bash shell at the throwaway repo root, simulate a non-authorized merge attempt. Substitute `99999` with a never-existing PR number; the hook should block before the gh call lands.
