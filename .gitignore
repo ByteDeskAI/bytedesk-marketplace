@@ -25,3 +25,4 @@ agentdb.rvf.lock
 # Test artifacts
 *.bak
 .playwright-mcp/
+*.png

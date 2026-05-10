@@ -11,6 +11,8 @@
     "dev": "concurrently -k -n esbuild,go -c cyan,magenta 'npm run watch' 'cd server && air -c .air.toml'"
   },
   "dependencies": {
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
     "preact": "^10.22.0"
   },
   "devDependencies": {

@@ -10,6 +10,7 @@ interface NavItem { id: string; label: string; icon: IconName; href?: string; }
 const VIEWS: NavItem[] = [
   { id: 'overview',    label: 'Overview',    icon: 'overview',    href: '/' },
   { id: 'sessions',    label: 'Sessions',    icon: 'sessions',    href: '/' },
+  { id: 'grid',        label: 'Grid',        icon: 'sessions',    href: '/grid' },
   { id: 'chains',      label: 'Chains',      icon: 'chains' },
   { id: 'tournaments', label: 'Tournaments', icon: 'tournaments' },
   { id: 'events',      label: 'Events',      icon: 'events',      href: '/audit' },

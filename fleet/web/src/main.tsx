@@ -7,6 +7,7 @@ import { OverviewPage } from './components/pages/OverviewPage';
 import { AuditPage } from './components/pages/AuditPage';
 import { ReplayPage } from './components/pages/ReplayPage';
 import { SettingsPage } from './components/pages/SettingsPage';
+import { GridPage } from './components/pages/GridPage';
 import { useRoute } from './hooks/useRoute';
 import { useTheme } from './hooks/useTheme';
 
@@ -18,6 +19,7 @@ function App() {
     case 'audit':    return <AuditPage />;
     case 'replay':   return <ReplayPage />;
     case 'settings': return <SettingsPage />;
+    case 'grid':     return <GridPage />;
     default:         return <OverviewPage />;
   }
 }

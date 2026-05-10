@@ -12,7 +12,7 @@
 import { useEffect, useState } from 'preact/hooks';
 
 export interface Route {
-  name: 'overview' | 'audit' | 'replay' | 'settings';
+  name: 'overview' | 'audit' | 'replay' | 'settings' | 'grid';
   params: Record<string, string>;
 }
 
@@ -21,6 +21,7 @@ function parseHash(h: string): Route {
   if (!path || path === '/') return { name: 'overview', params: {} };
   if (path === 'audit') return { name: 'audit', params: {} };
   if (path === 'settings') return { name: 'settings', params: {} };
+  if (path === 'grid') return { name: 'grid', params: {} };
   const m = /^sessions\/([^/]+)\/replay$/.exec(path);
   if (m) return { name: 'replay', params: { ticket: decodeURIComponent(m[1]) } };
   return { name: 'overview', params: {} };

@@ -212,6 +212,9 @@ func handleSessionDetail(w http.ResponseWriter, r *http.Request, deps *apiDeps) 
 		case "review":
 			handleSessionReview(w, r, ticket)
 			return
+		case "pty":
+			handleSessionPty(w, r, deps, ticket)
+			return
 		default:
 			writeError(w, http.StatusBadRequest, fmt.Errorf("unknown sub-path %q", parts[1]))
 			return

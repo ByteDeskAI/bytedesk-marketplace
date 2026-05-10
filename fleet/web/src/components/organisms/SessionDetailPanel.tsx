@@ -7,9 +7,10 @@ import { useEffect, useState } from 'preact/hooks';
 import { Badge } from '../atoms/Badge';
 import { Button } from '../atoms/Button';
 import { TerminalView } from './TerminalView';
+import { InteractiveTerminal } from './InteractiveTerminal';
 import { sendMessage, killSession, spawnReviewer, type SessionRow } from '../../api';
 
-const TABS = ['Overview', 'Logs'] as const;
+const TABS = ['Overview', 'Terminal', 'Logs'] as const;
 type Tab = typeof TABS[number];
 
 export interface SessionDetailPanelProps {
@@ -82,6 +83,8 @@ export function SessionDetailPanel({ ticket, onClose, onKilled }: SessionDetailP
           <div style={{ color: 'var(--color-state-error)' }}>{error}</div>
         ) : tab === 'Overview' ? (
           <OverviewTab row={data} />
+        ) : tab === 'Terminal' ? (
+          <InteractiveTerminal ticket={ticket} />
         ) : (
           <TerminalView ticket={ticket} />
         )}
