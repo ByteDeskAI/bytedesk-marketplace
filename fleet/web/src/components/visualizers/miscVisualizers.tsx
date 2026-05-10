@@ -8,6 +8,7 @@
 import { Fragment, type JSX } from 'preact';
 import { registerToolVisualizers, type ToolVisualizerProps } from './registry';
 import { VizFrame, trim } from './shared';
+import { MarkdownText } from '../../lib/markdown';
 
 /* helpers */
 
@@ -102,7 +103,7 @@ function AgentVisualizer({ toolName, input, output, state }: ToolVisualizerProps
       {prompt ? (
         <Fragment>
           <div class="viz-misc__label">prompt</div>
-          <pre class="viz-misc__pre">{prompt}</pre>
+          <MarkdownText src={prompt} preClass="viz-misc__pre" />
         </Fragment>
       ) : null}
       {agentId ? (
@@ -114,7 +115,7 @@ function AgentVisualizer({ toolName, input, output, state }: ToolVisualizerProps
       {isReport ? (
         <Fragment>
           <div class="viz-misc__label">report</div>
-          <pre class="viz-misc__pre">{out}</pre>
+          <MarkdownText src={out} preClass="viz-misc__pre" />
         </Fragment>
       ) : null}
     </div>
@@ -139,7 +140,7 @@ function ScheduleWakeupVisualizer({ toolName, input, state }: ToolVisualizerProp
       {reason ? <span class="viz-misc__text">{trim(reason, 80)}</span> : null}
     </Fragment>
   );
-  const details = prompt ? <pre class="viz-misc__pre">{prompt}</pre> : undefined;
+  const details = prompt ? <MarkdownText src={prompt} preClass="viz-misc__pre" /> : undefined;
   const right = <span class="viz-misc__accessory" aria-hidden>⏰</span>;
   return (
     <VizFrame
@@ -159,7 +160,7 @@ function SkillVisualizer({ toolName, input, output, state }: ToolVisualizerProps
       {args ? <span class="viz-misc__text">{trim(args, 100)}</span> : null}
     </Fragment>
   );
-  const details = output ? <pre class="viz-misc__pre">{output}</pre> : undefined;
+  const details = output ? <MarkdownText src={output} preClass="viz-misc__pre" /> : undefined;
   return <VizFrame toolName={toolName} state={state} summary={summary} details={details} />;
 }
 
