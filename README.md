@@ -24,7 +24,7 @@ Then install individual plugins:
 
 ## Status
 
-`v1.3.0` (2026-05-10) — first public release. The `fleet` plugin's v0.1 → v1.0 migration is documented at [`fleet/docs/MIGRATION.md`](./fleet/docs/MIGRATION.md).
+`v1.4.0` (2026-05-10) — first public release. The `fleet` plugin's v0.1 → v1.0 migration is documented at [`fleet/docs/MIGRATION.md`](./fleet/docs/MIGRATION.md).
 
 ## License
 

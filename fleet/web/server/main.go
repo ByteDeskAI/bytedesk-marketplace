@@ -84,6 +84,11 @@ func main() {
 		_ = lock.Release()
 		log.Fatalf("claude-sessions-web: handler init: %v", err)
 	}
+	// Run the EventBus watcher; cancels with the main context.
+	busCtx, busCancel := context.WithCancel(context.Background())
+	defer busCancel()
+	deps.bus.Run(busCtx, deps, 1000)
+	defer deps.bus.Close()
 	addr := fmt.Sprintf("%s:%d", cfg.Bind, cfg.Port)
 	srv := &http.Server{
 		Addr:              addr,
