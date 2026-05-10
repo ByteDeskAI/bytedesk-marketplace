@@ -213,6 +213,40 @@ code, pre, .mono {
   min-height: 100vh;
 }
 
+/* Skip-to-content link (BDM-43, WCAG 2.4.1). Hidden until focused so
+ * keyboard users get a one-Tab bypass past the sidebar nav. The link
+ * focuses #main-content programmatically (see AppShell) so it works
+ * even though the SPA uses hash routing. */
+.skip-link {
+  position: absolute;
+  left: var(--space-2);
+  top: var(--space-2);
+  z-index: 1000;
+  background: var(--color-accent);
+  color: var(--color-accent-ink);
+  border: 1px solid var(--color-accent-strong);
+  padding: 6px var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  text-decoration: none;
+  border-radius: var(--radius-sm);
+  /* Hide off-screen until focused. */
+  transform: translateY(-200%);
+  transition: transform 120ms ease-out;
+}
+.skip-link:focus {
+  transform: translateY(0);
+  outline: 2px solid var(--color-text-primary);
+  outline-offset: 2px;
+}
+/* Keep main-content's programmatic focus from showing an outline glow that
+ * could distract from the actual content. The visible focus is on the skip
+ * link itself; once it activates, focus jumps into the main region. */
+.app-shell__content:focus { outline: none; }
+
 .app-shell__sidebar {
   background: var(--color-bg-sidebar);
   border-right: 1px solid var(--color-border);
