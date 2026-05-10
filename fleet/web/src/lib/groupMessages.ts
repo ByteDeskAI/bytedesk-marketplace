@@ -15,8 +15,8 @@
 import type { UIMessage } from '../api';
 
 export type RenderItem =
-  | { kind: 'message'; key: string; msg: UIMessage }
-  | { kind: 'toolGroup'; key: string; messages: UIMessage[] };
+  | { kind: 'message'; key: string; msg: UIMessage; showRole: boolean }
+  | { kind: 'toolGroup'; key: string; messages: UIMessage[]; showRole: boolean };
 
 const MIN_GROUP = 2;
 
@@ -26,7 +26,6 @@ export function groupMessages(messages: UIMessage[]): RenderItem[] {
   while (i < messages.length) {
     const m = messages[i];
     if (isToolOnlyAssistant(m)) {
-      // Scan forward as long as the streak holds.
       let j = i + 1;
       while (j < messages.length && isToolOnlyAssistant(messages[j])) j++;
       const run = messages.slice(i, j);
@@ -35,18 +34,32 @@ export function groupMessages(messages: UIMessage[]): RenderItem[] {
           kind: 'toolGroup',
           key: `tg-${run[0].id}-${run[run.length - 1].id}`,
           messages: run,
+          showRole: false, // computed below
         });
       } else {
-        // Single tool-only message — render as normal bubble.
-        out.push({ kind: 'message', key: run[0].id, msg: run[0] });
+        out.push({ kind: 'message', key: run[0].id, msg: run[0], showRole: false });
       }
       i = j;
       continue;
     }
-    out.push({ kind: 'message', key: m.id, msg: m });
+    out.push({ kind: 'message', key: m.id, msg: m, showRole: false });
     i++;
   }
+  // Pass 2: compute showRole — true only when the *effective* role of
+  // this item differs from the previous item's role. Tool-only items
+  // report role 'assistant' since that's what they really are.
+  let prevRole: string | null = null;
+  for (let k = 0; k < out.length; k++) {
+    const role = effectiveRole(out[k]);
+    out[k] = { ...(out[k] as RenderItem), showRole: role !== prevRole };
+    prevRole = role;
+  }
   return out;
+}
+
+function effectiveRole(it: RenderItem): string {
+  if (it.kind === 'toolGroup') return 'assistant';
+  return it.msg.role;
 }
 
 function isToolOnlyAssistant(m: UIMessage): boolean {

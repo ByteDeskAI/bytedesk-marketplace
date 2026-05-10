@@ -137,11 +137,12 @@ export function ChatTile({ row }: ChatTileProps) {
             itemContent={(_, it) => {
               const item = it as RenderItem;
               if (item.kind === 'toolGroup') {
-                return <ToolGroupCard messages={item.messages} />;
+                return <ToolGroupCard messages={item.messages} showRole={item.showRole} />;
               }
               return (
                 <MessageBubble
                   msg={item.msg}
+                  showRole={item.showRole}
                   onAnswerKeys={sendKeys}
                   renderSubAgent={(subID) =>
                     subAgentIDs.has(subID) ? (

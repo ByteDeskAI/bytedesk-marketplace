@@ -23,12 +23,19 @@ export interface MessageBubbleProps {
   /** Optional callback to submit AskUserQuestion answers as a tmux key
    * stream. ChatTile / MainChatBody pass through useFleetChat.sendKeys. */
   onAnswerKeys?: (keys: string[]) => Promise<void>;
+  /** Show the role chip (CLAUDE / YOU). Hosts pass false on continued
+   * messages within the same role-streak to reduce visual noise. */
+  showRole?: boolean;
 }
 
-export function MessageBubble({ msg, variant = 'default', renderSubAgent, onAnswerKeys }: MessageBubbleProps) {
+export function MessageBubble({ msg, variant = 'default', renderSubAgent, onAnswerKeys, showRole = true }: MessageBubbleProps) {
+  // Tool-only assistant messages don't need a role chip — the tool
+  // card itself carries identity (Bash / Edit / Read / …).
+  const onlyToolParts = msg.parts.length > 0 && msg.parts.every((p) => p.type === 'tool-call' || p.type === 'tool-result');
+  const renderRole = showRole && !(msg.role === 'assistant' && onlyToolParts) && msg.role !== 'system';
   return (
-    <article class={`message-bubble message-bubble--${msg.role} message-bubble--${variant}`}>
-      <header class="message-bubble__role">{labelForRole(msg.role)}</header>
+    <article class={`message-bubble message-bubble--${msg.role} message-bubble--${variant}${renderRole ? ' message-bubble--show-role' : ''}`}>
+      {renderRole ? <header class="message-bubble__role">{labelForRole(msg.role)}</header> : null}
       <div class="message-bubble__parts">
         {msg.parts.map((p, i) => (
           <PartView key={i} part={p} renderSubAgent={renderSubAgent} onAnswerKeys={onAnswerKeys} />

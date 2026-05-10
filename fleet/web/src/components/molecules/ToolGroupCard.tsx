@@ -12,14 +12,15 @@ import type { UIMessage } from '../../api';
 
 export interface ToolGroupCardProps {
   messages: UIMessage[];
+  showRole?: boolean;
 }
 
-export function ToolGroupCard({ messages }: ToolGroupCardProps) {
+export function ToolGroupCard({ messages, showRole = true }: ToolGroupCardProps) {
   const [open, setOpen] = useState(false);
   const summary = summarizeToolGroup(messages);
   return (
     <article class={`tool-group ${open ? 'is-open' : ''}`}>
-      <header class="tool-group__role">claude</header>
+      {showRole ? <header class="tool-group__role">claude</header> : null}
       <button
         type="button"
         class="tool-group__toggle"

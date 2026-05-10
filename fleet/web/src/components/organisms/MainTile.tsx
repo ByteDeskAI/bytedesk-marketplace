@@ -128,8 +128,8 @@ function MainChatBody() {
             computeItemKey={(_, it) => (it as RenderItem).key}
             itemContent={(_, it) => {
               const item = it as RenderItem;
-              if (item.kind === 'toolGroup') return <ToolGroupCard messages={item.messages} />;
-              return <MessageBubble msg={item.msg} onAnswerKeys={sendKeys} />;
+              if (item.kind === 'toolGroup') return <ToolGroupCard messages={item.messages} showRole={item.showRole} />;
+              return <MessageBubble msg={item.msg} showRole={item.showRole} onAnswerKeys={sendKeys} />;
             }}
             increaseViewportBy={{ top: 200, bottom: 800 }}
           />
