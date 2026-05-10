@@ -77,8 +77,61 @@ export interface TicketStats {
   last_stop_reason?: string;
   last_turn_duration_ms?: number;
   tool_latency_ms?: Record<string, number>;
-  sub_agents?: string[];
+  sub_agents?: SubAgentInfo[];
   updated_at: string;
+}
+
+// SubAgentInfo — one entry per sub-agent transcript discovered for the
+// session (the parent's `subagents/agent-<id>.jsonl`).
+export interface SubAgentInfo {
+  agent_id: string;
+  agent_name?: string;
+  started?: string;
+  last_event?: string;
+  status: 'running' | 'done' | 'error';
+  tools?: Record<string, number>;
+  tool_total: number;
+  tokens_in: number;
+  tokens_out: number;
+  errors: number;
+}
+
+// UIMessage / UIPart — chat-mode wire shape projected from jsonl
+// server-side (mirrors @tanstack/ai-react's UIMessage). Returned by
+// /api/sessions/<T>/messages and emitted live as deltas through the
+// transcript SSE feed.
+export interface UIMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  timestamp: string;
+  agent_id?: string;
+  parts: UIPart[];
+}
+
+export interface UIPart {
+  type: 'text' | 'thinking' | 'tool-call' | 'tool-result' | 'system';
+  text?: string;
+  tool_use_id?: string;
+  tool_name?: string;
+  input?: Record<string, unknown>;
+  state?: 'running' | 'done' | 'error';
+  output?: string;
+  sub_agent_id?: string;
+  subtype?: string;
+}
+
+export async function fetchMessages(
+  ticket: string,
+  opts: { agent_id?: string; limit?: number } = {},
+): Promise<UIMessage[]> {
+  const params = new URLSearchParams();
+  if (opts.agent_id) params.set('agent_id', opts.agent_id);
+  if (opts.limit) params.set('limit', String(opts.limit));
+  const qs = params.toString();
+  const url = `/api/sessions/${encodeURIComponent(ticket)}/messages${qs ? `?${qs}` : ''}`;
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(await readError(r));
+  return r.json();
 }
 
 export async function fetchSessionStats(ticket: string): Promise<TicketStats> {
@@ -88,9 +141,12 @@ export async function fetchSessionStats(ticket: string): Promise<TicketStats> {
 }
 
 // Live transcript event — one decoded line of the .jsonl, surfaced via
-// SSE on /api/sessions/<T>/transcript.
+// SSE on /api/sessions/<T>/transcript. agent_id is set when the event
+// came from a sub-agent file (`subagents/agent-<id>.jsonl`); empty for
+// the parent thread.
 export interface TranscriptEvent {
   ticket: string;
+  agent_id?: string;
   type: 'tool_use' | 'tool_result' | 'tool_error' | 'text' | 'thinking' | 'stop' | 'pr-link' | 'system' | 'last-prompt' | string;
   timestamp: string;
   tool_name?: string;

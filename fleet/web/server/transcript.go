@@ -190,3 +190,50 @@ func readTranscriptTail(path string, maxEntries int) ([]transcriptEntry, error) 
 	}
 	return all, nil
 }
+
+// SubAgentFile — discovered sub-agent transcript on disk. Each one
+// corresponds to a single Task-tool invocation by the parent claude.
+type SubAgentFile struct {
+	AgentID string // basename minus "agent-" prefix and ".jsonl" suffix
+	Path    string
+	Mtime   time.Time
+}
+
+// findSubAgentTranscripts globs `<projectDir>/subagents/agent-*.jsonl`
+// for the worktree's project dir. Sub-agents share the parent's tmux
+// pane but get their own jsonl with `isSidechain: true`. Returns nil
+// when the subagents directory doesn't exist (no sub-agents have run
+// yet for this conversation).
+func findSubAgentTranscripts(worktreePath string) []SubAgentFile {
+	if worktreePath == "" {
+		return nil
+	}
+	abs, err := filepath.Abs(worktreePath)
+	if err != nil {
+		return nil
+	}
+	sanitized := strings.ReplaceAll(abs, string(filepath.Separator), "-")
+	subDir := filepath.Join(os.Getenv("HOME"), ".claude", "projects", sanitized, "subagents")
+	entries, err := os.ReadDir(subDir)
+	if err != nil {
+		return nil
+	}
+	out := make([]SubAgentFile, 0, len(entries))
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasPrefix(name, "agent-") || !strings.HasSuffix(name, ".jsonl") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		id := strings.TrimSuffix(strings.TrimPrefix(name, "agent-"), ".jsonl")
+		out = append(out, SubAgentFile{
+			AgentID: id,
+			Path:    filepath.Join(subDir, name),
+			Mtime:   info.ModTime(),
+		})
+	}
+	return out
+}

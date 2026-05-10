@@ -1,19 +1,31 @@
-// SubAgentTree — Phase 12.x (feature #15). Renders the sub-agents the
-// session has spawned. Today receives a flat string[] from
-// TicketStats.sub_agents; rendered as a tree-ish indented list so the
-// shape can grow into a nested structure later without a breaking
-// rewrite.
-//
-// TODO(server): the transcript stream does not yet populate
-// `sub_agents`. Once spawn correlation lands, the same component will
-// pick up the data with no API change.
+// SubAgentTree — renders the sub-agent transcripts discovered for a
+// session. Each row shows agent id/name, status, token usage, and
+// tool tally. Now backed by real data from TicketStats.sub_agents
+// (BDM-32: server tails `subagents/agent-<id>.jsonl` per session).
+
+import type { SubAgentInfo } from '../../api';
 
 export interface SubAgentTreeProps {
-  agents?: string[];
+  agents?: SubAgentInfo[];
+  onSelect?: (agentID: string) => void;
 }
 
-export function SubAgentTree({ agents }: SubAgentTreeProps) {
-  const list = (agents ?? []).filter((s) => typeof s === 'string' && s.length > 0);
+function tokenSummary(a: SubAgentInfo): string {
+  const total = (a.tokens_in ?? 0) + (a.tokens_out ?? 0);
+  if (!total) return '';
+  return `${a.tokens_in.toLocaleString()}↓ ${a.tokens_out.toLocaleString()}↑`;
+}
+
+function topTools(a: SubAgentInfo, n = 3): string[] {
+  if (!a.tools) return [];
+  return Object.entries(a.tools)
+    .sort((x, y) => y[1] - x[1])
+    .slice(0, n)
+    .map(([name, count]) => `${name}·${count}`);
+}
+
+export function SubAgentTree({ agents, onSelect }: SubAgentTreeProps) {
+  const list = agents ?? [];
 
   return (
     <section class="sub-agent-tree">
@@ -22,12 +34,27 @@ export function SubAgentTree({ agents }: SubAgentTreeProps) {
         <div class="sub-agent-tree__empty">No sub-agents spawned</div>
       ) : (
         <ul class="sub-agent-tree__list">
-          {list.map((name, i) => (
-            <li key={`${name}-${i}`} class="sub-agent-tree__row">
-              <span class="sub-agent-tree__bullet" aria-hidden="true">└─</span>
-              <span class="sub-agent-tree__name">{name}</span>
-            </li>
-          ))}
+          {list.map((a) => {
+            const tokens = tokenSummary(a);
+            const tools = topTools(a);
+            return (
+              <li
+                key={a.agent_id}
+                class={`sub-agent-tree__row sub-agent-tree__row--${a.status}`}
+                onClick={() => onSelect?.(a.agent_id)}
+                style={{ cursor: onSelect ? 'pointer' : 'default' }}
+              >
+                <span class="sub-agent-tree__bullet" aria-hidden="true">└─</span>
+                <span class="sub-agent-tree__name">{a.agent_name || a.agent_id}</span>
+                <span class={`sub-agent-tree__status sub-agent-tree__status--${a.status}`}>{a.status}</span>
+                {tokens && <span class="sub-agent-tree__tokens">{tokens}</span>}
+                {tools.map((t) => (
+                  <span key={t} class="sub-agent-tree__tool">{t}</span>
+                ))}
+                {a.errors > 0 && <span class="sub-agent-tree__err">⚠ {a.errors}</span>}
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>

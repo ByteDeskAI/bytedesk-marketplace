@@ -15,23 +15,26 @@ import { TournamentsPage } from './components/pages/TournamentsPage';
 import { TimelinePage } from './components/pages/TimelinePage';
 import { useRoute } from './hooks/useRoute';
 import { useTheme } from './hooks/useTheme';
+import { ViewModeProvider } from './contexts/ViewModeContext';
 
 function App() {
   // Drives the data-theme / data-font / accent custom property on <html>.
   useTheme();
   const [route] = useRoute();
+  let page;
   switch (route.name) {
-    case 'audit':       return <AuditPage />;
-    case 'replay':      return <ReplayPage />;
-    case 'settings':    return <SettingsPage />;
-    case 'grid':        return <GridPage />;
-    case 'timeline':    return <TimelinePage />;
-    case 'chains':      return <ChainsPage chainID={route.params.id} />;
-    case 'rules':       return <RulesPage />;
-    case 'search':      return <SearchPage />;
-    case 'tournaments': return <TournamentsPage />;
-    default:            return <OverviewPage />;
+    case 'audit':       page = <AuditPage />; break;
+    case 'replay':      page = <ReplayPage />; break;
+    case 'settings':    page = <SettingsPage />; break;
+    case 'grid':        page = <GridPage />; break;
+    case 'timeline':    page = <TimelinePage />; break;
+    case 'chains':      page = <ChainsPage chainID={route.params.id} />; break;
+    case 'rules':       page = <RulesPage />; break;
+    case 'search':      page = <SearchPage />; break;
+    case 'tournaments': page = <TournamentsPage />; break;
+    default:            page = <OverviewPage />;
   }
+  return <ViewModeProvider>{page}</ViewModeProvider>;
 }
 
 const rootEl = document.getElementById('root');

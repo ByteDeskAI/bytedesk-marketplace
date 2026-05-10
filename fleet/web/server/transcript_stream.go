@@ -56,36 +56,71 @@ type TicketStats struct {
 	LastStopReason  string         `json:"last_stop_reason,omitempty"`
 	LastTurnDurMs   int64          `json:"last_turn_duration_ms,omitempty"`
 	ToolLatencyMs   map[string]int64 `json:"tool_latency_ms,omitempty"` // tool_name → p50 ms (rolling)
-	SubAgents       []string       `json:"sub_agents,omitempty"`     // agent slugs
+	SubAgents       []SubAgentInfo  `json:"sub_agents,omitempty"`     // discovered sub-agent transcripts
 	UpdatedAt       time.Time      `json:"updated_at"`
+}
+
+// SubAgentInfo summarizes one sub-agent transcript file
+// (`subagents/agent-<id>.jsonl`). Populated by sub-agent tailers in
+// transcript_stream.go; surfaced via TicketStats.SubAgents and used
+// by the chat-mode UI to render nested threads + by the terminal-mode
+// UI to render per-agent tabs.
+type SubAgentInfo struct {
+	AgentID    string         `json:"agent_id"`
+	AgentName  string         `json:"agent_name,omitempty"`
+	Started    time.Time      `json:"started,omitempty"`
+	LastEvent  time.Time      `json:"last_event,omitempty"`
+	Status     string         `json:"status"` // "running" | "done" | "error"
+	Tools      map[string]int `json:"tools,omitempty"`
+	ToolTotal  int            `json:"tool_total"`
+	TokensIn   int64          `json:"tokens_in"`
+	TokensOut  int64          `json:"tokens_out"`
+	Errors     int            `json:"errors"`
 }
 
 // TranscriptEvent — decoded jsonl line republished onto the EventBus
 // under topic `transcript.<TICKET>`. Keep this small; UI subscribes to
 // these for live "what's claude doing now" feeds.
+//
+// AgentID is "" for parent transcript events and set to the sub-agent
+// id when the event came from a `subagents/agent-<id>.jsonl` file.
+// Lets the client route the event to the right thread in chat mode
+// and the right tab in terminal mode.
 type TranscriptEvent struct {
-	Ticket    string    `json:"ticket"`
-	Type      string    `json:"type"`               // text|thinking|tool_use|tool_result|stop|pr|error|prompt|compact|...
-	Timestamp time.Time `json:"timestamp"`
-	ToolName  string    `json:"tool_name,omitempty"`
-	Text      string    `json:"text,omitempty"`     // truncated to ~512 chars
+	Ticket    string         `json:"ticket"`
+	AgentID   string         `json:"agent_id,omitempty"`
+	Type      string         `json:"type"`               // text|thinking|tool_use|tool_result|stop|pr|error|prompt|compact|...
+	Timestamp time.Time      `json:"timestamp"`
+	ToolName  string         `json:"tool_name,omitempty"`
+	Text      string         `json:"text,omitempty"`     // truncated to ~512 chars
 	Detail    map[string]any `json:"detail,omitempty"`
 }
 
 // TranscriptStream owns all active tailers + the per-ticket stats
 // cache. There's one TranscriptStream per dashboard server.
+//
+// Two flavors of tailer share the same machinery:
+//   - parent tailer: keyed by ticket; reads the most-recent .jsonl
+//     for the worktree's sanitized-cwd dir.
+//   - sub-agent tailer: keyed by ticket+agentID; reads
+//     `<dir>/subagents/agent-<id>.jsonl`.
+//
+// Sub-agent stats accumulate into the parent's TicketStats.SubAgents
+// slice so a single Stats(ticket) call surfaces the full tree.
 type TranscriptStream struct {
-	deps    *apiDeps
-	mu      sync.RWMutex
-	stats   map[string]*TicketStats
-	tailers map[string]*transcriptTailer
+	deps       *apiDeps
+	mu         sync.RWMutex
+	stats      map[string]*TicketStats
+	tailers    map[string]*transcriptTailer
+	subTailers map[string]*transcriptTailer // key: "<ticket>/<agentID>"
 }
 
 func NewTranscriptStream(deps *apiDeps) *TranscriptStream {
 	return &TranscriptStream{
-		deps:    deps,
-		stats:   map[string]*TicketStats{},
-		tailers: map[string]*transcriptTailer{},
+		deps:       deps,
+		stats:      map[string]*TicketStats{},
+		tailers:    map[string]*transcriptTailer{},
+		subTailers: map[string]*transcriptTailer{},
 	}
 }
 
@@ -115,11 +150,16 @@ func (ts *TranscriptStream) shutdown() {
 	for _, t := range ts.tailers {
 		t.stopOnce.Do(func() { close(t.stop) })
 	}
+	for _, t := range ts.subTailers {
+		t.stopOnce.Do(func() { close(t.stop) })
+	}
 	ts.tailers = map[string]*transcriptTailer{}
+	ts.subTailers = map[string]*transcriptTailer{}
 }
 
 type transcriptTailer struct {
 	ticket   string
+	agentID  string // "" for parent
 	path     string
 	stop     chan struct{}
 	stopOnce sync.Once
@@ -127,13 +167,18 @@ type transcriptTailer struct {
 
 // reconcile walks the SessionRepo, starts a tailer for every active
 // session that lacks one, and stops tailers for sessions that are gone
-// or reaped (state == done/completed).
+// or reaped (state == done/completed). Also reconciles sub-agent
+// tailers under each active session — when claude invokes the Task
+// tool, a new agent-<id>.jsonl appears in `subagents/`; we pick it up
+// on the next 3-second tick and start a tailer for it.
 func (ts *TranscriptStream) reconcile() {
 	sessions, err := ts.deps.sessions.List()
 	if err != nil {
 		return
 	}
-	wantPath := map[string]string{} // ticket → jsonl path
+	wantPath := map[string]string{}                   // ticket → parent jsonl path
+	wantSub := map[string]map[string]string{}         // ticket → agentID → sub-agent jsonl path
+	worktrees := map[string]string{}                  // ticket → worktree (for sub-agent discovery)
 	for _, s := range sessions {
 		if s.State == "done" || s.State == "completed" {
 			continue
@@ -143,6 +188,15 @@ func (ts *TranscriptStream) reconcile() {
 			continue
 		}
 		wantPath[s.Ticket] = p
+		worktrees[s.Ticket] = s.Worktree
+		subs := findSubAgentTranscripts(s.Worktree)
+		if len(subs) > 0 {
+			m := make(map[string]string, len(subs))
+			for _, f := range subs {
+				m[f.AgentID] = f.Path
+			}
+			wantSub[s.Ticket] = m
+		}
 	}
 
 	ts.mu.Lock()
@@ -164,14 +218,43 @@ func (ts *TranscriptStream) reconcile() {
 		ts.tailers[ticket] = t
 		go ts.runTailer(t)
 	}
+
+	// Sub-agent reconcile. Stop any sub-tailer whose ticket is gone
+	// or whose path drifted; start tailers for newly-discovered files.
+	for key, t := range ts.subTailers {
+		want, hasTicket := wantSub[t.ticket]
+		if !hasTicket || want[t.agentID] != t.path {
+			t.stopOnce.Do(func() { close(t.stop) })
+			delete(ts.subTailers, key)
+		}
+	}
+	for ticket, agents := range wantSub {
+		for agentID, path := range agents {
+			key := ticket + "/" + agentID
+			if _, has := ts.subTailers[key]; has {
+				continue
+			}
+			t := &transcriptTailer{ticket: ticket, agentID: agentID, path: path, stop: make(chan struct{})}
+			ts.subTailers[key] = t
+			go ts.runTailer(t)
+		}
+	}
 }
 
 func (ts *TranscriptStream) runTailer(t *transcriptTailer) {
+	apply := func(e *transcriptEntry, publish bool) {
+		if t.agentID == "" {
+			ts.applyEntry(t.ticket, e, publish)
+			return
+		}
+		ts.applySubAgentEntry(t.ticket, t.agentID, e, publish)
+	}
+
 	// Backfill — replay the existing file once into the stats so the
 	// cache has full counts before we emit fresh events.
 	if entries, err := readTranscriptTail(t.path, 5000); err == nil {
 		for i := range entries {
-			ts.applyEntry(t.ticket, &entries[i], false)
+			apply(&entries[i], false)
 		}
 	}
 
@@ -198,18 +281,110 @@ func (ts *TranscriptStream) runTailer(t *transcriptTailer) {
 			if len(line) > 0 {
 				var entry transcriptEntry
 				if json.Unmarshal(line, &entry) == nil {
-					ts.applyEntry(t.ticket, &entry, true)
+					apply(&entry, true)
 				}
 			}
 			if err == io.EOF {
 				break
 			}
 			if err != nil {
-				log.Printf("transcript tailer %s: read err: %v", t.ticket, err)
+				log.Printf("transcript tailer %s/%s: read err: %v", t.ticket, t.agentID, err)
 				return
 			}
 		}
 	}
+}
+
+// applySubAgentEntry mutates the parent's TicketStats.SubAgents slice
+// (one element per agent_id) and publishes a TranscriptEvent with
+// AgentID set so the client can route the event to the right thread.
+func (ts *TranscriptStream) applySubAgentEntry(ticket, agentID string, e *transcriptEntry, publish bool) {
+	ts.mu.Lock()
+	st := ts.stats[ticket]
+	if st == nil {
+		st = &TicketStats{Ticket: ticket, Tools: map[string]int{}, ToolLatencyMs: map[string]int64{}}
+		ts.stats[ticket] = st
+	}
+	// Find or create the SubAgentInfo entry.
+	var info *SubAgentInfo
+	for i := range st.SubAgents {
+		if st.SubAgents[i].AgentID == agentID {
+			info = &st.SubAgents[i]
+			break
+		}
+	}
+	if info == nil {
+		st.SubAgents = append(st.SubAgents, SubAgentInfo{
+			AgentID: agentID,
+			Status:  "running",
+			Tools:   map[string]int{},
+		})
+		info = &st.SubAgents[len(st.SubAgents)-1]
+	}
+	if info.Tools == nil {
+		info.Tools = map[string]int{}
+	}
+	if !e.Timestamp.IsZero() && (info.Started.IsZero() || e.Timestamp.Before(info.Started)) {
+		info.Started = e.Timestamp
+	}
+	if !e.Timestamp.IsZero() {
+		info.LastEvent = e.Timestamp
+	}
+
+	raw := mapFromEntry(e)
+	switch e.Type {
+	case "agent-name":
+		if v, _ := raw["agentName"].(string); v != "" {
+			info.AgentName = v
+		}
+	case "assistant":
+		// Tally token usage if present.
+		if u, _ := raw["message"].(map[string]any); u != nil {
+			if usage, _ := u["usage"].(map[string]any); usage != nil {
+				if v, _ := usage["input_tokens"].(float64); v > 0 {
+					info.TokensIn += int64(v)
+				}
+				if v, _ := usage["output_tokens"].(float64); v > 0 {
+					info.TokensOut += int64(v)
+				}
+			}
+		}
+		for _, c := range e.Message.Content {
+			if c.Type == "tool_use" {
+				info.Tools[c.Name]++
+				info.ToolTotal++
+			}
+		}
+		if e.Message.StopReason == "end_turn" {
+			info.Status = "done"
+		}
+		if e.Message.StopReason == "max_tokens" {
+			info.Status = "error"
+		}
+	case "user":
+		for _, c := range e.Message.Content {
+			if c.Type == "tool_result" && c.IsError {
+				info.Errors++
+				info.Status = "error"
+			}
+		}
+	}
+
+	st.UpdatedAt = time.Now()
+	ts.mu.Unlock()
+
+	if publish {
+		ts.publishWithAgent(ticket, agentID, e, raw)
+	}
+}
+
+// publishWithAgent is publish() but stamps AgentID on the outgoing
+// TranscriptEvent so subscribers can route it.
+func (ts *TranscriptStream) publishWithAgent(ticket, agentID string, e *transcriptEntry, raw map[string]any) {
+	out := buildTranscriptEvent(ticket, e, raw)
+	out.AgentID = agentID
+	ts.deps.bus.Publish(Message{Topic: Topic("transcript." + ticket), Body: out})
+	ts.deps.bus.Publish(Message{Topic: Topic("transcript"), Body: out})
 }
 
 // applyEntry mutates per-ticket stats and (if `publish`) emits a
@@ -340,6 +515,15 @@ func (ts *TranscriptStream) applyEntry(ticket string, e *transcriptEntry, publis
 //   transcript                  — every event from every session
 //   transcript.<TICKET>         — only this session
 func (ts *TranscriptStream) publish(ticket string, e *transcriptEntry, raw map[string]any) {
+	out := buildTranscriptEvent(ticket, e, raw)
+	ts.deps.bus.Publish(Message{Topic: Topic("transcript." + ticket), Body: out})
+	ts.deps.bus.Publish(Message{Topic: Topic("transcript"), Body: out})
+}
+
+// buildTranscriptEvent shapes a TranscriptEvent from a parsed jsonl
+// entry. Used by both parent (publish) and sub-agent (publishWithAgent)
+// paths so the wire format stays identical.
+func buildTranscriptEvent(ticket string, e *transcriptEntry, raw map[string]any) TranscriptEvent {
 	out := TranscriptEvent{
 		Ticket:    ticket,
 		Type:      e.Type,
@@ -395,8 +579,7 @@ func (ts *TranscriptStream) publish(ticket string, e *transcriptEntry, raw map[s
 			out.Text = truncate(v, 512)
 		}
 	}
-	ts.deps.bus.Publish(Message{Topic: Topic("transcript." + ticket), Body: out})
-	ts.deps.bus.Publish(Message{Topic: Topic("transcript"), Body: out})
+	return out
 }
 
 // Stats returns a deep copy of the per-ticket stats (safe for HTTP
@@ -408,12 +591,7 @@ func (ts *TranscriptStream) Stats(ticket string) (TicketStats, bool) {
 	if !ok {
 		return TicketStats{}, false
 	}
-	out := *st
-	out.Tools = make(map[string]int, len(st.Tools))
-	for k, v := range st.Tools {
-		out.Tools[k] = v
-	}
-	return out, true
+	return cloneStats(st), true
 }
 
 // AllStats returns a snapshot of every per-ticket stats record.
@@ -422,12 +600,27 @@ func (ts *TranscriptStream) AllStats() map[string]TicketStats {
 	defer ts.mu.RUnlock()
 	out := make(map[string]TicketStats, len(ts.stats))
 	for k, v := range ts.stats {
-		st := *v
-		st.Tools = make(map[string]int, len(v.Tools))
-		for tk, tv := range v.Tools {
-			st.Tools[tk] = tv
+		out[k] = cloneStats(v)
+	}
+	return out
+}
+
+func cloneStats(st *TicketStats) TicketStats {
+	out := *st
+	out.Tools = make(map[string]int, len(st.Tools))
+	for k, v := range st.Tools {
+		out.Tools[k] = v
+	}
+	if len(st.SubAgents) > 0 {
+		out.SubAgents = make([]SubAgentInfo, len(st.SubAgents))
+		for i, sa := range st.SubAgents {
+			cp := sa
+			cp.Tools = make(map[string]int, len(sa.Tools))
+			for tk, tv := range sa.Tools {
+				cp.Tools[tk] = tv
+			}
+			out.SubAgents[i] = cp
 		}
-		out[k] = st
 	}
 	return out
 }

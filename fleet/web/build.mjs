@@ -52,6 +52,14 @@ const jsOpts = {
   jsx: 'automatic',
   jsxImportSource: 'preact',
   loader: { '.tsx': 'tsx', '.ts': 'ts' },
+  // react-virtuoso (and any other React-only lib we pull in) routes
+  // through preact/compat so we don't double-bundle React. See
+  // https://preactjs.com/guide/v10/getting-started/#aliasing-react-to-preact
+  alias: {
+    'react': 'preact/compat',
+    'react-dom': 'preact/compat',
+    'react/jsx-runtime': 'preact/jsx-runtime',
+  },
   minify: !watch,
   sourcemap: true,
   logLevel: 'info',

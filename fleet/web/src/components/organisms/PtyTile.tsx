@@ -1,12 +1,17 @@
-// PtyTile — Phase 12.1 (BDM-28, B3). One xterm.js terminal in the grid.
-// Header pulls live transcript-derived stats: AI-assigned title, last
-// prompt preview, top tool calls, and running cost. The ticket key is
-// kept as a small monospace handle on the right so users can still spot
-// which session a tile belongs to.
+// PtyTile — one tile in the grid. Body branches on the global view
+// mode (terminal | chat). When the session has discovered sub-agents,
+// terminal mode adds a tab strip — Parent + one tab per @agent — so
+// the user can inspect what a sub-agent is doing even though it shares
+// the parent's tmux pane (the sub-agent tabs are jsonl-derived log
+// views, not real PTYs).
 
+import { useState } from 'preact/hooks';
 import { Badge } from '../atoms/Badge';
 import { InteractiveTerminal } from './InteractiveTerminal';
+import { ChatTile } from './ChatTile';
+import { SubAgentThread } from './SubAgentThread';
 import { useSessionStats } from '../../hooks/useSessionStats';
+import { useViewMode } from '../../contexts/ViewModeContext';
 import type { SessionRow } from '../../api';
 
 export interface PtyTileProps {
@@ -35,10 +40,17 @@ function trimPrompt(s: string, n = 80): string {
 
 export function PtyTile({ row }: PtyTileProps) {
   const { stats } = useSessionStats(row.ticket);
+  const { mode } = useViewMode();
   const title = stats?.ai_title || row.slug || row.ticket;
   const tools = topTools(stats?.tools);
   const cost = stats?.cost_usd ?? 0;
   const prompt = stats?.last_prompt ? trimPrompt(stats.last_prompt) : '';
+  const subAgents = stats?.sub_agents ?? [];
+
+  // Terminal-mode tabs. Parent is always tab 0; sub-agents follow.
+  // Pinned by agent_id so a re-render doesn't snap the user back.
+  const [activeTab, setActiveTab] = useState<string>('');
+  const showTabs = mode === 'terminal' && subAgents.length > 0;
 
   return (
     <div class="pty-tile">
@@ -69,8 +81,40 @@ export function PtyTile({ row }: PtyTileProps) {
           <span class="pty-tile__subhead-prefix">›</span> {prompt}
         </div>
       )}
+      {showTabs && (
+        <div class="pty-tile__tabs" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === ''}
+            class={`pty-tile__tab${activeTab === '' ? ' pty-tile__tab--active' : ''}`}
+            onClick={() => setActiveTab('')}
+          >
+            Parent
+          </button>
+          {subAgents.map((sa) => (
+            <button
+              key={sa.agent_id}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === sa.agent_id}
+              class={`pty-tile__tab${activeTab === sa.agent_id ? ' pty-tile__tab--active' : ''} pty-tile__tab--${sa.status}`}
+              onClick={() => setActiveTab(sa.agent_id)}
+              title={`${sa.tool_total} tools · ${sa.status}`}
+            >
+              @{sa.agent_name || sa.agent_id}
+            </button>
+          ))}
+        </div>
+      )}
       <div class="pty-tile__body">
-        <InteractiveTerminal ticket={row.ticket} />
+        {mode === 'chat' ? (
+          <ChatTile row={row} />
+        ) : activeTab === '' ? (
+          <InteractiveTerminal ticket={row.ticket} />
+        ) : (
+          <SubAgentThread ticket={row.ticket} agentID={activeTab} />
+        )}
       </div>
     </div>
   );

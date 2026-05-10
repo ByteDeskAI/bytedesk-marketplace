@@ -6,12 +6,17 @@ package main
 //   GET /api/sessions/<T>/transcript     → SSE stream of TranscriptEvent
 //                                          (typed events parsed live from
 //                                           the .jsonl)
+//   GET /api/sessions/<T>/messages       → UIMessage[] (chat-mode bootstrap)
+//       ?agent_id=<id>   sub-agent thread
+//       ?limit=<n>       cap (default 200)
 
 import (
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"path/filepath"
+	"strconv"
 	"time"
 )
 
@@ -73,4 +78,56 @@ func handleSessionTranscriptStream(w http.ResponseWriter, r *http.Request, deps 
 			flusher.Flush()
 		}
 	}
+}
+
+// handleSessionMessages — chat-mode bootstrap. Returns up to `limit`
+// (default 200) UIMessages from the parent transcript, or from a
+// sub-agent transcript when `?agent_id=<id>` is provided. The client
+// then attaches to the SSE feed for live deltas.
+func handleSessionMessages(w http.ResponseWriter, r *http.Request, deps *apiDeps, ticket string) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, errors.New("GET only"))
+		return
+	}
+	q := r.URL.Query()
+	limit := 200
+	if v := q.Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	s, err := deps.sessions.Get(ticket)
+	if err != nil {
+		writeError(w, http.StatusNotFound, fmt.Errorf("ticket %q not found", ticket))
+		return
+	}
+	var path string
+	if agentID := q.Get("agent_id"); agentID != "" {
+		// Find the matching subagent file.
+		for _, f := range findSubAgentTranscripts(s.Worktree) {
+			if f.AgentID == agentID {
+				path = f.Path
+				break
+			}
+		}
+		if path == "" {
+			// Last-resort: build the expected path so a 404 is informative.
+			path = filepath.Join(transcriptDirFor(s.Worktree), "subagents", "agent-"+agentID+".jsonl")
+		}
+	} else {
+		path = findTranscript(s.Worktree)
+	}
+	if path == "" {
+		writeJSON(w, http.StatusOK, []UIMessage{})
+		return
+	}
+	msgs, err := readUIMessages(path, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if msgs == nil {
+		msgs = []UIMessage{}
+	}
+	writeJSON(w, http.StatusOK, msgs)
 }

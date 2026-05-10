@@ -20,6 +20,7 @@ import { PtyTile } from '../organisms/PtyTile';
 import { MainTile } from '../organisms/MainTile';
 import { useSessionList } from '../../hooks/useSessionList';
 import { usePersistentState } from '../../hooks/usePersistentState';
+import { useViewMode } from '../../contexts/ViewModeContext';
 import type { SessionRow } from '../../api';
 
 // "Live" set — anything that's still attached to a tmux session. Done /
@@ -49,6 +50,7 @@ function sameSessionRow(a: SessionRow, b: SessionRow): boolean {
 export function GridPage() {
   const sessions = useSessionList();
   const [strategy, setStrategy] = usePersistentState<GridStrategy>('fleet.grid', '2x2');
+  const { mode, setMode } = useViewMode();
 
   // Sticky tile bookkeeping — tickets we've ever seen + a missing-poll
   // counter so transient empty fetches don't drop the tile.
@@ -139,6 +141,25 @@ export function GridPage() {
                 {s.label}
               </button>
             ))}
+          </span>
+          <span class="grid-page__toolbar-label" style={{ marginLeft: 'var(--space-3)' }}>MODE</span>
+          <span class="filter-chips" role="group" aria-label="View mode">
+            <button
+              type="button"
+              class={`filter-chip${mode === 'terminal' ? ' filter-chip--active' : ''}`}
+              onClick={() => setMode('terminal')}
+              title="xterm.js + tmux PTY"
+            >
+              Terminal
+            </button>
+            <button
+              type="button"
+              class={`filter-chip${mode === 'chat' ? ' filter-chip--active' : ''}`}
+              onClick={() => setMode('chat')}
+              title="Structured chat from jsonl"
+            >
+              Chat
+            </button>
           </span>
           <span style={{ flex: 1 }} />
           <span class="tape">MAIN</span>

@@ -325,6 +325,9 @@ func handleSessionDetail(w http.ResponseWriter, r *http.Request, deps *apiDeps) 
 		case "transcript":
 			handleSessionTranscriptStream(w, r, deps, ticket)
 			return
+		case "messages":
+			handleSessionMessages(w, r, deps, ticket)
+			return
 		default:
 			writeError(w, http.StatusBadRequest, fmt.Errorf("unknown sub-path %q", parts[1]))
 			return
