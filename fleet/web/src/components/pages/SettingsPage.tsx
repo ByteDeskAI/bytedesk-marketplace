@@ -10,7 +10,7 @@
 import { useEffect, useState } from 'preact/hooks';
 import { AppShell } from '../templates/AppShell';
 import { Button } from '../atoms/Button';
-import { loadSettings, saveSettings, type FleetSettings } from '../../api';
+import { loadSettings, saveSettings, tailscaleStart, tailscaleStop, type FleetSettings } from '../../api';
 import { useTheme, type ThemeName, type FontName } from '../../hooks/useTheme';
 
 const THEME_OPTIONS: { id: ThemeName; label: string }[] = [
@@ -188,6 +188,98 @@ export function SettingsPage() {
                   : `tailscale serve --bg ${window.location.origin}`}
               </CodeBlock>
             ) : null}
+            <Field label="Run from server">
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Button
+                  onClick={async () => {
+                    try { const r = await tailscaleStart(s.tailscale.funnel); setErr(r.error ?? null); }
+                    catch (e) { setErr((e as Error).message); }
+                  }}
+                >Start</Button>
+                <Button
+                  onClick={async () => {
+                    try { await tailscaleStop(); setErr(null); }
+                    catch (e) { setErr((e as Error).message); }
+                  }}
+                >Stop</Button>
+              </div>
+            </Field>
+          </Section>
+
+          <Section title="Jira (A15 / B7)">
+            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>
+              Used by SpawnModal's <strong>From Jira</strong> + <strong>From Backlog</strong> tabs.
+              Leave the API token blank to use the <code>JIRA_API_TOKEN</code> env var instead.
+            </p>
+            <Field label="Base URL">
+              <input
+                class="settings__input"
+                type="url"
+                placeholder="https://acme.atlassian.net"
+                value={s.jira?.base_url ?? ''}
+                onInput={(e) => setS({ ...s, jira: { ...(s.jira ?? { base_url: '', email: '', api_token: '', jql: '' }), base_url: (e.currentTarget as HTMLInputElement).value } })}
+              />
+            </Field>
+            <Field label="Email">
+              <input
+                class="settings__input"
+                type="email"
+                placeholder="you@example.com"
+                value={s.jira?.email ?? ''}
+                onInput={(e) => setS({ ...s, jira: { ...(s.jira ?? { base_url: '', email: '', api_token: '', jql: '' }), email: (e.currentTarget as HTMLInputElement).value } })}
+              />
+            </Field>
+            <Field label="API token (optional)">
+              <input
+                class="settings__input"
+                type="password"
+                placeholder="leave blank to use $JIRA_API_TOKEN"
+                value={s.jira?.api_token ?? ''}
+                onInput={(e) => setS({ ...s, jira: { ...(s.jira ?? { base_url: '', email: '', api_token: '', jql: '' }), api_token: (e.currentTarget as HTMLInputElement).value } })}
+              />
+            </Field>
+            <Field label="Default JQL">
+              <input
+                class="settings__input"
+                type="text"
+                placeholder="statusCategory != Done ORDER BY priority DESC"
+                value={s.jira?.jql ?? ''}
+                onInput={(e) => setS({ ...s, jira: { ...(s.jira ?? { base_url: '', email: '', api_token: '', jql: '' }), jql: (e.currentTarget as HTMLInputElement).value } })}
+              />
+            </Field>
+          </Section>
+
+          <Section title="AI / Haiku (B10 / B11 / B12)">
+            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>
+              Routes state-confidence + drift + cost-estimate through real Haiku via
+              the <code>@anthropic-ai/claude-agent-sdk</code> Node sidecar. Falls back
+              to the heuristic when the API key env var is empty.
+            </p>
+            <Field label="Enabled">
+              <input
+                type="checkbox"
+                checked={s.ai?.enabled ?? false}
+                onChange={(e) => setS({ ...s, ai: { ...(s.ai ?? { enabled: false, model: 'claude-haiku-4-5-20251001', key_env: 'ANTHROPIC_API_KEY' }), enabled: (e.currentTarget as HTMLInputElement).checked } })}
+              />
+            </Field>
+            <Field label="Model">
+              <input
+                class="settings__input"
+                type="text"
+                placeholder="claude-haiku-4-5-20251001"
+                value={s.ai?.model ?? ''}
+                onInput={(e) => setS({ ...s, ai: { ...(s.ai ?? { enabled: false, model: '', key_env: 'ANTHROPIC_API_KEY' }), model: (e.currentTarget as HTMLInputElement).value } })}
+              />
+            </Field>
+            <Field label="Key env var">
+              <input
+                class="settings__input"
+                type="text"
+                placeholder="ANTHROPIC_API_KEY"
+                value={s.ai?.key_env ?? ''}
+                onInput={(e) => setS({ ...s, ai: { ...(s.ai ?? { enabled: false, model: '', key_env: '' }), key_env: (e.currentTarget as HTMLInputElement).value } })}
+              />
+            </Field>
           </Section>
 
           <div class="modal__actions" style={{ justifyContent: 'flex-start' }}>

@@ -12,6 +12,7 @@ import { ChainsPage } from './components/pages/ChainsPage';
 import { RulesPage } from './components/pages/RulesPage';
 import { SearchPage } from './components/pages/SearchPage';
 import { TournamentsPage } from './components/pages/TournamentsPage';
+import { TimelinePage } from './components/pages/TimelinePage';
 import { useRoute } from './hooks/useRoute';
 import { useTheme } from './hooks/useTheme';
 
@@ -24,6 +25,7 @@ function App() {
     case 'replay':      return <ReplayPage />;
     case 'settings':    return <SettingsPage />;
     case 'grid':        return <GridPage />;
+    case 'timeline':    return <TimelinePage />;
     case 'chains':      return <ChainsPage chainID={route.params.id} />;
     case 'rules':       return <RulesPage />;
     case 'search':      return <SearchPage />;
@@ -39,18 +41,19 @@ if (rootEl) {
   console.error('fleet-web: #root not found in DOM');
 }
 
-// Dev-mode auto-reload (Phase 12.0). When the Go server is built with
-// -tags dev, it publishes "dist-rebuilt" on the bus whenever esbuild
-// rewrites server/dist/. Subscribe via SSE and hard-reload.
-//
-// Detection: the prod server still publishes /api/version with a build
-// string ending in "-bdm28" (or later); dev mode appends "-dev". We
-// just always subscribe — a bog-standard prod build never publishes
-// the topic, so the listener is harmless.
-try {
-  const es = new EventSource('/api/stream?topics=dist-rebuilt');
-  es.addEventListener('dist-rebuilt', () => {
-    console.log('[fleet-dev] dist rebuilt; reloading');
-    window.location.reload();
-  });
-} catch { /* SSE not available — ignore */ }
+// Dev-mode auto-reload (Phase 12.0). Opt-in via `?live=1` so casual
+// dashboard users (and tile WebSocket sessions) don't get blown away
+// every time esbuild rebuilds. Add `?live=1` to the URL while actively
+// editing fleet/web/src/*.
+const liveReload =
+  /[?&]live=1/.test(window.location.search) ||
+  /[?&]live=1/.test(window.location.hash);
+if (liveReload) {
+  try {
+    const es = new EventSource('/api/stream?topics=dist-rebuilt');
+    es.addEventListener('dist-rebuilt', () => {
+      console.log('[fleet-dev] dist rebuilt; reloading (?live=1)');
+      window.location.reload();
+    });
+  } catch { /* SSE not available — ignore */ }
+}

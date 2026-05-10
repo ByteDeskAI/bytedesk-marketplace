@@ -58,12 +58,19 @@ func canonicalDir() (string, error) {
 }
 
 // projectKey returns the 12-char sha256 prefix of the canonical dir.
+//
+// Important: matches the bash CLI (`fleet/bin/spawn-claude-feature`,
+// `claude-sessions`) which pipes the canonical dir through `sha256sum`
+// — a UNIX shell pipeline appends a trailing newline. We replicate that
+// here so the dashboard server lands on the SAME project key as
+// every spawn-claude-feature invocation; otherwise child sessions
+// land in a sibling project dir the dashboard never sees.
 func projectKey() (string, error) {
 	dir, err := canonicalDir()
 	if err != nil {
 		return "", err
 	}
-	sum := sha256.Sum256([]byte(dir))
+	sum := sha256.Sum256([]byte(dir + "\n"))
 	return hex.EncodeToString(sum[:])[:12], nil
 }
 

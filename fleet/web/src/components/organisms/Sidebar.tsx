@@ -1,23 +1,21 @@
-// Sidebar — fleet brand + Views nav + sub-views + Projects list + user.
-// Phase 9 (BDM-25) wires the primary Views nav to the hash router so
-// Audit + Sessions become reachable.
+// Sidebar — fleet brand + Views nav + sub-views + user.
+// The multi-project list was removed (each dashboard is per-project; you
+// only ever see the project you're inside).
 
 import { Icon, type IconName } from '../atoms/Icon';
-import { useProjects } from '../../hooks/useProjects';
 import { NotifyPill } from '../molecules/NotifyPill';
 
 interface NavItem { id: string; label: string; icon: IconName; href?: string; }
 
 const VIEWS: NavItem[] = [
   { id: 'overview',    label: 'Overview',    icon: 'overview',    href: '/' },
-  { id: 'sessions',    label: 'Sessions',    icon: 'sessions',    href: '/' },
   { id: 'grid',        label: 'Grid',        icon: 'sessions',    href: '/grid' },
+  { id: 'timeline',    label: 'Timeline',    icon: 'events',      href: '/timeline' },
   { id: 'chains',      label: 'Chains',      icon: 'chains',      href: '/chains' },
   { id: 'tournaments', label: 'Tournaments', icon: 'tournaments', href: '/tournaments' },
-  { id: 'events',      label: 'Events',      icon: 'events',      href: '/audit' },
+  { id: 'audit',       label: 'Audit',       icon: 'audit',       href: '/audit' },
   { id: 'search',      label: 'Search',      icon: 'search',      href: '/search' },
   { id: 'rules',       label: 'Rules',       icon: 'audit',       href: '/rules' },
-  { id: 'audit',       label: 'Audit',       icon: 'audit',       href: '/audit' },
   { id: 'settings',    label: 'Settings',    icon: 'settings',    href: '/settings' },
 ];
 
@@ -31,11 +29,9 @@ const SUBVIEWS = [
 
 export interface SidebarProps {
   activeView?: string;
-  currentProjectKey?: string;
 }
 
-export function Sidebar({ activeView = 'overview', currentProjectKey }: SidebarProps) {
-  const { data: projects } = useProjects();
+export function Sidebar({ activeView = 'overview' }: SidebarProps) {
   return (
     <aside class="app-shell__sidebar">
       <div class="sidebar__brand">
@@ -71,40 +67,9 @@ export function Sidebar({ activeView = 'overview', currentProjectKey }: SidebarP
         </ul>
       </div>
 
-      <div class="sidebar__section">
-        <div class="sidebar__heading">Projects</div>
-        <ul class="sidebar__nav">
-          {(projects ?? []).map((p) => {
-            const isActive = p.key === currentProjectKey;
-            const label = shortKey(p.key);
-            const item = (
-              <>
-                <span style={{ flex: 1 }}>{label}</span>
-                {p.port ? (
-                  <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>:{p.port}</span>
-                ) : null}
-              </>
-            );
-            const cls = `sidebar__nav-item${isActive ? ' sidebar__nav-item--active' : ''}`;
-            return p.url && !isActive ? (
-              <li key={p.key} class={cls}>
-                <a href={p.url} style={{ color: 'inherit', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
-                  {item}
-                </a>
-              </li>
-            ) : (
-              <li key={p.key} class={cls}>
-                {item}
-              </li>
-            );
-          })}
-          {projects && projects.length === 0 ? (
-            <li class="sidebar__nav-item" style={{ color: 'var(--color-text-tertiary)', fontStyle: 'italic' }}>
-              No projects discovered
-            </li>
-          ) : null}
-        </ul>
-      </div>
+      {/* Multi-project list removed — each dashboard is per-project; you
+          only see the project you're inside. Currently active project
+          info still surfaces on the Settings page. */}
 
       <div class="sidebar__user">
         <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#cbd5e1' }} />
@@ -119,9 +84,3 @@ export function Sidebar({ activeView = 'overview', currentProjectKey }: SidebarP
   );
 }
 
-// shortKey trims the 12-char project key to "abc1…f456" so each row
-// stays narrow.
-function shortKey(key: string): string {
-  if (key.length <= 8) return key;
-  return `${key.slice(0, 4)}…${key.slice(-4)}`;
-}

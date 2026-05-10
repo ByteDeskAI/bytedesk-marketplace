@@ -14,8 +14,10 @@ package main
 // browser without a token can still load the page and prompt for one.
 
 import (
+	"bufio"
 	"crypto/subtle"
 	"log"
+	"net"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -61,6 +63,21 @@ type statusWriter struct {
 func (s *statusWriter) WriteHeader(code int) {
 	s.status = code
 	s.ResponseWriter.WriteHeader(code)
+}
+
+// Forward optional ResponseWriter capabilities to the underlying writer
+// so SSE and WebSocket handlers still work when wrapped.
+func (s *statusWriter) Flush() {
+	if f, ok := s.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (s *statusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if h, ok := s.ResponseWriter.(http.Hijacker); ok {
+		return h.Hijack()
+	}
+	return nil, nil, http.ErrNotSupported
 }
 
 // authMW builds the auth middleware bound to a token. If token is "",

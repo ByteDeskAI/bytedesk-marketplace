@@ -4,6 +4,12 @@ package main
 //
 // Route: GET /api/sessions/<TICKET>/pty   (WebSocket upgrade)
 //
+// Bridge architecture (revised after first-render mismatch bug): each
+// WS connection spawns its own `tmux attach -t <session>` inside a
+// real PTY (via creack/pty). The PTY is sized to match the xterm
+// client exactly, so cursor positioning is coherent. tmux retains the
+// persistent session in the background.
+//
 // Wire protocol (JSON messages, both directions):
 //   client → server  {"type":"input","data":"ls\r"}
 //   client → server  {"type":"resize","cols":120,"rows":34}
@@ -34,20 +40,18 @@ package main
 // send-keys for input. This avoids any tmux pipe-pane juggling.
 
 import (
-	"bufio"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/creack/pty"
 	"golang.org/x/net/websocket"
 )
 
@@ -87,9 +91,13 @@ func handleSessionPty(w http.ResponseWriter, r *http.Request, deps *apiDeps, tic
 }
 
 func runPty(ws *websocket.Conn, ticket, tmuxSession, logPath string, deps *apiDeps) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
+	_ = logPath // unused now; pty bridge replaces log-file tailing
+	_ = deps    // unused; kept for signature compat with main_terminal handler
+	startedAt := time.Now()
+	exitReason := "unknown"
+	defer func() {
+		log.Printf("pty: %s closed after %s — reason=%s", ticket, time.Since(startedAt), exitReason)
+	}()
 	var writeMu sync.Mutex
 	send := func(m ptyMsg) error {
 		writeMu.Lock()
@@ -99,85 +107,84 @@ func runPty(ws *websocket.Conn, ticket, tmuxSession, logPath string, deps *apiDe
 		return err
 	}
 
-	// Send a hello with the current pane size so the client can fit().
-	if cols, rows, ok := tmuxPaneSize(tmuxSession); ok {
-		_ = send(ptyMsg{Type: "size", Cols: cols, Rows: rows})
-	}
-
-	// Output pump: tail the session log file and forward new bytes.
-	if logPath == "" {
-		_ = send(ptyMsg{Type: "error", Msg: "session has no log file"})
+	// Each viewer gets its own `tmux attach` inside a real pty. The
+	// pty's window size matches the xterm client exactly, so all of
+	// claude's TUI cursor positioning is coherent. The persistent
+	// tmux session is reattached, not duplicated — multiple viewers
+	// see the same buffer.
+	cmd := exec.Command(tmuxBin(), "attach-session", "-t", tmuxSession)
+	// Inherit env so tmux can find the user's shell, etc.
+	cmd.Env = nil // nil = inherit parent process env
+	ptmx, err := pty.Start(cmd)
+	if err != nil {
+		_ = send(ptyMsg{Type: "error", Msg: "pty start: " + err.Error()})
 		return
 	}
-	go pumpLogToWS(ctx, logPath, send)
+	defer func() {
+		_ = ptmx.Close()
+		// Detach is best-effort; tmux will reap the attach process on its own.
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		_ = cmd.Wait()
+	}()
 
-	// Input pump: read JSON messages and dispatch to tmux.
+	// Output pump: pty → WS. Run in a goroutine; lifetime tied to the
+	// websocket-handler return path.
+	ptyDone := make(chan string, 1)
+	go func() {
+		buf := make([]byte, 8192)
+		for {
+			n, err := ptmx.Read(buf)
+			if n > 0 {
+				if sendErr := send(ptyMsg{Type: "output", Data: string(buf[:n])}); sendErr != nil {
+					ptyDone <- "ws-write-error: " + sendErr.Error()
+					return
+				}
+			}
+			if err != nil {
+				ptyDone <- "pty-read-error: " + err.Error()
+				return
+			}
+		}
+	}()
+
+	// Input pump: WS → pty.
 	dec := json.NewDecoder(ws)
 	for {
+		select {
+		case reason := <-ptyDone:
+			exitReason = reason
+			return
+		default:
+		}
 		var m ptyMsg
 		if err := dec.Decode(&m); err != nil {
-			if err != io.EOF {
+			if err == io.EOF {
+				exitReason = "ws-eof"
+			} else {
+				exitReason = "ws-decode-error: " + err.Error()
 				log.Printf("pty: decode error for %s: %v", ticket, err)
 			}
 			return
 		}
 		switch m.Type {
 		case "input":
-			if err := tmuxSendKeys(tmuxSession, m.Data); err != nil {
+			if _, err := ptmx.Write([]byte(m.Data)); err != nil {
 				_ = send(ptyMsg{Type: "error", Msg: err.Error()})
+				return
 			}
 		case "resize":
 			if m.Cols > 0 && m.Rows > 0 {
-				if err := tmuxResize(tmuxSession, m.Cols, m.Rows); err != nil {
-					// Soft-error; resize failures are common when the pane
-					// is already at the requested size.
-					log.Printf("pty: resize %s to %dx%d: %v", tmuxSession, m.Cols, m.Rows, err)
+				if err := pty.Setsize(ptmx, &pty.Winsize{
+					Cols: uint16(m.Cols),
+					Rows: uint16(m.Rows),
+				}); err != nil {
+					log.Printf("pty: resize %s to %dx%d: %v", ticket, m.Cols, m.Rows, err)
 				}
 			}
 		case "ping":
 			_ = send(ptyMsg{Type: "pong"})
-		}
-	}
-}
-
-// pumpLogToWS tails the session log file and forwards new bytes as
-// "output" messages. Starts at end-of-file (so the user doesn't get a
-// flood of historical content on connect — that's what the Logs tab is
-// for; the Terminal tab is "live from now").
-func pumpLogToWS(ctx context.Context, logPath string, send func(ptyMsg) error) {
-	f, err := os.Open(logPath)
-	if err != nil {
-		_ = send(ptyMsg{Type: "error", Msg: "open log: " + err.Error()})
-		return
-	}
-	defer f.Close()
-	if _, err := f.Seek(0, io.SeekEnd); err != nil {
-		_ = send(ptyMsg{Type: "error", Msg: err.Error()})
-		return
-	}
-	r := bufio.NewReader(f)
-	buf := make([]byte, 4096)
-	t := time.NewTicker(80 * time.Millisecond)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-			for {
-				n, err := r.Read(buf)
-				if n > 0 {
-					if err := send(ptyMsg{Type: "output", Data: string(buf[:n])}); err != nil {
-						return
-					}
-				}
-				if err == io.EOF || n == 0 {
-					break
-				}
-				if err != nil {
-					return
-				}
-			}
 		}
 	}
 }
@@ -189,23 +196,16 @@ func tmuxBin() string {
 	return "tmux"
 }
 
-func tmuxSendKeys(session, data string) error {
-	// `-l` (literal) preserves arbitrary bytes including ESC sequences.
-	cmd := exec.Command(tmuxBin(), "send-keys", "-t", session, "-l", "--", data)
-	out, err := cmd.CombinedOutput()
+// tmuxCapturePane returns the current visible pane content WITH escape
+// sequences preserved, so xterm.js can re-render colors/cursor pos. The
+// `-p` flag prints to stdout, `-e` keeps escape sequences, `-J` joins
+// wrapped lines.
+func tmuxCapturePane(session string) string {
+	out, err := exec.Command(tmuxBin(), "capture-pane", "-e", "-p", "-J", "-t", session).Output()
 	if err != nil {
-		return fmt.Errorf("tmux send-keys: %w: %s", err, strings.TrimSpace(string(out)))
+		return ""
 	}
-	return nil
-}
-
-func tmuxResize(session string, cols, rows int) error {
-	cmd := exec.Command(tmuxBin(), "resize-pane", "-t", session, "-x", strconv.Itoa(cols), "-y", strconv.Itoa(rows))
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("tmux resize-pane: %w: %s", err, strings.TrimSpace(string(out)))
-	}
-	return nil
+	return string(out)
 }
 
 func tmuxPaneSize(session string) (cols, rows int, ok bool) {

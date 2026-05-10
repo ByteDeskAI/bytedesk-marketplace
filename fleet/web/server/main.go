@@ -18,14 +18,21 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 )
 
-const standbyPollSeconds = 5
+// Phase 12 note: standby polling was replaced by preemptive takeover
+// in lock.go's AcquirePreempt — one dashboard per project, last-launch
+// wins. The constant is preserved (commented out) so the original
+// BDM-4 standby pattern stays discoverable for the notify daemon,
+// which still uses it.
+// const standbyPollSeconds = 5
 
 func main() {
 	var (
@@ -58,21 +65,36 @@ func main() {
 		log.Fatalf("claude-sessions-web: mkdir %s: %v", webPath, err)
 	}
 
+	// Record the canonical repo root so MainTile + downstream tooling
+	// know where the project lives. Resolution order: CLAUDE_PROJECT_DIR
+	// env (Claude Code injects it) → `git rev-parse --show-toplevel`
+	// from cwd → cwd itself.
+	worktree := os.Getenv("CLAUDE_PROJECT_DIR")
+	if worktree == "" {
+		if out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output(); err == nil {
+			worktree = strings.TrimSpace(string(out))
+		}
+	}
+	if worktree == "" {
+		worktree, _ = os.Getwd()
+	}
+	if worktree != "" {
+		_ = os.WriteFile(filepath.Join(webPath, "worktree"), []byte(worktree), 0o644)
+	}
+
 	devMode := os.Getenv("DEV_MODE") == "1"
 
 	var lock *Lock
 	if !devMode {
 		lock = &Lock{Path: filepath.Join(webPath, "pid")}
-		for {
-			ok, err := lock.TryAcquire()
-			if err != nil {
-				log.Fatalf("claude-sessions-web: lock acquire error: %v", err)
-			}
-			if ok {
-				break
-			}
-			log.Printf("claude-sessions-web: lock held by peer (project %s); standby polling every %ds", pkey, standbyPollSeconds)
-			time.Sleep(standbyPollSeconds * time.Second)
+		// Preemptive takeover: if a peer holds the lock, SIGTERM it (grace
+		// 3s) then SIGKILL. One dashboard per project, last-launch wins.
+		prior, err := lock.AcquirePreempt(3 * time.Second)
+		if err != nil {
+			log.Fatalf("claude-sessions-web: lock acquire error: %v", err)
+		}
+		if prior > 0 {
+			log.Printf("claude-sessions-web: preempted prior holder pid=%d (project %s)", prior, pkey)
 		}
 	} else {
 		log.Println("claude-sessions-web: DEV_MODE=1 — skipping lock; will pick port from FLEET_DEV_PORT or OS-assigned")
@@ -113,6 +135,21 @@ func main() {
 	deps.bus.Run(busCtx, deps, 1000)
 	defer deps.bus.Close()
 	startDevDistWatcher(busCtx, deps.bus) // no-op outside `-tags dev`
+
+	// Eagerly create the always-on `fleet-main-<KEY>` tmux session so
+	// claude is already booted by the time the user opens #/grid.
+	if err := ensureMainTmux(deps); err != nil {
+		log.Printf("claude-sessions-web: ensureMainTmux failed (will retry on first connect): %v", err)
+	}
+
+	// Reaper kills tmux sessions whose state transitions to `done`,
+	// so finished tournament variants don't linger as zombie tiles.
+	NewReaper(deps).Run(busCtx)
+
+	// Transcript stream tails each session's Claude Code jsonl and
+	// publishes typed events to the bus, keeping a per-ticket stats
+	// cache for /api/sessions/<T>/stats.
+	deps.transcript.Run(busCtx)
 	addr := fmt.Sprintf("%s:%d", cfg.Bind, cfg.Port)
 	srv := &http.Server{
 		Addr:              addr,

@@ -10,6 +10,7 @@ import { useMemo } from 'preact/hooks';
 import { AppShell } from '../templates/AppShell';
 import { Badge } from '../atoms/Badge';
 import { useSessionList } from '../../hooks/useSessionList';
+import { useSessionStats } from '../../hooks/useSessionStats';
 import { useRoute } from '../../hooks/useRoute';
 import type { SessionRow } from '../../api';
 
@@ -73,6 +74,7 @@ function TournamentDetail({ group, parent, onBack }: { group: Group | undefined;
           <thead>
             <tr>
               <th>Variant</th>
+              <th>Agent</th>
               <th>State</th>
               <th>Activity</th>
               <th>Cost</th>
@@ -81,24 +83,36 @@ function TournamentDetail({ group, parent, onBack }: { group: Group | undefined;
             </tr>
           </thead>
           <tbody>
-            {group.variants.map((v) => (
-              <tr
-                key={v.ticket}
-                onClick={() => { window.location.hash = '/'; window.setTimeout(() => { (document.querySelector(`[data-ticket="${v.ticket}"]`) as HTMLElement | null)?.click(); }, 50); }}
-                style={{ cursor: 'pointer' }}
-              >
-                <td><strong>{v.ticket}</strong></td>
-                <td><Badge state={v.state} /></td>
-                <td>{v.activity}</td>
-                <td>{v.cost}</td>
-                <td>{v.runtime}</td>
-                <td>{Math.round(v.progress * 100)}%</td>
-              </tr>
-            ))}
+            {group.variants.map((v) => <VariantRow key={v.ticket} v={v} />)}
           </tbody>
         </table>
       )}
     </AppShell>
+  );
+}
+
+// VariantRow pulls live stats so the Agent column reflects the active
+// sub-agent name (or — if the variant ran the default agent). Cost and
+// progress fall back to the row-level summary while stats hydrate.
+function VariantRow({ v }: { v: SessionRow }) {
+  const { stats } = useSessionStats(v.ticket);
+  const agent = stats?.agent_name || '—';
+  const cost = stats?.cost_usd && stats.cost_usd > 0
+    ? (stats.cost_usd < 1 ? `$${stats.cost_usd.toFixed(3)}` : `$${stats.cost_usd.toFixed(2)}`)
+    : v.cost;
+  return (
+    <tr
+      onClick={() => { window.location.hash = '/'; window.setTimeout(() => { (document.querySelector(`[data-ticket="${v.ticket}"]`) as HTMLElement | null)?.click(); }, 50); }}
+      style={{ cursor: 'pointer' }}
+    >
+      <td><strong>{v.ticket}</strong></td>
+      <td>{agent === '—' ? <span style={{ color: 'var(--color-text-tertiary)' }}>—</span> : <code>{agent}</code>}</td>
+      <td><Badge state={v.state} /></td>
+      <td>{v.activity}</td>
+      <td>{cost}</td>
+      <td>{v.runtime}</td>
+      <td>{Math.round(v.progress * 100)}%</td>
+    </tr>
   );
 }
 

@@ -53,6 +53,51 @@ export async function fetchPRStatus(ticket: string): Promise<PRStatus> {
   return r.json();
 }
 
+// Per-ticket transcript-derived stats (Phase 12.x — claude jsonl live tail).
+export interface TicketStats {
+  ticket: string;
+  ai_title?: string;
+  agent_name?: string;
+  last_prompt?: string;
+  permission_mode?: string;
+  pr_number?: number;
+  pr_url?: string;
+  tools?: Record<string, number>;
+  tool_total: number;
+  tokens_in: number;
+  tokens_out: number;
+  tokens_cache_hit: number;
+  cost_usd: number;
+  errors: number;
+  api_errors: number;
+  thinking_chars: number;
+  compactions: number;
+  queue_depth: number;
+  last_turn_at?: string;
+  last_stop_reason?: string;
+  last_turn_duration_ms?: number;
+  tool_latency_ms?: Record<string, number>;
+  sub_agents?: string[];
+  updated_at: string;
+}
+
+export async function fetchSessionStats(ticket: string): Promise<TicketStats> {
+  const r = await fetch(`/api/sessions/${encodeURIComponent(ticket)}/stats`);
+  if (!r.ok) throw new Error(await readError(r));
+  return r.json();
+}
+
+// Live transcript event — one decoded line of the .jsonl, surfaced via
+// SSE on /api/sessions/<T>/transcript.
+export interface TranscriptEvent {
+  ticket: string;
+  type: 'tool_use' | 'tool_result' | 'tool_error' | 'text' | 'thinking' | 'stop' | 'pr-link' | 'system' | 'last-prompt' | string;
+  timestamp: string;
+  tool_name?: string;
+  text?: string;
+  detail?: Record<string, unknown>;
+}
+
 // Phase 12.3 — lifecycle actions.
 export async function resumeSession(ticket: string): Promise<void> {
   const r = await fetch(`/api/sessions/${encodeURIComponent(ticket)}/resume`, { method: 'POST' });
@@ -216,6 +261,7 @@ export interface FleetStats {
 export interface Project {
   key: string;
   path: string;
+  label?: string;
   port: number;
   url: string;
 }

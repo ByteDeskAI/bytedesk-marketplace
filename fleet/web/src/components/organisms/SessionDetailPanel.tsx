@@ -11,10 +11,17 @@ import { InteractiveTerminal } from './InteractiveTerminal';
 import { GitTab } from './GitTab';
 import { PRTab } from './PRTab';
 import { EventsTab } from './EventsTab';
+import { SessionStatsTab } from './SessionStatsTab';
+import { ThinkingPane } from './ThinkingPane';
+import { useSessionStats } from '../../hooks/useSessionStats';
 import { sendMessage, killSession, spawnReviewer, resumeSession, rebaseSession, type SessionRow } from '../../api';
 
-const TABS = ['Overview', 'Terminal', 'Logs', 'Events', 'Git', 'PR'] as const;
-type Tab = typeof TABS[number];
+// Trace appears conditionally (after Logs / before Events) when the
+// transcript stream has produced thinking activity. The static array
+// here is the full possible set in display order; the runtime list is
+// filtered below.
+const ALL_TABS = ['Overview', 'Stats', 'Terminal', 'Logs', 'Trace', 'Events', 'Git', 'PR'] as const;
+type Tab = typeof ALL_TABS[number];
 
 export interface SessionDetailPanelProps {
   ticket: string;
@@ -28,6 +35,32 @@ export function SessionDetailPanel({ ticket, onClose, onKilled }: SessionDetailP
   const [tab, setTab] = useState<Tab>('Overview');
   const [modal, setModal] = useState<'send' | 'kill' | 'review' | null>(null);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
+
+  // Live transcript stats — used to surface the permission-mode banner
+  // and to gate the Trace tab on whether the session has produced any
+  // thinking activity yet.
+  const { stats, recentEvents } = useSessionStats(ticket);
+  const showTrace =
+    (stats?.thinking_chars ?? 0) > 0 ||
+    recentEvents.some((e) => e.type === 'thinking');
+  const tabs: readonly Tab[] = ALL_TABS.filter((t) => t !== 'Trace' || showTrace);
+  // If Trace was visible and the user was on it, but the transcript
+  // stream restarted and the cache cleared, snap back to Stats so we
+  // don't render an inactive tab body.
+  useEffect(() => {
+    if (tab === 'Trace' && !showTrace) setTab('Stats');
+  }, [tab, showTrace]);
+  const permBanner =
+    stats?.permission_mode === 'bypassPermissions'
+      ? { kind: 'unsafe' as const, label: '⚠ unsafe permissions (bypassPermissions)' }
+      : stats?.permission_mode === 'plan'
+      ? { kind: 'plan' as const, label: '📋 plan mode' }
+      : null;
+
+  const topTools = stats?.tools
+    ? Object.entries(stats.tools).sort((a, b) => b[1] - a[1]).slice(0, 5)
+    : [];
+  const fmtCost = (n: number) => (n < 1 ? `$${n.toFixed(3)}` : `$${n.toFixed(2)}`);
 
   useEffect(() => {
     setData(null);
@@ -78,10 +111,49 @@ export function SessionDetailPanel({ ticket, onClose, onKilled }: SessionDetailP
         {actionMsg ? (
           <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-state-done)' }}>{actionMsg}</div>
         ) : null}
+        {(stats?.ai_title || (stats?.cost_usd ?? 0) > 0 || topTools.length > 0) ? (
+          <div class="detail-panel__ribbon">
+            {stats?.ai_title ? (
+              <span class="detail-panel__title" title={stats.ai_title}>{stats.ai_title}</span>
+            ) : null}
+            {(stats?.cost_usd ?? 0) > 0 ? (
+              <span class="detail-panel__chip" title="cost so far">{fmtCost(stats!.cost_usd)}</span>
+            ) : null}
+            {((stats?.tokens_in ?? 0) + (stats?.tokens_out ?? 0)) > 0 ? (
+              <span class="detail-panel__chip" title="tokens in / out / cached">
+                {stats!.tokens_in.toLocaleString()}↓ {stats!.tokens_out.toLocaleString()}↑
+                {stats!.tokens_cache_hit > 0 ? ` (${stats!.tokens_cache_hit.toLocaleString()} cached)` : ''}
+              </span>
+            ) : null}
+            {topTools.map(([name, n]) => (
+              <span key={name} class="detail-panel__tool" title={`${n}× ${name}`}>{name}·{n}</span>
+            ))}
+            {(stats?.compactions ?? 0) > 0 ? (
+              <span class="detail-panel__chip detail-panel__chip--compact" title={`${stats?.compactions} compactions`}>
+                ↺ {stats?.compactions}
+              </span>
+            ) : null}
+            {(stats?.api_errors ?? 0) > 0 ? (
+              <span class="detail-panel__chip detail-panel__chip--error" title={`${stats?.api_errors} API errors`}>
+                ⚠ {stats?.api_errors} api err
+              </span>
+            ) : null}
+            {(stats?.queue_depth ?? 0) > 0 ? (
+              <span class="detail-panel__chip" title="queued user messages">queue {stats?.queue_depth}</span>
+            ) : null}
+            {stats?.agent_name ? (
+              <span class="detail-panel__chip" title="active sub-agent">@{stats.agent_name}</span>
+            ) : null}
+          </div>
+        ) : null}
       </header>
 
+      {permBanner ? (
+        <div class={`perm-banner perm-banner--${permBanner.kind}`}>{permBanner.label}</div>
+      ) : null}
+
       <nav class="detail-panel__tabs" role="tablist">
-        {TABS.map((t) => (
+        {tabs.map((t) => (
           <button
             key={t}
             class={`detail-panel__tab${t === tab ? ' detail-panel__tab--active' : ''}`}
@@ -100,10 +172,14 @@ export function SessionDetailPanel({ ticket, onClose, onKilled }: SessionDetailP
           <div style={{ color: 'var(--color-state-error)' }}>{error}</div>
         ) : tab === 'Overview' ? (
           <OverviewTab row={data} />
+        ) : tab === 'Stats' ? (
+          <SessionStatsTab ticket={ticket} />
         ) : tab === 'Terminal' ? (
           <InteractiveTerminal ticket={ticket} />
         ) : tab === 'Logs' ? (
           <TerminalView ticket={ticket} />
+        ) : tab === 'Trace' ? (
+          <ThinkingPane ticket={ticket} />
         ) : tab === 'Events' ? (
           <EventsTab ticket={ticket} />
         ) : tab === 'Git' ? (

@@ -12,7 +12,7 @@
 import { useEffect, useState } from 'preact/hooks';
 
 export interface Route {
-  name: 'overview' | 'audit' | 'replay' | 'settings' | 'grid' | 'chains' | 'rules' | 'search' | 'tournaments';
+  name: 'overview' | 'audit' | 'replay' | 'settings' | 'grid' | 'chains' | 'rules' | 'search' | 'tournaments' | 'timeline';
   params: Record<string, string>;
 }
 
@@ -22,6 +22,7 @@ function parseHash(h: string): Route {
   if (path === 'audit') return { name: 'audit', params: {} };
   if (path === 'settings') return { name: 'settings', params: {} };
   if (path === 'grid') return { name: 'grid', params: {} };
+  if (path === 'timeline') return { name: 'timeline', params: {} };
   if (path === 'rules') return { name: 'rules', params: {} };
   if (path === 'search' || path.startsWith('search?')) return { name: 'search', params: {} };
   if (path === 'tournaments') return { name: 'tournaments', params: {} };

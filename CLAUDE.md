@@ -96,3 +96,11 @@ PostToolUse classifies Bash commands into kinds (`review_comment`, `review_summa
 - Skill markdown files use YAML frontmatter with `name`, `description`, `user-invokable`, `argument-hint`, `allowed-tools`. The `description` is matched against user phrasing; rewrite carefully — phrasings like "kick off these tickets" or "fleet status" are deliberate hooks.
 - Skill names in `SKILL.md` files still use the unprefixed form (`fleet-spawn`); the slash-command form is namespaced (`/fleet:spawn`). Migration to `fleet:spawn` in the `name:` field is tracked as BDM-2.
 - The two known limitations baked in: (1) plugins can't ship rule files, so `docs/RULES.md` is documentation-only — projects wanting it as a Claude-loaded rule must `cat` it into their own `.claude/rules/`. (2) `~/.claude-sessions/` is created by `install.sh`, not by the plugin manifest.
+
+## Reference docs
+
+- `fleet/docs/adr/0001-hierarchical-authorization.md` — depth/auth class rules.
+- `fleet/docs/adr/0002-plugin-data-directory.md` — `${CLAUDE_PLUGIN_DATA}` layout.
+- `fleet/docs/adr/0003-web-dashboard-architecture.md` — fleet web dashboard design.
+- `fleet/docs/research/0001-plugin-manifest-lifecycle.md` — manifest lifecycle research.
+- `fleet/docs/research/0002-claude-code-jsonl-format.md` — **transcript jsonl event catalog** (what `~/.claude/projects/<…>/<uuid>.jsonl` contains; consult before parsing). Companion rule at `.claude/rules/parsing-claude-jsonl.md` is auto-loaded into Claude Code sessions in this repo.

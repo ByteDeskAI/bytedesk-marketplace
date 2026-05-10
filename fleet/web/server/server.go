@@ -43,6 +43,7 @@ type apiDeps struct {
 	judge      JudgeProvider
 	settings   *SettingsRepo
 	chains     *ChainsRepo
+	transcript *TranscriptStream
 }
 
 func newAPIDeps(projectKey string, cfg *WebConfig, projDir, dataRoot, webPath string) *apiDeps {
@@ -52,7 +53,9 @@ func newAPIDeps(projectKey string, cfg *WebConfig, projDir, dataRoot, webPath st
 	sc := NewStatsCalculator(sr, er)
 	st := NewSettingsRepo(webPath)
 	cr := NewChainsRepo(projDir)
-	return &apiDeps{projectKey, cfg, sr, pr, er, sc, NewEventBus(), newJudgeProvider(), st, cr}
+	deps := &apiDeps{projectKey, cfg, sr, pr, er, sc, NewEventBus(), newJudgeProvider(), st, cr, nil}
+	deps.transcript = NewTranscriptStream(deps)
+	return deps
 }
 
 func buildHandler(deps *apiDeps) (http.Handler, error) {
@@ -143,6 +146,12 @@ func buildHandler(deps *apiDeps) (http.Handler, error) {
 	})
 	mux.HandleFunc("/api/tournament", func(w http.ResponseWriter, r *http.Request) {
 		handleTournament(w, r, deps)
+	})
+	mux.HandleFunc("/api/main", func(w http.ResponseWriter, r *http.Request) {
+		handleMainInfo(w, r, deps)
+	})
+	mux.HandleFunc("/api/main/pty", func(w http.ResponseWriter, r *http.Request) {
+		handleMainPty(w, r, deps)
 	})
 	mux.HandleFunc("/api/jira/issue", func(w http.ResponseWriter, r *http.Request) {
 		handleJiraIssue(w, r, deps)
@@ -309,6 +318,12 @@ func handleSessionDetail(w http.ResponseWriter, r *http.Request, deps *apiDeps) 
 			return
 		case "rebase":
 			handleSessionRebase(w, r, deps, ticket)
+			return
+		case "stats":
+			handleSessionStats(w, r, deps, ticket)
+			return
+		case "transcript":
+			handleSessionTranscriptStream(w, r, deps, ticket)
 			return
 		default:
 			writeError(w, http.StatusBadRequest, fmt.Errorf("unknown sub-path %q", parts[1]))

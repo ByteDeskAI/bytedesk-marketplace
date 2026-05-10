@@ -7,12 +7,51 @@ package main
 // project navigation").
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 )
+
+// readProjectLabel returns the canonical worktree path for a project.
+// First tries the explicit web/worktree file (written at server start),
+// then falls back to scanning any session meta file for `worktree=`.
+func readProjectLabel(projDir string) string {
+	if data, err := os.ReadFile(filepath.Join(projDir, "web", "worktree")); err == nil {
+		return strings.TrimSpace(string(data))
+	}
+	sessions, err := os.ReadDir(filepath.Join(projDir, "sessions"))
+	if err != nil {
+		return ""
+	}
+	for _, s := range sessions {
+		if !s.IsDir() {
+			continue
+		}
+		f, err := os.Open(filepath.Join(projDir, "sessions", s.Name(), "meta"))
+		if err != nil {
+			continue
+		}
+		sc := bufio.NewScanner(f)
+		for sc.Scan() {
+			line := sc.Text()
+			if strings.HasPrefix(line, "worktree=") {
+				val := strings.TrimPrefix(line, "worktree=")
+				f.Close()
+				// Strip any /.claude/worktrees/<TICKET> suffix to get the repo root.
+				if idx := strings.Index(val, "/.claude/worktrees/"); idx > 0 {
+					val = val[:idx]
+				}
+				return val
+			}
+		}
+		f.Close()
+	}
+	return ""
+}
 
 type ProjectsRepo struct {
 	dataRootDir string // ${CLAUDE_PLUGIN_DATA}
@@ -53,6 +92,12 @@ func (r *ProjectsRepo) List() ([]Project, error) {
 			if cfg.Port > 0 {
 				p.URL = fmt.Sprintf("http://%s:%d/", cfg.Bind, cfg.Port)
 			}
+		}
+		// Worktree label — written by the dashboard server on startup
+		// (web/worktree file). Falls back to a session meta's `worktree=`
+		// line if the file is missing.
+		if path := readProjectLabel(projDir); path != "" {
+			p.Label = filepath.Base(path)
 		}
 		out = append(out, p)
 	}

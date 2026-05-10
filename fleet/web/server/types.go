@@ -93,10 +93,11 @@ type FleetStats struct {
 
 // Project — GET /api/projects.
 type Project struct {
-	Key  string `json:"key"`
-	Path string `json:"path"`
-	Port int    `json:"port"`
-	URL  string `json:"url"`
+	Key   string `json:"key"`
+	Path  string `json:"path"`            // ${CLAUDE_PLUGIN_DATA}/projects/<KEY>
+	Label string `json:"label,omitempty"` // basename of the actual worktree if known
+	Port  int    `json:"port"`
+	URL   string `json:"url"`
 }
 
 // Event — GET /api/events. Each line of the per-session events JSONL

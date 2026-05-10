@@ -122,7 +122,20 @@ func (r *SessionRepo) read(ticket string) (Session, error) {
 	if s.LogPath == "" {
 		s.LogPath = filepath.Join(dir, "log")
 	}
-	s.State = sessionStateFromLog(s.LogPath)
+	// State-detection cascade (highest-fidelity first):
+	//   1. tmux pane probe — definitive "claude exited" signal
+	//   2. transcript jsonl — typed end_turn / tool_use / pr-link from
+	//      claude's own structured event stream
+	//   3. log-tail regex — fallback when transcript is missing
+	//      (brand-new session) or doesn't carry a stop_reason
+	switch {
+	case stateOK(sessionStateFromTmux(s.TmuxSession)):
+		s.State, _ = sessionStateFromTmux(s.TmuxSession)
+	case stateOK(sessionStateFromTranscript(s.Worktree)):
+		s.State, _ = sessionStateFromTranscript(s.Worktree)
+	default:
+		s.State = sessionStateFromLog(s.LogPath)
+	}
 	if info, err := os.Stat(s.LogPath); err == nil {
 		s.LastActivity = info.ModTime()
 	} else {

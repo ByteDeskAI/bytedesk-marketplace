@@ -118,10 +118,20 @@ func handleJiraBacklog(w http.ResponseWriter, r *http.Request, deps *apiDeps) {
 		return
 	}
 
-	u := strings.TrimRight(settings.Jira.BaseURL, "/") + "/rest/api/3/search?fields=summary,status,priority&maxResults=50&jql=" + url.QueryEscape(jql)
-	req, _ := http.NewRequest(http.MethodGet, u, nil)
+	// Atlassian deprecated GET /rest/api/3/search (CHANGE-2046). The
+	// replacement is POST /rest/api/3/search/jql with a JSON body and
+	// nextPageToken-style pagination.
+	u := strings.TrimRight(settings.Jira.BaseURL, "/") + "/rest/api/3/search/jql"
+	bodyIn := map[string]any{
+		"jql":        jql,
+		"fields":     []string{"summary", "status", "priority"},
+		"maxResults": 50,
+	}
+	bodyJSON, _ := json.Marshal(bodyIn)
+	req, _ := http.NewRequest(http.MethodPost, u, strings.NewReader(string(bodyJSON)))
 	req.Header.Set("Authorization", jiraAuthHeader(settings))
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -129,9 +139,9 @@ func handleJiraBacklog(w http.ResponseWriter, r *http.Request, deps *apiDeps) {
 		return
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 400 {
-		writeError(w, http.StatusBadGateway, fmt.Errorf("jira %d: %s", resp.StatusCode, string(body)))
+		writeError(w, http.StatusBadGateway, fmt.Errorf("jira %d: %s", resp.StatusCode, string(respBody)))
 		return
 	}
 
@@ -148,8 +158,9 @@ func handleJiraBacklog(w http.ResponseWriter, r *http.Request, deps *apiDeps) {
 				} `json:"priority"`
 			} `json:"fields"`
 		} `json:"issues"`
+		NextPageToken string `json:"nextPageToken,omitempty"`
 	}
-	if err := json.Unmarshal(body, &raw); err != nil {
+	if err := json.Unmarshal(respBody, &raw); err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}

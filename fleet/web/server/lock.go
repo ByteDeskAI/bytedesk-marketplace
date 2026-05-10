@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 )
 
 type Lock struct {
@@ -53,6 +54,40 @@ func (l *Lock) Release() error {
 		return err
 	}
 	return nil
+}
+
+// AcquirePreempt tries to acquire the lock; if a live peer holds it,
+// SIGTERM the peer, wait up to `grace` for it to die (polling 100ms),
+// SIGKILL on timeout, then take the lock. Returns the prior holder's
+// PID for logging (0 if there was none).
+func (l *Lock) AcquirePreempt(grace time.Duration) (int, error) {
+	priorPID := 0
+	if data, err := os.ReadFile(l.Path); err == nil {
+		s := strings.TrimSpace(string(data))
+		if pid, perr := strconv.Atoi(s); perr == nil && isAlive(pid) {
+			priorPID = pid
+			proc, _ := os.FindProcess(pid)
+			_ = proc.Signal(syscall.SIGTERM)
+			deadline := time.Now().Add(grace)
+			for time.Now().Before(deadline) {
+				if !isAlive(pid) {
+					break
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+			if isAlive(pid) {
+				_ = proc.Signal(syscall.SIGKILL)
+				time.Sleep(200 * time.Millisecond)
+			}
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return 0, err
+	}
+	if err := os.MkdirAll(filepath.Dir(l.Path), 0o755); err != nil {
+		return priorPID, err
+	}
+	pid := strconv.Itoa(os.Getpid())
+	return priorPID, os.WriteFile(l.Path, []byte(pid+"\n"), 0o644)
 }
 
 // isAlive reports whether a process with the given PID exists and accepts
