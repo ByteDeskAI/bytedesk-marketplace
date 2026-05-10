@@ -37,10 +37,18 @@ When adding a new fleet hook or skill that gates an action, declare its class an
 
 ## PR merge authorization (PR-level gate)
 
-`gh pr merge` is the canonical PR-level gate. The hook at `.claude/hooks/pr-merge-guard.sh` enforces:
+`gh pr merge` is the canonical PR-level gate. The hook at `.claude/hooks/pr-merge-guard.sh` enforces, at depth 0, two paths:
 
-- **Root sessions (depth 0, human user):** the PR number must appear explicitly in the user's most recent message. Accepted patterns: `#N`, `merge N`, `PR N`, `pull/N`. Vague approvals like "ship it", "merge them", or "clean up that session" do **not** authorize a merge — even if there's only one open PR. Surface the diff (`gh pr diff <N>`) and ask before merging.
-- **Fleet child sessions (depth ≥ 1):** the parent agent's spawn act is the authorization. The transcript-based human-auth check is skipped and `gh pr merge` is allowed without per-PR confirmation.
+- **STRICT.** If the user's most recent message contains a specific PR# in any recognized form (`#N`, `merge N`, `PR N`, `pull/N`), the command's PR# must match. This catches the "merge #999 in the message but the model runs `gh pr merge 346`" mismatch.
+- **BARE** (BDM-11 loosened policy, 2026-05-09). If the user's message contains NO specific PR#, a bare word `merge` (e.g. `merge`, `merge it`, `merge them all`, `please merge`, `yes merge`, `go ahead and merge`) authorizes whatever PR the command names. The trade-off: the user is implicitly trusting whichever PR the model chose to merge. The historical "vague approval" rule (rejecting `ship it` / `merge them` even with one open PR) was tightened to "rejecting only when negation is present."
+
+The bare path does NOT fire when the message contains:
+- `don't merge` / `do not merge` / `never merge`
+- `merge conflict` (compound noun, not imperative verb)
+
+Other phrasings without the literal word `merge` (`ship it`, `approve it`, `yes`, `lgtm`) still block. The loosening is specifically the word `merge`.
+
+**Fleet child sessions (depth ≥ 1):** the parent agent's spawn act is the authorization. The transcript-based human-auth check is skipped and `gh pr merge` is allowed without per-PR confirmation. Unchanged.
 
 Mechanically enforced by `.claude/hooks/pr-merge-guard.sh` (PreToolUse on Bash). The hook reads `CLAUDE_SESSION_DEPTH` from the environment to decide which rule applies. Bypass forms — `gh pr merge --squash <N>` (flag-before-number) and bare `gh pr merge` (PR inferred from current branch) — are caught at depth 0 by extracting the last bare-digit token from the command and falling back to `gh pr view --json number` to resolve the branch's PR.
 
