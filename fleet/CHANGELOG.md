@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.15.10] — 2026-05-10
+
+Patch release: fix the `?`-toggles-shortcuts-overlay race.
+
+### Fixed
+
+- **Pressing `?` while overlay open didn't close it on first press
+  (BDM-47):** `ShortcutsOverlay`'s own keydown listener handled `?`
+  in addition to `Escape`, racing with the parent's
+  `useShortcuts({ onHelp: () => setShortcutsOpen(v => !v) })` toggle.
+  Two state setters fought (`setShortcutsOpen(false)` from the
+  overlay and `setShortcutsOpen(v => !v)` from the parent); the
+  functional updater read the just-scheduled `false` and flipped it
+  back to `true`, so the overlay stuck open. Removed `?` from the
+  overlay's listener — the parent owns `?` toggle now. Escape still
+  closes (still safe for future reuse where the parent isn't on
+  Overview). Discovered via /loop iteration 12 probe.
+
 ## [1.15.9] — 2026-05-10
 
 Patch release: Sidebar Filters subview rows no longer advertise click.
