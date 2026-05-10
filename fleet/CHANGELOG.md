@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- `/fleet:setup-cli` skill creates `~/.local/bin/` wrappers for the three public CLI binaries (`claude-sessions`, `claude-sessions-web`, `spawn-claude-feature`) so they're available on the user's interactive shell PATH without breaking on `/plugin update`. The wrappers resolve to the latest installed plugin version at exec time via `ls -dv … | tail -1`. Idempotent and sentinel-gated: re-running refreshes our own wrappers but refuses to clobber foreign files at the same path. Fills the gap left by BDM-3's removal of the `~/.local/bin/` symlinks (BDM-23).
+
 ## [1.3.0] — 2026-05-10
 
 **Phase 3a of the BDM-14 web dashboard plan: read surface (BDM-17).** The SPA now renders against real session data from the project's `${CLAUDE_PLUGIN_DATA}/projects/<KEY>/sessions/` tree. Polling-based hooks; SSE multiplex (Phase 3b) is queued.

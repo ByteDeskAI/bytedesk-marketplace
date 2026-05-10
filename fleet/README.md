@@ -13,7 +13,11 @@ Add the [bytedesk-marketplace](https://github.com/ByteDeskAI/bytedesk-marketplac
 /plugin install fleet@bytedesk
 ```
 
-That's it. Per-session state lives under `${CLAUDE_PLUGIN_DATA}/projects/<KEY>/` and is created lazily on first use; see [ADR-0002](./docs/adr/0002-plugin-data-directory.md). Coming from the v0.1 install.sh path? See [docs/MIGRATION.md](./docs/MIGRATION.md).
+Per-session state lives under `${CLAUDE_PLUGIN_DATA}/projects/<KEY>/` and is created lazily on first use; see [ADR-0002](./docs/adr/0002-plugin-data-directory.md). Coming from the v0.1 install.sh path? See [docs/MIGRATION.md](./docs/MIGRATION.md).
+
+### After install
+
+Run `/fleet:setup-cli` once to add `claude-sessions`, `claude-sessions-web`, and `spawn-claude-feature` to your interactive shell `PATH`. It writes thin wrappers to `~/.local/bin/` that resolve to the latest installed plugin version at exec time, so they survive `/plugin update fleet@bytedesk`. Without this step the binaries are only on the Claude Code tool host's PATH (skills work) but not on your terminal's PATH (`claude-sessions attach <TICKET>` returns `command not found`).
 
 ## What's in the box
 
