@@ -3369,6 +3369,105 @@ code, pre, .mono {
   body { background-image: none; }
 }
 
+/* ============================================================
+ * Responsive — narrow viewports (<768px) (BDM-39)
+ *
+ * Primary target stays desktop per ADR-0003. This block makes the
+ * dashboard mobile-glance-safe so a phone over Tailscale doesn't
+ * horizontally-scroll the document. Wide tables get internal scroll
+ * containers; multi-column grids collapse to a single column.
+ * ============================================================ */
+
+@media (max-width: 767px) {
+  body { overflow-x: hidden; }
+
+  /* App shell: stack sidebar above content. */
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+  .app-shell__sidebar {
+    position: sticky;
+    top: 0;
+    height: auto;
+    max-height: 50vh;
+    border-right: 0;
+    border-bottom: 1px solid var(--color-border);
+    z-index: 30;
+    overflow-y: auto;
+  }
+  /* Hide the secondary "Filters" section + user footer on mobile to
+   * conserve vertical space — primary nav is the load-bearing one. */
+  .app-shell__sidebar .sidebar__section + .sidebar__section,
+  .app-shell__sidebar .sidebar__user { display: none; }
+
+  /* TopBar: drop time-range to keep it from overflowing. */
+  .topbar__time-range { display: none; }
+
+  /* StatRibbon: 2 columns on mobile. */
+  .stat-ribbon {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .stat-card { border-right: 0; border-bottom: 1px solid var(--color-border); }
+  .stat-card:nth-child(2n) { border-right: 0; }
+
+  /* Tables that exceed the viewport scroll inside themselves. */
+  .session-table,
+  .audit-list,
+  .chain-list__table,
+  .tournament-table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .session-table__header,
+  .session-table__row {
+    min-width: 720px; /* preserve column widths during horizontal scroll */
+  }
+
+  /* Multi-column page grids collapse to single column. */
+  .overview--with-detail,
+  .chain-builder__grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* Detail panel can't be sticky — let it stack normally. */
+  .detail-panel {
+    position: static;
+    max-height: none;
+  }
+
+  /* Settings field rows: label-above instead of side-by-side. */
+  .settings__field {
+    grid-template-columns: 1fr;
+    gap: var(--space-1);
+  }
+
+  /* Modals fill the screen on mobile. */
+  .modal {
+    width: 100vw;
+    max-height: 100vh;
+    border-radius: 0;
+  }
+
+  /* Audit summary stacks. */
+  .audit-summary,
+  .session-stats__tokens {
+    grid-template-columns: 1fr 1fr;
+  }
+  .audit-summary__item { border-right: 0; border-bottom: 1px solid var(--color-border); }
+  .audit-summary__item:nth-child(2n) { border-right: 0; }
+
+  /* Page header wraps. */
+  .page-header { flex-wrap: wrap; }
+
+  /* Bottom statbar: tighter, allow wrap. */
+  .app-shell__statbar {
+    flex-wrap: wrap;
+    height: auto;
+    padding: 4px var(--space-3);
+  }
+}
+
 /* file visualizers (BDM-34) */
 .viz-file__name {
   font-family: var(--font-mono);

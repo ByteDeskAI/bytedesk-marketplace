@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.15.2] — 2026-05-10
+
+Patch release: add a single `@media (max-width: 767px)` block so the
+dashboard is mobile-glance-safe over Tailscale. Primary target stays
+desktop per ADR-0003 — this just keeps a phone from horizontally
+scrolling the document at 375px viewport.
+
+### Fixed
+
+- **Horizontal scroll on mobile / narrow viewports (BDM-39):**
+  the SPA had zero responsive breakpoints; at 375px viewport the
+  document scrolled to ~755px because `.app-shell` pinned the sidebar
+  at 200px and `.session-table` had a 9-column 700-800px grid. New
+  `@media (max-width: 767px)` block: `.app-shell` collapses to single
+  column with the sidebar above content; `.stat-ribbon` drops to 2
+  columns; wide tables scroll inside themselves; multi-column page
+  grids and `.detail-panel` stack; modals fill the screen; secondary
+  filters and the topbar time-range hide. Discovered via /loop
+  iteration 4 playwright probe.
+
 ## [1.15.1] — 2026-05-10
 
 Patch release: disable Tailscale Settings controls when CLI is missing
