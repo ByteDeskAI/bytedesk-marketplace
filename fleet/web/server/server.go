@@ -28,7 +28,7 @@ import (
 //go:embed all:dist
 var distFS embed.FS
 
-const buildVersion = "v1.10.0-bdm25"
+const buildVersion = "v1.11.0-bdm26"
 
 var startTime = time.Now()
 
@@ -41,14 +41,16 @@ type apiDeps struct {
 	stats      *StatsCalculator
 	bus        *EventBus
 	judge      JudgeProvider
+	settings   *SettingsRepo
 }
 
-func newAPIDeps(projectKey string, cfg *WebConfig, projDir, dataRoot string) *apiDeps {
+func newAPIDeps(projectKey string, cfg *WebConfig, projDir, dataRoot, webPath string) *apiDeps {
 	sr := NewSessionRepo(projDir)
 	er := NewEventsRepo(projDir)
 	pr := NewProjectsRepo(dataRoot)
 	sc := NewStatsCalculator(sr, er)
-	return &apiDeps{projectKey, cfg, sr, pr, er, sc, NewEventBus(), newJudgeProvider()}
+	st := NewSettingsRepo(webPath)
+	return &apiDeps{projectKey, cfg, sr, pr, er, sc, NewEventBus(), newJudgeProvider(), st}
 }
 
 func buildHandler(deps *apiDeps) (http.Handler, error) {
@@ -111,6 +113,9 @@ func buildHandler(deps *apiDeps) (http.Handler, error) {
 	})
 	mux.HandleFunc("/api/estimate-cost", func(w http.ResponseWriter, r *http.Request) {
 		handleEstimateCost(w, r, deps)
+	})
+	mux.HandleFunc("/api/settings", func(w http.ResponseWriter, r *http.Request) {
+		handleSettings(w, r, deps)
 	})
 	mux.Handle("/", http.FileServer(http.FS(sub)))
 	return mux, nil

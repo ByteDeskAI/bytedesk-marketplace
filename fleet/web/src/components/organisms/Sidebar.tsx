@@ -15,7 +15,7 @@ const VIEWS: NavItem[] = [
   { id: 'events',      label: 'Events',      icon: 'events',      href: '/audit' },
   { id: 'search',      label: 'Search',      icon: 'search' },
   { id: 'audit',       label: 'Audit',       icon: 'audit',       href: '/audit' },
-  { id: 'settings',    label: 'Settings',    icon: 'settings' },
+  { id: 'settings',    label: 'Settings',    icon: 'settings',    href: '/settings' },
 ];
 
 const SUBVIEWS = [

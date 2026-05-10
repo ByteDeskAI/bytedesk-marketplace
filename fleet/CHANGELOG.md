@@ -11,6 +11,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `/fleet:setup-cli` skill creates `~/.local/bin/` wrappers for the three public CLI binaries (`claude-sessions`, `claude-sessions-web`, `spawn-claude-feature`) so they're available on the user's interactive shell PATH without breaking on `/plugin update`. The wrappers resolve to the latest installed plugin version at exec time via `ls -dv … | tail -1`. Idempotent and sentinel-gated: re-running refreshes our own wrappers but refuses to clobber foreign files at the same path. Fills the gap left by BDM-3's removal of the `~/.local/bin/` symlinks (BDM-23).
 ## [1.9.0] — 2026-05-10
 ## [1.10.0] — 2026-05-10
+## [1.11.0] — 2026-05-10
+
+**Phase 10 of BDM-14: settings page (BDM-26).** Per-project settings persisted at `${CLAUDE_PLUGIN_DATA}/projects/<KEY>/web/settings.toml`.
+
+### Added
+
+- `SettingsRepo` (Repository pattern). Loads/saves a `[mobile]` block (B15 ntfy URL/topic/kinds), a `[tailscale]` block (B17 enabled + funnel), and a `[theme]` block (Phase 11 will fill it in).
+- `GET /api/settings`, `PUT /api/settings`.
+- `SettingsPage` reachable at `#/settings`. Renders mobile push form + tailscale toggle + suggested CLI snippet.
+- Sidebar Settings link routes to `#/settings`.
+
+### Changed
+
+- Build version → `v1.11.0-bdm26`.
+- `newAPIDeps` signature grew a `webPath` arg for the settings repo.
+
+
 
 **Phase 9 of BDM-14: replay + audit (BDM-25).** Two new pages, hash-routed.
 
