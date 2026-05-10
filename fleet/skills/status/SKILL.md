@@ -42,7 +42,7 @@ One-shot status report on every active session in the multi-session command cent
 
 Total: 5 sessions  ·  Browser: http://127.0.0.1:7681/
 
-Next:  /fleet-cleanup   (sweep merged sessions)
+Next:  /fleet:cleanup   (sweep merged sessions)
        claude-sessions attach BDP-372   (handle the question)
 ```
 

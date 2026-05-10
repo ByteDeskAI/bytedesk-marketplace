@@ -1,6 +1,6 @@
 ---
-name: fleet-review
-description: Spawn a dedicated reviewer session for a given session's open PR. The reviewer agent reads the diff, posts inline + summary review comments on GitHub, then exits. Works two ways — invoked by you in chat against any open PR, or invoked autonomously by an implementer session (auto-detects parent and ties the reviewer in as a child). Use when the user says "fleet review", "/fleet-review", "spawn a reviewer for BDP-N", "have someone review BDP-N's PR", or when an implementer session has just opened its PR and wants a second LLM pair of eyes.
+name: review
+description: Spawn a dedicated reviewer session for a given session's open PR. The reviewer agent reads the diff, posts inline + summary review comments on GitHub, then exits. Works two ways — invoked by you in chat against any open PR, or invoked autonomously by an implementer session (auto-detects parent and ties the reviewer in as a child). Use when the user says "fleet review", "/fleet:review", "spawn a reviewer for BDP-N", "have someone review BDP-N's PR", or when an implementer session has just opened its PR and wants a second LLM pair of eyes.
 user-invokable: true
 argument-hint: "[BDP-N]    # ticket whose open PR should be reviewed (omit when called from inside the implementer session)"
 allowed-tools:
@@ -26,14 +26,14 @@ Reviewer runs in full-auto in its own worktree off `origin/develop` (same as the
 
 ### Mode A — manual (you in chat)
 ```
-/fleet-review BDP-364
+/fleet:review BDP-364
 ```
 Pass the ticket explicitly. Spawns a reviewer at the top level (no parent).
 
 ### Mode B — autonomous (implementer session calling its own reviewer)
 The implementer's prompt should include this near the end:
 ```
-After your PR is open and CI is green, invoke /fleet-review (no arguments).
+After your PR is open and CI is green, invoke /fleet:review (no arguments).
 The skill will auto-detect this session as its parent.
 ```
 When invoked with no arguments inside a session, the skill reads `$CLAUDE_SESSION_TICKET` from the environment and uses that as the source ticket. The reviewer is spawned with `--parent <implementer>` so it shows as a child in the dashboard tree. This is recursion: depth 1 (parent) → depth 2 (reviewer). Hits the `--max-depth 2` cap exactly; further recursion from the reviewer is rejected unless the user passes `--allow-recursion`.
@@ -127,10 +127,10 @@ Review will appear as inline + summary comments on the PR when complete.
 - Only spawn reviewers for sessions with open PRs. If the source session has no PR yet, refuse.
 - Don't spawn a reviewer for an already-merged PR.
 - Don't spawn multiple reviewers for the same PR concurrently. If `BDP-N-rev` already exists in the dashboard, refuse.
-- The reviewer is short-lived — usually <10 minutes. Use `/fleet-cleanup` to sweep it after the review lands.
+- The reviewer is short-lived — usually <10 minutes. Use `/fleet:cleanup` to sweep it after the review lands.
 
 ## Examples
 
 ```
-/fleet-review BDP-364
+/fleet:review BDP-364
 ```
