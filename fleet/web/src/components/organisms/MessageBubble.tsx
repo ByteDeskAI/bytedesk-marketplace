@@ -29,13 +29,13 @@ export interface MessageBubbleProps {
 }
 
 export function MessageBubble({ msg, variant = 'default', renderSubAgent, onAnswerKeys, showRole = true }: MessageBubbleProps) {
-  // Tool-only assistant messages don't need a role chip — the tool
-  // card itself carries identity (Bash / Edit / Read / …).
-  const onlyToolParts = msg.parts.length > 0 && msg.parts.every((p) => p.type === 'tool-call' || p.type === 'tool-result');
-  const renderRole = showRole && !(msg.role === 'assistant' && onlyToolParts) && msg.role !== 'system';
+  // We never render a "CLAUDE" / "YOU" chip — alignment + color
+  // already carry identity. We DO keep the showRole flag because
+  // the assistant rail accents at the start of a turn (CSS reads
+  // .message-bubble--show-role) so consecutive messages still group
+  // visually.
   return (
-    <article class={`message-bubble message-bubble--${msg.role} message-bubble--${variant}${renderRole ? ' message-bubble--show-role' : ''}`}>
-      {renderRole ? <header class="message-bubble__role">{labelForRole(msg.role)}</header> : null}
+    <article class={`message-bubble message-bubble--${msg.role} message-bubble--${variant}${showRole ? ' message-bubble--show-role' : ''}`}>
       <div class="message-bubble__parts">
         {msg.parts.map((p, i) => (
           <PartView key={i} part={p} renderSubAgent={renderSubAgent} onAnswerKeys={onAnswerKeys} />
@@ -161,11 +161,3 @@ function ToolCallView({ part, children }: { part: UIPart; children?: ComponentCh
   );
 }
 
-function labelForRole(role: UIMessage['role']): string {
-  switch (role) {
-    case 'user':      return 'you';
-    case 'assistant': return 'claude';
-    case 'system':    return 'system';
-    default:          return role;
-  }
-}

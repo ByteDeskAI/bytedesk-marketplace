@@ -12,15 +12,16 @@ import type { UIMessage } from '../../api';
 
 export interface ToolGroupCardProps {
   messages: UIMessage[];
+  /** Reserved for future use — currently no role chip is rendered;
+   * alignment + tool-group chrome carry identity. */
   showRole?: boolean;
 }
 
-export function ToolGroupCard({ messages, showRole = true }: ToolGroupCardProps) {
+export function ToolGroupCard({ messages }: ToolGroupCardProps) {
   const [open, setOpen] = useState(false);
   const summary = summarizeToolGroup(messages);
   return (
     <article class={`tool-group ${open ? 'is-open' : ''}`}>
-      {showRole ? <header class="tool-group__role">claude</header> : null}
       <button
         type="button"
         class="tool-group__toggle"
