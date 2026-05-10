@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.15.4] — 2026-05-10
+
+Patch release: modal focus trap + ARIA dialog roles. Keyboard and
+screen-reader users couldn't reach modal contents naturally — focus
+stayed on the trigger button and tabs cycled through the page below.
+
+### Fixed
+
+- **Modal focus trap missing (BDM-41):** opening Spawn / Broadcast /
+  Shortcuts modals left focus on the trigger button. Added
+  `useModalFocus` hook (auto-focus first focusable on mount, trap
+  Tab/Shift+Tab inside the modal, restore focus on unmount) and wired
+  it into all three modals. Each modal element now also carries
+  `role="dialog" aria-modal="true" aria-label="..."` so screen readers
+  announce the dialog. Discovered via /loop iteration 6 playwright
+  probe.
+
+### Build
+
+- **`hooks/useModalFocus.ts` added:** small (~50-line) hook that any
+  future modal can adopt by passing a ref to the modal element.
+
 ## [1.15.3] — 2026-05-10
 
 Patch release: implement the chord nav hotkeys advertised in the

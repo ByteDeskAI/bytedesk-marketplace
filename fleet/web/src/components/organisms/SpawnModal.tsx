@@ -4,8 +4,9 @@
 //
 // State machine: idle → submitting → success | error.
 
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { Button } from '../atoms/Button';
+import { useModalFocus } from '../../hooks/useModalFocus';
 import {
   spawnFeature, spawnTournament, fetchJiraIssue, fetchJiraBacklog, estimateCost,
   type SpawnArgs, type CostEstimate, type JiraBacklogItem,
@@ -59,9 +60,19 @@ export interface SpawnModalProps {
 
 export function SpawnModal({ onClose, onSpawned }: SpawnModalProps) {
   const [tab, setTab] = useState<Tab>('Manual');
+  const modalRef = useRef<HTMLDivElement>(null);
+  useModalFocus(modalRef);
   return (
     <div class="modal-backdrop" onClick={onClose}>
-      <div class="modal modal--lg" onClick={(e) => e.stopPropagation()}>
+      <div
+        ref={modalRef}
+        class="modal modal--lg"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Spawn session"
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+      >
         <header class="modal__header">
           <span>SPAWN SESSION</span>
           <span style={{ marginLeft: 'auto' }}>

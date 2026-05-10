@@ -1,7 +1,8 @@
 // ShortcutsOverlay — Phase 7 (BDM-22, C3). Press `?` from anywhere to
 // open. List is curated; expanded as additional pages add bindings.
 
-import { useEffect } from 'preact/hooks';
+import { useEffect, useRef } from 'preact/hooks';
+import { useModalFocus } from '../../hooks/useModalFocus';
 
 const SHORTCUTS: { keys: string; desc: string }[] = [
   { keys: '?',     desc: 'Toggle this overlay' },
@@ -14,6 +15,8 @@ const SHORTCUTS: { keys: string; desc: string }[] = [
 ];
 
 export function ShortcutsOverlay({ onClose }: { onClose: () => void }) {
+  const modalRef = useRef<HTMLDivElement>(null);
+  useModalFocus(modalRef);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape' || e.key === '?') onClose();
@@ -23,7 +26,15 @@ export function ShortcutsOverlay({ onClose }: { onClose: () => void }) {
   }, [onClose]);
   return (
     <div class="modal-backdrop" onClick={onClose}>
-      <div class="modal" onClick={(e) => e.stopPropagation()}>
+      <div
+        ref={modalRef}
+        class="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Keyboard shortcuts"
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+      >
         <header class="modal__header">
           <span>KEYBOARD SHORTCUTS</span>
           <span style={{ marginLeft: 'auto' }}>
