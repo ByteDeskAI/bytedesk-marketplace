@@ -2838,26 +2838,28 @@ code, pre, .mono {
   border-left-color: var(--color-accent);
   margin-top: var(--space-3);
 }
-/* User — right-aligned soft-accent bubble. Switched from saturated
- * accent-fill to accent-soft tint so markdown inside (tables, code,
- * headers, blockquotes) renders with its normal contrast against
- * a light surface. Identity stays clear through right-alignment +
- * a strong accent left edge that anchors the bubble visually. */
+/* User — right-aligned violet-tinted bubble. We use the existing
+ * `--color-state-reviewing` token (purple) instead of `--color-accent`
+ * (blue) so the chat scans as a clear two-voice palette: cool blue
+ * for the assistant rail / system UI, soft violet for the user.
+ * Markdown elements render against a light surface, so tables, code,
+ * blockquotes etc. keep their normal contrast. Identity is carried
+ * by right-alignment + a 3px violet right-edge spine ("anchored to
+ * the user's side"). */
 .message-bubble--user {
   margin-left: auto;
   max-width: min(75%, 640px);
-  padding: var(--space-2) var(--space-3);
-  background: var(--color-accent-soft);
+  padding: var(--space-2) var(--space-4);
+  background: rgba(139, 92, 246, 0.08);
   color: var(--color-text-primary);
-  border: 1px solid var(--color-accent);
-  border-left-width: 3px;
-  border-radius: 12px 12px 4px 12px;
+  border: 1px solid rgba(139, 92, 246, 0.25);
+  border-right: 3px solid var(--color-state-reviewing);
+  border-radius: 12px 4px 12px 12px;
   box-shadow: var(--shadow-sm);
   margin-top: var(--space-3);
 }
 /* Inside a user bubble the table-header tint is too close to the
- * bubble fill — strengthen contrast slightly so "Rule / Do / Don't"
- * style headers stay legible. */
+ * bubble fill — bump to surface so headers stay legible. */
 .message-bubble--user .message-bubble__text th {
   background: var(--color-bg-surface);
 }
@@ -2865,6 +2867,9 @@ code, pre, .mono {
 .message-bubble--user .message-bubble__text pre {
   background: var(--color-bg-surface);
   border-color: var(--color-border);
+}
+.message-bubble--user .message-bubble__text blockquote {
+  border-left-color: var(--color-state-reviewing);
 }
 /* System — centered chip flanked by dashed lines. Lowest contrast. */
 .message-bubble--system {
