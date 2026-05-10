@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-05-09
+
+**Foundation release for the rich web dashboard (BDM-14, Phase 1).** No UI surface yet — this release lays the lifecycle plumbing under the dashboard so subsequent phases can drop in atoms / molecules / organisms / pages without re-deciding the server architecture. See [BDM-15](https://bytedesk.atlassian.net/browse/BDM-15).
+
+### Added
+
+- `fleet/web/server/` — Go HTTP server (`claude-sessions-web`) registered as a second plugin monitor in `monitors/monitors.json`. Lifetime mirrors the BDM-4 notify daemon: per-project PID lock at `${CLAUDE_PLUGIN_DATA}/projects/<KEY>/web/pid`; standby polling pattern (5s) so two Claude Code sessions in the same project coordinate cleanly; `CLAUDE_SESSION_DEPTH >= 1` short-circuits.
+- **Per-project port assignment**, persisted to `${CLAUDE_PLUGIN_DATA}/projects/<KEY>/web/config.toml`. First-load pick is deterministic: `7681 + (sha256(PROJECT_KEY) mod 50)` — same repo lands on the same port across machines. Bind failure walks 7681..7730 and rewrites the config; range exhaustion falls back to an ephemeral port + warns.
+- HTTP routes (Phase 1 only): `GET /healthz`, `GET /api/version`, `GET /` (placeholder embedded `index.html`). SPA bundle, repos, SSE/WebSocket fanout, and PTY embed land in subsequent phases.
+- `fleet/web/build.sh` — runs `go fmt` / `go vet` / `go test ./...` and emits `fleet/bin/claude-sessions-web`. Currently linux-amd64 only; multi-arch distribution is queued for Phase 2.
+- 11 Go unit tests under `fleet/web/server/web_test.go` covering port hashing, range walk, lock acquire / blocked / stale-reclaim / empty-reclaim, TOML round-trip, and project-key determinism.
+
+### Changed
+
+- **BREAKING.** `claude-sessions web` is now **discovery-only**. It reads the project's `web/config.toml` and prints the URL the monitor is bound to; it no longer execs `ttyd`. The dashboard is a plugin-managed monitor, started by Claude Code when the plugin is enabled. Users who want the old `ttyd + cmd_tui` behavior can run `ttyd claude-sessions tui` directly.
+- `monitors/monitors.json` is now a 2-entry array: the existing `claude-sessions-notify` monitor plus the new `claude-sessions-web`.
+- New `_web_dir` helper in `bin/claude-sessions` next to `_notify_dir` / `_rules_dir`.
+
 ## [1.0.2] — 2026-05-09
 
 Docs-only release. Companion repo `bytedesk-platform` PR #349 (BDP-377) stripped fleet implementation details out of its `bytedesk-feature-start` skill and delegated to `/fleet:*`. That audit surfaced four facts about fleet behavior that lived only in bytedesk-platform's skill — they belong here.

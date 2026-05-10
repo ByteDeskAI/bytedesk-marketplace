@@ -4,5 +4,11 @@
     "description": "Polls fleet sessions for state transitions, ceiling breaches, and tool-level events; dispatches notifications via desktop / bell / fifo / slack per ${CLAUDE_PLUGIN_DATA}/projects/<KEY>/notify/config.toml.",
     "command": "${CLAUDE_PLUGIN_ROOT}/bin/claude-sessions notify --interval 5",
     "when": "always"
+  },
+  {
+    "name": "claude-sessions-web",
+    "description": "Per-project HTTP dashboard server. Hash-based port assignment under ${CLAUDE_PLUGIN_DATA}/projects/<KEY>/web/config.toml; PID lock + stand-by polling so multiple Claude Code sessions in the same project coordinate cleanly. Discovery via `claude-sessions web` (no args) which prints the URL.",
+    "command": "${CLAUDE_PLUGIN_ROOT}/bin/claude-sessions-web",
+    "when": "always"
   }
 ]
