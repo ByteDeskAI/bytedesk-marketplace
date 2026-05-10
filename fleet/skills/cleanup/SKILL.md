@@ -70,6 +70,18 @@ Remaining sessions: BDP-364 (open PR), BDP-401 (no PR yet).
 - If `gh pr list` fails (auth, network), report the error and skip cleanup; do NOT assume "no PR" means "safe to kill".
 - If `claude-sessions kill` fails for one session (e.g. uncommitted changes in the workspace), continue with the others and report the failure.
 
+## Safety
+
+`/fleet:cleanup` calls `claude-sessions kill <TICKET>` for each eligible session, and `kill` does three destructive things in order: tmux kill, `git worktree remove`, branch delete.
+
+If `git worktree remove` aborts, it's because the spawned session has **uncommitted work** in the worktree — the agent produced output that wasn't pushed. The fleet plugin will refuse to force-clean a worktree with uncommitted changes; this is intentional. Investigate before forcing:
+
+- `cd` into the worktree path (`<repo>/.claude/worktrees/<TICKET>-<slug>/`) and run `git status` to see what's unsaved.
+- If the work is salvageable, commit + push it on the session's branch and re-run `/fleet:cleanup`.
+- If the work is genuinely abandoned, `git worktree remove --force <path>` manually, then re-run `/fleet:cleanup` for the rest.
+
+Don't bypass the safety by editing the kill flow. The friction is the feature.
+
 ## Examples
 
 ```
