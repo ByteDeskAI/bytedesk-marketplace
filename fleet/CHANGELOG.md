@@ -6,7 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-## [1.15.2] — 2026-05-10
+## [1.15.3] — 2026-05-10
+
+Patch release: implement the chord nav hotkeys advertised in the
+Sidebar (gO, gG, gT, gC, gN, gA, gR, g,) — they were dead text since
+the BDM-31 redesign. `useShortcuts` now tracks a `g`-prefixed chord
+and routes the second key to a destination via the hash router. The
+chord hook is lifted to `App` so it works on every page.
+
+### Fixed
+
+- **Chord nav shortcuts didn't work (BDM-40):** Sidebar showed `gO`,
+  `gG`, `gT`, `gC`, `gN`, `gA`, `gR`, `g,` next to each nav item, but
+  pressing those sequences did nothing. `useShortcuts` only handled
+  single keys. Added a `pendingChord` state with a 1 s self-clear
+  timer; `g` arms it and the next key looks up CHORD_NAV (case-
+  insensitive). Added `onNavigate` binding and wired it from
+  `App` so the chord works regardless of which page is rendered.
+  Discovered via /loop iteration 5 playwright probe.
 
 Patch release: add a single `@media (max-width: 767px)` block so the
 dashboard is mobile-glance-safe over Tailscale. Primary target stays

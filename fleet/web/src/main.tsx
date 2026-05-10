@@ -14,13 +14,18 @@ import { SearchPage } from './components/pages/SearchPage';
 import { TournamentsPage } from './components/pages/TournamentsPage';
 import { TimelinePage } from './components/pages/TimelinePage';
 import { useRoute } from './hooks/useRoute';
+import { useShortcuts } from './hooks/useShortcuts';
 import { useTheme } from './hooks/useTheme';
 import { ViewModeProvider } from './contexts/ViewModeContext';
 
 function App() {
   // Drives the data-theme / data-font / accent custom property on <html>.
   useTheme();
-  const [route] = useRoute();
+  const [route, navigate] = useRoute();
+  // Global chord-nav (gO, gG, gT, …) — wires the Sidebar's hotkey
+  // hints to the hash router. Per-page useShortcuts calls handle
+  // page-specific keys (spawn, broadcast, density toggle).
+  useShortcuts({ onNavigate: navigate });
   let page;
   switch (route.name) {
     case 'audit':       page = <AuditPage />; break;
