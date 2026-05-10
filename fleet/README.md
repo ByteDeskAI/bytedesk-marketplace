@@ -103,7 +103,7 @@ Full design rationale + trade-offs in [ADR-0002](./docs/adr/0002-plugin-data-dir
 
 ## Status
 
-`v1.2.0` (2026-05-10) — web dashboard SPA scaffold (BDM-14 Phase 2): Preact + esbuild + atomic-design component layout, first read-surface organisms wired against placeholder fixtures. Phase 1 (v1.1.0) shipped the Go monitor; phases 3–11 fill in real data, PTY, spawn, intelligence, replay, mobile, themes. Extracted from `ByteDeskAI/bytedesk-platform` and reshaped into a Claude-Code-native plugin (per-project state under `${CLAUDE_PLUGIN_DATA}`, plugin-managed monitor, no install.sh). Coming from v0.1? See [`docs/MIGRATION.md`](./docs/MIGRATION.md).
+`v1.3.0` (2026-05-10) — web dashboard read surface (BDM-14 Phase 3a): real `/api/*` endpoints (sessions, stats, projects, events) + polling hooks. SPA renders live data from `${CLAUDE_PLUGIN_DATA}/projects/<KEY>/sessions/`. SSE multiplex (Phase 3b) + PTY embed (Phase 4) + actions (Phase 5+) are next. Extracted from `ByteDeskAI/bytedesk-platform` and reshaped into a Claude-Code-native plugin (per-project state under `${CLAUDE_PLUGIN_DATA}`, plugin-managed monitor, no install.sh). Coming from v0.1? See [`docs/MIGRATION.md`](./docs/MIGRATION.md).
 
 ## License
 

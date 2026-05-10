@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-05-10
+
+**Phase 3a of the BDM-14 web dashboard plan: read surface (BDM-17).** The SPA now renders against real session data from the project's `${CLAUDE_PLUGIN_DATA}/projects/<KEY>/sessions/` tree. Polling-based hooks; SSE multiplex (Phase 3b) is queued.
+
+### Added
+
+- **Server-side Repos** (Repository pattern): `SessionRepo` parses key=value meta files; `ProjectsRepo` enumerates `${CLAUDE_PLUGIN_DATA}/projects/*/web/config.toml` for the multi-project sidebar; `EventsRepo` reads + merges per-session JSONL events.
+- **`StatsCalculator`** (Factory pattern) derives `FleetStats` from sessions + events.
+- **State heuristic** ported from bash `session_state()` to Go (`sessionStateFromLog`); regex-based until B10 Haiku replaces it.
+- **Token / cost extraction** from log tails (`latestTokens`, `roughCostUSD`) — flat $5/Mtoken until proper per-tier pricing lands.
+- **New routes**:
+  - `GET /api/sessions` → `SessionView[]`
+  - `GET /api/sessions/<TICKET>` → single `SessionView`
+  - `GET /api/stats` → `FleetStats`
+  - `GET /api/projects` → `Project[]`
+  - `GET /api/events?since=…&kinds=…&limit=…` → cross-session feed
+- **Client hooks** (Custom-hooks + Observer pattern): `usePolling<T>`, `useSessionList`, `useStats`, `useProjects`, `useEventStream`. One hook per server resource; consumers don't see the polling cadence.
+- **OverviewPage rewritten as Container/Presenter**: composes hooks + organisms, hands data via props. Sidebar drives PROJECTS list from `useProjects()` with hyperlinks to each project's own dashboard.
+- **SessionTable empty state** with a hint to spawn a session via `spawn-claude-feature` or `/fleet:spawn`.
+- **8 new Go tests** covering repo behaviour, state heuristic, route shapes, format helpers.
+
+### Changed
+
+- `claude-sessions-web` build version → `v1.3.0-bdm17`.
+- `src/api.ts` — placeholder fixtures removed; types kept; only `fetchVersion` (one-shot) remains as a non-hook helper.
+
 ## [1.2.0] — 2026-05-10
 
 **Phase 2 of the BDM-14 web dashboard plan: SPA scaffold (BDM-16).** Preact + esbuild + the atomic-design file layout, with the first read-surface organisms wired against placeholder fixtures so the structure is real — not just empty dirs.
