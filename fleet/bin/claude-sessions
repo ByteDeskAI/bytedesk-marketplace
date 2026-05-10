@@ -17,7 +17,7 @@
 #   claude-sessions notify [--interval N] [--once]   # desktop alerts + rules engine
 #   claude-sessions events <ticket> [--since=TS] [--kinds=K,..] [--json|--plain] [--follow]
 #                                         # tool-level events for a session (BDP-372)
-#   claude-sessions web    [--port N] [--bind ADDR] [--cred user:pass]  # ttyd browser view
+#   claude-sessions web                  # print dashboard URL (server is a monitor)
 #
 # Rules engine (chain orchestration that survives chat session ends):
 #   claude-sessions rules                           # list pending rules
@@ -59,6 +59,7 @@ _sessions_root(){ echo "$(_project_dir)/sessions"; }
 _session_dir()  { echo "$(_sessions_root)/$1"; }   # arg: TICKET
 _notify_dir()   { echo "$(_project_dir)/notify"; }
 _rules_dir()    { echo "$(_project_dir)/rules"; }
+_web_dir()      { echo "$(_project_dir)/web"; }
 
 # Resolve once at load time so dependent vars (RULES_DIR, NOTIFY_CONFIG, etc.)
 # observe the same project even if cwd changes mid-run.
@@ -999,30 +1000,42 @@ _notify_run_loop() {
 }
 
 cmd_web() {
-  local port=7681 bind="127.0.0.1" cred=""
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --port) port="$2"; shift 2 ;;
-      --bind) bind="$2"; shift 2 ;;
-      --cred) cred="$2"; shift 2 ;;
-      *) echo "web: unknown flag $1" >&2; return 64 ;;
-    esac
-  done
-  command -v ttyd >/dev/null || {
-    cat >&2 <<'MSG'
-ttyd not installed. Install one of:
-  sudo apt install ttyd                                     # Ubuntu 22.04+
-  sudo snap install ttyd --classic                          # any snap-enabled
-  https://github.com/tsl0922/ttyd/releases                  # static binary
-Then re-run: claude-sessions web
-MSG
-    return 127
-  }
-  local args=( -W -p "$port" -i "$bind" -t "fontSize=13" -t "theme={\"background\":\"#0d0d0d\"}" )
-  [[ -n "$cred" ]] && args+=( -c "$cred" )
-  echo "ttyd listening on http://${bind}:${port}/  (writable, Ctrl-C to stop)"
-  echo "  → opens 'claude-sessions tui' in the browser"
-  exec ttyd "${args[@]}" claude-sessions tui
+  # BDM-15: discovery-only. The web monitor (claude-sessions-web) is started
+  # by Claude Code via monitors/monitors.json and binds a per-project port
+  # written to ${CLAUDE_PLUGIN_DATA}/projects/<KEY>/web/config.toml. This
+  # subcommand reads that config and prints the URL — it does NOT start a
+  # server.
+  local web_dir cfg
+  web_dir="$(_web_dir)"
+  cfg="$web_dir/config.toml"
+  if [[ ! -f "$cfg" ]]; then
+    cat >&2 <<EOF
+fleet web dashboard hasn't started for this project yet ($cfg not found).
+
+The dashboard runs as a plugin monitor; it starts when Claude Code loads
+the plugin. If it isn't running:
+  - At depth >= 1 (fleet child session), the monitor short-circuits — the
+    parent session's monitor covers the project.
+  - Otherwise, try \`/plugin reload fleet\` to kick the monitor.
+EOF
+    return 1
+  fi
+  local port bind
+  port=$(awk -F'=' '/^[[:space:]]*port[[:space:]]*=/ {gsub(/[[:space:]]/,"",$2); print $2; exit}' "$cfg")
+  bind=$(awk -F'=' '/^[[:space:]]*bind[[:space:]]*=/ {gsub(/^[[:space:]]+|[[:space:]]+$/,"",$2); gsub(/"/,"",$2); print $2; exit}' "$cfg")
+  bind="${bind:-127.0.0.1}"
+  echo "fleet dashboard: http://${bind}:${port}/"
+  local pid_file="$web_dir/pid" pid pid_alive=0
+  if [[ -f "$pid_file" ]]; then
+    pid=$(cat "$pid_file" 2>/dev/null)
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+      pid_alive=1
+    fi
+  fi
+  if (( pid_alive == 0 )); then
+    echo "  ⚠ monitor not running (no live PID at $pid_file). Try \`/plugin reload fleet\`." >&2
+    return 2
+  fi
 }
 
 cmd_tui() {

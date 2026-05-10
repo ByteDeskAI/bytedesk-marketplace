@@ -103,7 +103,7 @@ Full design rationale + trade-offs in [ADR-0002](./docs/adr/0002-plugin-data-dir
 
 ## Status
 
-`v1.0.2` (2026-05-09) — docs-only follow-up to v1.0.1 (manifest hot-fix). v1.0.0 was the first public release. Extracted from `ByteDeskAI/bytedesk-platform` and reshaped into a Claude-Code-native plugin (per-project state under `${CLAUDE_PLUGIN_DATA}`, plugin-managed monitor, no install.sh). Coming from v0.1? See [`docs/MIGRATION.md`](./docs/MIGRATION.md).
+`v1.1.0` (2026-05-09) — web-dashboard foundation (BDM-14 Phase 1): Go monitor server, per-project port assignment, PID lock + standby polling. No UI surface yet — full dashboard lands across BDM-14 phases 2–11. See `fleet/CHANGELOG.md` and `fleet/web/README.md`. Extracted from `ByteDeskAI/bytedesk-platform` and reshaped into a Claude-Code-native plugin (per-project state under `${CLAUDE_PLUGIN_DATA}`, plugin-managed monitor, no install.sh). Coming from v0.1? See [`docs/MIGRATION.md`](./docs/MIGRATION.md).
 
 ## License
 
