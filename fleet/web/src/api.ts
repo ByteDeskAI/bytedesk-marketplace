@@ -96,6 +96,21 @@ export async function spawnFeature(args: SpawnArgs): Promise<SpawnResult> {
   return r.json();
 }
 
+export interface BroadcastResult {
+  ok: boolean;
+  results: { ticket: string; ok: boolean; error?: string }[];
+}
+
+export async function broadcast(message: string): Promise<BroadcastResult> {
+  const r = await fetch('/api/broadcast', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message }),
+  });
+  if (!r.ok) throw new Error(await readError(r));
+  return r.json();
+}
+
 export async function spawnReviewer(parentTicket: string, prompt?: string, fullAuto = true): Promise<SpawnResult> {
   const r = await fetch(`/api/sessions/${encodeURIComponent(parentTicket)}/review`, {
     method: 'POST',

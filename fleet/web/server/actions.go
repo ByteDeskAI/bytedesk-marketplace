@@ -76,6 +76,62 @@ func handleSessionKill(w http.ResponseWriter, r *http.Request, ticket string) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "stdout": strings.TrimSpace(string(out))})
 }
 
+// handleBroadcast — Phase 7 (BDM-22, B6). Sends the same message to every
+// active session. "Active" = state in {starting, working, needs-input,
+// reviewing}. Aggregates per-session results so the client can show
+// per-target outcome.
+//
+//	POST /api/broadcast  body: {"message": "..."}
+func handleBroadcast(w http.ResponseWriter, r *http.Request, deps *apiDeps) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, errors.New("POST required"))
+		return
+	}
+	var body struct {
+		Message string `json:"message"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid json: %w", err))
+		return
+	}
+	if strings.TrimSpace(body.Message) == "" {
+		writeError(w, http.StatusBadRequest, errors.New("message required"))
+		return
+	}
+	sl, err := deps.sessions.List()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	type result struct {
+		Ticket string `json:"ticket"`
+		OK     bool   `json:"ok"`
+		Error  string `json:"error,omitempty"`
+	}
+	results := []result{}
+	for _, s := range sl {
+		if !isActiveState(s.State) {
+			continue
+		}
+		cmd := exec.Command(claudeSessionsBin(), "send", s.Ticket, body.Message)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			results = append(results, result{Ticket: s.Ticket, OK: false, Error: strings.TrimSpace(string(out))})
+		} else {
+			results = append(results, result{Ticket: s.Ticket, OK: true})
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "results": results})
+}
+
+func isActiveState(s string) bool {
+	switch s {
+	case "starting", "working", "needs-input", "reviewing":
+		return true
+	}
+	return false
+}
+
 func handleClean(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, errors.New("POST required"))
