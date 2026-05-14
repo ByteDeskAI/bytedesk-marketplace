@@ -16,6 +16,8 @@ from pattern_inference import infer_request_context
 from pattern_intelligence import all_entries, adr_payload, find_entry, recommend_entries
 from pattern_scanner import scan_path
 
+import pattern_memory
+
 
 SERVER_INFO = {"name": "design-patterns", "version": "0.8.6"}
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
@@ -435,6 +437,36 @@ def tool_definitions() -> list[dict[str, Any]]:
                 "type": "object",
                 "properties": {
                     "command": _arg("Optional command name or help phrase, such as patterns-scan, /patterns-scan, scan, or /patterns-scan help."),
+                },
+            },
+        },
+        {
+            "name": "patterns_record",
+            "description": "Record a durable pattern-memory outcome to the project journal: an applied refactor, an ADR status change, or a note. Skill-invoked — there is no slash command. The MCP server cannot see Edit/Write, so a skill calls this after a change actually lands.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "kind": _arg("Record kind: applied (a refactor that landed), decision (an ADR status change), or note. Required."),
+                    "pattern": _arg("For kind=applied: the catalog pattern slug that was applied, such as strategy or idempotent-receiver."),
+                    "target": _arg("For kind=applied: the file or module the pattern was applied to."),
+                    "adr": _arg("For kind=applied: an ADR number to link this refactor to. For kind=decision: the ADR number whose status is changing (required for kind=decision).", "integer"),
+                    "status": _arg("For kind=decision: the new ADR status — accepted, superseded, or deprecated."),
+                    "outcome": _arg("For kind=applied: done, partial, or reverted. Defaults to done when omitted."),
+                    "summary": _arg("A short human-readable summary of what was done or decided."),
+                    "sourceShape": _arg("For kind=applied: optional description of the code shape before the refactor."),
+                    "verified": _arg("For kind=applied: whether the change was verified by tests or runtime checks.", "boolean"),
+                },
+            },
+        },
+        {
+            "name": "patterns_recall",
+            "description": "Recall what this project's pattern memory already knows — prior scans, recommendations, ADR decisions, and applied refactors. User slash command: /patterns-history. Consult this BEFORE recommending or scanning so answers build on prior decisions instead of repeating them.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": _arg("Optional architecture force or topic. When supplied, matching prior ADR decisions are surfaced first."),
+                    "path": _arg("Optional file or directory. When supplied, the most recent scan of that path is included."),
+                    "limit": _arg("Optional cap on how many recent events to return. Defaults to 20 when omitted.", "integer"),
                 },
             },
         },
@@ -972,6 +1004,36 @@ def _add_inference(payload: Any, inference: dict[str, Any]) -> Any:
     return payload
 
 
+def _safe_memory(func: Any, *args: Any, **kwargs: Any) -> Any:
+    """Run a pattern_memory call without ever letting it break a tool call. The memory
+    writers already swallow their own I/O errors; this also guards the import boundary
+    and any argument-shaping mistakes."""
+    try:
+        return func(*args, **kwargs)
+    except Exception:
+        return None
+
+
+def _attach_prior_decisions(payload: dict[str, Any], query: str) -> None:
+    """Smart loop: surface already-recorded ADR decisions for the same force so the model
+    cites an existing decision instead of re-deciding from scratch."""
+    prior = _safe_memory(pattern_memory.decisions_for_force, query)
+    if not prior:
+        return
+    payload["priorDecisions"] = prior
+    if any(decision.get("status") == "accepted" for decision in prior):
+        payload["memoryHint"] = (
+            "This project already has an accepted ADR decision for a related force "
+            "(see priorDecisions). Lead with the existing decision; only recommend "
+            "something new if the user is explicitly reconsidering it."
+        )
+    else:
+        payload["memoryHint"] = (
+            "This project has prior ADR decisions for a related force (see priorDecisions) "
+            "— reference them rather than starting from zero."
+        )
+
+
 def call_tool(name: str, arguments: dict[str, Any]) -> Any:
     if name == "patterns_help":
         resolution = _new_resolution(name)
@@ -1010,17 +1072,17 @@ def call_tool(name: str, arguments: dict[str, Any]) -> Any:
             limit=limit,
             include_snippets=True,
         )
-        return _with_resolution(
-            {
-                "query": query,
-                "language": inference.get("language"),
-                "scope": inference.get("scope") or "all",
-                "risk": risk,
-                "limit": limit,
-                "recommendations": recommendations,
-            },
-            resolution,
-        )
+        payload = {
+            "query": query,
+            "language": inference.get("language"),
+            "scope": inference.get("scope") or "all",
+            "risk": risk,
+            "limit": limit,
+            "recommendations": recommendations,
+        }
+        _attach_prior_decisions(payload, query)
+        _safe_memory(pattern_memory.record_recommendation, payload)
+        return _with_resolution(payload, resolution)
     if name == "patterns_scan":
         resolution = _new_resolution(name)
         path = _resolve_path(arguments, resolution, purpose="architecture smell scanning")
@@ -1037,19 +1099,26 @@ def call_tool(name: str, arguments: dict[str, Any]) -> Any:
         min_confidence = _resolve_float(arguments, resolution, "min_confidence", default=0.0, minimum=0.0, maximum=1.0)
         if _has_blockers(resolution):
             return _missing_response(name, resolution)
-        return _with_resolution(
-            _add_inference(
-                scan_path(
-                    path,
-                    pack=pack,
-                    include_docs=include_docs,
-                    include_generated=include_generated,
-                    min_confidence=min_confidence,
-                ),
-                inference,
-            ),
-            resolution,
+        scan_result = scan_path(
+            path,
+            pack=pack,
+            include_docs=include_docs,
+            include_generated=include_generated,
+            min_confidence=min_confidence,
         )
+        payload = _add_inference(scan_result, inference)
+        # Smart loop: diff against the last stored scan of this path *before* recording.
+        diff = _safe_memory(pattern_memory.scan_diff, path, scan_result)
+        if diff is not None:
+            payload["memoryDiff"] = diff
+        _safe_memory(
+            pattern_memory.record_scan,
+            scan_result,
+            path=path,
+            pack=pack,
+            min_confidence=min_confidence,
+        )
+        return _with_resolution(payload, resolution)
     if name == "patterns_adr":
         resolution = _new_resolution(name)
         query = _resolve_text_argument(
@@ -1064,18 +1133,24 @@ def call_tool(name: str, arguments: dict[str, Any]) -> Any:
         status = _resolve_status(arguments, resolution, query)
         if _has_blockers(resolution):
             return _missing_response(name, resolution)
-        return _with_resolution(
-            _add_inference(
-                adr_payload(
-                    query,
-                    status=status,
-                    language=inference.get("language") or None,
-                    scope=str(inference.get("scope") or "all"),
-                ),
-                inference,
-            ),
-            resolution,
+        scope = str(inference.get("scope") or "all")
+        adr_result = adr_payload(
+            query,
+            status=status,
+            language=inference.get("language") or None,
+            scope=scope,
         )
+        payload = _add_inference(adr_result, inference)
+        recorded = _safe_memory(
+            pattern_memory.record_decision,
+            adr_result,
+            status=status,
+            scope=scope,
+            language=inference.get("language") or None,
+        )
+        if isinstance(recorded, dict) and isinstance(recorded.get("adrNumber"), int):
+            payload["adrNumber"] = recorded["adrNumber"]
+        return _with_resolution(payload, resolution)
     if name == "patterns_context":
         resolution = _new_resolution(name)
         path = _resolve_path(arguments, resolution, purpose="context-pack generation")
@@ -1182,6 +1257,62 @@ def call_tool(name: str, arguments: dict[str, Any]) -> Any:
             },
             resolution,
         )
+    if name == "patterns_record":
+        resolution = _new_resolution(name)
+        kind = _resolve_text_argument(
+            arguments,
+            resolution,
+            "kind",
+            aliases=("type",),
+            required_reason="patterns_record needs a record kind: applied, decision, or note.",
+            how_to_provide='patterns_record {"kind": "applied", "pattern": "strategy", "target": "src/providers.py"}',
+        )
+        kind_value = str(kind or "").strip().lower()
+        if kind_value == "applied":
+            if _is_blank(arguments.get("pattern")):
+                _record(
+                    resolution,
+                    "missing",
+                    "pattern",
+                    whyNotInferable="An applied refactor must name the catalog pattern slug that was applied.",
+                    howToProvide='Pass pattern, e.g. {"kind":"applied","pattern":"strategy","target":"src/providers.py"}.',
+                )
+            if _is_blank(arguments.get("target")):
+                _record(
+                    resolution,
+                    "missing",
+                    "target",
+                    whyNotInferable="An applied refactor must name the file or module it was applied to.",
+                    howToProvide='Pass target, e.g. {"kind":"applied","pattern":"strategy","target":"src/providers.py"}.',
+                )
+        elif kind_value == "decision":
+            if arguments.get("adr") is None:
+                _record(
+                    resolution,
+                    "missing",
+                    "adr",
+                    whyNotInferable="A decision record must reference the ADR number whose status is changing.",
+                    howToProvide='Pass adr, e.g. {"kind":"decision","adr":3,"status":"accepted"}.',
+                )
+        if _has_blockers(resolution):
+            return _missing_response(name, resolution)
+        result = _safe_memory(pattern_memory.record_from_tool, kind, arguments)
+        if result is None:
+            result = {"recorded": False, "error": "pattern memory is unavailable"}
+        return _with_resolution(result, resolution)
+    if name == "patterns_recall":
+        resolution = _new_resolution(name)
+        query = str(_first_argument(arguments, "query", "topic", "force") or "").strip()
+        path = str(_first_argument(arguments, "path", "file", "directory") or "").strip()
+        if query:
+            _record(resolution, "provided", "query", query)
+        if path:
+            _record(resolution, "provided", "path", path)
+        limit = _resolve_limit(arguments, resolution, default=20)
+        summary = _safe_memory(pattern_memory.recall_summary, query or None, path or None, limit)
+        if summary is None:
+            summary = {"error": "pattern memory is unavailable", "decisions": [], "recentEvents": []}
+        return _with_resolution(summary, resolution)
     raise ValueError(f"Unknown tool: {name}")
 
 
