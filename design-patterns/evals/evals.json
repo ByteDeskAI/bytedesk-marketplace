@@ -1,0 +1,115 @@
+{
+  "skill_name": "design-patterns",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "We publish OrderCreated to billing, fulfillment, and analytics. Consumers can be down and messages may redeliver. Recommend an architecture decision with patterns, tradeoffs, and verification.",
+      "expected_output": "Uses an ADR-style decision, recommends event fanout with publish-subscribe, durable subscribers, idempotent receivers, correlation, dead-letter handling, and concrete duplicate/replay tests.",
+      "files": [],
+      "golden_output": "evals/golden/event-fanout-adr.md",
+      "assertions": [
+        {
+          "type": "contains_sections",
+          "sections": ["Decision", "Alternatives Considered", "Consequences", "Verification"]
+        },
+        {
+          "type": "contains_terms",
+          "terms": ["Publish-Subscribe Channel", "Idempotent Receiver", "Dead Letter Channel", "Correlation Identifier"]
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Our pricing service has repeated conditionals for customer type and market. Find the likely pattern and tell me when not to use it.",
+      "expected_output": "Shortlists Strategy, compares State or simpler function/table alternatives, explains forces, tradeoffs, implementation boundary, and behavior-focused tests.",
+      "files": [],
+      "golden_output": "evals/golden/strategy-shortlist.md",
+      "assertions": [
+        {
+          "type": "contains_sections",
+          "sections": ["Best Fit", "Alternatives", "Do Not Use Yet", "Verification"]
+        },
+        {
+          "type": "contains_terms",
+          "terms": ["Strategy", "State", "function map", "behavior tests"]
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Review this integration design: a worker retries failed messages forever and assumes exactly-once processing. Give findings and fixes.",
+      "expected_output": "Identifies unbounded retry and naive exactly-once smells, recommends idempotent receiver and dead-letter/expiration policy, and includes operational checks.",
+      "files": [],
+      "golden_output": "evals/golden/retry-smell-scan.md",
+      "assertions": [
+        {
+          "type": "contains_sections",
+          "sections": ["Findings", "Pattern Response", "Verification"]
+        },
+        {
+          "type": "contains_terms",
+          "terms": ["Unbounded Retry", "Naive Exactly Once", "Idempotent Receiver", "Dead Letter Channel"]
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Provider selection is leaking through domain services. Use the catalog to rank options and explain the fit.",
+      "expected_output": "Ranks the provider abstraction playbook first, includes the provider-switch smell, and explains why Bridge, Strategy, Adapter, and Abstract Factory are relevant.",
+      "files": [],
+      "golden_output": "evals/golden/provider-recommendation.md",
+      "command": ["bin/patterns", "recommend", "provider selection leaks into domain code", "--json", "--explain"],
+      "assertions": [
+        {
+          "type": "contains_terms",
+          "terms": ["Provider Abstraction", "Bridge", "Strategy", "Adapter"]
+        },
+        {
+          "type": "command_json_top_slug",
+          "path": "recommendations",
+          "slug": "provider-abstraction"
+        },
+        {
+          "type": "command_json_contains",
+          "terms": ["provider-switch-sprawl", "whyMatched", "whyMightBeWrong"]
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Build a model-ready context pack from implementation evidence and pattern references for duplicate delivery.",
+      "expected_output": "Includes scan findings, recommended moves, implementation snippets, an ADR seed, and verification guidance.",
+      "files": [],
+      "golden_output": "evals/golden/context-pack.md",
+      "command": ["bin/patterns", "context", "data/playbooks/event-fanout.md", "--query", "duplicate delivery", "--language", "python", "--json"],
+      "assertions": [
+        {
+          "type": "contains_sections",
+          "sections": ["Findings", "Recommended Moves", "Implementation Snippets", "ADR Seed", "Verification"]
+        },
+        {
+          "type": "command_json_contains",
+          "terms": ["Pattern Context Pack", "python-idempotent-receiver", "recommendations", "adr"]
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "Ask the relationship graph what mitigates naive exactly-once handling.",
+      "expected_output": "Answers with mitigations such as Idempotent Receiver, Guaranteed Delivery, Transactional Client, and Dead Letter Channel.",
+      "files": [],
+      "golden_output": "evals/golden/graph-query.md",
+      "command": ["bin/patterns", "graph", "--query", "what mitigates naive exactly once", "--json"],
+      "assertions": [
+        {
+          "type": "contains_terms",
+          "terms": ["Idempotent Receiver", "Guaranteed Delivery", "Dead Letter Channel", "mitigates"]
+        },
+        {
+          "type": "command_json_contains",
+          "terms": ["mitigates", "idempotent-receiver", "naive-exactly-once"]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,611 @@
+#!/usr/bin/env python3
+"""Search, analyze, and serve the Markdown-backed design-pattern catalog."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+from typing import Any
+
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "lib"))
+
+from pattern_catalog import (  # noqa: E402
+    attach_language,
+    entry_search_text,
+    load_catalog,
+    load_frameworks,
+    load_language_profiles,
+    load_patterns,
+    load_playbooks,
+    load_recipes,
+    load_scorecards,
+    load_smells,
+    load_snippets,
+    matches_scope,
+    scope_names,
+)
+from pattern_context import context_pack, decision_simulation, migration_plan, snippet_matches  # noqa: E402
+from pattern_graph import catalog_graph, graph_query  # noqa: E402
+from pattern_intelligence import (  # noqa: E402
+    adr_payload,
+    entry_summary,
+    find_entry as find_catalog_entry,
+    recommend_entries,
+)
+from pattern_mcp_server import serve_stdio  # noqa: E402
+from pattern_scanner import scan_path  # noqa: E402
+
+
+def emit(value: object, as_json: bool, language: str | None = None) -> None:
+    if as_json:
+        print(json.dumps(value, indent=2, sort_keys=True))
+        return
+    if isinstance(value, list):
+        for item in value:
+            if isinstance(item, dict):
+                score = f" score={item['score']}" if "score" in item else ""
+                print(f"{item.get('slug')}: {item.get('name')} [{item.get('domain') or item.get('kind')}] {score}".rstrip())
+                summary = item.get("summary") or entry_summary(item)
+                if summary:
+                    print(f"  {summary}")
+            else:
+                print(item)
+        return
+    if isinstance(value, dict):
+        if value.get("markdown"):
+            print(value["markdown"])
+            return
+        if isinstance(value.get("languages"), dict):
+            for slug, profile in value["languages"].items():
+                print(f"{slug}: {profile['displayName']}")
+            return
+        if "domains" in value:
+            print("Groups:")
+            for group in value["groups"]:
+                print(f"- {group}")
+            print("Domains:")
+            for domain in value["domains"]:
+                print(f"- {domain}")
+            return
+        if "answers" in value:
+            for answer in value["answers"]:
+                print(f"- {answer}")
+            return
+        if "findings" in value:
+            print(f"Scanned: {value.get('path')}")
+            print(f"Findings: {value.get('count', 0)}")
+            for finding in value.get("findings", [])[:80]:
+                print(
+                    f"- {finding.get('severity', 'P?')} {finding['name']} at {finding['file']}:{finding['line']} "
+                    f"({finding['evidence']}, confidence={finding.get('confidence', 'n/a')})"
+                )
+            return
+        if "displayName" in value and "slug" in value and "name" not in value:
+            print(f"{value['slug']}: {value['displayName']}")
+            for field, label in (
+                ("objectDesignIdioms", "Object design idioms"),
+                ("integrationStacks", "Integration stacks"),
+                ("implementationNotes", "Implementation notes"),
+                ("testingGuidance", "Testing guidance"),
+                ("operationalGuidance", "Operational guidance"),
+            ):
+                if value.get(field):
+                    print(f"{label}:")
+                    for item in value[field]:
+                        print(f"- {item}")
+            return
+        print_entry(value, language)
+        return
+    print(value)
+
+
+def print_entry(value: dict[str, Any], language: str | None = None) -> None:
+    print(f"{value.get('name')} ({value.get('slug')})")
+    for key, label in (
+        ("kind", "Kind"),
+        ("domain", "Domain"),
+        ("category", "Category"),
+        ("implementationComplexity", "Implementation complexity"),
+        ("operationalRisk", "Operational risk"),
+    ):
+        if value.get(key):
+            print(f"{label}: {value[key]}")
+    for key, label in (
+        ("groups", "Groups"),
+        ("languages", "Languages"),
+        ("qualityAttributes", "Quality attributes"),
+        ("patterns", "Patterns"),
+        ("smells", "Smells"),
+        ("related", "Related"),
+        ("references", "References"),
+    ):
+        if value.get(key):
+            print(f"{label}: " + ", ".join(value[key]))
+    if value.get("intent"):
+        print(f"Intent: {value['intent']}")
+    if value.get("symptom"):
+        print(f"Symptom: {value['symptom']}")
+    if value.get("whyItMatters"):
+        print(f"Why it matters: {value['whyItMatters']}")
+    if language and value.get("languageNote"):
+        print(f"{language}: {value['languageNote']}")
+    for field, label in (
+        ("whenToUse", "When to use"),
+        ("avoidWhen", "Avoid when"),
+        ("forces", "Forces"),
+        ("tradeoffNotes", "Tradeoffs"),
+        ("failureModeNotes", "Failure modes"),
+        ("testing", "Testing"),
+        ("observability", "Observability"),
+        ("implementationNotes", "Implementation notes"),
+        ("bestFor", "Best for"),
+        ("patternMapping", "Pattern mapping"),
+        ("testingGuidance", "Testing guidance"),
+        ("operationalGuidance", "Operational guidance"),
+        ("patternSet", "Pattern set"),
+        ("implementationSteps", "Implementation steps"),
+        ("verification", "Verification"),
+        ("patternResponses", "Pattern responses"),
+        ("checks", "Checks"),
+        ("preconditions", "Preconditions"),
+        ("steps", "Steps"),
+        ("tests", "Tests"),
+        ("rollback", "Rollback"),
+        ("scale", "Scale"),
+        ("criteriaNotes", "Criteria"),
+        ("antiPatterns", "Anti-patterns"),
+        ("use", "Use"),
+    ):
+        if value.get(field):
+            print(f"{label}:")
+            for item in value[field]:
+                print(f"- {item}")
+    if value.get("example"):
+        print("Example:")
+        print(value["example"])
+    if value.get("path"):
+        print(f"Path: {value['path']}")
+
+
+def list_patterns(scope: str, language: str | None, as_json: bool) -> None:
+    patterns = load_patterns()
+    language_profiles = load_language_profiles()
+    valid_scopes = scope_names(patterns)
+    if scope not in valid_scopes:
+        raise SystemExit(f"Unknown scope: {scope}. Valid scopes: {', '.join(sorted(valid_scopes))}")
+    if language and language not in language_profiles:
+        raise SystemExit(f"Unknown language: {language}")
+    filtered = [
+        attach_language(pattern, language, language_profiles)
+        for pattern in patterns
+        if matches_scope(pattern, scope) and (not language or language in pattern.get("languages", []))
+    ]
+    emit(filtered, as_json)
+
+
+def search(query: str, scope: str, language: str | None, as_json: bool) -> None:
+    patterns = load_patterns()
+    language_profiles = load_language_profiles()
+    valid_scopes = scope_names(patterns)
+    if scope not in valid_scopes:
+        raise SystemExit(f"Unknown scope: {scope}. Valid scopes: {', '.join(sorted(valid_scopes))}")
+    if language and language not in language_profiles:
+        raise SystemExit(f"Unknown language: {language}")
+    needle = query.casefold()
+    matches = []
+    for pattern in patterns:
+        if not matches_scope(pattern, scope):
+            continue
+        if language and language not in pattern.get("languages", []):
+            continue
+        if needle in entry_search_text(pattern):
+            matches.append(attach_language(pattern, language, language_profiles))
+    emit(matches, as_json)
+
+
+def show(slug_or_name: str, language: str | None, as_json: bool) -> int:
+    language_profiles = load_language_profiles()
+    needle = slug_or_name.casefold()
+    for pattern in load_patterns():
+        if needle in {pattern["slug"].casefold(), pattern["name"].casefold()}:
+            try:
+                emit(attach_language(pattern, language, language_profiles), as_json, language)
+            except ValueError as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            return 0
+    print(f"No pattern found for: {slug_or_name}", file=sys.stderr)
+    return 1
+
+
+def languages(language: str | None, as_json: bool) -> None:
+    profiles = load_language_profiles()
+    if language:
+        if language not in profiles:
+            raise SystemExit(f"Unknown language: {language}")
+        emit(profiles[language], as_json)
+        return
+    emit({"languages": profiles}, as_json)
+
+
+def domains(as_json: bool) -> None:
+    entries = load_catalog()
+    emit(
+        {
+            "groups": sorted({group for entry in entries for group in entry.get("groups", [])}),
+            "domains": sorted({entry["domain"] for entry in entries}),
+        },
+        as_json,
+    )
+
+
+def show_collection(kind: str, slug_or_name: str | None, as_json: bool) -> int:
+    loaders = {
+        "playbook": load_playbooks,
+        "smell": load_smells,
+        "framework": load_frameworks,
+        "recipe": load_recipes,
+        "scorecard": load_scorecards,
+        "snippet": load_snippets,
+    }
+    entries = loaders[kind]()
+    if slug_or_name is None:
+        emit(entries, as_json)
+        return 0
+    needle = slug_or_name.casefold()
+    for entry in entries:
+        if needle in {entry["slug"].casefold(), entry["name"].casefold()}:
+            emit(entry, as_json)
+            return 0
+    print(f"No {kind} found for: {slug_or_name}", file=sys.stderr)
+    return 1
+
+
+def compare(slugs: list[str], as_json: bool) -> int:
+    entries = []
+    missing = []
+    for slug in slugs:
+        entry = find_catalog_entry(slug, include_snippets=False)
+        if entry:
+            entries.append(entry)
+        else:
+            missing.append(slug)
+    if missing:
+        print("No catalog entry found for: " + ", ".join(missing), file=sys.stderr)
+        return 1
+    emit(entries, as_json)
+    return 0
+
+
+def recommend(query: str, scope: str, language: str | None, limit: int, risk: str, explain: bool, as_json: bool) -> None:
+    recommendations = recommend_entries(query, scope=scope, language=language, limit=limit, risk=risk, include_snippets=True)
+    if explain:
+        payload = {
+            "query": query,
+            "risk": risk,
+            "language": language,
+            "recommendations": recommendations,
+        }
+        emit(payload, as_json)
+        if not as_json:
+            for item in recommendations:
+                print(f"{item['slug']}: {item['name']} [{item['kind']}] score={item['score']}")
+                for reason in item.get("whyMatched", []):
+                    print(f"- {reason}")
+                for caution in item.get("whyMightBeWrong", [])[:2]:
+                    print(f"  Caution: {caution}")
+        return
+    emit(recommendations, as_json)
+
+
+def emit_adr(query: str, scope: str, language: str | None, status: str, as_json: bool) -> None:
+    payload = adr_payload(query, status=status, language=language, scope=scope)
+    if as_json:
+        emit(payload, True)
+        return
+    print(f"# ADR: {payload['title']}")
+    print()
+    print(f"Status: {status}")
+    print()
+    print("## Context")
+    print(query)
+    print()
+    print("## Decision")
+    print(payload["decision"])
+    print()
+    print("## Alternatives Considered")
+    for item in payload.get("alternatives", []):
+        print(f"- {item['slug']}: {item['name']} [{item['kind']}] - {entry_summary(item)}")
+    print()
+    print("## Consequences")
+    for item in payload["consequences"]:
+        print(f"- {item}")
+    print()
+    print("## Verification")
+    for item in payload["verification"]:
+        print(f"- {item}")
+
+
+def emit_graph(format_name: str, query: str | None, as_json: bool) -> None:
+    payload = graph_query(query) if query else catalog_graph()
+    if as_json or format_name == "json" or query:
+        emit(payload, as_json or format_name == "json")
+        return
+    if format_name == "dot":
+        print("digraph design_patterns {")
+        for node in payload["nodes"]:
+            print(f'  "{node["id"]}" [label="{node["label"]}"];')
+        for edge in payload["edges"]:
+            print(f'  "{edge["source"]}" -> "{edge["target"]}" [label="{edge["type"]}"];')
+        print("}")
+        return
+    print("flowchart LR")
+    for edge in payload["edges"]:
+        source = edge["source"].replace("-", "_")
+        target = edge["target"].replace("-", "_")
+        print(f'  {source}["{edge["source"]}"] -->|{edge["type"]}| {target}["{edge["target"]}"]')
+
+
+def explain(slug_or_name: str, as_json: bool) -> int:
+    entry = find_catalog_entry(slug_or_name, include_snippets=True)
+    if not entry:
+        print(f"No catalog entry found for: {slug_or_name}", file=sys.stderr)
+        return 1
+    payload = {
+        "entry": entry,
+        "whyItHelps": entry.get("forces") or entry.get("whenToUse") or entry.get("patternResponses") or entry.get("bestFor") or entry.get("use") or [],
+        "watchOutFor": entry.get("avoidWhen") or entry.get("failureModeNotes") or entry.get("falsePositives") or [],
+        "verification": entry.get("testing") or entry.get("tests") or entry.get("verification") or entry.get("checks") or [],
+    }
+    if as_json:
+        emit(payload, True)
+        return 0
+    print(f"{entry['name']} ({entry['slug']})")
+    print(f"Kind: {entry.get('kind')}")
+    print(f"Summary: {entry_summary(entry)}")
+    for field, label in (("whyItHelps", "Why it helps"), ("watchOutFor", "Watch out for"), ("verification", "Verification")):
+        if payload[field]:
+            print(f"{label}:")
+            for item in payload[field]:
+                print(f"- {item}")
+    return 0
+
+
+def why(query: str, scope: str, language: str | None, limit: int, as_json: bool) -> None:
+    payload = recommend_entries(query, scope=scope, language=language, limit=limit, include_snippets=False)
+    if as_json:
+        emit(payload, True)
+        return
+    for item in payload:
+        print(f"{item['slug']}: {item['name']} [{item['kind']}] score={item['score']}")
+        for reason in item.get("whyMatched", []):
+            print(f"- {reason}")
+        if item.get("matchedTerms"):
+            print("Matched terms: " + ", ".join(item["matchedTerms"]))
+        if item.get("whyMightBeWrong"):
+            print("Watch out:")
+            for caution in item["whyMightBeWrong"][:3]:
+                print(f"- {caution}")
+
+
+def scan(path: str, pack: str, include_docs: bool, include_generated: bool, min_confidence: float, as_json: bool) -> int:
+    try:
+        payload = scan_path(path, pack=pack, include_docs=include_docs, include_generated=include_generated, min_confidence=min_confidence)
+    except FileNotFoundError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    emit(payload, as_json)
+    return 0
+
+
+def snippets(slug_or_name: str | None, language: str | None, as_json: bool) -> int:
+    if slug_or_name:
+        entry = find_catalog_entry(slug_or_name, include_snippets=True)
+        if not entry:
+            print(f"No catalog entry found for: {slug_or_name}", file=sys.stderr)
+            return 1
+        pattern_slugs = set(entry.get("patterns", [])) or ({entry["slug"]} if entry.get("kind") == "pattern" else set())
+        payload = snippet_matches(pattern_slugs, language)
+    else:
+        payload = [snippet for snippet in load_snippets() if not language or snippet.get("language") == language]
+    emit(payload, as_json)
+    return 0
+
+
+def serve_workbench(host: str, port: int) -> int:
+    from pattern_workbench import run_server
+
+    return run_server(host, port)
+
+
+def add_json(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--json", action="store_true", dest="command_json", help="Emit JSON")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--json", action="store_true", help="Emit JSON")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    list_parser = subparsers.add_parser("list", help="List patterns")
+    list_parser.add_argument("scope", nargs="?", default="all", help="all, a domain group, or a domain")
+    list_parser.add_argument("--language", help="Filter to a language and add language-specific guidance")
+    add_json(list_parser)
+
+    show_parser = subparsers.add_parser("show", help="Show one pattern")
+    show_parser.add_argument("slug_or_name")
+    show_parser.add_argument("--language", help="Add language-specific guidance")
+    add_json(show_parser)
+
+    search_parser = subparsers.add_parser("search", help="Search patterns")
+    search_parser.add_argument("query")
+    search_parser.add_argument("--scope", default="all", help="all, a domain group, or a domain")
+    search_parser.add_argument("--language", help="Filter to a language and add language-specific guidance")
+    add_json(search_parser)
+
+    languages_parser = subparsers.add_parser("languages", help="Show supported language profiles")
+    languages_parser.add_argument("language", nargs="?")
+    add_json(languages_parser)
+
+    domains_parser = subparsers.add_parser("domains", help="Show domain groups and domains")
+    add_json(domains_parser)
+
+    for command, help_text in (
+        ("playbooks", "List or show architecture playbooks"),
+        ("smells", "List or show architecture smells"),
+        ("frameworks", "List or show framework implementation packs"),
+        ("recipes", "List or show pattern application recipes"),
+        ("scorecards", "List or show decision scorecards"),
+    ):
+        collection = subparsers.add_parser(command, help=help_text)
+        collection.add_argument("slug_or_name", nargs="?")
+        add_json(collection)
+
+    snippets_parser = subparsers.add_parser("snippets", help="List snippets or snippets for a catalog entry")
+    snippets_parser.add_argument("slug_or_name", nargs="?")
+    snippets_parser.add_argument("--language", help="Filter snippets to a language")
+    add_json(snippets_parser)
+
+    compare_parser = subparsers.add_parser("compare", help="Compare catalog entries by slug or name")
+    compare_parser.add_argument("slugs", nargs="+")
+    add_json(compare_parser)
+
+    recommend_parser = subparsers.add_parser("recommend", help="Recommend patterns, playbooks, smells, recipes, and snippets")
+    recommend_parser.add_argument("query")
+    recommend_parser.add_argument("--scope", default="all", help="all, a domain group, or a domain")
+    recommend_parser.add_argument("--language", help="Filter candidates to a language")
+    recommend_parser.add_argument("--limit", type=int, default=5, help="Maximum recommendations to show")
+    recommend_parser.add_argument("--risk", choices=["balanced", "conservative", "delivery", "operability"], default="balanced")
+    recommend_parser.add_argument("--explain", action="store_true", help="Include why-matched and why-wrong details")
+    add_json(recommend_parser)
+
+    adr_parser = subparsers.add_parser("adr", help="Generate an ADR-style architecture decision from a force description")
+    adr_parser.add_argument("query")
+    adr_parser.add_argument("--scope", default="all")
+    adr_parser.add_argument("--language")
+    adr_parser.add_argument("--status", default="Proposed")
+    add_json(adr_parser)
+
+    graph_parser = subparsers.add_parser("graph", help="Export or query catalog relationships")
+    graph_parser.add_argument("--format", choices=["mermaid", "dot", "json"], default="mermaid")
+    graph_parser.add_argument("--query", help="Ask a graph relationship question")
+    add_json(graph_parser)
+
+    explain_parser = subparsers.add_parser("explain", help="Explain why a catalog entry helps and how to verify it")
+    explain_parser.add_argument("slug_or_name")
+    add_json(explain_parser)
+
+    why_parser = subparsers.add_parser("why", help="Explain why recommendations matched a force description")
+    why_parser.add_argument("query")
+    why_parser.add_argument("--scope", default="all")
+    why_parser.add_argument("--language")
+    why_parser.add_argument("--limit", type=int, default=5)
+    add_json(why_parser)
+
+    scan_parser = subparsers.add_parser("scan", help="Scan a repository or file for pattern-relevant architecture smells")
+    scan_parser.add_argument("path")
+    scan_parser.add_argument("--pack", choices=["all", "object-design", "integration"], default="all")
+    scan_parser.add_argument("--include-docs", action="store_true")
+    scan_parser.add_argument("--include-generated", action="store_true")
+    scan_parser.add_argument("--min-confidence", type=float, default=0.0)
+    add_json(scan_parser)
+
+    context_parser = subparsers.add_parser("context", help="Build a model-ready context pack from code evidence and catalog guidance")
+    context_parser.add_argument("path")
+    context_parser.add_argument("--query", "-q", required=True)
+    context_parser.add_argument("--language")
+    context_parser.add_argument("--scope", default="all")
+    context_parser.add_argument("--pack", choices=["all", "object-design", "integration"], default="all")
+    add_json(context_parser)
+
+    simulate_parser = subparsers.add_parser("simulate", help="Score likely pattern options against the architecture scorecard")
+    simulate_parser.add_argument("query")
+    simulate_parser.add_argument("--language")
+    simulate_parser.add_argument("--risk", choices=["balanced", "conservative", "delivery", "operability"], default="balanced")
+    simulate_parser.add_argument("--limit", type=int, default=5)
+    add_json(simulate_parser)
+
+    migrate_parser = subparsers.add_parser("migrate", help="Create a recipe-backed migration plan")
+    migrate_parser.add_argument("source")
+    migrate_parser.add_argument("--to", required=True, dest="target")
+    migrate_parser.add_argument("--language")
+    migrate_parser.add_argument("--query", default="")
+    add_json(migrate_parser)
+
+    serve_parser = subparsers.add_parser(
+        "serve",
+        help="Serve the dynamic Python-backed catalog workbench",
+        description="Serve the dynamic Python-backed catalog workbench",
+    )
+    serve_parser.add_argument("--host", default="127.0.0.1")
+    serve_parser.add_argument("--port", type=int, default=8766)
+
+    subparsers.add_parser("mcp", help="Run the stdio MCP server for marketplace/tool integrations")
+
+    args = parser.parse_args()
+    as_json = args.json or getattr(args, "command_json", False)
+    if args.command == "list":
+        list_patterns(args.scope, args.language, as_json)
+        return 0
+    if args.command == "show":
+        return show(args.slug_or_name, args.language, as_json)
+    if args.command == "search":
+        search(args.query, args.scope, args.language, as_json)
+        return 0
+    if args.command == "languages":
+        languages(args.language, as_json)
+        return 0
+    if args.command == "domains":
+        domains(as_json)
+        return 0
+    if args.command in {"playbooks", "smells", "frameworks", "recipes", "scorecards"}:
+        kind = {
+            "playbooks": "playbook",
+            "smells": "smell",
+            "frameworks": "framework",
+            "recipes": "recipe",
+            "scorecards": "scorecard",
+        }[args.command]
+        return show_collection(kind, args.slug_or_name, as_json)
+    if args.command == "snippets":
+        return snippets(args.slug_or_name, args.language, as_json)
+    if args.command == "compare":
+        return compare(args.slugs, as_json)
+    if args.command == "recommend":
+        recommend(args.query, args.scope, args.language, args.limit, args.risk, args.explain, as_json)
+        return 0
+    if args.command == "adr":
+        emit_adr(args.query, args.scope, args.language, args.status, as_json)
+        return 0
+    if args.command == "graph":
+        emit_graph(args.format, args.query, as_json)
+        return 0
+    if args.command == "explain":
+        return explain(args.slug_or_name, as_json)
+    if args.command == "why":
+        why(args.query, args.scope, args.language, args.limit, as_json)
+        return 0
+    if args.command == "scan":
+        return scan(args.path, args.pack, args.include_docs, args.include_generated, args.min_confidence, as_json)
+    if args.command == "context":
+        emit(context_pack(args.path, args.query, language=args.language, scope=args.scope, pack=args.pack), as_json)
+        return 0
+    if args.command == "simulate":
+        emit(decision_simulation(args.query, language=args.language, risk=args.risk, limit=args.limit), as_json)
+        return 0
+    if args.command == "migrate":
+        emit(migration_plan(args.source, args.target, language=args.language, query=args.query), as_json)
+        return 0
+    if args.command == "serve":
+        return serve_workbench(args.host, args.port)
+    if args.command == "mcp":
+        return serve_stdio()
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

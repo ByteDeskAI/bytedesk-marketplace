@@ -1,0 +1,47 @@
+{
+  "name": "design-patterns",
+  "version": "0.8.6",
+  "description": "Source-neutral advisor, Markdown reference catalog, MCP tooling, and dynamic workbench for software design patterns.",
+  "author": {
+    "name": "ByteDeskAI",
+    "url": "https://github.com/ByteDeskAI"
+  },
+  "homepage": "https://github.com/ByteDeskAI/design-pattern-references",
+  "repository": "https://github.com/ByteDeskAI/design-pattern-references",
+  "license": "Apache-2.0",
+  "keywords": [
+    "design-patterns",
+    "language-patterns",
+    "integration-design",
+    "architecture",
+    "refactoring"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.codex-mcp.json",
+  "interface": {
+    "displayName": "Design Patterns",
+    "shortDescription": "Pattern advice, architecture review, and refactoring guidance.",
+    "longDescription": "A source-neutral Markdown catalog and skill bundle for finding, reviewing, deciding, scanning, scoring, documenting, exploring, and applying reusable software design patterns across object design, integration design, architecture smells, playbooks, recipes, framework packs, language-specific implementation idioms, snippets, context packs, migration plans, decision simulations, graph intelligence, MCP tooling, and a dynamic Python-backed catalog workbench.",
+    "developerName": "ByteDeskAI",
+    "category": "Engineering",
+    "capabilities": [
+      "Interactive",
+      "Read"
+    ],
+    "websiteURL": "https://github.com/ByteDeskAI/design-pattern-references",
+    "defaultPrompt": [
+      "Find the right pattern for this design problem.",
+      "Review this architecture for pattern issues.",
+      "Draft an architecture decision using pattern tradeoffs.",
+      "Scan this repository for pattern-relevant architecture smells.",
+      "Serve the dynamic design pattern workbench for catalog exploration.",
+      "Generate an implementation brief from selected pattern candidates.",
+      "Plan this module toward a cleaner pattern.",
+      "Build a context pack from code evidence and pattern references.",
+      "Run the design-pattern MCP server for tool integrations.",
+      "Show copyable /patterns-* MCP request examples for this plugin.",
+      "Show /patterns-* command help for every design-pattern MCP tool.",
+      "Infer language and catalog scope from codebase and request context when omitted."
+    ]
+  }
+}

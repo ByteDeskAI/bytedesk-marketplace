@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>.NET / MassTransit</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Space+Mono:wght@700&display=swap" rel="stylesheet">
+  <style>
+:root{--bg:#0d1117;--panel:#151c27;--panel-2:#0a0f16;--ink:#e6edf3;--muted:#8b949e;--line:#303846;--line-strong:#657183;--accent:#00d9ff;--accent-2:#ff6b35;--gain:#7ee787}
+*{box-sizing:border-box}
+html{background:var(--bg);color-scheme:dark}
+body{font-family:"Inter Tight",sans-serif;margin:0;background:radial-gradient(circle at 72% 0,rgba(0,217,255,.15),transparent 34rem),linear-gradient(180deg,#0d1117,#080c12);color:var(--ink)}
+body:before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.28;background-image:linear-gradient(rgba(230,237,243,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(230,237,243,.06) 1px,transparent 1px);background-size:32px 32px}
+header{position:relative;border-bottom:1px solid var(--line-strong);background:linear-gradient(135deg,rgba(0,217,255,.1),rgba(21,28,39,.92));padding:34px 38px}
+header h1{font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:-.07em;font-size:clamp(38px,5vw,78px);line-height:.92;margin:0}
+header p{font-family:"JetBrains Mono",monospace;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-size:12px}
+main{max-width:1280px;margin:0 auto;padding:28px}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline;text-decoration-color:var(--accent-2)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
+.card{background:linear-gradient(180deg,rgba(21,28,39,.96),rgba(10,15,22,.98));border:1px solid var(--line);padding:16px;min-height:160px}
+.card:hover{border-color:var(--accent)}
+.card h3{font-family:"Space Mono",monospace;letter-spacing:-.05em;line-height:1.05}
+.meta{color:var(--muted);font:11px "JetBrains Mono",monospace;text-transform:uppercase;letter-spacing:.08em}
+.pill{display:inline-block;background:#070b10;border:1px solid var(--line);padding:3px 8px;margin:2px;font:11px "JetBrains Mono",monospace;color:#c9d1d9}
+pre{white-space:pre-wrap;background:#060a0f;color:#f8fafc;padding:16px;border:1px solid var(--line);overflow:auto}
+input{width:100%;box-sizing:border-box;font:15px "JetBrains Mono",monospace;padding:14px;border:1px solid var(--line-strong);background:#060a0f;color:var(--ink);margin:18px 0;border-radius:0}
+input:focus-visible{outline:2px solid var(--accent-2);outline-offset:2px}
+section{margin:30px 0}.section-list li{margin:7px 0;color:#c9d1d9;line-height:1.45}h2{font-family:"JetBrains Mono",monospace;text-transform:uppercase;letter-spacing:.08em;font-size:14px;color:var(--accent);border-bottom:1px solid var(--line);padding-bottom:10px}
+</style>
+</head>
+<body>
+  <header>
+    <h1>.NET / MassTransit</h1>
+    <p>Source-neutral design pattern guidance for architecture decisions, smells, playbooks, recipes, and implementation packs.</p>
+  </header>
+  <main>
+    <p class='meta'>framework / framework-pack / Framework Implementation Packs</p>
+<section><h2>Implementation Notes</h2><ul class='section-list'><li>Keep message contracts versioned and separate from domain entities.</li><li>Put consumer idempotency near side-effect boundaries, not inside generic middleware only.</li><li>Use receive endpoint configuration for retry policy, outbox, concurrency, and error routing.</li><li>Prefer domain-named consumers and commands rather than transport vocabulary in business code.</li></ul></section>
+<section><h2>Best For</h2><ul class='section-list'><li>Event-driven and command-driven services in C#.</li><li>Consumer scaling, retries, dead-letter handling, and broker abstraction.</li><li>Teams already using dependency injection, hosted services, and structured observability.</li></ul></section>
+<section><h2>Pattern Mapping</h2><ul class='section-list'><li>Event Message maps to published integration events.</li><li>Command Message maps to `Send` or request-specific command contracts.</li><li>Publish-Subscribe Channel maps to broker topics/exchanges managed through MassTransit topology.</li><li>Competing Consumers map to scaled consumer instances.</li><li>Idempotent Receiver remains application responsibility, usually backed by a durable store.</li><li>Dead Letter Channel maps to error queues plus owned triage and replay policy.</li></ul></section>
+<section><h2>Testing Guidance</h2><ul class='section-list'><li>Unit-test consumer behavior with duplicate message fixtures.</li><li>Add contract tests for message payload compatibility.</li><li>Use broker-backed tests for retry, error queue, and outbox behavior.</li></ul></section>
+<section><h2>Operational Guidance</h2><ul class='section-list'><li>Track consumer lag, retry attempts, skipped messages, error queues, and handler latency.</li><li>Propagate correlation IDs through headers and logs.</li><li>Document dead-letter ownership, replay limits, and message retention policy.</li></ul></section>
+<p><span class='pill'>event-message</span><span class='pill'>command-message</span><span class='pill'>publish-subscribe-channel</span><span class='pill'>competing-consumers</span><span class='pill'>idempotent-receiver</span><span class='pill'>dead-letter-channel</span></p>
+  </main>
+</body>
+</html>

@@ -26,7 +26,7 @@ If the user explicitly says "bump major" / "bump minor" / "bump patch", honor th
 
 ## What to update in lockstep
 
-Every bump must update **all five** of these markers in a single commit. Mismatches break the reuse-or-reload check + the marketplace listing.
+Every bump must update **all** of a plugin's version markers in a single commit. Mismatches break the reuse-or-reload check + the marketplace listing.
 
 For `fleet` specifically:
 
@@ -38,7 +38,18 @@ For `fleet` specifically:
 | `fleet/web/server/server.go` | `const buildVersion = "vX.Y.Z-<tag>"` — keep the trailing `-<tag>` (e.g. `-bdm44`) so it advances even when only the patch number is unchanged. |
 | `fleet/CHANGELOG.md` | new section under `## [X.Y.Z] — <date>` with **Added / Changed / Fixed / Removed / Build** subsections as relevant. Date is today (use `currentDate` from your context). |
 
-For a future plugin under `<plugin>/`: same five-marker structure; only the file paths change.
+For `design-patterns` specifically (a Python plugin — no `web/` SPA or Go server, so **four markers** plus the marketplace entry):
+
+| File | Field |
+|---|---|
+| `design-patterns/.claude-plugin/plugin.json` | `"version"` |
+| `design-patterns/.codex-plugin/plugin.json` | `"version"` |
+| `design-patterns/lib/pattern_mcp_server.py` | `SERVER_INFO = {... "version": "X.Y.Z"}` |
+| `design-patterns/lib/workbench_views.py` | the `vX.Y.Z` display string |
+| `.claude-plugin/marketplace.json` | the `design-patterns` entry's `"version"` — and bump the marketplace top-level `"version"` (minor when a plugin is added) |
+| `design-patterns/CHANGELOG.md` | new section under `## [X.Y.Z] — <date>` with **Added / Changed / Fixed / Removed / Build** subsections as relevant. Date is today (use `currentDate` from your context). |
+
+For any other future plugin under `<plugin>/`: replicate whichever of these markers the plugin actually has — the invariant is that every version-carrying file the plugin ships, plus its `marketplace.json` entry, advance together in one commit.
 
 ## Workflow
 

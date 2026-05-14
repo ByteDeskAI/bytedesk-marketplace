@@ -1,0 +1,1050 @@
+[
+  {
+    "domain": "object-construction",
+    "kind": "pattern",
+    "name": "Abstract Factory",
+    "slug": "abstract-factory",
+    "summary": "Create related families of objects through stable interfaces without binding clients to concrete product classes.",
+    "url": "patterns/abstract-factory.html"
+  },
+  {
+    "domain": "object-structure",
+    "kind": "pattern",
+    "name": "Adapter",
+    "slug": "adapter",
+    "summary": "Convert one interface into another interface expected by a client.",
+    "url": "patterns/adapter.html"
+  },
+  {
+    "domain": "message-routing",
+    "kind": "pattern",
+    "name": "Aggregator",
+    "slug": "aggregator",
+    "summary": "Combine related messages into one result once a completion condition is met.",
+    "url": "patterns/aggregator.html"
+  },
+  {
+    "domain": "object-structure",
+    "kind": "pattern",
+    "name": "Bridge",
+    "slug": "bridge",
+    "summary": "Separate an abstraction from its implementation so both can vary independently.",
+    "url": "patterns/bridge.html"
+  },
+  {
+    "domain": "object-construction",
+    "kind": "pattern",
+    "name": "Builder",
+    "slug": "builder",
+    "summary": "Separate the construction of a complex object from the representation that is produced.",
+    "url": "patterns/builder.html"
+  },
+  {
+    "domain": "message-transformation",
+    "kind": "pattern",
+    "name": "Canonical Data Model",
+    "slug": "canonical-data-model",
+    "summary": "Define a shared data representation that reduces pairwise transformations.",
+    "url": "patterns/canonical-data-model.html"
+  },
+  {
+    "domain": "behavior-and-collaboration",
+    "kind": "pattern",
+    "name": "Chain of Responsibility",
+    "slug": "chain-of-responsibility",
+    "summary": "Pass a request along a chain of handlers until one handles it or the chain completes.",
+    "url": "patterns/chain-of-responsibility.html"
+  },
+  {
+    "domain": "message-channel",
+    "kind": "pattern",
+    "name": "Channel Adapter",
+    "slug": "channel-adapter",
+    "summary": "Connect a non-messaging application or resource to a messaging channel.",
+    "url": "patterns/channel-adapter.html"
+  },
+  {
+    "domain": "operations-and-observability",
+    "kind": "pattern",
+    "name": "Channel Purger",
+    "slug": "channel-purger",
+    "summary": "Remove unwanted messages from a channel to restore a clean operating or test state.",
+    "url": "patterns/channel-purger.html"
+  },
+  {
+    "domain": "message-transformation",
+    "kind": "pattern",
+    "name": "Claim Check",
+    "slug": "claim-check",
+    "summary": "Store bulky data elsewhere and send a reference through the message flow.",
+    "url": "patterns/claim-check.html"
+  },
+  {
+    "domain": "message-construction",
+    "kind": "pattern",
+    "name": "Command Message",
+    "slug": "command-message",
+    "summary": "Represent an instruction to perform work as a message.",
+    "url": "patterns/command-message.html"
+  },
+  {
+    "domain": "behavior-and-collaboration",
+    "kind": "pattern",
+    "name": "Command",
+    "slug": "command",
+    "summary": "Encapsulate a request as an object so it can be queued, logged, retried, undone, or passed around.",
+    "url": "patterns/command.html"
+  },
+  {
+    "domain": "message-endpoint",
+    "kind": "pattern",
+    "name": "Competing Consumers",
+    "slug": "competing-consumers",
+    "summary": "Run multiple consumers against one channel so work is distributed among them.",
+    "url": "patterns/competing-consumers.html"
+  },
+  {
+    "domain": "message-routing",
+    "kind": "pattern",
+    "name": "Composed Message Processor",
+    "slug": "composed-message-processor",
+    "summary": "Split, route, process, and reassemble a compound message while preserving the overall flow.",
+    "url": "patterns/composed-message-processor.html"
+  },
+  {
+    "domain": "object-structure",
+    "kind": "pattern",
+    "name": "Composite",
+    "slug": "composite",
+    "summary": "Represent part-whole hierarchies so clients can treat individual objects and groups uniformly.",
+    "url": "patterns/composite.html"
+  },
+  {
+    "domain": "message-routing",
+    "kind": "pattern",
+    "name": "Content-Based Router",
+    "slug": "content-based-router",
+    "summary": "Choose a destination by inspecting message content.",
+    "url": "patterns/content-based-router.html"
+  },
+  {
+    "domain": "message-transformation",
+    "kind": "pattern",
+    "name": "Content Enricher",
+    "slug": "content-enricher",
+    "summary": "Add missing data to a message before downstream processing.",
+    "url": "patterns/content-enricher.html"
+  },
+  {
+    "domain": "message-transformation",
+    "kind": "pattern",
+    "name": "Content Filter",
+    "slug": "content-filter",
+    "summary": "Remove unneeded data from a message before forwarding it.",
+    "url": "patterns/content-filter.html"
+  },
+  {
+    "domain": "operations-and-observability",
+    "kind": "pattern",
+    "name": "Control Bus",
+    "slug": "control-bus",
+    "summary": "Use a messaging channel for operational commands and telemetry about the messaging system.",
+    "url": "patterns/control-bus.html"
+  },
+  {
+    "domain": "message-construction",
+    "kind": "pattern",
+    "name": "Correlation Identifier",
+    "slug": "correlation-identifier",
+    "summary": "Attach an identifier that connects related messages in a conversation.",
+    "url": "patterns/correlation-identifier.html"
+  },
+  {
+    "domain": "message-channel",
+    "kind": "pattern",
+    "name": "Datatype Channel",
+    "slug": "datatype-channel",
+    "summary": "Separate channels by message type so receivers know what kind of payload to expect.",
+    "url": "patterns/datatype-channel.html"
+  },
+  {
+    "domain": "message-channel",
+    "kind": "pattern",
+    "name": "Dead Letter Channel",
+    "slug": "dead-letter-channel",
+    "summary": "Preserve messages that cannot be delivered or processed after policy is exhausted.",
+    "url": "patterns/dead-letter-channel.html"
+  },
+  {
+    "domain": "object-structure",
+    "kind": "pattern",
+    "name": "Decorator",
+    "slug": "decorator",
+    "summary": "Add responsibilities to an object dynamically by wrapping it with another object that preserves the same interface.",
+    "url": "patterns/decorator.html"
+  },
+  {
+    "domain": "operations-and-observability",
+    "kind": "pattern",
+    "name": "Detour",
+    "slug": "detour",
+    "summary": "Temporarily route messages through extra steps for validation, testing, or troubleshooting.",
+    "url": "patterns/detour.html"
+  },
+  {
+    "domain": "message-construction",
+    "kind": "pattern",
+    "name": "Document Message",
+    "slug": "document-message",
+    "summary": "Transfer a document-like data structure for another system to consume.",
+    "url": "patterns/document-message.html"
+  },
+  {
+    "domain": "message-endpoint",
+    "kind": "pattern",
+    "name": "Durable Subscriber",
+    "slug": "durable-subscriber",
+    "summary": "Preserve pub-sub messages for a subscriber while it is disconnected.",
+    "url": "patterns/durable-subscriber.html"
+  },
+  {
+    "domain": "message-routing",
+    "kind": "pattern",
+    "name": "Dynamic Router",
+    "slug": "dynamic-router",
+    "summary": "Route messages using destinations that can change at runtime.",
+    "url": "patterns/dynamic-router.html"
+  },
+  {
+    "domain": "message-transformation",
+    "kind": "pattern",
+    "name": "Envelope Wrapper",
+    "slug": "envelope-wrapper",
+    "summary": "Wrap existing payload data with headers or envelope structure required by the messaging system.",
+    "url": "patterns/envelope-wrapper.html"
+  },
+  {
+    "domain": "message-endpoint",
+    "kind": "pattern",
+    "name": "Event-Driven Consumer",
+    "slug": "event-driven-consumer",
+    "summary": "Invoke consumer logic automatically when messages arrive.",
+    "url": "patterns/event-driven-consumer.html"
+  },
+  {
+    "domain": "message-construction",
+    "kind": "pattern",
+    "name": "Event Message",
+    "slug": "event-message",
+    "summary": "Announce that a meaningful fact or state transition occurred.",
+    "url": "patterns/event-message.html"
+  },
+  {
+    "domain": "object-structure",
+    "kind": "pattern",
+    "name": "Facade",
+    "slug": "facade",
+    "summary": "Provide a simpler interface over a subsystem.",
+    "url": "patterns/facade.html"
+  },
+  {
+    "domain": "object-construction",
+    "kind": "pattern",
+    "name": "Factory Method",
+    "slug": "factory-method",
+    "summary": "Let subclasses or collaborators decide which concrete product to create through a stable creation method.",
+    "url": "patterns/factory-method.html"
+  },
+  {
+    "domain": "integration-style",
+    "kind": "pattern",
+    "name": "File Transfer",
+    "slug": "file-transfer",
+    "summary": "Exchange data by writing and reading files through a shared transfer location.",
+    "url": "patterns/file-transfer.html"
+  },
+  {
+    "domain": "object-structure",
+    "kind": "pattern",
+    "name": "Flyweight",
+    "slug": "flyweight",
+    "summary": "Share fine-grained immutable state to support large numbers of similar objects efficiently.",
+    "url": "patterns/flyweight.html"
+  },
+  {
+    "domain": "message-construction",
+    "kind": "pattern",
+    "name": "Format Indicator",
+    "slug": "format-indicator",
+    "summary": "Include metadata that identifies the payload format or version.",
+    "url": "patterns/format-indicator.html"
+  },
+  {
+    "domain": "message-channel",
+    "kind": "pattern",
+    "name": "Guaranteed Delivery",
+    "slug": "guaranteed-delivery",
+    "summary": "Persist messages so they can survive process or broker interruptions until delivery policy completes.",
+    "url": "patterns/guaranteed-delivery.html"
+  },
+  {
+    "domain": "message-endpoint",
+    "kind": "pattern",
+    "name": "Idempotent Receiver",
+    "slug": "idempotent-receiver",
+    "summary": "Handle duplicate messages without repeating unsafe side effects.",
+    "url": "patterns/idempotent-receiver.html"
+  },
+  {
+    "domain": "behavior-and-collaboration",
+    "kind": "pattern",
+    "name": "Interpreter",
+    "slug": "interpreter",
+    "summary": "Represent grammar rules as objects and evaluate sentences in that grammar.",
+    "url": "patterns/interpreter.html"
+  },
+  {
+    "domain": "message-channel",
+    "kind": "pattern",
+    "name": "Invalid Message Channel",
+    "slug": "invalid-message-channel",
+    "summary": "Route messages that fail validation to a dedicated channel for inspection or repair.",
+    "url": "patterns/invalid-message-channel.html"
+  },
+  {
+    "domain": "behavior-and-collaboration",
+    "kind": "pattern",
+    "name": "Iterator",
+    "slug": "iterator",
+    "summary": "Provide sequential access to elements without exposing the underlying representation.",
+    "url": "patterns/iterator.html"
+  },
+  {
+    "domain": "behavior-and-collaboration",
+    "kind": "pattern",
+    "name": "Mediator",
+    "slug": "mediator",
+    "summary": "Centralize complex collaboration so peers do not reference each other directly.",
+    "url": "patterns/mediator.html"
+  },
+  {
+    "domain": "behavior-and-collaboration",
+    "kind": "pattern",
+    "name": "Memento",
+    "slug": "memento",
+    "summary": "Capture an object's state so it can be restored later without exposing internals.",
+    "url": "patterns/memento.html"
+  },
+  {
+    "domain": "message-routing",
+    "kind": "pattern",
+    "name": "Message Broker",
+    "slug": "message-broker",
+    "summary": "Centralize routing, transformation, and mediation between message producers and consumers.",
+    "url": "patterns/message-broker.html"
+  },
+  {
+    "domain": "message-channel",
+    "kind": "pattern",
+    "name": "Message Bus",
+    "slug": "message-bus",
+    "summary": "Provide a shared messaging backbone with common contracts and integration conventions.",
+    "url": "patterns/message-bus.html"
+  },
+  {
+    "domain": "messaging-system",
+    "kind": "pattern",
+    "name": "Message Channel",
+    "slug": "message-channel",
+    "summary": "Provide a logical path that carries messages from senders to receivers.",
+    "url": "patterns/message-channel.html"
+  },
+  {
+    "domain": "message-endpoint",
+    "kind": "pattern",
+    "name": "Message Dispatcher",
+    "slug": "message-dispatcher",
+    "summary": "Coordinate message delivery from one channel to multiple local handlers.",
+    "url": "patterns/message-dispatcher.html"
+  },
+  {
+    "domain": "messaging-system",
+    "kind": "pattern",
+    "name": "Message Endpoint",
+    "slug": "message-endpoint",
+    "summary": "Connect application code to messaging infrastructure for sending or receiving.",
+    "url": "patterns/message-endpoint.html"
+  },
+  {
+    "domain": "message-construction",
+    "kind": "pattern",
+    "name": "Message Expiration",
+    "slug": "message-expiration",
+    "summary": "Mark messages with a time after which processing is no longer useful.",
+    "url": "patterns/message-expiration.html"
+  },
+  {
+    "domain": "message-routing",
+    "kind": "pattern",
+    "name": "Message Filter",
+    "slug": "message-filter",
+    "summary": "Remove messages that do not meet criteria before they reach downstream processing.",
+    "url": "patterns/message-filter.html"
+  },
+  {
+    "domain": "operations-and-observability",
+    "kind": "pattern",
+    "name": "Message History",
+    "slug": "message-history",
+    "summary": "Record the components or steps a message has passed through.",
+    "url": "patterns/message-history.html"
+  },
+  {
+    "domain": "messaging-system",
+    "kind": "pattern",
+    "name": "Message Router",
+    "slug": "message-router",
+    "summary": "Route a message to one or more destinations based on routing logic.",
+    "url": "patterns/message-router.html"
+  },
+  {
+    "domain": "message-construction",
+    "kind": "pattern",
+    "name": "Message Sequence",
+    "slug": "message-sequence",
+    "summary": "Split related data across multiple ordered messages with enough metadata to reconstruct context.",
+    "url": "patterns/message-sequence.html"
+  },
+  {
+    "domain": "operations-and-observability",
+    "kind": "pattern",
+    "name": "Message Store",
+    "slug": "message-store",
+    "summary": "Persist messages or selected metadata for audit, replay, analytics, or diagnostics.",
+    "url": "patterns/message-store.html"
+  },
+  {
+    "domain": "messaging-system",
+    "kind": "pattern",
+    "name": "Message Translator",
+    "slug": "message-translator",
+    "summary": "Convert a message from one schema or representation to another.",
+    "url": "patterns/message-translator.html"
+  },
+  {
+    "domain": "messaging-system",
+    "kind": "pattern",
+    "name": "Message",
+    "slug": "message",
+    "summary": "Package data and metadata as a unit exchanged through a channel.",
+    "url": "patterns/message.html"
+  },
+  {
+    "domain": "message-channel",
+    "kind": "pattern",
+    "name": "Messaging Bridge",
+    "slug": "messaging-bridge",
+    "summary": "Move messages between separate messaging systems while preserving useful semantics.",
+    "url": "patterns/messaging-bridge.html"
+  },
+  {
+    "domain": "message-endpoint",
+    "kind": "pattern",
+    "name": "Messaging Gateway",
+    "slug": "messaging-gateway",
+    "summary": "Expose messaging operations through an application-facing interface.",
+    "url": "patterns/messaging-gateway.html"
+  },
+  {
+    "domain": "message-endpoint",
+    "kind": "pattern",
+    "name": "Messaging Mapper",
+    "slug": "messaging-mapper",
+    "summary": "Map between domain objects and messaging representations.",
+    "url": "patterns/messaging-mapper.html"
+  },
+  {
+    "domain": "integration-style",
+    "kind": "pattern",
+    "name": "Messaging",
+    "slug": "messaging",
+    "summary": "Integrate applications by sending messages through channels with temporal decoupling.",
+    "url": "patterns/messaging.html"
+  },
+  {
+    "domain": "message-transformation",
+    "kind": "pattern",
+    "name": "Normalizer",
+    "slug": "normalizer",
+    "summary": "Transform different incoming formats into one common message shape.",
+    "url": "patterns/normalizer.html"
+  },
+  {
+    "domain": "behavior-and-collaboration",
+    "kind": "pattern",
+    "name": "Observer",
+    "slug": "observer",
+    "summary": "Notify dependents when an object changes without tightly coupling the subject to its observers.",
+    "url": "patterns/observer.html"
+  },
+  {
+    "domain": "messaging-system",
+    "kind": "pattern",
+    "name": "Pipes and Filters",
+    "slug": "pipes-and-filters",
+    "summary": "Process data through independent steps connected by channels.",
+    "url": "patterns/pipes-and-filters.html"
+  },
+  {
+    "domain": "message-channel",
+    "kind": "pattern",
+    "name": "Point-to-Point Channel",
+    "slug": "point-to-point-channel",
+    "summary": "Deliver each message to one eligible receiver.",
+    "url": "patterns/point-to-point-channel.html"
+  },
+  {
+    "domain": "message-endpoint",
+    "kind": "pattern",
+    "name": "Polling Consumer",
+    "slug": "polling-consumer",
+    "summary": "Let an application request messages when it is ready to process them.",
+    "url": "patterns/polling-consumer.html"
+  },
+  {
+    "domain": "message-routing",
+    "kind": "pattern",
+    "name": "Process Manager",
+    "slug": "process-manager",
+    "summary": "Coordinate a multi-step message-driven process whose next actions depend on state and events.",
+    "url": "patterns/process-manager.html"
+  },
+  {
+    "domain": "object-construction",
+    "kind": "pattern",
+    "name": "Prototype",
+    "slug": "prototype",
+    "summary": "Create new objects by copying an existing configured instance.",
+    "url": "patterns/prototype.html"
+  },
+  {
+    "domain": "object-structure",
+    "kind": "pattern",
+    "name": "Proxy",
+    "slug": "proxy",
+    "summary": "Control access to another object through a stand-in with the same interface.",
+    "url": "patterns/proxy.html"
+  },
+  {
+    "domain": "message-channel",
+    "kind": "pattern",
+    "name": "Publish-Subscribe Channel",
+    "slug": "publish-subscribe-channel",
+    "summary": "Broadcast messages to multiple interested subscribers.",
+    "url": "patterns/publish-subscribe-channel.html"
+  },
+  {
+    "domain": "message-routing",
+    "kind": "pattern",
+    "name": "Recipient List",
+    "slug": "recipient-list",
+    "summary": "Route one message to a computed list of recipients.",
+    "url": "patterns/recipient-list.html"
+  },
+  {
+    "domain": "integration-style",
+    "kind": "pattern",
+    "name": "Remote Procedure Invocation",
+    "slug": "remote-procedure-invocation",
+    "summary": "Expose application behavior through synchronous remote calls.",
+    "url": "patterns/remote-procedure-invocation.html"
+  },
+  {
+    "domain": "message-construction",
+    "kind": "pattern",
+    "name": "Request-Reply",
+    "slug": "request-reply",
+    "summary": "Send a request message and receive a correlated response message.",
+    "url": "patterns/request-reply.html"
+  },
+  {
+    "domain": "message-routing",
+    "kind": "pattern",
+    "name": "Resequencer",
+    "slug": "resequencer",
+    "summary": "Reorder related messages into the expected sequence before forwarding.",
+    "url": "patterns/resequencer.html"
+  },
+  {
+    "domain": "message-construction",
+    "kind": "pattern",
+    "name": "Return Address",
+    "slug": "return-address",
+    "summary": "Tell a receiver where to send a reply.",
+    "url": "patterns/return-address.html"
+  },
+  {
+    "domain": "message-routing",
+    "kind": "pattern",
+    "name": "Routing Slip",
+    "slug": "routing-slip",
+    "summary": "Attach the remaining processing steps to the message so it can move through a variable route.",
+    "url": "patterns/routing-slip.html"
+  },
+  {
+    "domain": "message-routing",
+    "kind": "pattern",
+    "name": "Scatter-Gather",
+    "slug": "scatter-gather",
+    "summary": "Send a request to multiple recipients and aggregate their replies.",
+    "url": "patterns/scatter-gather.html"
+  },
+  {
+    "domain": "message-endpoint",
+    "kind": "pattern",
+    "name": "Selective Consumer",
+    "slug": "selective-consumer",
+    "summary": "Let a consumer receive only messages that match selection criteria.",
+    "url": "patterns/selective-consumer.html"
+  },
+  {
+    "domain": "message-endpoint",
+    "kind": "pattern",
+    "name": "Service Activator",
+    "slug": "service-activator",
+    "summary": "Invoke application service behavior in response to a message.",
+    "url": "patterns/service-activator.html"
+  },
+  {
+    "domain": "integration-style",
+    "kind": "pattern",
+    "name": "Shared Database",
+    "slug": "shared-database",
+    "summary": "Let multiple applications integrate through common database tables or views.",
+    "url": "patterns/shared-database.html"
+  },
+  {
+    "domain": "object-construction",
+    "kind": "pattern",
+    "name": "Singleton",
+    "slug": "singleton",
+    "summary": "Ensure one logical instance exists and provide controlled access to it.",
+    "url": "patterns/singleton.html"
+  },
+  {
+    "domain": "operations-and-observability",
+    "kind": "pattern",
+    "name": "Smart Proxy",
+    "slug": "smart-proxy",
+    "summary": "Intercept request-reply conversations to preserve correlation or routing information across intermediaries.",
+    "url": "patterns/smart-proxy.html"
+  },
+  {
+    "domain": "message-routing",
+    "kind": "pattern",
+    "name": "Splitter",
+    "slug": "splitter",
+    "summary": "Break one compound message into multiple messages for independent processing.",
+    "url": "patterns/splitter.html"
+  },
+  {
+    "domain": "behavior-and-collaboration",
+    "kind": "pattern",
+    "name": "State",
+    "slug": "state",
+    "summary": "Change an object's behavior when its internal state changes by delegating to state-specific behavior.",
+    "url": "patterns/state.html"
+  },
+  {
+    "domain": "behavior-and-collaboration",
+    "kind": "pattern",
+    "name": "Strategy",
+    "slug": "strategy",
+    "summary": "Define interchangeable algorithms behind a common contract.",
+    "url": "patterns/strategy.html"
+  },
+  {
+    "domain": "behavior-and-collaboration",
+    "kind": "pattern",
+    "name": "Template Method",
+    "slug": "template-method",
+    "summary": "Define an algorithm skeleton while letting subclasses or hooks customize selected steps.",
+    "url": "patterns/template-method.html"
+  },
+  {
+    "domain": "operations-and-observability",
+    "kind": "pattern",
+    "name": "Test Message",
+    "slug": "test-message",
+    "summary": "Send known diagnostic messages through the system to verify behavior.",
+    "url": "patterns/test-message.html"
+  },
+  {
+    "domain": "message-endpoint",
+    "kind": "pattern",
+    "name": "Transactional Client",
+    "slug": "transactional-client",
+    "summary": "Coordinate message send or receive work with transactional boundaries.",
+    "url": "patterns/transactional-client.html"
+  },
+  {
+    "domain": "behavior-and-collaboration",
+    "kind": "pattern",
+    "name": "Visitor",
+    "slug": "visitor",
+    "summary": "Represent operations over an object structure separately from the classes in that structure.",
+    "url": "patterns/visitor.html"
+  },
+  {
+    "domain": "operations-and-observability",
+    "kind": "pattern",
+    "name": "Wire Tap",
+    "slug": "wire-tap",
+    "summary": "Copy messages from a channel for monitoring, audit, or diagnostics without disturbing the main flow.",
+    "url": "patterns/wire-tap.html"
+  },
+  {
+    "domain": "integration-playbook",
+    "kind": "playbook",
+    "name": "Event Fanout",
+    "slug": "event-fanout",
+    "summary": "Notify multiple independent consumers that a business fact happened without coupling the producer to each recipient.",
+    "url": "playbooks/event-fanout.html"
+  },
+  {
+    "domain": "boundary-playbook",
+    "kind": "playbook",
+    "name": "Legacy Boundary Adapter",
+    "slug": "legacy-boundary-adapter",
+    "summary": "Isolate a legacy API, SDK, protocol, database, or message format behind a domain-friendly boundary.",
+    "url": "playbooks/legacy-boundary-adapter.html"
+  },
+  {
+    "domain": "operations-playbook",
+    "kind": "playbook",
+    "name": "Message Replay And Recovery",
+    "slug": "message-replay-and-recovery",
+    "summary": "Make failed or delayed message processing recoverable without corrupting downstream state.",
+    "url": "playbooks/message-replay-and-recovery.html"
+  },
+  {
+    "domain": "boundary-playbook",
+    "kind": "playbook",
+    "name": "Provider Abstraction",
+    "slug": "provider-abstraction",
+    "summary": "Support multiple providers or engines while keeping provider selection, configuration, and domain behavior separated.",
+    "url": "playbooks/provider-abstraction.html"
+  },
+  {
+    "domain": "integration-playbook",
+    "kind": "playbook",
+    "name": "Request Reply Workflow",
+    "slug": "request-reply-workflow",
+    "summary": "Coordinate asynchronous work that still needs a response, without falling back to tight synchronous coupling.",
+    "url": "playbooks/request-reply-workflow.html"
+  },
+  {
+    "domain": "integration-playbook",
+    "kind": "playbook",
+    "name": "Routing Pipeline",
+    "slug": "routing-pipeline",
+    "summary": "Centralize routing and filtering decisions while keeping producers free from destination knowledge.",
+    "url": "playbooks/routing-pipeline.html"
+  },
+  {
+    "domain": "object-playbook",
+    "kind": "playbook",
+    "name": "Stateful Workflow",
+    "slug": "stateful-workflow",
+    "summary": "Make lifecycle transitions explicit when state-dependent behavior is scattered through conditionals.",
+    "url": "playbooks/stateful-workflow.html"
+  },
+  {
+    "domain": "object-playbook",
+    "kind": "playbook",
+    "name": "Variation Point Refactor",
+    "slug": "variation-point-refactor",
+    "summary": "Extract a recurring behavior or construction variation without turning simple code into generic pattern machinery.",
+    "url": "playbooks/variation-point-refactor.html"
+  },
+  {
+    "domain": "boundary-smell",
+    "kind": "smell",
+    "name": "Anemic Facade",
+    "slug": "anemic-facade",
+    "summary": "A facade merely forwards calls while leaking subsystem concepts, errors, configuration, and lifecycle rules to callers.",
+    "url": "smells/anemic-facade.html"
+  },
+  {
+    "domain": "integration-smell",
+    "kind": "smell",
+    "name": "Chatty Integration",
+    "slug": "chatty-integration",
+    "summary": "A workflow performs many small cross-boundary calls where one coarse contract, document message, or asynchronous exchange would be clearer.",
+    "url": "smells/chatty-integration.html"
+  },
+  {
+    "domain": "object-smell",
+    "kind": "smell",
+    "name": "Conditional Sprawl",
+    "slug": "conditional-sprawl",
+    "summary": "Repeated branches choose behavior, type construction, lifecycle state, or command handling across multiple modules.",
+    "url": "smells/conditional-sprawl.html"
+  },
+  {
+    "domain": "integration-smell",
+    "kind": "smell",
+    "name": "Event Soup",
+    "slug": "event-soup",
+    "summary": "Many events circulate without clear ownership, naming discipline, contract governance, or traceable consumer responsibility.",
+    "url": "smells/event-soup.html"
+  },
+  {
+    "domain": "boundary-smell",
+    "kind": "smell",
+    "name": "Fragile Adapter",
+    "slug": "fragile-adapter",
+    "summary": "An adapter hides a dependency name but leaks payload shape, protocol quirks, exceptions, or retry behavior.",
+    "url": "smells/fragile-adapter.html"
+  },
+  {
+    "domain": "object-smell",
+    "kind": "smell",
+    "name": "God Service",
+    "slug": "god-service",
+    "summary": "One service coordinates unrelated responsibilities, owns too much state, and becomes the default place for new behavior.",
+    "url": "smells/god-service.html"
+  },
+  {
+    "domain": "integration-smell",
+    "kind": "smell",
+    "name": "Hidden Router",
+    "slug": "hidden-router",
+    "summary": "Routing decisions are scattered across producers, consumers, configuration, and conditionals with no single testable policy.",
+    "url": "smells/hidden-router.html"
+  },
+  {
+    "domain": "object-smell",
+    "kind": "smell",
+    "name": "Lifecycle State Spread",
+    "slug": "lifecycle-state-spread",
+    "summary": "State checks and transition rules are scattered across services, controllers, handlers, or UI logic.",
+    "url": "smells/lifecycle-state-spread.html"
+  },
+  {
+    "domain": "integration-smell",
+    "kind": "smell",
+    "name": "Naive Exactly Once",
+    "slug": "naive-exactly-once",
+    "summary": "The design assumes messages, commands, or jobs execute exactly once without durable idempotency, transaction boundaries, or recovery policy.",
+    "url": "smells/naive-exactly-once.html"
+  },
+  {
+    "domain": "object-smell",
+    "kind": "smell",
+    "name": "Overused Singleton",
+    "slug": "overused-singleton",
+    "summary": "Global instances are used for convenience, configuration, service lookup, or mutable process-wide state.",
+    "url": "smells/overused-singleton.html"
+  },
+  {
+    "domain": "design-smell",
+    "kind": "smell",
+    "name": "Pattern Ceremony",
+    "slug": "pattern-ceremony",
+    "summary": "Pattern-shaped classes, interfaces, or layers exist before the design has enough variation, ownership pressure, or runtime risk to justify them.",
+    "url": "smells/pattern-ceremony.html"
+  },
+  {
+    "domain": "boundary-smell",
+    "kind": "smell",
+    "name": "Provider Switch Sprawl",
+    "slug": "provider-switch-sprawl",
+    "summary": "Provider, engine, tenant, or region selection is repeated across services, handlers, or UI code.",
+    "url": "smells/provider-switch-sprawl.html"
+  },
+  {
+    "domain": "integration-smell",
+    "kind": "smell",
+    "name": "Unbounded Retry",
+    "slug": "unbounded-retry",
+    "summary": "Failed work retries indefinitely or with unclear terminal behavior, often without idempotency or operator visibility.",
+    "url": "smells/unbounded-retry.html"
+  },
+  {
+    "domain": "framework-pack",
+    "kind": "framework",
+    "name": ".NET / MassTransit",
+    "slug": "dotnet-masstransit",
+    "summary": "",
+    "url": "frameworks/dotnet-masstransit.html"
+  },
+  {
+    "domain": "framework-pack",
+    "kind": "framework",
+    "name": "Go / Watermill + NATS",
+    "slug": "go-watermill-nats",
+    "summary": "",
+    "url": "frameworks/go-watermill-nats.html"
+  },
+  {
+    "domain": "framework-pack",
+    "kind": "framework",
+    "name": "Java / Spring Integration",
+    "slug": "java-spring-integration",
+    "summary": "",
+    "url": "frameworks/java-spring-integration.html"
+  },
+  {
+    "domain": "framework-pack",
+    "kind": "framework",
+    "name": "Python / Celery + FastStream",
+    "slug": "python-celery-faststream",
+    "summary": "",
+    "url": "frameworks/python-celery-faststream.html"
+  },
+  {
+    "domain": "framework-pack",
+    "kind": "framework",
+    "name": "Rust / Tokio + Tower",
+    "slug": "rust-tokio-tower",
+    "summary": "",
+    "url": "frameworks/rust-tokio-tower.html"
+  },
+  {
+    "domain": "framework-pack",
+    "kind": "framework",
+    "name": "TypeScript / NestJS + KafkaJS",
+    "slug": "typescript-nestjs-kafkajs",
+    "summary": "",
+    "url": "frameworks/typescript-nestjs-kafkajs.html"
+  },
+  {
+    "domain": "boundary-recipe",
+    "kind": "recipe",
+    "name": "Adapter Boundary",
+    "slug": "adapter-boundary",
+    "summary": "Stop external SDK, protocol, or legacy concepts from leaking into domain code.",
+    "url": "recipes/adapter-boundary.html"
+  },
+  {
+    "domain": "integration-recipe",
+    "kind": "recipe",
+    "name": "Dead Letter Channel Recipe",
+    "slug": "dead-letter-channel-recipe",
+    "summary": "Give exhausted or permanently failed messages an owned, observable terminal path.",
+    "url": "recipes/dead-letter-channel-recipe.html"
+  },
+  {
+    "domain": "integration-recipe",
+    "kind": "recipe",
+    "name": "Idempotent Receiver Recipe",
+    "slug": "idempotent-receiver-recipe",
+    "summary": "Make a message handler safe under retry, redelivery, and replay.",
+    "url": "recipes/idempotent-receiver-recipe.html"
+  },
+  {
+    "domain": "boundary-recipe",
+    "kind": "recipe",
+    "name": "Provider Bridge",
+    "slug": "provider-bridge",
+    "summary": "Separate provider selection and provider-specific SDK behavior from domain workflows.",
+    "url": "recipes/provider-bridge.html"
+  },
+  {
+    "domain": "object-recipe",
+    "kind": "recipe",
+    "name": "Stateful Workflow Recipe",
+    "slug": "stateful-workflow-recipe",
+    "summary": "Make lifecycle-dependent behavior and legal transitions explicit.",
+    "url": "recipes/stateful-workflow-recipe.html"
+  },
+  {
+    "domain": "object-recipe",
+    "kind": "recipe",
+    "name": "Strategy Refactor",
+    "slug": "strategy-refactor",
+    "summary": "Move repeated algorithm-selection branches behind a domain-named behavior boundary.",
+    "url": "recipes/strategy-refactor.html"
+  },
+  {
+    "domain": "decision-scorecard",
+    "kind": "scorecard",
+    "name": "Standard Architecture Decision Scorecard",
+    "slug": "standard-architecture-decision",
+    "summary": "Compare pattern options with consistent decision criteria instead of relying on pattern familiarity.",
+    "url": "scorecards/standard-architecture-decision.html"
+  },
+  {
+    "domain": null,
+    "kind": "snippet",
+    "name": "C# Strategy Boundary",
+    "slug": "csharp-strategy",
+    "summary": "",
+    "url": "snippets/csharp-strategy.html"
+  },
+  {
+    "domain": null,
+    "kind": "snippet",
+    "name": "Python Idempotent Receiver",
+    "slug": "python-idempotent-receiver",
+    "summary": "",
+    "url": "snippets/python-idempotent-receiver.html"
+  },
+  {
+    "domain": "language",
+    "kind": "language",
+    "name": "C++",
+    "slug": "cpp",
+    "summary": "",
+    "url": "languages/cpp.html"
+  },
+  {
+    "domain": "language",
+    "kind": "language",
+    "name": "C# / .NET",
+    "slug": "csharp",
+    "summary": "",
+    "url": "languages/csharp.html"
+  },
+  {
+    "domain": "language",
+    "kind": "language",
+    "name": "Go",
+    "slug": "go",
+    "summary": "",
+    "url": "languages/go.html"
+  },
+  {
+    "domain": "language",
+    "kind": "language",
+    "name": "Java / JVM",
+    "slug": "java",
+    "summary": "",
+    "url": "languages/java.html"
+  },
+  {
+    "domain": "language",
+    "kind": "language",
+    "name": "Python",
+    "slug": "python",
+    "summary": "",
+    "url": "languages/python.html"
+  },
+  {
+    "domain": "language",
+    "kind": "language",
+    "name": "Rust",
+    "slug": "rust",
+    "summary": "",
+    "url": "languages/rust.html"
+  },
+  {
+    "domain": "language",
+    "kind": "language",
+    "name": "TypeScript / JavaScript",
+    "slug": "typescript",
+    "summary": "",
+    "url": "languages/typescript.html"
+  }
+]

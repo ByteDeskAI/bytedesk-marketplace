@@ -1,0 +1,19 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "design-patterns",
+  "description": "Source-neutral advisor, Markdown reference catalog, MCP tooling, and dynamic workbench for software design patterns.",
+  "version": "0.8.6",
+  "author": {
+    "name": "ByteDeskAI"
+  },
+  "homepage": "https://github.com/ByteDeskAI/design-pattern-references",
+  "repository": "https://github.com/ByteDeskAI/design-pattern-references",
+  "license": "Apache-2.0",
+  "keywords": [
+    "design-patterns",
+    "language-patterns",
+    "integration-design",
+    "architecture",
+    "refactoring"
+  ]
+}

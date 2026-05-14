@@ -1,0 +1,555 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Design Pattern Reference Catalog</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Space+Mono:wght@700&display=swap" rel="stylesheet">
+  <style>
+:root{--bg:#0d1117;--panel:#151c27;--panel-2:#0a0f16;--ink:#e6edf3;--muted:#8b949e;--line:#303846;--line-strong:#657183;--accent:#00d9ff;--accent-2:#ff6b35;--gain:#7ee787}
+*{box-sizing:border-box}
+html{background:var(--bg);color-scheme:dark}
+body{font-family:"Inter Tight",sans-serif;margin:0;background:radial-gradient(circle at 72% 0,rgba(0,217,255,.15),transparent 34rem),linear-gradient(180deg,#0d1117,#080c12);color:var(--ink)}
+body:before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.28;background-image:linear-gradient(rgba(230,237,243,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(230,237,243,.06) 1px,transparent 1px);background-size:32px 32px}
+header{position:relative;border-bottom:1px solid var(--line-strong);background:linear-gradient(135deg,rgba(0,217,255,.1),rgba(21,28,39,.92));padding:34px 38px}
+header h1{font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:-.07em;font-size:clamp(38px,5vw,78px);line-height:.92;margin:0}
+header p{font-family:"JetBrains Mono",monospace;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-size:12px}
+main{max-width:1280px;margin:0 auto;padding:28px}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline;text-decoration-color:var(--accent-2)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
+.card{background:linear-gradient(180deg,rgba(21,28,39,.96),rgba(10,15,22,.98));border:1px solid var(--line);padding:16px;min-height:160px}
+.card:hover{border-color:var(--accent)}
+.card h3{font-family:"Space Mono",monospace;letter-spacing:-.05em;line-height:1.05}
+.meta{color:var(--muted);font:11px "JetBrains Mono",monospace;text-transform:uppercase;letter-spacing:.08em}
+.pill{display:inline-block;background:#070b10;border:1px solid var(--line);padding:3px 8px;margin:2px;font:11px "JetBrains Mono",monospace;color:#c9d1d9}
+pre{white-space:pre-wrap;background:#060a0f;color:#f8fafc;padding:16px;border:1px solid var(--line);overflow:auto}
+input{width:100%;box-sizing:border-box;font:15px "JetBrains Mono",monospace;padding:14px;border:1px solid var(--line-strong);background:#060a0f;color:var(--ink);margin:18px 0;border-radius:0}
+input:focus-visible{outline:2px solid var(--accent-2);outline-offset:2px}
+section{margin:30px 0}.section-list li{margin:7px 0;color:#c9d1d9;line-height:1.45}h2{font-family:"JetBrains Mono",monospace;text-transform:uppercase;letter-spacing:.08em;font-size:14px;color:var(--accent);border-bottom:1px solid var(--line);padding-bottom:10px}
+</style>
+</head>
+<body>
+  <header>
+    <h1>Design Pattern Reference Catalog</h1>
+    <p>Source-neutral design pattern guidance for architecture decisions, smells, playbooks, recipes, and implementation packs.</p>
+  </header>
+  <main>
+    <input id='search' placeholder='Search patterns, playbooks, smells, frameworks, recipes, snippets, and languages'><section><h2>Patterns</h2><div class='grid'><article class="card" data-search="abstract-factory Abstract Factory Create related families of objects through stable interfaces without binding clients to concrete product classes.">
+  <h3><a href="patterns/abstract-factory.html">Abstract Factory</a></h3>
+  <p class="meta">pattern / object-construction</p>
+  <p>Create related families of objects through stable interfaces without binding clients to concrete product classes.</p>
+</article><article class="card" data-search="adapter Adapter Convert one interface into another interface expected by a client.">
+  <h3><a href="patterns/adapter.html">Adapter</a></h3>
+  <p class="meta">pattern / object-structure</p>
+  <p>Convert one interface into another interface expected by a client.</p>
+</article><article class="card" data-search="aggregator Aggregator Combine related messages into one result once a completion condition is met.">
+  <h3><a href="patterns/aggregator.html">Aggregator</a></h3>
+  <p class="meta">pattern / message-routing</p>
+  <p>Combine related messages into one result once a completion condition is met.</p>
+</article><article class="card" data-search="bridge Bridge Separate an abstraction from its implementation so both can vary independently.">
+  <h3><a href="patterns/bridge.html">Bridge</a></h3>
+  <p class="meta">pattern / object-structure</p>
+  <p>Separate an abstraction from its implementation so both can vary independently.</p>
+</article><article class="card" data-search="builder Builder Separate the construction of a complex object from the representation that is produced.">
+  <h3><a href="patterns/builder.html">Builder</a></h3>
+  <p class="meta">pattern / object-construction</p>
+  <p>Separate the construction of a complex object from the representation that is produced.</p>
+</article><article class="card" data-search="canonical-data-model Canonical Data Model Define a shared data representation that reduces pairwise transformations.">
+  <h3><a href="patterns/canonical-data-model.html">Canonical Data Model</a></h3>
+  <p class="meta">pattern / message-transformation</p>
+  <p>Define a shared data representation that reduces pairwise transformations.</p>
+</article><article class="card" data-search="chain-of-responsibility Chain of Responsibility Pass a request along a chain of handlers until one handles it or the chain completes.">
+  <h3><a href="patterns/chain-of-responsibility.html">Chain of Responsibility</a></h3>
+  <p class="meta">pattern / behavior-and-collaboration</p>
+  <p>Pass a request along a chain of handlers until one handles it or the chain completes.</p>
+</article><article class="card" data-search="channel-adapter Channel Adapter Connect a non-messaging application or resource to a messaging channel.">
+  <h3><a href="patterns/channel-adapter.html">Channel Adapter</a></h3>
+  <p class="meta">pattern / message-channel</p>
+  <p>Connect a non-messaging application or resource to a messaging channel.</p>
+</article><article class="card" data-search="channel-purger Channel Purger Remove unwanted messages from a channel to restore a clean operating or test state.">
+  <h3><a href="patterns/channel-purger.html">Channel Purger</a></h3>
+  <p class="meta">pattern / operations-and-observability</p>
+  <p>Remove unwanted messages from a channel to restore a clean operating or test state.</p>
+</article><article class="card" data-search="claim-check Claim Check Store bulky data elsewhere and send a reference through the message flow.">
+  <h3><a href="patterns/claim-check.html">Claim Check</a></h3>
+  <p class="meta">pattern / message-transformation</p>
+  <p>Store bulky data elsewhere and send a reference through the message flow.</p>
+</article><article class="card" data-search="command-message Command Message Represent an instruction to perform work as a message.">
+  <h3><a href="patterns/command-message.html">Command Message</a></h3>
+  <p class="meta">pattern / message-construction</p>
+  <p>Represent an instruction to perform work as a message.</p>
+</article><article class="card" data-search="command Command Encapsulate a request as an object so it can be queued, logged, retried, undone, or passed around.">
+  <h3><a href="patterns/command.html">Command</a></h3>
+  <p class="meta">pattern / behavior-and-collaboration</p>
+  <p>Encapsulate a request as an object so it can be queued, logged, retried, undone, or passed around.</p>
+</article><article class="card" data-search="competing-consumers Competing Consumers Run multiple consumers against one channel so work is distributed among them.">
+  <h3><a href="patterns/competing-consumers.html">Competing Consumers</a></h3>
+  <p class="meta">pattern / message-endpoint</p>
+  <p>Run multiple consumers against one channel so work is distributed among them.</p>
+</article><article class="card" data-search="composed-message-processor Composed Message Processor Split, route, process, and reassemble a compound message while preserving the overall flow.">
+  <h3><a href="patterns/composed-message-processor.html">Composed Message Processor</a></h3>
+  <p class="meta">pattern / message-routing</p>
+  <p>Split, route, process, and reassemble a compound message while preserving the overall flow.</p>
+</article><article class="card" data-search="composite Composite Represent part-whole hierarchies so clients can treat individual objects and groups uniformly.">
+  <h3><a href="patterns/composite.html">Composite</a></h3>
+  <p class="meta">pattern / object-structure</p>
+  <p>Represent part-whole hierarchies so clients can treat individual objects and groups uniformly.</p>
+</article><article class="card" data-search="content-based-router Content-Based Router Choose a destination by inspecting message content.">
+  <h3><a href="patterns/content-based-router.html">Content-Based Router</a></h3>
+  <p class="meta">pattern / message-routing</p>
+  <p>Choose a destination by inspecting message content.</p>
+</article><article class="card" data-search="content-enricher Content Enricher Add missing data to a message before downstream processing.">
+  <h3><a href="patterns/content-enricher.html">Content Enricher</a></h3>
+  <p class="meta">pattern / message-transformation</p>
+  <p>Add missing data to a message before downstream processing.</p>
+</article><article class="card" data-search="content-filter Content Filter Remove unneeded data from a message before forwarding it.">
+  <h3><a href="patterns/content-filter.html">Content Filter</a></h3>
+  <p class="meta">pattern / message-transformation</p>
+  <p>Remove unneeded data from a message before forwarding it.</p>
+</article><article class="card" data-search="control-bus Control Bus Use a messaging channel for operational commands and telemetry about the messaging system.">
+  <h3><a href="patterns/control-bus.html">Control Bus</a></h3>
+  <p class="meta">pattern / operations-and-observability</p>
+  <p>Use a messaging channel for operational commands and telemetry about the messaging system.</p>
+</article><article class="card" data-search="correlation-identifier Correlation Identifier Attach an identifier that connects related messages in a conversation.">
+  <h3><a href="patterns/correlation-identifier.html">Correlation Identifier</a></h3>
+  <p class="meta">pattern / message-construction</p>
+  <p>Attach an identifier that connects related messages in a conversation.</p>
+</article><article class="card" data-search="datatype-channel Datatype Channel Separate channels by message type so receivers know what kind of payload to expect.">
+  <h3><a href="patterns/datatype-channel.html">Datatype Channel</a></h3>
+  <p class="meta">pattern / message-channel</p>
+  <p>Separate channels by message type so receivers know what kind of payload to expect.</p>
+</article><article class="card" data-search="dead-letter-channel Dead Letter Channel Preserve messages that cannot be delivered or processed after policy is exhausted.">
+  <h3><a href="patterns/dead-letter-channel.html">Dead Letter Channel</a></h3>
+  <p class="meta">pattern / message-channel</p>
+  <p>Preserve messages that cannot be delivered or processed after policy is exhausted.</p>
+</article><article class="card" data-search="decorator Decorator Add responsibilities to an object dynamically by wrapping it with another object that preserves the same interface.">
+  <h3><a href="patterns/decorator.html">Decorator</a></h3>
+  <p class="meta">pattern / object-structure</p>
+  <p>Add responsibilities to an object dynamically by wrapping it with another object that preserves the same interface.</p>
+</article><article class="card" data-search="detour Detour Temporarily route messages through extra steps for validation, testing, or troubleshooting.">
+  <h3><a href="patterns/detour.html">Detour</a></h3>
+  <p class="meta">pattern / operations-and-observability</p>
+  <p>Temporarily route messages through extra steps for validation, testing, or troubleshooting.</p>
+</article><article class="card" data-search="document-message Document Message Transfer a document-like data structure for another system to consume.">
+  <h3><a href="patterns/document-message.html">Document Message</a></h3>
+  <p class="meta">pattern / message-construction</p>
+  <p>Transfer a document-like data structure for another system to consume.</p>
+</article><article class="card" data-search="durable-subscriber Durable Subscriber Preserve pub-sub messages for a subscriber while it is disconnected.">
+  <h3><a href="patterns/durable-subscriber.html">Durable Subscriber</a></h3>
+  <p class="meta">pattern / message-endpoint</p>
+  <p>Preserve pub-sub messages for a subscriber while it is disconnected.</p>
+</article><article class="card" data-search="dynamic-router Dynamic Router Route messages using destinations that can change at runtime.">
+  <h3><a href="patterns/dynamic-router.html">Dynamic Router</a></h3>
+  <p class="meta">pattern / message-routing</p>
+  <p>Route messages using destinations that can change at runtime.</p>
+</article><article class="card" data-search="envelope-wrapper Envelope Wrapper Wrap existing payload data with headers or envelope structure required by the messaging system.">
+  <h3><a href="patterns/envelope-wrapper.html">Envelope Wrapper</a></h3>
+  <p class="meta">pattern / message-transformation</p>
+  <p>Wrap existing payload data with headers or envelope structure required by the messaging system.</p>
+</article><article class="card" data-search="event-driven-consumer Event-Driven Consumer Invoke consumer logic automatically when messages arrive.">
+  <h3><a href="patterns/event-driven-consumer.html">Event-Driven Consumer</a></h3>
+  <p class="meta">pattern / message-endpoint</p>
+  <p>Invoke consumer logic automatically when messages arrive.</p>
+</article><article class="card" data-search="event-message Event Message Announce that a meaningful fact or state transition occurred.">
+  <h3><a href="patterns/event-message.html">Event Message</a></h3>
+  <p class="meta">pattern / message-construction</p>
+  <p>Announce that a meaningful fact or state transition occurred.</p>
+</article><article class="card" data-search="facade Facade Provide a simpler interface over a subsystem.">
+  <h3><a href="patterns/facade.html">Facade</a></h3>
+  <p class="meta">pattern / object-structure</p>
+  <p>Provide a simpler interface over a subsystem.</p>
+</article><article class="card" data-search="factory-method Factory Method Let subclasses or collaborators decide which concrete product to create through a stable creation method.">
+  <h3><a href="patterns/factory-method.html">Factory Method</a></h3>
+  <p class="meta">pattern / object-construction</p>
+  <p>Let subclasses or collaborators decide which concrete product to create through a stable creation method.</p>
+</article><article class="card" data-search="file-transfer File Transfer Exchange data by writing and reading files through a shared transfer location.">
+  <h3><a href="patterns/file-transfer.html">File Transfer</a></h3>
+  <p class="meta">pattern / integration-style</p>
+  <p>Exchange data by writing and reading files through a shared transfer location.</p>
+</article><article class="card" data-search="flyweight Flyweight Share fine-grained immutable state to support large numbers of similar objects efficiently.">
+  <h3><a href="patterns/flyweight.html">Flyweight</a></h3>
+  <p class="meta">pattern / object-structure</p>
+  <p>Share fine-grained immutable state to support large numbers of similar objects efficiently.</p>
+</article><article class="card" data-search="format-indicator Format Indicator Include metadata that identifies the payload format or version.">
+  <h3><a href="patterns/format-indicator.html">Format Indicator</a></h3>
+  <p class="meta">pattern / message-construction</p>
+  <p>Include metadata that identifies the payload format or version.</p>
+</article><article class="card" data-search="guaranteed-delivery Guaranteed Delivery Persist messages so they can survive process or broker interruptions until delivery policy completes.">
+  <h3><a href="patterns/guaranteed-delivery.html">Guaranteed Delivery</a></h3>
+  <p class="meta">pattern / message-channel</p>
+  <p>Persist messages so they can survive process or broker interruptions until delivery policy completes.</p>
+</article><article class="card" data-search="idempotent-receiver Idempotent Receiver Handle duplicate messages without repeating unsafe side effects.">
+  <h3><a href="patterns/idempotent-receiver.html">Idempotent Receiver</a></h3>
+  <p class="meta">pattern / message-endpoint</p>
+  <p>Handle duplicate messages without repeating unsafe side effects.</p>
+</article><article class="card" data-search="interpreter Interpreter Represent grammar rules as objects and evaluate sentences in that grammar.">
+  <h3><a href="patterns/interpreter.html">Interpreter</a></h3>
+  <p class="meta">pattern / behavior-and-collaboration</p>
+  <p>Represent grammar rules as objects and evaluate sentences in that grammar.</p>
+</article><article class="card" data-search="invalid-message-channel Invalid Message Channel Route messages that fail validation to a dedicated channel for inspection or repair.">
+  <h3><a href="patterns/invalid-message-channel.html">Invalid Message Channel</a></h3>
+  <p class="meta">pattern / message-channel</p>
+  <p>Route messages that fail validation to a dedicated channel for inspection or repair.</p>
+</article><article class="card" data-search="iterator Iterator Provide sequential access to elements without exposing the underlying representation.">
+  <h3><a href="patterns/iterator.html">Iterator</a></h3>
+  <p class="meta">pattern / behavior-and-collaboration</p>
+  <p>Provide sequential access to elements without exposing the underlying representation.</p>
+</article><article class="card" data-search="mediator Mediator Centralize complex collaboration so peers do not reference each other directly.">
+  <h3><a href="patterns/mediator.html">Mediator</a></h3>
+  <p class="meta">pattern / behavior-and-collaboration</p>
+  <p>Centralize complex collaboration so peers do not reference each other directly.</p>
+</article><article class="card" data-search="memento Memento Capture an object&#x27;s state so it can be restored later without exposing internals.">
+  <h3><a href="patterns/memento.html">Memento</a></h3>
+  <p class="meta">pattern / behavior-and-collaboration</p>
+  <p>Capture an object&#x27;s state so it can be restored later without exposing internals.</p>
+</article><article class="card" data-search="message-broker Message Broker Centralize routing, transformation, and mediation between message producers and consumers.">
+  <h3><a href="patterns/message-broker.html">Message Broker</a></h3>
+  <p class="meta">pattern / message-routing</p>
+  <p>Centralize routing, transformation, and mediation between message producers and consumers.</p>
+</article><article class="card" data-search="message-bus Message Bus Provide a shared messaging backbone with common contracts and integration conventions.">
+  <h3><a href="patterns/message-bus.html">Message Bus</a></h3>
+  <p class="meta">pattern / message-channel</p>
+  <p>Provide a shared messaging backbone with common contracts and integration conventions.</p>
+</article><article class="card" data-search="message-channel Message Channel Provide a logical path that carries messages from senders to receivers.">
+  <h3><a href="patterns/message-channel.html">Message Channel</a></h3>
+  <p class="meta">pattern / messaging-system</p>
+  <p>Provide a logical path that carries messages from senders to receivers.</p>
+</article><article class="card" data-search="message-dispatcher Message Dispatcher Coordinate message delivery from one channel to multiple local handlers.">
+  <h3><a href="patterns/message-dispatcher.html">Message Dispatcher</a></h3>
+  <p class="meta">pattern / message-endpoint</p>
+  <p>Coordinate message delivery from one channel to multiple local handlers.</p>
+</article><article class="card" data-search="message-endpoint Message Endpoint Connect application code to messaging infrastructure for sending or receiving.">
+  <h3><a href="patterns/message-endpoint.html">Message Endpoint</a></h3>
+  <p class="meta">pattern / messaging-system</p>
+  <p>Connect application code to messaging infrastructure for sending or receiving.</p>
+</article><article class="card" data-search="message-expiration Message Expiration Mark messages with a time after which processing is no longer useful.">
+  <h3><a href="patterns/message-expiration.html">Message Expiration</a></h3>
+  <p class="meta">pattern / message-construction</p>
+  <p>Mark messages with a time after which processing is no longer useful.</p>
+</article><article class="card" data-search="message-filter Message Filter Remove messages that do not meet criteria before they reach downstream processing.">
+  <h3><a href="patterns/message-filter.html">Message Filter</a></h3>
+  <p class="meta">pattern / message-routing</p>
+  <p>Remove messages that do not meet criteria before they reach downstream processing.</p>
+</article><article class="card" data-search="message-history Message History Record the components or steps a message has passed through.">
+  <h3><a href="patterns/message-history.html">Message History</a></h3>
+  <p class="meta">pattern / operations-and-observability</p>
+  <p>Record the components or steps a message has passed through.</p>
+</article><article class="card" data-search="message-router Message Router Route a message to one or more destinations based on routing logic.">
+  <h3><a href="patterns/message-router.html">Message Router</a></h3>
+  <p class="meta">pattern / messaging-system</p>
+  <p>Route a message to one or more destinations based on routing logic.</p>
+</article><article class="card" data-search="message-sequence Message Sequence Split related data across multiple ordered messages with enough metadata to reconstruct context.">
+  <h3><a href="patterns/message-sequence.html">Message Sequence</a></h3>
+  <p class="meta">pattern / message-construction</p>
+  <p>Split related data across multiple ordered messages with enough metadata to reconstruct context.</p>
+</article><article class="card" data-search="message-store Message Store Persist messages or selected metadata for audit, replay, analytics, or diagnostics.">
+  <h3><a href="patterns/message-store.html">Message Store</a></h3>
+  <p class="meta">pattern / operations-and-observability</p>
+  <p>Persist messages or selected metadata for audit, replay, analytics, or diagnostics.</p>
+</article><article class="card" data-search="message-translator Message Translator Convert a message from one schema or representation to another.">
+  <h3><a href="patterns/message-translator.html">Message Translator</a></h3>
+  <p class="meta">pattern / messaging-system</p>
+  <p>Convert a message from one schema or representation to another.</p>
+</article><article class="card" data-search="message Message Package data and metadata as a unit exchanged through a channel.">
+  <h3><a href="patterns/message.html">Message</a></h3>
+  <p class="meta">pattern / messaging-system</p>
+  <p>Package data and metadata as a unit exchanged through a channel.</p>
+</article><article class="card" data-search="messaging-bridge Messaging Bridge Move messages between separate messaging systems while preserving useful semantics.">
+  <h3><a href="patterns/messaging-bridge.html">Messaging Bridge</a></h3>
+  <p class="meta">pattern / message-channel</p>
+  <p>Move messages between separate messaging systems while preserving useful semantics.</p>
+</article><article class="card" data-search="messaging-gateway Messaging Gateway Expose messaging operations through an application-facing interface.">
+  <h3><a href="patterns/messaging-gateway.html">Messaging Gateway</a></h3>
+  <p class="meta">pattern / message-endpoint</p>
+  <p>Expose messaging operations through an application-facing interface.</p>
+</article><article class="card" data-search="messaging-mapper Messaging Mapper Map between domain objects and messaging representations.">
+  <h3><a href="patterns/messaging-mapper.html">Messaging Mapper</a></h3>
+  <p class="meta">pattern / message-endpoint</p>
+  <p>Map between domain objects and messaging representations.</p>
+</article><article class="card" data-search="messaging Messaging Integrate applications by sending messages through channels with temporal decoupling.">
+  <h3><a href="patterns/messaging.html">Messaging</a></h3>
+  <p class="meta">pattern / integration-style</p>
+  <p>Integrate applications by sending messages through channels with temporal decoupling.</p>
+</article><article class="card" data-search="normalizer Normalizer Transform different incoming formats into one common message shape.">
+  <h3><a href="patterns/normalizer.html">Normalizer</a></h3>
+  <p class="meta">pattern / message-transformation</p>
+  <p>Transform different incoming formats into one common message shape.</p>
+</article><article class="card" data-search="observer Observer Notify dependents when an object changes without tightly coupling the subject to its observers.">
+  <h3><a href="patterns/observer.html">Observer</a></h3>
+  <p class="meta">pattern / behavior-and-collaboration</p>
+  <p>Notify dependents when an object changes without tightly coupling the subject to its observers.</p>
+</article><article class="card" data-search="pipes-and-filters Pipes and Filters Process data through independent steps connected by channels.">
+  <h3><a href="patterns/pipes-and-filters.html">Pipes and Filters</a></h3>
+  <p class="meta">pattern / messaging-system</p>
+  <p>Process data through independent steps connected by channels.</p>
+</article><article class="card" data-search="point-to-point-channel Point-to-Point Channel Deliver each message to one eligible receiver.">
+  <h3><a href="patterns/point-to-point-channel.html">Point-to-Point Channel</a></h3>
+  <p class="meta">pattern / message-channel</p>
+  <p>Deliver each message to one eligible receiver.</p>
+</article><article class="card" data-search="polling-consumer Polling Consumer Let an application request messages when it is ready to process them.">
+  <h3><a href="patterns/polling-consumer.html">Polling Consumer</a></h3>
+  <p class="meta">pattern / message-endpoint</p>
+  <p>Let an application request messages when it is ready to process them.</p>
+</article><article class="card" data-search="process-manager Process Manager Coordinate a multi-step message-driven process whose next actions depend on state and events.">
+  <h3><a href="patterns/process-manager.html">Process Manager</a></h3>
+  <p class="meta">pattern / message-routing</p>
+  <p>Coordinate a multi-step message-driven process whose next actions depend on state and events.</p>
+</article><article class="card" data-search="prototype Prototype Create new objects by copying an existing configured instance.">
+  <h3><a href="patterns/prototype.html">Prototype</a></h3>
+  <p class="meta">pattern / object-construction</p>
+  <p>Create new objects by copying an existing configured instance.</p>
+</article><article class="card" data-search="proxy Proxy Control access to another object through a stand-in with the same interface.">
+  <h3><a href="patterns/proxy.html">Proxy</a></h3>
+  <p class="meta">pattern / object-structure</p>
+  <p>Control access to another object through a stand-in with the same interface.</p>
+</article><article class="card" data-search="publish-subscribe-channel Publish-Subscribe Channel Broadcast messages to multiple interested subscribers.">
+  <h3><a href="patterns/publish-subscribe-channel.html">Publish-Subscribe Channel</a></h3>
+  <p class="meta">pattern / message-channel</p>
+  <p>Broadcast messages to multiple interested subscribers.</p>
+</article><article class="card" data-search="recipient-list Recipient List Route one message to a computed list of recipients.">
+  <h3><a href="patterns/recipient-list.html">Recipient List</a></h3>
+  <p class="meta">pattern / message-routing</p>
+  <p>Route one message to a computed list of recipients.</p>
+</article><article class="card" data-search="remote-procedure-invocation Remote Procedure Invocation Expose application behavior through synchronous remote calls.">
+  <h3><a href="patterns/remote-procedure-invocation.html">Remote Procedure Invocation</a></h3>
+  <p class="meta">pattern / integration-style</p>
+  <p>Expose application behavior through synchronous remote calls.</p>
+</article><article class="card" data-search="request-reply Request-Reply Send a request message and receive a correlated response message.">
+  <h3><a href="patterns/request-reply.html">Request-Reply</a></h3>
+  <p class="meta">pattern / message-construction</p>
+  <p>Send a request message and receive a correlated response message.</p>
+</article><article class="card" data-search="resequencer Resequencer Reorder related messages into the expected sequence before forwarding.">
+  <h3><a href="patterns/resequencer.html">Resequencer</a></h3>
+  <p class="meta">pattern / message-routing</p>
+  <p>Reorder related messages into the expected sequence before forwarding.</p>
+</article><article class="card" data-search="return-address Return Address Tell a receiver where to send a reply.">
+  <h3><a href="patterns/return-address.html">Return Address</a></h3>
+  <p class="meta">pattern / message-construction</p>
+  <p>Tell a receiver where to send a reply.</p>
+</article><article class="card" data-search="routing-slip Routing Slip Attach the remaining processing steps to the message so it can move through a variable route.">
+  <h3><a href="patterns/routing-slip.html">Routing Slip</a></h3>
+  <p class="meta">pattern / message-routing</p>
+  <p>Attach the remaining processing steps to the message so it can move through a variable route.</p>
+</article><article class="card" data-search="scatter-gather Scatter-Gather Send a request to multiple recipients and aggregate their replies.">
+  <h3><a href="patterns/scatter-gather.html">Scatter-Gather</a></h3>
+  <p class="meta">pattern / message-routing</p>
+  <p>Send a request to multiple recipients and aggregate their replies.</p>
+</article><article class="card" data-search="selective-consumer Selective Consumer Let a consumer receive only messages that match selection criteria.">
+  <h3><a href="patterns/selective-consumer.html">Selective Consumer</a></h3>
+  <p class="meta">pattern / message-endpoint</p>
+  <p>Let a consumer receive only messages that match selection criteria.</p>
+</article><article class="card" data-search="service-activator Service Activator Invoke application service behavior in response to a message.">
+  <h3><a href="patterns/service-activator.html">Service Activator</a></h3>
+  <p class="meta">pattern / message-endpoint</p>
+  <p>Invoke application service behavior in response to a message.</p>
+</article><article class="card" data-search="shared-database Shared Database Let multiple applications integrate through common database tables or views.">
+  <h3><a href="patterns/shared-database.html">Shared Database</a></h3>
+  <p class="meta">pattern / integration-style</p>
+  <p>Let multiple applications integrate through common database tables or views.</p>
+</article><article class="card" data-search="singleton Singleton Ensure one logical instance exists and provide controlled access to it.">
+  <h3><a href="patterns/singleton.html">Singleton</a></h3>
+  <p class="meta">pattern / object-construction</p>
+  <p>Ensure one logical instance exists and provide controlled access to it.</p>
+</article><article class="card" data-search="smart-proxy Smart Proxy Intercept request-reply conversations to preserve correlation or routing information across intermediaries.">
+  <h3><a href="patterns/smart-proxy.html">Smart Proxy</a></h3>
+  <p class="meta">pattern / operations-and-observability</p>
+  <p>Intercept request-reply conversations to preserve correlation or routing information across intermediaries.</p>
+</article><article class="card" data-search="splitter Splitter Break one compound message into multiple messages for independent processing.">
+  <h3><a href="patterns/splitter.html">Splitter</a></h3>
+  <p class="meta">pattern / message-routing</p>
+  <p>Break one compound message into multiple messages for independent processing.</p>
+</article><article class="card" data-search="state State Change an object&#x27;s behavior when its internal state changes by delegating to state-specific behavior.">
+  <h3><a href="patterns/state.html">State</a></h3>
+  <p class="meta">pattern / behavior-and-collaboration</p>
+  <p>Change an object&#x27;s behavior when its internal state changes by delegating to state-specific behavior.</p>
+</article><article class="card" data-search="strategy Strategy Define interchangeable algorithms behind a common contract.">
+  <h3><a href="patterns/strategy.html">Strategy</a></h3>
+  <p class="meta">pattern / behavior-and-collaboration</p>
+  <p>Define interchangeable algorithms behind a common contract.</p>
+</article><article class="card" data-search="template-method Template Method Define an algorithm skeleton while letting subclasses or hooks customize selected steps.">
+  <h3><a href="patterns/template-method.html">Template Method</a></h3>
+  <p class="meta">pattern / behavior-and-collaboration</p>
+  <p>Define an algorithm skeleton while letting subclasses or hooks customize selected steps.</p>
+</article><article class="card" data-search="test-message Test Message Send known diagnostic messages through the system to verify behavior.">
+  <h3><a href="patterns/test-message.html">Test Message</a></h3>
+  <p class="meta">pattern / operations-and-observability</p>
+  <p>Send known diagnostic messages through the system to verify behavior.</p>
+</article><article class="card" data-search="transactional-client Transactional Client Coordinate message send or receive work with transactional boundaries.">
+  <h3><a href="patterns/transactional-client.html">Transactional Client</a></h3>
+  <p class="meta">pattern / message-endpoint</p>
+  <p>Coordinate message send or receive work with transactional boundaries.</p>
+</article><article class="card" data-search="visitor Visitor Represent operations over an object structure separately from the classes in that structure.">
+  <h3><a href="patterns/visitor.html">Visitor</a></h3>
+  <p class="meta">pattern / behavior-and-collaboration</p>
+  <p>Represent operations over an object structure separately from the classes in that structure.</p>
+</article><article class="card" data-search="wire-tap Wire Tap Copy messages from a channel for monitoring, audit, or diagnostics without disturbing the main flow.">
+  <h3><a href="patterns/wire-tap.html">Wire Tap</a></h3>
+  <p class="meta">pattern / operations-and-observability</p>
+  <p>Copy messages from a channel for monitoring, audit, or diagnostics without disturbing the main flow.</p>
+</article></div></section>
+<section><h2>Playbooks</h2><div class='grid'><article class="card" data-search="event-fanout Event Fanout Notify multiple independent consumers that a business fact happened without coupling the producer to each recipient.">
+  <h3><a href="playbooks/event-fanout.html">Event Fanout</a></h3>
+  <p class="meta">playbook / integration-playbook</p>
+  <p>Notify multiple independent consumers that a business fact happened without coupling the producer to each recipient.</p>
+</article><article class="card" data-search="legacy-boundary-adapter Legacy Boundary Adapter Isolate a legacy API, SDK, protocol, database, or message format behind a domain-friendly boundary.">
+  <h3><a href="playbooks/legacy-boundary-adapter.html">Legacy Boundary Adapter</a></h3>
+  <p class="meta">playbook / boundary-playbook</p>
+  <p>Isolate a legacy API, SDK, protocol, database, or message format behind a domain-friendly boundary.</p>
+</article><article class="card" data-search="message-replay-and-recovery Message Replay And Recovery Make failed or delayed message processing recoverable without corrupting downstream state.">
+  <h3><a href="playbooks/message-replay-and-recovery.html">Message Replay And Recovery</a></h3>
+  <p class="meta">playbook / operations-playbook</p>
+  <p>Make failed or delayed message processing recoverable without corrupting downstream state.</p>
+</article><article class="card" data-search="provider-abstraction Provider Abstraction Support multiple providers or engines while keeping provider selection, configuration, and domain behavior separated.">
+  <h3><a href="playbooks/provider-abstraction.html">Provider Abstraction</a></h3>
+  <p class="meta">playbook / boundary-playbook</p>
+  <p>Support multiple providers or engines while keeping provider selection, configuration, and domain behavior separated.</p>
+</article><article class="card" data-search="request-reply-workflow Request Reply Workflow Coordinate asynchronous work that still needs a response, without falling back to tight synchronous coupling.">
+  <h3><a href="playbooks/request-reply-workflow.html">Request Reply Workflow</a></h3>
+  <p class="meta">playbook / integration-playbook</p>
+  <p>Coordinate asynchronous work that still needs a response, without falling back to tight synchronous coupling.</p>
+</article><article class="card" data-search="routing-pipeline Routing Pipeline Centralize routing and filtering decisions while keeping producers free from destination knowledge.">
+  <h3><a href="playbooks/routing-pipeline.html">Routing Pipeline</a></h3>
+  <p class="meta">playbook / integration-playbook</p>
+  <p>Centralize routing and filtering decisions while keeping producers free from destination knowledge.</p>
+</article><article class="card" data-search="stateful-workflow Stateful Workflow Make lifecycle transitions explicit when state-dependent behavior is scattered through conditionals.">
+  <h3><a href="playbooks/stateful-workflow.html">Stateful Workflow</a></h3>
+  <p class="meta">playbook / object-playbook</p>
+  <p>Make lifecycle transitions explicit when state-dependent behavior is scattered through conditionals.</p>
+</article><article class="card" data-search="variation-point-refactor Variation Point Refactor Extract a recurring behavior or construction variation without turning simple code into generic pattern machinery.">
+  <h3><a href="playbooks/variation-point-refactor.html">Variation Point Refactor</a></h3>
+  <p class="meta">playbook / object-playbook</p>
+  <p>Extract a recurring behavior or construction variation without turning simple code into generic pattern machinery.</p>
+</article></div></section>
+<section><h2>Smells</h2><div class='grid'><article class="card" data-search="anemic-facade Anemic Facade A facade merely forwards calls while leaking subsystem concepts, errors, configuration, and lifecycle rules to callers.">
+  <h3><a href="smells/anemic-facade.html">Anemic Facade</a></h3>
+  <p class="meta">smell / boundary-smell</p>
+  <p>A facade merely forwards calls while leaking subsystem concepts, errors, configuration, and lifecycle rules to callers.</p>
+</article><article class="card" data-search="chatty-integration Chatty Integration A workflow performs many small cross-boundary calls where one coarse contract, document message, or asynchronous exchange would be clearer.">
+  <h3><a href="smells/chatty-integration.html">Chatty Integration</a></h3>
+  <p class="meta">smell / integration-smell</p>
+  <p>A workflow performs many small cross-boundary calls where one coarse contract, document message, or asynchronous exchange would be clearer.</p>
+</article><article class="card" data-search="conditional-sprawl Conditional Sprawl Repeated branches choose behavior, type construction, lifecycle state, or command handling across multiple modules.">
+  <h3><a href="smells/conditional-sprawl.html">Conditional Sprawl</a></h3>
+  <p class="meta">smell / object-smell</p>
+  <p>Repeated branches choose behavior, type construction, lifecycle state, or command handling across multiple modules.</p>
+</article><article class="card" data-search="event-soup Event Soup Many events circulate without clear ownership, naming discipline, contract governance, or traceable consumer responsibility.">
+  <h3><a href="smells/event-soup.html">Event Soup</a></h3>
+  <p class="meta">smell / integration-smell</p>
+  <p>Many events circulate without clear ownership, naming discipline, contract governance, or traceable consumer responsibility.</p>
+</article><article class="card" data-search="fragile-adapter Fragile Adapter An adapter hides a dependency name but leaks payload shape, protocol quirks, exceptions, or retry behavior.">
+  <h3><a href="smells/fragile-adapter.html">Fragile Adapter</a></h3>
+  <p class="meta">smell / boundary-smell</p>
+  <p>An adapter hides a dependency name but leaks payload shape, protocol quirks, exceptions, or retry behavior.</p>
+</article><article class="card" data-search="god-service God Service One service coordinates unrelated responsibilities, owns too much state, and becomes the default place for new behavior.">
+  <h3><a href="smells/god-service.html">God Service</a></h3>
+  <p class="meta">smell / object-smell</p>
+  <p>One service coordinates unrelated responsibilities, owns too much state, and becomes the default place for new behavior.</p>
+</article><article class="card" data-search="hidden-router Hidden Router Routing decisions are scattered across producers, consumers, configuration, and conditionals with no single testable policy.">
+  <h3><a href="smells/hidden-router.html">Hidden Router</a></h3>
+  <p class="meta">smell / integration-smell</p>
+  <p>Routing decisions are scattered across producers, consumers, configuration, and conditionals with no single testable policy.</p>
+</article><article class="card" data-search="lifecycle-state-spread Lifecycle State Spread State checks and transition rules are scattered across services, controllers, handlers, or UI logic.">
+  <h3><a href="smells/lifecycle-state-spread.html">Lifecycle State Spread</a></h3>
+  <p class="meta">smell / object-smell</p>
+  <p>State checks and transition rules are scattered across services, controllers, handlers, or UI logic.</p>
+</article><article class="card" data-search="naive-exactly-once Naive Exactly Once The design assumes messages, commands, or jobs execute exactly once without durable idempotency, transaction boundaries, or recovery policy.">
+  <h3><a href="smells/naive-exactly-once.html">Naive Exactly Once</a></h3>
+  <p class="meta">smell / integration-smell</p>
+  <p>The design assumes messages, commands, or jobs execute exactly once without durable idempotency, transaction boundaries, or recovery policy.</p>
+</article><article class="card" data-search="overused-singleton Overused Singleton Global instances are used for convenience, configuration, service lookup, or mutable process-wide state.">
+  <h3><a href="smells/overused-singleton.html">Overused Singleton</a></h3>
+  <p class="meta">smell / object-smell</p>
+  <p>Global instances are used for convenience, configuration, service lookup, or mutable process-wide state.</p>
+</article><article class="card" data-search="pattern-ceremony Pattern Ceremony Pattern-shaped classes, interfaces, or layers exist before the design has enough variation, ownership pressure, or runtime risk to justify them.">
+  <h3><a href="smells/pattern-ceremony.html">Pattern Ceremony</a></h3>
+  <p class="meta">smell / design-smell</p>
+  <p>Pattern-shaped classes, interfaces, or layers exist before the design has enough variation, ownership pressure, or runtime risk to justify them.</p>
+</article><article class="card" data-search="provider-switch-sprawl Provider Switch Sprawl Provider, engine, tenant, or region selection is repeated across services, handlers, or UI code.">
+  <h3><a href="smells/provider-switch-sprawl.html">Provider Switch Sprawl</a></h3>
+  <p class="meta">smell / boundary-smell</p>
+  <p>Provider, engine, tenant, or region selection is repeated across services, handlers, or UI code.</p>
+</article><article class="card" data-search="unbounded-retry Unbounded Retry Failed work retries indefinitely or with unclear terminal behavior, often without idempotency or operator visibility.">
+  <h3><a href="smells/unbounded-retry.html">Unbounded Retry</a></h3>
+  <p class="meta">smell / integration-smell</p>
+  <p>Failed work retries indefinitely or with unclear terminal behavior, often without idempotency or operator visibility.</p>
+</article></div></section>
+<section><h2>Frameworks</h2><div class='grid'><article class="card" data-search="dotnet-masstransit .NET / MassTransit ">
+  <h3><a href="frameworks/dotnet-masstransit.html">.NET / MassTransit</a></h3>
+  <p class="meta">framework / framework-pack</p>
+  <p></p>
+</article><article class="card" data-search="go-watermill-nats Go / Watermill + NATS ">
+  <h3><a href="frameworks/go-watermill-nats.html">Go / Watermill + NATS</a></h3>
+  <p class="meta">framework / framework-pack</p>
+  <p></p>
+</article><article class="card" data-search="java-spring-integration Java / Spring Integration ">
+  <h3><a href="frameworks/java-spring-integration.html">Java / Spring Integration</a></h3>
+  <p class="meta">framework / framework-pack</p>
+  <p></p>
+</article><article class="card" data-search="python-celery-faststream Python / Celery + FastStream ">
+  <h3><a href="frameworks/python-celery-faststream.html">Python / Celery + FastStream</a></h3>
+  <p class="meta">framework / framework-pack</p>
+  <p></p>
+</article><article class="card" data-search="rust-tokio-tower Rust / Tokio + Tower ">
+  <h3><a href="frameworks/rust-tokio-tower.html">Rust / Tokio + Tower</a></h3>
+  <p class="meta">framework / framework-pack</p>
+  <p></p>
+</article><article class="card" data-search="typescript-nestjs-kafkajs TypeScript / NestJS + KafkaJS ">
+  <h3><a href="frameworks/typescript-nestjs-kafkajs.html">TypeScript / NestJS + KafkaJS</a></h3>
+  <p class="meta">framework / framework-pack</p>
+  <p></p>
+</article></div></section>
+<section><h2>Recipes</h2><div class='grid'><article class="card" data-search="adapter-boundary Adapter Boundary Stop external SDK, protocol, or legacy concepts from leaking into domain code.">
+  <h3><a href="recipes/adapter-boundary.html">Adapter Boundary</a></h3>
+  <p class="meta">recipe / boundary-recipe</p>
+  <p>Stop external SDK, protocol, or legacy concepts from leaking into domain code.</p>
+</article><article class="card" data-search="dead-letter-channel-recipe Dead Letter Channel Recipe Give exhausted or permanently failed messages an owned, observable terminal path.">
+  <h3><a href="recipes/dead-letter-channel-recipe.html">Dead Letter Channel Recipe</a></h3>
+  <p class="meta">recipe / integration-recipe</p>
+  <p>Give exhausted or permanently failed messages an owned, observable terminal path.</p>
+</article><article class="card" data-search="idempotent-receiver-recipe Idempotent Receiver Recipe Make a message handler safe under retry, redelivery, and replay.">
+  <h3><a href="recipes/idempotent-receiver-recipe.html">Idempotent Receiver Recipe</a></h3>
+  <p class="meta">recipe / integration-recipe</p>
+  <p>Make a message handler safe under retry, redelivery, and replay.</p>
+</article><article class="card" data-search="provider-bridge Provider Bridge Separate provider selection and provider-specific SDK behavior from domain workflows.">
+  <h3><a href="recipes/provider-bridge.html">Provider Bridge</a></h3>
+  <p class="meta">recipe / boundary-recipe</p>
+  <p>Separate provider selection and provider-specific SDK behavior from domain workflows.</p>
+</article><article class="card" data-search="stateful-workflow-recipe Stateful Workflow Recipe Make lifecycle-dependent behavior and legal transitions explicit.">
+  <h3><a href="recipes/stateful-workflow-recipe.html">Stateful Workflow Recipe</a></h3>
+  <p class="meta">recipe / object-recipe</p>
+  <p>Make lifecycle-dependent behavior and legal transitions explicit.</p>
+</article><article class="card" data-search="strategy-refactor Strategy Refactor Move repeated algorithm-selection branches behind a domain-named behavior boundary.">
+  <h3><a href="recipes/strategy-refactor.html">Strategy Refactor</a></h3>
+  <p class="meta">recipe / object-recipe</p>
+  <p>Move repeated algorithm-selection branches behind a domain-named behavior boundary.</p>
+</article></div></section>
+<section><h2>Scorecards</h2><div class='grid'><article class="card" data-search="standard-architecture-decision Standard Architecture Decision Scorecard Compare pattern options with consistent decision criteria instead of relying on pattern familiarity.">
+  <h3><a href="scorecards/standard-architecture-decision.html">Standard Architecture Decision Scorecard</a></h3>
+  <p class="meta">scorecard / decision-scorecard</p>
+  <p>Compare pattern options with consistent decision criteria instead of relying on pattern familiarity.</p>
+</article></div></section>
+<section><h2>Snippets</h2><div class='grid'><article class="card" data-search="csharp-strategy C# Strategy Boundary ">
+  <h3><a href="snippets/csharp-strategy.html">C# Strategy Boundary</a></h3>
+  <p class="meta">snippet / None</p>
+  <p></p>
+</article><article class="card" data-search="python-idempotent-receiver Python Idempotent Receiver ">
+  <h3><a href="snippets/python-idempotent-receiver.html">Python Idempotent Receiver</a></h3>
+  <p class="meta">snippet / None</p>
+  <p></p>
+</article></div></section>
+<section><h2>Languages</h2><div class='grid'><article class='card' data-search='cpp C++'><h3><a href='languages/cpp.html'>C++</a></h3></article><article class='card' data-search='csharp C# / .NET'><h3><a href='languages/csharp.html'>C# / .NET</a></h3></article><article class='card' data-search='go Go'><h3><a href='languages/go.html'>Go</a></h3></article><article class='card' data-search='java Java / JVM'><h3><a href='languages/java.html'>Java / JVM</a></h3></article><article class='card' data-search='python Python'><h3><a href='languages/python.html'>Python</a></h3></article><article class='card' data-search='rust Rust'><h3><a href='languages/rust.html'>Rust</a></h3></article><article class='card' data-search='typescript TypeScript / JavaScript'><h3><a href='languages/typescript.html'>TypeScript / JavaScript</a></h3></article></div></section>
+<script>
+const input=document.getElementById('search');
+input.addEventListener('input',()=>{
+  const q=input.value.toLowerCase();
+  document.querySelectorAll('[data-search]').forEach(card=>{
+    card.style.display=card.dataset.search.toLowerCase().includes(q)?'block':'none';
+  });
+});
+</script>
+
+  </main>
+</body>
+</html>

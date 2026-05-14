@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+"""Start the design-pattern MCP server from an installed plugin or repo checkout."""
+
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+
+def candidate_roots() -> list[Path]:
+    candidates: list[Path] = []
+    for key in ("CLAUDE_PLUGIN_ROOT", "CODEX_PLUGIN_ROOT", "PLUGIN_ROOT"):
+        value = os.environ.get(key)
+        if value:
+            candidates.append(Path(value).expanduser())
+    script_root = Path(__file__).resolve().parents[1]
+    candidates.extend(
+        [
+            script_root,
+            Path.cwd(),
+            Path.cwd() / "plugins" / "design-patterns",
+        ]
+    )
+    unique: list[Path] = []
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved not in unique:
+            unique.append(resolved)
+    return unique
+
+
+def find_plugin_root() -> Path:
+    for root in candidate_roots():
+        if (root / "lib" / "pattern_mcp_server.py").exists() and (root / "data" / "patterns").is_dir():
+            return root
+    searched = ", ".join(str(path) for path in candidate_roots())
+    raise SystemExit(f"Could not locate design-patterns plugin root. Searched: {searched}")
+
+
+def main() -> int:
+    root = find_plugin_root()
+    sys.path.insert(0, str(root / "lib"))
+    from pattern_mcp_server import main as server_main
+
+    return server_main()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

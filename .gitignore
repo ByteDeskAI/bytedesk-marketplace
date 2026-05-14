@@ -26,3 +26,7 @@ agentdb.rvf.lock
 *.bak
 .playwright-mcp/
 *.png
+
+# design-patterns plugin — Python artifacts
+__pycache__/
+*.pyc

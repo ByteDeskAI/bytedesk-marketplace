@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "design-patterns": {
+      "type": "stdio",
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/patterns-mcp"
+    }
+  }
+}

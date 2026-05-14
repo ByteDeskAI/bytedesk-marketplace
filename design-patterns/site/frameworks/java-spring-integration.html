@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Java / Spring Integration</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Space+Mono:wght@700&display=swap" rel="stylesheet">
+  <style>
+:root{--bg:#0d1117;--panel:#151c27;--panel-2:#0a0f16;--ink:#e6edf3;--muted:#8b949e;--line:#303846;--line-strong:#657183;--accent:#00d9ff;--accent-2:#ff6b35;--gain:#7ee787}
+*{box-sizing:border-box}
+html{background:var(--bg);color-scheme:dark}
+body{font-family:"Inter Tight",sans-serif;margin:0;background:radial-gradient(circle at 72% 0,rgba(0,217,255,.15),transparent 34rem),linear-gradient(180deg,#0d1117,#080c12);color:var(--ink)}
+body:before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.28;background-image:linear-gradient(rgba(230,237,243,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(230,237,243,.06) 1px,transparent 1px);background-size:32px 32px}
+header{position:relative;border-bottom:1px solid var(--line-strong);background:linear-gradient(135deg,rgba(0,217,255,.1),rgba(21,28,39,.92));padding:34px 38px}
+header h1{font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:-.07em;font-size:clamp(38px,5vw,78px);line-height:.92;margin:0}
+header p{font-family:"JetBrains Mono",monospace;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-size:12px}
+main{max-width:1280px;margin:0 auto;padding:28px}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline;text-decoration-color:var(--accent-2)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
+.card{background:linear-gradient(180deg,rgba(21,28,39,.96),rgba(10,15,22,.98));border:1px solid var(--line);padding:16px;min-height:160px}
+.card:hover{border-color:var(--accent)}
+.card h3{font-family:"Space Mono",monospace;letter-spacing:-.05em;line-height:1.05}
+.meta{color:var(--muted);font:11px "JetBrains Mono",monospace;text-transform:uppercase;letter-spacing:.08em}
+.pill{display:inline-block;background:#070b10;border:1px solid var(--line);padding:3px 8px;margin:2px;font:11px "JetBrains Mono",monospace;color:#c9d1d9}
+pre{white-space:pre-wrap;background:#060a0f;color:#f8fafc;padding:16px;border:1px solid var(--line);overflow:auto}
+input{width:100%;box-sizing:border-box;font:15px "JetBrains Mono",monospace;padding:14px;border:1px solid var(--line-strong);background:#060a0f;color:var(--ink);margin:18px 0;border-radius:0}
+input:focus-visible{outline:2px solid var(--accent-2);outline-offset:2px}
+section{margin:30px 0}.section-list li{margin:7px 0;color:#c9d1d9;line-height:1.45}h2{font-family:"JetBrains Mono",monospace;text-transform:uppercase;letter-spacing:.08em;font-size:14px;color:var(--accent);border-bottom:1px solid var(--line);padding-bottom:10px}
+</style>
+</head>
+<body>
+  <header>
+    <h1>Java / Spring Integration</h1>
+    <p>Source-neutral design pattern guidance for architecture decisions, smells, playbooks, recipes, and implementation packs.</p>
+  </header>
+  <main>
+    <p class='meta'>framework / framework-pack / Framework Implementation Packs</p>
+<section><h2>Implementation Notes</h2><ul class='section-list'><li>Keep business decisions in domain services and transport decisions in flow configuration.</li><li>Name channels after business flow roles, not only broker mechanics.</li><li>Use error channels, retry advice, and transaction boundaries deliberately.</li><li>Avoid turning integration configuration into the hidden owner of domain policy.</li></ul></section>
+<section><h2>Best For</h2><ul class='section-list'><li>Enterprise message flows inside JVM systems.</li><li>Explicit channels, routers, transformers, splitters, aggregators, and service activators.</li><li>Teams that want integration flow definitions close to Spring configuration.</li></ul></section>
+<section><h2>Pattern Mapping</h2><ul class='section-list'><li>Message Channel maps to Spring Integration channels.</li><li>Content-Based Router maps to router components or integration flow route definitions.</li><li>Splitter and Aggregator map to first-class flow operators.</li><li>Service Activator maps to method invocation from a channel.</li><li>Message Translator maps to transformers and converters.</li></ul></section>
+<section><h2>Testing Guidance</h2><ul class='section-list'><li>Unit-test routers and transformers with representative messages.</li><li>Use Spring slice tests for flow wiring.</li><li>Exercise error channel and retry behavior with controlled failures.</li></ul></section>
+<section><h2>Operational Guidance</h2><ul class='section-list'><li>Expose channel metrics, handler latency, flow errors, and correlation IDs.</li><li>Document ownership for flow changes, schema changes, and replay operations.</li><li>Treat complex route definitions as production logic that deserves review.</li></ul></section>
+<p><span class='pill'>message-channel</span><span class='pill'>message-router</span><span class='pill'>content-based-router</span><span class='pill'>splitter</span><span class='pill'>aggregator</span><span class='pill'>service-activator</span></p>
+  </main>
+</body>
+</html>
