@@ -37,6 +37,12 @@ from pattern_intelligence import (  # noqa: E402
     recommend_entries,
 )
 from pattern_mcp_server import serve_stdio  # noqa: E402
+from pattern_memory import (  # noqa: E402
+    journal_location,
+    recall_summary,
+    record_from_tool,
+    render as render_memory,
+)
 from pattern_scanner import scan_path  # noqa: E402
 
 
@@ -422,6 +428,102 @@ def serve_workbench(host: str, port: int) -> int:
     return run_server(host, port)
 
 
+def _print_memory(action: str, payload: Any) -> None:
+    """Compact human-readable rendering of a `patterns memory` result."""
+    if action == "where":
+        print(f"mode:    {payload.get('mode')}")
+        print(f"root:    {payload.get('root')}")
+        journal = payload.get("journal")
+        print(f"journal: {journal} ({'exists' if payload.get('exists') else 'not created yet'})")
+        if payload.get("projectRoot"):
+            print(f"project: {payload['projectRoot']}")
+        return
+    if action == "record":
+        if payload.get("recorded") is False:
+            print(f"not recorded: {payload.get('error')}", file=sys.stderr)
+        else:
+            print(f"recorded {payload.get('kind')} event {payload.get('id', '')}".rstrip())
+        return
+    if action == "render":
+        print(f"rendered decisions + index at {payload.get('root')}")
+        return
+    # recall
+    print(f"mode: {payload.get('mode')}  root: {payload.get('root')}")
+    print(
+        f"events: {payload.get('eventCount', 0)}  "
+        f"decisions: {payload.get('decisionCount', 0)}  "
+        f"applied: {payload.get('appliedCount', 0)}"
+    )
+    for decision in payload.get("decisions") or []:
+        print(f"  ADR-{decision.get('adrNumber')} [{decision.get('status')}] {decision.get('title') or ''}".rstrip())
+    index = payload.get("patternIndex") or {}
+    if index:
+        print("patterns applied:")
+        for slug, info in sorted(index.items()):
+            print(f"  {slug} -> {', '.join(info.get('modules', []))}".rstrip())
+    if payload.get("matchedDecisions"):
+        print("matched decisions:")
+        for decision in payload["matchedDecisions"]:
+            print(f"  ADR-{decision.get('adrNumber')} [{decision.get('status')}] {decision.get('title') or ''}".rstrip())
+    recent = payload.get("recentEvents") or []
+    if recent:
+        print("recent:")
+        for event in recent[:10]:
+            kind = event.get("kind")
+            if kind == "scan":
+                extra = f" {event.get('path')} ({event.get('findingCount', 0)} findings)"
+            elif kind == "decision":
+                extra = f" ADR-{event.get('adrNumber')} [{event.get('status')}]"
+            elif kind == "applied":
+                extra = f" {event.get('pattern')} -> {event.get('targetModule')}"
+            elif kind == "recommendation":
+                extra = f" {event.get('primarySlug') or ''}"
+            elif kind == "edit":
+                extra = f" {event.get('file')}"
+            else:
+                extra = ""
+            print(f"  {event.get('ts')} {kind}{extra}".rstrip())
+
+
+def memory_command(args: argparse.Namespace, as_json: bool) -> int:
+    action = args.memory_action
+    if action == "where":
+        payload: Any = journal_location()
+    elif action == "recall":
+        payload = recall_summary(
+            query=getattr(args, "query", None) or None,
+            path=getattr(args, "path", None) or None,
+            limit=args.limit,
+        )
+    elif action == "record":
+        payload = record_from_tool(
+            args.kind,
+            {
+                "kind": args.kind,
+                "pattern": args.pattern,
+                "target": args.target,
+                "adr": args.adr,
+                "status": args.status,
+                "outcome": args.outcome,
+                "summary": args.summary,
+                "sourceShape": args.source_shape,
+                "verified": args.verified,
+            },
+        )
+    elif action == "render":
+        render_memory()
+        payload = {"rendered": True, **journal_location()}
+    else:
+        return 1
+    if as_json:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        _print_memory(action, payload)
+    if action == "record" and isinstance(payload, dict) and payload.get("recorded") is False:
+        return 1
+    return 0
+
+
 def add_json(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--json", action="store_true", dest="command_json", help="Emit JSON")
 
@@ -546,6 +648,33 @@ def main() -> int:
 
     subparsers.add_parser("mcp", help="Run the stdio MCP server for marketplace/tool integrations")
 
+    memory_parser = subparsers.add_parser("memory", help="Inspect and record cross-session pattern memory")
+    memory_sub = memory_parser.add_subparsers(dest="memory_action", required=True)
+
+    memory_where = memory_sub.add_parser("where", help="Show where the pattern-memory journal lives (project vs global)")
+    add_json(memory_where)
+
+    memory_recall = memory_sub.add_parser("recall", help="Recall prior scans, decisions, and applied refactors")
+    memory_recall.add_argument("--query", "-q", help="Surface prior ADR decisions matching this force")
+    memory_recall.add_argument("--path", help="Include the most recent scan of this path")
+    memory_recall.add_argument("--limit", type=int, default=20, help="Cap on recent events to return")
+    add_json(memory_recall)
+
+    memory_record = memory_sub.add_parser("record", help="Record an applied refactor, ADR status change, or note")
+    memory_record.add_argument("--kind", required=True, choices=["applied", "decision", "note"])
+    memory_record.add_argument("--pattern", help="kind=applied: catalog pattern slug that was applied")
+    memory_record.add_argument("--target", help="kind=applied: file or module the pattern was applied to")
+    memory_record.add_argument("--adr", type=int, help="kind=applied: ADR number to link; kind=decision: ADR number changing status")
+    memory_record.add_argument("--status", help="kind=decision: new status (accepted, superseded, deprecated)")
+    memory_record.add_argument("--outcome", default="done", choices=["done", "partial", "reverted"], help="kind=applied: outcome")
+    memory_record.add_argument("--summary", help="Short human-readable summary of what was done or decided")
+    memory_record.add_argument("--source-shape", dest="source_shape", help="kind=applied: code shape before the refactor")
+    memory_record.add_argument("--verified", action="store_true", help="kind=applied: change was verified by tests/runtime checks")
+    add_json(memory_record)
+
+    memory_render = memory_sub.add_parser("render", help="Regenerate the decisions/ markdown and index.md from the journal")
+    add_json(memory_render)
+
     args = parser.parse_args()
     as_json = args.json or getattr(args, "command_json", False)
     if args.command == "list":
@@ -604,6 +733,8 @@ def main() -> int:
         return serve_workbench(args.host, args.port)
     if args.command == "mcp":
         return serve_stdio()
+    if args.command == "memory":
+        return memory_command(args, as_json)
     return 1
 
 

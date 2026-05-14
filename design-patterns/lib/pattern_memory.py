@@ -450,6 +450,17 @@ def record_from_tool(kind: Any, arguments: dict[str, Any]) -> dict[str, Any]:
     return {"recorded": False, "error": f"unknown record kind: {kind!r} (expected applied, decision, or note)"}
 
 
+def record_edit(file_path: Any, tool: str | None = None) -> dict[str, Any]:
+    """Coarse breadcrumb from the PostToolUse hook — records THAT a file changed, not
+    which pattern or decision (intent lives in the conversation, not the tool input).
+    Real applied-refactor outcomes come through record_applied."""
+    return _append(
+        "edit",
+        {"file": _normalize_path(file_path), "editTool": tool},
+        tool=tool or "edit-hook",
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Readers / folders
 # --------------------------------------------------------------------------- #
