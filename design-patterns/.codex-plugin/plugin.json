@@ -1,6 +1,6 @@
 {
   "name": "design-patterns",
-  "version": "0.8.6",
+  "version": "0.9.0",
   "description": "Source-neutral advisor, Markdown reference catalog, MCP tooling, and dynamic workbench for software design patterns.",
   "author": {
     "name": "ByteDeskAI",

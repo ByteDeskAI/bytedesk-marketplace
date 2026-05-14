@@ -19,7 +19,7 @@ from pattern_scanner import scan_path
 import pattern_memory
 
 
-SERVER_INFO = {"name": "design-patterns", "version": "0.8.6"}
+SERVER_INFO = {"name": "design-patterns", "version": "0.9.0"}
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 RISK_TERMS = {
     "operability": {

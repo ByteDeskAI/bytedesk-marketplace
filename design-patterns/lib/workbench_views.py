@@ -20,7 +20,7 @@ def app_html() -> str:
   <div class="shell">
     <aside class="side">
       <div class="brand">
-        <span class="kicker">ByteDeskAI / v0.8.6</span>
+        <span class="kicker">ByteDeskAI / v0.9.0</span>
         <h1>Pattern Workbench</h1>
         <p class="terminal-line">catalog://design-patterns/ops</p>
       </div>
