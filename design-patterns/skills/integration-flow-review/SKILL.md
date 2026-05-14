@@ -38,6 +38,8 @@ Review forces:
 - Observability, audit, replay, and support tooling.
 - Consumer autonomy and producer coupling.
 
+Consult pattern memory first: run `patterns memory recall --query "<flow or force>"`. If a prior ADR decision already covers this integration force, surface it before recommending a fresh pattern set.
+
 Lookup workflow:
 
 1. Use `patterns list integration-design` to survey integration-oriented patterns.

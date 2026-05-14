@@ -263,6 +263,23 @@ SLASH_COMMAND_HELP: dict[str, dict[str, Any]] = {
         ],
         "arguments": {},
     },
+    "patterns-history": {
+        "tool": "patterns_recall",
+        "purpose": "Recall this project's pattern memory — prior scans, recommendations, ADR decisions, and applied refactors. Consult before recommending or scanning so answers build on prior decisions instead of repeating them.",
+        "usage": '/patterns-history ["<force or topic>"] [--path <path>] [--limit <n>]',
+        "helpCommand": "/patterns-history help",
+        "options": [
+            "query: optional architecture force or topic; matching prior ADR decisions are surfaced first.",
+            "--path <path>: optional file or directory; includes the most recent scan of that path.",
+            "--limit <n>: optional cap on how many recent events to return. Defaults to 20.",
+        ],
+        "examples": [
+            "/patterns-history",
+            '/patterns-history "provider dispatch"',
+            "/patterns-history --path backend/app/providers",
+        ],
+        "arguments": {},
+    },
 }
 
 SLASH_COMMAND_EXAMPLES: list[dict[str, Any]] = [

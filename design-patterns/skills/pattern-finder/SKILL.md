@@ -28,6 +28,8 @@ Start by identifying the forces in the user's request:
 - Change pressure: what is likely to vary next.
 - Language and framework: whether the local stack already has an idiom that should be preferred.
 
+Consult pattern memory first: run `patterns memory recall --query "$ARGUMENTS"`. If a prior ADR decision already covers this force, surface it before building a fresh shortlist.
+
 Lookup workflow:
 
 1. Run `patterns recommend "$ARGUMENTS"` when the user describes a force, smell, or decision context.

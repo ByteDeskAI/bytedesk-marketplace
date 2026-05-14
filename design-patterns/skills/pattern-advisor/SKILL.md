@@ -30,6 +30,8 @@ Prefer the bundled Markdown catalogs over memory:
 - `data/languages/*.md` summarizes language and ecosystem idioms.
 - The executable `patterns` is available on `PATH` after installation and can list, search, or show catalog entries.
 
+Consult pattern memory before advising: run `patterns memory recall --query "<problem>"`. If the project already has an `accepted` ADR decision for this force, surface it first and build on it rather than repeating the decision.
+
 When advising:
 
 1. Start from the user's actual forces: coupling, variability, ownership, runtime constraints, failure modes, observability, testing, and team skill.

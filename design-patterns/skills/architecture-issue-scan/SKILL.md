@@ -42,9 +42,10 @@ Scan for integration issues:
 Workflow:
 
 1. Inspect the actual code or artifact before recommending changes.
-2. Use `patterns recommend`, `patterns smells`, and `patterns search` to confirm candidate patterns and smells.
-3. Separate real findings from optional refactor ideas.
-4. Prefer local idioms and framework capabilities over textbook ceremony.
+2. Consult pattern memory: `patterns memory recall --path <path>`, and prefer `patterns scan <path> --json` whose `memoryDiff` reports new and resolved smells since the last scan of that path. When a prior scan exists, lead the review with what changed since last time.
+3. Use `patterns recommend`, `patterns smells`, and `patterns search` to confirm candidate patterns and smells.
+4. Separate real findings from optional refactor ideas.
+5. Prefer local idioms and framework capabilities over textbook ceremony.
 
 For review-style output, lead with findings ordered by severity. For each finding include:
 

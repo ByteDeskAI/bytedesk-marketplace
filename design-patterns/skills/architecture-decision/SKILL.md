@@ -23,10 +23,12 @@ Use this skill when the user needs a decision, not just a pattern explanation.
 Decision workflow:
 
 1. Identify the architectural force: variability, coupling, lifecycle state, integration delivery, routing, transformation, operations, or governance.
-2. Use `patterns search`, `patterns show`, and `patterns recommend` where useful before relying on memory.
-3. Compare one recommended pattern or pattern set against at least one serious alternative and one simpler no-pattern option.
-4. State assumptions and decision drivers explicitly.
-5. Include implementation consequences, migration steps, tests, observability, and rollback notes.
-6. Keep pattern provenance out of the answer unless the user explicitly asks for it.
+2. Consult pattern memory: `patterns memory recall --query "<force>"`. If an `accepted` ADR already covers this force, cite it and stop unless the user is explicitly reconsidering it — do not re-decide what is already decided.
+3. Use `patterns search`, `patterns show`, and `patterns recommend` where useful before relying on memory. Use `patterns adr "<decision>"` to draft a catalog-backed seed — it records the ADR to pattern memory and reports its number.
+4. Compare one recommended pattern or pattern set against at least one serious alternative and one simpler no-pattern option.
+5. State assumptions and decision drivers explicitly.
+6. Include implementation consequences, migration steps, tests, observability, and rollback notes.
+7. Keep pattern provenance out of the answer unless the user explicitly asks for it.
+8. When the user accepts a decision, record it: `patterns memory record --kind decision --adr <n> --status accepted` (the number comes from the `patterns adr` output). If the decision supersedes an earlier ADR, also record `--kind decision --adr <old-n> --status superseded` so memory stops surfacing the old one as current.
 
 Decision output should be ready to paste into an ADR or engineering proposal. Prefer concrete consequences over pattern vocabulary. A good decision names what changes in code, ownership, runtime behavior, and operations.

@@ -199,6 +199,23 @@ def _normalize_status(status: Any) -> str:
     return _STATUS_ALIASES.get(value, "proposed")
 
 
+def _slug_list(value: Any) -> list[str] | None:
+    """Best-effort sorted slug list from a scan_path 'patterns' field, whatever its shape —
+    a list of slug strings, a list of entry dicts, or a slug->entry mapping."""
+    if not value:
+        return None
+    items = value.values() if isinstance(value, dict) else value
+    slugs: set[str] = set()
+    for item in items:
+        if isinstance(item, str):
+            slugs.add(item)
+        elif isinstance(item, dict):
+            slug = item.get("slug") or item.get("pattern") or item.get("name")
+            if slug:
+                slugs.add(str(slug))
+    return sorted(slugs) or None
+
+
 def _pattern_known(slug: str) -> bool | None:
     """Best-effort: is ``slug`` a real catalog pattern? ``None`` if the catalog can't load."""
     try:
@@ -291,7 +308,7 @@ def record_scan(
             "findingCount": len(compact),
             "findings": compact,
             "smellCounts": smell_counts,
-            "patternSlugs": sorted(scan_result.get("patterns", []) or []) or None,
+            "patternSlugs": _slug_list(scan_result.get("patterns")),
         },
         tool="patterns_scan",
     )

@@ -22,13 +22,14 @@ Use this skill to move from pattern choice to a safe implementation.
 
 Before changing code:
 
-1. Confirm the actual force being addressed.
-2. Inspect the current files and tests.
-3. Look up the selected pattern with `patterns show <slug>`.
-4. Check `patterns playbooks <slug>` when the change is a pattern combination.
-5. Check `patterns smells <slug>` when the change is motivated by an architectural smell.
-6. Check `patterns languages <language>` or `data/languages/<language>.md` for stack idioms.
-7. Identify the smallest boundary where the pattern can live.
+1. Consult pattern memory first: `patterns memory recall --query "<force>" --path <target-module>`. If a prior ADR decision already covers this force, or the target module already shows applied patterns in `patternIndex`, build on that instead of re-introducing a pattern — and say what memory already knows.
+2. Confirm the actual force being addressed.
+3. Inspect the current files and tests.
+4. Look up the selected pattern with `patterns show <slug>`.
+5. Check `patterns playbooks <slug>` when the change is a pattern combination.
+6. Check `patterns smells <slug>` when the change is motivated by an architectural smell.
+7. Check `patterns languages <language>` or `data/languages/<language>.md` for stack idioms.
+8. Identify the smallest boundary where the pattern can live.
 
 Implementation rules:
 
@@ -53,3 +54,4 @@ Recommended output when implementing:
 2. Run existing focused tests.
 3. Explain the new collaboration shape with file references.
 4. Call out follow-up refactors separately from the completed change.
+5. Record the outcome in pattern memory once the patch lands and focused tests pass: `patterns memory record --kind applied --pattern <slug> --target <module> --summary "<what changed>"`. Add `--adr <n>` when the refactor implements a recorded decision and `--verified` when tests or runtime checks confirmed it. This is what lets future sessions see the module already has this pattern.

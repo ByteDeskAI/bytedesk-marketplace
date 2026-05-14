@@ -40,8 +40,11 @@ from pattern_mcp_server import serve_stdio  # noqa: E402
 from pattern_memory import (  # noqa: E402
     journal_location,
     recall_summary,
+    record_decision,
     record_from_tool,
+    record_scan,
     render as render_memory,
+    scan_diff,
 )
 from pattern_scanner import scan_path  # noqa: E402
 
@@ -84,6 +87,14 @@ def emit(value: object, as_json: bool, language: str | None = None) -> None:
         if "findings" in value:
             print(f"Scanned: {value.get('path')}")
             print(f"Findings: {value.get('count', 0)}")
+            diff = value.get("memoryDiff")
+            if isinstance(diff, dict) and diff.get("comparedToPrevious"):
+                print(
+                    f"Since last scan ({diff.get('since')}): "
+                    f"{len(diff.get('newSmells', []))} new, "
+                    f"{len(diff.get('resolvedSmells', []))} resolved, "
+                    f"{diff.get('unchanged', 0)} unchanged"
+                )
             for finding in value.get("findings", [])[:80]:
                 print(
                     f"- {finding.get('severity', 'P?')} {finding['name']} at {finding['file']}:{finding['line']} "
@@ -310,6 +321,14 @@ def recommend(query: str, scope: str, language: str | None, limit: int, risk: st
 
 def emit_adr(query: str, scope: str, language: str | None, status: str, as_json: bool) -> None:
     payload = adr_payload(query, status=status, language=language, scope=scope)
+    # Feed pattern memory, mirroring the patterns_adr MCP tool: record the ADR seed
+    # and surface the number a later session can transition or build on.
+    try:
+        recorded = record_decision(payload, status=status, scope=scope, language=language)
+        if isinstance(recorded, dict) and isinstance(recorded.get("adrNumber"), int):
+            payload["adrNumber"] = recorded["adrNumber"]
+    except Exception:
+        pass
     if as_json:
         emit(payload, True)
         return
@@ -334,6 +353,12 @@ def emit_adr(query: str, scope: str, language: str | None, status: str, as_json:
     print("## Verification")
     for item in payload["verification"]:
         print(f"- {item}")
+    if payload.get("adrNumber"):
+        print()
+        print(
+            f"_Recorded to pattern memory as ADR-{payload['adrNumber']}. On acceptance: "
+            f"patterns memory record --kind decision --adr {payload['adrNumber']} --status accepted_"
+        )
 
 
 def emit_graph(format_name: str, query: str | None, as_json: bool) -> None:
@@ -404,6 +429,15 @@ def scan(path: str, pack: str, include_docs: bool, include_generated: bool, min_
     except FileNotFoundError as exc:
         print(str(exc), file=sys.stderr)
         return 1
+    # Feed pattern memory, mirroring the patterns_scan MCP tool: diff against the
+    # last stored scan of this path, then record this one.
+    try:
+        diff = scan_diff(path, payload)
+        record_scan(payload, path=path, pack=pack, min_confidence=min_confidence)
+        if isinstance(payload, dict):
+            payload["memoryDiff"] = diff
+    except Exception:
+        pass
     emit(payload, as_json)
     return 0
 

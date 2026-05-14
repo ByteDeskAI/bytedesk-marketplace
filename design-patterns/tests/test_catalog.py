@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import atexit
 import json
+import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -11,6 +14,15 @@ from pathlib import Path
 PLUGIN = Path(__file__).resolve().parents[1]
 ROOT = PLUGIN
 sys.path.insert(0, str(PLUGIN / "lib"))
+
+# Isolate pattern-memory side effects: `patterns adr` / `patterns scan` and the
+# patterns_* MCP tools now record to a journal. Point both the working directory
+# and the global data root at a throwaway dir so test runs never touch the real
+# project or per-user memory store. Inherited by the subprocesses below.
+_MEMORY_TMP = tempfile.mkdtemp(prefix="dp-test-memory-")
+atexit.register(shutil.rmtree, _MEMORY_TMP, ignore_errors=True)
+os.environ["CLAUDE_PLUGIN_DATA"] = _MEMORY_TMP
+os.environ["PWD"] = _MEMORY_TMP
 
 from pattern_catalog import (
     load_frameworks,
