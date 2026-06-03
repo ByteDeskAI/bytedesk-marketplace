@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.9.1] — 2026-06-03
+
+### Fixed
+
+- PostToolUse hook matcher and recorder now recognize the `search_replace` tool name (in addition to `Edit`/`Write`/`MultiEdit`). This is the tool used by Grok Code / the bytedesk-terminal agent and by `search_replace` edits in this environment. Ensures that code changes performed by the assistant are recorded as edit breadcrumbs to the project's pattern memory journal (`.claude/plugins/design-patterns/journal.jsonl` via `record_edit`). Updated `hooks/hooks.json` and `hooks/record_edit.py`. Tracked alongside OAuth intercept work in the terminal.
+
 ## [0.9.0] — 2026-05-14
 
 Minor release: cross-session **pattern memory**. The plugin used to be entirely

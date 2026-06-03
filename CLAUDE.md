@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `bytedesk-marketplace` is a Claude Code plugin marketplace. It ships two plugins: **`fleet`** — parallel multi-session Claude orchestration with hierarchical authorization — and **`design-patterns`** — a source-neutral design-pattern advisor (Python MCP server, 120+ entry Markdown catalog, slash commands, skills, dynamic workbench). The marketplace is consumed by `/plugin marketplace add ByteDeskAI/bytedesk-marketplace`.
 
-This repo was extracted from `ByteDeskAI/bytedesk-platform` (PRs #346 / #347). Status is `v0.1.0` pre-release; breaking changes are expected until v1.0.0.
+This repo was extracted from `ByteDeskAI/bytedesk-platform` (PRs #346 / #347). Status is `v1.4.1` (see README.md); breaking changes are expected until v2.0.0 for individual plugins.
 
 - Issue tracker: Jira project **BDM** (`bytedesk.atlassian.net`)
 - Spec/docs space: Confluence space id **15171589 (BDM1)**

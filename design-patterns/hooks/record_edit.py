@@ -25,7 +25,7 @@ def main() -> int:
         raw = sys.stdin.read()
         event = json.loads(raw) if raw.strip() else {}
         tool = event.get("tool_name") or ""
-        if tool in ("Edit", "Write", "MultiEdit"):
+        if tool in ("Edit", "Write", "MultiEdit", "search_replace"):
             file_path = (event.get("tool_input") or {}).get("file_path")
             if file_path:
                 import pattern_memory
