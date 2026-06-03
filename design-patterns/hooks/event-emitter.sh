@@ -11,6 +11,18 @@
 # Hook contract: exit 0 ALWAYS — an observability hook must never block a tool
 # call. pattern_memory's writers already swallow their own errors; the shell
 # adds a trap + `|| true` so nothing here can ever surface non-zero.
+#
+# NOTE on notifications: Registering a PostToolUse hook causes the Claude Code
+# host to surface a HookExecution / HookRunEntryDto notification (with the full
+# event JSON and status Success) in the UI/activity feed every time it fires.
+# This is by design for visibility ("It is triggered in the hooks"). The hook
+# itself is silent (2>/dev/null || true) and only appends a coarse breadcrumb
+# for pattern memory. If the notifications are noisy during heavy editing:
+# - Temporarily disable by commenting the entry in the *installed* plugin's
+#   hooks/hooks.json (under ~/.claude/plugins/design-patterns/ or equivalent).
+#   It will reset on `/plugin update`.
+# - Or run with env var DESIGN_PATTERNS_NO_EDIT_HOOK=1 to skip recording.
+# For permanent change, edit here in the marketplace source and release new version.
 
 set -u
 trap 'exit 0' ERR EXIT
@@ -23,5 +35,8 @@ ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 # Anchor journal resolution at the project dir Claude Code reports.
 # record_edit.py and pattern_memory both swallow their own errors; the trap
 # above is the final backstop that keeps this hook from ever blocking a tool.
+if [ -n "${DESIGN_PATTERNS_NO_EDIT_HOOK:-}" ]; then
+  exit 0
+fi
 DP_ROOT="$ROOT" PWD="${CLAUDE_PROJECT_DIR:-$PWD}" python3 "$ROOT/hooks/record_edit.py" 2>/dev/null || true
 exit 0

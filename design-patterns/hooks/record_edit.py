@@ -21,6 +21,8 @@ sys.path.insert(0, os.path.join(_ROOT, "lib"))
 
 
 def main() -> int:
+    if os.environ.get("DESIGN_PATTERNS_NO_EDIT_HOOK"):
+        return 0
     try:
         raw = sys.stdin.read()
         event = json.loads(raw) if raw.strip() else {}
