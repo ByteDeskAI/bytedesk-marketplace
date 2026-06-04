@@ -1,0 +1,151 @@
+"""PMStore — Bridge Abstraction for the project-management plugin.
+
+PMStore is the stable public API consumed by pm_mcp_server.py and tests.
+All storage work is delegated to a PMBackend implementor chosen by
+_resolve_backend() at construction time.
+
+Swapping backends = change PM_DATABASE_URL. No other code changes.
+"""
+from __future__ import annotations
+
+import os
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from pm_backend import PMBackend
+
+
+def _pm_root(workspace_path: Optional[str]) -> Path:
+    """Resolve the .pm/ directory for the given workspace path or CWD."""
+    if workspace_path:
+        base = Path(workspace_path).expanduser().resolve()
+        candidate = base / ".pm"
+        if candidate.is_dir() and (candidate / "pm.db").exists():
+            return candidate
+        return candidate
+
+    # Walk up from CWD looking for an existing .pm/pm.db
+    cwd = Path.cwd().resolve()
+    for parent in [cwd] + list(cwd.parents):
+        candidate = parent / ".pm"
+        if candidate.is_dir() and (candidate / "pm.db").exists():
+            return candidate
+
+    # Fallback: .pm/ under CWD (will be created on init)
+    return cwd / ".pm"
+
+
+def _resolve_backend(workspace_path: Optional[str]) -> PMBackend:
+    """Factory: read PM_DATABASE_URL and return the right ConcreteImplementor."""
+    db_url = os.environ.get("PM_DATABASE_URL", "").strip()
+    root = _pm_root(workspace_path)
+
+    if db_url.startswith(("postgres://", "postgresql://")):
+        from pm_backend_postgres import PostgresBackend
+        return PostgresBackend(db_url, root)  # type: ignore[return-value]
+
+    from pm_backend_sqlite import SQLiteBackend
+    return SQLiteBackend(root)  # type: ignore[return-value]
+
+
+class PMStore:
+    """Bridge Abstraction: stable API that delegates all storage to self._backend.
+
+    Callers never import SQLiteBackend or PostgresBackend directly.
+    """
+
+    def __init__(self, workspace_path: Optional[str] = None) -> None:
+        self._backend: PMBackend = _resolve_backend(workspace_path)
+
+    # --- Lifecycle ---
+
+    def is_initialized(self) -> bool:
+        return self._backend.is_initialized()
+
+    def init_workspace(self, project_name: str = "Local Project", key_prefix: str = "PM") -> str:
+        return self._backend.init_workspace(project_name, key_prefix)
+
+    # --- Issues ---
+
+    def create_issue(
+        self,
+        title: str,
+        description: str = "",
+        issue_type: str = "task",
+        priority: str = "medium",
+        assignee: Optional[str] = None,
+        epic_id: Optional[str] = None,
+        sprint_id: Optional[str] = None,
+        story_points: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        return self._backend.create_issue(
+            title, description, issue_type, priority,
+            assignee, epic_id, sprint_id, story_points,
+        )
+
+    def get_issue(self, issue_id: str) -> Optional[Dict[str, Any]]:
+        return self._backend.get_issue(issue_id)
+
+    def update_issue(
+        self,
+        issue_id: str,
+        updates: Dict[str, Any],
+        comment: Optional[str] = None,
+        comment_author: str = "User",
+    ) -> Optional[Dict[str, Any]]:
+        return self._backend.update_issue(issue_id, updates, comment, comment_author)
+
+    def list_issues(
+        self,
+        status: Optional[str] = None,
+        sprint_id: Optional[str] = None,
+        assignee: Optional[str] = None,
+        issue_type: Optional[str] = None,
+        priority: Optional[str] = None,
+        query: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        return self._backend.list_issues(status, sprint_id, assignee, issue_type, priority, query)
+
+    # --- Sprints ---
+
+    def create_sprint(self, name: str, goal: str = "") -> Dict[str, Any]:
+        return self._backend.create_sprint(name, goal)
+
+    def start_sprint(self, sprint_id: str) -> Dict[str, Any]:
+        return self._backend.start_sprint(sprint_id)
+
+    def complete_sprint(self, sprint_id: str) -> Dict[str, Any]:
+        return self._backend.complete_sprint(sprint_id)
+
+    def list_sprints(self) -> List[Dict[str, Any]]:
+        return self._backend.list_sprints()
+
+    def get_active_sprint_id(self) -> Optional[str]:
+        return self._backend.get_active_sprint_id()
+
+    # --- Documentation ---
+
+    def create_doc(
+        self,
+        title: str,
+        content: str = "",
+        parent_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        return self._backend.create_doc(title, content, parent_id)
+
+    def get_doc(self, doc_id: str) -> Optional[Dict[str, Any]]:
+        return self._backend.get_doc(doc_id)
+
+    def update_doc(self, doc_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        return self._backend.update_doc(doc_id, updates)
+
+    def list_docs(self, query: Optional[str] = None) -> List[Dict[str, Any]]:
+        return self._backend.list_docs(query)
+
+    # --- Observability ---
+
+    def get_project_config(self) -> Dict[str, Any]:
+        return self._backend.get_project_config()
+
+    def log_activity(self, action: str, details: str = "") -> None:
+        self._backend.log_activity(action, details)
