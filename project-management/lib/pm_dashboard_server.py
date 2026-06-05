@@ -263,7 +263,8 @@ _sessions: Dict[str, Dict[str, Any]] = {}
 _sessions_lock = threading.Lock()
 
 
-_PLUGIN_SOURCE = "project-management@ByteDeskAI/bytedesk-marketplace"
+_PLUGIN_SOURCE   = "project-management@ByteDeskAI/bytedesk-marketplace"  # install source
+_PLUGIN_UPDATE   = "project-management@bytedesk"                        # update handle (short form)
 _plugin_ensure_lock = threading.Lock()
 _plugin_ensured = False  # only run once per server lifetime
 
@@ -283,9 +284,12 @@ def _ensure_plugin_installed() -> None:
 
     claude_bin = shutil.which("claude")
     if not claude_bin:
-        return  # No claude CLI — skip silently
+        print("[pm-dashboard] plugin check: claude CLI not found — skipping", flush=True)
+        return
 
     try:
+        print("[pm-dashboard] checking plugin status…", flush=True)
+
         # Check if plugin is already installed
         result = subprocess.run(
             [claude_bin, "plugin", "list"],
@@ -297,17 +301,26 @@ def _ensure_plugin_installed() -> None:
         )
 
         if not already_installed:
-            print(f"Installing {_PLUGIN_SOURCE}…", flush=True)
-            subprocess.run(
+            print(f"[pm-dashboard] plugin not found — installing {_PLUGIN_SOURCE}…", flush=True)
+            install = subprocess.run(
                 [claude_bin, "plugin", "install", _PLUGIN_SOURCE],
-                capture_output=True, timeout=60,
+                capture_output=True, text=True, timeout=60,
             )
+            if install.returncode == 0:
+                print("[pm-dashboard] plugin installed OK", flush=True)
+            else:
+                print(f"[pm-dashboard] plugin install failed: {install.stderr.strip()}", flush=True)
         else:
-            # Plugin present — update to pick up latest skill definitions
-            subprocess.run(
-                [claude_bin, "plugin", "update", _PLUGIN_SOURCE],
-                capture_output=True, timeout=60,
+            print(f"[pm-dashboard] plugin found — updating {_PLUGIN_UPDATE}…", flush=True)
+            update = subprocess.run(
+                [claude_bin, "plugin", "update", _PLUGIN_UPDATE],
+                capture_output=True, text=True, timeout=60,
             )
+            if update.returncode == 0:
+                print("[pm-dashboard] plugin updated OK", flush=True)
+            else:
+                print(f"[pm-dashboard] plugin update warning: {update.stderr.strip()}", flush=True)
+
     except Exception as exc:
         print(f"[pm-dashboard] plugin ensure warning: {exc}", flush=True)
 
@@ -505,6 +518,8 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             self._serve_sse()
         elif path == "/health":
             self._respond(200, "text/plain", b"ok")
+        elif path == "/api/plugin/status":
+            self._serve_plugin_status()
         elif path.startswith("/ws/pty/"):
             session_key = path[len("/ws/pty/"):]
             if self.headers.get("Upgrade", "").lower() == "websocket":
@@ -1069,6 +1084,44 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             os.kill(os.getpid(), signal.SIGTERM)
 
         threading.Thread(target=_do_restart, daemon=True).start()
+
+    def _serve_plugin_status(self) -> None:
+        """Return the current plugin install status — useful for testing _ensure_plugin_installed."""
+        claude_bin = shutil.which("claude")
+        if not claude_bin:
+            payload = json.dumps({"ok": False, "error": "claude CLI not found"})
+            self._respond(200, "application/json", payload.encode())
+            return
+        try:
+            result = subprocess.run(
+                [claude_bin, "plugin", "list"],
+                capture_output=True, text=True, timeout=15,
+            )
+            installed = (
+                "project-management@bytedesk" in result.stdout.lower()
+                or "project-management@ByteDeskAI" in result.stdout
+            )
+            # Parse version if visible
+            version = None
+            for line in result.stdout.splitlines():
+                if "project-management" in line.lower() and "version" in line.lower():
+                    version = line.strip()
+                    break
+            payload = json.dumps({
+                "ok": True,
+                "plugin_source": _PLUGIN_SOURCE,
+                "installed": installed,
+                "version_line": version,
+                "ensured_this_session": _plugin_ensured,
+                "raw_list_excerpt": [
+                    l for l in result.stdout.splitlines()
+                    if "project-management" in l.lower() or "bytedesk" in l.lower()
+                ],
+            }, indent=2)
+            self._respond(200, "application/json", payload.encode())
+        except Exception as exc:
+            payload = json.dumps({"ok": False, "error": str(exc)})
+            self._respond(500, "application/json", payload.encode())
 
     def _respond(self, code: int, ctype: str, body: bytes) -> None:
         self.send_response(code)
