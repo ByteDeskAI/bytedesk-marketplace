@@ -73,14 +73,12 @@ class PMStore:
         description: str = "",
         issue_type: str = "task",
         priority: str = "medium",
-        assignee: Optional[str] = None,
         epic_id: Optional[str] = None,
         sprint_id: Optional[str] = None,
-        story_points: Optional[int] = None,
     ) -> Dict[str, Any]:
         return self._backend.create_issue(
             title, description, issue_type, priority,
-            assignee, epic_id, sprint_id, story_points,
+            epic_id, sprint_id,
         )
 
     def get_issue(self, issue_id: str) -> Optional[Dict[str, Any]]:
@@ -99,12 +97,11 @@ class PMStore:
         self,
         status: Optional[str] = None,
         sprint_id: Optional[str] = None,
-        assignee: Optional[str] = None,
         issue_type: Optional[str] = None,
         priority: Optional[str] = None,
         query: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        return self._backend.list_issues(status, sprint_id, assignee, issue_type, priority, query)
+        return self._backend.list_issues(status, sprint_id, issue_type, priority, query)
 
     # --- Sprints ---
 

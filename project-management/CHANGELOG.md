@@ -5,6 +5,33 @@ All notable changes to the `project-management` plugin will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] — 2026-06-05
+
+### Added
+- **Inline terminal sessions**: "Run Ticket" button in the ticket drawer and board card menu spawns a fleet Claude Code session for any ticket. An xterm.js PTY terminal embeds directly in the drawer so you can interact with Claude without leaving the dashboard. Session persists when you navigate away — reattach anytime.
+- **PM Planning tab**: New "Plan" sidebar tab launches an interactive planning session. Claude conducts a structured PM interview (using `AskUserQuestion`) and creates the right ticket structure — bug, task, or epic with child tasks — directly on the board via MCP tools.
+- **WebSocket PTY bridge**: Pure-stdlib WebSocket upgrade handler + `os.openpty()` PTY bridge added to the Python dashboard server (zero new external dependencies). Route: `ws://localhost:<port>/ws/pty/<session-key>` attaches to `tmux attach-session -t <session>`.
+- **Session status API**: `GET /api/run/<ticket>` returns session state; `GET /api/run/<ticket>/log` SSE-streams the fleet log file for fallback display.
+- **Automatic ticket status management**: Starting a session auto-advances the ticket (and its parent epic if applicable) to `IN_PROGRESS`. When the session finishes, the ticket advances to `REVIEW`. When all children of an epic are `REVIEW`/`DONE`, the epic closes to `DONE`.
+- **Missing REST endpoints**: Added `do_POST` (`/api/issues`, `/api/run`, `/api/plan/start`) and `do_PUT` (`/api/issues/{id}`, `/api/docs/{id}`) to the dashboard server — these were called by the frontend drag-and-drop but previously returned 501.
+- **pm-planner skill** (`skills/pm-planner/SKILL.md`): Claude Code skill that acts as a concise PM persona. Uses `AskUserQuestion` to conduct a 5-question interview (feature, problem, scope, breakdown, sizing) and creates tickets via pm MCP tools. Invokable as `/pm:plan`.
+
+### Build
+- Added `xterm` (`^5.3.0`) and `xterm-addon-fit` (`^0.8.0`) to dashboard frontend dependencies.
+- `ViewId` type extended with `'plan'`.
+
+## [0.3.0] — 2026-06-05
+
+### Added
+- **React SPA dashboard** (`dashboard/`) built with Vite + TypeScript, served from `dashboard/dist/` committed to the repo. No npm or Node required at runtime — Python server reads compiled files from disk.
+- **Real @atlaskit components**: `@atlaskit/Lozenge` (issue type/status badges), `@atlaskit/Badge` (column counts), `@atlaskit/Avatar` (assignee initials), `@atlaskit/ProgressBar` (sprint SP progress), `@atlaskit/DynamicTable` (sortable backlog list).
+- **Authentic Atlassian dark theme**: `setGlobalTheme({ colorMode: 'dark' })` from `@atlaskit/tokens` injects all `--ds-*` CSS custom properties at runtime.
+- **Pages view**: doc card grid with type badges (Wiki/ADR/Plan/Learning/Brief/Runbook), hierarchy breadcrumbs, and a slide-in reader panel rendering markdown with Atlassian typography.
+- **Backlog view**: `DynamicTable` with sortable columns, Lozenge status/type cells, Avatar assignee cells, pagination.
+- **Activity view**: colour-coded action feed with avatar-style icons.
+- Python dashboard server updated to serve `dashboard/dist/` static files (replaces embedded HTML string). Long-cache headers for hashed assets (`/assets/*`).
+- `dashboard/vite.config.ts` proxy: `npm run dev` proxies `/api` and `/events` to the running Python server for hot-reload frontend development.
+
 ## [0.2.0] — 2026-06-04
 
 ### Added

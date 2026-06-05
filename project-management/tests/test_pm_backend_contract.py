@@ -52,11 +52,10 @@ class BackendContractMixin:
         self.backend.init_workspace("P", "P")
         issue = self.backend.create_issue(
             title="Do X", description="desc", issue_type="task",
-            priority="medium", assignee=None, epic_id=None, sprint_id=None, story_points=3,
+            priority="medium", epic_id=None, sprint_id=None,
         )
         self.assertEqual(issue["id"], "P-1")
         self.assertEqual(issue["status"], "TODO")
-        self.assertEqual(issue["story_points"], 3)
 
         retrieved = self.backend.get_issue("P-1")
         self.assertIsNotNone(retrieved)
@@ -67,22 +66,21 @@ class BackendContractMixin:
         self.backend.init_workspace("P", "P")
         self.backend.create_issue(
             title="T", description="", issue_type="task",
-            priority="low", assignee=None, epic_id=None, sprint_id=None, story_points=None,
+            priority="low", epic_id=None, sprint_id=None,
         )
         updated = self.backend.update_issue(
-            "P-1", {"status": "IN_PROGRESS", "assignee": "Alice"},
+            "P-1", {"status": "IN_PROGRESS"},
             comment="picked up", comment_author="Alice"
         )
         self.assertEqual(updated["status"], "IN_PROGRESS")
-        self.assertEqual(updated["assignee"], "Alice")
         self.assertEqual(len(updated["comments"]), 1)
         self.assertEqual(updated["comments"][0]["body"], "picked up")
 
     def test_list_issues_filter(self):
         self.backend.init_workspace("P", "P")
-        self.backend.create_issue("A", "", "bug", "high", None, None, None, None)
-        self.backend.create_issue("B", "", "task", "low", None, None, None, None)
-        self.backend.create_issue("C", "", "bug", "low", None, None, None, None)
+        self.backend.create_issue("A", "", "bug", "high", None, None)
+        self.backend.create_issue("B", "", "task", "low", None, None)
+        self.backend.create_issue("C", "", "bug", "low", None, None)
 
         bugs = self.backend.list_issues(issue_type="bug")
         self.assertEqual(len(bugs), 2)
@@ -134,7 +132,7 @@ class BackendContractMixin:
 
     def test_emit_event_writes_jsonl(self):
         self.backend.init_workspace("P", "P")
-        self.backend.create_issue("Emit test", "", "task", "low", None, None, None, None)
+        self.backend.create_issue("Emit test", "", "task", "low", None, None)
         events_path = self.backend.events_path
         self.assertTrue(events_path.exists())
         import json

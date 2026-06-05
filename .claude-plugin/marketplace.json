@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
   "name": "bytedesk",
-  "version": "1.20.0",
+  "version": "1.21.0",
   "description": "ByteDesk's Claude Code marketplace — plugins for parallel multi-session orchestration, hierarchical authorization, and developer tooling.",
   "owner": {
     "name": "ByteDesk AI",
@@ -22,8 +22,8 @@
     },
     {
       "name": "project-management",
-      "description": "Localized project management and documentation tool (Jira/Confluence equivalent) with MCP support for tasks, sprints, board status, and wiki pages.",
-      "version": "0.2.0",
+      "description": "Localized project management and documentation tool (Jira/Confluence equivalent) with MCP support for tasks, sprints, board status, and wiki pages. Real-time React SPA dashboard with @atlaskit components, inline fleet terminal sessions, and PM planning persona.",
+      "version": "0.4.0",
       "source": "./project-management"
     }
   ]

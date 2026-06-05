@@ -59,7 +59,6 @@ class TestPMStore(unittest.TestCase):
             description="Use OAuth2 with Google.",
             issue_type="story",
             priority="high",
-            story_points=5,
         )
 
         self.assertEqual(issue["id"], "TEST-1")
@@ -68,7 +67,6 @@ class TestPMStore(unittest.TestCase):
         self.assertEqual(issue["type"], "story")
         self.assertEqual(issue["status"], "TODO")
         self.assertEqual(issue["priority"], "high")
-        self.assertEqual(issue["story_points"], 5)
 
         retrieved = self.store.get_issue("TEST-1")
         self.assertIsNotNone(retrieved)
@@ -83,27 +81,25 @@ class TestPMStore(unittest.TestCase):
 
         updated = self.store.update_issue(
             issue_id="TEST-1",
-            updates={"status": "IN_PROGRESS", "assignee": "Bob"},
+            updates={"status": "IN_PROGRESS"},
             comment="Starting on this now.",
         )
 
         self.assertIsNotNone(updated)
         self.assertEqual(updated["status"], "IN_PROGRESS")
-        self.assertEqual(updated["assignee"], "Bob")
         self.assertEqual(len(updated["comments"]), 1)
         self.assertEqual(updated["comments"][0]["body"], "Starting on this now.")
 
         # Verify persistence
         retrieved = self.store.get_issue("TEST-1")
         self.assertEqual(retrieved["status"], "IN_PROGRESS")
-        self.assertEqual(retrieved["assignee"], "Bob")
 
     def test_list_issues_and_filtering(self):
         self.store.init_workspace(project_name="Test Project", key_prefix="TEST")
 
-        self.store.create_issue(title="Task A", issue_type="task", priority="low", assignee="Alice")
-        self.store.create_issue(title="Bug B", issue_type="bug", priority="high", assignee="Bob")
-        self.store.create_issue(title="Task C", issue_type="task", priority="high", assignee="Alice")
+        self.store.create_issue(title="Task A", issue_type="task", priority="low")
+        self.store.create_issue(title="Bug B", issue_type="bug", priority="high")
+        self.store.create_issue(title="Task C", issue_type="task", priority="high")
 
         all_issues = self.store.list_issues()
         self.assertEqual(len(all_issues), 3)
@@ -111,9 +107,6 @@ class TestPMStore(unittest.TestCase):
         bugs = self.store.list_issues(issue_type="bug")
         self.assertEqual(len(bugs), 1)
         self.assertEqual(bugs[0]["title"], "Bug B")
-
-        alice_tasks = self.store.list_issues(assignee="Alice")
-        self.assertEqual(len(alice_tasks), 2)
 
         high_priority = self.store.list_issues(priority="high")
         self.assertEqual(len(high_priority), 2)

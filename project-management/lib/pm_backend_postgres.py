@@ -100,10 +100,8 @@ class PostgresBackend:
                     type         TEXT    DEFAULT 'task',
                     status       TEXT    DEFAULT 'TODO',
                     priority     TEXT    DEFAULT 'medium',
-                    assignee     TEXT,
                     epic_id      TEXT,
                     sprint_id    TEXT,
-                    story_points INTEGER,
                     created_at   TEXT    NOT NULL,
                     updated_at   TEXT    NOT NULL
                 );
@@ -218,26 +216,23 @@ class PostgresBackend:
         description: str = "",
         issue_type: str = "task",
         priority: str = "medium",
-        assignee: Optional[str] = None,
         epic_id: Optional[str] = None,
         sprint_id: Optional[str] = None,
-        story_points: Optional[int] = None,
     ) -> Dict[str, Any]:
         now = self._now()
         with self._tx() as cur:
             issue_id = self._next_issue_id(cur)
             cur.execute(
                 """INSERT INTO issues
-                   (id, title, description, type, status, priority, assignee,
-                    epic_id, sprint_id, story_points, created_at, updated_at)
-                   VALUES (%s, %s, %s, %s, 'TODO', %s, %s, %s, %s, %s, %s, %s)""",
+                   (id, title, description, type, status, priority,
+                    epic_id, sprint_id, created_at, updated_at)
+                   VALUES (%s, %s, %s, %s, 'TODO', %s, %s, %s, %s, %s)""",
                 (
                     issue_id, title.strip(), description.strip(),
                     issue_type.strip().lower(), priority.strip().lower(),
-                    assignee.strip() if assignee else None,
                     epic_id.strip() if epic_id else None,
                     sprint_id.strip() if sprint_id else None,
-                    story_points, now, now,
+                    now, now,
                 ),
             )
         issue = self.get_issue(issue_id)
@@ -269,7 +264,7 @@ class PostgresBackend:
             return None
 
         allowed = {"title", "description", "type", "status", "priority",
-                   "assignee", "epic_id", "sprint_id", "story_points"}
+                   "epic_id", "sprint_id"}
         set_clauses: List[str] = []
         params: List[Any] = []
         changes: List[str] = []
@@ -306,7 +301,6 @@ class PostgresBackend:
         self,
         status: Optional[str] = None,
         sprint_id: Optional[str] = None,
-        assignee: Optional[str] = None,
         issue_type: Optional[str] = None,
         priority: Optional[str] = None,
         query: Optional[str] = None,
@@ -326,9 +320,6 @@ class PostgresBackend:
             else:
                 sql += " AND LOWER(sprint_id) = LOWER(%s)"
                 params.append(sprint_id.strip())
-        if assignee:
-            sql += " AND LOWER(COALESCE(assignee, '')) LIKE LOWER(%s)"
-            params.append(f"%{assignee.strip()}%")
         if issue_type:
             sql += " AND LOWER(type) = LOWER(%s)"
             params.append(issue_type.strip())

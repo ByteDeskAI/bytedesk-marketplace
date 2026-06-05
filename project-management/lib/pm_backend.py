@@ -35,10 +35,8 @@ class PMBackend(Protocol):
         description: str,
         issue_type: str,
         priority: str,
-        assignee: Optional[str],
         epic_id: Optional[str],
         sprint_id: Optional[str],
-        story_points: Optional[int],
     ) -> Dict[str, Any]:
         """Create and persist a new issue. Returns the created issue dict."""
         ...
@@ -61,7 +59,6 @@ class PMBackend(Protocol):
         self,
         status: Optional[str],
         sprint_id: Optional[str],
-        assignee: Optional[str],
         issue_type: Optional[str],
         priority: Optional[str],
         query: Optional[str],
