@@ -1,7 +1,7 @@
 [
   {
     "name": "pm-dashboard",
-    "description": "Per-project PM dashboard. PID-locked HTTP server (first-wins, port 796x) with real-time SSE kanban board. Starts automatically while the plugin is active. URL printed to stdout on launch.",
+    "description": "Per-project PM dashboard. Last-wins HTTP server on port 7900 (override with PM_DASHBOARD_PORT env var). Real-time SSE kanban board. Starts automatically while the plugin is active. URL printed to stdout on launch. Find port: cat .pm/dashboard.port",
     "command": "${CLAUDE_PLUGIN_ROOT}/bin/pm-dashboard",
     "when": "always"
   }

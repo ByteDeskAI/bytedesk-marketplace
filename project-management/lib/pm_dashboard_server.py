@@ -13,6 +13,7 @@ Or via the bin/pm-dashboard launcher.
 """
 from __future__ import annotations
 
+import atexit
 import base64
 import fcntl
 import hashlib
@@ -139,7 +140,6 @@ def _pick_port(root: Path) -> int:
 
     (root / "dashboard.port").write_text(str(port) + "\n")
     return port
-    return base  # fallback
 
 
 # ---------------------------------------------------------------------------
@@ -1238,6 +1238,9 @@ def run(workspace_path: Optional[str] = None) -> int:
             pass
     pid_path.parent.mkdir(parents=True, exist_ok=True)
     pid_path.write_text(str(os.getpid()) + "\n")
+    # Always clean up pid + port files on any exit — SIGTERM, crash, normal, whatever.
+    atexit.register(_release_pid_lock, pid_path)
+    atexit.register(lambda: (root / "dashboard.port").unlink(missing_ok=True))
 
     # Locate the compiled React SPA dist/
     plugin_root = Path(__file__).resolve().parents[1]

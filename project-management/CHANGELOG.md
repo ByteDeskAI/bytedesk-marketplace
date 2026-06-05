@@ -5,6 +5,16 @@ All notable changes to the `project-management` plugin will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] — 2026-06-05
+
+### Fixed
+- `atexit` cleanup: pid file and port file are now always removed on process exit regardless of how the process terminates (SIGTERM, crash, clean exit). Previously a SIGTERM arriving before `serve_forever()` started could leave `.pm/dashboard.pid` behind.
+- `_pick_port()`: removed dead code (`return base` after `return port`).
+- `monitors.json` description updated to reflect fixed port 7900 (was "796x" deterministic hash).
+- `App.tsx`: sprint subtitle no longer shows "undefined/undefined story points" — uses `done_tickets`/`total_tickets` which are the actual fields after story points removal.
+- Dashboard skill sync: `_write_session_skills()` copies current SKILL.md files from plugin repo into `.claude/skills/` before spawning plan/run sessions, bypassing stale marketplace skill cache.
+- `pm_mcp_server.py` version bumped to 0.4.1.
+
 ## [0.4.0] — 2026-06-05
 
 ### Added
