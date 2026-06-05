@@ -325,6 +325,33 @@ def _ensure_plugin_installed() -> None:
         print(f"[pm-dashboard] plugin ensure warning: {exc}", flush=True)
 
 
+def _write_session_mcp_json(project_root: Path) -> None:
+    """Write a .mcp.json with absolute paths into the project root.
+
+    This ensures the pm MCP server starts in any spawned Claude Code session
+    even when CLAUDE_PLUGIN_ROOT is not set in the environment (which is the
+    case for tmux sessions launched from the dashboard).
+    """
+    plugin_root = Path(__file__).resolve().parents[1]
+    pm_mcp_bin = plugin_root / "bin" / "pm-mcp"
+    if not pm_mcp_bin.exists():
+        return  # Can't resolve binary — skip
+
+    mcp_config = {
+        "mcpServers": {
+            "pm": {
+                "type": "stdio",
+                "command": str(pm_mcp_bin),
+            }
+        }
+    }
+    target = project_root / ".mcp.json"
+    try:
+        target.write_text(json.dumps(mcp_config, indent=2) + "\n")
+    except Exception as exc:
+        print(f"[pm-dashboard] could not write .mcp.json: {exc}", flush=True)
+
+
 def _check_prerequisites() -> Optional[str]:
     """Returns error string if required tools are missing, else None.
 
@@ -895,8 +922,9 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                 f"Check the codebase, implement the changes, and mark the ticket done when complete."
             )
 
-            # Spawn a standalone claude session — no fleet required
+            # Ensure absolute-path .mcp.json exists so pm MCP server starts
             project_root = str(self._pm_root.parent)
+            _write_session_mcp_json(Path(project_root))
             spawn_err = _spawn_claude_session(ticket_id, prompt, cwd=project_root)
             if spawn_err:
                 self._respond(500, "application/json",
@@ -938,6 +966,11 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         # Ensure the project-management plugin is installed and up to date
         # so that /pm:plan skill is always available in the spawned session.
         _ensure_plugin_installed()
+
+        # Write an absolute-path .mcp.json into the project root so the pm MCP
+        # server starts correctly in the spawned Claude session regardless of
+        # whether CLAUDE_PLUGIN_ROOT is set in the environment.
+        _write_session_mcp_json(Path(project_root))
 
         # Invoke the /pm:plan skill — Claude Code loads pm-planner/SKILL.md automatically.
         planning_prompt = "/pm:plan"
