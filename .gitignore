@@ -30,3 +30,20 @@ agentdb.rvf.lock
 # design-patterns plugin — Python artifacts
 __pycache__/
 *.pyc
+
+dashboard.pid
+dashboard.port
+
+# PM plugin — workspace data directories (created by pm_init in-repo during dev/test)
+# The real workspace lives in the user's project directory, not here.
+project-management/.pm/
+**/.pm/pm.db
+**/.pm/pm.db-shm
+**/.pm/pm.db-wal
+**/.pm/events.jsonl
+**/.pm/dashboard.pid
+**/.pm/dashboard.port
+
+# Claude telemetry and session artifacts
+.claude/telemetry/
+.claudeignore
