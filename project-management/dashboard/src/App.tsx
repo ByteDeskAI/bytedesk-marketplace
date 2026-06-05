@@ -134,7 +134,7 @@ export default function App() {
   const todoCnt = issues.filter(i => i.status === 'TODO').length;
   const doneCnt = issues.filter(i => i.status === 'DONE').length;
   const subTitle = sp
-    ? `${sp.story_points_completed}/${sp.story_points_total} story points · ${sp.total_tickets} issues`
+    ? `${sp.done_tickets ?? doneCnt} done · ${sp.total_tickets ?? issues.length} issues`
     : '';
 
   const sprintParts = (dashboard?.active_sprint ?? '').split(' -- ');
@@ -312,8 +312,8 @@ export default function App() {
         sprintName={dashboard?.active_sprint ?? 'Sprint'}
         completedIssues={issues.filter(i => i.status === 'DONE')}
         rolloverIssues={issues.filter(i => i.status !== 'DONE' && Boolean(i.sprint_id))}
-        completedPoints={dashboard?.sprint_progress?.story_points_completed ?? 0}
-        totalPoints={dashboard?.sprint_progress?.story_points_total ?? 0}
+        completedPoints={dashboard?.sprint_progress?.done_tickets ?? doneCnt}
+        totalPoints={dashboard?.sprint_progress?.total_tickets ?? issues.length}
       />
 
       <FlagGroup onDismissed={(dismissedId) => setFlags(f => f.filter(x => x.id !== dismissedId))}>
