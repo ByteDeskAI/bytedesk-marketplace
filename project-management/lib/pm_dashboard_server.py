@@ -325,6 +325,34 @@ def _ensure_plugin_installed() -> None:
         print(f"[pm-dashboard] plugin ensure warning: {exc}", flush=True)
 
 
+def _write_session_skills(project_root: Path) -> None:
+    """Copy skill files from the plugin repo into the session workspace.
+
+    Claude Code scans .claude/skills/ in the project directory for local skills.
+    Writing here guarantees the session uses the current file on disk, bypassing
+    any stale remote plugin cache from 'claude plugin update'.
+    """
+    plugin_root = Path(__file__).resolve().parents[1]
+    skills_src = plugin_root / "skills"
+    if not skills_src.is_dir():
+        return
+
+    target_skills = project_root / ".claude" / "skills"
+    try:
+        for skill_dir in skills_src.iterdir():
+            if not skill_dir.is_dir():
+                continue
+            skill_md = skill_dir / "SKILL.md"
+            if not skill_md.exists():
+                continue
+            dest = target_skills / skill_dir.name
+            dest.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(str(skill_md), str(dest / "SKILL.md"))
+        print(f"[pm-dashboard] skills synced to {target_skills}", flush=True)
+    except Exception as exc:
+        print(f"[pm-dashboard] skill sync warning: {exc}", flush=True)
+
+
 def _write_session_mcp_json(project_root: Path) -> None:
     """Write a .mcp.json with absolute paths into the project root.
 
@@ -922,9 +950,10 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                 f"Check the codebase, implement the changes, and mark the ticket done when complete."
             )
 
-            # Ensure absolute-path .mcp.json exists so pm MCP server starts
+            # Ensure MCP config and current skills are written into the workspace
             project_root = str(self._pm_root.parent)
             _write_session_mcp_json(Path(project_root))
+            _write_session_skills(Path(project_root))
             spawn_err = _spawn_claude_session(ticket_id, prompt, cwd=project_root)
             if spawn_err:
                 self._respond(500, "application/json",
@@ -967,10 +996,11 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         # so that /pm:plan skill is always available in the spawned session.
         _ensure_plugin_installed()
 
-        # Write an absolute-path .mcp.json into the project root so the pm MCP
-        # server starts correctly in the spawned Claude session regardless of
-        # whether CLAUDE_PLUGIN_ROOT is set in the environment.
+        # Write .mcp.json (absolute paths) and sync skill files from the repo.
+        # Syncing skills bypasses the remote plugin cache so the current SKILL.md
+        # on disk is always what the spawned session loads — no stale marketplace version.
         _write_session_mcp_json(Path(project_root))
+        _write_session_skills(Path(project_root))
 
         # Invoke the /pm:plan skill — Claude Code loads pm-planner/SKILL.md automatically.
         planning_prompt = "/pm:plan"
