@@ -20,7 +20,6 @@ const STATUS_APPEARANCE: Record<string, 'default' | 'inprogress' | 'moved' | 'su
 };
 
 const DETAIL_WIDTH = 480;
-const TERMINAL_WIDTH = 560;
 
 const spring = { type: 'spring' as const, damping: 28, stiffness: 260 };
 
@@ -106,12 +105,12 @@ export default function TicketDetailDrawer({ issue, allIssues, onClose }: Props)
           {/* Drawer container — slides in from left as a unit */}
           <motion.div
             key="drawer"
-            initial={{ x: -(DETAIL_WIDTH + TERMINAL_WIDTH) }}
+            initial={{ x: '-100%' }}
             animate={{ x: 0 }}
-            exit={{ x: -(DETAIL_WIDTH + TERMINAL_WIDTH) }}
+            exit={{ x: '-100%' }}
             transition={spring}
             style={{
-              position: 'fixed', top: 0, left: 0, bottom: 0,
+              position: 'fixed', top: 0, left: 0, bottom: 0, right: 0,
               display: 'flex', flexDirection: 'row',
               zIndex: 500,
               boxShadow: '4px 0 24px rgba(0,0,0,0.4)',
@@ -281,11 +280,13 @@ export default function TicketDetailDrawer({ issue, allIssues, onClose }: Props)
               {sessionKey && (
                 <motion.div
                   key="terminal"
-                  initial={{ width: 0, opacity: 0 }}
-                  animate={{ width: TERMINAL_WIDTH, opacity: 1 }}
-                  exit={{ width: 0, opacity: 0 }}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
                   transition={spring}
                   style={{
+                    flex: 1,
+                    minWidth: 0,
                     overflow: 'hidden',
                     borderLeft: '1px solid var(--ds-border)',
                     background: '#0d1117',

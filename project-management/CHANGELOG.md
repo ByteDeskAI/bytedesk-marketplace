@@ -5,6 +5,11 @@ All notable changes to the `project-management` plugin will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.11] — 2026-06-08
+
+### Changed
+- **Terminal panel fills full remaining width**: drawer container is now full-viewport (`inset: 0`). Details panel stays 480px; terminal panel takes `flex: 1` so it occupies 100% of the remaining screen width when a session is running. Terminal animation simplified to opacity-only (no width expansion needed).
+
 ## [0.4.10] — 2026-06-08
 
 ### Fixed
