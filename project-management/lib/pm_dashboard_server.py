@@ -825,6 +825,13 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             self._serve_migrate_status()
         elif path == "/api/workspace/health":
             self._serve_workspace_health()
+        elif path == "/api/workspace/templates":
+            self._serve_templates()
+        elif path == "/api/workspace/filters":
+            self._serve_filters()
+        elif path == "/api/sprint/standup":
+            since = int(qs.get("since_hours", ["24"])[0])
+            self._serve_standup(since)
         elif path.startswith("/ws/pty/"):
             session_key = path[len("/ws/pty/"):]
             if self.headers.get("Upgrade", "").lower() == "websocket":
@@ -916,12 +923,22 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                     col = "TODO"
                 board[col].append(t["id"])
 
+            # Resolve end_date for the active sprint
+            sprint_end_date = None
+            if active_sprint_id:
+                for s in config.get("sprints", []):
+                    if s["id"] == active_sprint_id:
+                        sprint_end_date = s.get("end_date")
+                        break
+
             payload = json.dumps({
                 "ok": True,
                 "dashboard": {
                     "project_name": config.get("project_name"),
                     "key_prefix": config.get("key_prefix"),
                     "active_sprint": sprint_info,
+                    "active_sprint_id": active_sprint_id,
+                    "sprint_end_date": sprint_end_date,
                     "sprint_progress": {
                         "total_tickets": len(sprint_issues),
                         "done_tickets": done_count,
@@ -1167,6 +1184,13 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             self._handle_plan_kill(path[len("/api/plan/kill/"):])
         elif path == "/api/sprint/plan":
             self._handle_sprint_plan(body)
+        elif path == "/api/sprint/standup":
+            since = int(body.get("since_hours", 24))
+            self._serve_standup(since)
+        elif path == "/api/workspace/templates":
+            self._handle_template_create(body)
+        elif path == "/api/workspace/filters":
+            self._handle_filter_create(body)
         elif path == "/api/issues/bulk":
             self._handle_issues_bulk_create(body)
         elif path == "/api/issues":
@@ -1183,6 +1207,12 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                 self._handle_issue_flag(issue_id, body)
             elif len(parts) == 2 and parts[1] == "commits":
                 self._handle_issue_commit(issue_id, body)
+            elif len(parts) == 2 and parts[1] == "split":
+                self._handle_issue_split(issue_id, body)
+            elif len(parts) == 2 and parts[1] == "checkin":
+                self._handle_issue_checkin(issue_id, body)
+            elif len(parts) == 2 and parts[1] == "summarize":
+                self._handle_issue_summarize(issue_id, body)
             else:
                 self._respond(404, "application/json",
                               json.dumps({"ok": False, "error": "not found"}).encode())
@@ -1609,6 +1639,193 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             self._respond(500, "application/json",
                           json.dumps({"ok": False, "error": str(exc)}).encode())
 
+    # ── v0.7.0 new handlers ───────────────────────────────────────────────────
+
+    def _serve_templates(self) -> None:
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            from pm_store import PMStore
+            store = PMStore(str(self._pm_root.parent))
+            self._respond(200, "application/json",
+                          json.dumps({"ok": True, "templates": store.list_templates()}).encode())
+        except Exception as exc:
+            self._respond(500, "application/json",
+                          json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _handle_template_create(self, body: Dict[str, Any]) -> None:
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            from pm_store import PMStore
+            store = PMStore(str(self._pm_root.parent))
+            name = body.get("name", "").strip()
+            if not name:
+                self._respond(400, "application/json",
+                              json.dumps({"ok": False, "error": "name required"}).encode())
+                return
+            tmpl = store.create_template(name, body.get("fields", {}))
+            self._respond(201, "application/json", json.dumps({"ok": True, "template": tmpl}).encode())
+        except Exception as exc:
+            self._respond(500, "application/json",
+                          json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _handle_template_delete(self, name: str) -> None:
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            from pm_store import PMStore
+            store = PMStore(str(self._pm_root.parent))
+            removed = store.delete_template(name)
+            self._respond(200, "application/json", json.dumps({"ok": removed, "name": name}).encode())
+        except Exception as exc:
+            self._respond(500, "application/json",
+                          json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _serve_filters(self) -> None:
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            from pm_store import PMStore
+            store = PMStore(str(self._pm_root.parent))
+            self._respond(200, "application/json",
+                          json.dumps({"ok": True, "filters": store.list_filters()}).encode())
+        except Exception as exc:
+            self._respond(500, "application/json",
+                          json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _handle_filter_create(self, body: Dict[str, Any]) -> None:
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            from pm_store import PMStore
+            store = PMStore(str(self._pm_root.parent))
+            name = body.get("name", "").strip()
+            if not name:
+                self._respond(400, "application/json",
+                              json.dumps({"ok": False, "error": "name required"}).encode())
+                return
+            f = store.create_filter(name, body.get("criteria", {}))
+            self._respond(201, "application/json", json.dumps({"ok": True, "filter": f}).encode())
+        except Exception as exc:
+            self._respond(500, "application/json",
+                          json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _handle_filter_delete(self, name: str) -> None:
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            from pm_store import PMStore
+            store = PMStore(str(self._pm_root.parent))
+            removed = store.delete_filter(name)
+            self._respond(200, "application/json", json.dumps({"ok": removed, "name": name}).encode())
+        except Exception as exc:
+            self._respond(500, "application/json",
+                          json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _serve_standup(self, since_hours: int = 24) -> None:
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            from pm_store import PMStore
+            from datetime import datetime, timezone, timedelta
+            store = PMStore(str(self._pm_root.parent))
+            now = datetime.now(timezone.utc)
+            cutoff = (now - timedelta(hours=since_hours)).isoformat()
+            active_sprint_id = store.get_active_sprint_id()
+            all_issues = store.list_issues(sprint_id=active_sprint_id) if active_sprint_id else store.list_issues()
+            config = store.get_project_config()
+
+            recently_done, in_progress_list, needs_input_list, newly_created = [], [], [], []
+            for issue in all_issues:
+                status = issue.get("status", "").upper()
+                updated = issue.get("updated_at", "")
+                created = issue.get("created_at", "")
+                summaries = issue.get("session_summaries", [])
+                if status in ("DONE", "REVIEW") and updated >= cutoff:
+                    recently_done.append({"id": issue["id"], "title": issue["title"], "status": status,
+                                          "last_summary": summaries[-1]["summary"][:200] if summaries else None})
+                elif status == "IN_PROGRESS":
+                    in_progress_list.append({"id": issue["id"], "title": issue["title"],
+                                             "progress": issue.get("progress", 0),
+                                             "last_summary": summaries[-1]["summary"][:200] if summaries else None})
+                elif status == "NEEDS_INPUT":
+                    needs_input_list.append({"id": issue["id"], "title": issue["title"],
+                                             "reason": issue.get("flagged_reason", "")})
+                if created >= cutoff and status == "TODO":
+                    newly_created.append({"id": issue["id"], "title": issue["title"]})
+
+            sprint_name = "No active sprint"
+            if active_sprint_id:
+                for s in config.get("sprints", []):
+                    if s["id"] == active_sprint_id:
+                        sprint_name = s.get("name", active_sprint_id)
+                        break
+            self._respond(200, "application/json", json.dumps({
+                "ok": True, "since_hours": since_hours, "sprint_name": sprint_name,
+                "recently_done": recently_done, "in_progress": in_progress_list,
+                "needs_input": needs_input_list, "newly_created": newly_created,
+            }, default=str).encode())
+        except Exception as exc:
+            self._respond(500, "application/json",
+                          json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _handle_issue_split(self, issue_id: str, body: Dict[str, Any]) -> None:
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            from pm_store import PMStore
+            store = PMStore(str(self._pm_root.parent))
+            parts = body.get("parts", [])
+            if not parts:
+                self._respond(400, "application/json",
+                              json.dumps({"ok": False, "error": "parts required"}).encode())
+                return
+            result = store.split_issue(issue_id, parts)
+            for child in result["children"]:
+                _broadcast_event({"type": "issue_created", "payload": {"id": child["id"], "title": child["title"]}})
+            _broadcast_event({"type": "issue_updated", "payload": {"id": issue_id}})
+            self._respond(201, "application/json",
+                          json.dumps({"ok": True, "children": result["children"],
+                                      "original_id": issue_id}).encode())
+        except ValueError as exc:
+            self._respond(404, "application/json",
+                          json.dumps({"ok": False, "error": str(exc)}).encode())
+        except Exception as exc:
+            self._respond(500, "application/json",
+                          json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _handle_issue_checkin(self, issue_id: str, body: Dict[str, Any]) -> None:
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            from pm_store import PMStore
+            store = PMStore(str(self._pm_root.parent))
+            pct = int(body.get("progress_pct", 0))
+            what_done = body.get("what_done", "").strip()
+            if not what_done:
+                self._respond(400, "application/json",
+                              json.dumps({"ok": False, "error": "what_done required"}).encode())
+                return
+            entry = store.checkin_issue(issue_id, pct, what_done, body.get("what_remains", ""))
+            _broadcast_event({"type": "issue_checkin",
+                              "payload": {"id": issue_id, "progress": pct, "what_done": what_done}})
+            self._respond(200, "application/json",
+                          json.dumps({"ok": True, "checkin": entry}).encode())
+        except ValueError as exc:
+            self._respond(404, "application/json",
+                          json.dumps({"ok": False, "error": str(exc)}).encode())
+        except Exception as exc:
+            self._respond(500, "application/json",
+                          json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _handle_issue_summarize(self, issue_id: str, body: Dict[str, Any]) -> None:
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            from pm_store import PMStore
+            store = PMStore(str(self._pm_root.parent))
+            result = store.summarize_thread(issue_id)
+            if result.get("compressed"):
+                _broadcast_event({"type": "issue_updated", "payload": {"id": issue_id}})
+            self._respond(200, "application/json", json.dumps(result).encode())
+        except ValueError as exc:
+            self._respond(404, "application/json",
+                          json.dumps({"ok": False, "error": str(exc)}).encode())
+        except Exception as exc:
+            self._respond(500, "application/json",
+                          json.dumps({"ok": False, "error": str(exc)}).encode())
+
     def _handle_server_exit(self) -> None:
         """Shut down the dashboard server gracefully."""
         self._respond(200, "application/json", json.dumps({"ok": True, "message": "Shutting down"}).encode())
@@ -1953,7 +2170,6 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path.startswith("/api/docs/") and "/link/" in path:
             parts = path.split("/")
-            # /api/docs/<id>/link/<issue_id>  → parts: ['', 'api', 'docs', id, 'link', issue_id]
             if len(parts) >= 6:
                 doc_id = parts[3].upper()
                 issue_id = parts[5].upper()
@@ -1961,6 +2177,12 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             else:
                 self._respond(400, "application/json",
                               json.dumps({"ok": False, "error": "bad path"}).encode())
+        elif path.startswith("/api/workspace/templates/"):
+            name = path[len("/api/workspace/templates/"):]
+            self._handle_template_delete(name)
+        elif path.startswith("/api/workspace/filters/"):
+            name = path[len("/api/workspace/filters/"):]
+            self._handle_filter_delete(name)
         else:
             self._respond(404, "application/json",
                           json.dumps({"ok": False, "error": "not found"}).encode())
@@ -2359,6 +2581,77 @@ def _find_dist_dir(plugin_root: Path) -> Optional[Path]:
     return None
 
 
+def _poll_ci_watchers(root: Path) -> None:
+    """Background thread: poll GitHub CI status for registered CI watchers every 60s."""
+    while True:
+        try:
+            time.sleep(60)
+            sys.path.insert(0, str(Path(__file__).parent))
+            from pm_store import PMStore
+            store = PMStore(str(root.parent))
+            if not store.is_initialized():
+                continue
+            watchers = store.list_ci_watchers()
+            for watcher in watchers:
+                issue_id = watcher["issue_id"]
+                pr_url = watcher["pr_url"]
+                try:
+                    import re as _re
+                    m = _re.search(r"github\.com/([^/]+/[^/]+)/pull/(\d+)", pr_url)
+                    if not m:
+                        continue
+                    repo = m.group(1)
+                    pr_num = m.group(2)
+                    result = subprocess.run(
+                        ["gh", "pr", "view", pr_num, "--repo", repo,
+                         "--json", "state,statusCheckRollup"],
+                        capture_output=True, text=True, timeout=15,
+                    )
+                    if result.returncode != 0:
+                        continue
+                    data = json.loads(result.stdout)
+                    pr_state = data.get("state", "").upper()
+                    checks = data.get("statusCheckRollup") or []
+                    ci_status = "UNKNOWN"
+                    if checks:
+                        conclusions = [c.get("conclusion", "").upper() for c in checks]
+                        if all(c in ("SUCCESS", "NEUTRAL", "SKIPPED") for c in conclusions if c):
+                            ci_status = "SUCCESS"
+                        elif any(c in ("FAILURE", "ERROR", "TIMED_OUT", "ACTION_REQUIRED") for c in conclusions):
+                            ci_status = "FAILURE"
+                        else:
+                            ci_status = "PENDING"
+                    store.update_ci_watcher(issue_id, {
+                        "last_checked": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                        "last_status": ci_status,
+                    })
+                    issue = store.get_issue(issue_id)
+                    if not issue:
+                        continue
+                    current_status = issue.get("status", "").upper()
+                    if ci_status == "SUCCESS" and pr_state == "MERGED":
+                        if current_status not in ("DONE",):
+                            store.update_issue(issue_id, {"status": "DONE"},
+                                               comment="CI passed + PR merged — auto-closed by CI watcher.")
+                            store.remove_ci_watcher(issue_id)
+                            _broadcast_event({"type": "issue_updated",
+                                              "payload": {"id": issue_id, "status": "DONE"}})
+                    elif ci_status == "FAILURE":
+                        failing = [c.get("name", "?") for c in checks
+                                   if c.get("conclusion", "").upper() in ("FAILURE", "ERROR", "TIMED_OUT")]
+                        if current_status in ("REVIEW",):
+                            store.update_issue(
+                                issue_id, {"status": "IN_PROGRESS"},
+                                comment=f"CI failed — failing jobs: {', '.join(failing[:3])}. PR: {pr_url}",
+                            )
+                            _broadcast_event({"type": "issue_updated",
+                                              "payload": {"id": issue_id, "status": "IN_PROGRESS"}})
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+
 def run(workspace_path: Optional[str] = None) -> int:
     global _DIST_DIR
     root = _find_pm_root(workspace_path)
@@ -2405,6 +2698,10 @@ def run(workspace_path: Optional[str] = None) -> int:
     events_path = root / "events.jsonl"
     tailer = threading.Thread(target=_tail_events, args=(events_path,), daemon=True)
     tailer.start()
+
+    # Start CI watcher polling thread
+    ci_poller = threading.Thread(target=_poll_ci_watchers, args=(root,), daemon=True)
+    ci_poller.start()
 
     # Set the PM root on the handler class
     DashboardHandler._pm_root = root

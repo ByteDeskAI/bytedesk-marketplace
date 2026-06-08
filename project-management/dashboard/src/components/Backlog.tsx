@@ -32,6 +32,30 @@ const PRIORITY_ORDER: Record<string, number> = {
   low: 3,
 };
 
+// ── Aging helpers ─────────────────────────────────────────────────────────────
+
+function computeAgeDays(createdAt: string): number {
+  return (Date.now() - new Date(createdAt).getTime()) / 86_400_000;
+}
+
+function ageBorderColor(ageDays: number): string | undefined {
+  if (ageDays >= 15) return 'var(--ds-background-danger-bold)';
+  if (ageDays >= 8)  return 'var(--ds-background-warning-bold)';
+  if (ageDays >= 4)  return 'var(--ds-background-information-bold)';
+  return undefined;
+}
+
+function formatAge(ageDays: number): string {
+  if (ageDays < 1) return '<1d';
+  const d = Math.floor(ageDays);
+  if (d < 7) return `${d}d`;
+  const w = Math.floor(d / 7);
+  if (w < 5) return `${w}w`;
+  return `${Math.floor(d / 30)}m`;
+}
+
+// ── Table head ────────────────────────────────────────────────────────────────
+
 const head = {
   cells: [
     { key: 'select', content: '', width: 4 },
@@ -40,6 +64,7 @@ const head = {
     { key: 'type', content: 'Type', width: 8 },
     { key: 'priority', content: 'Priority', width: 9 },
     { key: 'status', content: 'Status', width: 11 },
+    { key: 'age', content: 'Age', width: 7 },
   ],
 };
 
@@ -59,98 +84,136 @@ export default function Backlog({ issues, onBulkAction }: Props) {
       )
     : issues;
 
-  const rows = displayedIssues.map(t => ({
-    key: t.id,
-    cells: [
-      {
-        key: 'select',
-        content: (
-          <Checkbox
-            isChecked={selectedIds.includes(t.id)}
-            onChange={e => {
-              const v = e.currentTarget.checked;
-              setSelectedIds(prev =>
-                v ? [...prev, t.id] : prev.filter(x => x !== t.id),
-              );
-            }}
-            label=""
-          />
-        ),
-      },
-      {
-        key: t.id,
-        content: (
-          <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--ds-link)' }}>
-            {t.id}
-          </span>
-        ),
-      },
-      {
-        key: t.title,
-        content: (
-          <Tooltip content={t.title} position="right" delay={400}>
-            {tp => (
-              <span
-                {...tp}
-                style={{ fontSize: 13, color: 'var(--ds-text)' }}
-              >
-                {t.title}
-              </span>
-            )}
-          </Tooltip>
-        ),
-      },
-      {
-        key: t.type,
-        content: (
-          <TagGroup>
-            <SimpleTag text={t.type} />
-            {(t.priority === 'critical' || t.priority === 'high') && (
-              <SimpleTag text={t.priority} />
-            )}
-          </TagGroup>
-        ),
-      },
-      {
-        key: t.priority,
-        content: (
-          <span
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 5,
-              fontSize: 12,
-              color: 'var(--ds-text-subtle)',
-            }}
-          >
+  const rows = displayedIssues.map(t => {
+    const ageDays = computeAgeDays(t.created_at);
+    const borderColor = ageBorderColor(ageDays);
+
+    return {
+      key: t.id,
+      cells: [
+        {
+          key: 'select',
+          content: (
+            // Wrap checkbox in a flex row so we can render the left-border
+            // aging indicator as a narrow colored strip alongside it.
+            <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+              {borderColor && (
+                <div style={{
+                  width: 3,
+                  alignSelf: 'stretch',
+                  background: borderColor,
+                  borderRadius: 2,
+                  marginRight: 6,
+                  flexShrink: 0,
+                }} />
+              )}
+              <Checkbox
+                isChecked={selectedIds.includes(t.id)}
+                onChange={e => {
+                  const v = e.currentTarget.checked;
+                  setSelectedIds(prev =>
+                    v ? [...prev, t.id] : prev.filter(x => x !== t.id),
+                  );
+                }}
+                label=""
+              />
+            </div>
+          ),
+        },
+        {
+          key: t.id,
+          content: (
+            <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--ds-link)' }}>
+              {t.id}
+            </span>
+          ),
+        },
+        {
+          key: t.title,
+          content: (
+            <Tooltip content={t.title} position="right" delay={400}>
+              {tp => (
+                <span
+                  {...tp}
+                  style={{ fontSize: 13, color: 'var(--ds-text)' }}
+                >
+                  {t.title}
+                </span>
+              )}
+            </Tooltip>
+          ),
+        },
+        {
+          key: t.type,
+          content: (
+            <TagGroup>
+              <SimpleTag text={t.type} />
+              {(t.priority === 'critical' || t.priority === 'high') && (
+                <SimpleTag text={t.priority} />
+              )}
+            </TagGroup>
+          ),
+        },
+        {
+          key: t.priority,
+          content: (
             <span
               style={{
-                width: 8,
-                height: 8,
-                borderRadius: '50%',
-                flexShrink: 0,
-                background:
-                  t.priority === 'critical' || t.priority === 'high'
-                    ? 'var(--ds-background-danger-bold)'
-                    : t.priority === 'medium'
-                    ? 'var(--ds-background-warning-bold)'
-                    : 'var(--ds-background-neutral-bold)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+                fontSize: 12,
+                color: 'var(--ds-text-subtle)',
               }}
-            />
-            {t.priority}
-          </span>
-        ),
-      },
-      {
-        key: t.status,
-        content: (
-          <Lozenge appearance={STATUS_APPEARANCE[t.status] ?? 'default'}>
-            {t.status.replace('_', ' ')}
-          </Lozenge>
-        ),
-      },
-    ],
-  }));
+            >
+              <span
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: '50%',
+                  flexShrink: 0,
+                  background:
+                    t.priority === 'critical' || t.priority === 'high'
+                      ? 'var(--ds-background-danger-bold)'
+                      : t.priority === 'medium'
+                      ? 'var(--ds-background-warning-bold)'
+                      : 'var(--ds-background-neutral-bold)',
+                }}
+              />
+              {t.priority}
+            </span>
+          ),
+        },
+        {
+          key: t.status,
+          content: (
+            <Lozenge appearance={STATUS_APPEARANCE[t.status] ?? 'default'}>
+              {t.status.replace('_', ' ')}
+            </Lozenge>
+          ),
+        },
+        {
+          key: 'age',
+          content: (
+            <Tooltip content={`Created ${Math.floor(ageDays)} day${Math.floor(ageDays) !== 1 ? 's' : ''} ago`} position="left" delay={300}>
+              {tp => (
+                <span
+                  {...tp}
+                  style={{
+                    fontSize: 11,
+                    color: borderColor ?? 'var(--ds-text-subtlest)',
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
+                >
+                  {formatAge(ageDays)}
+                </span>
+              )}
+            </Tooltip>
+          ),
+        },
+      ],
+    };
+  });
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>

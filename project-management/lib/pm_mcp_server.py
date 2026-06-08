@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 
 from pm_store import PMStore
 
-SERVER_INFO = {"name": "project-management", "version": "0.6.1"}
+SERVER_INFO = {"name": "project-management", "version": "0.7.0"}
 
 
 def tool_definitions() -> List[Dict[str, Any]]:

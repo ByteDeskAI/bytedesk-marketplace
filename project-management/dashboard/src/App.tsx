@@ -9,14 +9,30 @@ import SkeletonBoard from './components/SkeletonBoard';
 import EpicTreeView from './components/EpicTreeView';
 import SprintActionsModal from './components/SprintActionsModal';
 import IssueCalendarView from './components/IssueCalendarView';
+import DependencyGraph from './components/DependencyGraph';
+import SavedFilters from './components/SavedFilters';
 import { api, createSSE } from './api';
 import type { ViewId, Issue, Doc, Dashboard, ActivityEntry } from './types';
 import { FlagGroup, AutoDismissFlag } from '@atlaskit/flag';
 import Button from '@atlaskit/button';
+import ModalDialog, { ModalHeader, ModalTitle, ModalBody, ModalFooter } from '@atlaskit/modal-dialog';
+import Lozenge from '@atlaskit/lozenge';
 import TicketDetailDrawer from './components/TicketDetailDrawer';
 import CreateTicketModal from './components/CreateTicketModal';
 import PlanView from './components/PlanView';
 import CommandPalette from './components/CommandPalette';
+
+interface StandupIssueEntry {
+  id: string;
+  title: string;
+  status: string;
+}
+
+interface StandupData {
+  done: StandupIssueEntry[];
+  in_progress: StandupIssueEntry[];
+  new_issues: StandupIssueEntry[];
+}
 
 export default function App() {
   const [view, setView] = useState<ViewId>('board');
@@ -38,6 +54,14 @@ export default function App() {
   const [showSprintComplete, setShowSprintComplete] = useState(false);
   const [showCalendar, setShowCalendar] = useState(false);
   const [showEpics, setShowEpics] = useState(false);
+  const [showDependencies, setShowDependencies] = useState(false);
+
+  const [activeFilter, setActiveFilter] = useState<string | null>(null);
+  const [filterCriteria, setFilterCriteria] = useState<Record<string, string>>({});
+
+  const [showStandup, setShowStandup] = useState(false);
+  const [standupData, setStandupData] = useState<StandupData | null>(null);
+  const [standupLoading, setStandupLoading] = useState(false);
 
   const fetchStatus = useCallback(() => {
     api.status().then(r => {
@@ -58,6 +82,23 @@ export default function App() {
     api.docs().then(r => {
       if (r.ok) setDocs(r.documents);
     }).catch(() => {});
+  }, []);
+
+  const fetchStandup = useCallback(async () => {
+    setStandupLoading(true);
+    try {
+      const r = await fetch('/api/sprint/standup?since_hours=24');
+      const data = await r.json() as { done?: StandupIssueEntry[]; in_progress?: StandupIssueEntry[]; new_issues?: StandupIssueEntry[] };
+      setStandupData({
+        done: data.done ?? [],
+        in_progress: data.in_progress ?? [],
+        new_issues: data.new_issues ?? [],
+      });
+    } catch {
+      setStandupData({ done: [], in_progress: [], new_issues: [] });
+    } finally {
+      setStandupLoading(false);
+    }
   }, []);
 
   const handleStatusChange = useCallback(async (issueId: string, newStatus: string) => {
@@ -151,10 +192,24 @@ export default function App() {
     </div>
   );
 
+  // Apply saved filter criteria to the issue list for Board/Backlog
+  const filteredIssues = activeFilter
+    ? issues.filter(issue => {
+        for (const [key, value] of Object.entries(filterCriteria)) {
+          if (key === 'status' && issue.status !== value) return false;
+          if (key === 'type' && issue.type !== value) return false;
+          if (key === 'priority' && issue.priority !== value) return false;
+          if (key === 'scope' && issue.scope !== value) return false;
+        }
+        return true;
+      })
+    : issues;
+
   // Tab nav helpers
-  const isEpicsTab = showEpics && !showCalendar;
-  const isCalendarTab = showCalendar && !showEpics;
-  const isViewTab = (v: ViewId) => !showEpics && !showCalendar && view === v;
+  const isEpicsTab = showEpics && !showCalendar && !showDependencies;
+  const isCalendarTab = showCalendar && !showEpics && !showDependencies;
+  const isDependenciesTab = showDependencies && !showEpics && !showCalendar;
+  const isViewTab = (v: ViewId) => !showEpics && !showCalendar && !showDependencies && view === v;
 
   const tabStyle = (active: boolean): React.CSSProperties => ({
     background: 'none',
@@ -173,6 +228,7 @@ export default function App() {
   const switchToView = (v: ViewId) => {
     setShowEpics(false);
     setShowCalendar(false);
+    setShowDependencies(false);
     setView(v);
   };
 
@@ -222,51 +278,83 @@ export default function App() {
             <button style={tabStyle(isViewTab('activity'))} onClick={() => switchToView('activity')}>Activity</button>
             <button
               style={tabStyle(isEpicsTab)}
-              onClick={() => { setShowCalendar(false); setShowEpics(true); }}
+              onClick={() => { setShowCalendar(false); setShowDependencies(false); setShowEpics(true); }}
             >
               Epics
             </button>
             <button
               style={tabStyle(isCalendarTab)}
-              onClick={() => { setShowEpics(false); setShowCalendar(true); }}
+              onClick={() => { setShowEpics(false); setShowDependencies(false); setShowCalendar(true); }}
             >
               Calendar
             </button>
             <button
-              style={tabStyle(!showEpics && !showCalendar && view === 'plan')}
-              onClick={() => { setShowEpics(false); setShowCalendar(false); setView('plan'); }}
+              style={tabStyle(isDependenciesTab)}
+              onClick={() => { setShowEpics(false); setShowCalendar(false); setShowDependencies(true); }}
+            >
+              Dependencies
+            </button>
+            <button
+              style={tabStyle(isViewTab('plan'))}
+              onClick={() => { setShowEpics(false); setShowCalendar(false); setShowDependencies(false); setView('plan'); }}
             >
               Plan
             </button>
 
-            {/* Create button pushed to right */}
-            {(!showEpics && !showCalendar && (view === 'board' || view === 'backlog')) && (
-              <div style={{ marginLeft: 'auto' }}>
+            {/* Right-side actions */}
+            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Button
+                appearance="subtle"
+                onClick={async () => {
+                  setShowStandup(true);
+                  await fetchStandup();
+                }}
+              >
+                Standup
+              </Button>
+              {(!showEpics && !showCalendar && !showDependencies && (view === 'board' || view === 'backlog')) && (
                 <Button appearance="primary" onClick={() => setShowCreateTicket(true)}>Create issue</Button>
-              </div>
-            )}
+              )}
+            </div>
           </div>
+
+          {/* Saved filters chip bar — shown below tab strip on Board and Backlog */}
+          {(!showEpics && !showCalendar && !showDependencies && (view === 'board' || view === 'backlog')) && (
+            <SavedFilters
+              activeFilter={activeFilter}
+              onFilterApply={(name, criteria) => {
+                setActiveFilter(name);
+                setFilterCriteria(criteria);
+              }}
+              onFilterClear={() => {
+                setActiveFilter(null);
+                setFilterCriteria({});
+              }}
+            />
+          )}
 
           {/* Views */}
           <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-            {!showEpics && !showCalendar && view === 'board' && (
+            {!showEpics && !showCalendar && !showDependencies && view === 'board' && (
               <Board
-                issues={issues}
+                issues={filteredIssues}
                 allIssues={issues}
                 subTitle={subTitle}
                 sprintGoal={sprintGoal}
                 onStatusChange={handleStatusChange}
                 onIssueClick={(issue) => setSelectedIssue(issue)}
                 onBulkAction={handleBulkAction}
+                onIssueCreated={fetchStatus}
+                activeSprintId={dashboard?.active_sprint_id ?? null}
               />
             )}
-            {!showEpics && !showCalendar && view === 'backlog' && (
+            {!showEpics && !showCalendar && !showDependencies && view === 'backlog' && (
               <Backlog
-                issues={issues}
+                issues={filteredIssues}
                 onBulkAction={handleBulkAction}
               />
             )}
-            {!showEpics && !showCalendar && view === 'docs' && (
+            {!showEpics && !showCalendar && !showDependencies && view === 'docs' && (
               <Docs
                 docs={docs}
                 activeDocId={activeDocId}
@@ -275,8 +363,12 @@ export default function App() {
                 onRefresh={fetchDocs}
               />
             )}
-            {!showEpics && !showCalendar && view === 'activity' && (
+            {!showEpics && !showCalendar && !showDependencies && view === 'activity' && (
               <Activity activity={activity} />
+            )}
+
+            {showDependencies && !showEpics && !showCalendar && (
+              <DependencyGraph issues={issues} onIssueClick={(issue) => setSelectedIssue(issue)} />
             )}
 
             {showEpics && !showCalendar && (
@@ -328,14 +420,14 @@ export default function App() {
               </div>
             )}
 
-            {showCalendar && !showEpics && (
+            {showCalendar && !showEpics && !showDependencies && (
               <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}>
                 <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--ds-text)', marginBottom: 16 }}>Calendar</h1>
                 <IssueCalendarView issues={issues} />
               </div>
             )}
 
-            {!showEpics && !showCalendar && view === 'plan' && (
+            {!showEpics && !showCalendar && !showDependencies && view === 'plan' && (
               <PlanView />
             )}
           </div>
@@ -359,6 +451,85 @@ export default function App() {
         completedPoints={dashboard?.sprint_progress?.done_tickets ?? doneCnt}
         totalPoints={dashboard?.sprint_progress?.total_tickets ?? issues.length}
       />
+
+      {/* Standup Modal */}
+      {showStandup && (
+        <ModalDialog width="medium" onClose={() => setShowStandup(false)}>
+          <ModalHeader>
+            <ModalTitle>Standup &mdash; Today</ModalTitle>
+          </ModalHeader>
+          <ModalBody>
+            {standupLoading ? (
+              <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--ds-text-subtle)', fontSize: 14 }}>
+                Loading&hellip;
+              </div>
+            ) : standupData ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                {/* Done / Review */}
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ds-text-subtle)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span>Done / Review</span>
+                    <Lozenge appearance="success">{standupData.done.length}</Lozenge>
+                  </div>
+                  {standupData.done.length === 0 ? (
+                    <div style={{ fontSize: 13, color: 'var(--ds-text-subtlest)', fontStyle: 'italic' }}>None</div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {standupData.done.map(entry => (
+                        <div key={entry.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                          <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--ds-link)', fontWeight: 600, flexShrink: 0 }}>{entry.id}</span>
+                          <span style={{ color: 'var(--ds-text)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.title}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {/* In Progress */}
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ds-text-subtle)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span>In Progress</span>
+                    <Lozenge appearance="inprogress">{standupData.in_progress.length}</Lozenge>
+                  </div>
+                  {standupData.in_progress.length === 0 ? (
+                    <div style={{ fontSize: 13, color: 'var(--ds-text-subtlest)', fontStyle: 'italic' }}>None</div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {standupData.in_progress.map(entry => (
+                        <div key={entry.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                          <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--ds-link)', fontWeight: 600, flexShrink: 0 }}>{entry.id}</span>
+                          <span style={{ color: 'var(--ds-text)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.title}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {/* New */}
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ds-text-subtle)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span>New</span>
+                    <Lozenge appearance="new">{standupData.new_issues.length}</Lozenge>
+                  </div>
+                  {standupData.new_issues.length === 0 ? (
+                    <div style={{ fontSize: 13, color: 'var(--ds-text-subtlest)', fontStyle: 'italic' }}>None</div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {standupData.new_issues.map(entry => (
+                        <div key={entry.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                          <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--ds-link)', fontWeight: 600, flexShrink: 0 }}>{entry.id}</span>
+                          <span style={{ color: 'var(--ds-text)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.title}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : null}
+          </ModalBody>
+          <ModalFooter>
+            <Button appearance="subtle" onClick={() => setShowStandup(false)}>Close</Button>
+          </ModalFooter>
+        </ModalDialog>
+      )}
 
       <FlagGroup onDismissed={(dismissedId) => setFlags(f => f.filter(x => x.id !== dismissedId))}>
         {flags.map(flag => (

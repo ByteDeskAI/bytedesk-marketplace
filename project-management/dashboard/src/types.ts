@@ -37,6 +37,13 @@ export interface SessionSummary {
   created_at: string;
 }
 
+export interface IssueCheckin {
+  progress: number;
+  what_done: string;
+  what_remains: string;
+  created_at: string;
+}
+
 export interface Issue {
   id: string;
   title: string;
@@ -56,6 +63,8 @@ export interface Issue {
   flagged_reason: string | null;
   flagged_options: string[];
   comments: Comment[];
+  progress: number;
+  checkins?: IssueCheckin[];
   created_at: string;
   updated_at: string;
 }
@@ -82,6 +91,8 @@ export interface Dashboard {
   project_name: string;
   key_prefix: string;
   active_sprint: string;
+  active_sprint_id?: string | null;
+  sprint_end_date?: string | null;
   sprint_progress: SprintProgress;
   columns: {
     TODO: string[];

@@ -14,7 +14,7 @@ import Toggle from '@atlaskit/toggle';
 import Blanket from '@atlaskit/blanket';
 import InlineDialog from '@atlaskit/inline-dialog';
 import BulkActionsBar from './BulkActionsBar';
-import type { Issue, IssueScope } from '../types';
+import type { Issue, IssueCheckin, IssueScope } from '../types';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { draggable, dropTargetForElements, monitorForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
 
@@ -167,6 +167,12 @@ function IssueCard({ issue, allIssues, onStatusChange, onIssueClick, isSelected,
 
   const cardPadding = compact ? '6px 10px' : '10px 12px';
 
+  const lastCheckin: IssueCheckin | undefined = issue.checkins && issue.checkins.length > 0
+    ? issue.checkins[issue.checkins.length - 1]
+    : undefined;
+
+  const showProgress = issue.progress > 0 && issue.status === 'IN_PROGRESS';
+
   return (
     <div
       ref={cardRef}
@@ -178,6 +184,8 @@ function IssueCard({ issue, allIssues, onStatusChange, onIssueClick, isSelected,
         transition: 'box-shadow .15s, border-color .15s',
         cursor: 'grab',
         boxShadow: isSelected ? 'var(--ds-shadow-raised)' : undefined,
+        position: 'relative',
+        overflow: 'hidden',
       }}
       onClick={() => onIssueClick?.(issue)}
       onMouseOver={e => {
@@ -338,6 +346,158 @@ function IssueCard({ issue, allIssues, onStatusChange, onIssueClick, isSelected,
           <BlockedIndicator issue={issue} allIssues={allIssues} onIssueClick={onIssueClick} />
         </div>
       )}
+      {/* Last checkin preview */}
+      {lastCheckin && (
+        <div style={{
+          fontSize: 11,
+          color: 'var(--ds-text-subtlest)',
+          fontStyle: 'italic',
+          marginTop: 5,
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          maxWidth: '100%',
+        }}>
+          {lastCheckin.what_done.length > 60
+            ? lastCheckin.what_done.slice(0, 60) + '…'
+            : lastCheckin.what_done}
+        </div>
+      )}
+      {/* Progress bar — rendered as absolute strip at card bottom */}
+      {showProgress && (
+        <div style={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: 3,
+          background: `linear-gradient(to right, var(--ds-background-brand-bold) ${issue.progress}%, var(--ds-surface-sunken) ${issue.progress}%)`,
+          borderRadius: '0 0 6px 6px',
+        }} />
+      )}
+    </div>
+  );
+}
+
+// ── Inline ticket creator ──────────────────────────────────────────────────────
+
+interface InlineAddProps {
+  colStatus: typeof COLS[number];
+  sprintId: string | null | undefined;
+  onCreated?: () => void;
+}
+
+function InlineAdd({ colStatus, sprintId, onCreated }: InlineAddProps) {
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const handleOpen = () => {
+    setOpen(true);
+    setTitle('');
+    setTimeout(() => inputRef.current?.focus(), 0);
+  };
+
+  const handleCancel = () => {
+    setOpen(false);
+    setTitle('');
+  };
+
+  const handleSubmit = async () => {
+    const trimmed = title.trim();
+    if (!trimmed || submitting) return;
+    setSubmitting(true);
+    try {
+      await fetch('/api/issues', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: trimmed, status: colStatus, sprint_id: sprintId ?? null }),
+      });
+      onCreated?.();
+    } catch {
+      // Silently ignore — board will refresh on next poll
+    } finally {
+      setSubmitting(false);
+      setOpen(false);
+      setTitle('');
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') { handleSubmit(); }
+    if (e.key === 'Escape') { handleCancel(); }
+  };
+
+  if (!open) {
+    return (
+      <button
+        onClick={handleOpen}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+          width: '100%',
+          background: 'none',
+          border: 'none',
+          borderRadius: 4,
+          padding: '5px 6px',
+          fontSize: 12,
+          color: 'var(--ds-text-subtlest)',
+          cursor: 'pointer',
+          textAlign: 'left',
+          fontFamily: 'inherit',
+          transition: 'color .12s, background .12s',
+          flexShrink: 0,
+          marginTop: 2,
+        }}
+        onMouseOver={e => {
+          (e.currentTarget as HTMLElement).style.color = 'var(--ds-text)';
+          (e.currentTarget as HTMLElement).style.background = 'var(--ds-background-neutral-hovered)';
+        }}
+        onMouseOut={e => {
+          (e.currentTarget as HTMLElement).style.color = 'var(--ds-text-subtlest)';
+          (e.currentTarget as HTMLElement).style.background = 'none';
+        }}
+      >
+        <span style={{ fontSize: 15, lineHeight: 1, fontWeight: 300 }}>+</span>
+        {COL_LABELS[colStatus]}
+      </button>
+    );
+  }
+
+  return (
+    <div style={{
+      background: 'var(--ds-surface)',
+      border: '1px solid var(--ds-border)',
+      borderRadius: 6,
+      padding: '8px 10px',
+      flexShrink: 0,
+      marginTop: 2,
+    }}>
+      <input
+        ref={inputRef}
+        value={title}
+        onChange={e => setTitle(e.target.value)}
+        onKeyDown={handleKeyDown}
+        placeholder="Ticket title…"
+        disabled={submitting}
+        style={{
+          width: '100%',
+          boxSizing: 'border-box',
+          background: 'var(--ds-background-input)',
+          border: '1px solid var(--ds-border-input)',
+          borderRadius: 4,
+          color: 'var(--ds-text)',
+          fontSize: 13,
+          fontFamily: 'inherit',
+          padding: '5px 8px',
+          outline: 'none',
+        }}
+      />
+      <div style={{ marginTop: 5, fontSize: 11, color: 'var(--ds-text-subtlest)' }}>
+        Press Enter to add · Esc to cancel
+      </div>
     </div>
   );
 }
@@ -353,9 +513,11 @@ interface ColumnProps {
   selectedIds?: string[];
   onSelect?: (id: string, value: boolean) => void;
   compact?: boolean;
+  onIssueCreated?: () => void;
+  activeSprintId?: string | null;
 }
 
-function Column({ col, issues, allIssues, onStatusChange, onIssueClick, selectedIds, onSelect, compact }: ColumnProps) {
+function Column({ col, issues, allIssues, onStatusChange, onIssueClick, selectedIds, onSelect, compact, onIssueCreated, activeSprintId }: ColumnProps) {
   const bodyRef = useRef<HTMLDivElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
 
@@ -425,6 +587,13 @@ function Column({ col, issues, allIssues, onStatusChange, onIssueClick, selected
               compact={compact}
             />
           ))
+        )}
+        {col !== 'DONE' && (
+          <InlineAdd
+            colStatus={col}
+            sprintId={activeSprintId}
+            onCreated={onIssueCreated}
+          />
         )}
       </div>
     </div>
@@ -573,9 +742,11 @@ interface Props {
   onStatusChange?: (issueId: string, status: string) => void;
   onIssueClick?: (issue: Issue) => void;
   onBulkAction?: (ids: string[], action: string) => void;
+  onIssueCreated?: () => void;
+  activeSprintId?: string | null;
 }
 
-export default function Board({ issues, allIssues, subTitle, sprintGoal, onStatusChange, onIssueClick, onBulkAction }: Props) {
+export default function Board({ issues, allIssues, subTitle, sprintGoal, onStatusChange, onIssueClick, onBulkAction, onIssueCreated, activeSprintId }: Props) {
   const [goalDismissed, setGoalDismissed] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [compact, setCompact] = useState(false);
@@ -686,6 +857,8 @@ export default function Board({ issues, allIssues, subTitle, sprintGoal, onStatu
               selectedIds={selectedIds}
               onSelect={handleSelect}
               compact={compact}
+              onIssueCreated={onIssueCreated}
+              activeSprintId={activeSprintId}
             />
           ))}
         </div>

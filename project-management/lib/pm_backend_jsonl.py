@@ -236,6 +236,8 @@ class JSONLBackend:
                 "session_summaries": [],
                 "flagged_reason": None,
                 "flagged_options": [],
+                "progress": 0,
+                "checkins": [],
                 "created_at": now,
                 "updated_at": now,
                 "comments": [],
@@ -269,7 +271,7 @@ class JSONLBackend:
             "title", "description", "type", "status", "priority", "epic_id", "sprint_id",
             "scope", "acceptance_criteria", "criteria_done",
             "links", "remote_links", "commit_links", "session_summaries",
-            "flagged_reason", "flagged_options",
+            "flagged_reason", "flagged_options", "progress", "checkins",
         }
         with self._lock, self._exclusive(self.issues_path):
             records = self._read_jsonl(self.issues_path)
@@ -744,6 +746,8 @@ class JSONLBackend:
                     "session_summaries": [],
                     "flagged_reason": None,
                     "flagged_options": [],
+                    "progress": 0,
+                    "checkins": [],
                     "created_at": now,
                     "updated_at": now,
                     "comments": [],
@@ -971,3 +975,247 @@ class JSONLBackend:
                 "proposed_adr_count": len(proposed_adrs),
             },
         }
+
+    # ── v0.7.0 new methods ────────────────────────────────────────────────────
+
+    # ── Templates ─────────────────────────────────────────────────────────────
+
+    def create_template(
+        self,
+        name: str,
+        fields: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Save a ticket template to config.json under 'templates'."""
+        name = name.strip()
+        with self._lock, self._exclusive(self.config_path):
+            config = self._read_config()
+            templates: List[Dict[str, Any]] = config.get("templates", [])
+            existing = next((t for t in templates if t["name"] == name), None)
+            entry: Dict[str, Any] = {
+                "name": name,
+                "fields": fields,
+                "created_at": self._now(),
+            }
+            if existing:
+                templates[templates.index(existing)] = entry
+            else:
+                templates.append(entry)
+            config["templates"] = templates
+            self._write_config(config)
+        return entry
+
+    def list_templates(self) -> List[Dict[str, Any]]:
+        return list(self._read_config().get("templates", []))
+
+    def apply_template(self, name: str, overrides: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Create an issue from a named template, with optional field overrides."""
+        templates = self.list_templates()
+        tmpl = next((t for t in templates if t["name"] == name), None)
+        if tmpl is None:
+            raise ValueError(f"Template '{name}' not found.")
+        fields = dict(tmpl["fields"])
+        fields.update(overrides or {})
+        return self.create_issue(
+            title=fields.get("title", f"[{name}]"),
+            description=fields.get("description", ""),
+            issue_type=fields.get("issue_type", "task"),
+            priority=fields.get("priority", "medium"),
+            epic_id=fields.get("epic_id"),
+            sprint_id=fields.get("sprint_id"),
+            scope=fields.get("scope"),
+            acceptance_criteria=fields.get("acceptance_criteria"),
+        )
+
+    def delete_template(self, name: str) -> bool:
+        name = name.strip()
+        with self._lock, self._exclusive(self.config_path):
+            config = self._read_config()
+            templates = [t for t in config.get("templates", []) if t["name"] != name]
+            removed = len(config.get("templates", [])) > len(templates)
+            config["templates"] = templates
+            self._write_config(config)
+        return removed
+
+    # ── Saved filters ──────────────────────────────────────────────────────────
+
+    def create_filter(self, name: str, criteria: Dict[str, Any]) -> Dict[str, Any]:
+        """Save a named issue filter to config.json."""
+        name = name.strip()
+        with self._lock, self._exclusive(self.config_path):
+            config = self._read_config()
+            filters: List[Dict[str, Any]] = config.get("filters", [])
+            existing = next((f for f in filters if f["name"] == name), None)
+            entry: Dict[str, Any] = {"name": name, "criteria": criteria, "created_at": self._now()}
+            if existing:
+                filters[filters.index(existing)] = entry
+            else:
+                if len(filters) >= 8:
+                    filters.pop(0)  # evict oldest when at cap
+                filters.append(entry)
+            config["filters"] = filters
+            self._write_config(config)
+        return entry
+
+    def list_filters(self) -> List[Dict[str, Any]]:
+        return list(self._read_config().get("filters", []))
+
+    def delete_filter(self, name: str) -> bool:
+        name = name.strip()
+        with self._lock, self._exclusive(self.config_path):
+            config = self._read_config()
+            filters = [f for f in config.get("filters", []) if f["name"] != name]
+            removed = len(config.get("filters", [])) > len(filters)
+            config["filters"] = filters
+            self._write_config(config)
+        return removed
+
+    # ── CI watchers ───────────────────────────────────────────────────────────
+
+    def add_ci_watcher(self, issue_id: str, pr_url: str) -> Dict[str, Any]:
+        """Register a CI watcher for a ticket → PR URL pair."""
+        issue_id = issue_id.strip().upper()
+        entry: Dict[str, Any] = {
+            "issue_id": issue_id,
+            "pr_url": pr_url.strip(),
+            "added_at": self._now(),
+            "last_checked": None,
+            "last_status": None,
+        }
+        with self._lock, self._exclusive(self.config_path):
+            config = self._read_config()
+            watchers: List[Dict[str, Any]] = config.get("ci_watchers", [])
+            watchers = [w for w in watchers if not (w["issue_id"] == issue_id and w["pr_url"] == entry["pr_url"])]
+            watchers.append(entry)
+            config["ci_watchers"] = watchers
+            self._write_config(config)
+        return entry
+
+    def remove_ci_watcher(self, issue_id: str) -> bool:
+        issue_id = issue_id.strip().upper()
+        with self._lock, self._exclusive(self.config_path):
+            config = self._read_config()
+            watchers = [w for w in config.get("ci_watchers", []) if w["issue_id"] != issue_id]
+            removed = len(config.get("ci_watchers", [])) > len(watchers)
+            config["ci_watchers"] = watchers
+            self._write_config(config)
+        return removed
+
+    def list_ci_watchers(self) -> List[Dict[str, Any]]:
+        return list(self._read_config().get("ci_watchers", []))
+
+    def update_ci_watcher(self, issue_id: str, updates: Dict[str, Any]) -> None:
+        """Update last_checked / last_status on a watcher entry."""
+        issue_id = issue_id.strip().upper()
+        with self._lock, self._exclusive(self.config_path):
+            config = self._read_config()
+            for w in config.get("ci_watchers", []):
+                if w["issue_id"] == issue_id:
+                    w.update(updates)
+                    break
+            self._write_config(config)
+
+    # ── Issue checkin ─────────────────────────────────────────────────────────
+
+    def checkin_issue(
+        self,
+        issue_id: str,
+        progress_pct: int,
+        what_done: str,
+        what_remains: str = "",
+    ) -> Dict[str, Any]:
+        """Record a mid-session progress checkpoint on an issue."""
+        issue_id = issue_id.strip().upper()
+        pct = max(0, min(100, int(progress_pct)))
+        entry: Dict[str, Any] = {
+            "progress": pct,
+            "what_done": what_done.strip(),
+            "what_remains": what_remains.strip(),
+            "created_at": self._now(),
+        }
+        with self._lock, self._exclusive(self.issues_path):
+            records = self._read_jsonl(self.issues_path)
+            idx = next((i for i, r in enumerate(records) if r.get("id", "").upper() == issue_id), None)
+            if idx is None:
+                raise ValueError(f"Issue {issue_id} not found.")
+            records[idx].setdefault("checkins", []).append(entry)
+            records[idx]["progress"] = pct
+            records[idx]["updated_at"] = self._now()
+            self._rewrite(self.issues_path, records)
+        self.emit_event("issue_checkin", {"id": issue_id, "progress": pct, "what_done": what_done.strip()})
+        return entry
+
+    # ── Issue split ───────────────────────────────────────────────────────────
+
+    def split_issue(self, issue_id: str, parts: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Split a ticket into N smaller ones.
+
+        parts: [{"title": str, "criteria_indices": [int], ...overrides}]
+        Returns: {"original_closed": issue, "children": [issue, ...]}
+        """
+        issue_id = issue_id.strip().upper()
+        src = self.get_issue(issue_id)
+        if src is None:
+            raise ValueError(f"Issue {issue_id} not found.")
+        all_criteria: List[str] = src.get("acceptance_criteria") or []
+        children: List[Dict[str, Any]] = []
+        child_ids: List[str] = []
+
+        for part in parts:
+            indices = part.get("criteria_indices", [])
+            criteria_slice = [all_criteria[i] for i in indices if 0 <= i < len(all_criteria)]
+            child = self.create_issue(
+                title=part.get("title", f"[Split] {src['title']}"),
+                description=part.get("description", src.get("description", "")),
+                issue_type=part.get("issue_type", src.get("type", "task")),
+                priority=part.get("priority", src.get("priority", "medium")),
+                epic_id=part.get("epic_id", src.get("epic_id")),
+                sprint_id=part.get("sprint_id", src.get("sprint_id")),
+                scope=part.get("scope", src.get("scope")),
+                acceptance_criteria=criteria_slice,
+            )
+            children.append(child)
+            child_ids.append(child["id"])
+
+        closed = self.update_issue(
+            issue_id,
+            updates={"status": "DONE"},
+            comment=f"Split into: {', '.join(child_ids)}. Original ticket closed.",
+        )
+        self.emit_event("issue_split", {"id": issue_id, "children": child_ids})
+        return {"original_closed": closed, "children": children}
+
+    # ── Thread summarize ──────────────────────────────────────────────────────
+
+    def summarize_thread(self, issue_id: str) -> Dict[str, Any]:
+        """Compress an issue's comment history into a single summary comment."""
+        issue_id = issue_id.strip().upper()
+        with self._lock, self._exclusive(self.issues_path):
+            records = self._read_jsonl(self.issues_path)
+            idx = next((i for i, r in enumerate(records) if r.get("id", "").upper() == issue_id), None)
+            if idx is None:
+                raise ValueError(f"Issue {issue_id} not found.")
+            issue = records[idx]
+            comments: List[Dict[str, Any]] = issue.get("comments", [])
+            if len(comments) < 3:
+                return {"ok": True, "compressed": False, "reason": "Not enough comments to compress."}
+            # Keep the most recent 2 comments, archive the rest
+            archived = comments[:-2]
+            kept = comments[-2:]
+            archive_text = "\n\n".join(
+                f"**{c.get('author', 'Unknown')} ({c.get('created_at', '')[:10]}):** {c.get('body', '')[:200]}"
+                for c in archived
+            )
+            summary_comment: Dict[str, Any] = {
+                "id": self._ms_id(),
+                "issue_id": issue_id,
+                "author": "PM Dashboard",
+                "body": f"**Thread compressed** — {len(archived)} older comments archived.\n\n{archive_text[:1500]}",
+                "created_at": self._now(),
+                "is_thread_summary": True,
+            }
+            issue["comments"] = [summary_comment] + kept
+            issue.setdefault("session_summaries", [])
+            issue["updated_at"] = self._now()
+            records[idx] = issue
+            self._rewrite(self.issues_path, records)
+        return {"ok": True, "compressed": True, "archived_count": len(archived), "kept_count": len(kept)}

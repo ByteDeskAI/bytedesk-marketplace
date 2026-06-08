@@ -2,6 +2,58 @@
 
 All notable changes to the `project-management` plugin will be documented in this file.
 
+## [0.7.0] — 2026-06-08
+
+### Added
+
+**Issue schema — new fields**
+- `progress: int` (0–100) — mid-session progress percentage set by `pm_issue_checkin`
+- `checkins: list` — structured checkpoint log with `progress`, `what_done`, `what_remains`, `created_at`
+
+**20 new MCP tools (Rounds 3 + 4)**
+
+*Session & lifecycle tools:*
+- `pm_issue_checkin` — record a mid-session progress checkpoint (progress %, what done, what remains). Board card shows live progress bar.
+- `pm_issue_split` — split an overgrown ticket into N child tickets, distributing acceptance criteria. Original ticket auto-closes with "Split into..." comment.
+- `pm_issue_summarize_thread` — compress a long comment thread into a summary block, archiving older comments.
+- `pm_issue_estimate_tokens` — estimate Claude context token cost for a ticket's implementation prompt: low (<20k), medium (20–60k), high (>60k with split recommendation).
+- `pm_diff_review` — verify a git diff against a ticket's acceptance criteria. Per-criterion verdict (Met/Not Met/Uncertain) with diff evidence. Proposes follow-up ticket for unmet criteria.
+
+*Planning & insight tools:*
+- `pm_standup` — async standup: tickets done/in-progress/needs-input/new in last N hours. Outputs formatted markdown.
+- `pm_changelog_generate` — generate Keep-a-Changelog entry from DONE tickets in a sprint. Creates a `brief` doc.
+- `pm_epic_progress_report` — structured epic snapshot: child counts by status, % complete, session count, scope distribution.
+- `pm_knowledge_extract` — scan session summaries for recurring patterns and propose `learning` docs. Optional `auto_create` mode.
+- `pm_goal_check` — mid-sprint goal alignment: relevance score 0–100, on-goal vs off-goal tickets, goal-critical tickets not yet started.
+- `pm_smart_assign_sprint` — dependency-aware sprint packing: topological sort + scope budget (default 20 units/week) + epic grouping.
+- `pm_agent_pool` — parallel epic execution planner: identifies which child tickets are ready to run concurrently vs blocked; returns pool assignment for manual or scripted session spawning.
+
+*Template & filter tools:*
+- `pm_template_create` / `pm_template_list` / `pm_template_apply` / `pm_template_delete` — ticket templates stored in `config.json`. Templates capture type, scope, description skeleton, and acceptance criteria. `apply` creates a new issue from the template with optional field overrides.
+- `pm_filter_create` / `pm_filter_list` / `pm_filter_delete` — named issue filters (up to 8) stored in `config.json`. Filters appear as chip pills in the Board and Backlog UI.
+
+*Automation tools:*
+- `pm_watch_ci` — register a CI watcher: the dashboard polls `gh pr view` every 60s. CI success + PR merged → auto-DONE. CI failure → back to IN_PROGRESS with failing job comment.
+
+**Dashboard server — 11 new endpoints**
+- `GET /api/workspace/templates`, `POST /api/workspace/templates`, `DELETE /api/workspace/templates/<name>`
+- `GET /api/workspace/filters`, `POST /api/workspace/filters`, `DELETE /api/workspace/filters/<name>`
+- `GET /api/sprint/standup?since_hours=N`, `POST /api/sprint/standup`
+- `POST /api/issues/<id>/split`, `POST /api/issues/<id>/checkin`, `POST /api/issues/<id>/summarize`
+- `active_sprint_id` and `sprint_end_date` added to `GET /api/status` response
+
+**CI polling background thread**
+- `_poll_ci_watchers(root)` — daemon thread started at server launch; polls registered CI watchers every 60s via `gh` CLI; auto-transitions tickets on CI success+merge or failure.
+
+**Dashboard SPA**
+- Board: **progress bar** on IN_PROGRESS cards (3px bottom strip proportional to `issue.progress`). Last checkin `what_done` shown as italic preview line below the title.
+- Board: **inline "+ Add" button** at the bottom of each column (except DONE) for quick ticket creation without opening the create modal.
+- Backlog: **aging heat map** — left-border color (blue/amber/red) and "Age" column by days since `created_at`.
+- Header: **sprint end-date countdown** chip — "Ends in Nd" in green/amber/red depending on time remaining; red + "Overdue" when past `end_date`.
+- New **Dependencies tab** — `DependencyGraph.tsx` renders blocking chains and blocked tickets from structured `issue.links`. Lozenge status, clickable to open drawer, empty state when no links exist.
+- New **SavedFilters chip bar** — appears above Board and Backlog; loads saved filters from `/api/workspace/filters`; single-click to apply, click again to clear; inline `+` chip to save new filter.
+- **Standup button** (📋) in tab bar — fetches `/api/sprint/standup` and renders a modal with Done/In Progress/New sections.
+
 ## [0.6.1] — 2026-06-08
 
 ### Changed

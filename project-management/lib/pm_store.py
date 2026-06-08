@@ -230,6 +230,50 @@ class PMStore:
     def workspace_health(self) -> Dict[str, Any]:
         return self._backend.workspace_health()
 
+    # --- v0.7.0 new methods ---
+
+    def create_template(self, name: str, fields: Dict[str, Any]) -> Dict[str, Any]:
+        return self._backend.create_template(name, fields)
+
+    def list_templates(self) -> List[Dict[str, Any]]:
+        return self._backend.list_templates()
+
+    def apply_template(self, name: str, overrides: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        return self._backend.apply_template(name, overrides)
+
+    def delete_template(self, name: str) -> bool:
+        return self._backend.delete_template(name)
+
+    def create_filter(self, name: str, criteria: Dict[str, Any]) -> Dict[str, Any]:
+        return self._backend.create_filter(name, criteria)
+
+    def list_filters(self) -> List[Dict[str, Any]]:
+        return self._backend.list_filters()
+
+    def delete_filter(self, name: str) -> bool:
+        return self._backend.delete_filter(name)
+
+    def add_ci_watcher(self, issue_id: str, pr_url: str) -> Dict[str, Any]:
+        return self._backend.add_ci_watcher(issue_id, pr_url)
+
+    def remove_ci_watcher(self, issue_id: str) -> bool:
+        return self._backend.remove_ci_watcher(issue_id)
+
+    def list_ci_watchers(self) -> List[Dict[str, Any]]:
+        return self._backend.list_ci_watchers()
+
+    def update_ci_watcher(self, issue_id: str, updates: Dict[str, Any]) -> None:
+        return self._backend.update_ci_watcher(issue_id, updates)
+
+    def checkin_issue(self, issue_id: str, progress_pct: int, what_done: str, what_remains: str = "") -> Dict[str, Any]:
+        return self._backend.checkin_issue(issue_id, progress_pct, what_done, what_remains)
+
+    def split_issue(self, issue_id: str, parts: List[Dict[str, Any]]) -> Dict[str, Any]:
+        return self._backend.split_issue(issue_id, parts)
+
+    def summarize_thread(self, issue_id: str) -> Dict[str, Any]:
+        return self._backend.summarize_thread(issue_id)
+
     # --- Observability ---
 
     def get_project_config(self) -> Dict[str, Any]:

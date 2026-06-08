@@ -11,6 +11,30 @@ interface Props {
   onCompleteSprint?: () => void;
 }
 
+// Compute a human-readable countdown label and color from an ISO end_date string.
+function sprintCountdown(endDate: string): { label: string; color: string } {
+  const msPerDay = 86_400_000;
+  const diffMs = new Date(endDate).getTime() - Date.now();
+  const diffDays = Math.ceil(diffMs / msPerDay);
+
+  if (diffDays < 0) {
+    return {
+      label: `Overdue ${Math.abs(diffDays)}d`,
+      color: 'var(--ds-text-danger)',
+    };
+  }
+  if (diffDays === 0) {
+    return { label: 'Ends today', color: 'var(--ds-text-warning)' };
+  }
+  if (diffDays === 1) {
+    return { label: 'Ends tomorrow', color: 'var(--ds-text-warning)' };
+  }
+  if (diffDays <= 2) {
+    return { label: `Ends in ${diffDays}d`, color: 'var(--ds-text-warning)' };
+  }
+  return { label: `Ends in ${diffDays}d`, color: 'var(--ds-text-success)' };
+}
+
 export default function Header({ dashboard, live, onCompleteSprint }: Props) {
   const hasSprint = dashboard?.active_sprint && dashboard.active_sprint !== 'No active sprint';
 
@@ -19,6 +43,9 @@ export default function Header({ dashboard, live, onCompleteSprint }: Props) {
   const dashIdx = rawSprint.indexOf(' -- ');
   const sprintDisplayName = dashIdx > -1 ? rawSprint.slice(0, dashIdx) : rawSprint;
   const sprintGoalText = dashIdx > -1 ? rawSprint.slice(dashIdx + 4) : '';
+
+  const endDate = dashboard?.sprint_end_date ?? null;
+  const countdown = hasSprint && endDate ? sprintCountdown(endDate) : null;
 
   return (
     <header
@@ -99,6 +126,22 @@ export default function Header({ dashboard, live, onCompleteSprint }: Props) {
                 </span>
               )}
             </div>
+
+            {/* Sprint end-date countdown chip */}
+            {countdown && (
+              <span style={{
+                fontSize: 11,
+                color: countdown.color,
+                background: 'var(--ds-surface-sunken)',
+                borderRadius: 4,
+                padding: '3px 8px',
+                fontWeight: 500,
+                flexShrink: 0,
+                whiteSpace: 'nowrap',
+              }}>
+                {countdown.label}
+              </span>
+            )}
 
             {/* Sprint actions dropdown */}
             <DropdownMenu trigger="..." appearance="default">
