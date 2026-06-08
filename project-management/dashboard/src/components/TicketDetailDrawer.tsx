@@ -272,7 +272,7 @@ export default function TicketDetailDrawer({ issue, allIssues, onClose, onRefres
                   style={{
                     background: 'none', border: 'none', cursor: 'pointer',
                     color: 'var(--ds-text-subtle)', fontSize: 20, lineHeight: 1,
-                    padding: '4px 8px', borderRadius: 4,
+                    padding: '4px 8px', borderRadius: 4, fontFamily: 'inherit',
                   }}
                   title="Close"
                 >
@@ -587,7 +587,7 @@ export default function TicketDetailDrawer({ issue, allIssues, onClose, onRefres
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                         <button
                           onClick={() => setSnapshotsOpen(o => !o)}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ds-text-subtle)', fontSize: 13, display: 'flex', alignItems: 'center', gap: 4 }}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ds-text-subtle)', fontSize: 13, display: 'flex', alignItems: 'center', gap: 4, fontFamily: 'inherit', lineHeight: 'inherit' }}
                         >
                           {snapshotsOpen ? '▾' : '▸'} Snapshots ({snapshots.length})
                         </button>
@@ -611,7 +611,7 @@ export default function TicketDetailDrawer({ issue, allIssues, onClose, onRefres
                           style={{
                             background: 'var(--ds-surface-sunken)', border: '1px solid var(--ds-border)',
                             borderRadius: 4, padding: '2px 8px', cursor: 'pointer', fontSize: 11,
-                            color: 'var(--ds-text-subtle)',
+                            color: 'var(--ds-text-subtle)', fontFamily: 'inherit', lineHeight: 'inherit',
                           }}
                           disabled={takingSnapshot}
                         >
@@ -642,6 +642,7 @@ export default function TicketDetailDrawer({ issue, allIssues, onClose, onRefres
                                 style={{
                                   background: 'none', border: '1px solid var(--ds-border)', borderRadius: 4,
                                   padding: '1px 6px', cursor: 'pointer', fontSize: 11, color: 'var(--ds-text-danger)',
+                                  fontFamily: 'inherit', lineHeight: 'inherit',
                                 }}
                               >
                                 Restore
@@ -894,6 +895,7 @@ export default function TicketDetailDrawer({ issue, allIssues, onClose, onRefres
                       style={{
                         background: 'none', border: 'none', cursor: 'pointer',
                         color: '#8b949e', fontSize: 18, lineHeight: 1, padding: '2px 6px', borderRadius: 4,
+                        fontFamily: 'inherit',
                       }}
                     >
                       ×

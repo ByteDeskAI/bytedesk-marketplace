@@ -540,7 +540,7 @@ export default function App() {
             ) : null}
           </ModalBody>
           <ModalFooter>
-            <Button appearance="subtle" onClick={() => setShowStandup(false)}>Close</Button>
+            <Button appearance="default" onClick={() => setShowStandup(false)}>Close</Button>
           </ModalFooter>
         </ModalDialog>
       )}

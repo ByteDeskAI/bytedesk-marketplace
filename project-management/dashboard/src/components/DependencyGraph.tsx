@@ -43,6 +43,8 @@ function TicketRow({ issue, dimmed, onClick }: TicketRowProps) {
         width: '100%',
         opacity: dimmed ? 0.45 : 1,
         transition: 'opacity 0.15s',
+        fontFamily: 'inherit',
+        lineHeight: 'inherit',
       }}
       onMouseOver={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}
       onMouseOut={e => { (e.currentTarget as HTMLElement).style.opacity = dimmed ? '0.45' : '1'; }}
@@ -277,6 +279,8 @@ export default function DependencyGraph({ issues, onIssueClick }: Props) {
                             display: 'inline-flex',
                             alignItems: 'center',
                             gap: 4,
+                            fontFamily: 'inherit',
+                            lineHeight: 'inherit',
                           }}
                         >
                           <span style={{

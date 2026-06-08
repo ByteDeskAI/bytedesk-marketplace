@@ -694,6 +694,7 @@ function Column({ col, issues, allIssues, onStatusChange, onIssueClick, selected
           style={{
             fontSize: 11, background: 'transparent', border: 'none',
             color: 'var(--ds-text-subtlest)', cursor: 'pointer', outline: 'none',
+            fontFamily: 'inherit',
           }}
         >
           <option value="creation">Date ↑</option>
@@ -834,6 +835,8 @@ interface SwimlaneProps {
 }
 
 function Swimlane({ issues, allIssues, onStatusChange, onIssueClick, selectedIds, onSelect, compact, focusMode }: SwimlaneProps) {
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+
   const epicGroups = new Map<string | null, Issue[]>();
   for (const issue of issues) {
     const key = issue.epic_id ?? null;
@@ -854,9 +857,20 @@ function Swimlane({ issues, allIssues, onStatusChange, onIssueClick, selectedIds
     return group.filter(i => i.status !== 'DONE').length;
   };
 
+  const toggleCollapsed = (key: string) => {
+    setCollapsed(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, overflowY: 'auto', padding: '0 24px 24px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, overflowY: 'auto', padding: '12px 24px 24px', flex: 1, minHeight: 0 }}>
       {epicIds.map(epicId => {
+        const key = epicId ?? '__no_epic__';
+        const isCollapsed = collapsed.has(key);
         const epic = epicId ? allIssues.find(i => i.id === epicId) : null;
         const epicTitle = epic?.title ?? epicId ?? 'No Epic';
         const epicStatus = epic?.status ?? null;
@@ -868,20 +882,37 @@ function Swimlane({ issues, allIssues, onStatusChange, onIssueClick, selectedIds
 
         return (
           <div
-            key={epicId ?? '__no_epic__'}
+            key={key}
             style={{
               background: 'var(--ds-surface-sunken)',
               border: '1px solid var(--ds-border)',
               borderRadius: 8,
               overflow: 'hidden',
+              flexShrink: 0,
             }}
           >
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 10,
-              padding: '8px 14px',
-              borderBottom: '1px solid var(--ds-border)',
-              background: 'var(--ds-surface)',
-            }}>
+            {/* Collapsible header */}
+            <button
+              onClick={() => toggleCollapsed(key)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '8px 14px',
+                width: '100%',
+                background: 'var(--ds-surface)',
+                cursor: 'pointer',
+                border: 'none',
+                borderBottom: isCollapsed ? 'none' : '1px solid var(--ds-border)',
+                textAlign: 'left',
+                fontFamily: 'inherit',
+                lineHeight: 'inherit',
+              }}
+            >
+              <span style={{
+                fontSize: 12, color: 'var(--ds-text-subtlest)', flexShrink: 0,
+                transition: 'transform 0.15s',
+                transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
+                display: 'inline-block',
+              }}>▾</span>
               <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ds-text)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {epicTitle}
               </span>
@@ -894,10 +925,11 @@ function Swimlane({ issues, allIssues, onStatusChange, onIssueClick, selectedIds
                 <Lozenge appearance="default">No Epic</Lozenge>
               )}
               <span style={{ fontSize: 11, color: 'var(--ds-text-subtlest)', flexShrink: 0 }}>
-                {pending} pending
+                {pending} pending · {groupIssues.length} total
               </span>
-            </div>
+            </button>
 
+            {!isCollapsed && (
             <div style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(4, 1fr)',
@@ -943,6 +975,7 @@ function Swimlane({ issues, allIssues, onStatusChange, onIssueClick, selectedIds
                 );
               })}
             </div>
+            )}
           </div>
         );
       })}
@@ -1086,7 +1119,7 @@ export default function Board({ issues, allIssues, subTitle, sprintGoal, onStatu
         />
       </div>
       {swimlane ? (
-        <div style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
           <Swimlane
             issues={issues}
             allIssues={allIssues}

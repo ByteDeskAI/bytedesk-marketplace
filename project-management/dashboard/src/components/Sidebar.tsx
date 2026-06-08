@@ -106,6 +106,8 @@ export default function Sidebar({ view, onView, keyPrefix, todoCnt, doneCnt, tot
               border: 'none', cursor: 'pointer',
               color: active ? 'var(--ds-link)' : 'rgba(255,255,255,.6)',
               fontSize: 12, borderRadius: 3,
+              fontFamily: 'inherit',
+              lineHeight: 'inherit',
               transition: 'background .1s',
               whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
               minWidth: 0,
@@ -140,6 +142,8 @@ export default function Sidebar({ view, onView, keyPrefix, todoCnt, doneCnt, tot
           cursor: 'pointer',
           color: active ? '#fff' : 'rgba(255,255,255,.7)',
           fontSize: 13, fontWeight: 500,
+          fontFamily: 'inherit',
+          lineHeight: 'inherit',
           transition: 'background .1s',
         }}
         onMouseOver={e => { if (!active) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,.08)'; }}

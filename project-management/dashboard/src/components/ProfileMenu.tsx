@@ -107,7 +107,7 @@ export default function ProfileMenu() {
           <p>{errorMsg}</p>
           <button
             onClick={() => { setState('idle'); setErrorMsg(''); }}
-            style={{ marginTop: 12, background: 'var(--ds-background-brand-bold)', color: '#fff', border: 'none', borderRadius: 3, padding: '6px 14px', cursor: 'pointer', fontSize: 13 }}
+            style={{ marginTop: 12, background: 'var(--ds-background-brand-bold)', color: '#fff', border: 'none', borderRadius: 3, padding: '6px 14px', cursor: 'pointer', fontSize: 13, fontFamily: 'inherit', lineHeight: 'inherit' }}
           >
             Dismiss
           </button>

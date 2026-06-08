@@ -7,6 +7,17 @@
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body, #root { height: 100%; width: 100%; overflow: hidden; }
+    /* Atlassian Sans applied globally so modal/tooltip portals inherit it */
+    body {
+      font-family: var(--ds-font-family-body, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    /* Remove browser-default button font override so ADS buttons inherit body font */
+    button, input, select, textarea {
+      font-family: inherit;
+      font-size: inherit;
+    }
   </style>
 </head>
 <body>

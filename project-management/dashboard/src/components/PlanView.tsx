@@ -153,6 +153,7 @@ export default function PlanView() {
                     marginLeft: 2,
                     display: 'flex',
                     alignItems: 'center',
+                    fontFamily: 'inherit',
                   }}
                   onMouseEnter={e => (e.currentTarget.style.color = 'var(--ds-text-danger)')}
                   onMouseLeave={e => (e.currentTarget.style.color = 'var(--ds-text-subtlest)')}
@@ -235,7 +236,7 @@ export default function PlanView() {
             </strong>
             <button
               onClick={() => setSprintProposal(null)}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ds-text-subtlest)', fontSize: 16 }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ds-text-subtlest)', fontSize: 16, fontFamily: 'inherit', lineHeight: 'inherit' }}
             >×</button>
           </div>
           {sprintProposal.epics.length > 0 && (

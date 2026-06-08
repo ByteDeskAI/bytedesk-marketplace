@@ -172,7 +172,7 @@ export default function MigrationWizard({ onClose }: Props) {
           </div>
           <button
             onClick={onClose}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ds-text-subtle)', fontSize: 18, lineHeight: 1, padding: '2px 4px' }}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ds-text-subtle)', fontSize: 18, lineHeight: 1, padding: '2px 4px', fontFamily: 'inherit' }}
           >
             ×
           </button>
@@ -244,6 +244,8 @@ export default function MigrationWizard({ onClose }: Props) {
                               background: selectedPath?.direction === path.direction ? 'var(--ds-background-selected)' : 'var(--ds-surface-raised)',
                               border: `1px solid ${selectedPath?.direction === path.direction ? 'var(--ds-border-selected)' : 'var(--ds-border)'}`,
                               color: 'inherit',
+                              fontFamily: 'inherit',
+                              lineHeight: 'inherit',
                               transition: 'border-color 0.15s, background 0.15s',
                             }}
                           >

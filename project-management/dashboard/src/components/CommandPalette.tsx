@@ -154,6 +154,8 @@ export default function CommandPalette({ issues, onIssueClick, onView, onCreateI
                     width: '100%', padding: '10px 16px',
                     background: 'none', border: 'none', cursor: 'pointer',
                     color: 'var(--ds-text)', textAlign: 'left',
+                    fontFamily: 'inherit',
+                    lineHeight: 'inherit',
                     transition: 'background 0.1s',
                   }}
                   onMouseEnter={e => (e.currentTarget.style.background = 'var(--ds-background-neutral-hovered)')}
@@ -185,6 +187,8 @@ export default function CommandPalette({ issues, onIssueClick, onView, onCreateI
                     width: '100%', padding: '10px 16px',
                     background: 'none', border: 'none', cursor: 'pointer',
                     color: 'var(--ds-text)', textAlign: 'left',
+                    fontFamily: 'inherit',
+                    lineHeight: 'inherit',
                     transition: 'background 0.1s',
                   }}
                   onMouseEnter={e => (e.currentTarget.style.background = 'var(--ds-background-neutral-hovered)')}

@@ -53,6 +53,7 @@ function FilterChip({ label, isActive, onClick }: FilterChipProps) {
         lineHeight: 1.5,
         whiteSpace: 'nowrap',
         flexShrink: 0,
+        fontFamily: 'inherit',
       }}
     >
       {label}
@@ -208,6 +209,7 @@ export default function SavedFilters({ onFilterApply, onFilterClear, activeFilte
                 cursor: 'pointer',
                 fontSize: 14,
                 color: 'var(--ds-text-subtle)',
+                fontFamily: 'inherit',
               }}
               aria-label="Add filter"
             >
@@ -270,6 +272,7 @@ export default function SavedFilters({ onFilterApply, onFilterClear, activeFilte
                 cursor: 'pointer',
                 fontSize: 14,
                 color: 'var(--ds-text-subtle)',
+                fontFamily: 'inherit',
                 flexShrink: 0,
               }}
               aria-label="Add filter"
