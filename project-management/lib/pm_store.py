@@ -89,10 +89,12 @@ class PMStore:
         priority: str = "medium",
         epic_id: Optional[str] = None,
         sprint_id: Optional[str] = None,
+        scope: Optional[str] = None,
+        acceptance_criteria: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         return self._backend.create_issue(
             title, description, issue_type, priority,
-            epic_id, sprint_id,
+            epic_id, sprint_id, scope, acceptance_criteria,
         )
 
     def get_issue(self, issue_id: str) -> Optional[Dict[str, Any]]:
@@ -119,8 +121,14 @@ class PMStore:
 
     # --- Sprints ---
 
-    def create_sprint(self, name: str, goal: str = "") -> Dict[str, Any]:
-        return self._backend.create_sprint(name, goal)
+    def create_sprint(
+        self,
+        name: str,
+        goal: str = "",
+        duration_days: int = 7,
+        epic_ids: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        return self._backend.create_sprint(name, goal, duration_days, epic_ids)
 
     def start_sprint(self, sprint_id: str) -> Dict[str, Any]:
         return self._backend.start_sprint(sprint_id)
@@ -189,6 +197,38 @@ class PMStore:
 
     def docs_linked_to_issue(self, issue_id: str) -> List[Dict[str, Any]]:
         return self._backend.docs_linked_to_issue(issue_id)
+
+    # --- v0.6.0 new methods ---
+
+    def create_issues_bulk(self, issues_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        return self._backend.create_issues_bulk(issues_list)
+
+    def clone_issue(self, issue_id: str, overrides: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        return self._backend.clone_issue(issue_id, overrides)
+
+    def attach_session(
+        self,
+        issue_id: str,
+        summary: str,
+        files_changed: Optional[List[str]] = None,
+        tests_added: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        return self._backend.attach_session(issue_id, summary, files_changed, tests_added)
+
+    def flag_issue(self, issue_id: str, reason: str, options: Optional[List[str]] = None) -> Dict[str, Any]:
+        return self._backend.flag_issue(issue_id, reason, options)
+
+    def link_commit(self, issue_id: str, sha: str, message: str = "", url: str = "") -> Dict[str, Any]:
+        return self._backend.link_commit(issue_id, sha, message, url)
+
+    def add_issue_link(self, from_id: str, to_id: str, link_type: str) -> Dict[str, Any]:
+        return self._backend.add_issue_link(from_id, to_id, link_type)
+
+    def add_remote_link(self, issue_id: str, url: str, title: str = "") -> Dict[str, Any]:
+        return self._backend.add_remote_link(issue_id, url, title)
+
+    def workspace_health(self) -> Dict[str, Any]:
+        return self._backend.workspace_health()
 
     # --- Observability ---
 

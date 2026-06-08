@@ -42,72 +42,35 @@ def tool_definitions() -> List[Dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "Title/summary of the issue. Required."
-                    },
-                    "description": {
-                        "type": "string",
-                        "description": "Detailed description of the issue."
-                    },
-                    "issue_type": {
-                        "type": "string",
-                        "description": "Type of the ticket (bug, story, task, epic). Defaults to 'task'."
-                    },
-                    "priority": {
-                        "type": "string",
-                        "description": "Priority (low, medium, high, critical). Defaults to 'medium'."
-                    },
-                    "epic_id": {
-                        "type": "string",
-                        "description": "ID of the parent epic (e.g., PM-1)."
-                    },
-                    "sprint_id": {
-                        "type": "string",
-                        "description": "ID of the sprint (e.g., sprint-1) or 'backlog'."
-                    }
+                    "title": {"type": "string", "description": "Title/summary of the issue. Required."},
+                    "description": {"type": "string", "description": "Detailed description of the issue."},
+                    "issue_type": {"type": "string", "description": "Type of the ticket (bug, story, task, epic). Defaults to 'task'."},
+                    "priority": {"type": "string", "description": "Priority (low, medium, high, critical). Defaults to 'medium'."},
+                    "epic_id": {"type": "string", "description": "ID of the parent epic (e.g., PM-1)."},
+                    "sprint_id": {"type": "string", "description": "ID of the sprint (e.g., sprint-1) or 'backlog'."},
+                    "scope": {"type": "string", "enum": ["nano", "small", "medium", "large", "research"], "description": "AI-native complexity signal. nano=single fn, small=~1 day, medium=2-3 days, large=spike needed, research=investigation."},
+                    "acceptance_criteria": {"type": "array", "items": {"type": "string"}, "description": "List of acceptance criteria strings. Claude marks these done as it implements."}
                 },
                 "required": ["title"]
             }
         },
         {
             "name": "pm_issue_update",
-            "description": "Update an existing ticket (change status, description, priority, add comments, etc.).",
+            "description": "Update an existing ticket (change status, description, priority, add comments, update acceptance criteria, etc.).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "Issue ID (e.g. PM-12). Required."
-                    },
-                    "title": {
-                        "type": "string",
-                        "description": "New title/summary."
-                    },
-                    "description": {
-                        "type": "string",
-                        "description": "New description."
-                    },
-                    "status": {
-                        "type": "string",
-                        "description": "New status (TODO, IN_PROGRESS, REVIEW, DONE)."
-                    },
-                    "priority": {
-                        "type": "string",
-                        "description": "New priority."
-                    },
-                    "epic_id": {
-                        "type": "string",
-                        "description": "New parent epic ID (or null to clear)."
-                    },
-                    "sprint_id": {
-                        "type": "string",
-                        "description": "New sprint ID (e.g., sprint-1, or null for backlog)."
-                    },
-                    "comment": {
-                        "type": "string",
-                        "description": "Comment to append to the issue."
-                    }
+                    "id": {"type": "string", "description": "Issue ID (e.g. PM-12). Required."},
+                    "title": {"type": "string", "description": "New title/summary."},
+                    "description": {"type": "string", "description": "New description."},
+                    "status": {"type": "string", "enum": ["TODO", "IN_PROGRESS", "REVIEW", "DONE", "NEEDS_INPUT"], "description": "New status."},
+                    "priority": {"type": "string", "description": "New priority."},
+                    "epic_id": {"type": "string", "description": "New parent epic ID (or null to clear)."},
+                    "sprint_id": {"type": "string", "description": "New sprint ID (e.g., sprint-1, or null for backlog)."},
+                    "scope": {"type": "string", "enum": ["nano", "small", "medium", "large", "research"], "description": "Complexity scope signal."},
+                    "acceptance_criteria": {"type": "array", "items": {"type": "string"}, "description": "Replace the acceptance criteria list."},
+                    "criteria_done": {"type": "array", "items": {"type": "integer"}, "description": "0-based indices of criteria that are now done."},
+                    "comment": {"type": "string", "description": "Comment to append to the issue."}
                 },
                 "required": ["id"]
             }
@@ -157,27 +120,16 @@ def tool_definitions() -> List[Dict[str, Any]]:
         },
         {
             "name": "pm_sprint_manage",
-            "description": "Manage sprint lifecycle: create, start, complete sprints, or list sprints. Usage: /pm:sprint <action> [sprint_id/name]",
+            "description": "Manage sprint lifecycle: create, start, complete sprints, or list sprints. Sprints are 1 week (7 days) by default; configurable via duration_days. A sprint has a goal and references key epics/tasks. Usage: /pm:sprint <action> [sprint_id/name]",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "action": {
-                        "type": "string",
-                        "description": "Lifecycle action: 'create', 'start', 'complete', or 'list'. Required.",
-                        "enum": ["create", "start", "complete", "list"]
-                    },
-                    "name": {
-                        "type": "string",
-                        "description": "Sprint name (required for action='create')."
-                    },
-                    "goal": {
-                        "type": "string",
-                        "description": "Sprint goal (optional for action='create')."
-                    },
-                    "sprint_id": {
-                        "type": "string",
-                        "description": "Sprint ID (required for action='start' or 'complete', e.g. 'sprint-1')."
-                    }
+                    "action": {"type": "string", "enum": ["create", "start", "complete", "list"], "description": "Lifecycle action. Required."},
+                    "name": {"type": "string", "description": "Sprint name (required for action='create')."},
+                    "goal": {"type": "string", "description": "Sprint goal — what the team aims to complete by end of week (required for action='create')."},
+                    "duration_days": {"type": "integer", "description": "Sprint duration in days. Defaults to 7. Set at creation."},
+                    "epic_ids": {"type": "array", "items": {"type": "string"}, "description": "List of epic or task IDs this sprint is focused on completing. E.g. ['PM-1', 'PM-5']."},
+                    "sprint_id": {"type": "string", "description": "Sprint ID (required for action='start' or 'complete', e.g. 'sprint-1')."}
                 },
                 "required": ["action"]
             }
@@ -438,6 +390,155 @@ def tool_definitions() -> List[Dict[str, Any]]:
                 "required": ["atlassian_tool"]
             }
         },
+        # ── v0.6.0 new tools ─────────────────────────────────────────────────
+        {
+            "name": "pm_context_pack",
+            "description": "Single-call situational awareness for a Claude session. Returns active sprint + goal, all in-progress tickets with descriptions, accepted ADRs digest, the target ticket in full (if given), and any tickets blocking it. Call this once at session start instead of calling pm_status + pm_issue_list + pm_doc_list separately.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "ticket_id": {"type": "string", "description": "Optional: the ticket this session will work on. Included in full with blocking issues."}
+                }
+            }
+        },
+        {
+            "name": "pm_bulk_create",
+            "description": "Create multiple issues atomically in a single call. Returns all created issues with assigned IDs. Use when decomposing an epic into child tasks to avoid multiple sequential pm_issue_create calls.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "issues": {
+                        "type": "array",
+                        "description": "List of issues to create.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "title": {"type": "string"},
+                                "description": {"type": "string"},
+                                "issue_type": {"type": "string"},
+                                "priority": {"type": "string"},
+                                "scope": {"type": "string", "enum": ["nano", "small", "medium", "large", "research"]},
+                                "epic_id": {"type": "string"},
+                                "sprint_id": {"type": "string"},
+                                "acceptance_criteria": {"type": "array", "items": {"type": "string"}}
+                            },
+                            "required": ["title"]
+                        }
+                    }
+                },
+                "required": ["issues"]
+            }
+        },
+        {
+            "name": "pm_session_attach",
+            "description": "Attach a Claude session summary to an issue after implementation completes. Writes a structured comment and stores the summary for future sessions to build on. Always call this before marking a ticket DONE.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Issue ID. Required."},
+                    "summary": {"type": "string", "description": "What was implemented. Be specific: decisions made, patterns used, things NOT done. Required."},
+                    "files_changed": {"type": "array", "items": {"type": "string"}, "description": "List of files modified or created."},
+                    "tests_added": {"type": "array", "items": {"type": "string"}, "description": "List of test files or test names added."}
+                },
+                "required": ["id", "summary"]
+            }
+        },
+        {
+            "name": "pm_workspace_health",
+            "description": "Return a health report of the workspace: stale IN_PROGRESS tickets (>3 days untouched), issues with no description, epics with no children, ADRs stuck in 'proposed' for >7 days. Use to identify and fix hygiene issues.",
+            "inputSchema": {"type": "object", "properties": {}}
+        },
+        {
+            "name": "pm_issue_clone",
+            "description": "Clone an existing issue, creating a new one with the same title, description, type, priority, scope, and acceptance criteria. Useful for recurring work patterns. Add '[Clone] ' prefix is added automatically.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Source issue ID to clone. Required."},
+                    "title": {"type": "string", "description": "Override title for the clone."},
+                    "epic_id": {"type": "string", "description": "Override epic for the clone."},
+                    "sprint_id": {"type": "string", "description": "Override sprint for the clone."},
+                    "priority": {"type": "string", "description": "Override priority for the clone."}
+                },
+                "required": ["id"]
+            }
+        },
+        {
+            "name": "pm_issue_decompose",
+            "description": "Decompose an epic into child tasks. You (Claude) analyze the epic's title, description, and linked ADRs, then call pm_bulk_create with the resulting tasks. This tool returns the epic context + a decomposition prompt for you to fill in. Use strategy: 'sequential' for ordered steps, 'parallel' for independent workstreams, 'layer' for frontend/backend/tests split.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "epic_id": {"type": "string", "description": "Epic issue ID to decompose. Required."},
+                    "strategy": {"type": "string", "enum": ["sequential", "parallel", "layer"], "description": "Decomposition strategy. Defaults to 'sequential'."},
+                    "max_children": {"type": "integer", "description": "Maximum number of child tasks to create. Defaults to 8."}
+                },
+                "required": ["epic_id"]
+            }
+        },
+        {
+            "name": "pm_issue_triage",
+            "description": "Triage raw text (a Slack message, bug report, email excerpt) into a structured ticket. Returns a proposed title, description, issue_type, priority, and acceptance_criteria for review. Then call pm_issue_create with the result.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "raw_text": {"type": "string", "description": "Raw problem statement to triage. Required."},
+                    "default_type": {"type": "string", "description": "Hint for issue type if ambiguous. Defaults to 'task'."}
+                },
+                "required": ["raw_text"]
+            }
+        },
+        {
+            "name": "pm_sprint_retrospective",
+            "description": "Generate a retrospective learning doc for a completed sprint. Summarises: tickets shipped (DONE), tickets rolled over, session count per ticket, and a narrative. Creates a 'learning' doc automatically. Call after pm_sprint_manage(action='complete').",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "sprint_id": {"type": "string", "description": "Sprint ID to retrospect. Required."},
+                    "narrative": {"type": "string", "description": "Optional one-paragraph narrative to include (you write this after reviewing the sprint)."}
+                },
+                "required": ["sprint_id"]
+            }
+        },
+        {
+            "name": "pm_commit_link",
+            "description": "Attach a git commit reference to an issue. Call after any git commit that implements work on a ticket. The commit SHA, message, and optional GitHub URL are stored as a commit_links entry on the issue.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Issue ID. Required."},
+                    "sha": {"type": "string", "description": "Full or short git commit SHA. Required."},
+                    "message": {"type": "string", "description": "First line of the commit message."},
+                    "url": {"type": "string", "description": "Optional GitHub commit URL."}
+                },
+                "required": ["id", "sha"]
+            }
+        },
+        {
+            "name": "pm_issue_ask",
+            "description": "Answer a question about a ticket using its full knowledge context: description, comments, linked docs, accepted ADRs, prior session summaries, and blocking issues. Returns a synthesized answer. Use when you have a specific question before starting implementation.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Issue ID to ask about. Required."},
+                    "question": {"type": "string", "description": "Your question about this ticket. Required."}
+                },
+                "required": ["id", "question"]
+            }
+        },
+        {
+            "name": "pm_issue_flag",
+            "description": "Flag an issue as NEEDS_INPUT — you hit a genuine decision point that requires human input. Sets status to NEEDS_INPUT, records the reason, and optionally offers choices for the human to pick. The dashboard shows a prominent amber banner on the ticket.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Issue ID to flag. Required."},
+                    "reason": {"type": "string", "description": "Clear explanation of what decision is needed. Required."},
+                    "options": {"type": "array", "items": {"type": "string"}, "description": "Optional list of choices for the human to pick from (e.g. ['Use JWT', 'Use session cookies'])."}
+                },
+                "required": ["id", "reason"]
+            }
+        },
         {
             "name": "pm_migrate",
             "description": (
@@ -528,21 +629,21 @@ def call_pm_tool(name: str, arguments: Dict[str, Any]) -> Any:
             priority=arguments.get("priority", "medium"),
             epic_id=arguments.get("epic_id"),
             sprint_id=arguments.get("sprint_id"),
+            scope=arguments.get("scope"),
+            acceptance_criteria=arguments.get("acceptance_criteria"),
         )
         return {"ok": True, "issue": issue}
 
     elif name == "pm_issue_update":
         issue_id = arguments["id"]
-        # build updates dictionary
         updates = {}
-        for field in ["title", "description", "issue_type", "priority", "epic_id", "sprint_id"]:
+        for field in ["title", "description", "issue_type", "priority", "epic_id", "sprint_id",
+                      "scope", "acceptance_criteria", "criteria_done"]:
             if field in arguments:
-                # Handle renaming from 'issue_type' arg to 'type' field in model
                 model_field = "type" if field == "issue_type" else field
                 updates[model_field] = arguments[field]
         if "status" in arguments:
             updates["status"] = arguments["status"].strip().upper()
-
         issue = store.update_issue(
             issue_id=issue_id,
             updates=updates,
@@ -575,7 +676,12 @@ def call_pm_tool(name: str, arguments: Dict[str, Any]) -> Any:
             name_val = arguments.get("name")
             if not name_val:
                 return {"ok": False, "error": "sprint name required for create action."}
-            sprint = store.create_sprint(name=name_val, goal=arguments.get("goal", ""))
+            sprint = store.create_sprint(
+                name=name_val,
+                goal=arguments.get("goal", ""),
+                duration_days=int(arguments.get("duration_days", 7)),
+                epic_ids=arguments.get("epic_ids"),
+            )
             return {"ok": True, "sprint": sprint}
         elif action == "start":
             sprint_id = arguments.get("sprint_id")
@@ -706,18 +812,12 @@ def call_pm_tool(name: str, arguments: Dict[str, Any]) -> Any:
         from_id = arguments["from_id"].strip().upper()
         to_id = arguments["to_id"].strip().upper()
         link_type = arguments["link_type"]
-        from_issue = store.get_issue(from_id)
-        to_issue = store.get_issue(to_id)
-        if not from_issue:
+        if not store.get_issue(from_id):
             return {"ok": False, "error": f"Issue {from_id} not found."}
-        if not to_issue:
+        if not store.get_issue(to_id):
             return {"ok": False, "error": f"Issue {to_id} not found."}
-        # Store link in description suffix (lightweight — no schema change required)
-        existing = from_issue.get("description", "")
-        link_line = f"\n\n[Link] {link_type}: {to_id} ({to_issue['title']})"
-        if link_line.strip() not in existing:
-            store.update_issue(from_id, updates={"description": existing + link_line})
-        return {"ok": True, "link": {"from": from_id, "to": to_id, "type": link_type}}
+        link = store.add_issue_link(from_id, to_id, link_type)
+        return {"ok": True, "link": link}
 
     elif name == "pm_issue_get_transitions":
         issue_id = arguments["id"]
@@ -727,9 +827,10 @@ def call_pm_tool(name: str, arguments: Dict[str, Any]) -> Any:
         status = issue.get("status", "TODO")
         allowed: Dict[str, List[str]] = {
             "TODO":        ["IN_PROGRESS"],
-            "IN_PROGRESS": ["TODO", "REVIEW", "DONE"],
-            "REVIEW":      ["IN_PROGRESS", "DONE"],
+            "IN_PROGRESS": ["TODO", "REVIEW", "DONE", "NEEDS_INPUT"],
+            "REVIEW":      ["IN_PROGRESS", "DONE", "NEEDS_INPUT"],
             "DONE":        ["REVIEW"],
+            "NEEDS_INPUT": ["IN_PROGRESS", "TODO"],
         }
         return {"ok": True, "current_status": status, "allowed_transitions": allowed.get(status, [])}
 
@@ -743,9 +844,10 @@ def call_pm_tool(name: str, arguments: Dict[str, Any]) -> Any:
         current = issue.get("status", "TODO")
         allowed: Dict[str, List[str]] = {
             "TODO":        ["IN_PROGRESS"],
-            "IN_PROGRESS": ["TODO", "REVIEW", "DONE"],
-            "REVIEW":      ["IN_PROGRESS", "DONE"],
+            "IN_PROGRESS": ["TODO", "REVIEW", "DONE", "NEEDS_INPUT"],
+            "REVIEW":      ["IN_PROGRESS", "DONE", "NEEDS_INPUT"],
             "DONE":        ["REVIEW"],
+            "NEEDS_INPUT": ["IN_PROGRESS", "TODO"],
         }
         if new_status not in allowed.get(current, []):
             return {
@@ -754,6 +856,9 @@ def call_pm_tool(name: str, arguments: Dict[str, Any]) -> Any:
                 "hint": "Call pm_issue_get_transitions to see valid next states."
             }
         updates: Dict[str, Any] = {"status": new_status}
+        if new_status != "NEEDS_INPUT":
+            updates["flagged_reason"] = None
+            updates["flagged_options"] = []
         result = store.update_issue(issue_id, updates=updates, comment=comment)
         return {"ok": True, "issue": result, "transitioned": f"{current} -> {new_status}"}
 
@@ -761,14 +866,10 @@ def call_pm_tool(name: str, arguments: Dict[str, Any]) -> Any:
         issue_id = arguments["id"]
         url = arguments["url"]
         title = arguments.get("title") or url
-        issue = store.get_issue(issue_id)
-        if not issue:
+        if not store.get_issue(issue_id):
             return {"ok": False, "error": f"Issue {issue_id} not found."}
-        existing = issue.get("description", "")
-        link_line = f"\n\n[External] [{title}]({url})"
-        if url not in existing:
-            store.update_issue(issue_id, updates={"description": existing + link_line})
-        return {"ok": True, "remote_link": {"url": url, "title": title, "issue_id": issue_id}}
+        entry = store.add_remote_link(issue_id, url, title)
+        return {"ok": True, "remote_link": entry}
 
     elif name == "pm_search":
         query = arguments["query"].strip()
@@ -916,6 +1017,241 @@ def call_pm_tool(name: str, arguments: Dict[str, Any]) -> Any:
             "error": f"Unknown Atlassian tool '{atlassian_tool}'.",
             "message": "All project management (issues, docs, sprints) must use pm_* tools, not mcp__atlassian__* tools.",
         }
+
+    # ── v0.6.0 new tool handlers ──────────────────────────────────────────
+
+    elif name == "pm_context_pack":
+        config = store.get_project_config()
+        active_sprint_id = store.get_active_sprint_id()
+        ticket_id = (arguments.get("ticket_id") or "").strip().upper() or None
+
+        # Active sprint info
+        sprint_info: Dict[str, Any] = {}
+        if active_sprint_id:
+            for s in config.get("sprints", []):
+                if s["id"] == active_sprint_id:
+                    sprint_info = {
+                        "id": s["id"], "name": s["name"], "goal": s.get("goal", ""),
+                        "end_date": s.get("end_date"), "epic_ids": s.get("epic_ids", []),
+                    }
+
+        # In-progress tickets
+        in_progress = store.list_issues(status="IN_PROGRESS")
+
+        # Accepted ADRs digest
+        adrs = store.list_docs(doc_type="adr")
+        adr_digest = [
+            {"id": d["id"], "title": d["title"], "status": d.get("doc_status", ""),
+             "superseded_by": d.get("superseded_by")}
+            for d in adrs if d.get("doc_status") in ("accepted", "")
+        ]
+
+        # Target ticket + its blockers
+        target_ticket: Optional[Dict[str, Any]] = None
+        blockers: List[Dict[str, Any]] = []
+        if ticket_id:
+            target_ticket = store.get_issue(ticket_id)
+            if target_ticket:
+                for link in target_ticket.get("links", []):
+                    if link.get("type") == "is-blocked-by":
+                        blocker = store.get_issue(link["to_id"])
+                        if blocker and blocker.get("status") not in ("DONE", "REVIEW"):
+                            blockers.append({"id": blocker["id"], "title": blocker["title"],
+                                             "status": blocker["status"]})
+
+        return {
+            "ok": True,
+            "active_sprint": sprint_info,
+            "in_progress_tickets": [{"id": i["id"], "title": i["title"],
+                                      "description": (i.get("description") or "")[:300]}
+                                     for i in in_progress],
+            "adr_digest": adr_digest,
+            "target_ticket": target_ticket,
+            "blockers": blockers,
+            "hint": "Use pm_doc_get to read full ADR content. Use pm_issue_get for full ticket details.",
+        }
+
+    elif name == "pm_bulk_create":
+        issues_list = arguments.get("issues", [])
+        if not issues_list:
+            return {"ok": False, "error": "issues list is required and must be non-empty."}
+        created = store.create_issues_bulk(issues_list)
+        return {"ok": True, "count": len(created), "issues": created}
+
+    elif name == "pm_session_attach":
+        issue_id = arguments["id"]
+        summary = arguments["summary"]
+        try:
+            issue = store.attach_session(
+                issue_id=issue_id,
+                summary=summary,
+                files_changed=arguments.get("files_changed"),
+                tests_added=arguments.get("tests_added"),
+            )
+            return {"ok": True, "issue_id": issue_id, "session_summary_stored": True}
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+
+    elif name == "pm_workspace_health":
+        return store.workspace_health()
+
+    elif name == "pm_issue_clone":
+        source_id = arguments["id"]
+        overrides = {k: v for k, v in arguments.items() if k != "id"}
+        try:
+            clone = store.clone_issue(source_id, overrides)
+            return {"ok": True, "clone": clone, "cloned_from": source_id}
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+
+    elif name == "pm_issue_decompose":
+        epic_id = arguments["epic_id"].strip().upper()
+        strategy = arguments.get("strategy", "sequential")
+        max_children = int(arguments.get("max_children", 8))
+        epic = store.get_issue(epic_id)
+        if not epic:
+            return {"ok": False, "error": f"Epic {epic_id} not found."}
+        adrs = store.list_docs(doc_type="adr")
+        adr_digest = [{"id": d["id"], "title": d["title"]} for d in adrs
+                      if d.get("doc_status") in ("accepted", "")]
+        return {
+            "ok": True,
+            "epic": epic,
+            "strategy": strategy,
+            "max_children": max_children,
+            "adr_digest": adr_digest,
+            "instruction": (
+                f"You have the epic context above. Using strategy='{strategy}', "
+                f"create up to {max_children} child tasks by calling pm_bulk_create. "
+                f"Each task should have: title, description (with acceptance criteria), "
+                f"issue_type='task', scope (nano/small/medium/large), epic_id='{epic_id}'. "
+                f"For 'sequential': number them 1. 2. 3. in dependency order. "
+                f"For 'parallel': all independent, can run concurrently. "
+                f"For 'layer': group by frontend / backend / tests / infra."
+            ),
+        }
+
+    elif name == "pm_issue_triage":
+        raw_text = arguments["raw_text"].strip()
+        default_type = arguments.get("default_type", "task")
+        # Heuristic triage — Claude uses this output as a starting point
+        import re as _re
+        text_lower = raw_text.lower()
+        detected_type = default_type
+        detected_priority = "medium"
+        if any(w in text_lower for w in ("crash", "error", "exception", "traceback", "500", "broken", "null pointer")):
+            detected_type = "bug"
+            detected_priority = "high"
+        elif any(w in text_lower for w in ("feature", "add", "implement", "build", "create", "new")):
+            detected_type = "task"
+        elif any(w in text_lower for w in ("investigate", "research", "spike", "explore")):
+            detected_type = "task"
+            detected_priority = "medium"
+        if any(w in text_lower for w in ("urgent", "critical", "asap", "production down", "p0")):
+            detected_priority = "critical"
+        elif any(w in text_lower for w in ("low priority", "nice to have", "someday")):
+            detected_priority = "low"
+        # Extract first sentence as title candidate
+        sentences = _re.split(r'[.!?\n]', raw_text.strip())
+        title_candidate = sentences[0].strip()[:120] if sentences else raw_text[:80]
+        return {
+            "ok": True,
+            "proposed": {
+                "title": title_candidate,
+                "description": f"## Context\n\n{raw_text}\n\n## Goal\n\n_Fill in_\n\n## Out of scope\n\n_Fill in_",
+                "issue_type": detected_type,
+                "priority": detected_priority,
+                "acceptance_criteria": ["_Add acceptance criteria here_"],
+            },
+            "instruction": "Review the proposed fields and adjust as needed, then call pm_issue_create with the final values.",
+        }
+
+    elif name == "pm_sprint_retrospective":
+        sprint_id = arguments["sprint_id"].strip()
+        narrative = arguments.get("narrative", "")
+        config = store.get_project_config()
+        sprint = next((s for s in config.get("sprints", []) if s["id"] == sprint_id), None)
+        if not sprint:
+            return {"ok": False, "error": f"Sprint {sprint_id} not found."}
+        all_issues = store.list_issues()
+        sprint_issues = [i for i in all_issues if (i.get("sprint_id") or "").lower() == sprint_id.lower()]
+        done = [i for i in sprint_issues if i.get("status") == "DONE"]
+        rolled = [i for i in sprint_issues if i.get("status") != "DONE"]
+        content = (
+            f"# Sprint Retrospective: {sprint.get('name', sprint_id)}\n\n"
+            f"**Sprint ID:** {sprint_id}  \n"
+            f"**Goal:** {sprint.get('goal', 'N/A')}  \n"
+            f"**Started:** {sprint.get('started_at', 'N/A')}  \n"
+            f"**Completed:** {sprint.get('completed_at', 'N/A')}  \n\n"
+            f"## Shipped ({len(done)} tickets)\n\n"
+            + "\n".join(f"- [{i['id']}] {i['title']} — "
+                        f"{len(i.get('session_summaries', []))} session(s)" for i in done)
+            + f"\n\n## Rolled Over ({len(rolled)} tickets)\n\n"
+            + "\n".join(f"- [{i['id']}] {i['title']} ({i.get('status', '?')})" for i in rolled)
+            + f"\n\n## Narrative\n\n{narrative or '_No narrative provided._'}"
+        )
+        doc = store.create_doc(
+            title=f"Retro: {sprint.get('name', sprint_id)}",
+            content=content,
+            doc_type="learning",
+        )
+        return {"ok": True, "doc": doc, "done_count": len(done), "rolled_count": len(rolled)}
+
+    elif name == "pm_commit_link":
+        issue_id = arguments["id"]
+        sha = arguments["sha"]
+        try:
+            entry = store.link_commit(
+                issue_id=issue_id,
+                sha=sha,
+                message=arguments.get("message", ""),
+                url=arguments.get("url", ""),
+            )
+            return {"ok": True, "commit_link": entry, "issue_id": issue_id}
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+
+    elif name == "pm_issue_ask":
+        issue_id = arguments["id"].strip().upper()
+        question = arguments["question"].strip()
+        issue = store.get_issue(issue_id)
+        if not issue:
+            return {"ok": False, "error": f"Issue {issue_id} not found."}
+        # Assemble context bundle
+        adrs = store.list_docs(doc_type="adr")
+        accepted_adrs = [{"id": d["id"], "title": d["title"]} for d in adrs
+                         if d.get("doc_status") in ("accepted", "")]
+        session_summaries = issue.get("session_summaries", [])
+        blocking_issues = []
+        for link in issue.get("links", []):
+            if link.get("type") == "is-blocked-by":
+                b = store.get_issue(link["to_id"])
+                if b:
+                    blocking_issues.append({"id": b["id"], "title": b["title"], "status": b["status"]})
+        return {
+            "ok": True,
+            "question": question,
+            "context": {
+                "issue": issue,
+                "accepted_adrs": accepted_adrs,
+                "prior_session_summaries": session_summaries,
+                "blocking_issues": blocking_issues,
+            },
+            "instruction": (
+                "Using the context above, answer the question: " + question + "\n"
+                "Base your answer on the issue description, ADRs, and prior session summaries."
+            ),
+        }
+
+    elif name == "pm_issue_flag":
+        issue_id = arguments["id"]
+        reason = arguments["reason"]
+        options = arguments.get("options")
+        try:
+            issue = store.flag_issue(issue_id, reason, options)
+            return {"ok": True, "issue": issue, "message": f"{issue_id} flagged as NEEDS_INPUT."}
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
 
     elif name == "pm_migrate":
         direction = arguments.get("direction", "").strip()

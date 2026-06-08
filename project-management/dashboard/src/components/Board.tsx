@@ -14,7 +14,7 @@ import Toggle from '@atlaskit/toggle';
 import Blanket from '@atlaskit/blanket';
 import InlineDialog from '@atlaskit/inline-dialog';
 import BulkActionsBar from './BulkActionsBar';
-import type { Issue } from '../types';
+import type { Issue, IssueScope } from '../types';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { draggable, dropTargetForElements, monitorForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
 
@@ -25,6 +25,7 @@ const STATUS_APPEARANCE: Record<string, LozAppearance> = {
   IN_PROGRESS: 'inprogress',
   REVIEW: 'moved',
   DONE: 'success',
+  NEEDS_INPUT: 'removed',
 };
 
 const TYPE_APPEARANCE: Record<string, LozAppearance> = {
@@ -42,17 +43,98 @@ const COL_LABELS: Record<typeof COLS[number], string> = {
   DONE: 'Done',
 };
 
-interface Props {
-  issues: Issue[];
-  subTitle: string;
-  sprintGoal?: string;
-  onStatusChange?: (issueId: string, status: string) => void;
-  onIssueClick?: (issue: Issue) => void;
-  onBulkAction?: (ids: string[], action: string) => void;
+// ── Scope chip ────────────────────────────────────────────────────────────────
+
+const SCOPE_LABELS: Record<IssueScope, string> = {
+  nano: '⬡ nano',
+  small: '◇ small',
+  medium: '◈ medium',
+  large: '◆ large',
+  research: '⊙ research',
+};
+
+function ScopeChip({ scope }: { scope: IssueScope }) {
+  return (
+    <span style={{
+      background: 'var(--ds-background-neutral-bold)',
+      color: 'var(--ds-text-subtlest)',
+      borderRadius: 2,
+      fontSize: 10,
+      padding: '1px 5px',
+      fontWeight: 500,
+      letterSpacing: '.02em',
+      flexShrink: 0,
+    }}>
+      {SCOPE_LABELS[scope]}
+    </span>
+  );
 }
+
+// ── Blocked-by indicator ──────────────────────────────────────────────────────
+
+const BLOCKING_DONE_STATUSES = new Set(['DONE', 'REVIEW']);
+
+function getBlockingIssueIds(issue: Issue, allIssues: Issue[]): string[] {
+  if (!issue.links || issue.links.length === 0) return [];
+  const allById = new Map(allIssues.map(i => [i.id, i]));
+  return issue.links
+    .filter(link => {
+      if (link.type !== 'is-blocked-by') return false;
+      const blocker = allById.get(link.to_id);
+      // If we can find the blocker and it's done/review, it's resolved
+      if (blocker && BLOCKING_DONE_STATUSES.has(blocker.status)) return false;
+      // If we can't find the blocker in allIssues, treat it as still blocking
+      return true;
+    })
+    .map(link => link.to_id);
+}
+
+interface BlockedIndicatorProps {
+  issue: Issue;
+  allIssues: Issue[];
+  onIssueClick?: (issue: Issue) => void;
+}
+
+function BlockedIndicator({ issue, allIssues, onIssueClick }: BlockedIndicatorProps) {
+  const blockingIds = getBlockingIssueIds(issue, allIssues);
+  if (blockingIds.length === 0) return null;
+
+  const allById = new Map(allIssues.map(i => [i.id, i]));
+  const firstBlocker = allById.get(blockingIds[0]);
+
+  const tooltipContent = `Blocked by ${blockingIds.join(', ')}`;
+
+  return (
+    <Tooltip content={tooltipContent} position="top">
+      {(tp) => (
+        <span
+          {...tp}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (firstBlocker) onIssueClick?.(firstBlocker);
+          }}
+          style={{
+            color: 'var(--ds-text-danger)',
+            cursor: 'pointer',
+            fontSize: 14,
+            lineHeight: 1,
+            flexShrink: 0,
+          }}
+          role="button"
+          aria-label={tooltipContent}
+        >
+          ⛓
+        </span>
+      )}
+    </Tooltip>
+  );
+}
+
+// ── IssueCard ─────────────────────────────────────────────────────────────────
 
 interface IssueCardProps {
   issue: Issue;
+  allIssues: Issue[];
   onStatusChange?: (issueId: string, status: string) => void;
   onIssueClick?: (issue: Issue) => void;
   isSelected?: boolean;
@@ -60,7 +142,7 @@ interface IssueCardProps {
   compact?: boolean;
 }
 
-function IssueCard({ issue, onStatusChange, onIssueClick, isSelected, onSelect, compact }: IssueCardProps) {
+function IssueCard({ issue, allIssues, onStatusChange, onIssueClick, isSelected, onSelect, compact }: IssueCardProps) {
   const [selectingStatus, setSelectingStatus] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -249,13 +331,23 @@ function IssueCard({ issue, onStatusChange, onIssueClick, isSelected, onSelect, 
           </TagGroup>
         </div>
       )}
+      {/* Card footer: scope chip + blocked indicator */}
+      {(issue.scope || (issue.links && issue.links.length > 0)) && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+          {issue.scope && <ScopeChip scope={issue.scope} />}
+          <BlockedIndicator issue={issue} allIssues={allIssues} onIssueClick={onIssueClick} />
+        </div>
+      )}
     </div>
   );
 }
 
+// ── Column ────────────────────────────────────────────────────────────────────
+
 interface ColumnProps {
   col: typeof COLS[number];
   issues: Issue[];
+  allIssues: Issue[];
   onStatusChange?: (issueId: string, status: string) => void;
   onIssueClick?: (issue: Issue) => void;
   selectedIds?: string[];
@@ -263,7 +355,7 @@ interface ColumnProps {
   compact?: boolean;
 }
 
-function Column({ col, issues, onStatusChange, onIssueClick, selectedIds, onSelect, compact }: ColumnProps) {
+function Column({ col, issues, allIssues, onStatusChange, onIssueClick, selectedIds, onSelect, compact }: ColumnProps) {
   const bodyRef = useRef<HTMLDivElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
 
@@ -325,6 +417,7 @@ function Column({ col, issues, onStatusChange, onIssueClick, selectedIds, onSele
             <IssueCard
               key={issue.id}
               issue={issue}
+              allIssues={allIssues}
               onStatusChange={onStatusChange}
               onIssueClick={onIssueClick}
               isSelected={selectedIds?.includes(issue.id)}
@@ -338,11 +431,156 @@ function Column({ col, issues, onStatusChange, onIssueClick, selectedIds, onSele
   );
 }
 
-export default function Board({ issues, subTitle, sprintGoal, onStatusChange, onIssueClick, onBulkAction }: Props) {
+// ── Swimlane ──────────────────────────────────────────────────────────────────
+
+interface SwimlaneProps {
+  issues: Issue[];
+  allIssues: Issue[];
+  onStatusChange?: (issueId: string, status: string) => void;
+  onIssueClick?: (issue: Issue) => void;
+  selectedIds?: string[];
+  onSelect?: (id: string, value: boolean) => void;
+  compact?: boolean;
+}
+
+function Swimlane({ issues, allIssues, onStatusChange, onIssueClick, selectedIds, onSelect, compact }: SwimlaneProps) {
+  // Build a map of epic_id → issues in this sprint slice
+  const epicGroups = new Map<string | null, Issue[]>();
+  for (const issue of issues) {
+    const key = issue.epic_id ?? null;
+    if (!epicGroups.has(key)) epicGroups.set(key, []);
+    epicGroups.get(key)!.push(issue);
+  }
+
+  // Sort: epics first (by epic title), then "No Epic" band last
+  const epicIds = [...epicGroups.keys()].sort((a, b) => {
+    if (a === null) return 1;
+    if (b === null) return -1;
+    const ea = allIssues.find(i => i.id === a);
+    const eb = allIssues.find(i => i.id === b);
+    return (ea?.title ?? a).localeCompare(eb?.title ?? b);
+  });
+
+  const pendingCount = (epicId: string | null): number => {
+    const group = epicGroups.get(epicId) ?? [];
+    return group.filter(i => i.status !== 'DONE').length;
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, overflowY: 'auto', padding: '0 24px 24px' }}>
+      {epicIds.map(epicId => {
+        const epic = epicId ? allIssues.find(i => i.id === epicId) : null;
+        const epicTitle = epic?.title ?? epicId ?? 'No Epic';
+        const epicStatus = epic?.status ?? null;
+        const pending = pendingCount(epicId);
+        const groupIssues = epicGroups.get(epicId) ?? [];
+        const byStatus = Object.fromEntries(
+          COLS.map(col => [col, groupIssues.filter(i => i.status === col)])
+        ) as Record<typeof COLS[number], Issue[]>;
+
+        return (
+          <div
+            key={epicId ?? '__no_epic__'}
+            style={{
+              background: 'var(--ds-surface-sunken)',
+              border: '1px solid var(--ds-border)',
+              borderRadius: 8,
+              overflow: 'hidden',
+            }}
+          >
+            {/* Band header */}
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              padding: '8px 14px',
+              borderBottom: '1px solid var(--ds-border)',
+              background: 'var(--ds-surface)',
+            }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ds-text)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {epicTitle}
+              </span>
+              {epicStatus && (
+                <Lozenge appearance={STATUS_APPEARANCE[epicStatus] ?? 'default'}>
+                  {epicStatus}
+                </Lozenge>
+              )}
+              {!epicId && (
+                <Lozenge appearance="default">No Epic</Lozenge>
+              )}
+              <span style={{ fontSize: 11, color: 'var(--ds-text-subtlest)', flexShrink: 0 }}>
+                {pending} pending
+              </span>
+            </div>
+
+            {/* 4-column sub-grid */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(4, 1fr)',
+              gap: 8,
+              padding: 8,
+            }}>
+              {COLS.map(col => {
+                const colIssues = byStatus[col];
+                return (
+                  <div key={col} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <div style={{
+                      fontSize: 10, fontWeight: 700, letterSpacing: '.06em',
+                      textTransform: 'uppercase',
+                      color: col === 'TODO' ? 'var(--ds-text-subtlest)'
+                        : col === 'IN_PROGRESS' ? 'var(--ds-link)'
+                        : col === 'REVIEW' ? 'var(--ds-text-warning)'
+                        : 'var(--ds-text-success)',
+                      padding: '2px 4px',
+                      display: 'flex', alignItems: 'center', gap: 4,
+                    }}>
+                      {COL_LABELS[col]}
+                      <Badge appearance="default">{colIssues.length}</Badge>
+                    </div>
+                    {colIssues.map(issue => (
+                      <IssueCard
+                        key={issue.id}
+                        issue={issue}
+                        allIssues={allIssues}
+                        onStatusChange={onStatusChange}
+                        onIssueClick={onIssueClick}
+                        isSelected={selectedIds?.includes(issue.id)}
+                        onSelect={onSelect}
+                        compact={compact ?? true}
+                      />
+                    ))}
+                    {colIssues.length === 0 && (
+                      <div style={{ fontSize: 11, color: 'var(--ds-text-subtlest)', padding: '4px 4px', fontStyle: 'italic' }}>
+                        —
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Board ─────────────────────────────────────────────────────────────────────
+
+interface Props {
+  issues: Issue[];
+  allIssues: Issue[];
+  subTitle: string;
+  sprintGoal?: string;
+  onStatusChange?: (issueId: string, status: string) => void;
+  onIssueClick?: (issue: Issue) => void;
+  onBulkAction?: (ids: string[], action: string) => void;
+}
+
+export default function Board({ issues, allIssues, subTitle, sprintGoal, onStatusChange, onIssueClick, onBulkAction }: Props) {
   const [goalDismissed, setGoalDismissed] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [compact, setCompact] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [swimlane, setSwimlane] = useState(false);
 
   const byStatus = Object.fromEntries(
     COLS.map(col => [col, issues.filter(i => i.status === col)])
@@ -385,6 +623,14 @@ export default function Board({ issues, subTitle, sprintGoal, onStatusChange, on
             />
             Compact
           </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--ds-text)', cursor: 'pointer' }}>
+            <Toggle
+              isChecked={swimlane}
+              onChange={e => setSwimlane(e.target.checked)}
+              size="regular"
+            />
+            Swimlane
+          </label>
         </div>
       </div>
       {sprintGoal && !goalDismissed && (
@@ -408,27 +654,42 @@ export default function Board({ issues, subTitle, sprintGoal, onStatusChange, on
           }}
         />
       </div>
-      <div style={{
-        flex: 1, display: 'grid',
-        gridTemplateColumns: 'repeat(4, 1fr)',
-        gap: 12,
-        padding: '0 24px 24px',
-        overflow: 'hidden',
-        minHeight: 0,
-      }}>
-        {COLS.map(col => (
-          <Column
-            key={col}
-            col={col}
-            issues={byStatus[col]}
+      {swimlane ? (
+        <div style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
+          <Swimlane
+            issues={issues}
+            allIssues={allIssues}
             onStatusChange={onStatusChange}
             onIssueClick={onIssueClick}
             selectedIds={selectedIds}
             onSelect={handleSelect}
             compact={compact}
           />
-        ))}
-      </div>
+        </div>
+      ) : (
+        <div style={{
+          flex: 1, display: 'grid',
+          gridTemplateColumns: 'repeat(4, 1fr)',
+          gap: 12,
+          padding: '0 24px 24px',
+          overflow: 'hidden',
+          minHeight: 0,
+        }}>
+          {COLS.map(col => (
+            <Column
+              key={col}
+              col={col}
+              issues={byStatus[col]}
+              allIssues={allIssues}
+              onStatusChange={onStatusChange}
+              onIssueClick={onIssueClick}
+              selectedIds={selectedIds}
+              onSelect={handleSelect}
+              compact={compact}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

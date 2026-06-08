@@ -9,12 +9,13 @@ interface Props {
 
 const statusAppearance: Record<
   Issue["status"],
-  "default" | "inprogress" | "moved" | "success"
+  "default" | "inprogress" | "moved" | "success" | "removed"
 > = {
   TODO: "default",
   IN_PROGRESS: "inprogress",
   REVIEW: "moved",
   DONE: "success",
+  NEEDS_INPUT: "removed",
 };
 
 export default function IssueCalendarView({ issues }: Props) {

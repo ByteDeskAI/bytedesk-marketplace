@@ -16,6 +16,7 @@ import Button from '@atlaskit/button';
 import TicketDetailDrawer from './components/TicketDetailDrawer';
 import CreateTicketModal from './components/CreateTicketModal';
 import PlanView from './components/PlanView';
+import CommandPalette from './components/CommandPalette';
 
 export default function App() {
   const [view, setView] = useState<ViewId>('board');
@@ -251,6 +252,7 @@ export default function App() {
             {!showEpics && !showCalendar && view === 'board' && (
               <Board
                 issues={issues}
+                allIssues={issues}
                 subTitle={subTitle}
                 sprintGoal={sprintGoal}
                 onStatusChange={handleStatusChange}
@@ -298,7 +300,7 @@ export default function App() {
         </main>
       </div>
 
-      <TicketDetailDrawer issue={selectedIssue} allIssues={issues} onClose={() => setSelectedIssue(null)} />
+      <TicketDetailDrawer issue={selectedIssue} allIssues={issues} onClose={() => setSelectedIssue(null)} onRefresh={fetchStatus} />
       <CreateTicketModal
         isOpen={showCreateTicket}
         onClose={() => setShowCreateTicket(false)}
@@ -327,6 +329,13 @@ export default function App() {
           />
         ))}
       </FlagGroup>
+
+      <CommandPalette
+        issues={issues}
+        onIssueClick={(issue) => setSelectedIssue(issue)}
+        onView={(v) => switchToView(v)}
+        onCreateIssue={() => setShowCreateTicket(true)}
+      />
     </div>
   );
 }

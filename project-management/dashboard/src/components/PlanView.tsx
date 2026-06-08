@@ -2,7 +2,16 @@ import { useState, useCallback, useEffect } from 'react';
 import Button from '@atlaskit/button';
 import SectionMessage from '@atlaskit/section-message';
 import Spinner from '@atlaskit/spinner';
+import Lozenge from '@atlaskit/lozenge';
 import TerminalPanel from './TerminalPanel';
+
+interface SprintProposal {
+  project_name: string;
+  backlog_count: number;
+  epics: Array<{ id: string; title: string }>;
+  tasks_by_scope: Record<string, Array<{ id: string; title: string; priority: string }>>;
+  hint: string;
+}
 
 interface PlanSession {
   key: string;
@@ -15,6 +24,8 @@ export default function PlanView() {
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [hydrating, setHydrating] = useState(true);
+  const [sprintProposal, setSprintProposal] = useState<SprintProposal | null>(null);
+  const [loadingProposal, setLoadingProposal] = useState(false);
 
   useEffect(() => {
     fetch('/api/plan/sessions')
@@ -188,8 +199,75 @@ export default function PlanView() {
         <Button appearance="primary" onClick={startPlan} isDisabled={starting}>
           {starting ? 'Starting…' : hasSessions ? '+ New Plan' : 'Start New Plan'}
         </Button>
+        <Button
+          appearance="default"
+          isDisabled={loadingProposal}
+          onClick={async () => {
+            setLoadingProposal(true);
+            setSprintProposal(null);
+            try {
+              const r = await fetch('/api/sprint/plan', { method: 'POST' });
+              const body = await r.json() as SprintProposal & { ok: boolean };
+              if (body.ok) setSprintProposal(body);
+            } catch { /* ignore */ }
+            finally { setLoadingProposal(false); }
+          }}
+        >
+          {loadingProposal ? 'Analyzing…' : '⚡ Generate Sprint'}
+        </Button>
         {starting && <Spinner size="small" />}
       </div>
+
+      {/* ── Sprint proposal panel ── */}
+      {sprintProposal && (
+        <div style={{
+          flexShrink: 0,
+          margin: '0 24px',
+          padding: '16px',
+          background: 'var(--ds-surface-raised)',
+          border: '1px solid var(--ds-border)',
+          borderRadius: 8,
+          marginBottom: 12,
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <strong style={{ color: 'var(--ds-text)', fontSize: 14 }}>
+              Sprint Proposal — {sprintProposal.backlog_count} backlog items
+            </strong>
+            <button
+              onClick={() => setSprintProposal(null)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ds-text-subtlest)', fontSize: 16 }}
+            >×</button>
+          </div>
+          {sprintProposal.epics.length > 0 && (
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 12, color: 'var(--ds-text-subtlest)', marginBottom: 4 }}>EPICS</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {sprintProposal.epics.map(e => (
+                  <span key={e.id} style={{ fontSize: 12, padding: '2px 8px', background: 'var(--ds-surface-sunken)', borderRadius: 4, color: 'var(--ds-text-subtle)' }}>
+                    [{e.id}] {e.title}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {(['small', 'medium', 'large'] as const).map(scope => {
+            const tasks = sprintProposal.tasks_by_scope[scope] ?? [];
+            if (!tasks.length) return null;
+            return (
+              <div key={scope} style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 12, color: 'var(--ds-text-subtlest)', marginBottom: 4 }}>{scope.toUpperCase()} SCOPE ({tasks.length})</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {tasks.slice(0, 5).map(t => (
+                    <Lozenge key={t.id} appearance="default">{t.id}</Lozenge>
+                  ))}
+                  {tasks.length > 5 && <span style={{ fontSize: 11, color: 'var(--ds-text-subtlest)' }}>+{tasks.length - 5} more</span>}
+                </div>
+              </div>
+            );
+          })}
+          <p style={{ fontSize: 12, color: 'var(--ds-text-subtlest)', margin: '8px 0 0', fontStyle: 'italic' }}>{sprintProposal.hint}</p>
+        </div>
+      )}
 
       {/* ── Terminal panel for the active tab ── */}
       {hasSessions ? (

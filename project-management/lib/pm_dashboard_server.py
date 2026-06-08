@@ -823,6 +823,8 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             self._serve_plan_sessions()
         elif path == "/api/migrate/status":
             self._serve_migrate_status()
+        elif path == "/api/workspace/health":
+            self._serve_workspace_health()
         elif path.startswith("/ws/pty/"):
             session_key = path[len("/ws/pty/"):]
             if self.headers.get("Upgrade", "").lower() == "websocket":
@@ -1163,8 +1165,27 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             self._handle_plan_start()
         elif path.startswith("/api/plan/kill/"):
             self._handle_plan_kill(path[len("/api/plan/kill/"):])
+        elif path == "/api/sprint/plan":
+            self._handle_sprint_plan(body)
+        elif path == "/api/issues/bulk":
+            self._handle_issues_bulk_create(body)
         elif path == "/api/issues":
             self._handle_issue_create(body)
+        elif path.startswith("/api/issues/"):
+            rest = path[len("/api/issues/"):]
+            parts = rest.split("/")
+            issue_id = parts[0].upper() if parts else ""
+            if len(parts) == 2 and parts[1] == "clone":
+                self._handle_issue_clone(issue_id, body)
+            elif len(parts) == 2 and parts[1] == "session":
+                self._handle_issue_session(issue_id, body)
+            elif len(parts) == 2 and parts[1] == "flag":
+                self._handle_issue_flag(issue_id, body)
+            elif len(parts) == 2 and parts[1] == "commits":
+                self._handle_issue_commit(issue_id, body)
+            else:
+                self._respond(404, "application/json",
+                              json.dumps({"ok": False, "error": "not found"}).encode())
         elif path == "/api/server/exit":
             self._handle_server_exit()
         elif path == "/api/server/restart":
@@ -1371,6 +1392,8 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                 priority=body.get("priority", "medium"),
                 epic_id=body.get("epic_id"),
                 sprint_id=body.get("sprint_id"),
+                scope=body.get("scope"),
+                acceptance_criteria=body.get("acceptance_criteria"),
             )
             _broadcast_event({"type": "issue_created", "payload": {"id": issue["id"], "title": issue["title"]}})
             self._respond(201, "application/json", json.dumps({"ok": True, "issue": issue}).encode())
@@ -1404,7 +1427,9 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             store = PMStore(str(self._pm_root.parent))
             allowed_keys = {
                 "status", "title", "description", "priority",
-                "epic_id", "sprint_id",
+                "epic_id", "sprint_id", "scope",
+                "acceptance_criteria", "criteria_done",
+                "flagged_reason", "flagged_options",
             }
             updates = {k: v for k, v in body.items() if k in allowed_keys}
             issue = store.update_issue(issue_id, updates)
@@ -1434,6 +1459,152 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             else:
                 self._respond(404, "application/json",
                               json.dumps({"ok": False, "error": "not found"}).encode())
+        except Exception as exc:
+            self._respond(500, "application/json",
+                          json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    # ── v0.6.0 new handlers ───────────────────────────────────────────────────
+
+    def _serve_workspace_health(self) -> None:
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            from pm_store import PMStore
+            store = PMStore(str(self._pm_root.parent))
+            result = store.workspace_health()
+            self._respond(200, "application/json", json.dumps(result, default=str).encode())
+        except Exception as exc:
+            self._respond(500, "application/json",
+                          json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _handle_issues_bulk_create(self, body: Dict[str, Any]) -> None:
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            from pm_store import PMStore
+            store = PMStore(str(self._pm_root.parent))
+            issues_list = body.get("issues", [])
+            if not issues_list:
+                self._respond(400, "application/json",
+                              json.dumps({"ok": False, "error": "issues list required"}).encode())
+                return
+            created = store.create_issues_bulk(issues_list)
+            for issue in created:
+                _broadcast_event({"type": "issue_created",
+                                  "payload": {"id": issue["id"], "title": issue["title"]}})
+            self._respond(201, "application/json",
+                          json.dumps({"ok": True, "count": len(created), "issues": created}).encode())
+        except Exception as exc:
+            self._respond(500, "application/json",
+                          json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _handle_issue_clone(self, issue_id: str, body: Dict[str, Any]) -> None:
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            from pm_store import PMStore
+            store = PMStore(str(self._pm_root.parent))
+            overrides = {k: v for k, v in body.items()
+                         if k in {"title", "epic_id", "sprint_id", "priority", "scope"}}
+            clone = store.clone_issue(issue_id, overrides)
+            _broadcast_event({"type": "issue_created",
+                              "payload": {"id": clone["id"], "title": clone["title"]}})
+            self._respond(201, "application/json",
+                          json.dumps({"ok": True, "clone": clone}).encode())
+        except ValueError as exc:
+            self._respond(404, "application/json",
+                          json.dumps({"ok": False, "error": str(exc)}).encode())
+        except Exception as exc:
+            self._respond(500, "application/json",
+                          json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _handle_issue_session(self, issue_id: str, body: Dict[str, Any]) -> None:
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            from pm_store import PMStore
+            store = PMStore(str(self._pm_root.parent))
+            summary = body.get("summary", "").strip()
+            if not summary:
+                self._respond(400, "application/json",
+                              json.dumps({"ok": False, "error": "summary required"}).encode())
+                return
+            issue = store.attach_session(
+                issue_id=issue_id,
+                summary=summary,
+                files_changed=body.get("files_changed"),
+                tests_added=body.get("tests_added"),
+            )
+            _broadcast_event({"type": "issue_updated", "payload": {"id": issue_id}})
+            self._respond(200, "application/json",
+                          json.dumps({"ok": True, "issue": issue}).encode())
+        except ValueError as exc:
+            self._respond(404, "application/json",
+                          json.dumps({"ok": False, "error": str(exc)}).encode())
+        except Exception as exc:
+            self._respond(500, "application/json",
+                          json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _handle_issue_flag(self, issue_id: str, body: Dict[str, Any]) -> None:
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            from pm_store import PMStore
+            store = PMStore(str(self._pm_root.parent))
+            reason = body.get("reason", "").strip()
+            if not reason:
+                self._respond(400, "application/json",
+                              json.dumps({"ok": False, "error": "reason required"}).encode())
+                return
+            issue = store.flag_issue(issue_id, reason, body.get("options"))
+            _broadcast_event({"type": "issue_updated", "payload": {"id": issue_id}})
+            self._respond(200, "application/json",
+                          json.dumps({"ok": True, "issue": issue}).encode())
+        except ValueError as exc:
+            self._respond(404, "application/json",
+                          json.dumps({"ok": False, "error": str(exc)}).encode())
+        except Exception as exc:
+            self._respond(500, "application/json",
+                          json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _handle_issue_commit(self, issue_id: str, body: Dict[str, Any]) -> None:
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            from pm_store import PMStore
+            store = PMStore(str(self._pm_root.parent))
+            sha = body.get("sha", "").strip()
+            if not sha:
+                self._respond(400, "application/json",
+                              json.dumps({"ok": False, "error": "sha required"}).encode())
+                return
+            entry = store.link_commit(issue_id, sha, body.get("message", ""), body.get("url", ""))
+            self._respond(200, "application/json",
+                          json.dumps({"ok": True, "commit_link": entry}).encode())
+        except ValueError as exc:
+            self._respond(404, "application/json",
+                          json.dumps({"ok": False, "error": str(exc)}).encode())
+        except Exception as exc:
+            self._respond(500, "application/json",
+                          json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _handle_sprint_plan(self, body: Dict[str, Any]) -> None:
+        """POST /api/sprint/plan — return a sprint plan proposal from backlog analysis."""
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            from pm_store import PMStore
+            store = PMStore(str(self._pm_root.parent))
+            backlog = store.list_issues(sprint_id="backlog")
+            config = store.get_project_config()
+            # Return structured context for the dashboard to display as proposal UI
+            epics = [i for i in backlog if i.get("type") == "epic"]
+            tasks = [i for i in backlog if i.get("type") != "epic"]
+            by_scope = {"nano": [], "small": [], "medium": [], "large": [], "research": [], "unset": []}
+            for t in tasks:
+                sc = t.get("scope") or "unset"
+                by_scope.setdefault(sc, []).append({"id": t["id"], "title": t["title"], "priority": t.get("priority")})
+            self._respond(200, "application/json", json.dumps({
+                "ok": True,
+                "project_name": config.get("project_name"),
+                "backlog_count": len(backlog),
+                "epics": [{"id": e["id"], "title": e["title"]} for e in epics],
+                "tasks_by_scope": by_scope,
+                "hint": "Select epic_ids and task IDs, set a goal, then call pm_sprint_manage(action='create') to create the sprint.",
+            }, default=str).encode())
         except Exception as exc:
             self._respond(500, "application/json",
                           json.dumps({"ok": False, "error": str(exc)}).encode())

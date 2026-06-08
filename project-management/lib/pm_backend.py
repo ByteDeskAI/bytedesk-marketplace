@@ -37,6 +37,8 @@ class PMBackend(Protocol):
         priority: str,
         epic_id: Optional[str],
         sprint_id: Optional[str],
+        scope: Optional[str] = None,
+        acceptance_criteria: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Create and persist a new issue. Returns the created issue dict."""
         ...
@@ -68,7 +70,11 @@ class PMBackend(Protocol):
 
     # --- Sprints ---
 
-    def create_sprint(self, name: str, goal: str) -> Dict[str, Any]:
+    def create_sprint(
+        self, name: str, goal: str = "",
+        duration_days: int = 7,
+        epic_ids: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
         """Create a new sprint in PLANNING status. Returns the sprint dict."""
         ...
 
@@ -111,7 +117,7 @@ class PMBackend(Protocol):
         """Apply updates to a wiki page. Returns updated doc or None."""
         ...
 
-    def list_docs(self, query: Optional[str]) -> List[Dict[str, Any]]:
+    def list_docs(self, query: Optional[str] = None, doc_type: Optional[str] = None) -> List[Dict[str, Any]]:
         """Return docs optionally filtered by a text query."""
         ...
 
@@ -127,4 +133,44 @@ class PMBackend(Protocol):
 
     def emit_event(self, event_type: str, payload: Dict[str, Any]) -> None:
         """Append an event line to .pm/events.jsonl for the dashboard SSE tail. Never raises."""
+        ...
+
+    # ── New methods (v0.6.0) ──────────────────────────────────────────────────
+
+    def create_issues_bulk(self, issues_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Create multiple issues atomically. Returns list of created issue dicts."""
+        ...
+
+    def clone_issue(self, issue_id: str, overrides: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Clone an issue. Returns the new issue dict."""
+        ...
+
+    def attach_session(
+        self,
+        issue_id: str,
+        summary: str,
+        files_changed: Optional[List[str]] = None,
+        tests_added: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Attach a Claude session summary to an issue. Returns updated issue."""
+        ...
+
+    def flag_issue(self, issue_id: str, reason: str, options: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Set an issue to NEEDS_INPUT with a reason. Returns updated issue."""
+        ...
+
+    def link_commit(self, issue_id: str, sha: str, message: str = "", url: str = "") -> Dict[str, Any]:
+        """Attach a git commit reference to an issue. Returns the link entry."""
+        ...
+
+    def add_issue_link(self, from_id: str, to_id: str, link_type: str) -> Dict[str, Any]:
+        """Add a structured directional link between two issues. Returns the link entry."""
+        ...
+
+    def add_remote_link(self, issue_id: str, url: str, title: str = "") -> Dict[str, Any]:
+        """Add a structured remote link. Auto-transitions to REVIEW for PR URLs. Returns entry."""
+        ...
+
+    def workspace_health(self) -> Dict[str, Any]:
+        """Return a health report of the workspace. Never raises."""
         ...

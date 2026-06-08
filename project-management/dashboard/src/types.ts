@@ -6,15 +6,55 @@ export interface Comment {
   created_at: string;
 }
 
+export type IssueStatus = 'TODO' | 'IN_PROGRESS' | 'REVIEW' | 'DONE' | 'NEEDS_INPUT';
+export type IssueScope = 'nano' | 'small' | 'medium' | 'large' | 'research';
+
+export interface IssueLink {
+  from_id: string;
+  to_id: string;
+  type: 'blocks' | 'is-blocked-by' | 'relates-to' | 'duplicates' | 'is-duplicated-by' | 'clones' | 'is-cloned-by';
+  created_at: string;
+}
+
+export interface RemoteLink {
+  url: string;
+  title: string;
+  created_at: string;
+}
+
+export interface CommitLink {
+  sha: string;
+  short_sha: string;
+  message: string;
+  url: string;
+  created_at: string;
+}
+
+export interface SessionSummary {
+  summary: string;
+  files_changed: string[];
+  tests_added: string[];
+  created_at: string;
+}
+
 export interface Issue {
   id: string;
   title: string;
   description: string;
   type: 'task' | 'bug' | 'story' | 'epic';
-  status: 'TODO' | 'IN_PROGRESS' | 'REVIEW' | 'DONE';
+  status: IssueStatus;
   priority: 'low' | 'medium' | 'high' | 'critical';
+  scope: IssueScope | null;
   epic_id: string | null;
   sprint_id: string | null;
+  acceptance_criteria: string[];
+  criteria_done: number[];
+  links: IssueLink[];
+  remote_links: RemoteLink[];
+  commit_links: CommitLink[];
+  session_summaries: SessionSummary[];
+  flagged_reason: string | null;
+  flagged_options: string[];
   comments: Comment[];
   created_at: string;
   updated_at: string;
@@ -25,8 +65,11 @@ export interface Sprint {
   name: string;
   goal: string;
   status: 'PLANNING' | 'ACTIVE' | 'CLOSED';
+  duration_days: number;
+  epic_ids: string[];
   created_at: string;
   started_at: string | null;
+  end_date: string | null;
   completed_at: string | null;
 }
 

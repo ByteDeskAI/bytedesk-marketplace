@@ -2,6 +2,56 @@
 
 All notable changes to the `project-management` plugin will be documented in this file.
 
+## [0.6.0] — 2026-06-08
+
+### Added
+
+**Sprint model**
+- Sprint `duration_days` field (default 7, configurable at creation). Sprints represent one week of focused work toward a stated goal.
+- Sprint `end_date` computed from `started_at + duration_days` when a sprint is started.
+- Sprint `epic_ids` field — curated list of epics/tasks the sprint is focused on completing.
+- `pm_sprint_manage(create)` accepts `duration_days` and `epic_ids`.
+
+**Issue model — new fields**
+- `scope`: AI-native complexity signal (`nano` / `small` / `medium` / `large` / `research`).
+- `acceptance_criteria`, `criteria_done` — per-issue checklist; Claude marks criteria done as it implements.
+- `links` — structured directional issue links (blocks/relates/duplicates/clones), replacing description-string appending.
+- `remote_links` — structured external URLs. Auto-transitions to REVIEW on GitHub PR URLs when issue is IN_PROGRESS.
+- `commit_links` — git commit references (sha, message, url).
+- `session_summaries` — Claude session summaries for prior-attempt context; prepended to future sessions.
+- `flagged_reason`, `flagged_options` — human-input flag data.
+- Status `NEEDS_INPUT` — Claude's structured "paused, needs human decision" state.
+
+**11 new MCP tools**
+- `pm_context_pack` — single-call context bundle for session start.
+- `pm_bulk_create` — atomically create N issues in one call.
+- `pm_session_attach` — attach a Claude session summary to an issue.
+- `pm_workspace_health` — health report: stale tickets, empty descriptions, childless epics, proposed ADRs.
+- `pm_issue_clone` — clone an issue with override support.
+- `pm_issue_decompose` — returns epic context + decomposition instruction; Claude calls `pm_bulk_create` with children.
+- `pm_issue_triage` — heuristic extraction from raw text into a structured ticket proposal.
+- `pm_sprint_retrospective` — generate a `learning` doc summarising a completed sprint.
+- `pm_commit_link` — attach a git commit SHA/message/URL to an issue.
+- `pm_issue_ask` — assemble full knowledge context and answer a specific question.
+- `pm_issue_flag` — set issue to `NEEDS_INPUT` with reason and choice options.
+
+**Dashboard server — 7 new endpoints**
+- `GET /api/workspace/health`, `POST /api/issues/bulk`, `POST /api/issues/<id>/clone`, `POST /api/issues/<id>/session`, `POST /api/issues/<id>/flag`, `POST /api/issues/<id>/commits`, `POST /api/sprint/plan`.
+
+**Dashboard SPA**
+- Board: scope chips on cards, blocked-by ⛓ indicator (red, with tooltip), swimlane mode by epic (toggle).
+- Board + Calendar: `NEEDS_INPUT` → red Lozenge appearance.
+- TicketDetailDrawer: NEEDS_INPUT amber banner with one-click resolution options.
+- TicketDetailDrawer: acceptance criteria checklist with live progress counter.
+- TicketDetailDrawer: Retry with prior context button + collapsible session summaries.
+- TicketDetailDrawer: Details / Comments / Activity / Commits tab strip; commit links with SHA and external URL.
+- CommandPalette (`⌘K` / `Ctrl+K`): fuzzy search over issues, views, and actions.
+- PlanView: Generate Sprint button returning backlog proposal grouped by scope and epic.
+
+### Changed
+- `pm_issue_link` and `pm_issue_remote_link` now write to structured arrays instead of appending to the description string.
+- `pm_issue_transition` and `pm_issue_get_transitions` handle `NEEDS_INPUT` ↔ `IN_PROGRESS`/`TODO` transitions.
+
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 

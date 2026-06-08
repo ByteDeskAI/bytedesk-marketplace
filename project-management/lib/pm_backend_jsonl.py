@@ -210,7 +210,10 @@ class JSONLBackend:
         priority: str = "medium",
         epic_id: Optional[str] = None,
         sprint_id: Optional[str] = None,
+        scope: Optional[str] = None,
+        acceptance_criteria: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
+        valid_scopes = {"nano", "small", "medium", "large", "research"}
         with self._lock, self._exclusive(self.config_path), self._exclusive(self.issues_path):
             now = self._now()
             config = self._read_config()
@@ -222,8 +225,17 @@ class JSONLBackend:
                 "type": issue_type.strip().lower(),
                 "status": "TODO",
                 "priority": priority.strip().lower(),
+                "scope": scope.strip().lower() if scope and scope.strip().lower() in valid_scopes else None,
                 "epic_id": epic_id.strip().upper() if epic_id else None,
                 "sprint_id": sprint_id.strip() if sprint_id else None,
+                "acceptance_criteria": list(acceptance_criteria) if acceptance_criteria else [],
+                "criteria_done": [],
+                "links": [],
+                "remote_links": [],
+                "commit_links": [],
+                "session_summaries": [],
+                "flagged_reason": None,
+                "flagged_options": [],
                 "created_at": now,
                 "updated_at": now,
                 "comments": [],
@@ -243,6 +255,8 @@ class JSONLBackend:
                 return dict(r)
         return None
 
+    _VALID_STATUSES = frozenset({"TODO", "IN_PROGRESS", "REVIEW", "DONE", "NEEDS_INPUT"})
+
     def update_issue(
         self,
         issue_id: str,
@@ -251,7 +265,12 @@ class JSONLBackend:
         comment_author: str = "User",
     ) -> Optional[Dict[str, Any]]:
         issue_id = issue_id.strip().upper()
-        allowed = {"title", "description", "type", "status", "priority", "epic_id", "sprint_id"}
+        allowed = {
+            "title", "description", "type", "status", "priority", "epic_id", "sprint_id",
+            "scope", "acceptance_criteria", "criteria_done",
+            "links", "remote_links", "commit_links", "session_summaries",
+            "flagged_reason", "flagged_options",
+        }
         with self._lock, self._exclusive(self.issues_path):
             records = self._read_jsonl(self.issues_path)
             idx = next((i for i, r in enumerate(records) if r.get("id", "").upper() == issue_id), None)
@@ -261,6 +280,10 @@ class JSONLBackend:
             changes: List[str] = []
             now = self._now()
             for field, val in updates.items():
+                if field == "status":
+                    val = val.strip().upper()
+                    if val not in self._VALID_STATUSES:
+                        continue
                 if field in allowed:
                     issue[field] = val
                     changes.append(field)
@@ -318,7 +341,13 @@ class JSONLBackend:
 
     # ── Sprints ───────────────────────────────────────────────────────────────
 
-    def create_sprint(self, name: str, goal: str = "") -> Dict[str, Any]:
+    def create_sprint(
+        self,
+        name: str,
+        goal: str = "",
+        duration_days: int = 7,
+        epic_ids: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
         with self._lock, self._exclusive(self.config_path):
             now = self._now()
             config = self._read_config()
@@ -329,8 +358,11 @@ class JSONLBackend:
                 "name": name.strip(),
                 "goal": goal.strip(),
                 "status": "PLANNING",
+                "duration_days": max(1, int(duration_days)),
+                "epic_ids": [e.strip().upper() for e in (epic_ids or [])],
                 "created_at": now,
                 "started_at": None,
+                "end_date": None,
                 "completed_at": None,
             }
             sprints.append(sprint)
@@ -341,6 +373,7 @@ class JSONLBackend:
         return dict(sprint)
 
     def start_sprint(self, sprint_id: str) -> Dict[str, Any]:
+        from datetime import timedelta
         sprint_id = sprint_id.strip()
         with self._lock, self._exclusive(self.config_path):
             config = self._read_config()
@@ -351,13 +384,16 @@ class JSONLBackend:
             target = next((s for s in sprints if s["id"] == sprint_id), None)
             if not target:
                 raise ValueError(f"Sprint {sprint_id} not found.")
-            now = self._now()
+            now = datetime.now(timezone.utc)
+            duration = int(target.get("duration_days", 7))
+            end_dt = now + timedelta(days=duration)
             target["status"] = "ACTIVE"
-            target["started_at"] = now
+            target["started_at"] = now.isoformat()
+            target["end_date"] = end_dt.isoformat()
             config["active_sprint_id"] = sprint_id
             self._write_config(config)
-        self.log_activity("Start Sprint", f"Started {sprint_id}")
-        self.emit_event("sprint_started", {"id": sprint_id})
+        self.log_activity("Start Sprint", f"Started {sprint_id} (ends {end_dt.date()})")
+        self.emit_event("sprint_started", {"id": sprint_id, "end_date": end_dt.isoformat()})
         return dict(target)
 
     def complete_sprint(self, sprint_id: str) -> Dict[str, Any]:
@@ -675,4 +711,263 @@ class JSONLBackend:
             "issues": len(issues),
             "docs": len(docs),
             "sprints": len(sprints),
+        }
+
+    # ── New methods (v0.6.0) ──────────────────────────────────────────────────
+
+    def create_issues_bulk(self, issues_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Create multiple issues atomically. Returns list of created issue dicts."""
+        created: List[Dict[str, Any]] = []
+        valid_scopes = {"nano", "small", "medium", "large", "research"}
+        with self._lock, self._exclusive(self.config_path), self._exclusive(self.issues_path):
+            now = self._now()
+            config = self._read_config()
+            records = self._read_jsonl(self.issues_path)
+            for item in issues_list:
+                scope_raw = (item.get("scope") or "").strip().lower()
+                issue_id = self._next_issue_id(config)
+                issue: Dict[str, Any] = {
+                    "id": issue_id,
+                    "title": (item.get("title") or "Untitled").strip(),
+                    "description": (item.get("description") or "").strip(),
+                    "type": (item.get("issue_type") or "task").strip().lower(),
+                    "status": "TODO",
+                    "priority": (item.get("priority") or "medium").strip().lower(),
+                    "scope": scope_raw if scope_raw in valid_scopes else None,
+                    "epic_id": item["epic_id"].strip().upper() if item.get("epic_id") else None,
+                    "sprint_id": item["sprint_id"].strip() if item.get("sprint_id") else None,
+                    "acceptance_criteria": list(item.get("acceptance_criteria") or []),
+                    "criteria_done": [],
+                    "links": [],
+                    "remote_links": [],
+                    "commit_links": [],
+                    "session_summaries": [],
+                    "flagged_reason": None,
+                    "flagged_options": [],
+                    "created_at": now,
+                    "updated_at": now,
+                    "comments": [],
+                }
+                records.append(issue)
+                created.append(dict(issue))
+            self._rewrite(self.issues_path, records)
+            self._write_config(config)
+        for issue in created:
+            self.log_activity("Create Issue", f"Bulk-created {issue['id']}: {issue['title']}")
+            self.emit_event("issue_created", {"id": issue["id"], "title": issue["title"]})
+        return created
+
+    def clone_issue(self, issue_id: str, overrides: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Clone an issue, creating a new one with the same core fields. Returns the new issue."""
+        src = self.get_issue(issue_id)
+        if src is None:
+            raise ValueError(f"Issue {issue_id} not found.")
+        overrides = overrides or {}
+        new_title = overrides.get("title", f"[Clone] {src['title']}")
+        new_description = overrides.get("description", src.get("description", ""))
+        clone = self.create_issue(
+            title=new_title,
+            description=new_description + f"\n\n[Cloned from {src['id']}]",
+            issue_type=overrides.get("issue_type", src.get("type", "task")),
+            priority=overrides.get("priority", src.get("priority", "medium")),
+            epic_id=overrides.get("epic_id", src.get("epic_id")),
+            sprint_id=overrides.get("sprint_id", src.get("sprint_id")),
+            scope=overrides.get("scope", src.get("scope")),
+            acceptance_criteria=list(src.get("acceptance_criteria") or []),
+        )
+        return clone
+
+    def attach_session(
+        self,
+        issue_id: str,
+        summary: str,
+        files_changed: Optional[List[str]] = None,
+        tests_added: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Attach a Claude session summary to an issue. Returns updated issue."""
+        issue_id = issue_id.strip().upper()
+        entry: Dict[str, Any] = {
+            "summary": summary.strip(),
+            "files_changed": list(files_changed or []),
+            "tests_added": list(tests_added or []),
+            "created_at": self._now(),
+        }
+        with self._lock, self._exclusive(self.issues_path):
+            records = self._read_jsonl(self.issues_path)
+            idx = next((i for i, r in enumerate(records) if r.get("id", "").upper() == issue_id), None)
+            if idx is None:
+                raise ValueError(f"Issue {issue_id} not found.")
+            records[idx].setdefault("session_summaries", []).append(entry)
+            records[idx].setdefault("comments", []).append({
+                "id": self._ms_id(),
+                "issue_id": issue_id,
+                "author": "claude-session",
+                "body": f"**Session Summary**\n\n{summary.strip()}"
+                        + (f"\n\n**Files changed:** {', '.join(files_changed)}" if files_changed else "")
+                        + (f"\n\n**Tests added:** {', '.join(tests_added)}" if tests_added else ""),
+                "created_at": self._now(),
+            })
+            records[idx]["updated_at"] = self._now()
+            self._rewrite(self.issues_path, records)
+        self.emit_event("issue_session_attached", {"id": issue_id})
+        return dict(records[idx])  # type: ignore[index]
+
+    def flag_issue(self, issue_id: str, reason: str, options: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Set an issue to NEEDS_INPUT with a reason and optional choice options."""
+        issue_id = issue_id.strip().upper()
+        now = self._now()
+        with self._lock, self._exclusive(self.issues_path):
+            records = self._read_jsonl(self.issues_path)
+            idx = next((i for i, r in enumerate(records) if r.get("id", "").upper() == issue_id), None)
+            if idx is None:
+                raise ValueError(f"Issue {issue_id} not found.")
+            records[idx]["status"] = "NEEDS_INPUT"
+            records[idx]["flagged_reason"] = reason.strip()
+            records[idx]["flagged_options"] = list(options or [])
+            records[idx]["updated_at"] = now
+            records[idx].setdefault("comments", []).append({
+                "id": self._ms_id(),
+                "issue_id": issue_id,
+                "author": "claude-session",
+                "body": f"**Flagged — needs human input**\n\n{reason.strip()}"
+                        + (f"\n\n**Options:** " + " | ".join(f"[{o}]" for o in (options or [])) if options else ""),
+                "created_at": now,
+            })
+            self._rewrite(self.issues_path, records)
+        self.log_activity("Flag Issue", f"Flagged {issue_id}: {reason[:60]}")
+        self.emit_event("issue_flagged", {"id": issue_id, "reason": reason})
+        return dict(records[idx])  # type: ignore[index]
+
+    def link_commit(self, issue_id: str, sha: str, message: str = "", url: str = "") -> Dict[str, Any]:
+        """Attach a git commit reference to an issue."""
+        issue_id = issue_id.strip().upper()
+        entry: Dict[str, Any] = {
+            "sha": sha.strip()[:40],
+            "short_sha": sha.strip()[:7],
+            "message": message.strip(),
+            "url": url.strip(),
+            "created_at": self._now(),
+        }
+        with self._lock, self._exclusive(self.issues_path):
+            records = self._read_jsonl(self.issues_path)
+            idx = next((i for i, r in enumerate(records) if r.get("id", "").upper() == issue_id), None)
+            if idx is None:
+                raise ValueError(f"Issue {issue_id} not found.")
+            records[idx].setdefault("commit_links", []).append(entry)
+            records[idx]["updated_at"] = self._now()
+            self._rewrite(self.issues_path, records)
+        self.emit_event("issue_commit_linked", {"id": issue_id, "sha": entry["short_sha"]})
+        return entry
+
+    def add_issue_link(self, from_id: str, to_id: str, link_type: str) -> Dict[str, Any]:
+        """Add a structured link from one issue to another."""
+        from_id = from_id.strip().upper()
+        to_id = to_id.strip().upper()
+        entry = {"from_id": from_id, "to_id": to_id, "type": link_type, "created_at": self._now()}
+        with self._lock, self._exclusive(self.issues_path):
+            records = self._read_jsonl(self.issues_path)
+            idx = next((i for i, r in enumerate(records) if r.get("id", "").upper() == from_id), None)
+            if idx is None:
+                raise ValueError(f"Issue {from_id} not found.")
+            existing = records[idx].get("links", [])
+            if not any(l["to_id"] == to_id and l["type"] == link_type for l in existing):
+                existing.append(entry)
+                records[idx]["links"] = existing
+                records[idx]["updated_at"] = self._now()
+                self._rewrite(self.issues_path, records)
+        return entry
+
+    def add_remote_link(self, issue_id: str, url: str, title: str = "") -> Dict[str, Any]:
+        """Add a structured remote link to an issue, and auto-transition to REVIEW if PR URL."""
+        import re
+        issue_id = issue_id.strip().upper()
+        entry = {"url": url.strip(), "title": (title.strip() or url.strip()), "created_at": self._now()}
+        auto_transitioned = False
+        with self._lock, self._exclusive(self.issues_path):
+            records = self._read_jsonl(self.issues_path)
+            idx = next((i for i, r in enumerate(records) if r.get("id", "").upper() == issue_id), None)
+            if idx is None:
+                raise ValueError(f"Issue {issue_id} not found.")
+            existing = records[idx].get("remote_links", [])
+            if not any(l["url"] == url for l in existing):
+                existing.append(entry)
+                records[idx]["remote_links"] = existing
+                records[idx]["updated_at"] = self._now()
+                # Auto-REVIEW transition: PR URL + currently IN_PROGRESS
+                if (re.search(r"/pull/\d+", url)
+                        and records[idx].get("status", "").upper() == "IN_PROGRESS"):
+                    records[idx]["status"] = "REVIEW"
+                    records[idx].setdefault("comments", []).append({
+                        "id": self._ms_id(),
+                        "issue_id": issue_id,
+                        "author": "PM Dashboard",
+                        "body": f"Auto-moved to REVIEW — PR linked: {url}",
+                        "created_at": self._now(),
+                    })
+                    auto_transitioned = True
+                self._rewrite(self.issues_path, records)
+        self.emit_event("issue_remote_link_added", {"id": issue_id, "url": url})
+        if auto_transitioned:
+            self.emit_event("issue_updated", {"id": issue_id, "changes": ["status", "remote_links"]})
+        return {**entry, "auto_transitioned_to_review": auto_transitioned}
+
+    def workspace_health(self) -> Dict[str, Any]:
+        """Return a health report: stale tickets, epics without children, ADRs in proposed, etc."""
+        from datetime import timedelta
+        if not self.is_initialized():
+            return {"ok": False, "error": "Workspace not initialized."}
+        now = datetime.now(timezone.utc)
+        stale_cutoff = now - timedelta(days=3)
+        proposed_cutoff = now - timedelta(days=7)
+
+        issues = self._read_jsonl(self.issues_path)
+        docs = self._read_jsonl(self.docs_path)
+
+        stale: List[Dict[str, Any]] = []
+        no_description: List[str] = []
+        epic_ids_with_children: set = set()
+
+        for issue in issues:
+            if issue.get("type") == "epic" and issue.get("epic_id"):
+                epic_ids_with_children.add(issue["epic_id"])
+            if issue.get("status", "").upper() == "IN_PROGRESS":
+                try:
+                    updated = datetime.fromisoformat(issue.get("updated_at", "").replace("Z", "+00:00"))
+                    if updated < stale_cutoff:
+                        stale.append({"id": issue["id"], "title": issue["title"],
+                                      "updated_at": issue["updated_at"]})
+                except Exception:
+                    pass
+            if not (issue.get("description") or "").strip():
+                no_description.append(issue["id"])
+
+        childless_epics = [
+            {"id": i["id"], "title": i["title"]}
+            for i in issues
+            if i.get("type") == "epic" and i["id"] not in epic_ids_with_children
+        ]
+
+        proposed_adrs: List[Dict[str, Any]] = []
+        for doc in docs:
+            if doc.get("doc_type") == "adr" and doc.get("doc_status") == "proposed":
+                try:
+                    created = datetime.fromisoformat(doc.get("created_at", "").replace("Z", "+00:00"))
+                    if created < proposed_cutoff:
+                        proposed_adrs.append({"id": doc["id"], "title": doc["title"],
+                                              "created_at": doc["created_at"]})
+                except Exception:
+                    pass
+
+        return {
+            "ok": True,
+            "stale_in_progress": stale,
+            "no_description": no_description,
+            "childless_epics": childless_epics,
+            "proposed_adrs_older_than_7d": proposed_adrs,
+            "summary": {
+                "stale_count": len(stale),
+                "no_description_count": len(no_description),
+                "childless_epic_count": len(childless_epics),
+                "proposed_adr_count": len(proposed_adrs),
+            },
         }
