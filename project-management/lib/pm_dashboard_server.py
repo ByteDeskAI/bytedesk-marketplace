@@ -325,6 +325,28 @@ def _ensure_plugin_installed() -> None:
         print(f"[pm-dashboard] plugin ensure warning: {exc}", flush=True)
 
 
+def _cleanup_misplaced_files(project_root: Path) -> None:
+    """Remove db/event files incorrectly placed in the project root by old versions.
+
+    The old _find_pm_root() fell back to returning the project dir when .pm/
+    didn't exist yet, causing pm.db and events.jsonl to land in the wrong place.
+    If we now have a proper .pm/ directory alongside these stale root-level files,
+    remove the stale ones.
+    """
+    pm_dir = project_root / ".pm"
+    if not pm_dir.is_dir():
+        return  # Nothing to clean up
+    for stale in ("pm.db", "pm.db-shm", "pm.db-wal", "events.jsonl",
+                  "dashboard.pid", "dashboard.port"):
+        f = project_root / stale
+        if f.exists():
+            try:
+                f.unlink()
+                print(f"[pm-dashboard] removed misplaced {stale} from project root", flush=True)
+            except Exception:
+                pass
+
+
 def _auto_init_workspace(pm_root: Path, plugin_root: Path) -> None:
     """Initialize the PM workspace on first boot if it hasn't been set up yet.
 
@@ -1237,7 +1259,11 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
 def _find_pm_root(workspace_path: Optional[str]) -> Path:
     if workspace_path:
         base = Path(workspace_path).expanduser().resolve()
-        return base / ".pm" if (base / ".pm").is_dir() else base
+        # Always return base/.pm — create it if needed (never fall back to base,
+        # which caused db files to land in the project root on first boot).
+        pm = base / ".pm"
+        pm.mkdir(parents=True, exist_ok=True)
+        return pm
 
     cwd = Path.cwd().resolve()
     for parent in [cwd] + list(cwd.parents):
@@ -1285,6 +1311,10 @@ def run(workspace_path: Optional[str] = None) -> int:
         print(f"Serving SPA from {_DIST_DIR}", flush=True)
     else:
         print("Warning: dashboard/dist/ not found. Run: cd dashboard && npm run build", flush=True)
+
+    # Remove stale db/event files from the project root if they were created
+    # by the old buggy _find_pm_root (which fell back to the project dir).
+    _cleanup_misplaced_files(root.parent)
 
     # Auto-initialize workspace on first boot if not yet set up.
     # Derives project name and key prefix from the directory name so users

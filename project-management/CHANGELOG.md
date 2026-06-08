@@ -5,6 +5,14 @@ All notable changes to the `project-management` plugin will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3] — 2026-06-08
+
+### Fixed
+- **Root-cause fix for first-boot failure**: `_find_pm_root()` was falling back to returning the project directory itself (instead of `project_dir/.pm`) when `.pm/` didn't exist yet. This caused `pm.db`, `events.jsonl`, and `dashboard.pid` to be written to the project root on first boot, then the dashboard failing on the next start when it couldn't find a valid workspace.
+- `_find_pm_root()` now always returns `base/.pm` when a workspace path is given, creating the directory if needed.
+- `_cleanup_misplaced_files()`: on startup, removes any stale db/event files that old versions wrote to the project root alongside a now-correct `.pm/` directory.
+- Both fixes together give a clean first-boot experience: monitor fires → workspace auto-initialized in `.pm/` → dashboard accessible immediately.
+
 ## [0.4.2] — 2026-06-08
 
 ### Added
