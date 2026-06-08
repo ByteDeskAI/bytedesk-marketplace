@@ -2,6 +2,17 @@
 
 All notable changes to the `project-management` plugin will be documented in this file.
 
+## [0.6.1] — 2026-06-08
+
+### Changed
+- **Epics tab — Atlaskit design system compliance**: Complete rewrite of `EpicTreeView.tsx`.
+  - All hardcoded hex colors replaced with `var(--ds-*)` semantic tokens — dark mode works correctly.
+  - Added `ProgressBar` per epic showing done/total completion ratio.
+  - Added `Badge` for child counts and `Tooltip` on priority dots.
+  - Added `EpicStats` summary bar: Total Epics, In Progress, Completed, Tasks Done.
+  - Added `EmptyState` when no epics exist.
+  - Proper Atlaskit page header in `App.tsx` (24px heading, subtitle, pill badge, border separator).
+
 ## [0.6.0] — 2026-06-08
 
 ### Added

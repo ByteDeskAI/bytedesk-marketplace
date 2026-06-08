@@ -280,8 +280,50 @@ export default function App() {
             )}
 
             {showEpics && !showCalendar && (
-              <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}>
-                <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--ds-text)', marginBottom: 16 }}>Epics</h1>
+              <div style={{ flex: 1, overflowY: 'auto', padding: '24px 32px 32px' }}>
+                {/* Page header — follows Atlaskit PageHeader pattern */}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  justifyContent: 'space-between',
+                  marginBottom: 24,
+                  paddingBottom: 20,
+                  borderBottom: '1px solid var(--ds-border)',
+                }}>
+                  <div>
+                    <h1 style={{
+                      fontSize: 24,
+                      fontWeight: 700,
+                      color: 'var(--ds-text)',
+                      margin: '0 0 4px',
+                      lineHeight: 1.2,
+                    }}>
+                      Epics
+                    </h1>
+                    <p style={{
+                      fontSize: 14,
+                      color: 'var(--ds-text-subtle)',
+                      margin: 0,
+                      lineHeight: 1.5,
+                    }}>
+                      Track large bodies of work across multiple sprints and team members
+                    </p>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                    <span style={{
+                      fontSize: 12,
+                      color: 'var(--ds-text-subtlest)',
+                      background: 'var(--ds-surface-sunken)',
+                      border: '1px solid var(--ds-border)',
+                      borderRadius: 12,
+                      padding: '3px 10px',
+                      fontWeight: 500,
+                    }}>
+                      {issues.filter(i => i.type === 'epic').length} epics ·{' '}
+                      {issues.filter(i => i.epic_id).length} tasks
+                    </span>
+                  </div>
+                </div>
                 <EpicTreeView issues={issues} onIssueClick={(issue) => setSelectedIssue(issue)} />
               </div>
             )}
