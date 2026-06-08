@@ -127,8 +127,14 @@ class PMStore:
         title: str,
         content: str = "",
         parent_id: Optional[str] = None,
+        doc_type: str = "wiki",
+        doc_status: str = "",
+        superseded_by: Optional[str] = None,
     ) -> Dict[str, Any]:
-        return self._backend.create_doc(title, content, parent_id)
+        return self._backend.create_doc(
+            title, content, parent_id,
+            doc_type=doc_type, doc_status=doc_status, superseded_by=superseded_by,
+        )
 
     def get_doc(self, doc_id: str) -> Optional[Dict[str, Any]]:
         return self._backend.get_doc(doc_id)
@@ -136,8 +142,12 @@ class PMStore:
     def update_doc(self, doc_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         return self._backend.update_doc(doc_id, updates)
 
-    def list_docs(self, query: Optional[str] = None) -> List[Dict[str, Any]]:
-        return self._backend.list_docs(query)
+    def list_docs(
+        self,
+        query: Optional[str] = None,
+        doc_type: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        return self._backend.list_docs(query, doc_type=doc_type)
 
     # --- Observability ---
 

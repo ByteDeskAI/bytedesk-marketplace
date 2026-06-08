@@ -5,6 +5,14 @@ All notable changes to the `project-management` plugin will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] — 2026-06-08
+
+### Added
+- **ADR support as first-class document type**: `doc_type` (`wiki | adr | runbook | learning | plan | brief`), `doc_status` (`proposed | accepted | deprecated | superseded`), and `superseded_by` (DOC-ID reference) added to the `docs` SQLite table. Non-destructive `ALTER TABLE` migration runs automatically on first boot for existing databases.
+- **ADR lifecycle**: `pm_doc_create` and `pm_doc_update` accept the new fields. `pm_doc_list` accepts `doc_type` to filter; `pm_doc_list(doc_type="adr")` returns only ADRs. Supersession is a first-class operation: create the new ADR, then update the old one with `doc_status="superseded"` and `superseded_by=<new-id>`.
+- **ADR context injected into every execution session**: when `POST /api/run` fires (ticket or epic), the backend fetches all ADRs and prepends a compact digest (ID, status, superseded-by, title) to the Claude prompt. Claude is instructed to read relevant ADRs via `pm_doc_get` before writing any code.
+- **ADR creation heuristics in every execution prompt**: clear triggers appended to every ticket/epic session — tech stack choices, cross-cutting patterns, API shape, data model decisions, non-obvious trade-offs. ADR format template (Context / Decision / Consequences / Alternatives) included.
+
 ## [0.4.11] — 2026-06-08
 
 ### Changed

@@ -91,12 +91,15 @@ class SQLiteBackend:
                     completed_at TEXT
                 );
                 CREATE TABLE IF NOT EXISTS docs (
-                    id         TEXT PRIMARY KEY,
-                    title      TEXT NOT NULL,
-                    content    TEXT DEFAULT '',
-                    parent_id  TEXT,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
+                    id             TEXT PRIMARY KEY,
+                    title          TEXT NOT NULL,
+                    content        TEXT DEFAULT '',
+                    parent_id      TEXT,
+                    doc_type       TEXT NOT NULL DEFAULT 'wiki',
+                    doc_status     TEXT NOT NULL DEFAULT '',
+                    superseded_by  TEXT,
+                    created_at     TEXT NOT NULL,
+                    updated_at     TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS activity_log (
                     id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -105,6 +108,17 @@ class SQLiteBackend:
                     details   TEXT DEFAULT ''
                 );
             """)
+            # Non-destructive migrations for existing databases
+            existing_cols = {
+                row[1] for row in conn.execute("PRAGMA table_info(docs)").fetchall()
+            }
+            for col, defn in [
+                ("doc_type",      "TEXT NOT NULL DEFAULT 'wiki'"),
+                ("doc_status",    "TEXT NOT NULL DEFAULT ''"),
+                ("superseded_by", "TEXT"),
+            ]:
+                if col not in existing_cols:
+                    conn.execute(f"ALTER TABLE docs ADD COLUMN {col} {defn}")
 
     # --- Lifecycle ---
 
@@ -428,25 +442,35 @@ class SQLiteBackend:
         title: str,
         content: str = "",
         parent_id: Optional[str] = None,
+        doc_type: str = "wiki",
+        doc_status: str = "",
+        superseded_by: Optional[str] = None,
     ) -> Dict[str, Any]:
         now = self._now()
+        valid_types = {"wiki", "adr", "runbook", "learning", "plan", "brief"}
+        valid_statuses = {"", "proposed", "accepted", "deprecated", "superseded"}
+        doc_type = doc_type.lower() if doc_type.lower() in valid_types else "wiki"
+        doc_status = doc_status.lower() if doc_status.lower() in valid_statuses else ""
         with self._tx() as conn:
             doc_id = self._next_doc_id(conn)
             conn.execute(
-                "INSERT INTO docs (id, title, content, parent_id, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO docs (id, title, content, parent_id, doc_type, doc_status, superseded_by, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     doc_id,
                     title.strip(),
                     content,
                     parent_id.strip().upper() if parent_id else None,
+                    doc_type,
+                    doc_status,
+                    superseded_by.strip().upper() if superseded_by else None,
                     now,
                     now,
                 ),
             )
         doc = self.get_doc(doc_id)
-        self.log_activity("Create Document", f"Created {doc_id}: {title}")
-        self.emit_event("doc_created", {"id": doc_id, "title": title})
+        self.log_activity("Create Document", f"Created {doc_id} [{doc_type}]: {title}")
+        self.emit_event("doc_created", {"id": doc_id, "title": title, "doc_type": doc_type})
         return doc  # type: ignore[return-value]
 
     def get_doc(self, doc_id: str) -> Optional[Dict[str, Any]]:
@@ -460,7 +484,7 @@ class SQLiteBackend:
         doc_id = doc_id.strip().upper()
         if not self.get_doc(doc_id):
             return None
-        allowed = {"title", "content", "parent_id"}
+        allowed = {"title", "content", "parent_id", "doc_type", "doc_status", "superseded_by"}
         set_clauses: List[str] = []
         params: List[Any] = []
         changes: List[str] = []
@@ -481,20 +505,28 @@ class SQLiteBackend:
             self.emit_event("doc_updated", {"id": doc_id, "changes": changes})
         return self.get_doc(doc_id)
 
-    def list_docs(self, query: Optional[str] = None) -> List[Dict[str, Any]]:
+    def list_docs(
+        self,
+        query: Optional[str] = None,
+        doc_type: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         if not self.is_initialized():
             return []
         conn = self._connect()
+        conditions: List[str] = []
+        params: List[Any] = []
+        if doc_type:
+            conditions.append("LOWER(doc_type) = ?")
+            params.append(doc_type.lower())
         if query:
             q = f"%{query.strip().lower()}%"
-            rows = conn.execute(
-                "SELECT * FROM docs "
-                "WHERE LOWER(id) LIKE ? OR LOWER(title) LIKE ? OR LOWER(content) LIKE ? "
-                "ORDER BY CAST(SUBSTR(id, 5) AS INTEGER)",
-                (q, q, q),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM docs ORDER BY CAST(SUBSTR(id, 5) AS INTEGER)"
-            ).fetchall()
+            conditions.append(
+                "(LOWER(id) LIKE ? OR LOWER(title) LIKE ? OR LOWER(content) LIKE ?)"
+            )
+            params.extend([q, q, q])
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        rows = conn.execute(
+            f"SELECT * FROM docs {where} ORDER BY CAST(SUBSTR(id, 5) AS INTEGER)",
+            params,
+        ).fetchall()
         return [dict(r) for r in rows]

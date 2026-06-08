@@ -539,6 +539,69 @@ def _detect_session_state(session_name: str) -> str:
     return "starting"
 
 
+_ADR_CREATION_GUIDANCE = """\
+## Architecture Decision Records (ADRs)
+
+This project uses ADRs to capture significant architectural choices. Before writing any code:
+1. Call `pm_doc_list` with `doc_type="adr"` to retrieve all existing ADRs.
+2. Read the full content of any ADR whose title suggests relevance to the current work.
+3. Follow patterns and constraints described in Accepted ADRs. Do not contradict them without creating a superseding ADR first.
+
+Create a new ADR (using `pm_doc_create` with `doc_type="adr"`, `doc_status="accepted"`) whenever you make a decision about:
+- Choice of library, framework, or tool (e.g. "use Tailwind instead of CSS modules")
+- Cross-cutting patterns (authentication approach, error handling strategy, state management)
+- API shape or data model that other code will depend on
+- Non-obvious trade-offs with lasting consequences
+- Any choice a future developer would reasonably make differently without this context
+
+ADR format — always include these sections:
+```
+## Context
+[Why this decision was needed; what problem it solves]
+
+## Decision
+[The choice made, stated clearly]
+
+## Consequences
+[What becomes easier, what becomes harder, what constraints this imposes]
+
+## Alternatives Considered
+[Other options evaluated and why they were rejected]
+```
+
+To supersede an existing ADR:
+1. Create the new ADR with `doc_status="accepted"`.
+2. Update the OLD ADR: set `doc_status="superseded"` and `superseded_by=<new-doc-id>`.
+3. Reference the old ADR in the new one's Context section.
+"""
+
+
+def _build_adr_digest(pm_root: Path) -> str:
+    """Return a compact ADR digest to inject into execution prompts.
+
+    Returns an empty string if there are no ADRs or the store is unavailable.
+    """
+    try:
+        sys.path.insert(0, str(Path(__file__).parent))
+        from pm_store import PMStore  # noqa: F401
+        store = PMStore(str(pm_root.parent))
+        adrs = store.list_docs(doc_type="adr")
+        if not adrs:
+            return ""
+        lines = ["## Existing ADRs — read before implementing\n"]
+        for adr in adrs:
+            status = adr.get("doc_status", "") or "no-status"
+            superseded_by = adr.get("superseded_by")
+            note = f" → superseded by {superseded_by}" if superseded_by else ""
+            lines.append(f"- **{adr['id']}** [{status}]{note}: {adr['title']}")
+        lines.append(
+            "\nCall `pm_doc_get` on any relevant ADR to read its full content before starting work.\n"
+        )
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
 def _spawn_claude_session(session_name: str, prompt: str, cwd: Optional[str] = None) -> Optional[str]:
     """Spawn a tmux session running Claude Code with the given initial prompt.
 
@@ -1141,6 +1204,12 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                         store.update_issue(epic_id, {"status": "IN_PROGRESS"})
                         _broadcast_event({"type": "issue_updated", "payload": {"id": epic_id, "status": "IN_PROGRESS"}})
 
+            # Prepend ADR digest + creation guidance to every execution prompt
+            adr_digest = _build_adr_digest(self._pm_root)
+            if adr_digest:
+                prompt = adr_digest + "\n\n---\n\n" + prompt
+            prompt = prompt + "\n\n---\n\n" + _ADR_CREATION_GUIDANCE
+
             # Ensure MCP config and current skills are written into the workspace
             project_root = str(self._pm_root.parent)
             _write_session_mcp_json(Path(project_root))
@@ -1278,7 +1347,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             sys.path.insert(0, str(Path(__file__).parent))
             from pm_store import PMStore
             store = PMStore(str(self._pm_root.parent))
-            allowed_keys = {"title", "content", "parent_id", "doc_type"}
+            allowed_keys = {"title", "content", "parent_id", "doc_type", "doc_status", "superseded_by"}
             updates = {k: v for k, v in body.items() if k in allowed_keys}
             doc = store.update_doc(doc_id, updates)
             if doc:

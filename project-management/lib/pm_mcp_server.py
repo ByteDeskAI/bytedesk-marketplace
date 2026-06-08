@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 
 from pm_store import PMStore
 
-SERVER_INFO = {"name": "project-management", "version": "0.4.11"}
+SERVER_INFO = {"name": "project-management", "version": "0.5.0"}
 
 
 def tool_definitions() -> List[Dict[str, Any]]:
@@ -184,21 +184,40 @@ def tool_definitions() -> List[Dict[str, Any]]:
         },
         {
             "name": "pm_doc_create",
-            "description": "Create a new wiki/confluence documentation page. Usage: /pm:doc create <title> [--content BODY] [--parent ID]",
+            "description": (
+                "Create a new documentation page. Use doc_type='adr' for Architecture Decision Records. "
+                "ADR doc_status lifecycle: proposed → accepted → deprecated → superseded. "
+                "When superseding an existing ADR, set superseded_by on the OLD ADR to this new doc's ID, "
+                "and set doc_status='superseded' on the old one."
+            ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "title": {
                         "type": "string",
-                        "description": "Title of the document page. Required."
+                        "description": "Title of the document. For ADRs use format: 'ADR-N: Decision Title'."
                     },
                     "content": {
                         "type": "string",
-                        "description": "Markdown body content of the document."
+                        "description": "Markdown body. For ADRs include: ## Context, ## Decision, ## Consequences sections."
+                    },
+                    "doc_type": {
+                        "type": "string",
+                        "enum": ["wiki", "adr", "runbook", "learning", "plan", "brief"],
+                        "description": "Document type. Use 'adr' for architecture decisions."
+                    },
+                    "doc_status": {
+                        "type": "string",
+                        "enum": ["proposed", "accepted", "deprecated", "superseded", ""],
+                        "description": "ADR lifecycle status. New ADRs should start as 'proposed' or 'accepted'."
+                    },
+                    "superseded_by": {
+                        "type": "string",
+                        "description": "DOC-ID of the ADR that supersedes this one. Set when marking an ADR as superseded."
                     },
                     "parent_id": {
                         "type": "string",
-                        "description": "Optional parent document ID for hierarchical wiki pages (e.g. DOC-1)."
+                        "description": "Optional parent document ID for hierarchical nesting (e.g. DOC-1)."
                     }
                 },
                 "required": ["title"]
@@ -206,7 +225,7 @@ def tool_definitions() -> List[Dict[str, Any]]:
         },
         {
             "name": "pm_doc_update",
-            "description": "Update title, body content, or parent page for a wiki document.",
+            "description": "Update a documentation page. Use to advance ADR status (e.g. proposed → accepted) or record supersession.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -214,45 +233,51 @@ def tool_definitions() -> List[Dict[str, Any]]:
                         "type": "string",
                         "description": "Document ID (e.g. DOC-3). Required."
                     },
-                    "title": {
+                    "title": {"type": "string", "description": "New title."},
+                    "content": {"type": "string", "description": "New markdown body content."},
+                    "doc_type": {
                         "type": "string",
-                        "description": "New title."
+                        "enum": ["wiki", "adr", "runbook", "learning", "plan", "brief"]
                     },
-                    "content": {
+                    "doc_status": {
                         "type": "string",
-                        "description": "New markdown body content."
+                        "enum": ["proposed", "accepted", "deprecated", "superseded", ""],
+                        "description": "New ADR lifecycle status."
                     },
-                    "parent_id": {
+                    "superseded_by": {
                         "type": "string",
-                        "description": "New parent document ID (or null to make root)."
-                    }
+                        "description": "DOC-ID of the ADR that supersedes this one."
+                    },
+                    "parent_id": {"type": "string", "description": "New parent document ID."}
                 },
                 "required": ["id"]
             }
         },
         {
             "name": "pm_doc_get",
-            "description": "View the markdown content and metadata of a specific wiki page.",
+            "description": "View the markdown content and metadata of a specific documentation page or ADR.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "Document ID (e.g. DOC-3). Required."
-                    }
+                    "id": {"type": "string", "description": "Document ID (e.g. DOC-3). Required."}
                 },
                 "required": ["id"]
             }
         },
         {
             "name": "pm_doc_list",
-            "description": "List all documentation wiki pages or search content.",
+            "description": "List documentation pages. Filter by doc_type='adr' to retrieve all Architecture Decision Records.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Text search query on ID, title, or body."
+                        "description": "Full-text search on ID, title, or body."
+                    },
+                    "doc_type": {
+                        "type": "string",
+                        "enum": ["wiki", "adr", "runbook", "learning", "plan", "brief"],
+                        "description": "Filter by document type. Use 'adr' to list all ADRs."
                     }
                 }
             }
@@ -550,14 +575,17 @@ def call_pm_tool(name: str, arguments: Dict[str, Any]) -> Any:
         doc = store.create_doc(
             title=arguments["title"],
             content=arguments.get("content", ""),
-            parent_id=arguments.get("parent_id")
+            parent_id=arguments.get("parent_id"),
+            doc_type=arguments.get("doc_type", "wiki"),
+            doc_status=arguments.get("doc_status", ""),
+            superseded_by=arguments.get("superseded_by"),
         )
         return {"ok": True, "document": doc}
 
     elif name == "pm_doc_update":
         doc_id = arguments["id"]
         updates = {}
-        for field in ["title", "content", "parent_id"]:
+        for field in ["title", "content", "parent_id", "doc_type", "doc_status", "superseded_by"]:
             if field in arguments:
                 updates[field] = arguments[field]
         doc = store.update_doc(doc_id, updates)
@@ -573,7 +601,10 @@ def call_pm_tool(name: str, arguments: Dict[str, Any]) -> Any:
         return {"ok": True, "document": doc}
 
     elif name == "pm_doc_list":
-        docs = store.list_docs(query=arguments.get("query"))
+        docs = store.list_docs(
+            query=arguments.get("query"),
+            doc_type=arguments.get("doc_type"),
+        )
         return {"ok": True, "count": len(docs), "documents": docs}
 
     elif name == "pm_status":
