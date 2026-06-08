@@ -421,10 +421,7 @@ export default function App() {
             )}
 
             {showCalendar && !showEpics && !showDependencies && (
-              <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}>
-                <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--ds-text)', marginBottom: 16 }}>Calendar</h1>
-                <IssueCalendarView issues={issues} />
-              </div>
+              <IssueCalendarView issues={issues} onIssueClick={issue => setSelectedIssue(issue)} />
             )}
 
             {!showEpics && !showCalendar && !showDependencies && view === 'plan' && (

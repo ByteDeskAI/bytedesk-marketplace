@@ -217,35 +217,43 @@ export default function Backlog({ issues, onBulkAction }: Props) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-      <div style={{ padding: '14px 24px 10px', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-          <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--ds-text)' }}>Backlog</h1>
-          <span style={{ fontSize: 12, color: 'var(--ds-text-subtlest)' }}>
-            {issues.length} issues
-          </span>
+      <div style={{
+        padding: '24px 32px 16px',
+        flexShrink: 0,
+        borderBottom: '1px solid var(--ds-border)',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 16,
+        flexWrap: 'wrap',
+      }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <h1 style={{ fontSize: 24, fontWeight: 700, color: 'var(--ds-text)', margin: '0 0 4px', lineHeight: 1.2 }}>
+            Backlog
+          </h1>
+          <p style={{ fontSize: 14, color: 'var(--ds-text-subtle)', margin: 0 }}>
+            {issues.length} issue{issues.length !== 1 ? 's' : ''}
+            {issues.some(i => i.priority === 'critical') && (
+              <span style={{ color: 'var(--ds-text-danger)', marginLeft: 8 }}>
+                · {issues.filter(i => i.priority === 'critical').length} critical
+              </span>
+            )}
+          </p>
         </div>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            marginTop: 8,
-          }}
-        >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          <label
+            htmlFor="sort-by-priority"
+            style={{ fontSize: 13, color: 'var(--ds-text-subtle)', cursor: 'pointer', userSelect: 'none' }}
+          >
+            Sort by priority
+          </label>
           <Toggle
             id="sort-by-priority"
             isChecked={sortByPriority}
             onChange={() => setSortByPriority(prev => !prev)}
           />
-          <label
-            htmlFor="sort-by-priority"
-            style={{ fontSize: 12, color: 'var(--ds-text-subtle)', cursor: 'pointer' }}
-          >
-            Sort by priority
-          </label>
         </div>
       </div>
-      <div style={{ flex: 1, overflowY: 'auto', padding: '0 24px 24px' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '16px 32px 32px' }}>
         <BulkActionsBar
           selectedIds={selectedIds}
           onClearSelection={() => setSelectedIds([])}
