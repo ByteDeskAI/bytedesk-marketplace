@@ -5,6 +5,17 @@ All notable changes to the `project-management` plugin will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.3] — 2026-06-08
+
+### Added
+- **Migration wizard in profile menu**: "Migrate data store…" item opens a 4-step Framer Motion modal:
+  1. **Detect** — shows current backend (SQLite / JSONL), record counts (issues/docs/sprints), workspace path, and clickable migration path cards
+  2. **Confirm** — shows exactly what will happen, Keep Source toggle (leaves original files as backup)
+  3. **Migrating** — spinner while backend runs the copy
+  4. **Result** — side-by-side before/after verification table (Issues / Docs / Sprints with Match/Mismatch lozenges); source is only deleted if all counts match and Keep Source is off
+- **`GET /api/migrate/status`** — returns current backend type, record counts, available migration paths with descriptions
+- **`POST /api/migrate`** — runs migration with full pre/post verification: snapshots IDs before migration, verifies every ID is present in destination, only deletes source on clean pass
+
 ## [0.5.2] — 2026-06-08
 
 ### Added

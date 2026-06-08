@@ -777,6 +777,8 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             self._serve_plugin_status()
         elif path == "/api/plan/sessions":
             self._serve_plan_sessions()
+        elif path == "/api/migrate/status":
+            self._serve_migrate_status()
         elif path.startswith("/ws/pty/"):
             session_key = path[len("/ws/pty/"):]
             if self.headers.get("Upgrade", "").lower() == "websocket":
@@ -1123,6 +1125,8 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             self._handle_server_exit()
         elif path == "/api/server/restart":
             self._handle_server_restart()
+        elif path == "/api/migrate":
+            self._handle_migrate(body)
         else:
             self._respond(404, "application/json",
                           json.dumps({"ok": False, "error": "not found"}).encode())
@@ -1424,6 +1428,212 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             os.kill(os.getpid(), signal.SIGTERM)
 
         threading.Thread(target=_do_restart, daemon=True).start()
+
+    def _serve_migrate_status(self) -> None:
+        """Return current backend type, record counts, and available migration paths."""
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            pm_root = self._pm_root
+            has_sqlite = (pm_root / "pm.db").exists()
+            has_jsonl = (pm_root / "config.json").exists()
+
+            if has_sqlite and not has_jsonl:
+                current = "sqlite"
+            elif has_jsonl and not has_sqlite:
+                current = "jsonl"
+            elif has_sqlite and has_jsonl:
+                current = "both"
+            else:
+                current = "none"
+
+            # Count records in the active backend
+            counts: Dict[str, int] = {"issues": 0, "docs": 0, "sprints": 0}
+            try:
+                from pm_store import PMStore
+                store = PMStore(str(pm_root.parent))
+                if store.is_initialized():
+                    counts["issues"] = len(store.list_issues())
+                    counts["docs"] = len(store.list_docs())
+                    counts["sprints"] = len(store.list_sprints())
+            except Exception:
+                pass
+
+            # Available migration paths
+            paths = []
+            if has_sqlite:
+                paths.append({
+                    "direction": "sqlite_to_jsonl",
+                    "label": "SQLite → JSONL",
+                    "description": "Convert pm.db to human-readable text files (issues.jsonl, docs.jsonl, config.json). Recommended — JSONL files are git-diffable and can be committed.",
+                    "source": "sqlite",
+                    "target": "jsonl",
+                })
+            if has_jsonl:
+                paths.append({
+                    "direction": "jsonl_to_sqlite",
+                    "label": "JSONL → SQLite",
+                    "description": "Convert text files back to pm.db. Use when you need the Postgres-compatible schema or SQLite tooling.",
+                    "source": "jsonl",
+                    "target": "sqlite",
+                })
+
+            payload = json.dumps({
+                "ok": True,
+                "current_backend": current,
+                "counts": counts,
+                "paths": paths,
+                "pm_root": str(pm_root),
+            })
+            self._respond(200, "application/json", payload.encode())
+        except Exception as exc:
+            self._respond(500, "application/json",
+                          json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _handle_migrate(self, body: Dict[str, Any]) -> None:
+        """Run a backend migration with pre/post verification."""
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            direction = body.get("direction", "").strip()
+            keep_source = bool(body.get("keep_source", False))
+            pm_root = self._pm_root
+
+            if direction not in ("sqlite_to_jsonl", "jsonl_to_sqlite"):
+                self._respond(400, "application/json",
+                              json.dumps({"ok": False, "error": f"Unknown direction: {direction}"}).encode())
+                return
+
+            # ── Pre-migration snapshot ──────────────────────────────────────
+            from pm_store import PMStore
+            pre_store = PMStore(str(pm_root.parent))
+            if not pre_store.is_initialized():
+                self._respond(400, "application/json",
+                              json.dumps({"ok": False, "error": "Workspace not initialized."}).encode())
+                return
+            pre_issues = pre_store.list_issues()
+            pre_docs = pre_store.list_docs()
+            pre_sprints = pre_store.list_sprints()
+            pre_counts = {
+                "issues": len(pre_issues),
+                "docs": len(pre_docs),
+                "sprints": len(pre_sprints),
+            }
+            pre_issue_ids = {i["id"] for i in pre_issues}
+            pre_doc_ids = {d["id"] for d in pre_docs}
+
+            # ── Run migration via MCP tool logic ────────────────────────────
+            if direction == "sqlite_to_jsonl":
+                db_path = pm_root / "pm.db"
+                if not db_path.exists():
+                    self._respond(400, "application/json",
+                                  json.dumps({"ok": False, "error": "pm.db not found."}).encode())
+                    return
+                from pm_backend_jsonl import JSONLBackend
+                target = JSONLBackend(pm_root)
+                result = target.migrate_from_sqlite(db_path)
+                if not result.get("ok"):
+                    self._respond(500, "application/json", json.dumps(result).encode())
+                    return
+            else:  # jsonl_to_sqlite
+                if not (pm_root / "config.json").exists():
+                    self._respond(400, "application/json",
+                                  json.dumps({"ok": False, "error": "config.json not found."}).encode())
+                    return
+                db_path = pm_root / "pm.db"
+                if db_path.exists():
+                    self._respond(400, "application/json",
+                                  json.dumps({"ok": False,
+                                              "error": "pm.db already exists. Remove it first."}).encode())
+                    return
+                from pm_backend_jsonl import JSONLBackend
+                from pm_backend_sqlite import SQLiteBackend
+                src = JSONLBackend(pm_root)
+                src_config = src.get_project_config()
+                target_sqlite = SQLiteBackend(pm_root)
+                target_sqlite.init_workspace(src_config["project_name"], src_config["key_prefix"])
+                for sprint in src.list_sprints():
+                    target_sqlite.create_sprint(sprint["name"], sprint.get("goal", ""))
+                for issue in src.list_issues():
+                    target_sqlite.create_issue(
+                        issue["title"], issue.get("description", ""),
+                        issue.get("type", "task"), issue.get("priority", "medium"),
+                        issue.get("epic_id"), issue.get("sprint_id"),
+                    )
+                    if issue.get("status", "TODO") != "TODO":
+                        target_sqlite.update_issue(issue["id"], {"status": issue["status"]})
+                    for c in issue.get("comments", []):
+                        target_sqlite.update_issue(
+                            issue["id"], {}, comment=c["body"], comment_author=c.get("author", "User")
+                        )
+                for doc in src.list_docs():
+                    target_sqlite.create_doc(
+                        doc["title"], doc.get("content", ""), doc.get("parent_id"),
+                        doc.get("doc_type", "wiki"), doc.get("doc_status", ""), doc.get("superseded_by"),
+                    )
+                result = {
+                    "ok": True,
+                    "issues": len(pre_issues),
+                    "docs": len(pre_docs),
+                    "sprints": len(pre_sprints),
+                }
+
+            # ── Post-migration verification ──────────────────────────────────
+            # Instantiate the target backend directly to read without affecting
+            # the running server's store instance.
+            if direction == "sqlite_to_jsonl":
+                from pm_backend_jsonl import JSONLBackend as _Target  # type: ignore[no-redef]
+                post_backend = _Target(pm_root)
+            else:
+                from pm_backend_sqlite import SQLiteBackend as _Target  # type: ignore[no-redef]
+                post_backend = _Target(pm_root)
+
+            post_issues = post_backend.list_issues()
+            post_docs = post_backend.list_docs()
+            post_sprints = post_backend.list_sprints()
+            post_counts = {
+                "issues": len(post_issues),
+                "docs": len(post_docs),
+                "sprints": len(post_sprints),
+            }
+            post_issue_ids = {i["id"] for i in post_issues}
+            post_doc_ids = {d["id"] for d in post_docs}
+
+            missing_issues = sorted(pre_issue_ids - post_issue_ids)
+            missing_docs = sorted(pre_doc_ids - post_doc_ids)
+            verified = not missing_issues and not missing_docs and post_counts == pre_counts
+
+            # ── Delete source only after successful verification ─────────────
+            if verified and not keep_source:
+                if direction == "sqlite_to_jsonl":
+                    for f in ("pm.db", "pm.db-shm", "pm.db-wal"):
+                        p = pm_root / f
+                        if p.exists():
+                            p.unlink()
+                else:
+                    for f in ("config.json", "issues.jsonl", "docs.jsonl"):
+                        p = pm_root / f
+                        if p.exists():
+                            p.unlink()
+                    for p in pm_root.glob("*.lock"):
+                        p.unlink(missing_ok=True)
+                    for p in pm_root.glob("*.tmp"):
+                        p.unlink(missing_ok=True)
+
+            payload = json.dumps({
+                "ok": True,
+                "verified": verified,
+                "pre_counts": pre_counts,
+                "post_counts": post_counts,
+                "missing_issues": missing_issues,
+                "missing_docs": missing_docs,
+                "source_deleted": verified and not keep_source,
+                "direction": direction,
+            })
+            self._respond(200, "application/json", payload.encode())
+        except Exception as exc:
+            import traceback
+            self._respond(500, "application/json",
+                          json.dumps({"ok": False, "error": str(exc),
+                                      "trace": traceback.format_exc()}).encode())
 
     def _serve_plugin_status(self) -> None:
         """Return the current plugin install status — useful for testing _ensure_plugin_installed."""

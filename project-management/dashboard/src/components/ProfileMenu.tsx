@@ -3,12 +3,14 @@ import Avatar from '@atlaskit/avatar';
 import DropdownMenu, { DropdownItem, DropdownItemGroup } from '@atlaskit/dropdown-menu';
 import Spinner from '@atlaskit/spinner';
 import SectionMessage from '@atlaskit/section-message';
+import MigrationWizard from './MigrationWizard';
 
 type ActionState = 'idle' | 'restarting' | 'exiting' | 'done' | 'error';
 
 export default function ProfileMenu() {
   const [state, setState] = useState<ActionState>('idle');
   const [errorMsg, setErrorMsg] = useState('');
+  const [showMigration, setShowMigration] = useState(false);
 
   async function handleExit() {
     setState('exiting');
@@ -116,6 +118,8 @@ export default function ProfileMenu() {
 
   // ── Normal state: dropdown trigger ────────────────────────────────────────
   return (
+    <>
+    {showMigration && <MigrationWizard onClose={() => setShowMigration(false)} />}
     <DropdownMenu
       trigger={({ triggerRef, ...triggerProps }) => (
         <button
@@ -132,6 +136,14 @@ export default function ProfileMenu() {
       )}
       placement="bottom-end"
     >
+      <DropdownItemGroup title="Data">
+        <DropdownItem
+          description="Migrate between SQLite and JSONL backends"
+          onClick={() => setShowMigration(true)}
+        >
+          Migrate data store…
+        </DropdownItem>
+      </DropdownItemGroup>
       <DropdownItemGroup title="Dashboard">
         <DropdownItem
           description="Rebuild dist and restart the server"
@@ -147,5 +159,6 @@ export default function ProfileMenu() {
         </DropdownItem>
       </DropdownItemGroup>
     </DropdownMenu>
+    </>
   );
 }
