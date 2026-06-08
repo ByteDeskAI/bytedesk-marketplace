@@ -5,6 +5,14 @@ All notable changes to the `project-management` plugin will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] — 2026-06-08
+
+### Added
+- **Auto-init on first boot**: `pm_dashboard_server` now detects an uninitialized workspace and calls `pm_init` automatically before starting the HTTP server. Project name and key prefix are derived from the directory name (e.g. `project-management-plugin-test` → `Project Management Plugin Test`, prefix `PMPT`). Also writes `.pm/.gitignore` on first boot. Users get a working dashboard immediately without needing to run `/pm:init` manually.
+
+### Fixed
+- Monitor no longer fails with exit 1 on a fresh project directory — workspace is created in-process before the HTTP server binds.
+
 ## [0.4.1] — 2026-06-05
 
 ### Fixed

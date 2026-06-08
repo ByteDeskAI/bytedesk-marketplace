@@ -325,6 +325,42 @@ def _ensure_plugin_installed() -> None:
         print(f"[pm-dashboard] plugin ensure warning: {exc}", flush=True)
 
 
+def _auto_init_workspace(pm_root: Path, plugin_root: Path) -> None:
+    """Initialize the PM workspace on first boot if it hasn't been set up yet.
+
+    Derives sensible defaults from the project directory name so users get a
+    working dashboard immediately without needing to run /pm:init manually.
+    Also writes .pm/.gitignore so database files are never accidentally committed.
+    """
+    sys.path.insert(0, str(plugin_root / "lib"))
+    try:
+        from pm_store import PMStore
+        store = PMStore(str(pm_root.parent))
+        if store.is_initialized():
+            return  # Already set up — nothing to do
+
+        project_dir = pm_root.parent
+        raw = project_dir.name.replace("-", " ").replace("_", " ").replace(".", " ")
+        words = [w for w in raw.split() if w]
+        project_name = " ".join(w.capitalize() for w in words) if words else "Local Project"
+        key_prefix = "".join(w[0].upper() for w in words[:4]) if words else "PM"
+
+        print(f"[pm-dashboard] first boot — initializing '{project_name}' ({key_prefix})…", flush=True)
+        store.init_workspace(project_name=project_name, key_prefix=key_prefix)
+
+        # Write .gitignore so database files are never committed
+        gitignore = pm_root / ".gitignore"
+        if not gitignore.exists():
+            gitignore.write_text(
+                "# pm.db is machine-local project data — do not commit\n"
+                "pm.db\npm.db-shm\npm.db-wal\nevents.jsonl\ndashboard.pid\ndashboard.port\n"
+            )
+
+        print(f"[pm-dashboard] workspace ready. Customize with /pm:init or via the dashboard.", flush=True)
+    except Exception as exc:
+        print(f"[pm-dashboard] auto-init warning: {exc}", flush=True)
+
+
 def _write_session_skills(project_root: Path) -> None:
     """Copy skill files from the plugin repo into the session workspace.
 
@@ -1249,6 +1285,11 @@ def run(workspace_path: Optional[str] = None) -> int:
         print(f"Serving SPA from {_DIST_DIR}", flush=True)
     else:
         print("Warning: dashboard/dist/ not found. Run: cd dashboard && npm run build", flush=True)
+
+    # Auto-initialize workspace on first boot if not yet set up.
+    # Derives project name and key prefix from the directory name so users
+    # get a working dashboard immediately without running /pm:init manually.
+    _auto_init_workspace(root, plugin_root)
 
     port = _pick_port(root)
 
