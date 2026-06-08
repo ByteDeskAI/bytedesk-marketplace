@@ -5,6 +5,16 @@ All notable changes to the `project-management` plugin will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] — 2026-06-08
+
+### Added
+- **JSONL backend** (`pm_backend_jsonl.py`) — new `ConcreteImplementor C` that stores all project data as human-readable, git-diffable text files: `config.json` (project config, ID counters, sprints, activity log) and `issues.jsonl` / `docs.jsonl` (one JSON line per record, comments embedded inside issues). Zero extra dependencies.
+- **JSONL is now the default** for new workspaces. `PMStore` factory priority: `postgres://` URL → SQLite if `pm.db` exists (backward compat) → JSONL for all new workspaces. Existing SQLite workspaces are served by `SQLiteBackend` transparently — no migration required.
+- **Workspace detection** updated in both `pm_store.py` and `pm_dashboard_server.py` to recognise JSONL workspaces (`config.json` present) alongside SQLite workspaces (`pm.db` present).
+- **SQLite → JSONL migration** utility (`JSONLBackend.migrate_from_sqlite`) reads an existing `pm.db` and writes the full dataset into JSONL files. Does not delete the source database.
+- **Updated `.gitignore` template**: SQLite binary files (`pm.db`, `pm.db-shm`, `pm.db-wal`) and runtime files remain ignored. JSONL data files (`issues.jsonl`, `docs.jsonl`, `config.json`) are intentionally NOT ignored — teams can choose to commit their PM data since it is text.
+- **Concurrency**: in-process thread safety via `threading.RLock`; cross-process safety via `fcntl.flock` on per-collection `.lock` files (POSIX only; best-effort on Windows). All writes use `os.replace()` for atomic file replacement.
+
 ## [0.5.0] — 2026-06-08
 
 ### Added

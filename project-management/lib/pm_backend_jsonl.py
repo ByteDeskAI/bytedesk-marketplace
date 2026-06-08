@@ -1,0 +1,545 @@
+"""JSONLBackend — ConcreteImplementor C for the PM Bridge pattern.
+
+Text-based storage using JSON Lines files. Zero extra dependencies.
+Data lives in .pm/ as human-readable, git-diffable text files:
+
+    .pm/
+      config.json     — project config, ID counters, sprints, activity log
+      issues.jsonl    — one line per issue (comments embedded as array)
+      docs.jsonl      — one line per doc
+      events.jsonl    — SSE event stream (append-only, unchanged)
+
+Concurrency model
+-----------------
+In-process (multiple threads in the dashboard server):
+  threading.RLock serialises all writes within the process.
+
+Cross-process (dashboard server + MCP server):
+  A per-collection .lock file is held exclusively via fcntl.flock
+  during each read-modify-write cycle so the two processes cannot
+  corrupt each other. fcntl is POSIX-only; on Windows flock is a
+  no-op and cross-process safety is best-effort (same as SQLite
+  without WAL on Windows).
+
+Atomicity
+---------
+All file writes go through _rewrite(): write to a .tmp file then
+os.replace() into place. os.replace() is atomic on POSIX — readers
+see either the old or the new file, never a partial write.
+
+SQLite backward compatibility
+------------------------------
+PMStore picks this backend only when pm.db is absent. Existing
+workspaces with pm.db are transparently served by SQLiteBackend.
+"""
+from __future__ import annotations
+
+import json
+import os
+import threading
+import time
+from contextlib import contextmanager
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, Generator, List, Optional
+
+try:
+    import fcntl as _fcntl
+    _HAS_FCNTL = True
+except ImportError:
+    _HAS_FCNTL = False  # Windows — cross-process locking is best-effort
+
+
+class JSONLBackend:
+    """JSONL-backed PM storage. Satisfies the PMBackend protocol."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self.config_path = root / "config.json"
+        self.issues_path = root / "issues.jsonl"
+        self.docs_path = root / "docs.jsonl"
+        self.events_path = root / "events.jsonl"
+        # In-process mutex — reentrant so the same thread can re-acquire
+        self._lock = threading.RLock()
+
+    # ── Helpers ───────────────────────────────────────────────────────────────
+
+    def _now(self) -> str:
+        return datetime.now(timezone.utc).isoformat()
+
+    def _ms_id(self) -> int:
+        """Millisecond timestamp — used as comment IDs (unique enough for local use)."""
+        return int(time.time() * 1000)
+
+    @contextmanager
+    def _exclusive(self, path: Path) -> Generator[None, None, None]:
+        """Acquire an exclusive cross-process lock on <path>.lock."""
+        lock_path = path.with_suffix(".lock")
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(lock_path, "w") as lf:
+            if _HAS_FCNTL:
+                _fcntl.flock(lf, _fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                if _HAS_FCNTL:
+                    _fcntl.flock(lf, _fcntl.LOCK_UN)
+
+    def _read_jsonl(self, path: Path) -> List[Dict[str, Any]]:
+        if not path.exists():
+            return []
+        try:
+            return [
+                json.loads(line)
+                for line in path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+        except (json.JSONDecodeError, OSError):
+            return []
+
+    def _rewrite(self, path: Path, records: List[Dict[str, Any]]) -> None:
+        """Atomically replace a JSONL file."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(
+            "\n".join(json.dumps(r, ensure_ascii=False) for r in records) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(tmp, path)
+
+    def _read_config(self) -> Dict[str, Any]:
+        if not self.config_path.exists():
+            return {}
+        try:
+            return json.loads(self.config_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return {}
+
+    def _write_config(self, config: Dict[str, Any]) -> None:
+        self.root.mkdir(parents=True, exist_ok=True)
+        tmp = self.config_path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, self.config_path)
+
+    # ── ID generation (always called under self._lock + _exclusive(config)) ──
+
+    def _next_issue_id(self, config: Dict[str, Any]) -> str:
+        prefix = config["key_prefix"]
+        n = config["next_issue_id"]
+        config["next_issue_id"] = n + 1
+        return f"{prefix}-{n}"
+
+    def _next_doc_id(self, config: Dict[str, Any]) -> str:
+        n = config["next_doc_id"]
+        config["next_doc_id"] = n + 1
+        return f"DOC-{n}"
+
+    # ── Lifecycle ─────────────────────────────────────────────────────────────
+
+    def init_workspace(self, project_name: str = "Local Project", key_prefix: str = "PM") -> str:
+        with self._lock, self._exclusive(self.config_path):
+            config = self._read_config()
+            if config.get("project_name"):
+                return str(self.root)  # idempotent
+            now = self._now()
+            config = {
+                "project_name": project_name.strip(),
+                "key_prefix": key_prefix.strip().upper(),
+                "next_issue_id": 1,
+                "next_doc_id": 1,
+                "active_sprint_id": None,
+                "created_at": now,
+                "sprints": [],
+                "activity_log": [{
+                    "timestamp": now,
+                    "action": "Project initialized",
+                    "details": f"Project: {project_name} ({key_prefix})",
+                }],
+            }
+            self._write_config(config)
+            for path in (self.issues_path, self.docs_path):
+                if not path.exists():
+                    path.touch()
+        self.emit_event("workspace_initialized", {
+            "project_name": project_name, "key_prefix": key_prefix,
+        })
+        return str(self.root)
+
+    def is_initialized(self) -> bool:
+        return bool(self._read_config().get("project_name"))
+
+    def get_project_config(self) -> Dict[str, Any]:
+        config = self._read_config()
+        if not config.get("project_name"):
+            raise FileNotFoundError("Workspace not initialized.")
+        return config
+
+    def log_activity(self, action: str, details: str = "") -> None:
+        try:
+            with self._lock, self._exclusive(self.config_path):
+                config = self._read_config()
+                log: List[Dict[str, Any]] = config.get("activity_log", [])
+                log.append({"timestamp": self._now(), "action": action, "details": details})
+                config["activity_log"] = log[-100:]
+                self._write_config(config)
+        except Exception:
+            pass
+
+    def emit_event(self, event_type: str, payload: Dict[str, Any]) -> None:
+        try:
+            line = json.dumps(
+                {"ts": self._now(), "type": event_type, "payload": payload},
+                separators=(",", ":"),
+                ensure_ascii=False,
+            )
+            with open(self.events_path, "a", encoding="utf-8") as f:
+                if _HAS_FCNTL:
+                    _fcntl.flock(f, _fcntl.LOCK_EX)
+                f.write(line + "\n")
+        except Exception:
+            pass
+
+    # ── Issues ────────────────────────────────────────────────────────────────
+
+    def create_issue(
+        self,
+        title: str,
+        description: str = "",
+        issue_type: str = "task",
+        priority: str = "medium",
+        epic_id: Optional[str] = None,
+        sprint_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        with self._lock, self._exclusive(self.config_path), self._exclusive(self.issues_path):
+            now = self._now()
+            config = self._read_config()
+            issue_id = self._next_issue_id(config)
+            issue: Dict[str, Any] = {
+                "id": issue_id,
+                "title": title.strip(),
+                "description": description.strip(),
+                "type": issue_type.strip().lower(),
+                "status": "TODO",
+                "priority": priority.strip().lower(),
+                "epic_id": epic_id.strip().upper() if epic_id else None,
+                "sprint_id": sprint_id.strip() if sprint_id else None,
+                "created_at": now,
+                "updated_at": now,
+                "comments": [],
+            }
+            records = self._read_jsonl(self.issues_path)
+            records.append(issue)
+            self._rewrite(self.issues_path, records)
+            self._write_config(config)
+        self.log_activity("Create Issue", f"Created {issue_id}: {title}")
+        self.emit_event("issue_created", {"id": issue_id, "title": title})
+        return dict(issue)
+
+    def get_issue(self, issue_id: str) -> Optional[Dict[str, Any]]:
+        upper = issue_id.strip().upper()
+        for r in self._read_jsonl(self.issues_path):
+            if r.get("id", "").upper() == upper:
+                return dict(r)
+        return None
+
+    def update_issue(
+        self,
+        issue_id: str,
+        updates: Dict[str, Any],
+        comment: Optional[str] = None,
+        comment_author: str = "User",
+    ) -> Optional[Dict[str, Any]]:
+        issue_id = issue_id.strip().upper()
+        allowed = {"title", "description", "type", "status", "priority", "epic_id", "sprint_id"}
+        with self._lock, self._exclusive(self.issues_path):
+            records = self._read_jsonl(self.issues_path)
+            idx = next((i for i, r in enumerate(records) if r.get("id", "").upper() == issue_id), None)
+            if idx is None:
+                return None
+            issue = records[idx]
+            changes: List[str] = []
+            now = self._now()
+            for field, val in updates.items():
+                if field in allowed:
+                    issue[field] = val
+                    changes.append(field)
+            if changes:
+                issue["updated_at"] = now
+            if comment and comment.strip():
+                issue.setdefault("comments", []).append({
+                    "id": self._ms_id(),
+                    "issue_id": issue_id,
+                    "author": comment_author,
+                    "body": comment.strip(),
+                    "created_at": now,
+                })
+                changes.append("added comment")
+            if changes:
+                records[idx] = issue
+                self._rewrite(self.issues_path, records)
+        if changes:
+            self.log_activity("Update Issue", f"Updated {issue_id}: {', '.join(changes)}")
+            self.emit_event("issue_updated", {"id": issue_id, "changes": changes})
+        return dict(issue)
+
+    def list_issues(
+        self,
+        status: Optional[str] = None,
+        sprint_id: Optional[str] = None,
+        issue_type: Optional[str] = None,
+        priority: Optional[str] = None,
+        query: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        if not self.is_initialized():
+            return []
+        result = []
+        for r in self._read_jsonl(self.issues_path):
+            if status and r.get("status", "").lower() != status.strip().lower():
+                continue
+            if sprint_id:
+                sid = (r.get("sprint_id") or "").strip()
+                if sprint_id.strip().lower() == "backlog":
+                    if sid:
+                        continue
+                elif sid.lower() != sprint_id.strip().lower():
+                    continue
+            if issue_type and r.get("type", "").lower() != issue_type.strip().lower():
+                continue
+            if priority and r.get("priority", "").lower() != priority.strip().lower():
+                continue
+            if query:
+                q = query.strip().lower()
+                if not any(q in (r.get(f) or "").lower() for f in ("id", "title", "description")):
+                    continue
+            result.append(dict(r))
+        result.sort(key=lambda r: int(r["id"].rsplit("-", 1)[-1]))
+        return result
+
+    # ── Sprints ───────────────────────────────────────────────────────────────
+
+    def create_sprint(self, name: str, goal: str = "") -> Dict[str, Any]:
+        with self._lock, self._exclusive(self.config_path):
+            now = self._now()
+            config = self._read_config()
+            sprints: List[Dict[str, Any]] = config.get("sprints", [])
+            sprint_id = f"sprint-{len(sprints) + 1}"
+            sprint: Dict[str, Any] = {
+                "id": sprint_id,
+                "name": name.strip(),
+                "goal": goal.strip(),
+                "status": "PLANNING",
+                "created_at": now,
+                "started_at": None,
+                "completed_at": None,
+            }
+            sprints.append(sprint)
+            config["sprints"] = sprints
+            self._write_config(config)
+        self.log_activity("Create Sprint", f"Created {sprint_id}: {name}")
+        self.emit_event("sprint_created", {"id": sprint_id, "name": name})
+        return dict(sprint)
+
+    def start_sprint(self, sprint_id: str) -> Dict[str, Any]:
+        sprint_id = sprint_id.strip()
+        with self._lock, self._exclusive(self.config_path):
+            config = self._read_config()
+            sprints: List[Dict[str, Any]] = config.get("sprints", [])
+            active = next((s for s in sprints if s.get("status") == "ACTIVE"), None)
+            if active and active["id"] != sprint_id:
+                raise ValueError(f"Cannot start sprint. Sprint {active['id']} is already ACTIVE.")
+            target = next((s for s in sprints if s["id"] == sprint_id), None)
+            if not target:
+                raise ValueError(f"Sprint {sprint_id} not found.")
+            now = self._now()
+            target["status"] = "ACTIVE"
+            target["started_at"] = now
+            config["active_sprint_id"] = sprint_id
+            self._write_config(config)
+        self.log_activity("Start Sprint", f"Started {sprint_id}")
+        self.emit_event("sprint_started", {"id": sprint_id})
+        return dict(target)
+
+    def complete_sprint(self, sprint_id: str) -> Dict[str, Any]:
+        sprint_id = sprint_id.strip()
+        # Acquire both locks in fixed order (config → issues) to prevent deadlock
+        with self._lock, self._exclusive(self.config_path), self._exclusive(self.issues_path):
+            config = self._read_config()
+            sprints: List[Dict[str, Any]] = config.get("sprints", [])
+            target = next((s for s in sprints if s["id"] == sprint_id), None)
+            if not target:
+                raise ValueError(f"Sprint {sprint_id} not found.")
+            now = self._now()
+            target["status"] = "CLOSED"
+            target["completed_at"] = now
+            if config.get("active_sprint_id") == sprint_id:
+                config["active_sprint_id"] = None
+
+            records = self._read_jsonl(self.issues_path)
+            rollover = 0
+            for issue in records:
+                if (issue.get("sprint_id") or "").lower() == sprint_id.lower():
+                    if issue.get("status", "").upper() != "DONE":
+                        issue["sprint_id"] = None
+                        issue["updated_at"] = now
+                        issue.setdefault("comments", []).append({
+                            "id": self._ms_id(),
+                            "issue_id": issue["id"],
+                            "author": "PM Dashboard",
+                            "body": "Sprint completed; rolled back to backlog.",
+                            "created_at": now,
+                        })
+                        rollover += 1
+            self._rewrite(self.issues_path, records)
+            self._write_config(config)
+        self.log_activity("Complete Sprint", f"Completed {sprint_id}. Rolled over {rollover} tickets.")
+        self.emit_event("sprint_completed", {"id": sprint_id, "rollover": rollover})
+        return dict(target)
+
+    def list_sprints(self) -> List[Dict[str, Any]]:
+        return [dict(s) for s in self._read_config().get("sprints", [])]
+
+    def get_active_sprint_id(self) -> Optional[str]:
+        return self._read_config().get("active_sprint_id")
+
+    # ── Documentation ─────────────────────────────────────────────────────────
+
+    _VALID_DOC_TYPES = frozenset({"wiki", "adr", "runbook", "learning", "plan", "brief"})
+    _VALID_DOC_STATUSES = frozenset({"", "proposed", "accepted", "deprecated", "superseded"})
+
+    def create_doc(
+        self,
+        title: str,
+        content: str = "",
+        parent_id: Optional[str] = None,
+        doc_type: str = "wiki",
+        doc_status: str = "",
+        superseded_by: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        dt = doc_type.lower() if doc_type.lower() in self._VALID_DOC_TYPES else "wiki"
+        ds = doc_status.lower() if doc_status.lower() in self._VALID_DOC_STATUSES else ""
+        with self._lock, self._exclusive(self.config_path), self._exclusive(self.docs_path):
+            now = self._now()
+            config = self._read_config()
+            doc_id = self._next_doc_id(config)
+            doc: Dict[str, Any] = {
+                "id": doc_id,
+                "title": title.strip(),
+                "content": content,
+                "parent_id": parent_id.strip().upper() if parent_id else None,
+                "doc_type": dt,
+                "doc_status": ds,
+                "superseded_by": superseded_by.strip().upper() if superseded_by else None,
+                "created_at": now,
+                "updated_at": now,
+            }
+            records = self._read_jsonl(self.docs_path)
+            records.append(doc)
+            self._rewrite(self.docs_path, records)
+            self._write_config(config)
+        self.log_activity("Create Document", f"Created {doc_id} [{dt}]: {title}")
+        self.emit_event("doc_created", {"id": doc_id, "title": title, "doc_type": dt})
+        return dict(doc)
+
+    def get_doc(self, doc_id: str) -> Optional[Dict[str, Any]]:
+        upper = doc_id.strip().upper()
+        for r in self._read_jsonl(self.docs_path):
+            if r.get("id", "").upper() == upper:
+                return dict(r)
+        return None
+
+    def update_doc(self, doc_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        doc_id = doc_id.strip().upper()
+        allowed = {"title", "content", "parent_id", "doc_type", "doc_status", "superseded_by"}
+        updated_doc: Optional[Dict[str, Any]] = None
+        with self._lock, self._exclusive(self.docs_path):
+            records = self._read_jsonl(self.docs_path)
+            idx = next((i for i, r in enumerate(records) if r.get("id", "").upper() == doc_id), None)
+            if idx is None:
+                return None
+            doc = records[idx]
+            changes: List[str] = []
+            for field, val in updates.items():
+                if field in allowed:
+                    doc[field] = val
+                    changes.append(field)
+            if changes:
+                doc["updated_at"] = self._now()
+                records[idx] = doc
+                self._rewrite(self.docs_path, records)
+                updated_doc = dict(doc)
+        if changes:
+            self.log_activity("Update Document", f"Updated {doc_id}: {', '.join(changes)}")
+            self.emit_event("doc_updated", {"id": doc_id, "changes": changes})
+        return updated_doc
+
+    def list_docs(
+        self,
+        query: Optional[str] = None,
+        doc_type: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        if not self.is_initialized():
+            return []
+        result = []
+        for r in self._read_jsonl(self.docs_path):
+            if doc_type and r.get("doc_type", "").lower() != doc_type.strip().lower():
+                continue
+            if query:
+                q = query.strip().lower()
+                if not any(q in (r.get(f) or "").lower() for f in ("id", "title", "content")):
+                    continue
+            result.append(dict(r))
+        result.sort(key=lambda r: int(r["id"].split("-", 1)[-1]))
+        return result
+
+    # ── SQLite → JSONL migration ──────────────────────────────────────────────
+
+    def migrate_from_sqlite(self, db_path: Path) -> Dict[str, Any]:
+        """Read an existing pm.db and write its data into JSONL files.
+
+        Does not delete the SQLite database — the caller can remove it.
+        Returns a summary of migrated record counts.
+        """
+        from pm_backend_sqlite import SQLiteBackend  # local import to avoid circular dep
+        src = SQLiteBackend(db_path.parent)
+        if not src.is_initialized():
+            return {"ok": False, "error": "Source SQLite database is not initialized."}
+
+        src_config = src.get_project_config()
+
+        # Init target workspace with same project identity
+        self.init_workspace(
+            project_name=src_config["project_name"],
+            key_prefix=src_config["key_prefix"],
+        )
+
+        with self._lock, self._exclusive(self.config_path), \
+             self._exclusive(self.issues_path), self._exclusive(self.docs_path):
+
+            # ── Config / counters ──
+            config = self._read_config()
+            config["next_issue_id"] = src_config.get("next_issue_id", 1)
+            config["next_doc_id"] = src_config.get("next_doc_id", 1)
+            config["active_sprint_id"] = src_config.get("active_sprint_id")
+            config["created_at"] = src_config.get("created_at", self._now())
+            config["activity_log"] = src_config.get("activity_log", [])
+
+            # ── Sprints ──
+            sprints = src.list_sprints()
+            config["sprints"] = sprints
+
+            # ── Issues (comments embedded) ──
+            issues = src.list_issues()
+            self._rewrite(self.issues_path, issues)
+
+            # ── Docs ──
+            docs = src.list_docs()
+            self._rewrite(self.docs_path, docs)
+
+            self._write_config(config)
+
+        return {
+            "ok": True,
+            "issues": len(issues),
+            "docs": len(docs),
+            "sprints": len(sprints),
+        }

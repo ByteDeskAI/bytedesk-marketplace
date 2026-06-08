@@ -16,19 +16,23 @@ from pm_backend import PMBackend
 
 
 def _pm_root(workspace_path: Optional[str]) -> Path:
-    """Resolve the .pm/ directory for the given workspace path or CWD."""
+    """Resolve the .pm/ directory for the given workspace path or CWD.
+
+    Recognises both SQLite workspaces (pm.db) and JSONL workspaces
+    (config.json) so either backend can be picked up automatically.
+    """
     if workspace_path:
         base = Path(workspace_path).expanduser().resolve()
-        candidate = base / ".pm"
-        if candidate.is_dir() and (candidate / "pm.db").exists():
-            return candidate
-        return candidate
+        return base / ".pm"
 
-    # Walk up from CWD looking for an existing .pm/pm.db
+    # Walk up from CWD looking for an initialised .pm/ directory
     cwd = Path.cwd().resolve()
     for parent in [cwd] + list(cwd.parents):
         candidate = parent / ".pm"
-        if candidate.is_dir() and (candidate / "pm.db").exists():
+        if candidate.is_dir() and (
+            (candidate / "pm.db").exists()        # SQLite workspace
+            or (candidate / "config.json").exists()  # JSONL workspace
+        ):
             return candidate
 
     # Fallback: .pm/ under CWD (will be created on init)
@@ -36,7 +40,13 @@ def _pm_root(workspace_path: Optional[str]) -> Path:
 
 
 def _resolve_backend(workspace_path: Optional[str]) -> PMBackend:
-    """Factory: read PM_DATABASE_URL and return the right ConcreteImplementor."""
+    """Factory: choose ConcreteImplementor based on environment and workspace.
+
+    Priority:
+      1. PM_DATABASE_URL set to a postgres:// URL  → PostgresBackend
+      2. pm.db exists in the resolved .pm/ dir     → SQLiteBackend  (backward compat)
+      3. Otherwise                                  → JSONLBackend   (default for new workspaces)
+    """
     db_url = os.environ.get("PM_DATABASE_URL", "").strip()
     root = _pm_root(workspace_path)
 
@@ -44,8 +54,12 @@ def _resolve_backend(workspace_path: Optional[str]) -> PMBackend:
         from pm_backend_postgres import PostgresBackend
         return PostgresBackend(db_url, root)  # type: ignore[return-value]
 
-    from pm_backend_sqlite import SQLiteBackend
-    return SQLiteBackend(root)  # type: ignore[return-value]
+    if (root / "pm.db").exists():
+        from pm_backend_sqlite import SQLiteBackend
+        return SQLiteBackend(root)  # type: ignore[return-value]
+
+    from pm_backend_jsonl import JSONLBackend
+    return JSONLBackend(root)  # type: ignore[return-value]
 
 
 class PMStore:

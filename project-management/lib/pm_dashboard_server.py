@@ -384,12 +384,28 @@ def _auto_init_workspace(pm_root: Path, plugin_root: Path) -> None:
         print(f"[pm-dashboard] first boot — initializing '{project_name}' ({key_prefix})…", flush=True)
         store.init_workspace(project_name=project_name, key_prefix=key_prefix)
 
-        # Write .gitignore so database files are never committed
+        # Write .gitignore:
+        #   SQLite binary files are always ignored (binary, not git-friendly).
+        #   JSONL data files (issues.jsonl, docs.jsonl, config.json) are NOT
+        #   ignored — teams can choose to commit their PM data since it is
+        #   human-readable. events.jsonl is high-frequency noise; always ignored.
         gitignore = pm_root / ".gitignore"
         if not gitignore.exists():
             gitignore.write_text(
-                "# pm.db is machine-local project data — do not commit\n"
-                "pm.db\npm.db-shm\npm.db-wal\nevents.jsonl\ndashboard.pid\ndashboard.port\n"
+                "# SQLite binary files — never commit\n"
+                "pm.db\npm.db-shm\npm.db-wal\n"
+                "\n"
+                "# SSE event stream — high-frequency, not useful in git\n"
+                "events.jsonl\n"
+                "\n"
+                "# Temp and lock files\n"
+                "*.tmp\n*.lock\n"
+                "\n"
+                "# Dashboard runtime files\n"
+                "dashboard.pid\ndashboard.port\n"
+                "\n"
+                "# JSONL data files (issues.jsonl, docs.jsonl, config.json) are intentionally\n"
+                "# NOT ignored — commit them if you want PM data tracked in git.\n"
             )
 
         print(f"[pm-dashboard] workspace ready. Customize with /pm:init or via the dashboard.", flush=True)
@@ -1515,7 +1531,10 @@ def _find_pm_root(workspace_path: Optional[str]) -> Path:
     cwd = Path.cwd().resolve()
     for parent in [cwd] + list(cwd.parents):
         candidate = parent / ".pm"
-        if candidate.is_dir() and (candidate / "pm.db").exists():
+        if candidate.is_dir() and (
+            (candidate / "pm.db").exists()          # SQLite workspace
+            or (candidate / "config.json").exists()  # JSONL workspace
+        ):
             return candidate
     return cwd / ".pm"
 
