@@ -11,23 +11,25 @@ interface PlanSession {
 
 export default function PlanView() {
   const [sessions, setSessions] = useState<PlanSession[]>([]);
+  const [activeKey, setActiveKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [hydrating, setHydrating] = useState(true);
 
-  // Restore any active planning sessions from the backend on mount
   useEffect(() => {
     fetch('/api/plan/sessions')
       .then(r => r.json() as Promise<{ ok: boolean; sessions: Array<{ key: string; startedAt: number }> }>)
       .then(body => {
         if (body.ok && body.sessions.length > 0) {
-          setSessions(body.sessions.map(s => ({
+          const restored = body.sessions.map(s => ({
             key: s.key,
             startedAt: new Date(s.startedAt * 1000).toISOString(),
-          })));
+          }));
+          setSessions(restored);
+          setActiveKey(restored[restored.length - 1].key);
         }
       })
-      .catch(() => { /* network errors are silent — start fresh */ })
+      .catch(() => {})
       .finally(() => setHydrating(false));
   }, []);
 
@@ -40,7 +42,9 @@ export default function PlanView() {
       if (!body.ok) {
         setError(body.error ?? 'Failed to start planning session');
       } else if (body.session_key) {
-        setSessions(prev => [...prev, { key: body.session_key!, startedAt: new Date().toISOString() }]);
+        const session = { key: body.session_key, startedAt: new Date().toISOString() };
+        setSessions(prev => [...prev, session]);
+        setActiveKey(body.session_key!);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Network error');
@@ -49,12 +53,17 @@ export default function PlanView() {
     }
   }, []);
 
-  const removeSession = useCallback((key: string) => {
-    setSessions(prev => prev.filter(s => s.key !== key));
+  const killSession = useCallback((key: string) => {
     fetch(`/api/plan/kill/${key}`, { method: 'POST' }).catch(() => {});
+    setSessions(prev => {
+      const next = prev.filter(s => s.key !== key);
+      setActiveKey(curr => {
+        if (curr !== key) return curr;
+        return next.length > 0 ? next[next.length - 1].key : null;
+      });
+      return next;
+    });
   }, []);
-
-  const hasSession = sessions.length > 0;
 
   if (hydrating) {
     return (
@@ -64,103 +73,138 @@ export default function PlanView() {
     );
   }
 
+  const hasSessions = sessions.length > 0;
+  const activeSession = sessions.find(s => s.key === activeKey) ?? null;
+
   return (
-    <div style={{
-      flex: 1,
-      display: 'flex',
-      flexDirection: 'column',
-      overflow: 'hidden',
-      minHeight: 0,
-    }}>
-      {/* ── Header strip ── always visible, compact when session is running ── */}
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
+
+      {/* ── Top bar: title/description OR tab strip ── */}
+      {!hasSessions ? (
+        <div style={{ padding: '24px 24px 0' }}>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--ds-text)', margin: '0 0 6px' }}>
+            PM Planning
+          </h1>
+          <p style={{ color: 'var(--ds-text-subtle)', fontSize: 14, lineHeight: 1.7, margin: '0 0 20px', maxWidth: 600 }}>
+            Start a planning session to work with the PM persona. Claude will interview you about
+            what you want to build, help you size the work, and create the right tickets — a bug,
+            a task, or an epic with child tasks — directly on the board.
+          </p>
+        </div>
+      ) : (
+        /* ── Tab strip ── */
+        <div style={{
+          flexShrink: 0,
+          display: 'flex',
+          alignItems: 'stretch',
+          borderBottom: '1px solid var(--ds-border)',
+          overflowX: 'auto',
+          background: 'var(--ds-surface)',
+        }}>
+          {sessions.map(s => {
+            const isActive = s.key === activeKey;
+            const label = s.key.replace('PLAN-', '');
+            const time = new Date(s.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            return (
+              <div
+                key={s.key}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '0 12px',
+                  height: 40,
+                  cursor: 'pointer',
+                  flexShrink: 0,
+                  borderBottom: isActive ? '2px solid var(--ds-border-selected)' : '2px solid transparent',
+                  background: isActive ? 'var(--ds-surface-raised)' : 'transparent',
+                  color: isActive ? 'var(--ds-text)' : 'var(--ds-text-subtle)',
+                }}
+                onClick={() => setActiveKey(s.key)}
+              >
+                <span style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: isActive ? 600 : 400 }}>
+                  {label}
+                </span>
+                <span style={{ fontSize: 11, opacity: 0.7 }}>{time}</span>
+                {/* Kill button */}
+                <button
+                  onClick={e => { e.stopPropagation(); killSession(s.key); }}
+                  title="Kill session"
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: 'var(--ds-text-subtlest)',
+                    fontSize: 14,
+                    lineHeight: 1,
+                    padding: '2px 4px',
+                    borderRadius: 3,
+                    marginLeft: 2,
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.color = 'var(--ds-text-danger)')}
+                  onMouseLeave={e => (e.currentTarget.style.color = 'var(--ds-text-subtlest)')}
+                >
+                  ×
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── Error banner ── */}
+      {error && (
+        <div style={{ padding: '12px 24px 0', flexShrink: 0 }}>
+          <SectionMessage appearance="error" title="Could not start session">
+            <p style={{ margin: 0, whiteSpace: 'pre-line' }}>{error}</p>
+            {error.includes('tmux') && (
+              <p style={{ margin: '8px 0 0', fontSize: 13 }}>
+                Install tmux: <code>brew install tmux</code> (macOS) · <code>apt install tmux</code> (Linux)
+              </p>
+            )}
+            {error.includes('claude CLI') && (
+              <p style={{ margin: '8px 0 0', fontSize: 13 }}>
+                Install Claude Code:{' '}
+                <a href="https://claude.ai/code" target="_blank" rel="noreferrer" style={{ color: 'var(--ds-link)' }}>
+                  claude.ai/code
+                </a>
+              </p>
+            )}
+          </SectionMessage>
+        </div>
+      )}
+
+      {/* ── Action bar ── */}
       <div style={{
         flexShrink: 0,
-        padding: hasSession ? '12px 24px' : '24px',
-        borderBottom: hasSession ? '1px solid var(--ds-border)' : 'none',
+        padding: hasSessions ? '8px 16px' : '0 24px 16px',
         display: 'flex',
-        alignItems: hasSession ? 'center' : 'flex-start',
-        flexDirection: hasSession ? 'row' : 'column',
-        gap: hasSession ? 12 : 0,
+        alignItems: 'center',
+        gap: 10,
+        borderBottom: hasSessions ? '1px solid var(--ds-border)' : 'none',
       }}>
-        {!hasSession && (
-          <>
-            <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--ds-text)', margin: '0 0 6px' }}>
-              PM Planning
-            </h1>
-            <p style={{
-              color: 'var(--ds-text-subtle)', fontSize: 14, lineHeight: 1.7,
-              margin: '0 0 20px', maxWidth: 600,
-            }}>
-              Start a planning session to work with the PM persona. Claude will interview you about
-              what you want to build, help you size the work, and create the right tickets — a bug,
-              a task, or an epic with child tasks — directly on the board.
-            </p>
-          </>
-        )}
-
-        {error && (
-          <div style={{ marginBottom: hasSession ? 0 : 16, flex: hasSession ? 1 : undefined }}>
-            <SectionMessage appearance="error" title="Could not start session">
-              <p style={{ margin: 0, whiteSpace: 'pre-line' }}>{error}</p>
-              {error.includes('tmux') && (
-                <p style={{ margin: '8px 0 0', fontSize: 13 }}>
-                  Install tmux: <code>brew install tmux</code> (macOS) · <code>apt install tmux</code> (Linux)
-                </p>
-              )}
-              {error.includes('claude CLI') && (
-                <p style={{ margin: '8px 0 0', fontSize: 13 }}>
-                  Install Claude Code: <a href="https://claude.ai/code" target="_blank" rel="noreferrer" style={{ color: 'var(--ds-link)' }}>claude.ai/code</a>
-                </p>
-              )}
-            </SectionMessage>
-          </div>
-        )}
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Button appearance="primary" onClick={startPlan} isDisabled={starting}>
-            {starting ? 'Starting…' : hasSession ? '+ New Plan' : 'Start New Plan'}
-          </Button>
-          {starting && <Spinner size="small" />}
-        </div>
+        <Button appearance="primary" onClick={startPlan} isDisabled={starting}>
+          {starting ? 'Starting…' : hasSessions ? '+ New Plan' : 'Start New Plan'}
+        </Button>
+        {starting && <Spinner size="small" />}
       </div>
 
-      {/* ── Active sessions — fill all remaining height ── */}
-      {hasSession ? (
-        <div style={{
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-          minHeight: 0,
-          padding: '0 24px 24px',
-          gap: 12,
-        }}>
-          {sessions.map((s, i) => (
-            <div key={s.key} style={{
-              flex: i === sessions.length - 1 ? 1 : undefined,
-              // last session expands; earlier ones get a fixed height if multiple
-              height: sessions.length > 1 && i < sessions.length - 1 ? 240 : undefined,
-              display: 'flex',
-              flexDirection: 'column',
-              minHeight: 0,
-              paddingTop: 12,
-            }}>
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: 8,
-                marginBottom: 6, fontSize: 13, color: 'var(--ds-text-subtle)', flexShrink: 0,
-              }}>
-                <span style={{ fontFamily: 'monospace', color: 'var(--ds-link)', fontWeight: 600 }}>{s.key}</span>
-                <span>·</span>
-                <span>Started {new Date(s.startedAt).toLocaleTimeString()}</span>
-              </div>
-              {/* TerminalPanel fills remaining space (no fixed height) */}
-              <TerminalPanel sessionKey={s.key} onClose={() => removeSession(s.key)} />
-            </div>
-          ))}
+      {/* ── Terminal panel for the active tab ── */}
+      {hasSessions ? (
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, padding: '12px 24px 24px' }}>
+          {activeSession && (
+            <TerminalPanel
+              key={activeSession.key}
+              sessionKey={activeSession.key}
+              onClose={() => killSession(activeSession.key)}
+            />
+          )}
         </div>
       ) : (
         /* ── Empty state ── */
-        <div style={{ padding: '0 24px 24px' }}>
+        <div style={{ padding: '0 24px' }}>
           <div style={{
             padding: 20,
             background: 'var(--ds-surface-raised)',

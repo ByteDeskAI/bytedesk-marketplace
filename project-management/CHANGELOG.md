@@ -5,6 +5,11 @@ All notable changes to the `project-management` plugin will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.7] — 2026-06-08
+
+### Changed
+- **Tabbed planning interface**: PlanView now renders active sessions as tabs rather than a stacked list. Each tab shows the session timestamp and a × kill button that terminates the tmux session immediately. Clicking a tab switches the terminal panel below. Starting a new plan adds a tab and activates it. Killing the active tab auto-selects the most recent remaining session.
+
 ## [0.4.6] — 2026-06-08
 
 ### Fixed
