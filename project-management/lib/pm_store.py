@@ -91,10 +91,15 @@ class PMStore:
         sprint_id: Optional[str] = None,
         scope: Optional[str] = None,
         acceptance_criteria: Optional[List[str]] = None,
+        tags: Optional[List[str]] = None,
+        assignee: Optional[str] = None,
+        pinned: bool = False,
+        weight: int = 50,
     ) -> Dict[str, Any]:
         return self._backend.create_issue(
             title, description, issue_type, priority,
             epic_id, sprint_id, scope, acceptance_criteria,
+            tags=tags, assignee=assignee, pinned=pinned, weight=weight,
         )
 
     def get_issue(self, issue_id: str) -> Optional[Dict[str, Any]]:
@@ -273,6 +278,59 @@ class PMStore:
 
     def summarize_thread(self, issue_id: str) -> Dict[str, Any]:
         return self._backend.summarize_thread(issue_id)
+
+    # --- v0.8.0 new methods ---
+
+    def assign_issue(self, issue_id: str, assignee: Optional[str]) -> Dict[str, Any]:
+        return self._backend.assign_issue(issue_id, assignee)
+
+    def pin_issue(self, issue_id: str, pinned: bool = True) -> Dict[str, Any]:
+        return self._backend.pin_issue(issue_id, pinned)
+
+    def set_issue_weight(self, issue_id: str, weight: int) -> Dict[str, Any]:
+        return self._backend.set_issue_weight(issue_id, weight)
+
+    def reopen_issue(self, issue_id: str, reason: str, reporter: str = "User") -> Dict[str, Any]:
+        return self._backend.reopen_issue(issue_id, reason, reporter)
+
+    def set_issue_checklist(self, issue_id: str, items: List[Dict[str, Any]]) -> Dict[str, Any]:
+        return self._backend.set_issue_checklist(issue_id, items)
+
+    def check_checklist_item(self, issue_id: str, item_index: int, done: bool) -> Dict[str, Any]:
+        return self._backend.check_checklist_item(issue_id, item_index, done)
+
+    def set_session_handoff(self, issue_id: str, next_step: str, files_in_progress: Optional[List[str]] = None, partial_criteria_done: Optional[List[int]] = None) -> Dict[str, Any]:
+        return self._backend.set_session_handoff(issue_id, next_step, files_in_progress, partial_criteria_done)
+
+    def abort_session(self, issue_id: str, reason: str, what_was_attempted: str = "", codebase_state: str = "clean") -> Dict[str, Any]:
+        return self._backend.abort_session(issue_id, reason, what_was_attempted, codebase_state)
+
+    def set_wip_limit(self, column: str, limit: int) -> Dict[str, int]:
+        return self._backend.set_wip_limit(column, limit)
+
+    def get_wip_limits(self) -> Dict[str, int]:
+        return self._backend.get_wip_limits()
+
+    def create_session_template(self, name: str, prompt_prefix: str, match_types: Optional[List[str]] = None, match_tags: Optional[List[str]] = None) -> Dict[str, Any]:
+        return self._backend.create_session_template(name, prompt_prefix, match_types, match_tags)
+
+    def list_session_templates(self) -> List[Dict[str, Any]]:
+        return self._backend.list_session_templates()
+
+    def delete_session_template(self, name: str) -> bool:
+        return self._backend.delete_session_template(name)
+
+    def comment_reply(self, issue_id: str, parent_comment_id: int, body: str, author: str = "User") -> Dict[str, Any]:
+        return self._backend.comment_reply(issue_id, parent_comment_id, body, author)
+
+    def risk_flag_issue(self, issue_id: str, risk_type: str, reason: str) -> Dict[str, Any]:
+        return self._backend.risk_flag_issue(issue_id, risk_type, reason)
+
+    def create_sprint_theme(self, name: str, description: str = "", color: str = "#0052CC") -> Dict[str, Any]:
+        return self._backend.create_sprint_theme(name, description, color)
+
+    def list_sprint_themes(self) -> List[Dict[str, Any]]:
+        return self._backend.list_sprint_themes()
 
     # --- Observability ---
 

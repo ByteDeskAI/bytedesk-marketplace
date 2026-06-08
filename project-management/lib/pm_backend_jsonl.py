@@ -156,6 +156,9 @@ class JSONLBackend:
                     "action": "Project initialized",
                     "details": f"Project: {project_name} ({key_prefix})",
                 }],
+                "wip_limits": {},
+                "session_templates": [],
+                "sprint_themes": [],
             }
             self._write_config(config)
             for path in (self.issues_path, self.docs_path):
@@ -212,6 +215,10 @@ class JSONLBackend:
         sprint_id: Optional[str] = None,
         scope: Optional[str] = None,
         acceptance_criteria: Optional[List[str]] = None,
+        tags: Optional[List[str]] = None,
+        assignee: Optional[str] = None,
+        pinned: bool = False,
+        weight: int = 50,
     ) -> Dict[str, Any]:
         valid_scopes = {"nano", "small", "medium", "large", "research"}
         with self._lock, self._exclusive(self.config_path), self._exclusive(self.issues_path):
@@ -241,6 +248,14 @@ class JSONLBackend:
                 "created_at": now,
                 "updated_at": now,
                 "comments": [],
+                "tags": list(tags) if tags else [],
+                "assignee": assignee.strip() if assignee else None,
+                "pinned": bool(pinned),
+                "weight": max(0, int(weight)),
+                "reopen_count": 0,
+                "checklist": [],
+                "handoff": None,
+                "risk": None,
             }
             records = self._read_jsonl(self.issues_path)
             records.append(issue)
@@ -272,6 +287,7 @@ class JSONLBackend:
             "scope", "acceptance_criteria", "criteria_done",
             "links", "remote_links", "commit_links", "session_summaries",
             "flagged_reason", "flagged_options", "progress", "checkins",
+            "tags", "assignee", "pinned", "weight", "checklist", "handoff", "risk",
         }
         with self._lock, self._exclusive(self.issues_path):
             records = self._read_jsonl(self.issues_path)
@@ -751,6 +767,14 @@ class JSONLBackend:
                     "created_at": now,
                     "updated_at": now,
                     "comments": [],
+                    "tags": [],
+                    "assignee": None,
+                    "pinned": False,
+                    "weight": 50,
+                    "reopen_count": 0,
+                    "checklist": [],
+                    "handoff": None,
+                    "risk": None,
                 }
                 records.append(issue)
                 created.append(dict(issue))
@@ -1219,3 +1243,276 @@ class JSONLBackend:
             records[idx] = issue
             self._rewrite(self.issues_path, records)
         return {"ok": True, "compressed": True, "archived_count": len(archived), "kept_count": len(kept)}
+
+    # ── v0.8.0 new methods ────────────────────────────────────────────────────
+
+    def assign_issue(self, issue_id: str, assignee: Optional[str]) -> Dict[str, Any]:
+        issue_id = issue_id.strip().upper()
+        with self._lock, self._exclusive(self.issues_path):
+            records = self._read_jsonl(self.issues_path)
+            idx = next((i for i, r in enumerate(records) if r.get("id", "").upper() == issue_id), None)
+            if idx is None:
+                raise ValueError(f"Issue {issue_id} not found.")
+            records[idx]["assignee"] = assignee.strip() if assignee else None
+            records[idx]["updated_at"] = self._now()
+            self._rewrite(self.issues_path, records)
+        self.emit_event("issue_updated", {"id": issue_id, "changes": ["assignee"]})
+        return dict(records[idx])
+
+    def pin_issue(self, issue_id: str, pinned: bool = True) -> Dict[str, Any]:
+        issue_id = issue_id.strip().upper()
+        with self._lock, self._exclusive(self.issues_path):
+            records = self._read_jsonl(self.issues_path)
+            idx = next((i for i, r in enumerate(records) if r.get("id", "").upper() == issue_id), None)
+            if idx is None:
+                raise ValueError(f"Issue {issue_id} not found.")
+            records[idx]["pinned"] = bool(pinned)
+            records[idx]["updated_at"] = self._now()
+            self._rewrite(self.issues_path, records)
+        self.emit_event("issue_updated", {"id": issue_id, "changes": ["pinned"]})
+        return dict(records[idx])
+
+    def set_issue_weight(self, issue_id: str, weight: int) -> Dict[str, Any]:
+        issue_id = issue_id.strip().upper()
+        with self._lock, self._exclusive(self.issues_path):
+            records = self._read_jsonl(self.issues_path)
+            idx = next((i for i, r in enumerate(records) if r.get("id", "").upper() == issue_id), None)
+            if idx is None:
+                raise ValueError(f"Issue {issue_id} not found.")
+            records[idx]["weight"] = max(0, int(weight))
+            records[idx]["updated_at"] = self._now()
+            self._rewrite(self.issues_path, records)
+        return dict(records[idx])
+
+    def reopen_issue(self, issue_id: str, reason: str, reporter: str = "User") -> Dict[str, Any]:
+        issue_id = issue_id.strip().upper()
+        now = self._now()
+        with self._lock, self._exclusive(self.issues_path):
+            records = self._read_jsonl(self.issues_path)
+            idx = next((i for i, r in enumerate(records) if r.get("id", "").upper() == issue_id), None)
+            if idx is None:
+                raise ValueError(f"Issue {issue_id} not found.")
+            issue = records[idx]
+            issue["status"] = "TODO"
+            issue["reopen_count"] = issue.get("reopen_count", 0) + 1
+            issue["updated_at"] = now
+            issue["flagged_reason"] = None
+            issue["flagged_options"] = []
+            issue.setdefault("comments", []).append({
+                "id": self._ms_id(),
+                "issue_id": issue_id,
+                "author": reporter,
+                "body": f"**Reopened** (#{issue['reopen_count']}): {reason.strip()}",
+                "created_at": now,
+            })
+            records[idx] = issue
+            self._rewrite(self.issues_path, records)
+        self.log_activity("Reopen Issue", f"Reopened {issue_id} (#{records[idx]['reopen_count']}): {reason[:60]}")
+        self.emit_event("issue_updated", {"id": issue_id, "changes": ["status", "reopen_count"]})
+        return dict(records[idx])
+
+    def set_issue_checklist(self, issue_id: str, items: List[Dict[str, Any]]) -> Dict[str, Any]:
+        issue_id = issue_id.strip().upper()
+        now = self._now()
+        checklist = [
+            {"id": i, "text": item.get("text", "").strip(), "done": bool(item.get("done", False)),
+             "done_at": item.get("done_at")}
+            for i, item in enumerate(items)
+        ]
+        with self._lock, self._exclusive(self.issues_path):
+            records = self._read_jsonl(self.issues_path)
+            idx = next((i for i, r in enumerate(records) if r.get("id", "").upper() == issue_id), None)
+            if idx is None:
+                raise ValueError(f"Issue {issue_id} not found.")
+            records[idx]["checklist"] = checklist
+            records[idx]["updated_at"] = now
+            self._rewrite(self.issues_path, records)
+        return dict(records[idx])
+
+    def check_checklist_item(self, issue_id: str, item_index: int, done: bool) -> Dict[str, Any]:
+        issue_id = issue_id.strip().upper()
+        now = self._now()
+        with self._lock, self._exclusive(self.issues_path):
+            records = self._read_jsonl(self.issues_path)
+            idx = next((i for i, r in enumerate(records) if r.get("id", "").upper() == issue_id), None)
+            if idx is None:
+                raise ValueError(f"Issue {issue_id} not found.")
+            checklist = records[idx].get("checklist", [])
+            if 0 <= item_index < len(checklist):
+                checklist[item_index]["done"] = bool(done)
+                checklist[item_index]["done_at"] = now if done else None
+                records[idx]["checklist"] = checklist
+                records[idx]["updated_at"] = now
+                self._rewrite(self.issues_path, records)
+        return dict(records[idx])
+
+    def set_session_handoff(
+        self, issue_id: str, next_step: str,
+        files_in_progress: Optional[List[str]] = None,
+        partial_criteria_done: Optional[List[int]] = None,
+    ) -> Dict[str, Any]:
+        issue_id = issue_id.strip().upper()
+        handoff = {
+            "next_step": next_step.strip(),
+            "files_in_progress": list(files_in_progress or []),
+            "partial_criteria_done": list(partial_criteria_done or []),
+            "created_at": self._now(),
+        }
+        with self._lock, self._exclusive(self.issues_path):
+            records = self._read_jsonl(self.issues_path)
+            idx = next((i for i, r in enumerate(records) if r.get("id", "").upper() == issue_id), None)
+            if idx is None:
+                raise ValueError(f"Issue {issue_id} not found.")
+            records[idx]["handoff"] = handoff
+            records[idx]["updated_at"] = self._now()
+            self._rewrite(self.issues_path, records)
+        self.emit_event("issue_handoff", {"id": issue_id})
+        return dict(records[idx])
+
+    def abort_session(
+        self, issue_id: str, reason: str,
+        what_was_attempted: str = "",
+        codebase_state: str = "clean",
+    ) -> Dict[str, Any]:
+        issue_id = issue_id.strip().upper()
+        now = self._now()
+        with self._lock, self._exclusive(self.issues_path):
+            records = self._read_jsonl(self.issues_path)
+            idx = next((i for i, r in enumerate(records) if r.get("id", "").upper() == issue_id), None)
+            if idx is None:
+                raise ValueError(f"Issue {issue_id} not found.")
+            records[idx]["status"] = "TODO"
+            records[idx].setdefault("session_summaries", []).append({
+                "summary": f"[ABORTED] {reason.strip()}",
+                "files_changed": [],
+                "tests_added": [],
+                "aborted": True,
+                "codebase_state": codebase_state,
+                "created_at": now,
+            })
+            records[idx].setdefault("comments", []).append({
+                "id": self._ms_id(),
+                "issue_id": issue_id,
+                "author": "claude-session",
+                "body": f"**Session Aborted**\n\n**Reason:** {reason.strip()}\n\n"
+                        + (f"**Attempted:** {what_was_attempted.strip()}\n\n" if what_was_attempted else "")
+                        + f"**Codebase state:** {codebase_state}",
+                "created_at": now,
+            })
+            records[idx]["updated_at"] = now
+            self._rewrite(self.issues_path, records)
+        self.log_activity("Abort Session", f"Aborted session on {issue_id}: {reason[:60]}")
+        self.emit_event("issue_updated", {"id": issue_id, "changes": ["status"]})
+        return dict(records[idx])
+
+    def set_wip_limit(self, column: str, limit: int) -> Dict[str, int]:
+        column = column.strip().upper()
+        with self._lock, self._exclusive(self.config_path):
+            config = self._read_config()
+            wip = config.get("wip_limits", {})
+            if limit <= 0:
+                wip.pop(column, None)
+            else:
+                wip[column] = int(limit)
+            config["wip_limits"] = wip
+            self._write_config(config)
+        return dict(wip)
+
+    def get_wip_limits(self) -> Dict[str, int]:
+        return dict(self._read_config().get("wip_limits", {}))
+
+    def create_session_template(
+        self, name: str, prompt_prefix: str,
+        match_types: Optional[List[str]] = None,
+        match_tags: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        name = name.strip()
+        entry: Dict[str, Any] = {
+            "name": name,
+            "prompt_prefix": prompt_prefix.strip(),
+            "match_types": list(match_types or []),
+            "match_tags": list(match_tags or []),
+            "created_at": self._now(),
+        }
+        with self._lock, self._exclusive(self.config_path):
+            config = self._read_config()
+            templates: List[Dict[str, Any]] = config.get("session_templates", [])
+            templates = [t for t in templates if t["name"] != name]
+            templates.append(entry)
+            config["session_templates"] = templates
+            self._write_config(config)
+        return entry
+
+    def list_session_templates(self) -> List[Dict[str, Any]]:
+        return list(self._read_config().get("session_templates", []))
+
+    def delete_session_template(self, name: str) -> bool:
+        name = name.strip()
+        with self._lock, self._exclusive(self.config_path):
+            config = self._read_config()
+            before = len(config.get("session_templates", []))
+            config["session_templates"] = [t for t in config.get("session_templates", []) if t["name"] != name]
+            removed = len(config["session_templates"]) < before
+            self._write_config(config)
+        return removed
+
+    def comment_reply(self, issue_id: str, parent_comment_id: int, body: str, author: str = "User") -> Dict[str, Any]:
+        issue_id = issue_id.strip().upper()
+        now = self._now()
+        reply = {
+            "id": self._ms_id(),
+            "issue_id": issue_id,
+            "parent_id": parent_comment_id,
+            "author": author,
+            "body": body.strip(),
+            "created_at": now,
+        }
+        with self._lock, self._exclusive(self.issues_path):
+            records = self._read_jsonl(self.issues_path)
+            idx = next((i for i, r in enumerate(records) if r.get("id", "").upper() == issue_id), None)
+            if idx is None:
+                raise ValueError(f"Issue {issue_id} not found.")
+            comments = records[idx].get("comments", [])
+            parent_idx = next((ci for ci, c in enumerate(comments) if c.get("id") == parent_comment_id), None)
+            if parent_idx is not None:
+                comments[parent_idx].setdefault("replies", []).append(reply)
+            else:
+                comments.append(reply)
+            records[idx]["comments"] = comments
+            records[idx]["updated_at"] = now
+            self._rewrite(self.issues_path, records)
+        return reply
+
+    def risk_flag_issue(self, issue_id: str, risk_type: str, reason: str) -> Dict[str, Any]:
+        issue_id = issue_id.strip().upper()
+        valid_types = {"security", "data_loss", "breaking_change", "external_integration", "compliance"}
+        risk_type = risk_type.strip().lower()
+        if risk_type not in valid_types:
+            risk_type = "security"
+        risk = {"type": risk_type, "reason": reason.strip(), "flagged_at": self._now()}
+        with self._lock, self._exclusive(self.issues_path):
+            records = self._read_jsonl(self.issues_path)
+            idx = next((i for i, r in enumerate(records) if r.get("id", "").upper() == issue_id), None)
+            if idx is None:
+                raise ValueError(f"Issue {issue_id} not found.")
+            records[idx]["risk"] = risk
+            records[idx]["updated_at"] = self._now()
+            self._rewrite(self.issues_path, records)
+        self.emit_event("issue_updated", {"id": issue_id, "changes": ["risk"]})
+        return dict(records[idx])
+
+    def create_sprint_theme(self, name: str, description: str = "", color: str = "#0052CC") -> Dict[str, Any]:
+        name = name.strip()
+        entry = {"id": f"theme-{self._ms_id()}", "name": name, "description": description.strip(),
+                 "color": color, "created_at": self._now()}
+        with self._lock, self._exclusive(self.config_path):
+            config = self._read_config()
+            themes: List[Dict[str, Any]] = config.get("sprint_themes", [])
+            themes = [t for t in themes if t["name"] != name]
+            themes.append(entry)
+            config["sprint_themes"] = themes
+            self._write_config(config)
+        return entry
+
+    def list_sprint_themes(self) -> List[Dict[str, Any]]:
+        return list(self._read_config().get("sprint_themes", []))
