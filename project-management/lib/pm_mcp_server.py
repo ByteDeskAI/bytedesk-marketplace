@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 
 from pm_store import PMStore
 
-SERVER_INFO = {"name": "project-management", "version": "0.7.1"}
+SERVER_INFO = {"name": "project-management", "version": "0.8.0"}
 
 
 def tool_definitions() -> List[Dict[str, Any]]:
@@ -49,7 +49,11 @@ def tool_definitions() -> List[Dict[str, Any]]:
                     "epic_id": {"type": "string", "description": "ID of the parent epic (e.g., PM-1)."},
                     "sprint_id": {"type": "string", "description": "ID of the sprint (e.g., sprint-1) or 'backlog'."},
                     "scope": {"type": "string", "enum": ["nano", "small", "medium", "large", "research"], "description": "AI-native complexity signal. nano=single fn, small=~1 day, medium=2-3 days, large=spike needed, research=investigation."},
-                    "acceptance_criteria": {"type": "array", "items": {"type": "string"}, "description": "List of acceptance criteria strings. Claude marks these done as it implements."}
+                    "acceptance_criteria": {"type": "array", "items": {"type": "string"}, "description": "List of acceptance criteria strings. Claude marks these done as it implements."},
+                    "tags": {"type": "array", "items": {"type": "string"}, "description": "List of free-form tags (e.g. ['auth', 'security'])."},
+                    "assignee": {"type": "string", "description": "Assignee name or identifier."},
+                    "pinned": {"type": "boolean", "description": "Pin this ticket to the top of its column."},
+                    "weight": {"type": "integer", "description": "Priority weight within same priority band (0=highest, 100=lowest). Defaults to 50."}
                 },
                 "required": ["title"]
             }
@@ -70,7 +74,11 @@ def tool_definitions() -> List[Dict[str, Any]]:
                     "scope": {"type": "string", "enum": ["nano", "small", "medium", "large", "research"], "description": "Complexity scope signal."},
                     "acceptance_criteria": {"type": "array", "items": {"type": "string"}, "description": "Replace the acceptance criteria list."},
                     "criteria_done": {"type": "array", "items": {"type": "integer"}, "description": "0-based indices of criteria that are now done."},
-                    "comment": {"type": "string", "description": "Comment to append to the issue."}
+                    "comment": {"type": "string", "description": "Comment to append to the issue."},
+                    "tags": {"type": "array", "items": {"type": "string"}, "description": "Replace tags list."},
+                    "assignee": {"type": "string", "description": "New assignee (or null to clear)."},
+                    "pinned": {"type": "boolean", "description": "Pin/unpin the ticket."},
+                    "weight": {"type": "integer", "description": "Priority weight."}
                 },
                 "required": ["id"]
             }
@@ -798,6 +806,420 @@ def tool_definitions() -> List[Dict[str, Any]]:
                 "required": ["epic_id"]
             }
         },
+        # ── v0.8.0 new tools ─────────────────────────────────────────────────
+        {
+            "name": "pm_issue_assign",
+            "description": "Assign a ticket to a person or agent. Stores the assignee name on the issue and shows an avatar on the Board card.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Issue ID. Required."},
+                    "assignee": {"type": "string", "description": "Assignee name or identifier. Pass null or empty string to clear."}
+                },
+                "required": ["id"]
+            }
+        },
+        {
+            "name": "pm_issue_pin",
+            "description": "Pin or unpin a ticket to the top of its Board column. Pinned tickets always render first, separated by a divider. Use to surface the most critical ticket in a sprint.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Issue ID. Required."},
+                    "pinned": {"type": "boolean", "description": "True to pin, false to unpin. Defaults to true."}
+                },
+                "required": ["id"]
+            }
+        },
+        {
+            "name": "pm_issue_weight",
+            "description": "Set the priority weight for an issue within its priority band (0=highest urgency, 100=lowest). The Backlog sorts by priority then weight ASC. Use to express 'PM-12 before PM-17' within the same priority level.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Issue ID. Required."},
+                    "weight": {"type": "integer", "description": "Weight 0-100. Lower = higher priority within band. Required."}
+                },
+                "required": ["id", "weight"]
+            }
+        },
+        {
+            "name": "pm_issue_reopen",
+            "description": "Reopen a DONE or REVIEW ticket with a reason. Transitions back to TODO, increments reopen_count, and adds a comment. Use when a regression is found or requirements changed after close.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Issue ID. Required."},
+                    "reason": {"type": "string", "description": "Why the ticket is being reopened. Required."},
+                    "reporter": {"type": "string", "description": "Who found the regression. Defaults to current git user."}
+                },
+                "required": ["id", "reason"]
+            }
+        },
+        {
+            "name": "pm_session_abort",
+            "description": "Structured session abort - call when you hit an unresolvable blocker (missing credentials, broken dependency, conflicting architecture). Resets ticket to TODO, records what was attempted and the codebase state.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Issue ID. Required."},
+                    "reason": {"type": "string", "description": "Why the session cannot continue. Required."},
+                    "what_was_attempted": {"type": "string", "description": "What you tried before giving up."},
+                    "codebase_state": {"type": "string", "enum": ["clean", "changes_made"], "description": "Whether the working tree has uncommitted changes. Required for human to know if revert is needed."}
+                },
+                "required": ["id", "reason"]
+            }
+        },
+        {
+            "name": "pm_session_handoff",
+            "description": "Record a mid-session handoff when you cannot continue due to context limits. Stores next_step so the next session can resume exactly where you stopped without re-exploring the codebase.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Issue ID. Required."},
+                    "next_step": {"type": "string", "description": "The specific next action the next session should take (file path, function name, line number). Required."},
+                    "files_in_progress": {"type": "array", "items": {"type": "string"}, "description": "Files currently being modified."},
+                    "partial_criteria_done": {"type": "array", "items": {"type": "integer"}, "description": "0-based indices of criteria already met."}
+                },
+                "required": ["id", "next_step"]
+            }
+        },
+        {
+            "name": "pm_issue_checklist_set",
+            "description": "Set the human-operated checklist on an issue (distinct from AI-owned acceptance_criteria). Use for operational steps the human needs to complete: deploy to staging, notify design, update runbook.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Issue ID. Required."},
+                    "items": {
+                        "type": "array",
+                        "description": "Checklist items.",
+                        "items": {"type": "object", "properties": {"text": {"type": "string"}, "done": {"type": "boolean"}}, "required": ["text"]}
+                    }
+                },
+                "required": ["id", "items"]
+            }
+        },
+        {
+            "name": "pm_issue_checklist_check",
+            "description": "Mark a checklist item done or undone by its 0-based index.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Issue ID. Required."},
+                    "index": {"type": "integer", "description": "0-based checklist item index. Required."},
+                    "done": {"type": "boolean", "description": "True to mark done, false to unmark. Required."}
+                },
+                "required": ["id", "index", "done"]
+            }
+        },
+        {
+            "name": "pm_issue_risk_flag",
+            "description": "Flag an issue as carrying technical risk. Risk-flagged tickets show a red warning badge on the Board card and require a pm_diff_review before moving to DONE. Types: security, data_loss, breaking_change, external_integration, compliance.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Issue ID. Required."},
+                    "risk_type": {"type": "string", "enum": ["security", "data_loss", "breaking_change", "external_integration", "compliance"], "description": "Risk category. Required."},
+                    "reason": {"type": "string", "description": "Why this ticket carries risk. Required."}
+                },
+                "required": ["id", "risk_type", "reason"]
+            }
+        },
+        {
+            "name": "pm_issue_batch_update",
+            "description": "Apply the same field updates to multiple issues atomically. Use when reassigning a sprint, bulk-changing priority, or setting scope on a set of tickets.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "ids": {"type": "array", "items": {"type": "string"}, "description": "List of issue IDs to update. Required."},
+                    "updates": {
+                        "type": "object",
+                        "description": "Fields to update on all issues (same fields as pm_issue_update).",
+                        "properties": {
+                            "status": {"type": "string"},
+                            "priority": {"type": "string"},
+                            "scope": {"type": "string"},
+                            "sprint_id": {"type": "string"},
+                            "epic_id": {"type": "string"},
+                            "assignee": {"type": "string"},
+                            "weight": {"type": "integer"},
+                            "tags": {"type": "array", "items": {"type": "string"}}
+                        }
+                    }
+                },
+                "required": ["ids", "updates"]
+            }
+        },
+        {
+            "name": "pm_issue_duplicate_detect",
+            "description": "Check if similar issues already exist before creating a new one. Returns ranked list of existing tickets by title and description similarity. Call before pm_issue_create to avoid duplicates.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "Proposed ticket title. Required."},
+                    "description": {"type": "string", "description": "Optional proposed description for better matching."}
+                },
+                "required": ["title"]
+            }
+        },
+        {
+            "name": "pm_velocity_forecast",
+            "description": "Project forward based on the last N completed sprints: average tickets done, scope units completed, sessions per ticket. Returns estimated sprints and weeks to clear the current backlog.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "sprints_back": {"type": "integer", "description": "How many completed sprints to average over. Defaults to 3."}
+                }
+            }
+        },
+        {
+            "name": "pm_sprint_compare",
+            "description": "Compare two completed sprints side by side: tickets done, scope distribution, sessions per ticket, NEEDS_INPUT count, reopens. Helps measure whether process improvements are working.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "sprint_a": {"type": "string", "description": "First sprint ID. Required."},
+                    "sprint_b": {"type": "string", "description": "Second sprint ID. Required."}
+                },
+                "required": ["sprint_a", "sprint_b"]
+            }
+        },
+        {
+            "name": "pm_board_export",
+            "description": "Export current board state as markdown table, JSON snapshot, or a brief doc. Use when sharing sprint status in a PR description or with stakeholders.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "format": {"type": "string", "enum": ["markdown", "json", "doc"], "description": "Export format. Defaults to markdown."},
+                    "sprint_id": {"type": "string", "description": "Scope to a specific sprint. Defaults to active sprint."}
+                }
+            }
+        },
+        {
+            "name": "pm_qa_checklist",
+            "description": "Pre-implementation quality gate: score a ticket 0-100 before running a session. Checks description completeness, acceptance criteria count, scope set, ADR links, token estimate. Returns score, grade, and specific improvement actions.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Issue ID. Required."}
+                },
+                "required": ["id"]
+            }
+        },
+        {
+            "name": "pm_cost_report",
+            "description": "Aggregate session cost analytics: total estimated tokens and sessions per ticket, sprint, or epic. Identifies most expensive tickets and compares to prior sprint. Use to understand where AI budget was spent.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "sprint_id": {"type": "string", "description": "Scope to a sprint."},
+                    "epic_id": {"type": "string", "description": "Scope to an epic."}
+                }
+            }
+        },
+        {
+            "name": "pm_issue_health_score",
+            "description": "Compute a 0-100 health score for a ticket: spec quality (description + criteria), implementation stability (reopens + retries), freshness (days since update), progress. Returns grade A-F and top improvement action.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Issue ID. Required."}
+                },
+                "required": ["id"]
+            }
+        },
+        {
+            "name": "pm_workload_balance",
+            "description": "Check the health of all in-flight sessions for an epic's children. Detects stuck sessions (low progress after many retries), flagged tickets, and sessions that may be off-track.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "epic_id": {"type": "string", "description": "Epic to check. Required."}
+                },
+                "required": ["epic_id"]
+            }
+        },
+        {
+            "name": "pm_sprint_goal_set",
+            "description": "Update the sprint goal on an active or planned sprint. Lighter-weight than pm_sprint_manage - just updates the goal text and logs the change. The Board header becomes inline-editable.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "sprint_id": {"type": "string", "description": "Sprint ID. Required."},
+                    "goal": {"type": "string", "description": "New sprint goal text. Required."}
+                },
+                "required": ["sprint_id", "goal"]
+            }
+        },
+        {
+            "name": "pm_code_context",
+            "description": "Discover the most relevant codebase files for a ticket using git grep and commit history. Returns an ordered list of files to read first. Call at session start instead of manually exploring the codebase.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Issue ID. Required."},
+                    "max_files": {"type": "integer", "description": "Maximum files to return. Defaults to 10."}
+                },
+                "required": ["id"]
+            }
+        },
+        {
+            "name": "pm_issue_dependency_path",
+            "description": "Find the shortest is-blocked-by chain from an issue to its root blockers. Returns the blocking chain in order so you know what to unblock first.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Issue ID to trace from. Required."}
+                },
+                "required": ["id"]
+            }
+        },
+        {
+            "name": "pm_auto_link_pr",
+            "description": "Scan recent GitHub PRs for mentions of ticket IDs matching this workspace's key prefix and auto-link them via pm_issue_remote_link. Eliminates manual PR linking.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "repo": {"type": "string", "description": "GitHub repo in owner/name format (e.g. 'acme/backend'). Required."},
+                    "since_days": {"type": "integer", "description": "How many days back to scan. Defaults to 7."}
+                },
+                "required": ["repo"]
+            }
+        },
+        {
+            "name": "pm_epic_roadmap_sync",
+            "description": "Update each epic's expected_completion_sprint and expected_completion_date based on where its latest non-DONE child is assigned. Call after pm_smart_assign_sprint to keep the roadmap current.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "epic_id": {"type": "string", "description": "Specific epic to sync. Omit to sync all epics."}
+                }
+            }
+        },
+        {
+            "name": "pm_comment_reply",
+            "description": "Reply to a specific comment on an issue, creating a threaded discussion. Use to respond to session summaries with follow-up questions or clarifications.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Issue ID. Required."},
+                    "parent_comment_id": {"type": "integer", "description": "ID of the comment to reply to. Required."},
+                    "body": {"type": "string", "description": "Reply text. Required."},
+                    "author": {"type": "string", "description": "Author name. Defaults to current git user."}
+                },
+                "required": ["id", "parent_comment_id", "body"]
+            }
+        },
+        {
+            "name": "pm_wip_limit_set",
+            "description": "Set or clear a Work-In-Progress limit for a Board column. When exceeded, the column header shows an amber warning. Claude respects WIP limits when using pm_agent_pool.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "column": {"type": "string", "enum": ["TODO", "IN_PROGRESS", "REVIEW", "DONE"], "description": "Column to limit. Required."},
+                    "limit": {"type": "integer", "description": "Max tickets in this column. Set 0 to clear the limit. Required."}
+                },
+                "required": ["column", "limit"]
+            }
+        },
+        {
+            "name": "pm_session_template_create",
+            "description": "Save a session prompt template that auto-prepends to implementation prompts when a ticket's type or tags match. Built-in starters: 'bug-fix', 'security-review', 'api-endpoint'.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Template name (e.g. 'bug-fix'). Required."},
+                    "prompt_prefix": {"type": "string", "description": "Text prepended to the session prompt when this template matches. Required."},
+                    "match_types": {"type": "array", "items": {"type": "string"}, "description": "Issue types to match (bug, task, story, epic)."},
+                    "match_tags": {"type": "array", "items": {"type": "string"}, "description": "Tags to match."}
+                },
+                "required": ["name", "prompt_prefix"]
+            }
+        },
+        {
+            "name": "pm_session_template_list",
+            "description": "List all saved session prompt templates.",
+            "inputSchema": {"type": "object", "properties": {}}
+        },
+        {
+            "name": "pm_session_template_delete",
+            "description": "Delete a saved session prompt template by name.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Template name. Required."}
+                },
+                "required": ["name"]
+            }
+        },
+        {
+            "name": "pm_session_quality_score",
+            "description": "Score the most recent session on a ticket against behavioral rubric: called pm_issue_checkin (+20), called pm_session_attach (+25), linked commit (+15), updated criteria_done (+20), no reopen in 48h (+20). Returns 0-100 with missed behaviors.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Issue ID. Required."}
+                },
+                "required": ["id"]
+            }
+        },
+        {
+            "name": "pm_daily_briefing",
+            "description": "Generate a forward-looking daily brief: sprint status + days remaining, recommended work order (top 3 tickets), NEEDS_INPUT queue, CI watch alerts, and sprint health summary.",
+            "inputSchema": {"type": "object", "properties": {}}
+        },
+        {
+            "name": "pm_sprint_health_dashboard",
+            "description": "Single-call sprint health cockpit: goal alignment score, days remaining, scope done vs remaining, WIP violations, NEEDS_INPUT queue, CI failures, stale tickets, cost burn. One scan answers all 'how are we doing?' questions.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "sprint_id": {"type": "string", "description": "Sprint ID. Defaults to active sprint."}
+                }
+            }
+        },
+        {
+            "name": "pm_sprint_theme_create",
+            "description": "Create a strategic theme that spans multiple sprints (e.g. 'Security Hardening Q3', 'Developer Experience'). Themes appear as colored bands in the roadmap view.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Theme name. Required."},
+                    "description": {"type": "string", "description": "What this theme is about."},
+                    "color": {"type": "string", "description": "Hex color (e.g. '#0052CC'). Defaults to Jira blue."}
+                },
+                "required": ["name"]
+            }
+        },
+        {
+            "name": "pm_sprint_theme_list",
+            "description": "List all sprint themes.",
+            "inputSchema": {"type": "object", "properties": {}}
+        },
+        {
+            "name": "pm_prioritize_backlog",
+            "description": "Score and rank all backlog TODO tickets by: blocking leverage (unblocks most others), scope efficiency (small+goal-aligned ranks high), staleness boost (old tickets), and sprint goal keyword alignment. Returns ranked list with per-ticket reasoning.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "sprint_goal": {"type": "string", "description": "Sprint goal text to use for alignment scoring. Defaults to active sprint goal."},
+                    "limit": {"type": "integer", "description": "Max tickets to return. Defaults to 20."}
+                }
+            }
+        },
+        {
+            "name": "pm_issue_merge",
+            "description": "Merge a duplicate ticket into another. Unions acceptance criteria, transfers comments and links, closes the source ticket with 'Merged into PM-X'. Use when pm_issue_duplicate_detect finds a near-duplicate.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "source_id": {"type": "string", "description": "Ticket to merge FROM (will be closed). Required."},
+                    "target_id": {"type": "string", "description": "Ticket to merge INTO (will receive all data). Required."}
+                },
+                "required": ["source_id", "target_id"]
+            }
+        },
         {
             "name": "pm_migrate",
             "description": (
@@ -890,6 +1312,10 @@ def call_pm_tool(name: str, arguments: Dict[str, Any]) -> Any:
             sprint_id=arguments.get("sprint_id"),
             scope=arguments.get("scope"),
             acceptance_criteria=arguments.get("acceptance_criteria"),
+            tags=arguments.get("tags"),
+            assignee=arguments.get("assignee"),
+            pinned=bool(arguments.get("pinned", False)),
+            weight=int(arguments.get("weight", 50)),
         )
         return {"ok": True, "issue": issue}
 
@@ -897,7 +1323,7 @@ def call_pm_tool(name: str, arguments: Dict[str, Any]) -> Any:
         issue_id = arguments["id"]
         updates = {}
         for field in ["title", "description", "issue_type", "priority", "epic_id", "sprint_id",
-                      "scope", "acceptance_criteria", "criteria_done"]:
+                      "scope", "acceptance_criteria", "criteria_done", "tags", "assignee", "pinned", "weight"]:
             if field in arguments:
                 model_field = "type" if field == "issue_type" else field
                 updates[model_field] = arguments[field]
@@ -2015,6 +2441,788 @@ def call_pm_tool(name: str, arguments: Dict[str, Any]) -> Any:
                 f"if its blockers are now DONE. Max parallel: {max_parallel}."
             ),
         }
+
+    # ── v0.8.0 tool handlers ──────────────────────────────────────────────────
+
+    elif name == "pm_issue_assign":
+        issue_id = arguments["id"]
+        assignee = arguments.get("assignee") or None
+        try:
+            issue = store.assign_issue(issue_id, assignee)
+            return {"ok": True, "issue_id": issue_id, "assignee": issue.get("assignee")}
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+
+    elif name == "pm_issue_pin":
+        issue_id = arguments["id"]
+        pinned = bool(arguments.get("pinned", True))
+        try:
+            issue = store.pin_issue(issue_id, pinned)
+            return {"ok": True, "issue_id": issue_id, "pinned": pinned}
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+
+    elif name == "pm_issue_weight":
+        issue_id = arguments["id"]
+        weight = int(arguments.get("weight", 50))
+        try:
+            store.set_issue_weight(issue_id, weight)
+            return {"ok": True, "issue_id": issue_id, "weight": weight}
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+
+    elif name == "pm_issue_reopen":
+        issue_id = arguments["id"]
+        reason = arguments.get("reason", "").strip()
+        reporter = arguments.get("reporter", _git_user())
+        try:
+            issue = store.reopen_issue(issue_id, reason, reporter)
+            return {"ok": True, "issue": issue, "reopen_count": issue.get("reopen_count", 1)}
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+
+    elif name == "pm_session_abort":
+        issue_id = arguments["id"]
+        reason = arguments.get("reason", "").strip()
+        try:
+            issue = store.abort_session(
+                issue_id, reason,
+                arguments.get("what_was_attempted", ""),
+                arguments.get("codebase_state", "clean"),
+            )
+            return {"ok": True, "issue_id": issue_id, "status": "TODO", "reason": reason}
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+
+    elif name == "pm_session_handoff":
+        issue_id = arguments["id"]
+        next_step = arguments.get("next_step", "").strip()
+        try:
+            issue = store.set_session_handoff(
+                issue_id, next_step,
+                arguments.get("files_in_progress"),
+                arguments.get("partial_criteria_done"),
+            )
+            return {"ok": True, "issue_id": issue_id, "handoff": issue.get("handoff")}
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+
+    elif name == "pm_issue_checklist_set":
+        issue_id = arguments["id"]
+        items = arguments.get("items", [])
+        try:
+            issue = store.set_issue_checklist(issue_id, items)
+            return {"ok": True, "checklist": issue.get("checklist", [])}
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+
+    elif name == "pm_issue_checklist_check":
+        issue_id = arguments["id"]
+        index = int(arguments.get("index", 0))
+        done = bool(arguments.get("done", True))
+        try:
+            issue = store.check_checklist_item(issue_id, index, done)
+            return {"ok": True, "checklist": issue.get("checklist", [])}
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+
+    elif name == "pm_issue_risk_flag":
+        issue_id = arguments["id"]
+        risk_type = arguments.get("risk_type", "security")
+        reason = arguments.get("reason", "").strip()
+        try:
+            issue = store.risk_flag_issue(issue_id, risk_type, reason)
+            return {"ok": True, "issue_id": issue_id, "risk": issue.get("risk")}
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+
+    elif name == "pm_issue_batch_update":
+        ids = arguments.get("ids", [])
+        updates = arguments.get("updates", {})
+        if not ids:
+            return {"ok": False, "error": "ids list is required."}
+        success, failed = [], []
+        for issue_id in ids:
+            try:
+                store.update_issue(issue_id.strip().upper(), updates)
+                success.append(issue_id)
+            except Exception as e:
+                failed.append({"id": issue_id, "error": str(e)})
+        return {"ok": True, "updated": len(success), "failed": failed}
+
+    elif name == "pm_issue_duplicate_detect":
+        candidate_title = arguments["title"].strip().lower()
+        candidate_desc = (arguments.get("description") or "").strip().lower()
+        all_issues = store.list_issues()
+        scored: List[Dict[str, Any]] = []
+        candidate_words = set(candidate_title.split())
+        for issue in all_issues:
+            title_words = set(issue.get("title", "").lower().split())
+            overlap = len(candidate_words & title_words) / max(len(candidate_words | title_words), 1)
+            desc_boost = 0.0
+            if candidate_desc:
+                issue_desc_words = set((issue.get("description") or "").lower().split())
+                candidate_desc_words = set(candidate_desc.split())
+                desc_boost = len(candidate_desc_words & issue_desc_words) / max(len(candidate_desc_words), 1) * 0.3
+            score = overlap + desc_boost
+            if score > 0.3:
+                scored.append({"id": issue["id"], "title": issue["title"], "status": issue.get("status"),
+                               "score": round(score, 2)})
+        scored.sort(key=lambda x: x["score"], reverse=True)
+        return {
+            "ok": True,
+            "candidate_title": arguments["title"],
+            "possible_duplicates": scored[:5],
+            "recommendation": "Consider merging with " + scored[0]["id"] if scored and scored[0]["score"] > 0.7 else "No strong duplicates found.",
+        }
+
+    elif name == "pm_velocity_forecast":
+        sprints_back = int(arguments.get("sprints_back", 3))
+        config = store.get_project_config()
+        all_issues = store.list_issues()
+        closed_sprints = [s for s in config.get("sprints", []) if s.get("status") == "CLOSED"][-sprints_back:]
+        if not closed_sprints:
+            return {"ok": False, "error": "No completed sprints found to base forecast on."}
+        scope_weights = {"nano": 1, "small": 2, "medium": 4, "large": 8, "research": 3}
+        sprint_stats: List[Dict[str, Any]] = []
+        for sprint in closed_sprints:
+            sprint_issues = [i for i in all_issues if (i.get("sprint_id") or "").lower() == sprint["id"].lower()]
+            done = [i for i in sprint_issues if i.get("status") == "DONE"]
+            scope_units = sum(scope_weights.get(i.get("scope") or "", 2) for i in done)
+            sprint_stats.append({"id": sprint["id"], "tickets_done": len(done), "scope_units": scope_units})
+        avg_tickets = sum(s["tickets_done"] for s in sprint_stats) / len(sprint_stats)
+        avg_scope = sum(s["scope_units"] for s in sprint_stats) / len(sprint_stats)
+        backlog = [i for i in all_issues if i.get("status") in ("TODO", "DRAFT", "NEEDS_INPUT") and not i.get("sprint_id")]
+        backlog_tickets = len(backlog)
+        backlog_scope = sum(scope_weights.get(i.get("scope") or "", 2) for i in backlog)
+        estimated_sprints = max(backlog_scope / max(avg_scope, 1), backlog_tickets / max(avg_tickets, 1))
+        return {
+            "ok": True,
+            "avg_tickets_per_sprint": round(avg_tickets, 1),
+            "avg_scope_units_per_sprint": round(avg_scope, 1),
+            "backlog_tickets": backlog_tickets,
+            "backlog_scope_units": backlog_scope,
+            "estimated_sprints_to_clear": round(estimated_sprints, 1),
+            "estimated_weeks": round(estimated_sprints * (closed_sprints[0].get("duration_days", 7) / 7), 1),
+            "sprint_history": sprint_stats,
+        }
+
+    elif name == "pm_sprint_compare":
+        sprint_a_id = arguments["sprint_a"].strip()
+        sprint_b_id = arguments["sprint_b"].strip()
+        config = store.get_project_config()
+        all_issues = store.list_issues()
+        scope_weights = {"nano": 1, "small": 2, "medium": 4, "large": 8, "research": 3}
+
+        def _sprint_stats(sid: str) -> Dict[str, Any]:
+            sprint = next((s for s in config.get("sprints", []) if s["id"] == sid), None)
+            if not sprint:
+                return {}
+            issues = [i for i in all_issues if (i.get("sprint_id") or "").lower() == sid.lower()]
+            done = [i for i in issues if i.get("status") == "DONE"]
+            sessions = sum(len(i.get("session_summaries", [])) for i in issues)
+            needs_input = sum(1 for i in issues if i.get("status") == "NEEDS_INPUT")
+            reopens = sum(i.get("reopen_count", 0) for i in issues)
+            scope_done = sum(scope_weights.get(i.get("scope") or "", 2) for i in done)
+            return {"id": sid, "name": sprint.get("name"), "goal": sprint.get("goal"),
+                    "tickets_done": len(done), "total_tickets": len(issues),
+                    "scope_units_done": scope_done, "total_sessions": sessions,
+                    "sessions_per_ticket": round(sessions / max(len(issues), 1), 2),
+                    "needs_input_count": needs_input, "total_reopens": reopens}
+
+        a = _sprint_stats(sprint_a_id)
+        b = _sprint_stats(sprint_b_id)
+        if not a or not b:
+            return {"ok": False, "error": "One or both sprint IDs not found."}
+
+        def _delta(key: str) -> str:
+            av, bv = a.get(key, 0), b.get(key, 0)
+            if bv > av:
+                return f"+{round(bv - av, 1)}"
+            return f"{round(bv - av, 1)}"
+
+        return {
+            "ok": True,
+            "sprint_a": a,
+            "sprint_b": b,
+            "deltas": {k: _delta(k) for k in ("tickets_done", "scope_units_done", "sessions_per_ticket", "needs_input_count", "total_reopens")},
+        }
+
+    elif name == "pm_board_export":
+        fmt = arguments.get("format", "markdown")
+        sprint_id = arguments.get("sprint_id") or store.get_active_sprint_id()
+        issues = store.list_issues(sprint_id=sprint_id) if sprint_id else store.list_issues()
+        if fmt == "json":
+            return {"ok": True, "format": "json", "issues": issues, "count": len(issues)}
+        elif fmt == "doc":
+            from datetime import date
+            content = (
+                f"# Board Export — {date.today().isoformat()}\n\n"
+                + "\n".join(f"| {i['id']} | {i['title']} | {i.get('status')} | {i.get('priority')} |" for i in issues)
+            )
+            doc = store.create_doc(title=f"Board Export {date.today().isoformat()}", content=content, doc_type="brief")
+            return {"ok": True, "format": "doc", "document": doc}
+        else:  # markdown
+            lines = ["| ID | Title | Status | Priority | Scope |", "|---|---|---|---|---|"]
+            for i in issues:
+                lines.append(f"| {i['id']} | {i['title']} | {i.get('status','?')} | {i.get('priority','?')} | {i.get('scope','?')} |")
+            return {"ok": True, "format": "markdown", "markdown": "\n".join(lines), "count": len(issues)}
+
+    elif name == "pm_qa_checklist":
+        issue_id = arguments["id"].strip().upper()
+        issue = store.get_issue(issue_id)
+        if not issue:
+            return {"ok": False, "error": f"Issue {issue_id} not found."}
+        adrs = store.list_docs(doc_type="adr")
+        accepted_adrs = [d for d in adrs if d.get("doc_status") in ("accepted", "")]
+        score = 0
+        checks: List[Dict[str, Any]] = []
+        if len((issue.get("description") or "").strip()) >= 50:
+            score += 20; checks.append({"check": "Description", "passed": True, "detail": "Sufficient length"})
+        else:
+            checks.append({"check": "Description", "passed": False, "detail": "Under 50 chars -- add context"})
+        crit = issue.get("acceptance_criteria") or []
+        if len(crit) >= 3:
+            score += 25; checks.append({"check": "Acceptance criteria", "passed": True, "detail": f"{len(crit)} criteria"})
+        elif crit:
+            score += 10; checks.append({"check": "Acceptance criteria", "passed": False, "detail": f"Only {len(crit)} -- aim for 3+"})
+        else:
+            checks.append({"check": "Acceptance criteria", "passed": False, "detail": "None -- required before running"})
+        if issue.get("scope"):
+            score += 15; checks.append({"check": "Scope", "passed": True, "detail": issue["scope"]})
+        else:
+            checks.append({"check": "Scope", "passed": False, "detail": "Not set -- set scope before running"})
+        if issue.get("tags"):
+            score += 10; checks.append({"check": "Tags", "passed": True, "detail": ", ".join(issue["tags"])})
+        else:
+            checks.append({"check": "Tags", "passed": False, "detail": "No tags"})
+        if any(True for d in accepted_adrs if issue_id in (d.get("linked_issues") or [])):
+            score += 15; checks.append({"check": "ADR linked", "passed": True})
+        else:
+            checks.append({"check": "ADR linked", "passed": False, "detail": "Consider linking relevant ADRs"})
+        title_len = len(issue.get("title", ""))
+        if 10 <= title_len <= 80:
+            score += 15; checks.append({"check": "Title quality", "passed": True})
+        else:
+            checks.append({"check": "Title quality", "passed": False, "detail": "Title too short or too long"})
+        grade = "A" if score >= 90 else "B" if score >= 75 else "C" if score >= 60 else "D" if score >= 40 else "F"
+        top_fail = next((c["detail"] for c in checks if not c["passed"] and c.get("detail")), "All checks passed")
+        return {"ok": True, "issue_id": issue_id, "score": score, "grade": grade, "checks": checks,
+                "top_recommendation": top_fail, "ready_to_run": score >= 60}
+
+    elif name == "pm_cost_report":
+        sprint_id_arg = arguments.get("sprint_id")
+        epic_id_arg = (arguments.get("epic_id") or "").strip().upper() or None
+        all_issues = store.list_issues()
+        if sprint_id_arg:
+            issues = [i for i in all_issues if (i.get("sprint_id") or "").lower() == sprint_id_arg.lower()]
+        elif epic_id_arg:
+            issues = [i for i in all_issues if (i.get("epic_id") or "").upper() == epic_id_arg]
+        else:
+            issues = all_issues
+        scope_weights = {"nano": 1, "small": 2, "medium": 4, "large": 8, "research": 3}
+
+        def _tok(s: str) -> int:
+            return max(1, len(s) // 4)
+
+        ticket_costs: List[Dict[str, Any]] = []
+        total_tokens, total_sessions = 0, 0
+        for issue in issues:
+            summaries = issue.get("session_summaries") or []
+            est_tokens = sum(_tok(ss.get("summary", "")) + _tok(" ".join(ss.get("files_changed", []))) for ss in summaries) + _tok(issue.get("description", "")) + sum(_tok(c) for c in (issue.get("acceptance_criteria") or []))
+            sessions = len(summaries)
+            total_tokens += est_tokens
+            total_sessions += sessions
+            ticket_costs.append({"id": issue["id"], "title": issue["title"][:50], "sessions": sessions, "est_tokens": est_tokens, "scope": issue.get("scope")})
+
+        ticket_costs.sort(key=lambda x: x["est_tokens"], reverse=True)
+        return {
+            "ok": True,
+            "scope": sprint_id_arg or epic_id_arg or "all",
+            "total_estimated_tokens": total_tokens,
+            "total_sessions": total_sessions,
+            "ticket_count": len(issues),
+            "top_5_expensive": ticket_costs[:5],
+            "avg_tokens_per_ticket": total_tokens // max(len(issues), 1),
+        }
+
+    elif name == "pm_issue_health_score":
+        from datetime import datetime, timezone
+        issue_id = arguments["id"].strip().upper()
+        issue = store.get_issue(issue_id)
+        if not issue:
+            return {"ok": False, "error": f"Issue {issue_id} not found."}
+        now_dt = datetime.now(timezone.utc)
+        score = 0
+        components: Dict[str, int] = {}
+        desc_len = len((issue.get("description") or "").strip())
+        crit_count = len(issue.get("acceptance_criteria") or [])
+        scope_set = bool(issue.get("scope"))
+        spec_score = min(25, (10 if desc_len >= 50 else 0) + (10 if crit_count >= 3 else 5 if crit_count >= 1 else 0) + (5 if scope_set else 0))
+        components["spec_quality"] = spec_score
+        score += spec_score
+        reopens = issue.get("reopen_count", 0)
+        sessions = len(issue.get("session_summaries") or [])
+        stability = max(0, 25 - reopens * 8 - (10 if sessions > 3 else 0))
+        components["implementation_stability"] = stability
+        score += stability
+        try:
+            updated = datetime.fromisoformat(issue.get("updated_at", "").replace("Z", "+00:00"))
+            age_days = (now_dt - updated).days
+            freshness = max(0, 25 - int(age_days / 14 * 25))
+        except Exception:
+            freshness = 0
+        components["freshness"] = freshness
+        score += freshness
+        status = issue.get("status", "TODO")
+        progress_score = 25 if status == "DONE" else 20 if status == "REVIEW" else int(issue.get("progress", 0) / 100 * 25) if status == "IN_PROGRESS" else 5
+        components["progress"] = progress_score
+        score += progress_score
+        grade = "A" if score >= 90 else "B" if score >= 75 else "C" if score >= 60 else "D" if score >= 40 else "F"
+        worst = min(components, key=lambda k: components[k])
+        return {"ok": True, "issue_id": issue_id, "score": score, "grade": grade, "components": components,
+                "top_improvement": f"Improve {worst} (currently {components[worst]}/25)"}
+
+    elif name == "pm_workload_balance":
+        epic_id = arguments["epic_id"].strip().upper()
+        all_issues = store.list_issues()
+        children = [i for i in all_issues if (i.get("epic_id") or "").upper() == epic_id]
+        if not children:
+            return {"ok": False, "error": f"No children found for epic {epic_id}."}
+        on_track, lagging, flagged_list, complete = [], [], [], []
+        for child in children:
+            status = child.get("status", "TODO")
+            if status in ("DONE", "REVIEW"):
+                complete.append(child["id"])
+            elif status == "NEEDS_INPUT":
+                flagged_list.append({"id": child["id"], "title": child["title"], "reason": child.get("flagged_reason", "")})
+            elif status == "IN_PROGRESS":
+                sessions = len(child.get("session_summaries") or [])
+                progress = child.get("progress", 0)
+                if sessions >= 2 and progress < 30:
+                    lagging.append({"id": child["id"], "title": child["title"], "sessions": sessions, "progress": progress})
+                else:
+                    on_track.append({"id": child["id"], "title": child["title"], "progress": progress})
+        return {
+            "ok": True,
+            "epic_id": epic_id,
+            "on_track": on_track,
+            "lagging": lagging,
+            "flagged": flagged_list,
+            "complete": complete,
+            "recommendation": "Focus on lagging tickets" if lagging else ("Resolve flagged tickets" if flagged_list else "Epic on track"),
+        }
+
+    elif name == "pm_sprint_goal_set":
+        sprint_id = arguments["sprint_id"].strip()
+        goal = arguments["goal"].strip()
+        config = store.get_project_config()
+        sprints = config.get("sprints", [])
+        target = next((s for s in sprints if s["id"] == sprint_id), None)
+        if not target:
+            return {"ok": False, "error": f"Sprint {sprint_id} not found."}
+        old_goal = target.get("goal", "")
+        try:
+            with store._backend._lock, store._backend._exclusive(store._backend.config_path):
+                cfg = store._backend._read_config()
+                for s in cfg.get("sprints", []):
+                    if s["id"] == sprint_id:
+                        s["goal"] = goal
+                        break
+                store._backend._write_config(cfg)
+        except AttributeError:
+            # Fallback for backends that don't expose _lock/_exclusive
+            for s in sprints:
+                if s["id"] == sprint_id:
+                    s["goal"] = goal
+        store.log_activity("Sprint Goal Updated", f"{sprint_id}: '{old_goal}' to '{goal}'")
+        return {"ok": True, "sprint_id": sprint_id, "old_goal": old_goal, "new_goal": goal}
+
+    elif name == "pm_code_context":
+        import subprocess as _sp
+        issue_id = arguments["id"].strip().upper()
+        max_files = int(arguments.get("max_files", 10))
+        issue = store.get_issue(issue_id)
+        if not issue:
+            return {"ok": False, "error": f"Issue {issue_id} not found."}
+        keywords = list(set(
+            w.lower() for w in (issue.get("title", "") + " " + (issue.get("description") or "")).split()
+            if len(w) > 4 and w.isalpha()
+        ))[:5]
+        found_files: Dict[str, int] = {}
+        for kw in keywords:
+            try:
+                result = _sp.run(["git", "grep", "-l", "-i", kw], capture_output=True, text=True, timeout=10)
+                for f in result.stdout.strip().splitlines():
+                    found_files[f] = found_files.get(f, 0) + 1
+            except Exception:
+                pass
+        for link in issue.get("commit_links") or []:
+            try:
+                result = _sp.run(["git", "diff-tree", "--no-commit-id", "-r", "--name-only", link.get("sha", "")],
+                                 capture_output=True, text=True, timeout=10)
+                for f in result.stdout.strip().splitlines():
+                    found_files[f] = found_files.get(f, 0) + 3
+            except Exception:
+                pass
+        ranked = sorted(found_files.items(), key=lambda x: x[1], reverse=True)[:max_files]
+        return {
+            "ok": True,
+            "issue_id": issue_id,
+            "keywords_searched": keywords,
+            "relevant_files": [{"path": f, "relevance_score": s} for f, s in ranked],
+            "hint": "Read the highest-scored files first before implementing.",
+        }
+
+    elif name == "pm_issue_dependency_path":
+        start_id = arguments["id"].strip().upper()
+        all_issues = store.list_issues()
+        issue_map = {i["id"]: i for i in all_issues}
+        start = issue_map.get(start_id)
+        if not start:
+            return {"ok": False, "error": f"Issue {start_id} not found."}
+        chains: List[List[Dict[str, Any]]] = []
+        def _trace(current_id: str, path: List[str], visited: set) -> None:
+            if current_id in visited:
+                return
+            visited = visited | {current_id}
+            issue = issue_map.get(current_id)
+            if not issue:
+                return
+            blockers = [lk["to_id"] for lk in (issue.get("links") or []) if lk.get("type") == "is-blocked-by"]
+            if not blockers:
+                chains.append(path + [current_id])
+                return
+            for bid in blockers:
+                _trace(bid, path + [current_id], visited)
+        _trace(start_id, [], set())
+        result_chains = []
+        for chain in chains[:3]:
+            result_chains.append([
+                {"id": cid, "title": issue_map.get(cid, {}).get("title", "?"), "status": issue_map.get(cid, {}).get("status", "?")}
+                for cid in chain
+            ])
+        return {
+            "ok": True,
+            "issue_id": start_id,
+            "dependency_chains": result_chains,
+            "root_blockers": [c[-1]["id"] for c in result_chains if c],
+            "blocked_count": len(chains),
+        }
+
+    elif name == "pm_auto_link_pr":
+        import subprocess as _sp, re as _re
+        repo = arguments["repo"].strip()
+        since_days = int(arguments.get("since_days", 7))
+        config = store.get_project_config()
+        key_prefix = config.get("key_prefix", "PM")
+        try:
+            result = _sp.run(
+                ["gh", "pr", "list", "--repo", repo, "--state", "all", "--limit", "50",
+                 "--json", "title,body,url,number"],
+                capture_output=True, text=True, timeout=30,
+            )
+            if result.returncode != 0:
+                return {"ok": False, "error": f"gh pr list failed: {result.stderr[:200]}"}
+            prs = __import__("json").loads(result.stdout)
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+        pattern = _re.compile(rf"\b{_re.escape(key_prefix)}-(\d+)\b", _re.IGNORECASE)
+        linked, skipped = [], []
+        for pr in prs:
+            text = (pr.get("title", "") or "") + " " + (pr.get("body", "") or "")
+            matches = pattern.findall(text)
+            for num in set(matches):
+                issue_id = f"{key_prefix.upper()}-{num}"
+                issue = store.get_issue(issue_id)
+                if not issue:
+                    continue
+                pr_url = pr.get("url", "")
+                existing_urls = [r.get("url") for r in (issue.get("remote_links") or [])]
+                if pr_url in existing_urls:
+                    skipped.append(issue_id)
+                else:
+                    store.add_remote_link(issue_id, pr_url, f"PR #{pr['number']}: {pr['title'][:60]}")
+                    linked.append(issue_id)
+        return {"ok": True, "repo": repo, "prs_scanned": len(prs), "linked": linked, "already_linked": len(skipped)}
+
+    elif name == "pm_epic_roadmap_sync":
+        epic_id_filter = (arguments.get("epic_id") or "").strip().upper() or None
+        config = store.get_project_config()
+        all_issues = store.list_issues()
+        sprints = {s["id"]: s for s in config.get("sprints", [])}
+        epics = [i for i in all_issues if i.get("type") == "epic"]
+        if epic_id_filter:
+            epics = [e for e in epics if e["id"] == epic_id_filter]
+        synced: List[Dict[str, Any]] = []
+        for epic in epics:
+            children = [i for i in all_issues if (i.get("epic_id") or "").upper() == epic["id"].upper()
+                        and i.get("status") not in ("DONE", "REVIEW")]
+            latest_sprint_id = None
+            latest_end_date = None
+            for child in children:
+                sid = child.get("sprint_id")
+                if sid and sid in sprints:
+                    end = sprints[sid].get("end_date")
+                    if end and (latest_end_date is None or end > latest_end_date):
+                        latest_end_date = end
+                        latest_sprint_id = sid
+            synced.append({
+                "epic_id": epic["id"],
+                "title": epic["title"],
+                "expected_completion_sprint": latest_sprint_id,
+                "expected_completion_date": latest_end_date,
+                "pending_children": len(children),
+            })
+        return {"ok": True, "synced_epics": len(synced), "results": synced}
+
+    elif name == "pm_comment_reply":
+        issue_id = arguments["id"]
+        parent_id = int(arguments["parent_comment_id"])
+        body = arguments["body"]
+        author = arguments.get("author", _git_user())
+        try:
+            reply = store.comment_reply(issue_id, parent_id, body, author)
+            return {"ok": True, "reply": reply}
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+
+    elif name == "pm_wip_limit_set":
+        column = arguments["column"].strip().upper()
+        limit = int(arguments.get("limit", 0))
+        result = store.set_wip_limit(column, limit)
+        return {"ok": True, "wip_limits": result, "message": f"WIP limit for {column} {'cleared' if limit <= 0 else f'set to {limit}'}"}
+
+    elif name == "pm_session_template_create":
+        tmpl = store.create_session_template(
+            arguments["name"],
+            arguments["prompt_prefix"],
+            arguments.get("match_types"),
+            arguments.get("match_tags"),
+        )
+        return {"ok": True, "template": tmpl}
+
+    elif name == "pm_session_template_list":
+        return {"ok": True, "templates": store.list_session_templates()}
+
+    elif name == "pm_session_template_delete":
+        removed = store.delete_session_template(arguments["name"])
+        return {"ok": removed, "name": arguments["name"]}
+
+    elif name == "pm_session_quality_score":
+        issue_id = arguments["id"].strip().upper()
+        issue = store.get_issue(issue_id)
+        if not issue:
+            return {"ok": False, "error": f"Issue {issue_id} not found."}
+        summaries = issue.get("session_summaries") or []
+        if not summaries:
+            return {"ok": True, "issue_id": issue_id, "score": 0, "grade": "F", "reason": "No sessions recorded."}
+        last_session = summaries[-1]
+        score = 0
+        checks: List[Dict[str, Any]] = []
+        checkins = [c for c in (issue.get("checkins") or []) if c.get("created_at", "") >= (last_session.get("created_at", "") or "")]
+        if checkins:
+            score += 20; checks.append({"check": "Called pm_issue_checkin", "passed": True, "points": 20})
+        else:
+            checks.append({"check": "Called pm_issue_checkin", "passed": False, "points": 0})
+        if not last_session.get("aborted"):
+            score += 25; checks.append({"check": "Session attached (pm_session_attach)", "passed": True, "points": 25})
+        else:
+            checks.append({"check": "Session attached (pm_session_attach)", "passed": False, "points": 0})
+        recent_commits = [l for l in (issue.get("commit_links") or []) if l.get("created_at", "") >= (last_session.get("created_at", "") or "")]
+        if recent_commits:
+            score += 15; checks.append({"check": "Linked commit (pm_commit_link)", "passed": True, "points": 15})
+        else:
+            checks.append({"check": "Linked commit (pm_commit_link)", "passed": False, "points": 0})
+        if issue.get("criteria_done"):
+            score += 20; checks.append({"check": "Updated criteria_done", "passed": True, "points": 20})
+        else:
+            checks.append({"check": "Updated criteria_done", "passed": False, "points": 0})
+        if issue.get("reopen_count", 0) == 0:
+            score += 20; checks.append({"check": "No reopen within 48h", "passed": True, "points": 20})
+        else:
+            checks.append({"check": "No reopen within 48h", "passed": False, "points": 0})
+        grade = "A" if score >= 90 else "B" if score >= 75 else "C" if score >= 60 else "D" if score >= 40 else "F"
+        return {"ok": True, "issue_id": issue_id, "score": score, "grade": grade, "checks": checks}
+
+    elif name == "pm_daily_briefing":
+        from datetime import datetime, timezone
+        now_dt = datetime.now(timezone.utc)
+        config = store.get_project_config()
+        active_sprint_id = store.get_active_sprint_id()
+        all_issues = store.list_issues()
+        sprint_issues = store.list_issues(sprint_id=active_sprint_id) if active_sprint_id else all_issues
+        scope_weights = {"nano": 1, "small": 2, "medium": 4, "large": 8, "research": 3}
+        sprint_info: Dict[str, Any] = {}
+        if active_sprint_id:
+            for s in config.get("sprints", []):
+                if s["id"] == active_sprint_id:
+                    sprint_info = s
+                    break
+        days_remaining = None
+        if sprint_info.get("end_date"):
+            try:
+                end = datetime.fromisoformat(sprint_info["end_date"].replace("Z", "+00:00"))
+                days_remaining = max(0, (end - now_dt).days)
+            except Exception:
+                pass
+        done = [i for i in sprint_issues if i.get("status") == "DONE"]
+        in_progress = [i for i in sprint_issues if i.get("status") == "IN_PROGRESS"]
+        needs_input = [i for i in sprint_issues if i.get("status") == "NEEDS_INPUT"]
+        todo = [i for i in sprint_issues if i.get("status") == "TODO"]
+        scope_remaining = sum(scope_weights.get(i.get("scope") or "", 2) for i in todo + in_progress)
+        top_tickets = sorted(todo, key=lambda i: (i.get("weight", 50), -{"critical":3,"high":2,"medium":1,"low":0}.get(i.get("priority","medium"),0)))[:3]
+        ci_watchers = store.list_ci_watchers()
+        ci_alerts = [w for w in ci_watchers if w.get("last_status") == "FAILURE"]
+        return {
+            "ok": True,
+            "sprint_name": sprint_info.get("name", "No active sprint"),
+            "sprint_goal": sprint_info.get("goal", ""),
+            "days_remaining": days_remaining,
+            "tickets_done": len(done),
+            "tickets_in_progress": len(in_progress),
+            "tickets_remaining": len(todo),
+            "scope_units_remaining": scope_remaining,
+            "recommended_next": [{"id": i["id"], "title": i["title"], "scope": i.get("scope"), "priority": i.get("priority")} for i in top_tickets],
+            "needs_input_queue": [{"id": i["id"], "title": i["title"], "reason": i.get("flagged_reason", "")} for i in needs_input],
+            "ci_alerts": [{"issue_id": w["issue_id"], "pr_url": w["pr_url"]} for w in ci_alerts],
+        }
+
+    elif name == "pm_sprint_health_dashboard":
+        from datetime import datetime, timezone, timedelta
+        active_sprint_id = arguments.get("sprint_id") or store.get_active_sprint_id()
+        if not active_sprint_id:
+            return {"ok": False, "error": "No active sprint."}
+        now_dt = datetime.now(timezone.utc)
+        config = store.get_project_config()
+        sprint = next((s for s in config.get("sprints", []) if s["id"] == active_sprint_id), None)
+        if not sprint:
+            return {"ok": False, "error": f"Sprint {active_sprint_id} not found."}
+        issues = store.list_issues(sprint_id=active_sprint_id)
+        scope_weights = {"nano": 1, "small": 2, "medium": 4, "large": 8, "research": 3}
+        done = [i for i in issues if i.get("status") == "DONE"]
+        in_progress = [i for i in issues if i.get("status") == "IN_PROGRESS"]
+        needs_input = [i for i in issues if i.get("status") == "NEEDS_INPUT"]
+        todo = [i for i in issues if i.get("status") == "TODO"]
+        scope_done = sum(scope_weights.get(i.get("scope") or "", 2) for i in done)
+        scope_total = sum(scope_weights.get(i.get("scope") or "", 2) for i in issues)
+        goal = (sprint.get("goal") or "").lower()
+        goal_words = set(w for w in goal.split() if len(w) > 3)
+        def _relevant(i):
+            text = (i.get("title","") + " " + (i.get("description") or "")).lower()
+            return any(w in text for w in goal_words)
+        goal_score = int(sum(1 for i in issues if _relevant(i)) / max(len(issues), 1) * 100)
+        wip = store.get_wip_limits()
+        wip_violations = {col: (len([i for i in issues if i.get("status", "").upper() == col.upper()]), lim)
+                          for col, lim in wip.items()
+                          if len([i for i in issues if i.get("status", "").upper() == col.upper()]) > lim}
+        stale_cutoff = (now_dt - timedelta(days=3)).isoformat()
+        stale = [i for i in in_progress if (i.get("updated_at") or "") < stale_cutoff]
+        days_remaining = None
+        if sprint.get("end_date"):
+            try:
+                end = datetime.fromisoformat(sprint["end_date"].replace("Z", "+00:00"))
+                days_remaining = max(0, (end - now_dt).days)
+            except Exception:
+                pass
+        return {
+            "ok": True,
+            "sprint_id": active_sprint_id,
+            "sprint_name": sprint.get("name"),
+            "days_remaining": days_remaining,
+            "goal_alignment_score": goal_score,
+            "tickets": {"done": len(done), "in_progress": len(in_progress), "todo": len(todo), "needs_input": len(needs_input)},
+            "scope": {"done": scope_done, "total": scope_total, "pct": int(scope_done / max(scope_total, 1) * 100)},
+            "wip_violations": {col: f"{cnt}/{lim}" for col, (cnt, lim) in wip_violations.items()},
+            "stale_tickets": [{"id": i["id"], "title": i["title"]} for i in stale],
+            "needs_input_queue": [{"id": i["id"], "reason": i.get("flagged_reason","")} for i in needs_input],
+        }
+
+    elif name == "pm_sprint_theme_create":
+        tmpl = store.create_sprint_theme(
+            arguments["name"],
+            arguments.get("description", ""),
+            arguments.get("color", "#0052CC"),
+        )
+        return {"ok": True, "theme": tmpl}
+
+    elif name == "pm_sprint_theme_list":
+        return {"ok": True, "themes": store.list_sprint_themes()}
+
+    elif name == "pm_prioritize_backlog":
+        from datetime import datetime, timezone
+        config = store.get_project_config()
+        active_sprint_id = store.get_active_sprint_id()
+        sprint_goal = (arguments.get("sprint_goal") or "").strip()
+        if not sprint_goal and active_sprint_id:
+            for s in config.get("sprints", []):
+                if s["id"] == active_sprint_id:
+                    sprint_goal = s.get("goal", "")
+                    break
+        limit = int(arguments.get("limit", 20))
+        all_issues = store.list_issues()
+        backlog = [i for i in all_issues if i.get("status") in ("TODO", "DRAFT") and not i.get("sprint_id")]
+        goal_words = set(w.lower() for w in sprint_goal.split() if len(w) > 3)
+        scope_scores = {"nano": 4, "small": 3, "medium": 2, "large": 1, "research": 2}
+        priority_scores = {"critical": 4, "high": 3, "medium": 2, "low": 1}
+        issue_map = {i["id"]: i for i in all_issues}
+        now_dt = datetime.now(timezone.utc)
+        scored = []
+        for issue in backlog:
+            text = (issue.get("title","") + " " + (issue.get("description") or "")).lower()
+            goal_score = sum(1 for w in goal_words if w in text) * 10
+            scope_score = scope_scores.get(issue.get("scope") or "", 2) * 5
+            priority_score = priority_scores.get(issue.get("priority", "medium"), 2) * 8
+            blocking_count = sum(1 for i2 in all_issues for lk in (i2.get("links") or [])
+                                 if lk.get("type") == "is-blocked-by" and lk.get("to_id") == issue["id"])
+            blocking_score = min(blocking_count * 15, 30)
+            try:
+                created = datetime.fromisoformat(issue.get("created_at", "").replace("Z", "+00:00"))
+                age_days = (now_dt - created).days
+                staleness_score = min(age_days * 0.5, 10)
+            except Exception:
+                staleness_score = 0
+            weight_penalty = -(issue.get("weight", 50) - 50) * 0.2
+            total = goal_score + scope_score + priority_score + blocking_score + staleness_score + weight_penalty
+            scored.append({
+                "id": issue["id"], "title": issue["title"],
+                "priority": issue.get("priority"), "scope": issue.get("scope"),
+                "weight": issue.get("weight", 50),
+                "score": round(total, 1),
+                "reasoning": f"goal:{goal_score} scope:{scope_score} priority:{priority_score} blocking:{blocking_score} staleness:{round(staleness_score,1)}",
+            })
+        scored.sort(key=lambda x: x["score"], reverse=True)
+        return {"ok": True, "sprint_goal": sprint_goal, "ranked": scored[:limit], "total_backlog": len(backlog)}
+
+    elif name == "pm_issue_merge":
+        source_id = arguments["source_id"].strip().upper()
+        target_id = arguments["target_id"].strip().upper()
+        source = store.get_issue(source_id)
+        target = store.get_issue(target_id)
+        if not source:
+            return {"ok": False, "error": f"Source issue {source_id} not found."}
+        if not target:
+            return {"ok": False, "error": f"Target issue {target_id} not found."}
+        merged_criteria = list(target.get("acceptance_criteria") or [])
+        for c in (source.get("acceptance_criteria") or []):
+            if c not in merged_criteria:
+                merged_criteria.append(c)
+        merged_remote_links = list(target.get("remote_links") or [])
+        for rl in (source.get("remote_links") or []):
+            if not any(r["url"] == rl["url"] for r in merged_remote_links):
+                merged_remote_links.append(rl)
+        merged_commit_links = list(target.get("commit_links") or [])
+        for cl in (source.get("commit_links") or []):
+            if not any(c["sha"] == cl["sha"] for c in merged_commit_links):
+                merged_commit_links.append(cl)
+        store.update_issue(target_id, {
+            "acceptance_criteria": merged_criteria,
+            "remote_links": merged_remote_links,
+            "commit_links": merged_commit_links,
+        }, comment=f"[Merged from {source_id}] {source.get('description', '')[:200]}")
+        store.update_issue(source_id, {"status": "DONE"}, comment=f"Merged into {target_id}.")
+        return {"ok": True, "source_closed": source_id, "target_updated": target_id,
+                "merged_criteria": len(merged_criteria), "merged_links": len(merged_remote_links)}
 
     elif name == "pm_migrate":
         direction = arguments.get("direction", "").strip()
