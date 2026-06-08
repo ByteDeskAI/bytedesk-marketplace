@@ -163,6 +163,33 @@ class PMStore:
     ) -> List[Dict[str, Any]]:
         return self._backend.list_docs(query, doc_type=doc_type)
 
+    # --- Doc comments ---
+
+    def list_doc_comments(self, doc_id: str) -> List[Dict[str, Any]]:
+        return self._backend.list_doc_comments(doc_id)
+
+    def add_doc_comment(self, doc_id: str, body: str, author: str = "User") -> Dict[str, Any]:
+        return self._backend.add_doc_comment(doc_id, body, author)
+
+    # --- Doc version history ---
+
+    def list_doc_versions(self, doc_id: str) -> List[Dict[str, Any]]:
+        return self._backend.list_doc_versions(doc_id)
+
+    def get_doc_version(self, doc_id: str, n: int) -> Optional[Dict[str, Any]]:
+        return self._backend.get_doc_version(doc_id, n)
+
+    # --- Doc linked issues ---
+
+    def link_doc_issue(self, doc_id: str, issue_id: str) -> List[str]:
+        return self._backend.link_doc_issue(doc_id, issue_id)
+
+    def unlink_doc_issue(self, doc_id: str, issue_id: str) -> List[str]:
+        return self._backend.unlink_doc_issue(doc_id, issue_id)
+
+    def docs_linked_to_issue(self, issue_id: str) -> List[Dict[str, Any]]:
+        return self._backend.docs_linked_to_issue(issue_id)
+
     # --- Observability ---
 
     def get_project_config(self) -> Dict[str, Any]:

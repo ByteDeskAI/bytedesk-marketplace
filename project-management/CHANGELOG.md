@@ -5,6 +5,44 @@ All notable changes to the `project-management` plugin will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] — 2026-06-08
+
+### Added — 10 docs enhancements
+
+1. **Markdown editor with live preview**: Edit tab is now a side-by-side split pane — raw Markdown on the left, rendered preview on the right, updating in real time as you type. Save/Reset buttons below.
+
+2. **Doc templates per type**: Creating a doc with type ADR, Runbook, Learning, Plan, or Brief auto-fills the content textarea with the standard section structure for that type. A "Template applied" notice confirms when a template was injected.
+
+3. **ADR supersession graph** (`AdrGraph.tsx`): "ADR Graph" button in the docs toolbar opens a visual SVG card graph of all ADRs. Cards are arranged in a grid, coloured by status (accepted=green, deprecated=amber, superseded=grey, proposed=blue), with dashed bezier arrows connecting superseded_by relationships.
+
+4. **Full-text search with excerpt highlighting**: Search bar in the docs toolbar calls `GET /api/docs/search?q=` with 300ms debounce. Results show the doc type, ID, title, and a 100-char excerpt with the search term **bolded** in context. Clear button restores the grid view.
+
+5. **Version history tab**: "History" tab in the reader lists all previous snapshots (version number, timestamp, character count). Clicking a version shows its full content in a read-only panel with a "Restore to editor" button. Snapshots are created automatically on every title or content save.
+
+6. **Comment threads on docs**: "Comments" tab in the reader fetches `GET /api/docs/<id>/comments` and renders threaded Atlaskit Comment components with avatars. A textarea + "Post comment" button posts to `POST /api/docs/<id>/comment`. SQLite backend uses a new `doc_comments` table; JSONL backend embeds comments in the doc record.
+
+7. **Doc health report** (`DocHealthModal.tsx`): "⚕ Health" button opens a Framer Motion modal that calls `GET /api/docs/health` and categorises all findings: empty docs, ADRs missing status, stale accepted ADRs (>90 days), superseded-without-reference, and orphaned child docs. Each finding links to the relevant doc. Shows a green "All clear!" state when no issues exist.
+
+8. **Doc export**: Export dropdown in the reader header offers "This page (Markdown)" and "With children (Markdown)". The toolbar offers "Export all docs (Markdown)". Downloads are triggered via a temporary `<a>` element pointed at the backend export endpoints.
+
+9. **Doc↔Issue bidirectional linking**: "Linked Issues" section in the Read tab shows all issue IDs linked to the doc as removable pills. An input + "Link" button posts to `POST /api/docs/<id>/link`; the × on each pill calls `DELETE /api/docs/<id>/link/<issue_id>`. Backend stores `linked_issues` as a JSON array (TEXT column in SQLite, native array in JSONL).
+
+10. **AI-assisted doc generation** (`DocGenerateModal.tsx`): "✦ AI" button in the reader header opens a split modal — optional context textarea on the left, live terminal panel on the right once generation starts. Claude reads the codebase, writes the doc content via `pm_doc_update`, and the modal auto-closes when the session finishes. Polls `GET /api/docs/<id>/generate/status` every 2s.
+
+### Backend
+
+- `GET /api/docs/search?q=` — full-text search with excerpt extraction
+- `GET /api/docs/health` — health report: no_content, adr_no_status, adr_stale, superseded_missing_ref, orphaned
+- `GET /api/docs/<id>/export?format=markdown[&include_children=true]` — single-doc or subtree Markdown export
+- `GET /api/docs/export?format=markdown` — all-docs Markdown export
+- `GET /api/docs/<id>/comments` / `POST /api/docs/<id>/comment` — comment threads
+- `GET /api/docs/<id>/versions` / `GET /api/docs/<id>/versions/<n>` — version history
+- `POST /api/docs/<id>/link` / `DELETE /api/docs/<id>/link/<issue_id>` — issue linking
+- `GET /api/issues/<id>/linked_docs` — reverse lookup
+- `POST /api/docs/<id>/generate` / `GET /api/docs/<id>/generate/status` — AI generation
+- New `doc_comments` SQLite table; `linked_issues` column; `doc_versions.jsonl` sidecar file
+- `pm_store.py` bridge methods added for all new capabilities
+
 ## [0.5.4] — 2026-06-08
 
 ### Fixed

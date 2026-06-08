@@ -20,6 +20,15 @@ const DOC_TYPE_OPTIONS: DocTypeOption[] = [
   { label: 'Runbook', value: 'runbook' },
 ];
 
+const DOC_TEMPLATES: Record<string, string> = {
+  adr: `## Context\n\n[Why this decision was needed]\n\n## Decision\n\n[The choice made, stated clearly]\n\n## Consequences\n\n[What becomes easier, what becomes harder]\n\n## Alternatives Considered\n\n[Other options and why they were rejected]\n`,
+  runbook: `## Prerequisites\n\n[What must be true before starting]\n\n## Steps\n\n1. \n2. \n3. \n\n## Rollback\n\n[How to undo if something goes wrong]\n\n## Troubleshooting\n\n[Common failure modes and fixes]\n`,
+  learning: `## Problem\n\n[What went wrong or what was unclear]\n\n## Root Cause\n\n[Why it happened]\n\n## Fix\n\n[What resolved it]\n\n## Prevention\n\n[How to avoid this in future]\n`,
+  plan: `## Objective\n\n[What we are trying to achieve]\n\n## Scope\n\n[What is in / out of scope]\n\n## Timeline\n\n[Key milestones and dates]\n\n## Risks\n\n[Known risks and mitigations]\n`,
+  brief: `## Summary\n\n[One-paragraph executive summary]\n\n## Background\n\n[Context and history]\n\n## Recommendation\n\n[What we recommend and why]\n`,
+  wiki: ``,
+};
+
 interface Props {
   isOpen: boolean;
   onClose: () => void;
@@ -34,6 +43,7 @@ export default function CreateDocModal({ isOpen, onClose, onCreated, parentId, p
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(false);
   const [titleError, setTitleError] = useState('');
+  const [templateApplied, setTemplateApplied] = useState(false);
 
   if (!isOpen) return null;
 
@@ -43,6 +53,18 @@ export default function CreateDocModal({ isOpen, onClose, onCreated, parentId, p
     setContent('');
     setLoading(false);
     setTitleError('');
+    setTemplateApplied(false);
+  }
+
+  function handleTypeChange(option: DocTypeOption | null) {
+    setDocType(option);
+    const tmpl = DOC_TEMPLATES[option?.value ?? ''] ?? '';
+    if (tmpl && !content.trim()) {
+      setContent(tmpl);
+      setTemplateApplied(true);
+    } else {
+      setTemplateApplied(false);
+    }
   }
 
   async function handleCreate() {
@@ -145,10 +167,15 @@ export default function CreateDocModal({ isOpen, onClose, onCreated, parentId, p
               inputId="create-doc-type"
               options={DOC_TYPE_OPTIONS}
               value={docType}
-              onChange={(option) => setDocType(option as DocTypeOption | null)}
+              onChange={(option) => handleTypeChange(option as DocTypeOption | null)}
               placeholder="Wiki (default)"
               isClearable
             />
+            {templateApplied && (
+              <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--ds-text-success)' }}>
+                ✓ Template applied — edit freely
+              </p>
+            )}
           </div>
 
           <div>

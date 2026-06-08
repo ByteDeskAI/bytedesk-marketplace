@@ -59,6 +59,7 @@ class JSONLBackend:
         self.issues_path = root / "issues.jsonl"
         self.docs_path = root / "docs.jsonl"
         self.events_path = root / "events.jsonl"
+        self.doc_versions_path = root / "doc_versions.jsonl"
         # In-process mutex — reentrant so the same thread can re-acquire
         self._lock = threading.RLock()
 
@@ -458,6 +459,13 @@ class JSONLBackend:
                 return None
             doc = records[idx]
             changes: List[str] = []
+            needs_snapshot = any(
+                field in ("content", "title") and field in allowed
+                for field in updates
+            )
+            # Snapshot the OLD state before any mutations
+            if needs_snapshot:
+                self._snapshot_doc_version(dict(doc))
             for field, val in updates.items():
                 if field in allowed:
                     doc[field] = val
@@ -471,6 +479,64 @@ class JSONLBackend:
             self.log_activity("Update Document", f"Updated {doc_id}: {', '.join(changes)}")
             self.emit_event("doc_updated", {"id": doc_id, "changes": changes})
         return updated_doc
+
+    def _snapshot_doc_version(self, doc: Dict[str, Any]) -> None:
+        """Append a version snapshot to doc_versions.jsonl."""
+        try:
+            existing = self._read_doc_versions(doc["id"])
+            version_num = len(existing) + 1
+            snapshot = {
+                "doc_id": doc["id"],
+                "version": version_num,
+                "saved_at": self._now(),
+                "title": doc.get("title", ""),
+                "content": doc.get("content", ""),
+            }
+            self.doc_versions_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.doc_versions_path, "a", encoding="utf-8") as f:
+                if _HAS_FCNTL:
+                    _fcntl.flock(f, _fcntl.LOCK_EX)
+                f.write(json.dumps(snapshot, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+
+    def _read_doc_versions(self, doc_id: str) -> List[Dict[str, Any]]:
+        if not self.doc_versions_path.exists():
+            return []
+        try:
+            result = []
+            for line in self.doc_versions_path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    record = json.loads(line)
+                    if record.get("doc_id", "").upper() == doc_id.strip().upper():
+                        result.append(record)
+                except json.JSONDecodeError:
+                    pass
+            return result
+        except OSError:
+            return []
+
+    def list_doc_versions(self, doc_id: str) -> List[Dict[str, Any]]:
+        versions = self._read_doc_versions(doc_id)
+        return [
+            {
+                "version": v["version"],
+                "saved_at": v["saved_at"],
+                "title": v["title"],
+                "content_length": len(v.get("content", "")),
+            }
+            for v in versions
+        ]
+
+    def get_doc_version(self, doc_id: str, n: int) -> Optional[Dict[str, Any]]:
+        versions = self._read_doc_versions(doc_id)
+        for v in versions:
+            if v["version"] == n:
+                return v
+        return None
 
     def list_docs(
         self,
@@ -489,6 +555,73 @@ class JSONLBackend:
                     continue
             result.append(dict(r))
         result.sort(key=lambda r: int(r["id"].split("-", 1)[-1]))
+        return result
+
+    # ── Doc comments (embedded in doc record) ─────────────────────────────────
+
+    def list_doc_comments(self, doc_id: str) -> List[Dict[str, Any]]:
+        doc = self.get_doc(doc_id)
+        if doc is None:
+            return []
+        return doc.get("comments", [])
+
+    def add_doc_comment(self, doc_id: str, body: str, author: str = "User") -> Dict[str, Any]:
+        doc_id = doc_id.strip().upper()
+        now = self._now()
+        comment: Dict[str, Any] = {
+            "id": self._ms_id(),
+            "doc_id": doc_id,
+            "author": author,
+            "body": body.strip(),
+            "created_at": now,
+        }
+        with self._lock, self._exclusive(self.docs_path):
+            records = self._read_jsonl(self.docs_path)
+            idx = next((i for i, r in enumerate(records) if r.get("id", "").upper() == doc_id), None)
+            if idx is None:
+                raise ValueError(f"Document {doc_id} not found.")
+            records[idx].setdefault("comments", []).append(comment)
+            self._rewrite(self.docs_path, records)
+        return comment
+
+    # ── Doc linked issues ──────────────────────────────────────────────────────
+
+    def link_doc_issue(self, doc_id: str, issue_id: str) -> List[str]:
+        doc_id = doc_id.strip().upper()
+        issue_id = issue_id.strip().upper()
+        with self._lock, self._exclusive(self.docs_path):
+            records = self._read_jsonl(self.docs_path)
+            idx = next((i for i, r in enumerate(records) if r.get("id", "").upper() == doc_id), None)
+            if idx is None:
+                raise ValueError(f"Document {doc_id} not found.")
+            linked = records[idx].get("linked_issues", [])
+            if issue_id not in linked:
+                linked.append(issue_id)
+            records[idx]["linked_issues"] = linked
+            records[idx]["updated_at"] = self._now()
+            self._rewrite(self.docs_path, records)
+        return linked
+
+    def unlink_doc_issue(self, doc_id: str, issue_id: str) -> List[str]:
+        doc_id = doc_id.strip().upper()
+        issue_id = issue_id.strip().upper()
+        with self._lock, self._exclusive(self.docs_path):
+            records = self._read_jsonl(self.docs_path)
+            idx = next((i for i, r in enumerate(records) if r.get("id", "").upper() == doc_id), None)
+            if idx is None:
+                raise ValueError(f"Document {doc_id} not found.")
+            linked = [i for i in records[idx].get("linked_issues", []) if i != issue_id]
+            records[idx]["linked_issues"] = linked
+            records[idx]["updated_at"] = self._now()
+            self._rewrite(self.docs_path, records)
+        return linked
+
+    def docs_linked_to_issue(self, issue_id: str) -> List[Dict[str, Any]]:
+        issue_id = issue_id.strip().upper()
+        result = []
+        for r in self._read_jsonl(self.docs_path):
+            if issue_id in r.get("linked_issues", []):
+                result.append(dict(r))
         return result
 
     # ── SQLite → JSONL migration ──────────────────────────────────────────────

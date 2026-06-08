@@ -67,6 +67,9 @@ export interface Doc {
   title: string;
   content: string;
   doc_type?: 'wiki' | 'adr' | 'plan' | 'learning' | 'brief' | 'runbook';
+  doc_status?: string;
+  superseded_by?: string | null;
+  linked_issues?: string[];
   parent_id: string | null;
   created_at: string;
   updated_at: string;

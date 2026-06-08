@@ -21,6 +21,7 @@ class SQLiteBackend:
         self.root = root
         self.db_path = root / "pm.db"
         self.events_path = root / "events.jsonl"
+        self.doc_versions_path = root / "doc_versions.jsonl"
         self._conn: Optional[sqlite3.Connection] = None
 
     # --- Connection & transaction helpers ---
@@ -108,6 +109,16 @@ class SQLiteBackend:
                     details   TEXT DEFAULT ''
                 );
             """)
+            # doc_comments table (separate from issue comments)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS doc_comments (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    doc_id     TEXT NOT NULL,
+                    author     TEXT DEFAULT 'User',
+                    body       TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+            """)
             # Non-destructive migrations for existing databases
             existing_cols = {
                 row[1] for row in conn.execute("PRAGMA table_info(docs)").fetchall()
@@ -116,6 +127,7 @@ class SQLiteBackend:
                 ("doc_type",      "TEXT NOT NULL DEFAULT 'wiki'"),
                 ("doc_status",    "TEXT NOT NULL DEFAULT ''"),
                 ("superseded_by", "TEXT"),
+                ("linked_issues", "TEXT DEFAULT '[]'"),
             ]:
                 if col not in existing_cols:
                     conn.execute(f"ALTER TABLE docs ADD COLUMN {col} {defn}")
@@ -478,11 +490,19 @@ class SQLiteBackend:
         row = conn.execute(
             "SELECT * FROM docs WHERE id = ?", (doc_id.strip().upper(),)
         ).fetchone()
-        return dict(row) if row else None
+        if row is None:
+            return None
+        doc = dict(row)
+        try:
+            doc["linked_issues"] = json.loads(doc.get("linked_issues") or "[]")
+        except (json.JSONDecodeError, TypeError):
+            doc["linked_issues"] = []
+        return doc
 
     def update_doc(self, doc_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         doc_id = doc_id.strip().upper()
-        if not self.get_doc(doc_id):
+        current = self.get_doc(doc_id)
+        if not current:
             return None
         allowed = {"title", "content", "parent_id", "doc_type", "doc_status", "superseded_by"}
         set_clauses: List[str] = []
@@ -494,6 +514,9 @@ class SQLiteBackend:
                 params.append(val)
                 changes.append(field)
         if set_clauses:
+            # Snapshot old version before overwriting content/title
+            if "content" in changes or "title" in changes:
+                self._snapshot_doc_version(current)
             now = self._now()
             set_clauses.append("updated_at = ?")
             params.extend([now, doc_id])
@@ -504,6 +527,62 @@ class SQLiteBackend:
             self.log_activity("Update Document", f"Updated {doc_id}: {', '.join(changes)}")
             self.emit_event("doc_updated", {"id": doc_id, "changes": changes})
         return self.get_doc(doc_id)
+
+    def _snapshot_doc_version(self, doc: Dict[str, Any]) -> None:
+        """Append the current doc state as a version snapshot to doc_versions.jsonl."""
+        try:
+            existing = self._read_doc_versions(doc["id"])
+            version_num = len(existing) + 1
+            snapshot = {
+                "doc_id": doc["id"],
+                "version": version_num,
+                "saved_at": self._now(),
+                "title": doc.get("title", ""),
+                "content": doc.get("content", ""),
+            }
+            self.doc_versions_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.doc_versions_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(snapshot, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+
+    def _read_doc_versions(self, doc_id: str) -> List[Dict[str, Any]]:
+        if not self.doc_versions_path.exists():
+            return []
+        try:
+            result = []
+            for line in self.doc_versions_path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    record = json.loads(line)
+                    if record.get("doc_id", "").upper() == doc_id.strip().upper():
+                        result.append(record)
+                except json.JSONDecodeError:
+                    pass
+            return result
+        except OSError:
+            return []
+
+    def list_doc_versions(self, doc_id: str) -> List[Dict[str, Any]]:
+        versions = self._read_doc_versions(doc_id)
+        return [
+            {
+                "version": v["version"],
+                "saved_at": v["saved_at"],
+                "title": v["title"],
+                "content_length": len(v.get("content", "")),
+            }
+            for v in versions
+        ]
+
+    def get_doc_version(self, doc_id: str, n: int) -> Optional[Dict[str, Any]]:
+        versions = self._read_doc_versions(doc_id)
+        for v in versions:
+            if v["version"] == n:
+                return v
+        return None
 
     def list_docs(
         self,
@@ -529,4 +608,105 @@ class SQLiteBackend:
             f"SELECT * FROM docs {where} ORDER BY CAST(SUBSTR(id, 5) AS INTEGER)",
             params,
         ).fetchall()
+        result = []
+        for row in rows:
+            doc = dict(row)
+            try:
+                doc["linked_issues"] = json.loads(doc.get("linked_issues") or "[]")
+            except (json.JSONDecodeError, TypeError):
+                doc["linked_issues"] = []
+            result.append(doc)
+        return result
+
+    # --- Doc comments ---
+
+    def list_doc_comments(self, doc_id: str) -> List[Dict[str, Any]]:
+        self._ensure_doc_comments_table()
+        conn = self._connect()
+        rows = conn.execute(
+            "SELECT * FROM doc_comments WHERE doc_id = ? ORDER BY id",
+            (doc_id.strip().upper(),),
+        ).fetchall()
         return [dict(r) for r in rows]
+
+    def add_doc_comment(self, doc_id: str, body: str, author: str = "User") -> Dict[str, Any]:
+        self._ensure_doc_comments_table()
+        now = self._now()
+        doc_id = doc_id.strip().upper()
+        with self._tx() as conn:
+            conn.execute(
+                "INSERT INTO doc_comments (doc_id, author, body, created_at) VALUES (?, ?, ?, ?)",
+                (doc_id, author, body.strip(), now),
+            )
+            row_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        conn = self._connect()
+        row = conn.execute("SELECT * FROM doc_comments WHERE id = ?", (row_id,)).fetchone()
+        return dict(row)
+
+    def _ensure_doc_comments_table(self) -> None:
+        conn = self._connect()
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS doc_comments (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                doc_id     TEXT NOT NULL,
+                author     TEXT DEFAULT 'User',
+                body       TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
+        conn.commit()
+
+    # --- Doc linked issues ---
+
+    def link_doc_issue(self, doc_id: str, issue_id: str) -> List[str]:
+        doc_id = doc_id.strip().upper()
+        issue_id = issue_id.strip().upper()
+        conn = self._connect()
+        row = conn.execute("SELECT linked_issues FROM docs WHERE id = ?", (doc_id,)).fetchone()
+        if row is None:
+            raise ValueError(f"Document {doc_id} not found.")
+        try:
+            linked = json.loads(row["linked_issues"] or "[]")
+        except (json.JSONDecodeError, TypeError):
+            linked = []
+        if issue_id not in linked:
+            linked.append(issue_id)
+        with self._tx() as conn:
+            conn.execute(
+                "UPDATE docs SET linked_issues = ?, updated_at = ? WHERE id = ?",
+                (json.dumps(linked), self._now(), doc_id),
+            )
+        return linked
+
+    def unlink_doc_issue(self, doc_id: str, issue_id: str) -> List[str]:
+        doc_id = doc_id.strip().upper()
+        issue_id = issue_id.strip().upper()
+        conn = self._connect()
+        row = conn.execute("SELECT linked_issues FROM docs WHERE id = ?", (doc_id,)).fetchone()
+        if row is None:
+            raise ValueError(f"Document {doc_id} not found.")
+        try:
+            linked = json.loads(row["linked_issues"] or "[]")
+        except (json.JSONDecodeError, TypeError):
+            linked = []
+        linked = [i for i in linked if i != issue_id]
+        with self._tx() as conn:
+            conn.execute(
+                "UPDATE docs SET linked_issues = ?, updated_at = ? WHERE id = ?",
+                (json.dumps(linked), self._now(), doc_id),
+            )
+        return linked
+
+    def docs_linked_to_issue(self, issue_id: str) -> List[Dict[str, Any]]:
+        issue_id = issue_id.strip().upper()
+        conn = self._connect()
+        rows = conn.execute("SELECT * FROM docs").fetchall()
+        result = []
+        for row in rows:
+            try:
+                linked = json.loads(row["linked_issues"] or "[]")
+            except (json.JSONDecodeError, TypeError):
+                linked = []
+            if issue_id in linked:
+                result.append(dict(row))
+        return result

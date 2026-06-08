@@ -759,16 +759,60 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         pass  # suppress access log noise
 
     def do_GET(self) -> None:
+        from urllib.parse import parse_qs
         path = urlparse(self.path).path
+        qs = parse_qs(urlparse(self.path).query)
         if path in ("/", ""):
             self._serve_index()
         elif path == "/api/status":
             self._serve_status()
+        elif path == "/api/docs/search":
+            q = qs.get("q", [""])[0]
+            self._handle_doc_search(q)
+        elif path == "/api/docs/health":
+            self._handle_doc_health()
+        elif path == "/api/docs/export":
+            self._handle_docs_export_all()
         elif path == "/api/docs":
             self._serve_docs()
         elif path.startswith("/api/docs/"):
-            doc_id = path[len("/api/docs/"):]
-            self._serve_doc(doc_id)
+            # Parse sub-paths: /api/docs/<id>/comments, /api/docs/<id>/versions, etc.
+            rest = path[len("/api/docs/"):]
+            parts = rest.split("/")
+            doc_id = parts[0].upper() if parts else ""
+            if len(parts) == 1:
+                self._serve_doc(doc_id)
+            elif len(parts) == 2 and parts[1] == "comments":
+                self._handle_doc_comments_get(doc_id)
+            elif len(parts) == 2 and parts[1] == "versions":
+                self._handle_doc_versions_list(doc_id)
+            elif len(parts) == 3 and parts[1] == "versions":
+                try:
+                    n = int(parts[2])
+                except ValueError:
+                    self._respond(400, "application/json",
+                                  json.dumps({"ok": False, "error": "version must be integer"}).encode())
+                    return
+                self._handle_doc_version_get(doc_id, n)
+            elif len(parts) == 2 and parts[1] == "export":
+                fmt = qs.get("format", ["markdown"])[0]
+                include_children = qs.get("include_children", ["false"])[0].lower() == "true"
+                self._handle_doc_export(doc_id, fmt, include_children)
+            elif len(parts) == 2 and parts[1] == "generate":
+                self._handle_doc_gen_status(doc_id)
+                return
+            else:
+                self._respond(404, "application/json",
+                              json.dumps({"ok": False, "error": "not found"}).encode())
+        elif path.startswith("/api/issues/"):
+            rest = path[len("/api/issues/"):]
+            parts = rest.split("/")
+            issue_id = parts[0].upper() if parts else ""
+            if len(parts) == 2 and parts[1] == "linked_docs":
+                self._handle_issue_linked_docs(issue_id)
+            else:
+                self._respond(404, "application/json",
+                              json.dumps({"ok": False, "error": "not found"}).encode())
         elif path == "/events":
             self._serve_sse()
         elif path == "/health":
@@ -1127,6 +1171,19 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             self._handle_server_restart()
         elif path == "/api/migrate":
             self._handle_migrate(body)
+        elif path.startswith("/api/docs/"):
+            rest = path[len("/api/docs/"):]
+            parts = rest.split("/")
+            doc_id = parts[0].upper() if parts else ""
+            if len(parts) == 2 and parts[1] == "comment":
+                self._handle_doc_comment_post(doc_id, body)
+            elif len(parts) == 2 and parts[1] == "link":
+                self._handle_doc_link(doc_id, body)
+            elif len(parts) == 2 and parts[1] == "generate":
+                self._handle_doc_gen_start(doc_id, body)
+            else:
+                self._respond(404, "application/json",
+                              json.dumps({"ok": False, "error": "not found"}).encode())
         else:
             self._respond(404, "application/json",
                           json.dumps({"ok": False, "error": "not found"}).encode())
@@ -1715,6 +1772,380 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
 
         sessions.sort(key=lambda s: s["startedAt"])
         payload = json.dumps({"ok": True, "sessions": sessions})
+        self._respond(200, "application/json", payload.encode())
+
+    # -----------------------------------------------------------------------
+    # DELETE handler
+    # -----------------------------------------------------------------------
+
+    def do_DELETE(self) -> None:
+        path = urlparse(self.path).path
+        if path.startswith("/api/docs/") and "/link/" in path:
+            parts = path.split("/")
+            # /api/docs/<id>/link/<issue_id>  → parts: ['', 'api', 'docs', id, 'link', issue_id]
+            if len(parts) >= 6:
+                doc_id = parts[3].upper()
+                issue_id = parts[5].upper()
+                self._handle_doc_unlink(doc_id, issue_id)
+            else:
+                self._respond(400, "application/json",
+                              json.dumps({"ok": False, "error": "bad path"}).encode())
+        else:
+            self._respond(404, "application/json",
+                          json.dumps({"ok": False, "error": "not found"}).encode())
+
+    # -----------------------------------------------------------------------
+    # Doc enhancement handlers
+    # -----------------------------------------------------------------------
+
+    def _handle_doc_search(self, query: str) -> None:
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            from pm_store import PMStore
+            store = PMStore(str(self._pm_root.parent))
+            docs = store.list_docs()
+            results = []
+            q = query.strip().lower()
+            if not q:
+                payload = json.dumps({"ok": True, "results": []})
+                self._respond(200, "application/json", payload.encode())
+                return
+            for doc in docs:
+                content = doc.get("content", "") or ""
+                idx = content.lower().find(q)
+                if idx == -1:
+                    # Also search title
+                    if q not in (doc.get("title", "") or "").lower():
+                        continue
+                    excerpt = (doc.get("title", "") or "")[:100]
+                else:
+                    start = max(0, idx - 50)
+                    end = min(len(content), idx + 50 + len(q))
+                    excerpt = ("…" if start > 0 else "") + content[start:end] + ("…" if end < len(content) else "")
+                results.append({
+                    "id": doc["id"],
+                    "title": doc.get("title", ""),
+                    "doc_type": doc.get("doc_type", ""),
+                    "doc_status": doc.get("doc_status", ""),
+                    "excerpt": excerpt,
+                })
+            payload = json.dumps({"ok": True, "results": results}, default=str)
+            self._respond(200, "application/json", payload.encode())
+        except Exception as exc:
+            self._respond(500, "application/json",
+                          json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _handle_doc_comments_get(self, doc_id: str) -> None:
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            from pm_store import PMStore
+            store = PMStore(str(self._pm_root.parent))
+            comments = store.list_doc_comments(doc_id)
+            payload = json.dumps({"ok": True, "comments": comments}, default=str)
+            self._respond(200, "application/json", payload.encode())
+        except Exception as exc:
+            self._respond(500, "application/json",
+                          json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _handle_doc_comment_post(self, doc_id: str, body: Dict[str, Any]) -> None:
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            from pm_store import PMStore
+            store = PMStore(str(self._pm_root.parent))
+            comment_body = body.get("body", "").strip()
+            author = body.get("author", "User")
+            if not comment_body:
+                self._respond(400, "application/json",
+                              json.dumps({"ok": False, "error": "body required"}).encode())
+                return
+            comment = store.add_doc_comment(doc_id, comment_body, author)
+            payload = json.dumps({"ok": True, "comment": comment}, default=str)
+            self._respond(200, "application/json", payload.encode())
+        except Exception as exc:
+            self._respond(500, "application/json",
+                          json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _handle_doc_versions_list(self, doc_id: str) -> None:
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            from pm_store import PMStore
+            store = PMStore(str(self._pm_root.parent))
+            versions = store.list_doc_versions(doc_id)
+            payload = json.dumps({"ok": True, "versions": versions}, default=str)
+            self._respond(200, "application/json", payload.encode())
+        except Exception as exc:
+            self._respond(500, "application/json",
+                          json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _handle_doc_version_get(self, doc_id: str, n: int) -> None:
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            from pm_store import PMStore
+            store = PMStore(str(self._pm_root.parent))
+            version = store.get_doc_version(doc_id, n)
+            if version is None:
+                self._respond(404, "application/json",
+                              json.dumps({"ok": False, "error": f"Version {n} not found"}).encode())
+                return
+            payload = json.dumps({"ok": True, "version": version}, default=str)
+            self._respond(200, "application/json", payload.encode())
+        except Exception as exc:
+            self._respond(500, "application/json",
+                          json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _handle_doc_health(self) -> None:
+        try:
+            from datetime import datetime, timezone, timedelta
+            sys.path.insert(0, str(Path(__file__).parent))
+            from pm_store import PMStore
+            store = PMStore(str(self._pm_root.parent))
+            docs = store.list_docs()
+            doc_ids = {d["id"] for d in docs}
+            findings: Dict[str, List] = {
+                "no_content": [],
+                "adr_no_status": [],
+                "adr_stale": [],
+                "superseded_missing_ref": [],
+                "orphaned": [],
+            }
+            now = datetime.now(timezone.utc)
+            stale_threshold = timedelta(days=90)
+            for doc in docs:
+                did = doc["id"]
+                title = doc.get("title", "")
+                content = (doc.get("content", "") or "").strip()
+                doc_type = (doc.get("doc_type", "") or "").lower()
+                doc_status = (doc.get("doc_status", "") or "").lower()
+                superseded_by = doc.get("superseded_by")
+                parent_id = doc.get("parent_id")
+                updated_at_str = doc.get("updated_at", "")
+                if not content:
+                    findings["no_content"].append({"id": did, "title": title})
+                if doc_type == "adr" and not doc_status:
+                    findings["adr_no_status"].append({"id": did, "title": title})
+                if doc_type == "adr" and doc_status == "accepted" and updated_at_str:
+                    try:
+                        updated = datetime.fromisoformat(updated_at_str.replace("Z", "+00:00"))
+                        if updated.tzinfo is None:
+                            updated = updated.replace(tzinfo=timezone.utc)
+                        days_old = (now - updated).days
+                        if days_old > 90:
+                            findings["adr_stale"].append({"id": did, "title": title, "days_old": days_old})
+                    except (ValueError, TypeError):
+                        pass
+                if doc_status == "superseded" and not superseded_by:
+                    findings["superseded_missing_ref"].append({"id": did, "title": title})
+                if parent_id and parent_id not in doc_ids:
+                    findings["orphaned"].append({"id": did, "title": title})
+            payload = json.dumps({
+                "ok": True,
+                "total": len(docs),
+                "findings": findings,
+            }, default=str)
+            self._respond(200, "application/json", payload.encode())
+        except Exception as exc:
+            self._respond(500, "application/json",
+                          json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _handle_doc_export(self, doc_id: str, fmt: str, include_children: bool) -> None:
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            from pm_store import PMStore
+            store = PMStore(str(self._pm_root.parent))
+            doc = store.get_doc(doc_id)
+            if not doc:
+                self._respond(404, "application/json",
+                              json.dumps({"ok": False, "error": f"Document {doc_id} not found"}).encode())
+                return
+            md = self._doc_to_markdown(doc)
+            if include_children:
+                all_docs = store.list_docs()
+                children = self._collect_descendants(doc_id, all_docs)
+                for child in children:
+                    md += "\n\n---\n\n## " + child.get("title", child["id"]) + "\n\n"
+                    md += child.get("content", "") or ""
+            body_bytes = md.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/markdown; charset=utf-8")
+            self.send_header("Content-Disposition", f'attachment; filename="{doc_id}.md"')
+            self.send_header("Content-Length", str(len(body_bytes)))
+            self.end_headers()
+            self.wfile.write(body_bytes)
+        except Exception as exc:
+            self._respond(500, "application/json",
+                          json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _handle_docs_export_all(self) -> None:
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            from pm_store import PMStore
+            store = PMStore(str(self._pm_root.parent))
+            docs = store.list_docs()
+            parts = []
+            for doc in docs:
+                parts.append(self._doc_to_markdown(doc))
+            md = "\n\n---\n\n".join(parts)
+            body_bytes = md.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/markdown; charset=utf-8")
+            self.send_header("Content-Disposition", 'attachment; filename="all-docs.md"')
+            self.send_header("Content-Length", str(len(body_bytes)))
+            self.end_headers()
+            self.wfile.write(body_bytes)
+        except Exception as exc:
+            self._respond(500, "application/json",
+                          json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    @staticmethod
+    def _doc_to_markdown(doc: Dict[str, Any]) -> str:
+        lines = [f"# {doc.get('title', doc['id'])}"]
+        meta = []
+        if doc.get("doc_type"):
+            meta.append(f"**Type:** {doc['doc_type']}")
+        if doc.get("doc_status"):
+            meta.append(f"**Status:** {doc['doc_status']}")
+        if doc.get("id"):
+            meta.append(f"**ID:** {doc['id']}")
+        if meta:
+            lines.append("\n".join(meta))
+        content = (doc.get("content", "") or "").strip()
+        if content:
+            lines.append(content)
+        return "\n\n".join(lines)
+
+    @staticmethod
+    def _collect_descendants(parent_id: str, all_docs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        result = []
+        queue = [parent_id]
+        seen = {parent_id}
+        while queue:
+            pid = queue.pop(0)
+            for doc in all_docs:
+                if (doc.get("parent_id") or "").upper() == pid.upper() and doc["id"] not in seen:
+                    seen.add(doc["id"])
+                    result.append(doc)
+                    queue.append(doc["id"])
+        return result
+
+    def _handle_doc_link(self, doc_id: str, body: Dict[str, Any]) -> None:
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            from pm_store import PMStore
+            store = PMStore(str(self._pm_root.parent))
+            issue_id = body.get("issue_id", "").strip().upper()
+            if not issue_id:
+                self._respond(400, "application/json",
+                              json.dumps({"ok": False, "error": "issue_id required"}).encode())
+                return
+            linked = store.link_doc_issue(doc_id, issue_id)
+            payload = json.dumps({"ok": True, "linked_issues": linked})
+            self._respond(200, "application/json", payload.encode())
+        except Exception as exc:
+            self._respond(500, "application/json",
+                          json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _handle_doc_unlink(self, doc_id: str, issue_id: str) -> None:
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            from pm_store import PMStore
+            store = PMStore(str(self._pm_root.parent))
+            linked = store.unlink_doc_issue(doc_id, issue_id)
+            payload = json.dumps({"ok": True, "linked_issues": linked})
+            self._respond(200, "application/json", payload.encode())
+        except Exception as exc:
+            self._respond(500, "application/json",
+                          json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _handle_issue_linked_docs(self, issue_id: str) -> None:
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            from pm_store import PMStore
+            store = PMStore(str(self._pm_root.parent))
+            docs = store.docs_linked_to_issue(issue_id)
+            slim = [
+                {"id": d["id"], "title": d.get("title", ""),
+                 "doc_type": d.get("doc_type", ""), "doc_status": d.get("doc_status", "")}
+                for d in docs
+            ]
+            payload = json.dumps({"ok": True, "docs": slim})
+            self._respond(200, "application/json", payload.encode())
+        except Exception as exc:
+            self._respond(500, "application/json",
+                          json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _handle_doc_gen_start(self, doc_id: str, body: Dict[str, Any]) -> None:
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            from pm_store import PMStore
+            store = PMStore(str(self._pm_root.parent))
+            doc = store.get_doc(doc_id)
+            if not doc:
+                self._respond(404, "application/json",
+                              json.dumps({"ok": False, "error": f"Document {doc_id} not found"}).encode())
+                return
+            prereq_err = _check_prerequisites()
+            if prereq_err:
+                self._respond(400, "application/json",
+                              json.dumps({"ok": False, "error": prereq_err}).encode())
+                return
+            prompt_hint = body.get("prompt_hint", "").strip()
+            ts = int(time.time())
+            session_key = f"DOCGEN-{doc_id}-{ts}"
+            prompt = (
+                f"Generate or improve the content for this documentation page:\n"
+                f"ID: {doc['id']}\n"
+                f"Title: {doc.get('title', '')}\n"
+                f"Type: {doc.get('doc_type', 'wiki')}\n"
+                f"Current content: {doc.get('content', '') or '(empty)'}\n"
+            )
+            if prompt_hint:
+                prompt += f"\n{prompt_hint}\n"
+            prompt += (
+                "\nUse pm_doc_update to save the content when done. "
+                "Use pm_doc_comment to leave a note explaining your choices."
+            )
+            project_root = str(self._pm_root.parent)
+            _write_session_mcp_json(Path(project_root))
+            _write_session_skills(Path(project_root))
+            spawn_err = _spawn_claude_session(session_key, prompt, cwd=project_root)
+            if spawn_err:
+                self._respond(500, "application/json",
+                              json.dumps({"ok": False, "error": spawn_err}).encode())
+                return
+            with _sessions_lock:
+                _sessions[session_key] = {
+                    "state": "starting",
+                    "started": time.time(),
+                    "final": False,
+                    "is_doc_gen": True,
+                    "doc_id": doc_id,
+                }
+            payload = json.dumps({"ok": True, "session_key": session_key})
+            self._respond(200, "application/json", payload.encode())
+        except Exception as exc:
+            self._respond(500, "application/json",
+                          json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _handle_doc_gen_status(self, doc_id: str) -> None:
+        doc_id = doc_id.strip().upper()
+        session_key = None
+        with _sessions_lock:
+            for key, info in _sessions.items():
+                if info.get("is_doc_gen") and info.get("doc_id", "").upper() == doc_id:
+                    session_key = key
+                    break
+        if not session_key:
+            payload = json.dumps({"ok": True, "status": "gone", "session_key": None})
+            self._respond(200, "application/json", payload.encode())
+            return
+        state = _detect_session_state(session_key)
+        if state == "gone":
+            status = "gone"
+        elif state in ("done",):
+            status = "done"
+        else:
+            status = "working"
+        payload = json.dumps({"ok": True, "status": status, "session_key": session_key})
         self._respond(200, "application/json", payload.encode())
 
     def _respond(self, code: int, ctype: str, body: bytes) -> None:
