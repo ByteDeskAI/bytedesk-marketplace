@@ -973,6 +973,10 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         state = _detect_session_state(ticket)
         with _sessions_lock:
             info = dict(_sessions.get(ticket, {}))
+            # Re-register sessions that predate this server process (e.g. after restart)
+            # so the session monitor can track and clean them up.
+            if state != "gone" and ticket not in _sessions:
+                _sessions[ticket] = {"state": state, "started": time.time(), "final": False}
         payload = json.dumps({
             "ok": True,
             "ticket": ticket,

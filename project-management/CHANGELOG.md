@@ -5,6 +5,12 @@ All notable changes to the `project-management` plugin will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.9] — 2026-06-08
+
+### Added
+- **Split-panel drawer with Framer Motion**: ticket detail drawer replaced with a custom Framer Motion overlay. When a session is running, a terminal panel slides in from the right alongside the details panel (rather than below it) — the drawer expands with a spring animation to accommodate both. Closing the terminal collapses the panel with the same animation.
+- **Session reconnect after restart**: `GET /api/run/<id>` now re-registers any alive tmux session back into the in-memory `_sessions` registry if it was lost during a server restart, so the session monitor resumes tracking it immediately.
+
 ## [0.4.8] — 2026-06-08
 
 ### Added
