@@ -5,6 +5,12 @@ All notable changes to the `project-management` plugin will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.6] — 2026-06-08
+
+### Fixed
+- **Dead session auto-cleanup**: `GET /api/plan/sessions` now checks each PLAN-* tmux session's foreground process. Sessions where Claude has exited (pane reverted to a shell) are killed automatically and excluded from the response. The session monitor also kills the tmux session when a PLAN-* reaches a terminal state (done/error), preventing accumulation.
+- **Kill endpoint + close button**: new `POST /api/plan/kill/<key>` endpoint terminates a planning session on demand. The existing TerminalPanel close button now calls this endpoint, so closing a panel in the UI also kills the underlying tmux session.
+
 ## [0.4.5] — 2026-06-08
 
 ### Fixed

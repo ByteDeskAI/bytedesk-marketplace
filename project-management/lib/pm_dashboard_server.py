@@ -467,6 +467,43 @@ def _check_prerequisites() -> Optional[str]:
     return None
 
 
+_SHELL_NAMES = frozenset({"zsh", "bash", "sh", "fish", "dash", "tcsh", "csh", "ksh"})
+
+
+def _plan_session_alive(session_name: str) -> bool:
+    """Return True if the tmux session has Claude (not a shell) in the foreground pane.
+
+    When Claude exits the pane reverts to a shell prompt; the foreground process
+    becomes the shell itself (zsh, bash, etc.).  While Claude runs the pane PID
+    resolves to a process whose name is 'claude' or its version string — anything
+    that is NOT a known shell name is treated as alive.
+    """
+    try:
+        r = subprocess.run(
+            ["tmux", "list-panes", "-t", session_name, "-F", "#{pane_pid}"],
+            capture_output=True, text=True,
+        )
+        if r.returncode != 0:
+            return False
+        pid_str = r.stdout.strip().splitlines()[0].strip()
+        pr = subprocess.run(
+            ["ps", "-p", pid_str, "-o", "comm="],
+            capture_output=True, text=True,
+        )
+        comm = pr.stdout.strip().lower()
+        return comm not in _SHELL_NAMES
+    except Exception:
+        return True  # assume alive on error — safer than falsely killing a running session
+
+
+def _kill_tmux_session(session_name: str) -> None:
+    """Kill a tmux session, ignoring errors."""
+    try:
+        subprocess.run(["tmux", "kill-session", "-t", session_name], capture_output=True)
+    except Exception:
+        pass
+
+
 def _detect_session_state(session_name: str) -> str:
     """Heuristic state derived from a live tmux pane.
 
@@ -585,6 +622,15 @@ def _session_monitor(pm_root: Path) -> None:
             if state not in ("done", "error"):
                 continue
 
+            # PLAN-* sessions: just kill the tmux session when done — no ticket to update
+            is_plan = info.get("is_plan", False)
+            if is_plan:
+                _kill_tmux_session(ticket_id)
+                with _sessions_lock:
+                    if ticket_id in _sessions:
+                        _sessions[ticket_id]["final"] = True
+                continue
+
             # Sync PM ticket status when session reaches a terminal state
             try:
                 sys.path.insert(0, str(Path(__file__).parent))
@@ -592,6 +638,9 @@ def _session_monitor(pm_root: Path) -> None:
                 store = PMStore(str(pm_root.parent))
                 issue = store.get_issue(ticket_id)
                 if not issue:
+                    with _sessions_lock:
+                        if ticket_id in _sessions:
+                            _sessions[ticket_id]["final"] = True
                     continue
 
                 if state == "done":
@@ -983,6 +1032,8 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             self._handle_run_post(body)
         elif path == "/api/plan/start":
             self._handle_plan_start()
+        elif path.startswith("/api/plan/kill/"):
+            self._handle_plan_kill(path[len("/api/plan/kill/"):])
         elif path == "/api/issues":
             self._handle_issue_create(body)
         elif path == "/api/server/exit":
@@ -1094,6 +1145,19 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
 
         payload = json.dumps({"ok": True, "session_key": session_key})
         self._respond(200, "application/json", payload.encode())
+
+    def _handle_plan_kill(self, session_key: str) -> None:
+        """Kill a planning session by key, cleaning up the tmux session."""
+        session_key = session_key.strip()
+        if not session_key.startswith("PLAN-"):
+            self._respond(400, "application/json",
+                          json.dumps({"ok": False, "error": "invalid session key"}).encode())
+            return
+        _kill_tmux_session(session_key)
+        with _sessions_lock:
+            if session_key in _sessions:
+                _sessions[session_key]["final"] = True
+        self._respond(200, "application/json", json.dumps({"ok": True}).encode())
 
     def _handle_issue_create(self, body: Dict[str, Any]) -> None:
         try:
@@ -1261,32 +1325,36 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             self._respond(500, "application/json", payload.encode())
 
     def _serve_plan_sessions(self) -> None:
-        """Return active PLAN-* sessions so the frontend can restore state on mount."""
+        """Return active PLAN-* sessions so the frontend can restore state on mount.
+
+        Dead sessions (where Claude has exited and the pane shows a shell prompt)
+        are killed and excluded from the response.
+        """
         sessions = []
 
-        # Primary source: in-memory _sessions dict (fastest, already tracked)
-        with _sessions_lock:
-            for key, info in _sessions.items():
-                if info.get("is_plan") and not info.get("final"):
-                    sessions.append({"key": key, "startedAt": info.get("started", 0)})
-
-        # Fallback: ask tmux for any PLAN-* sessions not yet in _sessions
-        # (e.g. sessions that predate the current server process after a restart)
-        known_keys = {s["key"] for s in sessions}
+        # Collect all PLAN-* tmux sessions and check liveness
         try:
             result = subprocess.run(
                 ["tmux", "list-sessions", "-F", "#{session_name}"],
                 capture_output=True, text=True,
             )
             for name in result.stdout.strip().splitlines():
-                if name.startswith("PLAN-") and name not in known_keys:
-                    # Derive timestamp from the key suffix (PLAN-<unix>)
-                    try:
-                        ts = int(name.split("-", 1)[1])
-                    except (IndexError, ValueError):
-                        ts = 0
-                    sessions.append({"key": name, "startedAt": ts})
+                if not name.startswith("PLAN-"):
+                    continue
+                if not _plan_session_alive(name):
+                    # Claude exited — clean up the dead tmux session
+                    _kill_tmux_session(name)
                     with _sessions_lock:
+                        if name in _sessions:
+                            _sessions[name]["final"] = True
+                    continue
+                try:
+                    ts = int(name.split("-", 1)[1])
+                except (IndexError, ValueError):
+                    ts = 0
+                sessions.append({"key": name, "startedAt": ts})
+                with _sessions_lock:
+                    if name not in _sessions:
                         _sessions[name] = {
                             "state": "working",
                             "started": ts,

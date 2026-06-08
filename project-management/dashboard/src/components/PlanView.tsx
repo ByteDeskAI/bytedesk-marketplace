@@ -51,6 +51,7 @@ export default function PlanView() {
 
   const removeSession = useCallback((key: string) => {
     setSessions(prev => prev.filter(s => s.key !== key));
+    fetch(`/api/plan/kill/${key}`, { method: 'POST' }).catch(() => {});
   }, []);
 
   const hasSession = sessions.length > 0;
