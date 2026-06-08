@@ -5,6 +5,11 @@ All notable changes to the `project-management` plugin will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.10] — 2026-06-08
+
+### Fixed
+- **Drawer anchored to left edge**: ticket detail drawer now slides in from the left (`left: 0`) instead of the right. Terminal panel expands to the right of the details panel. Close button repositioned to top-left. Box shadow flipped to right-side cast.
+
 ## [0.4.9] — 2026-06-08
 
 ### Added

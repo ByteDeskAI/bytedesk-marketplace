@@ -103,18 +103,18 @@ export default function TicketDetailDrawer({ issue, allIssues, onClose }: Props)
             }}
           />
 
-          {/* Drawer container — slides in from right as a unit */}
+          {/* Drawer container — slides in from left as a unit */}
           <motion.div
             key="drawer"
-            initial={{ x: DETAIL_WIDTH + TERMINAL_WIDTH }}
+            initial={{ x: -(DETAIL_WIDTH + TERMINAL_WIDTH) }}
             animate={{ x: 0 }}
-            exit={{ x: DETAIL_WIDTH + TERMINAL_WIDTH }}
+            exit={{ x: -(DETAIL_WIDTH + TERMINAL_WIDTH) }}
             transition={spring}
             style={{
-              position: 'fixed', top: 0, right: 0, bottom: 0,
+              position: 'fixed', top: 0, left: 0, bottom: 0,
               display: 'flex', flexDirection: 'row',
               zIndex: 500,
-              boxShadow: '-4px 0 24px rgba(0,0,0,0.4)',
+              boxShadow: '4px 0 24px rgba(0,0,0,0.4)',
             }}
           >
             {/* ── Details panel ── */}
@@ -122,13 +122,13 @@ export default function TicketDetailDrawer({ issue, allIssues, onClose }: Props)
               width: DETAIL_WIDTH,
               background: 'var(--ds-surface)',
               overflowY: 'auto',
-              borderLeft: '1px solid var(--ds-border)',
+              borderRight: '1px solid var(--ds-border)',
               display: 'flex',
               flexDirection: 'column',
             }}>
               {/* Close button */}
               <div style={{
-                display: 'flex', justifyContent: 'flex-end',
+                display: 'flex', justifyContent: 'flex-start',
                 padding: '12px 16px 0', flexShrink: 0,
               }}>
                 <button
