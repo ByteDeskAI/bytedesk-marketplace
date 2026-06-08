@@ -5,6 +5,14 @@ All notable changes to the `project-management` plugin will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] — 2026-06-08
+
+### Added
+- **`pm_migrate` MCP tool** — user-facing migration between backends. Two directions:
+  - `sqlite_to_jsonl`: reads `pm.db`, writes `config.json` + `issues.jsonl` + `docs.jsonl`. Deletes the source `pm.db` (and WAL files) unless `keep_source: true`.
+  - `jsonl_to_sqlite`: reads JSONL files, writes a fresh `pm.db`. Deletes JSONL sources unless `keep_source: true`. Replays issues, comments, docs, and sprints into SQLite in order.
+- Both directions are idempotent on error (source is only deleted after a fully successful migration) and verified with an automated smoke test.
+
 ## [0.5.1] — 2026-06-08
 
 ### Added

@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 
 from pm_store import PMStore
 
-SERVER_INFO = {"name": "project-management", "version": "0.5.1"}
+SERVER_INFO = {"name": "project-management", "version": "0.5.2"}
 
 
 def tool_definitions() -> List[Dict[str, Any]]:
@@ -436,6 +436,33 @@ def tool_definitions() -> List[Dict[str, Any]]:
                     }
                 },
                 "required": ["atlassian_tool"]
+            }
+        },
+        {
+            "name": "pm_migrate",
+            "description": (
+                "Migrate the project management workspace from one backend to another. "
+                "Supported directions: 'sqlite_to_jsonl' (convert pm.db to JSONL files — "
+                "run this when moving to the new default text-based storage), "
+                "'jsonl_to_sqlite' (convert JSONL files back to pm.db). "
+                "The source data is preserved; only the target is written. "
+                "After migration, remove the source manually or set keep_source=true to leave it. "
+                "Returns counts of migrated issues, docs, and sprints."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "direction": {
+                        "type": "string",
+                        "enum": ["sqlite_to_jsonl", "jsonl_to_sqlite"],
+                        "description": "Migration direction. Required."
+                    },
+                    "keep_source": {
+                        "type": "boolean",
+                        "description": "If false (default), delete the source database/files after successful migration."
+                    }
+                },
+                "required": ["direction"]
             }
         }
     ]
@@ -889,6 +916,84 @@ def call_pm_tool(name: str, arguments: Dict[str, Any]) -> Any:
             "error": f"Unknown Atlassian tool '{atlassian_tool}'.",
             "message": "All project management (issues, docs, sprints) must use pm_* tools, not mcp__atlassian__* tools.",
         }
+
+    elif name == "pm_migrate":
+        direction = arguments.get("direction", "").strip()
+        keep_source = arguments.get("keep_source", False)
+
+        # Resolve the .pm/ root from the store (already constructed above)
+        pm_root = Path(store._backend.root) if hasattr(store._backend, "root") else Path(".pm")
+
+        if direction == "sqlite_to_jsonl":
+            db_path = pm_root / "pm.db"
+            if not db_path.exists():
+                return {"ok": False, "error": f"No pm.db found at {db_path}. Nothing to migrate."}
+            from pm_backend_jsonl import JSONLBackend
+            target = JSONLBackend(pm_root)
+            result = target.migrate_from_sqlite(db_path)
+            if result.get("ok") and not keep_source:
+                for f in ["pm.db", "pm.db-shm", "pm.db-wal"]:
+                    p = pm_root / f
+                    if p.exists():
+                        p.unlink()
+                result["source_deleted"] = True
+            return result
+
+        elif direction == "jsonl_to_sqlite":
+            config_path = pm_root / "config.json"
+            if not config_path.exists():
+                return {"ok": False, "error": f"No config.json found at {pm_root}. Nothing to migrate."}
+            from pm_backend_jsonl import JSONLBackend
+            from pm_backend_sqlite import SQLiteBackend
+            src = JSONLBackend(pm_root)
+            if not src.is_initialized():
+                return {"ok": False, "error": "JSONL workspace is not initialized."}
+
+            # Write to a fresh pm.db (temp path first to avoid clobbering)
+            target_path = pm_root / "pm.db"
+            if target_path.exists():
+                return {
+                    "ok": False,
+                    "error": f"pm.db already exists at {target_path}. Remove it first or use direction='sqlite_to_jsonl'.",
+                }
+            target = SQLiteBackend(pm_root)
+            src_config = src.get_project_config()
+            target.init_workspace(src_config["project_name"], src_config["key_prefix"])
+
+            issues = src.list_issues()
+            docs = src.list_docs()
+            sprints = src.list_sprints()
+
+            # Replay all records into the SQLite backend
+            for sprint in sprints:
+                target.create_sprint(sprint["name"], sprint.get("goal", ""))
+            for issue in issues:
+                target.create_issue(
+                    issue["title"], issue.get("description", ""),
+                    issue.get("type", "task"), issue.get("priority", "medium"),
+                    issue.get("epic_id"), issue.get("sprint_id"),
+                )
+                if issue.get("status", "TODO") != "TODO":
+                    target.update_issue(issue["id"], {"status": issue["status"]})
+                for c in issue.get("comments", []):
+                    target.update_issue(issue["id"], {}, comment=c["body"], comment_author=c.get("author", "User"))
+            for doc in docs:
+                target.create_doc(
+                    doc["title"], doc.get("content", ""),
+                    doc.get("parent_id"), doc.get("doc_type", "wiki"),
+                    doc.get("doc_status", ""), doc.get("superseded_by"),
+                )
+
+            result: Dict[str, Any] = {"ok": True, "issues": len(issues), "docs": len(docs), "sprints": len(sprints)}
+            if not keep_source:
+                for f in ["config.json", "issues.jsonl", "docs.jsonl"]:
+                    p = pm_root / f
+                    if p.exists():
+                        p.unlink()
+                result["source_deleted"] = True
+            return result
+
+        return {"ok": False, "error": f"Unknown direction '{direction}'. Use 'sqlite_to_jsonl' or 'jsonl_to_sqlite'."}
 
     return {"ok": False, "error": f"Unknown tool name: {name}"}
 
