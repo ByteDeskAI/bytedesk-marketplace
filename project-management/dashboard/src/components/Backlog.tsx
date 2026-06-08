@@ -16,6 +16,8 @@ const STATUS_APPEARANCE: Record<string, LozAppearance> = {
   IN_PROGRESS: 'inprogress',
   REVIEW: 'moved',
   DONE: 'success',
+  DRAFT: 'default',
+  NEEDS_INPUT: 'removed',
 };
 
 const TYPE_APPEARANCE: Record<string, LozAppearance> = {
@@ -63,6 +65,8 @@ const head = {
     { key: 'title', content: 'Summary', isSortable: true },
     { key: 'type', content: 'Type', width: 8 },
     { key: 'priority', content: 'Priority', width: 9 },
+    { key: 'weight', content: 'Weight', width: 8, isSortable: true },
+    { key: 'assignee', content: 'Assignee', width: 11 },
     { key: 'status', content: 'Status', width: 11 },
     { key: 'age', content: 'Age', width: 7 },
   ],
@@ -87,6 +91,8 @@ export default function Backlog({ issues, onBulkAction }: Props) {
   const rows = displayedIssues.map(t => {
     const ageDays = computeAgeDays(t.created_at);
     const borderColor = ageBorderColor(ageDays);
+    const issueTags = t.tags ?? [];
+    const issueWeight = t.weight ?? 50;
 
     return {
       key: t.id,
@@ -94,8 +100,6 @@ export default function Backlog({ issues, onBulkAction }: Props) {
         {
           key: 'select',
           content: (
-            // Wrap checkbox in a flex row so we can render the left-border
-            // aging indicator as a narrow colored strip alongside it.
             <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
               {borderColor && (
                 <div style={{
@@ -131,16 +135,45 @@ export default function Backlog({ issues, onBulkAction }: Props) {
         {
           key: t.title,
           content: (
-            <Tooltip content={t.title} position="right" delay={400}>
-              {tp => (
-                <span
-                  {...tp}
-                  style={{ fontSize: 13, color: 'var(--ds-text)' }}
-                >
-                  {t.title}
-                </span>
+            <div>
+              <Tooltip content={t.title} position="right" delay={400}>
+                {tp => (
+                  <span
+                    {...tp}
+                    style={{ fontSize: 13, color: 'var(--ds-text)' }}
+                  >
+                    {t.title}
+                  </span>
+                )}
+              </Tooltip>
+              {/* Tags chips below title */}
+              {issueTags.length > 0 && (
+                <div style={{ display: 'flex', gap: 4, marginTop: 3, flexWrap: 'wrap' }}>
+                  {issueTags.slice(0, 3).map(tag => (
+                    <span key={tag} style={{
+                      fontSize: 10,
+                      padding: '1px 5px',
+                      background: 'var(--ds-surface-sunken)',
+                      borderRadius: 3,
+                      color: 'var(--ds-text-subtlest)',
+                    }}>
+                      {tag}
+                    </span>
+                  ))}
+                  {issueTags.length > 3 && (
+                    <span style={{
+                      fontSize: 10,
+                      padding: '1px 5px',
+                      background: 'var(--ds-surface-sunken)',
+                      borderRadius: 3,
+                      color: 'var(--ds-text-subtlest)',
+                    }}>
+                      +{issueTags.length - 3}
+                    </span>
+                  )}
+                </div>
               )}
-            </Tooltip>
+            </div>
           ),
         },
         {
@@ -181,6 +214,22 @@ export default function Backlog({ issues, onBulkAction }: Props) {
                 }}
               />
               {t.priority}
+            </span>
+          ),
+        },
+        {
+          key: issueWeight,
+          content: (
+            <span style={{ fontSize: 12, color: 'var(--ds-text-subtlest)', fontVariantNumeric: 'tabular-nums' }}>
+              {issueWeight}
+            </span>
+          ),
+        },
+        {
+          key: t.assignee ?? '__unassigned__',
+          content: (
+            <span style={{ fontSize: 12, color: 'var(--ds-text-subtlest)' }}>
+              {t.assignee ?? '—'}
             </span>
           ),
         },
@@ -273,7 +322,7 @@ export default function Backlog({ issues, onBulkAction }: Props) {
           <DynamicTable
             head={head}
             rows={rows}
-            defaultSortKey="id"
+            defaultSortKey="weight"
             defaultSortOrder="ASC"
             isFixedSize
             rowsPerPage={20}

@@ -12,7 +12,7 @@ import Badge from '@atlaskit/badge';
 import Button from '@atlaskit/button';
 import SectionMessage from '@atlaskit/section-message';
 import { Checkbox } from '@atlaskit/checkbox';
-import { Issue } from '../types';
+import type { Issue, ChecklistItem } from '../types';
 
 const STATUS_APPEARANCE: Record<string, 'default' | 'inprogress' | 'moved' | 'success' | 'removed'> = {
   TODO: 'default',
@@ -20,6 +20,7 @@ const STATUS_APPEARANCE: Record<string, 'default' | 'inprogress' | 'moved' | 'su
   REVIEW: 'moved',
   DONE: 'success',
   NEEDS_INPUT: 'moved',
+  DRAFT: 'default',
 };
 
 const DETAIL_WIDTH = 480;
@@ -42,6 +43,7 @@ export default function TicketDetailDrawer({ issue, allIssues, onClose, onRefres
   const [activeTab, setActiveTab] = useState<DrawerTab>('details');
   const [flagActioning, setFlagActioning] = useState(false);
   const [criteriaUpdating, setCriteriaUpdating] = useState(false);
+  const [checklistUpdating, setChecklistUpdating] = useState(false);
   const [sessionSummariesOpen, setSessionSummariesOpen] = useState(false);
 
   // Reset tab when the issue changes
@@ -100,7 +102,7 @@ export default function TicketDetailDrawer({ issue, allIssues, onClose, onRefres
       onRefresh?.();
       onClose();
     } catch {
-      // silently fall through — the UI stays in the actioning state
+      // silently fall through
     } finally {
       setFlagActioning(false);
     }
@@ -122,9 +124,32 @@ export default function TicketDetailDrawer({ issue, allIssues, onClose, onRefres
       });
       onRefresh?.();
     } catch {
-      // silently ignore — optimistic UI is not applied here; parent refresh will reconcile
+      // silently ignore
     } finally {
       setCriteriaUpdating(false);
+    }
+  };
+
+  // Checklist toggle
+  const handleChecklistToggle = async (itemId: number, checked: boolean) => {
+    if (!issue || checklistUpdating) return;
+    setChecklistUpdating(true);
+    const checklist = (issue.checklist ?? []).map(item =>
+      item.id === itemId
+        ? { ...item, done: checked, done_at: checked ? new Date().toISOString() : null }
+        : item
+    );
+    try {
+      await fetch('/api/issues/' + issue.id, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ checklist }),
+      });
+      onRefresh?.();
+    } catch {
+      // silently ignore
+    } finally {
+      setChecklistUpdating(false);
     }
   };
 
@@ -140,7 +165,6 @@ export default function TicketDetailDrawer({ issue, allIssues, onClose, onRefres
     : priority === 'medium' ? '#0052cc'
     :                         '#6b778c';
 
-  // Feature 3: Retry label logic
   const hasPriorSessions = (issue?.session_summaries || []).length > 0;
   const isRetryMode = hasPriorSessions && !sessionKey;
 
@@ -151,7 +175,6 @@ export default function TicketDetailDrawer({ issue, allIssues, onClose, onRefres
 
   const runAppearance = isRetryMode ? 'default' : 'primary';
 
-  // Feature 4: tab strip style helper (matches App.tsx tabStyle)
   const tabStyle = (active: boolean): React.CSSProperties => ({
     background: 'none',
     border: 'none',
@@ -167,7 +190,6 @@ export default function TicketDetailDrawer({ issue, allIssues, onClose, onRefres
     flexShrink: 0,
   });
 
-  // Activity tab: comments authored by system agents
   const systemAuthors = new Set(['PM Dashboard', 'claude-session']);
   const activityComments = [...(issue?.comments || [])]
     .filter(c => systemAuthors.has(c.author))
@@ -177,6 +199,9 @@ export default function TicketDetailDrawer({ issue, allIssues, onClose, onRefres
   const criteriaDone = issue?.criteria_done || [];
   const sessionSummaries = issue?.session_summaries || [];
   const commitLinks = issue?.commit_links || [];
+  const checklist = issue?.checklist ?? [];
+  const checklistDone = checklist.filter(i => i.done).length;
+  const issueTags = issue?.tags ?? [];
 
   return (
     <AnimatePresence>
@@ -197,7 +222,7 @@ export default function TicketDetailDrawer({ issue, allIssues, onClose, onRefres
             }}
           />
 
-          {/* Drawer container — slides in from left as a unit */}
+          {/* Drawer container */}
           <motion.div
             key="drawer"
             initial={{ x: '-100%' }}
@@ -238,7 +263,19 @@ export default function TicketDetailDrawer({ issue, allIssues, onClose, onRefres
                 </button>
               </div>
 
-              {/* Feature 1: NEEDS_INPUT banner — above title, always visible */}
+              {/* Risk banner — above NEEDS_INPUT */}
+              {issue.risk && (
+                <div style={{ padding: '0 24px 8px' }}>
+                  <SectionMessage
+                    appearance="error"
+                    title={`⚠ Risk: ${issue.risk.type.replace(/_/g, ' ')}`}
+                  >
+                    <p style={{ margin: 0 }}>{issue.risk.reason}</p>
+                  </SectionMessage>
+                </div>
+              )}
+
+              {/* NEEDS_INPUT banner */}
               {issue.status === 'NEEDS_INPUT' && (
                 <div style={{ padding: '0 24px 8px' }}>
                   <SectionMessage
@@ -280,8 +317,8 @@ export default function TicketDetailDrawer({ issue, allIssues, onClose, onRefres
                   {issue.title}
                 </h2>
 
-                {/* Status / Type / Priority */}
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                {/* Status / Type / Priority row */}
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8, alignItems: 'center' }}>
                   <Lozenge isBold appearance={STATUS_APPEARANCE[issue.status] ?? 'default'}>{issue.status}</Lozenge>
                   <Lozenge appearance="new">{issue.type}</Lozenge>
                   <Tooltip content={'Priority: ' + issue.priority}>
@@ -297,18 +334,41 @@ export default function TicketDetailDrawer({ issue, allIssues, onClose, onRefres
                       </span>
                     )}
                   </Tooltip>
+                  {/* Reopen count badge */}
+                  {(issue.reopen_count ?? 0) > 0 && (
+                    <span style={{ fontSize: 11, color: 'var(--ds-text-warning)' }}>
+                      ↩ Reopened {issue.reopen_count}×
+                    </span>
+                  )}
                 </div>
 
-                {/* Tags */}
-                <div style={{ marginBottom: 16 }}>
-                  <TagGroup>
-                    {issue.priority === 'critical' && <SimpleTag text="critical" />}
-                    <SimpleTag text={issue.sprint_id ? 'in-sprint' : 'backlog'} />
-                  </TagGroup>
+                {/* Assignee */}
+                <div style={{ marginBottom: 12, fontSize: 13, color: 'var(--ds-text-subtle)' }}>
+                  Assignee: {issue.assignee ?? 'Unassigned'}
                 </div>
+
+                {/* Tags (from issue.tags field) */}
+                {issueTags.length > 0 && (
+                  <div style={{ marginBottom: 16 }}>
+                    <TagGroup>
+                      {issueTags.map(tag => (
+                        <SimpleTag key={tag} text={tag} />
+                      ))}
+                    </TagGroup>
+                  </div>
+                )}
+                {/* Fall back to derived tags if no issue.tags */}
+                {issueTags.length === 0 && (
+                  <div style={{ marginBottom: 16 }}>
+                    <TagGroup>
+                      {issue.priority === 'critical' && <SimpleTag text="critical" />}
+                      <SimpleTag text={issue.sprint_id ? 'in-sprint' : 'backlog'} />
+                    </TagGroup>
+                  </div>
+                )}
               </div>
 
-              {/* Feature 4: Tab strip */}
+              {/* Tab strip */}
               <div style={{
                 display: 'flex',
                 borderBottom: '1px solid var(--ds-border)',
@@ -340,6 +400,23 @@ export default function TicketDetailDrawer({ issue, allIssues, onClose, onRefres
                 {/* ── Details tab ── */}
                 {activeTab === 'details' && (
                   <>
+                    {/* Handoff banner */}
+                    {issue.handoff && issue.status === 'IN_PROGRESS' && (
+                      <div style={{ marginBottom: 16 }}>
+                        <SectionMessage
+                          appearance="information"
+                          title="Session paused — handoff recorded"
+                        >
+                          <p style={{ margin: '0 0 6px' }}>{issue.handoff.next_step}</p>
+                          {issue.handoff.files_in_progress.length > 0 && (
+                            <p style={{ margin: 0, fontSize: 12, color: 'var(--ds-text-subtle)' }}>
+                              Start in: {issue.handoff.files_in_progress.join(', ')}
+                            </p>
+                          )}
+                        </SectionMessage>
+                      </div>
+                    )}
+
                     {/* Description */}
                     <div style={{ marginBottom: 20 }}>
                       <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ds-text-subtle)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
@@ -401,6 +478,54 @@ export default function TicketDetailDrawer({ issue, allIssues, onClose, onRefres
                               </div>
                             );
                           })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Checklist section */}
+                    {checklist.length > 0 && (
+                      <div style={{ marginBottom: 24 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                          <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--ds-text-subtle)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                            Checklist
+                          </span>
+                          <span style={{ fontSize: 12, color: 'var(--ds-text-subtlest)' }}>
+                            {checklistDone} / {checklist.length} done
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          {checklist.map(item => (
+                            <div
+                              key={item.id}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'flex-start',
+                                gap: 8,
+                                padding: '5px 10px',
+                                background: 'var(--ds-surface-raised)',
+                                borderRadius: 4,
+                                border: '1px solid var(--ds-border)',
+                              }}
+                            >
+                              <div style={{ flexShrink: 0, marginTop: 1 }}>
+                                <Checkbox
+                                  isChecked={item.done}
+                                  isDisabled={checklistUpdating}
+                                  onChange={(e) => handleChecklistToggle(item.id, e.currentTarget.checked)}
+                                  label=""
+                                />
+                              </div>
+                              <span style={{
+                                fontSize: 13,
+                                color: item.done ? 'var(--ds-text-subtlest)' : 'var(--ds-text)',
+                                lineHeight: 1.5,
+                                textDecoration: item.done ? 'line-through' : 'none',
+                                flex: 1,
+                              }}>
+                                {item.text}
+                              </span>
+                            </div>
+                          ))}
                         </div>
                       </div>
                     )}
@@ -545,7 +670,7 @@ export default function TicketDetailDrawer({ issue, allIssues, onClose, onRefres
                   </div>
                 )}
 
-                {/* Run button area — shown on details tab when no session is running */}
+                {/* Run button area */}
                 {activeTab === 'details' && !sessionKey && (
                   <div style={{ borderTop: '1px solid var(--ds-border)', paddingTop: 20, marginTop: 8 }}>
                     {runError && (
@@ -561,7 +686,7 @@ export default function TicketDetailDrawer({ issue, allIssues, onClose, onRefres
                       {runLabel}
                     </Button>
 
-                    {/* Feature 3: Prior session summaries — collapsible */}
+                    {/* Prior session summaries */}
                     {sessionSummaries.length > 0 && (
                       <div style={{ marginTop: 16 }}>
                         <details
@@ -637,7 +762,7 @@ export default function TicketDetailDrawer({ issue, allIssues, onClose, onRefres
               </div>
             </div>
 
-            {/* ── Terminal panel — slides in from the right ── */}
+            {/* ── Terminal panel ── */}
             <AnimatePresence>
               {sessionKey && (
                 <motion.div
@@ -656,7 +781,6 @@ export default function TicketDetailDrawer({ issue, allIssues, onClose, onRefres
                     flexDirection: 'column',
                   }}
                 >
-                  {/* Terminal header */}
                   <div style={{
                     flexShrink: 0,
                     padding: '10px 16px',
@@ -689,7 +813,6 @@ export default function TicketDetailDrawer({ issue, allIssues, onClose, onRefres
                     </button>
                   </div>
 
-                  {/* Terminal body */}
                   <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                     <TerminalPanel
                       sessionKey={sessionKey}
@@ -697,7 +820,6 @@ export default function TicketDetailDrawer({ issue, allIssues, onClose, onRefres
                     />
                   </div>
 
-                  {/* Re-run button when session dismissed or errored */}
                   {runError && (
                     <div style={{ flexShrink: 0, padding: 12, borderTop: '1px solid var(--ds-border)' }}>
                       <InlineMessage appearance="error" title="Could not start">{runError}</InlineMessage>

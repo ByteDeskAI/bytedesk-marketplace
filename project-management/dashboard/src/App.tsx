@@ -3,6 +3,7 @@ import Header from './components/Header';
 import Sidebar from './components/Sidebar';
 import Board from './components/Board';
 import Backlog from './components/Backlog';
+import KeyboardTriage from './components/KeyboardTriage';
 import Docs from './components/Docs';
 import Activity from './components/Activity';
 import SkeletonBoard from './components/SkeletonBoard';

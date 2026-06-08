@@ -5,6 +5,7 @@ import SectionMessage, { SectionMessageAction } from '@atlaskit/section-message'
 import Select from '@atlaskit/select';
 import Popup from '@atlaskit/popup';
 import Button from '@atlaskit/button';
+import Avatar from '@atlaskit/avatar';
 import Tag, { SimpleTag } from '@atlaskit/tag';
 import TagGroup from '@atlaskit/tag-group';
 import Tooltip from '@atlaskit/tooltip';
@@ -26,6 +27,7 @@ const STATUS_APPEARANCE: Record<string, LozAppearance> = {
   REVIEW: 'moved',
   DONE: 'success',
   NEEDS_INPUT: 'removed',
+  DRAFT: 'default',
 };
 
 const TYPE_APPEARANCE: Record<string, LozAppearance> = {
@@ -81,9 +83,7 @@ function getBlockingIssueIds(issue: Issue, allIssues: Issue[]): string[] {
     .filter(link => {
       if (link.type !== 'is-blocked-by') return false;
       const blocker = allById.get(link.to_id);
-      // If we can find the blocker and it's done/review, it's resolved
       if (blocker && BLOCKING_DONE_STATUSES.has(blocker.status)) return false;
-      // If we can't find the blocker in allIssues, treat it as still blocking
       return true;
     })
     .map(link => link.to_id);
@@ -140,9 +140,10 @@ interface IssueCardProps {
   isSelected?: boolean;
   onSelect?: (id: string, value: boolean) => void;
   compact?: boolean;
+  focusMode?: boolean;
 }
 
-function IssueCard({ issue, allIssues, onStatusChange, onIssueClick, isSelected, onSelect, compact }: IssueCardProps) {
+function IssueCard({ issue, allIssues, onStatusChange, onIssueClick, isSelected, onSelect, compact, focusMode }: IssueCardProps) {
   const [selectingStatus, setSelectingStatus] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -155,15 +156,10 @@ function IssueCard({ issue, allIssues, onStatusChange, onIssueClick, isSelected,
     });
   }, [issue.id, issue.status]);
 
-  // Derive tags: type=bug -> "bug", priority=critical -> "urgent", sprint_id -> "in-sprint" else "backlog"
-  const tags: string[] = [];
-  if (issue.type === 'bug') tags.push('bug');
-  if (issue.priority === 'critical') tags.push('urgent');
-  if ((issue as unknown as Record<string, unknown>).sprint_id) {
-    tags.push('in-sprint');
-  } else {
-    tags.push('backlog');
-  }
+  // Focus mode: hide DONE cards
+  if (focusMode && issue.status === 'DONE') return null;
+
+  const issueTags = issue.tags ?? [];
 
   const cardPadding = compact ? '6px 10px' : '10px 12px';
 
@@ -172,6 +168,8 @@ function IssueCard({ issue, allIssues, onStatusChange, onIssueClick, isSelected,
     : undefined;
 
   const showProgress = issue.progress > 0 && issue.status === 'IN_PROGRESS';
+
+  const isDraft = issue.status === 'DRAFT';
 
   return (
     <div
@@ -186,6 +184,8 @@ function IssueCard({ issue, allIssues, onStatusChange, onIssueClick, isSelected,
         boxShadow: isSelected ? 'var(--ds-shadow-raised)' : undefined,
         position: 'relative',
         overflow: 'hidden',
+        opacity: isDraft ? 0.55 : 1,
+        fontStyle: isDraft ? 'italic' : 'normal',
       }}
       onClick={() => onIssueClick?.(issue)}
       onMouseOver={e => {
@@ -197,6 +197,13 @@ function IssueCard({ issue, allIssues, onStatusChange, onIssueClick, isSelected,
         (e.currentTarget as HTMLElement).style.boxShadow = isSelected ? 'var(--ds-shadow-raised)' : 'none';
       }}
     >
+      {/* Pinned indicator */}
+      {issue.pinned && (
+        <div style={{ fontSize: 11, color: 'var(--ds-text-subtlest)', marginBottom: 3 }}>
+          📌
+        </div>
+      )}
+
       <div
         className="ic-header"
         style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}
@@ -252,10 +259,10 @@ function IssueCard({ issue, allIssues, onStatusChange, onIssueClick, isSelected,
                       body: JSON.stringify({ ticket_id: issue.id }),
                     }).then(r => r.json()).then((body: { ok: boolean; error?: string }) => {
                       if (!body.ok) {
-                        // Silently ignore — user will see error in drawer
+                        // Silently ignore
                       }
                     }).catch(() => {});
-                    onIssueClick?.(issue);   // open drawer to show terminal
+                    onIssueClick?.(issue);
                     setMenuOpen(false);
                   }}
                 >
@@ -330,20 +337,49 @@ function IssueCard({ issue, allIssues, onStatusChange, onIssueClick, isSelected,
           </span>
         )}
       </div>
-      {tags.length > 0 && (
-        <div style={{ marginTop: 6 }}>
-          <TagGroup>
-            {tags.map(t => (
-              <SimpleTag key={t} text={t} />
-            ))}
-          </TagGroup>
+
+      {/* Tags chips from issue.tags — show first 2, then +N */}
+      {issueTags.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 5, flexWrap: 'wrap' }}>
+          {issueTags.slice(0, 2).map(tag => (
+            <span key={tag} style={{
+              fontSize: 10,
+              padding: '1px 5px',
+              background: 'var(--ds-surface-sunken)',
+              borderRadius: 3,
+              color: 'var(--ds-text-subtlest)',
+            }}>
+              {tag}
+            </span>
+          ))}
+          {issueTags.length > 2 && (
+            <span style={{
+              fontSize: 10,
+              padding: '1px 5px',
+              background: 'var(--ds-surface-sunken)',
+              borderRadius: 3,
+              color: 'var(--ds-text-subtlest)',
+            }}>
+              +{issueTags.length - 2} more
+            </span>
+          )}
         </div>
       )}
-      {/* Card footer: scope chip + blocked indicator */}
-      {(issue.scope || (issue.links && issue.links.length > 0)) && (
+
+      {/* Card footer: scope chip + blocked indicator + assignee avatar */}
+      {(issue.scope || (issue.links && issue.links.length > 0) || issue.assignee) && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
           {issue.scope && <ScopeChip scope={issue.scope} />}
           <BlockedIndicator issue={issue} allIssues={allIssues} onIssueClick={onIssueClick} />
+          {issue.assignee && (
+            <Tooltip content={issue.assignee} position="top">
+              {(tp) => (
+                <span {...tp} onClick={e => e.stopPropagation()}>
+                  <Avatar size="xsmall" name={issue.assignee ?? undefined} />
+                </span>
+              )}
+            </Tooltip>
+          )}
         </div>
       )}
       {/* Last checkin preview */}
@@ -363,7 +399,7 @@ function IssueCard({ issue, allIssues, onStatusChange, onIssueClick, isSelected,
             : lastCheckin.what_done}
         </div>
       )}
-      {/* Progress bar — rendered as absolute strip at card bottom */}
+      {/* Progress bar */}
       {showProgress && (
         <div style={{
           position: 'absolute',
@@ -416,7 +452,7 @@ function InlineAdd({ colStatus, sprintId, onCreated }: InlineAddProps) {
       });
       onCreated?.();
     } catch {
-      // Silently ignore — board will refresh on next poll
+      // Silently ignore
     } finally {
       setSubmitting(false);
       setOpen(false);
@@ -515,9 +551,12 @@ interface ColumnProps {
   compact?: boolean;
   onIssueCreated?: () => void;
   activeSprintId?: string | null;
+  wipLimit?: number;
+  totalCount?: number;
+  focusMode?: boolean;
 }
 
-function Column({ col, issues, allIssues, onStatusChange, onIssueClick, selectedIds, onSelect, compact, onIssueCreated, activeSprintId }: ColumnProps) {
+function Column({ col, issues, allIssues, onStatusChange, onIssueClick, selectedIds, onSelect, compact, onIssueCreated, activeSprintId, wipLimit, totalCount, focusMode }: ColumnProps) {
   const bodyRef = useRef<HTMLDivElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
 
@@ -538,6 +577,42 @@ function Column({ col, issues, allIssues, onStatusChange, onIssueClick, selected
       onDrop: () => setIsDragOver(false),
     });
   }, [col]);
+
+  const count = totalCount ?? issues.length;
+  const wipOver = wipLimit != null && count > wipLimit;
+  const wipAt = wipLimit != null && count === wipLimit;
+
+  // Focus mode: show DONE column as a collapsed "N done" chip
+  if (focusMode && col === 'DONE') {
+    const doneCount = issues.length;
+    if (doneCount === 0) return null;
+    return (
+      <div style={{
+        background: 'var(--ds-surface-sunken)',
+        border: '1px solid var(--ds-border)',
+        borderRadius: 8,
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+        opacity: 0.6,
+      }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '10px 12px 8px',
+        }}>
+          <span style={{
+            fontSize: 11, fontWeight: 700, letterSpacing: '.06em',
+            textTransform: 'uppercase', flex: 1, color: colorMap[col],
+          }}>
+            {COL_LABELS[col]}
+          </span>
+          <span style={{ fontSize: 11, color: 'var(--ds-text-subtlest)', fontStyle: 'italic' }}>
+            ✓ {doneCount} hidden
+          </span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{
@@ -560,6 +635,20 @@ function Column({ col, issues, allIssues, onStatusChange, onIssueClick, selected
           {COL_LABELS[col]}
         </span>
         <Badge appearance="default">{issues.length}</Badge>
+        {/* WIP limit badge */}
+        {wipLimit != null && (wipOver || wipAt) && (
+          <span style={{
+            fontSize: 10,
+            fontWeight: 700,
+            padding: '1px 6px',
+            borderRadius: 10,
+            background: wipOver ? 'var(--ds-background-danger-bold)' : 'var(--ds-background-warning-bold)',
+            color: 'var(--ds-text-inverse)',
+            flexShrink: 0,
+          }}>
+            {count}/{wipLimit}
+          </span>
+        )}
       </div>
       <div
         ref={bodyRef}
@@ -585,6 +674,7 @@ function Column({ col, issues, allIssues, onStatusChange, onIssueClick, selected
               isSelected={selectedIds?.includes(issue.id)}
               onSelect={onSelect}
               compact={compact}
+              focusMode={focusMode}
             />
           ))
         )}
@@ -610,10 +700,10 @@ interface SwimlaneProps {
   selectedIds?: string[];
   onSelect?: (id: string, value: boolean) => void;
   compact?: boolean;
+  focusMode?: boolean;
 }
 
-function Swimlane({ issues, allIssues, onStatusChange, onIssueClick, selectedIds, onSelect, compact }: SwimlaneProps) {
-  // Build a map of epic_id → issues in this sprint slice
+function Swimlane({ issues, allIssues, onStatusChange, onIssueClick, selectedIds, onSelect, compact, focusMode }: SwimlaneProps) {
   const epicGroups = new Map<string | null, Issue[]>();
   for (const issue of issues) {
     const key = issue.epic_id ?? null;
@@ -621,7 +711,6 @@ function Swimlane({ issues, allIssues, onStatusChange, onIssueClick, selectedIds
     epicGroups.get(key)!.push(issue);
   }
 
-  // Sort: epics first (by epic title), then "No Epic" band last
   const epicIds = [...epicGroups.keys()].sort((a, b) => {
     if (a === null) return 1;
     if (b === null) return -1;
@@ -657,7 +746,6 @@ function Swimlane({ issues, allIssues, onStatusChange, onIssueClick, selectedIds
               overflow: 'hidden',
             }}
           >
-            {/* Band header */}
             <div style={{
               display: 'flex', alignItems: 'center', gap: 10,
               padding: '8px 14px',
@@ -680,7 +768,6 @@ function Swimlane({ issues, allIssues, onStatusChange, onIssueClick, selectedIds
               </span>
             </div>
 
-            {/* 4-column sub-grid */}
             <div style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(4, 1fr)',
@@ -714,6 +801,7 @@ function Swimlane({ issues, allIssues, onStatusChange, onIssueClick, selectedIds
                         isSelected={selectedIds?.includes(issue.id)}
                         onSelect={onSelect}
                         compact={compact ?? true}
+                        focusMode={focusMode}
                       />
                     ))}
                     {colIssues.length === 0 && (
@@ -744,17 +832,24 @@ interface Props {
   onBulkAction?: (ids: string[], action: string) => void;
   onIssueCreated?: () => void;
   activeSprintId?: string | null;
+  wip_limits?: Record<string, number>;
 }
 
-export default function Board({ issues, allIssues, subTitle, sprintGoal, onStatusChange, onIssueClick, onBulkAction, onIssueCreated, activeSprintId }: Props) {
+export default function Board({ issues, allIssues, subTitle, sprintGoal, onStatusChange, onIssueClick, onBulkAction, onIssueCreated, activeSprintId, wip_limits }: Props) {
   const [goalDismissed, setGoalDismissed] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [compact, setCompact] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [swimlane, setSwimlane] = useState(false);
+  const [focusMode, setFocusMode] = useState(false);
 
   const byStatus = Object.fromEntries(
     COLS.map(col => [col, issues.filter(i => i.status === col)])
+  ) as Record<typeof COLS[number], Issue[]>;
+
+  // For WIP limit counting: use allIssues for unfiltered counts
+  const allByStatus = Object.fromEntries(
+    COLS.map(col => [col, allIssues.filter(i => i.status === col)])
   ) as Record<typeof COLS[number], Issue[]>;
 
   const handleSelect = useCallback((id: string, value: boolean) => {
@@ -776,6 +871,8 @@ export default function Board({ issues, allIssues, subTitle, sprintGoal, onStatu
       },
     });
   }, [onStatusChange]);
+
+  const doneCnt = byStatus['DONE'].length;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', position: 'relative' }}>
@@ -802,6 +899,27 @@ export default function Board({ issues, allIssues, subTitle, sprintGoal, onStatu
             />
             Swimlane
           </label>
+          {/* Focus mode button */}
+          <button
+            onClick={() => setFocusMode(m => !m)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 5,
+              background: focusMode ? 'var(--ds-background-brand-bold)' : 'var(--ds-surface-sunken)',
+              border: '1px solid var(--ds-border)',
+              borderRadius: 6,
+              padding: '4px 10px',
+              cursor: 'pointer',
+              color: focusMode ? 'var(--ds-text-inverse)' : 'var(--ds-text-subtle)',
+              fontSize: 13,
+              fontFamily: 'inherit',
+              transition: 'background .15s, color .15s',
+            }}
+          >
+            <span>👁</span>
+            {focusMode
+              ? (doneCnt > 0 ? `All tickets (✓ ${doneCnt} hidden)` : 'All tickets')
+              : 'Focus mode'}
+          </button>
         </div>
       </div>
       {sprintGoal && !goalDismissed && (
@@ -835,6 +953,7 @@ export default function Board({ issues, allIssues, subTitle, sprintGoal, onStatu
             selectedIds={selectedIds}
             onSelect={handleSelect}
             compact={compact}
+            focusMode={focusMode}
           />
         </div>
       ) : (
@@ -859,6 +978,9 @@ export default function Board({ issues, allIssues, subTitle, sprintGoal, onStatu
               compact={compact}
               onIssueCreated={onIssueCreated}
               activeSprintId={activeSprintId}
+              wipLimit={wip_limits?.[col]}
+              totalCount={allByStatus[col].length}
+              focusMode={focusMode}
             />
           ))}
         </div>

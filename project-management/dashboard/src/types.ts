@@ -6,7 +6,27 @@ export interface Comment {
   created_at: string;
 }
 
-export type IssueStatus = 'TODO' | 'IN_PROGRESS' | 'REVIEW' | 'DONE' | 'NEEDS_INPUT';
+export interface ChecklistItem {
+  id: number;
+  text: string;
+  done: boolean;
+  done_at: string | null;
+}
+
+export interface SessionHandoff {
+  next_step: string;
+  files_in_progress: string[];
+  partial_criteria_done: number[];
+  created_at: string;
+}
+
+export interface IssueRisk {
+  type: 'security' | 'data_loss' | 'breaking_change' | 'external_integration' | 'compliance';
+  reason: string;
+  flagged_at: string;
+}
+
+export type IssueStatus = 'TODO' | 'IN_PROGRESS' | 'REVIEW' | 'DONE' | 'NEEDS_INPUT' | 'DRAFT';
 export type IssueScope = 'nano' | 'small' | 'medium' | 'large' | 'research';
 
 export interface IssueLink {
@@ -67,6 +87,14 @@ export interface Issue {
   checkins?: IssueCheckin[];
   created_at: string;
   updated_at: string;
+  tags: string[];
+  assignee: string | null;
+  pinned: boolean;
+  weight: number;
+  reopen_count: number;
+  checklist: ChecklistItem[];
+  handoff: SessionHandoff | null;
+  risk: IssueRisk | null;
 }
 
 export interface Sprint {
@@ -101,6 +129,7 @@ export interface Dashboard {
     DONE: string[];
   };
   dashboard_url?: string;
+  wip_limits?: Record<string, number>;
 }
 
 export interface ActivityEntry {
