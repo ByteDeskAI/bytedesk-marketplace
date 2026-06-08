@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import TerminalPanel from './TerminalPanel';
 import Comment, { CommentAuthor, CommentTime } from '@atlaskit/comment';
@@ -45,6 +45,9 @@ export default function TicketDetailDrawer({ issue, allIssues, onClose, onRefres
   const [criteriaUpdating, setCriteriaUpdating] = useState(false);
   const [checklistUpdating, setChecklistUpdating] = useState(false);
   const [sessionSummariesOpen, setSessionSummariesOpen] = useState(false);
+  const [snapshots, setSnapshots] = useState<Array<{snapshot_id: string; label: string; created_at: string}>>([]);
+  const [snapshotsOpen, setSnapshotsOpen] = useState(false);
+  const [takingSnapshot, setTakingSnapshot] = useState(false);
 
   // Reset tab when the issue changes
   useEffect(() => {
@@ -60,6 +63,20 @@ export default function TicketDetailDrawer({ issue, allIssues, onClose, onRefres
       })
       .catch(() => setSessionKey(null));
   }, [issue?.id]);
+
+  const fetchSnapshots = useCallback((issueId: string) => {
+    fetch(`/api/issues/${issueId}/snapshots`)
+      .then(r => r.json())
+      .then((b: {ok: boolean; snapshots: Array<{snapshot_id: string; label: string; created_at: string}>}) => {
+        if (b.ok) setSnapshots(b.snapshots ?? []);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!issue) { setSnapshots([]); return; }
+    fetchSnapshots(issue.id);
+  }, [issue?.id, fetchSnapshots]);
 
   const handleRun = async () => {
     if (!issue) return;
@@ -564,6 +581,76 @@ export default function TicketDetailDrawer({ issue, allIssues, onClose, onRefres
                         </div>
                       </div>
                     )}
+
+                    {/* Snapshots section */}
+                    <div style={{ marginTop: 16 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                        <button
+                          onClick={() => setSnapshotsOpen(o => !o)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ds-text-subtle)', fontSize: 13, display: 'flex', alignItems: 'center', gap: 4 }}
+                        >
+                          {snapshotsOpen ? '▾' : '▸'} Snapshots ({snapshots.length})
+                        </button>
+                        <button
+                          onClick={async () => {
+                            if (!issue || takingSnapshot) return;
+                            setTakingSnapshot(true);
+                            const label = `Pre-session ${new Date().toLocaleDateString()}`;
+                            try {
+                              await fetch(`/api/issues/${issue.id}/snapshot`, {
+                                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ label }),
+                              });
+                              fetchSnapshots(issue.id);
+                            } catch {
+                              // silently ignore
+                            } finally {
+                              setTakingSnapshot(false);
+                            }
+                          }}
+                          style={{
+                            background: 'var(--ds-surface-sunken)', border: '1px solid var(--ds-border)',
+                            borderRadius: 4, padding: '2px 8px', cursor: 'pointer', fontSize: 11,
+                            color: 'var(--ds-text-subtle)',
+                          }}
+                          disabled={takingSnapshot}
+                        >
+                          {takingSnapshot ? 'Saving…' : '📸 Save snapshot'}
+                        </button>
+                      </div>
+                      {snapshotsOpen && snapshots.length > 0 && (
+                        <div style={{ background: 'var(--ds-surface-sunken)', borderRadius: 6, padding: 10 }}>
+                          {snapshots.map(snap => (
+                            <div key={snap.snapshot_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', borderBottom: '1px solid var(--ds-border)' }}>
+                              <span style={{ flex: 1, fontSize: 12, color: 'var(--ds-text-subtle)' }}>{snap.label || snap.snapshot_id.slice(-8)}</span>
+                              <span style={{ fontSize: 11, color: 'var(--ds-text-subtlest)' }}>{new Date(snap.created_at).toLocaleDateString()}</span>
+                              <button
+                                onClick={async () => {
+                                  if (!issue) return;
+                                  if (!confirm(`Restore to snapshot "${snap.label || snap.snapshot_id}"? This overwrites current state.`)) return;
+                                  try {
+                                    await fetch(`/api/issues/${issue.id}/snapshot/restore`, {
+                                      method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({ snapshot_id: snap.snapshot_id }),
+                                    });
+                                  } catch {
+                                    // silently ignore
+                                  }
+                                  onRefresh?.();
+                                  onClose();
+                                }}
+                                style={{
+                                  background: 'none', border: '1px solid var(--ds-border)', borderRadius: 4,
+                                  padding: '1px 6px', cursor: 'pointer', fontSize: 11, color: 'var(--ds-text-danger)',
+                                }}
+                              >
+                                Restore
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </>
                 )}
 

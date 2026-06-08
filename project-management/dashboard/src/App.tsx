@@ -22,6 +22,7 @@ import TicketDetailDrawer from './components/TicketDetailDrawer';
 import CreateTicketModal from './components/CreateTicketModal';
 import PlanView from './components/PlanView';
 import CommandPalette from './components/CommandPalette';
+import AnalyticsDashboard from './components/AnalyticsDashboard';
 
 interface StandupIssueEntry {
   id: string;
@@ -56,6 +57,7 @@ export default function App() {
   const [showCalendar, setShowCalendar] = useState(false);
   const [showEpics, setShowEpics] = useState(false);
   const [showDependencies, setShowDependencies] = useState(false);
+  const [showAnalytics, setShowAnalytics] = useState(false);
 
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
   const [filterCriteria, setFilterCriteria] = useState<Record<string, string>>({});
@@ -207,10 +209,11 @@ export default function App() {
     : issues;
 
   // Tab nav helpers
-  const isEpicsTab = showEpics && !showCalendar && !showDependencies;
-  const isCalendarTab = showCalendar && !showEpics && !showDependencies;
-  const isDependenciesTab = showDependencies && !showEpics && !showCalendar;
-  const isViewTab = (v: ViewId) => !showEpics && !showCalendar && !showDependencies && view === v;
+  const isEpicsTab = showEpics && !showCalendar && !showDependencies && !showAnalytics;
+  const isCalendarTab = showCalendar && !showEpics && !showDependencies && !showAnalytics;
+  const isDependenciesTab = showDependencies && !showEpics && !showCalendar && !showAnalytics;
+  const isAnalyticsTab = showAnalytics && !showEpics && !showCalendar && !showDependencies;
+  const isViewTab = (v: ViewId) => !showEpics && !showCalendar && !showDependencies && !showAnalytics && view === v;
 
   const tabStyle = (active: boolean): React.CSSProperties => ({
     background: 'none',
@@ -230,6 +233,7 @@ export default function App() {
     setShowEpics(false);
     setShowCalendar(false);
     setShowDependencies(false);
+    setShowAnalytics(false);
     setView(v);
   };
 
@@ -297,9 +301,15 @@ export default function App() {
             </button>
             <button
               style={tabStyle(isViewTab('plan'))}
-              onClick={() => { setShowEpics(false); setShowCalendar(false); setShowDependencies(false); setView('plan'); }}
+              onClick={() => { setShowEpics(false); setShowCalendar(false); setShowDependencies(false); setShowAnalytics(false); setView('plan'); }}
             >
               Plan
+            </button>
+            <button
+              style={tabStyle(isAnalyticsTab)}
+              onClick={() => { setShowEpics(false); setShowCalendar(false); setShowDependencies(false); setShowAnalytics(true); }}
+            >
+              &#128202; Analytics
             </button>
 
             {/* Right-side actions */}
@@ -313,14 +323,14 @@ export default function App() {
               >
                 Standup
               </Button>
-              {(!showEpics && !showCalendar && !showDependencies && (view === 'board' || view === 'backlog')) && (
+              {(!showEpics && !showCalendar && !showDependencies && !showAnalytics && (view === 'board' || view === 'backlog')) && (
                 <Button appearance="primary" onClick={() => setShowCreateTicket(true)}>Create issue</Button>
               )}
             </div>
           </div>
 
           {/* Saved filters chip bar — shown below tab strip on Board and Backlog */}
-          {(!showEpics && !showCalendar && !showDependencies && (view === 'board' || view === 'backlog')) && (
+          {(!showEpics && !showCalendar && !showDependencies && !showAnalytics && (view === 'board' || view === 'backlog')) && (
             <SavedFilters
               activeFilter={activeFilter}
               onFilterApply={(name, criteria) => {
@@ -336,7 +346,7 @@ export default function App() {
 
           {/* Views */}
           <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-            {!showEpics && !showCalendar && !showDependencies && view === 'board' && (
+            {!showEpics && !showCalendar && !showDependencies && !showAnalytics && view === 'board' && (
               <Board
                 issues={filteredIssues}
                 allIssues={issues}
@@ -347,15 +357,17 @@ export default function App() {
                 onBulkAction={handleBulkAction}
                 onIssueCreated={fetchStatus}
                 activeSprintId={dashboard?.active_sprint_id ?? null}
+                boardSort={dashboard?.board_sort ?? {}}
+                onBoardSortChange={fetchStatus}
               />
             )}
-            {!showEpics && !showCalendar && !showDependencies && view === 'backlog' && (
+            {!showEpics && !showCalendar && !showDependencies && !showAnalytics && view === 'backlog' && (
               <Backlog
                 issues={filteredIssues}
                 onBulkAction={handleBulkAction}
               />
             )}
-            {!showEpics && !showCalendar && !showDependencies && view === 'docs' && (
+            {!showEpics && !showCalendar && !showDependencies && !showAnalytics && view === 'docs' && (
               <Docs
                 docs={docs}
                 activeDocId={activeDocId}
@@ -364,15 +376,15 @@ export default function App() {
                 onRefresh={fetchDocs}
               />
             )}
-            {!showEpics && !showCalendar && !showDependencies && view === 'activity' && (
+            {!showEpics && !showCalendar && !showDependencies && !showAnalytics && view === 'activity' && (
               <Activity activity={activity} />
             )}
 
-            {showDependencies && !showEpics && !showCalendar && (
+            {showDependencies && !showEpics && !showCalendar && !showAnalytics && (
               <DependencyGraph issues={issues} onIssueClick={(issue) => setSelectedIssue(issue)} />
             )}
 
-            {showEpics && !showCalendar && (
+            {showEpics && !showCalendar && !showAnalytics && (
               <div style={{ flex: 1, overflowY: 'auto', padding: '24px 32px 32px' }}>
                 {/* Page header — follows Atlaskit PageHeader pattern */}
                 <div style={{
@@ -421,12 +433,16 @@ export default function App() {
               </div>
             )}
 
-            {showCalendar && !showEpics && !showDependencies && (
+            {showCalendar && !showEpics && !showDependencies && !showAnalytics && (
               <IssueCalendarView issues={issues} onIssueClick={issue => setSelectedIssue(issue)} />
             )}
 
-            {!showEpics && !showCalendar && !showDependencies && view === 'plan' && (
+            {!showEpics && !showCalendar && !showDependencies && !showAnalytics && view === 'plan' && (
               <PlanView />
+            )}
+
+            {showAnalytics && !showEpics && !showCalendar && !showDependencies && (
+              <AnalyticsDashboard />
             )}
           </div>
         </main>
