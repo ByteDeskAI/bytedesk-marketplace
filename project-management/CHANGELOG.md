@@ -2,6 +2,81 @@
 
 All notable changes to the `project-management` plugin will be documented in this file.
 
+## [0.8.0] — 2026-06-08
+
+### Added
+
+**Issue schema — new fields**
+- `tags: list[str]` — free-form tag system for cross-cutting concerns
+- `assignee: str | null` — ticket ownership (human or agent)
+- `pinned: bool` — float ticket to top of Board column
+- `weight: int` (default 50) — fine-grained priority ordering within same priority band
+- `reopen_count: int` — tracks how many times a ticket has been reopened
+- `checklist: list[ChecklistItem]` — human-owned operational checklist (separate from AI-owned acceptance_criteria)
+- `handoff: SessionHandoff | null` — structured mid-session handoff record (next_step, files_in_progress, partial_criteria_done)
+- `risk: IssueRisk | null` — risk taxonomy flag (security, data_loss, breaking_change, external_integration, compliance)
+
+**Config additions**
+- `wip_limits: dict` — per-column Work-In-Progress limits
+- `session_templates: list` — session prompt templates by ticket type/tag
+- `sprint_themes: list` — strategic themes spanning multiple sprints
+
+**35 new MCP tools (89 total)**
+
+*Issue lifecycle:*
+- `pm_issue_assign` — set assignee (human or agent)
+- `pm_issue_pin` — pin/unpin a ticket to top of Board column
+- `pm_issue_weight` — set priority weight within same priority band
+- `pm_issue_reopen` — structured reopening with reason + reopen_count tracking
+- `pm_session_abort` — structured session abandonment (resets to TODO, records what was attempted + codebase state)
+- `pm_session_handoff` — mid-session handoff for context-window continuity
+- `pm_issue_checklist_set` / `pm_issue_checklist_check` — manage human-owned checklists
+- `pm_issue_risk_flag` — flag issue with risk category (triggers mandatory diff review)
+- `pm_issue_batch_update` — apply same field changes to multiple issues atomically
+- `pm_issue_duplicate_detect` — similarity check before creating tickets
+- `pm_issue_merge` — merge a duplicate ticket into another (unions criteria, transfers comments/links, closes source)
+
+*Analytics & forecasting:*
+- `pm_velocity_forecast` — project forward from last N sprint averages: weeks to clear backlog
+- `pm_sprint_compare` — side-by-side sprint diff: tickets done, sessions/ticket, reopens
+- `pm_board_export` — export board as markdown table, JSON, or brief doc
+- `pm_qa_checklist` — pre-implementation quality score (0–100) with grade A–F
+- `pm_cost_report` — aggregate estimated token cost per ticket/sprint/epic
+- `pm_issue_health_score` — per-ticket health 0–100 across spec, stability, freshness, progress
+- `pm_session_quality_score` — score last session's behavioral discipline (checkin, attach, link, criteria)
+- `pm_sprint_health_dashboard` — single-call sprint cockpit: goal alignment, WIP violations, stale, cost, CI alerts
+
+*Planning & intelligence:*
+- `pm_workload_balance` — detect stuck/lagging sessions in an epic's agent pool
+- `pm_sprint_goal_set` — dedicated sprint goal update (lighter than pm_sprint_manage)
+- `pm_code_context` — discover most relevant codebase files for a ticket (git grep + commit history)
+- `pm_issue_dependency_path` — BFS to find shortest is-blocked-by chain from an issue to root blockers
+- `pm_auto_link_pr` — scan GitHub PRs for ticket ID mentions and auto-link them
+- `pm_epic_roadmap_sync` — keep expected_completion_sprint current from child sprint assignments
+- `pm_prioritize_backlog` — AI-ranked work queue: blocking leverage + scope efficiency + goal alignment + staleness
+- `pm_daily_briefing` — forward-looking daily brief: recommended work order, NEEDS_INPUT queue, CI alerts
+- `pm_comment_reply` — threaded replies on ticket comments
+
+*Configuration tools:*
+- `pm_wip_limit_set` — set/clear per-column WIP limit (column header shows amber when exceeded)
+- `pm_session_template_create` / `list` / `delete` — session prompt templates auto-prepended by type/tag
+- `pm_sprint_theme_create` / `list` — strategic themes spanning multiple sprints
+
+**Dashboard server — 17 new endpoints**
+- `GET /api/workspace/wip_limits`, `GET|POST /api/workspace/session_templates`, `DELETE /api/workspace/session_templates/<name>`
+- `GET|POST /api/workspace/sprint_themes`, `DELETE /api/workspace/sprint_themes/<name>`
+- `GET /api/sprint/health`, `GET /api/sprint/briefing`
+- `GET /api/issues/<id>/health`
+- `POST /api/issues/<id>/assign`, `pin`, `reopen`, `abort`, `handoff`, `checklist`, `risk`, `reply`
+- Session template matching wired into `POST /api/run` — auto-prepends matching prompt prefix
+- `wip_limits` added to `/api/status` response
+
+**Dashboard SPA**
+- Board: tag chips on cards (first 2 + "+N more"), assignee avatar badge, pinned 📌 indicator, WIP limit badge on column header (amber at limit), DRAFT status → dimmed italic cards, Focus Mode toggle (hides DONE column)
+- Backlog: weight column + sort by weight, tag chips on rows, assignee column
+- TicketDetailDrawer: human checklist section in Details tab, handoff banner (IN_PROGRESS), risk SectionMessage (red), reopen count badge, tags display, assignee field
+- New `KeyboardTriage.tsx` — full-screen inbox-zero triage mode (`A`=approve, `D`=defer, `P`=pin, `← →`=navigate, `Esc`=exit). Triggered by "🔁 Triage" button in tab bar.
+
 ## [0.7.0] — 2026-06-08
 
 ### Added

@@ -23,7 +23,7 @@
     {
       "name": "project-management",
       "description": "Localized project management and documentation tool (Jira/Confluence equivalent) with MCP support for tasks, sprints, board status, and wiki pages. Real-time React SPA dashboard with @atlaskit components, inline fleet terminal sessions, and PM planning persona.",
-      "version": "0.7.1",
+      "version": "0.8.0",
       "source": "./project-management"
     }
   ]
