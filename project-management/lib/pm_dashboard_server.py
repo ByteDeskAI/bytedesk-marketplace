@@ -1067,13 +1067,75 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                               json.dumps({"ok": False, "error": f"Ticket {ticket_id} not found"}).encode())
                 return
 
-            prompt = (
-                f"Implement this ticket:\n\n"
-                f"ID: {issue['id']}\n"
-                f"Title: {issue['title']}\n"
-                f"Description: {issue.get('description', 'No description')}\n\n"
-                f"Check the codebase, implement the changes, and mark the ticket done when complete."
-            )
+            is_epic = issue.get("type", "").lower() == "epic"
+
+            if is_epic:
+                # Fetch children ordered by ID; skip already-DONE/REVIEW so the
+                # session can be re-run to pick up remaining work.
+                all_issues = store.list_issues()
+                children = sorted(
+                    [i for i in all_issues if i.get("epic_id") == ticket_id],
+                    key=lambda i: i["id"],
+                )
+                pending = [c for c in children if c.get("status") not in ("DONE", "REVIEW")]
+                done_children = [c for c in children if c.get("status") in ("DONE", "REVIEW")]
+
+                child_lines = []
+                for c in children:
+                    status_note = f" [{c.get('status', 'TODO')}]" if c.get("status") in ("DONE", "REVIEW") else ""
+                    child_lines.append(
+                        f"  - {c['id']}: {c['title']}{status_note}\n"
+                        f"    Description: {c.get('description', 'No description')}"
+                    )
+
+                skip_note = (
+                    f"\n\nNote: {len(done_children)} child ticket(s) are already DONE/REVIEW — skip them."
+                    if done_children else ""
+                )
+
+                prompt = (
+                    f"You are implementing the epic: {issue['id']} — {issue['title']}\n\n"
+                    f"Epic description: {issue.get('description', 'No description')}\n\n"
+                    f"Child tickets to implement in order:\n"
+                    + "\n".join(child_lines)
+                    + skip_note
+                    + "\n\nInstructions:\n"
+                    "1. Work through each pending child ticket in order, one at a time.\n"
+                    "2. Before starting each ticket, call pm_issue_transition to move it to IN_PROGRESS.\n"
+                    "3. Read the codebase, implement the changes for that ticket.\n"
+                    "4. After completing it, call pm_issue_transition to move it to DONE.\n"
+                    "5. Do not move to the next ticket until the current one is DONE.\n"
+                    f"6. After ALL child tickets are DONE, call pm_issue_transition to move {ticket_id} to DONE.\n"
+                    "Use pm_issue_comment to leave notes on tickets as you work. "
+                    "Use pm_issue_get to re-read a ticket's full details before implementing it."
+                )
+
+                # Mark epic IN_PROGRESS immediately
+                if issue.get("status") == "TODO":
+                    store.update_issue(ticket_id, {"status": "IN_PROGRESS"})
+                    _broadcast_event({"type": "issue_updated", "payload": {"id": ticket_id, "status": "IN_PROGRESS"}})
+
+            else:
+                prompt = (
+                    f"Implement this ticket:\n\n"
+                    f"ID: {issue['id']}\n"
+                    f"Title: {issue['title']}\n"
+                    f"Description: {issue.get('description', 'No description')}\n\n"
+                    f"Check the codebase, implement the changes, then call pm_issue_transition to "
+                    f"move {ticket_id} to DONE when complete."
+                )
+
+                # Advance ticket to IN_PROGRESS
+                store.update_issue(ticket_id, {"status": "IN_PROGRESS"})
+                _broadcast_event({"type": "issue_updated", "payload": {"id": ticket_id, "status": "IN_PROGRESS"}})
+
+                # Advance parent epic if still in TODO
+                epic_id = issue.get("epic_id")
+                if epic_id:
+                    epic = store.get_issue(epic_id)
+                    if epic and epic.get("status") == "TODO":
+                        store.update_issue(epic_id, {"status": "IN_PROGRESS"})
+                        _broadcast_event({"type": "issue_updated", "payload": {"id": epic_id, "status": "IN_PROGRESS"}})
 
             # Ensure MCP config and current skills are written into the workspace
             project_root = str(self._pm_root.parent)
@@ -1084,18 +1146,6 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                 self._respond(500, "application/json",
                               json.dumps({"ok": False, "error": spawn_err}).encode())
                 return
-
-            # Advance ticket to IN_PROGRESS
-            store.update_issue(ticket_id, {"status": "IN_PROGRESS"})
-            _broadcast_event({"type": "issue_updated", "payload": {"id": ticket_id, "status": "IN_PROGRESS"}})
-
-            # Advance parent epic if still in TODO
-            epic_id = issue.get("epic_id")
-            if epic_id:
-                epic = store.get_issue(epic_id)
-                if epic and epic.get("status") == "TODO":
-                    store.update_issue(epic_id, {"status": "IN_PROGRESS"})
-                    _broadcast_event({"type": "issue_updated", "payload": {"id": epic_id, "status": "IN_PROGRESS"}})
 
             # Register in session registry
             with _sessions_lock:

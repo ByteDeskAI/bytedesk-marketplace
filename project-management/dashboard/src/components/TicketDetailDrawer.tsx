@@ -10,31 +10,22 @@ import Tooltip from '@atlaskit/tooltip';
 import InlineMessage from '@atlaskit/inline-message';
 import Badge from '@atlaskit/badge';
 import Button from '@atlaskit/button';
+import { Issue } from '../types';
 
-interface CommentData {
-  id: number;
-  author: string;
-  body: string;
-  created_at: string;
-}
-
-interface IssueData {
-  id: string;
-  title: string;
-  description: string;
-  type: string;
-  status: string;
-  priority: string;
-  sprint_id?: string | null;
-  comments: CommentData[];
-}
+const STATUS_APPEARANCE: Record<string, 'default' | 'inprogress' | 'moved' | 'success' | 'removed'> = {
+  TODO: 'default',
+  IN_PROGRESS: 'inprogress',
+  REVIEW: 'moved',
+  DONE: 'success',
+};
 
 interface Props {
-  issue: IssueData | null;
+  issue: Issue | null;
+  allIssues: Issue[];
   onClose: () => void;
 }
 
-export default function TicketDetailDrawer({ issue, onClose }: Props) {
+export default function TicketDetailDrawer({ issue, allIssues, onClose }: Props) {
   const [sessionKey, setSessionKey] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
@@ -44,11 +35,7 @@ export default function TicketDetailDrawer({ issue, onClose }: Props) {
     fetch(`/api/run/${issue.id}`)
       .then(r => r.json())
       .then((body: { ok: boolean; status?: string }) => {
-        if (body.ok && body.status && body.status !== 'gone') {
-          setSessionKey(issue.id);
-        } else {
-          setSessionKey(null);
-        }
+        setSessionKey(body.ok && body.status && body.status !== 'gone' ? issue.id : null);
       })
       .catch(() => { setSessionKey(null); });
   }, [issue?.id]);
@@ -78,75 +65,54 @@ export default function TicketDetailDrawer({ issue, onClose }: Props) {
 
   if (issue === null) return null;
 
-  // derive tags
+  const isEpic = issue.type === 'epic';
+  const children = isEpic
+    ? allIssues.filter(i => i.epic_id === issue.id).sort((a, b) => a.id.localeCompare(b.id))
+    : [];
+  const pendingChildren = children.filter(c => !['DONE', 'REVIEW'].includes(c.status));
+
   const tags: string[] = [];
   if (issue.priority === 'critical') tags.push('critical');
   if (issue.sprint_id) tags.push('in-sprint');
   else tags.push('backlog');
 
-  // Priority dot colour helper
   const priorityDotColor =
-    issue.priority === 'critical'
-      ? '#ff5630'
-      : issue.priority === 'high'
-      ? '#ff8b00'
-      : issue.priority === 'medium'
-      ? '#0052cc'
-      : '#6b778c';
+    issue.priority === 'critical' ? '#ff5630'
+    : issue.priority === 'high'   ? '#ff8b00'
+    : issue.priority === 'medium' ? '#0052cc'
+    :                               '#6b778c';
+
+  const runLabel = running ? 'Starting…'
+    : isEpic ? (pendingChildren.length > 0 ? `▶ Run Epic (${pendingChildren.length} pending)` : '▶ Re-run Epic')
+    : '▶ Run Ticket';
 
   return (
     <Drawer isOpen={issue !== null} onClose={onClose} width="wide">
       <div style={{ padding: '24px', color: 'var(--ds-text)' }}>
-        {/* Issue ID */}
-        <div style={{ marginBottom: '8px' }}>
-          <span
-            style={{
-              fontFamily: 'monospace',
-              fontSize: '13px',
-              color: 'var(--ds-link)',
-              fontWeight: 600,
-            }}
-          >
+        {/* ID */}
+        <div style={{ marginBottom: 8 }}>
+          <span style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--ds-link)', fontWeight: 600 }}>
             {issue.id}
           </span>
         </div>
 
         {/* Title */}
-        <h2
-          style={{
-            margin: '0 0 16px 0',
-            fontSize: '20px',
-            fontWeight: 600,
-            color: 'var(--ds-text)',
-            lineHeight: 1.3,
-          }}
-        >
+        <h2 style={{ margin: '0 0 16px', fontSize: 20, fontWeight: 600, color: 'var(--ds-text)', lineHeight: 1.3 }}>
           {issue.title}
         </h2>
 
-        {/* Status / Type / Priority lozenges */}
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
-          <Lozenge isBold>{issue.status}</Lozenge>
+        {/* Status / Type / Priority */}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+          <Lozenge isBold appearance={STATUS_APPEARANCE[issue.status] ?? 'default'}>{issue.status}</Lozenge>
           <Lozenge appearance="new">{issue.type}</Lozenge>
-          {/* CHANGE 6 — tooltip on priority lozenge dot */}
           <Tooltip content={'Priority: ' + issue.priority}>
             {(tp) => (
-              <span {...tp} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                <span
-                  style={{
-                    display: 'inline-block',
-                    width: '8px',
-                    height: '8px',
-                    borderRadius: '50%',
-                    background: priorityDotColor,
-                    flexShrink: 0,
-                  }}
-                />
-                <Lozenge
-                  appearance={
-                    issue.priority === 'high' || issue.priority === 'critical' ? 'removed' : 'default'
-                  }
-                >
+              <span {...tp} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <span style={{
+                  display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
+                  background: priorityDotColor, flexShrink: 0,
+                }} />
+                <Lozenge appearance={issue.priority === 'high' || issue.priority === 'critical' ? 'removed' : 'default'}>
                   {issue.priority}
                 </Lozenge>
               </span>
@@ -154,80 +120,72 @@ export default function TicketDetailDrawer({ issue, onClose }: Props) {
           </Tooltip>
         </div>
 
-        {/* CHANGE 1 — Tags derived from issue state */}
+        {/* Tags */}
         {tags.length > 0 && (
-          <div style={{ marginBottom: '20px' }}>
-            <TagGroup>
-              {tags.map((t) => (
-                <SimpleTag key={t} text={t} />
-              ))}
-            </TagGroup>
+          <div style={{ marginBottom: 20 }}>
+            <TagGroup>{tags.map(t => <SimpleTag key={t} text={t} />)}</TagGroup>
           </div>
         )}
 
         {/* Description */}
-        <div style={{ marginBottom: '20px' }}>
-          <div
-            style={{
-              fontSize: '13px',
-              fontWeight: 600,
-              color: 'var(--ds-text-subtle)',
-              marginBottom: '6px',
-              textTransform: 'uppercase',
-              letterSpacing: '0.04em',
-            }}
-          >
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ds-text-subtle)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
             Description
           </div>
           {issue.description ? (
-            <div
-              style={{
-                fontSize: '14px',
-                color: 'var(--ds-text)',
-                lineHeight: 1.6,
-                background: 'var(--ds-surface-raised)',
-                borderRadius: '4px',
-                padding: '12px',
-              }}
-            >
+            <div style={{ fontSize: 14, color: 'var(--ds-text)', lineHeight: 1.6, background: 'var(--ds-surface-raised)', borderRadius: 4, padding: 12 }}>
               {issue.description}
             </div>
           ) : (
-            /* CHANGE 4 — InlineMessage when description is empty */
-            <InlineMessage
-              appearance="info"
-              title="No description"
-              secondaryText="Use Claude: /pm:ticket [ID] --desc text"
-            />
+            <InlineMessage appearance="info" title="No description" secondaryText="Use Claude: /pm:ticket [ID] --desc text" />
           )}
         </div>
 
-        {/* Comments section — CHANGE 5: Badge on heading */}
-        <div style={{ marginTop: '28px' }}>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              marginTop: 16,
-              marginBottom: 8,
-            }}
-          >
-            <span style={{ fontWeight: 700, color: 'var(--ds-text)' }}>Comments</span>
-            <Badge
-              appearance={issue.comments.length > 0 ? 'primary' : 'default'}
-            >
-              {issue.comments.length}
-            </Badge>
+        {/* ── Epic children progress ── */}
+        {isEpic && children.length > 0 && (
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ds-text-subtle)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.04em', display: 'flex', alignItems: 'center', gap: 8 }}>
+              Child Tickets
+              <Badge appearance={pendingChildren.length > 0 ? 'primary' : 'default'}>
+                {pendingChildren.length} pending
+              </Badge>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {children.map(child => (
+                <div key={child.id} style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '8px 12px',
+                  background: 'var(--ds-surface-raised)',
+                  borderRadius: 4,
+                  border: '1px solid var(--ds-border)',
+                  opacity: ['DONE', 'REVIEW'].includes(child.status) ? 0.6 : 1,
+                }}>
+                  <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--ds-link)', fontWeight: 600, flexShrink: 0 }}>
+                    {child.id}
+                  </span>
+                  <span style={{ fontSize: 13, color: 'var(--ds-text)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {child.title}
+                  </span>
+                  <Lozenge appearance={STATUS_APPEARANCE[child.status] ?? 'default'}>
+                    {child.status}
+                  </Lozenge>
+                </div>
+              ))}
+            </div>
           </div>
+        )}
 
+        {/* Comments */}
+        <div style={{ marginTop: 28 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 16, marginBottom: 8 }}>
+            <span style={{ fontWeight: 700, color: 'var(--ds-text)' }}>Comments</span>
+            <Badge appearance={issue.comments.length > 0 ? 'primary' : 'default'}>{issue.comments.length}</Badge>
+          </div>
           {issue.comments.length === 0 ? (
-            <p style={{ margin: 0, fontStyle: 'italic', color: 'var(--ds-text-subtlest)', fontSize: '14px' }}>
-              No comments yet
-            </p>
+            <p style={{ margin: 0, fontStyle: 'italic', color: 'var(--ds-text-subtlest)', fontSize: 14 }}>No comments yet</p>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {issue.comments.map((c) => (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {issue.comments.map(c => (
                 <Comment
                   key={c.id}
                   avatar={<Avatar size="small" name={c.author} />}
@@ -240,16 +198,16 @@ export default function TicketDetailDrawer({ issue, onClose }: Props) {
           )}
         </div>
 
-        {/* Terminal section */}
+        {/* Terminal */}
         <div style={{ marginTop: 28, borderTop: '1px solid var(--ds-border)', paddingTop: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-            <span style={{ fontWeight: 700, color: 'var(--ds-text)', fontSize: 15 }}>Terminal</span>
-            {issue.status === 'IN_PROGRESS' && sessionKey && (
-              <span style={{
-                fontSize: 11, fontWeight: 600, padding: '2px 7px',
-                background: 'var(--ds-background-brand-bold)',
-                color: '#fff', borderRadius: 10,
-              }}>Running</span>
+            <span style={{ fontWeight: 700, color: 'var(--ds-text)', fontSize: 15 }}>
+              {isEpic ? 'Epic Session' : 'Terminal'}
+            </span>
+            {sessionKey && (
+              <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 7px', background: 'var(--ds-background-brand-bold)', color: '#fff', borderRadius: 10 }}>
+                Running
+              </span>
             )}
           </div>
 
@@ -264,18 +222,10 @@ export default function TicketDetailDrawer({ issue, onClose }: Props) {
           )}
 
           {sessionKey ? (
-            <TerminalPanel
-              sessionKey={sessionKey}
-              height={300}
-              onClose={() => setSessionKey(null)}
-            />
+            <TerminalPanel sessionKey={sessionKey} height={360} onClose={() => setSessionKey(null)} />
           ) : (
-            <Button
-              appearance="primary"
-              isDisabled={running}
-              onClick={handleRun}
-            >
-              {running ? 'Starting…' : '▶ Run Ticket'}
+            <Button appearance="primary" isDisabled={running} onClick={handleRun}>
+              {runLabel}
             </Button>
           )}
         </div>

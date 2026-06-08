@@ -5,6 +5,13 @@ All notable changes to the `project-management` plugin will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.8] — 2026-06-08
+
+### Added
+- **Epic execution**: clicking "Run Epic" on an epic ticket spawns a single Claude session with the full epic context — goal, description, and all child tickets listed in order with their current status. Claude implements children sequentially, transitioning each to IN_PROGRESS then DONE via `pm_issue_transition`, and marks the epic DONE when all children are complete. Re-running a partially-complete epic skips already-DONE/REVIEW children.
+- **Child ticket progress table**: the ticket detail drawer for epics now shows all child tickets with their live status (Lozenge), dimmed once DONE/REVIEW, and a "N pending" badge. Statuses update in real time as Claude works through them via SSE.
+- **Run button context**: button label reflects epic vs task ("▶ Run Epic (N pending)" / "▶ Run Ticket") and shows the pending child count.
+
 ## [0.4.7] — 2026-06-08
 
 ### Changed

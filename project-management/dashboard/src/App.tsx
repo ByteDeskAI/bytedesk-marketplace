@@ -298,7 +298,7 @@ export default function App() {
         </main>
       </div>
 
-      <TicketDetailDrawer issue={selectedIssue} onClose={() => setSelectedIssue(null)} />
+      <TicketDetailDrawer issue={selectedIssue} allIssues={issues} onClose={() => setSelectedIssue(null)} />
       <CreateTicketModal
         isOpen={showCreateTicket}
         onClose={() => setShowCreateTicket(false)}
