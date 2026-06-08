@@ -60,6 +60,7 @@ class JSONLBackend:
         self.docs_path = root / "docs.jsonl"
         self.events_path = root / "events.jsonl"
         self.doc_versions_path = root / "doc_versions.jsonl"
+        self.snapshots_path = root / "snapshots"
         # In-process mutex — reentrant so the same thread can re-acquire
         self._lock = threading.RLock()
 
@@ -151,6 +152,7 @@ class JSONLBackend:
                 "active_sprint_id": None,
                 "created_at": now,
                 "sprints": [],
+                "board_sort": {},
                 "activity_log": [{
                     "timestamp": now,
                     "action": "Project initialized",
@@ -1207,6 +1209,82 @@ class JSONLBackend:
         )
         self.emit_event("issue_split", {"id": issue_id, "children": child_ids})
         return {"original_closed": closed, "children": children}
+
+    # ── v0.9.0 new methods ────────────────────────────────────────────────────
+
+    def take_snapshot(self, issue_id: str, label: str = "") -> Dict[str, Any]:
+        """Capture a full point-in-time snapshot of an issue's state."""
+        issue_id = issue_id.strip().upper()
+        issue = self.get_issue(issue_id)
+        if issue is None:
+            raise ValueError(f"Issue {issue_id} not found.")
+        self.snapshots_path.mkdir(parents=True, exist_ok=True)
+        now = self._now()
+        snapshot_id = f"{issue_id}-{int(time.time())}"
+        snapshot: Dict[str, Any] = {
+            "snapshot_id": snapshot_id,
+            "issue_id": issue_id,
+            "label": label.strip(),
+            "created_at": now,
+            "state": dict(issue),
+        }
+        snap_file = self.snapshots_path / f"{snapshot_id}.json"
+        snap_file.write_text(json.dumps(snapshot, indent=2, ensure_ascii=False), encoding="utf-8")
+        return {"snapshot_id": snapshot_id, "issue_id": issue_id, "label": label.strip(), "created_at": now}
+
+    def list_snapshots(self, issue_id: str) -> List[Dict[str, Any]]:
+        """List all snapshots for an issue, newest first."""
+        issue_id = issue_id.strip().upper()
+        if not self.snapshots_path.exists():
+            return []
+        result: List[Dict[str, Any]] = []
+        for snap_file in self.snapshots_path.glob(f"{issue_id}-*.json"):
+            try:
+                data = json.loads(snap_file.read_text(encoding="utf-8"))
+                result.append({"snapshot_id": data["snapshot_id"], "label": data.get("label", ""),
+                               "created_at": data["created_at"]})
+            except Exception:
+                pass
+        result.sort(key=lambda x: x["created_at"], reverse=True)
+        return result
+
+    def restore_snapshot(self, issue_id: str, snapshot_id: str) -> Dict[str, Any]:
+        """Restore an issue to a snapshot state (all fields except id)."""
+        issue_id = issue_id.strip().upper()
+        snap_file = self.snapshots_path / f"{snapshot_id}.json"
+        if not snap_file.exists():
+            raise ValueError(f"Snapshot {snapshot_id} not found.")
+        data = json.loads(snap_file.read_text(encoding="utf-8"))
+        state = data["state"]
+        state.pop("id", None)
+        state["updated_at"] = self._now()
+        with self._lock, self._exclusive(self.issues_path):
+            records = self._read_jsonl(self.issues_path)
+            idx = next((i for i, r in enumerate(records) if r.get("id", "").upper() == issue_id), None)
+            if idx is None:
+                raise ValueError(f"Issue {issue_id} not found.")
+            records[idx].update(state)
+            self._rewrite(self.issues_path, records)
+        self.log_activity("Restore Snapshot", f"Restored {issue_id} to snapshot {snapshot_id}")
+        self.emit_event("issue_updated", {"id": issue_id, "changes": ["snapshot_restore"]})
+        return dict(records[idx])
+
+    def set_board_sort(self, column: str, mode: str) -> Dict[str, str]:
+        """Persist a column sort preference. mode: creation|priority|weight|updated|scope|sessions"""
+        valid_modes = {"creation", "priority", "weight", "updated", "scope", "sessions"}
+        column = column.strip().upper()
+        mode = mode.strip().lower()
+        if mode not in valid_modes:
+            mode = "creation"
+        with self._lock, self._exclusive(self.config_path):
+            config = self._read_config()
+            config.setdefault("board_sort", {})[column] = mode
+            self._write_config(config)
+        return dict(config["board_sort"])
+
+    def get_board_sort(self) -> Dict[str, str]:
+        """Return per-column sort preferences."""
+        return dict(self._read_config().get("board_sort", {}))
 
     # ── Thread summarize ──────────────────────────────────────────────────────
 
