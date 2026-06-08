@@ -823,6 +823,8 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             self._serve_plan_sessions()
         elif path == "/api/migrate/status":
             self._serve_migrate_status()
+        elif path == "/api/changelog":
+            self._serve_changelog()
         elif path == "/api/workspace/health":
             self._serve_workspace_health()
         elif path == "/api/workspace/templates":
@@ -1873,6 +1875,60 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             os.kill(os.getpid(), signal.SIGTERM)
 
         threading.Thread(target=_do_restart, daemon=True).start()
+
+    def _serve_changelog(self) -> None:
+        """Parse CHANGELOG.md and return structured version entries as JSON."""
+        try:
+            plugin_root = Path(__file__).resolve().parents[1]
+            changelog_path = plugin_root / "CHANGELOG.md"
+            if not changelog_path.exists():
+                self._respond(404, "application/json",
+                              json.dumps({"ok": False, "error": "CHANGELOG.md not found"}).encode())
+                return
+
+            text = changelog_path.read_text(encoding="utf-8")
+            entries: List[Dict[str, Any]] = []
+            current: Optional[Dict[str, Any]] = None
+            current_section: Optional[Dict[str, Any]] = None
+
+            for line in text.splitlines():
+                # Version heading: ## [X.Y.Z] — YYYY-MM-DD
+                if line.startswith("## ["):
+                    if current:
+                        if current_section:
+                            current["sections"].append(current_section)
+                            current_section = None
+                        entries.append(current)
+                    # Parse version + date
+                    rest = line[3:].strip()
+                    version = rest[1:rest.index("]")] if "]" in rest else rest
+                    date = rest.split("—")[-1].strip() if "—" in rest else ""
+                    current = {"version": version, "date": date, "sections": []}
+                    current_section = None
+
+                elif line.startswith("### ") and current is not None:
+                    if current_section:
+                        current["sections"].append(current_section)
+                    current_section = {"heading": line[4:].strip(), "items": []}
+
+                elif line.startswith("- ") and current_section is not None:
+                    current_section["items"].append(line[2:].strip())
+
+                elif line.startswith("**") and current_section is not None:
+                    # Bold sub-section headers inside a section — treat as sub-item
+                    current_section["items"].append(line.strip())
+
+            # Flush last entry
+            if current:
+                if current_section:
+                    current["sections"].append(current_section)
+                entries.append(current)
+
+            payload = json.dumps({"ok": True, "entries": entries}, ensure_ascii=False)
+            self._respond(200, "application/json", payload.encode())
+        except Exception as exc:
+            self._respond(500, "application/json",
+                          json.dumps({"ok": False, "error": str(exc)}).encode())
 
     def _serve_migrate_status(self) -> None:
         """Return current backend type, record counts, and available migration paths."""

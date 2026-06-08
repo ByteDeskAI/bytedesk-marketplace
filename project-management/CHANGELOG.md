@@ -2,6 +2,11 @@
 
 All notable changes to the `project-management` plugin will be documented in this file.
 
+## [0.7.2] — 2026-06-08
+
+### Added
+- **Changelog in profile menu**: "What's New" item in the dashboard profile menu opens a modal that fetches and renders `CHANGELOG.md` as structured version entries. The latest version is auto-expanded with a "Latest" badge. Each version is collapsible; sections (Added/Changed/Fixed/Removed) are shown as Lozenges with appropriate appearance. Backend: `GET /api/changelog` parses `CHANGELOG.md` into `{version, date, sections[{heading, items}]}` JSON.
+
 ## [0.7.0] — 2026-06-08
 
 ### Added
