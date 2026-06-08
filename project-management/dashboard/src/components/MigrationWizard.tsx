@@ -116,6 +116,7 @@ export default function MigrationWizard({ onClose }: Props) {
 
   return (
     <AnimatePresence>
+      {/* Backdrop doubles as the centering flex container */}
       <motion.div
         key="backdrop"
         initial={{ opacity: 0 }}
@@ -123,8 +124,14 @@ export default function MigrationWizard({ onClose }: Props) {
         exit={{ opacity: 0 }}
         transition={{ duration: 0.15 }}
         onClick={onClose}
-        style={{ position: 'fixed', inset: 0, background: 'rgba(9,30,66,0.6)', zIndex: 600 }}
-      />
+        style={{
+          position: 'fixed', inset: 0,
+          background: 'rgba(9,30,66,0.6)',
+          zIndex: 600,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: 16,
+        }}
+      >
       <motion.div
         key="wizard"
         initial={{ opacity: 0, y: 24, scale: 0.97 }}
@@ -133,14 +140,10 @@ export default function MigrationWizard({ onClose }: Props) {
         transition={spring}
         onClick={e => e.stopPropagation()}
         style={{
-          position: 'fixed',
-          top: '50%', left: '50%',
-          transform: 'translate(-50%, -50%)',
-          width: 540, maxWidth: 'calc(100vw - 32px)',
+          width: 540, maxWidth: '100%',
           background: 'var(--ds-surface)',
           borderRadius: 8,
           boxShadow: '0 16px 48px rgba(0,0,0,0.4)',
-          zIndex: 601,
           overflow: 'hidden',
         }}
       >
@@ -406,6 +409,7 @@ export default function MigrationWizard({ onClose }: Props) {
             </>
           )}
         </div>
+      </motion.div>
       </motion.div>
     </AnimatePresence>
   );
