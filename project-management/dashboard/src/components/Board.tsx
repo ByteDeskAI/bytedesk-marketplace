@@ -16,8 +16,50 @@ import Blanket from '@atlaskit/blanket';
 import InlineDialog from '@atlaskit/inline-dialog';
 import BulkActionsBar from './BulkActionsBar';
 import type { Issue, IssueCheckin, IssueScope } from '../types';
-import { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { draggable, dropTargetForElements, monitorForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
+
+// ── Board sort helper ─────────────────────────────────────────────────────────
+
+function sortIssues(issues: Issue[], mode: string): Issue[] {
+  const priorityOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+  const scopeOrder: Record<string, number> = { nano: 0, small: 1, medium: 2, large: 3, research: 2 };
+  switch (mode) {
+    case 'priority':
+      return [...issues].sort((a, b) =>
+        (priorityOrder[a.priority] ?? 2) - (priorityOrder[b.priority] ?? 2) ||
+        (a.weight ?? 50) - (b.weight ?? 50));
+    case 'weight':
+      return [...issues].sort((a, b) => (a.weight ?? 50) - (b.weight ?? 50));
+    case 'updated':
+      return [...issues].sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+    case 'scope':
+      return [...issues].sort((a, b) => (scopeOrder[a.scope ?? ''] ?? 2) - (scopeOrder[b.scope ?? ''] ?? 2));
+    case 'sessions':
+      return [...issues].sort((a, b) =>
+        (a.session_summaries?.length ?? 0) - (b.session_summaries?.length ?? 0));
+    default:
+      return [...issues].sort((a, b) => {
+        const aNum = parseInt(a.id.split('-')[1] ?? '0', 10);
+        const bNum = parseInt(b.id.split('-')[1] ?? '0', 10);
+        return aNum - bNum;
+      });
+  }
+}
+
+// ── Staleness helpers ─────────────────────────────────────────────────────────
+
+function getAgeInStatus(issue: Issue): number {
+  const updated = new Date(issue.updated_at).getTime();
+  return (Date.now() - updated) / 86_400_000; // days
+}
+
+function getStalenessGroup(issue: Issue): 'fresh' | 'aging' | 'stale' {
+  const days = getAgeInStatus(issue);
+  if (days < 1) return 'fresh';
+  if (days < 3) return 'aging';
+  return 'stale';
+}
 
 type LozAppearance = 'default' | 'success' | 'removed' | 'inprogress' | 'moved' | 'new';
 
@@ -554,9 +596,12 @@ interface ColumnProps {
   wipLimit?: number;
   totalCount?: number;
   focusMode?: boolean;
+  sortMode?: string;
+  onSortChange?: (col: string, mode: string) => void;
+  stalenessBands?: boolean;
 }
 
-function Column({ col, issues, allIssues, onStatusChange, onIssueClick, selectedIds, onSelect, compact, onIssueCreated, activeSprintId, wipLimit, totalCount, focusMode }: ColumnProps) {
+function Column({ col, issues, allIssues, onStatusChange, onIssueClick, selectedIds, onSelect, compact, onIssueCreated, activeSprintId, wipLimit, totalCount, focusMode, sortMode, onSortChange, stalenessBands }: ColumnProps) {
   const bodyRef = useRef<HTMLDivElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
 
@@ -634,6 +679,30 @@ function Column({ col, issues, allIssues, onStatusChange, onIssueClick, selected
         }}>
           {COL_LABELS[col]}
         </span>
+        <select
+          value={sortMode ?? 'creation'}
+          onChange={async (e) => {
+            const mode = e.target.value;
+            await fetch('/api/workspace/board_sort', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ column: col, mode }),
+            }).catch(() => {});
+            onSortChange?.(col, mode);
+          }}
+          onClick={e => e.stopPropagation()}
+          style={{
+            fontSize: 11, background: 'transparent', border: 'none',
+            color: 'var(--ds-text-subtlest)', cursor: 'pointer', outline: 'none',
+          }}
+        >
+          <option value="creation">Date ↑</option>
+          <option value="priority">Priority</option>
+          <option value="weight">Weight</option>
+          <option value="updated">Updated</option>
+          <option value="scope">Scope</option>
+          <option value="sessions">Sessions</option>
+        </select>
         <Badge appearance="default">{issues.length}</Badge>
         {/* WIP limit badge */}
         {wipLimit != null && (wipOver || wipAt) && (
@@ -663,21 +732,82 @@ function Column({ col, issues, allIssues, onStatusChange, onIssueClick, selected
       >
         {issues.length === 0 ? (
           <EmptyState header="No issues" description="Drag here or create a new issue" />
-        ) : (
-          issues.map(issue => (
-            <IssueCard
-              key={issue.id}
-              issue={issue}
-              allIssues={allIssues}
-              onStatusChange={onStatusChange}
-              onIssueClick={onIssueClick}
-              isSelected={selectedIds?.includes(issue.id)}
-              onSelect={onSelect}
-              compact={compact}
-              focusMode={focusMode}
-            />
-          ))
-        )}
+        ) : (() => {
+          const sortedIssues = sortIssues(issues, sortMode ?? 'creation');
+
+          if (!stalenessBands) {
+            return sortedIssues.map(issue => (
+              <IssueCard
+                key={issue.id}
+                issue={issue}
+                allIssues={allIssues}
+                onStatusChange={onStatusChange}
+                onIssueClick={onIssueClick}
+                isSelected={selectedIds?.includes(issue.id)}
+                onSelect={onSelect}
+                compact={compact}
+                focusMode={focusMode}
+              />
+            ));
+          }
+
+          const fresh = sortedIssues.filter(i => getStalenessGroup(i) === 'fresh');
+          const aging = sortedIssues.filter(i => getStalenessGroup(i) === 'aging')
+            .sort((a, b) => getAgeInStatus(b) - getAgeInStatus(a));
+          const stale = sortedIssues.filter(i => getStalenessGroup(i) === 'stale')
+            .sort((a, b) => getAgeInStatus(b) - getAgeInStatus(a));
+
+          const divider = (key: string) => (
+            <div key={key} style={{ height: 1, background: 'var(--ds-border)', margin: '4px 0' }} />
+          );
+
+          const makeCard = (issue: Issue, group: 'fresh' | 'aging' | 'stale') => {
+            const days = Math.floor(getAgeInStatus(issue));
+            const ageChip = group !== 'fresh' ? (
+              <span style={{
+                fontSize: 10, fontWeight: 600, padding: '1px 4px', borderRadius: 3, flexShrink: 0,
+                background: group === 'aging' ? 'var(--ds-background-warning-bold)' : 'var(--ds-background-danger-bold)',
+                color: '#fff',
+              }}>
+                {days}d
+              </span>
+            ) : null;
+
+            const leftBorderStyle: React.CSSProperties = group === 'aging'
+              ? { borderLeft: '3px solid var(--ds-border-warning)' }
+              : group === 'stale'
+              ? { borderLeft: '3px solid var(--ds-border-danger)', opacity: 0.75 }
+              : {};
+
+            return (
+              <div key={issue.id} style={{ position: 'relative', ...leftBorderStyle }}>
+                <IssueCard
+                  issue={issue}
+                  allIssues={allIssues}
+                  onStatusChange={onStatusChange}
+                  onIssueClick={onIssueClick}
+                  isSelected={selectedIds?.includes(issue.id)}
+                  onSelect={onSelect}
+                  compact={compact}
+                  focusMode={focusMode}
+                />
+                {ageChip && (
+                  <div style={{ position: 'absolute', bottom: 6, right: 8, pointerEvents: 'none' }}>
+                    {ageChip}
+                  </div>
+                )}
+              </div>
+            );
+          };
+
+          const result: React.ReactNode[] = [];
+          fresh.forEach(i => result.push(makeCard(i, 'fresh')));
+          if (aging.length > 0 || stale.length > 0) result.push(divider('div-aging'));
+          aging.forEach(i => result.push(makeCard(i, 'aging')));
+          if (stale.length > 0) result.push(divider('div-stale'));
+          stale.forEach(i => result.push(makeCard(i, 'stale')));
+          return result;
+        })()}
         {col !== 'DONE' && (
           <InlineAdd
             colStatus={col}
@@ -833,15 +963,19 @@ interface Props {
   onIssueCreated?: () => void;
   activeSprintId?: string | null;
   wip_limits?: Record<string, number>;
+  boardSort?: Record<string, string>;
+  onBoardSortChange?: () => void;
 }
 
-export default function Board({ issues, allIssues, subTitle, sprintGoal, onStatusChange, onIssueClick, onBulkAction, onIssueCreated, activeSprintId, wip_limits }: Props) {
+export default function Board({ issues, allIssues, subTitle, sprintGoal, onStatusChange, onIssueClick, onBulkAction, onIssueCreated, activeSprintId, wip_limits, boardSort, onBoardSortChange }: Props) {
   const [goalDismissed, setGoalDismissed] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [compact, setCompact] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [swimlane, setSwimlane] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
+  const [stalenessBands, setStalenessBands] = useState(false);
+  const [localSort, setLocalSort] = useState<Record<string, string>>(boardSort ?? {});
 
   const byStatus = Object.fromEntries(
     COLS.map(col => [col, issues.filter(i => i.status === col)])
@@ -920,6 +1054,14 @@ export default function Board({ issues, allIssues, subTitle, sprintGoal, onStatu
               ? (doneCnt > 0 ? `All tickets (✓ ${doneCnt} hidden)` : 'All tickets')
               : 'Focus mode'}
           </button>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--ds-text)', cursor: 'pointer' }}>
+            <Toggle
+              isChecked={stalenessBands}
+              onChange={e => setStalenessBands(e.target.checked)}
+              size="regular"
+            />
+            ⏱ Age
+          </label>
         </div>
       </div>
       {sprintGoal && !goalDismissed && (
@@ -981,6 +1123,12 @@ export default function Board({ issues, allIssues, subTitle, sprintGoal, onStatu
               wipLimit={wip_limits?.[col]}
               totalCount={allByStatus[col].length}
               focusMode={focusMode}
+              sortMode={localSort[col] ?? boardSort?.[col] ?? 'creation'}
+              onSortChange={(c, mode) => {
+                setLocalSort(prev => ({ ...prev, [c]: mode }));
+                onBoardSortChange?.();
+              }}
+              stalenessBands={stalenessBands}
             />
           ))}
         </div>

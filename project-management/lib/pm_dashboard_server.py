@@ -812,6 +812,8 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                 self._handle_issue_linked_docs(issue_id)
             elif len(parts) == 2 and parts[1] == "health":
                 self._serve_issue_health(issue_id)
+            elif len(parts) == 2 and parts[1] == "snapshots":
+                self._serve_issue_snapshots(issue_id)
             else:
                 self._respond(404, "application/json",
                               json.dumps({"ok": False, "error": "not found"}).encode())
@@ -837,6 +839,10 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             self._serve_session_templates()
         elif path == "/api/workspace/sprint_themes":
             self._serve_sprint_themes()
+        elif path == "/api/workspace/board_sort":
+            self._serve_board_sort()
+        elif path == "/api/workspace/analytics":
+            self._serve_workspace_analytics()
         elif path == "/api/sprint/health":
             self._serve_sprint_health()
         elif path == "/api/sprint/briefing":
@@ -963,6 +969,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                     },
                     "columns": board,
                     "wip_limits": wip_limits,
+                    "board_sort": store.get_board_sort(),
                 },
                 "issues": issues,
                 "activity": config.get("activity_log", []),
@@ -1252,9 +1259,18 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                 self._handle_issue_risk(issue_id, body)
             elif len(parts) == 2 and parts[1] == "reply":
                 self._handle_comment_reply(issue_id, body)
+            elif len(parts) == 2 and parts[1] == "snapshot":
+                self._handle_issue_snapshot(issue_id, body)
+            elif len(parts) == 3 and parts[1] == "snapshot" and parts[2] == "restore":
+                snapshot_id = body.get("snapshot_id", "")
+                self._handle_issue_snapshot_restore(issue_id, snapshot_id)
             else:
                 self._respond(404, "application/json",
                               json.dumps({"ok": False, "error": "not found"}).encode())
+        elif path == "/api/workspace/board_sort":
+            self._handle_board_sort_set(body)
+        elif path == "/api/sprint/autopilot":
+            self._handle_sprint_autopilot(body)
         elif path == "/api/server/exit":
             self._handle_server_exit()
         elif path == "/api/server/restart":
@@ -2183,6 +2199,140 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                 "tickets_done": len(done), "tickets_in_progress": len(in_progress), "tickets_todo": len(todo),
                 "recommended_next": [{"id": i["id"], "title": i["title"]} for i in top_tickets],
                 "needs_input_queue": [{"id": i["id"], "reason": i.get("flagged_reason", "")} for i in needs_input],
+            }, default=str).encode())
+        except Exception as exc:
+            self._respond(500, "application/json", json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    # ── v0.9.0 new handlers ───────────────────────────────────────────────────
+
+    def _serve_board_sort(self) -> None:
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            from pm_store import PMStore
+            store = PMStore(str(self._pm_root.parent))
+            self._respond(200, "application/json",
+                          json.dumps({"ok": True, "board_sort": store.get_board_sort()}).encode())
+        except Exception as exc:
+            self._respond(500, "application/json", json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _handle_board_sort_set(self, body: Dict[str, Any]) -> None:
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            from pm_store import PMStore
+            store = PMStore(str(self._pm_root.parent))
+            column = body.get("column", "").strip().upper()
+            mode = body.get("mode", "creation").strip()
+            if not column:
+                self._respond(400, "application/json", json.dumps({"ok": False, "error": "column required"}).encode())
+                return
+            result = store.set_board_sort(column, mode)
+            self._respond(200, "application/json", json.dumps({"ok": True, "board_sort": result}).encode())
+        except Exception as exc:
+            self._respond(500, "application/json", json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _serve_issue_snapshots(self, issue_id: str) -> None:
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            from pm_store import PMStore
+            store = PMStore(str(self._pm_root.parent))
+            snaps = store.list_snapshots(issue_id.upper())
+            self._respond(200, "application/json", json.dumps({"ok": True, "snapshots": snaps}).encode())
+        except Exception as exc:
+            self._respond(500, "application/json", json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _handle_issue_snapshot(self, issue_id: str, body: Dict[str, Any]) -> None:
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            from pm_store import PMStore
+            store = PMStore(str(self._pm_root.parent))
+            snap = store.take_snapshot(issue_id.upper(), body.get("label", ""))
+            self._respond(201, "application/json", json.dumps({"ok": True, "snapshot": snap}).encode())
+        except ValueError as exc:
+            self._respond(404, "application/json", json.dumps({"ok": False, "error": str(exc)}).encode())
+        except Exception as exc:
+            self._respond(500, "application/json", json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _handle_issue_snapshot_restore(self, issue_id: str, snapshot_id: str) -> None:
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            from pm_store import PMStore
+            store = PMStore(str(self._pm_root.parent))
+            if not snapshot_id:
+                self._respond(400, "application/json", json.dumps({"ok": False, "error": "snapshot_id required"}).encode())
+                return
+            issue = store.restore_snapshot(issue_id.upper(), snapshot_id)
+            _broadcast_event({"type": "issue_updated", "payload": {"id": issue_id.upper()}})
+            self._respond(200, "application/json", json.dumps({"ok": True, "issue": issue}).encode())
+        except ValueError as exc:
+            self._respond(404, "application/json", json.dumps({"ok": False, "error": str(exc)}).encode())
+        except Exception as exc:
+            self._respond(500, "application/json", json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _serve_workspace_analytics(self) -> None:
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            from pm_store import PMStore
+            from datetime import datetime, timezone, timedelta
+            store = PMStore(str(self._pm_root.parent))
+            if not store.is_initialized():
+                self._respond(200, "application/json", json.dumps({"ok": False, "error": "not initialized"}).encode())
+                return
+            all_issues = store.list_issues()
+            config = store.get_project_config()
+            total_sessions = sum(len(i.get("session_summaries") or []) for i in all_issues)
+            done_issues = [i for i in all_issues if i.get("status") == "DONE"]
+            by_scope: Dict[str, int] = {}
+            for i in all_issues:
+                sc = i.get("scope") or "unset"
+                by_scope[sc] = by_scope.get(sc, 0) + 1
+            most_reopened = sorted(
+                [{"id": i["id"], "title": i["title"][:40], "reopen_count": i.get("reopen_count", 0)}
+                 for i in all_issues if i.get("reopen_count", 0) > 0],
+                key=lambda x: x["reopen_count"], reverse=True
+            )[:5]
+            self._respond(200, "application/json", json.dumps({
+                "ok": True,
+                "total_issues": len(all_issues),
+                "done_issues": len(done_issues),
+                "total_sessions": total_sessions,
+                "by_scope": by_scope,
+                "most_reopened": most_reopened,
+                "avg_sessions": round(total_sessions / max(len(all_issues), 1), 2),
+            }, default=str).encode())
+        except Exception as exc:
+            self._respond(500, "application/json", json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _handle_sprint_autopilot(self, body: Dict[str, Any]) -> None:
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            from pm_store import PMStore
+            store = PMStore(str(self._pm_root.parent))
+            sprint_id = body.get("sprint_id") or store.get_active_sprint_id()
+            max_parallel = int(body.get("max_parallel", 2))
+            if not sprint_id:
+                self._respond(400, "application/json", json.dumps({"ok": False, "error": "No active sprint"}).encode())
+                return
+            sprint_issues = store.list_issues(sprint_id=sprint_id)
+            in_progress = [i for i in sprint_issues if i.get("status") == "IN_PROGRESS"]
+            needs_input = [i for i in sprint_issues if i.get("status") == "NEEDS_INPUT"]
+            todo = [i for i in sprint_issues if i.get("status") == "TODO"]
+            wip_limit = max_parallel
+            available = max(0, wip_limit - len(in_progress))
+            issue_map = {i["id"]: i for i in store.list_issues()}
+            def _blocked(iss: Dict[str, Any]) -> bool:
+                return any(
+                    issue_map.get(lk["to_id"], {}).get("status") not in ("DONE", "REVIEW")
+                    for lk in (iss.get("links") or [])
+                    if lk.get("type") == "is-blocked-by"
+                )
+            ready = sorted([i for i in todo if not _blocked(i)],
+                           key=lambda i: (i.get("weight", 50),))[:available]
+            self._respond(200, "application/json", json.dumps({
+                "ok": True,
+                "sprint_id": sprint_id,
+                "available_slots": available,
+                "needs_input_count": len(needs_input),
+                "next_to_run": [{"id": i["id"], "title": i["title"]} for i in ready],
             }, default=str).encode())
         except Exception as exc:
             self._respond(500, "application/json", json.dumps({"ok": False, "error": str(exc)}).encode())

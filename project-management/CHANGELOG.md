@@ -2,6 +2,46 @@
 
 All notable changes to the `project-management` plugin will be documented in this file.
 
+## [0.9.0] — 2026-06-08
+
+### Added
+
+**11 new MCP tools (100 total)**
+
+*Snapshot system:*
+- `pm_issue_snapshot` — capture full point-in-time state backup of any issue (all fields, comments, criteria, links). Stored in `.pm/snapshots/`.
+- `pm_issue_snapshot_list` — list all snapshots for an issue, newest first.
+- `pm_issue_snapshot_restore` — restore an issue to any saved snapshot state (overwrites all fields to that moment).
+
+*Board configuration:*
+- `pm_board_sort_set` — persist a per-column sort mode: creation (default), priority, weight, updated, scope, sessions (least-worked first).
+
+*AI intelligence tools:*
+- `pm_issue_estimate_scope` — suggest scope (nano/small/medium/large/research) with confidence 0–1 and reasoning. Uses acceptance criteria count, description length, ADR links, and analogous historical tickets.
+- `pm_sprint_simulation` — "what if" sprint risk assessment before committing: estimated sessions, dependency conflicts, WIP violations, completion probability 0–100.
+- `pm_codebase_health` — git-based codebase health from PM perspective: high-churn files (in 3+ ticket commit_links), orphan commits (not in any ticket), silent implementations (DONE with sessions but no commit_links).
+- `pm_issue_acceptance_auto` — retroactively generate acceptance criteria from a completed ticket's session summaries, files changed, and commits. Optional `auto_apply` to write directly.
+- `pm_workspace_analytics` — comprehensive productivity analytics: tickets by scope, total sessions, avg sessions/ticket, most-reopened tickets, sprint completion rates.
+
+*Execution tools:*
+- `pm_sprint_autopilot` — next-ticket advisor for self-driving sprint execution: returns ready tickets (unblocked, within WIP limits, sorted by priority+weight). Pauses with structured message on NEEDS_INPUT. Call after each session to drive sprint forward.
+- `pm_issue_debate` — two-approach implementation comparison: returns structured prompts for two Claude sessions taking different approaches. Judge mode synthesises verdict from both session summaries.
+
+**Backend additions**
+- `.pm/snapshots/` directory for point-in-time issue state backup
+- `board_sort: {}` in config.json — per-column sort preferences persisted across sessions
+- `take_snapshot`, `list_snapshots`, `restore_snapshot`, `set_board_sort`, `get_board_sort` backend methods
+- `/api/issues/<id>/snapshots` GET, `/api/issues/<id>/snapshot` POST, `/api/issues/<id>/snapshot/restore` POST
+- `/api/workspace/board_sort` GET + POST, `/api/workspace/analytics` GET, `/api/sprint/autopilot` POST
+- `board_sort` included in `/api/status` dashboard response
+
+**Dashboard SPA**
+- Board: **column sort dropdown** in each column header (6 modes: date, priority, weight, updated, scope, sessions). Sort persisted to backend per column.
+- Board: **staleness bands** toggle ("⏱ Age") — within each column, cards grouped by time-in-status: fresh (<1d), aging (1–3d, amber border), stale (>3d, red border + dimmed). Age chip shows days on each card.
+- New **📊 Analytics tab** — `AnalyticsDashboard.tsx` renders: 4 metric cards (total issues, completed%, sessions, avg sessions/ticket), scope distribution bar chart, most-reopened tickets list. Fetches `GET /api/workspace/analytics`.
+- TicketDetailDrawer: **Snapshots section** in Details tab — "📸 Save snapshot" button + collapsible list of saved snapshots with per-snapshot "Restore" button.
+- types.ts: `IssueSnapshot` interface, `BoardSortMode` union type, `board_sort` on Dashboard.
+
 ## [0.8.0] — 2026-06-08
 
 ### Added

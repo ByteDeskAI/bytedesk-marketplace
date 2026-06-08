@@ -130,6 +130,7 @@ export interface Dashboard {
   };
   dashboard_url?: string;
   wip_limits?: Record<string, number>;
+  board_sort?: Record<string, BoardSortMode>;
 }
 
 export interface ActivityEntry {
@@ -170,3 +171,11 @@ export interface DocResponse {
 }
 
 export type ViewId = 'board' | 'backlog' | 'docs' | 'activity' | 'plan';
+
+export interface IssueSnapshot {
+  snapshot_id: string;
+  label: string;
+  created_at: string;
+}
+
+export type BoardSortMode = 'creation' | 'priority' | 'weight' | 'updated' | 'scope' | 'sessions';

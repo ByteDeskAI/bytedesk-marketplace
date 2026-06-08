@@ -5,12 +5,13 @@ from __future__ import annotations
 import json
 import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from pm_store import PMStore
 
-SERVER_INFO = {"name": "project-management", "version": "0.8.0"}
+SERVER_INFO = {"name": "project-management", "version": "0.9.0"}
 
 
 def tool_definitions() -> List[Dict[str, Any]]:
@@ -1218,6 +1219,129 @@ def tool_definitions() -> List[Dict[str, Any]]:
                     "target_id": {"type": "string", "description": "Ticket to merge INTO (will receive all data). Required."}
                 },
                 "required": ["source_id", "target_id"]
+            }
+        },
+        # ── v0.9.0 new tools ─────────────────────────────────────────────────
+        {
+            "name": "pm_issue_snapshot",
+            "description": "Take a full point-in-time snapshot of an issue's complete state. Call before risky implementations to create a restore point. Snapshots are stored in .pm/snapshots/ and can be listed and restored.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Issue ID. Required."},
+                    "label": {"type": "string", "description": "Optional label for this snapshot (e.g. 'before auth refactor')."}
+                },
+                "required": ["id"]
+            }
+        },
+        {
+            "name": "pm_issue_snapshot_list",
+            "description": "List all saved snapshots for an issue, newest first.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Issue ID. Required."}
+                },
+                "required": ["id"]
+            }
+        },
+        {
+            "name": "pm_issue_snapshot_restore",
+            "description": "Restore an issue to a previously saved snapshot state. All fields (description, acceptance criteria, status, comments, etc.) revert to the snapshot moment.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Issue ID. Required."},
+                    "snapshot_id": {"type": "string", "description": "Snapshot ID from pm_issue_snapshot_list. Required."}
+                },
+                "required": ["id", "snapshot_id"]
+            }
+        },
+        {
+            "name": "pm_board_sort_set",
+            "description": "Set the sort mode for a Board column. Modes: creation (default), priority (critical first), weight (lower weight first), updated (newest activity first), scope (small first), sessions (least-worked first).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "column": {"type": "string", "enum": ["TODO", "IN_PROGRESS", "REVIEW", "DONE"], "description": "Column to configure. Required."},
+                    "mode": {"type": "string", "enum": ["creation", "priority", "weight", "updated", "scope", "sessions"], "description": "Sort mode. Required."}
+                },
+                "required": ["column", "mode"]
+            }
+        },
+        {
+            "name": "pm_issue_estimate_scope",
+            "description": "AI-suggest a scope (nano/small/medium/large/research) for a ticket based on acceptance criteria count, description complexity, linked ADRs, and analogous historical tickets. Returns recommendation with confidence and reasoning.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Issue ID. Required."}
+                },
+                "required": ["id"]
+            }
+        },
+        {
+            "name": "pm_sprint_simulation",
+            "description": "Simulate a proposed sprint before committing: estimate total sessions needed, flag dependency conflicts, identify WIP violations, compute completion probability 0–100. Use in the Plan view before confirming a sprint.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "ticket_ids": {"type": "array", "items": {"type": "string"}, "description": "List of ticket IDs to simulate. Required."},
+                    "duration_days": {"type": "integer", "description": "Sprint duration. Defaults to 7."}
+                },
+                "required": ["ticket_ids"]
+            }
+        },
+        {
+            "name": "pm_codebase_health",
+            "description": "Git-based codebase health from the PM perspective: high-churn files (in 3+ ticket commit_links), orphan commits (not linked to any ticket), silent implementations (DONE tickets with sessions but no commit_links).",
+            "inputSchema": {"type": "object", "properties": {}}
+        },
+        {
+            "name": "pm_issue_acceptance_auto",
+            "description": "Retroactively generate acceptance criteria from an issue's implementation record (session summaries, commits, files changed). Useful for DONE tickets with empty criteria. Returns proposed criteria for review.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Issue ID (should be DONE or REVIEW). Required."},
+                    "auto_apply": {"type": "boolean", "description": "If true, immediately writes the generated criteria. Defaults to false (returns for review)."}
+                },
+                "required": ["id"]
+            }
+        },
+        {
+            "name": "pm_workspace_analytics",
+            "description": "Comprehensive productivity analytics: tickets created/closed per week, session quality distribution, cost per scope, average time-in-status, most reopened tickets, best/worst sprint by completion. Returns data suitable for dashboard visualization.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "since_date": {"type": "string", "description": "ISO date to filter from. Defaults to 30 days ago."}
+                }
+            }
+        },
+        {
+            "name": "pm_sprint_autopilot",
+            "description": "Plan or check the state of sprint autopilot: returns the next N tickets ready to run (no blockers, within WIP limits), ordered by pm_prioritize_backlog score. Call sequentially after each session completes to drive the sprint forward. Pauses on NEEDS_INPUT tickets.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "sprint_id": {"type": "string", "description": "Sprint to autopilot. Defaults to active sprint."},
+                    "max_parallel": {"type": "integer", "description": "Max concurrent sessions. Defaults to 2."}
+                }
+            }
+        },
+        {
+            "name": "pm_issue_debate",
+            "description": "Set up a two-approach implementation comparison for a high-stakes ticket. Returns two structured prompts (approach A and B) for spawning separate sessions. After both complete, call again with judge=true to get a synthesis.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Issue ID. Required."},
+                    "approach_a": {"type": "string", "description": "Description of approach A. Defaults to 'standard implementation'."},
+                    "approach_b": {"type": "string", "description": "Description of approach B. Defaults to 'alternative implementation'."},
+                    "judge": {"type": "boolean", "description": "If true, reads existing session summaries and produces a verdict. Call after both sessions complete."}
+                },
+                "required": ["id"]
             }
         },
         {
@@ -2440,6 +2564,382 @@ def call_pm_tool(name: str, arguments: Dict[str, Any]) -> Any:
                 f"Monitor them via GET /api/run/<id>. When one finishes, spawn the next from 'blocked' "
                 f"if its blockers are now DONE. Max parallel: {max_parallel}."
             ),
+        }
+
+    # ── v0.9.0 tool handlers ──────────────────────────────────────────────────
+
+    elif name == "pm_issue_snapshot":
+        issue_id = arguments["id"]
+        label = arguments.get("label", "")
+        try:
+            snap = store.take_snapshot(issue_id, label)
+            return {"ok": True, "snapshot": snap}
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+
+    elif name == "pm_issue_snapshot_list":
+        issue_id = arguments["id"]
+        snaps = store.list_snapshots(issue_id)
+        return {"ok": True, "snapshots": snaps}
+
+    elif name == "pm_issue_snapshot_restore":
+        issue_id = arguments["id"]
+        snapshot_id = arguments["snapshot_id"]
+        try:
+            issue = store.restore_snapshot(issue_id, snapshot_id)
+            return {"ok": True, "issue": issue, "restored_from": snapshot_id}
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+
+    elif name == "pm_board_sort_set":
+        column = arguments["column"]
+        mode = arguments["mode"]
+        result = store.set_board_sort(column, mode)
+        return {"ok": True, "board_sort": result}
+
+    elif name == "pm_issue_estimate_scope":
+        issue_id = arguments["id"].strip().upper()
+        issue = store.get_issue(issue_id)
+        if not issue:
+            return {"ok": False, "error": f"Issue {issue_id} not found."}
+        all_issues = store.list_issues()
+        crit_count = len(issue.get("acceptance_criteria") or [])
+        desc_len = len((issue.get("description") or "").strip())
+        adrs = store.list_docs(doc_type="adr")
+        linked_adrs = sum(1 for d in adrs if issue_id in (d.get("linked_issues") or []))
+        # Find analogous historical tickets by type + rough desc length
+        analogous = [i for i in all_issues
+                     if i.get("status") == "DONE"
+                     and i.get("type") == issue.get("type")
+                     and abs(len((i.get("description") or "")) - desc_len) < 200
+                     and i.get("scope")]
+        analogous_scopes = [i["scope"] for i in analogous[:5]]
+        if crit_count == 0 and desc_len < 50:
+            recommended, confidence = "nano", 0.7
+        elif crit_count <= 2 and desc_len < 200 and linked_adrs == 0:
+            recommended, confidence = "small", 0.75
+        elif crit_count <= 4 and linked_adrs <= 1:
+            recommended, confidence = "medium", 0.72
+        elif crit_count > 5 or linked_adrs > 2:
+            recommended, confidence = "large", 0.70
+        else:
+            recommended, confidence = "medium", 0.65
+        if analogous_scopes:
+            mode_scope = max(set(analogous_scopes), key=analogous_scopes.count)
+            if mode_scope != recommended:
+                recommended = mode_scope
+                confidence = max(0.5, confidence - 0.1)
+            confidence = min(0.95, confidence + 0.05 * len(analogous_scopes))
+        reasoning = (
+            f"{crit_count} acceptance criteria, "
+            f"description {desc_len} chars, "
+            f"{linked_adrs} linked ADRs"
+            + (f", {len(analogous)} analogous {issue.get('type')} tickets suggest {analogous_scopes[:3]}" if analogous else "")
+        )
+        return {
+            "ok": True,
+            "issue_id": issue_id,
+            "recommended_scope": recommended,
+            "confidence": round(confidence, 2),
+            "reasoning": reasoning,
+            "instruction": f"Call pm_issue_update(id='{issue_id}', scope='{recommended}') to apply.",
+        }
+
+    elif name == "pm_sprint_simulation":
+        ticket_ids = [t.strip().upper() for t in arguments.get("ticket_ids", [])]
+        duration_days = int(arguments.get("duration_days", 7))
+        if not ticket_ids:
+            return {"ok": False, "error": "ticket_ids is required."}
+        scope_weights = {"nano": 1, "small": 2, "medium": 4, "large": 8, "research": 3}
+        typical_sessions = {"nano": 1, "small": 1.5, "medium": 2.5, "large": 4, "research": 2}
+        issues = [store.get_issue(tid) for tid in ticket_ids]
+        found = [i for i in issues if i is not None]
+        not_found = [tid for tid, i in zip(ticket_ids, issues) if i is None]
+        total_scope = sum(scope_weights.get(i.get("scope") or "", 2) for i in found)
+        est_sessions = sum(typical_sessions.get(i.get("scope") or "", 2) for i in found)
+        dependency_conflicts: List[str] = []
+        ticket_set = set(ticket_ids)
+        for issue in found:
+            for link in (issue.get("links") or []):
+                if link.get("type") == "is-blocked-by" and link["to_id"] not in ticket_set:
+                    blocker = store.get_issue(link["to_id"])
+                    if blocker and blocker.get("status") not in ("DONE", "REVIEW"):
+                        dependency_conflicts.append(f"{issue['id']} blocked by {link['to_id']} ({blocker.get('title','?')}) which is NOT in this sprint")
+        scope_risk = 0
+        if total_scope > 20:
+            scope_risk += 30
+        elif total_scope > 14:
+            scope_risk += 15
+        dep_risk = min(len(dependency_conflicts) * 15, 40)
+        large_count = sum(1 for i in found if i.get("scope") == "large")
+        large_risk = min(large_count * 10, 20)
+        base_completion = max(10, 100 - scope_risk - dep_risk - large_risk)
+        risk_factors = []
+        if scope_risk:
+            risk_factors.append(f"Total scope {total_scope} units exceeds recommended ~14/week")
+        if dependency_conflicts:
+            risk_factors.append(f"{len(dependency_conflicts)} dependency conflict(s)")
+        if large_count:
+            risk_factors.append(f"{large_count} large-scope ticket(s) with high session variance")
+        return {
+            "ok": True,
+            "ticket_count": len(found),
+            "not_found": not_found,
+            "total_scope_units": total_scope,
+            "estimated_sessions": round(est_sessions, 1),
+            "dependency_conflicts": dependency_conflicts,
+            "completion_probability": base_completion,
+            "risk_factors": risk_factors,
+            "recommendation": "Good to go" if base_completion >= 75 else ("Reduce scope or resolve dependencies" if base_completion >= 50 else "High risk — significant scope reduction recommended"),
+        }
+
+    elif name == "pm_codebase_health":
+        import subprocess as _sp
+        all_issues = store.list_issues()
+        file_to_tickets: Dict[str, List[str]] = {}
+        for issue in all_issues:
+            for cl in (issue.get("commit_links") or []):
+                sha = cl.get("sha", "")
+                if not sha:
+                    continue
+                try:
+                    result = _sp.run(["git", "diff-tree", "--no-commit-id", "-r", "--name-only", sha],
+                                     capture_output=True, text=True, timeout=10)
+                    for f in result.stdout.strip().splitlines():
+                        file_to_tickets.setdefault(f, []).append(issue["id"])
+                except Exception:
+                    pass
+        churn_files = sorted(
+            [{"file": f, "ticket_count": len(set(tids)), "tickets": list(set(tids))}
+             for f, tids in file_to_tickets.items() if len(set(tids)) >= 3],
+            key=lambda x: x["ticket_count"], reverse=True
+        )[:10]
+        linked_shas: set = set()
+        for issue in all_issues:
+            for cl in (issue.get("commit_links") or []):
+                sha = cl.get("sha", "")
+                if sha:
+                    linked_shas.add(sha[:7])
+        orphan_commits: List[Dict[str, str]] = []
+        try:
+            result = _sp.run(["git", "log", "--oneline", "-50"], capture_output=True, text=True, timeout=10)
+            for line in result.stdout.strip().splitlines():
+                parts = line.split(" ", 1)
+                if parts and parts[0] not in linked_shas:
+                    orphan_commits.append({"sha": parts[0], "message": parts[1] if len(parts) > 1 else ""})
+        except Exception:
+            pass
+        silent = [
+            {"id": i["id"], "title": i["title"], "session_count": len(i.get("session_summaries") or [])}
+            for i in all_issues
+            if i.get("status") == "DONE"
+            and len(i.get("session_summaries") or []) > 0
+            and not i.get("commit_links")
+        ]
+        return {
+            "ok": True,
+            "high_churn_files": churn_files,
+            "orphan_commits": orphan_commits[:10],
+            "silent_implementations": silent,
+            "summary": {
+                "churn_file_count": len(churn_files),
+                "orphan_commit_count": len(orphan_commits),
+                "silent_implementation_count": len(silent),
+            },
+        }
+
+    elif name == "pm_issue_acceptance_auto":
+        issue_id = arguments["id"].strip().upper()
+        auto_apply = bool(arguments.get("auto_apply", False))
+        issue = store.get_issue(issue_id)
+        if not issue:
+            return {"ok": False, "error": f"Issue {issue_id} not found."}
+        summaries = issue.get("session_summaries") or []
+        commit_links = issue.get("commit_links") or []
+        if not summaries and not commit_links:
+            return {"ok": False, "error": "No session summaries or commit links found to infer from."}
+        inferred: List[str] = []
+        for ss in summaries:
+            summary_text = ss.get("summary", "")
+            for sent in summary_text.replace(". ", "\n").split("\n"):
+                sent = sent.strip()
+                if len(sent) > 20 and any(w in sent.lower() for w in
+                                          ("implement", "add", "create", "fix", "update", "refactor", "support", "enable")):
+                    criterion = sent[:120]
+                    if criterion not in inferred:
+                        inferred.append(criterion)
+            for f in (ss.get("files_changed") or [])[:3]:
+                crit = f"Changes to `{f}` are correct and tested"
+                if crit not in inferred:
+                    inferred.append(crit)
+            for t in (ss.get("tests_added") or [])[:3]:
+                crit = f"Tests pass: `{t}`"
+                if crit not in inferred:
+                    inferred.append(crit)
+        inferred = inferred[:6]
+        if auto_apply and inferred:
+            store.update_issue(issue_id, {"acceptance_criteria": inferred})
+        return {
+            "ok": True,
+            "issue_id": issue_id,
+            "inferred_criteria": inferred,
+            "applied": auto_apply and bool(inferred),
+            "instruction": "Review and call pm_issue_update with acceptance_criteria to apply." if not auto_apply else "Applied directly.",
+        }
+
+    elif name == "pm_workspace_analytics":
+        from datetime import timedelta
+        since_date_str = arguments.get("since_date")
+        now_dt = datetime.now(timezone.utc)
+        if since_date_str:
+            try:
+                since_dt = datetime.fromisoformat(since_date_str.replace("Z", "+00:00"))
+            except Exception:
+                since_dt = now_dt - timedelta(days=30)
+        else:
+            since_dt = now_dt - timedelta(days=30)
+        since_iso = since_dt.isoformat()
+        all_issues = store.list_issues()
+        config = store.get_project_config()
+        recent_issues = [i for i in all_issues if i.get("created_at", "") >= since_iso]
+        done_recent = [i for i in all_issues if i.get("updated_at", "") >= since_iso and i.get("status") == "DONE"]
+        total_sessions = sum(len(i.get("session_summaries") or []) for i in all_issues)
+        def _tok(s: str) -> int:
+            return max(1, len(s) // 4)
+        total_tokens = sum(
+            sum(_tok(ss.get("summary", "")) for ss in (i.get("session_summaries") or []))
+            for i in all_issues
+        )
+        by_scope: Dict[str, Dict[str, float]] = {}
+        for i in all_issues:
+            sc = i.get("scope") or "unset"
+            sessions = len(i.get("session_summaries") or [])
+            tokens = sum(_tok(ss.get("summary", "")) for ss in (i.get("session_summaries") or []))
+            if sc not in by_scope:
+                by_scope[sc] = {"count": 0, "sessions": 0, "tokens": 0}
+            by_scope[sc]["count"] += 1
+            by_scope[sc]["sessions"] += sessions
+            by_scope[sc]["tokens"] += tokens
+        most_reopened = sorted(
+            [{"id": i["id"], "title": i["title"], "reopen_count": i.get("reopen_count", 0)}
+             for i in all_issues if i.get("reopen_count", 0) > 0],
+            key=lambda x: x["reopen_count"], reverse=True
+        )[:5]
+        sprints = config.get("sprints", [])
+        sprint_completion = []
+        for s in sprints:
+            if s.get("status") == "CLOSED":
+                sid = s["id"]
+                sprint_issues = [i for i in all_issues if (i.get("sprint_id") or "").lower() == sid.lower()]
+                if sprint_issues:
+                    done_count = sum(1 for i in sprint_issues if i.get("status") == "DONE")
+                    pct = int(done_count / len(sprint_issues) * 100)
+                    sprint_completion.append({"id": sid, "name": s.get("name"), "completion_pct": pct})
+        return {
+            "ok": True,
+            "since_date": since_iso[:10],
+            "total_issues": len(all_issues),
+            "issues_created_in_period": len(recent_issues),
+            "issues_completed_in_period": len(done_recent),
+            "total_sessions_all_time": total_sessions,
+            "total_estimated_tokens_all_time": total_tokens,
+            "by_scope": by_scope,
+            "most_reopened_tickets": most_reopened,
+            "sprint_completion_rates": sprint_completion,
+            "avg_sessions_per_ticket": round(total_sessions / max(len(all_issues), 1), 2),
+        }
+
+    elif name == "pm_sprint_autopilot":
+        active_sprint_id = arguments.get("sprint_id") or store.get_active_sprint_id()
+        max_parallel = int(arguments.get("max_parallel", 2))
+        if not active_sprint_id:
+            return {"ok": False, "error": "No active sprint. Pass sprint_id explicitly."}
+        config = store.get_project_config()
+        wip = store.get_wip_limits() if hasattr(store, "get_wip_limits") else {}
+        all_sprint_issues = store.list_issues(sprint_id=active_sprint_id)
+        in_progress = [i for i in all_sprint_issues if i.get("status") == "IN_PROGRESS"]
+        needs_input = [i for i in all_sprint_issues if i.get("status") == "NEEDS_INPUT"]
+        issue_map = {i["id"]: i for i in store.list_issues()}
+        wip_limit = wip.get("IN_PROGRESS", max_parallel) if wip else max_parallel
+        available_slots = max(0, wip_limit - len(in_progress))
+        if needs_input:
+            return {
+                "ok": True,
+                "status": "paused",
+                "reason": "NEEDS_INPUT tickets require human resolution before autopilot can continue.",
+                "needs_input": [{"id": i["id"], "title": i["title"], "reason": i.get("flagged_reason", "")} for i in needs_input],
+                "in_progress": [{"id": i["id"], "title": i["title"]} for i in in_progress],
+            }
+        todo = [i for i in all_sprint_issues if i.get("status") == "TODO"]
+        def _blocked(issue: Dict[str, Any]) -> bool:
+            for lk in (issue.get("links") or []):
+                if lk.get("type") == "is-blocked-by":
+                    blocker = issue_map.get(lk["to_id"])
+                    if blocker and blocker.get("status") not in ("DONE", "REVIEW"):
+                        return True
+            return False
+        ready = [i for i in todo if not _blocked(i)]
+        ready.sort(key=lambda i: (i.get("weight", 50), {"critical":0,"high":1,"medium":2,"low":3}.get(i.get("priority","medium"),2)))
+        next_tickets = ready[:available_slots]
+        done_count = sum(1 for i in all_sprint_issues if i.get("status") == "DONE")
+        return {
+            "ok": True,
+            "status": "running" if next_tickets else ("complete" if not todo else "blocked"),
+            "sprint_id": active_sprint_id,
+            "progress": f"{done_count}/{len(all_sprint_issues)} done",
+            "in_progress_count": len(in_progress),
+            "available_slots": available_slots,
+            "next_to_run": [{"id": i["id"], "title": i["title"], "scope": i.get("scope"), "priority": i.get("priority")} for i in next_tickets],
+            "blocked_todo": [{"id": i["id"]} for i in todo if _blocked(i)],
+            "instruction": (f"Spawn sessions for: {[i['id'] for i in next_tickets]}. Then call pm_sprint_autopilot again after each completes."
+                            if next_tickets else "No tickets ready. Resolve blockers or NEEDS_INPUT."),
+        }
+
+    elif name == "pm_issue_debate":
+        issue_id = arguments["id"].strip().upper()
+        approach_a = arguments.get("approach_a", "Standard implementation following existing patterns in the codebase")
+        approach_b = arguments.get("approach_b", "Alternative implementation — minimise dependencies, prefer simpler abstractions")
+        is_judge = bool(arguments.get("judge", False))
+        issue = store.get_issue(issue_id)
+        if not issue:
+            return {"ok": False, "error": f"Issue {issue_id} not found."}
+        if is_judge:
+            summaries = issue.get("session_summaries") or []
+            if len(summaries) < 2:
+                return {"ok": False, "error": "Need at least 2 session summaries (one per approach) to judge. Run both sessions first."}
+            a_summary = summaries[-2]
+            b_summary = summaries[-1]
+            return {
+                "ok": True,
+                "mode": "judge",
+                "issue_id": issue_id,
+                "approach_a_summary": a_summary.get("summary", "")[:500],
+                "approach_b_summary": b_summary.get("summary", "")[:500],
+                "judge_instruction": (
+                    f"Compare the two implementation approaches above for ticket {issue_id}: '{issue['title']}'.\n"
+                    f"Evaluate: code simplicity, test coverage, adherence to existing patterns, alignment with acceptance criteria.\n"
+                    f"Pick the better approach and explain why. Call pm_session_attach with your verdict as the summary."
+                ),
+            }
+        return {
+            "ok": True,
+            "mode": "setup",
+            "issue_id": issue_id,
+            "prompt_a": (
+                f"Implement ticket {issue_id}: {issue['title']}\n\n"
+                f"APPROACH A: {approach_a}\n\n"
+                f"Description: {issue.get('description','')[:400]}\n"
+                f"Criteria: {issue.get('acceptance_criteria',[])}\n\n"
+                f"Complete implementation, then call pm_session_attach with summary tagged '[APPROACH A]'."
+            ),
+            "prompt_b": (
+                f"Implement ticket {issue_id}: {issue['title']}\n\n"
+                f"APPROACH B: {approach_b}\n\n"
+                f"Description: {issue.get('description','')[:400]}\n"
+                f"Criteria: {issue.get('acceptance_criteria',[])}\n\n"
+                f"Complete implementation, then call pm_session_attach with summary tagged '[APPROACH B]'."
+            ),
+            "instruction": "Spawn two separate Claude sessions using prompt_a and prompt_b. After both complete, call pm_issue_debate again with judge=true.",
         }
 
     # ── v0.8.0 tool handlers ──────────────────────────────────────────────────

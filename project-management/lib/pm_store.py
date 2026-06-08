@@ -332,6 +332,23 @@ class PMStore:
     def list_sprint_themes(self) -> List[Dict[str, Any]]:
         return self._backend.list_sprint_themes()
 
+    # --- v0.9.0 new methods ---
+
+    def take_snapshot(self, issue_id: str, label: str = "") -> Dict[str, Any]:
+        return self._backend.take_snapshot(issue_id, label)
+
+    def list_snapshots(self, issue_id: str) -> List[Dict[str, Any]]:
+        return self._backend.list_snapshots(issue_id)
+
+    def restore_snapshot(self, issue_id: str, snapshot_id: str) -> Dict[str, Any]:
+        return self._backend.restore_snapshot(issue_id, snapshot_id)
+
+    def set_board_sort(self, column: str, mode: str) -> Dict[str, str]:
+        return self._backend.set_board_sort(column, mode)
+
+    def get_board_sort(self) -> Dict[str, str]:
+        return self._backend.get_board_sort()
+
     # --- Observability ---
 
     def get_project_config(self) -> Dict[str, Any]:
