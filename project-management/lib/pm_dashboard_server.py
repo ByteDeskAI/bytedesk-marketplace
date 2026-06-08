@@ -647,6 +647,8 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             self._respond(200, "text/plain", b"ok")
         elif path == "/api/plugin/status":
             self._serve_plugin_status()
+        elif path == "/api/plan/sessions":
+            self._serve_plan_sessions()
         elif path.startswith("/ws/pty/"):
             session_key = path[len("/ws/pty/"):]
             if self.headers.get("Upgrade", "").lower() == "websocket":
@@ -1257,6 +1259,46 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         except Exception as exc:
             payload = json.dumps({"ok": False, "error": str(exc)})
             self._respond(500, "application/json", payload.encode())
+
+    def _serve_plan_sessions(self) -> None:
+        """Return active PLAN-* sessions so the frontend can restore state on mount."""
+        sessions = []
+
+        # Primary source: in-memory _sessions dict (fastest, already tracked)
+        with _sessions_lock:
+            for key, info in _sessions.items():
+                if info.get("is_plan") and not info.get("final"):
+                    sessions.append({"key": key, "startedAt": info.get("started", 0)})
+
+        # Fallback: ask tmux for any PLAN-* sessions not yet in _sessions
+        # (e.g. sessions that predate the current server process after a restart)
+        known_keys = {s["key"] for s in sessions}
+        try:
+            result = subprocess.run(
+                ["tmux", "list-sessions", "-F", "#{session_name}"],
+                capture_output=True, text=True,
+            )
+            for name in result.stdout.strip().splitlines():
+                if name.startswith("PLAN-") and name not in known_keys:
+                    # Derive timestamp from the key suffix (PLAN-<unix>)
+                    try:
+                        ts = int(name.split("-", 1)[1])
+                    except (IndexError, ValueError):
+                        ts = 0
+                    sessions.append({"key": name, "startedAt": ts})
+                    with _sessions_lock:
+                        _sessions[name] = {
+                            "state": "working",
+                            "started": ts,
+                            "final": False,
+                            "is_plan": True,
+                        }
+        except Exception:
+            pass
+
+        sessions.sort(key=lambda s: s["startedAt"])
+        payload = json.dumps({"ok": True, "sessions": sessions})
+        self._respond(200, "application/json", payload.encode())
 
     def _respond(self, code: int, ctype: str, body: bytes) -> None:
         self.send_response(code)

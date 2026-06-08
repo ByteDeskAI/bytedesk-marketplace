@@ -5,6 +5,13 @@ All notable changes to the `project-management` plugin will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.5] — 2026-06-08
+
+### Fixed
+- **Plan view state restored on navigation**: `PlanView` now fetches `GET /api/plan/sessions` on mount and re-populates any active PLAN-* sessions. Previously, navigating away and back reset React state to `[]`, showing "Start a new plan" even when a session was running.
+- **Session recovery across server restarts**: new `GET /api/plan/sessions` endpoint also queries tmux directly for any PLAN-* sessions not yet in the in-memory registry, so planning sessions survive a dashboard server restart.
+- **Removed stale story-points column** from `EpicTreeView` (both the `@atlaskit/table-tree` variant and the CSS-grid fallback). References to the removed `story_points` field were causing TypeScript build failures.
+
 ## [0.4.4] — 2026-06-08
 
 ### Fixed

@@ -116,11 +116,6 @@ function EpicTreeViewTable({ issues, onIssueClick }: Props) {
             {STATUS_LABEL[issue.status] ?? issue.status}
           </Lozenge>
         </Cell>
-        <Cell width="14%">
-          <span style={{ fontSize: 13, color: issue.story_points != null ? '#172B4D' : '#8993A4' }}>
-            {issue.story_points != null ? issue.story_points : '—'}
-          </span>
-        </Cell>
       </Row>
     );
   };
@@ -129,9 +124,8 @@ function EpicTreeViewTable({ issues, onIssueClick }: Props) {
     <TableTree<TreeItem> label="Epic hierarchy">
       <Headers>
         <Header width="50%">Title</Header>
-        <Header width="16%">Type</Header>
-        <Header width="20%">Status</Header>
-        <Header width="14%">SP</Header>
+        <Header width="20%">Type</Header>
+        <Header width="30%">Status</Header>
       </Headers>
       <Rows<TreeItem> items={rootItems} render={renderRow} />
     </TableTree>
@@ -165,7 +159,7 @@ function FallbackTreeView({ issues, onIssueClick }: Props) {
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: '50% 16% 20% 14%',
+          gridTemplateColumns: '50% 20% 30%',
           borderBottom: '2px solid #DFE1E6',
           padding: '8px 12px',
           fontWeight: 600,
@@ -178,7 +172,6 @@ function FallbackTreeView({ issues, onIssueClick }: Props) {
         <span>Title</span>
         <span>Type</span>
         <span>Status</span>
-        <span>SP</span>
       </div>
 
       {rootItems.map((epic) => {
@@ -191,7 +184,7 @@ function FallbackTreeView({ issues, onIssueClick }: Props) {
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: '50% 16% 20% 14%',
+                gridTemplateColumns: '50% 20% 30%',
                 alignItems: 'center',
                 padding: '8px 12px',
                 borderBottom: '1px solid #EBECF0',
@@ -229,9 +222,6 @@ function FallbackTreeView({ issues, onIssueClick }: Props) {
                   {STATUS_LABEL[epic.issue.status] ?? epic.issue.status}
                 </Lozenge>
               </span>
-              <span style={{ color: epic.issue.story_points != null ? '#172B4D' : '#8993A4' }}>
-                {epic.issue.story_points != null ? epic.issue.story_points : '—'}
-              </span>
             </div>
 
             {/* Child rows */}
@@ -241,7 +231,7 @@ function FallbackTreeView({ issues, onIssueClick }: Props) {
                   key={child.id}
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: '50% 16% 20% 14%',
+                    gridTemplateColumns: '50% 20% 30%',
                     alignItems: 'center',
                     padding: '6px 12px 6px 36px',
                     borderBottom: '1px solid #EBECF0',
@@ -259,9 +249,6 @@ function FallbackTreeView({ issues, onIssueClick }: Props) {
                     <Lozenge appearance={STATUS_APPEARANCE[child.issue.status] ?? 'default'}>
                       {STATUS_LABEL[child.issue.status] ?? child.issue.status}
                     </Lozenge>
-                  </span>
-                  <span style={{ fontSize: 13, color: child.issue.story_points != null ? '#172B4D' : '#8993A4' }}>
-                    {child.issue.story_points != null ? child.issue.story_points : '—'}
                   </span>
                 </div>
               ))}

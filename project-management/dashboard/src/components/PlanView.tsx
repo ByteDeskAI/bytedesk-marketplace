@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import Button from '@atlaskit/button';
 import SectionMessage from '@atlaskit/section-message';
 import Spinner from '@atlaskit/spinner';
@@ -13,6 +13,23 @@ export default function PlanView() {
   const [sessions, setSessions] = useState<PlanSession[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  const [hydrating, setHydrating] = useState(true);
+
+  // Restore any active planning sessions from the backend on mount
+  useEffect(() => {
+    fetch('/api/plan/sessions')
+      .then(r => r.json() as Promise<{ ok: boolean; sessions: Array<{ key: string; startedAt: number }> }>)
+      .then(body => {
+        if (body.ok && body.sessions.length > 0) {
+          setSessions(body.sessions.map(s => ({
+            key: s.key,
+            startedAt: new Date(s.startedAt * 1000).toISOString(),
+          })));
+        }
+      })
+      .catch(() => { /* network errors are silent — start fresh */ })
+      .finally(() => setHydrating(false));
+  }, []);
 
   const startPlan = useCallback(async () => {
     setStarting(true);
@@ -37,6 +54,14 @@ export default function PlanView() {
   }, []);
 
   const hasSession = sessions.length > 0;
+
+  if (hydrating) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1 }}>
+        <Spinner size="medium" />
+      </div>
+    );
+  }
 
   return (
     <div style={{
