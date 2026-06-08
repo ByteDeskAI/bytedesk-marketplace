@@ -5,6 +5,11 @@ All notable changes to the `project-management` plugin will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.4] — 2026-06-08
+
+### Fixed
+- **Reliable last-wins port takeover**: `_pick_port` now polls until the port is actually free (up to 3s) after sending SIGTERM to the previous occupant, escalating to SIGKILL after 1s. Previously it slept a fixed 0.4s, which was not enough when the old server was slow to drain connections — causing `OSError: Address already in use` when a new session started while a stale dashboard process from a prior session was still holding the socket. Claude Code does not kill monitor processes on session exit, so this race was reproducible on every new session start when the previous monitor had not been explicitly killed.
+
 ## [0.4.3] — 2026-06-08
 
 ### Fixed

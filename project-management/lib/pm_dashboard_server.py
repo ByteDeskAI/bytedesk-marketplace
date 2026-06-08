@@ -119,24 +119,38 @@ def _pick_port(root: Path) -> int:
     port = int(os.environ.get("PM_DASHBOARD_PORT", _DEFAULT_PORT))
 
     # If the port is occupied, kill the occupant (last-wins: new server always wins)
-    with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as s:
-        s.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
-        if s.connect_ex(("127.0.0.1", port)) == 0:
-            # Something is listening — find and kill it via lsof
-            try:
-                result = subprocess.run(
-                    ["lsof", "-ti", f":{port}"],
-                    capture_output=True, text=True,
-                )
-                for pid_str in result.stdout.strip().splitlines():
-                    try:
-                        os.kill(int(pid_str), signal.SIGTERM)
-                    except (ProcessLookupError, ValueError):
-                        pass
-                # Give it a moment to die
-                time.sleep(0.4)
-            except Exception:
-                pass
+    def _port_free() -> bool:
+        with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as _s:
+            _s.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
+            return _s.connect_ex(("127.0.0.1", port)) != 0
+
+    if not _port_free():
+        try:
+            result = subprocess.run(
+                ["lsof", "-ti", f":{port}"],
+                capture_output=True, text=True,
+            )
+            pids = []
+            for pid_str in result.stdout.strip().splitlines():
+                try:
+                    pids.append(int(pid_str))
+                    os.kill(int(pid_str), signal.SIGTERM)
+                except (ProcessLookupError, ValueError):
+                    pass
+            # Poll until the port is free (up to 3s), escalating to SIGKILL after 1s
+            deadline = time.monotonic() + 3.0
+            sigkill_after = time.monotonic() + 1.0
+            while not _port_free() and time.monotonic() < deadline:
+                if time.monotonic() > sigkill_after:
+                    for pid in pids:
+                        try:
+                            os.kill(pid, signal.SIGKILL)
+                        except (ProcessLookupError, PermissionError):
+                            pass
+                    sigkill_after = float("inf")
+                time.sleep(0.05)
+        except Exception:
+            pass
 
     (root / "dashboard.port").write_text(str(port) + "\n")
     return port
