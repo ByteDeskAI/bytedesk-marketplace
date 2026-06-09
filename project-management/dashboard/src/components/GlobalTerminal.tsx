@@ -1,15 +1,19 @@
 /**
- * GlobalTerminal — persistent bottom-drawer tabbed tmux interface.
+ * GlobalTerminal — fullscreen + resizable bottom-drawer tabbed tmux interface.
  *
- * Aesthetic: VS Code integrated terminal — dark #0d1117 body, #161b22
- * tab bar, #58a6ff active tab indicator. Monospace session names.
- * Spring-animated slide-up via Framer Motion.
+ * Modes:
+ *   full  — covers the entire viewport below the header (default on open)
+ *   half  — ~50 % of viewport height (or last dragged height)
  *
- * Each tab stays mounted (just hidden) so the WebSocket connection and
- * xterm.js state survive tab switches.
+ * The top edge is a drag handle: grab and pull to any height between
+ * 160 px and fullscreen. Framer Motion animates mode transitions;
+ * drag updates height via inline style for zero-latency resize.
+ *
+ * Each TerminalPanel stays mounted (visibility:hidden) so the xterm.js
+ * instance and WebSocket survive tab switches.
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import TerminalPanel from './TerminalPanel';
 
@@ -19,11 +23,13 @@ interface TmuxSession {
   startedAt: number;
 }
 
-const PANEL_HEIGHT = 380;
-const TAB_H = 36;
+type TerminalMode = 'full' | 'half';
 
-// Color scheme — deliberate departure from Atlaskit tokens here; this is
-// a terminal surface, not a UI surface. Same palette as TerminalPanel.
+const HEADER_H = 56;   // matches header height in App.tsx
+const MIN_H    = 160;  // minimum drag height
+const TAB_H    = 36;
+const DRAG_H   = 5;    // drag handle height
+
 const C = {
   bg:        '#0d1117',
   tabBar:    '#161b22',
@@ -32,10 +38,14 @@ const C = {
   tabText:   '#8b949e',
   tabTextOn: '#e6edf3',
   handle:    'rgba(255,255,255,0.06)',
-  handleHov: 'rgba(255,255,255,0.12)',
+  handleHov: 'rgba(255,255,255,0.14)',
+  dragHov:   'rgba(88,166,255,0.4)',
 };
 
-const spring = { type: 'spring' as const, damping: 32, stiffness: 300 };
+const spring = { type: 'spring' as const, damping: 34, stiffness: 320 };
+
+function fullH() { return window.innerHeight - HEADER_H; }
+function halfH() { return Math.round((window.innerHeight - HEADER_H) * 0.5); }
 
 interface Props {
   isOpen: boolean;
@@ -43,12 +53,24 @@ interface Props {
 }
 
 export default function GlobalTerminal({ isOpen, onToggle }: Props) {
-  const [sessions, setSessions] = useState<TmuxSession[]>([]);
+  const [sessions, setSessions]   = useState<TmuxSession[]>([]);
   const [activeKey, setActiveKey] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
-  const mountedRef = useRef(false);
+  const [creating, setCreating]   = useState(false);
+  const [mode, setMode]           = useState<TerminalMode>('full');
+  // customHeight: set while dragging; null means use mode default
+  const [customHeight, setCustomHeight] = useState<number | null>(null);
 
-  // Load existing sessions on first open
+  const mountedRef = useRef(false);
+  const dragRef    = useRef<{ startY: number; startH: number } | null>(null);
+
+  // Resolve effective panel height (not including drag bar)
+  const panelH = useMemo(() => {
+    if (customHeight !== null) return customHeight;
+    return mode === 'full' ? fullH() : halfH();
+  }, [mode, customHeight]);
+
+  // ── Session loading ────────────────────────────────────────────────────────
+
   const loadSessions = useCallback(async () => {
     try {
       const r = await fetch('/api/tmux/sessions');
@@ -67,68 +89,122 @@ export default function GlobalTerminal({ isOpen, onToggle }: Props) {
     }
   }, [isOpen, loadSessions]);
 
+  // ── Drag-to-resize ─────────────────────────────────────────────────────────
+
+  const onDragMove = useCallback((e: MouseEvent) => {
+    if (!dragRef.current) return;
+    const delta = dragRef.current.startY - e.clientY;
+    const raw = Math.min(Math.max(dragRef.current.startH + delta, MIN_H), fullH());
+    setCustomHeight(raw);
+    // Snap mode label (doesn't change layout — just tracks state)
+    setMode(raw >= fullH() - 8 ? 'full' : 'half');
+  }, []);
+
+  const onDragEnd = useCallback(() => {
+    dragRef.current = null;
+    window.removeEventListener('mousemove', onDragMove);
+    window.removeEventListener('mouseup', onDragEnd);
+    document.body.style.userSelect = '';
+    document.body.style.cursor = '';
+  }, [onDragMove]);
+
+  function onDragStart(e: React.MouseEvent) {
+    e.preventDefault();
+    dragRef.current = { startY: e.clientY, startH: panelH };
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'ns-resize';
+    window.addEventListener('mousemove', onDragMove);
+    window.addEventListener('mouseup', onDragEnd);
+  }
+
+  useEffect(() => () => { onDragEnd(); }, [onDragEnd]);
+
+  // ── Mode toggle ────────────────────────────────────────────────────────────
+
+  function toggleMode() {
+    const next: TerminalMode = mode === 'full' ? 'half' : 'full';
+    setMode(next);
+    setCustomHeight(null); // reset to default for chosen mode
+  }
+
+  // ── Session management ─────────────────────────────────────────────────────
+
   async function newSession() {
     setCreating(true);
     try {
       const r = await fetch('/api/tmux/sessions', { method: 'POST' });
       const body = await r.json() as { ok: boolean; session_key: string; startedAt: number };
       if (body.ok) {
-        const session: TmuxSession = { key: body.session_key, command: 'shell', startedAt: body.startedAt };
-        setSessions(prev => [...prev, session]);
+        const s: TmuxSession = { key: body.session_key, command: 'shell', startedAt: body.startedAt };
+        setSessions(prev => [...prev, s]);
         setActiveKey(body.session_key);
       }
-    } catch {}
-    finally { setCreating(false); }
+    } catch {} finally { setCreating(false); }
   }
 
   function closeTab(key: string) {
-    // Kill the tmux session server-side (best effort)
     fetch(`/api/plan/kill/${key}`, { method: 'POST' }).catch(() => {});
     setSessions(prev => {
       const next = prev.filter(s => s.key !== key);
-      setActiveKey(curr => {
-        if (curr !== key) return curr;
-        return next.length > 0 ? next[next.length - 1].key : null;
-      });
+      setActiveKey(curr => curr !== key ? curr : (next.length > 0 ? next[next.length - 1].key : null));
       return next;
     });
   }
 
-  function shortLabel(key: string): string {
-    // PLAN-1234567890 → PLAN-567 (last 3 digits)
-    // shell-1234567890 → shell
-    // PMPT-3 → PMPT-3
+  function shortLabel(key: string) {
     if (key.startsWith('shell-')) return 'shell';
-    if (key.startsWith('PLAN-')) {
-      const ts = key.replace('PLAN-', '');
-      return `PLAN·${ts.slice(-3)}`;
-    }
+    if (key.startsWith('PLAN-')) return `PLAN·${key.slice(-3)}`;
     return key;
   }
+
+  // ── Total height for animation (drag bar + tab bar + body) ────────────────
+  const totalH = panelH + DRAG_H;
 
   return (
     <AnimatePresence>
       {isOpen && (
         <motion.div
           key="global-terminal"
-          initial={{ y: PANEL_HEIGHT + TAB_H }}
-          animate={{ y: 0 }}
-          exit={{ y: PANEL_HEIGHT + TAB_H }}
+          initial={{ y: totalH }}
+          animate={{ y: 0, height: totalH }}
+          exit={{ y: totalH }}
           transition={spring}
           style={{
             position: 'fixed',
             bottom: 0,
-            // Account for sidebar width (240px) — but sit on top of it at lower z-index
             left: 0,
             right: 0,
-            height: PANEL_HEIGHT + TAB_H,
-            zIndex: 200,
+            height: totalH,
+            zIndex: 250,
             display: 'flex',
             flexDirection: 'column',
-            boxShadow: '0 -4px 32px rgba(0,0,0,0.5)',
-            borderTop: `1px solid ${C.tabBorder}`,
+            boxShadow: '0 -8px 48px rgba(0,0,0,0.6)',
+            border: `1px solid ${C.tabBorder}`,
+            borderBottom: 'none',
+            overflow: 'hidden',
           }}
         >
+          {/* ── Drag handle ── */}
+          <div
+            onMouseDown={onDragStart}
+            style={{
+              height: DRAG_H,
+              flexShrink: 0,
+              background: C.tabBar,
+              cursor: 'ns-resize',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderBottom: `1px solid ${C.tabBorder}`,
+              transition: 'background 0.15s',
+            }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = C.dragHov; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = C.tabBar; }}
+          >
+            {/* Pill visual */}
+            <div style={{ width: 36, height: 2, borderRadius: 1, background: 'rgba(255,255,255,0.18)' }} />
+          </div>
+
           {/* ── Tab bar ── */}
           <div style={{
             height: TAB_H,
@@ -148,7 +224,11 @@ export default function GlobalTerminal({ isOpen, onToggle }: Props) {
               flexShrink: 0,
             }}>
               <TerminalIcon size={13} color={C.tabText} />
-              <span style={{ fontSize: 11, fontWeight: 600, color: C.tabText, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+              <span style={{
+                fontSize: 11, fontWeight: 600, color: C.tabText,
+                textTransform: 'uppercase', letterSpacing: '0.08em',
+                fontFamily: 'monospace',
+              }}>
                 Terminal
               </span>
             </div>
@@ -157,143 +237,117 @@ export default function GlobalTerminal({ isOpen, onToggle }: Props) {
             <div style={{ display: 'flex', alignItems: 'stretch', flex: 1, overflowX: 'auto', minWidth: 0 }}>
               {sessions.length === 0 ? (
                 <div style={{ display: 'flex', alignItems: 'center', padding: '0 14px' }}>
-                  <span style={{ fontSize: 11, color: C.tabText, fontStyle: 'italic' }}>No sessions — click + to open a shell</span>
+                  <span style={{ fontSize: 11, color: C.tabText, fontFamily: 'monospace', fontStyle: 'italic' }}>
+                    No sessions — click + to open a shell
+                  </span>
                 </div>
-              ) : (
-                sessions.map(s => {
-                  const isActive = s.key === activeKey;
-                  return (
+              ) : sessions.map(s => {
+                const isActive = s.key === activeKey;
+                return (
+                  <button
+                    key={s.key}
+                    onClick={() => setActiveKey(s.key)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 7,
+                      padding: '0 12px',
+                      background: isActive ? 'rgba(88,166,255,0.08)' : 'transparent',
+                      border: 'none',
+                      borderRight: `1px solid ${C.tabBorder}`,
+                      borderBottom: isActive ? `2px solid ${C.tabActive}` : '2px solid transparent',
+                      cursor: 'pointer',
+                      color: isActive ? C.tabTextOn : C.tabText,
+                      fontSize: 12, fontFamily: 'monospace',
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0,
+                      transition: 'color 0.1s, border-color 0.1s, background 0.1s',
+                    }}
+                  >
+                    <span style={{
+                      width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                      background: isActive ? C.tabActive : C.tabText,
+                      opacity: isActive ? 1 : 0.5,
+                    }} />
+                    {shortLabel(s.key)}
                     <button
-                      key={s.key}
-                      onClick={() => setActiveKey(s.key)}
+                      onClick={e => { e.stopPropagation(); closeTab(s.key); }}
                       style={{
-                        display: 'flex', alignItems: 'center', gap: 7,
-                        padding: '0 12px',
-                        background: 'transparent',
-                        border: 'none',
-                        borderRight: `1px solid ${C.tabBorder}`,
-                        borderBottom: isActive ? `2px solid ${C.tabActive}` : '2px solid transparent',
-                        cursor: 'pointer',
-                        color: isActive ? C.tabTextOn : C.tabText,
-                        fontSize: 12,
-                        fontFamily: 'monospace',
-                        whiteSpace: 'nowrap',
-                        flexShrink: 0,
-                        transition: 'color 0.1s, border-color 0.1s',
+                        background: 'none', border: 'none', cursor: 'pointer',
+                        color: C.tabText, fontSize: 13, lineHeight: 1,
+                        padding: '1px 2px', marginLeft: 2, borderRadius: 3,
+                        display: 'flex', alignItems: 'center', opacity: 0.5,
+                        fontFamily: 'inherit',
                       }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#ff7b72'; (e.currentTarget as HTMLElement).style.opacity = '1'; }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = C.tabText; (e.currentTarget as HTMLElement).style.opacity = '0.5'; }}
+                      title="Close session"
                     >
-                      {/* Session type dot */}
-                      <span style={{
-                        width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
-                        background: isActive ? C.tabActive : C.tabText,
-                        opacity: isActive ? 1 : 0.5,
-                        transition: 'background 0.1s',
-                      }} />
-                      {shortLabel(s.key)}
-                      {/* Close button */}
-                      <button
-                        onClick={e => { e.stopPropagation(); closeTab(s.key); }}
-                        style={{
-                          background: 'none', border: 'none', cursor: 'pointer',
-                          color: C.tabText, fontSize: 13, lineHeight: 1,
-                          padding: '1px 2px', marginLeft: 2, borderRadius: 3,
-                          display: 'flex', alignItems: 'center',
-                          opacity: 0.6,
-                        }}
-                        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#ff7b72'; (e.currentTarget as HTMLElement).style.opacity = '1'; }}
-                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = C.tabText; (e.currentTarget as HTMLElement).style.opacity = '0.6'; }}
-                        title="Close session"
-                      >
-                        ×
-                      </button>
+                      x
                     </button>
-                  );
-                })
-              )}
+                  </button>
+                );
+              })}
             </div>
 
-            {/* Right-side controls */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '0 8px', flexShrink: 0, borderLeft: `1px solid ${C.tabBorder}` }}>
-              {/* New shell button */}
-              <button
-                onClick={newSession}
-                disabled={creating}
-                title="New shell session"
-                style={{
-                  background: 'none', border: 'none', cursor: creating ? 'wait' : 'pointer',
-                  color: C.tabText, fontSize: 16, lineHeight: 1, padding: '4px 6px',
-                  borderRadius: 4, display: 'flex', alignItems: 'center',
-                  transition: 'color 0.1s, background 0.1s',
-                }}
-                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = C.tabTextOn; (e.currentTarget as HTMLElement).style.background = C.handleHov; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = C.tabText; (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
-              >
+            {/* Right controls */}
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 1,
+              padding: '0 6px', flexShrink: 0,
+              borderLeft: `1px solid ${C.tabBorder}`,
+            }}>
+              {/* New shell */}
+              <IconBtn onClick={newSession} disabled={creating} title="New shell">
                 +
-              </button>
-              {/* Collapse button */}
-              <button
-                onClick={onToggle}
-                title="Close terminal panel"
-                style={{
-                  background: 'none', border: 'none', cursor: 'pointer',
-                  color: C.tabText, fontSize: 13, lineHeight: 1, padding: '4px 6px',
-                  borderRadius: 4, display: 'flex', alignItems: 'center',
-                  transition: 'color 0.1s, background 0.1s',
-                }}
-                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = C.tabTextOn; (e.currentTarget as HTMLElement).style.background = C.handleHov; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = C.tabText; (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
-              >
-                ✕
-              </button>
+              </IconBtn>
+              {/* Restore / Maximise */}
+              <IconBtn onClick={toggleMode} title={mode === 'full' ? 'Restore down' : 'Maximize'}>
+                {mode === 'full' ? <RestoreIcon /> : <MaximizeIcon />}
+              </IconBtn>
+              {/* Close panel */}
+              <IconBtn onClick={onToggle} title="Close terminal">
+                X
+              </IconBtn>
             </div>
           </div>
 
           {/* ── Terminal body ── */}
           <div style={{ flex: 1, background: C.bg, position: 'relative', overflow: 'hidden' }}>
             {sessions.length === 0 ? (
-              /* Empty state — prompt to create */
               <div style={{
                 position: 'absolute', inset: 0,
                 display: 'flex', flexDirection: 'column',
-                alignItems: 'center', justifyContent: 'center', gap: 12,
+                alignItems: 'center', justifyContent: 'center', gap: 16,
               }}>
-                <TerminalIcon size={32} color="rgba(88,166,255,0.3)" />
+                <TerminalIcon size={40} color="rgba(88,166,255,0.25)" />
                 <p style={{ fontSize: 13, color: C.tabText, margin: 0, fontFamily: 'monospace' }}>
                   No active sessions
                 </p>
                 <button
                   onClick={newSession}
                   style={{
-                    padding: '6px 16px',
-                    background: 'rgba(88,166,255,0.15)',
-                    border: `1px solid rgba(88,166,255,0.4)`,
-                    borderRadius: 4,
+                    padding: '7px 20px',
+                    background: 'rgba(88,166,255,0.12)',
+                    border: `1px solid rgba(88,166,255,0.35)`,
+                    borderRadius: 5,
                     color: C.tabActive,
                     fontSize: 12, fontFamily: 'monospace',
-                    cursor: 'pointer',
+                    cursor: 'pointer', letterSpacing: '0.04em',
                   }}
                 >
                   + New shell
                 </button>
               </div>
-            ) : (
-              /* Mount all panels, show only the active one */
-              sessions.map(s => (
-                <div
-                  key={s.key}
-                  style={{
-                    position: 'absolute',
-                    inset: 0,
-                    // Use visibility + pointer-events instead of display:none
-                    // so xterm.js stays alive and connected
-                    visibility: s.key === activeKey ? 'visible' : 'hidden',
-                    pointerEvents: s.key === activeKey ? 'auto' : 'none',
-                  }}
-                >
-                  <TerminalPanel sessionKey={s.key} onClose={() => closeTab(s.key)} />
-                </div>
-              ))
-            )}
+            ) : sessions.map(s => (
+              <div
+                key={s.key}
+                style={{
+                  position: 'absolute', inset: 0,
+                  visibility: s.key === activeKey ? 'visible' : 'hidden',
+                  pointerEvents: s.key === activeKey ? 'auto' : 'none',
+                }}
+              >
+                <TerminalPanel sessionKey={s.key} onClose={() => closeTab(s.key)} />
+              </div>
+            ))}
           </div>
         </motion.div>
       )}
@@ -301,27 +355,72 @@ export default function GlobalTerminal({ isOpen, onToggle }: Props) {
   );
 }
 
-// ── Terminal icon SVG ─────────────────────────────────────────────────────────
+// ── Small reusable icon button ────────────────────────────────────────────────
+
+function IconBtn({
+  children, onClick, disabled, title,
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+  title?: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      style={{
+        background: 'none', border: 'none',
+        cursor: disabled ? 'wait' : 'pointer',
+        color: '#8b949e',
+        fontSize: 13, lineHeight: 1,
+        width: 28, height: 28,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        borderRadius: 4,
+        fontFamily: 'monospace',
+        transition: 'color 0.1s, background 0.1s',
+      }}
+      onMouseEnter={e => {
+        (e.currentTarget as HTMLElement).style.color = '#e6edf3';
+        (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.08)';
+      }}
+      onMouseLeave={e => {
+        (e.currentTarget as HTMLElement).style.color = '#8b949e';
+        (e.currentTarget as HTMLElement).style.background = 'transparent';
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+// ── SVG icons ─────────────────────────────────────────────────────────────────
 
 export function TerminalIcon({ size = 16, color = 'currentColor' }: { size?: number; color?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      {/* Shell prompt chevron */}
-      <polyline
-        points="2,5 6,8 2,11"
-        stroke={color}
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        fill="none"
-      />
-      {/* Cursor underline */}
-      <line
-        x1="8" y1="11" x2="14" y2="11"
-        stroke={color}
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      />
+      <polyline points="2,5 6,8 2,11" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <line x1="8" y1="11" x2="14" y2="11" stroke={color} strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function MaximizeIcon() {
+  // Single square — "go fullscreen"
+  return (
+    <svg width="11" height="11" viewBox="0 0 11 11" fill="none" aria-hidden="true">
+      <rect x="0.5" y="0.5" width="10" height="10" stroke="currentColor" strokeWidth="1.2" />
+    </svg>
+  );
+}
+
+function RestoreIcon() {
+  // Two overlapping squares — "restore to smaller"
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+      <rect x="3.5" y="0.5" width="8" height="8" stroke="currentColor" strokeWidth="1.2" />
+      <rect x="0.5" y="3.5" width="8" height="8" stroke="currentColor" strokeWidth="1.2" fill="#161b22" />
     </svg>
   );
 }
