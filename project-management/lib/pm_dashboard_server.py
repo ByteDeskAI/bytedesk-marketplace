@@ -852,6 +852,8 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         elif path == "/api/sprint/standup":
             since = int(qs.get("since_hours", ["24"])[0])
             self._serve_standup(since)
+        elif path == "/api/tmux/sessions":
+            self._serve_tmux_sessions()
         elif path.startswith("/ws/pty/"):
             session_key = path[len("/ws/pty/"):]
             if self.headers.get("Upgrade", "").lower() == "websocket":
@@ -1206,6 +1208,8 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
 
         if path == "/api/run":
             self._handle_run_post(body)
+        elif path == "/api/tmux/sessions":
+            self._handle_tmux_session_create()
         elif path == "/api/plan/start":
             self._handle_plan_start()
         elif path.startswith("/api/plan/kill/"):
@@ -2677,6 +2681,44 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         except Exception as exc:
             payload = json.dumps({"ok": False, "error": str(exc)})
             self._respond(500, "application/json", payload.encode())
+
+    def _serve_tmux_sessions(self) -> None:
+        """Return all live tmux sessions for the global terminal panel."""
+        try:
+            result = subprocess.run(
+                ["tmux", "list-sessions", "-F", "#{session_name}\t#{pane_current_command}\t#{session_created}"],
+                capture_output=True, text=True,
+            )
+            sessions = []
+            for line in result.stdout.strip().splitlines():
+                parts = line.split("\t")
+                if len(parts) >= 1 and parts[0].strip():
+                    name = parts[0].strip()
+                    cmd = parts[1].strip() if len(parts) > 1 else ""
+                    created = int(parts[2].strip()) if len(parts) > 2 and parts[2].strip().isdigit() else 0
+                    sessions.append({"key": name, "command": cmd, "startedAt": created})
+            payload = json.dumps({"ok": True, "sessions": sessions})
+            self._respond(200, "application/json", payload.encode())
+        except Exception as exc:
+            self._respond(500, "application/json", json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _handle_tmux_session_create(self) -> None:
+        """Spawn a new bare shell tmux session for the global terminal."""
+        try:
+            session_key = f"shell-{int(time.time())}"
+            project_root = str(self._pm_root.parent)
+            result = subprocess.run(
+                ["tmux", "new-session", "-d", "-s", session_key, "-c", project_root],
+                capture_output=True, text=True,
+            )
+            if result.returncode != 0:
+                self._respond(500, "application/json",
+                              json.dumps({"ok": False, "error": result.stderr or "tmux error"}).encode())
+                return
+            payload = json.dumps({"ok": True, "session_key": session_key, "startedAt": int(time.time())})
+            self._respond(200, "application/json", payload.encode())
+        except Exception as exc:
+            self._respond(500, "application/json", json.dumps({"ok": False, "error": str(exc)}).encode())
 
     def _serve_plan_sessions(self) -> None:
         """Return active PLAN-* sessions so the frontend can restore state on mount.

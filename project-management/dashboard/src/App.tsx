@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Header from './components/Header';
+import GlobalTerminal from './components/GlobalTerminal';
 import Sidebar from './components/Sidebar';
 import Board from './components/Board';
 import Backlog from './components/Backlog';
@@ -62,6 +63,7 @@ export default function App() {
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
   const [filterCriteria, setFilterCriteria] = useState<Record<string, string>>({});
 
+  const [terminalOpen, setTerminalOpen] = useState(false);
   const [showStandup, setShowStandup] = useState(false);
   const [standupData, setStandupData] = useState<StandupData | null>(null);
   const [standupLoading, setStandupLoading] = useState(false);
@@ -251,6 +253,8 @@ export default function App() {
         dashboard={dashboard}
         live={live}
         onCompleteSprint={() => setShowSprintComplete(true)}
+        terminalOpen={terminalOpen}
+        onTerminalToggle={() => setTerminalOpen(o => !o)}
       />
 
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
@@ -562,6 +566,11 @@ export default function App() {
         onIssueClick={(issue) => setSelectedIssue(issue)}
         onView={(v) => switchToView(v)}
         onCreateIssue={() => setShowCreateTicket(true)}
+      />
+
+      <GlobalTerminal
+        isOpen={terminalOpen}
+        onToggle={() => setTerminalOpen(o => !o)}
       />
     </div>
   );

@@ -3,12 +3,15 @@ import Tooltip from '@atlaskit/tooltip';
 import InlineEdit from '@atlaskit/inline-edit';
 import ProfileMenu from './ProfileMenu';
 import Textfield from '@atlaskit/textfield';
+import { TerminalIcon } from './GlobalTerminal';
 import type { Dashboard } from '../types';
 
 interface Props {
   dashboard: Dashboard | null;
   live: boolean;
   onCompleteSprint?: () => void;
+  terminalOpen?: boolean;
+  onTerminalToggle?: () => void;
 }
 
 // Compute a human-readable countdown label and color from an ISO end_date string.
@@ -35,7 +38,7 @@ function sprintCountdown(endDate: string): { label: string; color: string } {
   return { label: `Ends in ${diffDays}d`, color: 'var(--ds-text-success)' };
 }
 
-export default function Header({ dashboard, live, onCompleteSprint }: Props) {
+export default function Header({ dashboard, live, onCompleteSprint, terminalOpen, onTerminalToggle }: Props) {
   const hasSprint = dashboard?.active_sprint && dashboard.active_sprint !== 'No active sprint';
 
   // Sprint goal extraction — active_sprint may be "Sprint 1 -- Goal here"
@@ -175,6 +178,44 @@ export default function Header({ dashboard, live, onCompleteSprint }: Props) {
         }} />
         Live
       </div>
+
+      {/* Terminal toggle button */}
+      <Tooltip content={terminalOpen ? 'Close terminal' : 'Open terminal'} position="bottom" delay={400}>
+        {tp => (
+          <button
+            {...tp}
+            onClick={onTerminalToggle}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              width: 32, height: 32,
+              background: terminalOpen ? 'rgba(88,166,255,0.15)' : 'transparent',
+              border: terminalOpen ? '1px solid rgba(88,166,255,0.35)' : '1px solid var(--ds-border)',
+              borderRadius: 6,
+              cursor: 'pointer',
+              flexShrink: 0,
+              transition: 'background 0.15s, border-color 0.15s',
+            }}
+            onMouseEnter={e => {
+              if (!terminalOpen) {
+                (e.currentTarget as HTMLElement).style.background = 'var(--ds-background-neutral-hovered)';
+                (e.currentTarget as HTMLElement).style.borderColor = 'var(--ds-border-bold)';
+              }
+            }}
+            onMouseLeave={e => {
+              if (!terminalOpen) {
+                (e.currentTarget as HTMLElement).style.background = 'transparent';
+                (e.currentTarget as HTMLElement).style.borderColor = 'var(--ds-border)';
+              }
+            }}
+            aria-label="Toggle terminal"
+          >
+            <TerminalIcon
+              size={14}
+              color={terminalOpen ? '#58a6ff' : 'var(--ds-icon-subtle)'}
+            />
+          </button>
+        )}
+      </Tooltip>
 
       {/* Profile / server menu */}
       <div style={{ flexShrink: 0, marginLeft: 4 }}>
