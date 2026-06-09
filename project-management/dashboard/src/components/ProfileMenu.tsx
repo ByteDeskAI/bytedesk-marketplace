@@ -4,6 +4,7 @@ import DropdownMenu, { DropdownItem, DropdownItemGroup } from '@atlaskit/dropdow
 import Spinner from '@atlaskit/spinner';
 import SectionMessage from '@atlaskit/section-message';
 import MigrationWizard from './MigrationWizard';
+import ChangelogModal from './ChangelogModal';
 
 type ActionState = 'idle' | 'restarting' | 'exiting' | 'done' | 'error';
 
@@ -11,6 +12,7 @@ export default function ProfileMenu() {
   const [state, setState] = useState<ActionState>('idle');
   const [errorMsg, setErrorMsg] = useState('');
   const [showMigration, setShowMigration] = useState(false);
+  const [showChangelog, setShowChangelog] = useState(false);
 
   async function handleExit() {
     setState('exiting');
@@ -120,6 +122,7 @@ export default function ProfileMenu() {
   return (
     <>
     {showMigration && <MigrationWizard onClose={() => setShowMigration(false)} />}
+    {showChangelog && <ChangelogModal onClose={() => setShowChangelog(false)} />}
     <DropdownMenu
       trigger={({ triggerRef, ...triggerProps }) => (
         <button
@@ -136,6 +139,14 @@ export default function ProfileMenu() {
       )}
       placement="bottom-end"
     >
+      <DropdownItemGroup title="About">
+        <DropdownItem
+          description="See what changed in each release"
+          onClick={() => setShowChangelog(true)}
+        >
+          What's New
+        </DropdownItem>
+      </DropdownItemGroup>
       <DropdownItemGroup title="Data">
         <DropdownItem
           description="Migrate between SQLite and JSONL backends"
