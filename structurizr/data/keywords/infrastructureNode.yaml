@@ -1,0 +1,20 @@
+slug: infrastructureNode
+keyword: infrastructureNode
+category: deployment
+grammar: infrastructureNode <name> [description] [technology] [tags] { ... }
+description: Load balancer, firewall, DNS, etc.
+permitted_children:
+- ->
+- description
+- technology
+- tags
+- url
+- properties
+- perspectives
+default_tags:
+- Element
+- Infrastructure Node
+doc_url: https://docs.structurizr.com/dsl/language#infrastructurenode
+examples:
+- lb = infrastructureNode "Load Balancer" "Ingress" "nginx"
+common_mistakes: []

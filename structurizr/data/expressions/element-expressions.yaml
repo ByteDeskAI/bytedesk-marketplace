@@ -1,0 +1,22 @@
+expressions:
+- form: -><identifier|expression>
+  meaning: element(s) plus afferent couplings
+- form: <identifier|expression>->
+  meaning: element(s) plus efferent couplings
+- form: -><identifier|expression>->
+  meaning: element(s) plus afferent and efferent couplings
+- form: element.type==<type>
+  meaning: Person, SoftwareSystem, Container, Component, DeploymentNode, InfrastructureNode,
+    SoftwareSystemInstance, ContainerInstance, Custom
+- form: element.parent==<identifier>
+  meaning: elements with specified parent
+- form: element.tag==<tag>[,tag]
+  meaning: elements having all specified tags
+- form: element.tag!=<tag>[,tag]
+  meaning: elements not having all specified tags
+- form: element.technology==<technology>
+  meaning: elements with technology
+- form: element.properties[name]==value
+  meaning: elements with property value
+- form: element.group==name
+  meaning: elements in group

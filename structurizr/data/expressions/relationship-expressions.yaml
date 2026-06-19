@@ -1,0 +1,15 @@
+expressions:
+- form: '*->*'
+  meaning: all relationships
+- form: <identifier>->*
+  meaning: relationships from source
+- form: '*-><identifier>'
+  meaning: relationships to destination
+- form: relationship.tag==<tag>
+  meaning: relationships with tags
+- form: relationship.source==<identifier>
+  meaning: relationships from element
+- form: relationship.destination==<identifier>
+  meaning: relationships to element
+- form: relationship==<id>-><id>
+  meaning: relationships between two elements

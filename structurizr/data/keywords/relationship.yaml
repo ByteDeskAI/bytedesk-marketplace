@@ -1,0 +1,19 @@
+slug: relationship
+keyword: ->
+category: relationship
+grammar: <source> -> <destination> [description] [technology] [tags] { ... }
+description: Uni-directional relationship between elements.
+permitted_children:
+- tags
+- url
+- properties
+- perspectives
+default_tags:
+- Relationship
+doc_url: https://docs.structurizr.com/dsl/language#relationship
+examples:
+- user -> api "Uses" "HTTPS"
+- api -> database "Reads from and writes to" "TCP"
+common_mistakes:
+- Relationship descriptions must be unique per source-destination pair
+- Use relationship archetypes for protocol defaults

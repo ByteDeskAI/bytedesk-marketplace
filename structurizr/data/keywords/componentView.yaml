@@ -1,0 +1,19 @@
+slug: componentView
+keyword: component
+category: view
+grammar: component <container> [key] [description] { ... }
+description: C3 component diagram for a container.
+permitted_children:
+- include
+- exclude
+- autoLayout
+- default
+- animation
+- title
+- description
+- properties
+default_tags: []
+doc_url: https://docs.structurizr.com/dsl/language#component-view
+examples:
+- "component api \"APIComponents\" {\n    include *\n}"
+common_mistakes: []

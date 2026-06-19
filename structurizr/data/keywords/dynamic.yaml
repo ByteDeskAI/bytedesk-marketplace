@@ -1,0 +1,22 @@
+slug: dynamic
+keyword: dynamic
+category: view
+grammar: dynamic <*|softwareSystem|container> [key] [description] { ... }
+description: Interaction/sequence diagram.
+permitted_children:
+- include
+- exclude
+- autoLayout
+- default
+- animation
+- title
+- description
+- properties
+default_tags: []
+doc_url: https://docs.structurizr.com/dsl/language#dynamic-view
+examples:
+- "dynamic platform \"AuthFlow\" {\n    user -> gateway \"Authenticates\"\n    gateway\
+  \ -> identity \"Validates\"\n}"
+common_mistakes:
+- Order of relationships defines sequence
+- Expressions not supported in dynamic views

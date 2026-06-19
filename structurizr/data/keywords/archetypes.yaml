@@ -1,0 +1,13 @@
+slug: archetypes
+keyword: archetypes
+category: model
+grammar: archetypes { <name> = <type> { defaults } }
+description: User-defined element/relationship types with defaults.
+permitted_children: []
+default_tags: []
+doc_url: https://docs.structurizr.com/dsl/archetypes
+examples:
+- "archetypes {\n    application = container { technology \"Java\" tag \"Application\"\
+  \ }\n    https = --sync-> { technology \"HTTPS\" }\n}"
+common_mistakes:
+- Relationship archetypes use --name-> syntax

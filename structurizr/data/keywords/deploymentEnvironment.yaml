@@ -1,0 +1,18 @@
+slug: deploymentEnvironment
+keyword: deploymentEnvironment
+category: deployment
+grammar: deploymentEnvironment <name> { ... }
+description: Named deployment target (dev, staging, production).
+permitted_children:
+- group
+- deploymentGroup
+- deploymentNode
+- ->
+- -/>
+default_tags: []
+doc_url: https://docs.structurizr.com/dsl/language#deploymentenvironment
+examples:
+- "production = deploymentEnvironment \"Production\" {\n    k8s = deploymentNode \"\
+  Kubernetes\"\n}"
+common_mistakes:
+- Deployment model is separate from structural model

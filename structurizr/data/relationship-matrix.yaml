@@ -1,0 +1,34 @@
+matrix:
+- source: Person
+  destinations:
+  - Person
+  - SoftwareSystem
+  - Container
+  - Component
+- source: SoftwareSystem
+  destinations:
+  - Person
+  - SoftwareSystem
+  - Container
+  - Component
+- source: Container
+  destinations:
+  - Person
+  - SoftwareSystem
+  - Container
+  - Component
+- source: Component
+  destinations:
+  - Person
+  - SoftwareSystem
+  - Container
+  - Component
+- source: DeploymentNode
+  destinations:
+  - DeploymentNode
+- source: InfrastructureNode
+  destinations:
+  - DeploymentNode
+  - InfrastructureNode
+  - SoftwareSystemInstance
+  - ContainerInstance

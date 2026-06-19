@@ -1,0 +1,22 @@
+slug: workspace
+keyword: workspace
+category: root
+grammar: workspace [name] [description] { ... }
+description: Top-level wrapper for model and views. May extend another workspace.
+permitted_children:
+- name
+- description
+- properties
+- '!identifiers'
+- '!docs'
+- '!adrs'
+- model
+- views
+- configuration
+default_tags: []
+doc_url: https://docs.structurizr.com/dsl/language#workspace
+examples:
+- "workspace \"My System\" \"Description\" {\n    model { }\n    views { }\n}"
+common_mistakes:
+- Opening brace must be on same line as workspace keyword
+- extends makes DSL non-portable

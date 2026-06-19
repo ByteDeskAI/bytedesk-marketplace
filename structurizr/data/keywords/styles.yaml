@@ -1,0 +1,16 @@
+slug: styles
+keyword: styles
+category: views
+grammar: styles { element <tag> { ... } relationship <tag> { ... } }
+description: Visual styling for elements and relationships by tag.
+permitted_children:
+- element
+- relationship
+- light
+- dark
+default_tags: []
+doc_url: https://docs.structurizr.com/dsl/language#styles
+examples:
+- "styles {\n    element \"Service\" { background #1168bd }\n}"
+common_mistakes:
+- Use tags consistently for styling

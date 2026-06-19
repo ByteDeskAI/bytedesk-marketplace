@@ -1,0 +1,28 @@
+slug: views
+keyword: views
+category: views
+grammar: views { ... }
+description: Diagram definitions, styles, themes.
+permitted_children:
+- systemLandscape
+- systemContext
+- container
+- component
+- filtered
+- dynamic
+- deployment
+- custom
+- image
+- styles
+- theme
+- themes
+- terminology
+- properties
+default_tags: []
+doc_url: https://docs.structurizr.com/dsl/language#views
+examples:
+- "views {\n    systemContext platform \"PlatformContext\" {\n        include *\n\
+  \        autoLayout lr\n    }\n}"
+common_mistakes:
+- Defining any custom view removes auto-generated defaults
+- Always set explicit view keys for layout stability

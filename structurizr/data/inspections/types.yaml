@@ -1,0 +1,35 @@
+inspections:
+- type: workspace.scope
+  description: Workspace scope inspections
+- type: workspace.tooling
+  description: Tooling inspections
+- type: model.empty
+  description: Empty model
+- type: model.person.description
+  description: Person with no description
+- type: model.softwaresystem.description
+  description: Software system with no description
+- type: model.container.description
+  description: Container with no description
+- type: model.container.technology
+  description: Container with no technology
+- type: model.component.description
+  description: Component with no description
+- type: model.component.technology
+  description: Component with no technology
+- type: model.element.disconnected
+  description: Disconnected element
+- type: model.element.noview
+  description: Element not in any view
+- type: model.relationship.description
+  description: Relationship with no description
+- type: model.relationship.technology
+  description: Relationship with no technology
+- type: views.empty
+  description: Empty viewset
+- type: views.view.empty
+  description: Empty view
+- type: views.view.key
+  description: View key inspections
+- type: views.view.layout
+  description: Layout inspections

@@ -1,0 +1,13 @@
+slug: properties
+keyword: properties
+category: metadata
+grammar: properties { <name> <value> ... }
+description: Name/value metadata on elements, relationships, views.
+permitted_children: []
+default_tags: []
+doc_url: https://docs.structurizr.com/dsl/language#properties
+examples:
+- "properties {\n    \"structurizr.inspection.model.component.description\" \"info\"\
+  \n}"
+common_mistakes:
+- structurizr.* properties have special meaning

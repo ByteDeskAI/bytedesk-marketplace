@@ -1,8 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
   "name": "bytedesk",
-  "version": "1.21.0",
-  "description": "ByteDesk's Claude Code marketplace \u2014 plugins for parallel multi-session orchestration, hierarchical authorization, and developer tooling.",
+  "version": "1.22.0",
+  "description": "ByteDesk's Claude Code marketplace — plugins for parallel multi-session orchestration, hierarchical authorization, design patterns, Structurizr C4 modeling, project management, and developer tooling.",
   "owner": {
     "name": "ByteDesk AI",
     "url": "https://github.com/ByteDeskAI"
@@ -16,7 +16,7 @@
     },
     {
       "name": "design-patterns",
-      "description": "Source-neutral design-pattern advisor \u2014 a 120+ entry Markdown catalog, MCP tooling for recommendations, smell scans, ADR seeds, and graph queries, slash commands, skills, and a dynamic workbench for architecture decisions.",
+      "description": "Source-neutral design-pattern advisor — a 120+ entry Markdown catalog, MCP tooling for recommendations, smell scans, ADR seeds, and graph queries, slash commands, skills, and a dynamic workbench for architecture decisions.",
       "version": "0.9.0",
       "source": "./design-patterns"
     },
@@ -25,6 +25,12 @@
       "description": "Localized project management and documentation tool (Jira/Confluence equivalent) with MCP support for tasks, sprints, board status, and wiki pages. Real-time React SPA dashboard with @atlaskit components, inline fleet terminal sessions, and PM planning persona.",
       "version": "0.9.0",
       "source": "./project-management"
+    },
+    {
+      "name": "structurizr",
+      "description": "Enterprise C4 modeling with Structurizr DSL — indexed language reference, CLI/MCP tooling, 32 skills, validation gates, pattern catalog, and cookbook recipes.",
+      "version": "0.1.0",
+      "source": "./structurizr"
     }
   ]
 }

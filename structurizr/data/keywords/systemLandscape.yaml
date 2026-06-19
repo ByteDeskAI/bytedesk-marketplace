@@ -1,0 +1,19 @@
+slug: systemLandscape
+keyword: systemLandscape
+category: view
+grammar: systemLandscape [key] [description] { ... }
+description: Enterprise landscape across all software systems.
+permitted_children:
+- include
+- exclude
+- autoLayout
+- default
+- animation
+- title
+- description
+- properties
+default_tags: []
+doc_url: https://docs.structurizr.com/dsl/language#systemlandscape-view
+examples:
+- "systemLandscape \"Landscape\" {\n    include *\n}"
+common_mistakes: []

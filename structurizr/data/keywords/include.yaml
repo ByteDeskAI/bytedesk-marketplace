@@ -1,0 +1,13 @@
+slug: include
+keyword: '!include'
+category: directive
+grammar: '!include <file|directory|url>'
+description: Inline external DSL fragments for modularity.
+permitted_children: []
+default_tags: []
+doc_url: https://docs.structurizr.com/dsl/includes
+examples:
+- '!include model/people.dsl'
+- '!include model/'
+common_mistakes:
+- Makes workspace non-portable when using local files

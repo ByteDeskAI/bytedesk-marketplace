@@ -1,0 +1,11 @@
+slug: perspectives
+keyword: perspectives
+category: metadata
+grammar: perspectives { <name> <description> [value] }
+description: Named dimensions (security, data, ownership).
+permitted_children: []
+default_tags: []
+doc_url: https://docs.structurizr.com/dsl/language#perspectives
+examples:
+- "perspectives {\n    \"Security\" \"Handles PII\" \"Yes\"\n}"
+common_mistakes: []

@@ -1,0 +1,18 @@
+slug: element
+keyword: element
+category: element
+grammar: element <name> [metadata] [description] [tags] { ... }
+description: Custom element outside standard C4 types.
+permitted_children:
+- description
+- tags
+- url
+- properties
+- perspectives
+- ->
+default_tags:
+- Element
+doc_url: https://docs.structurizr.com/dsl/language#element
+examples:
+- regulation = element "GDPR" "Compliance boundary"
+common_mistakes: []

@@ -1,0 +1,12 @@
+slug: adrs
+keyword: '!adrs'
+category: directive
+grammar: '!adrs <path> [adrtools|madr|log4brains|fqn]'
+description: Import architecture decision records.
+permitted_children: []
+default_tags: []
+doc_url: https://docs.structurizr.com/dsl/adrs
+examples:
+- '!adrs adr'
+- '!adrs decisions madr'
+common_mistakes: []

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "structurizr",
+  "description": "Enterprise C4 modeling with Structurizr DSL — indexed language reference, CLI/MCP tooling, validation gates, pattern catalog, and cookbook recipes.",
+  "version": "0.1.0",
+  "author": {
+    "name": "ByteDeskAI"
+  },
+  "homepage": "https://github.com/ByteDeskAI/bytedesk-marketplace",
+  "repository": "https://github.com/ByteDeskAI/bytedesk-marketplace",
+  "license": "MIT",
+  "keywords": [
+    "structurizr",
+    "c4-model",
+    "architecture",
+    "dsl",
+    "diagrams",
+    "software-architecture"
+  ]
+}

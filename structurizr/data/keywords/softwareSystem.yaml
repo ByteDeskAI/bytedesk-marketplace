@@ -1,0 +1,25 @@
+slug: softwareSystem
+keyword: softwareSystem
+category: element
+grammar: softwareSystem <name> [description] [tags] { ... }
+description: A software system — highest level of software abstraction.
+permitted_children:
+- '!docs'
+- '!adrs'
+- group
+- container
+- description
+- tags
+- url
+- properties
+- perspectives
+- ->
+default_tags:
+- Element
+- Software System
+doc_url: https://docs.structurizr.com/dsl/language#softwaresystem
+examples:
+- "platform = softwareSystem \"Platform\" \"Core SaaS\" {\n    api = container \"\
+  API\"\n}"
+common_mistakes:
+- Do not put infrastructure detail at C1 without containers

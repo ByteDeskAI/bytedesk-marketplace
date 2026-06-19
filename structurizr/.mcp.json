@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "structurizr": {
+      "type": "stdio",
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/structurizr-mcp"
+    }
+  }
+}

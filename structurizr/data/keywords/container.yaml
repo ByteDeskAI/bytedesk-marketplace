@@ -1,0 +1,27 @@
+slug: container
+keyword: container
+category: element
+grammar: container <name> [description] [technology] [tags] { ... }
+description: Deployable/runnable unit within a software system.
+permitted_children:
+- '!docs'
+- '!adrs'
+- group
+- component
+- '!components'
+- description
+- technology
+- tags
+- url
+- properties
+- perspectives
+- ->
+default_tags:
+- Element
+- Container
+doc_url: https://docs.structurizr.com/dsl/language#container
+examples:
+- api = container "API" "REST API" ".NET 10"
+common_mistakes:
+- Container names must be unique within parent software system
+- Always set technology for enterprise models

@@ -1,0 +1,20 @@
+slug: person
+keyword: person
+category: element
+grammar: person <name> [description] [tags] { ... }
+description: A user, actor, role, or persona.
+permitted_children:
+- description
+- tags
+- url
+- properties
+- perspectives
+- ->
+default_tags:
+- Element
+- Person
+doc_url: https://docs.structurizr.com/dsl/language#person
+examples:
+- user = person "User" "Uses the system"
+common_mistakes:
+- Person names must be unique across workspace

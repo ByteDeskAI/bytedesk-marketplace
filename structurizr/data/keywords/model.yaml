@@ -1,0 +1,20 @@
+slug: model
+keyword: model
+category: root
+grammar: model { ... }
+description: Required block containing elements and relationships.
+permitted_children:
+- '!identifiers'
+- archetypes
+- group
+- person
+- softwareSystem
+- deploymentEnvironment
+- element
+- ->
+default_tags: []
+doc_url: https://docs.structurizr.com/dsl/language#model
+examples:
+- "model {\n    user = person \"User\"\n}"
+common_mistakes:
+- Forward references are not supported

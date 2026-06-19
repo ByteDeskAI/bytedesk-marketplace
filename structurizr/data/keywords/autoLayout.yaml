@@ -1,0 +1,12 @@
+slug: autoLayout
+keyword: autoLayout
+category: view
+grammar: autoLayout [lr|tb|rl|bt]
+description: Automatic diagram layout direction.
+permitted_children: []
+default_tags: []
+doc_url: https://docs.structurizr.com/dsl/language#autolayout
+examples:
+- autoLayout lr
+common_mistakes:
+- Manual layout is lost when autoLayout re-run

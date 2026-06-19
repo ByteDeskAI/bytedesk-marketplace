@@ -1,0 +1,12 @@
+slug: identifiers
+keyword: '!identifiers'
+category: directive
+grammar: '!identifiers hierarchical|flat'
+description: Hierarchical identifiers allow duplicate short names in different scopes.
+permitted_children: []
+default_tags: []
+doc_url: https://docs.structurizr.com/dsl/identifiers
+examples:
+- '!identifiers hierarchical'
+common_mistakes:
+- Default is flat — duplicate container names across systems fail

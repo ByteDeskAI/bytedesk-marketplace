@@ -1,0 +1,19 @@
+slug: deployment
+keyword: deployment
+category: view
+grammar: deployment <softwareSystem> <environment> [key] [description] { ... }
+description: Deployment diagram for system in environment.
+permitted_children:
+- include
+- exclude
+- autoLayout
+- default
+- animation
+- title
+- description
+- properties
+default_tags: []
+doc_url: https://docs.structurizr.com/dsl/language#deployment-view
+examples:
+- "deployment platform production \"Production\" {\n    include *\n}"
+common_mistakes: []

@@ -1,0 +1,12 @@
+slug: docs
+keyword: '!docs'
+category: directive
+grammar: '!docs <path> [importer]'
+description: Attach Markdown/AsciiDoc documentation to workspace/system/container.
+permitted_children: []
+default_tags: []
+doc_url: https://docs.structurizr.com/dsl/docs
+examples:
+- '!docs docs'
+common_mistakes:
+- Path must be relative to DSL file

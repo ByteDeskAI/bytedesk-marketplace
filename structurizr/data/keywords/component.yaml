@@ -1,0 +1,24 @@
+slug: component
+keyword: component
+category: element
+grammar: component <name> [description] [technology] [tags] { ... }
+description: Logical module inside a container.
+permitted_children:
+- '!docs'
+- '!adrs'
+- description
+- technology
+- tags
+- url
+- properties
+- perspectives
+- group
+- ->
+default_tags:
+- Element
+- Component
+doc_url: https://docs.structurizr.com/dsl/language#component
+examples:
+- authService = component "Auth Service" "JWT validation" "Scoped Service"
+common_mistakes:
+- Component names must be unique within parent container

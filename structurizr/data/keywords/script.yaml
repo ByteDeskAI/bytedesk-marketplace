@@ -1,0 +1,12 @@
+slug: script
+keyword: '!script'
+category: directive
+grammar: '!script <groovy|kotlin|ruby|javascript|file>'
+description: Inline or external script for programmatic workspace manipulation.
+permitted_children: []
+default_tags: []
+doc_url: https://docs.structurizr.com/dsl/scripts
+examples:
+- "!script groovy {\n    workspace.views.createDefaultViews()\n}"
+common_mistakes:
+- Inline scripts cannot have a line with only }

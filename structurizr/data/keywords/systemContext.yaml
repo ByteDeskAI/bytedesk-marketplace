@@ -1,0 +1,20 @@
+slug: systemContext
+keyword: systemContext
+category: view
+grammar: systemContext <softwareSystem> [key] [description] { ... }
+description: C1 system context diagram for one software system.
+permitted_children:
+- include
+- exclude
+- autoLayout
+- default
+- animation
+- title
+- description
+- properties
+default_tags: []
+doc_url: https://docs.structurizr.com/dsl/language#systemcontext-view
+examples:
+- "systemContext platform \"Context\" {\n    include *\n    autoLayout lr\n}"
+common_mistakes:
+- Auto-generated view keys are unstable — always specify key

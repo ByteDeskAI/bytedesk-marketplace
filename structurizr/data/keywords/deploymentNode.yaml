@@ -1,0 +1,29 @@
+slug: deploymentNode
+keyword: deploymentNode
+category: deployment
+grammar: deploymentNode <name> [description] [technology] [tags] [instances] { ...
+  }
+description: Infrastructure host or grouping (can nest).
+permitted_children:
+- group
+- deploymentNode
+- infrastructureNode
+- softwareSystemInstance
+- containerInstance
+- instanceOf
+- ->
+- description
+- technology
+- instances
+- tags
+- url
+- properties
+- perspectives
+default_tags:
+- Element
+- Deployment Node
+doc_url: https://docs.structurizr.com/dsl/language#deploymentnode
+examples:
+- node = deploymentNode "App Server" "VM" "Linux" "1..N"
+common_mistakes:
+- Set instances for elastic scaling notation

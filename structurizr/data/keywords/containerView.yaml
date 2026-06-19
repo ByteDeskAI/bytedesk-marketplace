@@ -1,0 +1,20 @@
+slug: containerView
+keyword: container
+category: view
+grammar: container <softwareSystem> [key] [description] { ... }
+description: C2 container diagram (view keyword, not element).
+permitted_children:
+- include
+- exclude
+- autoLayout
+- default
+- animation
+- title
+- description
+- properties
+default_tags: []
+doc_url: https://docs.structurizr.com/dsl/language#container-view
+examples:
+- "container platform \"Containers\" {\n    include *\n    autoLayout tb\n}"
+common_mistakes:
+- Do not confuse container view with container element

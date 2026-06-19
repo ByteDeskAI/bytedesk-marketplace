@@ -1,0 +1,260 @@
+#!/usr/bin/env python3
+"""Structurizr plugin CLI — deterministic DSL reference, lint, scaffold, CLI wrapper."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "lib"))
+
+from structurizr_catalog import (  # noqa: E402
+    format_keyword,
+    list_cookbook,
+    list_keywords,
+    list_patterns,
+    load_cookbook,
+    load_expressions,
+    load_index,
+    load_inspections,
+    load_keyword,
+    load_pattern,
+    load_relationship_matrix,
+)
+from structurizr_cli_wrapper import find_cli, run_cli  # noqa: E402
+from structurizr_lint import lint_file  # noqa: E402
+from structurizr_scaffold import SCAFFOLDS, get_scaffold  # noqa: E402
+
+
+def cmd_lookup(args: argparse.Namespace) -> int:
+    entry = load_keyword(args.keyword)
+    if not entry:
+        print(f"Unknown keyword: {args.keyword}", file=sys.stderr)
+        print("Available:", ", ".join(list_keywords()), file=sys.stderr)
+        return 1
+    print(format_keyword(entry))
+    return 0
+
+
+def cmd_keywords(_: argparse.Namespace) -> int:
+    for slug in list_keywords():
+        entry = load_keyword(slug)
+        print(f"{slug}: {entry.get('keyword')} — {entry.get('description', '')[:80]}")
+    return 0
+
+
+def cmd_expressions(args: argparse.Namespace) -> int:
+    for e in load_expressions(args.kind):
+        print(f"{e['form']}\t{e['meaning']}")
+    return 0
+
+
+def cmd_inspections(_: argparse.Namespace) -> int:
+    for i in load_inspections():
+        print(f"{i['type']}\t{i['description']}")
+    return 0
+
+
+def cmd_relationships_matrix(_: argparse.Namespace) -> int:
+    for row in load_relationship_matrix():
+        dest = ", ".join(row["destinations"])
+        print(f"{row['source']} -> {dest}")
+    return 0
+
+
+def cmd_pattern(args: argparse.Namespace) -> int:
+    p = load_pattern(args.slug)
+    if not p:
+        print(f"Unknown pattern: {args.slug}", file=sys.stderr)
+        print("Available:", ", ".join(list_patterns()), file=sys.stderr)
+        return 1
+    print(p["body"])
+    return 0
+
+
+def cmd_patterns(_: argparse.Namespace) -> int:
+    for slug in list_patterns():
+        print(slug)
+    return 0
+
+
+def cmd_cookbook(args: argparse.Namespace) -> int:
+    c = load_cookbook(args.slug)
+    if not c:
+        print(f"Unknown cookbook: {args.slug}", file=sys.stderr)
+        print("Available:", ", ".join(list_cookbook()), file=sys.stderr)
+        return 1
+    print(c["body"])
+    return 0
+
+
+def cmd_cookbooks(_: argparse.Namespace) -> int:
+    for slug in list_cookbook():
+        print(slug)
+    return 0
+
+
+def cmd_scaffold(args: argparse.Namespace) -> int:
+    text = get_scaffold(args.archetype)
+    if not text:
+        print(f"Unknown scaffold: {args.archetype}", file=sys.stderr)
+        print("Available:", ", ".join(sorted(SCAFFOLDS)), file=sys.stderr)
+        return 1
+    if args.output:
+        Path(args.output).write_text(text, encoding="utf-8")
+        print(f"Wrote {args.output}")
+    else:
+        print(text)
+    return 0
+
+
+def cmd_lint(args: argparse.Namespace) -> int:
+    path = Path(args.workspace)
+    violations = lint_file(path)
+    if args.json:
+        print(json.dumps([v.__dict__ for v in violations], indent=2))
+    else:
+        for v in violations:
+            print(f"{v.severity} L{v.line} [{v.code}] {v.message}")
+    return 1 if any(v.severity == "error" for v in violations) else 0
+
+
+def cmd_validate(args: argparse.Namespace) -> int:
+    code, out, err = run_cli(["validate"], Path(args.workspace))
+    print(out or err)
+    if code == 127:
+        print("Tip: use `structurizr lint` without Java CLI", file=sys.stderr)
+        return 0
+    return code
+
+
+def cmd_inspect(args: argparse.Namespace) -> int:
+    cli_args = ["inspect"]
+    if args.severity:
+        cli_args.extend(["-severity", args.severity])
+    code, out, err = run_cli(cli_args, Path(args.workspace))
+    print(out or err)
+    if code == 127:
+        return 0
+    return code
+
+
+def cmd_export(args: argparse.Namespace) -> int:
+    cli_args = ["export", "-format", args.format]
+    if args.output:
+        cli_args.extend(["-output", args.output])
+    code, out, err = run_cli(cli_args, Path(args.workspace))
+    print(out or err)
+    return code if code != 127 else 1
+
+
+def cmd_list(args: argparse.Namespace) -> int:
+    code, out, err = run_cli(["list"], Path(args.workspace))
+    print(out or err)
+    return code if code != 127 else 1
+
+
+def cmd_index(_: argparse.Namespace) -> int:
+    print(json.dumps(load_index(), indent=2))
+    return 0
+
+
+def cmd_mcp(_: argparse.Namespace) -> int:
+    from structurizr_mcp_server import main as mcp_main
+
+    mcp_main()
+    return 0
+
+
+def cmd_doctor(_: argparse.Namespace) -> int:
+    print(f"Plugin root: {ROOT}")
+    print(f"Keywords indexed: {len(list_keywords())}")
+    print(f"Patterns: {len(list_patterns())}")
+    print(f"Cookbook: {len(list_cookbook())}")
+    cli = find_cli()
+    print(f"Structurizr CLI: {cli or 'not installed (lint/scaffold still work)'}")
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Structurizr DSL reference and tooling")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    p = sub.add_parser("lookup", help="Look up DSL keyword")
+    p.add_argument("keyword")
+    p.set_defaults(func=cmd_lookup)
+
+    p = sub.add_parser("keywords", help="List all keywords")
+    p.set_defaults(func=cmd_keywords)
+
+    p = sub.add_parser("expressions", help="List view expressions")
+    p.add_argument("kind", choices=["element", "relationship"])
+    p.set_defaults(func=cmd_expressions)
+
+    p = sub.add_parser("inspections", help="List inspection types")
+    p.set_defaults(func=cmd_inspections)
+
+    p = sub.add_parser("relationships-matrix", help="Valid relationship matrix")
+    p.set_defaults(func=cmd_relationships_matrix)
+
+    p = sub.add_parser("pattern", help="Show pattern entry")
+    p.add_argument("slug")
+    p.set_defaults(func=cmd_pattern)
+
+    p = sub.add_parser("patterns", help="List patterns")
+    p.set_defaults(func=cmd_patterns)
+
+    p = sub.add_parser("cookbook", help="Show cookbook recipe")
+    p.add_argument("slug")
+    p.set_defaults(func=cmd_cookbook)
+
+    p = sub.add_parser("cookbooks", help="List cookbook recipes")
+    p.set_defaults(func=cmd_cookbooks)
+
+    p = sub.add_parser("scaffold", help="Generate starter workspace.dsl")
+    p.add_argument("archetype", choices=sorted(SCAFFOLDS))
+    p.add_argument("-o", "--output")
+    p.set_defaults(func=cmd_scaffold)
+
+    p = sub.add_parser("lint", help="Lint DSL file")
+    p.add_argument("workspace")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_lint)
+
+    p = sub.add_parser("validate", help="Validate via Structurizr CLI")
+    p.add_argument("workspace")
+    p.set_defaults(func=cmd_validate)
+
+    p = sub.add_parser("inspect", help="Inspect via Structurizr CLI")
+    p.add_argument("workspace")
+    p.add_argument("--severity", default="error,warning,info")
+    p.set_defaults(func=cmd_inspect)
+
+    p = sub.add_parser("export", help="Export via Structurizr CLI")
+    p.add_argument("workspace")
+    p.add_argument("--format", default="plantuml")
+    p.add_argument("-o", "--output")
+    p.set_defaults(func=cmd_export)
+
+    p = sub.add_parser("list", help="List elements via Structurizr CLI")
+    p.add_argument("workspace")
+    p.set_defaults(func=cmd_list)
+
+    p = sub.add_parser("index", help="Show master index JSON")
+    p.set_defaults(func=cmd_index)
+
+    p = sub.add_parser("mcp", help="Run MCP stdio server")
+    p.set_defaults(func=cmd_mcp)
+
+    p = sub.add_parser("doctor", help="Plugin health check")
+    p.set_defaults(func=cmd_doctor)
+
+    args = parser.parse_args()
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

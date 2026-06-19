@@ -1,0 +1,16 @@
+slug: filtered
+keyword: filtered
+category: view
+grammar: filtered <baseKey> <include|exclude> <tags> [key] [description] { ... }
+description: Stakeholder-specific view derived from base view.
+permitted_children:
+- default
+- title
+- description
+- properties
+default_tags: []
+doc_url: https://docs.structurizr.com/dsl/language#filtered-view
+examples:
+- filtered Containers include "Service" "ServicesOnly"
+common_mistakes:
+- Base view disappears from diagram list once filtered views exist

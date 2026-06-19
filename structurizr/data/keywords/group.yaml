@@ -1,0 +1,13 @@
+slug: group
+keyword: group
+category: model
+grammar: group <name> { ... }
+description: Named boundary grouping elements at same abstraction level.
+permitted_children:
+- varies by scope
+default_tags: []
+doc_url: https://docs.structurizr.com/dsl/language#group
+examples:
+- "group \"Platform Services\" {\n    api = container \"API\"\n}"
+common_mistakes:
+- Cannot mix abstraction levels in one group
