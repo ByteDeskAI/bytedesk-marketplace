@@ -1,0 +1,13 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "platform-dev",
+  "description": "ByteDesk core implementation lifecycle — TDD engineer, feature start, PR-ready, worktree operator, architect, grounding, integration branches.",
+  "version": "0.1.0",
+  "author": {
+    "name": "ByteDesk AI",
+    "url": "https://github.com/ByteDeskAI"
+  },
+  "homepage": "https://github.com/ByteDeskAI/bytedesk-marketplace/tree/main/platform-dev",
+  "repository": "https://github.com/ByteDeskAI/bytedesk-marketplace",
+  "license": "MIT"
+}

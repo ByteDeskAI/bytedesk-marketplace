@@ -1,0 +1,14 @@
+#!/usr/bin/env node
+import { spawnSync } from "node:child_process";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
+import { resolvePlatformRoot } from "../lib/resolve-platform-root.mjs";
+
+const root = resolvePlatformRoot();
+const target = join(root, "scripts/dev/agent-fleet-dispatch.mjs");
+const result = spawnSync(process.execPath, [target, ...process.argv.slice(2)], {
+  stdio: "inherit",
+  env: { ...process.env, BYTEDESK_REPO_ROOT: root },
+});
+process.exit(result.status ?? 1);

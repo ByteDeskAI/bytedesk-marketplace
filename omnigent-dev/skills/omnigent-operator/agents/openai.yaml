@@ -1,0 +1,4 @@
+interface:
+  display_name: "Omnigent Operator"
+  short_description: "Worktree, CLI, ship, land, and local runtime operations."
+  default_prompt: "Use this skill for Omnigent repo status, workflow.mjs, local server/host, and landing workflows."

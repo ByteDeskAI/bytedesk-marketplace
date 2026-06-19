@@ -1,0 +1,34 @@
+{
+  "skill_name": "bytedesk-feature-start",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Let's start building BDP-162 — the email unsubscribe token endpoint for the Email service. Kick off the feature.",
+      "expected_output": "Retrieves BDP-162 from Jira, transitions it to In Progress, creates a .claude/worktrees/BDP-162-email-unsubscribe worktree with a feature/BDP-162-email-unsubscribe branch from origin/develop, reads the relevant rule files (backend.md, inter-service.md), and scaffolds a failing TDD test for the new endpoint.",
+      "files": [],
+      "expectations": [
+        "Retrieved BDP-162 from Jira and read its description",
+        "Transitioned BDP-162 to In Progress before creating the worktree",
+        "Created a .claude/worktrees/BDP-162-* worktree with branch feature/BDP-162-* from origin/develop (not main)",
+        "Read .claude/rules/backend.md before suggesting code",
+        "Created or proposed a failing unit test for the new endpoint",
+        "Test file is in tests/ByteDesk.Email.Tests/ or similar service test directory"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "I want to start a new feature — add a webhook endpoint to the Tools service that receives Stripe payment events and creates a new CRM record. There's no Jira ticket yet.",
+      "expected_output": "Creates a new BDP Task for the Stripe webhook feature, transitions it to In Progress, creates a dedicated worktree with a feature branch from origin/develop, reads backend and inter-service rules, and scaffolds a TDD test for the webhook handler. Also checks .env.example for any needed Stripe env vars.",
+      "files": [],
+      "expectations": [
+        "Searched Jira for existing Stripe webhook issues before creating new one",
+        "Created a new BDP Task for this feature",
+        "Transitioned the new task to In Progress",
+        "Created a .claude/worktrees/BDP-N-* worktree from origin/develop with BDP-N in the branch name",
+        "Read .claude/rules/backend.md or inter-service.md",
+        "Proposed a TDD red test for the webhook handler",
+        "Flagged that STRIPE_WEBHOOK_SECRET or similar env var may need to be added to .env.example"
+      ]
+    }
+  ]
+}

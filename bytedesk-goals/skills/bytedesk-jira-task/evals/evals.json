@@ -1,0 +1,46 @@
+{
+  "skill_name": "bytedesk-jira-task",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I need to track the work for adding rate limiting to the ByteDesk Gateway service. Create a Jira task for this in the BDP project and get it set up so I can start coding.",
+      "expected_output": "Searches Jira for existing rate limiting issues first, then creates a Task in BDP project with appropriate summary, description, and labels (service:gateway). Transitions the issue to In Progress. Returns the BDP-N URL.",
+      "files": [],
+      "expectations": [
+        "Searched Jira for existing rate limiting issues before creating a new one",
+        "Created issue as Task type (not Feature, Bug, or Story)",
+        "Issue summary mentions 'gateway' or 'rate limiting'",
+        "Applied appropriate service label (service:gateway)",
+        "Transitioned the issue to In Progress status",
+        "Returned the BDP issue URL"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "We just merged PR #185 which finished the work on BDP-155. Mark that ticket done and check if its parent epic should also be closed.",
+      "expected_output": "Retrieves BDP-155 from Jira, transitions it to Done, then checks the parent epic's child issues to see if all are complete. If so, transitions the epic to Done as well.",
+      "files": [],
+      "expectations": [
+        "Retrieved BDP-155 from Jira to read current state before transitioning",
+        "Transitioned BDP-155 to Done status",
+        "Checked the parent Epic for BDP-155",
+        "Assessed whether all child tasks of the epic are in Done status",
+        "Took appropriate action on the epic (close if all done, leave open otherwise)"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "The prospecting pipeline is taking too long to return results — users wait 8+ seconds for the radar scan. I want to track this as a p0 priority tech debt issue.",
+      "expected_output": "Searches for existing perf-related tickets in BDP project, creates a Task with priority:p0 and tech-debt labels, provides clear description of the symptom and impact.",
+      "files": [],
+      "expectations": [
+        "Searched Jira for existing performance/radar scan issues before creating",
+        "Created issue as Task type with summary describing the 8-second latency issue",
+        "Applied priority:p0 label",
+        "Applied tech-debt label",
+        "Applied appropriate service label (service:sales or similar)",
+        "Transitioned to In Progress"
+      ]
+    }
+  ]
+}
