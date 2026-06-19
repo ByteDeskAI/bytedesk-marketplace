@@ -1,0 +1,34 @@
+{
+  "skill_name": "bytedesk-pr-ready",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I'm done with the work on feature/BDP-155-add-stripe-webhook. Let's open a PR for it.",
+      "expected_output": "Verifies the session is in the owning feature worktree, runs git status, fetches origin, rebases on origin/develop, runs unit tests, creates PR with title 'BDP-155: Add Stripe webhook handler' targeting develop branch, includes summary/test plan in body, adds Jira link comment.",
+      "files": [],
+      "expectations": [
+        "Checked current worktree is not canonical and current branch is feature/BDP-155-*",
+        "Fetched origin and rebased on develop before creating PR",
+        "PR title starts with 'BDP-155:' format",
+        "PR targets develop branch (not main)",
+        "PR body includes a test plan section with checkboxes",
+        "PR body includes Jira link to BDP-155",
+        "Added a comment on BDP-155 in Jira with the PR URL"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "I've finished the rate limiting work. PR time.",
+      "expected_output": "Identifies the current feature worktree, feature branch, and associated BDP ticket, rebases on origin/develop, creates PR with proper BDP-N: title and full body including test plan, links to Jira.",
+      "files": [],
+      "expectations": [
+        "Determined the current worktree and branch name to extract BDP ticket number",
+        "Rebased branch on origin/develop before PR creation",
+        "PR title follows 'BDP-N: <description>' format",
+        "PR targets develop, not main",
+        "PR body has summary bullets, Jira link, and test plan checklist",
+        "Commented on the Jira issue with the PR URL"
+      ]
+    }
+  ]
+}

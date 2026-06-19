@@ -1,0 +1,13 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "omnigent-dev",
+  "description": "Omnigent cross-repo engineering — operator, architect, runtime harness, web deploy, API/SDK, agent bundles.",
+  "version": "0.1.0",
+  "author": {
+    "name": "ByteDesk AI",
+    "url": "https://github.com/ByteDeskAI"
+  },
+  "homepage": "https://github.com/ByteDeskAI/bytedesk-marketplace/tree/main/omnigent-dev",
+  "repository": "https://github.com/ByteDeskAI/bytedesk-marketplace",
+  "license": "MIT"
+}

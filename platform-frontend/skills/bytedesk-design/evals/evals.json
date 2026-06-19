@@ -1,0 +1,53 @@
+{
+  "skill_name": "bytedesk-design",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I need to build a new settings page for the ByteDesk platform. It should have sections for: general account info (name, email), API key management (show current key with copy button, regenerate button), and notification preferences (checkboxes). Design this page for me and give me the full React component code.",
+      "expected_output": "A full-page layout using existing atoms/molecules. Uses Card for sections, FormField+Input for editable fields, CopyButton for API key, CheckboxGroup for notifications. All colors via CSS variables, IBM Plex fonts, no hardcoded values. Includes loading skeleton and saves button state.",
+      "files": [],
+      "expectations": [
+        "Uses <Card> component for section containers rather than plain divs with inline background styles",
+        "Uses <FormField> or <Input> for the name/email fields rather than building custom inputs",
+        "Uses <CopyButton> for the API key display",
+        "Uses <CheckboxGroup> for notification preferences",
+        "No hardcoded color values in the JSX (all via var(--color-*) or token class names)",
+        "Uses IBM Plex Sans (font-sans) and/or IBM Plex Mono (font-mono) — no other fonts",
+        "Includes a loading skeleton or async state handling",
+        "Buttons follow variant conventions (primary for save, danger for regenerate API key)",
+        "Uses <Stack> or <Row> layout primitives rather than manual flex divs"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Review this component and tell me what's wrong with it from a design system perspective:\n\n```tsx\nexport function LeadStatusCard({ lead }) {\n  return (\n    <div style={{\n      background: '#1A1C25',\n      border: '1px solid #3A3D48',\n      borderRadius: '8px',\n      padding: '16px',\n      boxShadow: '0px 8px 16px rgba(2,2,3,0.32)'\n    }}>\n      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>\n        <span style={{ color: '#BFC4CA', fontSize: '11px', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.1em' }}>\n          Status\n        </span>\n        <span style={{\n          background: lead.status === 'active' ? '#009118' : '#E52222',\n          color: 'white',\n          fontSize: '10px',\n          padding: '2px 6px',\n          borderRadius: '9999px'\n        }}>\n          {lead.status}\n        </span>\n      </div>\n      <h3 style={{ color: '#E6E8ED', fontSize: '16px', fontWeight: 600, marginTop: '8px' }}>\n        {lead.companyName}\n      </h3>\n      <p style={{ color: '#A2A8B2', fontSize: '14px' }}>{lead.ownerName}</p>\n      <button\n        style={{ background: '#0079F2', color: 'white', padding: '6px 12px',\n          borderRadius: '6px', marginTop: '12px', border: 'none', cursor: 'pointer' }}\n        onClick={() => handleEnrich(lead.id)}\n      >\n        Enrich Lead\n      </button>\n    </div>\n  )\n}\n```",
+      "expected_output": "A thorough design critique identifying: hardcoded hex colors (Critical), inline styles instead of atoms (Critical), manual badge instead of <Badge> (Should fix), manual button instead of <Button> (Should fix), manual card div instead of <Card> (Should fix), plus a suggested rewrite using proper atoms and CSS variables.",
+      "files": [],
+      "expectations": [
+        "Identifies the hardcoded hex color values (#1A1C25, #3A3D48, #BFC4CA, #E6E8ED, #A2A8B2, #0079F2, #009118, #E52222) as a Critical violation",
+        "Identifies the manual div-based card as a violation (should use <Card>)",
+        "Identifies the manual badge span as a violation (should use <Badge variant='green'|'red'>)",
+        "Identifies the manual button as a violation (should use <Button variant='primary'>)",
+        "Identifies the manual mc-label span as replaceable with .mc-section-label or .mc-label class",
+        "Provides a corrected code rewrite that uses <Card>, <Badge>, <Button>, and CSS variable references",
+        "Corrected code uses no hardcoded color literals",
+        "Corrected code uses <Row> or <Stack> instead of inline flex divs"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "I want to add a smooth animation when a new lead appears in the lead list after a scan completes. The leads come in one at a time over about 5 seconds (streaming). Each lead row should animate in from below with a slight fade. Also, I want the scan button to show a pulsing indicator while the scan is running. How should I implement this?",
+      "expected_output": "Recommends mc-fade-up-stagger CSS class with --index var for list items, or Framer Motion variants with staggerChildren for streaming case. Shows the mc-live-dot or Badge live prop for the scanning state. Provides concrete code examples using the motion tokens (--duration-stagger 50ms, --ease-out).",
+      "files": [],
+      "expectations": [
+        "Recommends mc-fade-up-stagger class or Framer Motion for the streaming list animation",
+        "Shows correct use of --index CSS variable for staggered animation timing",
+        "References the --duration-stagger (50ms) or --duration-enter (250ms) token values",
+        "References the --ease-out easing token",
+        "Shows Badge with live prop OR mc-live-dot class for the scanning/pulsing state",
+        "Provides working code examples (not just descriptions)",
+        "Does not suggest a third-party animation library outside of Framer Motion"
+      ]
+    }
+  ]
+}

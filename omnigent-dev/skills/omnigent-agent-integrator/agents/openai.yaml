@@ -1,0 +1,4 @@
+interface:
+  display_name: "Omnigent Agent Integrator"
+  short_description: "Agent bundles, YAML specs, MCP, tools, and policies."
+  default_prompt: "Use this skill to design or modify Omnigent agent bundles and external tool integrations."

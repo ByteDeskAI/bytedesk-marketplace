@@ -1,32 +1,54 @@
 # bytedesk-marketplace
 
-ByteDesk's Claude Code marketplace. Plugins for parallel multi-session orchestration, hierarchical authorization, and developer tooling.
+ByteDesk's Claude Code marketplace. Plugins for parallel multi-session orchestration, design patterns, Structurizr C4 modeling, project management, and **platform engineering skills**.
 
 ## Plugins
 
 | Plugin | Description |
 |---|---|
-| **[fleet](./fleet)** | Parallel multi-session Claude orchestration. Spawn agents on tickets, run them in parallel git worktrees, watch a dashboard, get push notifications when reviews land or merges happen. Hierarchical authorization (ADR-0001) lets parent agents delegate to children safely. |
-| **[design-patterns](./design-patterns)** | Source-neutral design-pattern advisor with Markdown catalog, MCP tooling, smell scans, and architecture decision support. |
-| **[structurizr](./structurizr)** | Enterprise C4 modeling with Structurizr DSL — indexed reference, 32 skills, CLI/MCP, validation gates, patterns, and cookbook recipes. |
+| **[fleet](./fleet)** | Parallel multi-session orchestration, worktrees, dashboard |
+| **[design-patterns](./design-patterns)** | Pattern catalog, MCP advisor, ADR seeds |
+| **[project-management](./project-management)** | Localized `.pm/` task/wiki MCP (generic PM) |
+| **[structurizr](./structurizr)** | Enterprise C4 / Structurizr DSL (32 skills, MCP) |
+| **[platform-dev](./platform-dev)** | TDD lifecycle, worktree operator, PR-ready, named agents |
+| **[platform-architecture](./platform-architecture)** | C4 drift gate, decomposition facade, ADRs |
+| **[platform-frontend](./platform-frontend)** | Web design system, atomize, browser smoke, SignalR |
+| **[platform-domain](./platform-domain)** | DBA, tool actions, workflows, DevProjects proof ops |
+| **[platform-ops](./platform-ops)** | TeamCity release policy, Gitflow operator |
+| **[bytedesk-goals](./bytedesk-goals)** | Goal pipeline, run_goals, Jira/Confluence, agent dispatch |
+| **[omnigent-dev](./omnigent-dev)** | Omnigent cross-repo engineering skills |
 
 ## Installation
 
-Add this marketplace to Claude Code:
-
 ```
 /plugin marketplace add ByteDeskAI/bytedesk-marketplace
+/plugin install platform-dev@bytedesk
+/plugin install bytedesk-goals@bytedesk
 ```
 
-Then install individual plugins:
+Recommended platform checkout set (see `bytedesk-platform/.claude/settings.json`):
 
 ```
-/plugin install fleet@bytedesk
+platform-dev platform-architecture platform-frontend platform-domain
+platform-ops bytedesk-goals omnigent-dev fleet design-patterns structurizr
 ```
 
-## Status
+## Script placement
 
-`v1.19.0` (2026-06-19) — **structurizr** plugin v0.1.0: enterprise C4/Structurizr DSL skills, indexed language reference, CLI, and MCP. Prior: design-patterns v0.9.x, fleet v1.16.x. The `fleet` plugin's v0.1 → v1.0 migration is documented at [`fleet/docs/MIGRATION.md`](./fleet/docs/MIGRATION.md).
+- Single-skill scripts: `<plugin>/skills/<skill>/scripts/`
+- Multi-skill shared libs: `<plugin>/lib/`
+- CLI entrypoints: `<plugin>/bin/` (forward to platform checkout when repo-coupled)
+
+`scripts/dev/workflow.mjs` stays in **bytedesk-platform** (ADR-0058).
+
+## Refresh from platform
+
+From `bytedesk-platform`:
+
+```bash
+node scripts/dev/bootstrap-marketplace.mjs --apply
+node scripts/dev/marketplace-link-skills.mjs --apply   # Codex/Grok symlinks
+```
 
 ## License
 

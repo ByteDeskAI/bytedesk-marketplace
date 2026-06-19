@@ -1,0 +1,36 @@
+{
+  "skill_name": "bytedesk-adr",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Write an ADR documenting our decision to use Redis pub/sub for cross-service event distribution instead of polling or direct HTTP callbacks.",
+      "expected_output": "Lists existing ADRs to find the next sequential number, creates a new ADR file at docs/architecture/adr/NNN-redis-pubsub-cross-service.md with all required sections (Context, Decision, Rationale, Alternatives, Consequences), status Accepted, mentions the realtime.md rule file.",
+      "files": [],
+      "expectations": [
+        "Listed existing ADRs in docs/architecture/adr/ to determine next sequential number",
+        "Created file at docs/architecture/adr/ with correct NNN-slug.md naming",
+        "ADR includes Context section explaining the problem",
+        "ADR includes Decision section clearly stating what was chosen",
+        "ADR includes Alternatives Considered with at least polling and direct HTTP",
+        "ADR includes Consequences section with trade-offs",
+        "ADR status is Accepted",
+        "ADR references or mentions the realtime.md rule file"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Document our architecture decision to use db-per-tenant isolation rather than shared tables with a tenant_id column.",
+      "expected_output": "Finds next ADR number, creates docs/architecture/adr/NNN-db-per-tenant.md with full template, status Accepted, references database.md rule file, explains rationale (isolation, compliance, independent schema evolution) and trade-offs (more Postgres connections, migration complexity).",
+      "files": [],
+      "expectations": [
+        "Found next sequential ADR number from existing files",
+        "Created file at correct path in docs/architecture/adr/",
+        "ADR has all required sections (Context, Decision, Rationale, Alternatives, Consequences)",
+        "ADR references database.md rule file in Implementation Notes",
+        "Rationale includes isolation and/or compliance benefits",
+        "Consequences include the trade-off of more DB connections or migration complexity",
+        "ADR status is Accepted"
+      ]
+    }
+  ]
+}

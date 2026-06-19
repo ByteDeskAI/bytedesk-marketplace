@@ -1,0 +1,31 @@
+{
+  "skill_name": "bytedesk-confluence",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Search Confluence for anything about the prospecting pipeline or radar scan feature so I have context before changing the scan timeout logic.",
+      "expected_output": "Searches Confluence space 491524 for 'prospecting pipeline' and/or 'radar scan', returns a ranked list of matching pages with titles and brief summaries, reads the most relevant page to surface key context.",
+      "files": [],
+      "expectations": [
+        "Searched Confluence using space 491524 as the primary search scope",
+        "Search query included 'prospecting' or 'radar' as keywords",
+        "Returned a list of matching pages with titles",
+        "Read the most relevant result to extract context",
+        "Did not call getAccessibleAtlassianResources (defaults already known)"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Create a Confluence page documenting the ByteDesk lead enrichment pipeline — how we scrape AZ ROC, validate against ICP criteria, and enrich with Hunter.io. Link it to BDP-61.",
+      "expected_output": "Creates a new page in space 491524 with a structured body covering the three pipeline stages (scrape, validate, enrich), searches for an appropriate parent page first, adds a comment on BDP-61 with the new page URL.",
+      "files": [],
+      "expectations": [
+        "Searched for an existing parent page before creating (e.g., 'Features' or 'Lead Gen')",
+        "Created page in space 491524 (ByteDesk Platform space)",
+        "Page body covers all three pipeline stages: scraping, ICP validation, enrichment",
+        "Retrieved BDP-61 from Jira and added a comment with the new page URL",
+        "Did not call getAccessibleAtlassianResources"
+      ]
+    }
+  ]
+}

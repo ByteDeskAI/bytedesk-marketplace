@@ -1,0 +1,4 @@
+interface:
+  display_name: "Omnigent Engineer"
+  short_description: "Day-to-day Omnigent source development hub."
+  default_prompt: "Use this skill to route and execute Omnigent source work with current generated references."

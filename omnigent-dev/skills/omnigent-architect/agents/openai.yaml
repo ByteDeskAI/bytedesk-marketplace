@@ -1,0 +1,4 @@
+interface:
+  display_name: "Omnigent Architect"
+  short_description: "Architecture and plan review for Omnigent changes."
+  default_prompt: "Use this skill to review an Omnigent implementation plan against current repo boundaries and contracts."
