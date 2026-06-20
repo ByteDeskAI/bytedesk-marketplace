@@ -8,11 +8,7 @@ Eight focused agents complement the monolithic `bytedesk-software-engineer` skil
 named-agent-dispatch list
 named-agent-dispatch show platform-builder
 named-agent-dispatch suggest "ship BDP-123 after browser smoke"
-agent-fleet-dispatch roster
-agent-fleet-dispatch plan --text "add Sales contact export endpoint"
 ```
-
-Fleet plugin (`/fleet:spawn`) can target these slugs when spawning parallel worktrees.
 
 ## Roster
 
@@ -29,7 +25,7 @@ Fleet plugin (`/fleet:spawn`) can target these slugs when spawning parallel work
 
 ## Real-world test scenarios
 
-See the user-facing examples in project docs or run `named-agent-dispatch suggest` with your task text. Canonical scenarios:
+See the user-facing examples in project docs or run `agent-dispatch.mjs suggest` with your task text. Canonical scenarios:
 
 1. **platform-builder** — "Implement BDP-1491: add `GET /api/sales/contacts/{id}/timeline` with unit + integration tests."
 2. **lifecycle-operator** — "Ship and land `feature/BDP-1491-contact-timeline` after pr-ready is green."

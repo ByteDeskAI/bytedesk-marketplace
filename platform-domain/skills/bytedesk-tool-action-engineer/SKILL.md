@@ -228,14 +228,14 @@ Read `references/result-view-template.tsx` before writing a new viewer.
 
 **Design tokens to use:**
 - Status/quality scores: `<Badge variant="green|amber|red">` with numeric thresholds
-- Section labels: `<Label muted>` 
+- Section labels: `<Label muted>`
 - Empty state: `<EmptyState>` from `@/components/shared`
 - Numbers/metrics: `<MetricCard>` from `@/components/ui`
 - Consistent color helpers: derive from `var(--color-accent-*)` tokens, not hardcoded hex
 
 **Anti-patterns (will fail design review):**
 - `text-[10px]` or `text-[11px]` — use `.text-caption` or `.text-label`
-- Hardcoded `#hex` — use `var(--color-*)` 
+- Hardcoded `#hex` — use `var(--color-*)`
 - `animate-pulse` divs — use `<Skeleton>` atom
 - Inline `style={{ fontFamily }}` — IBM Plex Sans is global default
 

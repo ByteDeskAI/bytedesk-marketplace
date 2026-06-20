@@ -87,7 +87,7 @@ When a component displays data, it should accept `T extends SomeMinimalInterface
 // Too concrete — only works for one domain
 function ProjectCard({ project }: { project: Project }) { ... }
 
-// Maximally parameterized — works for any resource with these fields  
+// Maximally parameterized — works for any resource with these fields
 function ResourceCard<T extends { id: string; name: string; status: string }>({
   item, icon, accent, actions, renderDetail
 }: ResourceCardProps<T>) { ... }

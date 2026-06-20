@@ -61,7 +61,7 @@ Planning is a first-class pipeline stage (ADR-0059) — `/goals plan` is the fro
 ### `start <doc | manifest | intent>`
 Route to the right skill — don't plan/execute inline:
 - arg is a `*.plan.json` → `run-goals validate <manifest>`, then invoke **run_goals** (inline `run-manifest` loop).
-- arg is a single `*.md` goal doc → `run-goals run-one` or `handoff`, then **`/goal <doc>`** semantics via [[run_goals]].
+- arg is a single `*.md` goal doc → `run-goals.mjs run-one` or `handoff`, then **`/goal <doc>`** semantics via [[run_goals]].
 - arg is a fuzzy **intent** → route to the **`plan`** verb (size → plan_goal / plan_epic, then board-refresh). `start <intent>` is kept as an alias for `plan <intent>`.
 - arg names an existing goal already **In progress** → resume it (point at its branch/worktree/manifest) rather than re-planning.
 Before starting, run the relevant Jira transition via [[bytedesk-jira-task]] (To Do → In Progress) if the goal carries a key.
@@ -99,7 +99,7 @@ Tidy **verified-Done** goals only. For each cleanup-eligible goal (see policy):
 4. Regenerate `docs/goals/README.md`.
 
 ## Status model (all DERIVED — never a stored status DB)
-Recompute every run; do not maintain a parallel state file. The git/worktree/PR/manifest signals come from the **`goals-board`** assembler (one deterministic call); Jira is merged live via MCP; goal-doc markers refine.
+Recompute every run; do not maintain a parallel state file. The git/worktree/PR/manifest signals come from the **`goals-board.mjs`** assembler (one deterministic call); Jira is merged live via MCP; goal-doc markers refine.
 
 | Source | Signal |
 |---|---|

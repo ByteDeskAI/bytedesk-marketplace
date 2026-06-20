@@ -5,8 +5,8 @@ description: >-
   src/ByteDesk.* services, shared contracts/infra, or Helm service topology;
   before commit or PR when architecture-relevant paths change; when pre-commit
   or Stop hook reports architecture-sync violations; or when updating
-  docs/architecture/workspace.dsl. Wraps architecture-sync.mjs and marketplace
-  structurizr skills (orchestrator, validator, diff, drift-detector).
+  docs/architecture/workspace.dsl. Wraps architecture-sync.mjs and platform-local
+  Structurizr DSL validation.
 user-invokable: true
 argument-hint: "working-tree | audit [--base origin/develop] | refresh | partition <service>"
 allowed-tools:
@@ -55,12 +55,12 @@ For **surgical** changes (new container, relationship, tag):
 
 1. Read the affected partition in `docs/architecture/workspace.dsl`.
 2. Apply the minimal DSL edit (C1–C2 default; C3 only when the plan requires it).
-3. Validate: `/structurizr-validate` or `architecture-sync --mode audit`.
+3. Validate: `architecture-sync --mode audit`.
 
 For **large** or **new-service** changes:
 
-1. Invoke `/structurizr-orchestrator` with the partition + intent.
-2. Use `/structurizr-diff` before commit to review wire-shape changes.
+1. Read the affected partition and matching ADRs before editing.
+2. Use `git diff -- docs/architecture/workspace.dsl` before commit to review wire-shape changes.
 
 Stage **both** code and diagram:
 

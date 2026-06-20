@@ -530,7 +530,7 @@ Backend first (RED → GREEN for the endpoint and any consumers), then frontend:
 
 **Design patterns (non-negotiable — CLAUDE.md §5)**
 - [ ] Non-trivial approach fits a documented pattern (ADR-0008 GoF, ADR-0013 Tool Action, ADR-0009 EIP, domain ADRs) — no ad-hoc structure where a pattern fits
-- [ ] Cross-service / new-entity / new-pattern approach validated via `/bytedesk-architect` or the design-patterns MCP **before** coding
+- [ ] Cross-service / new-entity / new-pattern approach validated via `/bytedesk-architect` and ADR evidence **before** coding
 - [ ] Significant new approach with no fitting pattern → ADR written (`/bytedesk-adr`)
 
 **Both**

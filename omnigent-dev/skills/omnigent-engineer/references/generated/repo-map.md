@@ -29,6 +29,7 @@ Generated from `/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-omnigent`. Re-ru
 - `tests/_fixtures/`
 - `tests/_helpers/`
 - `tests/accountability/`
+- `tests/assignment/`
 - `tests/bus/`
 - `tests/cli/`
 - `tests/client_tools/`
@@ -41,6 +42,7 @@ Generated from `/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-omnigent`. Re-ru
 - `tests/e2e_ui/`
 - `tests/entities/`
 - `tests/environments/`
+- `tests/executor_protocols/`
 - `tests/extensions/`
 - `tests/frontends/`
 - `tests/github/`
@@ -54,8 +56,10 @@ Generated from `/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-omnigent`. Re-ru
 - `tests/llms/`
 - `tests/onboarding/`
 - `tests/outcomes/`
+- `tests/parity/`
 - `tests/peer/`
 - `tests/policies/`
+- `tests/provider_metadata/`
 - `tests/realtime/`
 - `tests/release/`
 - `tests/repl/`
@@ -69,6 +73,7 @@ Generated from `/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-omnigent`. Re-ru
 - `tests/sessions/`
 - `tests/spec/`
 - `tests/stores/`
+- `tests/tasks/`
 - `tests/terminals/`
 - `tests/tool_steps/`
 - `tests/tools/`

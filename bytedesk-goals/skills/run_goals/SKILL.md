@@ -58,7 +58,7 @@ Before marking any goal PASS:
 4. **Land** (sequential default): `scripts/dev/workflow.mjs land feature/<goal-id>`
    before the next goal whose deps require merged code.
 
-**FORBIDDEN:** summarizing a goal doc and implementing from memory without step 2.  
+**FORBIDDEN:** summarizing a goal doc and implementing from memory without step 2.
 **FORBIDDEN:** marking PASS from tests/PR alone without the proof gate in step 3.
 
 ### Mechanical executor (`run-goals`)
@@ -136,7 +136,7 @@ Execute as **land-gated levels**, looping until all goals are done:
 
 **Resumability:** if `integration.autoMergeTo` is unset, a level stops at "green — PRs ready" and dependents stay blocked until **you merge** those PRs. `run_goals` is idempotent — re-invoke it (or it resumes) once the deps are on `develop`; it skips goals already landed (detect via the base branch containing them / Jira Done) and continues with the newly-unblocked level.
 
-### 1b. Execute through `run-goals` (before §2 lane selection)
+### 1b. Execute through `run-goals.mjs` (before §2 lane selection)
 
 After §1 validation, **do not implement goals yourself**. Drive execution:
 
@@ -147,12 +147,12 @@ After §1 validation, **do not implement goals yourself**. Drive execution:
 3. Re-run the printed `continueAfter.command` until `run-manifest` exits 0.
 
 ### 2. Pick a lane per goal
-- **Sequential inline `/goal` (DEFAULT).** `run-goals` always emits in-session handoffs.
+- **Sequential inline `/goal` (DEFAULT).** `run-goals.mjs` always emits in-session handoffs.
   Each goal gets a real `/goal` Stop-hook loop in this session — not implementation from memory.
   **Land before the next goal whose deps require merged code.** Always used when
   `needsHumanGate: true`, or when the goal's Constraints reserve interactive approval/deploy/merge.
 - **Parallel worktree fan-out (OPT-IN).** Only for goals explicitly marked `"mode": "parallel"`.
-  Use background `Agent` subagents (§3) — not `run-goals`, which is sequential-only.
+  Use background `Agent` subagents (§3) — not `run-goals.mjs`, which is sequential-only.
   Parallel goals **never land on their own** — they converge at the **integration gate (§4)**.
 
 When in doubt, sequential. Parallelism is a wall-clock optimization for vetted-independent goals, not the default.
@@ -166,7 +166,7 @@ All worktree lifecycle goes through the **worktree-operator** (`scripts/dev/work
 
 ### 3. Parallel lane (opt-in `mode: "parallel"` goals only)
 
-`run-goals` does not fan out parallel goals. For parallel-mode goals in a level,
+`run-goals.mjs` does not fan out parallel goals. For parallel-mode goals in a level,
 dispatch background `Agent` subagents. Each handoff from `run-one` injects
 worktree-operator grounding — subagent prompts must repeat cwd, `feature/<id>`, and
 `workflow.mjs` verbs; agents must not implement from canonical `develop`/`main`.
@@ -206,7 +206,7 @@ and cleanup. This preserves resolutions that a rebase would replay.
 Hard rules: the gate (steps 1–3) is **mandatory** before any parallel land and **cannot** be skipped by `autoMergeTo`; `autoMergeTo` only authorizes the *green* outcome to merge without a human. Sequential goals never enter this gate — each already integrated against live `develop` before the next began.
 
 ### 5. Result handling
-- Record each goal PASS/FAIL only after the **proof gate** (`run-goals proof --id` exit 0, or `update_goal(completed: true)` for in-session).
+- Record each goal PASS/FAIL only after the **proof gate** (`run-goals.mjs proof --id` exit 0, or `update_goal(completed: true)` for in-session).
 - A **FAIL blocks its dependents** — skip + mark blocked; independent branches continue.
 - **Re-dispatch once** with failure context appended; if it fails again or needs human input, **escalate to the in-session lane** or surface to the user — don't loop.
 - Trust-but-verify: a `RESULT: PASS` is a claim. Spot-check the load-bearing evidence (run the doc's verification command, confirm the artifact) before accepting it.

@@ -43,33 +43,22 @@ If found: read the issue, understand current scope and any comments. If not foun
 
 Transition to **In Progress** before touching any code.
 
-### 2. Dispatch the work via the fleet plugin
+### 2. Create the worktree via the platform operator
 
-The current Claude session does **not** carry the work — it dispatches it. Spawning, branch creation, and session lifecycle are owned by the fleet plugin (see `/fleet:spawn`); this skill's job is to construct the bytedesk-specific prompt and call out to fleet.
+Branch creation and localDev lifecycle are owned by `scripts/dev/workflow.mjs` (ADR-0058). This skill's job is to construct the ByteDesk-specific kickoff context, create the worktree, and hand the user the exact next command for continuing inside that worktree.
 
-**Always deliver the prompt via `--prompt-file`** (write to a temp file with the `Write` tool, then pass the path). **Default to `--full-auto`** so the spawned session runs to completion without supervision:
+Create the worktree from `origin/develop`:
 
 ```bash
-# Step 1: Write prompt to /tmp/<TICKET>-prompt.txt with the Write tool.
-#         Include: ticket key, what to read first, applicable rule files
-#         (see section 4), desired outcome, hard constraints (especially:
-#         "never push --force, never modify CI without confirmation, never
-#         touch other worktrees"). The spawned Claude has no chat history —
-#         the prompt is its only context.
-
-# Step 2: Spawn (full-auto by default).
-spawn-claude-feature BDP-123 BDP-123-short-slug \
-  --prompt-file /tmp/BDP-123-prompt.txt \
-  --full-auto
+node scripts/dev/workflow.mjs new BDP-123-short-slug origin/develop
+cd .claude/worktrees/BDP-123-short-slug
 ```
 
 Branch format is always `feature/BDP-N-short-slug`. Base is always `origin/develop` (never `main`, never another feature branch unless the user explicitly says to stack).
 
-**Spawned sessions don't share dependency state with the current tree.** The prompt should tell the agent to run `npm install` in `src/ByteDesk.Web/` (or `dotnet restore` from `src/`) before any build/test step.
+Worktrees don't share dependency state with the current tree. Run `npm install` in `src/ByteDesk.Web/` (or `dotnet restore` from `src/`) before any build/test step.
 
 Dev infrastructure (k8s, Postgres, Redis, Helm releases) is OS-global, so only one worktree at a time can run the dev server.
-
-For spawn flags, lifecycle, and parallel-spawn forms, see the fleet plugin's `/fleet:spawn` skill.
 
 If the user explicitly asks for "in place", "no worktree", or "stay here", stop and explain that ByteDesk feature work is worktree-first. The canonical checkout is reserved for updating `develop`, worktree management, release/back-merge bookkeeping, and inspection.
 
@@ -121,27 +110,20 @@ If the feature requires new environment variables:
 
 ### 7. Kickoff summary
 
-After the spawn returns, report:
+After the worktree is created, report:
 
 ```
 Feature kickoff complete:
   Branch:    feature/BDP-123-short-slug (from origin/develop @ <sha>)
   Jira:      BDP-123 → In Progress (https://bytedesk.atlassian.net/browse/BDP-123)
-
-Monitor / control via the fleet plugin:
-  /fleet:status              # what BDP-123 is doing
-  /fleet:wait BDP-123        # block until done
-  /fleet:cleanup             # sweep after PR merges
+  Worktree:  .claude/worktrees/BDP-123-short-slug
+  Next:      cd .claude/worktrees/BDP-123-short-slug
 ```
 
 ## After Kickoff
 
-The work runs autonomously in the spawned session. From your control terminal:
-
-1. Use the fleet plugin to monitor and interact: `/fleet:status` for state, `/fleet:wait BDP-N` to block until done. See the fleet plugin's skills for the full surface (attach, course-correction, etc.).
-2. Each spawned session handles its own implementation, tests, and PR creation (`/bytedesk-pr-ready` from inside the session).
-3. Never merge locally to `develop` — PRs gate the `gateway` / `web` / `helm-chart` CI checks the project rules require.
+Continue implementation from inside the feature worktree. Run `/bytedesk-pr-ready` from inside that worktree when implementation and verification are complete. Never merge locally to `develop` — PRs gate the `gateway` / `web` / `helm-chart` CI checks the project rules require.
 
 ## After Merge — Cleanup
 
-Once the PR merges on GitHub, run `/fleet:cleanup` to sweep the session, worktree, and branch in one go. The fleet plugin handles the unpushed-work safety check.
+Once the PR merges on GitHub, run `node scripts/dev/workflow.mjs cleanup <worktree-name>` from the canonical checkout. The operator handles localDev reset and branch/worktree safety checks.

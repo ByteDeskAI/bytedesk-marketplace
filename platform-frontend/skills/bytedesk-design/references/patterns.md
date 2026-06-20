@@ -113,11 +113,11 @@ Structure: header → metric grid → charts/tables in cards
 ```tsx
 <Stack gap={6}>
   <PageHeader title="Prospecting Dashboard" />
-  
+
   <MetricGrid>
     <MetricCard label="Total Leads" value="4,422" sub="Phoenix metro" />
     <MetricCard label="Enriched" value="1,834" sub="41% coverage" />
-    <MetricCard label="Deliverable Email" value="67%" 
+    <MetricCard label="Deliverable Email" value="67%"
       color="var(--color-accent-green)" />
     <MetricCard label="Sequences Active" value="3" />
   </MetricGrid>
@@ -188,7 +188,7 @@ For rich detail views that need metadata + content + activity feed.
   boxShadow: "var(--shadow-xl)"
 }}>
   {/* Left sidebar — metadata */}
-  <div style={{ 
+  <div style={{
     background: "var(--color-bg-subtle)",
     borderRight: "1px solid var(--color-border-default)",
     padding: "var(--space-4)",

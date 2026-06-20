@@ -1,8 +1,11 @@
 /**
  * Named ByteDesk development agents — roster + routing hints.
- * Used by scripts/dev/agent-dispatch.mjs and agent-fleet-dispatch.mjs.
+ * Used by scripts/dev/agent-dispatch.mjs.
  * Distinct from scripts/lib/agent-dispatch.mjs (Omnigent goal payload builder).
  */
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { resolveMarketplacePlugin } from "./resolve-marketplace-plugin.mjs";
 
 /** @typedef {{ slug: string, name: string, summary: string, skills: string[], triggers: string[], definition: string }} Agent */
 
@@ -75,6 +78,20 @@ export const AGENTS = [
 ];
 
 const bySlug = new Map(AGENTS.map((a) => [a.slug, a]));
+
+/**
+ * Resolve agent markdown — marketplace platform-dev/agents first, then repo .claude/agents.
+ * @param {Agent} agent
+ * @param {string} platformRoot
+ */
+export function resolveAgentDefinitionPath(agent, platformRoot) {
+  const pluginRoot = resolveMarketplacePlugin("platform-dev");
+  if (pluginRoot) {
+    const pluginPath = join(pluginRoot, "agents", `${agent.slug}.md`);
+    if (existsSync(pluginPath)) return pluginPath;
+  }
+  return join(platformRoot, agent.definition);
+}
 
 /** @param {string} slug */
 export function getAgent(slug) {

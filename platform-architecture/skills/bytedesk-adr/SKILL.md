@@ -25,9 +25,9 @@ Use this exact structure. Omit sections that truly don't apply, but never invent
 ```markdown
 # ADR-NNN: <Short Decision Title>
 
-**Date**: YYYY-MM-DD  
-**Status**: Proposed | Accepted | Deprecated | Superseded by ADR-XXX  
-**Deciders**: Ryan Helms  
+**Date**: YYYY-MM-DD
+**Status**: Proposed | Accepted | Deprecated | Superseded by ADR-XXX
+**Deciders**: Ryan Helms
 **Related Jira**: BDP-N (if applicable)
 
 ## Context

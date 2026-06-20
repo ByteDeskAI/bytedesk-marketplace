@@ -56,10 +56,10 @@ Before writing a single line of JSX, scan the codebase for existing components t
    ```bash
    # Atoms (primitives)
    find src/ByteDesk.Web/src/components/ui -name "*.tsx" | sort
-   
+
    # Molecules (domain-agnostic compositions)
    find src/ByteDesk.Web/src/components/shared -name "*.tsx" | sort
-   
+
    # Organisms (domain-specific, check the relevant domain dir)
    find src/ByteDesk.Web/src/components/<domain> -name "*.tsx" | sort
    ```
@@ -89,20 +89,20 @@ When discovery confirms nothing exists and a new component is needed, determine 
 ### Layer decision
 
 ```
-Question 1: Does this component have any domain knowledge 
+Question 1: Does this component have any domain knowledge
             (knows about Contacts, Pipelines, Opportunities, etc.)?
   NO  → it's an atom or molecule (belongs in ui/ or shared/)
   YES → it's an organism or page fragment (belongs in components/<domain>/)
 
-Question 2 (for NO above): Does this compose multiple atoms 
+Question 2 (for NO above): Does this compose multiple atoms
             together in a reusable pattern?
   NO  → atom → place in components/ui/<name>.tsx
   YES → molecule → place in components/shared/<name>.tsx
 
-Question 3 (for YES above): Does this represent a self-contained 
+Question 3 (for YES above): Does this represent a self-contained
             section of a page with its own data-fetching or state?
   NO  → organism → place in components/<domain>/<name>.tsx
-  YES → still an organism, but note that data fetching belongs 
+  YES → still an organism, but note that data fetching belongs
         in the page or a custom hook, not the organism itself
 ```
 
@@ -225,7 +225,7 @@ Read these when designing or reviewing:
 **Critical**
 - [Issue]: [specific token/component that's wrong + what to use instead]
 
-**Should Fix**  
+**Should Fix**
 - [Issue]: [explanation + recommendation]
 
 **Nice to Have**
