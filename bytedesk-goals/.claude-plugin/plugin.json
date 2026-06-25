@@ -1,8 +1,8 @@
 {
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "bytedesk-goals",
-  "description": "ByteDesk goal pipeline — goals board, run_goals, plan_goal/plan_epic, Jira/Confluence skills, named-agent dispatch.",
-  "version": "0.1.0",
+  "description": "ByteDesk goal pipeline \u2014 goals board, run_goals, plan_goal/plan_epic, Jira/Confluence skills, named-agent dispatch.",
+  "version": "0.1.1",
   "author": {
     "name": "ByteDesk AI",
     "url": "https://github.com/ByteDeskAI"

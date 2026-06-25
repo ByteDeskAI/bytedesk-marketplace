@@ -2,7 +2,7 @@
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "platform-ops",
   "description": "Production release policy (TeamCity read-only) and Gitflow/Fleet operator.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": {
     "name": "ByteDesk AI",
     "url": "https://github.com/ByteDeskAI"

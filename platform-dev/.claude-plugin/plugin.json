@@ -1,8 +1,8 @@
 {
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "platform-dev",
-  "description": "ByteDesk core implementation lifecycle — TDD engineer, feature start, PR-ready, worktree operator, architect, grounding, integration branches.",
-  "version": "0.1.0",
+  "description": "ByteDesk core implementation lifecycle \u2014 TDD engineer, feature start, PR-ready, worktree operator, architect, grounding, integration branches.",
+  "version": "0.1.1",
   "author": {
     "name": "ByteDesk AI",
     "url": "https://github.com/ByteDeskAI"

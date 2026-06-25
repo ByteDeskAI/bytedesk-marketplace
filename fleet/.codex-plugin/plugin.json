@@ -1,0 +1,45 @@
+{
+  "name": "fleet",
+  "version": "1.16.2",
+  "description": "Parallel multi-session Claude orchestration with hierarchical authorization, depth-aware delegation, and tool-level event observability. Spawn agents on tickets, watch a dashboard, get notified when reviews land or merges happen.",
+  "author": {
+    "name": "ByteDesk AI",
+    "url": "https://github.com/ByteDeskAI"
+  },
+  "homepage": "https://github.com/ByteDeskAI/bytedesk-marketplace/tree/main/fleet",
+  "repository": "https://github.com/ByteDeskAI/bytedesk-marketplace",
+  "license": "MIT",
+  "keywords": [
+    "multi-session",
+    "orchestration",
+    "claude-code",
+    "fleet",
+    "tmux",
+    "worktree",
+    "parallel-agents",
+    "hierarchical-authorization"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Fleet",
+    "shortDescription": "Parallel multi-session Claude orchestration with hierarchical authorization, depth-aware delegation, and tool-level event observability.",
+    "longDescription": "Parallel multi-session Claude orchestration with hierarchical authorization, depth-aware delegation, and tool-level event observability. Spawn agents on tickets, watch a dashboard, get notified when reviews land or merges happen.",
+    "developerName": "ByteDeskAI",
+    "category": "Engineering",
+    "capabilities": [
+      "Interactive",
+      "Read"
+    ],
+    "websiteURL": "https://github.com/ByteDeskAI/bytedesk-marketplace/tree/main/fleet",
+    "defaultPrompt": [
+      "Dependency-aware multi-stage orchestration of parallel sessions.",
+      "Find sessions in the multi-session command center whose PRs have already merged on GitHub, and kill+cleanup each (with confirmation).",
+      "Spawn a dedicated reviewer session for a given session's open PR.",
+      "Install thin wrappers in ~/.local/bin/ so the fleet plugin's public CLIs (claude-sessions, claude-sessions-web, spawn-claude-feature) are callable from the user's interactive zsh / bash, not just from",
+      "Spawn one or many parallel Claude agents on Jira tickets, with full-auto mode and Jira-aware prompt construction.",
+      "Chat-friendly snapshot of the multi-session Claude command center.",
+      "Spawn N variant agents on the same Jira ticket, each with a different strategy hint, then auto-spawn a judge that reads all the resulting PRs and merges the best one.",
+      "Block until one or more sessions reach a target state (default done)."
+    ]
+  }
+}

@@ -1,10 +1,9 @@
 {
   "name": "design-patterns",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "description": "Source-neutral advisor, Markdown reference catalog, MCP tooling, and dynamic workbench for software design patterns.",
   "author": {
-    "name": "ByteDeskAI",
-    "url": "https://github.com/ByteDeskAI"
+    "name": "ByteDeskAI"
   },
   "homepage": "https://github.com/ByteDeskAI/design-pattern-references",
   "repository": "https://github.com/ByteDeskAI/design-pattern-references",
@@ -20,8 +19,8 @@
   "mcpServers": "./.codex-mcp.json",
   "interface": {
     "displayName": "Design Patterns",
-    "shortDescription": "Pattern advice, architecture review, and refactoring guidance.",
-    "longDescription": "A source-neutral Markdown catalog and skill bundle for finding, reviewing, deciding, scanning, scoring, documenting, exploring, and applying reusable software design patterns across object design, integration design, architecture smells, playbooks, recipes, framework packs, language-specific implementation idioms, snippets, context packs, migration plans, decision simulations, graph intelligence, MCP tooling, and a dynamic Python-backed catalog workbench.",
+    "shortDescription": "Source-neutral advisor, Markdown reference catalog, MCP tooling, and dynamic workbench for software design patterns.",
+    "longDescription": "Source-neutral advisor, Markdown reference catalog, MCP tooling, and dynamic workbench for software design patterns.",
     "developerName": "ByteDeskAI",
     "category": "Engineering",
     "capabilities": [
@@ -30,18 +29,14 @@
     ],
     "websiteURL": "https://github.com/ByteDeskAI/design-pattern-references",
     "defaultPrompt": [
-      "Find the right pattern for this design problem.",
-      "Review this architecture for pattern issues.",
-      "Draft an architecture decision using pattern tradeoffs.",
-      "Scan this repository for pattern-relevant architecture smells.",
-      "Serve the dynamic design pattern workbench for catalog exploration.",
-      "Generate an implementation brief from selected pattern candidates.",
-      "Plan this module toward a cleaner pattern.",
-      "Build a context pack from code evidence and pattern references.",
-      "Run the design-pattern MCP server for tool integrations.",
-      "Show copyable /patterns-* MCP request examples for this plugin.",
-      "Show /patterns-* command help for every design-pattern MCP tool.",
-      "Infer language and catalog scope from codebase and request context when omitted."
+      "Produce source-neutral architecture decision guidance using the design-pattern catalog, tradeoff analysis, and ADR-style output.",
+      "Find source-neutral design-pattern issues in code, architecture docs, PRs, diagrams, or design notes.",
+      "Review message-driven, event-driven, async workflow, broker, queue, stream, saga, or integration architecture.",
+      "Advise on selecting, comparing, applying, reviewing, or invoking reusable software design patterns.",
+      "Plan or implement a safe pattern-oriented refactor in an existing codebase.",
+      "Find and compare reusable design patterns from a problem statement.",
+      "Generate an ADR-style seed backed by the pattern catalog",
+      "Build a model-ready pattern context pack for code and a design question"
     ]
   }
 }

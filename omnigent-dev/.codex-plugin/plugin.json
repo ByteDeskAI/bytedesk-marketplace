@@ -1,0 +1,35 @@
+{
+  "name": "omnigent-dev",
+  "version": "0.1.1",
+  "description": "Omnigent cross-repo engineering \u2014 operator, architect, runtime harness, web deploy, API/SDK, agent bundles.",
+  "author": {
+    "name": "ByteDesk AI",
+    "url": "https://github.com/ByteDeskAI"
+  },
+  "homepage": "https://github.com/ByteDeskAI/bytedesk-marketplace/tree/main/omnigent-dev",
+  "repository": "https://github.com/ByteDeskAI/bytedesk-marketplace",
+  "license": "MIT",
+  "keywords": [],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Omnigent Dev",
+    "shortDescription": "Omnigent cross-repo engineering \u2014 operator, architect, runtime harness, web deploy, API/SDK, agent bundles.",
+    "longDescription": "Omnigent cross-repo engineering \u2014 operator, architect, runtime harness, web deploy, API/SDK, agent bundles.",
+    "developerName": "ByteDeskAI",
+    "category": "Engineering",
+    "capabilities": [
+      "Interactive",
+      "Read"
+    ],
+    "websiteURL": "https://github.com/ByteDeskAI/bytedesk-marketplace/tree/main/omnigent-dev",
+    "defaultPrompt": [
+      "Omnigent agent-bundle and integration skill.",
+      "Omnigent API, SDK, and protocol-contract skill.",
+      "Omnigent architecture and plan-review skill.",
+      "Omnigent source-development hub skill.",
+      "Omnigent repo operator for worktree lifecycle, workflow.mjs commands, status checks, ship/land/cleanup, local server and host smoke, CLI configuration, and PR-state proof in bytedesk-omnigent.",
+      "Omnigent runtime, runner, host, tunnel, harness, native bridge, tool dispatch, cancellation, approval/elicitation, and executor engineering skill.",
+      "Omnigent web UI, desktop UI, deployment, auth, server-managed host, sandbox, and packaging skill."
+    ]
+  }
+}

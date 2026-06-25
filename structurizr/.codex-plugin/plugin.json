@@ -1,0 +1,43 @@
+{
+  "name": "structurizr",
+  "version": "0.1.1",
+  "description": "Enterprise C4 modeling with Structurizr DSL \u2014 indexed language reference, CLI/MCP tooling, validation gates, pattern catalog, and cookbook recipes.",
+  "author": {
+    "name": "ByteDeskAI"
+  },
+  "homepage": "https://github.com/ByteDeskAI/bytedesk-marketplace",
+  "repository": "https://github.com/ByteDeskAI/bytedesk-marketplace",
+  "license": "MIT",
+  "keywords": [
+    "structurizr",
+    "c4-model",
+    "architecture",
+    "dsl",
+    "diagrams",
+    "software-architecture"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.codex-mcp.json",
+  "interface": {
+    "displayName": "Structurizr",
+    "shortDescription": "Enterprise C4 modeling with Structurizr DSL \u2014 indexed language reference, CLI/MCP tooling, validation gates, pattern catalog, and cookbook recipes.",
+    "longDescription": "Enterprise C4 modeling with Structurizr DSL \u2014 indexed language reference, CLI/MCP tooling, validation gates, pattern catalog, and cookbook recipes.",
+    "developerName": "ByteDeskAI",
+    "category": "Engineering",
+    "capabilities": [
+      "Interactive",
+      "Read"
+    ],
+    "websiteURL": "https://github.com/ByteDeskAI/bytedesk-marketplace",
+    "defaultPrompt": [
+      "C4 abstraction level decisions and anti-patterns.",
+      "Verify correct C4 abstraction level.",
+      "Element and relationship archetypes.",
+      "Structurizr CLI push/pull/lock/merge.",
+      "Pre-PR model consistency review.",
+      "C2/C3 container and component decomposition.",
+      "Follow cookbook recipes step by step.",
+      "Custom elements outside C4."
+    ]
+  }
+}

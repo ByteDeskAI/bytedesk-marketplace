@@ -1,0 +1,31 @@
+{
+  "name": "platform-architecture",
+  "version": "0.1.1",
+  "description": "Structurizr C4 drift gate, partition decomposition facade, ADR authoring.",
+  "author": {
+    "name": "ByteDesk AI",
+    "url": "https://github.com/ByteDeskAI"
+  },
+  "homepage": "https://github.com/ByteDeskAI/bytedesk-marketplace/tree/main/platform-architecture",
+  "repository": "https://github.com/ByteDeskAI/bytedesk-marketplace",
+  "license": "MIT",
+  "keywords": [],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Platform Architecture",
+    "shortDescription": "Structurizr C4 drift gate, partition decomposition facade, ADR authoring.",
+    "longDescription": "Structurizr C4 drift gate, partition decomposition facade, ADR authoring.",
+    "developerName": "ByteDeskAI",
+    "category": "Engineering",
+    "capabilities": [
+      "Interactive",
+      "Read"
+    ],
+    "websiteURL": "https://github.com/ByteDeskAI/bytedesk-marketplace/tree/main/platform-architecture",
+    "defaultPrompt": [
+      "Architecture Decision Record (ADR) creation for the ByteDesk Platform.",
+      "Application decomposition \u2192 Structurizr C4 modeling orchestrator.",
+      "Structurizr C4 drift gate for ByteDesk Platform."
+    ]
+  }
+}

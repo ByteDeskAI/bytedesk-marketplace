@@ -1,0 +1,35 @@
+{
+  "name": "bytedesk-goals",
+  "version": "0.1.1",
+  "description": "ByteDesk goal pipeline \u2014 goals board, run_goals, plan_goal/plan_epic, Jira/Confluence skills, named-agent dispatch.",
+  "author": {
+    "name": "ByteDesk AI",
+    "url": "https://github.com/ByteDeskAI"
+  },
+  "homepage": "https://github.com/ByteDeskAI/bytedesk-marketplace/tree/main/bytedesk-goals",
+  "repository": "https://github.com/ByteDeskAI/bytedesk-marketplace",
+  "license": "MIT",
+  "keywords": [],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Bytedesk Goals",
+    "shortDescription": "ByteDesk goal pipeline \u2014 goals board, run_goals, plan_goal/plan_epic, Jira/Confluence skills, named-agent dispatch.",
+    "longDescription": "ByteDesk goal pipeline \u2014 goals board, run_goals, plan_goal/plan_epic, Jira/Confluence skills, named-agent dispatch.",
+    "developerName": "ByteDeskAI",
+    "category": "Engineering",
+    "capabilities": [
+      "Interactive",
+      "Read"
+    ],
+    "websiteURL": "https://github.com/ByteDeskAI/bytedesk-marketplace/tree/main/bytedesk-goals",
+    "defaultPrompt": [
+      "ByteDesk Confluence knowledge operations.",
+      "Full Jira task lifecycle manager for the ByteDesk Platform (BDP) project.",
+      "Keep Codex/Grok skill state (.agents/skills) in parity with the canonical Claude skills (.claude/skills).",
+      "Front-door administrator for the goal pipeline.",
+      "Plan a multi-task initiative as a Jira Epic whose child Tasks are each a runnable goal.",
+      "Run a planning session that turns a fuzzy intent into a self-contained, goal-based spec saved at docs/goals/<theme>.md, then exits plan mode by handing off a runnable `/goal docs/goals/<theme>.md`.",
+      "Execute goal batches through run-goals \u2014 validate manifests, then drain the plan sequentially inline via /goal handoffs (exit 2 until each goal completes)."
+    ]
+  }
+}

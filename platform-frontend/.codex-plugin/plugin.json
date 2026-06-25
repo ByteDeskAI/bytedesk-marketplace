@@ -1,0 +1,32 @@
+{
+  "name": "platform-frontend",
+  "version": "0.1.1",
+  "description": "ByteDesk Web design system, atomize, browser smoke gate, SignalR realtime.",
+  "author": {
+    "name": "ByteDesk AI",
+    "url": "https://github.com/ByteDeskAI"
+  },
+  "homepage": "https://github.com/ByteDeskAI/bytedesk-marketplace/tree/main/platform-frontend",
+  "repository": "https://github.com/ByteDeskAI/bytedesk-marketplace",
+  "license": "MIT",
+  "keywords": [],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Platform Frontend",
+    "shortDescription": "ByteDesk Web design system, atomize, browser smoke gate, SignalR realtime.",
+    "longDescription": "ByteDesk Web design system, atomize, browser smoke gate, SignalR realtime.",
+    "developerName": "ByteDeskAI",
+    "category": "Engineering",
+    "capabilities": [
+      "Interactive",
+      "Read"
+    ],
+    "websiteURL": "https://github.com/ByteDeskAI/bytedesk-marketplace/tree/main/platform-frontend",
+    "defaultPrompt": [
+      "ByteDesk UI componentization skill using atomic design.",
+      "Drive the ByteDesk web app through real Chrome via the `agent-browser` CLI to prove frontend changes actually render and behave correctly before they ship.",
+      "ByteDesk design system expert and source of frontend design truth.",
+      "ByteDesk browser realtime engineer for SignalR and ByteDesk.Realtime."
+    ]
+  }
+}

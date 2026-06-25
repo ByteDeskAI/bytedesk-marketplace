@@ -1,0 +1,36 @@
+{
+  "name": "platform-domain",
+  "version": "0.1.1",
+  "description": "Bounded-context proof operators \u2014 DBA, tool actions, Office workflows, DevProjects, remote gateway.",
+  "author": {
+    "name": "ByteDesk AI",
+    "url": "https://github.com/ByteDeskAI"
+  },
+  "homepage": "https://github.com/ByteDeskAI/bytedesk-marketplace/tree/main/platform-domain",
+  "repository": "https://github.com/ByteDeskAI/bytedesk-marketplace",
+  "license": "MIT",
+  "keywords": [],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Platform Domain",
+    "shortDescription": "Bounded-context proof operators \u2014 DBA, tool actions, Office workflows, DevProjects, remote gateway.",
+    "longDescription": "Bounded-context proof operators \u2014 DBA, tool actions, Office workflows, DevProjects, remote gateway.",
+    "developerName": "ByteDeskAI",
+    "category": "Engineering",
+    "capabilities": [
+      "Interactive",
+      "Read"
+    ],
+    "websiteURL": "https://github.com/ByteDeskAI/bytedesk-marketplace/tree/main/platform-domain",
+    "defaultPrompt": [
+      "ByteDesk database architect skill.",
+      "ByteDesk DevProject custom-domain operator.",
+      "ByteDesk DevProjects sandbox refresh and validation operator.",
+      "Deterministic Maya Office-chat workflow routing validation.",
+      "ByteDesk remote-gateway operator.",
+      "ByteDesk Tool Action Pattern engineer.",
+      "Integration manager for large ByteDesk workflow-system epics with many parallel agents or goal docs.",
+      "End-to-end runtime proof for ByteDesk Office workflow changes."
+    ]
+  }
+}

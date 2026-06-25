@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.9.2] — 2026-06-25
+
+### Added
+
+- `.codex-plugin/plugin.json` (Codex marketplace manifest, mirrors the Claude manifest plus an `interface` block) and `AGENTS.md` so the plugin loads under Codex and grok-cli in addition to Claude Code, plus `.codex-mcp.json` for the MCP server.
+
 ## [0.9.1] — 2026-06-03
 
 ### Fixed

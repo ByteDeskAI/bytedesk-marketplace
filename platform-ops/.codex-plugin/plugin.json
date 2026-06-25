@@ -1,0 +1,30 @@
+{
+  "name": "platform-ops",
+  "version": "0.1.1",
+  "description": "Production release policy (TeamCity read-only) and Gitflow/Fleet operator.",
+  "author": {
+    "name": "ByteDesk AI",
+    "url": "https://github.com/ByteDeskAI"
+  },
+  "homepage": "https://github.com/ByteDeskAI/bytedesk-marketplace/tree/main/platform-ops",
+  "repository": "https://github.com/ByteDeskAI/bytedesk-marketplace",
+  "license": "MIT",
+  "keywords": [],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Platform Ops",
+    "shortDescription": "Production release policy (TeamCity read-only) and Gitflow/Fleet operator.",
+    "longDescription": "Production release policy (TeamCity read-only) and Gitflow/Fleet operator.",
+    "developerName": "ByteDeskAI",
+    "category": "Engineering",
+    "capabilities": [
+      "Interactive",
+      "Read"
+    ],
+    "websiteURL": "https://github.com/ByteDeskAI/bytedesk-marketplace/tree/main/platform-ops",
+    "defaultPrompt": [
+      "ByteDesk Gitflow/Fleet release operator.",
+      "ByteDesk production release operator for the TeamCity-only release path."
+    ]
+  }
+}

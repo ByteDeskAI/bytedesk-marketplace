@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.16.2] — 2026-06-25
+
+Patch release: cross-tool support.
+
+### Added
+
+- `.codex-plugin/plugin.json` (Codex marketplace manifest, mirrors the Claude manifest plus an `interface` block) and `AGENTS.md` so the plugin loads under Codex and grok-cli in addition to Claude Code.
+
 ## [1.16.1] — 2026-05-10
 
 Patch release: tailscale CLI install now has a no-sudo userspace path.

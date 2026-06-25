@@ -2,7 +2,7 @@
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "platform-architecture",
   "description": "Structurizr C4 drift gate, partition decomposition facade, ADR authoring.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": {
     "name": "ByteDesk AI",
     "url": "https://github.com/ByteDeskAI"

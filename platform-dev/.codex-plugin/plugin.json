@@ -1,0 +1,36 @@
+{
+  "name": "platform-dev",
+  "version": "0.1.1",
+  "description": "ByteDesk core implementation lifecycle \u2014 TDD engineer, feature start, PR-ready, worktree operator, architect, grounding, integration branches.",
+  "author": {
+    "name": "ByteDesk AI",
+    "url": "https://github.com/ByteDeskAI"
+  },
+  "homepage": "https://github.com/ByteDeskAI/bytedesk-marketplace/tree/main/platform-dev",
+  "repository": "https://github.com/ByteDeskAI/bytedesk-marketplace",
+  "license": "MIT",
+  "keywords": [],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Platform Dev",
+    "shortDescription": "ByteDesk core implementation lifecycle \u2014 TDD engineer, feature start, PR-ready, worktree operator, architect, grounding, integration branches.",
+    "longDescription": "ByteDesk core implementation lifecycle \u2014 TDD engineer, feature start, PR-ready, worktree operator, architect, grounding, integration branches.",
+    "developerName": "ByteDeskAI",
+    "category": "Engineering",
+    "capabilities": [
+      "Interactive",
+      "Read"
+    ],
+    "websiteURL": "https://github.com/ByteDeskAI/bytedesk-marketplace/tree/main/platform-dev",
+    "defaultPrompt": [
+      "ByteDesk senior architect plan reviewer.",
+      "ByteDesk feature kickoff orchestrator.",
+      "Ground yourself on recent ByteDesk activity before acting.",
+      "ByteDesk integration-branch operator for multi-agent fan-out/fan-in work where many feature branches are merged into one integration branch and conflict resolutions must be preserved.",
+      "ByteDesk PR creation workflow.",
+      "Session start briefing for ByteDesk Platform \u2014 surfaces In Progress Jira work, current git state, open PRs, and the single most important next action.",
+      "ByteDesk software engineer \u2014 TDD-first, full development lifecycle for the bytedesk-platform repo.",
+      "Analyze recent Claude/Codex/Grok transcripts, rollout summaries, and project memory to find repeated developer-workflow friction and recommend or implement worktree-operator / skill / rule / tooling i"
+    ]
+  }
+}
