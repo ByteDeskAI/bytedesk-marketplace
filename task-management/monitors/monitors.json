@@ -1,0 +1,8 @@
+[
+  {
+    "name": "tm-dashboard",
+    "description": "Live task board for .bytedesk/task-management. HTTP + SSE, tails events.jsonl. Port 7910 by default (TM_DASHBOARD_PORT to override; actual port written to .bytedesk/task-management/dashboard.port). Runs while the plugin is enabled.",
+    "command": "${CLAUDE_PLUGIN_ROOT}/bin/tm-dashboard",
+    "when": "always"
+  }
+]

@@ -1,0 +1,40 @@
+{
+  "name": "task-management",
+  "version": "0.2.0",
+  "description": "Takes over Claude Code's task system. Native task calls, approved plans, decisions, and commits are mirrored into a git-tracked markdown store at .bytedesk/task-management/ \u2014 epics, tasks, ADRs, acceptance criteria, evidence.",
+  "author": {
+    "name": "ByteDeskAI"
+  },
+  "homepage": "https://github.com/ByteDeskAI/bytedesk-marketplace",
+  "repository": "https://github.com/ByteDeskAI/bytedesk-marketplace",
+  "license": "MIT",
+  "keywords": [
+    "tasks",
+    "todo",
+    "epics",
+    "adr",
+    "plan-mode",
+    "hooks",
+    "markdown"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Task Management",
+    "shortDescription": "Durable, git-tracked task board that takes over Claude Code's ephemeral task state.",
+    "longDescription": "Mirrors native task calls, approved plans, decisions, and commits into .bytedesk/task-management/ as markdown \u2014 epics, tasks, ADRs, acceptance criteria, evidence, and an append-only event log. Gates enforce an active epic, WIP limits, acceptance criteria, and clean session exits, with a one-shot override and a global kill switch.",
+    "developerName": "ByteDeskAI",
+    "category": "Engineering",
+    "capabilities": [
+      "Interactive",
+      "Read"
+    ],
+    "websiteURL": "https://github.com/ByteDeskAI/bytedesk-marketplace",
+    "defaultPrompt": [
+      "Show the task board \u2014 what's in progress, blocked, and next.",
+      "Open an epic for this work and break it into tasks with acceptance criteria.",
+      "Write an ADR for the decision we just made.",
+      "Hand off this task to another agent with full context.",
+      "Groom the backlog: close zombies, merge duplicates, unstick false blocks."
+    ]
+  }
+}

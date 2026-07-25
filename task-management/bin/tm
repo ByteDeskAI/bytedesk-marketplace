@@ -1,0 +1,1090 @@
+#!/usr/bin/env node
+/**
+ * tm — the task-management CLI. Every write to .bytedesk/task-management/ goes
+ * through here, including the ones the hooks make, so there is exactly one
+ * code path that can mutate the store.
+ *
+ * Usage: tm <verb> [args]        tm help
+ */
+import { execFileSync } from "node:child_process";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { basename, join, resolve } from "node:path";
+import { homedir } from "node:os";
+import { currentCheckout, ensureDirs, isInitialized, legacyStore, paths } from "../lib/paths.mjs";
+import {
+  kindOf,
+  config,
+  create,
+  list,
+  logEvent,
+  nextTasks,
+  now,
+  readEvents,
+  release,
+  rotateEvents,
+  autoCloseEpic,
+  read,
+  reindex,
+  slug,
+  staleTasks,
+  state,
+  unblockDependents,
+  update,
+  writeConfig,
+  writeState,
+} from "../lib/store.mjs";
+import { consumeOverride, enforcementOff, gateDone, gateStop, gateTaskCreate, setOverride } from "../lib/enforce.mjs";
+import { board, handoff, sessionContext, standup, taskLine } from "../lib/render.mjs";
+import { autolink, link as linkBins, status as linkStatus, unlink as unlinkBins } from "../lib/link.mjs";
+import { applyShares, createWorktree, listWorktrees, removeWorktree } from "../lib/worktree.mjs";
+import { applyTemplate, listTemplates, seedTemplates } from "../lib/templates.mjs";
+import { cycleTime, human as humanMs, summary as timeSummary, timeInStatus } from "../lib/time.mjs";
+import { upsertDecision } from "../lib/adr.mjs";
+import { claimTask, claimant, releaseClaim, staleClaims, sweepClaims } from "../lib/claims.mjs";
+import { actor, actorLabel } from "../lib/actor.mjs";
+import { addComment, addLink, assign, backlog, estimate, labels, prioritise, rank, subtasks } from "../lib/issue.mjs";
+import { CATALOG, messageFor, ntfyConfig, send, shouldPublish } from "../lib/ntfy.mjs";
+
+const P = paths();
+const rawArgs = process.argv.slice(2);
+const JSON_OUT = rawArgs.includes("--json");
+const argv = rawArgs.filter((a) => a !== "--json");
+const verb = argv[0];
+
+/** native (Claude Code) status → store status */
+const FROM_NATIVE = { pending: "open", in_progress: "in_progress", completed: "done", deleted: "deleted" };
+
+const out = (s) => process.stdout.write(`${s}\n`);
+/** Read verbs print human text by default and structured JSON with --json. */
+const emit = (data, human) => out(JSON_OUT ? JSON.stringify(data, null, 2) : human());
+const die = (s, code = 1) => {
+  process.stderr.write(`${s}\n`);
+  process.exit(code);
+};
+
+/** The checkout we're standing in — which is NOT the store root when we're in a worktree. */
+const CHECKOUT = P.root ? currentCheckout() : process.cwd();
+
+function git(args, cwd = CHECKOUT) {
+  try {
+    return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch {
+    return "";
+  }
+}
+
+function requireInit() {
+  if (!P.root) die(P.unavailable);
+  if (!isInitialized(P)) die("task-management not initialized here. Run: tm init");
+}
+
+function stamp() {
+  return {
+    actor: actorLabel(actor()),
+    session: process.env.CLAUDE_SESSION_ID || undefined,
+    branch: git(["rev-parse", "--abbrev-ref", "HEAD"]) || undefined,
+    worktree: CHECKOUT,
+  };
+}
+
+const words = (s) => new Set(String(s).toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 3));
+
+/** Token overlap. Shared by the duplicate guard and the UserPromptSubmit matcher. */
+function overlapScore(a, b) {
+  if (!a.size || !b.size) return 0;
+  const shared = [...a].filter((w) => b.has(w)).length;
+  return shared / Math.max(a.size, b.size);
+}
+
+/** Fuzzy dup check — cheap and good enough to catch re-adds. */
+function findDuplicate(title, p = P) {
+  const a = words(title);
+  if (!a.size) return null;
+  for (const t of list("task", {}, p)) {
+    if (t.status === "done" || t.status === "deleted") continue;
+    if (overlapScore(a, words(t.title)) >= 0.7) return t;
+  }
+  return null;
+}
+
+/**
+ * Does this prompt describe work already on the board? Scored against the task's
+ * words rather than the prompt's, so a long sentence still matches a short title.
+ */
+function matchOpenTask(prompt) {
+  const a = words(prompt);
+  if (a.size < 2) return null;
+  let best = null;
+  for (const t of list("task", {}, P)) {
+    if (t.status === "done" || t.status === "deleted") continue;
+    const b = words(t.title);
+    if (!b.size) continue;
+    const score = [...b].filter((w) => a.has(w)).length / b.size;
+    if (score >= 0.6 && (!best || score > best.score)) best = { ...t, score };
+  }
+  return best;
+}
+
+// ── verbs ────────────────────────────────────────────────────────────────────
+
+const VERBS = {
+  init() {
+    if (!P.root) die(P.unavailable);
+    ensureDirs(P);
+    if (!existsSync(P.config)) writeConfig({}, P);
+    if (!existsSync(P.state)) writeState({}, P);
+    seedTemplates(P);
+    reindex(P);
+    logEvent("init", { root: P.root }, P);
+    out(`initialized ${P.base}`);
+  },
+
+  epic(sub, ...rest) {
+    requireInit();
+    if (sub === "new") {
+      const title = rest.join(" ");
+      if (!title) die('usage: tm epic new "<title>"');
+      const e = create("epic", { title, ...stamp() }, "", P);
+      writeState({ activeEpic: e.id }, P);
+      out(`${e.id} created and set active — ${e.file}`);
+    } else if (sub === "use") {
+      const id = rest[0];
+      if (!read(id, P)) die(`no such epic: ${id}`);
+      writeState({ activeEpic: id }, P);
+      logEvent("epic_active", { id }, P);
+      out(`active epic: ${id}`);
+    } else if (sub === "done") {
+      update(rest[0], { status: "done" }, P);
+      if (state(P).activeEpic === rest[0]) writeState({ activeEpic: null }, P);
+      out(`${rest[0]} done`);
+    } else {
+      for (const e of list("epic", {}, P)) {
+        const kids = list("task", { epic: e.id }, P);
+        out(`${e.id === state(P).activeEpic ? "*" : " "} ${e.id} ${e.title} (${kids.filter((t) => t.status === "done").length}/${kids.length}) ${e.status}`);
+      }
+    }
+  },
+
+  task(sub, ...rest) {
+    requireInit();
+    if (sub === "new") {
+      const ti = rest.indexOf("--template");
+      const template = ti === -1 ? null : rest[ti + 1];
+      if (ti !== -1) rest.splice(ti, 2);
+      const title = rest.join(" ");
+      if (!title) die('usage: tm task new "<title>"');
+      const gate = gateTaskCreate(P);
+      if (!gate.allow) die(gate.reason, 2);
+      const dup = enforcementOff(P) ? null : findDuplicate(title, P);
+      if (dup && !process.env.TM_ALLOW_DUP) {
+        die(`possible duplicate of ${dup.id} "${dup.title}". Re-run with TM_ALLOW_DUP=1 if it really is new.`, 2);
+      }
+      const base = { title, epic: state(P).activeEpic || null, acceptance: [], evidence: [], commits: [], blockedBy: [], blocks: [], ...stamp() };
+      const applied = template ? applyTemplate(template, base, P) : { fields: base, body: "" };
+      const t = create("task", applied.fields, applied.body, P);
+      out(`${t.id} ${title}${t.epic ? ` [${t.epic}]` : ""}${template ? ` (from ${template})` : ""}`);
+    } else {
+      for (const t of list("task", {}, P)) out(taskLine(t));
+    }
+  },
+
+  adr(sub, ...rest) {
+    requireInit();
+    const title = (sub === "new" ? rest : [sub, ...rest]).join(" ");
+    if (!title) die('usage: tm adr new "<title>"');
+    const a = create(
+      "adr",
+      { title, status: "proposed", epic: state(P).activeEpic || null, deciders: [], date: now().slice(0, 10) },
+      "## Context\n\n## Decision\n\n## Consequences\n",
+      P,
+    );
+    out(`${a.id} — ${a.file}`);
+  },
+
+  start(id) {
+    requireInit();
+    const t = read(id, P) || die(`not found: ${id}`);
+    const cfg = config(P);
+    const wip = list("task", { status: "in_progress" }, P);
+    if (!enforcementOff(P) && cfg.wipLimit && wip.length >= cfg.wipLimit && !wip.some((w) => w.id === id)) {
+      if (!consumeOverride(P)) die(`WIP limit ${cfg.wipLimit} reached: ${wip.map((w) => w.id).join(", ")}`, 2);
+    }
+    const claim = claimTask(id, {
+      session: process.env.CLAUDE_SESSION_ID || null,
+      actor: actorLabel(actor()),
+      worktree: CHECKOUT,
+      branch: git(["rev-parse", "--abbrev-ref", "HEAD"]) || undefined,
+      steal: argv.includes("--steal"),
+      p: P,
+    });
+    if (!claim.ok) die(claim.reason, 2);
+    update(id, { status: "in_progress", ...stamp() }, P);
+    out(`${id} in progress — ${t.title}${claim.stolenFrom ? `  (stolen from ${claim.stolenFrom})` : ""}`);
+  },
+
+  done(id) {
+    requireInit();
+    const gate = gateDone(id, P);
+    if (!gate.allow) die(gate.reason, 2);
+    update(id, { status: "done", closed: now() }, P);
+    release(id, P);
+    logEvent("done", { id }, P);
+    const freed = unblockDependents(id, P);
+    const t = read(id, P);
+    const closedEpic = t?.epic && autoCloseEpic(t.epic, P) ? t.epic : null;
+    out(
+      `${id} done` +
+        (freed.length ? ` — unblocked: ${freed.join(", ")}` : "") +
+        (closedEpic ? `\n${closedEpic} closed — every task in it is done` : ""),
+    );
+  },
+
+  park(id, ...why) {
+    requireInit();
+    update(id, { status: "parked", parkedReason: why.join(" ") || undefined }, P);
+    release(id, P);
+    out(`${id} parked`);
+  },
+
+  block(id, ...why) {
+    requireInit();
+    update(id, { status: "blocked", blockedReason: why.join(" ") || undefined }, P);
+    release(id, P);
+    out(`${id} blocked`);
+  },
+
+  unblock(id) {
+    requireInit();
+    update(id, { status: "open", blockedReason: undefined }, P);
+    out(`${id} open`);
+  },
+
+  /** tm ac <id> "<criterion>"  — add;  tm accept <id> <n> — tick */
+  ac(id, ...text) {
+    requireInit();
+    const t = read(id, P) || die(`not found: ${id}`);
+    const acceptance = [...(t.acceptance || []), { text: text.join(" "), done: false }];
+    update(id, { acceptance }, P);
+    out(`${id} AC ${acceptance.length}: ${text.join(" ")}`);
+  },
+
+  accept(id, n) {
+    requireInit();
+    const t = read(id, P) || die(`not found: ${id}`);
+    const acceptance = [...(t.acceptance || [])];
+    const i = Number(n) - 1;
+    if (!acceptance[i]) die(`${id} has no acceptance criterion ${n}`);
+    acceptance[i] = { ...acceptance[i], done: true, at: now() };
+    update(id, { acceptance }, P);
+    out(`${id} AC ${n} met (${acceptance.filter((a) => a.done).length}/${acceptance.length})`);
+  },
+
+  evidence(id, path) {
+    requireInit();
+    const t = read(id, P) || die(`not found: ${id}`);
+    mkdirSync(P.evidence, { recursive: true });
+    let ref;
+    if (path && path !== "-") {
+      const dest = join(P.evidence, `${id}-${basename(path)}`);
+      copyFileSync(resolve(path), dest);
+      ref = dest.replace(`${P.root}/`, "");
+    } else {
+      const dest = join(P.evidence, `${id}-${Date.now()}.log`);
+      writeFileSync(dest, readFileSync(0, "utf8"));
+      ref = dest.replace(`${P.root}/`, "");
+    }
+    update(id, { evidence: [...(t.evidence || []), ref] }, P);
+    out(`${id} evidence: ${ref}`);
+  },
+
+  dep(id, ...deps) {
+    requireInit();
+    const t = read(id, P) || die(`not found: ${id}`);
+    update(id, { blockedBy: [...new Set([...(t.blockedBy || []), ...deps])], status: t.status === "open" ? "blocked" : t.status }, P);
+    for (const d of deps) {
+      const other = read(d, P);
+      if (other) update(d, { blocks: [...new Set([...(other.blocks || []), id])] }, P);
+    }
+    out(`${id} blocked by ${deps.join(", ")}`);
+  },
+
+  next() {
+    requireInit();
+    const rows = nextTasks(P);
+    emit(rows, () => (rows.length ? rows.map(taskLine).join("\n") : "(nothing unblocked — `tm board`)"));
+  },
+
+  board() {
+    requireInit();
+    emit({ ...reindex(P), state: state(P) }, () => board(P));
+  },
+
+  stale() {
+    requireInit();
+    const rows = staleTasks(P);
+    emit(rows, () => rows.map(taskLine).join("\n") || "(none)");
+  },
+
+  /** One entity, in full. The single-object read the CLI was missing. */
+  show(id) {
+    requireInit();
+    if (!id) die("usage: tm show <id>");
+    const doc = read(id, P);
+    if (!doc) die(`not found: ${id}`);
+    const detail =
+      kindOf(id) === "epic"
+        ? { ...doc, tasks: list("task", { epic: id }, P).map(({ body, file, ...t }) => t) }
+        : doc;
+    emit(detail, () => renderShow(detail));
+  },
+
+  find(...q) {
+    requireInit();
+    const needle = q.join(" ").toLowerCase();
+    const hits = [];
+    for (const kind of ["epic", "task", "adr"]) {
+      for (const d of list(kind, {}, P)) {
+        if (`${d.title} ${d.body}`.toLowerCase().includes(needle)) {
+          const { body, file, ...rest } = d;
+          hits.push(rest);
+        }
+      }
+    }
+    emit(hits, () => hits.map((d) => `${d.id} ${d.title}`).join("\n") || "(no match)");
+  },
+
+  /** `tm log [n]` for the tail, `tm log <TM-id>` for one task's whole history. */
+  log(arg = "20") {
+    requireInit();
+    const all = readEvents(P);
+    const rows = kindOf(arg) ? all.filter((e) => e.id === arg) : all.slice(-Number(arg) || -20);
+    emit(rows, () => rows.map((e) => JSON.stringify(e)).join("\n") || "(no events)");
+  },
+
+  standup(since) {
+    requireInit();
+    const from = since || new Date(Date.now() - 86_400_000).toISOString();
+    emit(
+      { since: from, events: readEvents(P).filter((e) => Date.parse(e.ts) >= Date.parse(from)) },
+      () => standup(from, P),
+    );
+  },
+
+  handoff(id, ...flags) {
+    requireInit();
+    const task = read(id, P) || die(`not found: ${id}`);
+    if (flags.includes("--worktree") || argv.includes("--worktree")) {
+      let path = task.worktree;
+      if (!path || !existsSync(path)) {
+        const res = createWorktree(task, { p: P });
+        update(task.id, { worktree: res.path, branch: res.branch }, P);
+        path = res.path;
+      }
+      out(`cd ${path}\n\n${handoff(id, P)}`);
+      return;
+    }
+    out(handoff(id, P));
+  },
+
+  reindex() {
+    requireInit();
+    const idx = reindex(P);
+    out(`indexed ${idx.epics.length} epics, ${idx.tasks.length} tasks, ${idx.adrs.length} adrs`);
+  },
+
+  override(...reason) {
+    requireInit();
+    setOverride(reason.join(" ") || "unspecified", P);
+    out("override armed — the next gate will pass and clear it");
+  },
+
+  config(key, value) {
+    requireInit();
+    if (!key) return out(JSON.stringify(config(P), null, 2));
+    const parsed = value === undefined ? undefined : JSON.parse(value);
+    out(JSON.stringify(writeConfig({ [key]: parsed }, P), null, 2));
+  },
+
+  context() {
+    out(sessionContext(P));
+  },
+
+  // ── Jira-shaped fields (TM-028), shared by the CLI, the dashboard and MCP ──
+  assign(id, who) {
+    requireInit();
+    out(`${id} ${assign(id, who, P) ? `assigned to ${who}` : "unassigned"}`);
+  },
+
+  label(id, ...names) {
+    requireInit();
+    const remove = names.filter((n) => n.startsWith("-")).map((n) => n.slice(1));
+    const add = names.filter((n) => !n.startsWith("-"));
+    out(`${id} labels: ${labels(id, { add, remove }, P).join(", ") || "(none)"}`);
+  },
+
+  priority(id, value) {
+    requireInit();
+    out(`${id} priority: ${prioritise(id, value, P)}`);
+  },
+
+  estimate(id, points) {
+    requireInit();
+    out(`${id} estimate: ${estimate(id, points, P)}`);
+  },
+
+  comment(id, ...text) {
+    requireInit();
+    const comments = addComment(id, text.join(" "), { p: P });
+    out(`${id} comment ${comments.length} added`);
+  },
+
+  link(id, ...rest) {
+    requireInit();
+    // `tm link <id> <sha>` still attaches a commit; `tm link <id> <type> <id>` links tasks.
+    if (rest.length >= 2 && kindOf(rest.at(-1))) {
+      const target = rest.at(-1);
+      const type = rest.slice(0, -1).join(" ");
+      addLink(id, type, target, P);
+      return out(`${id} ${type} ${target}`);
+    }
+    const t = read(id, P) || die(`not found: ${id}`);
+    const ref = rest[0];
+    if ((t.commits || []).includes(ref)) return;
+    update(id, { commits: [...(t.commits || []), ref] }, P);
+    out(`${id} ← ${ref}`);
+  },
+
+  subtask(id, parent) {
+    requireInit();
+    if (parent === undefined) {
+      const kids = subtasks(id, {}, P);
+      return emit(kids, () => kids.map(taskLine).join("\n") || "(no subtasks)");
+    }
+    subtasks(id, { parent: parent === "none" ? null : parent }, P);
+    out(parent === "none" ? `${id} detached` : `${id} nested under ${parent}`);
+  },
+
+  rank(id, where, target) {
+    requireInit();
+    const opts = where === "--before" ? { before: target } : where === "--after" ? { after: target } : { to: Number(where) };
+    out(`${id} rank: ${rank(id, opts, P)}`);
+  },
+
+  backlog() {
+    requireInit();
+    const rows = backlog(P);
+    emit(rows, () => rows.map((t, i) => `${String(i + 1).padStart(3)}. ${taskLine(t)}`).join("\n") || "(empty)");
+  },
+
+  /** Push notifications: `tm ntfy` shows what's on, `on/off <kind>` toggles, `test` proves it. */
+  async ntfy(sub, ...rest) {
+    requireInit();
+    const cfg = ntfyConfig(P);
+    const stored = config(P).ntfy || {};
+
+    if (sub === "on" || sub === "off") {
+      const kinds = rest.length && rest[0] !== "recommended" && rest[0] !== "writes" && rest[0] !== "noise"
+        ? rest
+        : CATALOG[rest[0] || "recommended"];
+      const unknown = kinds.filter((k) => !CATALOG.events[k]);
+      if (unknown.length) die(`unknown event kind(s): ${unknown.join(", ")}\nSee \`tm ntfy\` for the full list.`);
+      const next = new Set(stored.categories || []);
+      for (const k of kinds) (sub === "on" ? next.add(k) : next.delete(k));
+      writeConfig({ ntfy: { ...stored, categories: [...next] } }, P);
+      return out(`${sub}: ${kinds.join(", ")}\nnow enabled: ${[...next].join(", ") || "(none)"}`);
+    }
+
+    if (sub === "enable" || sub === "disable") {
+      writeConfig({ ntfy: { ...stored, enabled: sub === "enable" } }, P);
+      const after = ntfyConfig(P);
+      return out(
+        `ntfy ${sub}d` +
+          (sub === "enable" && !after.enabled
+            ? `\nstill inactive: ${!after.token ? "TM_NTFY_TOKEN is not set" : "no topic configured"}`
+            : ""),
+      );
+    }
+
+    if (sub === "test") {
+      if (!cfg.token) die("TM_NTFY_TOKEN is not set in this environment");
+      if (!cfg.topic) die("no topic configured — `tm ntfy topic <name>`");
+      const msg = messageFor({ event: "notification", id: rest[0] || null, actor: actorLabel(actor()) }, null, cfg);
+      msg.title = "task-management test";
+      msg.body = `test push from ${P.root}`;
+      const res = await send(msg, cfg);
+      return res.ok ? out(`sent to ${cfg.server}/${cfg.topic}`) : die(`ntfy ${res.status}: ${res.error}`);
+    }
+
+    if (sub === "topic" || sub === "server" || sub === "board") {
+      const key = sub === "board" ? "boardUrl" : sub;
+      writeConfig({ ntfy: { ...stored, [key]: rest[0] } }, P);
+      return out(`${key} = ${rest[0]}`);
+    }
+
+    // Default: show what is on, and what is available to switch on.
+    const on = new Set(cfg.categories);
+    emit({ ...cfg, token: cfg.token ? "(set)" : null, catalog: CATALOG.events }, () => {
+      const lines = [
+        `ntfy: ${cfg.enabled ? "enabled" : "disabled"}   ${cfg.server}/${cfg.topic || "(no topic)"}`,
+        `token: ${cfg.token ? "set from environment" : "MISSING — export TM_NTFY_TOKEN"}`,
+        `board link: ${cfg.boardUrl || "(unset — notifications will not deep-link)"}`,
+        "",
+      ];
+      for (const group of ["recommended", "writes", "noise"]) {
+        lines.push(`## ${group}`);
+        for (const kind of CATALOG[group]) {
+          lines.push(`  [${on.has(kind) ? "x" : " "}] ${kind.padEnd(22)} ${CATALOG.events[kind].label}`);
+        }
+        lines.push("");
+      }
+      lines.push("tm ntfy on <kind...|recommended|writes>   tm ntfy off <kind...>   tm ntfy test");
+      return lines.join("\n");
+    });
+  },
+
+  template(sub, ...rest) {
+    requireInit();
+    if (sub === "seed") return out(`seeded: ${seedTemplates(P).join(", ") || "(already present)"}`);
+    const rows = listTemplates(P);
+    emit(rows, () => rows.map((t) => `${t.name}  ${t.description || ""}`).join("\n") || "(none)");
+  },
+
+  /** Where the time actually went, derived from the event log. */
+  time(id) {
+    requireInit();
+    if (id) {
+      const detail = { id, cycleTime: cycleTime(id, P), inStatus: timeInStatus(id, P) };
+      return emit(detail, () =>
+        [
+          `${id} cycle time: ${detail.cycleTime == null ? "(not closed)" : humanMs(detail.cycleTime)}`,
+          ...Object.entries(detail.inStatus).map(([k, ms]) => `  ${k.padEnd(12)} ${humanMs(ms)}`),
+        ].join("\n"),
+      );
+    }
+    const s = timeSummary(P);
+    emit(s, () =>
+      [
+        `completed:     ${s.completed ?? 0}`,
+        `median cycle:  ${s.median ?? "—"}`,
+        `mean cycle:    ${s.mean ?? "—"}`,
+        `oldest open:   ${s.oldestOpen ? `${s.oldestOpen.id} (${s.oldestOpen.human})` : "—"}`,
+        `in progress:   ${(s.wip || []).length}`,
+        ...(s.wip || []).map((w) => `  ${w.id.padEnd(8)} ${w.human}`),
+      ].join("\n"),
+    );
+  },
+
+  /** Explicit lock handling for parallel sessions. */
+  claim(id) {
+    requireInit();
+    const res = claimTask(id, {
+      session: process.env.CLAUDE_SESSION_ID || null,
+      actor: actorLabel(actor()),
+      worktree: CHECKOUT,
+      branch: git(["rev-parse", "--abbrev-ref", "HEAD"]) || undefined,
+      steal: argv.includes("--steal"),
+      p: P,
+    });
+    if (!res.ok) die(res.reason, 2);
+    out(`${id} claimed${res.stolenFrom ? ` (stolen from ${res.stolenFrom})` : ""}`);
+  },
+
+  release(id) {
+    requireInit();
+    out(releaseClaim(id, P) ? `${id} released` : `${id} was not claimed`);
+  },
+
+  /** Drop claims whose sessions or worktrees are gone. */
+  sweep() {
+    requireInit();
+    const freed = sweepClaims(P);
+    out(freed.length ? `released stale claims: ${freed.join(", ")}` : "(no stale claims)");
+  },
+
+  /**
+   * Batches of work that can safely run at once: unblocked, unclaimed, and touching
+   * disjoint paths. Prints the worktree command for each so a batch is one paste.
+   */
+  parallel(...args) {
+    requireInit();
+    const ei = args.indexOf("--epic");
+    const epic = ei === -1 ? null : args[ei + 1];
+    const candidates = nextTasks(P)
+      .filter((t) => !epic || t.epic === epic)
+      .filter((t) => !claimant(t.id, P));
+
+    const batches = [];
+    for (const task of candidates) {
+      const touches = new Set(task.touches || []);
+      const batch = batches.find((b) => !b.touches.size || !touches.size || ![...touches].some((x) => b.touches.has(x)));
+      if (batch) {
+        batch.tasks.push(task);
+        for (const x of touches) batch.touches.add(x);
+      } else {
+        batches.push({ tasks: [task], touches: new Set(touches) });
+      }
+    }
+
+    emit(
+      batches.map((b) => ({ tasks: b.tasks.map((t) => t.id), touches: [...b.touches] })),
+      () =>
+        batches.length
+          ? batches
+              .map((b, i) =>
+                [
+                  `batch ${i + 1}${b.touches.size ? `  (touches: ${[...b.touches].join(", ")})` : ""}`,
+                  ...b.tasks.map((t) => `  tm worktree new ${t.id}   # ${t.title}`),
+                ].join("\n"),
+              )
+              .join("\n\n")
+          : "(nothing unblocked and unclaimed)",
+    );
+  },
+
+  /** Isolated checkouts for parallel work, with heavy artifacts shared not copied. */
+  worktree(sub, ...rest) {
+    requireInit();
+    const flags = new Set(rest.filter((a) => a.startsWith("--")));
+    const args = rest.filter((a) => !a.startsWith("--"));
+    const baseIdx = rest.indexOf("--base");
+    const base = baseIdx === -1 ? undefined : rest[baseIdx + 1];
+
+    if (sub === "new") {
+      const task = read(args[0], P) || die(`not found: ${args[0]}`);
+      const res = createWorktree(task, { base, share: !flags.has("--no-share"), p: P });
+      update(task.id, { worktree: res.path, branch: res.branch }, P);
+      writeState({ claims: { ...state(P).claims, [task.id]: { session: process.env.CLAUDE_SESSION_ID || null, worktree: res.path, branch: res.branch, ts: now() } } }, P);
+      logEvent("worktree_new", { id: task.id, path: res.path, branch: res.branch, shared: res.shared.length }, P);
+      out(`${task.id} → ${res.path}\n   branch ${res.branch}${res.shared.length ? `\n   shared: ${res.shared.map((x) => x.path || x).join(", ")}` : ""}\n\ncd ${res.path}`);
+    } else if (sub === "rm") {
+      const task = read(args[0], P) || die(`not found: ${args[0]}`);
+      const res = removeWorktree(task, { force: flags.has("--force"), p: P });
+      if (!res.removed) die(res.reason || "refused");
+      update(task.id, { worktree: undefined, branch: undefined }, P);
+      release(task.id, P);
+      logEvent("worktree_rm", { id: task.id }, P);
+      out(`${task.id} worktree removed`);
+    } else if (sub === "share") {
+      const task = read(args[0], P) || die(`not found: ${args[0]}`);
+      if (!task.worktree) die(`${task.id} has no worktree`);
+      const shared = applyShares(task.worktree, { p: P });
+      out(shared.length ? `shared: ${shared.map((x) => x.path || x).join(", ")}` : "(nothing to share)");
+    } else {
+      const rows = listWorktrees(P);
+      emit(rows, () =>
+        rows
+          .map((w) => `${(w.taskId || "—").padEnd(8)} ${w.branch || "?"}  ${w.dirty ? "dirty" : "clean"}  ${w.path}`)
+          .join("\n") || "(none)",
+      );
+    }
+  },
+
+  /**
+   * Put `tm` / `tm-dashboard` on PATH. Runs automatically at SessionStart when safe.
+   * (Named `install`, not `link` — `tm link <id> <ref>` attaches commits to tasks.)
+   */
+  install(...flags) {
+    const res = linkBins({ force: flags.includes("--force") });
+    if (!res.ok) die(`link: ${res.reason}`);
+    out(res.created.length ? `linked:\n${res.created.map((f) => `  ${f}`).join("\n")}` : `already linked in ${res.dir}`);
+    if (!res.onPath) out(`note: ${res.dir} is not on your PATH`);
+  },
+
+  uninstall() {
+    const removed = unlinkBins();
+    out(removed.length ? `removed:\n${removed.map((f) => `  ${f}`).join("\n")}` : "nothing to remove");
+  },
+
+  where() {
+    const s = linkStatus();
+    out(JSON.stringify({ store: P.base, checkout: CHECKOUT, unavailable: P.unavailable, ...s }, null, 2));
+  },
+
+  /** Move a pre-v0.2 worktree store into the shared root. */
+  migrate() {
+    if (!P.root) die(P.unavailable);
+    const stranded = legacyStore(P.root);
+    if (!stranded) return out("nothing to migrate");
+    if (isInitialized(P)) {
+      die(`a store already exists at ${P.base}. Merge by hand — refusing to overwrite.\nStranded copy: ${stranded}`);
+    }
+    mkdirSync(join(P.root, ".bytedesk"), { recursive: true });
+    renameSync(stranded, P.base);
+    logEvent("migrate", { from: stranded, to: P.base }, P);
+    out(`moved ${stranded}\n   → ${P.base}`);
+  },
+
+  hook(event) {
+    return hook(event);
+  },
+
+  help() {
+    out(
+      [
+        "tm — task-management store (.bytedesk/task-management)",
+        "",
+        "  init                          create the store here",
+        '  epic new "<title>" | use <id> | done <id> | (list)',
+        '  task new "<title>" | (list)',
+        '  adr new "<title>"',
+        "  start <id> | done <id> | park <id> [why] | block <id> [why] | unblock <id>",
+        '  ac <id> "<criterion>" | accept <id> <n>',
+        "  evidence <id> <path|-> | link <id> <ref> | dep <id> <blocker...>",
+        "  assign <id> <who> | label <id> [-]<name>... | priority <id> <level>",
+        "  estimate <id> <points> | comment <id> <text> | subtask <id> [parent|none]",
+        "  link <id> <type> <id> | rank <id> --before|--after <id> | backlog",
+        "  next | board | stale | find <q> | log [n] | standup [iso] | handoff <id>",
+        "  reindex | override <reason> | config [key value] | context",
+        "  install [--force] | uninstall | where   put tm on PATH (auto at SessionStart)",
+        "  ntfy [on|off <kind>|enable|disable|test|topic <t>|board <url>]   push notifications",
+        "",
+        "  Gates: TM_ENFORCE=off disables all of them. `tm override` bypasses one.",
+      ].join("\n"),
+    );
+  },
+};
+
+function renderShow(doc) {
+  const lines = [`${doc.id}  ${doc.title}`, `status: ${doc.status}${doc.epic ? `   epic: ${doc.epic}` : ""}`];
+  const facts = [
+    doc.assignee ? `assignee: ${doc.assignee}` : "",
+    doc.priority ? `priority: ${doc.priority}` : "",
+    doc.estimate !== undefined ? `estimate: ${doc.estimate}` : "",
+    doc.actor && doc.actor !== "main" ? `thread: ${doc.actor}` : "",
+    doc.parent ? `parent: ${doc.parent}` : "",
+  ].filter(Boolean);
+  if (facts.length) lines.push(facts.join("   "));
+  if ((doc.labels || []).length) lines.push(`labels: ${doc.labels.join(", ")}`);
+  if ((doc.links || []).length) lines.push(`links: ${doc.links.map((l) => `${l.type} ${l.id}`).join(", ")}`);
+  if (doc.branch || doc.worktree) lines.push(`branch: ${doc.branch || "—"}   worktree: ${doc.worktree || "—"}`);
+  if ((doc.acceptance || []).length) {
+    lines.push("", "acceptance:", ...doc.acceptance.map((a) => `  [${a.done ? "x" : " "}] ${a.text}`));
+  }
+  for (const [label, key] of [["blocked by", "blockedBy"], ["blocks", "blocks"], ["evidence", "evidence"], ["commits", "commits"], ["touches", "touches"]]) {
+    if ((doc[key] || []).length) lines.push(`${label}: ${doc[key].join(", ")}`);
+  }
+  if ((doc.tasks || []).length) lines.push("", "tasks:", ...doc.tasks.map((t) => `  ${t.id} ${t.title} (${t.status})`));
+  if (doc.body?.trim()) lines.push("", doc.body.trim());
+  return lines.join("\n");
+}
+
+// ── hook entry points ────────────────────────────────────────────────────────
+
+function readStdin() {
+  try {
+    return JSON.parse(readFileSync(0, "utf8") || "{}");
+  } catch {
+    return {};
+  }
+}
+
+/** Newest plan file in ~/.claude/plans, which is where ExitPlanMode writes. */
+function newestPlanFile() {
+  const dir = join(homedir(), ".claude", "plans");
+  if (!existsSync(dir)) return null;
+  const files = readdirSync(dir)
+    .filter((f) => f.endsWith(".md"))
+    .map((f) => ({ f, m: statSync(join(dir, f)).mtimeMs }))
+    .sort((a, b) => b.m - a.m);
+  return files.length ? join(dir, files[0].f) : null;
+}
+
+function hook(event) {
+  const input = readStdin();
+  if (!isInitialized(P) && event !== "session-start") process.exit(0);
+
+  switch (event) {
+    case "session-start": {
+      // PATH setup is global, so it runs even in repos with no store yet.
+      let note = null;
+      try {
+        note = autolink();
+      } catch {
+        /* never let PATH plumbing break a session */
+      }
+      if (!isInitialized(P)) {
+        if (note) out(JSON.stringify({ systemMessage: note }));
+        process.exit(0);
+      }
+      // A store left behind in a worktree by v0.1 would silently look like data loss.
+      const stranded = legacyStore(P.root);
+      if (stranded) {
+        note = `${note ? `${note}\n` : ""}task-management: found a pre-v0.2 store at ${stranded}. Stores are now shared across worktrees — move it with \`tm migrate\`.`;
+      }
+      if (rotateEvents(P)) logEvent("events_rotated", {}, P);
+      const ctx = sessionContext(P);
+      if (ctx || note) {
+        out(
+          JSON.stringify({
+            ...(ctx ? { hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: ctx } } : {}),
+            ...(note ? { systemMessage: note } : {}),
+          }),
+        );
+      }
+      break;
+    }
+
+    case "pre-task-create": {
+      const gate = gateTaskCreate(P);
+      if (!gate.allow) {
+        // stderr carries the guidance; stdout carries the decision.
+        process.stderr.write(`${gate.reason}\n`);
+        out(
+          JSON.stringify({
+            hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny" },
+            systemMessage: gate.reason,
+          }),
+        );
+      }
+      break;
+    }
+
+    case "post-task": {
+      mirrorNativeTask(input);
+      break;
+    }
+
+    // Compaction is exactly when task state evaporates — put the board back.
+    case "pre-compact": {
+      const ctx = sessionContext(P);
+      if (ctx) out(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreCompact", additionalContext: ctx } }));
+      break;
+    }
+
+    // Don't let the model open a duplicate for work that is already on the board.
+    case "user-prompt": {
+      const prompt = String(input.prompt || input.user_prompt || "");
+      const hit = matchOpenTask(prompt);
+      if (hit) {
+        out(
+          JSON.stringify({
+            hookSpecificOutput: {
+              hookEventName: "UserPromptSubmit",
+              additionalContext: `task-management: this looks like ${hit.id} "${hit.title}" (${hit.status}). Resume it with \`tm start ${hit.id}\` rather than creating a new task.`,
+            },
+          }),
+        );
+      }
+      break;
+    }
+
+    // Parallel agents are invisible unless their work lands on the timeline.
+    case "subagent-stop": {
+      const claims = state(P).claims || {};
+      const mine = Object.entries(claims).filter(([, c]) => c.session === (input.session_id || process.env.CLAUDE_SESSION_ID));
+      logEvent("subagent_stop", { agent: input.session_id || null, tasks: mine.map(([id]) => id) }, P);
+      break;
+    }
+
+    case "notification": {
+      logEvent("notification", { message: String(input.message || "").slice(0, 200) }, P);
+      break;
+    }
+
+    // A session that ends must not leave `in_progress` lying about what is happening.
+    case "session-end": {
+      if (config(P).parkOnSessionEnd === false) break;
+      const session = process.env.CLAUDE_SESSION_ID || null;
+      for (const t of list("task", { status: "in_progress" }, P)) {
+        if (session && t.session && t.session !== session) continue;
+        update(t.id, { status: "parked", parkedReason: `session ended (${session || "unknown"})` }, P);
+        releaseClaim(t.id, P);
+        logEvent("parked_on_session_end", { id: t.id }, P);
+      }
+      break;
+    }
+
+    case "post-plan": {
+      capturePlan(input);
+      break;
+    }
+
+    case "post-bash": {
+      linkGit(input);
+      break;
+    }
+
+    case "post-decision": {
+      captureDecision(input);
+      break;
+    }
+
+    case "stop": {
+      const gate = gateStop(P);
+      if (gate.block) {
+        // Stop is NOT a hookSpecificOutput union member — guidance on stderr,
+        // top-level decision/reason on stdout. (See security-guidance hook notes.)
+        process.stderr.write(`${gate.reason}\n`);
+        out(JSON.stringify({ decision: "block", reason: gate.reason }));
+      }
+      break;
+    }
+
+    default:
+      break;
+  }
+  process.exit(0);
+}
+
+/** Mirror a native TaskCreate/TaskUpdate into the markdown store. */
+function mirrorNativeTask(input) {
+  const ti = input.tool_input || {};
+  const resp = input.tool_response || {};
+  const nativeId = String(ti.taskId || resp.id || resp.taskId || "");
+  const existing = nativeId ? list("task", {}, P).find((t) => t.nativeId === nativeId) : null;
+
+  if (input.tool_name === "TaskCreate" || !existing) {
+    const title = ti.subject || resp.subject;
+    if (!title) return;
+    const dup = findDuplicate(title, P);
+    if (dup) {
+      update(dup.id, { nativeId: nativeId || dup.nativeId, ...stamp() }, P);
+      return;
+    }
+    create(
+      "task",
+      {
+        title,
+        nativeId: nativeId || undefined,
+        epic: state(P).activeEpic || null,
+        activeForm: ti.activeForm,
+        status: "open",
+        acceptance: [],
+        evidence: [],
+        commits: [],
+        blockedBy: [],
+        blocks: [],
+        ...stamp(),
+      },
+      ti.description || "",
+      P,
+    );
+    return;
+  }
+
+  const patch = { ...stamp() };
+  if (ti.status) patch.status = FROM_NATIVE[ti.status] || ti.status;
+  if (ti.subject) patch.title = ti.subject;
+  if (ti.activeForm) patch.activeForm = ti.activeForm;
+  if (ti.owner) patch.owner = ti.owner;
+  if (ti.addBlockedBy?.length) {
+    patch.blockedBy = [...new Set([...(existing.blockedBy || []), ...nativeIdsToStore(ti.addBlockedBy)])];
+  }
+  if (ti.addBlocks?.length) {
+    patch.blocks = [...new Set([...(existing.blocks || []), ...nativeIdsToStore(ti.addBlocks)])];
+  }
+  if (ti.description) patch.body = ti.description;
+  update(existing.id, patch, P);
+  if (patch.status === "done") {
+    release(existing.id, P);
+    logEvent("done", { id: existing.id, via: "native" }, P);
+    unblockDependents(existing.id, P);
+  }
+  if (patch.status === "deleted") release(existing.id, P);
+}
+
+function nativeIdsToStore(ids) {
+  const all = list("task", {}, P);
+  return ids.map((n) => all.find((t) => t.nativeId === String(n))?.id || `native:${n}`);
+}
+
+/** ExitPlanMode → copy the plan into the repo, open an epic, remember the link. */
+function capturePlan(input) {
+  const src = newestPlanFile();
+  if (!src) return;
+  mkdirSync(P.plans, { recursive: true });
+  const title = (readFileSync(src, "utf8").match(/^#\s+(.+)$/m) || [, basename(src, ".md")])[1];
+  const dest = join(P.plans, `${now().slice(0, 10)}-${slug(title)}.md`);
+  if (!existsSync(dest)) copyFileSync(src, dest);
+
+  let epicId = state(P).activeEpic;
+  if (!epicId) {
+    const e = create("epic", { title, plan: dest.replace(`${P.root}/`, ""), ...stamp() }, `Plan: ${dest.replace(`${P.root}/`, "")}\n`, P);
+    writeState({ activeEpic: e.id }, P);
+    epicId = e.id;
+  } else {
+    update(epicId, { plan: dest.replace(`${P.root}/`, "") }, P);
+  }
+  logEvent("plan_captured", { id: epicId, plan: dest }, P);
+  out(
+    JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: "PostToolUse",
+        additionalContext:
+          `task-management: plan saved to ${dest.replace(`${P.root}/`, "")} and linked to epic ${epicId} (now active). ` +
+          "Create the implementation tasks with TaskCreate — they will be filed under this epic automatically.",
+      },
+    }),
+  );
+}
+
+/** git commit / gh pr create → attach the ref to the task it mentions or the active claim. */
+function linkGit(input) {
+  if (!config(P).gitLink) return;
+  const cmd = String(input.tool_input?.command || "");
+  if (!/\bgit\s+commit\b|\bgh\s+pr\s+create\b/.test(cmd)) return;
+
+  const mentioned = cmd.match(/\bTM-\d+\b/g) || [];
+  // Branch first: `tm/TM-014-…` is unambiguous and needs no discipline in the message.
+  const fromBranch = (git(["rev-parse", "--abbrev-ref", "HEAD"]).match(/\bTM-\d+\b/) || [])[0];
+  const targets = mentioned.length
+    ? [...new Set(mentioned)]
+    : fromBranch
+      ? [fromBranch]
+      : list("task", { status: "in_progress" }, P).map((t) => t.id);
+  if (!targets.length) return;
+
+  const sha = git(["rev-parse", "--short", "HEAD"]);
+  const ref = /gh\s+pr\s+create/.test(cmd)
+    ? (String(input.tool_response?.stdout || "").match(/https:\/\/\S+/) || [""])[0] || "pr"
+    : sha;
+  if (!ref) return;
+  for (const id of targets) {
+    const t = read(id, P);
+    if (!t || (t.commits || []).includes(ref)) continue;
+    update(id, { commits: [...(t.commits || []), ref] }, P);
+    logEvent("git_link", { id, ref }, P);
+  }
+}
+
+/** AskUserQuestion → ADR, filtered and deduped by lib/adr.mjs (see TM-016). */
+function captureDecision(input) {
+  const res = upsertDecision(input, { p: P, config: config(P) });
+  if (res?.id) logEvent(res.created ? "decision_captured" : "decision_updated", { id: res.id }, P);
+  return;
+}
+
+function captureDecisionLegacy(input) {
+  if (!config(P).captureDecisions) return;
+  const questions = input.tool_input?.questions || [];
+  const answers = input.tool_response?.answers || input.tool_input?.answers || {};
+  const decided = Object.entries(answers);
+  if (!decided.length) return;
+
+  const title = questions[0]?.header ? `${questions[0].header} decision` : "Decision";
+  const body = [
+    "## Context",
+    "",
+    "Captured automatically from an AskUserQuestion during a Claude Code session.",
+    "",
+    "## Decision",
+    "",
+    ...decided.map(([q, a]) => `- **${q}**\n  → ${a}`),
+    "",
+    "## Consequences",
+    "",
+    "_TODO: fill in — this stub exists so the decision is not lost._",
+  ].join("\n");
+  const a = create("adr", { title, status: "proposed", epic: state(P).activeEpic || null, date: now().slice(0, 10) }, body, P);
+  logEvent("decision_captured", { id: a.id }, P);
+}
+
+// ── dispatch ─────────────────────────────────────────────────────────────────
+
+const fn = VERBS[verb || "help"];
+if (!fn) die(`unknown verb: ${verb}\n(try: tm help)`);
+try {
+  await fn(...argv.slice(1));
+} catch (err) {
+  die(`tm ${verb}: ${err.message}`);
+}

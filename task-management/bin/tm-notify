@@ -1,0 +1,32 @@
+#!/usr/bin/env node
+/**
+ * Sends one ntfy message and exits. Spawned detached by `tm` so the POST
+ * outlives the parent — a hook process exits in milliseconds and would kill an
+ * in-flight fetch, which is exactly how "notifications work locally but never
+ * from hooks" happens.
+ *
+ * Usage (internal): tm-notify '<json event>'
+ * Exits 0 whatever happens; nothing upstream should care that a phone was busy.
+ */
+import { paths } from "../lib/paths.mjs";
+import { read } from "../lib/store.mjs";
+import { messageFor, ntfyConfig, send } from "../lib/ntfy.mjs";
+
+const raw = process.argv[2];
+if (!raw) process.exit(0);
+
+try {
+  const event = JSON.parse(raw);
+  const p = paths();
+  if (!p.root) process.exit(0);
+  const cfg = ntfyConfig(p);
+  if (!cfg.enabled) process.exit(0);
+  const task = event.id ? read(event.id, p) : null;
+  const result = await send(messageFor(event, task, cfg), cfg);
+  if (!result.ok && process.env.TM_NTFY_DEBUG) {
+    process.stderr.write(`tm-notify: ${result.status} ${result.error}\n`);
+  }
+} catch (err) {
+  if (process.env.TM_NTFY_DEBUG) process.stderr.write(`tm-notify: ${err.message}\n`);
+}
+process.exit(0);
