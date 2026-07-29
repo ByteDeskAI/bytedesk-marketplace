@@ -13,12 +13,12 @@
  * cycle and a done task with unmet criteria are decisions, not typos, so they are
  * reported and left alone.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { RESOLVED, list, logEvent, reindex, state, update, writeState } from "./store.mjs";
 import { LINK_TYPES } from "./issue.mjs";
 import { staleClaims, sweepClaims } from "./claims.mjs";
-import { paths } from "./paths.mjs";
+import { KINDS, paths } from "./paths.mjs";
 
 /**
  * error   — the store is lying: a read gives a wrong answer.
@@ -157,6 +157,13 @@ export function diagnose(p = paths()) {
     }
   }
 
+  // Two files claiming one id. `fileFor` resolves an id with the FIRST directory entry
+  // matching it, so the other file is permanently unaddressable: `tm show`, `tm start`
+  // and `tm done` can never reach it. Worse, this used to be invisible here — the only
+  // symptom doctor saw was index-drift, which `--fix` reindexed away, leaving the
+  // duplicate on disk and reporting "no problems found" over the top of it.
+  out.push(...duplicateIds(p));
+
   out.push(...cycles(live, (t) => t.blockedBy || [], "dep-cycle"));
   out.push(...cycles(live, (t) => (t.parent ? [t.parent] : []), "subtask-cycle"));
 
@@ -218,6 +225,41 @@ export function diagnose(p = paths()) {
  * Drop one claim, leaving the task alone. Goes through the store's own locked
  * writeState, so a doctor run cannot race a session that is claiming something.
  */
+/**
+ * Ids with more than one file behind them. Deliberately NOT auto-fixable: choosing
+ * which file keeps the id, and what the loser is renamed to, changes an identity that
+ * commits, links and dependencies already point at. That is a judgement, not a typo,
+ * so doctor names both paths and stops.
+ */
+function duplicateIds(p = paths()) {
+  const out = [];
+  for (const [kind, spec] of Object.entries(KINDS)) {
+    const dir = p[spec.dir];
+    if (!dir || !existsSync(dir)) continue;
+    const byId = new Map();
+    for (const file of readdirSync(dir).filter((f) => f.endsWith(".md"))) {
+      const id = (file.match(new RegExp(`^(${spec.prefix}-\\d+)`)) || [])[1];
+      if (!id) continue;
+      if (!byId.has(id)) byId.set(id, []);
+      byId.get(id).push(file);
+    }
+    for (const [id, files] of byId) {
+      if (files.length < 2) continue;
+      out.push(
+        finding(
+          "error",
+          "duplicate-id",
+          id,
+          `${files.length} ${kind} files claim ${id} — only ${files.sort()[0]} is reachable; ${files
+            .slice(1)
+            .join(", ")} cannot be addressed at all`,
+        ),
+      );
+    }
+  }
+  return out;
+}
+
 function dropClaim(id, p) {
   const claims = { ...(state(p).claims || {}) };
   if (!(id in claims)) return `no claim on ${id}`;

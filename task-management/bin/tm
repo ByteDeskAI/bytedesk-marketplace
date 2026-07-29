@@ -30,6 +30,7 @@ import {
   state,
   unblockDependents,
   update,
+  mutate,
   writeConfig,
   writeState,
 } from "../lib/store.mjs";
@@ -265,20 +266,29 @@ const VERBS = {
   /** tm ac <id> "<criterion>"  — add;  tm accept <id> <n> — tick */
   ac(id, ...text) {
     requireInit();
-    const t = read(id, P) || die(`not found: ${id}`);
-    const acceptance = [...(t.acceptance || []), { text: text.join(" "), done: false }];
-    update(id, { acceptance }, P);
+    if (!read(id, P)) die(`not found: ${id}`);
+    // Read-append-write: two criteria added at once would otherwise keep only one.
+    let acceptance = [];
+    mutate(id, (t) => {
+      acceptance = [...(t.acceptance || []), { text: text.join(" "), done: false }];
+      return { acceptance };
+    }, P);
     out(`${id} AC ${acceptance.length}: ${text.join(" ")}`);
   },
 
   accept(id, n) {
     requireInit();
     const t = read(id, P) || die(`not found: ${id}`);
-    const acceptance = [...(t.acceptance || [])];
     const i = Number(n) - 1;
-    if (!acceptance[i]) die(`${id} has no acceptance criterion ${n}`);
-    acceptance[i] = { ...acceptance[i], done: true, at: now() };
-    update(id, { acceptance }, P);
+    if (!(t.acceptance || [])[i]) die(`${id} has no acceptance criterion ${n}`);
+    // Ticking one criterion rewrites the whole array, so two ticks racing would drop one
+    // — which is exactly the gate `tm done` reads.
+    let acceptance = [];
+    mutate(id, (doc) => {
+      acceptance = [...(doc.acceptance || [])];
+      if (acceptance[i]) acceptance[i] = { ...acceptance[i], done: true, at: now() };
+      return { acceptance };
+    }, P);
     out(`${id} AC ${n} met (${acceptance.filter((a) => a.done).length}/${acceptance.length})`);
   },
 
@@ -296,17 +306,19 @@ const VERBS = {
       writeFileSync(dest, readFileSync(0, "utf8"));
       ref = dest.replace(`${P.root}/`, "");
     }
-    update(id, { evidence: [...(t.evidence || []), ref] }, P);
+    mutate(id, (doc) => ({ evidence: [...(doc.evidence || []), ref] }), P);
     out(`${id} evidence: ${ref}`);
   },
 
   dep(id, ...deps) {
     requireInit();
-    const t = read(id, P) || die(`not found: ${id}`);
-    update(id, { blockedBy: [...new Set([...(t.blockedBy || []), ...deps])], status: t.status === "open" ? "blocked" : t.status }, P);
+    if (!read(id, P)) die(`not found: ${id}`);
+    mutate(id, (t) => ({
+      blockedBy: [...new Set([...(t.blockedBy || []), ...deps])],
+      status: t.status === "open" ? "blocked" : t.status,
+    }), P);
     for (const d of deps) {
-      const other = read(d, P);
-      if (other) update(d, { blocks: [...new Set([...(other.blocks || []), id])] }, P);
+      if (read(d, P)) mutate(d, (other) => ({ blocks: [...new Set([...(other.blocks || []), id])] }), P);
     }
     out(`${id} blocked by ${deps.join(", ")}`);
   },
@@ -535,7 +547,7 @@ const VERBS = {
     const t = read(id, P) || die(`not found: ${id}`);
     const ref = rest[0];
     if ((t.commits || []).includes(ref)) return;
-    update(id, { commits: [...(t.commits || []), ref] }, P);
+    mutate(id, (doc) => ({ commits: [...new Set([...(doc.commits || []), ref])] }), P);
     out(`${id} ← ${ref}`);
   },
 
@@ -1131,7 +1143,7 @@ function linkGit(input) {
   for (const id of targets) {
     const t = read(id, P);
     if (!t || (t.commits || []).includes(ref)) continue;
-    update(id, { commits: [...(t.commits || []), ref] }, P);
+    mutate(id, (doc) => ({ commits: [...new Set([...(doc.commits || []), ref])] }), P);
     logEvent("git_link", { id, ref }, P);
   }
 }

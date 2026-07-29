@@ -4,6 +4,40 @@
 
 ### Fixed
 
+- **Concurrent writes lost data, silently.** One store is shared by every worktree and
+  the whole point of `tm parallel` / `tm claim` / `tm worktree` is several sessions at
+  once, so simultaneous writes are the normal case. `withLock` existed but only guarded
+  `state.json`: `create` did an unlocked `nextId` (max+1 over a directory read) then a
+  write, and `update` an unlocked read-then-write. Measured on a scratch store:
+
+  - **8 concurrent `tm task new` → 8 files, 7 distinct ids, 6 index rows.** A duplicate
+    id is not cosmetic: `fileFor` resolves an id to the first matching directory entry,
+    so the other file becomes permanently unaddressable — `tm show`, `tm start` and
+    `tm done` can never reach it again.
+  - **8 concurrent `tm comment` on one task → 5 stored, 7 of 8 processes exiting 0.**
+  - **`tm doctor` then certified the wreckage.** Its only symptom was `index-drift`,
+    `--fix` reindexed it away, and it reported "no problems found" over two files still
+    claiming one id.
+
+  The root cause underneath all of it: `openSync(lock, "wx")` creates the lock file
+  **empty** and writes the pid a moment later. A second process arriving in that window
+  read `""`, failed to parse it, concluded the lock was dead, unlinked it and walked in
+  — so two processes held the "mutex" simultaneously. `staleLock` now falls back to the
+  file's mtime, so a young empty lock is respected while a genuinely corrupt one still
+  ages out.
+
+  Also: `create` and `update` are now locked; a new `mutate(id, fn)` covers the
+  read-append-write shape that wrapping `update` alone cannot fix (both callers read the
+  same array, both append one item, second write wins) and the append callers are routed
+  through it — comments, labels, links, acceptance criteria, evidence, dependencies,
+  commit refs; `writeAtomic`'s temp file carries the pid, since a fixed `.tmp` is only
+  atomic for one writer; `consumeOverride` and the Stop gate's `lastStopBlock` are locked,
+  because a one-shot override token that two gates can each spend is not a gate.
+
+- **`tm doctor` gained `duplicate-id`**, the error it most needed and did not have. Not
+  auto-fixable: choosing which file keeps the id changes an identity that commits, links
+  and dependencies already point at.
+
 - **The dashboard dev server accepted a stale port file.** `dashboard.port` outlives the
   board that wrote it, so `npm run dev` would start happily against a dead port and then
   fail every request with a proxy error — which sends you reading the proxy config instead

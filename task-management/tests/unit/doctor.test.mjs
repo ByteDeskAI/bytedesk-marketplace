@@ -9,6 +9,7 @@
 import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { cleanup, tempStore } from "./helpers.mjs";
 import { create, read, state, update, writeState } from "../../lib/store.mjs";
 import { diagnose, render, repair, repairAll } from "../../lib/doctor.mjs";
@@ -237,6 +238,31 @@ describe("evidence, natives and the cache", () => {
     assert.ok(codes(p).includes("missing-evidence"));
     heal(p);
     assert.deepEqual(read(t.id, p).evidence, []);
+  });
+
+  it("catches two files claiming one id, and refuses to pick a winner", () => {
+    const p = store();
+    const t = create("task", { title: "the reachable one" }, "", p);
+    // What concurrent creates produced before writes were serialized. `fileFor` resolves
+    // an id to the first matching entry, so the second file is unreachable forever —
+    // and doctor used to see only index-drift, which `--fix` reindexed into silence.
+    writeFileSync(join(p.tasks, `${t.id}-the-shadow-one.md`), '---\nid: "TM-001"\ntitle: "the shadow one"\n---\n');
+
+    const f = find(p, "duplicate-id");
+
+    assert.ok(f, "the worst state the store can reach must not read as clean");
+    assert.equal(f.level, "error");
+    assert.equal(f.fixable, false, "renaming a file changes an id commits already point at");
+    assert.match(f.message, /the-shadow-one/, "it must name the file you cannot otherwise find");
+  });
+
+  it("does not cry duplicate for ids that merely share a prefix", () => {
+    const p = store();
+    // TM-001 and TM-0011 both start with "TM-001"; a prefix match would pair them.
+    create("task", { title: "first" }, "", p);
+    writeFileSync(join(p.tasks, "TM-0011-later-one.md"), '---\nid: "TM-0011"\ntitle: "later one"\n---\n');
+
+    assert.ok(!codes(p).includes("duplicate-id"));
   });
 
   it("catches two tasks mirroring one native task", () => {

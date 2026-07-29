@@ -6,11 +6,11 @@
 import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { cleanup, tempStore } from "./helpers.mjs";
-import { LOCK_STALE_MS, state, withLock, writeState } from "../../lib/store.mjs";
+import { LOCK_STALE_MS, staleLock, state, withLock, writeState } from "../../lib/store.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const stores = [];
@@ -43,6 +43,39 @@ describe("withLock", () => {
     const ancient = new Date(Date.now() - LOCK_STALE_MS * 2).toISOString();
     writeFileSync(lock, JSON.stringify({ pid: 999999, ts: ancient }));
     assert.equal(withLock(p, () => "recovered"), "recovered");
+  });
+
+  it("does not treat a freshly created empty lock as dead", () => {
+    const p = store();
+    const lock = join(p.base, "state.lock");
+    // `openSync(lock, "wx")` creates the file EMPTY; the pid lands a moment later. A
+    // second process arriving inside that window read "", failed to parse it, concluded
+    // the lock was dead, unlinked it and walked in — so two processes held the lock at
+    // once. That is why concurrent creates still minted duplicate ids even after
+    // create() was wrapped: the wrapping was fine, the lock was breakable.
+    writeFileSync(lock, "");
+
+    assert.equal(staleLock(lock), false, "an unparseable but young lock is held, not dead");
+  });
+
+  it("still breaks an empty lock once it has aged out", () => {
+    const p = store();
+    const lock = join(p.base, "state.lock");
+    writeFileSync(lock, "");
+    // Age the file itself, since there is no timestamp inside it to age.
+    const old = (Date.now() - LOCK_STALE_MS * 2) / 1000;
+    utimesSync(lock, old, old);
+
+    assert.equal(staleLock(lock), true, "a corrupt lock must not wedge the store forever");
+    assert.equal(withLock(p, () => "recovered"), "recovered");
+  });
+
+  it("treats a lock whose holder is gone as dead", () => {
+    const p = store();
+    const lock = join(p.base, "state.lock");
+    writeFileSync(lock, JSON.stringify({ pid: 999999, ts: new Date().toISOString() }));
+
+    assert.equal(staleLock(lock), true, "a live timestamp with a dead pid is still dead");
   });
 
   it("serializes concurrent claim writes from separate processes", () => {

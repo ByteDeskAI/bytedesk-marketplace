@@ -10,7 +10,7 @@
  * stay authoritative no matter whether the CLI, the dashboard or MCP called it.
  */
 import { actor, actorLabel } from "./actor.mjs";
-import { list, logEvent, now, read, update } from "./store.mjs";
+import { list, logEvent, mutate, now, read, update } from "./store.mjs";
 import { paths } from "./paths.mjs";
 
 /** Jira's ladder, lowercased. Anything else is a typo, not a new priority. */
@@ -44,12 +44,21 @@ export function assign(id, who, p = paths()) {
 }
 
 export function labels(id, { add = [], remove = [] } = {}, p = paths()) {
-  const t = must(id, p);
-  const next = new Set(t.labels || []);
-  for (const l of add) if (String(l).trim()) next.add(String(l).trim());
-  for (const l of remove) next.delete(String(l).trim());
-  const labelList = [...next];
-  update(id, { labels: labelList.length ? labelList : undefined }, p);
+  must(id, p);
+  // Read-append-write, so it goes through mutate: two concurrent label adds that each
+  // read the same list would otherwise keep only the second one's label.
+  let labelList = [];
+  mutate(
+    id,
+    (t) => {
+      const next = new Set(t.labels || []);
+      for (const l of add) if (String(l).trim()) next.add(String(l).trim());
+      for (const l of remove) next.delete(String(l).trim());
+      labelList = [...next];
+      return { labels: labelList.length ? labelList : undefined };
+    },
+    p,
+  );
   logEvent("labels", { id, labels: labelList }, p);
   return labelList;
 }
@@ -75,11 +84,20 @@ export function estimate(id, points, p = paths()) {
 }
 
 export function addComment(id, text, { author, p = paths() } = {}) {
-  const t = must(id, p);
+  must(id, p);
   const body = String(text || "").trim();
   if (!body) throw new Error("refusing to store an empty comment");
-  const comments = [...(t.comments || []), { author: author || actorLabel(actor()), ts: now(), text: body }];
-  update(id, { comments }, p);
+  // The canonical lost-write shape, and the one measured: 8 concurrent comments on one
+  // task stored 5, because each read the same array and appended one item to it.
+  let comments = [];
+  mutate(
+    id,
+    (t) => {
+      comments = [...(t.comments || []), { author: author || actorLabel(actor()), ts: now(), text: body }];
+      return { comments };
+    },
+    p,
+  );
   logEvent("comment", { id, author: comments.at(-1).author }, p);
   return comments;
 }
@@ -92,13 +110,20 @@ export function addLink(fromId, type, toId, p = paths()) {
   const mirror = LINK_TYPES[type];
   if (!mirror) throw new Error(`unknown link type "${type}" — use one of: ${Object.keys(LINK_TYPES).join(", ")}`);
 
-  const push = (doc, linkType, otherId) => {
-    const links = [...(doc.links || [])];
-    if (!links.some((l) => l.type === linkType && l.id === otherId)) links.push({ type: linkType, id: otherId });
-    update(doc.id, { links }, p);
-  };
-  push(from, type, toId);
-  push(to, mirror, fromId);
+  // Each end is a read-append-write; both go through mutate so two links added at once
+  // do not overwrite one another. `from`/`to` above are only existence checks.
+  const push = (docId, linkType, otherId) =>
+    mutate(
+      docId,
+      (doc) => {
+        const links = [...(doc.links || [])];
+        if (!links.some((l) => l.type === linkType && l.id === otherId)) links.push({ type: linkType, id: otherId });
+        return { links };
+      },
+      p,
+    );
+  push(from.id, type, toId);
+  push(to.id, mirror, fromId);
   logEvent("link", { id: fromId, type, to: toId }, p);
   return read(fromId, p).links;
 }
