@@ -138,6 +138,38 @@ omits the code fence, `--json` gives `{nodes, edges}`.
 
 Over MCP: `tm_why`.
 
+## The board as context you pull
+
+Everything above puts the board in front of Claude by *pushing*: SessionStart injects a summary,
+PreCompact re-injects it, and the tools fire only when the model decides to call one. MCP
+**resources** are the other direction — you attach them, before the first token:
+
+```
+@…:tm://board      the whole board          @…:tm://graph      dependency graph as Mermaid
+@…:tm://session    the SessionStart block   @…:tm://blocked    everything stuck, to the root
+@…:tm://standup    the last 24 hours        @…:tm://handoff/TM-014   one task's brief
+```
+
+Three reasons these are not just `tm_board` again: **who decides** (a resource is attached by
+you, a tool fires if the model chooses to), **shape** (`tools/call` wraps everything as a JSON
+string with escaped newlines; a resource arrives as `text/markdown`), and **capability** —
+`tm://graph` and `tm://blocked` have no tool behind them at all, and `tm://session` is the one
+view compaction destroys that nothing else rebuilds.
+
+Only **computed** views are exposed. A task, epic or ADR is a markdown file that `Read` and `@`
+already reach, so a `tm://task/TM-014` would be a URI alias for a file path competing with the
+real file in the picker. `tm://handoff/<id>` is here because a handoff brief is assembled from
+the task, its epic and its blockers — it exists nowhere as a file.
+
+The picker lists work in flight and startable work (capped at 20), but **any** valid id reads:
+nothing in the protocol requires a URI to have been listed. Content is truncated at 64k
+characters rather than dropping an unbounded payload into a context window.
+
+Not implemented, deliberately: `subscribe` and `listChanged`. Both need unsolicited writes to
+stdout, which means subscription state and a writer threaded into `handleRequest` — and that
+pure request-in/response-out contract is what makes the whole protocol testable without a
+process. Every resource renders live at read time, so there is nothing to invalidate.
+
 ### Parallel work
 
 ```

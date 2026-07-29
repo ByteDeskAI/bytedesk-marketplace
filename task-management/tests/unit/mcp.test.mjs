@@ -30,7 +30,9 @@ test("initialize returns the handshake, versioned from the plugin manifest", () 
   assert.equal(res.id, 0);
   assert.deepEqual(res.result, {
     protocolVersion: "2024-11-05",
-    capabilities: {},
+    // Both are MANDATORY declarations for the features we serve, and both empty because
+    // neither sub-feature (subscribe, listChanged) is implemented.
+    capabilities: { tools: {}, resources: {} },
     serverInfo: { name: "task-management", version: manifest.version },
   });
 });
@@ -52,7 +54,10 @@ test("tools/list advertises every tool with a JSON Schema", () => {
 });
 
 test("unknown method is a JSON-RPC -32601", () => {
-  const res = handleRequest({ jsonrpc: "2.0", id: 3, method: "resources/list" }, { p: tempStore() });
+  // Not `resources/list` — that is a real method now. An unknown-method test has to name
+  // something the server genuinely does not implement, or it silently stops testing
+  // anything the day the method ships.
+  const res = handleRequest({ jsonrpc: "2.0", id: 3, method: "completion/complete" }, { p: tempStore() });
   assert.equal(res.error.code, -32601);
   assert.equal(res.result, undefined);
 });
