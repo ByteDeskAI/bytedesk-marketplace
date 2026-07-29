@@ -203,6 +203,7 @@ the same claim, fires the same dependency unblock and closes the epic the same w
 | `POST /api/task/:id/transition` | status change, with claim + gate + unblock + epic auto-close |
 | `POST /api/task/:id/{assign,labels,priority,estimate,comment,link,subtask,rank,ac,accept}` | field writes |
 | `POST /api/bulk` | one op across many ids, partial success reported per id |
+| `POST /api/epic` | switch the active epic (`{id}`, or `{id: null}` to clear) |
 | `GET /api/board` · `GET /api/backlog` · `GET /api/events` · `GET /events` (SSE) | reads |
 
 Refusals carry the CLI's own wording: a gate says no with **409** and the reason, bad input is
@@ -276,6 +277,29 @@ it, which is a different finding that only exists once the first is fixed. Some 
 never auto-fixed because they are decisions rather than typos: which edge of a dependency
 cycle to cut, a `done` task with unticked criteria (ticking them would be forging evidence),
 two tasks mirroring one native id, an `in_progress` task nobody claimed.
+
+## Epics on the board
+
+Epics were second-class on the dashboard: one lozenge in the header, and no way to
+change which one was active — so the board could create tasks but not say which epic
+they land in, which is the one decision governing everything it does next. The active-epic
+selector in the toolbar does that now (`POST /api/epic`, same validation and same event as
+`tm epic use`; a closed epic is refused rather than silently gating every later create).
+
+**Group by epic** turns the five status columns into one row of columns per epic, with a
+progress bar and `done/total` per lane. The active epic sorts first, then open epics by id,
+then closed ones, then unfiled work — which is never dropped, because a task with no epic is
+exactly the thing you want to notice. An epic id with no epic file gets a lane marked
+`missing` rather than hiding the tasks behind the data fault (`tm doctor --fix` clears it).
+
+The keyboard cursor still reads the same five columns whether or not the board is grouped:
+grouping sorts tasks lane-first, so `j` keeps walking down the screen instead of hopping
+between lanes.
+
+> The header lozenge and the burndown chart previously showed
+> `epics.find(e => e.status !== "done")` — "the first epic that isn't finished" — rather than
+> the active epic in `state.json`, which the board payload had always carried. With one epic
+> those coincide; with two, both pointed at the wrong epic.
 
 ## The board without a mouse
 

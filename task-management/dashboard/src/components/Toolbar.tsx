@@ -13,6 +13,7 @@ const styles = cssMap({
   bar: { paddingBlockEnd: "var(--ds-space-150)" },
   field: { minWidth: "140px" },
   search: { minWidth: "200px" },
+  epic: { minWidth: "200px" },
 });
 
 type Opt = { label: string; value: string };
@@ -25,6 +26,11 @@ export function Toolbar({
   onChange,
   onCreate,
   searchRef,
+  epics = [],
+  activeEpic = null,
+  onActivate,
+  grouped = false,
+  onGrouped,
 }: {
   tasks: Task[];
   filters: Filters;
@@ -32,6 +38,11 @@ export function Toolbar({
   onCreate: () => void;
   /** `/` focuses the search field, so the owner of that shortcut needs a handle on it. */
   searchRef?: RefObject<HTMLInputElement>;
+  epics?: { id: string; title: string; status: string }[];
+  activeEpic?: string | null;
+  onActivate?: (id: string) => void;
+  grouped?: boolean;
+  onGrouped?: (on: boolean) => void;
 }) {
   const [views, setViews] = useState(loadViews);
   const set = (patch: Partial<Filters>) => onChange({ ...filters, ...patch });
@@ -98,6 +109,24 @@ export function Toolbar({
               Clear
             </Button>
           </>
+        ) : null}
+        {/* Task creation is gated on an active epic. Until now the only way to change
+            it was the CLI, so the board could create tasks but not say where they land. */}
+        {onActivate && epics.some((e) => e.status !== "done") ? (
+          <Box xcss={styles.epic}>
+            <Select<Opt>
+              spacing="compact"
+              placeholder="active epic"
+              options={epics.filter((e) => e.status !== "done").map((e) => ({ label: `${e.id} ${e.title}`, value: e.id }))}
+              value={activeEpic ? { label: activeEpic, value: activeEpic } : null}
+              onChange={(o) => o && onActivate(o.value)}
+            />
+          </Box>
+        ) : null}
+        {onGrouped ? (
+          <Button appearance={grouped ? "primary" : "subtle"} onClick={() => onGrouped(!grouped)}>
+            {grouped ? "Grouped by epic" : "Group by epic"}
+          </Button>
         ) : null}
         <Button appearance="primary" onClick={onCreate}>
           Create task

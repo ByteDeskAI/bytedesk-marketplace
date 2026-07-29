@@ -27,6 +27,7 @@ import {
   state,
   unblockDependents,
   update,
+  writeState,
 } from "./store.mjs";
 
 const STATUSES = ["open", "in_progress", "blocked", "parked", "done"];
@@ -45,6 +46,7 @@ export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
   if (method === "GET" && url === "/api/backlog") return ok(backlog(p));
   if (method === "POST" && url === "/api/task") return createTask(payload, p);
   if (method === "POST" && url === "/api/bulk") return bulk(payload, p);
+  if (method === "POST" && url === "/api/epic") return setActiveEpic(payload, p);
 
   const match = /^\/api\/task\/([^/]+)(?:\/([a-z]+))?$/.exec(url);
   if (!match) return fail(404, `no route for ${method} ${url}`);
@@ -148,6 +150,30 @@ function acceptCriterion(task, index, p) {
   acceptance[i] = { ...acceptance[i], done: true, at: new Date().toISOString() };
   update(task.id, { acceptance }, p);
   return ok({ acceptance });
+}
+
+/**
+ * Switch the active epic, exactly as `tm epic use` does — same validation, same event.
+ *
+ * Task creation is gated on there being an active epic, and until now the only way to
+ * change it was the CLI. A board that can create tasks but cannot say which epic they
+ * land in is a board that has to hand you back to the terminal for the one decision
+ * that governs everything it does next.
+ */
+function setActiveEpic({ id }, p) {
+  if (id === null || id === "") {
+    writeState({ activeEpic: null }, p);
+    logEvent("epic_active", { id: null, via: "dashboard" }, p);
+    return ok({ activeEpic: null });
+  }
+  if (kindOf(id) !== "epic") return fail(400, `not an epic id: ${id}`);
+  const epic = read(id, p);
+  if (!epic) return fail(404, `no such epic: ${id}`);
+  // A closed epic would silently gate every subsequent create; refuse instead.
+  if (epic.status === "done") return fail(409, `${id} is done — reopen it or pick another epic`);
+  writeState({ activeEpic: id }, p);
+  logEvent("epic_active", { id, via: "dashboard" }, p);
+  return ok({ activeEpic: id });
 }
 
 function createTask({ title, epic, body, assignee, priority }, p) {

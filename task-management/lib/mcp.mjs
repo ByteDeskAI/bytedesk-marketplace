@@ -16,7 +16,7 @@ import { consumeOverride, enforcementOff, gateDone, gateTaskCreate } from "./enf
 import { board, handoff, standup, taskLine } from "./render.mjs";
 import { renderWhy, why } from "./graph.mjs";
 
-export const SERVER_INFO = { name: "task-management", version: "0.2.0" };
+export const SERVER_INFO = { name: "task-management", version: "0.3.0" };
 
 const ok = (fields = {}) => ({ ok: true, ...fields });
 const fail = (error) => ({ ok: false, error });

@@ -21,6 +21,9 @@ import type { Command } from "./components/Palette";
 import { KeyHint, Shortcuts } from "./components/Shortcuts";
 import { usePwa } from "./pwa/usePwa";
 import { COLUMNS as KEY_COLUMNS, locate } from "./keys.mjs";
+import { NO_EPIC, laneOrder, laneProgress, laneTasks, sortForLanes } from "./lanes.mjs";
+import { EpicLane } from "./components/EpicLane";
+import type { Lane } from "./components/EpicLane";
 import { useBoardKeys } from "./useBoardKeys";
 import type { Board, Status, StoreEvent } from "./types";
 
@@ -51,7 +54,19 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [palette, setPalette] = useState(false);
   const [help, setHelp] = useState(false);
+  // ponytail: localStorage, per browser, like the saved views next to it. Move it into
+  // the store only if a layout preference ever needs to follow the project.
+  const [grouped, setGrouped] = useState(() => localStorage.getItem("tm.grouped") === "1");
   const searchRef = useRef<HTMLInputElement | null>(null);
+
+  const setGroupedPersisted = useCallback((on: boolean) => {
+    setGrouped(on);
+    try {
+      localStorage.setItem("tm.grouped", on ? "1" : "0");
+    } catch {
+      /* private mode — the toggle still works, it just won't persist */
+    }
+  }, []);
 
   const load = useCallback(() => {
     void fetchBoard().then(setBoard);
@@ -97,15 +112,26 @@ export function App() {
   const pwa = usePwa(events, (board?.tasks ?? []).filter((t) => t.status === "in_progress").length);
 
   const starts = useMemo(() => startTimes(events), [events]);
-  const epic = board?.epics.find((e) => e.status !== "done")?.id ?? null;
-  // Backlog order: sparse ranks, unranked cards fall back to id order (creation order).
-  const visible = useMemo(
-    () =>
-      (board?.tasks ?? [])
-        .filter((t) => matches(t, filters))
-        .sort((a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity) || a.id.localeCompare(b.id)),
-    [board, filters],
+  // The store's own answer, out of state.json, which the board payload has always
+  // carried. This used to be `epics.find(e => e.status !== "done")` — "the first epic
+  // that isn't finished", which coincides with the active epic only while there is one
+  // epic. With two, the header lozenge and the burndown both named the wrong one.
+  const epic = board?.state?.activeEpic ?? null;
+
+  const lanes = useMemo(
+    () => (board ? laneOrder(board.epics, board.tasks, epic) : []),
+    [board, epic],
   );
+
+  // Backlog order: sparse ranks, unranked cards fall back to id order (creation order).
+  // Grouped, the sort puts lanes in order first, so walking a status column with `j`
+  // still goes down the screen instead of hopping between lanes.
+  const visible = useMemo(() => {
+    const filtered = (board?.tasks ?? []).filter((t) => matches(t, filters));
+    return grouped
+      ? sortForLanes(filtered, lanes)
+      : filtered.sort((a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity) || a.id.localeCompare(b.id));
+  }, [board, filters, grouped, lanes]);
   const series = useMemo(
     () => (board && epic ? burndown(board.tasks, events, { days: 14, now, epic }) : []),
     [board, events, epic, now],
@@ -174,6 +200,49 @@ export function App() {
     );
   }
 
+  /**
+   * The five status columns for one set of tasks. Rendered once flat, or once per lane.
+   *
+   * The keyboard cursor always reads the same five columns off `visible`, so a card's
+   * focus index is computed from the whole board rather than from the lane it is in —
+   * otherwise `j` would restart at the top of every lane.
+   */
+  const columnRow = (rows: typeof visible) => (
+    <Box xcss={styles.board}>
+      <Inline space="space.150" alignBlock="start">
+        {COLUMNS.map((status, i) => (
+          <Column
+            key={status}
+            index={i + 1}
+            status={status}
+            tasks={rows.filter((t) => t.status === status)}
+            starts={starts}
+            now={now}
+            focusedId={keys.focusedId}
+            onFocusCard={(id) => {
+              const at = locate(id, COLUMNS.map((s) => visible.filter((t) => t.status === s).map((t) => t.id)));
+              if (at) keys.setFocus(at);
+            }}
+            selected={selected}
+            onSelect={select}
+            onOpen={setOpenId}
+            onDrop={(id, to) => run(() => write.transition(id, to))}
+            watching={pwa.watching}
+            onWatch={pwa.toggleWatch}
+            outbox={pwa.pendingByTask}
+            onDropBefore={(dragged, before) =>
+              run(() =>
+                board.tasks.find((t) => t.id === dragged)?.status === status
+                  ? write.act(dragged, "rank", { before })
+                  : write.transition(dragged, status),
+              )
+            }
+          />
+        ))}
+      </Inline>
+    </Box>
+  );
+
   return (
     <Box xcss={styles.page}>
       <Stack space="space.200">
@@ -200,6 +269,11 @@ export function App() {
           onChange={setFilters}
           onCreate={() => setCreating(true)}
           searchRef={searchRef}
+          epics={board.epics}
+          activeEpic={epic}
+          onActivate={(id) => run(() => write.activeEpic(id))}
+          grouped={grouped}
+          onGrouped={setGroupedPersisted}
         />
 
         {error ? (
@@ -210,39 +284,35 @@ export function App() {
 
         <BulkBar ids={[...selected]} onClear={() => setSelected(new Set())} run={run} />
 
-        <Box xcss={styles.board}>
-          <Inline space="space.150" alignBlock="start">
-            {COLUMNS.map((status, i) => (
-              <Column
-                key={status}
-                index={i + 1}
-                status={status}
-                tasks={visible.filter((t) => t.status === status)}
-                starts={starts}
-                now={now}
-                focusedId={keys.focusedId}
-                onFocusCard={(id) => {
-                  const at = locate(id, COLUMNS.map((s) => visible.filter((t) => t.status === s).map((t) => t.id)));
-                  if (at) keys.setFocus(at);
-                }}
-                selected={selected}
-                onSelect={select}
-                onOpen={setOpenId}
-                onDrop={(id, to) => run(() => write.transition(id, to))}
-                watching={pwa.watching}
-                onWatch={pwa.toggleWatch}
-                outbox={pwa.pendingByTask}
-                onDropBefore={(dragged, before) =>
-                  run(() =>
-                    board.tasks.find((t) => t.id === dragged)?.status === status
-                      ? write.act(dragged, "rank", { before })
-                      : write.transition(dragged, status),
-                  )
-                }
-              />
-            ))}
-          </Inline>
-        </Box>
+        {grouped ? (
+          <Stack space="space.100">
+            {(lanes as Lane[]).map((lane) => {
+              const mine = laneTasks(visible, lane.id);
+              const progress = laneProgress(laneTasks(board.tasks, lane.id));
+              return (
+                <Stack key={lane.id} space="space.075">
+                  <EpicLane
+                    lane={lane}
+                    {...progress}
+                    isNoEpic={lane.id === NO_EPIC}
+                    onActivate={(id) => run(() => write.activeEpic(id))}
+                  />
+                  {/* A lane the filter emptied is worth saying so, rather than
+                      rendering five empty columns under a heading. */}
+                  {mine.length ? (
+                    columnRow(mine)
+                  ) : (
+                    <Text size="small" color="color.text.subtlest">
+                      nothing here matches the filter
+                    </Text>
+                  )}
+                </Stack>
+              );
+            })}
+          </Stack>
+        ) : (
+          columnRow(visible)
+        )}
 
         <Activity events={[...events].reverse().slice(0, 60)} />
       </Stack>
