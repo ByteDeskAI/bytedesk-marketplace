@@ -7,6 +7,11 @@ TM_ROOT="$(mktemp -d)"
 export TM_ROOT
 export CLAUDE_SESSION_ID="test-session"
 unset TM_ENFORCE
+# The suite must not depend on the host's PATH. autolink() reports when something else
+# already owns `tm` in ~/.local/bin, which is true for every checkout except whichever one
+# the symlink points at — so running from a git worktree made "silent before init" fail on
+# a systemMessage that has nothing to do with the hook under test.
+export TM_NO_AUTOLINK=1
 trap 'rm -rf "$TM_ROOT"' EXIT
 
 hook() { echo "${2:-\{\}}" | "$PLUGIN_ROOT/hooks/tm-hook.sh" "$1" 2>/dev/null; }

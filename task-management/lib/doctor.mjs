@@ -164,6 +164,11 @@ export function diagnose(p = paths()) {
   // duplicate on disk and reporting "no problems found" over the top of it.
   out.push(...duplicateIds(p));
 
+  // The residue of a write that died between writeFileSync and renameSync. Harmless now
+  // that fileFor requires .md — but before that it was a phantom entity, and its presence
+  // still means a process was killed mid-write, which is worth saying out loud.
+  out.push(...strayTemps(p));
+
   out.push(...cycles(live, (t) => t.blockedBy || [], "dep-cycle"));
   out.push(...cycles(live, (t) => (t.parent ? [t.parent] : []), "subtask-cycle"));
 
@@ -225,6 +230,35 @@ export function diagnose(p = paths()) {
  * Drop one claim, leaving the task alone. Goes through the store's own locked
  * writeState, so a doctor run cannot race a session that is claiming something.
  */
+/**
+ * Temp files left behind by an interrupted write.
+ *
+ * Reported, never auto-deleted: a temp file is the only surviving copy of whatever that write
+ * was carrying, and the entity it was destined for may be missing or stale. Deleting it is a
+ * decision that needs eyes on the contents, so doctor names the path and stops.
+ */
+function strayTemps(p = paths()) {
+  const out = [];
+  for (const spec of Object.values(KINDS)) {
+    const dir = p[spec.dir];
+    if (!dir || !existsSync(dir)) continue;
+    for (const file of readdirSync(dir)) {
+      // Both shapes: the current `.tm-tmp-<pid>-<name>` and the pre-0.4 `<name>.<pid>.tmp`,
+      // because an existing store can be carrying either.
+      if (!file.startsWith(".tm-tmp-") && !file.endsWith(".tmp")) continue;
+      out.push(
+        finding(
+          "warning",
+          "stray-temp",
+          null,
+          `${join(spec.dir, file)} is a temp file from an interrupted write — inspect it, then delete it or rename it into place`,
+        ),
+      );
+    }
+  }
+  return out;
+}
+
 /**
  * Ids with more than one file behind them. Deliberately NOT auto-fixable: choosing
  * which file keeps the id, and what the loser is renamed to, changes an identity that

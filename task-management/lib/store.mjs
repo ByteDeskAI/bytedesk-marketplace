@@ -8,7 +8,7 @@
  * YAML lib behind parseDoc/serializeDoc.
  */
 import { appendFileSync, closeSync, statSync, existsSync, openSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { KINDS, ensureDirs, paths } from "./paths.mjs";
 import { actor, actorLabel } from "./actor.mjs";
 import { notifyEvent } from "./notify-hook.mjs";
@@ -66,13 +66,28 @@ export function slug(s, max = 48) {
 // ── low-level io ─────────────────────────────────────────────────────────────
 
 /**
- * The temp name carries the pid. A fixed `${file}.tmp` is only atomic for one writer:
- * two processes writing the same doc both create it, both rename, and the loser's
- * rename hits a path the winner already moved — ENOENT, or worse, a half-written file
- * promoted over a good one.
+ * The temp name carries the pid, and is deliberately built so it does NOT begin with the
+ * entity id.
+ *
+ * The pid is because a fixed `${file}.tmp` is only atomic for one writer: two processes
+ * writing the same doc both create it, both rename, and the loser's rename hits a path the
+ * winner already moved.
+ *
+ * The prefix is because `fileFor` resolves an id by directory prefix. `TM-001-title.md.99.tmp`
+ * starts with `TM-001-`, so a temp file left behind by a process that died between the write
+ * and the rename was a candidate answer for "where does TM-001 live". A crash during *create*
+ * left a phantom: `tm show TM-001` rendered it, `tm board` never listed it (list() filters
+ * `.md`), `tm doctor` said "no problems found", `nextId` counted it so the id was burned, and
+ * you could add criteria to it, comment on it and `tm start` it — leaving a task in_progress
+ * that even the Stop gate could not see.
+ *
+ * `.tm-tmp-<pid>-<name>` cannot collide: the leading dot and prefix mean it never matches
+ * `${id}-`, and `fileFor` now requires `.md` as well. Two independent guards, because this
+ * one failed silently and a single guard here is one typo from failing silently again.
  */
 function writeAtomic(file, text) {
-  const tmp = `${file}.${process.pid}.tmp`;
+  const dir = dirname(file);
+  const tmp = join(dir, `.tm-tmp-${process.pid}-${basename(file)}`);
   writeFileSync(tmp, text);
   renameSync(tmp, file);
 }
@@ -341,15 +356,22 @@ export function fileFor(id, p = paths()) {
   if (!kind) return null;
   const dir = dirFor(kind, p);
   if (!existsSync(dir)) return null;
-  const hit = readdirSync(dir).find((f) => f.startsWith(`${id}-`) || f === `${id}.md`);
+  // `.md` only. Without it, any leftover file whose name begins with the id — a temp from a
+  // write that died before its rename — is a candidate answer for where this entity lives,
+  // and `read()`/`update()` would then operate on a file that `list()` cannot see.
+  const hit = readdirSync(dir).find((f) => f.endsWith(".md") && (f.startsWith(`${id}-`) || f === `${id}.md`));
   return hit ? join(dir, hit) : null;
 }
 
 export function nextId(kind, p = paths()) {
   const { prefix, pad } = KINDS[kind];
   const dir = dirFor(kind, p);
+  // `.md` only, for the same reason fileFor filters: a temp file from an interrupted write
+  // named after the id it was destined for used to reserve that number, so the id was burned
+  // — the next real task skipped it and nothing ever occupied it.
   const nums = existsSync(dir)
     ? readdirSync(dir)
+        .filter((f) => f.endsWith(".md"))
         .map((f) => new RegExp(`^${prefix}-(\\d+)`).exec(f))
         .filter(Boolean)
         .map((m) => Number(m[1]))
