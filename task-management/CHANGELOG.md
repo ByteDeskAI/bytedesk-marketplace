@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+### Fixed
+
+- **A write that died mid-rename left a phantom task.** `writeAtomic` named its temp
+  `${file}.${pid}.tmp` and `fileFor` resolved an id with `readdirSync(dir).find(f =>
+  f.startsWith(`${id}-`))` — so that temp was a candidate answer for "where does TM-002 live".
+  A crash during *create* left an entity that `tm show` rendered, `tm board` never listed
+  (`list()` filters `.md`), `tm doctor` called clean, and `nextId` counted — burning the id so
+  the next real task skipped it. Worse, `update()` read through `fileFor` and wrote back
+  through `doc.file`, so you could add acceptance criteria to a phantom, comment on it and
+  `tm start` it, leaving a task `in_progress` that even the Stop gate could not see (`gateStop`
+  lists `.md` too).
+
+  Three guards, because this failed silently once: the temp is now
+  `.tm-tmp-<pid>-<name>` and cannot match `${id}-`; `fileFor` requires `.md`; and `nextId`
+  requires `.md` so an interrupted write no longer reserves an id. `tm doctor` gained
+  **`stray-temp`**, which reports a leftover temp of either shape and deliberately does not
+  delete it — a temp file is the only surviving copy of whatever that write was carrying.
+
+- **`tests/test-hooks.sh` depended on the host's PATH.** `autolink()` reports when something
+  else already owns `tm` in `~/.local/bin`, which is true for every checkout except the one the
+  symlink points at — so the suite failed its "silent before init" assertion when run from a
+  git worktree. Pinned with `TM_NO_AUTOLINK=1`.
+
 ### Added
 
 - **MCP resources: the board as context you pull, not only context the plugin pushes.**
