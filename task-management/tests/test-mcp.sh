@@ -72,7 +72,29 @@ OUT="$(call tm_task_update '{"id":"TM-001","action":"done"}' | mcp)"
 assert_contains "$OUT" '\"ok\": true' "done allowed once criteria are met"
 
 # Protocol errors.
-OUT="$(printf '{"jsonrpc":"2.0","id":3,"method":"resources/list"}\n' | mcp)"
+# Resources: the board as context the user pulls, over the real stdio server.
+OUT="$(printf '{"jsonrpc":"2.0","id":10,"method":"initialize"}\n' | mcp)"
+assert_contains "$OUT" '"resources":{}' "initialize declares the resources capability"
+assert_contains "$OUT" '"tools":{}' "initialize declares the tools capability"
+
+OUT="$(printf '{"jsonrpc":"2.0","id":11,"method":"resources/list"}\n' | mcp)"
+assert_contains "$OUT" 'tm://board' "resources/list offers the board"
+assert_contains "$OUT" 'tm://graph' "resources/list offers the dependency graph"
+assert_contains "$OUT" 'text/markdown' "resources carry a mime type"
+
+OUT="$(printf '{"jsonrpc":"2.0","id":12,"method":"resources/read","params":{"uri":"tm://board"}}\n' | mcp)"
+assert_contains "$OUT" '"contents"' "resources/read returns contents, plural"
+assert_contains "$OUT" 'tm://board' "the entry echoes the requested uri"
+case "$OUT" in
+  *'"content":'*) no "read does not use the tools/call key" "found \"content\":" ;;
+  *) ok "read does not use the tools/call key" ;;
+esac
+
+OUT="$(printf '{"jsonrpc":"2.0","id":13,"method":"resources/read","params":{"uri":"tm://task/TM-999"}}\n' | mcp)"
+assert_contains "$OUT" '"code":-32002' "an unknown resource is -32002, not -32601"
+
+# A method the server genuinely does not implement — resources/list is real now.
+OUT="$(printf '{"jsonrpc":"2.0","id":3,"method":"completion/complete"}\n' | mcp)"
 assert_contains "$OUT" '"code":-32601' "unknown method is -32601"
 OUT="$(printf '{not json\n' | mcp)"
 assert_contains "$OUT" '"code":-32700' "unparseable line is -32700"

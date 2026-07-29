@@ -15,6 +15,7 @@ import { config, create, list, logEvent, nextTasks, now, read, state, update, wr
 import { consumeOverride, enforcementOff, gateDone, gateTaskCreate } from "./enforce.mjs";
 import { board, handoff, standup, taskLine } from "./render.mjs";
 import { renderWhy, why } from "./graph.mjs";
+import { listResources, readResource } from "./resources.mjs";
 
 export const SERVER_INFO = { name: "task-management", version: "0.3.0" };
 
@@ -386,17 +387,54 @@ export function callTool(name, args = {}, p = paths()) {
 
 const reply = (id, result) => ({ jsonrpc: "2.0", id, result });
 const error = (id, code, message) => ({ jsonrpc: "2.0", id, error: { code, message } });
+/** The spec's own code for an unknown resource, with the uri in `data` so a client can say which. */
+const notFound = (id, uri) => ({ jsonrpc: "2.0", id, error: { code: -32002, message: "Resource not found", data: { uri } } });
 
 /** Pure: one request object in, one response object (or null for notifications) out. */
 export function handleRequest(request, { p = paths() } = {}) {
   const { method, id = null } = request;
 
   if (method === "initialize") {
-    return reply(id, { protocolVersion: "2024-11-05", capabilities: {}, serverInfo: SERVER_INFO });
+    // Both capabilities are MANDATORY declarations for the features we serve, and both are
+    // empty objects because we support neither sub-feature (no listChanged, no subscribe).
+    //
+    // `tools: {}` was missing entirely. Claude Code is lenient enough that 18 tools worked
+    // anyway, so nothing looked wrong — but a stricter client is entitled to ignore an
+    // undeclared capability, and `resources` has no such slack: leave it out and the client
+    // never calls resources/list, `@` shows nothing, and no error surfaces anywhere. That
+    // silent-success failure is the single easiest way to ship this broken.
+    return reply(id, {
+      protocolVersion: "2024-11-05",
+      capabilities: { tools: {}, resources: {} },
+      serverInfo: SERVER_INFO,
+    });
   }
   if (method === "notifications/initialized") return null;
   if (method === "tools/list") {
     return reply(id, { tools: TOOLS.map(({ run, ...def }) => def) });
+  }
+  if (method === "resources/list") {
+    // Must not throw: an error on a discovery call is retried and then abandoned, taking the
+    // whole resource surface with it for the rest of the session.
+    try {
+      return reply(id, { resources: p.root ? listResources(p) : [] });
+    } catch {
+      return reply(id, { resources: [] });
+    }
+  }
+  if (method === "resources/read") {
+    const uri = String(request.params?.uri || "");
+    let result = null;
+    try {
+      result = p.root ? readResource(uri, p) : null;
+    } catch (err) {
+      return error(id, -32603, `could not read ${uri}: ${err.message}`);
+    }
+    // -32002 is "resource not found". NOT -32601: that means the METHOD is missing, and a
+    // client can reasonably read it as "this server does not do resources" and stop asking —
+    // losing every resource over one bad id.
+    if (!result) return notFound(id, uri);
+    return reply(id, result);
   }
   if (method === "tools/call") {
     const params = request.params || {};

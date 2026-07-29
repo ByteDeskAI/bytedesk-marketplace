@@ -4,6 +4,26 @@
 
 ### Added
 
+- **MCP resources: the board as context you pull, not only context the plugin pushes.**
+  `initialize` answered `capabilities: {}` and every method except `tools/*` fell to `-32601`,
+  so the only way board state reached Claude was the SessionStart injection or a tool the model
+  chose to call. Seven resources now: `tm://board`, `tm://session`, `tm://graph`, `tm://blocked`,
+  `tm://standup`, and `tm://handoff/<id>` per task in flight.
+
+  Only computed views — a task, epic or ADR is a markdown file `Read` and `@` already reach, so
+  a URI alias for a file path would just compete with the real file in the picker. `tm://graph`
+  and `tm://blocked` have no tool behind them at all; `tm://session` is the one view compaction
+  destroys that nothing else rebuilds.
+
+  Also fixes a latent bug found on the way: **`capabilities` never declared `tools` either.**
+  Claude Code is lenient enough that 18 tools worked anyway, but a stricter client is entitled
+  to ignore an undeclared capability.
+
+  `subscribe`/`listChanged` are deliberately not implemented — both need unsolicited stdout
+  writes, which would mean threading a writer into `handleRequest` and losing the pure
+  request-in/response-out contract that makes the protocol testable without a process.
+  Every resource renders live at read time, so there is nothing to invalidate.
+
 - **`touches` fills itself in, so `tm parallel` stops lying.** The field was documented in
   both README and AGENTS as "what `tm parallel` uses to decide which work can run at the same
   time", was read by `tm parallel` and printed by `tm show` — and **nothing ever wrote it**.
