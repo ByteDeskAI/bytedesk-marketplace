@@ -96,6 +96,7 @@ tm graph [--epic EP-1] [--all]       the dependency graph as Mermaid
 tm time [id]                         cycle time, median/mean, oldest open
 tm log [n] | tm log <id>             event tail, or one task's whole history
 tm standup [iso] | handoff <id>      digest / self-contained brief for another agent
+tm doctor [--fix]                    what is inconsistent, and repair the unambiguous half
 tm reindex | config [k v] | override "<why>" | migrate
 ```
 
@@ -215,6 +216,38 @@ Refusals carry the CLI's own wording: a gate says no with **409** and the reason
 Starts automatically while the plugin is enabled (a `plugin-active` monitor). Live SSE board,
 port in `.bytedesk/task-management/dashboard.port` (default 7910, `TM_DASHBOARD_PORT` to change).
 Run it by hand with `bin/tm-dashboard`.
+
+## When the store drifts
+
+Markdown files as the source of truth is what makes the board readable and mergeable.
+It is also why it drifts: a file gets hand-edited, a merge resolves one side of a
+two-sided link, a task is deleted while three others still name it as a blocker, a
+session dies holding a claim. `tm reindex` does not help — it rebuilds the cache **from**
+the files, so it faithfully reproduces whatever is wrong with them.
+
+```
+$ tm doctor
+## errors (2)
+✗ TM-003    dangling-dep    blockedBy names TM-404, which does not exist  [fixable]
+✗ TM-003    orphan-epic     epic EP-077 does not exist  [fixable]
+
+## warnings (3)
+! TM-001    one-sided-dep   TM-001 is blocked by TM-002, but TM-002 does not list it in blocks  [fixable]
+! TM-001    one-sided-link  TM-001 "duplicates" TM-003, but TM-003 has no "duplicated by" back  [fixable]
+! TM-001    missing-evidence  evidence/TM-001-proof.log is recorded but the file is gone  [fixable]
+
+5 of 5 can be repaired automatically — `tm doctor --fix`
+```
+
+**error** means the store is lying — a read gives a wrong answer. **warning** means it is
+untidy but correct. It **exits 1 on any error**, so it can gate a commit hook or a CI step.
+
+`--fix` applies only what is unambiguous, says what it changed, and repeats until the store
+stops changing — dropping a dangling blocker can leave a task `blocked` with nothing blocking
+it, which is a different finding that only exists once the first is fixed. Some things are
+never auto-fixed because they are decisions rather than typos: which edge of a dependency
+cycle to cut, a `done` task with unticked criteria (ticking them would be forging evidence),
+two tasks mirroring one native id, an `in_progress` task nobody claimed.
 
 ## The board without a mouse
 
