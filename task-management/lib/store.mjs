@@ -326,7 +326,29 @@ export function autoCloseEpic(epicId, p = paths()) {
   const kids = list("task", { epic: epicId }, p);
   if (kids.length === 0 || kids.some((t) => t.status !== "done")) return false;
   update(epicId, { status: "done", closed: now() }, p);
+  // Clearing the active epic is what stops the next `tm task new` filing into a closed one.
+  // `tm epic done` already does this by hand; the auto-close did not, so finishing the last
+  // task left state.activeEpic pointing at a done epic and every subsequent task landed in it
+  // — the exact condition dashboard-api's transition refuses by name.
+  if (state(p).activeEpic === epicId) writeState({ activeEpic: null }, p);
   logEvent("epic_auto_closed", { id: epicId, tasks: kids.length }, p);
+  return true;
+}
+
+/**
+ * The way back. A task leaving `done` has to take its epic with it, or the board reports a
+ * finished epic that has live work in it — and `autoCloseEpic` will never re-close it, because
+ * it refuses an epic that is already `done`.
+ *
+ * Config-gated on the same switch as the auto-close: a team that does not want epics closing
+ * themselves does not want them reopening themselves either.
+ */
+export function reopenEpic(epicId, p = paths()) {
+  if (!epicId || config(p).autoCloseEpics === false) return false;
+  const epic = read(epicId, p);
+  if (!epic || epic.status !== "done") return false;
+  update(epicId, { status: "open", closed: undefined }, p);
+  logEvent("epic_reopened", { id: epicId }, p);
   return true;
 }
 
@@ -449,8 +471,26 @@ export function update(id, patch, p = paths()) {
   return withLock(p, () => {
     const doc = read(id, p);
     if (!doc) throw new Error(`not found: ${id}`);
-    const next = write({ ...doc, ...patch }, p);
-    logEvent("update", { id, patch: Object.keys(patch).join(","), status: next.status }, p);
+
+    /**
+     * A task coming back OUT of done: drop `closed`, and reopen the epic that closed behind it.
+     *
+     * The guard belongs here rather than in a `reopen` verb because update() is the funnel for
+     * the CLI, the dashboard's transition, mcp's tm_task_update and doctor's own fixes — and
+     * every one of them could reopen a task. Before this, `tm start` on a done task left
+     * `closed` set, so `tm export csv` reported a Resolved date on in-progress work in the one
+     * column a Jira import cannot repair.
+     *
+     * Deliberately exactly two effects. This is a write no caller asked for, so it stays
+     * minimal: no touching `updated`, no status inference, no cascade past the parent epic.
+     * `kindOf` keeps it to tasks, so reopenEpic's own update() cannot re-enter this branch.
+     */
+    const reopening = kindOf(id) === "task" && RESOLVED.has(doc.status) && patch.status && !RESOLVED.has(patch.status);
+    const effective = reopening ? { ...patch, closed: undefined } : patch;
+
+    const next = write({ ...doc, ...effective }, p);
+    logEvent("update", { id, patch: Object.keys(effective).join(","), status: next.status }, p);
+    if (reopening && doc.epic) reopenEpic(doc.epic, p);
     return next;
   });
 }

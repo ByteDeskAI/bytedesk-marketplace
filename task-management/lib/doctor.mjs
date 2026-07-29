@@ -15,7 +15,7 @@
  */
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { RESOLVED, list, logEvent, reindex, state, update, writeState } from "./store.mjs";
+import { RESOLVED, list, logEvent, reindex, reopenEpic, state, update, writeState } from "./store.mjs";
 import { LINK_TYPES } from "./issue.mjs";
 import { releaseClaim, staleClaims, sweepClaims } from "./claims.mjs";
 import { KINDS, paths } from "./paths.mjs";
@@ -168,6 +168,42 @@ export function diagnose(p = paths()) {
   // that fileFor requires .md — but before that it was a phantom entity, and its presence
   // still means a process was killed mid-write, which is worth saying out loud.
   out.push(...strayTemps(p));
+
+  // An epic marked done with live children, and a closed date on open work. Both are what a
+  // reopen used to leave behind, and both survive a hand edit or a merge, so they are checked
+  // rather than merely prevented. This is the first check that needs an epic's status and not
+  // just its id.
+  for (const e of list("epic", {}, p)) {
+    if (e.status !== "done") continue;
+    const live = list("task", { epic: e.id }, p).filter((t) => !RESOLVED.has(t.status));
+    if (!live.length) continue;
+    out.push(
+      finding(
+        "error",
+        "epic-done-open-children",
+        e.id,
+        `epic is done but ${live.length} of its tasks are not: ${live.map((t) => t.id).join(", ")}`,
+        () => {
+          reopenEpic(e.id, p);
+          return `reopened ${e.id}`;
+        },
+      ),
+    );
+  }
+  for (const t of live.filter((x) => x.closed && !RESOLVED.has(x.status))) {
+    out.push(
+      finding(
+        "warning",
+        "closed-on-open-task",
+        t.id,
+        `carries closed: ${t.closed} while its status is ${t.status} — exports report a resolution date on open work`,
+        () => {
+          update(t.id, { closed: undefined }, p);
+          return `dropped closed from ${t.id}`;
+        },
+      ),
+    );
+  }
 
   out.push(...cycles(live, (t) => t.blockedBy || [], "dep-cycle"));
   out.push(...cycles(live, (t) => (t.parent ? [t.parent] : []), "subtask-cycle"));
