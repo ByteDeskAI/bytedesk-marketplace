@@ -82,6 +82,15 @@ rm "$TM_ROOT/.bytedesk/task-management/index.json"
 tm reindex >/dev/null
 [[ "$BEFORE" == "$(tm board)" ]] && ok "board survives losing index.json" || no "board survives losing index.json"
 
+# tm doctor — the exit code is the contract: it is meant to gate a commit or a CI step.
+assert_status 0 "doctor exits 0 on a healthy store" node "$PLUGIN_ROOT/bin/tm" doctor
+STORE="$TM_ROOT/.bytedesk/task-management"
+sed -i 's/^blockedBy: .*/blockedBy: ["TM-404"]/' "$STORE"/tasks/TM-003-*.md
+assert_status 1 "doctor exits 1 on an error-level finding" node "$PLUGIN_ROOT/bin/tm" doctor
+assert_contains "$(tm doctor || true)" "TM-404" "doctor names the broken reference"
+assert_contains "$(tm doctor --fix)" "dropped TM-404" "doctor --fix says what it changed"
+assert_status 0 "and the store is clean afterwards" node "$PLUGIN_ROOT/bin/tm" doctor
+
 # Event log
 assert_contains "$(tm log 100)" '"event":"done"' "events are logged"
 assert_contains "$(tm standup 2000-01-01T00:00:00Z)" "TM-001" "standup reads the event log"

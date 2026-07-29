@@ -45,6 +45,7 @@ import { actor, actorLabel } from "../lib/actor.mjs";
 import { addComment, addLink, assign, backlog, estimate, labels, prioritise, rank, subtasks } from "../lib/issue.mjs";
 import { CATALOG, messageFor, ntfyConfig, send, shouldPublish } from "../lib/ntfy.mjs";
 import { graphData, mermaid, renderWhy, why } from "../lib/graph.mjs";
+import { diagnose, render as renderDoctor, repairAll } from "../lib/doctor.mjs";
 
 const P = paths();
 const rawArgs = process.argv.slice(2);
@@ -414,6 +415,19 @@ const VERBS = {
     out(handoff(id, P));
   },
 
+  /**
+   * What is inconsistent in the store, and optionally repair the unambiguous half.
+   * Exits 1 on an error-level finding so it can gate a commit or a CI step.
+   */
+  doctor(...args) {
+    requireInit();
+    const fixed = args.includes("--fix") ? repairAll(P) : null;
+    // Re-read after repairing: what is reported as remaining must be what remains.
+    const after = diagnose(P);
+    emit({ findings: after.map(({ fix, ...f }) => f), fixed }, () => renderDoctor(after, { fixed }));
+    if (after.some((f) => f.level === "error")) process.exit(1);
+  },
+
   reindex() {
     requireInit();
     const idx = reindex(P);
@@ -764,6 +778,7 @@ const VERBS = {
         "  next | board | stale | find <q> | log [n] | standup [iso] | handoff <id>",
         "  why <id>                      what is actually holding a task up, to the root",
         "  graph [--epic EP-1] [--all]   the dependency graph as Mermaid",
+        "  doctor [--fix]                what is inconsistent in the store; exits 1 on an error",
         "  reindex | override <reason> | config [key value] | context",
         "  install [--force] | uninstall | where   put tm on PATH (auto at SessionStart)",
         "  ntfy [on|off <kind>|enable|disable|test|topic <t>|board <url>]   push notifications",

@@ -4,6 +4,18 @@
 
 ### Added
 
+- **`tm doctor [--fix]`** — store integrity. Markdown-in-git is what makes the board
+  readable and mergeable, and also why it drifts; `tm reindex` rebuilds the cache *from*
+  the files, so it reproduces whatever is wrong with them. Checks dangling and one-sided
+  dependency edges, one-sided and dangling Jira links, unknown link types, orphaned epic
+  and parent references, dependency and subtask cycles, tasks left `blocked` with nothing
+  blocking them, `done` tasks with unticked criteria, missing evidence files, duplicate
+  `nativeId`s, claims on tasks that are gone / parked / finished, `in_progress` work
+  nobody claimed, and `index.json` drift. **Exits 1 on any error-level finding**, so it
+  gates a commit hook or a CI step. `--fix` applies only the unambiguous repairs, reports
+  each one, and repeats until the store stops changing; cycles and unmet criteria are
+  decisions, not typos, and are reported rather than touched.
+
 - **A keyboard for the board, and a command palette.** The dashboard was mouse-only —
   cards moved by HTML5 drag and nothing else. `j`/`k`/`h`/`l`/`g`/`G` move a cursor,
   `1`–`5` move the focused card to that column (the number is printed in the column
