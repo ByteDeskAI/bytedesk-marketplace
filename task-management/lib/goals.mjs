@@ -165,3 +165,63 @@ export function refusal(source) {
     "Add one, or file the task by hand with `tm task new` plus `tm ac`.",
   ].join("\n");
 }
+
+// ── manifests ────────────────────────────────────────────────────────────────
+
+/**
+ * A `*.plan.json` manifest: an epic and the goals under it.
+ *
+ * Measured across the 36 manifests and 506 goals in bytedesk-platform: EVERY goal carries
+ * `id`, `doc`, `title`, `dependsOn`, `mode`, `needsHumanGate` and `touches`. 405 have real
+ * dependencies and 498 have real touches. No JSON schema file actually exists on disk despite
+ * twelve manifests declaring `$schema`, so this validates what it needs and ignores the rest
+ * rather than pretending to enforce a contract nobody publishes.
+ *
+ * Two of those fields land somewhere that already existed and was starving:
+ *
+ *   dependsOn  → `blockedBy`. It is a LAND dependency in run-goals (a merged PR, per
+ *                computeStartable), which is the same shape as tm's "blocker resolved".
+ *   touches    → `touches`, the field `tm parallel` batches on. Nothing wrote it until the
+ *                Edit/Write hook started observing edits — and a manifest has it DECLARED for
+ *                498 goals, so an import makes parallel batching correct before any work starts
+ *                rather than after a pass of it.
+ */
+export function parseManifest(text) {
+  let m;
+  try {
+    m = JSON.parse(text);
+  } catch (err) {
+    return { error: `not valid JSON: ${err.message}` };
+  }
+  if (!m || typeof m !== "object") return { error: "not a JSON object" };
+  if (!Array.isArray(m.goals)) return { error: "no `goals` array — is this a plan.json manifest?" };
+
+  const epic = m.epic || {};
+  return {
+    plan: m.plan || null,
+    epicTitle: epic.title || m.plan || "Imported goals",
+    definitionOfDone: epic.definitionOfDone || null,
+    jiraEpicKey: epic.jiraEpicKey || m.jiraEpicKey || null,
+    gate: m.integration?.gate || null,
+    autoMergeTo: m.integration?.autoMergeTo || null,
+    goals: m.goals
+      .filter((g) => g && g.id && g.doc)
+      .map((g) => ({
+        id: String(g.id),
+        doc: String(g.doc),
+        title: g.title ? String(g.title) : null,
+        dependsOn: Array.isArray(g.dependsOn) ? g.dependsOn.map(String) : [],
+        touches: Array.isArray(g.touches) ? g.touches.map(String) : [],
+        mode: g.mode || null,
+        needsHumanGate: Boolean(g.needsHumanGate),
+        jiraTaskKey: g.jiraTaskKey || null,
+      })),
+  };
+}
+
+/**
+ * The title a goal entry should carry. The manifest's own title is authoritative — it is what the
+ * program was planned with — and the doc's heading is the fallback.
+ */
+export const manifestGoalTitle = (entry, parsedDoc) =>
+  (entry.title || parsedDoc?.title || entry.id).replace(/^[A-Z][A-Z0-9]+-\d+:\s*/, "").trim();
