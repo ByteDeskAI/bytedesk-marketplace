@@ -13,12 +13,32 @@ import { paths } from "../lib/paths.mjs";
 function apiTarget() {
   if (process.env.TM_API) return process.env.TM_API;
   try {
-    const port = readFileSync(join(paths().base, "dashboard.port"), "utf8").trim();
+    const base = paths().base;
+    const port = readFileSync(join(base, "dashboard.port"), "utf8").trim();
+    if (!alive(base)) throw new Error("stale");
     return `http://127.0.0.1:${port}`;
   } catch {
     throw new Error(
       "no running board to proxy to — start one with `bin/tm-dashboard`, or set TM_API=http://127.0.0.1:<port>",
     );
+  }
+}
+
+/**
+ * A port file outlives the board that wrote it. Without this the dev server starts
+ * happily against a dead port and every request fails with a proxy error instead of
+ * the message above — which sends you looking at the proxy config rather than at the
+ * board you forgot to start.
+ */
+function alive(base: string) {
+  try {
+    const { pid } = JSON.parse(readFileSync(join(base, "dashboard.pid"), "utf8"));
+    if (!pid) return false;
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    // EPERM means the process exists and belongs to someone else — still alive.
+    return (err as NodeJS.ErrnoException)?.code === "EPERM";
   }
 }
 

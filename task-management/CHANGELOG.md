@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **The dashboard dev server accepted a stale port file.** `dashboard.port` outlives the
+  board that wrote it, so `npm run dev` would start happily against a dead port and then
+  fail every request with a proxy error — which sends you reading the proxy config instead
+  of starting the board. It now checks the recorded pid is alive and gives the same
+  "no running board to proxy to" message it already gave when the file was missing.
+
+### Documentation
+
+- **HMR for the dashboard was already wired and entirely undocumented.** `npm --prefix
+  dashboard run dev` serves the board with hot reload and proxies `/api` and `/events` to
+  the running `bin/tm-dashboard`, so the UI is edited against live data from the real
+  store. The README never mentioned it, so the only discoverable workflow was a full
+  `npm run build` per change. Now documented, with the rebuild step and why `dist/` is
+  committed.
+
 ## 0.3.0
 
 ### Fixed
