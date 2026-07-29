@@ -8,7 +8,6 @@ ByteDesk's Claude Code marketplace. Plugins for parallel multi-session orchestra
 |---|---|
 | **[fleet](./fleet)** | Parallel multi-session orchestration, worktrees, dashboard |
 | **[design-patterns](./design-patterns)** | Pattern catalog, MCP advisor, ADR seeds |
-| **[project-management](./project-management)** | Localized `.pm/` task/wiki MCP (generic PM) |
 | **[structurizr](./structurizr)** | Enterprise C4 / Structurizr DSL (32 skills, MCP) |
 | **[platform-dev](./platform-dev)** | TDD lifecycle, worktree operator, PR-ready, named agents |
 | **[platform-architecture](./platform-architecture)** | C4 drift gate, decomposition facade, ADRs |

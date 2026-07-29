@@ -856,7 +856,7 @@ const VERBS = {
         "  why <id>                      what is actually holding a task up, to the root",
         "  graph [--epic EP-1] [--all]   the dependency graph as Mermaid",
         "  doctor [--fix]                what is inconsistent in the store; exits 1 on an error",
-        "  export [md|csv|json|pm]       the board out; --epic, --status, --open, --out <file>",
+        "  export [md|csv|json]          the board out; --epic, --status, --open, --out <file>",
         "  reindex | override <reason> | config [key value] | context",
         "  install [--force] | uninstall | where   put tm on PATH (auto at SessionStart)",
         "  ntfy [on|off <kind>|enable|disable|test|topic <t>|board <url>]   push notifications",

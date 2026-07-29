@@ -21,12 +21,6 @@
       "source": "./design-patterns"
     },
     {
-      "name": "project-management",
-      "description": "Localized project management and documentation tool (Jira/Confluence equivalent) with MCP support for tasks, sprints, board status, and wiki pages.",
-      "version": "0.9.1",
-      "source": "./project-management"
-    },
-    {
       "name": "structurizr",
       "description": "Enterprise C4 modeling with Structurizr DSL — indexed language reference, CLI/MCP tooling, 32 skills, validation gates, pattern catalog, and cookbook recipes.",
       "version": "0.1.1",

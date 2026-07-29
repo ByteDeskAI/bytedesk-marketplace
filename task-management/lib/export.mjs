@@ -7,8 +7,6 @@
  *   md    a report to paste into a PR, a standup or a status doc
  *   csv   a spreadsheet, or a Jira CSV import
  *   json  the whole store as one document, for anything that wants to read it
- *   pm    `pm_issue_create` payloads for the project-management plugin in this
- *         marketplace, which is the specific promise the README made
  *
  * All read-only. Nothing here writes to the store.
  */
@@ -16,19 +14,7 @@ import { list, read, readEvents, state } from "./store.mjs";
 import { summary as timeSummary, human as humanMs } from "./time.mjs";
 import { paths } from "./paths.mjs";
 
-export const FORMATS = ["md", "csv", "json", "pm"];
-
-/**
- * project-management has no `parked`, and its `NEEDS_INPUT` is the honest home for
- * `blocked` — both mean "someone has to do something before this moves".
- */
-const PM_STATUS = {
-  open: "TODO",
-  in_progress: "IN_PROGRESS",
-  blocked: "NEEDS_INPUT",
-  parked: "TODO",
-  done: "DONE",
-};
+export const FORMATS = ["md", "csv", "json"];
 
 /** Jira's own vocabulary, so a CSV import needs no column remapping for status. */
 const JIRA_STATUS = {
@@ -202,49 +188,6 @@ export function toJson(opts = {}, p = paths()) {
   };
 }
 
-// ── project-management ───────────────────────────────────────────────────────
-
-/**
- * Payloads for the project-management plugin's `pm_issue_create`, which always
- * creates at TODO — so anything not TODO needs a follow-up transition. Both are
- * emitted, rather than pretending one call is enough.
- */
-export function toPm(opts = {}, p = paths()) {
-  const tasks = select(opts, p);
-  const epics = new Map(list("epic", {}, p).map((e) => [e.id, e]));
-  const issues = tasks.map((t) => ({
-    // The tm id goes in the description, not the title: pm assigns its own ids, and
-    // an import you cannot trace back to the source board is a one-way door.
-    title: t.title,
-    description: [t.body?.trim(), `Imported from task-management ${t.id}.`].filter(Boolean).join("\n\n"),
-    issue_type: t.parent ? "subtask" : "task",
-    priority: t.priority || "medium",
-    epic_id: t.epic && epics.has(t.epic) ? t.epic : null,
-    acceptance_criteria: (t.acceptance || []).map((a) => a.text),
-    tags: [...(t.labels || []), ...(t.status === "parked" ? ["parked"] : [])],
-    assignee: t.assignee || null,
-    _source: t.id,
-  }));
-  return {
-    tool: "pm_issue_create",
-    issues,
-    // pm_issue_create ignores status; these are the transitions to apply after.
-    transitions: tasks
-      .filter((t) => PM_STATUS[t.status] !== "TODO")
-      .map((t) => ({ _source: t.id, status: PM_STATUS[t.status] })),
-    criteriaDone: tasks
-      .filter((t) => (t.acceptance || []).some((a) => a.done))
-      .map((t) => ({
-        _source: t.id,
-        // 1-based, matching pm's criteria indexing and tm's own `tm accept <id> <n>`.
-        met: (t.acceptance || []).map((a, i) => (a.done ? i + 1 : null)).filter(Boolean),
-      })),
-    note:
-      "pm_issue_create always creates at TODO and returns pm's own id. Map _source → the " +
-      "returned id, then apply `transitions` with pm_issue_update.",
-  };
-}
-
 // ── entry point ──────────────────────────────────────────────────────────────
 
 export function exportStore(format, opts = {}, p = paths()) {
@@ -253,8 +196,6 @@ export function exportStore(format, opts = {}, p = paths()) {
       return toCsv(opts, p);
     case "json":
       return `${JSON.stringify(toJson(opts, p), null, 2)}\n`;
-    case "pm":
-      return `${JSON.stringify(toPm(opts, p), null, 2)}\n`;
     case "md":
       return `${toMarkdown(opts, p)}\n`;
     default:
