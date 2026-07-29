@@ -4,6 +4,15 @@
 
 ### Added
 
+- **`tm export [md|csv|json|pm]`** — the capability the README has promised since v0.2.
+  `md` is a report to paste into a PR or a standup; `csv` is RFC 4180 with Jira's column
+  names and status vocabulary; `json` is the whole store as one document (`--events` to
+  include the log); `pm` emits `pm_issue_create` payloads for the `project-management`
+  plugin in this marketplace, plus the follow-up `transitions` that call cannot express,
+  since it always creates at `TODO`. Filters: `--epic`, `--status`, `--open`; `--out
+  <file>`, defaulting to stdout so it pipes. CSV escaping is verified against a title
+  containing both a quote and a comma, a multi-line body, and multi-line criteria.
+
 - **`tm doctor [--fix]`** — store integrity. Markdown-in-git is what makes the board
   readable and mergeable, and also why it drifts; `tm reindex` rebuilds the cache *from*
   the files, so it reproduces whatever is wrong with them. Checks dangling and one-sided

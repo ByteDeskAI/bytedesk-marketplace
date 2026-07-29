@@ -46,6 +46,7 @@ import { addComment, addLink, assign, backlog, estimate, labels, prioritise, ran
 import { CATALOG, messageFor, ntfyConfig, send, shouldPublish } from "../lib/ntfy.mjs";
 import { graphData, mermaid, renderWhy, why } from "../lib/graph.mjs";
 import { diagnose, render as renderDoctor, repairAll } from "../lib/doctor.mjs";
+import { FORMATS, exportStore } from "../lib/export.mjs";
 
 const P = paths();
 const rawArgs = process.argv.slice(2);
@@ -416,6 +417,48 @@ const VERBS = {
   },
 
   /**
+   * The board, out. stdout by default so it pipes; `--out <file>` to write.
+   * Read-only — nothing in here touches the store.
+   */
+  export(...args) {
+    requireInit();
+    const VALUED = ["format", "epic", "status", "out", "title"];
+    const flag = (name) => {
+      const i = args.indexOf(`--${name}`);
+      return i === -1 ? null : args[i + 1];
+    };
+    // Positionals have to be picked out properly rather than searched for a known
+    // format: `args.find(a => FORMATS.includes(a))` returns undefined for a typo, which
+    // then falls through to the "md" default — so `tm export xlsx` silently wrote a
+    // markdown report and exited 0. A wrong format must be refused, not substituted.
+    const positional = [];
+    for (let i = 0; i < args.length; i += 1) {
+      if (args[i].startsWith("--")) {
+        if (VALUED.includes(args[i].slice(2))) i += 1;
+        continue;
+      }
+      positional.push(args[i]);
+    }
+    const format = flag("format") || positional[0] || "md";
+    if (!FORMATS.includes(format)) die(`unknown format "${format}" — use one of: ${FORMATS.join(", ")}`);
+    const text = exportStore(
+      format,
+      {
+        epic: flag("epic"),
+        status: flag("status"),
+        includeDone: !args.includes("--open"),
+        events: args.includes("--events"),
+        title: flag("title"),
+      },
+      P,
+    );
+    const out_ = flag("out");
+    if (!out_) return process.stdout.write(text);
+    writeFileSync(resolve(out_), text);
+    out(`${format} → ${out_} (${text.length} bytes)`);
+  },
+
+  /**
    * What is inconsistent in the store, and optionally repair the unambiguous half.
    * Exits 1 on an error-level finding so it can gate a commit or a CI step.
    */
@@ -779,6 +822,7 @@ const VERBS = {
         "  why <id>                      what is actually holding a task up, to the root",
         "  graph [--epic EP-1] [--all]   the dependency graph as Mermaid",
         "  doctor [--fix]                what is inconsistent in the store; exits 1 on an error",
+        "  export [md|csv|json|pm]       the board out; --epic, --status, --open, --out <file>",
         "  reindex | override <reason> | config [key value] | context",
         "  install [--force] | uninstall | where   put tm on PATH (auto at SessionStart)",
         "  ntfy [on|off <kind>|enable|disable|test|topic <t>|board <url>]   push notifications",
