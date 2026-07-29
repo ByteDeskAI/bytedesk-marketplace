@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { RefObject } from "react";
 import Button from "@atlaskit/button/new";
 import { cssMap } from "@atlaskit/css";
 import { Box, Inline } from "@atlaskit/primitives/compiled";
@@ -23,11 +24,14 @@ export function Toolbar({
   filters,
   onChange,
   onCreate,
+  searchRef,
 }: {
   tasks: Task[];
   filters: Filters;
   onChange: (f: Filters) => void;
   onCreate: () => void;
+  /** `/` focuses the search field, so the owner of that shortcut needs a handle on it. */
+  searchRef?: RefObject<HTMLInputElement>;
 }) {
   const [views, setViews] = useState(loadViews);
   const set = (patch: Partial<Filters>) => onChange({ ...filters, ...patch });
@@ -46,7 +50,9 @@ export function Toolbar({
         <Box xcss={styles.search}>
           <Textfield
             isCompact
-            placeholder="Search id, title, label"
+            ref={searchRef}
+            placeholder="Search id, title, label   /"
+            aria-label="search the board"
             value={filters.text}
             onChange={(e) => set({ text: (e.target as HTMLInputElement).value })}
           />

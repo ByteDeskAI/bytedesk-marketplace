@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cssMap } from "@atlaskit/css";
 import Lozenge from "@atlaskit/lozenge";
 import { Box, Inline, Stack, Text } from "@atlaskit/primitives/compiled";
@@ -16,10 +16,17 @@ import { Sparkline } from "./components/Sparkline";
 import { TaskDrawer } from "./components/TaskDrawer";
 import { Toolbar } from "./components/Toolbar";
 import { PwaBar } from "./components/PwaBar";
+import { Palette } from "./components/Palette";
+import type { Command } from "./components/Palette";
+import { KeyHint, Shortcuts } from "./components/Shortcuts";
 import { usePwa } from "./pwa/usePwa";
+import { COLUMNS as KEY_COLUMNS, locate } from "./keys.mjs";
+import { useBoardKeys } from "./useBoardKeys";
 import type { Board, Status, StoreEvent } from "./types";
 
-const COLUMNS: Status[] = ["in_progress", "blocked", "open", "parked", "done"];
+// One order for the columns, the digit shortcuts and the keyboard walk — three
+// arrays that must agree is three chances for `3` to mean a different column.
+const COLUMNS = KEY_COLUMNS as Status[];
 
 const styles = cssMap({
   page: { padding: "var(--ds-space-300)" },
@@ -42,6 +49,9 @@ export function App() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [palette, setPalette] = useState(false);
+  const [help, setHelp] = useState(false);
+  const searchRef = useRef<HTMLInputElement | null>(null);
 
   const load = useCallback(() => {
     void fetchBoard().then(setBoard);
@@ -109,6 +119,53 @@ export function App() {
       return next;
     });
 
+  const toggle = useCallback(
+    (id: string) => setSelected((prev) => (prev.has(id) ? new Set([...prev].filter((x) => x !== id)) : new Set([...prev, id]))),
+    [],
+  );
+
+  // A drawer, the create dialog, the palette or the help sheet owns the keyboard
+  // while it is up — otherwise `c` inside a title field files a task.
+  const modal = Boolean(openId) || creating || palette || help;
+
+  const keys = useBoardKeys({
+    visible,
+    modal,
+    onOpen: setOpenId,
+    onTransition: (id, status) => run(() => write.transition(id, status)),
+    onRank: (id, target, where) => run(() => write.act(id, "rank", { [where]: target })),
+    onSelect: toggle,
+    onWatch: pwa.toggleWatch,
+    onCreate: () => setCreating(true),
+    onSearch: () => searchRef.current?.focus(),
+    onHelp: () => setHelp(true),
+    onPalette: () => setPalette(true),
+    onEscape: () => {
+      setSelected(new Set());
+      setError(null);
+    },
+  });
+
+  /** Board-level palette rows. Card actions are added by Palette from the cursor. */
+  const commands: Command[] = useMemo(
+    () => [
+      { key: "create", label: "Create task", hint: "c", run: () => setCreating(true) },
+      { key: "clear", label: "Clear all filters", run: () => setFilters(EMPTY) },
+      { key: "search", label: "Search the board", hint: "/", run: () => searchRef.current?.focus() },
+      { key: "help", label: "Keyboard shortcuts", hint: "?", run: () => setHelp(true) },
+      ...(keys.focusedId
+        ? [
+            { key: "open", label: `Open ${keys.focusedId}`, run: () => setOpenId(keys.focusedId) },
+            { key: "watch", label: `Watch ${keys.focusedId}`, run: () => pwa.toggleWatch(keys.focusedId!) },
+          ]
+        : []),
+      ...(selected.size
+        ? [{ key: "deselect", label: `Deselect ${selected.size} card(s)`, run: () => setSelected(new Set()) }]
+        : []),
+    ],
+    [keys.focusedId, pwa, selected.size],
+  );
+
   if (!board) {
     return (
       <Box xcss={styles.page}>
@@ -130,11 +187,20 @@ export function App() {
               </Text>
               <PwaBar pwa={pwa} />
             </Inline>
-            <Sparkline series={series} />
+            <Inline space="space.200" alignBlock="center">
+              <KeyHint onHelp={() => setHelp(true)} />
+              <Sparkline series={series} />
+            </Inline>
           </Inline>
         </Box>
 
-        <Toolbar tasks={board.tasks} filters={filters} onChange={setFilters} onCreate={() => setCreating(true)} />
+        <Toolbar
+          tasks={board.tasks}
+          filters={filters}
+          onChange={setFilters}
+          onCreate={() => setCreating(true)}
+          searchRef={searchRef}
+        />
 
         {error ? (
           <SectionMessage appearance="error" title="That change was refused">
@@ -146,13 +212,19 @@ export function App() {
 
         <Box xcss={styles.board}>
           <Inline space="space.150" alignBlock="start">
-            {COLUMNS.map((status) => (
+            {COLUMNS.map((status, i) => (
               <Column
                 key={status}
+                index={i + 1}
                 status={status}
                 tasks={visible.filter((t) => t.status === status)}
                 starts={starts}
                 now={now}
+                focusedId={keys.focusedId}
+                onFocusCard={(id) => {
+                  const at = locate(id, COLUMNS.map((s) => visible.filter((t) => t.status === s).map((t) => t.id)));
+                  if (at) keys.setFocus(at);
+                }}
                 selected={selected}
                 onSelect={select}
                 onOpen={setOpenId}
@@ -189,6 +261,16 @@ export function App() {
           run={run}
         />
       ) : null}
+      <Palette
+        isOpen={palette}
+        onClose={() => setPalette(false)}
+        tasks={visible}
+        focused={keys.focusedId}
+        commands={commands}
+        onOpenTask={setOpenId}
+        onTransition={(id, status) => run(() => write.transition(id, status))}
+      />
+      <Shortcuts isOpen={help} onClose={() => setHelp(false)} />
     </Box>
   );
 }

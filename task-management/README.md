@@ -216,6 +216,26 @@ Starts automatically while the plugin is enabled (a `plugin-active` monitor). Li
 port in `.bytedesk/task-management/dashboard.port` (default 7910, `TM_DASHBOARD_PORT` to change).
 Run it by hand with `bin/tm-dashboard`.
 
+## The board without a mouse
+
+Cards used to move by HTML5 drag and nothing else, so half the write surface was
+unreachable by keyboard and the rest was a hunt for which panel owned the control.
+
+`?` lists every binding. The short version: `j`/`k` walk a column, `h`/`l` cross columns
+(skipping empty ones), `g`/`G` jump to the ends, **`1`–`5` move the focused card to that
+column** — the number is printed in each column heading, because the heading is the
+shortcut — `[`/`]` reorder within a column, `x` selects for the bulk bar, `w` watches,
+`o`/`Enter` opens, `c` creates, `/` searches.
+
+`⌘K` / `Ctrl-K` opens a command palette over every board action and every visible task,
+so "set this to blocked" is something you can type rather than somewhere you have to
+find. It opens from inside a text field too.
+
+Shortcuts go quiet while you are typing in a field or a dialog is up, and any modifier
+chord that isn't `⌘K` is left to the browser — swallowing `⌘R` would be worse than having
+no shortcuts at all. Cards are real focusable list items with `aria-label`s carrying what
+the badges show, on a roving tabindex, so `Tab` and `j`/`k` agree on where the cursor is.
+
 ## Config
 
 `tm config` prints the current policy; `tm config <key> <json>` sets one.
@@ -247,6 +267,17 @@ Run it by hand with `bin/tm-dashboard`.
 Units cover `lib/` (`node --test`, Node 22 built-in); the bash suites cover hook I/O, the CLI, real
 git worktrees, the MCP handshake and the dashboard. Everything self-isolates in a `mktemp -d`
 store — no fixtures, no network, no Claude Code needed.
+
+One check is deliberately **outside** that suite, because it needs Chrome and a served build:
+
+```bash
+npm --prefix dashboard run build
+node tests/browser/keyboard.mjs          # real key events, real browser, over CDP
+```
+
+It drives the board's keyboard and asserts the DOM — that focus follows the cursor, that the
+ring is visible, and that typing `j` in the search field types a `j`. It skips cleanly when
+there is no Chrome or no board running, so it never fails for being unrunnable.
 
 ## Notes
 
