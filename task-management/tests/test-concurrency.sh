@@ -91,6 +91,16 @@ LABELS=$(tm show "$TARGET" --json | node -e 'let s="";process.stdin.on("data",d=
 eq "$AC" "4" "concurrent acceptance criteria are all kept"
 eq "$LABELS" "4" "concurrent labels are all kept"
 
+# ── concurrent touches: the highest-frequency writer in the plugin ───────────
+# The PostToolUse hook calls this on every Edit and Write from every session, so it is
+# the append most likely to race. 8 different files recorded at once must all survive.
+for i in $(seq 1 $N); do
+  (node "$PLUGIN_ROOT/bin/tm" touches "$TARGET" "src/module-$i.ts" >/dev/null 2>&1) &
+done
+wait
+TOUCHES=$(tm show "$TARGET" --json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log((JSON.parse(s).touches||[]).length))')
+eq "$TOUCHES" "$N" "$N concurrently recorded paths are all kept"
+
 # ── one override token is spent exactly once ──────────────────────────────────
 # `tm override` mints one token. Two gates consuming it concurrently must not both pass.
 tm config wipLimit 1 >/dev/null

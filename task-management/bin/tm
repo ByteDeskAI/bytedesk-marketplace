@@ -48,6 +48,7 @@ import { CATALOG, messageFor, ntfyConfig, send, shouldPublish } from "../lib/ntf
 import { graphData, mermaid, renderWhy, why } from "../lib/graph.mjs";
 import { diagnose, render as renderDoctor, repairAll } from "../lib/doctor.mjs";
 import { FORMATS, exportStore } from "../lib/export.mjs";
+import { MAX_TOUCHES, observe, record } from "../lib/touches.mjs";
 
 const P = paths();
 const rawArgs = process.argv.slice(2);
@@ -308,6 +309,26 @@ const VERBS = {
     }
     mutate(id, (doc) => ({ evidence: [...(doc.evidence || []), ref] }), P);
     out(`${id} evidence: ${ref}`);
+  },
+
+  /**
+   * Paths a task touches — what `tm parallel` batches on. Normally filled in by the
+   * PostToolUse hook as edits happen; this is for declaring them ahead of time, which
+   * is what the README's "paths it will edit" always meant.
+   */
+  touches(id, ...files) {
+    requireInit();
+    const t = read(id, P) || die(`not found: ${id}`);
+    if (!files.length) {
+      const rows = t.touches || [];
+      return emit(rows, () => rows.join("\n") || "(none — the hook fills these in as files are edited)");
+    }
+    const { added, capped } = record(id, files, P, { base: CHECKOUT });
+    out(
+      `${id} touches: ${(read(id, P).touches || []).length} path(s)` +
+        (added.length ? ` (+${added.join(", ")})` : " (nothing new)") +
+        (capped ? `\ncapped at ${MAX_TOUCHES} — this task edits more files than a task should` : ""),
+    );
   },
 
   dep(id, ...deps) {
@@ -827,6 +848,7 @@ const VERBS = {
         "  start <id> | done <id> | park <id> [why] | block <id> [why] | unblock <id>",
         '  ac <id> "<criterion>" | accept <id> <n>',
         "  evidence <id> <path|-> | link <id> <ref> | dep <id> <blocker...>",
+        "  touches <id> [path...]        paths a task owns; `tm parallel` batches on these",
         "  assign <id> <who> | label <id> [-]<name>... | priority <id> <level>",
         "  estimate <id> <points> | comment <id> <text> | subtask <id> [parent|none]",
         "  link <id> <type> <id> | rank <id> --before|--after <id> | backlog",
@@ -1002,6 +1024,27 @@ function hook(event) {
 
     case "post-bash": {
       linkGit(input);
+      break;
+    }
+
+    // Every Edit and Write says something about which files a task owns. Silent by
+    // design: this fires hundreds of times a session, so the record in the task file
+    // is the output. Never allowed to fail — an edit must not break because we could
+    // not write a path down.
+    case "post-edit": {
+      try {
+        observe(input, {
+          p: P,
+          branch: git(["rev-parse", "--abbrev-ref", "HEAD"]) || null,
+          session: input.session_id || process.env.CLAUDE_SESSION_ID || null,
+          // Relative to the checkout we are standing in, not the store root. In a
+          // worktree those differ, and `src/auth.ts` edited in two worktrees has to
+          // come out as the same path or the collision is invisible.
+          base: CHECKOUT,
+        });
+      } catch {
+        /* ignore */
+      }
       break;
     }
 
