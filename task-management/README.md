@@ -321,6 +321,41 @@ chord that isn't `⌘K` is left to the browser — swallowing `⌘R` would be wo
 no shortcuts at all. Cards are real focusable list items with `aria-label`s carrying what
 the badges show, on a roving tabindex, so `Tab` and `j`/`k` agree on where the cursor is.
 
+## Working on the dashboard
+
+The board `bin/tm-dashboard` serves is the built bundle in `dashboard/dist/` (committed, so
+the plugin works on a clone with no `npm install`). Editing `dashboard/src/` therefore changes
+nothing until you rebuild — which is a slow way to move a card two pixels.
+
+For live editing, run the Vite dev server **alongside** the normal board:
+
+```bash
+bin/tm-dashboard &                       # the API, the SSE feed and the store
+npm --prefix dashboard run dev           # http://localhost:5173 — HMR
+```
+
+Edit anything under `dashboard/src/` and the browser updates without a reload or a restart.
+The dev server proxies `/api` and `/events` to the running board, so you are editing the UI
+against **live data from your real store** — not a fixture. It finds the port itself out of
+`dashboard.port`, because that port is assigned per project and any hardcoded default is wrong
+for every project but one. Point it somewhere else with `TM_API=http://127.0.0.1:<port>`.
+
+Two things it will tell you rather than fail obscurely: with no board running it refuses to
+start and says so (instead of starting and failing every request), and it treats a **stale**
+port file — one left behind by a board that died — the same way, by checking the recorded pid
+is alive. `npm run build` never needs a board.
+
+When you are done, rebuild so the served bundle matches the source:
+
+```bash
+npm --prefix dashboard run build         # tsc --noEmit && vite build && the PWA assets
+node tests/browser/keyboard.mjs          # and re-check the keyboard against the new build
+```
+
+`dashboard/src/*.mjs` (`keys.mjs`, `lanes.mjs`, `metrics.mjs`, `pwa/*.mjs`) are plain JavaScript
+on purpose: they hold the logic, and `node --test` can reach them without a TypeScript runner.
+The `.tsx` components stay thin so they need no test harness of their own.
+
 ## Config
 
 `tm config` prints the current policy; `tm config <key> <json>` sets one.
