@@ -14,6 +14,19 @@
 
 ### Fixed
 
+- **A closed reader crashed the CLI.** `tm board --json | head -1` wrote the first line, `head`
+  exited, and the next write past the pipe buffer raised `EPIPE` on a stream with no error
+  listener — an unhandled `'error'` event, so node died printing 1224 bytes of stack trace over
+  whatever the user was reading. Every read verb funnels through the same two writers, and
+  `bin/tm-mcp` had it too, where a vanished client is the *normal* way a session ends and the
+  stream is contractually JSON-RPC only.
+
+  Invisible on a small store, because the whole payload fits inside the 64 KB pipe buffer and
+  the write completes before the reader is gone — so the fixtures passed and real repos failed,
+  the worst possible schedule for a bug. One listener per stream in each entry point; anything
+  that is not `EPIPE` is rethrown, so a real `ENOSPC` or `EBADF` still fails loudly rather than
+  being swallowed into a silent exit 0.
+
 - **A write that died mid-rename left a phantom task.** `writeAtomic` named its temp
   `${file}.${pid}.tmp` and `fileFor` resolved an id with `readdirSync(dir).find(f =>
   f.startsWith(`${id}-`))` — so that temp was a candidate answer for "where does TM-002 live".

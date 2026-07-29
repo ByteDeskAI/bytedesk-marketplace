@@ -59,6 +59,25 @@ const verb = argv[0];
 /** native (Claude Code) status → store status */
 const FROM_NATIVE = { pending: "open", in_progress: "in_progress", completed: "done", deleted: "deleted" };
 
+/**
+ * A closed reader is not an error. `tm board --json | head -1` writes the first line, `head`
+ * exits, and the next write past the pipe buffer raises EPIPE on a stream with no error
+ * listener — which in node is an unhandled 'error' event, so the process dies printing a stack
+ * trace over whatever the user was actually reading.
+ *
+ * Invisible on a small store: the whole payload fits inside the 64 KB pipe buffer, so the write
+ * completes before the reader is gone. It appears as the board grows, which is the worst
+ * possible schedule for a bug — the fixtures pass and the real repo fails.
+ *
+ * One listener per stream covers every caller: `out`, `emit`, and the raw
+ * `process.stdout.write(text)` in `export`. Anything that is NOT EPIPE is rethrown, so a real
+ * ENOSPC or EBADF still fails loudly instead of being swallowed into a silent exit 0.
+ */
+process.stdout.on("error", (err) => {
+  if (err.code === "EPIPE") process.exit(0);
+  throw err;
+});
+
 const out = (s) => process.stdout.write(`${s}\n`);
 /** Read verbs print human text by default and structured JSON with --json. */
 const emit = (data, human) => out(JSON_OUT ? JSON.stringify(data, null, 2) : human());
