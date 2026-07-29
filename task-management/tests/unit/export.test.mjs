@@ -10,7 +10,7 @@ import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { cleanup, tempStore } from "./helpers.mjs";
 import { create, update } from "../../lib/store.mjs";
-import { csvField, exportStore, toCsv, toJson, toMarkdown, toPm } from "../../lib/export.mjs";
+import { csvField, exportStore, toCsv, toJson, toMarkdown } from "../../lib/export.mjs";
 
 const stores = [];
 function store() {
@@ -244,87 +244,23 @@ describe("json", () => {
   });
 });
 
-describe("project-management payloads", () => {
-  it("emits one create payload per task, in pm's field names", () => {
-    const p = store();
-    const ids = seed(p);
-    const out = toPm({}, p);
-
-    assert.equal(out.tool, "pm_issue_create");
-    const first = out.issues.find((i) => i._source === ids.first);
-    assert.equal(first.priority, "high");
-    assert.equal(first.assignee, "ryan");
-    assert.deepEqual(first.acceptance_criteria, ["it refuses without criteria", "and says why"]);
-    assert.deepEqual(first.tags, ["ui", "urgent"]);
-    assert.equal(first.epic_id, ids.epic);
-  });
-
-  it("keeps the tm id traceable in the description, not the title", () => {
-    const p = store();
-    const ids = seed(p);
-    const first = toPm({}, p).issues.find((i) => i._source === ids.first);
-
-    assert.equal(first.title, 'fix the "done" gate, properly', "the title is the title");
-    assert.match(first.description, new RegExp(`task-management ${ids.first}`), "an untraceable import is a one-way door");
-  });
-
-  it("emits the transitions pm_issue_create cannot express", () => {
-    const p = store();
-    const ids = seed(p);
-    update(ids.first, { status: "in_progress" }, p);
-    const out = toPm({}, p);
-
-    // pm always creates at TODO, so anything else needs a second call.
-    assert.deepEqual(
-      out.transitions.sort((a, b) => a._source.localeCompare(b._source)),
-      [
-        { _source: ids.first, status: "IN_PROGRESS" },
-        { _source: ids.second, status: "NEEDS_INPUT" },
-      ],
-    );
-  });
-
-  it("maps parked to TODO and records it as a tag, since pm has no parked", () => {
-    const p = store();
-    const ids = seed(p);
-    update(ids.second, { status: "parked" }, p);
-    const out = toPm({}, p);
-
-    assert.ok(!out.transitions.some((t) => t._source === ids.second), "TODO is the create default");
-    assert.ok(out.issues.find((i) => i._source === ids.second).tags.includes("parked"), "or the state is simply lost");
-  });
-
-  it("carries which criteria are already met, 1-based like tm accept", () => {
-    const p = store();
-    const ids = seed(p);
-    const met = toPm({}, p).criteriaDone.find((c) => c._source === ids.first);
-    assert.deepEqual(met.met, [1]);
-  });
-
-  it("drops an epic reference pm could not resolve", () => {
-    const p = store();
-    create("task", { title: "orphan", epic: "EP-404" }, "", p);
-    assert.equal(toPm({}, p).issues[0].epic_id, null);
-  });
-});
-
 describe("exportStore", () => {
   it("dispatches every advertised format", () => {
     const p = store();
     seed(p);
-    for (const format of ["md", "csv", "json", "pm"]) {
+    for (const format of ["md", "csv", "json"]) {
       assert.ok(exportStore(format, {}, p).length > 10, `${format} produced nothing`);
     }
   });
 
   it("refuses a format it does not have, naming the ones it does", () => {
-    assert.throws(() => exportStore("xlsx", {}, store()), /unknown format "xlsx".*md, csv, json, pm/s);
+    assert.throws(() => exportStore("xlsx", {}, store()), /unknown format "xlsx".*md, csv, json/s);
   });
 
   it("ends every format with a newline, so it concatenates and pipes cleanly", () => {
     const p = store();
     seed(p);
-    for (const format of ["md", "csv", "json", "pm"]) {
+    for (const format of ["md", "csv", "json"]) {
       assert.equal(exportStore(format, {}, p).at(-1), "\n", format);
     }
   });

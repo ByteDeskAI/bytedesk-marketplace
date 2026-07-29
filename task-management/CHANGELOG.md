@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Removed
+
+- **`tm export pm`.** The format emitted `pm_issue_create` payloads for the
+  `project-management` plugin, which has been removed from this marketplace — so it was
+  exporting to a destination that no longer exists here. `md`, `csv` and `json` are unchanged,
+  and an unknown format is still refused rather than silently substituted. This also retires the
+  README's long-standing note delegating sprints to that plugin, which means sprints are now a
+  legitimate candidate for this one: `burndown()` still has no denominator and `estimate()`
+  still has no consumer.
+
 ### Fixed
 
 - **A write that died mid-rename left a phantom task.** `writeAtomic` named its temp

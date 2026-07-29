@@ -97,7 +97,7 @@ tm graph [--epic EP-1] [--all]       the dependency graph as Mermaid
 tm time [id]                         cycle time, median/mean, oldest open
 tm log [n] | tm log <id>             event tail, or one task's whole history
 tm standup [iso] | handoff <id>      digest / self-contained brief for another agent
-tm export [md|csv|json|pm]           the board out; --epic, --status, --open, --out <file>
+tm export [md|csv|json]              the board out; --epic, --status, --open, --out <file>
 tm doctor [--fix]                    what is inconsistent, and repair the unambiguous half
 tm reindex | config [k v] | override "<why>" | migrate
 ```
@@ -280,7 +280,6 @@ Run it by hand with `bin/tm-dashboard`.
 tm export                            markdown report → stdout
 tm export csv --out board.csv        spreadsheet, or a Jira CSV import
 tm export json --events              the whole store as one document
-tm export pm                         pm_issue_create payloads for the project-management plugin
 ```
 
 `--epic EP-1` · `--status blocked` · `--open` (drop done work) · `--out <file>` (default stdout, so it pipes).
@@ -293,13 +292,6 @@ line at the top. Tasks with no epic get their own section rather than being drop
 remapping. Quoting is the whole correctness surface here — a task titled `fix the "done" gate,
 properly` shifts every later column of its row if you get it wrong, and the file still opens — so
 the escaping is tested against a hostile title, a multi-line body, and multi-line criteria.
-
-**pm** emits `pm_issue_create` payloads in that plugin's own field names, plus the follow-up
-`transitions`: `pm_issue_create` always creates at `TODO`, so pretending one call carries status
-would silently flatten the board. Each payload keeps `_source` and repeats the `tm` id in the
-description, because an import you cannot trace back to the source board is a one-way door.
-`parked` has no equivalent in pm, so it maps to `TODO` **and** adds a `parked` tag rather than
-losing the state.
 
 ## When the store drifts
 
@@ -466,5 +458,3 @@ there is no Chrome or no board running, so it never fails for being unrunnable.
   so a worktree keeps its own board.
 - Markdown files are the source of truth. `index.json` is disposable.
 - Commit `.bytedesk/task-management/` — that's the point. One file per entity keeps merges sane.
-- Not related to the `project-management` plugin in this marketplace, which is a heavier
-  local Jira/Confluence with sprints, docs, and an MCP server. `tm export pm` feeds it.

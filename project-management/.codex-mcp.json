@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "project-management": {
-      "type": "stdio",
-      "command": "${CODEX_PLUGIN_ROOT}/bin/pm-mcp"
-    }
-  }
-}

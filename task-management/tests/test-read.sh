@@ -70,7 +70,6 @@ json "$(tm graph --json)" '(.nodes | length) == 3 and (.edges | length) == 2' "g
 has "$(tm export)" "# Board" "export defaults to a markdown report"
 has "$(tm export csv)" "Issue ID,Summary" "export csv leads with Jira's headers"
 json "$(tm export json)" '.tasks and .metrics and .exported' "export json carries tasks and metrics"
-json "$(tm export pm)" '.tool == "pm_issue_create" and (.issues | length) >= 1' "export pm emits create payloads"
 tm export xlsx >/dev/null 2>&1 && no "export refuses an unknown format" || ok "export refuses an unknown format"
 tm export csv --out "$TM_ROOT/out.csv" >/dev/null
 [[ -s "$TM_ROOT/out.csv" ]] && ok "export --out writes a file" || no "export --out writes a file"
