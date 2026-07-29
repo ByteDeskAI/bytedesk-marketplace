@@ -67,6 +67,7 @@ create a store inside its own repo — set `TM_ROOT` if you're deliberately dogf
 | `TaskCreate` | Denied unless an epic is active and you're under the WIP limit |
 | `TaskCreate` / `TaskUpdate` | Mirrored into the store with session, branch, worktree, and dependencies |
 | Plan approved (`ExitPlanMode`) | Plan copied into the repo, an epic opened and linked |
+| `Edit` / `Write` / `MultiEdit` / `NotebookEdit` | the edited file is recorded on the task the session holds, so `touches` fills itself |
 | `git commit` / `gh pr create` | SHA or PR URL attached — by id in the message, or inferred from a `tm/TM-014-…` branch |
 | `AskUserQuestion` answered | A real multi-option decision becomes an ADR (with its rejected options); clarifications are ignored |
 | A subagent finishes | Its work is attributed on the timeline, so parallel agents are visible |
@@ -155,8 +156,23 @@ atomically (otherwise two sessions pick the same number and one file becomes unr
 read-append-write edits — comments, labels, links, criteria, evidence, deps — go through
 `mutate` so both appends survive.
 
-A task's optional `touches: []` (paths it will edit) is what `tm parallel` uses to decide which
-work can run at the same time. Claims carry session, worktree and branch, and expire — a session
+A task's `touches: []` is what `tm parallel` uses to decide which work can run at the same
+time — and it is **filled in by watching, not by asking**. A `PostToolUse` hook on
+`Edit`/`Write`/`MultiEdit`/`NotebookEdit` records the file that was just edited against the task
+the session is holding, so after one pass of real work the store knows what collides with what.
+`tm touches <id> [path...]` reads it, or declares paths ahead of time.
+
+It attributes to a task it is **sure** about, or to nothing at all: the branch (`tm/TM-014-…`)
+first, then the single task in progress, then the claim this session holds. Two tasks running in
+one session is genuinely ambiguous and the edit is dropped — a path recorded against the wrong
+task is worse than a missing one, because it invents a collision that serializes work *and*
+hides the real collision on the task that owns the file. Paths are relative to the checkout
+(so the same file in two worktrees is the same path), the store's own files are ignored, failed
+edits say nothing, and the list is capped at 40. `tm config trackTouches false` turns it off.
+
+> Before this, nothing wrote the field. So `touches` was empty everywhere, every task looked
+> disjoint from every other, and `tm parallel` would put two tasks that rewrite the same file in
+> one batch and tell you to run them side by side — the exact collision it exists to prevent. Claims carry session, worktree and branch, and expire — a session
 that never comes back cannot lock a task out of the board forever.
 
 ### Sharing heavy artifacts between worktrees
@@ -382,6 +398,7 @@ The `.tsx` components stay thin so they need no test harness of their own.
 | `gitLink` | `true` | attach commits/PRs automatically |
 | `captureDecisions` | `"smart"` | `"smart"` records real decisions only; `true` records every question; `false` none |
 | `autoCloseEpics` | `true` | close an epic when its last child is done |
+| `trackTouches` | `true` | record edited files on the claimed task (what `tm parallel` batches on) |
 | `claimTtlMinutes` | `240` | when a claim from a vanished session expires |
 | `parkOnSessionEnd` | `true` | park abandoned `in_progress` work when a session ends |
 | `eventMaxBytes` | `5000000` | rotate `events.jsonl` past this size |

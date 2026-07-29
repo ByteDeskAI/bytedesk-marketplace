@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### Added
+
+- **`touches` fills itself in, so `tm parallel` stops lying.** The field was documented in
+  both README and AGENTS as "what `tm parallel` uses to decide which work can run at the same
+  time", was read by `tm parallel` and printed by `tm show` — and **nothing ever wrote it**.
+  Empty everywhere, every task looked disjoint from every other, so `tm parallel` put two
+  tasks that rewrite the same file in one batch and told you to run them side by side. A
+  `PostToolUse` hook on `Edit`/`Write`/`MultiEdit`/`NotebookEdit` now records the edited file
+  against the task the session is holding, plus a `tm touches <id> [path...]` verb for
+  declaring paths ahead of time.
+
+  It attributes to a task it is sure about or to nothing: branch, then the single task in
+  progress, then this session's claim. Two tasks running in one session is ambiguous and the
+  edit is **dropped** — a path on the wrong task invents a collision that serializes work and
+  hides the real one. Paths are relative to the **checkout**, not the store root, so the same
+  file edited in two worktrees is the same path (anchoring on the root would have put every
+  worktree edit under `.bytedesk/` and dropped it — blinding the feature exactly where parallel
+  work happens). Failed edits are ignored, the store's own files are ignored, the list is
+  capped at 40, and `tm config trackTouches false` switches it off.
+
 ### Fixed
 
 - **Concurrent writes lost data, silently.** One store is shared by every worktree and
