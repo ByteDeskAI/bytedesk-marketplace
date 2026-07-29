@@ -88,6 +88,7 @@ tm ac <id> "<criterion>"             acceptance criteria — `tm done` refuses w
 tm accept <id> <n>                   tick one
 tm start|done|park|block|unblock <id>
 tm reopen <id> [why]                 bring a done task back, and its epic with it
+tm goal import <doc.md>              a goal doc becomes a task; its criteria become the gate
 tm dep <id> <blocker...>             dependency graph
 tm evidence <id> <path|->            attach a log/screenshot as proof
 tm task new "<title>" --template bug   start from a template
@@ -138,6 +139,38 @@ are still drawn, because they still explain the block), `--all` includes done wo
 omits the code fence, `--json` gives `{nodes, edges}`.
 
 Over MCP: `tm_why`.
+
+## Goals
+
+`/goal` is Claude Code's persistent-agent loop: plan → act → test → review → iterate, auto-continuing
+when a turn ends and the goal is not met. It requires a **verifiable stop condition**. This plugin
+refuses to close a task until every **acceptance criterion** is ticked. Those are the same
+requirement, and a goal doc has already written it down:
+
+```
+$ tm goal import docs/goals/acp-pod-A1-codex-image.md
+TM-014 Bake the Codex harness into the agent-devpod image so codex runs inside the pod [EP-002]
+   5 acceptance criterion/criteria from the goal's own success criteria
+   `tm done TM-014` now refuses until every one is ticked
+```
+
+Two shapes are read. The **doc** form is what `bytedesk-goals`' `plan_goal` writes — a `# Goal:`
+heading and a success-criteria list. The **contract** form is the 5-part block you paste into the
+`/goal` composer, where `**Stop when:**` *is* the verifiable condition and so becomes the criterion,
+and `**Validate:** \`cmd\`` is kept because that is the command whose output `tm evidence` stores.
+The Jira key is lifted out of the heading, and the objective, constraints and read-first notes are
+kept in the body — `bytedesk-goals` **deletes** a goal doc once it is done, so the store cannot
+merely point at it.
+
+The parser was built against all **195** real goal docs, not a sample, because there is no single
+format: three header spellings (`**Success criteria (verifiable):**` 107, `## Success criteria
+(verifiable)` 49, `## Success criteria` 16) and two item forms (dash 118, **numbered 46**, mixed 7).
+A dash-only parser under a bolded-only header — the obvious first cut — misses 46 documents.
+
+171 of the 195 parse. The other 24 are **refused**, and that refusal is the point: 23 have no
+criteria section at all, and a task created with an empty acceptance list passes `tm done`
+unchallenged — so a silent import would have the gate certify a goal nobody verified. The refusal
+names the file and every header it looked for.
 
 ## The board as context you pull
 

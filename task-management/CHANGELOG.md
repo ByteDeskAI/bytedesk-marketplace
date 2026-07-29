@@ -14,6 +14,21 @@
 
 ### Added
 
+- **`tm goal import <doc.md>`** — a goal's own success criteria become the gate that closes it.
+  `/goal` is Claude Code's persistent-agent loop and it requires a verifiable stop condition;
+  `tm done` refuses until every acceptance criterion is ticked. Same requirement, already written
+  down in the goal doc. Reads both the `bytedesk-goals` doc form (`# Goal:` heading + criteria
+  list) and the 5-part `/goal` composer contract, where `**Stop when:**` is the criterion and
+  `**Validate:**` is kept as the command `tm evidence` stores output from. The Jira key, objective,
+  constraints and read-first notes are copied into the task body, because `bytedesk-goals` deletes
+  a goal doc once it is done.
+
+  Built against all **195** real goal docs rather than a sample, because there is no single format:
+  three header spellings and two item forms, of which **46 documents use numbered items** that a
+  dash-only parser drops. 171 parse; the other 24 are **refused** — a task with an empty acceptance
+  list passes `tm done` unchallenged, so a silent import would have the gate certify a goal nobody
+  verified. The refusal names the file and every header it looked for.
+
 - **`tm reopen <id> [why]`** — the way back from done, recorded rather than improvised.
 
 ### Fixed

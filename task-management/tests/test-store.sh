@@ -82,6 +82,36 @@ rm "$TM_ROOT/.bytedesk/task-management/index.json"
 tm reindex >/dev/null
 [[ "$BEFORE" == "$(tm board)" ]] && ok "board survives losing index.json" || no "board survives losing index.json"
 
+# tm goal import — a goal's own success criteria become the gate that closes it.
+GDOC="$TM_ROOT/goal-fixture.md"
+cat > "$GDOC" <<'GOALDOC'
+# Goal: Bake the harness into the image (BDP-2003)
+
+**Success criteria (verifiable):**
+- the binary resolves on PATH inside the built image
+1. a new versioned tag is pushed, never :latest
+GOALDOC
+OUT="$(tm goal import "$GDOC")"
+assert_contains "$OUT" "Bake the harness into the image" "goal import names the task from the # Goal: heading"
+assert_contains "$OUT" "2 acceptance" "goal import reads both dash and numbered criteria"
+GID=$(tm find "Bake the harness" --json | jq -r '.[0].id')
+assert_contains "$(tm show "$GID")" "resolves on PATH" "the goal's criteria became acceptance criteria"
+assert_contains "$(tm show "$GID")" "BDP-2003" "the Jira key is kept"
+assert_status 2 "tm done refuses using the goal's own criteria" node "$PLUGIN_ROOT/bin/tm" done "$GID"
+
+# A doc with no criteria must be refused, not imported with an empty gate.
+cat > "$TM_ROOT/no-criteria.md" <<'GOALDOC'
+# Goal: A goal nobody wrote criteria for
+
+## Why
+Because.
+GOALDOC
+assert_status 2 "goal import refuses a doc with no parseable criteria" node "$PLUGIN_ROOT/bin/tm" goal import "$TM_ROOT/no-criteria.md"
+assert_contains "$(tm goal import "$TM_ROOT/no-criteria.md" 2>&1 || true)" "certify a goal nobody verified" "the refusal says why it matters"
+BEFORE=$(tm board --json | jq '.tasks | length')
+tm goal import "$TM_ROOT/no-criteria.md" >/dev/null 2>&1 || true
+[[ "$(tm board --json | jq '.tasks | length')" == "$BEFORE" ]] && ok "a refused import creates nothing" || no "a refused import creates nothing"
+
 # tm reopen — the way back, and what it takes with it.
 tm task new "Reopen target task" >/dev/null
 RID=$(tm find "Reopen target task" --json | jq -r '.[0].id')

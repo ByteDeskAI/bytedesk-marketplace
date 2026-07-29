@@ -49,6 +49,7 @@ import { graphData, mermaid, renderWhy, why } from "../lib/graph.mjs";
 import { diagnose, render as renderDoctor, repairAll } from "../lib/doctor.mjs";
 import { FORMATS, exportStore } from "../lib/export.mjs";
 import { MAX_TOUCHES, observe, record } from "../lib/touches.mjs";
+import { goalBody, parseGoalDoc, refusal } from "../lib/goals.mjs";
 
 const P = paths();
 const rawArgs = process.argv.slice(2);
@@ -210,6 +211,57 @@ const VERBS = {
     } else {
       for (const t of list("task", {}, P)) out(taskLine(t));
     }
+  },
+
+  /**
+   * Import a goal doc as a task whose acceptance criteria ARE the goal's success criteria.
+   *
+   * `/goal` demands a verifiable stop condition; `tm done` refuses to close a task until every
+   * criterion is ticked. Those are the same requirement, so this wires one to the other instead
+   * of asking anyone to retype it.
+   */
+  goal(sub, ...rest) {
+    requireInit();
+    if (sub !== "import") die('usage: tm goal import <doc.md> [--epic EP-001]');
+    const ei = rest.indexOf("--epic");
+    const epic = ei === -1 ? null : rest[ei + 1];
+    const file = rest.filter((a) => !a.startsWith("--") && a !== epic)[0];
+    if (!file) die("usage: tm goal import <doc.md> [--epic EP-001]");
+    const path = resolve(file);
+    if (!existsSync(path)) die(`no such file: ${file}`);
+
+    const parsed = parseGoalDoc(readFileSync(path, "utf8"));
+    if (!parsed.title) die(`${file} has no \`# Goal:\` heading and no \`**Objective:**\` line — cannot name the task.`);
+    // Refuse rather than import an empty acceptance list. Measured: 24 of 195 real goal docs have
+    // no parseable criteria, and a task with none passes `tm done` unchallenged.
+    if (!parsed.criteria.length) die(refusal(file), 2);
+
+    const gate = gateTaskCreate(P);
+    if (!gate.allow) die(gate.reason, 2);
+    const rel = path.startsWith(`${P.root}/`) ? path.slice(P.root.length + 1) : path;
+    const t = create(
+      "task",
+      {
+        title: parsed.title,
+        epic: epic || state(P).activeEpic || null,
+        acceptance: parsed.criteria.map((text) => ({ text, done: false })),
+        goalDoc: rel,
+        evidence: [],
+        commits: [],
+        blockedBy: [],
+        blocks: [],
+        ...stamp(),
+      },
+      goalBody(parsed, rel),
+      P,
+    );
+    logEvent("goal_imported", { id: t.id, doc: rel, criteria: parsed.criteria.length, shape: parsed.shape }, P);
+    out(
+      `${t.id} ${parsed.title}${t.epic ? ` [${t.epic}]` : ""}\n` +
+        `   ${parsed.criteria.length} acceptance criterion/criteria from the goal's own success criteria\n` +
+        (parsed.validate ? `   validate: ${parsed.validate}\n` : "") +
+        `   \`tm done ${t.id}\` now refuses until every one is ticked`,
+    );
   },
 
   adr(sub, ...rest) {
@@ -897,6 +949,7 @@ const VERBS = {
         '  epic new "<title>" | use <id> | done <id> | (list)',
         '  task new "<title>" | (list)',
         '  adr new "<title>"',
+        "  goal import <doc.md>          a goal doc becomes a task; its success criteria become the gate",
         "  start <id> | done <id> | park <id> [why] | block <id> [why] | unblock <id>",
         "  reopen <id> [why]             bring a done task back, and its epic with it",
         '  ac <id> "<criterion>" | accept <id> <n>',

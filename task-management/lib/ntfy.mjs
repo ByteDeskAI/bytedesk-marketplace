@@ -54,6 +54,7 @@ export const CATALOG = {
     worktree_rm: { group: "writes", label: "A worktree is removed", priority: "min", tags: "wastebasket" },
     git_link: { group: "writes", label: "A commit or PR is attached to a task", priority: "low", tags: "octopus" },
     plan_captured: { group: "writes", label: "An approved plan becomes an epic", priority: "default", tags: "clipboard" },
+    goal_imported: { group: "writes", label: "A goal doc becomes a task, its success criteria the gate", priority: "default", tags: "dart" },
     decision_captured: { group: "writes", label: "A decision is recorded as an ADR", priority: "low", tags: "memo" },
     decision_updated: { group: "writes", label: "An existing ADR is revised", priority: "min", tags: "memo" },
     epic_active: { group: "writes", label: "The active epic changes", priority: "min", tags: "dart" },
