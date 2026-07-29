@@ -55,6 +55,14 @@ assert_contains "$OUT" "TM-001" "task created under the active epic"
 # The store the CLI sees is the same store.
 assert_contains "$(node "$PLUGIN_ROOT/bin/tm" board)" "TM-001" "the CLI sees what MCP wrote"
 
+# tm_why over the wire: a tool that isn't reachable from MCP is a silent gap.
+OUT="$({ call tm_task_create '{"title":"A blocking prerequisite"}'; } | mcp)"
+node "$PLUGIN_ROOT/bin/tm" dep TM-001 TM-002 >/dev/null
+OUT="$(call tm_why '{"id":"TM-001"}' | mcp)"
+# The result is JSON-in-a-string inside content[0].text, so the quotes arrive escaped.
+assert_contains "$OUT" 'startable' "tm_why answers over MCP"
+assert_contains "$OUT" "TM-002" "tm_why names the blocker"
+
 # Acceptance gate, over the wire.
 { call tm_ac_add '{"id":"TM-001","text":"verifiably true"}'; } | mcp >/dev/null
 OUT="$(call tm_task_update '{"id":"TM-001","action":"done"}' | mcp)"

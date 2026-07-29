@@ -91,11 +91,49 @@ tm evidence <id> <path|->            attach a log/screenshot as proof
 tm task new "<title>" --template bug   start from a template
 tm next | board | stale | find <q>   read the board  (add --json to any of these)
 tm show <id>                         one entity in full
+tm why <id>                          what is actually holding a task up
+tm graph [--epic EP-1] [--all]       the dependency graph as Mermaid
 tm time [id]                         cycle time, median/mean, oldest open
 tm log [n] | tm log <id>             event tail, or one task's whole history
 tm standup [iso] | handoff <id>      digest / self-contained brief for another agent
 tm reindex | config [k v] | override "<why>" | migrate
 ```
+
+### Why is this blocked?
+
+`blockedBy` stores **direct** blockers and nothing reads it transitively, so a card saying
+`⊘ TM-002` doesn't tell you that TM-002 is waiting on TM-003, parked last week with a reason
+nobody has re-read. `tm why` walks to the bottom and reports the reason at each hop:
+
+```
+$ tm why TM-001
+TM-001  rotate the credential
+status: blocked   startable: no
+
+✗ waiting on 2 unresolved blockers (direct: TM-002)
+
+chain:
+  ⊘ TM-002 stand up the secret store  blocked
+    ⏸ TM-003 get legal sign-off  parked — "waiting on counsel"
+
+start here: TM-003
+```
+
+It answers for every reason a start would be refused, not just dependencies: a claim another
+session holds, a hand-written `tm block` reason, the WIP limit, a dependency cycle, or a
+`blockedBy` pointing at a task that doesn't exist. `parked` is reported but **not** counted as
+blocking, because `tm start` resumes a parked task — conflating the two is how a "why" command
+starts lying. `startable: yes` means `tm start` will succeed. `roots` (in `--json`) is the work
+at the bottom of the chain; a dangling reference never appears there, since it is a broken
+record rather than a task you can pick up.
+
+`tm graph` draws the same edges as Mermaid, which GitHub renders **inside the PR diff** — the
+whole point of a markdown store is that a reviewer can read the board, and a dependency graph
+is the part that was previously unreadable. `--epic` scopes it (blockers from outside the epic
+are still drawn, because they still explain the block), `--all` includes done work, `--raw`
+omits the code fence, `--json` gives `{nodes, edges}`.
+
+Over MCP: `tm_why`.
 
 ### Parallel work
 
@@ -128,7 +166,7 @@ one for a task that changes dependencies. Use `mode: copy` or `--no-share` there
 ## MCP
 
 `.mcp.json` registers a stdio server (`bin/tm-mcp`) so Claude queries the store as typed tools
-rather than parsing CLI text — `tm_board`, `tm_next`, `tm_show`, `tm_find`, `tm_task_create`,
+rather than parsing CLI text — `tm_board`, `tm_next`, `tm_show`, `tm_find`, `tm_why`, `tm_task_create`,
 `tm_task_update`, `tm_ac_add`, `tm_evidence`, `tm_handoff`, `tm_claim` and friends. The gates apply
 identically over MCP: `tm_task_create` with no active epic returns the same denial the CLI gives.
 

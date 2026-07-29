@@ -14,6 +14,7 @@ import { paths } from "./paths.mjs";
 import { config, create, list, logEvent, nextTasks, now, read, state, update, writeState } from "./store.mjs";
 import { consumeOverride, enforcementOff, gateDone, gateTaskCreate } from "./enforce.mjs";
 import { board, handoff, standup, taskLine } from "./render.mjs";
+import { renderWhy, why } from "./graph.mjs";
 
 export const SERVER_INFO = { name: "task-management", version: "0.2.0" };
 
@@ -67,6 +68,16 @@ export const TOOLS = [
         }
       }
       return ok({ hits });
+    },
+  },
+  {
+    name: "tm_why",
+    description:
+      "Why a task cannot be started, walked to the root of its dependency chain: transitive blockers with the reason at each hop, a claim another session holds, a hand-written block, the WIP limit, dependency cycles, dangling refs. Call this instead of reading blockedBy — that field names the neighbour, this names the task to actually go and do. Returns `roots`: the unblocked work at the bottom of the chain.",
+    inputSchema: { type: "object", properties: { id: str("Task id, e.g. TM-001.") }, required: ["id"] },
+    run: ({ id }, p) => {
+      const w = why(id, p);
+      return w ? ok({ ...w, text: renderWhy(w) }) : fail(`not found: ${id}`);
     },
   },
   {
