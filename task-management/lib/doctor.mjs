@@ -17,7 +17,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { RESOLVED, list, logEvent, reindex, state, update, writeState } from "./store.mjs";
 import { LINK_TYPES } from "./issue.mjs";
-import { staleClaims, sweepClaims } from "./claims.mjs";
+import { releaseClaim, staleClaims, sweepClaims } from "./claims.mjs";
 import { KINDS, paths } from "./paths.mjs";
 
 /**
@@ -295,12 +295,12 @@ function duplicateIds(p = paths()) {
 }
 
 function dropClaim(id, p) {
-  const claims = { ...(state(p).claims || {}) };
-  if (!(id in claims)) return `no claim on ${id}`;
-  delete claims[id];
-  writeState({ claims }, p);
-  logEvent("doctor_release", { id }, p);
-  return `released the claim on ${id}`;
+  // releaseClaim owns this: it reads and writes inside withLock. The hand-rolled version here
+  // read state(p).claims OUTSIDE the lock and then called the locking writeState, which is the
+  // stale-read-then-locked-write shape — the one that looks safe and is not.
+  const released = releaseClaim(id, p);
+  if (released) logEvent("doctor_release", { id }, p);
+  return released ? `released the claim on ${id}` : `no claim on ${id}`;
 }
 
 /**

@@ -790,7 +790,17 @@ const VERBS = {
       const task = read(args[0], P) || die(`not found: ${args[0]}`);
       const res = createWorktree(task, { base, share: !flags.has("--no-share"), p: P });
       update(task.id, { worktree: res.path, branch: res.branch }, P);
-      writeState({ claims: { ...state(P).claims, [task.id]: { session: process.env.CLAUDE_SESSION_ID || null, worktree: res.path, branch: res.branch, ts: now() } } }, P);
+      // Through claimTask, like every other claim. The bare writeState here was an unlocked
+      // read-modify-write, and it also could not refuse: provisioning a worktree for a task
+      // another live session held took the claim silently.
+      claimTask(task.id, {
+        session: process.env.CLAUDE_SESSION_ID || null,
+        actor: actorLabel(actor()),
+        worktree: res.path,
+        branch: res.branch,
+        steal: flags.has("--steal"),
+        p: P,
+      });
       logEvent("worktree_new", { id: task.id, path: res.path, branch: res.branch, shared: res.shared.length }, P);
       out(`${task.id} → ${res.path}\n   branch ${res.branch}${res.shared.length ? `\n   shared: ${res.shared.map((x) => x.path || x).join(", ")}` : ""}\n\ncd ${res.path}`);
     } else if (sub === "rm") {
