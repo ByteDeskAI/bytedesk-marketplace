@@ -59,6 +59,8 @@ export interface Board {
   epics: Epic[];
   tasks: Task[];
   adrs: { id: string; title: string; status: string }[];
+  /** state.json. The board payload has always carried this; the UI used to ignore it. */
+  state?: { activeEpic?: string | null; claims?: Record<string, unknown> };
 }
 
 export interface StoreEvent {

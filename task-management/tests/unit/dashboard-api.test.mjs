@@ -25,6 +25,59 @@ const act = (p, { action, id, ...body }) =>
   handleWrite("POST", id ? `/api/task/${id}/${action}` : "/api/task", body, { p });
 const task = (p, title = "a task", fields = {}) => create("task", { title, acceptance: [], ...fields }, "", p);
 
+describe("the active epic", () => {
+  it("switches it, in the store, with the same event the CLI logs", () => {
+    const p = store();
+    const first = create("epic", { title: "first" }, "", p);
+    const second = create("epic", { title: "second" }, "", p);
+    writeState({ activeEpic: first.id }, p);
+
+    const res = handleWrite("POST", "/api/epic", { id: second.id }, { p });
+
+    assert.equal(res.status, 200);
+    assert.equal(state(p).activeEpic, second.id, "a 200 that did not change state.json is the failure to catch");
+    assert.ok(readEvents(p).some((e) => e.event === "epic_active" && e.id === second.id));
+  });
+
+  it("gates the next task creation on what it just set", () => {
+    // This is the whole reason the route exists: requireEpic reads state.activeEpic.
+    const p = store();
+    writeConfig({ requireEpic: true }, p);
+    const e = create("epic", { title: "real" }, "", p);
+    assert.equal(handleWrite("POST", "/api/task", { title: "before" }, { p }).status, 409);
+
+    handleWrite("POST", "/api/epic", { id: e.id }, { p });
+
+    assert.equal(handleWrite("POST", "/api/task", { title: "after" }, { p }).status, 201);
+  });
+
+  it("refuses an epic that does not exist", () => {
+    const p = store();
+    assert.equal(handleWrite("POST", "/api/epic", { id: "EP-404" }, { p }).status, 404);
+    assert.equal(state(p).activeEpic ?? null, null);
+  });
+
+  it("refuses a closed epic, which would silently gate every later create", () => {
+    const p = store();
+    const e = create("epic", { title: "shipped" }, "", p);
+    update(e.id, { status: "done" }, p);
+
+    const res = handleWrite("POST", "/api/epic", { id: e.id }, { p });
+
+    assert.equal(res.status, 409);
+    assert.match(res.body.error, /done/);
+  });
+
+  it("clears it when asked, rather than treating null as an error", () => {
+    const p = store();
+    const e = create("epic", { title: "real" }, "", p);
+    handleWrite("POST", "/api/epic", { id: e.id }, { p });
+
+    assert.equal(handleWrite("POST", "/api/epic", { id: null }, { p }).status, 200);
+    assert.equal(state(p).activeEpic, null);
+  });
+});
+
 describe("transitions", () => {
   it("moves a task and records it", () => {
     const p = store();
@@ -175,6 +228,7 @@ describe("bulk edit", () => {
 describe("safety", () => {
   it("404s an unknown route and an unknown task", () => {
     const p = store();
+    assert.equal(handleWrite("POST", "/api/epic", { id: "TM-001" }, { p }).status, 400, "not an epic id");
     assert.equal(handleWrite("POST", "/api/nonsense", {}, { p }).status, 404);
     assert.equal(handleWrite("POST", "/api/task/TM-999/assign", { assignee: "x" }, { p }).status, 404);
   });

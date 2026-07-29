@@ -44,6 +44,8 @@ export const write = {
   bulk: (ids: string[], op: string, args: Record<string, unknown> = {}) =>
     send("POST", "/api/bulk", { ids, op, args }),
   transition: (id: string, status: Task["status"]) => send("POST", `/api/task/${id}/transition`, { status }),
+  /** Switch the active epic — the gate every subsequent task creation passes through. */
+  activeEpic: (id: string | null) => send("POST", "/api/epic", { id }),
 };
 
 /** The server's SSE tail of events.jsonl. Reconnects are the browser's job. */

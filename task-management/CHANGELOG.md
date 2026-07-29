@@ -1,8 +1,26 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
+
+### Fixed
+
+- **The dashboard showed the wrong active epic.** The header lozenge and the burndown
+  chart computed it as `epics.find(e => e.status !== "done")` — "the first epic that
+  isn't finished" — rather than reading `state.activeEpic`, which the `/api/board`
+  payload has always carried. With one epic they coincide; with two, both pointed at the
+  wrong epic.
 
 ### Added
+
+- **Epic swimlanes and an active-epic switcher.** Group by epic turns the five status
+  columns into one row per epic, with a progress bar and `done/total` per lane; the
+  active epic sorts first, then open epics by id, then closed ones, then unfiled work
+  (never dropped). An epic id with no epic file gets a lane marked `missing` rather than
+  hiding the tasks behind the fault. `POST /api/epic` switches the active epic with the
+  same validation and event as `tm epic use`, and refuses a closed one rather than
+  silently gating every later create — until now the only way to change it was the CLI,
+  so the board could create tasks but not say where they land. Grouping sorts tasks
+  lane-first, so the keyboard cursor keeps walking down the screen.
 
 - **`tm export [md|csv|json|pm]`** — the capability the README has promised since v0.2.
   `md` is a report to paste into a PR or a standup; `csv` is RFC 4180 with Jira's column

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "task-management",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Takes over Claude Code's task system. Native TaskCreate/TaskUpdate calls, approved plans, decisions and commits are mirrored into a git-tracked markdown store at .bytedesk/task-management/ \u2014 epics, tasks, ADRs, acceptance criteria, evidence. One store per project, shared by every git worktree, with claims, WIP limits and gates that keep sessions honest. Includes worktree management with shared node_modules, an MCP server, and a live dashboard.",
   "author": {
     "name": "ByteDesk AI",

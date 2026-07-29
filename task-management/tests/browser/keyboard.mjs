@@ -143,9 +143,22 @@ const first = await cursor();
 check("j puts the cursor on the first card of the first non-empty column", first !== null, true);
 check("the focused card is the one with the visible ring", await ringed(), first);
 
+// Whether `j` moves or clamps depends on how many cards that column holds, and this
+// check runs against whatever board is up. Assert the actual contract — move when
+// there is somewhere to go, stay put at the end — rather than assuming a tall column.
+const columnDepth = await evaluate(
+  `(() => {
+     const el = document.querySelector('[data-tm-card="${first}"]');
+     return el ? el.closest('[role=list]').querySelectorAll('[data-tm-card]').length : 0;
+   })()`,
+);
 await press("j");
 const second = await cursor();
-check("j again moves down within the column", second !== first, true);
+check(
+  columnDepth > 1 ? "j again moves down within the column" : "j clamps at the end of a one-card column",
+  columnDepth > 1 ? second !== first : second === first,
+  true,
+);
 
 await press("l");
 const across = await cursor();
@@ -169,9 +182,19 @@ check(
   await evaluate("Array.from(document.querySelectorAll('[data-tm-card]')).filter(e=>e.getAttribute('tabindex')==='0').length"),
   1,
 );
+// Read the card's own status out of the label and check it against the column it sits
+// in, rather than against a hardcoded list of statuses this board might not contain.
 check(
-  "the aria-label carries what the badges show",
-  await evaluate("document.activeElement.getAttribute('aria-label').includes('open') || document.activeElement.getAttribute('aria-label').includes('parked') || document.activeElement.getAttribute('aria-label').includes('done')"),
+  "the aria-label carries the status the column header shows",
+  await evaluate(
+    `(() => {
+       const el = document.activeElement;
+       const label = el.getAttribute('aria-label') || '';
+       const heading = el.closest('[role=list]').getAttribute('aria-label') || '';
+       const status = heading.split(',')[0].trim();
+       return label.includes(status) && label.startsWith(el.getAttribute('data-tm-card'));
+     })()`,
+  ),
   true,
 );
 

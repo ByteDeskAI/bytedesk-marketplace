@@ -1,5 +1,6 @@
 /** MCP protocol shape + tool dispatch. handleRequest is pure, so no process is spawned. */
 import { strict as assert } from "node:assert";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { gateTaskCreate } from "../../lib/enforce.mjs";
 import { TOOLS, handleRequest, respondToLine } from "../../lib/mcp.mjs";
@@ -17,13 +18,20 @@ function payload(res) {
 const call = (name, args, p) =>
   payload(handleRequest({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }, { p }));
 
-test("initialize returns the handshake", () => {
+test("initialize returns the handshake, versioned from the plugin manifest", () => {
+  // Read the manifest rather than hardcoding the number. A literal here breaks on
+  // every release and asserts nothing useful; comparing the two catches the bug that
+  // actually matters — an MCP handshake advertising a different version than the
+  // plugin it ships in.
+  const manifest = JSON.parse(
+    readFileSync(new URL("../../.claude-plugin/plugin.json", import.meta.url), "utf8"),
+  );
   const res = handleRequest({ jsonrpc: "2.0", id: 0, method: "initialize" }, { p: tempStore() });
   assert.equal(res.id, 0);
   assert.deepEqual(res.result, {
     protocolVersion: "2024-11-05",
     capabilities: {},
-    serverInfo: { name: "task-management", version: "0.2.0" },
+    serverInfo: { name: "task-management", version: manifest.version },
   });
 });
 
