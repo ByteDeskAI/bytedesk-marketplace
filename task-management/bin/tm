@@ -8,7 +8,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { currentCheckout, ensureDirs, isInitialized, legacyStore, paths } from "../lib/paths.mjs";
 import {
@@ -49,7 +49,7 @@ import { graphData, mermaid, renderWhy, why } from "../lib/graph.mjs";
 import { diagnose, render as renderDoctor, repairAll } from "../lib/doctor.mjs";
 import { FORMATS, exportStore } from "../lib/export.mjs";
 import { MAX_TOUCHES, observe, record } from "../lib/touches.mjs";
-import { goalBody, parseGoalDoc, refusal } from "../lib/goals.mjs";
+import { goalBody, manifestGoalTitle, parseGoalDoc, parseManifest, refusal } from "../lib/goals.mjs";
 
 const P = paths();
 const rawArgs = process.argv.slice(2);
@@ -222,13 +222,15 @@ const VERBS = {
    */
   goal(sub, ...rest) {
     requireInit();
-    if (sub !== "import") die('usage: tm goal import <doc.md> [--epic EP-001]');
+    if (sub !== "import") die('usage: tm goal import <doc.md|manifest.plan.json> [--epic EP-001]');
     const ei = rest.indexOf("--epic");
     const epic = ei === -1 ? null : rest[ei + 1];
     const file = rest.filter((a) => !a.startsWith("--") && a !== epic)[0];
     if (!file) die("usage: tm goal import <doc.md> [--epic EP-001]");
     const path = resolve(file);
     if (!existsSync(path)) die(`no such file: ${file}`);
+
+    if (/\.json$/i.test(path)) return importManifest(path);
 
     const parsed = parseGoalDoc(readFileSync(path, "utf8"));
     if (!parsed.title) die(`${file} has no \`# Goal:\` heading and no \`**Objective:**\` line — cannot name the task.`);
@@ -972,6 +974,119 @@ const VERBS = {
     );
   },
 };
+
+/**
+ * Import a `*.plan.json` manifest: one epic, one task per goal, the manifest's own dependency
+ * graph, and its declared `touches`.
+ *
+ * A goal whose doc has no parseable criteria is SKIPPED and named, never imported with an empty
+ * acceptance list — the same rule as a single-doc import, for the same reason. Skipping rather
+ * than refusing the whole manifest is deliberate: one sloppy doc should not cost the other
+ * nineteen goals. But the exit code is 2 when anything was skipped, so a script notices.
+ *
+ * Dependencies are resolved AFTER every task exists, because a manifest lists goals in planning
+ * order and `dependsOn` freely points forward.
+ */
+function importManifest(path) {
+  const m = parseManifest(readFileSync(path, "utf8"));
+  if (m.error) die(`${path}: ${m.error}`);
+  if (!m.goals.length) die(`${path}: the manifest lists no usable goals (each needs an id and a doc)`);
+
+  const rel = (f) => (f.startsWith(`${P.root}/`) ? f.slice(P.root.length + 1) : f);
+  const manifestDir = dirname(path);
+  const epicBody = [
+    m.definitionOfDone ? `**Definition of done:** ${m.definitionOfDone}` : "",
+    m.gate ? `**Integration gate:** \`${m.gate}\`` : "",
+    m.autoMergeTo ? `**Auto-merges to:** ${m.autoMergeTo}` : "",
+    m.jiraEpicKey ? `Jira: ${m.jiraEpicKey}` : "",
+    `Imported from ${rel(path)}.`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  const epic = create("epic", { title: m.epicTitle, plan: rel(path), ...stamp() }, epicBody, P);
+  writeState({ activeEpic: epic.id }, P);
+
+  const made = new Map(); // manifest goal id → tm task id
+  const skipped = [];
+  for (const g of m.goals) {
+    // A manifest doc path is relative to the repo the manifest lives in, not to the store.
+    const docPath = isAbsolute(g.doc) ? g.doc : resolve(manifestDir, g.doc.replace(/^docs\/goals\//, ""));
+    const fallback = resolve(manifestDir, g.doc);
+    const found = existsSync(docPath) ? docPath : existsSync(fallback) ? fallback : null;
+    if (!found) {
+      skipped.push({ id: g.id, why: `doc not found: ${g.doc}` });
+      continue;
+    }
+    const parsed = parseGoalDoc(readFileSync(found, "utf8"));
+    if (!parsed.criteria.length) {
+      skipped.push({ id: g.id, why: `no parseable success criteria in ${g.doc}` });
+      continue;
+    }
+    const t = create(
+      "task",
+      {
+        title: manifestGoalTitle(g, parsed),
+        epic: epic.id,
+        acceptance: parsed.criteria.map((text) => ({ text, done: false })),
+        goalDoc: rel(found),
+        goalId: g.id,
+        // The manifest declares these; nothing else ever wrote the field it feeds.
+        touches: g.touches.length ? g.touches : undefined,
+        labels: [g.mode, g.needsHumanGate ? "human-gate" : null].filter(Boolean),
+        evidence: [],
+        commits: [],
+        blockedBy: [],
+        blocks: [],
+        ...stamp(),
+      },
+      goalBody(parsed, rel(found)),
+      P,
+    );
+    made.set(g.id, t.id);
+  }
+
+  // Dependencies last: a manifest lists goals in planning order and dependsOn points forward.
+  let edges = 0;
+  const danglingDeps = [];
+  for (const g of m.goals) {
+    const mine = made.get(g.id);
+    if (!mine) continue;
+    const deps = g.dependsOn.map((d) => made.get(d)).filter(Boolean);
+    const lost = g.dependsOn.filter((d) => !made.has(d));
+    if (lost.length) danglingDeps.push({ id: g.id, on: lost });
+    if (!deps.length) continue;
+    mutate(mine, (doc) => ({
+      blockedBy: [...new Set([...(doc.blockedBy || []), ...deps])],
+      status: doc.status === "open" ? "blocked" : doc.status,
+    }), P);
+    for (const d of deps) mutate(d, (doc) => ({ blocks: [...new Set([...(doc.blocks || []), mine])] }), P);
+    edges += deps.length;
+  }
+
+  logEvent("goal_imported", { id: epic.id, doc: rel(path), goals: made.size, skipped: skipped.length, edges }, P);
+
+  const touched = [...made.values()].filter((id) => (read(id, P).touches || []).length).length;
+  out(
+    [
+      `${epic.id} ${m.epicTitle}`,
+      `   ${made.size} task(s) from ${m.goals.length} goal(s), ${edges} dependency edge(s)`,
+      `   ${touched} carry declared touches — \`tm parallel\` batches on those`,
+      m.gate ? `   integration gate: ${m.gate}` : "",
+      ...(danglingDeps.length
+        ? ["", "   dependencies on goals that were not imported:", ...danglingDeps.map((d) => `     ${made.get(d.id)} → ${d.on.join(", ")}`)]
+        : []),
+      ...(skipped.length
+        ? ["", `   skipped ${skipped.length}, never imported with an empty gate:`, ...skipped.map((s) => `     ${s.id} — ${s.why}`)]
+        : []),
+      "",
+      `   \`tm next\` and \`tm parallel\` now answer for this program`,
+    ]
+      .filter((l) => l !== "")
+      .join("\n"),
+  );
+  if (skipped.length) process.exit(2);
+}
 
 function renderShow(doc) {
   const lines = [`${doc.id}  ${doc.title}`, `status: ${doc.status}${doc.epic ? `   epic: ${doc.epic}` : ""}`];

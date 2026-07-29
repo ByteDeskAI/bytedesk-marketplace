@@ -17,7 +17,7 @@
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { goalBody, parseGoalDoc, refusal } from "../../lib/goals.mjs";
+import { goalBody, manifestGoalTitle, parseGoalDoc, parseManifest, refusal } from "../../lib/goals.mjs";
 
 const doc = (body) => `# Goal: Do the thing (BDP-1234)\n\n${body}\n`;
 
@@ -186,5 +186,78 @@ describe("the body it stores", () => {
     assert.equal(p.title, null);
     assert.deepEqual(p.criteria, []);
     assert.equal(goalBody(p, null), "");
+  });
+});
+
+describe("manifests", () => {
+  const manifest = (goals, extra = {}) =>
+    JSON.stringify({
+      plan: "a-program",
+      epic: { title: "A Program", definitionOfDone: "everything lands", jiraEpicKey: "BDP-1" },
+      integration: { gate: "make ci", autoMergeTo: "develop" },
+      goals,
+      ...extra,
+    });
+
+  it("reads the epic, the gate and the goals", () => {
+    const m = parseManifest(manifest([{ id: "a", doc: "docs/goals/a.md", title: "Do A" }]));
+    assert.equal(m.epicTitle, "A Program");
+    assert.equal(m.definitionOfDone, "everything lands");
+    assert.equal(m.gate, "make ci");
+    assert.equal(m.autoMergeTo, "develop");
+    assert.equal(m.jiraEpicKey, "BDP-1");
+    assert.equal(m.goals.length, 1);
+  });
+
+  it("carries the four fields every one of 506 real goals has", () => {
+    const m = parseManifest(
+      manifest([
+        { id: "a", doc: "d/a.md", title: "A", dependsOn: ["b"], mode: "sequential", needsHumanGate: true, touches: ["src/x.ts"] },
+      ]),
+    );
+    const g = m.goals[0];
+    assert.deepEqual(g.dependsOn, ["b"]);
+    assert.deepEqual(g.touches, ["src/x.ts"]);
+    assert.equal(g.mode, "sequential");
+    assert.equal(g.needsHumanGate, true);
+  });
+
+  it("defaults the absent ones rather than throwing", () => {
+    const g = parseManifest(manifest([{ id: "a", doc: "d/a.md" }])).goals[0];
+    assert.deepEqual(g.dependsOn, []);
+    assert.deepEqual(g.touches, []);
+    assert.equal(g.needsHumanGate, false);
+    assert.equal(g.title, null);
+  });
+
+  it("drops a goal with no id or no doc, since neither can be recovered", () => {
+    const m = parseManifest(manifest([{ id: "a", doc: "d/a.md" }, { id: "b" }, { doc: "d/c.md" }]));
+    assert.deepEqual(m.goals.map((g) => g.id), ["a"]);
+  });
+
+  it("refuses a file that is not a manifest, by name", () => {
+    assert.match(parseManifest("{}").error, /no `goals` array/);
+    assert.match(parseManifest("not json").error, /not valid JSON/);
+    assert.match(parseManifest("[]").error, /no `goals` array/);
+  });
+
+  it("falls back to plan for the epic title when epic.title is absent", () => {
+    const m = parseManifest(JSON.stringify({ plan: "just-a-plan", goals: [{ id: "a", doc: "d/a.md" }] }));
+    assert.equal(m.epicTitle, "just-a-plan");
+  });
+});
+
+describe("manifestGoalTitle", () => {
+  it("prefers the manifest's own title — it is what the program was planned with", () => {
+    assert.equal(manifestGoalTitle({ id: "x", title: "Manifest title" }, { title: "Doc title" }), "Manifest title");
+  });
+
+  it("falls back to the doc heading, then the id", () => {
+    assert.equal(manifestGoalTitle({ id: "x" }, { title: "Doc title" }), "Doc title");
+    assert.equal(manifestGoalTitle({ id: "x" }, null), "x");
+  });
+
+  it("strips a leading Jira key, which the store keeps as a field instead", () => {
+    assert.equal(manifestGoalTitle({ id: "x", title: "BDP-3077: Contain the exposure" }, null), "Contain the exposure");
   });
 });

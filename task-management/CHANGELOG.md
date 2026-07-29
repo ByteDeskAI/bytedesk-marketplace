@@ -14,6 +14,15 @@
 
 ### Added
 
+- **`tm goal import <manifest.plan.json>`** — a whole program in one command: one epic, one task
+  per goal with criteria parsed from its own doc, the manifest's `dependsOn` as tm dependencies,
+  and its declared `touches` on the field `tm parallel` batches on. Measured across the 36
+  manifests and 506 goals in `bytedesk-platform`: every goal carries `dependsOn`, `mode`,
+  `needsHumanGate` and `touches`; 405 have real dependencies and 498 have real touches. So an
+  import makes `tm next`, `tm why` and `tm parallel` correct on a 20-goal program before any work
+  starts. A goal whose doc has no parseable criteria is skipped and named — never imported with an
+  empty gate — and the exit code is 2 when anything was skipped so a script notices.
+
 - **`tm goal import <doc.md>`** — a goal's own success criteria become the gate that closes it.
   `/goal` is Claude Code's persistent-agent loop and it requires a verifiable stop condition;
   `tm done` refuses until every acceptance criterion is ticked. Same requirement, already written

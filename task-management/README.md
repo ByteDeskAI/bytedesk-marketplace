@@ -88,7 +88,7 @@ tm ac <id> "<criterion>"             acceptance criteria — `tm done` refuses w
 tm accept <id> <n>                   tick one
 tm start|done|park|block|unblock <id>
 tm reopen <id> [why]                 bring a done task back, and its epic with it
-tm goal import <doc.md>              a goal doc becomes a task; its criteria become the gate
+tm goal import <doc.md|*.plan.json>  a goal doc becomes a task; a manifest becomes a whole epic
 tm dep <id> <blocker...>             dependency graph
 tm evidence <id> <path|->            attach a log/screenshot as proof
 tm task new "<title>" --template bug   start from a template
@@ -171,6 +171,33 @@ A dash-only parser under a bolded-only header — the obvious first cut — miss
 criteria section at all, and a task created with an empty acceptance list passes `tm done`
 unchallenged — so a silent import would have the gate certify a goal nobody verified. The refusal
 names the file and every header it looked for.
+
+### A whole program at once
+
+`tm goal import <manifest.plan.json>` takes a `bytedesk-goals` manifest and lands the program:
+
+```
+$ tm goal import docs/goals/agent-capability-enhancements.plan.json
+EP-003 Agent Capability Enhancements — Collaboration, Self-Learning & Memory…
+   20 task(s) from 20 goal(s), 14 dependency edge(s)
+   20 carry declared touches — `tm parallel` batches on those
+   integration gate: scripts/testing/local-test.sh pr-ready
+   `tm next` and `tm parallel` now answer for this program
+```
+
+Two manifest fields land somewhere that already existed and was starving. `dependsOn` becomes a
+tm dependency — it is a *land* dependency in `run-goals` (a merged PR), which is the same shape as
+tm's "blocker resolved" — so `tm next` and `tm why` answer correctly on an imported program with no
+further input. And **`touches` becomes `touches`**, the field `tm parallel` batches on: nothing wrote
+it until the Edit/Write hook began observing edits, and a manifest has it *declared* for 498 of the
+506 goals in `bytedesk-platform`. So parallel batching is right **before** any work starts rather
+than after a pass of it.
+
+A goal whose doc has no parseable criteria is **skipped and named**, never imported with an empty
+gate. Skipping rather than refusing the whole manifest is deliberate — one sloppy doc should not
+cost the other nineteen goals — but the exit code is 2 when anything was skipped, so a script
+notices. Dependencies are wired after every task exists, because a manifest lists goals in planning
+order and `dependsOn` points forward freely.
 
 ## The board as context you pull
 

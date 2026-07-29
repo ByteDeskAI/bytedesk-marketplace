@@ -112,6 +112,48 @@ BEFORE=$(tm board --json | jq '.tasks | length')
 tm goal import "$TM_ROOT/no-criteria.md" >/dev/null 2>&1 || true
 [[ "$(tm board --json | jq '.tasks | length')" == "$BEFORE" ]] && ok "a refused import creates nothing" || no "a refused import creates nothing"
 
+# A manifest import: one epic, a task per goal, the manifest's deps and its declared touches.
+mkdir -p "$TM_ROOT/g"
+cat > "$TM_ROOT/g/one.md" <<'GD'
+# Goal: First thing (BDP-1)
+**Success criteria (verifiable):**
+- the first thing is true
+GD
+cat > "$TM_ROOT/g/two.md" <<'GD'
+# Goal: Second thing (BDP-2)
+## Success criteria
+1. the second thing is true
+GD
+cat > "$TM_ROOT/g/nocrit.md" <<'GD'
+# Goal: Third thing with no criteria
+## Why
+Because.
+GD
+cat > "$TM_ROOT/g/p.plan.json" <<'MF'
+{ "plan": "demo", "epic": { "title": "Demo Program", "definitionOfDone": "all three land" },
+  "integration": { "gate": "make ci" },
+  "goals": [
+    { "id": "one", "doc": "one.md", "title": "First thing", "dependsOn": [], "touches": ["src/a.ts"], "mode": "parallel", "needsHumanGate": false },
+    { "id": "two", "doc": "two.md", "title": "Second thing", "dependsOn": ["one"], "touches": ["src/b.ts"], "mode": "sequential", "needsHumanGate": true },
+    { "id": "three", "doc": "nocrit.md", "title": "Third thing", "dependsOn": ["one"], "touches": [], "mode": "parallel", "needsHumanGate": false }
+  ] }
+MF
+OUT="$(tm goal import "$TM_ROOT/g/p.plan.json" 2>&1 || true)"
+assert_contains "$OUT" "Demo Program" "a manifest import opens the epic"
+assert_contains "$OUT" "2 task(s) from 3 goal(s)" "each goal with parseable criteria becomes a task"
+assert_contains "$OUT" "1 dependency edge" "dependsOn becomes a tm dependency"
+assert_contains "$OUT" "carry declared touches" "the manifest's touches populate the field tm parallel batches on"
+assert_contains "$OUT" "integration gate: make ci" "the integration gate is surfaced"
+assert_contains "$OUT" "nocrit.md" "a goal with no parseable criteria is named, not silently dropped"
+assert_status 2 "a manifest with a skipped goal exits 2 so a script notices" node "$PLUGIN_ROOT/bin/tm" goal import "$TM_ROOT/g/p.plan.json"
+
+MEPIC=$(tm epic | tail -1 | grep -oE 'EP-[0-9]+')
+SECOND=$(tm find "Second thing" --json | jq -r '.[-1].id')
+assert_contains "$(tm show "$SECOND")" "blocked by" "the dependent goal is blocked by its dependency"
+assert_contains "$(tm show "$SECOND")" "src/b.ts" "declared touches land on the task"
+assert_contains "$(tm show "$SECOND")" "human-gate" "needsHumanGate becomes a label"
+assert_contains "$(tm why "$SECOND")" "startable: no" "tm why answers for an imported program"
+
 # tm reopen — the way back, and what it takes with it.
 tm task new "Reopen target task" >/dev/null
 RID=$(tm find "Reopen target task" --json | jq -r '.[0].id')
