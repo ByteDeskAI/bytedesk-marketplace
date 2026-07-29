@@ -44,6 +44,7 @@ import { claimTask, claimant, releaseClaim, staleClaims, sweepClaims } from "../
 import { actor, actorLabel } from "../lib/actor.mjs";
 import { addComment, addLink, assign, backlog, estimate, labels, prioritise, rank, subtasks } from "../lib/issue.mjs";
 import { CATALOG, messageFor, ntfyConfig, send, shouldPublish } from "../lib/ntfy.mjs";
+import { graphData, mermaid, renderWhy, why } from "../lib/graph.mjs";
 
 const P = paths();
 const rawArgs = process.argv.slice(2);
@@ -336,6 +337,33 @@ const VERBS = {
         ? { ...doc, tasks: list("task", { epic: id }, P).map(({ body, file, ...t }) => t) }
         : doc;
     emit(detail, () => renderShow(detail));
+  },
+
+  /**
+   * Why a task is not startable, walked to the root rather than one hop deep.
+   * `blockedBy` on a card names the neighbour; this names the thing to go and do.
+   */
+  why(id) {
+    requireInit();
+    if (!id) die("usage: tm why <id>");
+    const w = why(id, P);
+    if (!w) die(`not found: ${id}`);
+    emit(w, () => renderWhy(w));
+  },
+
+  /** The dependency graph as Mermaid — GitHub renders it in the PR diff. */
+  graph(...args) {
+    requireInit();
+    const ei = args.indexOf("--epic");
+    const opts = {
+      epic: ei === -1 ? null : args[ei + 1],
+      includeDone: args.includes("--all"),
+      subtasks: !args.includes("--no-subtasks"),
+    };
+    if (JSON_OUT) return emit(graphData(opts, P), () => "");
+    const g = mermaid(opts, P);
+    if (!g.tasks) die("(no tasks to draw)");
+    out(args.includes("--raw") ? g.mermaid : `\`\`\`mermaid\n${g.mermaid}\n\`\`\``);
   },
 
   find(...q) {
@@ -734,6 +762,8 @@ const VERBS = {
         "  estimate <id> <points> | comment <id> <text> | subtask <id> [parent|none]",
         "  link <id> <type> <id> | rank <id> --before|--after <id> | backlog",
         "  next | board | stale | find <q> | log [n] | standup [iso] | handoff <id>",
+        "  why <id>                      what is actually holding a task up, to the root",
+        "  graph [--epic EP-1] [--all]   the dependency graph as Mermaid",
         "  reindex | override <reason> | config [key value] | context",
         "  install [--force] | uninstall | where   put tm on PATH (auto at SessionStart)",
         "  ntfy [on|off <kind>|enable|disable|test|topic <t>|board <url>]   push notifications",

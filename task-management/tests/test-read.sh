@@ -43,6 +43,29 @@ json "$(tm log --json)" 'type == "array" and (.[0] | has("event"))' "log --json"
 json "$(tm log TM-001 --json)" 'all(.[]; .id == "TM-001")' "log <id> --json filters to one task"
 json "$(tm standup --json)" 'has("events") or type == "array"' "standup --json"
 
+# tm why / tm graph — the transitive read. TM-002 blocks TM-001, TM-003 blocks TM-002,
+# so the answer for TM-001 must name TM-003, not the neighbour the card already shows.
+tm task new "Second task" >/dev/null
+tm task new "Third task" >/dev/null
+tm dep TM-001 TM-002 >/dev/null
+tm dep TM-002 TM-003 >/dev/null
+WHY="$(tm why TM-001)"
+has "$WHY" "startable: no" "why reports a blocked task as not startable"
+has "$WHY" "TM-003" "why walks past the direct blocker to the root"
+has "$WHY" "start here: TM-003" "why names the task to actually pick up"
+json "$(tm why TM-001 --json)" '.startable == false and (.roots | map(.id)) == ["TM-003"]' "why --json"
+json "$(tm why TM-003 --json)" '.startable == true and (.reasons | length) == 0' "why on unblocked work"
+tm why TM-404 >/dev/null 2>&1 && no "why fails on an unknown id" || ok "why fails on an unknown id"
+
+GRAPH="$(tm graph)"
+has "$GRAPH" '```mermaid' "graph is fenced for a PR diff by default"
+has "$GRAPH" "TM_003 --> TM_002" "graph points blocker at blocked"
+case "$(tm graph --raw)" in
+  \`\`\`*) no "graph --raw drops the fence" "still fenced" ;;
+  *) ok "graph --raw drops the fence" ;;
+esac
+json "$(tm graph --json)" '(.nodes | length) == 3 and (.edges | length) == 2' "graph --json is nodes and edges"
+
 # The human forms must not regress into JSON.
 case "$(tm board)" in
   \{*) no "board without --json stays human" "got JSON" ;;
