@@ -27,6 +27,22 @@ const styles = cssMap({
     padding: "var(--ds-space-100)",
     cursor: "grab",
   },
+  // The keyboard cursor. Drawn explicitly rather than relying on :focus-visible,
+  // because j/k moves focus programmatically and some engines suppress the visible
+  // ring for focus that no key triggered — an invisible cursor is the same as none.
+  //
+  // Additive: @compiled extracts statically, so `css={a ? x : y}` fails the build.
+  // The array form is how you say "and also".
+  focusable: {
+    borderRadius: "var(--ds-radius-small)",
+    outlineWidth: "0",
+  },
+  focused: {
+    outlineColor: "var(--ds-border-focused)",
+    outlineOffset: "var(--ds-space-025)",
+    outlineStyle: "solid",
+    outlineWidth: "var(--ds-border-width-focused)",
+  },
   id: { fontFamily: "var(--ds-font-family-code)" },
   title: { cursor: "pointer" },
   watch: {
@@ -49,6 +65,8 @@ export function TaskCard({
   watched = false,
   onWatch,
   outbox,
+  focused = false,
+  onFocusCard,
 }: {
   task: Task;
   starts: Map<string, number>;
@@ -60,6 +78,9 @@ export function TaskCard({
   watched?: boolean;
   onWatch?: (id: string) => void;
   outbox?: { status: string; error?: string };
+  /** The keyboard cursor is on this card. Roving tabindex — see useBoardKeys. */
+  focused?: boolean;
+  onFocusCard?: (id: string) => void;
 }) {
   const ac = task.acceptance ?? [];
   const met = ac.filter((a) => a.done).length;
@@ -73,6 +94,29 @@ export function TaskCard({
     // pragmatic-drag-and-drop if the board ever needs keyboard reordering.
     <div
       draggable
+      // Reachable by Tab and by j/k, and announced as one thing rather than a pile
+      // of badges: the visual card says "3/4" and "⊘ TM-002", which is nothing at all
+      // to a screen reader.
+      data-tm-card={task.id}
+      role="listitem"
+      tabIndex={focused ? 0 : -1}
+      aria-current={focused || undefined}
+      aria-label={[
+        task.id,
+        task.title,
+        task.status.replace("_", " "),
+        ac.length ? `${met} of ${ac.length} acceptance criteria met` : "",
+        task.priority ? `${task.priority} priority` : "",
+        task.assignee ? `assigned to ${task.assignee}` : "",
+        (task.blockedBy ?? []).length ? `blocked by ${(task.blockedBy ?? []).join(", ")}` : "",
+        selected ? "selected" : "",
+      ]
+        .filter(Boolean)
+        .join(", ")}
+      css={[styles.focusable, focused && styles.focused]}
+      // Tab and j/k must agree on where the cursor is, or tabbing to a card and
+      // pressing Enter does nothing.
+      onFocus={() => onFocusCard?.(task.id)}
       onDragStart={(e: DragEvent) => e.dataTransfer.setData("text/plain", task.id)}
       onDragOver={(e: DragEvent) => e.preventDefault()}
       onDrop={(e: DragEvent) => {
