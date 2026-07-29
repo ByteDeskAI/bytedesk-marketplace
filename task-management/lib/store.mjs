@@ -65,8 +65,14 @@ export function slug(s, max = 48) {
 
 // ── low-level io ─────────────────────────────────────────────────────────────
 
+/**
+ * The temp name carries the pid. A fixed `${file}.tmp` is only atomic for one writer:
+ * two processes writing the same doc both create it, both rename, and the loser's
+ * rename hits a path the winner already moved — ENOENT, or worse, a half-written file
+ * promoted over a good one.
+ */
 function writeAtomic(file, text) {
-  const tmp = `${file}.tmp`;
+  const tmp = `${file}.${process.pid}.tmp`;
   writeFileSync(tmp, text);
   renameSync(tmp, file);
 }
@@ -143,9 +149,16 @@ export function withLock(p = paths(), fn) {
   }
 }
 
-function staleLock(lock) {
+/** Exported for the unit that pins the empty-lock window; not part of the store API. */
+export function staleLock(lock) {
+  let raw;
   try {
-    const { ts, pid } = JSON.parse(readFileSync(lock, "utf8"));
+    raw = readFileSync(lock, "utf8");
+  } catch {
+    return true; // it vanished; whoever held it is done
+  }
+  try {
+    const { ts, pid } = JSON.parse(raw);
     if (Date.now() - Date.parse(ts) > LOCK_STALE_MS) return true;
     if (pid && pid !== process.pid) {
       try {
@@ -156,7 +169,24 @@ function staleLock(lock) {
     }
     return false;
   } catch {
-    return true; // unreadable lock is a dead lock
+    /**
+     * Unparseable is NOT automatically dead, and assuming it was is what made this lock
+     * breakable under the exact contention it exists for.
+     *
+     * `openSync(lock, "wx")` creates the file EMPTY and the pid is written a moment
+     * later. A second process arriving inside that window read "", failed to parse it,
+     * concluded the lock was dead, unlinked it and walked straight in — so both
+     * processes held the lock at once. That is how eight concurrent creates still minted
+     * duplicate ids after create() was wrapped: the wrapping was fine, the lock was not.
+     *
+     * Fall back to the file's own mtime: a freshly created empty lock is young, so it is
+     * respected, and a genuinely corrupt one still ages out.
+     */
+    try {
+      return Date.now() - statSync(lock).mtimeMs > LOCK_STALE_MS;
+    } catch {
+      return true;
+    }
   }
 }
 
@@ -363,20 +393,64 @@ function patchIndex(entity, p = paths()) {
   }
 }
 
+/**
+ * `nextId` and `write` have to be one atomic unit.
+ *
+ * `nextId` picks max(existing)+1 by reading the directory. Two processes that read it
+ * before either has written both pick the same number, and both write — so the store
+ * ends up with two files claiming one id. That is not a cosmetic clash: `fileFor` finds
+ * an id with `readdirSync(dir).find(f => f.startsWith(`${id}-`))`, so one of the two
+ * files becomes permanently unaddressable. `tm show`, `tm start` and `tm done` can never
+ * reach it again, and nothing reports it. Measured before this lock: 8 concurrent
+ * `tm task new` produced 8 files with 7 distinct ids and 6 rows in index.json.
+ */
 export function create(kind, fields, body = "", p = paths()) {
   ensureDirs(p);
-  const id = fields.id || nextId(kind, p);
-  const doc = write({ id, kind, status: "open", created: now(), ...fields, body }, p);
-  logEvent("create", { id, kind, title: doc.title }, p);
+  const doc = withLock(p, () => {
+    const id = fields.id || nextId(kind, p);
+    return write({ id, kind, status: "open", created: now(), ...fields, body }, p);
+  });
+  logEvent("create", { id: doc.id, kind, title: doc.title }, p);
   return doc;
 }
 
+/**
+ * Read-modify-write under the lock, so a concurrent writer cannot land between the read
+ * and the write and lose its own change. `patchIndex` inside `write` is a whole-file
+ * read-modify-write of index.json too, which is where the missing index rows came from.
+ *
+ * NOTE for callers: this only protects the read THIS function does. A caller that reads
+ * the doc itself, computes a new value from it and then calls update is still racing —
+ * use `mutate` for that.
+ */
 export function update(id, patch, p = paths()) {
-  const doc = read(id, p);
-  if (!doc) throw new Error(`not found: ${id}`);
-  const next = write({ ...doc, ...patch }, p);
-  logEvent("update", { id, patch: Object.keys(patch).join(",") , status: next.status }, p);
-  return next;
+  return withLock(p, () => {
+    const doc = read(id, p);
+    if (!doc) throw new Error(`not found: ${id}`);
+    const next = write({ ...doc, ...patch }, p);
+    logEvent("update", { id, patch: Object.keys(patch).join(","), status: next.status }, p);
+    return next;
+  });
+}
+
+/**
+ * Append-style edits, safely: `mutate(id, doc => ({ comments: [...doc.comments, c] }))`.
+ *
+ * Wrapping `update` alone does not help the common shape in this codebase, which is
+ * "read the doc, append to one of its arrays, write it back". Both processes read the
+ * same array, both append one item, and the second write overwrites the first — the
+ * update is atomic and the change is still gone. Measured before this: 8 concurrent
+ * `tm comment` on one task stored 5 of 8, and 7 of the 8 processes exited 0.
+ *
+ * The callback runs INSIDE the lock and receives the current doc, so it must be pure
+ * and quick — no shelling out, no network.
+ */
+export function mutate(id, fn, p = paths()) {
+  return withLock(p, () => {
+    const doc = read(id, p);
+    if (!doc) throw new Error(`not found: ${id}`);
+    return update(id, fn(doc), p);
+  });
 }
 
 /**

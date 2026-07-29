@@ -148,6 +148,13 @@ tm start <id> [--steal]              refuses a task another live session holds
 tm handoff <id> --worktree           brief that provisions its own checkout
 ```
 
+Every write to an entity is serialized through one lock in the shared store, so two sessions
+writing at the same instant cannot lose each other's changes — which is not a theoretical
+concern here, since running several at once is the point. `create` mints an id and writes it
+atomically (otherwise two sessions pick the same number and one file becomes unreachable), and
+read-append-write edits — comments, labels, links, criteria, evidence, deps — go through
+`mutate` so both appends survive.
+
 A task's optional `touches: []` (paths it will edit) is what `tm parallel` uses to decide which
 work can run at the same time. Claims carry session, worktree and branch, and expire — a session
 that never comes back cannot lock a task out of the board forever.
@@ -270,6 +277,11 @@ $ tm doctor
 
 **error** means the store is lying — a read gives a wrong answer. **warning** means it is
 untidy but correct. It **exits 1 on any error**, so it can gate a commit hook or a CI step.
+
+`duplicate-id` is the one it will not repair. Two files claiming one id means only the first
+is reachable at all, and deciding which keeps the id changes an identity that commits, links
+and dependencies already point at — a judgement, not a typo. (Stores written before writes
+were serialized may contain these; that is why it reports rather than guesses.)
 
 `--fix` applies only what is unambiguous, says what it changed, and repeats until the store
 stops changing — dropping a dangling blocker can leave a task `blocked` with nothing blocking

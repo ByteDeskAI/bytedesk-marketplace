@@ -7,7 +7,7 @@
  *   - `tm override <reason>`                 → one-shot token, consumed by the next gate
  *   - the Stop gate never blocks twice in a row for the same task set
  */
-import { acceptanceOpen, config, list, logEvent, now, read, state, writeState } from "./store.mjs";
+import { acceptanceOpen, config, list, logEvent, now, read, state, withLock, writeState } from "./store.mjs";
 import { paths } from "./paths.mjs";
 
 export function enforcementOff(p = paths()) {
@@ -20,13 +20,23 @@ export function setOverride(reason, p = paths()) {
   logEvent("override", { reason }, p);
 }
 
-/** Returns the override reason and clears it, or null. */
+/**
+ * Returns the override reason and clears it, or null.
+ *
+ * Read-then-clear, so it has to be atomic: `tm override` mints exactly ONE token, and
+ * two gates evaluating at the same moment would both read it, both pass, and both write
+ * null — one token spent twice. A gate that can be bypassed twice per token is not a
+ * gate, and nothing in the event log would show it (two `override_used` entries for one
+ * `override` is the only trace, and nobody reads that).
+ */
 export function consumeOverride(p = paths()) {
-  const s = state(p);
-  if (!s.override) return null;
-  writeState({ override: null }, p);
-  logEvent("override_used", { reason: s.override.reason }, p);
-  return s.override.reason;
+  return withLock(p, () => {
+    const s = state(p);
+    if (!s.override) return null;
+    writeState({ override: null }, p);
+    logEvent("override_used", { reason: s.override.reason }, p);
+    return s.override.reason;
+  });
 }
 
 // ── TaskCreate gate ──────────────────────────────────────────────────────────
@@ -92,6 +102,15 @@ export function gateDone(id, p = paths()) {
 
 export function gateStop(p = paths()) {
   if (enforcementOff(p)) return { block: false };
+  // `lastStopBlock` is read, compared and rewritten — the "never block twice in a row"
+  // promise is a read-modify-write on one key. Two Stop hooks arriving together both
+  // read the same value, so either both block (two nudges for one set, which is the
+  // thing this state exists to prevent) or both release. Reentrant, so the
+  // consumeOverride below nests safely.
+  return withLock(p, () => gateStopLocked(p));
+}
+
+function gateStopLocked(p) {
   const session = process.env.CLAUDE_SESSION_ID || null;
   const s = state(p);
   const mine = list("task", { status: "in_progress" }, p).filter(
