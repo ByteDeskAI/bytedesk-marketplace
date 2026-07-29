@@ -14,6 +14,26 @@
 
 ### Fixed
 
+- **The claim interlock was only enforced on the CLI.** `tm start` refuses a task another live
+  session holds; `tm_task_update` with `action: "start"` — the path Claude actually uses — did a
+  bare `writeState` and took it silently. Three defects in that one line: no holder check, so
+  MCP took what the CLI refused; the replacement record was `{session, ts}` only, dropping
+  `actor`/`worktree`/`branch`/`pid`, and `expired()` reads `claim.worktree` to notice a dead
+  checkout — so a claim taken over MCP became permanently un-expirable and the next refusal
+  degraded to "session bob"; and no `claim_stolen` event, so the only trace was a generic
+  `update`.
+
+  `tm_claim` had its own variant: it compared sessions but never asked `expired()`, so a claim
+  left by a crashed session blocked an MCP agent forever while the CLI treated it as dead — two
+  callers disagreeing about one piece of state.
+
+  Every claim writer now goes through `claimTask`/`releaseClaim`: both MCP paths, `tm worktree
+  new` (also a bare unlocked write that could not refuse), and `doctor`'s `dropClaim`, which
+  read `state(p).claims` outside the lock and then called the locking `writeState` — the
+  stale-read-then-locked-write shape. `steal` is exposed on both MCP tools so taking someone's
+  work is deliberate and lands `claim_stolen`, and the refusal names it so an agent does not
+  retry in a loop.
+
 - **A closed reader crashed the CLI.** `tm board --json | head -1` wrote the first line, `head`
   exited, and the next write past the pipe buffer raised `EPIPE` on a stream with no error
   listener — an unhandled `'error'` event, so node died printing 1224 bytes of stack trace over

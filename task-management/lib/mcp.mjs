@@ -11,6 +11,8 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { paths } from "./paths.mjs";
+import { claimTask, releaseClaim } from "./claims.mjs";
+import { actor, actorLabel } from "./actor.mjs";
 import { config, create, list, logEvent, nextTasks, now, read, state, update, writeState } from "./store.mjs";
 import { consumeOverride, enforcementOff, gateDone, gateTaskCreate } from "./enforce.mjs";
 import { board, handoff, standup, taskLine } from "./render.mjs";
@@ -205,10 +207,15 @@ export const TOOLS = [
         id: str("Task id, e.g. TM-001."),
         action: { type: "string", enum: ["start", "done", "park", "block", "unblock"], description: "Lifecycle move." },
         reason: str("Why, for park and block. Recorded on the task."),
+        steal: {
+          type: "boolean",
+          description:
+            "For start: take a task another live session holds. Refused without this, and recorded as claim_stolen when used — so taking someone's work is deliberate and traceable rather than silent.",
+        },
       },
       required: ["id", "action"],
     },
-    run: ({ id, action, reason }, p) => {
+    run: ({ id, action, reason, steal }, p) => {
       if (!read(id, p)) return fail(`not found: ${id}`);
       switch (action) {
         case "start": {
@@ -222,17 +229,29 @@ export const TOOLS = [
               return fail(`WIP limit ${cfg.wipLimit} reached: ${wip.map((w) => w.id).join(", ")}`);
             }
           }
+          // The interlock, through the one function that implements it. This used to be a
+          // bare writeState, so the path Claude actually uses silently took whatever the CLI
+          // refused — and the record it wrote dropped actor/worktree/branch/pid, which is what
+          // expired() reads to notice a dead worktree. Claim BEFORE the status change, or a
+          // refusal leaves a task in_progress that nobody holds.
+          const claimed = claimTask(id, {
+            session: session(),
+            actor: actorLabel(actor()),
+            worktree: p.root,
+            steal: Boolean(steal),
+            p,
+          });
+          if (!claimed.ok) return fail(claimed.reason);
           update(id, { status: "in_progress", session: session() || undefined }, p);
-          writeState({ claims: { ...state(p).claims, [id]: { session: session(), ts: now() } } }, p);
-          return ok({ id, status: "in_progress" });
+          return ok({ id, status: "in_progress", ...(claimed.stolenFrom ? { stolenFrom: claimed.stolenFrom } : {}) });
         }
         case "done": {
           const gate = gateDone(id, p);
           if (!gate.allow) return fail(gate.reason);
           update(id, { status: "done", closed: now() }, p);
-          const claims = { ...state(p).claims };
-          delete claims[id];
-          writeState({ claims }, p);
+          // releaseClaim, not a hand-rolled delete: it takes the lock and logs `release`,
+          // which the MCP path never recorded.
+          releaseClaim(id, p);
           logEvent("done", { id }, p);
           return ok({
             id,
@@ -354,20 +373,27 @@ export const TOOLS = [
       "Take exclusive ownership of a task for this session and start it. Refuses if another session already holds the claim. Use when several agents or worktrees share one store, so two of you don't do the same task twice.",
     inputSchema: {
       type: "object",
-      properties: { id: str("Task id. Omit to just read the current claims.") },
+      properties: {
+        id: str("Task id. Omit to just read the current claims."),
+        steal: { type: "boolean", description: "Take a claim another live session holds. Recorded as claim_stolen." },
+      },
     },
-    run: ({ id }, p) => {
-      const claims = state(p).claims || {};
-      if (!id) return ok({ claims });
+    run: ({ id, steal }, p) => {
+      if (!id) return ok({ claims: state(p).claims || {} });
       if (!read(id, p)) return fail(`not found: ${id}`);
-      const held = claims[id];
-      if (held && held.session && held.session !== session()) {
-        return fail(`${id} is claimed by session ${held.session} since ${held.ts}. Pick another task or hand off.`);
-      }
+      // The old check compared sessions but never asked expired(), so a claim left by a
+      // crashed session blocked an MCP agent forever while the CLI treated the same claim as
+      // dead — the two callers disagreed about the same state.
+      const claimed = claimTask(id, {
+        session: session(),
+        actor: actorLabel(actor()),
+        worktree: p.root,
+        steal: Boolean(steal),
+        p,
+      });
+      if (!claimed.ok) return fail(claimed.reason);
       update(id, { status: "in_progress", session: session() || undefined }, p);
-      writeState({ claims: { ...claims, [id]: { session: session(), ts: now() } } }, p);
-      logEvent("claim", { id }, p);
-      return ok({ id, status: "in_progress", session: session() });
+      return ok({ id, status: "in_progress", session: session(), ...(claimed.stolenFrom ? { stolenFrom: claimed.stolenFrom } : {}) });
     },
   },
 ];
