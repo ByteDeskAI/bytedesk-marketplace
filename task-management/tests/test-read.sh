@@ -74,6 +74,39 @@ tm export xlsx >/dev/null 2>&1 && no "export refuses an unknown format" || ok "e
 tm export csv --out "$TM_ROOT/out.csv" >/dev/null
 [[ -s "$TM_ROOT/out.csv" ]] && ok "export --out writes a file" || no "export --out writes a file"
 
+# A reader that closes first is not an error. This needs a payload BIGGER than the 64 KB pipe
+# buffer, or the write completes before the reader is gone and the bug hides — which is exactly
+# why it never showed up on a fixture-sized store.
+BIG=$(node -e 'process.stdout.write("x".repeat(70000))')
+tm task new "the oversized one" >/dev/null 2>&1 || TM_ALLOW_DUP=1 tm task new "the oversized one" >/dev/null
+BIGID=$(tm find "the oversized one" --json | jq -r '.[0].id')
+node -e '
+const fs = require("fs");
+const f = process.argv[1];
+fs.writeFileSync(f, fs.readFileSync(f, "utf8") + "\n" + "x".repeat(70000) + "\n");
+' "$(tm show "$BIGID" --json | jq -r .file)"
+
+quiet_pipe() {
+  # $1 = the tm args; assert nothing lands on stderr when the reader exits early.
+  ERRF="$TM_ROOT/pipe.err"
+  # shellcheck disable=SC2086
+  node "$PLUGIN_ROOT/bin/tm" $1 2>"$ERRF" | head -1 >/dev/null
+  if [[ -s "$ERRF" ]]; then no "$2" "stderr: $(head -c 160 "$ERRF")"; else ok "$2"; fi
+}
+quiet_pipe "board --json" "board --json survives a reader that closes early"
+quiet_pipe "export json" "export json survives a reader that closes early"
+quiet_pipe "export md" "export md survives a reader that closes early"
+quiet_pipe "log 5000 --json" "log --json survives a reader that closes early"
+
+# And a reader that never reads at all.
+node "$PLUGIN_ROOT/bin/tm" board --json 2>"$TM_ROOT/p2.err" | true
+[[ -s "$TM_ROOT/p2.err" ]] && no "a reader that exits without reading is silent too" "$(head -c 160 "$TM_ROOT/p2.err")" || ok "a reader that exits without reading is silent too"
+
+# The MCP server too: a vanished client must not produce a stack trace on a JSON-RPC stream.
+printf '{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"tm://board"}}\n' \
+  | node "$PLUGIN_ROOT/bin/tm-mcp" 2>"$TM_ROOT/mcp.err" | true
+[[ -s "$TM_ROOT/mcp.err" ]] && no "tm-mcp is silent when the client disappears" "$(head -c 160 "$TM_ROOT/mcp.err")" || ok "tm-mcp is silent when the client disappears"
+
 # The human forms must not regress into JSON.
 case "$(tm board)" in
   \{*) no "board without --json stays human" "got JSON" ;;
