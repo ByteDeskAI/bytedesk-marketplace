@@ -32,6 +32,7 @@ export const CATALOG = {
     claim_stolen: { group: "recommended", label: "Another session took a claim", priority: "high", tags: "twisted_rightwards_arrows" },
     claims_swept: { group: "recommended", label: "A claim expired and work was abandoned", priority: "default", tags: "ghost" },
     epic_auto_closed: { group: "recommended", label: "An epic closed itself — every task done", priority: "default", tags: "tada" },
+    reopened: { group: "recommended", label: "A finished task was brought back", priority: "default", tags: "leftwards_arrow_with_hook" },
     unblocked: { group: "recommended", label: "A blocker cleared and work became startable", priority: "default", tags: "arrow_forward" },
     parked_on_session_end: { group: "recommended", label: "A session ended and parked unfinished work", priority: "default", tags: "pause_button" },
 
@@ -56,8 +57,10 @@ export const CATALOG = {
     decision_captured: { group: "writes", label: "A decision is recorded as an ADR", priority: "low", tags: "memo" },
     decision_updated: { group: "writes", label: "An existing ADR is revised", priority: "min", tags: "memo" },
     epic_active: { group: "writes", label: "The active epic changes", priority: "min", tags: "dart" },
+    epic_reopened: { group: "writes", label: "An epic reopened because one of its tasks came back", priority: "low", tags: "leftwards_arrow_with_hook" },
     subagent_stop: { group: "writes", label: "A subagent finishes", priority: "min", tags: "robot" },
     override: { group: "writes", label: "A gate is bypassed with `tm override`", priority: "default", tags: "key" },
+    override_used: { group: "writes", label: "An override token was spent by a gate", priority: "default", tags: "key" },
 
     // noise
     init: { group: "noise", label: "A store is initialized", priority: "min", tags: "package" },
@@ -65,6 +68,8 @@ export const CATALOG = {
     events_rotated: { group: "noise", label: "The event log rotates", priority: "min", tags: "recycle" },
     notification: { group: "noise", label: "Claude Code asks for attention", priority: "min", tags: "bell" },
     stop_gate_released: { group: "noise", label: "The stop gate lets a session go", priority: "min", tags: "checkered_flag" },
+    doctor_fix: { group: "noise", label: "`tm doctor --fix` repaired something", priority: "min", tags: "wrench" },
+    doctor_release: { group: "noise", label: "`tm doctor` released a dead claim", priority: "min", tags: "wrench" },
   },
   get recommended() {
     return Object.keys(this.events).filter((k) => this.events[k].group === "recommended");

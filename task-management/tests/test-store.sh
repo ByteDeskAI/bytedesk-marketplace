@@ -82,6 +82,22 @@ rm "$TM_ROOT/.bytedesk/task-management/index.json"
 tm reindex >/dev/null
 [[ "$BEFORE" == "$(tm board)" ]] && ok "board survives losing index.json" || no "board survives losing index.json"
 
+# tm reopen — the way back, and what it takes with it.
+tm task new "Reopen target task" >/dev/null
+RID=$(tm find "Reopen target task" --json | jq -r '.[0].id')
+tm ac "$RID" "it is closed" >/dev/null; tm accept "$RID" 1 >/dev/null; tm done "$RID" >/dev/null
+tm task new "Still open on purpose" >/dev/null
+OPENID=$(tm find "Still open on purpose" --json | jq -r '.[0].id')
+assert_status 2 "reopen refuses a task that is not done" node "$PLUGIN_ROOT/bin/tm" reopen "$OPENID"
+assert_contains "$(tm reopen "$RID" changed my mind)" "reopened" "reopen brings a done task back"
+assert_contains "$(tm show "$RID")" "changed my mind" "reopen records why"
+case "$(tm show "$RID" --json)" in
+  *'"closed"'*) no "reopen clears the closed date" "closed is still in the record" ;;
+  *) ok "reopen clears the closed date" ;;
+esac
+tm done "$RID" >/dev/null 2>&1 || true
+assert_contains "$(tm start "$RID" 2>&1)" "reopened from done" "start on a done task says it reopened"
+
 # tm doctor — the exit code is the contract: it is meant to gate a commit or a CI step.
 assert_status 0 "doctor exits 0 on a healthy store" node "$PLUGIN_ROOT/bin/tm" doctor
 STORE="$TM_ROOT/.bytedesk/task-management"

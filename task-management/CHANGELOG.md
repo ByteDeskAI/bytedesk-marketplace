@@ -12,9 +12,36 @@
   legitimate candidate for this one: `burndown()` still has no denominator and `estimate()`
   still has no consumer.
 
+### Added
+
+- **`tm reopen <id> [why]`** — the way back from done, recorded rather than improvised.
+
 ### Fixed
 
-- **The claim interlock was only enforced on the CLI.** `tm start` refuses a task another live
+- **Reopening a task left four things wrong, and `doctor` called it clean.** `tm start` on a done
+  task was the de facto reopen. It left `closed` in the frontmatter, so `tm export csv` reported
+  a resolution date in the `Resolved` column on in-progress work — the one column a Jira import
+  cannot repair. It left the epic `done` while holding a live child, and `autoCloseEpic` refuses
+  an epic that is already done, so nothing would ever re-close it. `autoCloseEpic` also never
+  cleared `state.activeEpic`, so finishing the last task left the active epic pointing at a
+  closed one and every subsequent `tm task new` filed into it — the exact condition
+  `dashboard-api`'s transition refuses by name, naming a verb that did not exist.
+
+  The guard lives in `update()`, the funnel all four writers share (CLI, dashboard transition,
+  `tm_task_update`, doctor's own fixes), and is held to exactly two effects: drop `closed`, and
+  reopen the parent epic. Kind-aware, so `reopenEpic`'s own update cannot re-enter it, and gated
+  on the same `autoCloseEpics` switch — a team that does not want epics closing themselves does
+  not want them reopening themselves either.
+
+  `tm doctor` gained **`epic-done-open-children`** (error, fixable) and **`closed-on-open-task`**
+  (warning, fixable), because a hand edit or a merge produces the same shapes.
+
+- **Three events were emitted but never classified**, so they were un-notifiable and invisible in
+  the ntfy settings panel with nothing to say so: `doctor_fix`, `doctor_release` and
+  `override_used`. The test that was supposed to catch this compared against a hand-written list,
+  which stopped testing the day someone added a `logEvent`. It now derives the list from the
+  source — in both directions, so a stale catalog entry advertising a notification that can never
+  fire is caught too. `tm start` refuses a task another live
   session holds; `tm_task_update` with `action: "start"` — the path Claude actually uses — did a
   bare `writeState` and took it silently. Three defects in that one line: no holder check, so
   MCP took what the CLI refused; the replacement record was `{session, ts}` only, dropping

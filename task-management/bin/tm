@@ -242,8 +242,15 @@ const VERBS = {
       p: P,
     });
     if (!claim.ok) die(claim.reason, 2);
+    const wasDone = t.status === "done";
     update(id, { status: "in_progress", ...stamp() }, P);
-    out(`${id} in progress — ${t.title}${claim.stolenFrom ? `  (stolen from ${claim.stolenFrom})` : ""}`);
+    out(
+      `${id} in progress — ${t.title}` +
+        (claim.stolenFrom ? `  (stolen from ${claim.stolenFrom})` : "") +
+        // Silence here is what made `tm start` a lying reopen: the task came back and nothing
+        // said the closed date and the epic status had moved with it.
+        (wasDone ? "  (reopened from done)" : ""),
+    );
   },
 
   done(id) {
@@ -281,6 +288,22 @@ const VERBS = {
     requireInit();
     update(id, { status: "open", blockedReason: undefined }, P);
     out(`${id} open`);
+  },
+
+  /**
+   * The way back from done. `tm start` was the de facto reopen and it lied: it left `closed`
+   * on the task and its epic marked done. Both are fixed in update() now, so this verb exists
+   * to make the intent explicit and to record why.
+   */
+  reopen(id, ...why) {
+    requireInit();
+    const t = read(id, P) || die(`not found: ${id}`);
+    if (!["done", "deleted"].includes(t.status)) die(`${id} is ${t.status}, not done — nothing to reopen`, 2);
+    const reason = why.join(" ");
+    update(id, { status: "open", reopenedReason: reason || undefined }, P);
+    logEvent("reopened", { id, reason: reason || null }, P);
+    const epic = read(id, P)?.epic;
+    out(`${id} reopened${reason ? ` — ${reason}` : ""}${epic && read(epic, P)?.status === "open" ? `\n${epic} reopened with it` : ""}`);
   },
 
   /** tm ac <id> "<criterion>"  — add;  tm accept <id> <n> — tick */
@@ -875,6 +898,7 @@ const VERBS = {
         '  task new "<title>" | (list)',
         '  adr new "<title>"',
         "  start <id> | done <id> | park <id> [why] | block <id> [why] | unblock <id>",
+        "  reopen <id> [why]             bring a done task back, and its epic with it",
         '  ac <id> "<criterion>" | accept <id> <n>',
         "  evidence <id> <path|-> | link <id> <ref> | dep <id> <blocker...>",
         "  touches <id> [path...]        paths a task owns; `tm parallel` batches on these",
@@ -904,6 +928,7 @@ function renderShow(doc) {
     doc.estimate !== undefined ? `estimate: ${doc.estimate}` : "",
     doc.actor && doc.actor !== "main" ? `thread: ${doc.actor}` : "",
     doc.parent ? `parent: ${doc.parent}` : "",
+    doc.reopenedReason ? `reopened: ${doc.reopenedReason}` : "",
   ].filter(Boolean);
   if (facts.length) lines.push(facts.join("   "));
   if ((doc.labels || []).length) lines.push(`labels: ${doc.labels.join(", ")}`);

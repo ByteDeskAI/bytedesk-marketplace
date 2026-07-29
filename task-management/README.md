@@ -87,6 +87,7 @@ tm task new "<title>"                dup-guarded; files under the active epic
 tm ac <id> "<criterion>"             acceptance criteria — `tm done` refuses without them
 tm accept <id> <n>                   tick one
 tm start|done|park|block|unblock <id>
+tm reopen <id> [why]                 bring a done task back, and its epic with it
 tm dep <id> <blocker...>             dependency graph
 tm evidence <id> <path|->            attach a log/screenshot as proof
 tm task new "<title>" --template bug   start from a template

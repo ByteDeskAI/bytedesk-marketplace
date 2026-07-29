@@ -9,6 +9,7 @@
  */
 import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync, readdirSync } from "node:fs";
 import { cleanup, tempStore } from "./helpers.mjs";
 import {
   CATALOG,
@@ -32,21 +33,63 @@ after(() => cleanup(...stores));
 
 const ENV = { TM_NTFY_TOKEN: "tk_test", TM_NTFY_SERVER: undefined, TM_NTFY_TOPIC: undefined };
 
+/**
+ * Every event name the store can log, scanned out of lib/ and bin/.
+ *
+ * Takes the first argument of each logEvent call and pulls every quoted name out of it, so the
+ * ternary form — `logEvent(created ? "decision_captured" : "decision_updated", …)` — is caught
+ * too. A regex anchored on `logEvent("name"` misses that one and then reports it as a stale
+ * catalog entry, which is a false accusation rather than a missing test.
+ */
+function emittedEvents() {
+  const root = new URL("../../", import.meta.url);
+  const names = new Set();
+  for (const dir of ["lib", "bin"]) {
+    const d = new URL(`${dir}/`, root);
+    for (const file of readdirSync(d)) {
+      const text = readFileSync(new URL(file, d), "utf8");
+      for (const m of text.matchAll(/logEvent\(/g)) {
+        // Walk to the comma that ends the first argument, respecting nesting and strings.
+        let i = m.index + m[0].length;
+        let depth = 0;
+        let arg = "";
+        for (; i < text.length; i += 1) {
+          const c = text[i];
+          if (c === "(" || c === "[" || c === "{") depth += 1;
+          else if (c === ")" || c === "]" || c === "}") {
+            if (depth === 0) break;
+            depth -= 1;
+          } else if (c === "," && depth === 0) break;
+          arg += c;
+        }
+        for (const q of arg.matchAll(/"([a-z_]+)"/g)) names.add(q[1]);
+      }
+    }
+  }
+  return names;
+}
+
 describe("catalog", () => {
   it("groups every event kind the store emits", () => {
+    // Derived from the source, not hand-listed. A hardcoded list silently stops testing the
+    // moment someone adds a logEvent — which is exactly what had happened: doctor_fix,
+    // doctor_release and override_used were all emitted and unclassified, so they were
+    // un-notifiable and invisible in the settings panel with nothing to say so.
+    const emitted = emittedEvents();
+    assert.ok(emitted.size > 25, `only found ${emitted.size} event names — the scan is broken`);
+
     const known = new Set(Object.keys(CATALOG.events));
-    // Every event name logged anywhere in the store must be classified, or it
-    // silently becomes un-notifiable and invisible in the settings panel.
-    for (const event of [
-      "create", "update", "done", "release", "unblocked", "epic_auto_closed",
-      "claim", "claim_stolen", "claims_swept", "assign", "labels", "prioritise",
-      "estimate", "comment", "link", "subtask", "rank", "worktree_new",
-      "worktree_rm", "plan_captured", "decision_captured", "git_link", "init",
-      "override", "stop_gate_blocked", "events_rotated", "migrate", "notification",
-      "subagent_stop", "parked_on_session_end", "epic_active", "decision_updated",
-    ]) {
-      assert.ok(known.has(event), `${event} is not in the catalog`);
-    }
+    const missing = [...emitted].filter((e) => !known.has(e)).sort();
+    assert.deepEqual(missing, [], `emitted but not in the catalog: ${missing.join(", ")}`);
+  });
+
+  it("has no catalog entry for an event nothing emits", () => {
+    // The other direction: a stale entry advertises a notification that can never fire.
+    const emitted = emittedEvents();
+    // `notification` is logged from a hook payload, not a literal in a logEvent call.
+    const exempt = new Set(["notification"]);
+    const stale = Object.keys(CATALOG.events).filter((e) => !emitted.has(e) && !exempt.has(e)).sort();
+    assert.deepEqual(stale, [], `in the catalog but never emitted: ${stale.join(", ")}`);
   });
 
   it("marks a small set as recommended and leaves writes off by default", () => {
