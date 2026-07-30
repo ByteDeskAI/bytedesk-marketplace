@@ -325,6 +325,18 @@ moment to say no is before one exists. A loop that already exists elsewhere is n
 next caller; doctor still reports it. Subtask nesting refuses cycles.
 Backlog ranks are sparse integers, so dragging a card rewrites one file, not the whole board.
 
+## Standup
+
+`tm standup [iso]` (default: the last 24h) answers the three questions a standup answers — what got
+finished, what is being worked on, what is stuck — with the **status path** per item and the stop
+reason on anything blocked or parked. Work that moved no status is listed last, summarised by what
+did happen to it, because a day of comments and commits is real work.
+
+It shares its collapsing with `tm log` and with the dashboard's activity panel: a status-changing
+write reads as `→ blocked`, and a generic `update` that a specific event in the same second already
+explains is dropped. The panel gets the sentence for each event kind from the store's own catalog
+over `/api/events`, so all three surfaces describe the same event the same way.
+
 ## Why a card stopped
 
 `tm park <id> <why>` and `tm block <id> <why>` store the sentence you type, and both boards show it

@@ -148,6 +148,65 @@
 
 ### Fixed
 
+- **`tm standup` printed a machine trace, and the dashboard's activity panel printed raw event
+  keys.** The store's event log had a human rendering — `tm log` gained one — and the two places you
+  actually read history did not use it.
+
+  ```
+  $ tm standup                                     # before
+  - TM-001 the task — create → update → claim → update → update → update → release → done
+  ```
+
+  Three of those eight tokens are the word `update`, and none says what moved. A standup answers
+  what got finished, what is being worked on and what is stuck, so it is those sections now, and the
+  per-task line is the **status path** with the stop reason on anything stuck:
+
+  ```
+  ## Finished (1)
+  - TM-001 the finished one — in_progress → done (1 AC met)
+  ## In progress (1)
+  - TM-002 the one in flight — in_progress
+  ## Stuck (1)
+  - TM-003 the stuck one — blocked — waiting on the security review
+  ## Also touched (1)
+  - TM-005 just commented on — A task, epic or ADR is created, A comment is added
+  ```
+
+  Work that moved no status still gets a line, summarised by what did happen — a day of comments and
+  commits is real work and dropping it would make the report lie by omission.
+
+  The activity panel showed `02:01:02  main  update  TM-003`, three rows running, which says a field
+  changed on three tasks and nothing about which field or what it became. The payload was carrying
+  the answer all along: `update` holds `patch` and `status`, `moved` holds `from`/`to`, `park` and
+  `block` hold `reason`. It reads them now, and takes the sentence for the event kind from the
+  store's own catalog via `/api/events` rather than keeping a second vocabulary in TypeScript — so
+  the panel and `tm log` describe the same event the same way.
+
+- **Two bugs in `collapseLog`, both found by making the standup use it.**
+
+  Its status tracker was **one shared variable**, so any entity's status change masked another's:
+  with a task going `in_progress → done` and its epic auto-closing in the same window, the task's
+  `done` left the tracker reading "done", so the epic's own move to done counted as no move and was
+  dropped. The epic closed and the log said nothing. Keyed per entity now — interleaved work on one
+  board is the normal case, not the exotic one.
+
+  And **arriving at `open` counted as a transition.** Every `update` event carries the doc's status
+  whether or not the write changed it, and a `create` records none, so the first update after a
+  create always looked like a move into `open`: every task carried a `→ open` row saying nothing had
+  happened yet. A transition now requires the write to have actually touched status, read off the
+  `patch` field the event already records — so the intent is taken from the event rather than
+  guessed from the value, and deliberately reopening a task still reads as a transition.
+
+  `collapseLog` also grew a `keep` option that marks rather than drops. The dashboard serves one
+  events array to the activity panel *and* to burndown, `startTimes` and the PWA's notification
+  matcher — and that matcher switches on `event.event`, so rewriting an `update` there would have
+  silently changed which notifications fire. One judgement, expressed two ways, with a test that
+  asserts the two agree.
+
+  `renderLog` now collapses too. Only `renderHistory` did, so `tm log <id>` was clean while
+  `tm log` — the view you actually reach for — still printed the generic `update` immediately above
+  the specific event explaining it.
+
 - **A stopped card never said why it stopped, on either surface.** `tm park <id> <why>` and
   `tm block <id> <why>` have always stored the sentence you typed. It was read by `tm why <id>`
   (one task at a time), `tm export md`, and a PWA notification — and by neither board:
