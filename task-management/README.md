@@ -405,6 +405,27 @@ write reads as `→ blocked`, and a generic `update` that a specific event in th
 explains is dropped. The panel gets the sentence for each event kind from the store's own catalog
 over `/api/events`, so all three surfaces describe the same event the same way.
 
+## The task drawer
+
+Opening a card gives a drawer that is a grid — a header row that stays put and a body that scrolls.
+
+The header carries the identity: id, status, the thread holding it, its epic, and the title field.
+It is outside the scrolling region on purpose, because scrolling back to remember which task you are
+reading is a tax on every long one. The body is grouped into sections separated by a rule, rather
+than one column of controls.
+
+`overscroll-behavior: contain` on the body stops a scroll that reaches the end from chaining to the
+board underneath — before this the drawer had no scroll at all, so a wheel over it moved the board
+and the bottom of a dense task was simply unreachable.
+
+`tests/browser/drawer.mjs` measures all of that in a real browser at a short viewport. It is not part
+of `run-tests.sh` — it needs Chrome and a served build — so run it by hand after touching the drawer:
+
+```
+npm --prefix dashboard run build
+node tests/browser/drawer.mjs
+```
+
 ## Acceptance criteria are not a one-way door
 
 `tm done` is gated on the list, so a stray tick or a typo'd criterion changes what the tool will
