@@ -48,6 +48,14 @@ export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
   if (method === "POST" && url === "/api/bulk") return bulk(payload, p);
   if (method === "POST" && url === "/api/epic") return setActiveEpic(payload, p);
 
+  // The detail read. boardPayload strips `body` from the list on purpose — a 20-task board must
+  // not ship 30 KB of markdown — so a full record needs its own route rather than a fatter list.
+  const detail = /^\/api\/task\/([^/]+)$/.exec(url);
+  if (method === "GET" && detail) {
+    const { task, error } = requireTask(decodeURIComponent(detail[1]), p);
+    return error || ok(task);
+  }
+
   const match = /^\/api\/task\/([^/]+)(?:\/([a-z]+))?$/.exec(url);
   if (!match) return fail(404, `no route for ${method} ${url}`);
 

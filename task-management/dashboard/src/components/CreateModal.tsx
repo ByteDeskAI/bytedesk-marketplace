@@ -29,7 +29,7 @@ export function CreateModal({
   const [priority, setPriority] = useState<string | null>(null);
 
   const submit = () => {
-    run(() => write.create({ title: title.trim(), epic, ...(priority ? { priority } : {}) }));
+    run(() => write.create({ title: title.trim(), epic, ...(body.trim() ? { body: body.trim() } : {}), ...(priority ? { priority } : {}) }));
     onClose();
   };
 
