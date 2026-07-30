@@ -7,7 +7,12 @@ import { acceptanceOpen, config, list, nextTasks, openTasks, read, staleTasks, s
 import { paths } from "./paths.mjs";
 import { CATALOG } from "./ntfy.mjs";
 
-const MARK = { open: "○", in_progress: "◐", blocked: "⊘", parked: "⏸", done: "●" };
+/**
+ * `proposed` is here because ADRs go through `taskLine` too now that `tm find` renders its hits
+ * with it — without it a decision showed up as `? ADR-0001`, which reads as a broken row rather
+ * than as a decision nobody has ratified yet.
+ */
+const MARK = { open: "○", in_progress: "◐", blocked: "⊘", parked: "⏸", done: "●", proposed: "◇" };
 
 export function taskLine(t) {
   const acc = (t.acceptance || []).length;

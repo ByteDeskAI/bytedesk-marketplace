@@ -18,6 +18,7 @@ import { consumeOverride, enforcementOff, gateDone, gateTaskCreate } from "./enf
 import { board, handoff, standup, taskLine } from "./render.mjs";
 import { renderWhy, why } from "./graph.mjs";
 import { listResources, readResource } from "./resources.mjs";
+import { describeQuery, matchesQuery, parseQuery } from "./query.mjs";
 
 export const SERVER_INFO = { name: "task-management", version: "0.3.0" };
 
@@ -60,17 +61,27 @@ export const TOOLS = [
   {
     name: "tm_find",
     description:
-      "Search titles and bodies of every epic, task and ADR for a substring. Use before creating anything to avoid filing a duplicate, or to locate the id behind a half-remembered title.",
-    inputSchema: { type: "object", properties: { query: str("Case-insensitive substring.") }, required: ["query"] },
+      "Search every epic, task and ADR. Bare words are a case-insensitive substring over titles and bodies; `field:value` tokens narrow, and a leading `-` negates one. Fields: status, epic, assignee, actor, priority, type, label, kind, id. Use before creating anything to avoid filing a duplicate, to locate the id behind a half-remembered title, or to answer a question about the board directly — `assignee:ryan status:open`, `type:bug -label:stale` — rather than reading the whole board and filtering it yourself.",
+    inputSchema: {
+      type: "object",
+      properties: { query: str('Words and/or field:value tokens, e.g. `status:open priority:highest "auth"`.') },
+      required: ["query"],
+    },
     run: ({ query }, p) => {
-      const needle = String(query).toLowerCase();
+      let parsed;
+      try {
+        // Tokenised on whitespace, so one string carries the same query the CLI takes as argv.
+        parsed = parseQuery(String(query).split(/\s+/).filter(Boolean));
+      } catch (e) {
+        return fail(e.message);
+      }
       const hits = [];
       for (const kind of ["epic", "task", "adr"]) {
         for (const d of list(kind, {}, p)) {
-          if (`${d.title} ${d.body}`.toLowerCase().includes(needle)) hits.push({ id: d.id, kind, title: d.title });
+          if (matchesQuery({ ...d, kind }, parsed)) hits.push({ id: d.id, kind, title: d.title });
         }
       }
-      return ok({ hits });
+      return ok({ hits, query: describeQuery(parsed) });
     },
   },
   {

@@ -14,6 +14,47 @@
 
 ### Added
 
+- **`tm find` takes `field:value`: the terminal and the agent can ask what only the browser could.**
+  The board in the browser has always filtered by epic, assignee, actor, priority and label, and
+  saved the combination as a named view. `tm find` was a substring match over titles and bodies — so
+  "what is assigned to me and still open" was answerable on exactly one of the three surfaces, and
+  it was the surface an agent cannot use.
+
+  ```
+  tm find status:in_progress priority:highest
+  tm find assignee:ryan -label:stale
+  tm find epic:EP-002 type:bug "the half-remembered title"
+  tm find -assignee:                     # the unassigned queue
+  ```
+
+  Fields: `status`, `epic`, `assignee`, `actor`, `priority`, `type`, `label`, `kind`, `id`. Bare
+  words keep meaning exactly what they meant. Every filter ANDs, including a repeated key —
+  `label:ui label:perf` is "has both", and OR is running the search twice. `tm_find` takes the same
+  query as one string, so an agent asks the board a question rather than reading the whole board and
+  filtering it itself.
+
+  Deliberately **not JQL**. No operators, no precedence, no parentheses, no ORDER BY — this is the
+  `key:value` syntax `gh search` and GitHub's search box already use, because a query language needs
+  a parser, an error surface and a manual of its own, and none of that buys an answer you could not
+  already get.
+
+  An unrecognised field is **refused** with the list of real ones. `assigne:ryan` quietly returning
+  every task whose body contains that string is a wrong answer that looks like a right one — the
+  same reason `tm priority` refuses an unknown level rather than substituting a default. A token
+  whose value starts `//` stays a search term, so `tm find https://…/pull/73` does not parse as a
+  filter on the field `https`.
+
+  The browser keeps its own implementation in `dashboard/src/filters.ts`, which also drives the
+  dropdowns and the saved views; the SPA imports nothing from `lib/`. So a test reads the `Filters`
+  interface out of that file at test time and asserts the CLI covers every field it names — removing
+  one field from either side turns it red. Same technique as the ntfy catalog test, which has caught
+  a missing event twice.
+
+  `tm find` renders hits with the same line the board uses, so a filtered result shows status,
+  priority and blockers instead of just an id and a title. That put ADRs through `taskLine` for the
+  first time and they came out as `? ADR-0001`, so `proposed` now has a mark of its own (`◇`) — a
+  decision nobody has ratified yet, rather than a broken row.
+
 - **`tm edit` and `tm move`: nothing could correct a title or refile a task.** Every other field
   on a task had a verb — assign, label, priority, type, estimate, rank, subtask, dep, link — and
   the two you type first, the title and the body, had none. `tm edit TM-001 "..."` answered

@@ -98,7 +98,8 @@ tm goal import <doc.md|*.plan.json>  a goal doc becomes a task; a manifest becom
 tm dep <id> [-]<blocker>...          dependency graph; a leading - removes
 tm evidence <id> <path|->            attach a log/screenshot as proof
 tm task new "<title>" --template bug   start from a template
-tm next | board | stale | find <q>   read the board  (add --json to any of these)
+tm next | board | stale | standup      read the board  (add --json to any of these)
+tm find <words> [field:value]...      search; a leading - negates a filter
 tm show <id>                         one entity in full
 tm why <id>                          what is actually holding a task up
 tm graph [--epic EP-1] [--all]       the dependency graph as Mermaid
@@ -323,6 +324,37 @@ cycles and deliberately will not repair them, since which edge to cut is a judge
 moment to say no is before one exists. A loop that already exists elsewhere is not blamed on the
 next caller; doctor still reports it. Subtask nesting refuses cycles.
 Backlog ranks are sparse integers, so dragging a card rewrites one file, not the whole board.
+
+## Searching
+
+Bare words are a case-insensitive substring over titles and bodies. `field:value` narrows, and a
+leading `-` negates:
+
+```
+tm find status:in_progress priority:highest
+tm find assignee:ryan -label:stale
+tm find epic:EP-002 type:bug "the half-remembered title"
+tm find -assignee:                     # the unassigned queue
+```
+
+Fields: `status`, `epic`, `assignee`, `actor`, `priority`, `type`, `label`, `kind`, `id`. Every
+filter **ANDs**, including a repeated key — `label:ui label:perf` is "has both", and OR is running
+the search twice. `tm_find` takes the same query as one string, so an agent can ask the board a
+question instead of reading the whole board and filtering it itself.
+
+This is deliberately **not JQL**: no operators, no precedence, no parentheses, no ORDER BY. It is
+the `key:value` syntax `gh search` and GitHub's search box already use, because a query language
+needs a parser, an error surface and a manual of its own.
+
+An unrecognised field is **refused**, listing the ones that exist — `assigne:ryan` quietly
+returning every task whose body contains that string is a wrong answer that looks like a right one.
+A token whose value starts `//` stays a search term, so a PR url does not parse as a filter on the
+field `https`.
+
+The board in the browser has always had these filters, plus saved views. The terminal and the agent
+had a substring match, which meant "what is assigned to me and still open" was answerable only on
+the one surface an agent cannot use. The two field sets are held together by a test that reads
+`dashboard/src/filters.ts` at test time, since the SPA imports nothing from `lib/`.
 
 `edit` and `move` exist because every *other* field had a verb and the two you type first did not.
 A retitle **keeps the file name** — `TM-001-typoed-titel.md` gains the corrected title inside —

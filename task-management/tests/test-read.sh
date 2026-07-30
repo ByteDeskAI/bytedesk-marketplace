@@ -155,5 +155,24 @@ PLACED="$(id_of "placed by hand")"
 tm rank "$PLACED" --before "$URGENT" >/dev/null
 json "$(tm next --json)" --arg pl "$PLACED" '.[0].id == $pl' "an explicit rank outranks a priority label"
 
+# field:value search — the questions the board in the browser could ask and the terminal could not.
+env TM_ENFORCE=off node "$PLUGIN_ROOT/bin/tm" task new "a searchable bug" >/dev/null
+BUGID="$(id_of "a searchable bug")"
+tm type "$BUGID" bug >/dev/null
+tm assign "$BUGID" ryan >/dev/null
+tm label "$BUGID" ui >/dev/null
+json "$(tm find type:bug --json)" --arg b "$BUGID" 'map(.id) | index($b) != null' "find narrows by issue type"
+json "$(tm find assignee:ryan --json)" --arg b "$BUGID" 'map(.id) == [$b]' "find narrows by assignee"
+json "$(tm find label:ui --json)" --arg b "$BUGID" 'map(.id) == [$b]' "find narrows by label"
+json "$(tm find assignee:ryan type:bug --json)" --arg b "$BUGID" 'map(.id) == [$b]' "two filters AND"
+json "$(tm find -assignee:ryan --json)" --arg b "$BUGID" 'map(.id) | index($b) == null' "a leading - negates"
+json "$(tm find kind:adr --json)" 'all(.[]; .id | startswith("ADR-"))' "kind narrows to one entity type"
+json "$(tm find "a searchable bug" --json)" --arg b "$BUGID" 'map(.id) | index($b) != null' "bare words still search titles"
+tm find assigne:ryan >/dev/null 2>&1 && no "an unknown field is refused" || ok "an unknown field is refused"
+has "$(tm find assigne:ryan 2>&1)" "use one of:" "the refusal lists the fields"
+has "$(tm find nothingmatchesthis)" "no match for" "a no-match says what was searched"
+# A url has a colon and must stay a search term rather than parsing as a field.
+tm find "https://github.com/ByteDeskAI/x/pull/1" >/dev/null 2>&1 && ok "a url is a search term, not a field" || no "a url is a search term, not a field"
+
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [[ "$FAIL" == 0 ]]
