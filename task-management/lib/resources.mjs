@@ -78,6 +78,33 @@ function blockedReport(p) {
   return [`# Blocked (${stuck.length})`, "", ...stuck.flatMap((t) => [renderWhy(why(t.id, p)), ""])].join("\n");
 }
 
+
+/**
+ * The goals this board is carrying.
+ *
+ * A goal doc imports as a task whose acceptance criteria ARE the doc's success criteria — that is
+ * what makes `tm done` a real gate on the goal's own definition of done. But nothing surfaced which
+ * tasks came from goals, so the only way to ask "is the goal met" was to remember which id it was.
+ *
+ * Unmet criteria only: a goal is interesting for what is left of it.
+ */
+function goalsReport(p) {
+  const goals = list("task", {}, p).filter((t) => t.goalDoc);
+  if (!goals.length) return "No goals imported. `tm goal import <doc.md>` turns a goal doc's success criteria into a task's acceptance criteria.";
+  const out = [`# Goals (${goals.length})`, ""];
+  for (const t of goals) {
+    const unmet = (t.acceptance || []).filter((a) => !a.done);
+    out.push(`## ${t.id} ${t.title}`, `from ${t.goalDoc} — ${t.status}`, "");
+    out.push(
+      unmet.length
+        ? ["Still unmet:", ...unmet.map((a) => `- [ ] ${a.text}`)].join("\n")
+        : "Every success criterion is met.",
+      "",
+    );
+  }
+  return out.join("\n");
+}
+
 /** The standing views. Each carries its own `read`, so there is one list to keep in sync. */
 const STATIC = [
   {
@@ -117,6 +144,14 @@ const STATIC = [
       "Everything blocked, each walked to the root of its dependency chain with the reason at each hop and the task to actually pick up. Attach when work has stalled and you want the whole picture at once.",
     mimeType: MD,
     read: (p) => blockedReport(p),
+  },
+  {
+    uri: `${SCHEME}goals`,
+    name: "goals",
+    description:
+      "Every task imported from a goal doc, with the doc it came from and the success criteria still unmet. Attach when the question is whether a goal has actually been met, rather than what happened today.",
+    mimeType: MD,
+    read: (p) => goalsReport(p),
   },
   {
     uri: `${SCHEME}standup`,

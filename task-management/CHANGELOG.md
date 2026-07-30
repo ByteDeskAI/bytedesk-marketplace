@@ -14,6 +14,35 @@
 
 ### Added
 
+- **`/goal` is captured onto the work in flight, and goals are reachable as a resource.**
+
+  I had parked this after reading Claude Code's own source: `/goal` is a *local, immediate* command,
+  and local immediate commands are handled client-side without a prompt round trip — so capturing it
+  looked impossible and I recorded that rather than guess. **That was wrong.** With a probe hook
+  installed, typing `/goal …` produced a `UserPromptSubmit` payload whose `prompt` field held the
+  literal text. Measured beats inferred, and the parked note was the thing that turned out to be a
+  guess.
+
+  What lands is a note on the **claimed** work, not a new task. A goal is a condition on the work in
+  flight — "keep going until X" — and minting a task for it would put a second entry on the board
+  for something already tracked, which is the exact duplication the rest of that hook exists to
+  prevent. With nothing claimed it stays silent rather than inventing an owner, and `/goal clear` is
+  not a goal.
+
+  `tm://goals` lists every task imported from a goal doc with its still-unmet success criteria —
+  a goal's acceptance criteria *are* the doc's criteria, so this answers "is it met" without having
+  to remember which id it was. `tm find goal:<doc>` finds them too.
+
+  **The Stop-hook collision is handled rather than left.** `/goal` registers its own Stop hook, so
+  two things can refuse one stop. They do not disagree — a goal says "keep going until X", the gate
+  says "do not leave work in_progress" — but two separate refusals read as the tool nagging twice.
+  When a goal is recorded against the claimed work, the gate names it, so the two arrive as one
+  story.
+
+  `tm show` also prints comments now. It was the one first-class field it did not, though it prints
+  labels, links, evidence and commits — so the detail view was missing the discussion about the
+  thing it was detailing.
+
 - **The board names the project it belongs to.** Every board called itself `task-management` — the
   plugin's name, identical on all of them, which tells you nothing about which one you are looking
   at. With two open, the header *and* the browser tab were the same on both, and the only way to

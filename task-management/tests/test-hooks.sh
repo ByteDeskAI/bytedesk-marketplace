@@ -121,6 +121,29 @@ OUT="$(hook subagent-start '{"session_id":"a-different-session","agent_id":"a2"}
 [[ -z "$OUT" ]] && ok "a brief is scoped to the session that holds the claim" || no "a brief is scoped to the claiming session" "got: $OUT"
 tm park "$BID" briefed >/dev/null
 
+# /goal is captured onto the work in flight. Reading Claude Code's source said a local immediate
+# command never reaches UserPromptSubmit; a probe hook proved otherwise, and the payload's `prompt`
+# holds the literal text.
+tm epic new "Goal capture" >/dev/null
+tm task new "the work a goal is about" >/dev/null
+GID=$(tm find "the work a goal is about" --json | jq -r '.[0].id')
+
+# Nothing claimed: a goal has no owner to attach to, and inventing one would be worse.
+OUT="$(hook user-prompt '{"prompt":"/goal keep going until the suite is green"}')"
+[[ -z "$OUT" ]] && ok "a goal with nothing claimed is not attached to a guess" || no "a goal with nothing claimed is silent" "got: $OUT"
+
+tm start "$GID" >/dev/null
+OUT="$(hook user-prompt '{"prompt":"/goal keep going until the suite is green"}')"
+has "$OUT" "$GID" "the goal is recorded against the claimed work"
+has "$(tm log 200 --json)" '"event": "goal_set"' "and it is on the timeline"
+has "$(tm show "$GID")" "keep going until the suite is green" "the condition is kept verbatim on the task"
+# A goal creates no second entry for work already tracked — that is the duplication this hook exists
+# to prevent everywhere else.
+json "$(tm find kind:task --json)" --arg g "$GID" 'map(select(.title | test("keep going"))) | length == 0' "a goal mints no task of its own"
+OUT="$(hook user-prompt '{"prompt":"/goal clear"}')"
+[[ -z "$OUT" ]] && ok "clearing a goal is not itself a goal" || no "clearing a goal is not a goal" "got: $OUT"
+tm park "$GID" done with the goal fixture >/dev/null
+
 # SubagentStart — a spawned agent used to know nothing about the board. Claude Code fires this
 # with the PARENT's session_id and takes additionalContext back; both were established by spawning
 # a real agent against a probe hook, not inferred from the payload schema.

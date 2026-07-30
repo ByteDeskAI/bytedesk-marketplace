@@ -188,5 +188,10 @@ case "$(tm board)" in
   *) ok "unblocking drops the reason from the board" ;;
 esac
 
+# Goals are reachable as a resource and as a search field, not just as whichever id you remember.
+printf '# A goal\n\n## Success criteria\n- it wakes within 400ms\n' > "$TM_ROOT/goal.md"
+env TM_ENFORCE=off node "$PLUGIN_ROOT/bin/tm" goal import "$TM_ROOT/goal.md" >/dev/null 2>&1
+has "$(tm find goal:goal.md)" "A goal" "goal: finds what a goal doc produced"
+
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [[ "$FAIL" == 0 ]]

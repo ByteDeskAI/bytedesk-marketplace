@@ -133,6 +133,22 @@ function gateStopLocked(p) {
 
   writeState({ lastStopBlock: key }, p);
   logEvent("stop_gate_blocked", { tasks: key }, p);
+  /**
+   * `/goal` registers its own Stop hook, so two things can block one stop.
+   *
+   * They are not in conflict — a goal says "keep going until X" and this gate says "do not leave
+   * work in_progress" — but two separate refusals for one stop read as the tool nagging twice. When
+   * a goal has been recorded against the work, the gate names it, so the two arrive as one story:
+   * here is the goal, and here is what the store still needs before it is finished with.
+   */
+  const goals = mine.flatMap((t) =>
+    (t.comments || [])
+      .map((c) => String(c.text || ""))
+      .filter((text) => text.startsWith("goal: "))
+      .slice(-1)
+      .map((text) => `  ${t.id}: ${text.slice(6)}`),
+  );
+
   return {
     block: true,
     reason:
@@ -140,6 +156,7 @@ function gateStopLocked(p) {
       mine
         .map((t) => `  ${t.id} ${t.title}\n    tm done ${t.id}  |  tm block ${t.id} "<why>"  |  tm park ${t.id}`)
         .join("\n") +
+      (goals.length ? `\nThe goal you set on this work:\n${goals.join("\n")}` : "") +
       "\nIf the work really is unfinished, park it with a note — don't leave it in_progress.",
   };
 }
