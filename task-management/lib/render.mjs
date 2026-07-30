@@ -118,6 +118,75 @@ export function sessionContext(p = paths()) {
 }
 
 /** Self-contained brief for a subagent, worktree, or tomorrow's session. */
+/**
+ * How many held tasks and unmet criteria a spawned agent is told about.
+ *
+ * ponytail: fixed caps. This text is prepended to EVERY subagent's context, so its cost is paid
+ * per fan-out — a twelve-agent sweep pays it twelve times. The WIP limit is 3 by default, so
+ * three tasks covers the real case and the cap only bites on a board someone has overridden.
+ */
+const BRIEF_TASKS = 3;
+const BRIEF_CRITERIA = 5;
+/** A last-resort ceiling, in case a criterion is a paragraph. */
+const BRIEF_CHARS = 1200;
+
+/**
+ * What a subagent is told when it starts.
+ *
+ * Claude Code fires SubagentStart with the PARENT's `session_id` and lets a hook return
+ * `additionalContext`, which reaches the agent as "SubagentStart hook additional context: …".
+ * Verified by spawning one against a probe hook: the agent quoted back a token that appeared
+ * nowhere in its prompt.
+ *
+ * That makes the fan-out's blind spot fixable. A spawned agent knew nothing about the board — not
+ * which task its parent was working, not what "done" meant for it — so it re-derived context the
+ * parent already had, and could file a duplicate for work already tracked.
+ *
+ * This is NOT `handoff()`. That is a cold-start dossier — epic body, evidence, commits, branch,
+ * worktree — for someone picking a task up with nothing in hand, and it ends with
+ * `Resume with: tm start <id>`, which is exactly wrong advice here: the parent already holds the
+ * claim. A subagent is handed its slice in the prompt. What it lacks is orientation and a
+ * guardrail, and both are short.
+ *
+ * Returns "" when the parent holds nothing. Silence is the right output: padding every spawned
+ * agent with "no tasks are claimed" costs tokens on every fan-out and tells it nothing.
+ */
+export function subagentBrief(session, p = paths()) {
+  if (!p.root || !session) return "";
+  const claims = state(p).claims || {};
+  const held = Object.entries(claims)
+    .filter(([, c]) => c.session === session)
+    .map(([id]) => read(id, p))
+    .filter(Boolean);
+  if (!held.length) return "";
+
+  const out = ["## task-management — what this session is already working on", ""];
+  const shown = held.slice(0, BRIEF_TASKS);
+  for (const t of shown) {
+    out.push(`The parent session holds ${t.id} "${t.title}"${t.epic ? ` (${t.epic})` : ""}.`);
+    const unmet = acceptanceOpen(t).slice(0, BRIEF_CRITERIA);
+    if (unmet.length) {
+      // Unmet only. A ticked criterion is settled; what an agent needs is the part of "done" that
+      // is still outstanding.
+      out.push("Not yet met:", ...unmet.map((a) => `- [ ] ${a.text}`));
+    }
+    out.push("");
+  }
+  if (held.length > shown.length) out.push(`…and ${held.length - shown.length} more claimed.`, "");
+
+  out.push(
+    // The failure this prevents: an agent decides the work is finished and records it, bypassing
+    // the parent's judgement and the acceptance gate. Additive writes are fine and useful —
+    // evidence and comments are how an agent reports back — so they are not forbidden.
+    "The parent holds the claim, so do not run `tm start`, `tm done`, `tm park` or `tm block` on these —",
+    "report what you found and let the parent record the outcome. Reads (`tm show`, `tm board`, `tm find`)",
+    "and additive notes (`tm comment`, `tm evidence`) are fine.",
+  );
+
+  const text = out.join("\n");
+  return text.length > BRIEF_CHARS ? `${text.slice(0, BRIEF_CHARS - 1)}…` : text;
+}
+
 export function handoff(id, p = paths()) {
   const t = read(id, p);
   if (!t) throw new Error(`not found: ${id}`);

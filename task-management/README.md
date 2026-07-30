@@ -76,6 +76,7 @@ create a store inside its own repo — set `TM_ROOT` if you're deliberately dogf
 | `Edit` / `Write` / `MultiEdit` / `NotebookEdit` | the edited file is recorded on the task the session holds, so `touches` fills itself |
 | `git commit` / `gh pr create` | SHA or PR URL attached — by id in the message, or inferred from a `tm/TM-014-…` branch |
 | `AskUserQuestion` answered | A real multi-option decision becomes an ADR (with its rejected options); clarifications are ignored |
+| A subagent **starts** | It is briefed on the task the parent holds and what is left to satisfy — a spawned agent gets no SessionStart block |
 | A subagent finishes | The tasks the parent holds are attributed to it, with the agent's `agent_id`, `agent_type` and its own transcript path, so parallel agents are visible |
 | Session tries to stop | Blocked while tasks you claimed are still `in_progress` |
 | Session ends | Abandoned `in_progress` work is parked with a reason and its claim released |
@@ -324,6 +325,35 @@ cycles and deliberately will not repair them, since which edge to cut is a judge
 moment to say no is before one exists. A loop that already exists elsewhere is not blamed on the
 next caller; doctor still reports it. Subtask nesting refuses cycles.
 Backlog ranks are sparse integers, so dragging a card rewrites one file, not the whole board.
+
+## Briefing a subagent
+
+`SessionStart` fires once per session, not per agent, so a spawned subagent knew nothing about the
+board: not that one existed, not which task its parent was working, not what "done" meant for it. It
+re-derived context the parent already had, or filed a duplicate for work already tracked.
+
+`SubagentStart` now returns the parent's claimed work as `additionalContext`:
+
+```
+## task-management — what this session is already working on
+
+The parent session holds TM-001 "wire the vendor SDK" (EP-001).
+Not yet met:
+- [ ] the token refresh path is covered by a test
+
+The parent holds the claim, so do not run `tm start`, `tm done`, `tm park` or `tm block` on these —
+report what you found and let the parent record the outcome. Reads (`tm show`, `tm board`, `tm find`)
+and additive notes (`tm comment`, `tm evidence`) are fine.
+```
+
+**Only the unticked criteria**, because a met one is settled and the agent's job is what is left.
+**Nothing at all when the parent holds nothing** — a brief injected into every fan-out regardless is
+a tax every agent pays for the case where it happens to matter. **Bounded** at 3 tasks, 5 criteria
+each and 1200 characters, and it says how many claims it left out rather than truncating silently.
+
+It is deliberately not `handoff()`. That is a cold-start dossier for someone picking a task up with
+nothing in hand, and it ends with `Resume with: tm start <id>` — exactly wrong advice here, since
+the parent already holds the claim and the interlock would refuse.
 
 ## Standup
 

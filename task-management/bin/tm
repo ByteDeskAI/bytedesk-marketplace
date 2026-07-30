@@ -37,7 +37,7 @@ import {
   writeState,
 } from "../lib/store.mjs";
 import { consumeOverride, enforcementOff, gateDone, gateStop, gateTaskCreate, setOverride } from "../lib/enforce.mjs";
-import { board, handoff, renderHistory, renderLog, sessionContext, standup, taskLine } from "../lib/render.mjs";
+import { board, handoff, renderHistory, renderLog, sessionContext, standup, subagentBrief, taskLine } from "../lib/render.mjs";
 import { FIELD_NAMES, describeQuery, matchesQuery, parseQuery } from "../lib/query.mjs";
 import { autolink, link as linkBins, status as linkStatus, unlink as unlinkBins } from "../lib/link.mjs";
 import { applyShares, createWorktree, listWorktrees, removeWorktree } from "../lib/worktree.mjs";
@@ -1303,6 +1303,24 @@ function hook(event) {
             },
           }),
         );
+      }
+      break;
+    }
+
+    /**
+     * A subagent is starting. Tell it what this session is already working on.
+     *
+     * `session_id` here is the PARENT's — confirmed by spawning an agent against a probe hook —
+     * which is exactly the key the claims are held under, so the lookup is the same one
+     * `subagent-stop` uses to attribute the work afterwards.
+     *
+     * Nothing claimed means no output at all. A hook that prints an empty envelope on every spawn
+     * is a cost paid by every fan-out for nothing.
+     */
+    case "subagent-start": {
+      const brief = subagentBrief(input.session_id || sessionId(), P);
+      if (brief) {
+        out(JSON.stringify({ hookSpecificOutput: { hookEventName: "SubagentStart", additionalContext: brief } }));
       }
       break;
     }

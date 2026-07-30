@@ -14,6 +14,47 @@
 
 ### Added
 
+- **A subagent is briefed on the work it was spawned into.** `SessionStart` fires once per session,
+  not per agent, so a spawned subagent started knowing nothing about the board — not that one
+  existed, not which task its parent held, not what "done" meant for it. It re-derived context the
+  parent already had, or filed a duplicate for work already tracked.
+
+  The plugin now answers `SubagentStart` with the parent's claimed work:
+
+  ```
+  ## task-management — what this session is already working on
+
+  The parent session holds TM-001 "wire the vendor SDK" (EP-001).
+  Not yet met:
+  - [ ] the token refresh path is covered by a test
+
+  The parent holds the claim, so do not run `tm start`, `tm done`, `tm park` or `tm block` on these —
+  report what you found and let the parent record the outcome. Reads (`tm show`, `tm board`, `tm find`)
+  and additive notes (`tm comment`, `tm evidence`) are fine.
+  ```
+
+  Both halves of the contract were established by **spawning a real agent against a probe hook**
+  rather than inferred from the payload schema: `SubagentStart` carries the *parent's* `session_id`
+  — which is exactly the key claims are held under — and whatever the hook returns as
+  `additionalContext` reaches the agent, prefixed `SubagentStart hook additional context:`. The
+  agent quoted back a token that appeared nowhere in its prompt.
+
+  Only the unticked criteria, because a met one is settled and the job is what is left. Nothing at
+  all when the parent holds nothing, since a brief injected into every fan-out regardless is a tax
+  every agent pays for the case where it happens to matter. Bounded at 3 tasks, 5 criteria each and
+  1200 characters, and it reports how many claims it left out rather than truncating in silence.
+
+  It is deliberately not `handoff()`: that is a cold-start dossier — epic body, evidence, commits,
+  branch, worktree — for someone picking a task up with nothing in hand, and it ends with
+  `Resume with: tm start <id>`, which is exactly wrong here. The parent already holds the claim, and
+  now that the interlock actually engages, an agent following that advice would burn its turn on a
+  refusal it cannot resolve. That is also why the brief names the lifecycle verbs as off limits
+  while pointing at `tm comment` and `tm evidence`, which are additive and safe from a subagent.
+
+  The brief opens with its own heading because every `SubagentStart` hook's `additionalContext` is
+  concatenated into one block under a single prefix — observed in the live spawn, where this text
+  landed directly after another plugin's instructions.
+
 - **`tm find` takes `field:value`: the terminal and the agent can ask what only the browser could.**
   The board in the browser has always filtered by epic, assignee, actor, priority and label, and
   saved the combination as a named view. `tm find` was a substring match over titles and bodies — so
