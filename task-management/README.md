@@ -162,15 +162,20 @@ The Jira key is lifted out of the heading, and the objective, constraints and re
 kept in the body — `bytedesk-goals` **deletes** a goal doc once it is done, so the store cannot
 merely point at it.
 
-The parser was built against all **195** real goal docs, not a sample, because there is no single
-format: three header spellings (`**Success criteria (verifiable):**` 107, `## Success criteria
-(verifiable)` 49, `## Success criteria` 16) and two item forms (dash 118, **numbered 46**, mixed 7).
-A dash-only parser under a bolded-only header — the obvious first cut — misses 46 documents.
+The parser is measured against all **555** goal docs found *recursively* under `docs/goals`, because
+there is no single format: several header spellings (`## Success criteria (verifiable)` 178,
+`## Success criteria` 82, `## Goal (verifiable success criteria)` 8, the bolded inline form, one-off
+qualifiers) and two item forms in roughly 2:1 dash-to-numbered.
 
-171 of the 195 parse. The other 24 are **refused**, and that refusal is the point: 23 have no
-criteria section at all, and a task created with an empty acceptance list passes `tm done`
-unchallenged — so a silent import would have the gate certify a goal nobody verified. The refusal
-names the file and every header it looked for.
+**530 parse; 25 are refused** — and every one of those is a README, CONTEXT, EPIC, JIRA-SCAFFOLD or
+audit note rather than a goal. Refusal is the point: a task created with an empty acceptance list
+passes `tm done` unchallenged, so a silent import would have the gate certify a goal nobody
+verified. The refusal names the file and every header it looked for.
+
+Two failure modes matter here and they are not symmetrical. Zero criteria is **refused**. A
+*truncated* or *inflated* list is worse, because both look like a successful import and the gate
+then closes on the wrong thing — so a fence inside a criterion cannot end the list, and a nested
+sub-bullet folds into its parent rather than becoming a peer a gate could satisfy on its own.
 
 ### A whole program at once
 
