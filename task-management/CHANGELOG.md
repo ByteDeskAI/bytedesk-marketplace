@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+## 0.4.0
+
+The release that made the store trustworthy under parallel work, and gave it a layer above
+tasks for deciding what to build.
+
+Two of the fixes below are the reason to upgrade rather than the features. `writeAtomic`
+staged into files ending in `.md`, so the store read its own half-written staging files as
+entities and a concurrent create could lose its write; and a waiter that timed out broke a
+lock a live process was still holding. Both only appear under parallel sessions, which is
+exactly what this plugin is for.
+
+Added: capabilities (`CAP-*`) and the `/enhance` loop, sprints, `tm find field:value`,
+`tm edit`/`tm move`/`tm type`/`tm reopen`, goal import, a git contract written by `tm init`,
+per-repo board preferences with a settings menu, and a subagent brief so a spawned agent
+knows what the session is already doing. The board now names the project it belongs to
+instead of calling itself `task-management` on every repo.
+
+Removed: `tm export pm`.
+
+Also: `monitors` moved under `experimental.monitors` in the manifest, which is where
+`claude plugin validate` now wants it — top-level still loads but is slated for removal.
+
 ### Added
 
 - **Capabilities: the discovery layer above tasks, and `/enhance` to drive it.**
