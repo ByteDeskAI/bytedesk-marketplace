@@ -14,6 +14,43 @@
 
 ### Added
 
+- **A spawned agent is told what the session is already working on.** `SessionStart` fires once per
+  session; a subagent spawned mid-session got none of it, so it began knowing nothing about the
+  board — not which task its parent was holding, not what "done" meant for it — and could file a
+  duplicate for work already tracked. The plugin now answers `SubagentStart`:
+
+  ```
+  ## task-management — what this session is already working on
+
+  The parent session holds TM-018 "credential configuration through the UI" (EP-001).
+  Not yet met:
+  - [ ] the operator can set a provider key without editing a file
+
+  The parent holds the claim, so do not run `tm start`, `tm done`, `tm park` or `tm block` on these —
+  report what you found and let the parent record the outcome. Reads (`tm show`, `tm board`, `tm find`)
+  and additive notes (`tm comment`, `tm evidence`) are fine.
+  ```
+
+  Both halves of the hook contract were established by **spawning a real agent against a probe
+  hook** rather than inferred from the payload schema: the agent quoted back a marker token that
+  appeared nowhere in its prompt, and the captured payload confirmed `session_id` is the parent's —
+  the same key the claims are held under, so the lookup is the one `subagent-stop` already uses to
+  attribute the work afterwards.
+
+  Deliberately **not** `handoff()`. That is a cold-start dossier — epic body, evidence, commits,
+  branch, worktree — and it ends with `Resume with: tm start <id>`, which is precisely wrong advice
+  for an agent whose parent already holds the claim. What a subagent lacks is orientation and a
+  guardrail, and both are short.
+
+  Nothing claimed produces **no output at all**, not an empty envelope: this is prepended to every
+  agent in a fan-out. Capped at 3 tasks, 5 unmet criteria each and 1200 characters, and it says how
+  many it left out rather than truncating silently. Criteria already met are dropped — the useful
+  half of "done" is the part still outstanding.
+
+  It opens with its own heading because the live spawn showed every `SubagentStart` hook's
+  `additionalContext` arriving concatenated into one block, directly after another plugin's
+  instructions.
+
 - **A subagent is briefed on the work it was spawned into.** `SessionStart` fires once per session,
   not per agent, so a spawned subagent started knowing nothing about the board — not that one
   existed, not which task its parent held, not what "done" meant for it. It re-derived context the
