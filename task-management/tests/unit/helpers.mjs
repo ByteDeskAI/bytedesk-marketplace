@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ensureDirs, paths } from "../../lib/paths.mjs";
+import { seedGitContract } from "../../lib/store.mjs";
 
 export function git(cwd, ...args) {
   return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
@@ -33,10 +34,15 @@ export function cleanup(...dirs) {
 }
 
 /** An initialized store in a throwaway dir. Returns the paths object the lib functions take. */
+/**
+ * A store shaped like one `tm init` made, including its git contract — otherwise every doctor test
+ * inherits a `no-git-contract` finding that has nothing to do with what it is testing.
+ */
 export function tempStore() {
   const dir = mkdtempSync(join(tmpdir(), "tm-store-"));
   const p = paths(dir);
   ensureDirs(p);
+  seedGitContract(p);
   return p;
 }
 

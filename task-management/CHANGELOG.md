@@ -14,6 +14,25 @@
 
 ### Added
 
+- **The store now has a git contract, written by `tm init` and audited by `tm doctor`.**
+  `.bytedesk/task-management/` is meant to be committed — one markdown file per entity is what makes
+  a board readable in a diff. But four kinds of file in there are not the project's business, and
+  with no rule they sat in `git status` forever and were one `git add -A` away from being committed
+  and conflicting on every pull: `index.json` (a derived cache the README already calls disposable),
+  `state.json` (session claims and overrides — whose machine, not what work), `dashboard.*` (a port
+  and a pid for a server running here, now) and `.tm-tmp-*` (the staging files `writeAtomic` renames
+  over the real ones).
+
+  `events.jsonl` gets `merge=union`, and that is the piece worth having. It is append-only, so two
+  branches that both did work produce two sets of added lines at the end of one file — a textbook
+  conflict that is never a real one, on the file least interesting to resolve by hand.
+
+  Seeding never overwrites: `tm init` is how an older board is adopted, so it writes only what is
+  missing and leaves hand-edited rules alone. `doctor` reports a store without a contract and can
+  write one, and separately warns when a per-machine file is **already tracked** — being ignored is
+  no help once git is carrying it, so that finding names the `git rm --cached` to run rather than
+  pretending it can fix it.
+
 - **Board preferences live in the repo, and there is a settings menu to reach them.** They had
   nowhere to live: the notification switch was a bare button in the status bar, the group-by-epic
   toggle was loose in the toolbar, and the rest was in `localStorage` with no surface at all. So a

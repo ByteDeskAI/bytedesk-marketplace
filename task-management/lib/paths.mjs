@@ -109,6 +109,8 @@ export function paths(root = resolveRoot()) {
     index: join(base, "index.json"),
     state: join(base, "state.json"),
     config: join(base, "config.json"),
+    gitignore: join(base, ".gitignore"),
+    gitattributes: join(base, ".gitattributes"),
   };
 }
 

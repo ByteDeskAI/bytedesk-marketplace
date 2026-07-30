@@ -13,9 +13,10 @@
  * cycle and a done task with unmet criteria are decisions, not typos, so they are
  * reported and left alone.
  */
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
-import { RESOLVED, list, logEvent, reindex, reopenEpic, state, update, writeState } from "./store.mjs";
+import { NOT_FOR_GIT, RESOLVED, list, logEvent, reindex, reopenEpic, seedGitContract, state, update, writeState } from "./store.mjs";
 import { LINK_TYPES } from "./issue.mjs";
 import { releaseClaim, staleClaims, sweepClaims } from "./claims.mjs";
 import { KINDS, paths } from "./paths.mjs";
@@ -59,6 +60,26 @@ const checkable = (ref) => typeof ref === "string" && ref.length > 0 && !URI.tes
  * absolute path that is present on disk read as missing, and got dropped for it.
  */
 const evidenceTarget = (ref, p) => (isAbsolute(ref) ? ref : join(p.root, ref));
+
+
+/**
+ * Is git carrying this file? Answered by asking git, not by guessing from a path.
+ *
+ * Never throws: a store outside a repo, or a machine with no git, is not a finding — it just means
+ * the question does not apply.
+ */
+function gitTracks(p, name) {
+  try {
+    const out = execFileSync("git", ["ls-files", "--error-unmatch", join(p.base, name)], {
+      cwd: p.root,
+      stdio: ["ignore", "pipe", "ignore"],
+      encoding: "utf8",
+    });
+    return Boolean(out.trim());
+  } catch {
+    return false;
+  }
+}
 
 export function diagnose(p = paths()) {
   const tasks = list("task", { includeDeleted: true }, p);
@@ -178,6 +199,41 @@ export function diagnose(p = paths()) {
         }),
       );
     }
+  }
+
+  /**
+   * The store's git contract.
+   *
+   * A board with no `.gitignore` leaves its cache, its session claims and a dashboard's pid sitting
+   * in `git status` forever — and one `git add -A` later they are committed and conflicting on
+   * every pull. Stores created before `tm init` seeded these files have no way to learn about them
+   * except here.
+   */
+  for (const [key, name, why] of [
+    ["gitignore", ".gitignore", "its cache, session claims and dashboard pid will land in git"],
+    ["gitattributes", ".gitattributes", "every branch that adds events will conflict on events.jsonl"],
+  ]) {
+    if (existsSync(p[key])) continue;
+    out.push(
+      finding("warning", "no-git-contract", null, `the store has no ${name} — ${why}`, () => {
+        // Only its own file: two findings sharing one fix made the second report "nothing missing".
+        const written = seedGitContract(p, key);
+        return written.length ? `wrote ${written.join(", ")}` : `${name} already exists`;
+      }),
+    );
+  }
+
+  // Being ignored is no help once a file is already tracked: git keeps carrying it.
+  for (const name of NOT_FOR_GIT) {
+    if (!gitTracks(p, name)) continue;
+    out.push(
+      finding(
+        "warning",
+        "tracked-cache",
+        null,
+        `${name} is tracked by git — it is per-machine, so it will conflict on every pull. Untrack it with: git rm --cached ${join(p.base, name)}`,
+      ),
+    );
   }
 
   // Two tasks mirroring one native task means every TaskUpdate lands on whichever
