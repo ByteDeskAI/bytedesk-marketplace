@@ -240,6 +240,66 @@ describe("evidence, natives and the cache", () => {
     assert.deepEqual(read(t.id, p).evidence, []);
   });
 
+  /**
+   * `--fix` deletes what this finding reports, so a false positive here is not noise, it is
+   * data loss. Every ref below was flagged and dropped, because the check resolved each one
+   * as `join(root, ref)` and then asked the filesystem about the result.
+   */
+  it("leaves a url alone instead of dropping the PR that proves the task", () => {
+    const p = store();
+    const url = "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/69";
+    const t = create("task", { title: "proven", evidence: [url] }, "", p);
+
+    assert.deepEqual(codes(p), [], "nothing on disk answers to a url, so there is nothing to report");
+    heal(p);
+    assert.deepEqual(read(t.id, p).evidence, [url], "the most probative ref there is must survive a repair");
+  });
+
+  it("leaves an opaque handle alone", () => {
+    const p = store();
+    // Recorded by hand against a real task in this project: an agent-browser session, which
+    // is not a file anywhere and is still the only pointer at what was verified.
+    const ref = "browser:019fb067-1c42-79bc-9e8c-1ab8a2b9ddf8";
+    const t = create("task", { title: "verified in a browser", evidence: [ref] }, "", p);
+
+    assert.deepEqual(codes(p), []);
+    heal(p);
+    assert.deepEqual(read(t.id, p).evidence, [ref]);
+  });
+
+  it("checks an absolute ref where it points, not underneath the store", () => {
+    const p = store();
+    // join(root, "/etc/hostname") is <root>/etc/hostname — absent, so a file that is right
+    // there on disk read as gone.
+    const outside = join(p.root, "outside.log");
+    writeFileSync(outside, "build output\n");
+    const t = create("task", { title: "absolute", evidence: [outside] }, "", p);
+
+    assert.deepEqual(codes(p), [], "the file exists at the path the ref names");
+    heal(p);
+    assert.deepEqual(read(t.id, p).evidence, [outside]);
+  });
+
+  it("still drops an absolute ref that really is gone", () => {
+    const p = store();
+    const t = create("task", { title: "absolute and absent", evidence: [join(p.root, "never-written.log")] }, "", p);
+
+    assert.ok(codes(p).includes("missing-evidence"), "resolving it correctly must not mean never checking it");
+    heal(p);
+    assert.deepEqual(read(t.id, p).evidence, []);
+  });
+
+  it("treats a windows drive letter as a path, not a scheme", () => {
+    const p = store();
+    // RFC 3986 permits a one-letter scheme, so `C:` parses as one — and skipping it would
+    // mean never checking a ref that can be checked.
+    const t = create("task", { title: "windows", evidence: ["C:\\logs\\build.log"] }, "", p);
+
+    assert.ok(codes(p).includes("missing-evidence"));
+    heal(p);
+    assert.deepEqual(read(t.id, p).evidence, []);
+  });
+
   it("catches two files claiming one id, and refuses to pick a winner", () => {
     const p = store();
     const t = create("task", { title: "the reachable one" }, "", p);

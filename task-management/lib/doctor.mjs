@@ -14,7 +14,7 @@
  * reported and left alone.
  */
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { RESOLVED, list, logEvent, reindex, reopenEpic, state, update, writeState } from "./store.mjs";
 import { LINK_TYPES } from "./issue.mjs";
 import { releaseClaim, staleClaims, sweepClaims } from "./claims.mjs";
@@ -25,6 +25,40 @@ import { KINDS, paths } from "./paths.mjs";
  * warning — the store is untidy: correct, but something will read oddly.
  */
 const finding = (level, code, id, message, fix = null) => ({ level, code, id, message, fixable: Boolean(fix), fix });
+
+/**
+ * A URI, not a path. Two or more characters before the colon, because RFC 3986 allows a
+ * one-letter scheme and `C:\evidence\proof.log` would otherwise read as one — a Windows
+ * drive letter is the likelier thing to meet, and misreading it as a scheme would skip a
+ * path that genuinely can be checked.
+ */
+const URI = /^[a-zA-Z][a-zA-Z0-9+.-]+:/;
+
+/**
+ * Whether an evidence ref is a thing this process can look for on disk.
+ *
+ * Both writers — `tm evidence` and the `tm_evidence` tool — copy the file into the store and
+ * record `evidence/<id>-<name>`, so every ref they produce is store-relative and checkable.
+ * The third writer is a hand edit, which is not abuse: markdown files you can open and change
+ * are the store's whole premise, and a person recording what proves a task reaches for
+ * whatever is probative — the url of the PR, an absolute path to a log outside the repo, an
+ * opaque handle to a browser session (`browser:019fb067-…`).
+ *
+ * A ref with a scheme is skipped rather than reported. Nothing here can resolve it, and a
+ * finding no one can act on is noise — but the sharper reason is that this finding's `fix`
+ * DELETES the ref. `join(root, "https://…/pull/69")` never exists, so the url that proves the
+ * task was flagged as drift and `--fix` dropped it. Losing the provenance is a strictly worse
+ * outcome than the untidiness the check was written to catch, and it happened silently, to the
+ * one ref most worth keeping.
+ */
+const checkable = (ref) => typeof ref === "string" && ref.length > 0 && !URI.test(ref);
+
+/**
+ * An absolute ref is checked where it points. `join(root, "/var/log/build.log")` yields
+ * `<root>/var/log/build.log`, which is not the file the ref names and does not exist — so an
+ * absolute path that is present on disk read as missing, and got dropped for it.
+ */
+const evidenceTarget = (ref, p) => (isAbsolute(ref) ? ref : join(p.root, ref));
 
 export function diagnose(p = paths()) {
   const tasks = list("task", { includeDeleted: true }, p);
@@ -135,14 +169,14 @@ export function diagnose(p = paths()) {
     }
 
     for (const ref of t.evidence || []) {
-      if (!existsSync(join(p.root, ref))) {
-        out.push(
-          finding("warning", "missing-evidence", t.id, `evidence ${ref} is recorded but the file is gone`, () => {
-            update(t.id, { evidence: (t.evidence || []).filter((e) => e !== ref) }, p);
-            return `dropped ${ref} from ${t.id}.evidence`;
-          }),
-        );
-      }
+      if (!checkable(ref)) continue;
+      if (existsSync(evidenceTarget(ref, p))) continue;
+      out.push(
+        finding("warning", "missing-evidence", t.id, `evidence ${ref} is recorded but the file is gone`, () => {
+          update(t.id, { evidence: (t.evidence || []).filter((e) => e !== ref) }, p);
+          return `dropped ${ref} from ${t.id}.evidence`;
+        }),
+      );
     }
   }
 

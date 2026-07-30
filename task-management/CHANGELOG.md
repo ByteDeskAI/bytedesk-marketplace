@@ -70,6 +70,27 @@
 
 ### Fixed
 
+- **`tm doctor --fix` deleted the evidence it could not resolve, including the url of the PR that
+  proved the task.** The check asked `existsSync(join(root, ref))` for every evidence ref and
+  offered to drop whatever came back false — and `join(root, "https://…/pull/69")` is a path that
+  can never exist, so a url was reported as drift and the repair removed it. Same for an absolute
+  path (`join(root, "/var/log/build.log")` is `<root>/var/log/build.log`, so a file sitting right
+  there read as gone) and for an opaque handle like `browser:019fb067-…`.
+
+  This is not a hypothetical: it was found because this project's own board carried two
+  `browser:` refs, they were the only two findings standing between it and a clean bill of health,
+  and the obvious next keystroke would have destroyed them.
+
+  Both writers — `tm evidence` and the `tm_evidence` tool — copy the file into the store, so
+  everything they record is store-relative and checkable. The third writer is a hand edit, which
+  is not abuse: openable markdown is the store's whole premise, and a person recording what proves
+  a task reaches for whatever is probative. So a ref with a scheme is now skipped rather than
+  reported (nothing here can resolve it, and a finding whose fix destroys data is worse than no
+  finding), and an absolute ref is checked where it actually points. An absolute ref that really
+  is missing is still reported — resolving it correctly must not mean never checking it — and a
+  Windows drive letter is still treated as a path, since RFC 3986 would otherwise let `C:` parse
+  as a scheme.
+
 - **A subagent's work was never attributed, in 317 consecutive firings.** The README promises "its
   work is attributed on the timeline, so parallel agents are visible"; this project's own store holds
   317 `subagent_stop` events and **not one** has a task against it. The filter asked whether a
