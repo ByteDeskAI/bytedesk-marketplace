@@ -114,6 +114,84 @@ after=$(cat "$HOME/.agents/AGENTS.md")
   || bad "verify left residue in the shared source"
 teardown
 
+# --- install-cli writes a wrapper and refuses a foreign one --------------------
+setup
+conf install-cli >/dev/null 2>&1
+w="$HOME/.local/bin/agentconf"
+[ -x "$w" ] && ok "install-cli writes an executable wrapper" || bad "no wrapper written"
+grep -q "agentconf-setup-cli-wrapper" "$w" \
+  && ok "the wrapper carries its sentinel" || bad "wrapper has no sentinel"
+
+# mtime, not version sort: SHA directory names do not sort chronologically, so a
+# version-sorted resolver picks an arbitrary build and nothing says so.
+grep -q 'ls -dt' "$w" && ok "the wrapper resolves by mtime, not version sort" || bad "wrapper version-sorts"
+
+out=$(conf install-cli 2>&1)
+echo "$out" | grep -q refreshed && ok "re-running install-cli refreshes its own wrapper" || bad "second install-cli did not refresh" "$out"
+
+printf '#!/bin/sh\necho someone elses script\n' > "$w"
+out=$(conf install-cli 2>&1); rc=$?
+[ $rc -eq 1 ] && echo "$out" | grep -q refused \
+  && ok "install-cli refuses to overwrite a wrapper it did not write" \
+  || bad "install-cli clobbered a foreign script" "$out"
+grep -q "someone elses" "$w" && ok "the foreign script survives" || bad "foreign script was overwritten"
+teardown
+
+# --- the wrapper actually resolves to a working binary -------------------------
+setup
+conf install-cli >/dev/null 2>&1
+out=$("$HOME/.local/bin/agentconf" 2>&1 | head -1)
+case "$out" in
+  agentconf*) ok "the wrapper execs a working agentconf" ;;
+  *) bad "wrapper did not resolve" "$out" ;;
+esac
+teardown
+
+# --- restore puts a file back, and backs up the current state first ------------
+setup
+printf 'original\n' > "$HOME/.claude/CLAUDE.md"
+conf wire >/dev/null 2>&1                      # backs up CLAUDE.md, prepends the import
+stamp=$(conf restore 2>/dev/null | grep CLAUDE | head -1 | awk '{print $1}')
+if [ -n "$stamp" ]; then
+  ok "restore lists a backup after wire"
+  conf restore "$stamp" >/dev/null 2>&1
+  grep -q "^original$" "$HOME/.claude/CLAUDE.md" \
+    && ok "restore puts the original content back" || bad "restore did not restore"
+  # the pre-restore state must itself be recoverable, or undo is data loss
+  [ "$(conf restore 2>/dev/null | grep -c CLAUDE)" -ge 2 ] \
+    && ok "restore backs up the current state before overwriting" \
+    || bad "restore overwrote without a backup"
+else
+  bad "restore listed no backup after wire"
+fi
+teardown
+
+# --- backup stamps are usable as restore arguments ----------------------------
+setup
+printf 'x\n' > "$HOME/.claude/CLAUDE.md"
+conf wire >/dev/null 2>&1
+s=$(conf restore 2>/dev/null | grep CLAUDE | head -1 | awk '{print $1}')
+case "$s" in
+  *.) bad "backup stamp has a trailing dot: '$s'" ;;
+  [0-9]*-[0-9]*) ok "backup stamp is YYYYMMDD-HHMMSS ('$s')" ;;
+  *) bad "unexpected stamp format: '$s'" ;;
+esac
+teardown
+
+# --- adopt reports without writing --------------------------------------------
+setup
+printf 'shared line\nclaude only line\n' > "$HOME/.claude/CLAUDE.md"
+printf '# Shared\nshared line\n' > "$HOME/.agents/AGENTS.md"
+before=$(cat "$HOME/.claude/CLAUDE.md")
+out=$(conf adopt 2>&1)
+[ "$before" = "$(cat "$HOME/.claude/CLAUDE.md")" ] \
+  && ok "adopt writes nothing" || bad "adopt modified a file"
+echo "$out" | grep -q "does not merge" \
+  && ok "adopt says plainly that it does not merge" || bad "adopt did not disclaim merging" "$out"
+echo "$out" | grep -q "not in the shared source" \
+  && ok "adopt counts what is not yet shared" || bad "adopt gave no overlap count" "$out"
+teardown
+
 echo
 echo "$pass passed, $fail failed"
 exit $((fail > 0))

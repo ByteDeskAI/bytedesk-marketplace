@@ -39,7 +39,16 @@ agentconf detect            what is installed and logged in, via each vendor's o
 agentconf check             is the wiring intact? offline, fast, exit 1 on drift
 agentconf wire [--dry-run]  apply the adapters; backs up anything it replaces
 agentconf verify [--all]    canary: prove each tool actually READS the shared file
+agentconf adopt             what this machine already has, before you wire anything
+agentconf restore [stamp]   list backups, or put one back
+agentconf install-cli       wrapper in ~/.local/bin so your shell and Codex can call it too
 ```
+
+`install-cli` matters more here than for most plugins: Claude Code puts `bin/` on the **tool
+host's** PATH only, and a tool whose job is configuring the other agents is the wrong half of
+itself if only one agent can call it. The wrapper resolves the source tree first, then the
+most **recently modified** cache dir — by mtime, not version sort, because commit-SHA
+directory names do not sort chronologically.
 
 `check` is cheap and runs on every session via the SessionStart hook. `verify` costs real
 tokens — each probe is a model invocation — so it is explicit and occasional.
@@ -102,7 +111,9 @@ the plugin is enabled.
 bash tests/test-agentconf.sh
 ```
 
-13 tests against a throwaway `$HOME`, covering the failure modes rather than the happy path:
+27 tests against a throwaway `$HOME`, covering the failure modes rather than the happy path:
 the clobbered symlink, the symlinked rules file that reads as in-sync but is not in force,
-drift in a copied file, `--if-touched` staying silent for unmanaged files, and `verify`
-leaving no canary behind when a probe cannot run.
+drift in a copied file, `--if-touched` staying silent for unmanaged files, `verify` leaving no
+canary behind when a probe cannot run, `install-cli` refusing to overwrite a wrapper it did
+not write, and `restore` backing up the current state before overwriting so an undo is itself
+undoable.
