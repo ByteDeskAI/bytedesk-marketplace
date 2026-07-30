@@ -303,6 +303,25 @@ esac
 CODE="$(post /api/task/TM-001/accept '{"index":99}')"
 [[ "$CODE" == 400 ]] && ok "an index that does not exist is refused" || no "an index that does not exist is refused" "got $CODE"
 
+# Board preferences live in the repo, not the browser. This is why notifications had to be
+# switched on again in every browser: the preference was never about the browser.
+CODE="$(post /api/settings '{"categories":["blocked"],"me":"ryan","grouped":true}')"
+[[ "$CODE" == 200 ]] && ok "settings are writable over HTTP" || no "settings are writable" "got $CODE: $(body)"
+assert_contains "$(curl -fsS "http://127.0.0.1:$PORT/api/board")" '"me":"ryan"' "the board payload carries them back"
+assert_contains "$(cat "$STORE/config.json")" '"me": "ryan"' "and they are written to the repo's own config"
+assert_contains "$(curl -fsS "http://127.0.0.1:$PORT/api/board")" '"actor"' "the payload names the session, for the profile menu"
+# The gates are not a browser preference — tm config owns those deliberately.
+CODE="$(post /api/settings '{"enforce":false,"wipLimit":99}')"
+[[ "$CODE" == 400 ]] && ok "a browser cannot switch off the store's gates" || no "a browser cannot switch off the gates" "got $CODE"
+case "$(cat "$STORE/config.json")" in
+  *'"enforce": false'*) no "the gate is untouched on disk" "enforce was overwritten" ;;
+  *) ok "the gate is untouched on disk" ;;
+esac
+post /api/settings '{"grouped":false,"nonsense":1}' >/dev/null
+assert_contains "$(body)" '"ignored"' "an unknown key is named rather than silently stored"
+CODE="$(post /api/settings '"nope"')"
+[[ "$CODE" == 400 ]] && ok "a non-object settings body is refused" || no "a non-object settings body is refused" "got $CODE"
+
 # Links write both ends; subtasks and rank move real fields.
 post /api/task/TM-001/link '{"type":"blocks","to":"TM-002"}' >/dev/null
 assert_contains "$(md TM-001)" '"blocks"' "a link is written on the near end"

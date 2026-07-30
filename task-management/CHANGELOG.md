@@ -14,6 +14,36 @@
 
 ### Added
 
+- **Board preferences live in the repo, and there is a settings menu to reach them.** They had
+  nowhere to live: the notification switch was a bare button in the status bar, the group-by-epic
+  toggle was loose in the toolbar, and the rest was in `localStorage` with no surface at all. So a
+  preference was invisible until you found the control that owned it — and it applied to one browser
+  on one machine, which is why notifications had to be switched on again everywhere.
+
+  The preference was never about the browser; it was about the project. `POST /api/settings` writes
+  to the store's own config file next to the tasks, and the board payload carries it back, so any
+  browser opening that repo starts with the answer already given.
+
+  `localStorage` stays as a cache in front of it: this is an installable app with an offline outbox,
+  reading synchronously at mount avoids a flash of the wrong settings, and a board that cannot reach
+  its server still knows what you asked for. The store wins the moment it answers.
+
+  Writable keys are an **allowlist**, not just a namespace. The rest of the config holds the gates —
+  `enforce`, `wipLimit`, `requireAcceptance` — and a browser tab is not the place to switch off
+  rules the CLI and the hooks are enforcing; `tm config` still owns those. An unknown key is named
+  back in the response rather than silently accumulating in a file people read.
+
+  Two menus rather than one: a profile menu for "who does this board think I am" — which nothing
+  displayed before, though `me` is what decides whether a change counts as *your* work — and a
+  settings modal for how the board behaves. `installDismissed` is deliberately not shared; whether
+  this browser dismissed an install banner is genuinely about this browser.
+
+  The notification **permission** is a browser grant the page cannot store on anyone's behalf, so
+  the modal says so and offers to ask, rather than showing switches that cannot fire.
+
+  Built on `@atlaskit/dropdown-menu`, `@atlaskit/toggle` and `@atlaskit/modal-dialog` — Atlaskit is
+  the base component library here, so the rule is to reach for it before writing anything.
+
 - **A spawned agent is told what the session is already working on.** `SessionStart` fires once per
   session; a subagent spawned mid-session got none of it, so it began knowing nothing about the
   board — not which task its parent was holding, not what "done" meant for it — and could file a

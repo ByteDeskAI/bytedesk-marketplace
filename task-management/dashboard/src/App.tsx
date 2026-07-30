@@ -16,12 +16,19 @@ import { Sparkline } from "./components/Sparkline";
 import { TaskDrawer } from "./components/TaskDrawer";
 import { Toolbar } from "./components/Toolbar";
 import { PwaBar } from "./components/PwaBar";
+import { SettingsMenu } from "./components/SettingsMenu";
 import { Palette } from "./components/Palette";
 import type { Command } from "./components/Palette";
 import { KeyHint, Shortcuts } from "./components/Shortcuts";
 import { usePwa } from "./pwa/usePwa";
 import { COLUMNS as KEY_COLUMNS, locate } from "./keys.mjs";
-import { NO_EPIC, laneOrder, laneProgress, laneTasks, sortForLanes } from "./lanes.mjs";
+import {
+  NO_EPIC,
+  laneOrder,
+  laneProgress,
+  laneTasks,
+  sortForLanes,
+} from "./lanes.mjs";
 import { EpicLane } from "./components/EpicLane";
 import type { Lane } from "./components/EpicLane";
 import { useBoardKeys } from "./useBoardKeys";
@@ -54,9 +61,11 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [palette, setPalette] = useState(false);
   const [help, setHelp] = useState(false);
-  // ponytail: localStorage, per browser, like the saved views next to it. Move it into
-  // the store only if a layout preference ever needs to follow the project.
-  const [grouped, setGrouped] = useState(() => localStorage.getItem("tm.grouped") === "1");
+  // localStorage is the cache that avoids a flash on load; the repo's config is the answer. It
+  // used to be localStorage alone, which meant the layout you chose applied to one browser.
+  const [grouped, setGrouped] = useState(
+    () => localStorage.getItem("tm.grouped") === "1",
+  );
   const searchRef = useRef<HTMLInputElement | null>(null);
 
   const setGroupedPersisted = useCallback((on: boolean) => {
@@ -64,8 +73,9 @@ export function App() {
     try {
       localStorage.setItem("tm.grouped", on ? "1" : "0");
     } catch {
-      /* private mode — the toggle still works, it just won't persist */
+      /* private mode — the toggle still works, it just won't persist locally */
     }
+    void write.settings({ grouped: on });
   }, []);
 
   const load = useCallback(() => {
@@ -109,7 +119,18 @@ export function App() {
   );
 
   // Installability, notifications, the offline outbox and the app badge.
-  const pwa = usePwa(events, (board?.tasks ?? []).filter((t) => t.status === "in_progress").length);
+  const pwa = usePwa(
+    events,
+    (board?.tasks ?? []).filter((t) => t.status === "in_progress").length,
+  );
+
+  // The repo's copy wins over this browser's cache once it arrives.
+  useEffect(() => {
+    if (!board?.settings) return;
+    pwa.adoptServerPrefs(board.settings);
+    if (typeof board.settings.grouped === "boolean")
+      setGrouped(board.settings.grouped);
+  }, [board?.settings, pwa.adoptServerPrefs]);
 
   const starts = useMemo(() => startTimes(events), [events]);
   // The store's own answer, out of state.json, which the board payload has always
@@ -130,10 +151,17 @@ export function App() {
     const filtered = (board?.tasks ?? []).filter((t) => matches(t, filters));
     return grouped
       ? sortForLanes(filtered, lanes)
-      : filtered.sort((a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity) || a.id.localeCompare(b.id));
+      : filtered.sort(
+          (a, b) =>
+            (a.rank ?? Infinity) - (b.rank ?? Infinity) ||
+            a.id.localeCompare(b.id),
+        );
   }, [board, filters, grouped, lanes]);
   const series = useMemo(
-    () => (board && epic ? burndown(board.tasks, events, { days: 14, now, epic }) : []),
+    () =>
+      board && epic
+        ? burndown(board.tasks, events, { days: 14, now, epic })
+        : [],
     [board, events, epic, now],
   );
 
@@ -146,7 +174,12 @@ export function App() {
     });
 
   const toggle = useCallback(
-    (id: string) => setSelected((prev) => (prev.has(id) ? new Set([...prev].filter((x) => x !== id)) : new Set([...prev, id]))),
+    (id: string) =>
+      setSelected((prev) =>
+        prev.has(id)
+          ? new Set([...prev].filter((x) => x !== id))
+          : new Set([...prev, id]),
+      ),
     [],
   );
 
@@ -159,7 +192,8 @@ export function App() {
     modal,
     onOpen: setOpenId,
     onTransition: (id, status) => run(() => write.transition(id, status)),
-    onRank: (id, target, where) => run(() => write.act(id, "rank", { [where]: target })),
+    onRank: (id, target, where) =>
+      run(() => write.act(id, "rank", { [where]: target })),
     onSelect: toggle,
     onWatch: pwa.toggleWatch,
     onCreate: () => setCreating(true),
@@ -175,18 +209,51 @@ export function App() {
   /** Board-level palette rows. Card actions are added by Palette from the cursor. */
   const commands: Command[] = useMemo(
     () => [
-      { key: "create", label: "Create task", hint: "c", run: () => setCreating(true) },
-      { key: "clear", label: "Clear all filters", run: () => setFilters(EMPTY) },
-      { key: "search", label: "Search the board", hint: "/", run: () => searchRef.current?.focus() },
-      { key: "help", label: "Keyboard shortcuts", hint: "?", run: () => setHelp(true) },
+      {
+        key: "create",
+        label: "Create task",
+        hint: "c",
+        run: () => setCreating(true),
+      },
+      {
+        key: "clear",
+        label: "Clear all filters",
+        run: () => setFilters(EMPTY),
+      },
+      {
+        key: "search",
+        label: "Search the board",
+        hint: "/",
+        run: () => searchRef.current?.focus(),
+      },
+      {
+        key: "help",
+        label: "Keyboard shortcuts",
+        hint: "?",
+        run: () => setHelp(true),
+      },
       ...(keys.focusedId
         ? [
-            { key: "open", label: `Open ${keys.focusedId}`, run: () => setOpenId(keys.focusedId) },
-            { key: "watch", label: `Watch ${keys.focusedId}`, run: () => pwa.toggleWatch(keys.focusedId!) },
+            {
+              key: "open",
+              label: `Open ${keys.focusedId}`,
+              run: () => setOpenId(keys.focusedId),
+            },
+            {
+              key: "watch",
+              label: `Watch ${keys.focusedId}`,
+              run: () => pwa.toggleWatch(keys.focusedId!),
+            },
           ]
         : []),
       ...(selected.size
-        ? [{ key: "deselect", label: `Deselect ${selected.size} card(s)`, run: () => setSelected(new Set()) }]
+        ? [
+            {
+              key: "deselect",
+              label: `Deselect ${selected.size} card(s)`,
+              run: () => setSelected(new Set()),
+            },
+          ]
         : []),
     ],
     [keys.focusedId, pwa, selected.size],
@@ -220,7 +287,12 @@ export function App() {
             now={now}
             focusedId={keys.focusedId}
             onFocusCard={(id) => {
-              const at = locate(id, COLUMNS.map((s) => visible.filter((t) => t.status === s).map((t) => t.id)));
+              const at = locate(
+                id,
+                COLUMNS.map((s) =>
+                  visible.filter((t) => t.status === s).map((t) => t.id),
+                ),
+              );
               if (at) keys.setFocus(at);
             }}
             selected={selected}
@@ -250,11 +322,19 @@ export function App() {
           <Inline space="space.200" alignBlock="center" spread="space-between">
             <Inline space="space.150" alignBlock="center">
               <Text weight="bold">task-management</Text>
-              <Lozenge appearance="inprogress">{epic ?? "no active epic"}</Lozenge>
+              <Lozenge appearance="inprogress">
+                {epic ?? "no active epic"}
+              </Lozenge>
               <Text size="small" color="color.text.subtlest">
                 {live ? "● live" : "○ reconnecting…"}
               </Text>
               <PwaBar pwa={pwa} />
+              <SettingsMenu
+                pwa={pwa}
+                grouped={grouped}
+                onGrouped={setGroupedPersisted}
+                actor={board?.actor ?? null}
+              />
             </Inline>
             <Inline space="space.200" alignBlock="center">
               <KeyHint onHelp={() => setHelp(true)} />
@@ -282,7 +362,11 @@ export function App() {
           </SectionMessage>
         ) : null}
 
-        <BulkBar ids={[...selected]} onClear={() => setSelected(new Set())} run={run} />
+        <BulkBar
+          ids={[...selected]}
+          onClear={() => setSelected(new Set())}
+          run={run}
+        />
 
         {grouped ? (
           <Stack space="space.100">

@@ -405,6 +405,23 @@ write reads as `→ blocked`, and a generic `update` that a specific event in th
 explains is dropped. The panel gets the sentence for each event kind from the store's own catalog
 over `/api/events`, so all three surfaces describe the same event the same way.
 
+## Settings
+
+Board preferences are stored in the repo's own config, next to the tasks, so they follow the project
+rather than the browser — open the same board on another machine and your notification categories,
+your name and your layout are already set.
+
+The **Settings** modal holds them; the **profile** menu next to it shows who the board thinks you
+are, which is what decides whether a change counts as your work.
+
+Writable keys are an allowlist. The gates — `enforce`, `wipLimit`, `requireAcceptance` — are not
+board preferences and stay with `tm config`: a browser tab is not the place to switch off the rules
+the CLI and the hooks enforce. The notification *permission* is a browser grant and cannot be
+stored for you, so the modal asks for it rather than pretending.
+
+`localStorage` is kept as a cache so the board renders instantly and still works offline; the repo's
+copy wins as soon as it arrives.
+
 ## The task drawer
 
 Opening a card gives a drawer that is a grid — a header row that stays put and a body that scrolls.
