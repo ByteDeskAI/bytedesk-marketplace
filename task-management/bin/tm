@@ -1172,6 +1172,18 @@ function importManifest(path) {
 
 function renderShow(doc) {
   const lines = [`${doc.id}  ${doc.title}`, `status: ${doc.status}${doc.epic ? `   epic: ${doc.epic}` : ""}`];
+
+  /**
+   * Why it stopped, immediately under the status it qualifies, and never abridged — this is the
+   * detail view, and the board's own line is where the clamp belongs.
+   *
+   * `reopenedReason` was already here, so the shape existed for one of the three reasons a task
+   * carries and the other two were simply never added: `tm show` on a blocked task printed its
+   * status and not one word about what it was waiting for.
+   */
+  const stopped = doc.status === "blocked" ? doc.blockedReason : doc.status === "parked" ? doc.parkedReason : null;
+  if (stopped) lines.push(`${doc.status}: ${stopped}`);
+
   const facts = [
     doc.assignee ? `assignee: ${doc.assignee}` : "",
     doc.priority ? `priority: ${doc.priority}` : "",

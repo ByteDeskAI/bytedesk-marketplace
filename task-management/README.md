@@ -325,6 +325,16 @@ moment to say no is before one exists. A loop that already exists elsewhere is n
 next caller; doctor still reports it. Subtask nesting refuses cycles.
 Backlog ranks are sparse integers, so dragging a card rewrites one file, not the whole board.
 
+## Why a card stopped
+
+`tm park <id> <why>` and `tm block <id> <why>` store the sentence you type, and both boards show it
+— on the CLI line right after the title, and on the dashboard card as its own line of prose. `tm
+show` prints it unabridged; the board clamps it and ends in `…`, because a board is for scanning and
+`tm show`/`tm why` are where the whole thing lives.
+
+It is shown only while it applies: `tm start` on a parked task does not clear `parkedReason`, and a
+task that is being worked on is not waiting on anything.
+
 ## Searching
 
 Bare words are a case-insensitive substring over titles and bodies. `field:value` narrows, and a

@@ -14,12 +14,39 @@ import { CATALOG } from "./ntfy.mjs";
  */
 const MARK = { open: "○", in_progress: "◐", blocked: "⊘", parked: "⏸", done: "●", proposed: "◇" };
 
+/**
+ * How much of a stop reason fits on a board line.
+ *
+ * ponytail: a fixed clamp, because the board is for scanning and one 300-word reason would push
+ * every other row off the screen. `tm show <id>` and `tm why <id>` print it whole, and the line
+ * ends in `…` so it is visibly abridged rather than quietly wrong.
+ */
+const REASON_MAX = 60;
+
+/**
+ * Why a task stopped, when it did.
+ *
+ * `tm park <id> <why>` and `tm block <id> <why>` have always stored this, and the board — the
+ * first thing anyone looks at on either surface — showed nothing. `tm why <id>` printed it, one
+ * task at a time, which means the answer to "what is everything stuck on" was N commands. The
+ * user typed a sentence and the tool swallowed it.
+ */
+function stopReason(t) {
+  const why = t.status === "blocked" ? t.blockedReason : t.status === "parked" ? t.parkedReason : null;
+  if (!why) return "";
+  const flat = String(why).replace(/\s+/g, " ").trim();
+  return flat.length > REASON_MAX ? `— ${flat.slice(0, REASON_MAX - 1)}…` : `— ${flat}`;
+}
+
 export function taskLine(t) {
   const acc = (t.acceptance || []).length;
   const met = acc - acceptanceOpen(t).length;
   return [
     `${MARK[t.status] || "?"} ${t.id}`,
     t.title,
+    // Right after the title, because it is the reason this row is in the section you are
+    // reading — not one more attribute to be scanned past at the end of the line.
+    stopReason(t),
     // `next` is ordered by priority now, so a line that does not show it is a list whose
     // order has no visible reason. Only when it was actually set — an unset field is not a
     // fact about the task, and putting `!medium` on every row buys nothing.

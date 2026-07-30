@@ -148,6 +148,41 @@
 
 ### Fixed
 
+- **A stopped card never said why it stopped, on either surface.** `tm park <id> <why>` and
+  `tm block <id> <why>` have always stored the sentence you typed. It was read by `tm why <id>`
+  (one task at a time), `tm export md`, and a PWA notification — and by neither board:
+
+  ```
+  $ tm park TM-001 waiting on the vendor SDK license
+  $ tm board
+  ## parked (1)
+  ⏸ TM-001 vendor integration [EP-001]          ← you typed a sentence; the tool swallowed it
+  ```
+
+  So "what is everything stuck on" was one command per task, and `tm show` on a blocked task
+  printed its status and not one word about what it was waiting for. `renderShow` already printed
+  `reopenedReason`, so the shape existed for one of the three reasons a task carries and the other
+  two were simply never added.
+
+  Now: on the board line right after the title — it is why that row is in the section you are
+  reading, not one more attribute at the end — and in full in `tm show`, since the detail view is
+  where an unabridged sentence belongs. The board clamps at 60 characters and ends in `…`, so a row
+  stays scannable and is visibly abridged rather than quietly wrong. A reason written across
+  several lines is flattened, because one row must stay one row.
+
+  A reason is only shown while it applies. `tm start` on a parked task does not clear
+  `parkedReason`, so an in-progress task can still carry the sentence that stopped it once, and
+  printing that would say a working task is waiting on something.
+
+  On the card, the reason is **prose, not a chip**. Everything else there is an enumerable fact you
+  scan — a priority, an epic, a count — and a Lozenge is the right shape for those; a free-text
+  sentence in one either truncates to uselessness or blows the badge row apart. So it gets its own
+  line in subtlest text with no background, border or icon: the status mark and the column already
+  say the card is stopped, and a callout box would make every blocked card shout. The clamp is on
+  the text rather than the box because a CSS line-clamp needs `-webkit-box-orient`, which ADS's
+  `cssMap` allowlist rejects — which has the side benefit of being the same rule as `tm board`. The
+  full sentence is on hover on both.
+
 - **The plugin read a session id Claude Code does not set, so claims, gates and attribution were
   all inert.** Claude Code sets `CLAUDE_CODE_SESSION_ID`. Every reader except `lib/actor.mjs` asked
   for `CLAUDE_SESSION_ID` alone — eleven sites across the CLI, MCP, the dashboard, the store's event
