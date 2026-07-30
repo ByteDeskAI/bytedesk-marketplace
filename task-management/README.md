@@ -477,6 +477,32 @@ show` prints it unabridged; the board clamps it and ends in `…`, because a boa
 It is shown only while it applies: `tm start` on a parked task does not clear `parkedReason`, and a
 task that is being worked on is not waiting on anything.
 
+## Sprints
+
+```
+tm sprint new "Sprint 12" [--ends 2026-08-14]     create and make it active
+tm sprint add <id>...  |  rm <id>...              commit work to it, or take it back
+tm sprint [show|list|use <id>|done]
+```
+
+A sprint is its own kind — `sprints/SP-001-….md`, an id, a body — because everything one needs the
+store already does for epics and ADRs. It is **not** a second epic: an epic says what a body of work
+*is*, a sprint says what you committed to finishing this fortnight, and a task has one of each.
+
+`tm sprint` is the report `estimate` never had a reader for. Points were writable from the CLI, the
+dashboard and MCP and consumed by nothing — `burndown` counts cards, so a two-point card and a
+thirteen-point card move the line equally. A sprint gives them a denominator:
+
+```
+3/16 points done across 4 card(s), 1 unsized
+```
+
+Cards with no estimate are counted **apart**, not as zero: "12 of 20 done, and four nobody sized" is
+true, where folding the unsized into zero would report the sprint as further along than it is.
+
+Closing a sprint does not touch unfinished work — it is simply no longer committed, and says how
+much is left. `tm find sprint:SP-001` lists it.
+
 ## Searching
 
 Bare words are a case-insensitive substring over titles and bodies. `field:value` narrows, and a

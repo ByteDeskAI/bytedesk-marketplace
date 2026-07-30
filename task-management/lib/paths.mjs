@@ -101,6 +101,7 @@ export function paths(root = resolveRoot()) {
     epics: join(base, "epics"),
     tasks: join(base, "tasks"),
     adrs: join(base, "adrs"),
+    sprints: join(base, "sprints"),
     plans: join(base, "plans"),
     evidence: join(base, "evidence"),
     templates: join(base, "templates"),
@@ -119,6 +120,15 @@ export const KINDS = {
   epic: { dir: "epics", prefix: "EP", pad: 3 },
   task: { dir: "tasks", prefix: "TM", pad: 3 },
   adr: { dir: "adrs", prefix: "ADR", pad: 4 },
+  /**
+   * A sprint is a kind, not a label with extra rules.
+   *
+   * Everything a sprint needs — an id, a markdown file, a body someone can write a goal into,
+   * `create`/`read`/`list`, a status — the store already does for epics and ADRs. Inventing a
+   * parallel mechanism for "a named set of tasks with a commitment" would be a second way to say
+   * what the store already says once.
+   */
+  sprint: { dir: "sprints", prefix: "SP", pad: 3 },
 };
 
 
@@ -147,7 +157,7 @@ export function projectName(p = paths()) {
 
 export function ensureDirs(p = paths()) {
   assertRoot(p);
-  for (const key of ["base", "epics", "tasks", "adrs", "plans", "evidence"]) {
+  for (const key of ["base", "epics", "tasks", "adrs", "sprints", "plans", "evidence"]) {
     mkdirSync(p[key], { recursive: true });
   }
   return p;
