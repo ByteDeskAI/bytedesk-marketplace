@@ -4,6 +4,7 @@ import Checkbox from "@atlaskit/checkbox";
 import { cssMap } from "@atlaskit/css";
 import Lozenge from "@atlaskit/lozenge";
 import { Box, Inline, Stack, Text } from "@atlaskit/primitives/compiled";
+import { Pressable } from "@atlaskit/primitives/compiled";
 import { SimpleTag } from "@atlaskit/tag";
 import Tooltip from "@atlaskit/tooltip";
 import { claim, cycleTime, elapsed, fmtDuration } from "../../metrics.mjs";
@@ -44,7 +45,27 @@ const styles = cssMap({
     outlineWidth: "var(--ds-border-width-focused)",
   },
   id: { fontFamily: "var(--ds-font-family-code)" },
-  title: { cursor: "pointer" },
+  /**
+   * The card's title is the way into the card, so it has to be a control.
+   *
+   * It was a `Box` — a plain `div` — with `cursor: pointer` and an onClick. It looked clickable and
+   * was clickable with a mouse, and that was all: `Tab` never reached it, screen readers never
+   * announced it, and automation could not find it. That last one is how it surfaced — agent-browser
+   * could not click the title at all, because there was no interactive element there to click.
+   *
+   * `Pressable` is ADS's primitive for exactly this: a real `button` underneath, with the padding
+   * and background reset so it still reads as a title rather than as a button.
+   */
+  title: {
+    cursor: "pointer",
+    backgroundColor: "transparent",
+    borderWidth: "0",
+    padding: "0",
+    textAlign: "left",
+    // No `font`/`color` overrides: cssMap only accepts design tokens, and the inner `Text` already
+    // carries the card's type. Leaving them off keeps the button looking exactly like the div did.
+    width: "100%",
+  },
   watch: {
     backgroundColor: "transparent",
     borderWidth: "0",
@@ -90,7 +111,12 @@ const REASON_MAX = 120;
  * always written one of these and no card ever read it.
  */
 function stopReason(task: Task): string | null {
-  const why = task.status === "blocked" ? task.blockedReason : task.status === "parked" ? task.parkedReason : null;
+  const why =
+    task.status === "blocked"
+      ? task.blockedReason
+      : task.status === "parked"
+        ? task.parkedReason
+        : null;
   const flat = (why ?? "").replace(/\s+/g, " ").trim();
   return flat || null;
 }
@@ -150,7 +176,9 @@ export function TaskCard({
         ac.length ? `${met} of ${ac.length} acceptance criteria met` : "",
         task.priority ? `${task.priority} priority` : "",
         task.assignee ? `assigned to ${task.assignee}` : "",
-        (task.blockedBy ?? []).length ? `blocked by ${(task.blockedBy ?? []).join(", ")}` : "",
+        (task.blockedBy ?? []).length
+          ? `blocked by ${(task.blockedBy ?? []).join(", ")}`
+          : "",
         selected ? "selected" : "",
       ]
         .filter(Boolean)
@@ -159,7 +187,9 @@ export function TaskCard({
       // Tab and j/k must agree on where the cursor is, or tabbing to a card and
       // pressing Enter does nothing.
       onFocus={() => onFocusCard?.(task.id)}
-      onDragStart={(e: DragEvent) => e.dataTransfer.setData("text/plain", task.id)}
+      onDragStart={(e: DragEvent) =>
+        e.dataTransfer.setData("text/plain", task.id)
+      }
       onDragOver={(e: DragEvent) => e.preventDefault()}
       onDrop={(e: DragEvent) => {
         // Dropping onto a card ranks the dragged one above it; the column handles
@@ -173,121 +203,166 @@ export function TaskCard({
     >
       <Box xcss={styles.card}>
         <Stack space="space.075">
-        <Inline space="space.075" alignBlock="center" spread="space-between">
-          <Inline space="space.050" alignBlock="center">
-            <Checkbox
-              isChecked={selected}
-              label=""
-              onChange={(e) => onSelect(task.id, (e.target as HTMLInputElement).checked)}
-            />
-            <Box xcss={styles.id}>
-              <Text size="small" color="color.text.subtlest">
-                {task.id}
-              </Text>
-            </Box>
-            {/* Watching a card is what turns its blocks and stolen claims into
+          <Inline space="space.075" alignBlock="center" spread="space-between">
+            <Inline space="space.050" alignBlock="center">
+              <Checkbox
+                isChecked={selected}
+                label=""
+                onChange={(e) =>
+                  onSelect(task.id, (e.target as HTMLInputElement).checked)
+                }
+              />
+              <Box xcss={styles.id}>
+                <Text size="small" color="color.text.subtlest">
+                  {task.id}
+                </Text>
+              </Box>
+              {/* Watching a card is what turns its blocks and stolen claims into
                 notifications, so the switch belongs on the card, not in a menu. */}
-            {onWatch ? (
-              <Tooltip content={watched ? "stop watching" : "watch: notify me if this is blocked or taken"}>
-                <button
-                  type="button"
-                  css={styles.watch}
-                  aria-pressed={watched}
-                  aria-label={`${watched ? "stop watching" : "watch"} ${task.id}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onWatch(task.id);
-                  }}
+              {onWatch ? (
+                <Tooltip
+                  content={
+                    watched
+                      ? "stop watching"
+                      : "watch: notify me if this is blocked or taken"
+                  }
                 >
-                  {watched ? "★" : "☆"}
-                </button>
+                  <button
+                    type="button"
+                    css={styles.watch}
+                    aria-pressed={watched}
+                    aria-label={`${watched ? "stop watching" : "watch"} ${task.id}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onWatch(task.id);
+                    }}
+                  >
+                    {watched ? "★" : "☆"}
+                  </button>
+                </Tooltip>
+              ) : null}
+            </Inline>
+            {cycle !== null ? (
+              <Tooltip content="cycle time: first start → done">
+                <Text
+                  size="small"
+                  color="color.text.success"
+                >{`✓ ${fmtDuration(cycle)}`}</Text>
+              </Tooltip>
+            ) : sat !== null ? (
+              <Tooltip
+                content={`in ${task.status.replace("_", " ")} for ${fmtDuration(sat)}`}
+              >
+                <Text
+                  size="small"
+                  color={
+                    task.status === "in_progress" && sat > STALE_MS
+                      ? "color.text.warning"
+                      : "color.text.subtlest"
+                  }
+                >
+                  {fmtDuration(sat)}
+                </Text>
               </Tooltip>
             ) : null}
           </Inline>
-          {cycle !== null ? (
-            <Tooltip content="cycle time: first start → done">
-              <Text size="small" color="color.text.success">{`✓ ${fmtDuration(cycle)}`}</Text>
-            </Tooltip>
-          ) : sat !== null ? (
-            <Tooltip content={`in ${task.status.replace("_", " ")} for ${fmtDuration(sat)}`}>
-              <Text
-                size="small"
-                color={task.status === "in_progress" && sat > STALE_MS ? "color.text.warning" : "color.text.subtlest"}
-              >
-                {fmtDuration(sat)}
-              </Text>
-            </Tooltip>
-          ) : null}
-        </Inline>
 
-        <Box xcss={styles.title} onClick={() => onOpen(task.id)}>
-          <Text>{task.title}</Text>
-        </Box>
+          <Pressable
+            xcss={styles.title}
+            onClick={() => onOpen(task.id)}
+            aria-label={`Open ${task.id}: ${task.title}`}
+          >
+            <Text>{task.title}</Text>
+          </Pressable>
 
-        <Inline space="space.050" alignBlock="center" shouldWrap>
-          {/* A write the server has not accepted yet, or one it refused. Either
+          <Inline space="space.050" alignBlock="center" shouldWrap>
+            {/* A write the server has not accepted yet, or one it refused. Either
               way the card is not saying what the store says. */}
-          {outbox?.status === "failed" ? (
-            <Tooltip content={outbox.error ?? "the server refused this write"}>
-              <Lozenge appearance="removed">refused</Lozenge>
-            </Tooltip>
-          ) : outbox ? (
-            <Tooltip content="queued while the server is unreachable — replays on reconnect">
-              <Lozenge appearance="moved">queued</Lozenge>
-            </Tooltip>
-          ) : null}
-          {task.priority ? <Lozenge appearance={PRIORITY_TONE[task.priority]}>{task.priority}</Lozenge> : null}
-          {task.epic ? <Lozenge appearance="new">{task.epic}</Lozenge> : null}
-          {task.parent ? <Lozenge>{`↳ ${task.parent}`}</Lozenge> : null}
-          {task.assignee ? <SimpleTag color="tealLight" text={`@${task.assignee}`} /> : null}
-          {typeof task.estimate === "number" ? <Badge>{`${task.estimate} pts`}</Badge> : null}
-          {ac.length ? (
-            <Tooltip content="acceptance criteria met">
-              <Badge appearance={met === ac.length ? "added" : "default"}>{`${met}/${ac.length}`}</Badge>
-            </Tooltip>
-          ) : null}
-          {(task.labels ?? []).map((l) => (
-            <SimpleTag key={l} text={l} />
-          ))}
-          {(task.blockedBy ?? []).length ? (
-            <Tooltip content={`waiting on ${(task.blockedBy ?? []).join(", ")} — open the card to change it`}>
-              <Lozenge appearance="removed">{`⊘ ${(task.blockedBy ?? []).join(", ")}`}</Lozenge>
-            </Tooltip>
-          ) : null}
-          {(task.links ?? []).length ? <Badge>{`🔗 ${task.links!.length}`}</Badge> : null}
-          {(task.comments ?? []).length ? <Badge>{`💬 ${task.comments!.length}`}</Badge> : null}
-          {(task.evidence ?? []).length ? <Badge>{`📎 ${task.evidence!.length}`}</Badge> : null}
-          {(task.commits ?? []).length ? <Badge>{`⑂ ${task.commits!.length}`}</Badge> : null}
-        </Inline>
+            {outbox?.status === "failed" ? (
+              <Tooltip
+                content={outbox.error ?? "the server refused this write"}
+              >
+                <Lozenge appearance="removed">refused</Lozenge>
+              </Tooltip>
+            ) : outbox ? (
+              <Tooltip content="queued while the server is unreachable — replays on reconnect">
+                <Lozenge appearance="moved">queued</Lozenge>
+              </Tooltip>
+            ) : null}
+            {task.priority ? (
+              <Lozenge appearance={PRIORITY_TONE[task.priority]}>
+                {task.priority}
+              </Lozenge>
+            ) : null}
+            {task.epic ? <Lozenge appearance="new">{task.epic}</Lozenge> : null}
+            {task.parent ? <Lozenge>{`↳ ${task.parent}`}</Lozenge> : null}
+            {task.assignee ? (
+              <SimpleTag color="tealLight" text={`@${task.assignee}`} />
+            ) : null}
+            {typeof task.estimate === "number" ? (
+              <Badge>{`${task.estimate} pts`}</Badge>
+            ) : null}
+            {ac.length ? (
+              <Tooltip content="acceptance criteria met">
+                <Badge
+                  appearance={met === ac.length ? "added" : "default"}
+                >{`${met}/${ac.length}`}</Badge>
+              </Tooltip>
+            ) : null}
+            {(task.labels ?? []).map((l) => (
+              <SimpleTag key={l} text={l} />
+            ))}
+            {(task.blockedBy ?? []).length ? (
+              <Tooltip
+                content={`waiting on ${(task.blockedBy ?? []).join(", ")} — open the card to change it`}
+              >
+                <Lozenge appearance="removed">{`⊘ ${(task.blockedBy ?? []).join(", ")}`}</Lozenge>
+              </Tooltip>
+            ) : null}
+            {(task.links ?? []).length ? (
+              <Badge>{`🔗 ${task.links!.length}`}</Badge>
+            ) : null}
+            {(task.comments ?? []).length ? (
+              <Badge>{`💬 ${task.comments!.length}`}</Badge>
+            ) : null}
+            {(task.evidence ?? []).length ? (
+              <Badge>{`📎 ${task.evidence!.length}`}</Badge>
+            ) : null}
+            {(task.commits ?? []).length ? (
+              <Badge>{`⑂ ${task.commits!.length}`}</Badge>
+            ) : null}
+          </Inline>
 
-        {/* Why it stopped. Directly under the badges and above the actor row: it explains the
+          {/* Why it stopped. Directly under the badges and above the actor row: it explains the
             column this card is sitting in, so it belongs with the card's state rather than with
             who is holding it. */}
-        {reason ? (
-          <Tooltip content={reason}>
-            <Box xcss={styles.reason}>
-              {reason.length > REASON_MAX ? `${reason.slice(0, REASON_MAX - 1)}…` : reason}
-            </Box>
-          </Tooltip>
-        ) : null}
+          {reason ? (
+            <Tooltip content={reason}>
+              <Box xcss={styles.reason}>
+                {reason.length > REASON_MAX
+                  ? `${reason.slice(0, REASON_MAX - 1)}…`
+                  : reason}
+              </Box>
+            </Tooltip>
+          ) : null}
 
-        {/* Which thread is executing this. With several agents on one board the
+          {/* Which thread is executing this. With several agents on one board the
             status alone doesn't say who is holding the work. */}
-        {task.actor || held ? (
-          <Inline space="space.050" alignBlock="center" shouldWrap>
-            <ActorBadge actor={task.actor} />
-            {held?.branch ? (
-              <Tooltip content="branch holding this card">
-                <SimpleTag color="blueLight" text={`⑂ ${held.branch}`} />
-              </Tooltip>
-            ) : null}
-            {held?.worktree ? (
-              <Tooltip content={`worktree: ${task.worktree}`}>
-                <SimpleTag color="purpleLight" text={`▣ ${held.worktree}`} />
-              </Tooltip>
-            ) : null}
-          </Inline>
-        ) : null}
+          {task.actor || held ? (
+            <Inline space="space.050" alignBlock="center" shouldWrap>
+              <ActorBadge actor={task.actor} />
+              {held?.branch ? (
+                <Tooltip content="branch holding this card">
+                  <SimpleTag color="blueLight" text={`⑂ ${held.branch}`} />
+                </Tooltip>
+              ) : null}
+              {held?.worktree ? (
+                <Tooltip content={`worktree: ${task.worktree}`}>
+                  <SimpleTag color="purpleLight" text={`▣ ${held.worktree}`} />
+                </Tooltip>
+              ) : null}
+            </Inline>
+          ) : null}
         </Stack>
       </Box>
     </div>
