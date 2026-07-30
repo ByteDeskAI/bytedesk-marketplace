@@ -71,9 +71,23 @@ export interface Board {
 export interface StoreEvent {
   ts: string;
   event: string;
+  /**
+   * The catalog's sentence for `event`, attached by `/api/events`. The vocabulary lives in
+   * lib/ntfy.mjs and the SPA imports nothing from lib/, so it arrives on the payload rather than
+   * being duplicated here. Optional because the PWA replays events cached before this existed.
+   */
+  label?: string;
+  /** An `update` a specific event in the same second already explains. Set by /api/events. */
+  _shadowed?: boolean;
+  /** Set by /api/events when this write moved the entity's status; the value it moved to. */
+  _status?: string;
   id?: string;
   title?: string;
   status?: string;
   session?: string | null;
   actor?: string;
+  patch?: string;
+  reason?: string;
+  from?: string;
+  to?: string;
 }

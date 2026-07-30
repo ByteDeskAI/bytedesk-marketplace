@@ -24,6 +24,8 @@ import { ensureDirs, paths } from "../lib/paths.mjs";
 import { reindex } from "../lib/store.mjs";
 import { assignPort, ensurePort, liveInstance, release, takeover, writeInstance } from "../lib/singleton.mjs";
 import { boardPayload, handleWrite } from "../lib/dashboard-api.mjs";
+import { CATALOG } from "../lib/ntfy.mjs";
+import { collapseLog } from "../lib/render.mjs";
 
 // Degrade like `tm` does. Launched from a directory with no resolvable store —
 // most often the plugin's own repo — a raw stack trace is a terrible answer.
@@ -176,8 +178,27 @@ const server = createServer((req, res) => {
         return null;
       }
     });
+    /**
+     * `label` is attached here rather than in the SPA because the sentences live in the ntfy
+     * CATALOG, the SPA imports nothing from `lib/`, and a second copy of that vocabulary in
+     * TypeScript is a second thing to forget to update — a test already derives the catalog from
+     * the source that emits the events, and that guard only works if there is one catalog.
+     *
+     * `event` is left on the payload untouched: the burndown and cycle-time maths match on it, and
+     * those must not start depending on prose.
+     */
+    /**
+     * `_shadowed` marks an `update` that a specific event in the same second already explains, so
+     * the activity panel can skip it while burndown, startTimes and the PWA notification matcher
+     * still receive every row untouched. Marking rather than dropping is the point: that matcher
+     * switches on `event.event`.
+     */
+    const labelled = collapseLog(recent.filter(Boolean), { keep: true }).map((e) => ({
+      ...e,
+      label: CATALOG.events[e.event]?.label || e.event,
+    }));
     res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
-    res.end(JSON.stringify(recent.filter(Boolean)));
+    res.end(JSON.stringify(labelled));
     return;
   }
   if (req.url === "/events") {

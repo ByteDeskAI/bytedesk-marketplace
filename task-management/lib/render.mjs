@@ -3,7 +3,7 @@
  * All plain strings — the dashboard reads the same data from index.json.
  */
 import { existsSync, readFileSync } from "node:fs";
-import { acceptanceOpen, config, list, nextTasks, openTasks, read, staleTasks, state } from "./store.mjs";
+import { acceptanceOpen, config, list, nextTasks, openTasks, read, readEvents, staleTasks, state } from "./store.mjs";
 import { paths } from "./paths.mjs";
 import { CATALOG } from "./ntfy.mjs";
 
@@ -146,36 +146,86 @@ export function handoff(id, p = paths()) {
   return out.join("\n");
 }
 
-/** What changed since <iso>, read straight off the event log. */
+/**
+ * What changed since <iso>.
+ *
+ * This printed a chain of raw event kinds per task:
+ *
+ *   - TM-001 the task — create → update → claim → update → update → update → release → done
+ *
+ * which is a machine trace, not a standup. Three of those eight tokens are the word `update` and
+ * none of them says what moved; `create → update → update` is not something you would say out loud.
+ *
+ * A standup answers three questions — what got finished, what is being worked on, and what is
+ * stuck — so the report is those sections in that order, and the per-task line is the **status
+ * path** rather than every event that touched the file. `collapseLog` already does the hard part:
+ * it promotes a status-changing `update` to a status step and drops the ones a specific event in
+ * the same second already explains, which is exactly the noise this was drowning in.
+ *
+ * Anything that moved no status still gets a line, because a day of comments, commits and
+ * acceptance ticks is real work and dropping it would make the report lie by omission — but it goes
+ * last, summarised by what those events were rather than one row each.
+ */
 export function standup(sinceIso, p = paths()) {
   if (!existsSync(p.events)) return "(no events yet)";
   const since = Date.parse(sinceIso);
-  const rows = readFileSync(p.events, "utf8")
-    .split("\n")
-    .filter(Boolean)
-    .map((l) => {
-      try {
-        return JSON.parse(l);
-      } catch {
-        return null;
-      }
-    })
-    .filter((e) => e && Date.parse(e.ts) >= since);
+  const rows = readEvents(p).filter((e) => e && Date.parse(e.ts) >= since);
   if (!rows.length) return `(nothing since ${sinceIso})`;
 
   const byId = new Map();
-  for (const e of rows) {
+  for (const e of collapseLog(rows)) {
     if (!e.id) continue;
     if (!byId.has(e.id)) byId.set(e.id, []);
     byId.get(e.id).push(e);
   }
-  const out = [`# Since ${sinceIso}`, ""];
+
+  const finished = [];
+  const started = [];
+  const stuck = [];
+  const touched = [];
+
   for (const [id, events] of byId) {
     const t = read(id, p);
-    out.push(`- ${id} ${t?.title || ""} — ${events.map((e) => e.event).join(" → ")}${t ? ` (now ${t.status})` : ""}`);
+    // The path this entity took. collapseLog marks a status-changing update as `status` and carries
+    // the value in `_status`, so the steps arrive already deduplicated.
+    const path = events.filter((e) => e.event === "status" && e._status).map((e) => e._status);
+    const now = t?.status;
+    const line = `- ${id} ${t?.title || ""}`.trimEnd();
+    const trail = path.length ? ` — ${path.join(" → ")}` : "";
+
+    if (!t) {
+      // Deleted since, or an event for an id whose file is gone. Say so, rather than printing a
+      // bare id and letting the reader assume it is fine.
+      touched.push(`${line} — (no longer in the store)`);
+    } else if (now === "done") {
+      const ac = (t.acceptance || []).length;
+      finished.push(`${line}${trail}${ac ? ` (${ac} AC met)` : ""}`);
+    } else if (now === "blocked" || now === "parked") {
+      // The reason is what this section is for, and what a standup is for.  The status word is
+      // only spelled out when the path did not already end in it, so no line reads
+      // "blocked — blocked: …".
+      const why = now === "blocked" ? t.blockedReason : t.parkedReason;
+      const state = path.at(-1) === now ? "" : ` — ${now}`;
+      stuck.push(`${line}${trail}${state} — ${why || "no reason recorded"}`);
+    } else if (now === "in_progress") {
+      started.push(`${line}${trail}${t.actor && t.actor !== "main" ? ` [${t.actor}]` : ""}`);
+    } else {
+      // No status move: say what DID happen, using the same catalog labels `tm log` renders.
+      const kinds = [...new Set(events.map((e) => e.event))].filter((k) => k !== "status");
+      touched.push(`${line} — ${kinds.map((k) => CATALOG.events[k]?.label || k).join(", ")}`);
+    }
   }
-  const closed = rows.filter((e) => e.event === "done").length;
-  out.push("", `${rows.length} events, ${closed} task(s) closed.`);
+
+  const out = [`# Since ${sinceIso}`, ""];
+  for (const [heading, group] of [
+    ["Finished", finished],
+    ["In progress", started],
+    ["Stuck", stuck],
+    ["Also touched", touched],
+  ]) {
+    if (group.length) out.push(`## ${heading} (${group.length})`, ...group, "");
+  }
+  out.push(`${rows.length} events across ${byId.size} item(s), ${finished.length} closed.`);
   return out.join("\n");
 }
 
@@ -223,14 +273,20 @@ export function renderLog(rows, p = paths()) {
   const labels = CATALOG.events;
   const out = [];
   let day = null;
-  for (const e of rows) {
+  /**
+   * Collapsed, same as `tm log <id>`. Only `renderHistory` did this, so the tail — the view you
+   * actually reach for — still printed the generic `update` alongside the specific event in the
+   * same second that explains it: "Any field on a task changes — patch=title" immediately above
+   * "A title or body is corrected". Two rows, one action, and the uninformative one first.
+   */
+  for (const e of collapseLog(rows)) {
     const d = dayOf(e.ts);
     if (d !== day) {
       out.push(day ? "" : "", d);
       day = d;
     }
-    const label = labels[e.event]?.label || e.event;
-    const detail = eventDetail(e);
+    const label = e.event === "status" ? `→ ${e._status}` : labels[e.event]?.label || e.event;
+    const detail = e.event === "status" ? "" : eventDetail(e);
     out.push(
       [
         `  ${hhmm(e.ts)}`,
@@ -282,24 +338,60 @@ export function renderHistory(id, rows, p = paths()) {
  * change is promoted to its own line, since "what state did this go through" is the question a
  * changelog exists to answer.
  */
-export function collapseLog(rows) {
+export function collapseLog(rows, opts = {}) {
   const specific = new Set();
   for (const e of rows) {
     if (e.event !== "update") specific.add(`${e.id || ""}@${String(e.ts).slice(0, 19)}`);
   }
   const out = [];
-  let status = null;
+  /**
+   * Last status seen PER ENTITY.
+   *
+   * This was one shared variable, so any entity's status change masked another's. With TM-001
+   * going open → in_progress → done and its epic auto-closing in the same window, TM-001's `done`
+   * left the tracker reading "done", so EP-001's own move to done counted as no move at all and
+   * was dropped — the epic finished and the log said nothing. Interleaved work on one board is the
+   * normal case, so the tracker has to be keyed by the thing whose status it is.
+   */
+  const status = new Map();
   for (const e of rows) {
+    const key = e.id || "";
     if (e.event === "update") {
-      const moved = e.status && e.status !== status;
+      const prior = status.get(key);
+      /**
+       * A transition needs the write to have actually touched `status`.
+       *
+       * Every `update` event carries the doc's status whether or not the write changed it, so with
+       * no prior status known — a `create` records none — the first update after a create always
+       * looked like a transition into `open`. Every task in the log and in the activity panel
+       * carried a "→ open" row that said nothing had happened yet.
+       *
+       * `patch` records which fields the write actually set, so the intent is on the event rather
+       * than inferred from the value: once a prior status IS known any change is a real move, and
+       * before that, only a write that names `status` counts. Deliberately setting a task back to
+       * open still reads as a transition, because that write patches status.
+       */
+      const touchedStatus = String(e.patch || "").split(",").includes("status");
+      const moved = e.status && e.status !== prior && (prior !== undefined || touchedStatus);
       if (moved) {
-        status = e.status;
-        out.push({ ...e, event: "status", _status: e.status });
+        status.set(key, e.status);
+        // Under `keep`, the row keeps its real `event` — only `_status` is added, because the
+        // consumers named above match on `event`.
+        out.push(opts.keep ? { ...e, _status: e.status } : { ...e, event: "status", _status: e.status });
         continue;
       }
-      if (specific.has(`${e.id || ""}@${String(e.ts).slice(0, 19)}`)) continue;
+      if (specific.has(`${key}@${String(e.ts).slice(0, 19)}`)) {
+        // `keep` marks instead of dropping, for a consumer that must hand every row to somebody
+        // else. The dashboard serves one events array to the activity panel AND to burndown,
+        // startTimes and the PWA's notification matcher — and that matcher switches on
+        // `event.event`, so rewriting an `update` into a `status` there would silently change
+        // which notifications fire. One judgement, expressed two ways, rather than a second copy
+        // of it that can drift.
+        if (opts.keep) out.push({ ...e, _shadowed: true });
+        continue;
+      }
     } else if (e.status) {
-      status = e.status;
+      status.set(key, e.status);
     }
     out.push(e);
   }
