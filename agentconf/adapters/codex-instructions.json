@@ -1,0 +1,16 @@
+{
+  "id": "codex-instructions",
+  "tool": "codex",
+  "kind": "instructions",
+  "detect": { "bin": "codex", "authCmd": ["codex", "doctor"] },
+  "target": "~/.codex/AGENTS.md",
+  "mechanism": "symlink",
+  "why": "Codex reads $CODEX_HOME/AGENTS.md and follows a symlink for it — symlink resolution is kernel-side at open(2). Verified with a canary through `codex exec`.",
+  "canary": {
+    "cmd": ["codex", "exec", "--skip-git-repo-check", "{{probe}}"],
+    "cwd": "tmp",
+    "costly": true
+  },
+  "verified": "2026-07-30",
+  "verifiedBy": "canary QUASAR77 returned through the symlink"
+}

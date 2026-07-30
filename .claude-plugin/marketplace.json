@@ -62,6 +62,11 @@
       "name": "task-management",
       "description": "Takes over Claude Code's task system — native task calls, approved plans, decisions and commits mirrored into a git-tracked markdown store at .bytedesk/task-management/. One store per project shared across git worktrees, claim-based parallel work with node_modules sharing, an MCP server, and a live dashboard.",
       "source": "./task-management"
+    },
+    {
+      "name": "agentconf",
+      "description": "Capability-tested configuration for AI coding agents. One shared instruction source wired into every agent on the machine, with a canary that proves each tool actually reads it instead of assuming the write landed. Never reads credential files.",
+      "source": "./agentconf"
     }
   ]
 }

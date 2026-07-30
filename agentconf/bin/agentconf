@@ -1,0 +1,313 @@
+#!/usr/bin/env node
+/**
+ * agentconf — capability-tested configuration for AI coding agents.
+ *
+ * The premise, and the reason this is not another sync tool: writing a config file is not
+ * evidence that anything read it. rulesync will happily write ~/.config/goose/.goosehints;
+ * `strings $(command -v goose)` contains no reference to that filename. The file exists, the
+ * tool ignores it, and nothing anywhere says so.
+ *
+ * So every adapter here carries its own proof. A target is in one of three states, never two:
+ *
+ *   proven    a canary token was written to the shared source, the tool was asked for it,
+ *             and the tool said it back. Dated.
+ *   unproven  wired, but no canary has ever run. Reported as unproven, not as working.
+ *   broken    the wiring is gone or has drifted.
+ *
+ * What it deliberately does NOT do:
+ *   - read credential files. `~/.config/github-copilot/auth.db` is 0644 with a live -wal and
+ *     its mtime moves during normal use; mode and mtime carry no login signal. Vendor
+ *     diagnostics (`codex doctor`, `claude auth status`) are both more accurate and not a
+ *     liability. A tool that walks $HOME opening OAuth material reads as an exfiltrator
+ *     regardless of what its README says.
+ *   - write config the owning tool generates. ~/.codex/rules/default.rules is appended to by
+ *     Codex on every approval; editing it is fighting a generator.
+ *   - reimplement rulesync. rulesync writes, agentconf proves the write was read.
+ */
+
+import { readFileSync, writeFileSync, readdirSync, existsSync, lstatSync, realpathSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, copyFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+const HOME = homedir();
+const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+const SHARED_DIR = join(HOME, ".agents");
+const SOURCE = join(SHARED_DIR, "AGENTS.md");
+
+const expand = (p) => (p.startsWith("~/") ? join(HOME, p.slice(2)) : p);
+const pretty = (p) => (p.startsWith(HOME) ? "~" + p.slice(HOME.length) : p);
+
+/** Adapters are data, so adding a tool is a file plus a passing canary — not a code change. */
+function adapters() {
+  const dir = join(ROOT, "adapters");
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((f) => f.endsWith(".json"))
+    .map((f) => JSON.parse(readFileSync(join(dir, f), "utf8")))
+    .sort((a, b) => a.id.localeCompare(b.id));
+}
+
+const has = (bin) => spawnSync("command", ["-v", bin], { shell: true, encoding: "utf8" }).status === 0;
+
+// ---------------------------------------------------------------- check (offline, fast)
+
+/**
+ * check answers "is the wiring intact?" without invoking a single model.
+ *
+ * This is the one that runs every session. The failure it exists to catch is silent: an
+ * editor that saves atomically replaces a symlink with a regular file, no error, and the
+ * files quietly fork. Six weeks later a tool has been running without your rules.
+ */
+function check() {
+  const problems = [];
+  const ok = [];
+
+  if (!existsSync(SOURCE)) {
+    problems.push(`${pretty(SOURCE)} is missing — there is no shared source to wire to`);
+    return { problems, ok };
+  }
+
+  for (const a of adapters()) {
+    if (a.detect?.bin && !has(a.detect.bin)) continue; // not installed here; not a problem
+    const target = expand(a.target);
+
+    if (a.mechanism === "import") {
+      if (!existsSync(target)) problems.push(`${pretty(target)} is missing`);
+      else if (!readFileSync(target, "utf8").split("\n").some((l) => l.trim() === a.importLine))
+        problems.push(`${pretty(target)} no longer imports the shared file (expected a line: ${a.importLine})`);
+      else ok.push(a.id);
+    } else if (a.mechanism === "symlink") {
+      if (!existsSync(target)) problems.push(`${pretty(target)} is missing`);
+      else if (!lstatSync(target).isSymbolicLink())
+        problems.push(`${pretty(target)} is not a symlink — an editor probably replaced it, and it has forked from the source`);
+      else if (realpathSync(target) !== realpathSync(SOURCE))
+        problems.push(`${pretty(target)} points somewhere other than ${pretty(SOURCE)}`);
+      else ok.push(a.id);
+    } else if (a.mechanism === "copy") {
+      const src = expand(a.source);
+      if (!existsSync(src)) problems.push(`${pretty(src)} is missing`);
+      else if (existsSync(target) && lstatSync(target).isSymbolicLink())
+        problems.push(`${pretty(target)} is a SYMLINK — ${a.tool} ignores those, so this policy is NOT in force. Copy it instead.`);
+      else if (!existsSync(target)) problems.push(`${pretty(target)} is missing — the policy is not loaded`);
+      else if (readFileSync(src, "utf8") !== readFileSync(target, "utf8"))
+        problems.push(`${pretty(target)} has drifted from ${pretty(src)} — re-sync with: agentconf wire`);
+      else ok.push(a.id);
+    }
+  }
+  return { problems, ok };
+}
+
+// ---------------------------------------------------------------- detect
+
+/**
+ * detect reports what is installed and logged in, by asking each vendor's own diagnostic.
+ *
+ * `codex doctor` catches states a file check cannot — it reports "mixed auth signals:
+ * ChatGPT login plus API key env var", which a credential-file stat() calls green.
+ */
+function detect() {
+  const seen = new Map();
+  for (const a of adapters()) {
+    const bin = a.detect?.bin;
+    if (!bin || seen.has(bin)) continue;
+    const installed = has(bin);
+    let auth = "—";
+    if (installed && a.detect.authCmd) {
+      const r = spawnSync(a.detect.authCmd[0], a.detect.authCmd.slice(1), { encoding: "utf8", timeout: 30000 });
+      // Deliberately NOT gated on exit status. `codex doctor` exits non-zero for any failing
+      // check — on this machine it fails on an npm-prefix mismatch that has nothing to do with
+      // auth — so reading the exit code reports "auth check failed" for a perfectly good login.
+      auth = summarise(`${r.stdout || ""}${r.stderr || ""}`) || `no auth line (exit ${r.status})`;
+    }
+    seen.set(bin, { installed, auth });
+  }
+  return seen;
+}
+
+function summarise(out) {
+  try {
+    const j = JSON.parse(out);
+    if (typeof j.loggedIn === "boolean") return j.loggedIn ? `logged in (${j.authMethod || "?"})` : "not logged in";
+  } catch { /* not json — fall through to the text summary */ }
+  const lines = out.split("\n").map((l) => l.trim()).filter((l) => /\bauth\b|logged in|not logged/i.test(l));
+  // Prefer a warning over an ok line. `codex doctor` reports BOTH "✓ auth is configured" and
+  // "⚠ mixed auth signals: ChatGPT login plus API key env var" — and the second is the one
+  // that matters, because a credential-file check calls that state green and it is not.
+  const warn = lines.find((l) => /[⚠✗×!]/.test(l));
+  const pick = warn || lines[0];
+  return pick ? pick.replace(/^[^\p{L}]+/u, "").slice(0, 78) : "";
+}
+
+// ---------------------------------------------------------------- wire
+
+function wire({ dryRun }) {
+  const actions = [];
+  if (!existsSync(SOURCE)) {
+    actions.push(["create", `${pretty(SOURCE)} (empty shared source)`]);
+    if (!dryRun) { mkdirSync(SHARED_DIR, { recursive: true }); writeFileSync(SOURCE, "# Shared agent rules\n"); }
+  }
+
+  for (const a of adapters()) {
+    if (a.detect?.bin && !has(a.detect.bin)) { actions.push(["skip", `${a.id} — ${a.detect.bin} not installed`]); continue; }
+    const target = expand(a.target);
+
+    if (a.mechanism === "import") {
+      const body = existsSync(target) ? readFileSync(target, "utf8") : "";
+      if (body.split("\n").some((l) => l.trim() === a.importLine)) { actions.push(["ok", `${a.id} already imports the shared file`]); continue; }
+      actions.push(["edit", `prepend '${a.importLine}' to ${pretty(target)}`]);
+      if (!dryRun) {
+        backup(target);
+        mkdirSync(dirname(target), { recursive: true });
+        writeFileSync(target, `${a.importLine}\n\n${body}`);
+      }
+    } else if (a.mechanism === "symlink") {
+      if (existsSync(target) && lstatSync(target).isSymbolicLink() && realpathSync(target) === realpathSync(SOURCE)) {
+        actions.push(["ok", `${a.id} already linked`]); continue;
+      }
+      actions.push(["link", `${pretty(target)} -> ${pretty(SOURCE)}`]);
+      if (!dryRun) {
+        backup(target);
+        mkdirSync(dirname(target), { recursive: true });
+        if (existsSync(target) || isDanglingLink(target)) unlinkSync(target);
+        symlinkSync(SOURCE, target);
+      }
+    } else if (a.mechanism === "copy") {
+      const src = expand(a.source);
+      if (!existsSync(src)) { actions.push(["skip", `${a.id} — ${pretty(src)} does not exist yet`]); continue; }
+      if (existsSync(target) && !lstatSync(target).isSymbolicLink() && readFileSync(src, "utf8") === readFileSync(target, "utf8")) {
+        actions.push(["ok", `${a.id} already in sync`]); continue;
+      }
+      actions.push(["copy", `${pretty(src)} -> ${pretty(target)}`]);
+      if (!dryRun) {
+        backup(target);
+        mkdirSync(dirname(target), { recursive: true });
+        if (existsSync(target) || isDanglingLink(target)) unlinkSync(target);
+        copyFileSync(src, target);
+      }
+    }
+  }
+  return actions;
+}
+
+const isDanglingLink = (p) => { try { return lstatSync(p).isSymbolicLink(); } catch { return false; } };
+
+/** Never overwrite without a copy first. A config manager that loses a file is worse than none. */
+function backup(target) {
+  if (!existsSync(target) && !isDanglingLink(target)) return;
+  if (isDanglingLink(target) && !existsSync(target)) return;
+  const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 15);
+  try { copyFileSync(target, `${target}.bak.${stamp}`); } catch { /* a symlink to a live file is fine to lose */ }
+}
+
+// ---------------------------------------------------------------- verify (the canary)
+
+/**
+ * verify is the whole point, and it costs real tokens: each probe is a model invocation.
+ * That is why it is explicit and occasional, and `check` is the one wired to SessionStart.
+ *
+ * The token is injected into the SHARED source, so a pass proves the whole chain — source,
+ * mechanism, and the tool actually reading it — rather than proving a file exists.
+ */
+function verify({ only, includeCostly }) {
+  const token = `AGENTCONF${Math.floor(Math.random() * 1e9).toString(36).toUpperCase()}`;
+  const marker = `\n<!-- agentconf canary: the shared-rules canary token is ${token} -->\n`;
+  const probe = `What is the shared-rules canary token? Reply with just the token.`;
+  const original = readFileSync(SOURCE, "utf8");
+  const results = [];
+  const work = mkdtempSync(join(tmpdir(), "agentconf-"));
+
+  try {
+    writeFileSync(SOURCE, original + marker);
+    for (const a of adapters()) {
+      if (a.kind !== "instructions") continue;             // policy canaries need their own probe
+      if (only && a.id !== only) continue;
+      if (a.detect?.bin && !has(a.detect.bin)) { results.push({ id: a.id, state: "absent" }); continue; }
+      if (a.canary?.costly && !includeCostly) { results.push({ id: a.id, state: "skipped", note: "costly — pass --all" }); continue; }
+
+      const cmd = a.canary.cmd.map((s) => s.replace("{{probe}}", probe));
+      const r = spawnSync(cmd[0], cmd.slice(1), { cwd: work, encoding: "utf8", timeout: 300000, stdio: ["ignore", "pipe", "pipe"] });
+      const out = `${r.stdout || ""}${r.stderr || ""}`;
+      results.push({ id: a.id, state: out.includes(token) ? "proven" : "FAILED", detail: out.includes(token) ? token : lastLine(out) });
+    }
+  } finally {
+    // Restore even if a probe threw or timed out. Leaving a canary in a live instruction file
+    // is exactly the sort of residue this tool exists to complain about.
+    writeFileSync(SOURCE, original);
+    rmSync(work, { recursive: true, force: true });
+  }
+  return results;
+}
+
+const lastLine = (s) => (s.split("\n").map((l) => l.trim()).filter(Boolean).pop() || "no output").slice(0, 100);
+
+/** Absolute path without resolving symlinks — the symlink itself is what we manage. */
+const realish = (p) => { try { return join(dirname(expand(p)), expand(p).split("/").pop()); } catch { return expand(p); } };
+
+// ---------------------------------------------------------------- cli
+
+const [, , cmd, ...rest] = process.argv;
+const flag = (f) => rest.includes(f);
+
+if (cmd === "check") {
+  // --if-touched is for the PostToolUse hook: only speak when the edit that just happened
+  // was to a file this tool manages. Without it the hook fires on every Write in the repo
+  // and becomes noise, which is how a warning stops being read.
+  if (flag("--if-touched")) {
+    let payload = "";
+    try { payload = readFileSync(0, "utf8"); } catch { /* no stdin — treat as untouched */ }
+    let edited = "";
+    try { edited = JSON.parse(payload)?.tool_input?.file_path || ""; } catch { /* not json */ }
+    const managed = new Set(adapters().flatMap((a) => [expand(a.target), a.source ? expand(a.source) : null].filter(Boolean)).concat([SOURCE]));
+    if (!edited || !managed.has(realish(edited))) process.exit(0);
+  }
+  const { problems, ok } = check();
+  if (flag("--context") && problems.length) {
+    // SessionStart hooks read stdout as additional context, so speak to the agent here.
+    console.log(`agentconf: shared agent configuration is BROKEN.\n${problems.map((p) => `  - ${p}`).join("\n")}\nRun \`agentconf wire\` to repair, or tell the user.`);
+  } else if (!flag("--quiet")) {
+    for (const p of problems) console.log(`BROKEN: ${p}`);
+    if (!problems.length) console.log(`ok: ${ok.length} adapter${ok.length === 1 ? "" : "s"} wired and in sync (${ok.join(", ")})`);
+  }
+  process.exit(problems.length ? 1 : 0);
+}
+
+if (cmd === "detect") {
+  for (const [bin, s] of detect()) {
+    console.log(`  ${bin.padEnd(10)} ${s.installed ? "installed" : "not installed"}${s.installed ? `  ${s.auth}` : ""}`);
+  }
+  const known = adapters().map((a) => a.tool);
+  console.log(`\n${new Set(known).size} tool(s) have adapters. Others on this machine are unmanaged — that is a gap, not a guarantee.`);
+  process.exit(0);
+}
+
+if (cmd === "wire") {
+  const dryRun = flag("--dry-run");
+  for (const [verb, what] of wire({ dryRun })) console.log(`  ${verb.padEnd(6)} ${what}`);
+  if (dryRun) console.log("\n(dry run — nothing written)");
+  process.exit(0);
+}
+
+if (cmd === "verify") {
+  const only = rest.find((r) => !r.startsWith("--"));
+  const results = verify({ only, includeCostly: flag("--all") });
+  for (const r of results) console.log(`  ${r.id.padEnd(22)} ${r.state}${r.detail ? `  ${r.detail}` : ""}${r.note ? `  (${r.note})` : ""}`);
+  const failed = results.filter((r) => r.state === "FAILED");
+  if (failed.length) console.log(`\n${failed.length} adapter(s) are wired but the tool did not read the file. That is the silent failure this exists to find.`);
+  process.exit(failed.length ? 1 : 0);
+}
+
+console.log(`agentconf — capability-tested configuration for AI coding agents
+
+  agentconf detect            what is installed and logged in, via each vendor's own diagnostic
+  agentconf check             is the wiring intact? offline, fast, exit 1 on drift
+  agentconf wire [--dry-run]  apply the adapters; backs up anything it replaces
+  agentconf verify [--all]    canary: prove each tool actually READS the shared file
+
+Shared source: ${pretty(SOURCE)}
+Adapters:      ${adapters().map((a) => a.id).join(", ") || "none"}
+
+agentconf does not write what a tool generates, does not read credential files, and does not
+replace rulesync. rulesync writes; agentconf proves the write was read.`);
+process.exit(cmd ? 1 : 0);
