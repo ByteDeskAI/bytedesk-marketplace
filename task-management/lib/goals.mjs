@@ -20,22 +20,37 @@
  *            **Read first:**, **Constraints:**, **Validate:**, **Stop when:**. Zero of these are
  *            on disk, because it is a composer form rather than a file format.
  *
- * The header and item forms below are not guesses. Measured across all 195 docs:
- *   headers  `**Success criteria (verifiable):**` 107 · `## Success criteria (verifiable)` 49 ·
- *            `## Success criteria` 16
- *   items    dash bullets 118 · NUMBERED `1.` 46 · mixed 7
- *   coverage 171 parse · 24 do not (23 have no criteria section, 1 has a header with nothing
- *            under it)
+ * The header and item forms below are measured, not guessed — over all **555** docs found
+ * RECURSIVELY under bytedesk-platform/docs/goals. The first census counted only the 195 at the
+ * top level, which is how two defects shipped: manifests reference nested paths like
+ * `docs/goals/autonomous-agency/prerequisites/…`, so the subdirectories are not an edge case.
  *
- * A dash-only parser under a bolded-only header — the obvious first cut — misses 46 docs, and
- * those 24 unparseable ones are why `importable()` returns criteria and lets the caller REFUSE.
- * A task created with an empty acceptance list passes `tm done` unchallenged, so a silent
- * zero-criteria import would have the gate certify a goal nobody verified. That is worse than
- * not importing at all.
+ *   headers  `## Success criteria (verifiable)` 178 · `## Success criteria` 82 ·
+ *            `## Goal (verifiable success criteria)` 8 · the bolded inline form · one-off
+ *            qualifiers such as `(verifiable — strict)`
+ *   items    dash bullets and NUMBERED `1.` in roughly 2:1, plus mixed lists
+ *
+ * Two failure modes, and they are not symmetrical:
+ *
+ *   zero criteria      REFUSED. A task with an empty acceptance list passes `tm done`
+ *                      unchallenged, so importing one would have the gate certify a goal nobody
+ *                      verified. The caller must honour an empty array.
+ *   truncated criteria WORSE, and invisible. A partial list looks like a successful import and
+ *                      the gate closes on a fraction of the goal. This is why the fence handling
+ *                      in `criteriaFrom` exists rather than being an optimisation.
  */
 
-/** All three header forms seen in the wild, bolded-inline or as a heading. */
-const CRITERIA_HEADER = /^(?:\*\*\s*success\s+criteria[^*]*\*\*|#{1,4}\s*success\s+criteria.*?)\s*:?\s*$/i;
+/**
+ * The header, bolded-inline or as a heading, with the phrase anywhere in the line.
+ *
+ * The first version required "success criteria" to follow the hashes immediately, which reads
+ * every `## Success criteria …` correctly and silently misses the nine docs that qualify it
+ * first: `## Goal (verifiable success criteria)` (8) and `## Remaining work (success criteria)`
+ * (1). Census over the 555 docs under bytedesk-platform/docs/goals — `## Success criteria
+ * (verifiable)` 178, `## Success criteria` 82, `## Goal (verifiable success criteria)` 8, plus
+ * one-off qualifiers like `(verifiable — strict)`.
+ */
+const CRITERIA_HEADER = /^(?:\*\*\s*[^*]*success\s+criteria[^*]*\*\*|#{1,6}[^\n]*?success\s+criteria[^\n]*?)\s*:?\s*$/i;
 
 /** Dash, asterisk or numbered. 46 of 195 docs use numbers, so this is not optional. */
 const ITEM = /^\s*(?:[-*]\s+|\d+[.)]\s+)(.*)$/;
@@ -69,14 +84,45 @@ function criteriaFrom(lines) {
   if (start === -1) return [];
 
   const items = [];
+  let fenced = false;
+  // The indentation of the first item is the list's own level. Anything deeper is that item's
+  // detail, not a peer — the line has to be measured BEFORE it is trimmed, which is how the
+  // nesting was lost: `- Specifically removed:` has five sub-bullets under it, and flattening
+  // them turned one criterion into six tickable ones. Six real criteria became eleven, and each
+  // sub-clause became something a gate could be satisfied by on its own.
+  let baseIndent = null;
   for (const raw of lines.slice(start + 1)) {
+    const indent = /^\s*/.exec(raw)[0].replace(/\t/g, "    ").length;
     const line = raw.trim();
+
+    /**
+     * A criterion often embeds the command that verifies it, in a fence. Anything inside that
+     * fence is content, not structure — and a shell comment inside one starts with `#`, which
+     * SECTION_END reads as a heading.
+     *
+     * Measured: devproject-cleanup-and-unlocks/t1-sandbox-dead-code-sweep.md parsed to ONE
+     * criterion where six exist, because criterion 1 contains a fence holding
+     * `# -> must print NOTHING`. That is the worst failure this module can have — a zero-criteria
+     * doc is refused, but a TRUNCATED list passes the gate, so `tm done` would certify a goal
+     * with a sixth of it verified. Fence handling comes before every other test for that reason.
+     */
+    if (/^(?:```|~~~)/.test(line)) {
+      fenced = !fenced;
+      continue;
+    }
+    if (fenced) continue;
+
     if (!line) continue;
-    if (SECTION_END.test(line) && items.length) break;
     if (SECTION_END.test(line)) break;
     const m = ITEM.exec(line);
     if (m) {
-      items.push(m[1]);
+      if (baseIndent === null) baseIndent = indent;
+      if (indent > baseIndent && items.length) {
+        // A nested bullet: detail belonging to the criterion above it.
+        items[items.length - 1] += ` ${m[1]}`;
+      } else {
+        items.push(m[1]);
+      }
     } else if (items.length) {
       // A wrapped criterion, not a new one.
       items[items.length - 1] += ` ${line}`;
@@ -160,6 +206,8 @@ export function refusal(source) {
     "  **Success criteria (verifiable):**",
     "  ## Success criteria (verifiable)",
     "  ## Success criteria",
+    "  ## Goal (verifiable success criteria)",
+    "  …or any heading containing the phrase",
     "…followed by `- ` bullets or `1.` numbered items; or a `**Stop when:**` line.",
     "",
     "Add one, or file the task by hand with `tm task new` plus `tm ac`.",

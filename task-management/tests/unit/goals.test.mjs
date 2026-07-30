@@ -5,18 +5,21 @@
  * criterion is ticked. Those are the same requirement, and a goal doc has already written it
  * down — so the only real work here is parsing, and the only real risk is parsing WRONG.
  *
- * The shapes below are not invented. Measured across all 195 goal docs in bytedesk-platform:
- *   headers  `**Success criteria (verifiable):**` 107 · `## Success criteria (verifiable)` 49 ·
- *            `## Success criteria` 16
- *   items    dash 118 · numbered 46 · mixed 7
- *   coverage 171 parse · 24 do not
+ * Measured over all **555** docs found RECURSIVELY under bytedesk-platform/docs/goals. The first
+ * census counted only the 195 at the top level, and that mistake shipped three defects — manifests
+ * reference nested paths, so subdirectories were never an edge case.
  *
- * A dash-only parser under a bolded-only header misses 46 docs. Those 24 unparseable ones are why
- * a zero-criteria import must be REFUSED: a task with an empty acceptance list passes `tm done`
- * unchallenged, so the gate would certify a goal nobody verified.
+ * Two failure modes, asymmetrical:
+ *   zero criteria      REFUSED, because a task with an empty acceptance list passes `tm done`
+ *                      unchallenged and the gate would certify a goal nobody verified.
+ *   truncated/inflated WORSE, because both look like a successful import. A fence inside a
+ *                      criterion used to end the list (1 criterion where 6 existed) and nested
+ *                      sub-bullets used to become peers (11 where 6 existed).
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import { goalBody, manifestGoalTitle, parseGoalDoc, parseManifest, refusal } from "../../lib/goals.mjs";
 
 const doc = (body) => `# Goal: Do the thing (BDP-1234)\n\n${body}\n`;
@@ -259,5 +262,127 @@ describe("manifestGoalTitle", () => {
 
   it("strips a leading Jira key, which the store keeps as a field instead", () => {
     assert.equal(manifestGoalTitle({ id: "x", title: "BDP-3077: Contain the exposure" }, null), "Contain the exposure");
+  });
+});
+
+
+describe("the three defects that shipped in the first version", () => {
+  it("reads a heading that qualifies the phrase instead of leading with it", () => {
+    // `## Goal (verifiable success criteria)` — 8 docs — plus `## Remaining work (success
+    // criteria)`. The first regex required the phrase immediately after the hashes.
+    for (const header of [
+      "## Goal (verifiable success criteria)",
+      "## Remaining work (success criteria)",
+      "## Success criteria (verifiable — strict)",
+      "#### Success criteria",
+    ]) {
+      const p = parseGoalDoc(`# Goal: T\n\n${header}\n- a real criterion here\n`);
+      assert.deepEqual(p.criteria, ["a real criterion here"], `missed: ${header}`);
+    }
+  });
+
+  it("does not let a fence inside a criterion end the list", () => {
+    // The measured case: a criterion embeds the command that verifies it, and the command has a
+    // `#` comment, which SECTION_END read as a heading. One criterion survived out of six — and a
+    // truncated list passes the gate, which is worse than refusing.
+    const md = [
+      "# Goal: T",
+      "",
+      "**Success criteria (verifiable):**",
+      "- first, prove it with:",
+      "  ```bash",
+      "  grep -rn thing src/",
+      "  # → must print NOTHING",
+      "  ```",
+      "- second criterion",
+      "- third criterion",
+      "",
+      "## Why / the problem to solve",
+      "",
+      "- not a criterion",
+    ].join("\n");
+
+    const p = parseGoalDoc(md);
+    assert.equal(p.criteria.length, 3, `truncated or over-read: ${JSON.stringify(p.criteria)}`);
+    assert.match(p.criteria[0], /^first, prove it with/);
+    // The fence body must not become criterion text either.
+    assert.ok(!p.criteria.join(" ").includes("grep -rn"));
+    assert.ok(!p.criteria.join(" ").includes("must print NOTHING"));
+  });
+
+  it("still stops at a real section boundary, so the fence fix did not disable SECTION_END", () => {
+    const p = parseGoalDoc("# Goal: T\n\n## Success criteria\n- a real one\n\n**Definition of done:**\n- not a criterion\n");
+    assert.deepEqual(p.criteria, ["a real one"]);
+  });
+
+  it("folds a nested sub-bullet into its parent instead of promoting it to a peer", () => {
+    // `- Specifically removed:` with five sub-bullets turned 6 criteria into 11, and each
+    // sub-clause became something a gate could be satisfied by on its own.
+    const md = [
+      "# Goal: T",
+      "",
+      "## Success criteria",
+      "- parent criterion:",
+      "  - first detail",
+      "  - second detail",
+      "- sibling criterion",
+    ].join("\n");
+
+    const p = parseGoalDoc(md);
+    assert.equal(p.criteria.length, 2);
+    assert.match(p.criteria[0], /parent criterion.*first detail.*second detail/);
+    assert.equal(p.criteria[1], "sibling criterion");
+  });
+
+  it("treats tabs as indentation too", () => {
+    const p = parseGoalDoc("# Goal: T\n\n## Success criteria\n- parent\n\t- detail\n- sibling\n");
+    assert.equal(p.criteria.length, 2);
+  });
+});
+
+describe("the real corpus", () => {
+  // A census in a comment goes stale silently — that is exactly how the first version shipped
+  // with the wrong number. This asserts it against the documents themselves, and is a no-op
+  // anywhere the corpus is absent, which is every machine but this one.
+  const CORPUS = "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-platform/docs/goals";
+
+  it("parses the overwhelming majority, and refuses only non-goals", (t) => {
+    if (!existsSync(CORPUS)) return t.skip("corpus not present");
+    const files = [];
+    const walk = (dir) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        if (e.isDirectory()) walk(join(dir, e.name));
+        else if (e.name.endsWith(".md")) files.push(join(dir, e.name));
+      }
+    };
+    walk(CORPUS);
+
+    assert.ok(files.length > 400, `expected the recursive corpus, found ${files.length} — is this only the top level?`);
+
+    const zero = files.filter((f) => !parseGoalDoc(readFileSync(f, "utf8")).criteria.length);
+    assert.ok(zero.length / files.length < 0.08, `${zero.length}/${files.length} parse to zero`);
+
+    // Every refusal should be something that is not a goal.
+    const suspicious = zero.filter((f) => !/README|CONTEXT|CONTINUATION|JIRA|EPIC|design-brief|audit|sweep|loop|baseline|coverage|surface|foundation|decomposition|preview|hardening|dashboard|agent\.md/i.test(f));
+    assert.ok(suspicious.length <= 4, `unexpected refusals:\n${suspicious.join("\n")}`);
+  });
+
+  it("finds a plausible number of criteria per doc", (t) => {
+    if (!existsSync(CORPUS)) return t.skip("corpus not present");
+    const counts = [];
+    const walk = (dir) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        if (e.isDirectory()) walk(join(dir, e.name));
+        else if (e.name.endsWith(".md")) {
+          const n = parseGoalDoc(readFileSync(join(dir, e.name), "utf8")).criteria.length;
+          if (n) counts.push(n);
+        }
+      }
+    };
+    walk(CORPUS);
+    counts.sort((a, b) => a - b);
+    const median = counts[Math.floor(counts.length / 2)];
+    // A truncating parser drops this toward 1; a flattening one inflates it.
+    assert.ok(median >= 4 && median <= 10, `median ${median} criteria per doc looks wrong`);
   });
 });

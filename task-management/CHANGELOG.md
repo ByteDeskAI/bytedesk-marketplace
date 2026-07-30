@@ -42,6 +42,27 @@
 
 ### Fixed
 
+- **`tm goal import` mis-read the criteria it gates on, three ways.** The census behind the first
+  version counted only the 195 docs at the *top level* of `docs/goals`; there are **555**
+  recursively, and manifests reference nested paths directly, so the subdirectories were never an
+  edge case. Against the real corpus:
+
+  - a heading that qualifies the phrase rather than leading with it was missed —
+    `## Goal (verifiable success criteria)` (8 docs) and `## Remaining work (success criteria)`;
+  - **a fence inside a criterion ended the list.** A criterion that embeds the command proving it
+    contains a `#` comment, which the section-boundary test read as a heading: one real doc parsed
+    to **1 criterion where 6 exist**;
+  - **nested sub-bullets became peers.** Indentation was destroyed by trimming before matching, so
+    a criterion with five sub-items produced **11 criteria where 6 exist**, each sub-clause
+    becoming something a gate could be satisfied by alone.
+
+  The truncation and inflation are worse than a failed parse, and that asymmetry is now stated in
+  the module: zero criteria is *refused*, but a wrong-length list **looks like a successful import**
+  and the gate closes on the wrong thing. 530 of 555 now parse; the 25 refusals are all READMEs,
+  CONTEXT notes, EPIC stubs, JIRA scaffolds and audit docs. A corpus assertion in the unit tests
+  checks the census against the documents themselves, since a number in a comment is exactly what
+  went stale.
+
 - **The create form collected a markdown body and threw it away.** `CreateModal` held it in React
   state behind a "Context (markdown body)" placeholder, and `write.create`'s payload type had no
   `body` field — so the text a user watched themselves type was dropped on submit. The server had
