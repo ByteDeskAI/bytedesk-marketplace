@@ -256,6 +256,24 @@
 
 ### Fixed
 
+- **`dashboard/node_modules` was a committed symlink to an absolute path, pointing at itself.**
+  `.gitignore` said `node_modules/` — with a trailing slash, which matches a directory and **not a
+  symlink** — so the link went in, carrying one developer's home directory into a shared repo. On
+  that machine it happened to resolve. Anywhere else it dangles.
+
+  What it cost was silent, which is why it survived: `npm run build` ran `tsc` (which passed), then
+  `vite`, which could not resolve through the loop and did nothing at all, and the script still
+  exited **0**. `dist/` simply stopped changing while every source edit looked applied. I shipped a
+  rebuild believing it had run and only caught it because the bundle hash had not moved.
+
+  Untracked, and the ignore rule loses its trailing slash so it matches a directory *and* a symlink.
+  A clean checkout now installs 685 packages and builds.
+
+  Guarded by `tests/unit/repo-hygiene.test.mjs`, which asserts the two halves of the defect: nothing
+  npm installs is tracked, and no committed symlink names an absolute path — a path on one machine
+  cannot be right anywhere else, and when it points inside the repo it can point at itself. Both
+  assertions fail against the previous commit and pass now.
+
 - **The drawer's text inputs read as text and become fields when clicked — and the title was
   unreadable before.** It was a permanently-open single-line `Textfield` beside a Rename button, so
   the panel's most important content was a form control. On a long title the browser scrolled that

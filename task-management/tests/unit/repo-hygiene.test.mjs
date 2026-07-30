@@ -1,0 +1,59 @@
+/**
+ * What must never be committed.
+ *
+ * `dashboard/node_modules` was a tracked symlink holding an ABSOLUTE path into one developer's home
+ * directory — and pointing at itself. On that machine it resolved; anywhere else it dangles.
+ *
+ * What it cost was silent, which is why it survived: `npm run build` ran `tsc` (which passed), then
+ * `vite`, which could not resolve through the loop and did nothing at all, and the whole script
+ * still exited 0. `dist/` simply stopped changing while every source edit looked applied. I shipped
+ * a rebuild believing it had run and only noticed because the bundle hash had not moved.
+ *
+ * It got in because `.gitignore` said `node_modules/` with a trailing slash, which matches a
+ * directory and not a symlink. So the two assertions here are the two halves of that: nothing that
+ * should be installed is tracked, and no tracked symlink names an absolute path.
+ */
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const PLUGIN = join(dirname(fileURLToPath(import.meta.url)), "../..");
+
+/** Every tracked path, with its mode. `120000` is a symlink. */
+function tracked() {
+  const out = execFileSync("git", ["ls-files", "-s", "--", "."], { cwd: PLUGIN, encoding: "utf8" });
+  return out
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      const [meta, path] = line.split("\t");
+      const [mode, sha] = meta.split(/\s+/);
+      return { mode, sha, path };
+    });
+}
+
+const inRepo = existsSync(join(PLUGIN, "../.git")) || existsSync(join(PLUGIN, "../../.git"));
+
+describe("what is committed", { skip: inRepo ? false : "not a git checkout" }, () => {
+  it("does not track anything that npm installs", () => {
+    const installed = tracked().filter((f) => f.path.split("/").includes("node_modules"));
+    assert.deepEqual(installed.map((f) => f.path), [], "node_modules belongs to the machine, not the repo");
+  });
+
+  it("does not track a symlink to an absolute path", () => {
+    // An absolute link is a path on one machine. It cannot be right anywhere else, and when it
+    // points inside the repo it can point at itself — which is exactly what happened.
+    const absolute = tracked()
+      .filter((f) => f.mode === "120000")
+      .map((f) => ({
+        path: f.path,
+        target: execFileSync("git", ["cat-file", "blob", f.sha], { cwd: PLUGIN, encoding: "utf8" }),
+      }))
+      .filter((f) => f.target.startsWith("/"));
+
+    assert.deepEqual(absolute, [], "a committed symlink has to be relative to be portable");
+  });
+});
