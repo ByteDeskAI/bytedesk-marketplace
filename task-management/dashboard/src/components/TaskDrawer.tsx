@@ -101,6 +101,15 @@ const styles = cssMap({
     marginBlockStart: "0",
   },
   title: { font: "var(--ds-font-heading-small)" },
+  /** A rule between entries, so where one comment ends is answerable at a glance. */
+  comment: {
+    paddingBlockStart: "var(--ds-space-100)",
+    borderBlockStartWidth: "var(--ds-border-width)",
+    borderBlockStartStyle: "solid",
+    borderBlockStartColor: "var(--ds-border)",
+  },
+  /** The first needs no rule — the section heading already drew the boundary. */
+  firstComment: { paddingBlockStart: "0" },
   /** Matches the height an input would occupy, so the row does not jump on click. */
   readView: { paddingBlock: "var(--ds-space-075)", wordBreak: "break-word" },
 });
@@ -537,11 +546,34 @@ export function TaskDrawer({
             </Section>
 
             <Section title="COMMENTS">
+              {/*
+                One entry per comment, not one line.
+
+                Each was a single `Text` holding author, timestamp and body run together —
+                `main · 2026-07-29 23:37 — …` — so nine comments became a solid block whose only
+                boundary marker was spotting "main ·" at the start of a line, and the metadata
+                shouted exactly as loudly as the thing it labelled.
+
+                Attribution above the body in subtlest text, and a rule between entries: the
+                cheapest thing that makes "where does this one end" answerable at a glance.
+              */}
+              {(task.comments ?? []).length === 0 ? (
+                <Text size="small" color="color.text.subtlest">
+                  No comments yet.
+                </Text>
+              ) : null}
               {(task.comments ?? []).map((c, i) => (
-                <Text
+                <Box
                   key={`${c.ts}-${i}`}
-                  size="small"
-                >{`${c.author ?? "?"} · ${c.ts?.slice(0, 16).replace("T", " ")} — ${c.text}`}</Text>
+                  xcss={i === 0 ? styles.firstComment : styles.comment}
+                >
+                  <Stack space="space.050">
+                    <Text size="small" color="color.text.subtlest">
+                      {`${c.author ?? "?"} · ${c.ts?.slice(0, 16).replace("T", " ")}`}
+                    </Text>
+                    <Text size="small">{c.text}</Text>
+                  </Stack>
+                </Box>
               ))}
               <TextArea
                 placeholder="Add a comment"

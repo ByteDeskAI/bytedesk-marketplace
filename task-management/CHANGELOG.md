@@ -256,6 +256,14 @@
 
 ### Fixed
 
+- **Comments were an undifferentiated wall.** Each was a single `Text` holding author, timestamp and
+  body run together — `main · 2026-07-29 23:37 — …` — so nine comments became a solid block whose
+  only boundary marker was spotting `main ·` at the start of a line. The metadata shouted exactly as
+  loudly as the thing it labelled.
+
+  One entry per comment now: attribution above the body in subtlest text, a rule between entries,
+  and an explicit "No comments yet" instead of a section that renders as nothing.
+
 - **The card title was not a control.** It was a `Box` — a plain `div` — with `cursor: pointer` and
   an onClick. It looked clickable and was clickable with a mouse, and that was the whole of it:
   `Tab` never reached it, screen readers never announced it, and automation could not find it.
