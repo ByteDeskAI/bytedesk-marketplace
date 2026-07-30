@@ -85,6 +85,72 @@ unset TM_ENFORCE
 echo 'not json' | "$PLUGIN_ROOT/hooks/tm-hook.sh" post-task >/dev/null 2>&1 && ok "malformed payload still exits 0" || no "malformed payload still exits 0"
 "$PLUGIN_ROOT/hooks/tm-hook.sh" </dev/null >/dev/null 2>&1 && ok "missing event name still exits 0" || no "missing event name still exits 0"
 
+# SubagentStart — the briefing. Claude Code sends the PARENT's session_id and delivers whatever
+# `additionalContext` the hook returns into the subagent's context; both were established by
+# spawning a real agent against a probe hook, not inferred from the schema.
+tm epic new "Briefing" >/dev/null
+tm task new "the task the parent is holding" >/dev/null
+BID=$(tm find "the task the parent is holding" --json | jq -r '.[0].id')
+tm ac "$BID" "the unmet one" >/dev/null
+tm ac "$BID" "the met one" >/dev/null
+tm accept "$BID" 2 >/dev/null
+
+# Nothing claimed yet: a hook that prints an empty envelope on every spawn taxes every fan-out.
+OUT="$(hook subagent-start '{"session_id":"test-session","agent_id":"a1","agent_type":"Explore"}')"
+[[ -z "$OUT" ]] && ok "no claim means no output at all" || no "no claim means no output at all" "got: $OUT"
+
+tm start "$BID" >/dev/null
+OUT="$(hook subagent-start '{"session_id":"test-session","agent_id":"a1","agent_type":"Explore"}')"
+has "$OUT" '"hookEventName":"SubagentStart"' "the envelope names the event it answers"
+CTX="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext')"
+has "$CTX" "$BID" "the brief names the task the parent holds"
+has "$CTX" "the unmet one" "it carries what is left to satisfy"
+case "$CTX" in
+  *"the met one"*) no "a criterion already met is left out" "found it" ;;
+  *) ok "a criterion already met is left out" ;;
+esac
+has "$CTX" 'tm done' "it names the lifecycle verbs the agent must not run"
+has "$CTX" 'tm comment' "it points at the additive writes so reporting back has a route"
+case "$CTX" in
+  *"Resume with: tm start"*) no "it is not the handoff dossier" "handoff's resume line leaked in" ;;
+  *) ok "it is not the handoff dossier" ;;
+esac
+
+# Another session's spawn must not be handed this session's work.
+OUT="$(hook subagent-start '{"session_id":"a-different-session","agent_id":"a2"}')"
+[[ -z "$OUT" ]] && ok "a brief is scoped to the session that holds the claim" || no "a brief is scoped to the claiming session" "got: $OUT"
+tm park "$BID" briefed >/dev/null
+
+# SubagentStart — a spawned agent used to know nothing about the board. Claude Code fires this
+# with the PARENT's session_id and takes additionalContext back; both were established by spawning
+# a real agent against a probe hook, not inferred from the payload schema.
+tm epic new "Briefing a subagent" >/dev/null
+tm task new "the work the parent is holding" >/dev/null
+BID=$(tm find "the work the parent is holding" --json | jq -r '.[0].id')
+tm ac "$BID" "the unmet one is quoted" >/dev/null
+tm ac "$BID" "the met one is not" >/dev/null
+tm accept "$BID" 2 >/dev/null
+
+# Nothing claimed yet: no output at all, not an empty envelope.
+OUT="$(hook subagent-start '{"session_id":"test-session","agent_id":"a1"}')"
+[[ -z "$OUT" ]] && ok "no claim means no briefing, not an empty one" || no "no claim means no briefing" "got: $OUT"
+
+tm start "$BID" >/dev/null
+OUT="$(hook subagent-start '{"session_id":"test-session","agent_id":"a1","agent_type":"general-purpose"}')"
+has "$OUT" '"hookEventName":"SubagentStart"' "the briefing is returned as SubagentStart additionalContext"
+has "$OUT" "$BID" "it names the task the parent holds"
+has "$OUT" "the unmet one is quoted" "it carries what done still means"
+case "$OUT" in
+  *"the met one is not"*) no "a criterion already met is left out" "found it" ;;
+  *) ok "a criterion already met is left out" ;;
+esac
+has "$OUT" 'tm done' "it tells the agent which verbs are the parent's to run"
+
+# A different session's fan-out must not be briefed on this session's work.
+OUT="$(hook subagent-start '{"session_id":"some-other-session","agent_id":"a2"}')"
+[[ -z "$OUT" ]] && ok "another session's spawn gets no briefing" || no "another session's spawn gets no briefing" "got: $OUT"
+tm park "$BID" done with the briefing fixture >/dev/null
+
 # SubagentStop attribution. The README promises a subagent's work is attributed on the timeline;
 # it never was — 340 of these events in this project's own store, zero with a task attributed,
 # 23 of them AFTER the change that claimed to fix it. That change guessed at the payload instead

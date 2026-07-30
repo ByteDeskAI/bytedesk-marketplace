@@ -100,6 +100,18 @@
         ]
       }
     ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/tm-hook.sh subagent-start",
+            "timeout": 10,
+            "statusMessage": "task-management: briefing the agent..."
+          }
+        ]
+      }
+    ],
     "SubagentStop": [
       {
         "hooks": [
