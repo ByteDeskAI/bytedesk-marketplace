@@ -555,6 +555,50 @@ export const OPEN = new Set(["open", "in_progress", "blocked"]);
 /** A blocker stops blocking once it is finished — or gone. */
 export const RESOLVED = new Set(["done", "deleted"]);
 
+/**
+ * Most urgent first. `issue.mjs` owns the priority *field* — validation, the event, the CLI
+ * verb — but the queue order is read here, by `nextTasks`, so the vocabulary lives here and
+ * `issue.mjs` imports it. The other direction would make store.mjs depend on issue.mjs, and
+ * store.mjs is what issue.mjs is built on.
+ */
+export const PRIORITIES = ["highest", "high", "medium", "low", "lowest"];
+
+/** Sparse, so placing one card between two others rewrites only the card that moved. */
+export const RANK_STEP = 1000;
+
+/**
+ * The order of the queue.
+ *
+ * Both `priority` and `rank` were writable and neither was ever read: `nextTasks` filtered and
+ * returned whatever order `list` happened to give, which is id order — creation order. So a
+ * task set to `highest` and dragged to the top of the backlog still came second behind an
+ * untouched `low` one, and since `tm next` is what the README, the SessionStart block and the
+ * `tm_next` tool all point at, priority could not influence what any agent picked up.
+ *
+ * An explicit rank comes first, because a rank is only ever set by someone deliberately placing
+ * that task relative to another — that is a stronger statement than a label, and it is Jira's
+ * rule too. Everything unranked follows, ordered by priority. Ranked-before-unranked rather
+ * than interleaving the two: a fallback rank derived from list position would give every task a
+ * distinct pseudo-rank, and priority as a tiebreaker on values that are never tied is priority
+ * that still does nothing.
+ *
+ * Id breaks the remaining ties, so the order is total and stable — the same board must not
+ * render two ways.
+ */
+export function queueOrder(tasks) {
+  const pri = (t) => {
+    const i = PRIORITIES.indexOf(t.priority);
+    return i === -1 ? PRIORITIES.indexOf("medium") : i;
+  };
+  return [...tasks].sort(
+    (a, b) =>
+      (a.rank === undefined) - (b.rank === undefined) ||
+      (a.rank !== undefined ? a.rank - b.rank : 0) ||
+      pri(a) - pri(b) ||
+      String(a.id).localeCompare(String(b.id)),
+  );
+}
+
 export function openTasks(p = paths()) {
   return list("task", {}, p).filter((t) => OPEN.has(t.status));
 }
@@ -579,11 +623,16 @@ function dependenciesMet(task, byId) {
 export function nextTasks(p = paths()) {
   const all = list("task", { includeDeleted: true }, p);
   const byId = new Map(all.map((t) => [t.id, t]));
-  return all.filter(
-    (t) =>
-      (t.status === "open" || blockedByDependency(t)) &&
-      !RESOLVED.has(t.status) &&
-      dependenciesMet(t, byId),
+  // Ordered here rather than at the call sites. There are five of them — `tm next`, the
+  // SessionStart block, `tm_next`, the resource picker, `tm parallel` — and an order every
+  // caller has to remember to apply is an order some caller will not have.
+  return queueOrder(
+    all.filter(
+      (t) =>
+        (t.status === "open" || blockedByDependency(t)) &&
+        !RESOLVED.has(t.status) &&
+        dependenciesMet(t, byId),
+    ),
   );
 }
 

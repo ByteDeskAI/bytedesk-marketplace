@@ -316,6 +316,18 @@ moment to say no is before one exists. A loop that already exists elsewhere is n
 next caller; doctor still reports it. Subtask nesting refuses cycles.
 Backlog ranks are sparse integers, so dragging a card rewrites one file, not the whole board.
 
+**`tm next` is ordered by them.** An explicit `rank` first, in rank order — a rank is only ever
+set by deliberately placing that task relative to another, which is a stronger statement than a
+label, and it is Jira's rule too. Everything unranked follows by `priority`, with an unset
+priority read as `medium`. Id breaks the remaining ties, so the order is total and the same board
+never renders two ways. The rendered line shows `!<priority>` when one is set, because a list
+whose order has no visible reason is a list you cannot trust.
+
+This is the order every caller of `next` gets: the `tm next` verb, the SessionStart context
+block, the `tm_next` MCP tool, the `@`-mentionable resource list, and `tm parallel`. The sort is
+inside `nextTasks`, not at those five call sites — an order each caller has to remember to apply
+is an order some caller will not have.
+
 ## Dashboard write surface
 
 The board is not read-only. Every write goes through the same `lib/` functions the CLI calls,

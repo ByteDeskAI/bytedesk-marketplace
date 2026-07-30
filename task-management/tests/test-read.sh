@@ -16,7 +16,12 @@ FAIL=0
 ok() { PASS=$((PASS + 1)); printf '  ok   %s\n' "$1"; }
 no() { FAIL=$((FAIL + 1)); printf '  FAIL %s\n     %s\n' "$1" "${2:-}"; }
 has() { case "$1" in *"$2"*) ok "$3" ;; *) no "$3" "expected: $2 | got: ${1:0:200}" ;; esac; }
-json() { echo "$1" | jq -e "$2" >/dev/null 2>&1 && ok "$3" || no "$3" "jq $2 failed on: ${1:0:200}"; }
+# json <payload> [jq args...] <filter> <name>
+json() {
+  local payload="$1"; shift
+  local name="${@: -1}"; local filter="${@: -2:1}"; local args=("${@:1:$#-2}")
+  echo "$payload" | jq -e "${args[@]}" "$filter" >/dev/null 2>&1 && ok "$name" || no "$name" "jq $filter failed on: ${payload:0:200}"
+}
 
 echo "test-read"
 
@@ -123,6 +128,29 @@ case "$(tm board)" in
   \{*) no "board without --json stays human" "got JSON" ;;
   *) ok "board without --json stays human" ;;
 esac
+
+# The order of `tm next` is the whole answer to "what should I work on", and it is what the
+# SessionStart block and tm_next hand an agent. Asserted end to end, through the real CLI.
+# Last in the file: these create tasks, and assertions above them count nodes and rows.
+#
+# Ids are read back rather than assumed. Nine tasks exist by now, so a hardcoded TM-002 would
+# name "Second task" and the assertion would pass on a task this block never touched.
+id_of() { tm find "$1" --json | jq -r '.[0].id'; }
+tm task new "aaa the low one" >/dev/null
+tm task new "zzz the urgent one" >/dev/null
+LOW="$(id_of "aaa the low one")"
+URGENT="$(id_of "zzz the urgent one")"
+tm priority "$LOW" low >/dev/null
+tm priority "$URGENT" highest >/dev/null
+[[ "$URGENT" > "$LOW" ]] && ok "the urgent task has the later id, so id order would put it second" \
+  || no "the urgent task has the later id" "$URGENT is not after $LOW"
+json "$(tm next --json)" --arg u "$URGENT" '.[0].id == $u' "next puts the highest priority first, not the lowest id"
+has "$(tm next)" "!highest" "the rendered line shows the priority the order is based on"
+
+tm task new "placed by hand" >/dev/null
+PLACED="$(id_of "placed by hand")"
+tm rank "$PLACED" --before "$URGENT" >/dev/null
+json "$(tm next --json)" --arg pl "$PLACED" '.[0].id == $pl' "an explicit rank outranks a priority label"
 
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [[ "$FAIL" == 0 ]]

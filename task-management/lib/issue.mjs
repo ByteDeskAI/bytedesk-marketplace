@@ -10,11 +10,15 @@
  * stay authoritative no matter whether the CLI, the dashboard or MCP called it.
  */
 import { actor, actorLabel } from "./actor.mjs";
-import { list, logEvent, mutate, now, read, update } from "./store.mjs";
+import { PRIORITIES, RANK_STEP, list, logEvent, mutate, now, read, update } from "./store.mjs";
 import { paths } from "./paths.mjs";
 
-/** Jira's ladder, lowercased. Anything else is a typo, not a new priority. */
-export const PRIORITIES = ["highest", "high", "medium", "low", "lowest"];
+/**
+ * Jira's ladder, lowercased. Anything else is a typo, not a new priority. Defined in
+ * store.mjs, because that is where the queue order reads it; re-exported here because this
+ * module owns the field — validation, the event, the verb.
+ */
+export { PRIORITIES };
 
 /** Link types and their mirror, so both ends of a relationship stay in sync. */
 export const LINK_TYPES = {
@@ -36,7 +40,6 @@ export const LINK_TYPES = {
  */
 export const TYPES = ["task", "bug", "story", "spike", "chore"];
 
-const RANK_STEP = 1000;
 
 function must(id, p) {
   const doc = read(id, p);
