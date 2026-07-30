@@ -346,6 +346,32 @@
 
 ### Fixed
 
+- **The store read its own staging files, and a create could lose its write.** `writeAtomic` stages
+  at `.tm-tmp-<pid>-<name>` — built from the target's basename, so it **ends in `.md`**. Every reader
+  globbed `.endsWith(".md")`, so one process saw another's staging file in `readdirSync`, the rename
+  moved it, and the `readFileSync` that followed opened a path that no longer existed:
+
+  ```
+  tm task: ENOENT: no such file or directory, open '…/tasks/.tm-tmp-3705640-TM-003-….md'
+  ```
+
+  That is the create that never wrote a file: eight concurrent creates producing seven files, seven
+  ids and seven index rows. It needed a second process writing at the instant a first was listing,
+  which is why it only ever appeared with several suites running at once and never on its own.
+
+  The comment above `writeAtomic` claimed the leading dot meant it "never matches". The dot was
+  never consulted — the filter asked about the extension. It is consulted now, and `list` also skips
+  a name it cannot open rather than failing the whole read: the caller asked what is on the board,
+  and something that stopped existing is not on it.
+
+  Reproduced at fourteen parallel copies of the concurrency suite, where it failed in two rounds of
+  three; **42 of 42 clean** at that same load afterwards, plus two deterministic assertions that
+  fail against the previous behaviour.
+
+  `test-concurrency.sh` no longer sends the creates' stderr to `/dev/null`. It reported
+  "expected 8, got 7" and threw away the one line that said why, which is the reason this took so
+  long to find.
+
 - **A waiter that timed out broke a lock a live process was holding.** `withLock` read
   `if (staleLock(lock) || Date.now() > deadline)`, so a process that had queued for the deadline
   deleted the lock and walked in — overriding the answer `staleLock` had just given, which was that
