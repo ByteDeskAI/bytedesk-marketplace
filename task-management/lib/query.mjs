@@ -40,6 +40,7 @@ export const FIELDS = {
   id: (d) => d.id,
   /** The doc a task was imported from, so `goal:` finds everything a goal produced. */
   goal: (d) => d.goalDoc,
+  sprint: (d) => d.sprint,
 };
 
 export const FIELD_NAMES = Object.keys(FIELDS);

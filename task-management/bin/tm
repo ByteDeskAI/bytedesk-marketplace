@@ -40,7 +40,7 @@ import {
   writeState,
 } from "../lib/store.mjs";
 import { consumeOverride, enforcementOff, gateDone, gateStop, gateTaskCreate, setOverride } from "../lib/enforce.mjs";
-import { board, handoff, renderHistory, renderLog, sessionContext, standup, subagentBrief, taskLine } from "../lib/render.mjs";
+import { board, handoff, renderHistory, renderLog, sessionContext, sprintReport, standup, subagentBrief, taskLine } from "../lib/render.mjs";
 import { FIELD_NAMES, describeQuery, matchesQuery, parseQuery } from "../lib/query.mjs";
 import { autolink, link as linkBins, status as linkStatus, unlink as unlinkBins } from "../lib/link.mjs";
 import { applyShares, createWorktree, listWorktrees, removeWorktree } from "../lib/worktree.mjs";
@@ -366,6 +366,74 @@ const VERBS = {
     logEvent("reopened", { id, reason: reason || null }, P);
     const epic = read(id, P)?.epic;
     out(`${id} reopened${reason ? ` — ${reason}` : ""}${epic && read(epic, P)?.status === "open" ? `\n${epic} reopened with it` : ""}`);
+  },
+
+
+  /**
+   * Sprints. A named, time-boxed commitment — which is what turns `estimate` from a field nobody
+   * reads into a number that means something.
+   *
+   * Deliberately NOT a second epic. An epic says what a body of work IS; a sprint says what you
+   * committed to finishing this fortnight. A task has one of each and they answer different
+   * questions, so `sprint` is its own field rather than a second epic id.
+   */
+  sprint(sub, ...rest) {
+    requireInit();
+    const active = () => state(P).activeSprint || null;
+
+    if (!sub || sub === "show") {
+      const id = rest[0] || active();
+      if (!id) return out("no active sprint — `tm sprint new \"<name>\"`");
+      return emit(read(id, P), () => sprintReport(id, P));
+    }
+
+    if (sub === "new") {
+      const ends = rest.indexOf("--ends");
+      const title = rest.slice(0, ends === -1 ? undefined : ends).join(" ").trim();
+      if (!title) die('usage: tm sprint new "<name>" [--ends YYYY-MM-DD]');
+      const doc = create("sprint", { title, status: "open", ...(ends === -1 ? {} : { ends: rest[ends + 1] }) }, "", P);
+      writeState({ activeSprint: doc.id }, P);
+      logEvent("sprint", { id: doc.id, action: "new" }, P);
+      return out(`${doc.id} created and set active — ${doc.file}`);
+    }
+
+    if (sub === "use") {
+      const id = rest[0];
+      if (!read(id, P)) die(`not found: ${id}`);
+      writeState({ activeSprint: id }, P);
+      return out(`${id} is the active sprint`);
+    }
+
+    if (sub === "add" || sub === "rm") {
+      const id = active();
+      if (!id && sub === "add") die("no active sprint — `tm sprint new \"<name>\"` or `tm sprint use <SP-id>`");
+      const moved = [];
+      for (const task of rest) {
+        if (!read(task, P)) die(`not found: ${task}`);
+        update(task, { sprint: sub === "add" ? id : undefined }, P);
+        moved.push(task);
+      }
+      logEvent("sprint", { id, action: sub, tasks: moved }, P);
+      return out(`${moved.join(", ")} ${sub === "add" ? `committed to ${id}` : "removed from the sprint"}`);
+    }
+
+    if (sub === "done") {
+      const id = rest[0] || active();
+      if (!id) die("no active sprint");
+      update(id, { status: "done", closed: now() }, P);
+      if (active() === id) writeState({ activeSprint: null }, P);
+      logEvent("sprint", { id, action: "done" }, P);
+      // Unfinished work does not evaporate because a sprint ended; it is simply no longer committed.
+      const left = list("task", {}, P).filter((t) => t.sprint === id && t.status !== "done");
+      return out(`${id} closed${left.length ? ` — ${left.length} card(s) unfinished, still on the board` : ""}`);
+    }
+
+    if (sub === "list") {
+      const rows = list("sprint", {}, P);
+      return emit(rows, () => rows.map((r) => `${r.status === "done" ? "●" : "○"} ${r.id} ${r.title}`).join("\n") || "(no sprints)");
+    }
+
+    die('usage: tm sprint [show|new "<name>"|use <id>|add <task>...|rm <task>...|done|list]');
   },
 
   /** `tm ac <id> "<text>"` adds; `tm ac <id> --rm <n>` removes one added by mistake. */
@@ -1061,6 +1129,7 @@ const VERBS = {
         "  type <id> [bug|story|task|spike|chore]   issue type; parent expresses subtask-ness",
         "  estimate <id> <points> | comment <id> <text> | subtask <id> [parent|none]",
         "  link <id> <type> <id> | rank <id> --before|--after <id> | backlog",
+        '  sprint [show|new "<name>"|use <id>|add <task>...|rm|done|list]',
         "  next | board | stale | standup [iso] | handoff <id>",
         `  find <words> [field:value]...          fields: ${FIELD_NAMES.join(", ")} (a leading - negates)`,
         "  log [n] | log <id>            the event tail, or one entity's whole history",

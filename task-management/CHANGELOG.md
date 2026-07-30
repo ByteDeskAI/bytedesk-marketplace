@@ -14,6 +14,35 @@
 
 ### Added
 
+- **Sprints, which is what gives `estimate` a reader.** Points were writable from the CLI, the
+  dashboard and MCP, and consumed by nothing — the same write-only shape `priority` and `rank` had.
+  `burndown` counts *cards*, so a two-point card and a thirteen-point card moved the line by the
+  same amount. A sprint supplies the denominator: this much committed, this much done.
+
+  ```
+  tm sprint new "Sprint 12" --ends 2026-08-14
+  tm sprint add TM-001 TM-002
+  tm sprint
+    3/16 points done across 4 card(s), 1 unsized
+  ```
+
+  A sprint is its own kind — `sprints/SP-001-….md`, an id, a status, a body — because everything one
+  needs the store already does for epics and ADRs, and a parallel mechanism would be a second way to
+  say what it already says once. It is **not** a second epic: an epic says what a body of work *is*,
+  a sprint says what you committed to finishing this fortnight, and a task carries one of each.
+
+  Cards with no estimate are counted apart rather than as zero. "12 of 20 points done, and four
+  cards nobody sized" is true; folding the unsized into zero reports the sprint as further along
+  than it is.
+
+  Closing a sprint does not touch unfinished work — it is simply no longer committed, and the close
+  says how much is left. `tm find sprint:SP-001` lists what it holds.
+
+  This was parked because the README delegated sprints to the `project-management` plugin by name.
+  Removing that plugin removed the objection, and the note left on the task at the time —
+  "`burndown()` still has no denominator and `estimate()` still has no consumer" — turned out to be
+  the whole specification.
+
 - **`/goal` is captured onto the work in flight, and goals are reachable as a resource.**
 
   I had parked this after reading Claude Code's own source: `/goal` is a *local, immediate* command,

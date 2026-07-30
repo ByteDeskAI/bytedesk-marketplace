@@ -256,5 +256,18 @@ assert_contains "$RM" "1. [ ] the tickable one" "and prints the surviving list, 
 tm accept "$GID" 9 >/dev/null 2>&1 && no "a bad criterion index is refused" || ok "a bad criterion index is refused"
 assert_contains "$(tm log 200 --json)" '"event": "ac_unmet"' "an untick is on the timeline"
 
+# Sprints — the thing that gives `estimate` a reader.
+tm sprint new "Sprint 12" --ends 2026-08-14 >/dev/null
+env TM_ENFORCE=off node "$PLUGIN_ROOT/bin/tm" task new "a committed card" >/dev/null
+SPT="$(tm find "a committed card" --json | jq -r '.[0].id')"
+tm estimate "$SPT" 5 >/dev/null
+tm sprint add "$SPT" >/dev/null
+assert_contains "$(tm sprint)" "0/5 points done" "the sprint report totals committed points"
+assert_contains "$(tm find sprint:SP-001)" "$SPT" "sprint: finds what is committed"
+tm sprint add TM-404 >/dev/null 2>&1 && no "committing a task that does not exist is refused" || ok "committing a task that does not exist is refused"
+assert_contains "$(tm sprint list)" "SP-001" "sprint list shows it"
+assert_contains "$(tm sprint done)" "unfinished, still on the board" "closing a sprint does not evaporate unfinished work"
+assert_contains "$(tm log 200 --json)" '"event": "sprint"' "sprint changes are on the timeline"
+
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [[ "$FAIL" == 0 ]]

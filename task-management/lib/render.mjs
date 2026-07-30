@@ -60,6 +60,56 @@ export function taskLine(t) {
     .join(" ");
 }
 
+/**
+ * A sprint, and what it committed to.
+ *
+ * This is the report `estimate` never had a consumer for. Points were writable from three surfaces
+ * and read by nothing: `burndown` counts CARDS, so a two-point card and a thirteen-point card moved
+ * the same line by the same amount. Committed-versus-done in points is the number a sprint exists
+ * to produce, and it needs somewhere to be asked for.
+ *
+ * Cards with no estimate are counted separately rather than treated as zero. A sprint that is "12
+ * of 20 points done, and four cards nobody sized" is telling you something true; folding the
+ * unsized into 0 would report the same sprint as further along than it is.
+ */
+export function sprintReport(id, p = paths()) {
+  const sprint = read(id, p);
+  if (!sprint) throw new Error(`not found: ${id}`);
+  const tasks = list("task", {}, p).filter((t) => t.sprint === id);
+
+  const pts = (t) => (typeof t.estimate === "number" ? t.estimate : null);
+  const sized = tasks.filter((t) => pts(t) !== null);
+  const unsized = tasks.length - sized.length;
+  const committed = sized.reduce((n, t) => n + pts(t), 0);
+  const done = sized.filter((t) => t.status === "done").reduce((n, t) => n + pts(t), 0);
+
+  const out = [
+    `${sprint.id}  ${sprint.title}`,
+    `status: ${sprint.status}${sprint.ends ? `   ends: ${sprint.ends}` : ""}`,
+    "",
+  ];
+  if (!tasks.length) {
+    out.push("Nothing committed yet — `tm sprint add <id>...`");
+    return out.join("\n");
+  }
+  out.push(
+    `${done}/${committed} points done across ${tasks.length} card(s)` +
+      (unsized ? `, ${unsized} unsized` : ""),
+    "",
+  );
+  for (const status of ["in_progress", "blocked", "open", "parked", "done"]) {
+    const rows = tasks.filter((t) => t.status === status);
+    if (!rows.length) continue;
+    out.push(`## ${status} (${rows.length})`, ...rows.map((t) => taskLine(t)), "");
+  }
+  if (unsized) {
+    out.push(`${unsized} card(s) carry no estimate, so they are outside the point total:`);
+    out.push(...tasks.filter((t) => pts(t) === null).map((t) => `  ${t.id} ${t.title}`), "");
+  }
+  return out.join("\n").trimEnd();
+}
+
+
 export function board(p = paths()) {
   const s = state(p);
   const epics = list("epic", {}, p).filter((e) => e.status !== "done");
