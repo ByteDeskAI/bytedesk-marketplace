@@ -66,6 +66,17 @@ case "$(tm graph --raw)" in
 esac
 json "$(tm graph --json)" '(.nodes | length) == 3 and (.edges | length) == 2' "graph --json is nodes and edges"
 
+# tm log — the human branch must not be the JSON branch.
+LOGOUT="$(tm log 20)"
+case "$LOGOUT" in
+  '{'*) no "tm log renders for a person, not as JSONL" "still starts with {" ;;
+  *) ok "tm log renders for a person, not as JSONL" ;;
+esac
+has "$LOGOUT" "A task, epic or ADR is created" "tm log uses the catalog's own sentence per event"
+has "$(tm log TM-001)" "→ " "tm log <id> shows the status path the task took"
+has "$(tm log TM-001)" "TM-001" "tm log <id> names the entity"
+json "$(tm log --json)" 'type == "array" and (.[0] | has("event"))' "log --json is unchanged"
+
 # tm export — stdout by default so it pipes, --out to write.
 has "$(tm export)" "# Board" "export defaults to a markdown report"
 has "$(tm export csv)" "Issue ID,Summary" "export csv leads with Jira's headers"

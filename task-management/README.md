@@ -97,7 +97,7 @@ tm show <id>                         one entity in full
 tm why <id>                          what is actually holding a task up
 tm graph [--epic EP-1] [--all]       the dependency graph as Mermaid
 tm time [id]                         cycle time, median/mean, oldest open
-tm log [n] | tm log <id>             event tail, or one task's whole history
+tm log [n] | tm log <id>             the event tail, or one entity's whole history
 tm standup [iso] | handoff <id>      digest / self-contained brief for another agent
 tm export [md|csv|json]              the board out; --epic, --status, --open, --out <file>
 tm doctor [--fix]                    what is inconsistent, and repair the unambiguous half

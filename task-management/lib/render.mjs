@@ -5,6 +5,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { acceptanceOpen, config, list, nextTasks, openTasks, read, staleTasks, state } from "./store.mjs";
 import { paths } from "./paths.mjs";
+import { CATALOG } from "./ntfy.mjs";
 
 const MARK = { open: "○", in_progress: "◐", blocked: "⊘", parked: "⏸", done: "●" };
 
@@ -140,4 +141,140 @@ export function standup(sinceIso, p = paths()) {
   const closed = rows.filter((e) => e.event === "done").length;
   out.push("", `${rows.length} events, ${closed} task(s) closed.`);
   return out.join("\n");
+}
+
+// ── the event log, for a person ──────────────────────────────────────────────
+
+/**
+ * `tm log` had no human rendering: its human branch was `rows.map(JSON.stringify)`, byte-identical
+ * in intent to `--json`. Every other read verb has a renderer — board, taskLine, handoff, standup,
+ * renderWhy, renderDoctor — and the log, the one surface you reach for when two agents disagreed
+ * about a claim or a card moved and nobody knows who moved it, was raw JSONL.
+ *
+ * Two shapes, because two questions:
+ *   `tm log [n]`   the tail across the store — what has been happening
+ *   `tm log <id>`  one entity's whole history — a per-issue changelog, which is the Jira surface
+ *                  this store did not have
+ *
+ * The human label per event kind is NOT redefined here. `CATALOG.events` in lib/ntfy.mjs already
+ * carries one for every kind the store emits, and a test derives that list from the source, so
+ * reusing it means a new event gets a sentence in both places or neither.
+ */
+
+/** Fields that are context rather than payload; everything else is what the event is about. */
+const LOG_META = new Set(["ts", "event", "session", "actor", "id"]);
+
+function eventDetail(e) {
+  const parts = [];
+  for (const [k, v] of Object.entries(e)) {
+    if (LOG_META.has(k) || v === null || v === undefined || v === "") continue;
+    const text = Array.isArray(v) ? v.join(", ") : String(v);
+    if (!text) continue;
+    parts.push(k === "patch" || k === "status" ? `${k}=${text}` : text);
+  }
+  return parts.join("  ").slice(0, 100);
+}
+
+const hhmm = (ts) => String(ts).slice(11, 16);
+const dayOf = (ts) => String(ts).slice(0, 10);
+
+/**
+ * The tail. Grouped by day, because a bare timestamp on every line is noise when forty of them
+ * share a date and the useful comparison is "what happened today".
+ */
+export function renderLog(rows, p = paths()) {
+  if (!rows.length) return "(no events)";
+  const labels = CATALOG.events;
+  const out = [];
+  let day = null;
+  for (const e of rows) {
+    const d = dayOf(e.ts);
+    if (d !== day) {
+      out.push(day ? "" : "", d);
+      day = d;
+    }
+    const label = labels[e.event]?.label || e.event;
+    const detail = eventDetail(e);
+    out.push(
+      [
+        `  ${hhmm(e.ts)}`,
+        (e.actor || "—").padEnd(8).slice(0, 8),
+        (e.id || "").padEnd(8),
+        label,
+        detail ? `— ${detail}` : "",
+      ]
+        .join(" ")
+        .trimEnd(),
+    );
+  }
+  void p;
+  return out.filter((l, i) => !(i === 0 && l === "")).join("\n");
+}
+
+/**
+ * One entity's history: the per-issue changelog.
+ *
+ * Elapsed time is shown against the FIRST start rather than against the previous line, because the
+ * question a changelog answers is "how long did this take", and a delta-per-row makes the reader
+ * add up a column to find out.
+ */
+export function renderHistory(id, rows, p = paths()) {
+  const doc = read(id, p);
+  if (!rows.length) return `${id}${doc ? ` ${doc.title}` : ""}\n(no events — nothing has happened to it)`;
+
+  const labels = CATALOG.events;
+  const collapsed = collapseLog(rows);
+  const started = rows.find((e) => e.event === "update" && e.status === "in_progress")?.ts || null;
+  const out = [`${id}${doc ? `  ${doc.title}` : ""}`, doc ? `status: ${doc.status}` : "", ""].filter(Boolean);
+
+  for (const e of collapsed) {
+    const label = e.event === "status" ? `→ ${e._status}` : labels[e.event]?.label || e.event;
+    const detail = e.event === "status" ? "" : eventDetail(e);
+    const since = started && Date.parse(e.ts) > Date.parse(started) ? ` (+${humanSince(started, e.ts)})` : "";
+    out.push(`  ${dayOf(e.ts)} ${hhmm(e.ts)}  ${label}${detail ? `  — ${detail}` : ""}${since}`);
+  }
+  return out.join("\n");
+}
+
+/**
+ * Every semantic write logs twice: `prioritise()` calls `update()` — which logs `update` — and then
+ * logs `prioritise`. In a tail that is tolerable; in a changelog it doubles every row and buries
+ * the fact under its own bookkeeping.
+ *
+ * So an `update` is dropped when a more specific event for the same entity landed in the same
+ * second. An `update` with nothing beside it is kept, because then it IS the fact — and a status
+ * change is promoted to its own line, since "what state did this go through" is the question a
+ * changelog exists to answer.
+ */
+export function collapseLog(rows) {
+  const specific = new Set();
+  for (const e of rows) {
+    if (e.event !== "update") specific.add(`${e.id || ""}@${String(e.ts).slice(0, 19)}`);
+  }
+  const out = [];
+  let status = null;
+  for (const e of rows) {
+    if (e.event === "update") {
+      const moved = e.status && e.status !== status;
+      if (moved) {
+        status = e.status;
+        out.push({ ...e, event: "status", _status: e.status });
+        continue;
+      }
+      if (specific.has(`${e.id || ""}@${String(e.ts).slice(0, 19)}`)) continue;
+    } else if (e.status) {
+      status = e.status;
+    }
+    out.push(e);
+  }
+  return out;
+}
+
+/** Coarse on purpose: a changelog wants "3h", not "3h 07m 12s". */
+function humanSince(from, to) {
+  const ms = Date.parse(to) - Date.parse(from);
+  const m = Math.round(ms / 60_000);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  return h < 24 ? `${h}h${m % 60 ? ` ${m % 60}m` : ""}` : `${Math.floor(h / 24)}d${h % 24 ? ` ${h % 24}h` : ""}`;
 }
