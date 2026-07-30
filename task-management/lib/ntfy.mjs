@@ -42,6 +42,7 @@ export const CATALOG = {
     done: { group: "writes", label: "A task is completed", priority: "default", tags: "white_check_mark" },
     assign: { group: "writes", label: "A task is assigned or unassigned", priority: "low", tags: "bust_in_silhouette" },
     labels: { group: "writes", label: "Labels change", priority: "min", tags: "label" },
+    type: { group: "writes", label: "The issue type is set", priority: "min", tags: "label" },
     prioritise: { group: "writes", label: "Priority changes", priority: "low", tags: "exclamation" },
     estimate: { group: "writes", label: "An estimate is set", priority: "min", tags: "1234" },
     comment: { group: "writes", label: "A comment is added", priority: "low", tags: "speech_balloon" },

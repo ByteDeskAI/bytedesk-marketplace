@@ -43,7 +43,7 @@ import { cycleTime, human as humanMs, summary as timeSummary, timeInStatus } fro
 import { upsertDecision } from "../lib/adr.mjs";
 import { claimTask, claimant, releaseClaim, staleClaims, sweepClaims } from "../lib/claims.mjs";
 import { actor, actorLabel } from "../lib/actor.mjs";
-import { addComment, addLink, assign, backlog, dependencies, estimate, labels, prioritise, rank, subtasks } from "../lib/issue.mjs";
+import { addComment, addLink, assign, backlog, dependencies, estimate, labels, prioritise, rank, setType, subtasks, typeOf } from "../lib/issue.mjs";
 import { CATALOG, messageFor, ntfyConfig, send, shouldPublish } from "../lib/ntfy.mjs";
 import { graphData, mermaid, renderWhy, why } from "../lib/graph.mjs";
 import { diagnose, render as renderDoctor, repairAll } from "../lib/doctor.mjs";
@@ -651,6 +651,20 @@ const VERBS = {
     out(`${id} labels: ${labels(id, { add, remove }, P).join(", ") || "(none)"}`);
   },
 
+  /** Issue type. `subtask` is not in the vocabulary — `parent` expresses that. */
+  type(id, value) {
+    requireInit();
+    if (value === undefined) {
+      const t = read(id, P) || die(`not found: ${id}`);
+      return out(`${id} type: ${typeOf(t)}${t.type ? "" : " (derived)"}`);
+    }
+    try {
+      out(`${id} type: ${setType(id, value, P) ?? "(cleared)"}`);
+    } catch (err) {
+      die(err.message, 2);
+    }
+  },
+
   priority(id, value) {
     requireInit();
     out(`${id} priority: ${prioritise(id, value, P)}`);
@@ -973,6 +987,7 @@ const VERBS = {
         "  evidence <id> <path|-> | link <id> <ref> | dep <id> [-]<blocker>...",
         "  touches <id> [path...]        paths a task owns; `tm parallel` batches on these",
         "  assign <id> <who> | label <id> [-]<name>... | priority <id> <level>",
+        "  type <id> [bug|story|task|spike|chore]   issue type; parent expresses subtask-ness",
         "  estimate <id> <points> | comment <id> <text> | subtask <id> [parent|none]",
         "  link <id> <type> <id> | rank <id> --before|--after <id> | backlog",
         "  next | board | stale | find <q> | log [n] | standup [iso] | handoff <id>",

@@ -112,6 +112,18 @@ BEFORE=$(tm board --json | jq '.tasks | length')
 tm goal import "$TM_ROOT/no-criteria.md" >/dev/null 2>&1 || true
 [[ "$(tm board --json | jq '.tasks | length')" == "$BEFORE" ]] && ok "a refused import creates nothing" || no "a refused import creates nothing"
 
+# tm type — the vocabulary, and the derivation that keeps old stores reading correctly.
+tm task new "Typed subject alpha" >/dev/null
+TID=$(tm find "Typed subject alpha" --json | jq -r '.[0].id')
+assert_contains "$(tm type "$TID")" "type: task (derived)" "an untyped task reads as task, and says it was derived"
+assert_contains "$(tm type "$TID" bug)" "type: bug" "tm type sets the field"
+assert_status 2 "tm type refuses a value outside the vocabulary" node "$PLUGIN_ROOT/bin/tm" type "$TID" epic
+assert_contains "$(tm export csv | grep "^$TID,")" ",Bug," "the CSV Issue Type column reports the real type"
+tm label "$TID" -bug >/dev/null 2>&1 || true
+tm type "$TID" "" >/dev/null
+tm label "$TID" spike >/dev/null
+assert_contains "$(tm type "$TID")" "type: spike (derived)" "a type worn as a label still reads, so existing stores need no migration"
+
 # tm dep — a leading dash removes, matching tm label. Removal did not exist before.
 tm task new "Dependency alpha subject" >/dev/null
 tm task new "Dependency bravo subject" >/dev/null

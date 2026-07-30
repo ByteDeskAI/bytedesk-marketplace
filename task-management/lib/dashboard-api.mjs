@@ -11,7 +11,7 @@
  * rather than a dead 500: gate refusals are 409, bad input is 400, missing is 404.
  */
 import { gateDone, gateTaskCreate } from "./enforce.mjs";
-import { addComment, addLink, assign, backlog, dependencies, estimate, labels, prioritise, rank, subtasks } from "./issue.mjs";
+import { addComment, addLink, assign, backlog, dependencies, estimate, labels, prioritise, rank, setType, subtasks } from "./issue.mjs";
 import { paths } from "./paths.mjs";
 import { claimTask } from "./claims.mjs";
 import { actor, actorLabel } from "./actor.mjs";
@@ -76,6 +76,8 @@ export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
         return ok({ assignee: assign(id, payload.assignee ?? null, p) });
       case "labels":
         return ok({ labels: labels(id, { add: payload.add || [], remove: payload.remove || [] }, p) });
+      case "type":
+        return ok({ type: setType(id, payload.type ?? null, p) });
       case "priority":
         return ok({ priority: prioritise(id, payload.priority, p) });
       case "estimate":

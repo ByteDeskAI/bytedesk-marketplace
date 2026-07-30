@@ -301,6 +301,7 @@ frontmatter — a task with none of them set behaves exactly as it did before th
 ```
 tm assign <id> <who>              tm label <id> ui -stale     (a leading - removes)
 tm priority <id> highest|high|medium|low|lowest
+tm type <id> bug|story|task|spike|chore   issue type; `parent` expresses subtask-ness
 tm estimate <id> <points>         tm comment <id> "<text>"
 tm subtask <id> <parent|none>     tm link <id> "blocks" <id>  (writes both ends)
 tm rank <id> --before|--after <id>            tm backlog

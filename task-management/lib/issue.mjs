@@ -27,6 +27,15 @@ export const LINK_TYPES = {
   "relates to": "relates to",
 };
 
+/**
+ * Issue type, the last Jira system field this store treated as free text.
+ *
+ * `subtask` is deliberately absent: being a subtask is expressed by `parent`, and conflating the
+ * two is the bug this fixes. `toCsv` wrote `t.parent ? "Sub-task" : "Task"` — parentage, not type —
+ * so a BUG that happened to be a subtask exported as `Sub-task` and its bug-ness was lost.
+ */
+export const TYPES = ["task", "bug", "story", "spike", "chore"];
+
 const RANK_STEP = 1000;
 
 function must(id, p) {
@@ -263,4 +272,35 @@ export function dependencies(id, { add = [], remove = [] } = {}, p = paths()) {
   if (remove.length) logEvent("undep", { id, off: remove }, p);
   void t;
   return blockedBy;
+}
+
+/**
+ * Set the type. Mirrors `prioritise` exactly, including refusing a value outside the vocabulary —
+ * a free-text type is the thing that made the exporters invent one.
+ */
+export function setType(id, value, p = paths()) {
+  must(id, p);
+  const v = String(value || "").toLowerCase();
+  if (v && !TYPES.includes(v)) throw new Error(`unknown type "${value}" — use one of: ${TYPES.join(", ")}`);
+  update(id, { type: v || undefined }, p);
+  logEvent("type", { id, type: v || null }, p);
+  return v || null;
+}
+
+/**
+ * The type to report for a task, in order of how much it was actually meant.
+ *
+ * 1. the stored field, when someone said so;
+ * 2. a recognised type worn as a LABEL, because that is how templates encoded it before this field
+ *    existed (`labels: ["bug"]`) — so every task already in a store keeps its meaning without a
+ *    migration;
+ * 3. `task`, the neutral default.
+ *
+ * Parentage is NOT consulted. `parent` says where a task sits, not what it is, and an exporter
+ * that needs the Jira "Sub-task" distinction can read `parent` itself — which is what it means.
+ */
+export function typeOf(task) {
+  if (task?.type && TYPES.includes(task.type)) return task.type;
+  const worn = (task?.labels || []).map((l) => String(l).toLowerCase()).find((l) => TYPES.includes(l) && l !== "task");
+  return worn || "task";
 }
