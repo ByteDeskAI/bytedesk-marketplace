@@ -1,8 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "omnigent-dev",
-  "description": "Omnigent cross-repo engineering \u2014 operator, architect, runtime harness, web deploy, API/SDK, agent bundles.",
-  "version": "0.1.1",
+  "description": "Omnigent cross-repo engineering — operator, architect, runtime harness, web deploy, API/SDK, agent bundles.",
   "author": {
     "name": "ByteDesk AI",
     "url": "https://github.com/ByteDeskAI"

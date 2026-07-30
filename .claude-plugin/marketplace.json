@@ -11,67 +11,56 @@
     {
       "name": "fleet",
       "description": "Parallel multi-session Claude orchestration. Spawn agents on tickets, run them in parallel git worktrees, watch a dashboard, get push notifications when reviews land or merges happen. Hierarchical authorization (ADR-0001) lets parent agents delegate to children safely.",
-      "version": "1.16.2",
       "source": "./fleet"
     },
     {
       "name": "design-patterns",
       "description": "Source-neutral design-pattern advisor with Markdown catalog, MCP tooling, smell scans, and architecture decision support.",
-      "version": "0.9.2",
       "source": "./design-patterns"
     },
     {
       "name": "structurizr",
       "description": "Enterprise C4 modeling with Structurizr DSL — indexed language reference, CLI/MCP tooling, 32 skills, validation gates, pattern catalog, and cookbook recipes.",
-      "version": "0.1.1",
       "source": "./structurizr"
     },
     {
       "name": "platform-dev",
       "description": "ByteDesk core implementation lifecycle — TDD engineer, feature start, PR-ready, worktree operator, architect, grounding, integration branches.",
-      "version": "0.1.1",
       "source": "./platform-dev"
     },
     {
       "name": "platform-architecture",
       "description": "Structurizr C4 drift gate, partition decomposition facade, ADR authoring.",
-      "version": "0.1.1",
       "source": "./platform-architecture"
     },
     {
       "name": "platform-frontend",
       "description": "ByteDesk Web design system, atomize, browser smoke gate, SignalR realtime.",
-      "version": "0.1.1",
       "source": "./platform-frontend"
     },
     {
       "name": "platform-domain",
       "description": "Bounded-context proof operators — DBA, tool actions, Office workflows, DevProjects, remote gateway.",
-      "version": "0.1.1",
       "source": "./platform-domain"
     },
     {
       "name": "platform-ops",
       "description": "Production release policy (TeamCity read-only) and Gitflow/Fleet operator.",
-      "version": "0.1.1",
       "source": "./platform-ops"
     },
     {
       "name": "bytedesk-goals",
       "description": "ByteDesk goal pipeline — goals board, run_goals, plan_goal/plan_epic, Jira/Confluence skills, named-agent dispatch.",
-      "version": "0.1.1",
       "source": "./bytedesk-goals"
     },
     {
       "name": "omnigent-dev",
       "description": "Omnigent cross-repo engineering — operator, architect, runtime harness, web deploy, API/SDK, agent bundles.",
-      "version": "0.1.1",
       "source": "./omnigent-dev"
     },
     {
       "name": "task-management",
       "description": "Takes over Claude Code's task system — native task calls, approved plans, decisions and commits mirrored into a git-tracked markdown store at .bytedesk/task-management/. One store per project shared across git worktrees, claim-based parallel work with node_modules sharing, an MCP server, and a live dashboard.",
-      "version": "0.4.0",
       "source": "./task-management"
     }
   ]

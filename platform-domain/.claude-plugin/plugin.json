@@ -1,8 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "platform-domain",
-  "description": "Bounded-context proof operators \u2014 DBA, tool actions, Office workflows, DevProjects, remote gateway.",
-  "version": "0.1.1",
+  "description": "Bounded-context proof operators — DBA, tool actions, Office workflows, DevProjects, remote gateway.",
   "author": {
     "name": "ByteDesk AI",
     "url": "https://github.com/ByteDeskAI"
