@@ -77,6 +77,8 @@ export interface Board {
   };
   /** How the store labels this session — what the profile menu shows. */
   actor?: string;
+  /** The project this board belongs to, in title case, from the repo's directory name. */
+  project?: string;
 }
 
 export interface StoreEvent {

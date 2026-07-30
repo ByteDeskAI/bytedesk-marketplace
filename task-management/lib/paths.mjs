@@ -12,7 +12,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, realpathSync } from "node:fs";
-import { dirname, join, resolve, sep } from "node:path";
+import { dirname, join, resolve, sep, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -120,6 +120,30 @@ export const KINDS = {
   task: { dir: "tasks", prefix: "TM", pad: 3 },
   adr: { dir: "adrs", prefix: "ADR", pad: 4 },
 };
+
+
+/**
+ * The project this board belongs to, in title case.
+ *
+ * Every board called itself "task-management" — the plugin's name, which is the same on every board
+ * and so tells you nothing. With two open, the header and the browser tab were identical and the
+ * only way to tell them apart was the port in the URL.
+ *
+ * The repo's directory name is the answer: it is what a person calls the project, it needs no
+ * configuration, and it is already the thing the store is scoped to. Separators become spaces and
+ * each word is capitalised, so `bytedesk-persona` reads `Bytedesk Persona`.
+ *
+ * A word that is already mixed case is left alone: `myApp` is how someone wrote it, and
+ * title-casing it to `Myapp` would be a worse name than the one they chose.
+ */
+export function projectName(p = paths()) {
+  const dir = basename(p.root || "") || "task-management";
+  return dir
+    .split(/[-_.\s]+/)
+    .filter(Boolean)
+    .map((w) => (w === w.toLowerCase() ? w.charAt(0).toUpperCase() + w.slice(1) : w))
+    .join(" ");
+}
 
 export function ensureDirs(p = paths()) {
   assertRoot(p);

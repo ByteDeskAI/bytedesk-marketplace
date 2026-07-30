@@ -14,6 +14,19 @@
 
 ### Added
 
+- **The board names the project it belongs to.** Every board called itself `task-management` — the
+  plugin's name, identical on all of them, which tells you nothing about which one you are looking
+  at. With two open, the header *and* the browser tab were the same on both, and the only way to
+  tell them apart was the port in the URL.
+
+  The repo's directory name in title case, so `bytedesk-persona` reads **Bytedesk Persona**. It
+  needs no configuration, it is what a person calls the project, and it is already what the store is
+  scoped to. The tab title is set from the payload rather than at build time, because one built
+  bundle serves every project.
+
+  A word that is already mixed case is left as written: `myApp` stays `myApp` rather than becoming
+  `Myapp`, which would be a worse name than the one its author chose.
+
 - **The store now has a git contract, written by `tm init` and audited by `tm doctor`.**
   `.bytedesk/task-management/` is meant to be committed — one markdown file per entity is what makes
   a board readable in a diff. But four kinds of file in there are not the project's business, and
