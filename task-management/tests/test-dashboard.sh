@@ -241,7 +241,7 @@ post /api/task/TM-002/accept '{"index":1}' >/dev/null
 CODE="$(post /api/task/TM-002/transition '{"status":"done"}')"
 [[ "$CODE" == 200 ]] && ok "closing is allowed once the criteria are met" || no "closing is allowed once the criteria are met" "got $CODE: $(body)"
 assert_contains "$(md TM-002)" 'status: "done"' "the transition changed the markdown"
-assert_contains "$(node "$PLUGIN_ROOT/bin/tm" log 100)" '"event":"done"' "the transition appended a done event"
+assert_contains "$(node "$PLUGIN_ROOT/bin/tm" log 100 --json)" '"event": "done"' "the transition appended a done event"
 
 # Starting work from the board takes the claim, like `tm start` does.
 post /api/task/TM-001/transition '{"status":"in_progress"}' >/dev/null

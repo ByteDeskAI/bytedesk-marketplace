@@ -14,6 +14,18 @@
 
 ### Added
 
+- **`tm log` renders for a person, and `tm log <id>` is a per-issue changelog.** Its human branch
+  was `rows.map((e) => JSON.stringify(e))` — the same output `--json` gives — so the one surface you
+  reach for when two agents disagreed about a claim, or a card moved and nobody knows who moved it,
+  was raw JSONL. Every other read verb had a renderer.
+
+  The tail groups by day; a single entity's history shows the status path it took with elapsed time
+  measured from its first start, which is the question a changelog answers. Two log lines per write
+  collapse into one — `prioritise()` calls `update()`, so every semantic write logged twice and the
+  fact was buried under its own bookkeeping. The per-event sentences are **not** redefined:
+  `CATALOG.events` already carries one for every kind the store emits, and a test derives that list
+  from the source, so a new event gets a description in both places or neither.
+
 - **`tm type <id> <bug|story|task|spike|chore>`** — issue type as a stored field with a vocabulary,
   the last Jira system field this store treated as free text. `subtask` is deliberately *not* in
   the vocabulary: `parent` expresses that, and conflating the two is the bug below.

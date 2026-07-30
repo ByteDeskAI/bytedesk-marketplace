@@ -35,7 +35,7 @@ import {
   writeState,
 } from "../lib/store.mjs";
 import { consumeOverride, enforcementOff, gateDone, gateStop, gateTaskCreate, setOverride } from "../lib/enforce.mjs";
-import { board, handoff, sessionContext, standup, taskLine } from "../lib/render.mjs";
+import { board, handoff, renderHistory, renderLog, sessionContext, standup, taskLine } from "../lib/render.mjs";
 import { autolink, link as linkBins, status as linkStatus, unlink as unlinkBins } from "../lib/link.mjs";
 import { applyShares, createWorktree, listWorktrees, removeWorktree } from "../lib/worktree.mjs";
 import { applyTemplate, listTemplates, seedTemplates } from "../lib/templates.mjs";
@@ -532,7 +532,9 @@ const VERBS = {
     requireInit();
     const all = readEvents(P);
     const rows = kindOf(arg) ? all.filter((e) => e.id === arg) : all.slice(-Number(arg) || -20);
-    emit(rows, () => rows.map((e) => JSON.stringify(e)).join("\n") || "(no events)");
+    // A human branch that was `JSON.stringify` is not a human branch. `tm log <id>` renders one
+    // entity's whole history — the per-issue changelog this store did not have.
+    emit(rows, () => (kindOf(arg) ? renderHistory(arg, rows, P) : renderLog(rows, P)));
   },
 
   standup(since) {
@@ -990,7 +992,8 @@ const VERBS = {
         "  type <id> [bug|story|task|spike|chore]   issue type; parent expresses subtask-ness",
         "  estimate <id> <points> | comment <id> <text> | subtask <id> [parent|none]",
         "  link <id> <type> <id> | rank <id> --before|--after <id> | backlog",
-        "  next | board | stale | find <q> | log [n] | standup [iso] | handoff <id>",
+        "  next | board | stale | find <q> | standup [iso] | handoff <id>",
+        "  log [n] | log <id>            the event tail, or one entity's whole history",
         "  why <id>                      what is actually holding a task up, to the root",
         "  graph [--epic EP-1] [--all]   the dependency graph as Mermaid",
         "  doctor [--fix]                what is inconsistent in the store; exits 1 on an error",

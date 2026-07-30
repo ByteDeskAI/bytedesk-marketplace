@@ -131,11 +131,11 @@ DA=$(tm find "Dependency alpha subject" --json | jq -r '.[0].id')
 DB=$(tm find "Dependency bravo subject" --json | jq -r '.[0].id')
 assert_contains "$(tm dep "$DA" "$DB")" "blocked by $DB" "tm dep adds a blocker"
 assert_contains "$(tm show "$DB")" "blocks" "the other end of the edge is written"
-assert_contains "$(tm log "$DA")" '"event":"dep"' "adding a dependency logs an event"
+assert_contains "$(tm log "$DA" --json)" '"event": "dep"' "adding a dependency logs an event"
 assert_status 2 "tm dep refuses a cycle rather than leaving it for doctor" node "$PLUGIN_ROOT/bin/tm" dep "$DB" "$DA"
 assert_status 2 "tm dep refuses a self-dependency" node "$PLUGIN_ROOT/bin/tm" dep "$DA" "$DA"
 assert_contains "$(tm dep "$DA" "-$DB")" "blocked by (nothing)" "a leading dash removes a blocker"
-assert_contains "$(tm log "$DA")" '"event":"undep"' "removing a dependency logs an event"
+assert_contains "$(tm log "$DA" --json)" '"event": "undep"' "removing a dependency logs an event"
 case "$(tm show "$DB")" in
   *"blocks: $DA"*) no "removal clears the other end" "still lists blocks" ;;
   *) ok "removal clears the other end" ;;
@@ -210,7 +210,7 @@ assert_contains "$(tm doctor --fix)" "dropped TM-404" "doctor --fix says what it
 assert_status 0 "and the store is clean afterwards" node "$PLUGIN_ROOT/bin/tm" doctor
 
 # Event log
-assert_contains "$(tm log 100)" '"event":"done"' "events are logged"
+assert_contains "$(tm log 100 --json)" '"event": "done"' "events are logged"
 assert_contains "$(tm standup 2000-01-01T00:00:00Z)" "TM-001" "standup reads the event log"
 
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
