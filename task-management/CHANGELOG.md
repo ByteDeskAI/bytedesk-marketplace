@@ -40,7 +40,29 @@
 
 - **`tm reopen <id> [why]`** — the way back from done, recorded rather than improvised.
 
+### Added
+
+- **Dependencies are removable, and the board can change them.** `tm dep <id> -<blocker>` removes,
+  using the leading-dash convention `tm label` already has — before this there was no way to remove
+  a dependency at all: `doctor` could drop a *dangling* reference, but a valid one added by mistake
+  was permanent.
+
 ### Fixed
+
+- **Dependency writes were the one mutation with no `lib/` function.** `issue.mjs` owns assignee,
+  labels, priority, estimate, comments, typed links, subtasks and rank — and contained zero
+  occurrences of `blockedBy`. Dependencies were two inline `mutate()` calls in `bin/tm`, with three
+  consequences: the dashboard rendered `⊘ TM-002` on a card and had **no route to change it**
+  (`dashboard-api`'s action switch had `link`/`subtask`/`rank`/`ac` and no `dep`), nothing logged an
+  event so a dependency appearing or vanishing was invisible in `tm log <id>`, and removal did not
+  exist. Now `dependencies(id, {add, remove})` in `issue.mjs`, used by the CLI, the dashboard and
+  the manifest importer alike.
+
+  A cycle is **refused at the point of writing**, matching how `subtasks` refuses a parent loop —
+  `doctor` finds cycles and will not repair them because which edge to cut is a judgement. A
+  refused edge writes nothing, rather than landing half of itself. Removing the last blocker
+  deliberately does **not** reopen the task: `unblockDependents` owns that transition and checks
+  every blocker, and two functions deciding one status is how they come to disagree.
 
 - **`tm goal import` mis-read the criteria it gates on, three ways.** The census behind the first
   version counted only the 195 docs at the *top level* of `docs/goals`; there are **555**

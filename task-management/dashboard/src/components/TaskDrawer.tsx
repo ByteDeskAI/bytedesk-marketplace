@@ -224,6 +224,40 @@ export function TaskDrawer({
           <Box xcss={styles.section}>
             <Stack space="space.100">
               <Text weight="bold" size="small">
+                BLOCKED BY
+              </Text>
+              {/* A blocked card is the only kind that needs the board to tell it something, and
+                  it was the one the board said least about: `⊘ TM-002` and no way to change it. */}
+              {(task.blockedBy ?? []).length ? (
+                <Inline space="space.050" shouldWrap>
+                  {(task.blockedBy ?? []).map((d) => (
+                    <Tag
+                      key={d}
+                      text={d}
+                      color="redLight"
+                      removeButtonLabel={`stop waiting on ${d}`}
+                      onAfterRemoveAction={() => act("dep", { remove: [d] })}
+                    />
+                  ))}
+                </Inline>
+              ) : (
+                <Text size="small" color="color.text.subtlest">
+                  nothing is blocking this
+                </Text>
+              )}
+              <Select<Opt>
+                spacing="compact"
+                placeholder="add a blocker"
+                options={opts(others.map((t) => t.id))}
+                value={null}
+                onChange={(o) => o && act("dep", { add: [o.value] })}
+              />
+            </Stack>
+          </Box>
+
+          <Box xcss={styles.section}>
+            <Stack space="space.100">
+              <Text weight="bold" size="small">
                 LINKS
               </Text>
               {(task.links ?? []).map((l) => (

@@ -194,3 +194,73 @@ export function rank(id, { before, after, to } = {}, p = paths()) {
   logEvent("rank", { id, rank: value }, p);
   return value;
 }
+
+/**
+ * Dependencies — the one relationship in this file's remit that never had a function here.
+ *
+ * `issue.mjs` owns assignee, labels, priority, estimate, comments, typed links, subtasks and rank.
+ * Dependencies were two inline `mutate()` calls in `bin/tm`, which had three consequences: the
+ * dashboard could render `⊘ TM-002` on a card and had no route to change it, nothing logged an
+ * event so a dependency appearing or vanishing was invisible in `tm log <id>`, and there was no
+ * way to REMOVE one at all — `doctor` could drop a dangling reference, but a valid dependency
+ * added by mistake was permanent.
+ *
+ * Both ends are written, as `addLink` does: `A blockedBy B` gives `B blocks A`, because a one-sided
+ * edge is invisible from the end you are usually looking at and `doctor` reports it as a fault.
+ *
+ * A cycle is REFUSED here rather than reported later. `doctor` finds dep-cycles and deliberately
+ * will not repair them — which edge to cut is a judgement — so the cheap moment to say no is
+ * before one exists, exactly as `subtasks` refuses a parent loop.
+ */
+export function dependencies(id, { add = [], remove = [] } = {}, p = paths()) {
+  const t = must(id, p);
+
+  for (const dep of add) {
+    if (dep === id) throw new Error(`${id} cannot depend on itself`);
+    must(dep, p);
+    // Walk what `dep` already waits on. If this task is anywhere in there, the edge closes a loop.
+    const seen = new Set();
+    const stack = [dep];
+    while (stack.length) {
+      const cur = stack.pop();
+      if (cur === id) throw new Error(`${id} depending on ${dep} would create a cycle`);
+      if (seen.has(cur)) continue;
+      seen.add(cur);
+      stack.push(...(read(cur, p)?.blockedBy || []));
+    }
+  }
+
+  let blockedBy = [];
+  mutate(
+    id,
+    (doc) => {
+      const next = new Set(doc.blockedBy || []);
+      for (const d of add) next.add(d);
+      for (const d of remove) next.delete(d);
+      blockedBy = [...next];
+      return {
+        blockedBy,
+        // Adding the first blocker to open work blocks it; removing the last one does NOT reopen
+        // it, because `unblockDependents` owns that transition and it checks whether every blocker
+        // is resolved. Two functions deciding one status is how they disagree.
+        status: blockedBy.length && doc.status === "open" ? "blocked" : doc.status,
+      };
+    },
+    p,
+  );
+
+  // The other end of each edge.
+  for (const d of add) {
+    if (!read(d, p)) continue;
+    mutate(d, (other) => ({ blocks: [...new Set([...(other.blocks || []), id])] }), p);
+  }
+  for (const d of remove) {
+    if (!read(d, p)) continue;
+    mutate(d, (other) => ({ blocks: (other.blocks || []).filter((x) => x !== id) }), p);
+  }
+
+  if (add.length) logEvent("dep", { id, on: add }, p);
+  if (remove.length) logEvent("undep", { id, off: remove }, p);
+  void t;
+  return blockedBy;
+}

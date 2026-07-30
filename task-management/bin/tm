@@ -43,7 +43,7 @@ import { cycleTime, human as humanMs, summary as timeSummary, timeInStatus } fro
 import { upsertDecision } from "../lib/adr.mjs";
 import { claimTask, claimant, releaseClaim, staleClaims, sweepClaims } from "../lib/claims.mjs";
 import { actor, actorLabel } from "../lib/actor.mjs";
-import { addComment, addLink, assign, backlog, estimate, labels, prioritise, rank, subtasks } from "../lib/issue.mjs";
+import { addComment, addLink, assign, backlog, dependencies, estimate, labels, prioritise, rank, subtasks } from "../lib/issue.mjs";
 import { CATALOG, messageFor, ntfyConfig, send, shouldPublish } from "../lib/ntfy.mjs";
 import { graphData, mermaid, renderWhy, why } from "../lib/graph.mjs";
 import { diagnose, render as renderDoctor, repairAll } from "../lib/doctor.mjs";
@@ -427,17 +427,32 @@ const VERBS = {
     );
   },
 
-  dep(id, ...deps) {
+  /**
+   * `tm dep <id> <blocker...>` adds, and a leading `-` removes — the same convention `tm label`
+   * already uses, so there is no second syntax to learn and no `tm undep` verb to discover.
+   * Removal did not exist at all before: doctor could drop a dangling reference, but a valid
+   * dependency added by mistake was permanent.
+   */
+  dep(id, ...args) {
     requireInit();
     if (!read(id, P)) die(`not found: ${id}`);
-    mutate(id, (t) => ({
-      blockedBy: [...new Set([...(t.blockedBy || []), ...deps])],
-      status: t.status === "open" ? "blocked" : t.status,
-    }), P);
-    for (const d of deps) {
-      if (read(d, P)) mutate(d, (other) => ({ blocks: [...new Set([...(other.blocks || []), id])] }), P);
+    if (!args.length) {
+      const rows = read(id, P).blockedBy || [];
+      return emit(rows, () => rows.join("\n") || "(nothing blocking it)");
     }
-    out(`${id} blocked by ${deps.join(", ")}`);
+    const remove = args.filter((a) => a.startsWith("-")).map((a) => a.slice(1));
+    const add = args.filter((a) => !a.startsWith("-"));
+    let blockedBy;
+    try {
+      blockedBy = dependencies(id, { add, remove }, P);
+    } catch (err) {
+      die(err.message, 2);
+    }
+    out(
+      `${id} blocked by ${blockedBy.join(", ") || "(nothing)"}` +
+        (add.length ? `\n   +${add.join(", ")}` : "") +
+        (remove.length ? `\n   -${remove.join(", ")}` : ""),
+    );
   },
 
   next() {
@@ -955,7 +970,7 @@ const VERBS = {
         "  start <id> | done <id> | park <id> [why] | block <id> [why] | unblock <id>",
         "  reopen <id> [why]             bring a done task back, and its epic with it",
         '  ac <id> "<criterion>" | accept <id> <n>',
-        "  evidence <id> <path|-> | link <id> <ref> | dep <id> <blocker...>",
+        "  evidence <id> <path|-> | link <id> <ref> | dep <id> [-]<blocker>...",
         "  touches <id> [path...]        paths a task owns; `tm parallel` batches on these",
         "  assign <id> <who> | label <id> [-]<name>... | priority <id> <level>",
         "  estimate <id> <points> | comment <id> <text> | subtask <id> [parent|none]",

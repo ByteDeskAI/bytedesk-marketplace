@@ -11,7 +11,7 @@
  * rather than a dead 500: gate refusals are 409, bad input is 400, missing is 404.
  */
 import { gateDone, gateTaskCreate } from "./enforce.mjs";
-import { addComment, addLink, assign, backlog, estimate, labels, prioritise, rank, subtasks } from "./issue.mjs";
+import { addComment, addLink, assign, backlog, dependencies, estimate, labels, prioritise, rank, subtasks } from "./issue.mjs";
 import { paths } from "./paths.mjs";
 import { claimTask } from "./claims.mjs";
 import { actor, actorLabel } from "./actor.mjs";
@@ -87,6 +87,9 @@ export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
       case "subtask":
         subtasks(id, { parent: payload.parent || null }, p);
         return ok({ parent: read(id, p).parent ?? null });
+      case "dep":
+        // The board could render a blocked card and had no way to change what blocked it.
+        return ok({ blockedBy: dependencies(id, { add: payload.add || [], remove: payload.remove || [] }, p) });
       case "rank":
         return ok({ rank: rank(id, { before: payload.before, after: payload.after, to: payload.to }, p) });
       case "ac":
