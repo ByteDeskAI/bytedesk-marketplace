@@ -54,7 +54,13 @@ The symlink is purely so *you* can type `tm board`.
 
 **Which project?** `TM_ROOT` → the executing project (`CLAUDE_PROJECT_DIR`) → the cwd's repo.
 Every **git worktree of a project shares one store** (resolved through `--git-common-dir`), which
-is what lets claims stop two parallel sessions grabbing the same task. The plugin refuses to
+is what lets claims stop two parallel sessions grabbing the same task.
+
+**Which session?** `CLAUDE_CODE_SESSION_ID` — the variable Claude Code sets, in hooks and in
+stdio MCP servers alike. `CLAUDE_SESSION_ID` is accepted second, as an override for a wrapper or
+CI job driving `tm` outside Claude Code. Everything that distinguishes one thread from another
+reads this: the claim interlock, the Stop gate, subagent attribution, and the `session` column on
+every event. The plugin refuses to
 create a store inside its own repo — set `TM_ROOT` if you're deliberately dogfooding it.
 
 **Captures**, via hooks — no discipline required:
@@ -70,7 +76,7 @@ create a store inside its own repo — set `TM_ROOT` if you're deliberately dogf
 | `Edit` / `Write` / `MultiEdit` / `NotebookEdit` | the edited file is recorded on the task the session holds, so `touches` fills itself |
 | `git commit` / `gh pr create` | SHA or PR URL attached — by id in the message, or inferred from a `tm/TM-014-…` branch |
 | `AskUserQuestion` answered | A real multi-option decision becomes an ADR (with its rejected options); clarifications are ignored |
-| A subagent finishes | The tasks the parent holds are attributed to it, with the agent's own id and its transcript path, so parallel agents are visible |
+| A subagent finishes | The tasks the parent holds are attributed to it, with the agent's `agent_id`, `agent_type` and its own transcript path, so parallel agents are visible |
 | Session tries to stop | Blocked while tasks you claimed are still `in_progress` |
 | Session ends | Abandoned `in_progress` work is parked with a reason and its claim released |
 

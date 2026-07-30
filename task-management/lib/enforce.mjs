@@ -9,6 +9,7 @@
  */
 import { acceptanceOpen, config, list, logEvent, now, read, state, withLock, writeState } from "./store.mjs";
 import { paths } from "./paths.mjs";
+import { sessionId } from "./actor.mjs";
 
 export function enforcementOff(p = paths()) {
   if (String(process.env.TM_ENFORCE || "").toLowerCase() === "off") return true;
@@ -111,7 +112,7 @@ export function gateStop(p = paths()) {
 }
 
 function gateStopLocked(p) {
-  const session = process.env.CLAUDE_SESSION_ID || null;
+  const session = sessionId();
   const s = state(p);
   const mine = list("task", { status: "in_progress" }, p).filter(
     (t) => !session || !t.session || t.session === session,

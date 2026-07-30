@@ -30,15 +30,18 @@ function store() {
 }
 after(() => cleanup(...stores));
 
-/** callTool reads the session from the environment, as the real server does. */
+/**
+ * callTool reads the session from the environment, as the real server does — and under the name
+ * Claude Code actually injects into a stdio MCP server, which is the whole point of these tests.
+ */
 function as(session, name, args, p) {
-  const before = process.env.CLAUDE_SESSION_ID;
-  process.env.CLAUDE_SESSION_ID = session;
+  const before = process.env.CLAUDE_CODE_SESSION_ID;
+  process.env.CLAUDE_CODE_SESSION_ID = session;
   try {
     return callTool(name, args, p);
   } finally {
-    if (before === undefined) delete process.env.CLAUDE_SESSION_ID;
-    else process.env.CLAUDE_SESSION_ID = before;
+    if (before === undefined) delete process.env.CLAUDE_CODE_SESSION_ID;
+    else process.env.CLAUDE_CODE_SESSION_ID = before;
   }
 }
 

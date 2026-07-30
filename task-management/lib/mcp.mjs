@@ -12,7 +12,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from
 import { basename, join, resolve } from "node:path";
 import { paths } from "./paths.mjs";
 import { claimTask, releaseClaim } from "./claims.mjs";
-import { actor, actorLabel } from "./actor.mjs";
+import { actor, actorLabel, sessionId } from "./actor.mjs";
 import { config, create, editTask, list, logEvent, moveTask, nextTasks, now, read, state, update, writeState } from "./store.mjs";
 import { consumeOverride, enforcementOff, gateDone, gateTaskCreate } from "./enforce.mjs";
 import { board, handoff, standup, taskLine } from "./render.mjs";
@@ -23,7 +23,7 @@ export const SERVER_INFO = { name: "task-management", version: "0.3.0" };
 
 const ok = (fields = {}) => ({ ok: true, ...fields });
 const fail = (error) => ({ ok: false, error });
-const session = () => process.env.CLAUDE_SESSION_ID || null;
+const session = () => sessionId();
 
 /** Task fields the CLI stamps on creation; kept identical so both paths produce one shape. */
 const NEW_TASK = { acceptance: [], evidence: [], commits: [], blockedBy: [], blocks: [] };

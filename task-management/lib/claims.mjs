@@ -37,7 +37,22 @@ export function claimTask(id, { session = null, actor = null, worktree, branch, 
     const held = claims[id];
     const live = held && !expired(held, p);
 
-    if (live && held.session !== session && !steal) {
+    /**
+     * A claim with no session is unowned, not foreign.
+     *
+     * Until sessions actually resolved, every claim ever written carried `session: null` — the
+     * plugin read an environment variable Claude Code does not set. Two nulls compared equal, so
+     * the interlock quietly never fired. The moment a real id starts flowing, `null !== "abc123"`
+     * becomes true and the holder of *your own* in-progress task is a stranger: `tm start` refuses
+     * work you have been resuming freely, and `--steal` would log you stealing from yourself.
+     *
+     * Treating a null-session claim as unowned keeps exactly the behaviour those claims already
+     * had — no interlock, no refusal — while letting a real id interlock properly. That also
+     * covers `tm` driven from a plain shell, where there is no session to record and never was.
+     */
+    const owned = live && held.session != null;
+
+    if (owned && held.session !== session && !steal) {
       return {
         ok: false,
         holder: held,
@@ -49,7 +64,7 @@ export function claimTask(id, { session = null, actor = null, worktree, branch, 
       };
     }
 
-    const stolenFrom = live && held.session !== session ? held.session : null;
+    const stolenFrom = owned && held.session !== session ? held.session : null;
     claims[id] = { session, actor, worktree, branch, pid: process.pid, ts: now() };
     writeState({ claims }, p);
     if (stolenFrom) logEvent("claim_stolen", { id, from: stolenFrom, to: session }, p);

@@ -14,6 +14,7 @@
 import { RESOLVED, config, list, state } from "./store.mjs";
 import { claimant } from "./claims.mjs";
 import { paths } from "./paths.mjs";
+import { sessionId } from "./actor.mjs";
 
 /** A `blocked` status carrying a written reason is a human decision, not a dependency. */
 const declared = (t) => t.status === "blocked" && t.blockedReason;
@@ -105,7 +106,7 @@ export function why(id, p = paths()) {
     reasons.push({ kind: "declared", blocking: true, text: `blocked by hand: ${task.blockedReason}` });
   }
   const held = claimant(id, p);
-  if (held && held.session && held.session !== (process.env.CLAUDE_SESSION_ID || null)) {
+  if (held && held.session && held.session !== sessionId()) {
     reasons.push({
       kind: "claimed",
       blocking: true,

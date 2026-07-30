@@ -14,7 +14,7 @@ import { gateDone, gateTaskCreate } from "./enforce.mjs";
 import { addComment, addLink, assign, backlog, dependencies, estimate, labels, prioritise, rank, setType, subtasks } from "./issue.mjs";
 import { paths } from "./paths.mjs";
 import { claimTask } from "./claims.mjs";
-import { actor, actorLabel } from "./actor.mjs";
+import { actor, actorLabel, sessionId } from "./actor.mjs";
 import {
   autoCloseEpic,
   config,
@@ -124,7 +124,7 @@ function transition(task, status, p) {
 
   // Same consequences the CLI applies, or the board and the terminal disagree.
   if (status === "in_progress") {
-    claimTask(task.id, { session: process.env.CLAUDE_SESSION_ID || null, actor: actorLabel(actor()), p });
+    claimTask(task.id, { session: sessionId(), actor: actorLabel(actor()), p });
   } else {
     release(task.id, p);
   }
