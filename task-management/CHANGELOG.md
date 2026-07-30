@@ -256,6 +256,19 @@
 
 ### Fixed
 
+- **Saved views followed the browser, not the board.** A view is a way of looking at *this* project,
+  and it was kept in `localStorage` where the project could not reach it — save one on your laptop
+  and it did not exist on your desktop, or for anyone else on the same repo.
+
+  They go to the repo's config now, through the `views` key the settings allowlist was already
+  holding open. `localStorage` stays as the cache that renders instantly and survives offline; the
+  repo's copy wins on any name defined in both, since a local copy of a shared name is a stale echo
+  of an earlier save. Names only one browser knows are kept rather than dropped, so a view saved
+  while the server was unreachable is not lost.
+
+  The note in `filters.ts` used to read "move to the store only if views need to follow the project
+  across machines". They did.
+
 - **Comments were an undifferentiated wall.** Each was a single `Text` holding author, timestamp and
   body run together — `main · 2026-07-29 23:37 — …` — so nine comments became a solid block whose
   only boundary marker was spotting `main ·` at the start of a line. The metadata shouted exactly as

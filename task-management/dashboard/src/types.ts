@@ -1,5 +1,6 @@
 /** Exactly what index.json and events.jsonl already contain. Nothing invented. */
-export type Status = "open" | "in_progress" | "blocked" | "parked" | "done" | "deleted";
+export type Status =
+  "open" | "in_progress" | "blocked" | "parked" | "done" | "deleted";
 
 export interface Acceptance {
   text?: string;
@@ -67,7 +68,13 @@ export interface Board {
   /** state.json. The board payload has always carried this; the UI used to ignore it. */
   state?: { activeEpic?: string | null; claims?: Record<string, unknown> };
   /** Board preferences out of the repo's own config, so they follow the project not the browser. */
-  settings?: { categories?: string[]; me?: string | null; watching?: string[]; grouped?: boolean };
+  settings?: {
+    categories?: string[];
+    me?: string | null;
+    watching?: string[];
+    grouped?: boolean;
+    views?: Record<string, unknown>;
+  };
   /** How the store labels this session — what the profile menu shows. */
   actor?: string;
 }

@@ -352,6 +352,9 @@ export function App() {
           epics={board.epics}
           activeEpic={epic}
           onActivate={(id) => run(() => write.activeEpic(id))}
+          savedViews={
+            board.settings?.views as Record<string, Filters> | undefined
+          }
           grouped={grouped}
           onGrouped={setGroupedPersisted}
         />
