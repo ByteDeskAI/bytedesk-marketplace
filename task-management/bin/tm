@@ -1225,6 +1225,29 @@ function renderShow(doc) {
   return lines.join("\n");
 }
 
+
+/** How much of a subagent's closing message the timeline carries. */
+const SAID_MAX = 240;
+
+/**
+ * One line of what an agent said, or nothing.
+ *
+ * A heading is a label, not a finding — "## Result" tells you nothing that the event kind did not
+ * already say — so headings, fences and bare list bullets are skipped and the first line of actual
+ * prose is taken. Inline emphasis is stripped from it because `**three** callers` reads worse than
+ * `three callers` in a log line that has no bold.
+ */
+function summarise(message) {
+  const line = String(message ?? "")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l && !/^#{1,6}\s/.test(l) && !l.startsWith("```") && !/^[-*_]{3,}$/.test(l))
+    .map((l) => l.replace(/^[-*+]\s+/, "").replace(/[*_`]/g, "").trim())
+    .find(Boolean);
+  if (!line) return undefined;
+  return line.length > SAID_MAX ? `${line.slice(0, SAID_MAX - 1)}…` : line;
+}
+
 // ── hook entry points ────────────────────────────────────────────────────────
 
 function readStdin() {
@@ -1382,6 +1405,20 @@ function hook(event) {
           agent: input.agent_id || null,
           agent_type: input.agent_type || undefined,
           tasks: held,
+          /**
+           * What the agent actually concluded.
+           *
+           * The event recorded a transcript PATH, which is a file nobody opens: reading it means
+           * leaving the board, finding a JSONL of the whole conversation, and reconstructing the
+           * ending. Claude Code puts the agent's final message on the payload — `last_assistant_message`,
+           * confirmed by capturing a real SubagentStop — so the timeline can say what came back
+           * instead of where it is filed.
+           *
+           * Clamped, because an agent's closing message can be pages and this line renders in
+           * `tm log`, the activity panel and a push notification. The path stays for when the
+           * summary is not enough.
+           */
+          said: summarise(input.last_assistant_message),
           transcript: input.agent_transcript_path || input.transcript_path || undefined,
         },
         P,
