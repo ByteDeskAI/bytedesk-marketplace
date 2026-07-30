@@ -8,6 +8,13 @@ export const fetchBoard = () => json<Board>("/api/board");
 
 export const fetchEvents = () => json<StoreEvent[]>("/api/events").catch((): StoreEvent[] => []);
 
+/**
+ * One task in full. The board payload strips `body` from every task on purpose — a 20-task board
+ * would otherwise ship tens of kilobytes of markdown nobody is reading — so the drawer fetches
+ * the record it is about to show.
+ */
+export const fetchTask = (id: string) => json<Task>(`/api/task/${encodeURIComponent(id)}`);
+
 /** A refusal from a gate — the reason is written for the person reading the board. */
 export class WriteError extends Error {}
 
@@ -36,7 +43,9 @@ async function send(method: string, url: string, payload?: unknown) {
 
 /** One call per board action. The server owns the gates; this is only plumbing. */
 export const write = {
-  create: (payload: { title: string; epic?: string | null; assignee?: string; priority?: string }) =>
+  // `body` was missing here, so the create form collected a markdown body into React state and
+  // dropped it on submit — the server had accepted and stored it all along.
+  create: (payload: { title: string; body?: string; epic?: string | null; assignee?: string; priority?: string }) =>
     send("POST", "/api/task", payload),
   edit: (id: string, payload: { title?: string; body?: string }) => send("PATCH", `/api/task/${id}`, payload),
   act: (id: string, action: string, payload: Record<string, unknown> = {}) =>

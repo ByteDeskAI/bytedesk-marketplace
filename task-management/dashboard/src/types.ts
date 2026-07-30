@@ -33,6 +33,11 @@ export interface Task {
   links?: Link[];
   parent?: string;
   rank?: number;
+  /** Only present on a detail fetch — the list payload strips it. */
+  body?: string;
+  /** Set when the task was imported from a goal doc. */
+  goalDoc?: string;
+  touches?: string[];
 }
 
 export type Priority = "highest" | "high" | "medium" | "low" | "lowest";

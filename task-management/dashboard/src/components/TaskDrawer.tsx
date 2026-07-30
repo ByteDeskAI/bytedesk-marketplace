@@ -9,7 +9,8 @@ import Select from "@atlaskit/select";
 import Tag from "@atlaskit/tag";
 import Textfield from "@atlaskit/textfield";
 import TextArea from "@atlaskit/textarea";
-import { write } from "../api";
+import { fetchTask, write } from "../api";
+import { Markdown } from "./Markdown";
 import { ActorBadge } from "./ActorBadge";
 import type { Priority, Task } from "../types";
 
@@ -44,7 +45,23 @@ export function TaskDrawer({
   const [criterion, setCriterion] = useState("");
   const [linkType, setLinkType] = useState<string>(LINK_TYPES[0]);
 
+  const [detail, setDetail] = useState<Task | null>(null);
+
   useEffect(() => setTitle(task?.title ?? ""), [task?.id, task?.title]);
+  // The board payload strips `body`, so the record has to be fetched when the drawer opens. Kept
+  // separate from `task` rather than merged: the board stays the live source for everything it
+  // does carry, and a failed fetch degrades to "no body shown" instead of blanking the drawer.
+  useEffect(() => {
+    if (!task?.id) return setDetail(null);
+    let live = true;
+    void fetchTask(task.id)
+      .then((full) => live && setDetail(full))
+      .catch(() => live && setDetail(null));
+    return () => {
+      live = false;
+    };
+  }, [task?.id]);
+
   if (!task) return null;
 
   const act = (action: string, payload: Record<string, unknown>) => run(() => write.act(task.id, action, payload));
@@ -71,6 +88,21 @@ export function TaskDrawer({
               Rename
             </Button>
           </Inline>
+
+          {detail?.body?.trim() ? (
+            <Box xcss={styles.section}>
+              <Stack space="space.050">
+                <Text weight="bold" size="small" color="color.text.subtlest">
+                  CONTEXT
+                </Text>
+                <Markdown source={detail.body} />
+              </Stack>
+            </Box>
+          ) : null}
+
+          {detail?.goalDoc ? (
+            <Text size="small" color="color.text.subtlest">{`goal: ${detail.goalDoc}`}</Text>
+          ) : null}
 
           <Inline space="space.100" shouldWrap>
             <Select<Opt>

@@ -42,6 +42,17 @@
 
 ### Fixed
 
+- **The create form collected a markdown body and threw it away.** `CreateModal` held it in React
+  state behind a "Context (markdown body)" placeholder, and `write.create`'s payload type had no
+  `body` field — so the text a user watched themselves type was dropped on submit. The server had
+  accepted and stored it the whole time (`createTask` passes `body || ""` to `create()`); only the
+  browser never sent it.
+
+- **A body written by the CLI was unreachable from the board.** `boardPayload` strips `body` from
+  every task, which is right for a list — a 20-task board should not ship tens of kilobytes of
+  markdown — but there was no detail route, so the drawer showed a task as a title plus badges.
+  `GET /api/task/:id` returns the full record, and the drawer fetches it on open and renders it.
+
 - **Reopening a task left four things wrong, and `doctor` called it clean.** `tm start` on a done
   task was the de facto reopen. It left `closed` in the frontmatter, so `tm export csv` reported
   a resolution date in the `Resolved` column on in-progress work — the one column a Jira import

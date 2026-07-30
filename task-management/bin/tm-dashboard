@@ -156,6 +156,12 @@ const server = createServer((req, res) => {
     return json(res, result.status, result.body);
   }
 
+  // One task in full, including the markdown body the list payload strips.
+  if (req.method === "GET" && /^\/api\/task\/[^/?]+$/.test(req.url || "")) {
+    const result = handleWrite("GET", req.url, null, { p: P });
+    return json(res, result.status, result.body);
+  }
+
   if (req.url === "/api/board") {
     return json(res, 200, boardPayload(P));
   }
