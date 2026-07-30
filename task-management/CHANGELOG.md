@@ -226,6 +226,37 @@
 
 ### Fixed
 
+- **The drawer's text inputs read as text and become fields when clicked — and the title was
+  unreadable before.** It was a permanently-open single-line `Textfield` beside a Rename button, so
+  the panel's most important content was a form control. On a long title the browser scrolled that
+  input to its END: 605px of text in a 467px box, leaving the header showing
+  `ntity, captured from /goal the way plans are captured from ExitPlanMode`. You could not read
+  which task you had open.
+
+  `@atlaskit/inline-edit` for the title, assignee and estimate, `@atlaskit/icon` for the remove
+  glyph, and `IconButton` for the control that carried it. Atlaskit is the base component library
+  here, so the rule is to reach for it before writing anything.
+
+  Twelve controls in this drawer had no label, no `aria-label` and no accessible name — four used a
+  placeholder as a label, which vanishes the moment you type. The three converted fields now carry
+  a real `label` and an `editButtonLabel`, and the remove control announces itself as
+  `Remove acceptance criterion 3` instead of being a bare `✕` character.
+
+  **Escape belonged to two components at once.** `Drawer` closes on it and `InlineEdit` cancels on
+  it, and the drawer won — click a title, type, press Escape to back out, and the whole panel went.
+  Three fixes did not work, each found by trying rather than reasoning: a React `onKeyDown` with
+  `stopPropagation` (React delegates from the root, so it never reaches a native document listener);
+  reading `document.activeElement` in `onClose` (InlineEdit has already moved focus back to its
+  read-view button); and counting open fields (`onCancel` zeroes the count before `onClose` asks).
+  What works is a capture-phase listener on `document` while a field is open, which was measured to
+  stop the close outright — and since swallowing the key also denies InlineEdit its own handler, the
+  cancel is performed explicitly. `isEditing` is controlled, so returning to the read view without
+  confirming *is* the cancel.
+
+  Escape with no field open still closes the drawer, which was briefly regressed by an `onClose`
+  guard that became redundant once the capture listener worked. Both paths are verified in a
+  browser.
+
 - **The task drawer had no scroll of its own, so a third of a dense task was unreachable.** It was a
   single `Stack` inside a fixed-height panel, and its content simply overflowed. Measured on a task
   with five acceptance criteria at an 812px viewport:
