@@ -11,6 +11,7 @@
  * All read-only. Nothing here writes to the store.
  */
 import { list, read, readEvents, state } from "./store.mjs";
+import { typeOf } from "./issue.mjs";
 import { summary as timeSummary, human as humanMs } from "./time.mjs";
 import { paths } from "./paths.mjs";
 
@@ -80,7 +81,9 @@ export function toCsv(opts = {}, p = paths()) {
         t.title,
         // Newlines are legal inside a quoted CSV field, and Jira imports them as-is.
         t.body?.trim() || "",
-        t.parent ? "Sub-task" : "Task",
+        // Jira's own vocabulary: capitalise the type, and let `parent` speak for structure —
+        // it is a Sub-task only when it actually has a parent, whatever its type is.
+        t.parent ? "Sub-task" : typeOf(t).replace(/^./, (c) => c.toUpperCase()),
         JIRA_STATUS[t.status] || t.status,
         t.priority || "",
         t.assignee || "",

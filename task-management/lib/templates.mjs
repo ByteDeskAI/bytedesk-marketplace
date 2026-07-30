@@ -21,6 +21,7 @@ const STARTERS = {
     {
       description: "a defect with a known repro, closed by a regression test",
       acceptance: ["a regression test fails before the fix and passes after"],
+      type: "bug",
       labels: ["bug"],
     },
     `## Repro
@@ -41,6 +42,7 @@ Where it was first seen (log line, session, commit), and anything already ruled 
     {
       description: "a timeboxed investigation that ends in a written answer",
       acceptance: ["the question is answered in writing, in this task or an ADR"],
+      type: "spike",
       labels: ["spike"],
     },
     `## Question
@@ -63,6 +65,7 @@ branch, or a written "no, because".
     {
       description: "maintenance with no user-visible behaviour change",
       acceptance: ["the existing test suite passes unchanged"],
+      type: "chore",
       labels: ["chore"],
     },
     `## Scope

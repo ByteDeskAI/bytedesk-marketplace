@@ -14,6 +14,15 @@
 
 ### Added
 
+- **`tm type <id> <bug|story|task|spike|chore>`** — issue type as a stored field with a vocabulary,
+  the last Jira system field this store treated as free text. `subtask` is deliberately *not* in
+  the vocabulary: `parent` expresses that, and conflating the two is the bug below.
+
+  Existing stores need no migration. `typeOf` reads the stored field first, then falls back to a
+  recognised type worn as a **label** — which is how the bug/spike/chore templates encoded it
+  before the field existed (`labels: ["bug"]`) — then to `task`. Templates now set the field and
+  keep the label, since a label is still a useful filter.
+
 - **`tm goal import <manifest.plan.json>`** — a whole program in one command: one epic, one task
   per goal with criteria parsed from its own doc, the manifest's `dependsOn` as tm dependencies,
   and its declared `touches` on the field `tm parallel` batches on. Measured across the 36
@@ -48,6 +57,12 @@
   was permanent.
 
 ### Fixed
+
+- **The CSV Issue Type column was fabricated from parentage.** `toCsv` wrote
+  `t.parent ? "Sub-task" : "Task"` — which is *structure*, not type — so a **bug** that happened to
+  be a subtask exported as `Sub-task` and its bug-ness was lost, and every top-level bug exported
+  as `Task`. The store already knew the answer; it was in the wrong field and the exporter did not
+  look.
 
 - **Dependency writes were the one mutation with no `lib/` function.** `issue.mjs` owns assignee,
   labels, priority, estimate, comments, typed links, subtasks and rank — and contained zero
