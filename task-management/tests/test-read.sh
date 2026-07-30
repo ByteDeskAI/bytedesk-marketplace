@@ -174,5 +174,19 @@ has "$(tm find nothingmatchesthis)" "no match for" "a no-match says what was sea
 # A url has a colon and must stay a search term rather than parsing as a field.
 tm find "https://github.com/ByteDeskAI/x/pull/1" >/dev/null 2>&1 && ok "a url is a search term, not a field" || no "a url is a search term, not a field"
 
+# The reason a task stopped, on the surfaces where you notice it stopped. `tm park`/`tm block`
+# always stored it and neither the board nor `tm show` ever read it.
+env TM_ENFORCE=off node "$PLUGIN_ROOT/bin/tm" task new "the stalled one" >/dev/null
+STALLED="$(id_of "the stalled one")"
+tm block "$STALLED" needs a call with the security team >/dev/null
+has "$(tm board)" "needs a call with the security team" "the board says why a task is blocked"
+has "$(tm show "$STALLED")" "blocked: needs a call with the security team" "tm show carries the reason in full"
+has "$(tm find status:blocked)" "needs a call" "a filtered result carries it too"
+tm unblock "$STALLED" >/dev/null
+case "$(tm board)" in
+  *"needs a call with the security team"*) no "unblocking drops the reason from the board" "still shown" ;;
+  *) ok "unblocking drops the reason from the board" ;;
+esac
+
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [[ "$FAIL" == 0 ]]

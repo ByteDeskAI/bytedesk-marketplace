@@ -52,7 +52,48 @@ const styles = cssMap({
     cursor: "pointer",
     padding: "0",
   },
+  /**
+   * Why the card stopped.
+   *
+   * Prose, not a chip. Everything else on this card is an enumerable fact you scan — a priority,
+   * an epic, a count — and a Lozenge is the right shape for those. A free-text sentence in a
+   * Lozenge either truncates to uselessness or blows the badge row apart, so this gets its own
+   * line and reads as a sentence.
+   *
+   * Subordinate on purpose: subtlest text, no background, no border, no icon tint. The status
+   * mark and the column already say the card is stopped; this line only has to answer *why*, and
+   * a callout box would make every blocked card shout.
+   *
+   * Bounded so one long reason cannot push the rest of the column off the screen. The clamp is on
+   * the TEXT rather than the box: a CSS line-clamp needs `-webkit-box-orient`, which ADS's cssMap
+   * allowlist rejects, and a character budget has the side benefit of matching what `tm board`
+   * does — one rule, both surfaces. The full sentence is on hover either way.
+   *
+   * `overflowWrap` because a reason can contain a url or a long branch name with nothing to break
+   * on, and one unbreakable token would otherwise widen the whole column.
+   */
+  reason: {
+    color: "var(--ds-text-subtlest)",
+    font: "var(--ds-font-body-small)",
+    overflowWrap: "anywhere",
+  },
 });
+
+/**
+ * A few lines at a typical column width — checked in the browser, not guessed. See the `reason`
+ * style for why the clamp is on the text rather than the box.
+ */
+const REASON_MAX = 120;
+
+/**
+ * The stored reason for a stop, or null. `tm park <id> <why>` and `tm block <id> <why>` have
+ * always written one of these and no card ever read it.
+ */
+function stopReason(task: Task): string | null {
+  const why = task.status === "blocked" ? task.blockedReason : task.status === "parked" ? task.parkedReason : null;
+  const flat = (why ?? "").replace(/\s+/g, " ").trim();
+  return flat || null;
+}
 
 export function TaskCard({
   task,
@@ -87,6 +128,7 @@ export function TaskCard({
   const sat = elapsed(task, now);
   const cycle = cycleTime(task, starts);
   const held = claim(task);
+  const reason = stopReason(task);
 
   return (
     // ponytail: native HTML5 drag on a plain div — ADS Box takes no drag props, and
@@ -217,6 +259,17 @@ export function TaskCard({
           {(task.evidence ?? []).length ? <Badge>{`📎 ${task.evidence!.length}`}</Badge> : null}
           {(task.commits ?? []).length ? <Badge>{`⑂ ${task.commits!.length}`}</Badge> : null}
         </Inline>
+
+        {/* Why it stopped. Directly under the badges and above the actor row: it explains the
+            column this card is sitting in, so it belongs with the card's state rather than with
+            who is holding it. */}
+        {reason ? (
+          <Tooltip content={reason}>
+            <Box xcss={styles.reason}>
+              {reason.length > REASON_MAX ? `${reason.slice(0, REASON_MAX - 1)}…` : reason}
+            </Box>
+          </Tooltip>
+        ) : null}
 
         {/* Which thread is executing this. With several agents on one board the
             status alone doesn't say who is holding the work. */}
