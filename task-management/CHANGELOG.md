@@ -256,6 +256,20 @@
 
 ### Fixed
 
+- **The card title was not a control.** It was a `Box` — a plain `div` — with `cursor: pointer` and
+  an onClick. It looked clickable and was clickable with a mouse, and that was the whole of it:
+  `Tab` never reached it, screen readers never announced it, and automation could not find it.
+
+  That last one is how it surfaced. Driving the board with agent-browser, the title could not be
+  clicked at all — there was no interactive element there to click, so the tool reported no match
+  where a person sees an obvious link. The board's `j`/`o` keys were a workaround you had to know
+  existed.
+
+  `Pressable` from `@atlaskit/primitives` — a real `button` underneath, with padding and background
+  reset so it still reads as a title — plus an `aria-label` naming the task it opens. The title now
+  appears in the accessibility tree, takes keyboard focus, and opens on Enter or Space for free.
+  Pinned by two assertions in `tests/browser/drawer.mjs`.
+
 - **`subagent_stop` logged where the transcript was filed, not what the agent said.** A path is a
   file nobody opens: reading it means leaving the board, finding a JSONL of the whole conversation
   and reconstructing the ending. Claude Code puts the agent's closing message on the payload as

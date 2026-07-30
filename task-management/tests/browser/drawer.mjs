@@ -146,6 +146,22 @@ if (!hasCards) {
   console.log("skip: the board has no tasks to open");
   process.exit(0);
 }
+/**
+ * The way in has to be a control.
+ *
+ * The card title was a `div` with `cursor: pointer` and an onClick: clickable with a mouse and
+ * nothing else. Tab never reached it, screen readers never announced it, and automation could not
+ * find it — which is how it surfaced, when agent-browser could not click a card title at all.
+ */
+const titleControl = await evaluate(`
+  (() => {
+    const el = [...document.querySelectorAll('button')].find((b) => (b.getAttribute('aria-label') || '').startsWith('Open TM-'));
+    if (!el) return { found: false };
+    return { found: true, tag: el.tagName, tabbable: el.tabIndex >= 0, label: el.getAttribute('aria-label').slice(0, 40) };
+  })()`);
+check("the card title is a real button", titleControl.found, true);
+check("and it is reachable by keyboard", titleControl.tabbable, true);
+
 await press("j");
 await press("o");
 await sleep(900);
