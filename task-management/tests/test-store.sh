@@ -213,5 +213,32 @@ assert_status 0 "and the store is clean afterwards" node "$PLUGIN_ROOT/bin/tm" d
 assert_contains "$(tm log 100 --json)" '"event": "done"' "events are logged"
 assert_contains "$(tm standup 2000-01-01T00:00:00Z)" "TM-001" "standup reads the event log"
 
+# edit / move — the two fields `new` writes, and the epic nothing could change.
+# The gates are not what is under test here, and by this point the suite is sitting at the WIP
+# limit (3/3 in progress), so the fixture is created the way line 71 does it.
+tm epic new "An epic to correct things in" >/dev/null
+env TM_ENFORCE=off node "$PLUGIN_ROOT/bin/tm" task new "typoed titel" >/dev/null
+EDITID="$(tm find "typoed titel" --json | jq -r '.[0].id')"
+EDITFILE="$(tm show "$EDITID" --json | jq -r .file)"
+assert_contains "$(tm edit "$EDITID" "the corrected title")" 'was "typoed titel"' "edit reports what the title was"
+assert_contains "$(tm show "$EDITID")" "the corrected title" "the correction is stored"
+assert_contains "$(tm edit "$EDITID" "the corrected title")" "unchanged" "re-typing the same title is not a write"
+[[ "$(tm show "$EDITID" --json | jq -r .file)" == "$EDITFILE" ]] \
+  && ok "a retitle keeps the file name, so git blame survives" \
+  || no "a retitle keeps the file name" "file moved to $(tm show "$EDITID" --json | jq -r .file)"
+printf '## Notes\nfrom a pipe\n' | tm edit "$EDITID" --body - >/dev/null
+assert_contains "$(tm show "$EDITID")" "from a pipe" "--body - reads the body from stdin"
+tm edit "$EDITID" 2>/dev/null && no "edit with nothing to change is refused" || ok "edit with nothing to change is refused"
+
+tm epic new "A destination epic" >/dev/null
+DEST="$(tm find "A destination epic" --json | jq -r '.[0].id')"
+assert_contains "$(tm move "$EDITID" "$DEST")" "moved" "move refiles under another epic"
+assert_contains "$(tm show "$EDITID" --json | jq -r .epic)" "$DEST" "the new epic is stored"
+assert_contains "$(tm move "$EDITID" "$DEST")" "already" "moving where it already is says so"
+assert_contains "$(tm move "$EDITID" none)" "(no epic)" "none detaches it"
+tm move "$EDITID" EP-404 2>/dev/null && no "a move to a missing epic is refused" || ok "a move to a missing epic is refused"
+tm move "$EDITID" "$EDITID" 2>/dev/null && no "a move to a non-epic id is refused" || ok "a move to a non-epic id is refused"
+assert_contains "$(tm log 200 --json)" '"event": "moved"' "the move is on the timeline, with where it came from"
+
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [[ "$FAIL" == 0 ]]

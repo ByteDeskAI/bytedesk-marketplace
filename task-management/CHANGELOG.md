@@ -14,6 +14,43 @@
 
 ### Added
 
+- **`tm edit` and `tm move`: nothing could correct a title or refile a task.** Every other field
+  on a task had a verb — assign, label, priority, type, estimate, rank, subtask, dep, link — and
+  the two you type first, the title and the body, had none. `tm edit TM-001 "..."` answered
+  `unknown verb: edit`, and none of the 16 MCP tools touched either field. The correction did
+  exist: `PATCH /api/task/:id`, reachable only from the browser.
+
+  The epic was worse — **nothing anywhere could change it**, not the CLI, not MCP, and not that
+  PATCH, which took title and body only. Since `tm task new` files into whatever epic is active
+  and the create gate *requires* an active epic, filing into the wrong one was one keystroke away
+  with no way back short of editing frontmatter by hand.
+
+  ```
+  tm edit <id> "<title>" [--body <text|->]      # --body - reads from stdin, like tm evidence
+  tm move <id> <EP-nnn|none>
+  ```
+
+  A retitle **keeps the file name**: `TM-001-typoed-titel.md` gains the corrected title inside.
+  The id is the identity and the slug is decoration — a rename is a delete-plus-add in git that
+  breaks blame on the entity's whole history, and the old path may already be recorded in a commit
+  message, an evidence ref, or a `tm show --json` a script is holding.
+
+  Re-submitting a value that is already stored writes nothing and says `unchanged`, so an
+  `updated` stamp still means the task actually moved. That needed care for the body: the
+  round-trip is not identity — `serializeDoc` writes a newline after the closing frontmatter fence
+  and `parseDoc` hands it back, so a body written as `"notes"` reads as `"\nnotes"` and a raw
+  `!==` reports a change every time. Compared trimmed, and the asymmetry is pinned by a test.
+
+  `move` respects both epics' lifecycles rather than writing a field: into a `done` epic an
+  unfinished task **reopens** it, and out of an epic the source gets the same **auto-close** check
+  finishing a task there would give it. An epic emptied entirely stays open — zero tasks is not an
+  achievement, which `autoCloseEpic` already declined.
+
+  All three surfaces: `tm edit`/`tm move`, the `tm_task_edit` tool, and `PATCH /api/task/:id`,
+  which now accepts `epic`. `edit` and `moved` are on the timeline as their own events, so the log
+  says "a title is corrected" rather than "a field changed" — and `moved` records where the task
+  came *from*, which the destination alone does not tell you.
+
 - **`tm log` renders for a person, and `tm log <id>` is a per-issue changelog.** Its human branch
   was `rows.map((e) => JSON.stringify(e))` — the same output `--json` gives — so the one surface you
   reach for when two agents disagreed about a claim, or a card moved and nobody knows who moved it,

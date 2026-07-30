@@ -299,6 +299,8 @@ Tasks carry the fields you'd expect from an issue tracker, all optional and all 
 frontmatter — a task with none of them set behaves exactly as it did before they existed:
 
 ```
+tm edit <id> "<title>" [--body <text|->]      correct what `new` got wrong
+tm move <id> <EP-nnn|none>                   refile under another epic
 tm assign <id> <who>              tm label <id> ui -stale     (a leading - removes)
 tm priority <id> highest|high|medium|low|lowest
 tm type <id> bug|story|task|spike|chore   issue type; `parent` expresses subtask-ness
@@ -315,6 +317,23 @@ cycles and deliberately will not repair them, since which edge to cut is a judge
 moment to say no is before one exists. A loop that already exists elsewhere is not blamed on the
 next caller; doctor still reports it. Subtask nesting refuses cycles.
 Backlog ranks are sparse integers, so dragging a card rewrites one file, not the whole board.
+
+`edit` and `move` exist because every *other* field had a verb and the two you type first did not.
+A retitle **keeps the file name** — `TM-001-typoed-titel.md` gains the corrected title inside —
+because the id is the identity and the slug is decoration: a rename is a delete-plus-add in git
+that breaks blame on the entity's whole history, and the old path may already sit in a commit
+message or an evidence ref. Re-submitting a value that is already stored writes nothing, so an
+`updated` stamp still means the task actually moved.
+
+`move` is not just a field write, because both epics' lifecycles depend on their children. Into a
+`done` epic, an unfinished task **reopens** it — a finished epic holding live work is the lie
+`tm reopen` already refuses to leave behind, and the auto-close will never re-close it on its own.
+Out of an epic, the source gets the same **auto-close** check that finishing a task there would
+give it; an epic emptied entirely stays open, because zero tasks is not an achievement.
+
+All three surfaces do both now — `tm edit`/`tm move`, `tm_task_edit`, and `PATCH /api/task/:id`,
+which previously took title and body only. That last gap meant the board could file a task under
+the active epic and never move it out again.
 
 **`tm next` is ordered by them.** An explicit `rank` first, in rank order — a rank is only ever
 set by deliberately placing that task relative to another, which is a stronger statement than a

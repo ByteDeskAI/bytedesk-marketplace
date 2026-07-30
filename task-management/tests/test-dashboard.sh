@@ -266,6 +266,18 @@ CODE="$(post /api/task/TM-001/priority '{"priority":"urgent"}')"
 CODE="$(post /api/task/TM-001 '{"title":"Renamed from the board"}' PATCH)"
 [[ "$CODE" == 200 ]] && ok "edit returns 200" || no "edit returns 200" "got $CODE: $(body)"
 assert_contains "$(md TM-001)" "Renamed from the board" "edit rewrites the title"
+# The board could create a task under the active epic and never move it out again — PATCH took
+# title and body only, so the one surface that could edit anything could not refile anything.
+# `POST /api/epic` selects the active epic, it does not create one — the board has no
+# create-epic route at all — so the destination comes from the CLI, same store either way.
+tm epic new "A second epic" >/dev/null
+CODE="$(post /api/task/TM-001 '{"epic":"EP-002"}' PATCH)"
+[[ "$CODE" == 200 ]] && ok "the board can refile a task under another epic" || no "the board can refile a task" "got $CODE: $(body)"
+assert_contains "$(md TM-001)" 'epic: "EP-002"' "the move is written to the file"
+CODE="$(post /api/task/TM-001 '{"epic":"EP-404"}' PATCH)"
+[[ "$CODE" == 400 ]] && ok "a move to an epic that does not exist is refused" || no "a move to a missing epic is refused" "got $CODE"
+post /api/task/TM-001 '{"epic":"EP-001"}' PATCH >/dev/null   # put it back for what follows
+post /api/epic '{"id":"EP-001"}' >/dev/null
 
 # Links write both ends; subtasks and rank move real fields.
 post /api/task/TM-001/link '{"type":"blocks","to":"TM-002"}' >/dev/null
