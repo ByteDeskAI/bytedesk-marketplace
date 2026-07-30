@@ -132,6 +132,17 @@ export function App() {
       setGrouped(board.settings.grouped);
   }, [board?.settings, pwa.adoptServerPrefs]);
 
+  /**
+   * Name the tab after the project too.
+   *
+   * The header alone does not help with two boards open: the tab strip shows only the title, and
+   * every board's was "task-management board". Set from the payload rather than at build time,
+   * because one built bundle serves every project.
+   */
+  useEffect(() => {
+    if (board?.project) document.title = `${board.project} — board`;
+  }, [board?.project]);
+
   const starts = useMemo(() => startTimes(events), [events]);
   // The store's own answer, out of state.json, which the board payload has always
   // carried. This used to be `epics.find(e => e.status !== "done")` — "the first epic
@@ -321,7 +332,7 @@ export function App() {
         <Box xcss={styles.header}>
           <Inline space="space.200" alignBlock="center" spread="space-between">
             <Inline space="space.150" alignBlock="center">
-              <Text weight="bold">task-management</Text>
+              <Text weight="bold">{board?.project ?? "task-management"}</Text>
               <Lozenge appearance="inprogress">
                 {epic ?? "no active epic"}
               </Lozenge>

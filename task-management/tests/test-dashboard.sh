@@ -303,6 +303,10 @@ esac
 CODE="$(post /api/task/TM-001/accept '{"index":99}')"
 [[ "$CODE" == 400 ]] && ok "an index that does not exist is refused" || no "an index that does not exist is refused" "got $CODE"
 
+# Which project this board is for. Every board called itself "task-management" — the plugin's name,
+# identical on all of them — so two open boards were indistinguishable except by port.
+assert_contains "$(curl -fsS "http://127.0.0.1:$PORT/api/board")" '"project"' "the payload names the project"
+
 # Board preferences live in the repo, not the browser. This is why notifications had to be
 # switched on again in every browser: the preference was never about the browser.
 CODE="$(post /api/settings '{"categories":["blocked"],"me":"ryan","grouped":true}')"

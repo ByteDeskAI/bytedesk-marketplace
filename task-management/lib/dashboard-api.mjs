@@ -12,7 +12,7 @@
  */
 import { gateDone, gateTaskCreate } from "./enforce.mjs";
 import { addComment, addLink, assign, backlog, dependencies, estimate, labels, prioritise, rank, setType, subtasks } from "./issue.mjs";
-import { paths } from "./paths.mjs";
+import { paths, projectName } from "./paths.mjs";
 import { claimTask } from "./claims.mjs";
 import { actor, actorLabel, sessionId } from "./actor.mjs";
 import {
@@ -317,6 +317,9 @@ export function boardPayload(p = paths()) {
     settings: config(p).board || {},
     // Who the store thinks is looking. The board had no way to show this at all.
     actor: actorLabel(actor()),
+    // Which project this board is for. Every board called itself "task-management" — the plugin's
+    // name, identical on all of them — so two open boards were indistinguishable.
+    project: projectName(p),
   };
 }
 
