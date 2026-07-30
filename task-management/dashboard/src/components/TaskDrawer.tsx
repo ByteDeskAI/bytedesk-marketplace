@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
-import Button from "@atlaskit/button/new";
+import Button, { IconButton } from "@atlaskit/button/new";
 import Checkbox from "@atlaskit/checkbox";
+import CrossIcon from "@atlaskit/icon/core/cross";
+import InlineEdit from "@atlaskit/inline-edit";
 import { cssMap } from "@atlaskit/css";
 import Drawer from "@atlaskit/drawer";
 import Lozenge from "@atlaskit/lozenge";
@@ -99,7 +101,8 @@ const styles = cssMap({
     marginBlockStart: "0",
   },
   title: { font: "var(--ds-font-heading-small)" },
-  grow: { flexGrow: 1 },
+  /** Matches the height an input would occupy, so the row does not jump on click. */
+  readView: { paddingBlock: "var(--ds-space-075)", wordBreak: "break-word" },
 });
 
 type Opt = { label: string; value: string };
@@ -136,6 +139,95 @@ function Section({
   );
 }
 
+/**
+ * A field that reads as text and becomes an input when you click it.
+ *
+ * Built on ADS's lower-level `InlineEdit` rather than its `InlineEditableTextfield` convenience
+ * wrapper for one reason: the wrapper does not expose `onEdit`, and without knowing when a field is
+ * open the drawer cannot tell whether Escape meant "cancel this edit" or "close the panel".
+ *
+ * That mattered. `Drawer` closes on Escape and `InlineEdit` cancels on Escape, and the drawer won —
+ * click a title, type, press Escape to back out, and the whole panel went. Verified in a browser:
+ * after one Escape the document had zero `[role=dialog]`.
+ *
+ * Two fixes that did NOT work, both found by trying rather than by reasoning:
+ *
+ *   - A React `onKeyDown` with `stopPropagation`. React delegates from the root, so stopping a
+ *     synthetic event never reaches the native listener the drawer has already attached.
+ *   - Inspecting `document.activeElement` inside `onClose`. By then InlineEdit has cancelled and
+ *     moved focus back to its own read-view button, so the check sees a BUTTON and lets it through.
+ *
+ * So the state is reported, not inferred.
+ */
+function InlineField({
+  value,
+  label,
+  editLabel,
+  placeholder,
+  onCommit,
+}: {
+  value: string;
+  label: string;
+  editLabel: string;
+  placeholder: string;
+  onCommit: (next: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const open = (next: boolean) => setEditing(next);
+
+  /**
+   * Escape belongs to the open field, and it takes a capture listener to say so.
+   *
+   * Whatever closes the drawer listens at document-bubble or window, so nothing inside the tree can
+   * stop it — measured, after three fixes that did not work: a React `onKeyDown` with
+   * `stopPropagation` (React delegates from the root, so it never reaches a native document
+   * listener), an `activeElement` check in `onClose` (InlineEdit has already moved focus back to
+   * its read-view button by then), and a counter of open fields (`onCancel` zeroes it before
+   * `onClose` asks). A capture listener on `document` was then verified in the browser to stop the
+   * close outright.
+   *
+   * Swallowing it here also denies InlineEdit its own Escape handler, so the cancel happens
+   * explicitly — `isEditing` is controlled, so dropping back to the read view without confirming
+   * IS the cancel.
+   */
+  useEffect(() => {
+    if (!editing) return undefined;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      e.preventDefault();
+      open(false);
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  });
+  return (
+    <InlineEdit
+      defaultValue={value}
+      label={label}
+      editButtonLabel={editLabel}
+      readViewFitContainerWidth
+      isEditing={editing}
+      onEdit={() => open(true)}
+      onCancel={() => open(false)}
+      onConfirm={(next: string) => {
+        open(false);
+        onCommit(next);
+      }}
+      editView={({ errorMessage, ...fieldProps }) => (
+        <Textfield {...fieldProps} autoFocus />
+      )}
+      readView={() => (
+        <Box xcss={styles.readView}>
+          <Text color={value ? "color.text" : "color.text.subtlest"}>
+            {value || placeholder}
+          </Text>
+        </Box>
+      )}
+    />
+  );
+}
+
 /** Every field on one card. Each control is one call to the write API — no local model. */
 export function TaskDrawer({
   task,
@@ -148,7 +240,6 @@ export function TaskDrawer({
   onClose: () => void;
   run: (fn: () => Promise<unknown>) => void;
 }) {
-  const [title, setTitle] = useState("");
   const [comment, setComment] = useState("");
   const [label, setLabel] = useState("");
   const [criterion, setCriterion] = useState("");
@@ -156,7 +247,6 @@ export function TaskDrawer({
 
   const [detail, setDetail] = useState<Task | null>(null);
 
-  useEffect(() => setTitle(task?.title ?? ""), [task?.id, task?.title]);
   // The board payload strips `body`, so the record has to be fetched when the drawer opens. Kept
   // separate from `task` rather than merged: the board stays the live source for everything it
   // does carry, and a failed fetch degrades to "no body shown" instead of blanking the drawer.
@@ -178,7 +268,7 @@ export function TaskDrawer({
   const others = tasks.filter((t) => t.id !== task.id);
 
   return (
-    <Drawer isOpen onClose={onClose} label={task.id} width="wide">
+    <Drawer isOpen label={task.id} width="wide" onClose={onClose}>
       <Box xcss={styles.shell}>
         {/* Row 1: who this is. Outside the scroller on purpose — the id and title are the answer to
             "what am I looking at", and scrolling to re-read them is a tax on every long task. */}
@@ -196,22 +286,33 @@ export function TaskDrawer({
                 <Lozenge appearance="new">{task.epic}</Lozenge>
               ) : null}
             </Inline>
-            <Inline space="space.100" alignBlock="end">
-              <Box xcss={styles.grow}>
-                <Textfield
-                  value={title}
-                  onChange={(e) =>
-                    setTitle((e.target as HTMLInputElement).value)
-                  }
-                />
-              </Box>
-              <Button
-                isDisabled={!title.trim() || title === task.title}
-                onClick={() => run(() => write.edit(task.id, { title }))}
-              >
-                Rename
-              </Button>
-            </Inline>
+            {/*
+              The title reads as a title and becomes a field when you click it.
+
+              It was a permanently-open single-line `Textfield` beside a Rename button, so the most
+              important thing on the panel was a form control — and on a long title the browser
+              scrolled that input to its END, leaving the header reading
+              "…ntity, captured from /goal the way plans are captured from ExitPlanMode".
+              Measured: 605px of text in a 467px box. You could not read which task you had open.
+
+              ADS's own inline edit rather than a hand-rolled toggle: it brings a real focusable
+              button as the read view, confirm/cancel affordances, Enter and Escape handling, and
+              `label`/`editButtonLabel`, so a control that had no accessible name now has one.
+            */}
+            <InlineField
+              value={task.title}
+              label="Title"
+              editLabel={`Edit the title of ${task.id}`}
+              placeholder="Give this task a title"
+              onCommit={(next) => {
+                const value = next.trim();
+                // `tm edit` treats re-submitting the stored value as a no-op; do not spend a
+                // write to find that out.
+                if (value && value !== task.title) {
+                  run(() => write.edit(task.id, { title: value }));
+                }
+              }}
+            />
           </Stack>
         </Box>
 
@@ -264,29 +365,33 @@ export function TaskDrawer({
               />
             </Inline>
 
-            <Inline space="space.100" alignBlock="end" shouldWrap>
-              <Textfield
-                isCompact
-                placeholder="assignee"
-                defaultValue={task.assignee ?? ""}
-                onBlur={(e) => {
-                  const who = (e.target as HTMLInputElement).value.trim();
-                  if (who !== (task.assignee ?? ""))
+            {/* Both were placeholder-only, so each lost its name the moment you typed into it.
+                `label` is a real label, and the read view is a button assistive tech can announce. */}
+            <Section title="PEOPLE AND SIZE">
+              <InlineField
+                value={task.assignee ?? ""}
+                label="Assignee"
+                editLabel={`Edit the assignee of ${task.id}`}
+                placeholder="Unassigned"
+                onCommit={(next) => {
+                  const who = next.trim();
+                  if (who !== (task.assignee ?? "")) {
                     act("assign", { assignee: who || null });
+                  }
                 }}
               />
-              <Textfield
-                isCompact
-                type="number"
-                placeholder="estimate"
-                defaultValue={task.estimate ?? ""}
-                onBlur={(e) => {
-                  const raw = (e.target as HTMLInputElement).value;
-                  if (raw !== String(task.estimate ?? ""))
-                    act("estimate", { estimate: Number(raw) || 0 });
+              <InlineField
+                value={task.estimate === undefined ? "" : String(task.estimate)}
+                label="Estimate (points)"
+                editLabel={`Edit the estimate of ${task.id}`}
+                placeholder="No estimate"
+                onCommit={(next) => {
+                  if (next.trim() !== String(task.estimate ?? "")) {
+                    act("estimate", { estimate: Number(next) || 0 });
+                  }
                 }}
               />
-            </Inline>
+            </Section>
 
             <Section title="LABELS" first>
               <Inline space="space.050" shouldWrap>
@@ -338,16 +443,20 @@ export function TaskDrawer({
                       act("accept", { index: i + 1, done: !a.done })
                     }
                   />
+                  {/* An icon glyph rather than a "✕" character, and IconButton rather than Button:
+                      the glyph is sized and coloured by the tokens instead of by whatever the
+                      platform font does, and `label` gives a destructive control the accessible
+                      name it had none of. */}
                   <Tooltip content="remove this criterion — renumbers the ones after it">
-                    <Button
+                    <IconButton
                       appearance="subtle"
                       spacing="compact"
+                      label={`Remove acceptance criterion ${i + 1}`}
+                      icon={(props) => <CrossIcon {...props} size="small" />}
                       onClick={() =>
                         act("accept", { index: i + 1, remove: true })
                       }
-                    >
-                      ✕
-                    </Button>
+                    />
                   </Tooltip>
                 </Inline>
               ))}
