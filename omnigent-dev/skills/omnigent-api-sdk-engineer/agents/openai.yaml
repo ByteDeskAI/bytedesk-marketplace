@@ -1,4 +1,0 @@
-interface:
-  display_name: "Omnigent API SDK Engineer"
-  short_description: "REST, SSE, WebSocket, OpenAPI, and Python SDK contracts."
-  default_prompt: "Use this skill for Omnigent API, event, schema, OpenAPI, or SDK changes."
