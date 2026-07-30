@@ -1,0 +1,14 @@
+{
+  "extraKnownMarketplaces": {
+    "bytedesk": {
+      "source": {
+        "source": "directory",
+        "path": "../bytedesk-marketplace"
+      },
+      "autoUpdate": true
+    }
+  },
+  "enabledPlugins": {
+    "task-management@bytedesk": true
+  }
+}
