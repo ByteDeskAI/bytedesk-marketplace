@@ -1,4 +1,12 @@
-node_modules/
+# No trailing slash, deliberately.
+#
+# `node_modules/` matches a directory and NOT a symlink, and this repo had a symlink here — an
+# absolute path into one developer's home directory, pointing at itself, committed. On that machine
+# it happened to resolve; anywhere else it dangles. What it cost was silent: `npm run build` ran
+# `tsc` (which passed), then `vite`, which could not resolve through the loop and did nothing, and
+# the whole thing still exited 0. The dist/ bundle simply stopped changing while every source edit
+# looked applied.
+node_modules
 *.local
 
 # The marketplace root ignores *.png, but dist/ is committed on purpose so that
