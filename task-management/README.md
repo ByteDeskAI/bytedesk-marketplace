@@ -70,7 +70,7 @@ create a store inside its own repo — set `TM_ROOT` if you're deliberately dogf
 | `Edit` / `Write` / `MultiEdit` / `NotebookEdit` | the edited file is recorded on the task the session holds, so `touches` fills itself |
 | `git commit` / `gh pr create` | SHA or PR URL attached — by id in the message, or inferred from a `tm/TM-014-…` branch |
 | `AskUserQuestion` answered | A real multi-option decision becomes an ADR (with its rejected options); clarifications are ignored |
-| A subagent finishes | Its work is attributed on the timeline, so parallel agents are visible |
+| A subagent finishes | The tasks the parent holds are attributed to it, with the agent's own id and its transcript path, so parallel agents are visible |
 | Session tries to stop | Blocked while tasks you claimed are still `in_progress` |
 | Session ends | Abandoned `in_progress` work is parked with a reason and its claim released |
 
