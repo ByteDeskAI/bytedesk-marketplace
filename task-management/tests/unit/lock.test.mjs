@@ -6,7 +6,7 @@
 import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { cleanup, tempStore } from "./helpers.mjs";
@@ -109,5 +109,44 @@ describe("withLock", () => {
       () => JSON.parse(readFileSync(p.state, "utf8")),
       "atomic writes plus the lock must make torn JSON impossible",
     );
+  });
+});
+
+describe("a waiter that times out", () => {
+  it("refuses rather than breaking a lock a live process is holding", () => {
+    const p = store();
+    const lock = join(p.base, "state.lock");
+    // Alive (this pid) and young, so `staleLock` correctly says no. Before the fix, a waiter whose
+    // own deadline had passed deleted it anyway and walked in — two holders, one lost write.
+    writeFileSync(lock, JSON.stringify({ pid: process.pid, ts: new Date().toISOString() }));
+
+    process.env.TM_LOCK_TIMEOUT_MS = "150";
+    try {
+      assert.throws(
+        () => withLock(p, () => "must never run"),
+        /could not take the store lock/,
+        "timing out is a failure the caller can see and retry, not a licence to break the lock",
+      );
+      assert.equal(existsSync(lock), true, "and the live holder's lock survives the refusal");
+    } finally {
+      delete process.env.TM_LOCK_TIMEOUT_MS;
+      rmSync(lock, { force: true });
+    }
+  });
+
+  it("still clears a lock whose holder is gone", () => {
+    const p = store();
+    const lock = join(p.base, "state.lock");
+    // pid 1 is alive but is not us and never took this lock; age it past the stale window instead,
+    // which is the honest "the holder died mid-write" case.
+    writeFileSync(lock, JSON.stringify({ pid: process.pid, ts: new Date(Date.now() - LOCK_STALE_MS * 2).toISOString() }));
+
+    process.env.TM_LOCK_TIMEOUT_MS = "150";
+    try {
+      assert.equal(withLock(p, () => "ran"), "ran", "a dead lock must not block the store forever");
+    } finally {
+      delete process.env.TM_LOCK_TIMEOUT_MS;
+      rmSync(lock, { force: true });
+    }
   });
 });

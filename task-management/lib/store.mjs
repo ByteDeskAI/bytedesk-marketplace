@@ -104,6 +104,15 @@ function readJson(file, fallback) {
 
 /** A lock older than this is assumed to belong to a process that died mid-write. */
 export const LOCK_STALE_MS = 30_000;
+
+/**
+ * How long to wait for the lock before refusing.
+ *
+ * Defaults to the stale window. Configurable because the right answer depends on the filesystem —
+ * a network mount can make a write that takes microseconds locally take a very long time — and
+ * because a test should not have to wait half a minute to prove a refusal happens.
+ */
+const lockTimeout = () => Number(process.env.TM_LOCK_TIMEOUT_MS) || LOCK_STALE_MS;
 const LOCK_RETRY_MS = 15;
 
 /**
@@ -128,7 +137,7 @@ export function withLock(p = paths(), fn) {
     }
   }
   const lock = join(p.base, "state.lock");
-  const deadline = Date.now() + LOCK_STALE_MS;
+  const deadline = Date.now() + lockTimeout();
   let fd;
   for (;;) {
     try {
@@ -136,13 +145,40 @@ export function withLock(p = paths(), fn) {
       break;
     } catch (err) {
       if (err.code !== "EEXIST") throw err;
-      if (staleLock(lock) || Date.now() > deadline) {
+
+      // A lock whose holder is gone is ours to clear. That is the only reason to break one.
+      if (staleLock(lock)) {
         try {
           unlinkSync(lock);
         } catch {
           /* someone else just broke it — retry */
         }
         continue;
+      }
+
+      /**
+       * Waiting too long is a failure, not a licence to break a live lock.
+       *
+       * This used to read `if (staleLock(lock) || Date.now() > deadline)`, so a waiter that had
+       * queued for the deadline deleted the lock and walked in — overriding the answer `staleLock`
+       * had just given, which was that the holder is alive and working. Both processes then held
+       * it, and a read-modify-write of index.json lost one side.
+       *
+       * The window needs a queue to open, which is why it only ever showed up under load: waiter W
+       * starts at T; a DIFFERENT process takes the lock legitimately at T+25s; at T+30s W's own
+       * deadline passes while that holder's lock is five seconds old and its pid alive. W broke it
+       * anyway. Reproduced by running six copies of the concurrency suite at once — two failed on
+       * "index.json carries every concurrently created task" while the files themselves were all
+       * present, which is exactly the shape of a lost index write.
+       *
+       * Thirty seconds for a lock held for milliseconds means something is genuinely wrong, and a
+       * refusal the caller can see and retry beats a store that quietly disagrees with itself.
+       */
+      if (Date.now() > deadline) {
+        throw new Error(
+          `could not take the store lock within ${lockTimeout() / 1000}s — another process is holding it.\n` +
+            `Retry, or if you are certain nothing is writing, remove ${lock}`,
+        );
       }
       sleep(LOCK_RETRY_MS);
     }

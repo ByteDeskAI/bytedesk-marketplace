@@ -317,6 +317,29 @@
 
 ### Fixed
 
+- **A waiter that timed out broke a lock a live process was holding.** `withLock` read
+  `if (staleLock(lock) || Date.now() > deadline)`, so a process that had queued for the deadline
+  deleted the lock and walked in — overriding the answer `staleLock` had just given, which was that
+  the holder is alive and working. Both then held it, and a read-modify-write of `index.json` lost
+  one side.
+
+  The window needs a queue to open, which is why it only ever appeared under load: waiter W starts
+  at T; a *different* process takes the lock legitimately at T+25s; at T+30s W's own deadline passes
+  while that holder's lock is five seconds old and its pid alive. W broke it anyway.
+
+  Reproduced by running six copies of the concurrency suite at once — two failed on "index.json
+  carries every concurrently created task" while every file was present, which is the exact shape of
+  a lost index write.
+
+  Timing out is now a refusal the caller can see and retry. Thirty seconds for a lock held for
+  milliseconds means something is genuinely wrong, and a visible failure beats a store that quietly
+  disagrees with itself. A lock whose holder is actually gone is still cleared, which is the only
+  reason to break one.
+
+  `TM_LOCK_TIMEOUT_MS` overrides the wait. The right value depends on the filesystem — a network
+  mount can make a microsecond write take a very long time — and it lets a test prove the refusal
+  without waiting half a minute.
+
 - **Saved views followed the browser, not the board.** A view is a way of looking at *this* project,
   and it was kept in `localStorage` where the project could not reach it — save one on your laptop
   and it did not exist on your desktop, or for anyone else on the same repo.
