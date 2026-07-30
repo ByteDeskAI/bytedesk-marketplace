@@ -395,6 +395,13 @@ is reachable at all, and deciding which keeps the id changes an identity that co
 and dependencies already point at — a judgement, not a typo. (Stores written before writes
 were serialized may contain these; that is why it reports rather than guesses.)
 
+`missing-evidence` only looks at refs it can resolve on disk. `tm evidence` copies the file
+into the store, so its refs are store-relative and checkable; a hand edit can put anything
+probative there instead — the url of the PR, an absolute path to a log outside the repo, an
+opaque handle to a browser session. A ref with a scheme is left alone rather than reported,
+because this finding's fix **deletes** what it reports, and dropping the url that proves the
+task is a worse outcome than the untidiness the check exists to catch.
+
 `--fix` applies only what is unambiguous, says what it changed, and repeats until the store
 stops changing — dropping a dangling blocker can leave a task `blocked` with nothing blocking
 it, which is a different finding that only exists once the first is fixed. Some things are
