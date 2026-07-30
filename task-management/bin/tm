@@ -1223,6 +1223,15 @@ function renderShow(doc) {
   for (const [label, key] of [["blocked by", "blockedBy"], ["blocks", "blocks"], ["evidence", "evidence"], ["commits", "commits"], ["touches", "touches"]]) {
     if ((doc[key] || []).length) lines.push(`${label}: ${doc[key].join(", ")}`);
   }
+  // Comments were the one first-class field `show` did not print, though it prints labels, links,
+  // evidence and commits — so the detail view was missing the discussion about the thing.
+  if ((doc.comments || []).length) {
+    lines.push(
+      "",
+      "comments:",
+      ...doc.comments.map((c) => `  ${c.author ?? "?"} · ${String(c.ts ?? "").slice(0, 16).replace("T", " ")} — ${c.text}`),
+    );
+  }
   if ((doc.tasks || []).length) lines.push("", "tasks:", ...doc.tasks.map((t) => `  ${t.id} ${t.title} (${t.status})`));
   if (doc.body?.trim()) lines.push("", doc.body.trim());
   return lines.join("\n");
@@ -1337,6 +1346,47 @@ function hook(event) {
     // Don't let the model open a duplicate for work that is already on the board.
     case "user-prompt": {
       const prompt = String(input.prompt || input.user_prompt || "");
+
+      /**
+       * `/goal <condition>` arrives here, and that is the whole reason this can work.
+       *
+       * `/goal` is a local, immediate command, and reading Claude Code's own source said local
+       * immediate commands are handled client-side without a prompt round trip — so I recorded that
+       * capturing it was probably impossible and parked the work rather than guess. That was wrong:
+       * with a probe hook installed, typing `/goal …` produced a UserPromptSubmit payload whose
+       * `prompt` field held the literal text. Measured beats inferred.
+       *
+       * What lands is a note on the active task, not a new one. A goal is a condition on the work
+       * in flight — "keep going until X" — and minting a task for it would put a second entry on
+       * the board for something already tracked, which is the exact duplication the rest of this
+       * hook exists to prevent. With nothing claimed there is nothing to annotate and it stays
+       * silent rather than inventing an owner.
+       */
+      const goal = /^\s*\/goal\s+(.+)$/s.exec(prompt);
+      if (goal) {
+        const condition = goal[1].trim();
+        if (condition && condition !== "clear") {
+          const held = Object.entries(state(P).claims || {})
+            .filter(([, c]) => c.session === sessionId())
+            .map(([id]) => id);
+          for (const id of held) {
+            addComment(id, `goal: ${condition}`, { p: P });
+          }
+          if (held.length) {
+            logEvent("goal_set", { tasks: held, condition: condition.slice(0, 200) }, P);
+            out(
+              JSON.stringify({
+                hookSpecificOutput: {
+                  hookEventName: "UserPromptSubmit",
+                  additionalContext: `task-management: recorded that goal on ${held.join(", ")}. Its acceptance criteria are the store's own stop condition — \`tm show <id>\` lists what is still unmet.`,
+                },
+              }),
+            );
+          }
+        }
+        break;
+      }
+
       const hit = matchOpenTask(prompt);
       if (hit) {
         out(

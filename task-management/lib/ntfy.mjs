@@ -41,6 +41,7 @@ export const CATALOG = {
     update: { group: "writes", label: "Any field on a task changes", priority: "min", tags: "pencil2" },
     edit: { group: "writes", label: "A title or body is corrected", priority: "min", tags: "pencil" },
     settings: { group: "writes", label: "Board preferences change", priority: "min", tags: "gear" },
+    goal_set: { group: "writes", label: "A goal is set on the work in flight", priority: "min", tags: "dart" },
     ac_met: { group: "writes", label: "An acceptance criterion is met", priority: "min", tags: "white_check_mark" },
     ac_unmet: { group: "writes", label: "An acceptance criterion is un-ticked", priority: "min", tags: "leftwards_arrow_with_hook" },
     ac_removed: { group: "writes", label: "An acceptance criterion is removed", priority: "min", tags: "wastebasket" },
