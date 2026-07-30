@@ -1,11 +1,20 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { RefObject } from "react";
 import Button from "@atlaskit/button/new";
 import { cssMap } from "@atlaskit/css";
 import { Box, Inline } from "@atlaskit/primitives/compiled";
 import Select from "@atlaskit/select";
 import Textfield from "@atlaskit/textfield";
-import { EMPTY, isActive, labelOptions, loadViews, options, saveViews } from "../filters";
+import {
+  EMPTY,
+  isActive,
+  labelOptions,
+  loadViews,
+  mergeViews,
+  options,
+  pushViews,
+  saveViews,
+} from "../filters";
 import type { Filters } from "../filters";
 import type { Task } from "../types";
 
@@ -17,8 +26,10 @@ const styles = cssMap({
 });
 
 type Opt = { label: string; value: string };
-const opts = (values: string[]): Opt[] => values.map((v) => ({ label: v, value: v }));
-const current = (v: string | null): Opt | null => (v ? { label: v, value: v } : null);
+const opts = (values: string[]): Opt[] =>
+  values.map((v) => ({ label: v, value: v }));
+const current = (v: string | null): Opt | null =>
+  v ? { label: v, value: v } : null;
 
 export function Toolbar({
   tasks,
@@ -31,6 +42,7 @@ export function Toolbar({
   onActivate,
   grouped = false,
   onGrouped,
+  savedViews,
 }: {
   tasks: Task[];
   filters: Filters;
@@ -43,8 +55,22 @@ export function Toolbar({
   onActivate?: (id: string) => void;
   grouped?: boolean;
   onGrouped?: (on: boolean) => void;
+  /** The repo's saved views, off the board payload. */
+  savedViews?: Record<string, Filters>;
 }) {
   const [views, setViews] = useState(loadViews);
+
+  // Adopt the repo's copy when the board brings it. Only on a real difference, or this sets state
+  // on every poll.
+  useEffect(() => {
+    if (!savedViews) return;
+    setViews((local) => {
+      const merged = mergeViews(local, savedViews);
+      if (JSON.stringify(merged) === JSON.stringify(local)) return local;
+      saveViews(merged);
+      return merged;
+    });
+  }, [savedViews]);
   const set = (patch: Partial<Filters>) => onChange({ ...filters, ...patch });
 
   const saveCurrent = () => {
@@ -53,6 +79,7 @@ export function Toolbar({
     const next = { ...views, [name]: filters };
     setViews(next);
     saveViews(next);
+    void pushViews(next);
   };
 
   return (
@@ -65,7 +92,9 @@ export function Toolbar({
             placeholder="Search id, title, label   /"
             aria-label="search the board"
             value={filters.text}
-            onChange={(e) => set({ text: (e.target as HTMLInputElement).value })}
+            onChange={(e) =>
+              set({ text: (e.target as HTMLInputElement).value })
+            }
           />
         </Box>
         {(["epic", "assignee", "actor", "priority"] as const).map((key) => (
@@ -76,7 +105,9 @@ export function Toolbar({
               placeholder={key}
               options={opts(options(tasks, key))}
               value={current(filters[key])}
-              onChange={(o) => set({ [key]: o?.value ?? null } as Partial<Filters>)}
+              onChange={(o) =>
+                set({ [key]: o?.value ?? null } as Partial<Filters>)
+              }
             />
           </Box>
         ))}
@@ -117,14 +148,21 @@ export function Toolbar({
             <Select<Opt>
               spacing="compact"
               placeholder="active epic"
-              options={epics.filter((e) => e.status !== "done").map((e) => ({ label: `${e.id} ${e.title}`, value: e.id }))}
-              value={activeEpic ? { label: activeEpic, value: activeEpic } : null}
+              options={epics
+                .filter((e) => e.status !== "done")
+                .map((e) => ({ label: `${e.id} ${e.title}`, value: e.id }))}
+              value={
+                activeEpic ? { label: activeEpic, value: activeEpic } : null
+              }
               onChange={(o) => o && onActivate(o.value)}
             />
           </Box>
         ) : null}
         {onGrouped ? (
-          <Button appearance={grouped ? "primary" : "subtle"} onClick={() => onGrouped(!grouped)}>
+          <Button
+            appearance={grouped ? "primary" : "subtle"}
+            onClick={() => onGrouped(!grouped)}
+          >
             {grouped ? "Grouped by epic" : "Group by epic"}
           </Button>
         ) : null}
