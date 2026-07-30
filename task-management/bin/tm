@@ -38,6 +38,7 @@ import {
 } from "../lib/store.mjs";
 import { consumeOverride, enforcementOff, gateDone, gateStop, gateTaskCreate, setOverride } from "../lib/enforce.mjs";
 import { board, handoff, renderHistory, renderLog, sessionContext, standup, taskLine } from "../lib/render.mjs";
+import { FIELD_NAMES, describeQuery, matchesQuery, parseQuery } from "../lib/query.mjs";
 import { autolink, link as linkBins, status as linkStatus, unlink as unlinkBins } from "../lib/link.mjs";
 import { applyShares, createWorktree, listWorktrees, removeWorktree } from "../lib/worktree.mjs";
 import { applyTemplate, listTemplates, seedTemplates } from "../lib/templates.mjs";
@@ -514,19 +515,29 @@ const VERBS = {
     out(args.includes("--raw") ? g.mermaid : `\`\`\`mermaid\n${g.mermaid}\n\`\`\``);
   },
 
+  /**
+   * Bare words search titles and bodies, as they always did. `field:value` narrows — the
+   * questions the board in the browser could ask and the terminal could not.
+   */
   find(...q) {
     requireInit();
-    const needle = q.join(" ").toLowerCase();
+    let query;
+    try {
+      query = parseQuery(q);
+    } catch (e) {
+      die(e.message);
+    }
     const hits = [];
     for (const kind of ["epic", "task", "adr"]) {
       for (const d of list(kind, {}, P)) {
-        if (`${d.title} ${d.body}`.toLowerCase().includes(needle)) {
-          const { body, file, ...rest } = d;
-          hits.push(rest);
-        }
+        if (!matchesQuery({ ...d, kind }, query)) continue;
+        const { body, file, ...rest } = d;
+        hits.push(rest);
       }
     }
-    emit(hits, () => hits.map((d) => `${d.id} ${d.title}`).join("\n") || "(no match)");
+    emit(hits, () =>
+      hits.map((d) => taskLine(d)).join("\n") || `(no match for ${describeQuery(query)})`,
+    );
   },
 
   /** `tm log [n]` for the tail, `tm log <TM-id>` for one task's whole history. */
@@ -1029,7 +1040,8 @@ const VERBS = {
         "  type <id> [bug|story|task|spike|chore]   issue type; parent expresses subtask-ness",
         "  estimate <id> <points> | comment <id> <text> | subtask <id> [parent|none]",
         "  link <id> <type> <id> | rank <id> --before|--after <id> | backlog",
-        "  next | board | stale | find <q> | standup [iso] | handoff <id>",
+        "  next | board | stale | standup [iso] | handoff <id>",
+        `  find <words> [field:value]...          fields: ${FIELD_NAMES.join(", ")} (a leading - negates)`,
         "  log [n] | log <id>            the event tail, or one entity's whole history",
         "  why <id>                      what is actually holding a task up, to the root",
         "  graph [--epic EP-1] [--all]   the dependency graph as Mermaid",

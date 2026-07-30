@@ -85,6 +85,16 @@ assert_contains "$OUT" "needs a title, a body or an epic" "tm_task_edit with no 
 OUT="$(call tm_task_edit '{"id":"TM-001","epic":"EP-404"}' | mcp)"
 assert_contains "$OUT" "not found: EP-404" "a move to a missing epic is refused over the wire, not thrown"
 
+# tm_find takes the same field:value query the CLI does — an agent asking the board a question
+# directly instead of reading the whole board and filtering it itself.
+node "$PLUGIN_ROOT/bin/tm" type TM-001 bug >/dev/null
+OUT="$(call tm_find '{"query":"type:bug"}' | mcp)"
+assert_contains "$OUT" "TM-001" "tm_find narrows by field over MCP"
+OUT="$(call tm_find '{"query":"type:story"}' | mcp)"
+assert_contains "$OUT" '\"hits\": []' "a field that does not match returns no hits"
+OUT="$(call tm_find '{"query":"assigne:ryan"}' | mcp)"
+assert_contains "$OUT" "unknown search field" "an unknown field is refused over the wire, not thrown"
+
 # Protocol errors.
 # Resources: the board as context the user pulls, over the real stdio server.
 OUT="$(printf '{"jsonrpc":"2.0","id":10,"method":"initialize"}\n' | mcp)"
