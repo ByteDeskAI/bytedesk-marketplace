@@ -8,7 +8,7 @@
  */
 import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { cleanup, tempStore } from "./helpers.mjs";
 import { create, read, state, update, writeState } from "../../lib/store.mjs";
@@ -298,6 +298,48 @@ describe("evidence, natives and the cache", () => {
     assert.ok(codes(p).includes("missing-evidence"));
     heal(p);
     assert.deepEqual(read(t.id, p).evidence, []);
+  });
+
+  it("reports a store with no git contract, and writes one", () => {
+    const p = store();
+    // Every board created before this shipped has no contract; that is the shape being repaired.
+    rmSync(p.gitignore);
+    rmSync(p.gitattributes);
+    assert.ok(codes(p).includes("no-git-contract"));
+
+    heal(p);
+
+    assert.equal(existsSync(p.gitignore), true);
+    assert.equal(existsSync(p.gitattributes), true);
+    assert.equal(codes(p).includes("no-git-contract"), false, "a repair that leaves the finding is not a repair");
+  });
+
+  it("ignores exactly the files that are per-machine, and nothing else", () => {
+    const p = store();
+    heal(p);
+    const rules = readFileSync(p.gitignore, "utf8");
+
+    // The markdown, events.jsonl, config.json and evidence/ are the shared record — ignoring any of
+    // them would quietly stop the board being committed at all, which is the point of the store.
+    for (const keep of ["tasks/", "epics/", "events.jsonl", "config.json", "evidence"]) {
+      assert.equal(rules.includes(`\n${keep}`), false, `${keep} is the shared record and must stay in git`);
+    }
+    for (const drop of ["index.json", "state.json", "dashboard.*", ".tm-tmp-*"]) {
+      assert.match(rules, new RegExp(`^${drop.replace(/[.*]/g, (c) => `\\${c}`)}$`, "m"), `${drop} is per-machine`);
+    }
+  });
+
+  it("gives events.jsonl a union merge, because appending on two branches is never a real conflict", () => {
+    const p = store();
+    heal(p);
+    assert.match(readFileSync(p.gitattributes, "utf8"), /^events\.jsonl merge=union$/m);
+  });
+
+  it("does not overwrite a contract someone has edited", () => {
+    const p = store();
+    writeFileSync(p.gitignore, "# mine\nnothing.json\n");
+    heal(p);
+    assert.match(readFileSync(p.gitignore, "utf8"), /# mine/, "tm init runs on existing stores; it must not clobber");
   });
 
   it("catches two files claiming one id, and refuses to pick a winner", () => {

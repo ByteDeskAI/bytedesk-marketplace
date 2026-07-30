@@ -632,6 +632,72 @@ export function reindex(p = paths()) {
   return index;
 }
 
+
+/**
+ * The store's own git contract.
+ *
+ * `.bytedesk/task-management/` is meant to be committed — one markdown file per entity is what
+ * makes the board readable in a diff and mergeable in a PR. But four kinds of file in there are not
+ * the project's business, and without a rule they sit in `git status` forever, get committed by an
+ * absent-minded `git add -A`, and then conflict on every pull:
+ *
+ *   index.json      a derived cache. The README already says "delete it any time".
+ *   state.json      session claims and one-shot overrides — whose laptop, not what work.
+ *   dashboard.*     a port and a pid for a server running on one machine right now.
+ *   .tm-tmp-*       the temp file `writeAtomic` renames over the real one.
+ *
+ * `events.jsonl` gets `merge=union` and that is the piece worth having. It is append-only, so two
+ * branches that both did work produce two sets of added lines at the end of one file — a textbook
+ * conflict that is never a real one. Union takes both sides. Without it, the audit log is the file
+ * most likely to conflict and the least interesting to resolve by hand.
+ */
+const GITIGNORE = `# Written by \`tm init\`. The markdown, events.jsonl, config.json and evidence/ are the
+# shared record and belong in git. These four are not.
+
+# A derived cache — \`tm reindex\` rebuilds it from the files.
+index.json
+
+# Session claims, the active epic, one-shot overrides. Whose machine, not what work.
+state.json
+
+# A port and a pid for a dashboard running here, now.
+dashboard.*
+
+# writeAtomic's staging files. Present only mid-write, or after a crash.
+.tm-tmp-*
+`;
+
+const GITATTRIBUTES = `# Written by \`tm init\`.
+#
+# events.jsonl is append-only, so two branches that both did work produce two sets of added lines at
+# the end of one file. That is a conflict git cannot resolve and a human should never have to: the
+# answer is always "keep both, in time order". Union does that.
+events.jsonl merge=union
+`;
+
+/**
+ * Seed the contract, without ever overwriting a hand-edited one.
+ *
+ * `tm init` is run on stores that already exist — it is how you adopt an older board — so this
+ * writes only what is missing. Someone who has added their own rules keeps them.
+ */
+export function seedGitContract(p = paths(), only = null) {
+  const written = [];
+  for (const [key, body] of [
+    ["gitignore", GITIGNORE],
+    ["gitattributes", GITATTRIBUTES],
+  ]) {
+    if (only && only !== key) continue;
+    if (existsSync(p[key])) continue;
+    writeAtomic(p[key], body);
+    written.push(basename(p[key]));
+  }
+  return written;
+}
+
+/** Paths inside the store that git should not be carrying. Shared with doctor. */
+export const NOT_FOR_GIT = ["index.json", "state.json"];
+
 // ── derived views ────────────────────────────────────────────────────────────
 
 export const OPEN = new Set(["open", "in_progress", "blocked"]);

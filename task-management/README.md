@@ -758,3 +758,10 @@ there is no Chrome or no board running, so it never fails for being unrunnable.
   so a worktree keeps its own board.
 - Markdown files are the source of truth. `index.json` is disposable.
 - Commit `.bytedesk/task-management/` — that's the point. One file per entity keeps merges sane.
+- `tm init` writes the store's own `.gitignore` and `.gitattributes`. The markdown, `events.jsonl`,
+  `config.json` and `evidence/` are the shared record and belong in git; `index.json` (a cache),
+  `state.json` (session claims), `dashboard.*` (a port and a pid) and `.tm-tmp-*` do not.
+  `events.jsonl` gets `merge=union`, because two branches that both did work produce two sets of
+  appended lines — a conflict git cannot resolve and nobody should resolve by hand.
+- `tm doctor` reports a store with no contract and writes one, and warns when a per-machine file is
+  already tracked, since being ignored does not help once git is carrying it.
