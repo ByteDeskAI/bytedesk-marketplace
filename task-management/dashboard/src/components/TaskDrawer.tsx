@@ -15,18 +15,126 @@ import { Markdown } from "./Markdown";
 import { ActorBadge } from "./ActorBadge";
 import type { Priority, Task } from "../types";
 
-const STATUSES: Task["status"][] = ["open", "in_progress", "blocked", "parked", "done"];
+const STATUSES: Task["status"][] = [
+  "open",
+  "in_progress",
+  "blocked",
+  "parked",
+  "done",
+];
 const PRIORITIES: Priority[] = ["highest", "high", "medium", "low", "lowest"];
-const LINK_TYPES = ["blocks", "blocked by", "causes", "caused by", "duplicates", "duplicated by", "relates to"];
+const LINK_TYPES = [
+  "blocks",
+  "blocked by",
+  "causes",
+  "caused by",
+  "duplicates",
+  "duplicated by",
+  "relates to",
+];
 
 const styles = cssMap({
-  body: { padding: "var(--ds-space-300)", maxWidth: "620px" },
-  section: { paddingBlockStart: "var(--ds-space-200)" },
+  /**
+   * The drawer is a grid, not a stack.
+   *
+   * It was one `Stack` inside a padded `Box`, so the panel had a fixed height and its content
+   * simply overflowed it: measured at 1022px of content in an 812px panel, with the entire
+   * COMMENTS section — every comment and the field to add one — stranded 210px below the fold and
+   * unreachable. And because nothing inside the panel scrolled, a wheel over the drawer scrolled
+   * the *board behind it*.
+   *
+   * `auto 1fr` gives the header its natural height and hands every remaining pixel to the body,
+   * which is the row that scrolls. `minHeight: 0` on both is what makes that true: a grid item
+   * defaults to `min-height: auto`, which refuses to shrink below its content, and an item that
+   * cannot shrink cannot overflow — so without it the body grows and pushes the panel open again,
+   * which is the bug restated.
+   */
+  shell: {
+    display: "grid",
+    gridTemplateRows: "auto 1fr",
+    height: "100%",
+    minHeight: "0",
+    maxWidth: "620px",
+  },
+  /** Identity stays put: which task you are looking at is not something to scroll back for. */
+  header: {
+    paddingInline: "var(--ds-space-300)",
+    paddingBlock: "var(--ds-space-200)",
+    borderBlockEndWidth: "var(--ds-border-width)",
+    borderBlockEndStyle: "solid",
+    borderBlockEndColor: "var(--ds-border)",
+    backgroundColor: "var(--ds-surface)",
+  },
+  /**
+   * The one scrolling region.
+   *
+   * `overscrollBehavior: contain` is the fix for the reported symptom: without it, a wheel that
+   * reaches the end of this region chains to the board underneath and scrolls that instead.
+   */
+  scroller: {
+    overflowY: "auto",
+    overscrollBehavior: "contain",
+    minHeight: "0",
+    paddingInline: "var(--ds-space-300)",
+    paddingBlock: "var(--ds-space-200)",
+  },
+  /**
+   * A section is a group, separated by a rule rather than by whitespace alone. Ten control groups
+   * in one undifferentiated column is a wall; the eye needs somewhere to stop.
+   */
+  section: {
+    paddingBlockStart: "var(--ds-space-200)",
+    marginBlockStart: "var(--ds-space-100)",
+    borderBlockStartWidth: "var(--ds-border-width)",
+    borderBlockStartStyle: "solid",
+    borderBlockStartColor: "var(--ds-border)",
+  },
+  /**
+   * The first section needs no rule — the header already drew one. A COMPLETE style rather than an
+   * override, because `Box`'s `xcss` refuses an array with a possibly-false element (stricter than
+   * the plain `css` prop TaskCard uses), so the two variants have to be two whole styles.
+   */
+  firstSection: {
+    paddingBlockStart: "var(--ds-space-100)",
+    marginBlockStart: "0",
+  },
+  title: { font: "var(--ds-font-heading-small)" },
+  grow: { flexGrow: 1 },
 });
 
 type Opt = { label: string; value: string };
-const opts = (values: readonly string[]): Opt[] => values.map((v) => ({ label: v, value: v }));
-const current = (v?: string | null): Opt | null => (v ? { label: v, value: v } : null);
+const opts = (values: readonly string[]): Opt[] =>
+  values.map((v) => ({ label: v, value: v }));
+const current = (v?: string | null): Opt | null =>
+  v ? { label: v, value: v } : null;
+
+/**
+ * One group of related controls.
+ *
+ * The drawer was ten control groups in a single undifferentiated column with two all-caps `Text`
+ * blobs doing the work of headings. Naming the pattern once means every group is separated the
+ * same way and a reader can skip to the one they want instead of scanning the lot.
+ */
+function Section({
+  title,
+  first = false,
+  children,
+}: {
+  title: string;
+  first?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <Box xcss={first ? styles.firstSection : styles.section}>
+      <Stack space="space.100">
+        <Text weight="bold" size="small" color="color.text.subtlest">
+          {title}
+        </Text>
+        {children}
+      </Stack>
+    </Box>
+  );
+}
 
 /** Every field on one card. Each control is one call to the write API — no local model. */
 export function TaskDrawer({
@@ -65,99 +173,122 @@ export function TaskDrawer({
 
   if (!task) return null;
 
-  const act = (action: string, payload: Record<string, unknown>) => run(() => write.act(task.id, action, payload));
+  const act = (action: string, payload: Record<string, unknown>) =>
+    run(() => write.act(task.id, action, payload));
   const others = tasks.filter((t) => t.id !== task.id);
 
   return (
     <Drawer isOpen onClose={onClose} label={task.id} width="wide">
-      <Box xcss={styles.body}>
-        <Stack space="space.150">
-          <Inline space="space.100" alignBlock="center">
-            <Text weight="bold">{task.id}</Text>
-            <Lozenge appearance={task.status === "done" ? "success" : "inprogress"}>{task.status}</Lozenge>
-            <ActorBadge actor={task.actor} />
-          </Inline>
+      <Box xcss={styles.shell}>
+        {/* Row 1: who this is. Outside the scroller on purpose — the id and title are the answer to
+            "what am I looking at", and scrolling to re-read them is a tax on every long task. */}
+        <Box xcss={styles.header}>
+          <Stack space="space.100">
+            <Inline space="space.100" alignBlock="center">
+              <Text weight="bold">{task.id}</Text>
+              <Lozenge
+                appearance={task.status === "done" ? "success" : "inprogress"}
+              >
+                {task.status}
+              </Lozenge>
+              <ActorBadge actor={task.actor} />
+              {task.epic ? (
+                <Lozenge appearance="new">{task.epic}</Lozenge>
+              ) : null}
+            </Inline>
+            <Inline space="space.100" alignBlock="end">
+              <Box xcss={styles.grow}>
+                <Textfield
+                  value={title}
+                  onChange={(e) =>
+                    setTitle((e.target as HTMLInputElement).value)
+                  }
+                />
+              </Box>
+              <Button
+                isDisabled={!title.trim() || title === task.title}
+                onClick={() => run(() => write.edit(task.id, { title }))}
+              >
+                Rename
+              </Button>
+            </Inline>
+          </Stack>
+        </Box>
 
-          <Inline space="space.100" alignBlock="end">
-            <Box>
-              <Textfield value={title} onChange={(e) => setTitle((e.target as HTMLInputElement).value)} />
-            </Box>
-            <Button
-              isDisabled={!title.trim() || title === task.title}
-              onClick={() => run(() => write.edit(task.id, { title }))}
-            >
-              Rename
-            </Button>
-          </Inline>
+        {/* Row 2: everything else, and the only thing that scrolls. */}
+        <Box xcss={styles.scroller}>
+          <Stack space="space.150">
+            {detail?.body?.trim() ? (
+              <Box xcss={styles.section}>
+                <Stack space="space.050">
+                  <Text weight="bold" size="small" color="color.text.subtlest">
+                    CONTEXT
+                  </Text>
+                  <Markdown source={detail.body} />
+                </Stack>
+              </Box>
+            ) : null}
 
-          {detail?.body?.trim() ? (
-            <Box xcss={styles.section}>
-              <Stack space="space.050">
-                <Text weight="bold" size="small" color="color.text.subtlest">
-                  CONTEXT
-                </Text>
-                <Markdown source={detail.body} />
-              </Stack>
-            </Box>
-          ) : null}
+            {detail?.goalDoc ? (
+              <Text
+                size="small"
+                color="color.text.subtlest"
+              >{`goal: ${detail.goalDoc}`}</Text>
+            ) : null}
 
-          {detail?.goalDoc ? (
-            <Text size="small" color="color.text.subtlest">{`goal: ${detail.goalDoc}`}</Text>
-          ) : null}
+            <Inline space="space.100" shouldWrap>
+              <Select<Opt>
+                spacing="compact"
+                placeholder="status"
+                options={opts(STATUSES)}
+                value={current(task.status)}
+                onChange={(o) => o && act("transition", { status: o.value })}
+              />
+              <Select<Opt>
+                spacing="compact"
+                isClearable
+                placeholder="priority"
+                options={opts(PRIORITIES)}
+                value={current(task.priority)}
+                onChange={(o) =>
+                  act("priority", { priority: o?.value ?? null })
+                }
+              />
+              <Select<Opt>
+                spacing="compact"
+                isClearable
+                placeholder="parent"
+                options={opts(others.map((t) => t.id))}
+                value={current(task.parent)}
+                onChange={(o) => act("subtask", { parent: o?.value ?? null })}
+              />
+            </Inline>
 
-          <Inline space="space.100" shouldWrap>
-            <Select<Opt>
-              spacing="compact"
-              placeholder="status"
-              options={opts(STATUSES)}
-              value={current(task.status)}
-              onChange={(o) => o && act("transition", { status: o.value })}
-            />
-            <Select<Opt>
-              spacing="compact"
-              isClearable
-              placeholder="priority"
-              options={opts(PRIORITIES)}
-              value={current(task.priority)}
-              onChange={(o) => act("priority", { priority: o?.value ?? null })}
-            />
-            <Select<Opt>
-              spacing="compact"
-              isClearable
-              placeholder="parent"
-              options={opts(others.map((t) => t.id))}
-              value={current(task.parent)}
-              onChange={(o) => act("subtask", { parent: o?.value ?? null })}
-            />
-          </Inline>
+            <Inline space="space.100" alignBlock="end" shouldWrap>
+              <Textfield
+                isCompact
+                placeholder="assignee"
+                defaultValue={task.assignee ?? ""}
+                onBlur={(e) => {
+                  const who = (e.target as HTMLInputElement).value.trim();
+                  if (who !== (task.assignee ?? ""))
+                    act("assign", { assignee: who || null });
+                }}
+              />
+              <Textfield
+                isCompact
+                type="number"
+                placeholder="estimate"
+                defaultValue={task.estimate ?? ""}
+                onBlur={(e) => {
+                  const raw = (e.target as HTMLInputElement).value;
+                  if (raw !== String(task.estimate ?? ""))
+                    act("estimate", { estimate: Number(raw) || 0 });
+                }}
+              />
+            </Inline>
 
-          <Inline space="space.100" alignBlock="end" shouldWrap>
-            <Textfield
-              isCompact
-              placeholder="assignee"
-              defaultValue={task.assignee ?? ""}
-              onBlur={(e) => {
-                const who = (e.target as HTMLInputElement).value.trim();
-                if (who !== (task.assignee ?? "")) act("assign", { assignee: who || null });
-              }}
-            />
-            <Textfield
-              isCompact
-              type="number"
-              placeholder="estimate"
-              defaultValue={task.estimate ?? ""}
-              onBlur={(e) => {
-                const raw = (e.target as HTMLInputElement).value;
-                if (raw !== String(task.estimate ?? "")) act("estimate", { estimate: Number(raw) || 0 });
-              }}
-            />
-          </Inline>
-
-          <Box xcss={styles.section}>
-            <Stack space="space.100">
-              <Text weight="bold" size="small">
-                LABELS
-              </Text>
+            <Section title="LABELS" first>
               <Inline space="space.050" shouldWrap>
                 {(task.labels ?? []).map((l) => (
                   <Tag
@@ -173,7 +304,9 @@ export function TaskDrawer({
                   isCompact
                   placeholder="add a label"
                   value={label}
-                  onChange={(e) => setLabel((e.target as HTMLInputElement).value)}
+                  onChange={(e) =>
+                    setLabel((e.target as HTMLInputElement).value)
+                  }
                 />
                 <Button
                   isDisabled={!label.trim()}
@@ -185,29 +318,33 @@ export function TaskDrawer({
                   Add
                 </Button>
               </Inline>
-            </Stack>
-          </Box>
+            </Section>
 
-          <Box xcss={styles.section}>
-            <Stack space="space.100">
-              <Text weight="bold" size="small">
-                ACCEPTANCE CRITERIA
-              </Text>
+            <Section title="ACCEPTANCE CRITERIA">
               {/* The box toggles. It used to set isDisabled once checked, so a stray click
                   permanently changed what `tm done` would accept and the only way back was
                   editing the markdown by hand — which is exactly how this got reported. */}
               {(task.acceptance ?? []).map((a, i) => (
-                <Inline key={`${a.text}-${i}`} space="space.050" alignBlock="center" spread="space-between">
+                <Inline
+                  key={`${a.text}-${i}`}
+                  space="space.050"
+                  alignBlock="center"
+                  spread="space-between"
+                >
                   <Checkbox
                     isChecked={Boolean(a.done)}
                     label={a.text}
-                    onChange={() => act("accept", { index: i + 1, done: !a.done })}
+                    onChange={() =>
+                      act("accept", { index: i + 1, done: !a.done })
+                    }
                   />
                   <Tooltip content="remove this criterion — renumbers the ones after it">
                     <Button
                       appearance="subtle"
                       spacing="compact"
-                      onClick={() => act("accept", { index: i + 1, remove: true })}
+                      onClick={() =>
+                        act("accept", { index: i + 1, remove: true })
+                      }
                     >
                       ✕
                     </Button>
@@ -219,7 +356,9 @@ export function TaskDrawer({
                   isCompact
                   placeholder="add a criterion"
                   value={criterion}
-                  onChange={(e) => setCriterion((e.target as HTMLInputElement).value)}
+                  onChange={(e) =>
+                    setCriterion((e.target as HTMLInputElement).value)
+                  }
                 />
                 <Button
                   isDisabled={!criterion.trim()}
@@ -231,14 +370,9 @@ export function TaskDrawer({
                   Add
                 </Button>
               </Inline>
-            </Stack>
-          </Box>
+            </Section>
 
-          <Box xcss={styles.section}>
-            <Stack space="space.100">
-              <Text weight="bold" size="small">
-                BLOCKED BY
-              </Text>
+            <Section title="BLOCKED BY">
               {/* A blocked card is the only kind that needs the board to tell it something, and
                   it was the one the board said least about: `⊘ TM-002` and no way to change it. */}
               {(task.blockedBy ?? []).length ? (
@@ -265,16 +399,14 @@ export function TaskDrawer({
                 value={null}
                 onChange={(o) => o && act("dep", { add: [o.value] })}
               />
-            </Stack>
-          </Box>
+            </Section>
 
-          <Box xcss={styles.section}>
-            <Stack space="space.100">
-              <Text weight="bold" size="small">
-                LINKS
-              </Text>
+            <Section title="LINKS">
               {(task.links ?? []).map((l) => (
-                <Text key={`${l.type}-${l.id}`} size="small">{`${l.type} → ${l.id}`}</Text>
+                <Text
+                  key={`${l.type}-${l.id}`}
+                  size="small"
+                >{`${l.type} → ${l.id}`}</Text>
               ))}
               <Inline space="space.100" alignBlock="end">
                 <Select<Opt>
@@ -288,25 +420,27 @@ export function TaskDrawer({
                   placeholder="task"
                   options={opts(others.map((t) => t.id))}
                   value={null}
-                  onChange={(o) => o && act("link", { type: linkType, to: o.value })}
+                  onChange={(o) =>
+                    o && act("link", { type: linkType, to: o.value })
+                  }
                 />
               </Inline>
-            </Stack>
-          </Box>
+            </Section>
 
-          <Box xcss={styles.section}>
-            <Stack space="space.100">
-              <Text weight="bold" size="small">
-                COMMENTS
-              </Text>
+            <Section title="COMMENTS">
               {(task.comments ?? []).map((c, i) => (
-                <Text key={`${c.ts}-${i}`} size="small">{`${c.author ?? "?"} · ${c.ts?.slice(0, 16).replace("T", " ")} — ${c.text}`}</Text>
+                <Text
+                  key={`${c.ts}-${i}`}
+                  size="small"
+                >{`${c.author ?? "?"} · ${c.ts?.slice(0, 16).replace("T", " ")} — ${c.text}`}</Text>
               ))}
               <TextArea
                 placeholder="Add a comment"
                 value={comment}
                 minimumRows={2}
-                onChange={(e) => setComment((e.target as HTMLTextAreaElement).value)}
+                onChange={(e) =>
+                  setComment((e.target as HTMLTextAreaElement).value)
+                }
               />
               <Inline>
                 <Button
@@ -319,9 +453,9 @@ export function TaskDrawer({
                   Comment
                 </Button>
               </Inline>
-            </Stack>
-          </Box>
-        </Stack>
+            </Section>
+          </Stack>
+        </Box>
       </Box>
     </Drawer>
   );

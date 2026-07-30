@@ -226,6 +226,41 @@
 
 ### Fixed
 
+- **The task drawer had no scroll of its own, so a third of a dense task was unreachable.** It was a
+  single `Stack` inside a fixed-height panel, and its content simply overflowed. Measured on a task
+  with five acceptance criteria at an 812px viewport:
+
+  ```
+  panel clientHeight   812
+  content scrollHeight 1022     → 210px unreachable
+  scrollable elements inside the panel: 0
+  ```
+
+  The whole COMMENTS section — every comment and the field to add one — sat below the fold with no
+  way to get to it. And because nothing inside the panel scrolled, a wheel over the drawer scrolled
+  **the board behind it**, which is how it was reported.
+
+  The drawer is a grid now: `auto 1fr`, header in row one, body in row two owning the overflow.
+  `minHeight: 0` on both rows is the load-bearing part — a grid item defaults to `min-height: auto`,
+  refuses to shrink below its content, and an item that cannot shrink cannot overflow, so without it
+  the body pushes the panel open again and the bug returns wearing a different shape.
+  `overscroll-behavior: contain` on the body is what stops a scroll that reaches the end from
+  chaining to the board underneath.
+
+  The identity — id, status, actor, epic and the title field — moved **out** of the scrolling region.
+  On a long task, scrolling back to remember which one you are looking at is a tax on every read.
+
+  The body is grouped into sections separated by a rule instead of ten control groups in one
+  undifferentiated column with two all-caps `Text` blobs doing the work of headings. One `Section`
+  component now, so every group is separated the same way.
+
+  Guarded by `tests/browser/drawer.mjs` — raw CDP against headless Chrome at a deliberately short
+  viewport, the same approach `tests/browser/keyboard.mjs` takes, because none of this is expressible
+  against jsdom: it is computed style, real layout and real overflow. It opens the card through the
+  board's own `j`/`o` keys rather than guessing at a clickable element, and it reports rather than
+  passing silently when nothing overflows. Checked against the pre-fix layout: 4 of its assertions
+  fail there, 7 of 7 pass now.
+
 - **Acceptance criteria were a one-way door.** Three surfaces could tick one and none could untick
   it; the dashboard's checkbox set `isDisabled` the moment it was checked, locking the box it had
   just ticked. Nothing anywhere could remove a criterion added by mistake. Since `tm done` is gated
