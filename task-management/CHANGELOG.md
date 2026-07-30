@@ -256,6 +256,24 @@
 
 ### Fixed
 
+- **`subagent_stop` logged where the transcript was filed, not what the agent said.** A path is a
+  file nobody opens: reading it means leaving the board, finding a JSONL of the whole conversation
+  and reconstructing the ending. Claude Code puts the agent's closing message on the payload as
+  `last_assistant_message` — confirmed by capturing a real SubagentStop — so the timeline says what
+  came back:
+
+  ```
+  before  A subagent finishes — a1  Explore  TM-001  /tmp/agent-a1.jsonl
+  after   A subagent finishes — a1  Explore  TM-001  Found 3 callers of resolve() in useBoardKeys.ts
+  ```
+
+  Headings, fences and bare bullets are skipped in favour of the first line of prose, because
+  `## Result` is a label rather than a finding and tells you nothing the event kind did not. Inline
+  emphasis is stripped — `**three** callers` reads worse than `three callers` in a line with no
+  bold — and the whole thing is clamped to 240 characters, since it renders in `tm log`, the
+  activity panel and a push notification. The transcript path stays, for when the summary is not
+  enough.
+
 - **`dashboard/node_modules` was a committed symlink to an absolute path, pointing at itself.**
   `.gitignore` said `node_modules/` — with a trailing slash, which matches a directory and **not a
   symlink** — so the link went in, carrying one developer's home directory into a shared repo. On

@@ -191,6 +191,33 @@ REALOUT="$(printf '{"session_id":"real-parent","agent_id":"agent-real","agent_tr
 has "$(tm log 1 --json)" "\"$RID\"" "a claim taken under CLAUDE_CODE_SESSION_ID is attributed"
 has "$(tm log 2 --json)" '"session": "real-parent"' "the event log records which session wrote it"
 
+# What the agent concluded, not where its transcript is filed. Claude Code puts the agent's closing
+# message on the payload; the event used to record only a path nobody opens.
+OUT="$(hook subagent-stop '{"session_id":"test-session","agent_id":"a-said","last_assistant_message":"## Result\n\nFound **3** callers of resolve() in useBoardKeys.ts."}')"
+LAST="$(tm log 1 --json)"
+has "$LAST" "Found 3 callers of resolve" "the agent's finding is on the timeline"
+case "$LAST" in
+  *'"said": "Result"'*) no "a markdown heading is not the finding" "took the heading" ;;
+  *) ok "a markdown heading is not the finding" ;;
+esac
+case "$LAST" in
+  *'**'*) no "inline emphasis is stripped for a plain log line" "found **" ;;
+  *) ok "inline emphasis is stripped for a plain log line" ;;
+esac
+# Long answers are clamped — this line renders in tm log, the activity panel and a notification.
+LONG=$(node -e 'process.stdout.write("x".repeat(900))')
+hook subagent-stop "{\"session_id\":\"test-session\",\"agent_id\":\"a-long\",\"last_assistant_message\":\"$LONG\"}" >/dev/null
+node -e '
+const rows = JSON.parse(process.argv[1]);
+const said = rows[0].said || "";
+process.exit(said.length <= 240 && said.endsWith("\u2026") ? 0 : 1);
+' "$(tm log 1 --json)" && ok "a long answer is clamped, visibly" || no "a long answer is clamped, visibly"
+hook subagent-stop '{"session_id":"test-session","agent_id":"a-quiet"}' >/dev/null
+case "$(tm log 1 --json)" in
+  *'"said"'*) no "an agent that said nothing adds no empty field" "said was written" ;;
+  *) ok "an agent that said nothing adds no empty field" ;;
+esac
+
 # With nothing claimed there is nothing to attribute, and that must not error.
 tm park "$SAID" done here >/dev/null
 tm park "$RID" done here >/dev/null
