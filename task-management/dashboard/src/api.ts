@@ -53,6 +53,8 @@ export const write = {
   bulk: (ids: string[], op: string, args: Record<string, unknown> = {}) =>
     send("POST", "/api/bulk", { ids, op, args }),
   transition: (id: string, status: Task["status"]) => send("POST", `/api/task/${id}/transition`, { status }),
+  /** Add or remove blockers. Refused server-side if it would close a cycle. */
+  dep: (id: string, change: { add?: string[]; remove?: string[] }) => send("POST", `/api/task/${id}/dep`, change),
   /** Switch the active epic — the gate every subsequent task creation passes through. */
   activeEpic: (id: string | null) => send("POST", "/api/epic", { id }),
 };

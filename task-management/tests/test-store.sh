@@ -112,6 +112,24 @@ BEFORE=$(tm board --json | jq '.tasks | length')
 tm goal import "$TM_ROOT/no-criteria.md" >/dev/null 2>&1 || true
 [[ "$(tm board --json | jq '.tasks | length')" == "$BEFORE" ]] && ok "a refused import creates nothing" || no "a refused import creates nothing"
 
+# tm dep — a leading dash removes, matching tm label. Removal did not exist before.
+tm task new "Dependency alpha subject" >/dev/null
+tm task new "Dependency bravo subject" >/dev/null
+DA=$(tm find "Dependency alpha subject" --json | jq -r '.[0].id')
+DB=$(tm find "Dependency bravo subject" --json | jq -r '.[0].id')
+assert_contains "$(tm dep "$DA" "$DB")" "blocked by $DB" "tm dep adds a blocker"
+assert_contains "$(tm show "$DB")" "blocks" "the other end of the edge is written"
+assert_contains "$(tm log "$DA")" '"event":"dep"' "adding a dependency logs an event"
+assert_status 2 "tm dep refuses a cycle rather than leaving it for doctor" node "$PLUGIN_ROOT/bin/tm" dep "$DB" "$DA"
+assert_status 2 "tm dep refuses a self-dependency" node "$PLUGIN_ROOT/bin/tm" dep "$DA" "$DA"
+assert_contains "$(tm dep "$DA" "-$DB")" "blocked by (nothing)" "a leading dash removes a blocker"
+assert_contains "$(tm log "$DA")" '"event":"undep"' "removing a dependency logs an event"
+case "$(tm show "$DB")" in
+  *"blocks: $DA"*) no "removal clears the other end" "still lists blocks" ;;
+  *) ok "removal clears the other end" ;;
+esac
+json "$(tm dep "$DA" --json)" 'type == "array"' "tm dep with no args reads the blockers"
+
 # A manifest import: one epic, a task per goal, the manifest's deps and its declared touches.
 mkdir -p "$TM_ROOT/g"
 cat > "$TM_ROOT/g/one.md" <<'GD'

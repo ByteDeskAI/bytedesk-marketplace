@@ -208,7 +208,9 @@ export function TaskCard({
             <SimpleTag key={l} text={l} />
           ))}
           {(task.blockedBy ?? []).length ? (
-            <Lozenge appearance="removed">{`⊘ ${(task.blockedBy ?? []).join(", ")}`}</Lozenge>
+            <Tooltip content={`waiting on ${(task.blockedBy ?? []).join(", ")} — open the card to change it`}>
+              <Lozenge appearance="removed">{`⊘ ${(task.blockedBy ?? []).join(", ")}`}</Lozenge>
+            </Tooltip>
           ) : null}
           {(task.links ?? []).length ? <Badge>{`🔗 ${task.links!.length}`}</Badge> : null}
           {(task.comments ?? []).length ? <Badge>{`💬 ${task.comments!.length}`}</Badge> : null}

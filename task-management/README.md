@@ -89,7 +89,7 @@ tm accept <id> <n>                   tick one
 tm start|done|park|block|unblock <id>
 tm reopen <id> [why]                 bring a done task back, and its epic with it
 tm goal import <doc.md|*.plan.json>  a goal doc becomes a task; a manifest becomes a whole epic
-tm dep <id> <blocker...>             dependency graph
+tm dep <id> [-]<blocker>...          dependency graph; a leading - removes
 tm evidence <id> <path|->            attach a log/screenshot as proof
 tm task new "<title>" --template bug   start from a template
 tm next | board | stale | find <q>   read the board  (add --json to any of these)
@@ -307,7 +307,12 @@ tm rank <id> --before|--after <id>            tm backlog
 ```
 
 Links are mirrored automatically — `A blocks B` gives B `blocked by A`, because a one-sided
-link is invisible from the end you're usually looking at. Subtask nesting refuses cycles.
+link is invisible from the end you're usually looking at. Dependencies work the same way and are
+removable with a leading `-`, the same convention `tm label` uses. A dependency that would close a
+**cycle is refused** at the point of writing rather than reported afterwards — `tm doctor` finds
+cycles and deliberately will not repair them, since which edge to cut is a judgement, so the cheap
+moment to say no is before one exists. A loop that already exists elsewhere is not blamed on the
+next caller; doctor still reports it. Subtask nesting refuses cycles.
 Backlog ranks are sparse integers, so dragging a card rewrites one file, not the whole board.
 
 ## Dashboard write surface
