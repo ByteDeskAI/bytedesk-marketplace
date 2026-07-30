@@ -19,6 +19,7 @@ import { board, handoff, standup, taskLine } from "./render.mjs";
 import { renderWhy, why } from "./graph.mjs";
 import { listResources, readResource } from "./resources.mjs";
 import { describeQuery, matchesQuery, parseQuery } from "./query.mjs";
+import { accept, propose, ranked, score, ship } from "./capability.mjs";
 
 export const SERVER_INFO = { name: "task-management", version: "0.3.0" };
 
@@ -76,7 +77,7 @@ export const TOOLS = [
         return fail(e.message);
       }
       const hits = [];
-      for (const kind of ["epic", "task", "adr"]) {
+      for (const kind of ["epic", "task", "adr", "capability"]) {
         for (const d of list(kind, {}, p)) {
           if (matchesQuery({ ...d, kind }, parsed)) hits.push({ id: d.id, kind, title: d.title });
         }
@@ -407,6 +408,91 @@ export const TOOLS = [
         p,
       );
       return ok({ id: a.id, file: a.file });
+    },
+  },
+  {
+    name: "tm_cap_propose",
+    description:
+      "Propose a product capability: a problem worth solving, sized (impact/effort/confidence) with acceptance criteria, before anyone commits to building it. Use during /enhance or whenever the answer to 'what should we build next' needs to outlive the session. Proposing is not committing — `tm_cap_accept` is what turns it into work.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: str("The capability, stated as the outcome a user gets."),
+        area: str("Product area, e.g. ux, platform, ops. Default: product."),
+        impact: str("S | M | L — how much it moves the product. Default M."),
+        effort: str("S | M | L — how much it costs to build. Default M."),
+        confidence: str("H | M | L — how sure you are it is the right thing. Default M."),
+        source: str("Where it came from: research, operator, incident, gap-backlog."),
+        problem: str("Problem / job-to-be-done."),
+        current: str("What the product does today."),
+        proposal: str("The proposed enhancement."),
+        criteria: { type: "array", items: { type: "string" }, description: "Acceptance criteria; they become the task's gate on accept." },
+        nonGoals: { type: "array", items: { type: "string" }, description: "Explicitly out of scope." },
+      },
+      required: ["title"],
+    },
+    run: (args, p) => {
+      try {
+        const c = propose(args, p);
+        return ok({ id: c.id, file: c.file, score: score(c) });
+      } catch (e) {
+        return fail(e.message);
+      }
+    },
+  },
+  {
+    name: "tm_cap_list",
+    description:
+      "The enhancement backlog, best bet first (impact × ease × confidence). Read this before proposing anything — a capability that is already on the board must not be proposed twice.",
+    inputSchema: {
+      type: "object",
+      properties: { status: str("Filter: open (proposed), in_progress (accepted), done (shipped), deleted (dropped).") },
+    },
+    run: ({ status }, p) =>
+      ok({
+        capabilities: ranked(p, status ? { status } : {}).map((c) => ({
+          id: c.id,
+          title: c.title,
+          status: c.status,
+          area: c.area,
+          impact: c.impact,
+          effort: c.effort,
+          confidence: c.confidence,
+          score: score(c),
+          task: c.task || null,
+        })),
+      }),
+  },
+  {
+    name: "tm_cap_accept",
+    description:
+      "Accept a capability and mint the task that builds it: its acceptance criteria become the task's gate and the two are linked, so the reason for the work survives the session that proposed it. Call only when the user has agreed to build this one.",
+    inputSchema: { type: "object", properties: { id: str("Capability id, e.g. CAP-0046.") }, required: ["id"] },
+    run: ({ id }, p) => {
+      try {
+        const res = accept(id, p);
+        return ok({ id: res.cap.id, task: res.task.id, existing: Boolean(res.existing) });
+      } catch (e) {
+        return fail(e.message);
+      }
+    },
+  },
+  {
+    name: "tm_cap_ship",
+    description:
+      "Mark a capability shipped. Refuses without evidence — attach it with tm_evidence first. A capability is never shipped on assertion.",
+    inputSchema: {
+      type: "object",
+      properties: { id: str("Capability id."), evidence: str("Optional extra reference: commit, test path, cutover PASS.") },
+      required: ["id"],
+    },
+    run: ({ id, evidence }, p) => {
+      try {
+        const doc = ship(id, { evidence }, p);
+        return ok({ id: doc.id, shipped: doc.shipped });
+      } catch (e) {
+        return fail(e.message);
+      }
     },
   },
   {

@@ -47,6 +47,7 @@ import { applyShares, createWorktree, listWorktrees, removeWorktree } from "../l
 import { applyTemplate, listTemplates, seedTemplates } from "../lib/templates.mjs";
 import { cycleTime, human as humanMs, summary as timeSummary, timeInStatus } from "../lib/time.mjs";
 import { upsertDecision } from "../lib/adr.mjs";
+import { accept as acceptCap, capLine, drop as dropCap, propose, ranked, score as capScore, ship as shipCap } from "../lib/capability.mjs";
 import { claimTask, claimant, releaseClaim, staleClaims, sweepClaims } from "../lib/claims.mjs";
 import { actor, actorLabel, sessionId } from "../lib/actor.mjs";
 import { addComment, addLink, assign, backlog, dependencies, estimate, labels, prioritise, rank, setType, subtasks, typeOf } from "../lib/issue.mjs";
@@ -285,6 +286,74 @@ const VERBS = {
       P,
     );
     out(`${a.id} — ${a.file}`);
+  },
+
+  /**
+   * `tm cap` — the enhancement backlog. Proposals are ranked, accepted ones become tasks.
+   *
+   * Flags are parsed here rather than in capability.mjs so the library stays callable from
+   * MCP and the importer without a second argv convention.
+   */
+  cap(sub = "list", ...rest) {
+    requireInit();
+    const flags = {};
+    const words = [];
+    for (let i = 0; i < rest.length; i += 1) {
+      if (rest[i]?.startsWith("--")) flags[rest[i].slice(2)] = rest[i + 1]?.startsWith("--") ? true : rest[++i];
+      else words.push(rest[i]);
+    }
+    const title = words.join(" ");
+
+    if (sub === "new" || sub === "propose") {
+      if (!title) die('usage: tm cap new "<title>" [--area ux] [--impact S|M|L] [--effort S|M|L] [--confidence H|M|L] [--source research]');
+      let c;
+      try {
+        c = propose({ title, ...flags }, P);
+      } catch (e) {
+        die(e.message);
+      }
+      out(`${c.id} — ${c.file}`);
+      return;
+    }
+    if (sub === "accept") {
+      const id = words[0] || die("usage: tm cap accept <CAP-id>");
+      let res;
+      try {
+        res = acceptCap(id, P);
+      } catch (e) {
+        die(e.message);
+      }
+      out(
+        res.existing
+          ? `${id} already accepted → ${res.task.id}`
+          : `${id} accepted → ${res.task.id} (${res.task.acceptance.length} acceptance criteria carried over)`,
+      );
+      return;
+    }
+    if (sub === "ship") {
+      const id = words[0] || die("usage: tm cap ship <CAP-id> [--evidence <ref>]");
+      try {
+        const doc = shipCap(id, { evidence: flags.evidence, task: flags.task }, P);
+        out(`${id} shipped ${doc.shipped}`);
+      } catch (e) {
+        die(e.message);
+      }
+      return;
+    }
+    if (sub === "drop") {
+      const id = words[0] || die("usage: tm cap drop <CAP-id> [why]");
+      dropCap(id, words.slice(1).join(" "), P);
+      out(`${id} dropped`);
+      return;
+    }
+    if (sub === "list" || sub === undefined) {
+      const rows = ranked(P, flags.status ? { status: flags.status } : {});
+      emit(rows.map(({ body, file, ...r }) => r), () =>
+        rows.map((c) => capLine(c)).join("\n") || "(no capabilities — `tm cap new \"<title>\"`)",
+      );
+      return;
+    }
+    die(`unknown: tm cap ${sub} (new | list | accept | ship | drop)`);
   },
 
   start(id) {
@@ -617,7 +686,7 @@ const VERBS = {
       die(e.message);
     }
     const hits = [];
-    for (const kind of ["epic", "task", "adr"]) {
+    for (const kind of ["epic", "task", "adr", "capability"]) {
       for (const d of list(kind, {}, P)) {
         if (!matchesQuery({ ...d, kind }, query)) continue;
         const { body, file, ...rest } = d;
@@ -722,7 +791,9 @@ const VERBS = {
   reindex() {
     requireInit();
     const idx = reindex(P);
-    out(`indexed ${idx.epics.length} epics, ${idx.tasks.length} tasks, ${idx.adrs.length} adrs`);
+    out(
+      `indexed ${idx.epics.length} epics, ${idx.tasks.length} tasks, ${idx.adrs.length} adrs, ${idx.capabilities.length} capabilities`,
+    );
   },
 
   override(...reason) {
@@ -1118,6 +1189,8 @@ const VERBS = {
         '  epic new "<title>" | use <id> | done <id> | (list)',
         '  task new "<title>" | (list)',
         '  adr new "<title>"',
+        '  cap new "<title>" [--area --impact --effort --confidence --source]   the enhancement backlog',
+        "  cap list [--status open] | accept <CAP-id> | ship <CAP-id> [--evidence <ref>] | drop <CAP-id>",
         "  goal import <doc.md>          a goal doc becomes a task; its success criteria become the gate",
         "  start <id> | done <id> | park <id> [why] | block <id> [why] | unblock <id>",
         "  reopen <id> [why]             bring a done task back, and its epic with it",
@@ -1271,10 +1344,23 @@ function renderShow(doc) {
    * carries and the other two were simply never added: `tm show` on a blocked task printed its
    * status and not one word about what it was waiting for.
    */
-  const stopped = doc.status === "blocked" ? doc.blockedReason : doc.status === "parked" ? doc.parkedReason : null;
+  const stopped =
+    doc.status === "blocked"
+      ? doc.blockedReason
+      : doc.status === "parked"
+        ? doc.parkedReason
+        : // A dropped capability is the fourth reason work stops, and the only one whose
+          // reason is the whole point of keeping the record.
+          doc.status === "deleted"
+          ? doc.droppedReason
+          : null;
   if (stopped) lines.push(`${doc.status}: ${stopped}`);
 
   const facts = [
+    doc.kind === "capability" ? `impact: ${doc.impact}   effort: ${doc.effort}   confidence: ${doc.confidence}   score: ${capScore(doc)}` : "",
+    doc.area ? `area: ${doc.area}` : "",
+    doc.capability ? `capability: ${doc.capability}` : "",
+    doc.task ? `task: ${doc.task}` : "",
     doc.assignee ? `assignee: ${doc.assignee}` : "",
     doc.priority ? `priority: ${doc.priority}` : "",
     doc.estimate !== undefined ? `estimate: ${doc.estimate}` : "",

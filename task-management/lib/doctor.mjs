@@ -344,7 +344,7 @@ export function diagnose(p = paths()) {
     out.push(
       finding("warning", "index-drift", null, drift, () => {
         const idx = reindex(p);
-        return `reindexed ${idx.epics.length} epics, ${idx.tasks.length} tasks, ${idx.adrs.length} adrs`;
+        return `reindexed ${idx.epics.length} epics, ${idx.tasks.length} tasks, ${idx.adrs.length} adrs, ${idx.capabilities.length} capabilities`;
       }),
     );
   }

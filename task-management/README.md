@@ -98,6 +98,10 @@ tm start|done|park|block|unblock <id>
 tm reopen <id> [why]                 bring a done task back, and its epic with it
 tm goal import <doc.md|*.plan.json>  a goal doc becomes a task; a manifest becomes a whole epic
 tm dep <id> [-]<blocker>...          dependency graph; a leading - removes
+tm cap new "<title>" [--area --impact --effort --confidence --source]
+tm cap list [--status open]          the enhancement backlog, best bet first
+tm cap accept <CAP-id>               mint the task that builds it, criteria and all
+tm cap ship <CAP-id> | drop <CAP-id> shipping refuses without evidence
 tm evidence <id> <path|->            attach a log/screenshot as proof
 tm task new "<title>" --template bug   start from a template
 tm next | board | stale | standup      read the board  (add --json to any of these)
@@ -585,7 +589,36 @@ Refusals carry the CLI's own wording: a gate says no with **409** and the reason
 
 ## Skills
 
-`/task-management:epic` · `board` · `adr` · `handoff` · `standup` · `groom` · `override`
+`/task-management:epic` · `board` · `adr` · `handoff` · `standup` · `groom` · `override` · `enhance`
+
+## Capabilities — what to build next
+
+Tasks answer "what am I doing"; capabilities answer "what is worth doing". A capability
+(`CAP-*`) is a proposal: a problem, sized by impact × ease × confidence, with acceptance
+criteria, before anyone commits to building it.
+
+```
+tm cap new "Jump palette cheatsheet" --area ux --impact H --effort S --confidence H
+tm cap list                       # ranked; score 1–27, high is do-this-first
+tm cap accept CAP-0001            # → TM-014, criteria carried over as its gate
+tm evidence CAP-0001 test/palette_test.go
+tm cap ship CAP-0001              # refuses without evidence
+```
+
+Accepting is the seam between the two layers: the task carries the card that justifies it, so
+the reason for the work outlives the session that proposed it. `/enhance` drives the whole loop
+— capture product state, research, propose ranked cards, track to shipped.
+
+Impact and confidence are H/M/L, effort is S/M/L. Both vocabularies are what people already
+write on a card, so `impact: L` means *low*, not *large*.
+
+Migrating from a `docs/capabilities/` store (INDEX.yaml + CAP-*.md)?
+
+```
+node scripts/import-capability-cards.mjs --dry-run
+```
+
+Ids are preserved, so every reference in a commit message or PR still resolves.
 
 ## Dashboard
 

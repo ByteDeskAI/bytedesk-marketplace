@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+### Added
+
+- **Capabilities: the discovery layer above tasks, and `/enhance` to drive it.**
+
+  This started as `docs/capabilities/` in one product repo — a YAML registry, one markdown card
+  per capability, a `next_id` counter, and a python script whose entire job was checking that the
+  registry and the cards still agreed. Every one of those pieces is something the store already
+  does for epics, tasks and ADRs. So a capability is now a fourth kind (`CAP-*`) and all of it
+  goes away: ids, status, evidence, search, events, `tm find`, `tm doctor` and the MCP surface
+  come for free, and there is no index to hand-edit or validate.
+
+  `tm cap new` proposes, `tm cap list` ranks by impact × ease × confidence (1–27, small enough to
+  check by eye), `tm cap accept` mints the task that builds it and carries the card's acceptance
+  criteria across as that task's gate, `tm cap ship` refuses without evidence. The task links back
+  to the capability, so the reason for the work outlives the session that proposed it.
+
+  Impact and confidence stay H/M/L and effort stays S/M/L, deliberately — one uniform scale would
+  have silently reinterpreted `impact: L` from *low* to *large* on every imported card.
+
+  Skills: `enhance` (the loop), `enhance-capture`, `enhance-research`, `enhance-propose`,
+  `enhance-track`. The old suite's sixth skill, `enhance-refresh`, is folded into `enhance-track`
+  — both were "mark it shipped, with evidence".
+
+  `scripts/import-capability-cards.mjs` reads a legacy `docs/capabilities/` store once, preserving
+  ids so existing references still resolve. It is idempotent and has a `--dry-run`.
+
+  Also, because it was the same omission: `tm show` on a dropped capability now prints why it was
+  dropped. It already did this for `blocked` and `parked` and the third case was simply never added.
+
+  Not done: the dashboard has no capabilities panel yet — `tm cap list` and `tm find` are the
+  read paths for now.
+
 ### Removed
 
 - **`tm export pm`.** The format emitted `pm_issue_create` payloads for the

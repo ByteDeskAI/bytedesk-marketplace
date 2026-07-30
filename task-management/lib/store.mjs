@@ -689,8 +689,8 @@ export function list(kind, filter = {}, p = paths()) {
 
 /** Rebuild index.json from the markdown files. Cheap enough to run on every write. */
 export function reindex(p = paths()) {
-  const index = { generated: now(), epics: [], tasks: [], adrs: [] };
-  for (const [kind, key] of [["epic", "epics"], ["task", "tasks"], ["adr", "adrs"]]) {
+  const index = { generated: now(), epics: [], tasks: [], adrs: [], capabilities: [] };
+  for (const [kind, key] of [["epic", "epics"], ["task", "tasks"], ["adr", "adrs"], ["capability", "capabilities"]]) {
     index[key] = list(kind, {}, p).map(({ body, file, ...rest }) => rest);
   }
   try {

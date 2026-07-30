@@ -102,6 +102,7 @@ export function paths(root = resolveRoot()) {
     tasks: join(base, "tasks"),
     adrs: join(base, "adrs"),
     sprints: join(base, "sprints"),
+    capabilities: join(base, "capabilities"),
     plans: join(base, "plans"),
     evidence: join(base, "evidence"),
     templates: join(base, "templates"),
@@ -129,6 +130,7 @@ export const KINDS = {
    * what the store already says once.
    */
   sprint: { dir: "sprints", prefix: "SP", pad: 3 },
+  capability: { dir: "capabilities", prefix: "CAP", pad: 4 },
 };
 
 
@@ -157,7 +159,7 @@ export function projectName(p = paths()) {
 
 export function ensureDirs(p = paths()) {
   assertRoot(p);
-  for (const key of ["base", "epics", "tasks", "adrs", "sprints", "plans", "evidence"]) {
+  for (const key of ["base", "epics", "tasks", "adrs", "sprints", "capabilities", "plans", "evidence"]) {
     mkdirSync(p[key], { recursive: true });
   }
   return p;
