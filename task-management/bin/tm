@@ -1247,10 +1247,37 @@ function hook(event) {
     }
 
     // Parallel agents are invisible unless their work lands on the timeline.
+    /**
+     * A subagent finished. README promises "its work is attributed on the timeline, so parallel
+     * agents are visible" — and it never once was: 317 of these events in this project's own store,
+     * zero with a single task attributed.
+     *
+     * The filter asked whether a claim's session equalled `input.session_id || CLAUDE_SESSION_ID`,
+     * and the `||` let the payload win. But the payload's session_id is the SUBAGENT's, while every
+     * claim is held by the PARENT — `tm start` runs in the parent's session — so the comparison
+     * could only ever match when the two ids happened to be identical. Two different things were
+     * being read out of one field.
+     *
+     * They are separated now: the parent's session selects the claims, because those are the tasks
+     * this fan-out is working on, and the subagent's own id is recorded as the agent so the timeline
+     * says WHICH agent finished. `transcript_path` is carried too — it is in every hook payload and
+     * it is the only durable pointer back to what the subagent actually did.
+     */
     case "subagent-stop": {
+      const parent = process.env.CLAUDE_SESSION_ID || null;
       const claims = state(P).claims || {};
-      const mine = Object.entries(claims).filter(([, c]) => c.session === (input.session_id || process.env.CLAUDE_SESSION_ID));
-      logEvent("subagent_stop", { agent: input.session_id || null, tasks: mine.map(([id]) => id) }, P);
+      const held = Object.entries(claims)
+        .filter(([, c]) => parent && c.session === parent)
+        .map(([id]) => id);
+      logEvent(
+        "subagent_stop",
+        {
+          agent: input.session_id || null,
+          tasks: held,
+          transcript: input.transcript_path || undefined,
+        },
+        P,
+      );
       break;
     }
 

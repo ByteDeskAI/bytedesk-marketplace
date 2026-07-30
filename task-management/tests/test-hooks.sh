@@ -82,5 +82,26 @@ unset TM_ENFORCE
 echo 'not json' | "$PLUGIN_ROOT/hooks/tm-hook.sh" post-task >/dev/null 2>&1 && ok "malformed payload still exits 0" || no "malformed payload still exits 0"
 "$PLUGIN_ROOT/hooks/tm-hook.sh" </dev/null >/dev/null 2>&1 && ok "missing event name still exits 0" || no "missing event name still exits 0"
 
+# SubagentStop attribution. The README promises a subagent's work is attributed on the timeline;
+# it never was — 317 of these events in this project's own store, zero with a task attributed.
+# The filter read `input.session_id || CLAUDE_SESSION_ID`, so the SUBAGENT's id won, while every
+# claim is held by the PARENT — the comparison could only match when the two ids coincided.
+tm epic new "Subagent attribution" >/dev/null
+tm task new "Work a subagent will do" >/dev/null
+SAID=$(tm find "Work a subagent will do" --json | jq -r '.[0].id')
+tm start "$SAID" >/dev/null
+
+# A real subagent carries its OWN session id, different from the parent's.
+OUT="$(hook subagent-stop '{"session_id":"subagent-xyz","transcript_path":"/tmp/agent.jsonl"}')"
+LAST="$(tm log 1 --json)"
+has "$LAST" '"agent": "subagent-xyz"' "the subagent's own id names the agent"
+has "$LAST" "\"$SAID\"" "the parent's claimed task is attributed to the fan-out"
+has "$LAST" '"transcript": "/tmp/agent.jsonl"' "the transcript path is carried, being the only pointer back"
+
+# With nothing claimed there is nothing to attribute, and that must not error.
+tm park "$SAID" done here >/dev/null
+hook subagent-stop '{"session_id":"subagent-xyz"}' >/dev/null
+has "$(tm log 1 --json)" '"tasks": []' "no claims means no attribution, not a failure"
+
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [[ "$FAIL" == 0 ]]

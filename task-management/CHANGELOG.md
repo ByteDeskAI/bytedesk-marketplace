@@ -70,6 +70,19 @@
 
 ### Fixed
 
+- **A subagent's work was never attributed, in 317 consecutive firings.** The README promises "its
+  work is attributed on the timeline, so parallel agents are visible"; this project's own store holds
+  317 `subagent_stop` events and **not one** has a task against it. The filter asked whether a
+  claim's session equalled `input.session_id || CLAUDE_SESSION_ID`, and the `||` let the payload win
+  — but the payload's `session_id` is the **subagent's**, while every claim is held by the **parent**
+  (`tm start` runs there). The comparison could only match when the two ids happened to be identical.
+  Two different things were being read out of one field.
+
+  Separated: the parent's session selects the claims, since those are the tasks the fan-out is
+  working on, and the subagent's own id is recorded as the agent so the timeline says *which* agent
+  finished. `transcript_path` is carried too — it is in every hook payload and is the only durable
+  pointer back to what the subagent actually did.
+
 - **The CSV Issue Type column was fabricated from parentage.** `toCsv` wrote
   `t.parent ? "Sub-task" : "Task"` — which is *structure*, not type — so a **bug** that happened to
   be a subtask exported as `Sub-task` and its bug-ness was lost, and every top-level bug exported
