@@ -1,5 +1,8 @@
 # Per-user fleet state — never commit
 .claude-sessions/
+.claude/plugins/
+.bytedesk/
+**/.in_use/
 .claude/worktrees/
 notifications.fifo
 notify.log
