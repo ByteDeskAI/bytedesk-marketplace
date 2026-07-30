@@ -42,13 +42,21 @@ tm epic new "Concurrency" >/dev/null
 N=8
 for i in $(seq 1 $N); do
   # Distinct enough titles that the fuzzy duplicate guard does not refuse them.
-  (TM_ALLOW_DUP=1 node "$PLUGIN_ROOT/bin/tm" task new "concurrent subject number $i" >/dev/null 2>&1) &
+  # stderr is KEPT, not discarded. It used to go to /dev/null, so when a create failed the suite
+  # reported "expected 8, got 7" and threw away the one line that said why — which is why this took
+  # so long to diagnose.
+  (TM_ALLOW_DUP=1 node "$PLUGIN_ROOT/bin/tm" task new "concurrent subject number $i" >/dev/null 2>>"$STORE/creates.err") &
 done
 wait
 
 FILES=$(find "$STORE/tasks" -name 'TM-*.md' | wc -l | tr -d ' ')
 IDS=$(find "$STORE/tasks" -name 'TM-*.md' -exec basename {} \; | grep -o '^TM-[0-9]*' | sort -u | wc -l | tr -d ' ')
 ROWS=$(tm board --json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).tasks.length))')
+
+if [[ -s "$STORE/creates.err" ]]; then
+  printf '  a create wrote to stderr:\n'
+  sed 's/^/    /' "$STORE/creates.err" | head -5
+fi
 
 eq "$FILES" "$N" "$N concurrent creates write $N files"
 eq "$IDS" "$N" "every concurrent create gets its own id"

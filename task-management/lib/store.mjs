@@ -92,6 +92,27 @@ function writeAtomic(file, text) {
   renameSync(tmp, file);
 }
 
+
+/**
+ * An entity file, as opposed to one of our own staging files.
+ *
+ * `writeAtomic` stages at `.tm-tmp-<pid>-<name>` — which ENDS IN `.md`, because it is built from
+ * the target's basename. Every reader here globs `.endsWith(".md")`, so a reader could see another
+ * process's staging file in `readdirSync`, then `renameSync` moved it, then `readFileSync` opened a
+ * path that no longer existed:
+ *
+ *   tm task: ENOENT: no such file or directory, open '…/tasks/.tm-tmp-3705640-TM-003-….md'
+ *
+ * That is the create that never wrote a file, and the whole of TM-015's residue: eight concurrent
+ * creates producing seven files, seven ids and seven index rows. It needed a second process writing
+ * at the exact moment a first was listing, which is why it only ever appeared with several suites
+ * running at once and never on its own.
+ *
+ * The comment above `writeAtomic` claimed the leading dot meant it "never matches". The dot was
+ * never consulted — the filter asked about the extension. Now it is consulted.
+ */
+const isEntityFile = (name) => name.endsWith(".md") && !name.startsWith(".");
+
 function readJson(file, fallback) {
   try {
     return JSON.parse(readFileSync(file, "utf8"));
@@ -500,7 +521,7 @@ export function fileFor(id, p = paths()) {
   // `.md` only. Without it, any leftover file whose name begins with the id — a temp from a
   // write that died before its rename — is a candidate answer for where this entity lives,
   // and `read()`/`update()` would then operate on a file that `list()` cannot see.
-  const hit = readdirSync(dir).find((f) => f.endsWith(".md") && (f.startsWith(`${id}-`) || f === `${id}.md`));
+  const hit = readdirSync(dir).find((f) => isEntityFile(f) && (f.startsWith(`${id}-`) || f === `${id}.md`));
   return hit ? join(dir, hit) : null;
 }
 
@@ -512,7 +533,7 @@ export function nextId(kind, p = paths()) {
   // — the next real task skipped it and nothing ever occupied it.
   const nums = existsSync(dir)
     ? readdirSync(dir)
-        .filter((f) => f.endsWith(".md"))
+        .filter(isEntityFile)
         .map((f) => new RegExp(`^${prefix}-(\\d+)`).exec(f))
         .filter(Boolean)
         .map((m) => Number(m[1]))
@@ -644,11 +665,23 @@ export function list(kind, filter = {}, p = paths()) {
   const { includeDeleted, ...match } = filter;
   const wantDeleted = includeDeleted || match.status === "deleted";
   return readdirSync(dir)
-    .filter((f) => f.endsWith(".md"))
+    .filter(isEntityFile)
     .map((f) => {
-      const { data, body } = parseDoc(readFileSync(join(dir, f), "utf8"));
-      return { ...data, body, file: join(dir, f) };
+      /**
+       * A file can still vanish between the listing and the read — a concurrent `tm done` renaming
+       * over it, a `git checkout` under the store. Skipping a file that is no longer there is
+       * strictly better than failing the whole read: the caller asked what is on the board, and a
+       * file that stopped existing is not on it.
+       */
+      try {
+        const { data, body } = parseDoc(readFileSync(join(dir, f), "utf8"));
+        return { ...data, body, file: join(dir, f) };
+      } catch (err) {
+        if (err.code === "ENOENT") return null;
+        throw err;
+      }
     })
+    .filter(Boolean)
     .filter((d) => wantDeleted || d.status !== "deleted")
     .filter((d) => Object.entries(match).every(([k, v]) => (v === undefined ? true : d[k] === v)))
     .sort((a, b) => String(a.id).localeCompare(String(b.id)));
