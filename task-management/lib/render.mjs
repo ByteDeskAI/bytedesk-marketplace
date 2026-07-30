@@ -15,6 +15,10 @@ export function taskLine(t) {
   return [
     `${MARK[t.status] || "?"} ${t.id}`,
     t.title,
+    // `next` is ordered by priority now, so a line that does not show it is a list whose
+    // order has no visible reason. Only when it was actually set — an unset field is not a
+    // fact about the task, and putting `!medium` on every row buys nothing.
+    t.priority ? `!${t.priority}` : "",
     t.epic ? `[${t.epic}]` : "",
     acc ? `(${met}/${acc} AC)` : "",
     (t.blockedBy || []).length ? `blocked-by ${t.blockedBy.join(",")}` : "",

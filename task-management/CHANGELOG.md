@@ -70,6 +70,41 @@
 
 ### Fixed
 
+- **`priority` and `rank` were write-only: nothing ever read them.** `nextTasks` filtered and
+  returned whatever order `list` gave it, which is id order — creation order. So a task set to
+  `highest` and placed at the top of the backlog still came second behind an untouched `low` one:
+
+  ```
+  $ tm backlog
+    1. ○ TM-002 zzz the urgent one      ← rank #1, priority highest
+    2. ○ TM-001 aaa low thing
+  $ tm next
+  ○ TM-001 aaa low thing                ← the wrong one, and this is the verb agents call
+  ○ TM-002 zzz the urgent one
+  ```
+
+  `tm next` is what the README, the SessionStart context block and the `tm_next` tool all point
+  an agent at, so priority could not influence what any agent picked up — two fields the CLI, the
+  dashboard and MCP could all write, and no reader anywhere. It showed up in this project's own
+  orientation block, which listed "next unblocked" in id order.
+
+  Ordered now: an explicit `rank` first, then `priority`, then id. Ranked ahead of unranked rather
+  than interleaved — a fallback rank derived from list position gives every task a distinct
+  pseudo-rank, and priority as a tiebreaker on values that are never tied is priority that still
+  does nothing. Id last makes the order total, so the same board cannot render two ways.
+
+  The sort lives inside `nextTasks` rather than at its five call sites (`tm next`, the
+  SessionStart block, `tm_next`, the resource picker, `tm parallel`), because an order every
+  caller has to remember to apply is an order some caller will not have. `taskLine` shows
+  `!<priority>` when one is set, so the ordering has a visible reason.
+
+  `tm backlog` is deliberately untouched: `tm rank --before/--after` computes a new rank from the
+  positions backlog reports, so changing that order would change what those flags mean.
+
+  The priority vocabulary moved from `issue.mjs` to `store.mjs` — the queue order reads it and
+  store.mjs is what issue.mjs is built on, so the other direction would have been an import
+  cycle. `issue.mjs` re-exports it and still owns the field: validation, the event, the verb.
+
 - **`tm doctor --fix` deleted the evidence it could not resolve, including the url of the PR that
   proved the task.** The check asked `existsSync(join(root, ref))` for every evidence ref and
   offered to drop whatever came back false — and `join(root, "https://…/pull/69")` is a path that
