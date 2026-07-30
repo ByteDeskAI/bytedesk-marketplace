@@ -308,6 +308,8 @@ Tasks carry the fields you'd expect from an issue tracker, all optional and all 
 frontmatter — a task with none of them set behaves exactly as it did before they existed:
 
 ```
+tm ac <id> "<criterion>" | ac <id> --rm <n>  add or remove one
+tm accept <id> <n> [--undo]                  tick, or put a mis-tick back
 tm edit <id> "<title>" [--body <text|->]      correct what `new` got wrong
 tm move <id> <EP-nnn|none>                   refile under another epic
 tm assign <id> <who>              tm label <id> ui -stale     (a leading - removes)
@@ -402,6 +404,30 @@ It shares its collapsing with `tm log` and with the dashboard's activity panel: 
 write reads as `→ blocked`, and a generic `update` that a specific event in the same second already
 explains is dropped. The panel gets the sentence for each event kind from the store's own catalog
 over `/api/events`, so all three surfaces describe the same event the same way.
+
+## Acceptance criteria are not a one-way door
+
+`tm done` is gated on the list, so a stray tick or a typo'd criterion changes what the tool will
+accept. Ticking existed on all three surfaces and unticking on none — the dashboard's checkbox even
+set `isDisabled` once checked, locking the box it had just ticked — and nothing anywhere could remove
+a criterion. The only way back was editing the frontmatter by hand.
+
+```
+tm accept <id> <n>            tick
+tm accept <id> <n> --undo     put a mis-tick back
+tm ac <id> --rm <n>           remove one that should never have been there
+```
+
+The board's checkbox toggles, and each criterion has a ✕. Over MCP it is one tool: `tm_ac_accept`
+with `undo` or `remove`.
+
+Unticking **does not reopen a task that is already done**. That is a decision, not an invariant — the
+work may genuinely be finished and the criterion simply mis-ticked — and `tm doctor` already reports
+that state as `done-unmet` and declines to auto-repair it for the same reason. The CLI says so when
+it happens rather than acting on your behalf.
+
+Removing **renumbers what follows**, so every surface returns the surviving list: "AC 4" in an older
+commit message now points at a different sentence.
 
 ## Why a card stopped
 

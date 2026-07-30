@@ -282,6 +282,27 @@ CODE="$(post /api/task/TM-001 '{"epic":"EP-404"}' PATCH)"
 post /api/task/TM-001 '{"epic":"EP-001"}' PATCH >/dev/null   # put it back for what follows
 post /api/epic '{"id":"EP-001"}' >/dev/null
 
+# Acceptance criteria are not a one-way door. Reported by a user who ticked one on the board and
+# could not untick it — the checkbox set isDisabled once checked, and no route unticked.
+post /api/task/TM-001/ac '{"text":"the tickable one"}' >/dev/null
+post /api/task/TM-001/ac '{"text":"the removable one"}' >/dev/null
+post /api/task/TM-001/accept '{"index":1}' >/dev/null
+assert_contains "$(md TM-001)" '"done":true' "the board ticks a criterion"
+CODE="$(post /api/task/TM-001/accept '{"index":1,"done":false}')"
+[[ "$CODE" == 200 ]] && ok "the board unticks it again" || no "the board unticks it again" "got $CODE: $(body)"
+case "$(md TM-001)" in
+  *'"done":true'*) no "the untick is written to the file" "still ticked" ;;
+  *) ok "the untick is written to the file" ;;
+esac
+CODE="$(post /api/task/TM-001/accept '{"index":2,"remove":true}')"
+[[ "$CODE" == 200 ]] && ok "the board removes a criterion" || no "the board removes a criterion" "got $CODE: $(body)"
+case "$(md TM-001)" in
+  *"the removable one"*) no "the removed criterion is gone from the file" "still there" ;;
+  *) ok "the removed criterion is gone from the file" ;;
+esac
+CODE="$(post /api/task/TM-001/accept '{"index":99}')"
+[[ "$CODE" == 400 ]] && ok "an index that does not exist is refused" || no "an index that does not exist is refused" "got $CODE"
+
 # Links write both ends; subtasks and rank move real fields.
 post /api/task/TM-001/link '{"type":"blocks","to":"TM-002"}' >/dev/null
 assert_contains "$(md TM-001)" '"blocks"' "a link is written on the near end"

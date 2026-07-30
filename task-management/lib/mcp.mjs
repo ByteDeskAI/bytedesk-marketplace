@@ -13,7 +13,7 @@ import { basename, join, resolve } from "node:path";
 import { paths } from "./paths.mjs";
 import { claimTask, releaseClaim } from "./claims.mjs";
 import { actor, actorLabel, sessionId } from "./actor.mjs";
-import { config, create, editTask, list, logEvent, moveTask, nextTasks, now, read, state, update, writeState } from "./store.mjs";
+import { config, create, editTask, list, logEvent, moveTask, nextTasks, now, read, removeCriterion, setCriterion, state, update, writeState } from "./store.mjs";
 import { consumeOverride, enforcementOff, gateDone, gateTaskCreate } from "./enforce.mjs";
 import { board, handoff, standup, taskLine } from "./render.mjs";
 import { renderWhy, why } from "./graph.mjs";
@@ -334,23 +334,31 @@ export const TOOLS = [
   {
     name: "tm_ac_accept",
     description:
-      "Tick one acceptance criterion as met. Tick it only after you have actually verified it — attach the proof with tm_evidence. This is what unlocks tm_task_update done.",
+      "Tick an acceptance criterion once it is verifiably true — `tm done` is gated on all of them. Pass undo:true to untick one ticked by mistake, or remove:true to delete a criterion that should never have been there (removing renumbers the ones after it).",
     inputSchema: {
       type: "object",
-      properties: { id: str("Task id."), index: { type: "integer", description: "1-based criterion number." } },
+      properties: {
+        id: str("Task id."),
+        index: { type: "number", description: "1-based position in the acceptance list." },
+        undo: { type: "boolean", description: "Untick instead of ticking." },
+        remove: { type: "boolean", description: "Delete the criterion outright. Renumbers the rest." },
+      },
       required: ["id", "index"],
     },
-    run: ({ id, index }, p) => {
-      const t = read(id, p);
-      if (!t) return fail(`not found: ${id}`);
-      const acceptance = [...(t.acceptance || [])];
-      const i = Number(index) - 1;
-      if (!acceptance[i]) return fail(`${id} has no acceptance criterion ${index}`);
-      acceptance[i] = { ...acceptance[i], done: true, at: now() };
-      update(id, { acceptance }, p);
-      return ok({ id, met: acceptance.filter((a) => a.done).length, total: acceptance.length });
+    run: ({ id, index, undo, remove }, p) => {
+      try {
+        if (remove) {
+          const res = removeCriterion(id, index, p);
+          return ok({ id, removed: res.removed, acceptance: res.acceptance });
+        }
+        const res = setCriterion(id, index, !undo, p);
+        return ok({ id, met: res.met, acceptance: res.acceptance });
+      } catch (e) {
+        return fail(e.message);
+      }
     },
   },
+
   {
     name: "tm_evidence",
     description:

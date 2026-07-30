@@ -226,6 +226,40 @@
 
 ### Fixed
 
+- **Acceptance criteria were a one-way door.** Three surfaces could tick one and none could untick
+  it; the dashboard's checkbox set `isDisabled` the moment it was checked, locking the box it had
+  just ticked. Nothing anywhere could remove a criterion added by mistake. Since `tm done` is gated
+  on the list, a stray click or a typo permanently changed what the tool would accept — and the only
+  way back was editing the frontmatter JSON by hand.
+
+  Reported by a user who ticked one on the board and could not untick it. I had filed the missing
+  *remove* an hour earlier after hitting it myself; the missing *untick* is the sharper half and I
+  had not noticed it.
+
+  ```
+  tm accept <id> <n>            tick
+  tm accept <id> <n> --undo     put a mis-tick back
+  tm ac <id> --rm <n>           remove one that should never have been there
+  ```
+
+  All three surfaces: the board's checkbox toggles and each criterion gets a ✕; over MCP it is one
+  tool, `tm_ac_accept` with `undo` or `remove`. The HTTP action stayed `accept` with a flag rather
+  than gaining a second route, partly because the route matcher is `[a-z]+` and admits no underscore,
+  and mostly because that is the shape the MCP tool already takes — one verb, three intents,
+  described identically on both surfaces.
+
+  Unticking **does not reopen a done task**. That is a decision rather than an invariant: the work may
+  genuinely be finished and the criterion merely mis-ticked, and `tm doctor` already reports exactly
+  this as `done-unmet` and refuses to auto-repair it for the same reason. The CLI says so in its
+  output instead of acting on your behalf. Unticking also drops the met-at timestamp — a met-at on
+  something unmet reads as history and would survive into `tm export`.
+
+  Removing **renumbers what follows**, so every surface returns the surviving list: "AC 4" in an older
+  commit message now points at a different sentence.
+
+  Verified through the rendered UI, not just the API — tick, confirm the box is still enabled,
+  untick, remove — then checked against the store and the timeline.
+
 - **`tm standup` printed a machine trace, and the dashboard's activity panel printed raw event
   keys.** The store's event log had a human rendering — `tm log` gained one — and the two places you
   actually read history did not use it.

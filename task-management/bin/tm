@@ -26,6 +26,8 @@ import {
   rotateEvents,
   autoCloseEpic,
   read,
+  removeCriterion,
+  setCriterion,
   reindex,
   slug,
   staleTasks,
@@ -363,10 +365,25 @@ const VERBS = {
     out(`${id} reopened${reason ? ` — ${reason}` : ""}${epic && read(epic, P)?.status === "open" ? `\n${epic} reopened with it` : ""}`);
   },
 
-  /** tm ac <id> "<criterion>"  — add;  tm accept <id> <n> — tick */
+  /** `tm ac <id> "<text>"` adds; `tm ac <id> --rm <n>` removes one added by mistake. */
   ac(id, ...text) {
     requireInit();
     if (!read(id, P)) die(`not found: ${id}`);
+    const rm = text.indexOf("--rm");
+    if (rm !== -1) {
+      const n = text[rm + 1];
+      if (n === undefined) die("usage: tm ac <id> --rm <n>");
+      let res;
+      try {
+        res = removeCriterion(id, n, P);
+      } catch (e) {
+        die(e.message);
+      }
+      // The surviving list is printed because removal RENUMBERS what follows: anything that
+      // referred to "AC 4" now points at a different sentence.
+      out([`${id} AC ${n} removed: ${res.removed}`, ...res.acceptance.map((a, i) => `  ${i + 1}. [${a.done ? "x" : " "}] ${a.text}`)].join("\n"));
+      return;
+    }
     // Read-append-write: two criteria added at once would otherwise keep only one.
     let acceptance = [];
     mutate(id, (t) => {
@@ -376,20 +393,21 @@ const VERBS = {
     out(`${id} AC ${acceptance.length}: ${text.join(" ")}`);
   },
 
-  accept(id, n) {
+  /** `tm accept <id> <n>` ticks a criterion; `--undo` unticks one ticked by mistake. */
+  accept(id, n, ...rest) {
     requireInit();
-    const t = read(id, P) || die(`not found: ${id}`);
-    const i = Number(n) - 1;
-    if (!(t.acceptance || [])[i]) die(`${id} has no acceptance criterion ${n}`);
-    // Ticking one criterion rewrites the whole array, so two ticks racing would drop one
-    // — which is exactly the gate `tm done` reads.
-    let acceptance = [];
-    mutate(id, (doc) => {
-      acceptance = [...(doc.acceptance || [])];
-      if (acceptance[i]) acceptance[i] = { ...acceptance[i], done: true, at: now() };
-      return { acceptance };
-    }, P);
-    out(`${id} AC ${n} met (${acceptance.filter((a) => a.done).length}/${acceptance.length})`);
+    const undo = rest.includes("--undo");
+    let res;
+    try {
+      res = setCriterion(id, n, !undo, P);
+    } catch (e) {
+      die(e.message);
+    }
+    const note =
+      undo && read(id, P)?.status === "done"
+        ? "  (this task is done with a criterion now unmet — `tm doctor` will say so)"
+        : "";
+    out(`${id} AC ${n} ${undo ? "unmet" : "met"} (${res.met}/${res.acceptance.length})${note}`);
   },
 
   evidence(id, path) {
@@ -1032,7 +1050,7 @@ const VERBS = {
         "  goal import <doc.md>          a goal doc becomes a task; its success criteria become the gate",
         "  start <id> | done <id> | park <id> [why] | block <id> [why] | unblock <id>",
         "  reopen <id> [why]             bring a done task back, and its epic with it",
-        '  ac <id> "<criterion>" | accept <id> <n>',
+        '  ac <id> "<criterion>" | ac <id> --rm <n> | accept <id> <n> [--undo]',
         "  evidence <id> <path|-> | link <id> <ref> | dep <id> [-]<blocker>...",
         "  touches <id> [path...]        paths a task owns; `tm parallel` batches on these",
         "  edit <id> \"<title>\" [--body <text|->]   move <id> <EP-nnn|none>",
