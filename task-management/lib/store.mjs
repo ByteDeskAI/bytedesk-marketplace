@@ -742,3 +742,66 @@ export function staleTasks(p = paths()) {
 export function acceptanceOpen(task) {
   return (task.acceptance || []).filter((a) => !a.done);
 }
+
+/**
+ * Tick or untick one acceptance criterion.
+ *
+ * Ticking existed on three surfaces and unticking on none, so a criterion was a **one-way door**:
+ * the dashboard's checkbox even set `isDisabled` once checked, locking the box it had just ticked.
+ * A stray click permanently changed what `tm done` would accept, and the only way back was editing
+ * the frontmatter JSON by hand.
+ *
+ * Untick deliberately does NOT reopen a task that is already done. That is a decision — the work may
+ * genuinely be finished and the criterion simply mis-ticked — and `tm doctor` already reports
+ * `done-unmet` for exactly this state and refuses to auto-repair it for the same reason. Silently
+ * reopening someone's finished task to satisfy an invariant would be the tool overruling them.
+ *
+ * `mutate` for the read-modify-write, because ticking rewrites the whole array and two ticks racing
+ * would drop one — which is precisely the gate `tm done` reads.
+ */
+export function setCriterion(id, index, done = true, p = paths()) {
+  const t = read(id, p);
+  if (!t) throw new Error(`not found: ${id}`);
+  const i = Number(index) - 1;
+  if (!(t.acceptance || [])[i]) throw new Error(`${id} has no acceptance criterion ${index}`);
+
+  let acceptance = [];
+  mutate(id, (doc) => {
+    acceptance = [...(doc.acceptance || [])];
+    const { at: _was, ...rest } = acceptance[i] || {};
+    // `at` is dropped rather than kept on an unticked criterion: a met-at timestamp on something
+    // not met reads as history and would survive into `tm export`.
+    acceptance[i] = done ? { ...rest, done: true, at: now() } : { ...rest, done: false };
+    return { acceptance };
+  }, p);
+  logEvent(done ? "ac_met" : "ac_unmet", { id, index: Number(index), text: acceptance[i]?.text }, p);
+  return { acceptance, met: acceptance.filter((a) => a.done).length };
+}
+
+/**
+ * Remove a criterion outright, for one added by mistake.
+ *
+ * Nothing could. `tm ac` only appends, so a typo'd criterion gated `tm done` forever unless someone
+ * opened the markdown — and the gate is the whole point of the field, so an unmeetable entry in it
+ * is not cosmetic.
+ *
+ * Returns the surviving list, because **removal renumbers everything after it**: criterion 4 becomes
+ * criterion 3, and any commit message, comment or note that referred to "AC 4" now points at a
+ * different sentence. The callers print the new list for that reason.
+ */
+export function removeCriterion(id, index, p = paths()) {
+  const t = read(id, p);
+  if (!t) throw new Error(`not found: ${id}`);
+  const i = Number(index) - 1;
+  const target = (t.acceptance || [])[i];
+  if (!target) throw new Error(`${id} has no acceptance criterion ${index}`);
+
+  let acceptance = [];
+  mutate(id, (doc) => {
+    acceptance = (doc.acceptance || []).filter((_, n) => n !== i);
+    return { acceptance };
+  }, p);
+  logEvent("ac_removed", { id, index: Number(index), text: target.text }, p);
+  return { removed: target.text, acceptance };
+}
+

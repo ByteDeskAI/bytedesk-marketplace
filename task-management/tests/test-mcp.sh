@@ -95,6 +95,15 @@ assert_contains "$OUT" '\"hits\": []' "a field that does not match returns no hi
 OUT="$(call tm_find '{"query":"assigne:ryan"}' | mcp)"
 assert_contains "$OUT" "unknown search field" "an unknown field is refused over the wire, not thrown"
 
+# Acceptance criteria over the wire: an agent that mis-ticks must be able to put it back.
+{ call tm_ac_add '{"id":"TM-001","text":"the undoable one"}'; } | mcp >/dev/null
+OUT="$(call tm_ac_accept '{"id":"TM-001","index":1,"undo":true}' | mcp)"
+assert_contains "$OUT" '\"ok\": true' "tm_ac_accept unticks with undo"
+OUT="$(call tm_ac_accept '{"id":"TM-001","index":1,"remove":true}' | mcp)"
+assert_contains "$OUT" "removed" "tm_ac_accept removes a criterion"
+OUT="$(call tm_ac_accept '{"id":"TM-001","index":99}' | mcp)"
+assert_contains "$OUT" "no acceptance criterion 99" "a bad index is refused, not thrown"
+
 # Protocol errors.
 # Resources: the board as context the user pulls, over the real stdio server.
 OUT="$(printf '{"jsonrpc":"2.0","id":10,"method":"initialize"}\n' | mcp)"

@@ -243,5 +243,18 @@ tm move "$EDITID" EP-404 2>/dev/null && no "a move to a missing epic is refused"
 tm move "$EDITID" "$EDITID" 2>/dev/null && no "a move to a non-epic id is refused" || ok "a move to a non-epic id is refused"
 assert_contains "$(tm log 200 --json)" '"event": "moved"' "the move is on the timeline, with where it came from"
 
+# Acceptance criteria: tick, untick, remove. The gate `tm done` reads must not be one-way.
+env TM_ENFORCE=off node "$PLUGIN_ROOT/bin/tm" task new "the gated one" >/dev/null
+GID="$(tm find "the gated one" --json | jq -r '.[0].id')"
+tm ac "$GID" "the tickable one" >/dev/null
+tm ac "$GID" "the typo'd one" >/dev/null
+assert_contains "$(tm accept "$GID" 1)" "AC 1 met (1/2)" "accept ticks"
+assert_contains "$(tm accept "$GID" 1 --undo)" "AC 1 unmet (0/2)" "--undo unticks"
+RM="$(tm ac "$GID" --rm 2)"
+assert_contains "$RM" "removed: the typo'd one" "--rm removes it"
+assert_contains "$RM" "1. [ ] the tickable one" "and prints the surviving list, because removal renumbers"
+tm accept "$GID" 9 >/dev/null 2>&1 && no "a bad criterion index is refused" || ok "a bad criterion index is refused"
+assert_contains "$(tm log 200 --json)" '"event": "ac_unmet"' "an untick is on the timeline"
+
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [[ "$FAIL" == 0 ]]

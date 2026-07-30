@@ -9,6 +9,7 @@ import Select from "@atlaskit/select";
 import Tag from "@atlaskit/tag";
 import Textfield from "@atlaskit/textfield";
 import TextArea from "@atlaskit/textarea";
+import Tooltip from "@atlaskit/tooltip";
 import { fetchTask, write } from "../api";
 import { Markdown } from "./Markdown";
 import { ActorBadge } from "./ActorBadge";
@@ -192,14 +193,26 @@ export function TaskDrawer({
               <Text weight="bold" size="small">
                 ACCEPTANCE CRITERIA
               </Text>
+              {/* The box toggles. It used to set isDisabled once checked, so a stray click
+                  permanently changed what `tm done` would accept and the only way back was
+                  editing the markdown by hand — which is exactly how this got reported. */}
               {(task.acceptance ?? []).map((a, i) => (
-                <Checkbox
-                  key={`${a.text}-${i}`}
-                  isChecked={Boolean(a.done)}
-                  isDisabled={Boolean(a.done)}
-                  label={a.text}
-                  onChange={() => act("accept", { index: i + 1 })}
-                />
+                <Inline key={`${a.text}-${i}`} space="space.050" alignBlock="center" spread="space-between">
+                  <Checkbox
+                    isChecked={Boolean(a.done)}
+                    label={a.text}
+                    onChange={() => act("accept", { index: i + 1, done: !a.done })}
+                  />
+                  <Tooltip content="remove this criterion — renumbers the ones after it">
+                    <Button
+                      appearance="subtle"
+                      spacing="compact"
+                      onClick={() => act("accept", { index: i + 1, remove: true })}
+                    >
+                      ✕
+                    </Button>
+                  </Tooltip>
+                </Inline>
               ))}
               <Inline space="space.100" alignBlock="end">
                 <Textfield

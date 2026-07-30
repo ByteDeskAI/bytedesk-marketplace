@@ -21,6 +21,8 @@ import {
   create,
   editTask,
   kindOf,
+  removeCriterion,
+  setCriterion,
   moveTask,
   list,
   logEvent,
@@ -99,7 +101,7 @@ export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
       case "ac":
         return addCriterion(task, payload.text, p);
       case "accept":
-        return acceptCriterion(task, payload.index, p);
+        return acceptCriterion(task, payload, p);
       default:
         return fail(404, `unknown action "${action}"`);
     }
@@ -166,13 +168,30 @@ function addCriterion(task, text, p) {
   return ok({ acceptance });
 }
 
-function acceptCriterion(task, index, p) {
-  const acceptance = [...(task.acceptance || [])];
-  const i = Number(index) - 1;
-  if (!acceptance[i]) return fail(400, `${task.id} has no acceptance criterion ${index}`);
-  acceptance[i] = { ...acceptance[i], done: true, at: new Date().toISOString() };
-  update(task.id, { acceptance }, p);
-  return ok({ acceptance });
+/**
+ * Tick, untick, or remove one criterion.
+ *
+ * All three live on the one `accept` action rather than a second route, because the action name is
+ * matched by `[a-z]+` — no underscore — and because this is the shape `tm_ac_accept` already takes
+ * over MCP. One verb, three intents, described identically on both surfaces.
+ *
+ * `done` defaults to true so the existing `{index}` payload keeps working.
+ *
+ * The board could tick and not untick, and its checkbox set `isDisabled` once checked — so a stray
+ * click permanently changed what `tm done` would accept, with no way back short of editing the
+ * markdown by hand. That is what this exists to undo.
+ */
+function acceptCriterion(task, { index, done = true, remove = false }, p) {
+  try {
+    if (remove) {
+      const res = removeCriterion(task.id, index, p);
+      return ok({ acceptance: res.acceptance, removed: res.removed });
+    }
+    const res = setCriterion(task.id, index, done !== false, p);
+    return ok({ acceptance: res.acceptance });
+  } catch (e) {
+    return fail(400, e.message);
+  }
 }
 
 /**
