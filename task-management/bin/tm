@@ -15,6 +15,8 @@ import {
   kindOf,
   config,
   create,
+  editTask,
+  moveTask,
   list,
   logEvent,
   nextTasks,
@@ -646,6 +648,40 @@ const VERBS = {
     out(`${id} ${assign(id, who, P) ? `assigned to ${who}` : "unassigned"}`);
   },
 
+  /**
+   * Correct the title or the body — the two fields `new` writes and nothing could change.
+   * `--body -` reads from stdin, the same convention `tm evidence` uses for a log.
+   */
+  edit(id, ...rest) {
+    requireInit();
+    const bodyAt = rest.indexOf("--body");
+    const title = bodyAt === -1 ? rest[0] : rest.slice(0, bodyAt)[0];
+    let body;
+    if (bodyAt !== -1) {
+      const given = rest[bodyAt + 1];
+      body = given === undefined || given === "-" ? readFileSync(0, "utf8") : given;
+    }
+    if (title === undefined && body === undefined) die('nothing to change — pass a title, or --body [text|-]');
+    const res = editTask(id, { title, body }, P);
+    emit(res, () =>
+      res.changed.length
+        ? `${id} ${res.changed.join(" and ")} updated${res.was && res.changed.includes("title") ? ` (was "${res.was}")` : ""}`
+        : `${id} unchanged`,
+    );
+  },
+
+  /** Refile under another epic, or `none` to detach. */
+  move(id, epic) {
+    requireInit();
+    if (epic === undefined) die("move needs a destination — an epic id, or `none`");
+    const res = moveTask(id, epic, P);
+    emit(res, () => {
+      if (!res.changed) return `${id} is already ${res.to ? `in ${res.to}` : "outside any epic"}`;
+      const extra = [res.reopened && `reopened ${res.reopened}`, res.closed && `closed ${res.closed}`].filter(Boolean);
+      return `${id} moved ${res.from || "(no epic)"} → ${res.to || "(no epic)"}${extra.length ? ` — ${extra.join(", ")}` : ""}`;
+    });
+  },
+
   label(id, ...names) {
     requireInit();
     const remove = names.filter((n) => n.startsWith("-")).map((n) => n.slice(1));
@@ -988,6 +1024,7 @@ const VERBS = {
         '  ac <id> "<criterion>" | accept <id> <n>',
         "  evidence <id> <path|-> | link <id> <ref> | dep <id> [-]<blocker>...",
         "  touches <id> [path...]        paths a task owns; `tm parallel` batches on these",
+        "  edit <id> \"<title>\" [--body <text|->]   move <id> <EP-nnn|none>",
         "  assign <id> <who> | label <id> [-]<name>... | priority <id> <level>",
         "  type <id> [bug|story|task|spike|chore]   issue type; parent expresses subtask-ness",
         "  estimate <id> <points> | comment <id> <text> | subtask <id> [parent|none]",

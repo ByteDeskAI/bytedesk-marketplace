@@ -19,7 +19,9 @@ import {
   autoCloseEpic,
   config,
   create,
+  editTask,
   kindOf,
+  moveTask,
   list,
   logEvent,
   read,
@@ -136,16 +138,24 @@ function transition(task, status, p) {
   return ok(result);
 }
 
-function edit(task, { title, body }, p) {
-  const patch = {};
-  if (typeof title === "string") {
-    if (!title.trim()) return fail(400, "a task needs a title");
-    patch.title = title.trim();
+/**
+ * The one edit path that existed before `tm edit` / `tm_task_edit` — and it took title and body
+ * only, so the board could create a task under the active epic and never move it out again.
+ * `epic` goes through moveTask so the browser gets the same lifecycle the CLI does: a done
+ * destination reopens, an emptied-of-live-work source closes.
+ */
+function edit(task, { title, body, epic }, p) {
+  const changed = {};
+  try {
+    if (typeof title === "string" || typeof body === "string") {
+      changed.edited = editTask(task.id, { title, body }, p).changed;
+    }
+    if (epic !== undefined) Object.assign(changed, moveTask(task.id, epic, p));
+  } catch (e) {
+    return fail(400, e.message);
   }
-  if (typeof body === "string") patch.body = body;
-  if (!Object.keys(patch).length) return fail(400, "nothing to change");
-  update(task.id, patch, p);
-  return ok(read(task.id, p));
+  if (!Object.keys(changed).length) return fail(400, "nothing to change");
+  return ok({ ...read(task.id, p), ...changed });
 }
 
 function addCriterion(task, text, p) {

@@ -39,6 +39,8 @@ export const CATALOG = {
     // writes — the whole stream, so you can see what is available
     create: { group: "writes", label: "A task, epic or ADR is created", priority: "low", tags: "new" },
     update: { group: "writes", label: "Any field on a task changes", priority: "min", tags: "pencil2" },
+    edit: { group: "writes", label: "A title or body is corrected", priority: "min", tags: "pencil" },
+    moved: { group: "writes", label: "A task is refiled under another epic", priority: "min", tags: "truck" },
     done: { group: "writes", label: "A task is completed", priority: "default", tags: "white_check_mark" },
     assign: { group: "writes", label: "A task is assigned or unassigned", priority: "low", tags: "bust_in_silhouette" },
     labels: { group: "writes", label: "Labels change", priority: "min", tags: "label" },

@@ -352,6 +352,89 @@ export function reopenEpic(epicId, p = paths()) {
   return true;
 }
 
+/**
+ * Correct what `new` got wrong: the title, the body.
+ *
+ * Every other field on a task had a verb — assign, label, priority, type, estimate, rank,
+ * subtask, dep, link — and the two you type first had none. A typo in a title was permanent
+ * from the CLI and from MCP; the dashboard could fix it (`PATCH /api/task/:id`), so the
+ * correction existed and was reachable only from the browser.
+ *
+ * The file is deliberately NOT renamed. `write` reuses `doc.file` when it has one, so
+ * `TM-001-typoed-titel.md` keeps its name and gains the corrected title inside. The slug is
+ * decoration and the id is the identity: a rename is a delete-plus-add in git, it breaks blame
+ * continuity on the entity's whole history, and the old path may already be recorded in a
+ * commit message, an evidence ref, or a `tm show --json` a script is holding.
+ */
+export function editTask(id, { title, body } = {}, p = paths()) {
+  const doc = read(id, p);
+  if (!doc) throw new Error(`not found: ${id}`);
+
+  const patch = {};
+  if (title !== undefined) {
+    const value = String(title).trim();
+    // An empty title makes the task unfindable on every surface that lists it by name.
+    if (!value) throw new Error("a title cannot be empty");
+    if (value !== doc.title) patch.title = value;
+  }
+  /**
+   * Compared trimmed, because the body round-trip is not identity: `serializeDoc` writes a
+   * newline after the closing frontmatter fence and `parseDoc` hands it back, so a body written
+   * as `"notes"` reads as `"\nnotes"`. A raw `!==` therefore reports a change every single time,
+   * which would make "did anything actually change" unanswerable for the one field most likely
+   * to be re-submitted unchanged by a form.
+   */
+  if (body !== undefined && String(body).trim() !== (doc.body ?? "").trim()) patch.body = String(body);
+
+  const changed = Object.keys(patch);
+  // Silence rather than a write. Re-typing the title you already have is not an edit, and an
+  // `updated` bump would make it look like the task moved when nothing about it did.
+  if (!changed.length) return { id, changed };
+
+  update(id, patch, p);
+  logEvent("edit", { id, fields: changed.join(","), ...(patch.title ? { was: doc.title } : {}) }, p);
+  return { id, changed, was: doc.title };
+}
+
+/**
+ * Refile a task under a different epic, or under none.
+ *
+ * Nothing could do this — not the CLI, not MCP, and not the dashboard, whose PATCH takes title
+ * and body only. That is worse than it sounds, because `tm task new` files into whatever epic is
+ * active and the create gate *requires* an active epic: filing into the wrong one is one
+ * keystroke away and there was no way back short of editing frontmatter by hand.
+ *
+ * A move is not just a field write, because both epics' lifecycles depend on their children:
+ *
+ *   - into a `done` epic, an unfinished task reopens it. A finished epic containing live work is
+ *     the same lie `tm reopen` already refuses to leave behind, and `autoCloseEpic` will never
+ *     re-close it on its own.
+ *   - out of an epic, the source may have just become complete, so it gets the same auto-close
+ *     check finishing a task would give it. An epic emptied entirely does not close: zero tasks
+ *     is not an achievement, and `autoCloseEpic` already declines that case.
+ */
+export function moveTask(id, epicId, p = paths()) {
+  const doc = read(id, p);
+  if (!doc) throw new Error(`not found: ${id}`);
+  if (kindOf(id) !== "task") throw new Error(`${id} is not a task`);
+
+  const dest = epicId === "none" || epicId === null || epicId === "" ? null : epicId;
+  if (dest) {
+    if (kindOf(dest) !== "epic") throw new Error(`${dest} is not an epic id`);
+    if (!read(dest, p)) throw new Error(`not found: ${dest}`);
+  }
+  const from = doc.epic || null;
+  if (from === dest) return { id, from, to: dest, changed: false };
+
+  update(id, { epic: dest || undefined }, p);
+  logEvent("moved", { id, from, to: dest }, p);
+
+  const result = { id, from, to: dest, changed: true };
+  if (dest && !RESOLVED.has(doc.status) && reopenEpic(dest, p)) result.reopened = dest;
+  if (from && autoCloseEpic(from, p)) result.closed = from;
+  return result;
+}
+
 // ── entities ─────────────────────────────────────────────────────────────────
 
 function dirFor(kind, p) {

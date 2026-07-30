@@ -71,6 +71,17 @@ assert_contains "$OUT" "unmet acceptance criteria" "done is gated on acceptance 
 OUT="$(call tm_task_update '{"id":"TM-001","action":"done"}' | mcp)"
 assert_contains "$OUT" '\"ok\": true' "done allowed once criteria are met"
 
+# tm_task_edit — a tool that isn't reachable from MCP is a silent gap, and for a long time
+# correcting a title was reachable only from the browser.
+OUT="$(call tm_task_edit '{"id":"TM-001","title":"corrected over the wire"}' | mcp)"
+# The result reports which fields changed, not the new values — the caller supplied those.
+assert_contains "$OUT" 'edited' "tm_task_edit reports what it changed"
+assert_contains "$(node "$PLUGIN_ROOT/bin/tm" show TM-001)" "corrected over the wire" "the CLI sees the correction"
+OUT="$(call tm_task_edit '{"id":"TM-001"}' | mcp)"
+assert_contains "$OUT" "needs a title, a body or an epic" "tm_task_edit with no field is refused rather than a silent no-op"
+OUT="$(call tm_task_edit '{"id":"TM-001","epic":"EP-404"}' | mcp)"
+assert_contains "$OUT" "not found: EP-404" "a move to a missing epic is refused over the wire, not thrown"
+
 # Protocol errors.
 # Resources: the board as context the user pulls, over the real stdio server.
 OUT="$(printf '{"jsonrpc":"2.0","id":10,"method":"initialize"}\n' | mcp)"

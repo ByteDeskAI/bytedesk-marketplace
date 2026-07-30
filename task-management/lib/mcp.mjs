@@ -13,7 +13,7 @@ import { basename, join, resolve } from "node:path";
 import { paths } from "./paths.mjs";
 import { claimTask, releaseClaim } from "./claims.mjs";
 import { actor, actorLabel } from "./actor.mjs";
-import { config, create, list, logEvent, nextTasks, now, read, state, update, writeState } from "./store.mjs";
+import { config, create, editTask, list, logEvent, moveTask, nextTasks, now, read, state, update, writeState } from "./store.mjs";
 import { consumeOverride, enforcementOff, gateDone, gateTaskCreate } from "./enforce.mjs";
 import { board, handoff, standup, taskLine } from "./render.mjs";
 import { renderWhy, why } from "./graph.mjs";
@@ -270,6 +270,36 @@ export const TOOLS = [
           return ok({ id, status: "open" });
         default:
           return fail(`unknown action: ${action}`);
+      }
+    },
+  },
+  {
+    name: "tm_task_edit",
+    description:
+      "Correct a task's title or body, or refile it under a different epic. Use it the moment you notice the title says the wrong thing — every other field has a tool, and for a long time these did not, so a typo made at create time survived to the export. Moving to an epic that is already done reopens that epic; moving the last unfinished task out of an epic closes it. Pass epic:\"none\" to detach.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: str("Task id."),
+        title: str("The corrected title. Omit to leave it."),
+        body: str("Replacement markdown body. Omit to leave it; pass \"\" to empty it."),
+        epic: str('Destination epic id, or "none" to detach.'),
+      },
+      required: ["id"],
+    },
+    run: ({ id, title, body, epic }, p) => {
+      const t = read(id, p);
+      if (!t) return fail(`not found: ${id}`);
+      if (title === undefined && body === undefined && epic === undefined) {
+        return fail("tm_task_edit needs a title, a body or an epic");
+      }
+      try {
+        const res = { id };
+        if (title !== undefined || body !== undefined) res.edited = editTask(id, { title, body }, p).changed;
+        if (epic !== undefined) Object.assign(res, moveTask(id, epic, p));
+        return ok(res);
+      } catch (e) {
+        return fail(e.message);
       }
     },
   },
