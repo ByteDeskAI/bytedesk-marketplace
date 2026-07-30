@@ -44,7 +44,7 @@ import { applyTemplate, listTemplates, seedTemplates } from "../lib/templates.mj
 import { cycleTime, human as humanMs, summary as timeSummary, timeInStatus } from "../lib/time.mjs";
 import { upsertDecision } from "../lib/adr.mjs";
 import { claimTask, claimant, releaseClaim, staleClaims, sweepClaims } from "../lib/claims.mjs";
-import { actor, actorLabel } from "../lib/actor.mjs";
+import { actor, actorLabel, sessionId } from "../lib/actor.mjs";
 import { addComment, addLink, assign, backlog, dependencies, estimate, labels, prioritise, rank, setType, subtasks, typeOf } from "../lib/issue.mjs";
 import { CATALOG, messageFor, ntfyConfig, send, shouldPublish } from "../lib/ntfy.mjs";
 import { graphData, mermaid, renderWhy, why } from "../lib/graph.mjs";
@@ -108,7 +108,7 @@ function requireInit() {
 function stamp() {
   return {
     actor: actorLabel(actor()),
-    session: process.env.CLAUDE_SESSION_ID || undefined,
+    session: sessionId() || undefined,
     branch: git(["rev-parse", "--abbrev-ref", "HEAD"]) || undefined,
     worktree: CHECKOUT,
   };
@@ -290,7 +290,7 @@ const VERBS = {
       if (!consumeOverride(P)) die(`WIP limit ${cfg.wipLimit} reached: ${wip.map((w) => w.id).join(", ")}`, 2);
     }
     const claim = claimTask(id, {
-      session: process.env.CLAUDE_SESSION_ID || null,
+      session: sessionId(),
       actor: actorLabel(actor()),
       worktree: CHECKOUT,
       branch: git(["rev-parse", "--abbrev-ref", "HEAD"]) || undefined,
@@ -859,7 +859,7 @@ const VERBS = {
   claim(id) {
     requireInit();
     const res = claimTask(id, {
-      session: process.env.CLAUDE_SESSION_ID || null,
+      session: sessionId(),
       actor: actorLabel(actor()),
       worktree: CHECKOUT,
       branch: git(["rev-parse", "--abbrev-ref", "HEAD"]) || undefined,
@@ -938,7 +938,7 @@ const VERBS = {
       // read-modify-write, and it also could not refuse: provisioning a worktree for a task
       // another live session held took the claim silently.
       claimTask(task.id, {
-        session: process.env.CLAUDE_SESSION_ID || null,
+        session: sessionId(),
         actor: actorLabel(actor()),
         worktree: res.path,
         branch: res.branch,
@@ -1285,23 +1285,33 @@ function hook(event) {
 
     // Parallel agents are invisible unless their work lands on the timeline.
     /**
-     * A subagent finished. README promises "its work is attributed on the timeline, so parallel
-     * agents are visible" — and it never once was: 317 of these events in this project's own store,
-     * zero with a single task attributed.
+     * A subagent finished. The README promises "its work is attributed on the timeline, so parallel
+     * agents are visible", and it never once was: 340 of these events in this project's own store,
+     * zero with a single task attributed — 23 of them after the change that claimed to fix it.
      *
-     * The filter asked whether a claim's session equalled `input.session_id || CLAUDE_SESSION_ID`,
-     * and the `||` let the payload win. But the payload's session_id is the SUBAGENT's, while every
-     * claim is held by the PARENT — `tm start` runs in the parent's session — so the comparison
-     * could only ever match when the two ids happened to be identical. Two different things were
-     * being read out of one field.
+     * That change was wrong twice, and both errors came from guessing at the payload instead of
+     * reading Claude Code's schema for it:
      *
-     * They are separated now: the parent's session selects the claims, because those are the tasks
-     * this fan-out is working on, and the subagent's own id is recorded as the agent so the timeline
-     * says WHICH agent finished. `transcript_path` is carried too — it is in every hook payload and
-     * it is the only durable pointer back to what the subagent actually did.
+     *   1. It selected claims with `CLAUDE_SESSION_ID`, which nothing sets. `parent` was always
+     *      null, so `held` was always empty. The fix could not have worked.
+     *   2. It recorded `input.session_id` as "the agent" and `input.transcript_path` as "the
+     *      subagent's transcript". Neither is the subagent. SubagentStop extends the base hook
+     *      payload, so those two fields are the PARENT's — which the store proves: the only
+     *      `agent` values ever written are top-level session ids, and the one transcript ever
+     *      recorded is the parent's own conversation file.
+     *
+     * Claude Code documents the real fields on this event: "Input to command is JSON with agent_id,
+     * agent_type, and agent_transcript_path." The subagent's identity was sitting unread in the
+     * payload the whole time.
+     *
+     * So: the parent's session selects the claims — `input.session_id` is exactly that, and it is
+     * preferred over the environment because the harness telling us directly beats inferring it —
+     * and the agent is `agent_id`, with its own transcript and its type. `transcript_path` survives
+     * only as a fallback, so an older Claude Code that predates `agent_transcript_path` still
+     * records a pointer rather than nothing.
      */
     case "subagent-stop": {
-      const parent = process.env.CLAUDE_SESSION_ID || null;
+      const parent = input.session_id || sessionId();
       const claims = state(P).claims || {};
       const held = Object.entries(claims)
         .filter(([, c]) => parent && c.session === parent)
@@ -1309,9 +1319,10 @@ function hook(event) {
       logEvent(
         "subagent_stop",
         {
-          agent: input.session_id || null,
+          agent: input.agent_id || null,
+          agent_type: input.agent_type || undefined,
           tasks: held,
-          transcript: input.transcript_path || undefined,
+          transcript: input.agent_transcript_path || input.transcript_path || undefined,
         },
         P,
       );
@@ -1326,7 +1337,7 @@ function hook(event) {
     // A session that ends must not leave `in_progress` lying about what is happening.
     case "session-end": {
       if (config(P).parkOnSessionEnd === false) break;
-      const session = process.env.CLAUDE_SESSION_ID || null;
+      const session = sessionId();
       for (const t of list("task", { status: "in_progress" }, P)) {
         if (session && t.session && t.session !== session) continue;
         update(t.id, { status: "parked", parkedReason: `session ended (${session || "unknown"})` }, P);
@@ -1355,7 +1366,7 @@ function hook(event) {
         observe(input, {
           p: P,
           branch: git(["rev-parse", "--abbrev-ref", "HEAD"]) || null,
-          session: input.session_id || process.env.CLAUDE_SESSION_ID || null,
+          session: input.session_id || sessionId(),
           // Relative to the checkout we are standing in, not the store root. In a
           // worktree those differ, and `src/auth.ts` edited in two worktrees has to
           // come out as the same path or the collision is invisible.

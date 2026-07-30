@@ -34,11 +34,17 @@ function withEnv(env, fn) {
   }
 }
 
+/**
+ * Both session names, because this suite runs inside a real Claude Code session: scrubbing only
+ * CLAUDE_SESSION_ID let the runner's own CLAUDE_CODE_SESSION_ID leak in, and a test that reads
+ * the ambient environment passes or fails on where it was run.
+ */
 const CLEAN = {
   TM_ACTOR: undefined,
   CLAUDE_AGENT_NAME: undefined,
   CLAUDE_CODE_CHILD_SESSION: undefined,
   CLAUDE_SESSION_ID: undefined,
+  CLAUDE_CODE_SESSION_ID: undefined,
   TM_ACTOR_INFER: undefined,
 };
 
@@ -64,13 +70,13 @@ describe("actor", () => {
   it("stays 'main' when the child-session flag is the only signal", () => {
     // That flag is set for ordinary top-level sessions too — trusting it labelled
     // the main thread as a subagent on the real board.
-    const got = withEnv({ ...CLEAN, CLAUDE_CODE_CHILD_SESSION: "1", CLAUDE_SESSION_ID: "abcdef123456" }, actor);
+    const got = withEnv({ ...CLEAN, CLAUDE_CODE_CHILD_SESSION: "1", CLAUDE_CODE_SESSION_ID: "abcdef123456" }, actor);
     assert.equal(got.thread, "main", "a wrong name on the board is worse than a plain one");
   });
 
   it("infers an anonymous subagent only when explicitly asked to", () => {
     const got = withEnv(
-      { ...CLEAN, TM_ACTOR_INFER: "1", CLAUDE_CODE_CHILD_SESSION: "1", CLAUDE_SESSION_ID: "abcdef123456" },
+      { ...CLEAN, TM_ACTOR_INFER: "1", CLAUDE_CODE_CHILD_SESSION: "1", CLAUDE_CODE_SESSION_ID: "abcdef123456" },
       actor,
     );
     assert.equal(got.thread, "subagent");

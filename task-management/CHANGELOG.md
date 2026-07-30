@@ -107,6 +107,72 @@
 
 ### Fixed
 
+- **The plugin read a session id Claude Code does not set, so claims, gates and attribution were
+  all inert.** Claude Code sets `CLAUDE_CODE_SESSION_ID`. Every reader except `lib/actor.mjs` asked
+  for `CLAUDE_SESSION_ID` alone — eleven sites across the CLI, MCP, the dashboard, the store's event
+  stamp, the Stop gate and `tm why`. Measured on this project's own board before the fix:
+
+  ```
+  events total            830
+    with session non-null   0
+  subagent_stop           340
+    with a task attributed  0
+  claim events              9
+    with a session          0
+  claim_stolen              0     (advertised as a subscribable notification)
+  ```
+
+  What that cost, in a production-shaped environment (only the real variable set):
+
+  ```
+  BEFORE   event session stamp: None
+           second session claiming the same task: TM-001 in progress — shared work
+  AFTER    event session stamp: 'sess-one'
+           second session claiming the same task: TM-001 is claimed by main in … on …
+  ```
+
+  The claim interlock — the reason every git worktree of a project shares one store — never once
+  fired. Two sessions comparing `null !== null` both got "not held by someone else", so parallel
+  agents silently took the same task. The Stop gate's session filter was likewise a no-op, so it
+  nagged about every `in_progress` task on the board rather than the ones this session claimed.
+
+  **Nine contract suites stayed green through all of it, because they exported the variable
+  production never had.** They now export `CLAUDE_CODE_SESSION_ID`, so the session-dependent paths
+  are exercised the way they actually run, and one assertion runs with the legacy name explicitly
+  unset so it cannot pass by inheritance. `tests/unit/actor.test.mjs` was scrubbing only the fake
+  name, which let the test runner's own real session id leak into its fixtures.
+
+  **A claim with no session is now treated as unowned rather than foreign.** Every claim on disk
+  anywhere carries `session: null`. The moment a real id flows, `null !== "abc123"` is true and the
+  holder of *your own* in-progress task reads as a stranger — `tm start` would refuse work you had
+  been resuming freely, and `--steal` would record you stealing from yourself. Adopting a
+  null-session claim keeps exactly the behaviour those claims already had while letting real ids
+  interlock.
+
+  The Stop gate narrows gradually and deliberately: a task with no recorded session still counts
+  toward the gate, so upgrading never silently switches it off — only newly stamped tasks are
+  scoped to their own session.
+
+- **`subagent_stop` recorded the parent as the agent, and the parent's transcript as the
+  subagent's.** The previous change to this handler was wrong twice, and both errors came from
+  guessing at the payload rather than reading Claude Code's schema for it. It selected claims with
+  `CLAUDE_SESSION_ID` (never set, so always no claims), and it recorded `input.session_id` as the
+  agent and `input.transcript_path` as the agent's transcript — but `SubagentStop` extends the base
+  hook payload, so both of those are the **parent's**. The store proves it: the only `agent` values
+  ever written are top-level session ids, and the single transcript ever recorded is the parent's
+  own conversation file.
+
+  Claude Code documents the real fields: *"Input to command is JSON with `agent_id`, `agent_type`,
+  and `agent_transcript_path`."* The subagent's identity had been sitting unread in the payload the
+  whole time. The event now carries `agent` from `agent_id`, the new `agent_type`, and the agent's
+  own transcript — with `transcript_path` kept only as a fallback for an older Claude Code. The
+  parent's session, which is what selects the claims, comes from `input.session_id`, preferring the
+  harness telling us directly over inferring it from the environment.
+
+  The contract assertions for that handler encoded the same guess and had to be corrected, not
+  merely extended: they fed `session_id` as though it were the subagent's, and passed only because
+  the suite injected the session variable production lacks.
+
 - **`priority` and `rank` were write-only: nothing ever read them.** `nextTasks` filtered and
   returned whatever order `list` gave it, which is id order — creation order. So a task set to
   `highest` and placed at the top of the backlog still came second behind an untouched `low` one:

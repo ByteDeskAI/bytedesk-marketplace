@@ -10,7 +10,7 @@
 import { appendFileSync, closeSync, statSync, existsSync, openSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { KINDS, ensureDirs, paths } from "./paths.mjs";
-import { actor, actorLabel } from "./actor.mjs";
+import { actor, actorLabel, sessionId } from "./actor.mjs";
 import { notifyEvent } from "./notify-hook.mjs";
 
 const DEFAULT_CONFIG = {
@@ -260,7 +260,7 @@ export function logEvent(event, fields = {}, p = paths()) {
       `${JSON.stringify({
         ts: now(),
         event,
-        session: process.env.CLAUDE_SESSION_ID || null,
+        session: sessionId(),
         actor: actorLabel(actor()),
         ...fields,
       })}\n`,

@@ -6,7 +6,10 @@ set -uo pipefail
 PLUGIN_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TM_ROOT="$(mktemp -d)"
 export TM_ROOT
-export CLAUDE_SESSION_ID="test-session"
+# The name Claude Code actually sets. The suites used to export CLAUDE_SESSION_ID, which
+# nothing sets — so every session-dependent path was exercised with a variable production
+# never had, and 9 suites stayed green while claims, gates and attribution were all inert.
+export CLAUDE_CODE_SESSION_ID="test-session"
 unset TM_ENFORCE
 trap 'rm -rf "$TM_ROOT"' EXIT
 
