@@ -19,6 +19,7 @@ import {
   autoCloseEpic,
   config,
   create,
+  writeConfig,
   editTask,
   kindOf,
   removeCriterion,
@@ -51,6 +52,7 @@ export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
   if (method === "POST" && url === "/api/task") return createTask(payload, p);
   if (method === "POST" && url === "/api/bulk") return bulk(payload, p);
   if (method === "POST" && url === "/api/epic") return setActiveEpic(payload, p);
+  if (method === "POST" && url === "/api/settings") return saveSettings(payload, p);
 
   // The detail read. boardPayload strips `body` from the list on purpose — a 20-task board must
   // not ship 30 KB of markdown — so a full record needs its own route rather than a fatter list.
@@ -202,6 +204,46 @@ function acceptCriterion(task, { index, done = true, remove = false }, p) {
  * land in is a board that has to hand you back to the terminal for the one decision
  * that governs everything it does next.
  */
+
+/**
+ * Which preferences a browser may write.
+ *
+ * The rest of the config holds the gates — `enforce`, `wipLimit`, `requireAcceptance` — and a
+ * browser tab is not the place to switch off rules the CLI and the hooks are enforcing. `tm config`
+ * still owns those, deliberately.
+ */
+const BOARD_SETTINGS = new Set(["categories", "me", "watching", "grouped", "views"]);
+
+/**
+ * Board preferences, written where the tasks are.
+ *
+ * These lived in `localStorage`, which is why notifications had to be re-enabled in every browser
+ * and on every machine: the preference was never about the browser, it was about this project. The
+ * store already had a per-repo config file with a reader and an atomic writer, so this is a route
+ * onto something that existed rather than a new mechanism.
+ *
+ * Only keys under `board` are writable from here. The rest of the config holds the gates —
+ * `enforce`, `wipLimit`, `requireAcceptance` — and a browser tab is not the place to switch off the
+ * rules the CLI and the hooks are enforcing; `tm config` still owns those deliberately.
+ */
+function saveSettings(patch, p) {
+  if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
+    return fail(400, "settings must be an object");
+  }
+  // An allowlist, not just a namespace. Nesting under `board` already keeps the gates out of reach,
+  // but without this any key a page invented would accumulate in the repo's config forever — and a
+  // config file is read by people, so junk in it is a cost paid by whoever opens it next.
+  const known = Object.fromEntries(Object.entries(patch).filter(([k]) => BOARD_SETTINGS.has(k)));
+  const rejected = Object.keys(patch).filter((k) => !BOARD_SETTINGS.has(k));
+  if (!Object.keys(known).length) {
+    return fail(400, `no writable setting in: ${Object.keys(patch).join(", ") || "(empty)"}`);
+  }
+  const board = { ...(config(p).board || {}), ...known };
+  writeConfig({ board }, p);
+  logEvent("settings", { keys: Object.keys(known).join(",") }, p);
+  return ok({ board, ...(rejected.length ? { ignored: rejected } : {}) });
+}
+
 function setActiveEpic({ id }, p) {
   if (id === null || id === "") {
     writeState({ activeEpic: null }, p);
@@ -269,6 +311,12 @@ export function boardPayload(p = paths()) {
     tasks: list("task", {}, p).map(({ body, file, ...t }) => t),
     backlog: backlog(p).map((t) => t.id),
     state: state(p),
+    // Board preferences ride along with the board rather than needing a second round trip: the
+    // page cannot render its own header correctly without them, so a separate fetch would mean a
+    // visible flash of the wrong settings on every load.
+    settings: config(p).board || {},
+    // Who the store thinks is looking. The board had no way to show this at all.
+    actor: actorLabel(actor()),
   };
 }
 

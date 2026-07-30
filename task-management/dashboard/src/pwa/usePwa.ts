@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CATEGORIES, notificationFor, recordSelfWrite } from "./notify.mjs";
 import * as outbox from "./outbox.mjs";
-import { loadPrefs, savePrefs } from "./prefs.mjs";
+import { loadPrefs, mergeServerPrefs, pushPrefs, savePrefs } from "./prefs.mjs";
 import type { StoreEvent } from "../types";
 
 export type Entry = {
@@ -24,10 +24,18 @@ export type Entry = {
   error?: string;
 };
 
-type Prefs = { categories: string[]; me: string | null; watching: string[]; installDismissed: boolean };
+type Prefs = {
+  categories: string[];
+  me: string | null;
+  watching: string[];
+  installDismissed: boolean;
+};
 
 /** Chrome-only, and only sometimes. Typed narrowly so `strict` stays happy. */
-type InstallEvent = Event & { prompt(): Promise<void>; userChoice: Promise<{ outcome: string }> };
+type InstallEvent = Event & {
+  prompt(): Promise<void>;
+  userChoice: Promise<{ outcome: string }>;
+};
 
 /**
  * Writes this tab made, so the SSE echo of its own change doesn't notify it.
@@ -41,8 +49,12 @@ export function markSelfWrite(id: string | null) {
 export function usePwa(events: StoreEvent[], inProgress: number) {
   const [prefs, setPrefs] = useState<Prefs>(() => loadPrefs());
   const [queue, setQueue] = useState<Entry[]>([]);
-  const [permission, setPermission] = useState<NotificationPermission | "unsupported">(
-    typeof Notification === "undefined" ? "unsupported" : Notification.permission,
+  const [permission, setPermission] = useState<
+    NotificationPermission | "unsupported"
+  >(
+    typeof Notification === "undefined"
+      ? "unsupported"
+      : Notification.permission,
   );
   const [installer, setInstaller] = useState<InstallEvent | null>(null);
   const [stale, setStale] = useState(false);
@@ -51,36 +63,68 @@ export function usePwa(events: StoreEvent[], inProgress: number) {
   const update = useCallback((next: Prefs) => {
     savePrefs(next);
     setPrefs(next);
+    // Write through to the repo. This is what stops notifications having to be switched on again
+    // in every browser: the answer belongs to the project, not to this tab.
+    void pushPrefs(next);
+  }, []);
+
+  /**
+   * Adopt the store's copy when the board payload brings it.
+   *
+   * Only when it actually differs, or this sets state on every poll and re-renders the board
+   * forever.
+   */
+  const adoptServerPrefs = useCallback((server: unknown) => {
+    setPrefs((local) => {
+      const merged = mergeServerPrefs(local, server);
+      if (JSON.stringify(merged) === JSON.stringify(local)) return local;
+      savePrefs(merged);
+      return merged;
+    });
   }, []);
 
   // ── notifications ──────────────────────────────────────────────────────────
-  const show = useCallback(async (n: { title: string; body: string; tag: string }) => {
-    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
-    // Through the registration, not `new Notification()`: only the worker's copy
-    // survives the tab being in the background, which is the whole point.
-    const reg = await navigator.serviceWorker?.getRegistration();
-    if (!reg?.showNotification) return;
-    await reg
-      .showNotification(n.title, {
-        body: n.body,
-        tag: n.tag, // a repeat replaces its predecessor instead of stacking
-        icon: "/icons/icon-192.png",
-        badge: "/icons/icon-192.png",
-      })
-      .catch(() => {
-        /* revoked mid-flight, or a platform that refuses — stay quiet */
-      });
-  }, []);
+  const show = useCallback(
+    async (n: { title: string; body: string; tag: string }) => {
+      if (
+        typeof Notification === "undefined" ||
+        Notification.permission !== "granted"
+      )
+        return;
+      // Through the registration, not `new Notification()`: only the worker's copy
+      // survives the tab being in the background, which is the whole point.
+      const reg = await navigator.serviceWorker?.getRegistration();
+      if (!reg?.showNotification) return;
+      await reg
+        .showNotification(n.title, {
+          body: n.body,
+          tag: n.tag, // a repeat replaces its predecessor instead of stacking
+          icon: "/icons/icon-192.png",
+          badge: "/icons/icon-192.png",
+        })
+        .catch(() => {
+          /* revoked mid-flight, or a platform that refuses — stay quiet */
+        });
+    },
+    [],
+  );
 
   const filter = useMemo(
-    () => ({ me: prefs.me, watching: new Set(prefs.watching), categories: new Set(prefs.categories) }),
+    () => ({
+      me: prefs.me,
+      watching: new Set(prefs.watching),
+      categories: new Set(prefs.categories),
+    }),
     [prefs],
   );
 
   /** A refusal the board itself received, live or replayed. Same categories. */
   const announceRefusal = useCallback(
     (id: string | null, reason: string) => {
-      const n = notificationFor({ event: "gate_refused", id, reason }, { ...filter, self: [], now: Date.now() });
+      const n = notificationFor(
+        { event: "gate_refused", id, reason },
+        { ...filter, self: [], now: Date.now() },
+      );
       if (n) void show(n);
     },
     [filter, show],
@@ -88,8 +132,11 @@ export function usePwa(events: StoreEvent[], inProgress: number) {
 
   /** Asked on a click, never on load. A silent "denied" is a fine outcome. */
   const askPermission = useCallback(async () => {
-    if (typeof Notification === "undefined") return setPermission("unsupported");
-    const result = await Notification.requestPermission().catch(() => "denied" as NotificationPermission);
+    if (typeof Notification === "undefined")
+      return setPermission("unsupported");
+    const result = await Notification.requestPermission().catch(
+      () => "denied" as NotificationPermission,
+    );
     setPermission(result);
     // Nobody switches notifications on in order to receive nothing.
     if (result === "granted" && !prefs.categories.length) {
@@ -125,14 +172,19 @@ export function usePwa(events: StoreEvent[], inProgress: number) {
               headers: { "content-type": "application/json" },
               body: JSON.stringify(entry.body ?? {}),
             });
-            const data = (await res.json().catch(() => ({}))) as { error?: string };
+            const data = (await res.json().catch(() => ({}))) as {
+              error?: string;
+            };
             return { ok: res.ok, status: res.status, error: data.error };
           } catch {
             return { offline: true };
           }
         },
         (entry: Entry, result: { error?: string }) =>
-          announceRefusal(entry.taskId, result.error || "the queued write was refused"),
+          announceRefusal(
+            entry.taskId,
+            result.error || "the queued write was refused",
+          ),
       ),
     [announceRefusal],
   );
@@ -144,9 +196,11 @@ export function usePwa(events: StoreEvent[], inProgress: number) {
     // from the project root, and a worker caching the shell fights HMR anyway.
     if (!("serviceWorker" in navigator) || import.meta.env.DEV) return stop;
     // Registered after first paint: precaching the shell should not compete with it.
-    void navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {
-      /* no worker support — the board is a plain SPA, which still works */
-    });
+    void navigator.serviceWorker
+      .register("/sw.js", { scope: "/" })
+      .catch(() => {
+        /* no worker support — the board is a plain SPA, which still works */
+      });
     const onMessage = (e: MessageEvent) => {
       if (e.data?.type === "replay") void replay();
       // The worker is the only thing that knows it answered from cache.
@@ -196,7 +250,9 @@ export function usePwa(events: StoreEvent[], inProgress: number) {
       clearAppBadge?: () => Promise<void>;
     };
     if (!nav.setAppBadge) return;
-    void (inProgress ? nav.setAppBadge(inProgress) : nav.clearAppBadge?.())?.catch(() => {});
+    void (
+      inProgress ? nav.setAppBadge(inProgress) : nav.clearAppBadge?.()
+    )?.catch(() => {});
   }, [inProgress]);
 
   const pendingByTask = useMemo(() => outbox.pendingByTask(), [queue]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -214,11 +270,14 @@ export function usePwa(events: StoreEvent[], inProgress: number) {
     },
     permission,
     askPermission,
+    adoptServerPrefs,
     categories: prefs.categories,
     toggleCategory: (c: string) =>
       update({
         ...prefs,
-        categories: prefs.categories.includes(c) ? prefs.categories.filter((x) => x !== c) : [...prefs.categories, c],
+        categories: prefs.categories.includes(c)
+          ? prefs.categories.filter((x) => x !== c)
+          : [...prefs.categories, c],
       }),
     me: prefs.me,
     setMe: (me: string | null) => update({ ...prefs, me: me || null }),
@@ -226,7 +285,9 @@ export function usePwa(events: StoreEvent[], inProgress: number) {
     toggleWatch: (id: string) =>
       update({
         ...prefs,
-        watching: watching.has(id) ? prefs.watching.filter((x) => x !== id) : [...prefs.watching, id],
+        watching: watching.has(id)
+          ? prefs.watching.filter((x) => x !== id)
+          : [...prefs.watching, id],
       }),
     installer: prefs.installDismissed ? null : installer,
     install: async () => {
