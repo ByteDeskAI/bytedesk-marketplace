@@ -1,0 +1,19 @@
+{
+  "id": "grok-instructions",
+  "tool": "grok",
+  "kind": "instructions",
+  "detect": { "bin": "grok" },
+  "target": "~/.grok/AGENTS.md",
+  "local": "~/.agents/grok.local.md",
+  "mechanism": "compose",
+  "why": "grok reads ~/.grok/AGENTS.md (canary VOYAGER11 returned) and follows a symlink for it (2777 tokens seen through one). But it does NOT expand @imports — adding @/tmp/bigimport.md with ~2000 tokens of filler moved `grok inspect` from 460 to 465 tokens, i.e. the import LINE was counted and its target was not. So a symlink would work and would silently delete the grok-specific prose already in that file. compose keeps both: shared source + ~/.agents/grok.local.md.",
+  "alsoReads": "~/.claude/CLAUDE.md, listed by `grok inspect` as a [claude] global. Because grok does not expand imports, it sees the literal line `@~/.agents/AGENTS.md` there and gains nothing from it — which is exactly why this adapter is needed rather than assumed.",
+  "canary": {
+    "cmd": ["grok", "-p", "{{probe}}"],
+    "cwd": "tmp",
+    "costly": true,
+    "confound": "grok has file-reading tools and WILL open files to answer. A run where it says 'I'll check the instruction files' proves nothing. Prefer `grok inspect`, which reports per-file token counts with no model call."
+  },
+  "verified": "2026-07-30",
+  "verifiedBy": "canary VOYAGER11 returned from ~/.grok/AGENTS.md with tools available; import expansion separately REFUTED by token count via `grok inspect`"
+}

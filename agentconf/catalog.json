@@ -342,11 +342,12 @@
         {
           "path": "~/.grok/AGENTS.md",
           "kind": "instructions",
-          "confidence": "reported"
+          "confidence": "proven"
         }
       ],
-      "note": "strings on grok-0.2.114 shows 48 references to AGENTS.md and none to a GROK.md; ~/.grok/AGENTS.md exists and is in use. Corroboration, not proof — the canary decides. Note ~/.local/bin/grok is a symlink into ~/.grok/bin, so measure the resolved target, not the link.",
-      "docs": "https://github.com/superagent-ai/grok-cli"
+      "note": "PROVEN 2026-07-30. Reads ~/.grok/AGENTS.md and follows a symlink for it. Does NOT expand @imports — verified by token count, not by asking the model. Also reads ~/.claude/CLAUDE.md as a [claude] global, but without import expansion that yields nothing.",
+      "docs": "https://github.com/superagent-ai/grok-cli",
+      "adapter": "grok-instructions"
     },
     {
       "id": "kimi",
