@@ -21,7 +21,28 @@ import { listResources, readResource } from "./resources.mjs";
 import { describeQuery, matchesQuery, parseQuery } from "./query.mjs";
 import { accept, propose, ranked, score, ship } from "./capability.mjs";
 
-export const SERVER_INFO = { name: "task-management", version: "0.3.0" };
+/**
+ * The handshake advertises whatever the manifest declares — never a literal.
+ *
+ * A hardcoded number here goes stale on the first release that forgets it, and then the MCP
+ * handshake reports a different version than the plugin it ships in, which is exactly the bug
+ * tests/unit/mcp.test.mjs exists to catch. It caught it: this file said "0.3.0" after the
+ * manifest dropped `version` to move to commit-SHA versioning.
+ *
+ * With no `version` in the manifest the field is absent here too, which is the honest answer —
+ * the plugin genuinely has no declared version, it is identified by commit. If a client ever
+ * needs a version string, the fix is to restore the manifest field deliberately rather than to
+ * reintroduce a literal that lies.
+ */
+const manifestVersion = () => {
+  try {
+    return JSON.parse(readFileSync(new URL("../.claude-plugin/plugin.json", import.meta.url), "utf8")).version;
+  } catch {
+    return undefined;
+  }
+};
+
+export const SERVER_INFO = { name: "task-management", version: manifestVersion() };
 
 const ok = (fields = {}) => ({ ok: true, ...fields });
 const fail = (error) => ({ ok: false, error });
