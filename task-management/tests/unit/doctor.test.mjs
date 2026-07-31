@@ -9,6 +9,7 @@
 import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { cleanup, tempStore } from "./helpers.mjs";
 import { create, read, state, update, writeState } from "../../lib/store.mjs";
@@ -312,6 +313,21 @@ describe("evidence, natives and the cache", () => {
     assert.equal(existsSync(p.gitignore), true);
     assert.equal(existsSync(p.gitattributes), true);
     assert.equal(codes(p).includes("no-git-contract"), false, "a repair that leaves the finding is not a repair");
+  });
+
+  it("reports a store an ancestor .gitignore keeps out of git", () => {
+    const p = store();
+    execFileSync("git", ["init", "-q", p.root]);
+    assert.equal(codes(p).includes("store-ignored"), false, "a committable store is not a finding");
+
+    // The shape that hides a whole board: a blanket rule in the repo root. Nothing complains,
+    // because an ignored file makes no noise — `git status` is clean and the tasks never ship.
+    writeFileSync(join(p.root, ".gitignore"), ".bytedesk/\n");
+
+    const f = find(p, "store-ignored");
+    assert.ok(f, "a store that cannot reach git is the whole plugin failing silently");
+    assert.equal(f.level, "error");
+    assert.match(f.message, /\.gitignore:1:\.bytedesk\//, "the finding must name the rule to edit");
   });
 
   it("ignores exactly the files that are per-machine, and nothing else", () => {

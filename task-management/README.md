@@ -60,8 +60,9 @@ is what lets claims stop two parallel sessions grabbing the same task.
 stdio MCP servers alike. `CLAUDE_SESSION_ID` is accepted second, as an override for a wrapper or
 CI job driving `tm` outside Claude Code. Everything that distinguishes one thread from another
 reads this: the claim interlock, the Stop gate, subagent attribution, and the `session` column on
-every event. The plugin refuses to
-create a store inside its own repo — set `TM_ROOT` if you're deliberately dogfooding it.
+every event. The plugin refuses to create a store inside an *installed* copy of itself, under
+`~/.claude/plugins` — `/plugin update` would wipe it. A source checkout is an ordinary project:
+this repo tracks its own work with no `TM_ROOT` and no repo-local configuration.
 
 **Captures**, via hooks — no discipline required:
 
@@ -623,7 +624,8 @@ Ids are preserved, so every reference in a commit message or PR still resolves.
 ## Dashboard
 
 Starts automatically while the plugin is enabled (a `plugin-active` monitor). Live SSE board,
-port in `.bytedesk/task-management/dashboard.port` (default 7910, `TM_DASHBOARD_PORT` to change).
+port in `.bytedesk/task-management/dashboard.port` — assigned once, probed free above 45000 and
+then kept, so the project opens at the same URL every time (`TM_DASHBOARD_PORT` pins one).
 Run it by hand with `bin/tm-dashboard`.
 
 ## Getting the board out

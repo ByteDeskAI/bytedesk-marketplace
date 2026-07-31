@@ -34,6 +34,15 @@ echo "test-store"
 tm init >/dev/null
 [[ -d "$TM_ROOT/.bytedesk/task-management/tasks" ]] && ok "init creates the store" || no "init creates the store"
 
+# A store the repo ignores never reaches a second clone, and nothing else ever says so:
+# git status stays clean and the board works. init has to name it at creation.
+IGN="$(mktemp -d)"
+git init -q "$IGN" && printf '.bytedesk/\n' > "$IGN/.gitignore"
+INIT_ERR="$(cd "$IGN" && TM_ROOT="$IGN" node "$PLUGIN_ROOT/bin/tm" init 2>&1 >/dev/null)"
+assert_contains "$INIT_ERR" "ignored by git" "init warns when the repo would swallow the store"
+assert_contains "$INIT_ERR" ".gitignore:1:.bytedesk/" "the warning names the rule to edit"
+rm -rf "$IGN"
+
 # Gate: no epic → TaskCreate path refuses (exit 2)
 assert_status 2 "task create denied without an active epic" tm task new "orphan task"
 

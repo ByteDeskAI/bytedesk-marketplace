@@ -7,8 +7,10 @@
  *      the store follows the project being worked on, not wherever a shell sits.
  *   3. Any candidate is canonicalized to its main checkout via `git --git-common-dir`,
  *      so every worktree of a project shares one store (fleet's hooks do the same).
- *   4. A store is never created inside this plugin's own repo. Developing the plugin
- *      must not litter it with task stores; TM_ROOT is the opt-in for that.
+ *   4. A store is never created inside an *installed* copy of this plugin — the managed
+ *      tree under ~/.claude/plugins, which `/plugin update` overwrites. A source checkout
+ *      is not that: developing the plugin is working on a project, and the marketplace
+ *      repo tracks its own work like any other repo, with no TM_ROOT and no local config.
  */
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, realpathSync } from "node:fs";
@@ -49,29 +51,40 @@ export function currentCheckout(cwd = process.env.CLAUDE_PROJECT_DIR || process.
   return git(cwd, ["rev-parse", "--show-toplevel"]) || real(cwd);
 }
 
-let pluginRepoCache;
-/** The repo this plugin's own source lives in, if any. Cached — it cannot change mid-process. */
-export function pluginRepoRoot() {
-  if (pluginRepoCache === undefined) pluginRepoCache = canonical(join(HERE, ".."));
-  return pluginRepoCache;
+let installCache;
+/**
+ * This plugin's directory, but only when it is a *managed install* — the copy Claude Code
+ * writes under ~/.claude/plugins and replaces wholesale on update. Null for a source
+ * checkout. Deliberately a path test, not a git test: the installed tree can sit inside a
+ * dotfiles repo, and asking git would then claim the whole home directory as the plugin.
+ */
+export function pluginInstallRoot() {
+  if (installCache === undefined) {
+    const dir = real(join(HERE, ".."));
+    installCache = dir.includes(`${sep}.claude${sep}plugins${sep}`) ? dir : null;
+  }
+  return installCache;
 }
 
-function insidePluginRepo(dir) {
-  const plugin = pluginRepoRoot();
-  if (!plugin || !dir) return false;
+function insidePluginInstall(dir) {
+  const install = pluginInstallRoot();
+  if (!install || !dir) return false;
   const d = real(dir);
-  return d === plugin || d.startsWith(plugin + sep);
+  return d === install || d.startsWith(install + sep);
 }
 
 /**
- * The store root, or null when every candidate would land inside the plugin's own
- * repo. Callers that write must surface that as an error, not create a store anyway.
+ * The store root, or null when every candidate would land inside an installed copy of the
+ * plugin. Callers that write must surface that as an error, not create a store anyway.
  */
 export function resolveRoot() {
   if (process.env.TM_ROOT && existsSync(process.env.TM_ROOT)) return process.env.TM_ROOT;
   for (const candidate of [process.env.CLAUDE_PROJECT_DIR, process.cwd()]) {
+    // Both the candidate and its canonical root: an installed copy that happens to sit
+    // inside a git repo would otherwise canonicalize its way out of the guard.
+    if (insidePluginInstall(candidate)) continue;
     const root = canonical(candidate);
-    if (root && !insidePluginRepo(root)) return root;
+    if (root && !insidePluginInstall(root)) return root;
   }
   return null;
 }
@@ -90,8 +103,8 @@ export function paths(root = resolveRoot()) {
       root: null,
       base: null,
       unavailable:
-        "task-management refuses to create a store inside its own repo. " +
-        "Run tm from the project you're working on, or set TM_ROOT to dogfood deliberately.",
+        "task-management refuses to create a store inside an installed copy of itself — " +
+        "/plugin update would wipe it. Run tm from your project, or set TM_ROOT to it.",
     };
   }
   const base = join(root, ".bytedesk", "task-management");

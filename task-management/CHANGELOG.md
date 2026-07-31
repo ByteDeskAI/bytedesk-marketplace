@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+Fixed: a fresh clone now runs as the committer's checkout did. `activeEpic` lived in the
+gitignored `state.json`, so it never travelled — the clone rendered a correct-looking board and
+then refused the next `tm task new` for having no active epic. It now lives in the committed
+`config.json`; claims, overrides and the last Stop block stay per-machine. Existing stores are
+read through transparently and move on the next write.
+
+Added: `tm init` and `tm doctor` both report a store the repo would keep out of git — an
+ancestor `.gitignore` swallowing `.bytedesk/`, named down to the `<file>:<line>:<pattern>` to
+edit (`store-ignored`, an error, in doctor; a warning on stderr at init). This is the one
+failure that stays silent: the board works, `git status` is clean, and not one task reaches a
+second clone or a CI run. `tm init` writes the store's own `.gitignore`, but nothing stopped
+the project's from swallowing the whole store.
+
+Changed: the store guard now covers an *installed* copy of the plugin (`~/.claude/plugins`,
+which `/plugin update` overwrites) rather than whatever git repo the plugin's source sits in.
+The marketplace repo is an ordinary project again — it tracks its own work with no `TM_ROOT`
+and no repo-local config. The old git-based test also mis-fired when the installed tree sat
+inside a dotfiles repo, claiming the whole home directory as the plugin's repo.
+
 ## 0.4.0
 
 The release that made the store trustworthy under parallel work, and gave it a layer above

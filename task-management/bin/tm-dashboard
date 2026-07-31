@@ -28,7 +28,7 @@ import { CATALOG } from "../lib/ntfy.mjs";
 import { collapseLog } from "../lib/render.mjs";
 
 // Degrade like `tm` does. Launched from a directory with no resolvable store —
-// most often the plugin's own repo — a raw stack trace is a terrible answer.
+// an installed copy of the plugin — a raw stack trace is a terrible answer.
 const resolved = paths();
 if (!resolved.root) {
   process.stderr.write(`${resolved.unavailable}\n`);

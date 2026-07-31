@@ -81,6 +81,27 @@ function gitTracks(p, name) {
   }
 }
 
+/**
+ * The rule that keeps the store out of git, as `<file>:<line>:<pattern>`, or null.
+ *
+ * A blanket `.bytedesk/` in the repo root is the usual culprit — the tasks are then invisible to
+ * every other clone and to CI, and nobody notices, because an ignored file makes no noise. The
+ * store's own `.gitignore` never matches `tasks/`, so any match here is an ancestor overreaching.
+ */
+export function ignoreRule(p) {
+  try {
+    const out = execFileSync("git", ["check-ignore", "-v", "--no-index", join(p.base, "tasks")], {
+      cwd: p.root,
+      stdio: ["ignore", "pipe", "ignore"],
+      encoding: "utf8",
+    }).trim();
+    // `<source>:<line>:<pattern>\t<path>` — keep the part that tells you what to edit.
+    return out ? out.split("\t")[0] : null;
+  } catch {
+    return null; // exit 1 = not ignored; no git / no repo = the question does not apply
+  }
+}
+
 export function diagnose(p = paths()) {
   const tasks = list("task", { includeDeleted: true }, p);
   const live = tasks.filter((t) => t.status !== "deleted");
@@ -220,6 +241,21 @@ export function diagnose(p = paths()) {
         const written = seedGitContract(p, key);
         return written.length ? `wrote ${written.join(", ")}` : `${name} already exists`;
       }),
+    );
+  }
+
+  // The other half of the contract: the store has to actually reach git.
+  const ignored = ignoreRule(p);
+  if (ignored) {
+    out.push(
+      finding(
+        "error",
+        "store-ignored",
+        null,
+        `the store is ignored by git — ${ignored} keeps the tasks out of every clone and out of CI. ` +
+          `Narrow that rule so .bytedesk/task-management/ is committed; the store's own .gitignore ` +
+          `already excludes the per-machine files.`,
+      ),
     );
   }
 

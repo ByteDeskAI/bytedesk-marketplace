@@ -1,13 +1,14 @@
 /**
  * TM-001 — the store belongs to the *executing project*, is shared by all of that
- * project's worktrees, and is never created inside the plugin's own repo.
+ * project's worktrees, and is never created inside an installed copy of the plugin.
  */
 import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { cpSync, mkdirSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { dirname, join, resolve } from "node:path";
 import { addWorktree, cleanup, tempRepo } from "./helpers.mjs";
-import { currentCheckout, legacyStore, pluginRepoRoot, resolveRoot } from "../../lib/paths.mjs";
+import { currentCheckout, legacyStore, pluginInstallRoot, resolveRoot } from "../../lib/paths.mjs";
 
 const created = [];
 const repo = () => {
@@ -77,17 +78,29 @@ describe("resolveRoot", () => {
     assert.equal(resolve(got), resolve(main));
   });
 
-  it("refuses to put a store inside the plugin's own repo", () => {
-    const pluginRepo = pluginRepoRoot();
-    assert.ok(pluginRepo, "the plugin must know which repo it lives in");
-    const got = withEnv({ TM_ROOT: undefined, CLAUDE_PROJECT_DIR: pluginRepo, __cwd: pluginRepo }, resolveRoot);
-    assert.equal(got, null, "developing the plugin must not litter its repo with a store — TM_ROOT is the opt-in");
+  it("treats the plugin's own source checkout as an ordinary project", () => {
+    const here = resolve(import.meta.dirname, "..", "..");
+    assert.equal(pluginInstallRoot(), null, "a source checkout is not a managed install");
+    const got = withEnv({ TM_ROOT: undefined, CLAUDE_PROJECT_DIR: here, __cwd: here }, resolveRoot);
+    assert.ok(got, "the marketplace repo must resolve a store like any other project — no TM_ROOT required");
   });
 
-  it("still honours TM_ROOT inside the plugin repo, for deliberate dogfooding", () => {
-    const pluginRepo = pluginRepoRoot();
-    const got = withEnv({ TM_ROOT: pluginRepo, CLAUDE_PROJECT_DIR: undefined, __cwd: pluginRepo }, resolveRoot);
-    assert.equal(resolve(got), resolve(pluginRepo));
+  it("refuses to put a store inside an installed copy of the plugin", () => {
+    const home = repo();
+    const install = join(home, ".claude", "plugins", "task-management", "lib");
+    mkdirSync(install, { recursive: true });
+    // The guard reads the plugin's own location, so exercise it through a child that
+    // imports paths.mjs from a path shaped like a managed install.
+    cpSync(resolve(import.meta.dirname, "..", "..", "lib"), install, { recursive: true });
+    const target = dirname(install);
+    const script = `import { resolveRoot } from ${JSON.stringify(join(install, "paths.mjs"))};
+      process.stdout.write(String(resolveRoot()));`;
+    const got = execFileSync(process.execPath, ["--input-type=module", "-e", script], {
+      cwd: target,
+      encoding: "utf8",
+      env: { ...process.env, TM_ROOT: "", CLAUDE_PROJECT_DIR: target },
+    });
+    assert.equal(got, "null", "/plugin update would wipe a store written there");
   });
 });
 

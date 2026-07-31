@@ -293,8 +293,21 @@ export function release(id, p = paths()) {
   return released;
 }
 
+/**
+ * Which epic the project is working on — shared, so it lives in the committed config, not in
+ * per-machine `state.json`. It reads as session state and is not: a clone that lost it creates
+ * every subsequent task under no epic, or under the wrong one, and nobody notices until the
+ * board is already wrong. Claims, overrides and the last Stop block ARE per-machine and stay put.
+ *
+ * Kept behind state()/writeState() so the ~30 call sites don't care which file it lands in.
+ */
+const SHARED_STATE = ["activeEpic"];
+
 export function state(p = paths()) {
-  return readJson(p.state, { activeEpic: null, claims: {}, override: null, lastStopBlock: null });
+  const local = readJson(p.state, { claims: {}, override: null, lastStopBlock: null });
+  const cfg = readJson(p.config, {});
+  // A pre-0.5 store still carries activeEpic in state.json; read through to it until a write moves it.
+  return { activeEpic: cfg.activeEpic ?? local.activeEpic ?? null, ...local };
 }
 
 /** Locked read-modify-write. Use this everywhere except inside an existing withLock. */
@@ -304,8 +317,14 @@ export function writeState(patch, p = paths()) {
 
 function writeStateUnlocked(patch, p = paths()) {
   const next = { ...state(p), ...patch };
+  const shared = {};
+  for (const k of SHARED_STATE) {
+    shared[k] = next[k] ?? null;
+    delete next[k];
+  }
+  if (SHARED_STATE.some((k) => k in patch)) writeConfig(shared, p);
   writeAtomic(p.state, `${JSON.stringify(next, null, 2)}\n`);
-  return next;
+  return { ...shared, ...next };
 }
 
 /** Append-only audit log. Never throws — a broken log must not break a hook. */

@@ -53,7 +53,7 @@ import { actor, actorLabel, sessionId } from "../lib/actor.mjs";
 import { addComment, addLink, assign, backlog, dependencies, estimate, labels, prioritise, rank, setType, subtasks, typeOf } from "../lib/issue.mjs";
 import { CATALOG, messageFor, ntfyConfig, send, shouldPublish } from "../lib/ntfy.mjs";
 import { graphData, mermaid, renderWhy, why } from "../lib/graph.mjs";
-import { diagnose, render as renderDoctor, repairAll } from "../lib/doctor.mjs";
+import { diagnose, ignoreRule, render as renderDoctor, repairAll } from "../lib/doctor.mjs";
 import { FORMATS, exportStore } from "../lib/export.mjs";
 import { MAX_TOUCHES, observe, record } from "../lib/touches.mjs";
 import { goalBody, manifestGoalTitle, parseGoalDoc, parseManifest, refusal } from "../lib/goals.mjs";
@@ -171,6 +171,17 @@ const VERBS = {
     reindex(P);
     logEvent("init", { root: P.root }, P);
     out(`initialized ${P.base}${contract.length ? ` (+ ${contract.join(", ")})` : ""}`);
+    // A store the repo already ignores is the one failure that stays silent: git status is
+    // clean, the board works, and not one task ever reaches a second clone. Say it at
+    // creation, where it costs one line to fix, not at the first missing handoff.
+    const ignored = ignoreRule(P);
+    if (ignored) {
+      process.stderr.write(
+        `! the store is ignored by git — ${ignored}\n` +
+          `  narrow that rule so ${P.base.replace(`${P.root}/`, "")} is committed; ` +
+          `the store's own .gitignore covers the per-machine files\n`,
+      );
+    }
   },
 
   epic(sub, ...rest) {
