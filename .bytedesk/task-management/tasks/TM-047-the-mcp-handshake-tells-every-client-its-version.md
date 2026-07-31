@@ -1,21 +1,23 @@
 ---
 id: "TM-047"
 kind: "task"
-status: "open"
+status: "done"
 created: "2026-07-31T07:35:31.222Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "The MCP handshake tells every client its version is 'dev'"
 epic: "EP-005"
-acceptance: [{"text":"A client sees a version that identifies the code it is talking to","done":false},{"text":"Whatever it reports is consistent with how this plugin is versioned — by commit","done":false}]
-evidence: []
-commits: []
+acceptance: [{"text":"A client sees a version that identifies the code it is talking to","done":true,"at":"2026-07-31T08:43:03.489Z"},{"text":"Whatever it reports is consistent with how this plugin is versioned — by commit","done":true,"at":"2026-07-31T08:43:03.554Z"}]
+evidence: [".bytedesk/task-management/evidence/TM-047-mcp.mjs"]
+commits: ["475d4fc"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "61c67728-2ff2-46ea-87eb-2a99db9c96bd"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-07-31T07:35:56.578Z"
+updated: "2026-07-31T08:43:03.745Z"
+comments: [{"author":"main","ts":"2026-07-31T08:43:03.673Z","text":"An installed copy already answered with the SHA from its own path — ~/.claude/plugins/.../<sha>/ — so only a source checkout said 'dev'. It now asks git: describe --always --dirty, which answers v1.3.0-129-g475d4fc-dirty here. The -dirty matters: a client comparing two handshakes should be able to see that the code moved even when the commit did not. 'dev' was honest and useless, which is the mirror of the 0.3.0 literal 0.6.0 removed — that one lied, this one said nothing. Falls back to 'dev' only with no manifest version, no SHA in the path and no git, where it is finally a true statement rather than a default."}]
+closed: "2026-07-31T08:43:03.741Z"
 ---
 
 ## Problem

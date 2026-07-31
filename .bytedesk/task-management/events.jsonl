@@ -1116,3 +1116,59 @@
 {"ts":"2026-07-31T07:35:56.910Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-048","patch":"blockedBy,status","status":"blocked"}
 {"ts":"2026-07-31T07:35:56.915Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-046","patch":"blocks","status":"open"}
 {"ts":"2026-07-31T07:35:56.916Z","event":"dep","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-048","on":["TM-046"]}
+{"ts":"2026-07-31T07:36:11.511Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-046","patch":"commits","status":"open"}
+{"ts":"2026-07-31T07:36:11.511Z","event":"git_link","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-046","ref":"475d4fc"}
+{"ts":"2026-07-31T07:36:11.517Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-042","patch":"commits","status":"done"}
+{"ts":"2026-07-31T07:36:11.517Z","event":"git_link","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-042","ref":"475d4fc"}
+{"ts":"2026-07-31T07:36:11.522Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-047","patch":"commits","status":"open"}
+{"ts":"2026-07-31T07:36:11.522Z","event":"git_link","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-047","ref":"475d4fc"}
+{"ts":"2026-07-31T07:36:11.526Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-048","patch":"commits","status":"blocked"}
+{"ts":"2026-07-31T07:36:11.526Z","event":"git_link","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-048","ref":"475d4fc"}
+{"ts":"2026-07-31T07:36:25.159Z","event":"subagent_stop","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","agent":"af65b6795c0d2b7d5","tasks":[],"said":"fix TM-046","transcript":"/home/ryan/.claude/projects/-home-ryan-Documents-GitHub-ByteDeskAI-bytedesk-marketplace/61c67728-2ff2-46ea-87eb-2a99db9c96bd/subagents/agent-af65b6795c0d2b7d5.jsonl"}
+{"ts":"2026-07-31T07:37:21.881Z","event":"notification","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","message":"Claude is waiting for your input"}
+{"ts":"2026-07-31T07:49:48.701Z","event":"subagent_stop","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","agent":"a0d316efeb181d852","tasks":[],"said":"Goal: make task-management installable by someone other than you. EP-005 is created and pushed; nothing is in progress. Next: fix TM-046, where the Codex hooks example tells users to run tm-hook, a command that doesn't exist.","transcript":"/home/ryan/.claude/projects/-home-ryan-Documents-GitHub-ByteDeskAI-bytedesk-marketplace/61c67728-2ff2-46ea-87eb-2a99db9c96bd/subagents/agent-a0d316efeb181d852.jsonl"}
+{"ts":"2026-07-31T08:31:54.285Z","event":"claim","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-046"}
+{"ts":"2026-07-31T08:31:54.297Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-046","patch":"status,actor,session,branch,worktree","status":"in_progress"}
+{"ts":"2026-07-31T08:41:46.070Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-046","patch":"acceptance","status":"in_progress"}
+{"ts":"2026-07-31T08:41:46.070Z","event":"ac_met","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-046","index":1,"text":"The command the Codex example names resolves after a documented install step"}
+{"ts":"2026-07-31T08:41:46.138Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-046","patch":"acceptance","status":"in_progress"}
+{"ts":"2026-07-31T08:41:46.138Z","event":"ac_met","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-046","index":2,"text":"A hook fires under a real codex exec run, not only against the captured fixture"}
+{"ts":"2026-07-31T08:41:46.196Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-046","patch":"acceptance","status":"in_progress"}
+{"ts":"2026-07-31T08:41:46.196Z","event":"ac_met","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-046","index":3,"text":"The capability matrix claims what the setup path actually delivers"}
+{"ts":"2026-07-31T08:41:46.252Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-046","patch":"evidence","status":"in_progress"}
+{"ts":"2026-07-31T08:41:46.315Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-046","patch":"comments","status":"in_progress"}
+{"ts":"2026-07-31T08:41:46.315Z","event":"comment","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-046","author":"main"}
+{"ts":"2026-07-31T08:41:46.375Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-046","patch":"status,closed","status":"done"}
+{"ts":"2026-07-31T08:41:46.376Z","event":"release","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-046"}
+{"ts":"2026-07-31T08:41:46.377Z","event":"done","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-046"}
+{"ts":"2026-07-31T08:41:46.385Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-048","patch":"status","status":"open"}
+{"ts":"2026-07-31T08:41:46.385Z","event":"unblocked","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-048","by":"TM-046"}
+{"ts":"2026-07-31T08:41:51.316Z","event":"claim","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-047"}
+{"ts":"2026-07-31T08:41:51.329Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-047","patch":"status,actor,session,branch,worktree","status":"in_progress"}
+{"ts":"2026-07-31T08:43:03.503Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-047","patch":"acceptance","status":"in_progress"}
+{"ts":"2026-07-31T08:43:03.504Z","event":"ac_met","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-047","index":1,"text":"A client sees a version that identifies the code it is talking to"}
+{"ts":"2026-07-31T08:43:03.565Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-047","patch":"acceptance","status":"in_progress"}
+{"ts":"2026-07-31T08:43:03.566Z","event":"ac_met","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-047","index":2,"text":"Whatever it reports is consistent with how this plugin is versioned — by commit"}
+{"ts":"2026-07-31T08:43:03.624Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-047","patch":"evidence","status":"in_progress"}
+{"ts":"2026-07-31T08:43:03.684Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-047","patch":"comments","status":"in_progress"}
+{"ts":"2026-07-31T08:43:03.685Z","event":"comment","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-047","author":"main"}
+{"ts":"2026-07-31T08:43:03.755Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-047","patch":"status,closed","status":"done"}
+{"ts":"2026-07-31T08:43:03.756Z","event":"release","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-047"}
+{"ts":"2026-07-31T08:43:03.756Z","event":"done","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-047"}
+{"ts":"2026-07-31T08:43:15.850Z","event":"claim","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-048"}
+{"ts":"2026-07-31T08:43:15.864Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-048","patch":"status,actor,session,branch,worktree","status":"in_progress"}
+{"ts":"2026-07-31T08:46:15.493Z","event":"notification","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","message":"Claude is waiting for your input"}
+{"ts":"2026-07-31T09:02:49.385Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-048","patch":"acceptance","status":"in_progress"}
+{"ts":"2026-07-31T09:02:49.385Z","event":"ac_met","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-048","index":1,"text":"The plugin is installed from the marketplace into a clean HOME, not symlinked from this checkout"}
+{"ts":"2026-07-31T09:02:49.459Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-048","patch":"acceptance","status":"in_progress"}
+{"ts":"2026-07-31T09:02:49.460Z","event":"ac_met","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-048","index":2,"text":"A board is created, a task moves, and the dashboard serves — with nothing this machine already had"}
+{"ts":"2026-07-31T09:02:49.525Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-048","patch":"acceptance","status":"in_progress"}
+{"ts":"2026-07-31T09:02:49.526Z","event":"ac_met","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-048","index":3,"text":"Every step that needed a fix is written down, in order, as the install path"}
+{"ts":"2026-07-31T09:02:49.603Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-048","patch":"evidence","status":"in_progress"}
+{"ts":"2026-07-31T09:02:49.672Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-048","patch":"comments","status":"in_progress"}
+{"ts":"2026-07-31T09:02:49.672Z","event":"comment","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-048","author":"main"}
+{"ts":"2026-07-31T09:02:49.740Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-048","patch":"status,closed","status":"done"}
+{"ts":"2026-07-31T09:02:49.741Z","event":"release","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-048"}
+{"ts":"2026-07-31T09:02:49.741Z","event":"done","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-048"}
+{"ts":"2026-07-31T09:02:49.750Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"EP-005","patch":"status,closed","status":"done"}
+{"ts":"2026-07-31T09:02:49.751Z","event":"epic_auto_closed","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"EP-005","tasks":3}

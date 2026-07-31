@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# `tm-hook <event>` — the hook entrypoint, on PATH.
+#
+# Claude Code substitutes ${CLAUDE_PLUGIN_ROOT} in its manifest, so its hooks name a file inside the
+# plugin and always resolve. Codex has no equivalent: a .codex/hooks.json holds a plain command
+# string, which has to be either an absolute path into somebody's checkout or a name on PATH. This
+# is that name.
+#
+# It exists because shipping the Codex example without it documented a command nobody had — the
+# suite invoked hooks/tm-hook.sh by absolute path and so never noticed (TM-046).
+set -u
+exec "$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)/hooks/tm-hook.sh" "$@"

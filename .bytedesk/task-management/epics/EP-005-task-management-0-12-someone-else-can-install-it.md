@@ -1,7 +1,7 @@
 ---
 id: "EP-005"
 kind: "epic"
-status: "open"
+status: "done"
 created: "2026-07-31T07:35:13.853Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "task-management 0.12 — someone else can install it"
@@ -9,7 +9,8 @@ actor: "main"
 session: "61c67728-2ff2-46ea-87eb-2a99db9c96bd"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-07-31T07:35:25.198Z"
+updated: "2026-07-31T09:02:49.748Z"
+closed: "2026-07-31T09:02:49.745Z"
 ---
 
 ## Why this epic

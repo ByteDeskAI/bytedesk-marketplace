@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+## [0.12.0] — 2026-07-31
+
+The round that asked whether anybody else could install this, and found out by trying.
+
+### Added
+- **`bin/tm-hook`**, and `tm install` now puts it on PATH beside `tm` and `tm-dashboard` (TM-046).
+  0.10.0 shipped `hooks/codex-hooks.example.json` telling readers to run `tm-hook` — a command that
+  did not exist — and moved the capability matrix to ✅ on the strength of a payload test. Every
+  test invoked `hooks/tm-hook.sh` by absolute path, so a fully green suite said nothing about the
+  instruction. A Codex manifest holds a bare command string with no `${CLAUDE_PLUGIN_ROOT}` to
+  substitute, so a resolvable name is the only thing it can carry.
+- **`tests/test-install.sh`** — the install path run as a stranger: empty `HOME`, the plugin copied
+  rather than symlinked, `env -i` so nothing from the developing session leaks in. It drives
+  install → init → epic → task → dashboard, and checks the board identifies itself by *their* repo
+  and records *them* as owner.
+- An "Installing without Claude Code" section in the README, which is that path written down.
+
+### Fixed
+- **A hook attributed Codex's work to whoever launched Codex** (TM-046). A hook process inherits
+  the environment of the shell that started the harness, so running `codex` from a Claude Code
+  shell left `CLAUDE_CODE_SESSION_ID` set and every task Codex created was filed under the Claude
+  session. The payload now wins over the environment — the harness naming its own session beats one
+  inherited from someone else's, which is the rule `subagent-stop` already followed. Found by
+  running Codex for real; the captured fixture could not show it.
+- **The MCP handshake said `dev` to every client** (TM-047). An installed copy already answered with
+  the SHA in its path; a source checkout now asks git, and lets it say `-dirty` — a client comparing
+  two handshakes should see that the code moved even when the commit did not. `dev` was honest and
+  useless, the mirror of the hardcoded `0.3.0` that 0.6.0 removed for lying.
+
 ## [0.11.1] — 2026-07-31
 
 ### Fixed

@@ -16,6 +16,27 @@ and machines, and your teammates can read it in a PR diff.
 
 Then, in any repo: `tm init` (or just let the first `/task-management:epic` do it).
 
+### Installing without Claude Code
+
+Everything except Claude Code's own hooks works standalone — the CLI, the store, the MCP server and
+the dashboard. This is the path, in order, verified from a clean `HOME` with the plugin copied out
+of the marketplace and nothing symlinked back:
+
+```bash
+<plugin>/bin/tm install     # puts tm, tm-dashboard and tm-hook on PATH (~/.local/bin)
+cd your-repo && tm init     # creates .bytedesk/task-management/ and its git contract
+tm epic new "First epic"    # a board needs an epic before it takes tasks
+tm task new "first task"
+tm-dashboard                # serves the board; prints the URL it chose
+```
+
+`tm install` comes first for a reason: a Codex `.codex/hooks.json` and any other manifest without
+`${CLAUDE_PLUGIN_ROOT}` substitution can only name a command, so the entrypoints have to resolve by
+name before those manifests mean anything.
+
+`tm init` records the repo as the board's identity and your git user as its owner, so a clone knows
+which project it belongs to and who set it up.
+
 ### The `tm` command
 
 The first session after install links `tm` and `tm-dashboard` into `~/.local/bin` for you
@@ -313,7 +334,7 @@ against the installed CLIs — `codex-cli 0.146.0`, `grok 0.2.117` — not infer
 | MCP server (`bin/tm-mcp`) | ✅ `.mcp.json` | ✅ `codex mcp add` / `.codex-mcp.json` | ✅ `grok mcp add` |
 | Session identity | ✅ `CLAUDE_CODE_SESSION_ID` | ✅ `CODEX_THREAD_ID` | ✅ `GROK_SESSION_ID` |
 | Native task mirroring | ✅ `TaskCreate`/`TaskUpdate` | ✅ `update_plan` | ✅ `todo_write` |
-| Lifecycle hooks | ✅ `hooks/hooks.json` | ✅ `.codex/hooks.json` — copy `hooks/codex-hooks.example.json` | ❌ no hook surface |
+| Lifecycle hooks | ✅ `hooks/hooks.json` | ✅ `.codex/hooks.json` — see below | ❌ no hook surface |
 | Dashboard work stream | ✅ | ✅ reads `~/.codex/sessions/**/rollout-*.jsonl` | ✅ reads `~/.grok/sessions/<cwd>/<id>/chat_history.jsonl` |
 
 What ❌ costs you: without hooks, Grok gets no session-start briefing, no Stop gate and no
@@ -332,6 +353,18 @@ Registering the MCP server:
 codex mcp add task-management -- <plugin>/bin/tm-mcp
 grok  mcp add task-management -- <plugin>/bin/tm-mcp
 ```
+
+Hooks under Codex, in the order they have to happen — `tm install` first, because a
+`.codex/hooks.json` holds a bare command string with no plugin-root substitution, so the hook
+entrypoint has to be reachable by name:
+
+```bash
+tm install                                             # puts tm, tm-dashboard and tm-hook on PATH
+grep -v '^//' <plugin>/hooks/codex-hooks.example.json > .codex/hooks.json
+```
+
+Verified by running it: a `codex exec` turn fires `PreToolUse` and `Stop`, and an `update_plan`
+lands on the board as a task attributed to the Codex session.
 
 A harness this plugin does not recognise is reported rather than guessed at: the work stream says
 "no agent CLI is running this board" instead of rendering an empty panel forever.

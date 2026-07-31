@@ -16,6 +16,9 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 export const BIN = {
   tm: join(HERE, "..", "bin", "tm"),
   "tm-dashboard": join(HERE, "..", "bin", "tm-dashboard"),
+  // Codex's hooks.json takes a bare command string with no plugin-root substitution, so the hook
+  // entrypoint has to be reachable by name or that manifest cannot be written at all.
+  "tm-hook": join(HERE, "..", "bin", "tm-hook"),
 };
 
 export function binDir() {

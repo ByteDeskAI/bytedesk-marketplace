@@ -1508,8 +1508,15 @@ function hook(event) {
    * tests/fixtures/codex-pre-tool-use.json. Establishing it once here means nothing downstream
    * needs to know which harness it is running under: claims, the Stop gate and event attribution
    * all read `sessionId()` as before.
+   *
+   * The payload WINS over the environment, which this originally got backwards. A hook process
+   * inherits the environment of whatever launched the harness, so running `codex` from a Claude
+   * Code shell leaves CLAUDE_CODE_SESSION_ID set — and every task Codex created was attributed to
+   * the Claude session that happened to spawn it. Found by running it, not by reading it. The
+   * harness naming its own session directly beats a variable inherited from someone else's, which
+   * is the same rule `subagent-stop` already follows below.
    */
-  if (input?.session_id && !sessionId()) process.env.TM_SESSION_ID = String(input.session_id);
+  if (input?.session_id) process.env.TM_SESSION_ID = String(input.session_id);
   if (!isInitialized(P) && event !== "session-start") process.exit(0);
 
   switch (event) {

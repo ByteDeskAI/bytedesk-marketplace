@@ -122,5 +122,16 @@ esac
 LAST_SESSION="$(tail -1 "$TM_ROOT/.bytedesk/task-management/events.jsonl" | jq -r '.session // "none"')"
 [[ "$LAST_SESSION" != "none" ]] && ok "the event it wrote is attributed, not anonymous" || no "the event it wrote is attributed, not anonymous" "session was null"
 
+# The payload beats the environment, which this originally had backwards. A hook process inherits
+# the environment of whatever launched the harness, so running `codex` from a Claude Code shell
+# leaves CLAUDE_CODE_SESSION_ID set — and every task Codex created was attributed to the Claude
+# session that spawned it. Found by running codex for real, not by reading the code.
+CLAUDE_CODE_SESSION_ID="a-claude-session-that-is-merely-inherited" \
+  "$PLUGIN_ROOT/hooks/tm-hook.sh" post-tool-use < "$FIXTURE" >/dev/null 2>&1
+ATTRIBUTED="$(tail -1 "$TM_ROOT/.bytedesk/task-management/events.jsonl" | jq -r '.session // "none"')"
+[[ "$ATTRIBUTED" == "$CODEX_SESSION" ]] \
+  && ok "the harness naming its own session beats one inherited from another harness" \
+  || no "the harness naming its own session beats one inherited from another harness" "attributed to $ATTRIBUTED"
+
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [[ "$FAIL" == 0 ]]

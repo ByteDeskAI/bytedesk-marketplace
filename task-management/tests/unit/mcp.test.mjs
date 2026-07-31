@@ -18,6 +18,17 @@ function payload(res) {
 const call = (name, args, p) =>
   payload(handleRequest({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }, { p }));
 
+test("the handshake identifies the code, not merely 'dev'", () => {
+  // `dev` was honest and useless: every build said it, so a client could not tell which code it
+  // was talking to — the only reason the handshake carries a version at all. An installed copy
+  // reads the SHA out of its own path; a source checkout asks git, and lets it say `-dirty`,
+  // because a client comparing two handshakes should see that they differ.
+  const res = handleRequest({ jsonrpc: "2.0", id: 0, method: "initialize" }, { p: tempStore() });
+  const v = res.result.serverInfo.version;
+  assert.notEqual(v, "dev", "a source checkout can answer this from git");
+  assert.match(v, /[0-9a-f]{7}/i, "and the answer names a commit");
+});
+
 test("initialize returns the handshake, versioned from the plugin manifest", () => {
   // Read the manifest rather than hardcoding the number. A literal here breaks on
   // every release and asserts nothing useful; comparing the two catches the bug that

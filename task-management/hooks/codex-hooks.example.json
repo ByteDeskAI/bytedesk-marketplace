@@ -1,5 +1,10 @@
-// Codex CLI reads <repo>/.codex/hooks.json. Copy this there and make `tm-hook` resolvable
-// (`tm install` symlinks the plugin's bin/ into ~/.local/bin), or replace it with an absolute path.
+// Codex CLI reads <repo>/.codex/hooks.json. Copy this there, stripping these comment lines:
+//
+//     grep -v '^//' hooks/codex-hooks.example.json > .codex/hooks.json
+//
+// `tm-hook` ships in the plugin's bin/ and `tm install` puts it on PATH. Run that first: a Codex
+// manifest holds a bare command string with no ${CLAUDE_PLUGIN_ROOT} to substitute, so the name
+// has to resolve on its own or nothing fires. Absolute paths work too.
 //
 // The payload Codex sends is Claude-Code-shaped — session_id, cwd, tool_name, tool_input,
 // tool_use_id — captured verbatim in tests/fixtures/codex-pre-tool-use.json. The one difference
