@@ -1,0 +1,25 @@
+{
+  "enforce": true,
+  "requireEpic": true,
+  "requireAcceptance": true,
+  "wipLimit": 3,
+  "staleMinutes": 90,
+  "gitLink": true,
+  "captureDecisions": "smart",
+  "autoCloseEpics": true,
+  "eventMaxBytes": 5000000,
+  "claimTtlMinutes": 240,
+  "board": {
+    "categories": [
+      "blocked",
+      "claim",
+      "gate",
+      "epic",
+      "assigned"
+    ],
+    "me": "Ryan",
+    "watching": [],
+    "grouped": true
+  },
+  "activeEpic": "EP-003"
+}

@@ -1,0 +1,14 @@
+# Written by `tm init`. The markdown, events.jsonl, config.json and evidence/ are the
+# shared record and belong in git. These four are not.
+
+# A derived cache — `tm reindex` rebuilds it from the files.
+index.json
+
+# Session claims, the active epic, one-shot overrides. Whose machine, not what work.
+state.json
+
+# A port and a pid for a dashboard running here, now.
+dashboard.*
+
+# writeAtomic's staging files. Present only mid-write, or after a crash.
+.tm-tmp-*
