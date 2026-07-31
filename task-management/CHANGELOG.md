@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## [0.6.1] — 2026-07-30
+
+### Fixed
+- **`tm doctor` compares the store's git contract to the template, not just to nothing.** Seeding
+  only ever wrote a *missing* file, so a store created before a rule existed never learned it, and
+  the file's existence made doctor call the contract healthy. That is how every pre-0.5.0 store
+  kept committing `port.assigned`, a per-machine file, while being told it was fine. A contract
+  that exists is not a contract that is current.
+
+  The repair appends the rules the store lacks under a header saying where they came from; it
+  never rewrites the file, so anything added by hand survives. Reported as `stale-git-contract`,
+  naming the missing rules. Applying it twice changes nothing the second time.
+- A port test squatted the port `portFor()` derives and assumed it was free — passing on a quiet
+  machine and failing on a busy one. It now lets the OS pick the squatter's port and makes *that*
+  the standing assignment, which is the same behaviour with none of the chance.
+
 ## [0.6.0] — 2026-07-30
 
 ### Added
@@ -77,9 +93,8 @@ refused the first task it was asked to create. Both looked healthy from the insi
 - `tm sprint` headings read `in progress` rather than `in_progress`, from the shared labels.
 
 ### Notes for existing stores
-`tm doctor --fix` writes the store's `.gitignore` only when it is missing, so a store created
-before this release will not learn the `port.assigned` rule on its own. Delete
-`.bytedesk/task-management/.gitignore` and re-run `tm doctor --fix` to regenerate it.
+A store created before this release does not carry the `port.assigned` rule. `tm doctor --fix`
+adds it (see 0.6.1) — nothing to do by hand.
 
 ## 0.4.0
 

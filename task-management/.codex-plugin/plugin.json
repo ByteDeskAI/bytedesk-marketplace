@@ -1,6 +1,6 @@
 {
   "name": "task-management",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Takes over Claude Code's task system. Native task calls, approved plans, decisions, and commits are mirrored into a git-tracked markdown store at .bytedesk/task-management/ \u2014 epics, tasks, ADRs, acceptance criteria, evidence.",
   "author": {
     "name": "ByteDeskAI"

@@ -16,7 +16,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
-import { NOT_FOR_GIT, RESOLVED, list, logEvent, reindex, reopenEpic, seedGitContract, state, update, writeState } from "./store.mjs";
+import { NOT_FOR_GIT, RESOLVED, list, logEvent, missingContractRules, reindex, reopenEpic, seedGitContract, state, update, writeState } from "./store.mjs";
 import { LINK_TYPES } from "./issue.mjs";
 import { releaseClaim, staleClaims, sweepClaims } from "./claims.mjs";
 import { KINDS, paths } from "./paths.mjs";
@@ -234,13 +234,26 @@ export function diagnose(p = paths()) {
     ["gitignore", ".gitignore", "its cache, session claims and dashboard pid will land in git"],
     ["gitattributes", ".gitattributes", "every branch that adds events will conflict on events.jsonl"],
   ]) {
-    if (existsSync(p[key])) continue;
+    const missing = missingContractRules(p, key);
+    if (!missing.length) continue;
+    const absent = !existsSync(p[key]);
     out.push(
-      finding("warning", "no-git-contract", null, `the store has no ${name} — ${why}`, () => {
-        // Only its own file: two findings sharing one fix made the second report "nothing missing".
-        const written = seedGitContract(p, key);
-        return written.length ? `wrote ${written.join(", ")}` : `${name} already exists`;
-      }),
+      finding(
+        "warning",
+        absent ? "no-git-contract" : "stale-git-contract",
+        null,
+        absent
+          ? `the store has no ${name} — ${why}`
+          : // A contract that exists is not a contract that is current. Rules added to the template
+            // after a store was created never reached it, and the file's existence made doctor say
+            // it was fine — which is how every pre-0.5.0 store kept committing port.assigned.
+            `${name} predates ${missing.length} rule(s) this version ships: ${missing.join(", ")}`,
+        () => {
+          // Only its own file: two findings sharing one fix made the second report "nothing missing".
+          const written = seedGitContract(p, key);
+          return written.length ? `updated ${written.join(", ")}` : `${name} is already current`;
+        },
+      ),
     );
   }
 

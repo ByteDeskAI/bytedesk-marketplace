@@ -278,12 +278,17 @@ describe("the port survives a restart", () => {
 
   it("falls back and records the new assignment when the port is taken", async () => {
     const p = tempStore();
-    const natural = portFor(p.base);
+    // Let the OS pick the squatter's port and make that the store's standing assignment, rather
+    // than squatting portFor()'s derived port and hoping it was free. Ports are a machine-wide
+    // resource: a test that assumes one is available fails on a busy machine and passes on a
+    // quiet one, which is the worst kind of test to own.
     const squatter = createServer();
-    await new Promise((r) => squatter.listen(natural, "127.0.0.1", r));
+    await new Promise((r) => squatter.listen(0, "127.0.0.1", r));
+    const taken = squatter.address().port;
     try {
+      assignPort(p, taken);
       const got = await ensurePort(p, {});
-      assert.notEqual(got.port, natural, "a bound port is not available, whatever the hash says");
+      assert.notEqual(got.port, taken, "a bound port is not available, whatever the assignment says");
       assert.equal(assignedPort(p), got.port, "the fallback has to be recorded or it happens again");
     } finally {
       await new Promise((r) => squatter.close(r));

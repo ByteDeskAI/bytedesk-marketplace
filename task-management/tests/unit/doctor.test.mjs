@@ -330,6 +330,35 @@ describe("evidence, natives and the cache", () => {
     assert.match(f.message, /\.gitignore:1:\.bytedesk\//, "the finding must name the rule to edit");
   });
 
+  it("reports a contract that predates a rule this version ships, and tops it up", () => {
+    const p = store();
+    // The shape every pre-0.5.0 store is in: a contract that exists, so the old check called it
+    // fine, but written before `port.assigned` was a rule — plus a rule of the operator's own.
+    const shipped = readFileSync(p.gitignore, "utf8");
+    writeFileSync(p.gitignore, `${shipped.replace(/^port\.assigned$/m, "")}\n# mine\nscratch/\n`);
+
+    const f = find(p, "stale-git-contract");
+    assert.ok(f, "a file that exists is not a file that is current");
+    assert.match(f.message, /port\.assigned/, "the finding must name the rule that is missing");
+
+    heal(p);
+
+    const after = readFileSync(p.gitignore, "utf8");
+    assert.match(after, /^port\.assigned$/m, "the missing rule is added");
+    assert.match(after, /^scratch\/$/m, "a hand-added rule is never lost — appending, not rewriting");
+    assert.equal(codes(p).includes("stale-git-contract"), false);
+  });
+
+  it("does not report a contract that is already current", () => {
+    const p = store();
+    assert.equal(codes(p).includes("stale-git-contract"), false, "a fresh store is current by construction");
+    heal(p);
+    // Idempotent: topping up twice must not stack duplicate rules.
+    const once = readFileSync(p.gitignore, "utf8");
+    heal(p);
+    assert.equal(readFileSync(p.gitignore, "utf8"), once);
+  });
+
   it("ignores exactly the files that are per-machine, and nothing else", () => {
     const p = store();
     heal(p);

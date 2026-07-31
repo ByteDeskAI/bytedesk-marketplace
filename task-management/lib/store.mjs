@@ -770,21 +770,63 @@ const GITATTRIBUTES = `# Written by \`tm init\`.
 events.jsonl merge=union
 `;
 
+const CONTRACT = { gitignore: GITIGNORE, gitattributes: GITATTRIBUTES };
+
+/** The rules a contract file carries: the template's lines, minus comments and blanks. */
+const rulesOf = (body) =>
+  body
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith("#"));
+
+/**
+ * Template rules the store's file does not have.
+ *
+ * Seeding only ever wrote a *missing* file, so a store created before a rule was added never
+ * learned it — and the symptom is the silent kind: `port.assigned` shipped in 0.5.0, every older
+ * store kept committing a per-machine file, and `tm doctor` said the contract was fine because a
+ * file existed. Comparing content rather than existence is the whole fix.
+ *
+ * ponytail: exact match on trimmed lines. A rule written differently but equivalently
+ * (`/index.json`, `dashboard.port`) reads as missing and gets appended — harmless duplication,
+ * and the alternative is parsing gitignore semantics. Upgrade if that starts annoying anyone.
+ */
+export function missingContractRules(p = paths(), key) {
+  const body = CONTRACT[key];
+  if (!body) return [];
+  if (!existsSync(p[key])) return rulesOf(body);
+  const have = new Set(
+    readFileSync(p[key], "utf8")
+      .split("\n")
+      .map((l) => l.trim()),
+  );
+  return rulesOf(body).filter((r) => !have.has(r));
+}
+
 /**
  * Seed the contract, without ever overwriting a hand-edited one.
  *
- * `tm init` is run on stores that already exist — it is how you adopt an older board — so this
- * writes only what is missing. Someone who has added their own rules keeps them.
+ * `tm init` is run on stores that already exist — it is how you adopt an older board — so a
+ * missing file is written whole and a present one is *topped up*: rules the template has and the
+ * file lacks are appended, and everything already there, including someone's own additions,
+ * stays. Rewriting from the template would be simpler and would silently delete their work.
  */
 export function seedGitContract(p = paths(), only = null) {
   const written = [];
-  for (const [key, body] of [
-    ["gitignore", GITIGNORE],
-    ["gitattributes", GITATTRIBUTES],
-  ]) {
+  for (const [key, body] of Object.entries(CONTRACT)) {
     if (only && only !== key) continue;
-    if (existsSync(p[key])) continue;
-    writeAtomic(p[key], body);
+    if (!existsSync(p[key])) {
+      writeAtomic(p[key], body);
+      written.push(basename(p[key]));
+      continue;
+    }
+    const missing = missingContractRules(p, key);
+    if (!missing.length) continue;
+    const current = readFileSync(p[key], "utf8");
+    writeAtomic(
+      p[key],
+      `${current.endsWith("\n") ? current : `${current}\n`}\n# Added by \`tm doctor --fix\` — rules this store predates.\n${missing.join("\n")}\n`,
+    );
     written.push(basename(p[key]));
   }
   return written;
