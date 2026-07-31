@@ -280,7 +280,12 @@ function scan() {
 
   for (const t of catalog()) {
     for (const b of t.bins || []) knownBins.add(b);
-    const bin = (t.bins || []).find((b) => has(b));
+    // binPaths covers tools that ship a binary somewhere PATH does not reach. Kimi installs to
+    // ~/.kimi-code/bin/kimi and adds nothing to PATH, so a PATH-only probe reports "not
+    // installed" for a tool sitting right there — the same shape of false negative this whole
+    // plugin exists to avoid, just one level down.
+    const offPath = (t.binPaths || []).find((p) => existsSync(expand(p)));
+    const bin = (t.bins || []).find((b) => has(b)) || offPath;
     const dirs = (t.configDirs || []).filter((d) => existsSync(expand(d)));
     if (!bin && !dirs.length) continue;                       // not on this machine at all
     rows.push({
