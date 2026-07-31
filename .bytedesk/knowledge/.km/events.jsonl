@@ -3,3 +3,4 @@
 {"ts":"2026-07-31T04:42:47.494Z","kind":"concept_write","session":null,"id":"decisions/use-okf-for-durable-knowledge","type":"Decision"}
 {"ts":"2026-07-31T04:45:36.983Z","kind":"concept_write","session":null,"id":"l","type":"Reference"}
 {"ts":"2026-07-31T04:51:57.770Z","kind":"hook_session_start","session":null}
+{"ts":"2026-07-31T06:41:43.785Z","kind":"hook_pre_compact","session":"019fb645-4f7a-7dc1-a69b-52611531c378"}

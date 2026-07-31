@@ -1,7 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "knowledge-management",
-  "version": "0.1.0",
   "description": "OKF v0.2 knowledge runtime for coding agents. Git-tracked markdown knowledge bundles at .bytedesk/knowledge/ with CLI (km), hooks for progressive disclosure, MCP tools, lint/doctor, and soft links into task-management.",
   "author": {
     "name": "ByteDesk AI",
