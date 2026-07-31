@@ -14,7 +14,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "TaskCreate",
+        "matcher": "TaskCreate|todo_write",
         "hooks": [
           {
             "type": "command",
@@ -27,7 +27,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "TaskCreate|TaskUpdate",
+        "matcher": "TaskCreate|TaskUpdate|todo_write",
         "hooks": [
           {
             "type": "command",

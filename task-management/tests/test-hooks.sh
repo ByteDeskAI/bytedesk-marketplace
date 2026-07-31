@@ -58,6 +58,15 @@ hook post-task '{"tool_name":"TaskUpdate","tool_input":{"taskId":"42","status":"
 has "$(tm board)" "1/1 done" "native completed is mirrored"
 empty "$(hook stop)" "stop is silent with nothing in progress"
 
+# Grok todo_write — same Bridge, different Adapter (Claude path above unchanged)
+empty "$(hook pre-task-create '{"tool_name":"todo_write","tool_input":{"todos":[{"id":"g1","content":"from grok","status":"pending"}]}}')" "todo_write allowed with active epic"
+hook post-task '{"tool_name":"todo_write","tool_input":{"todos":[{"id":"g1","content":"from grok","status":"pending"}]}}' >/dev/null
+has "$(tm board)" "from grok" "todo_write is mirrored into the store"
+GROK_MD="$(ls "$TM_ROOT"/.bytedesk/task-management/tasks/TM-*-from-grok.md 2>/dev/null | head -1)"
+has "$(cat "$GROK_MD")" 'nativeId: "grok-todo:g1"' "grok nativeId recorded"
+hook post-task '{"tool_name":"todo_write","tool_input":{"todos":[{"id":"g1","content":"from grok","status":"completed"}]}}' >/dev/null
+has "$(cat "$GROK_MD")" 'status: "done"' "todo_write completed maps to done"
+
 # SessionStart injection
 has "$(hook session-start)" '"hookEventName":"SessionStart"' "session-start emits context"
 
