@@ -12,9 +12,9 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { cleanup, tempStore } from "./helpers.mjs";
-import { create, read, storeBoard, write, writeConfig } from "../../lib/store.mjs";
+import { boardIdentity, create, read, storeBoard, write, writeConfig } from "../../lib/store.mjs";
 import { addLink, foreignRef } from "../../lib/issue.mjs";
-import { boardId } from "../../lib/paths.mjs";
+import { boardId, gitBoardId } from "../../lib/paths.mjs";
 import { diagnose } from "../../lib/doctor.mjs";
 import { boardPayload } from "../../lib/dashboard-api.mjs";
 
@@ -40,6 +40,76 @@ describe("board identity", () => {
     const p = tempStore();
     stores.push(p.root);
     assert.ok(boardId(p.root), "a project with no remote still needs a name");
+  });
+});
+
+describe("identity is derived, not declared (TM-041)", () => {
+  const withRemote = (url) => {
+    const p = tempStore();
+    stores.push(p.root);
+    execFileSync("git", ["init", "-q", p.root]);
+    execFileSync("git", ["-C", p.root, "remote", "add", "origin", url]);
+    return p;
+  };
+
+  it("reads the identity from git, ignoring whatever the file says", () => {
+    const p = withRemote("git@github.com:Acme/Widgets.git");
+    writeConfig({ boardId: "someone/else" }, p);
+
+    const identity = boardIdentity(p);
+    assert.equal(identity.id, "acme/widgets", "a value anyone can edit cannot be the guard's answer");
+    assert.equal(identity.source, "git");
+    assert.equal(storeBoard(p), "acme/widgets");
+  });
+
+  it("says when the stored copy has drifted from git, rather than re-labelling silently", () => {
+    const p = withRemote("git@github.com:Acme/Widgets.git");
+    writeConfig({ boardId: "acme/old-name" }, p); // the repo was renamed or moved owners
+
+    const identity = boardIdentity(p);
+    assert.equal(identity.drifted, true);
+    assert.equal(diagnose(p).some((f) => f.code === "board-renamed"), true, "everything created before the move still carries the old id");
+  });
+
+  it("keeps a renamed board's own history writable", () => {
+    const p = withRemote("git@github.com:Acme/Widgets.git");
+    writeConfig({ boardId: "acme/old-name" }, p);
+    // Everything created before the move carries the old id. Refusing those would make a rename
+    // brick the board — every existing task unwritable — which is worse than the leak the guard
+    // exists to stop. The drift is reported; the history stays writable.
+    const t = write({ id: "TM-700", kind: "task", title: "from before the move", board: "acme/old-name", status: "open" }, p);
+    assert.ok(t.file);
+    assert.equal(read("TM-700", p).title, "from before the move");
+    assert.equal(
+      diagnose(p).some((f) => f.code === "foreign-entity" && f.id === "TM-700"),
+      false,
+      "its own history is not somebody else's work",
+    );
+    assert.throws(() => write({ id: "TM-701", kind: "task", title: "genuinely elsewhere", board: "other/repo", status: "open" }, p));
+  });
+
+  it("marks a directory-derived identity as the guess it is", () => {
+    const p = tempStore(); // no git, no remote
+    stores.push(p.root);
+    const identity = boardIdentity(p);
+    assert.equal(identity.source, "directory", "two clones in differently-named directories would disagree");
+    assert.ok(identity.id);
+  });
+
+  it("prefers a recorded identity over a directory guess when git is silent", () => {
+    const p = tempStore();
+    stores.push(p.root);
+    writeConfig({ boardId: "acme/no-remote-here" }, p);
+    const identity = boardIdentity(p);
+    assert.equal(identity.id, "acme/no-remote-here");
+    assert.equal(identity.source, "config", "recorded, not derived — and labelled as such");
+  });
+
+  it("separates what git says from the fallback", () => {
+    const p = tempStore();
+    stores.push(p.root);
+    assert.equal(gitBoardId(p.root), null, "no remote means git has no answer");
+    assert.ok(boardId(p.root), "the fallback still produces a name");
   });
 });
 

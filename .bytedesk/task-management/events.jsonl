@@ -957,3 +957,18 @@
 {"ts":"2026-07-31T04:14:18.623Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-040","patch":"status,closed","status":"done"}
 {"ts":"2026-07-31T04:14:18.624Z","event":"release","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-040"}
 {"ts":"2026-07-31T04:14:18.624Z","event":"done","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-040"}
+{"ts":"2026-07-31T04:15:19.177Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-040","patch":"commits","status":"done"}
+{"ts":"2026-07-31T04:15:19.178Z","event":"git_link","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-040","ref":"225ebf8"}
+{"ts":"2026-07-31T04:22:23.379Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-041","patch":"acceptance","status":"open"}
+{"ts":"2026-07-31T04:22:23.379Z","event":"ac_met","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-041","index":1,"text":"Board identity is read from git for the current directory, not from anything a person types"}
+{"ts":"2026-07-31T04:22:23.449Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-041","patch":"acceptance","status":"open"}
+{"ts":"2026-07-31T04:22:23.449Z","event":"ac_met","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-041","index":2,"text":"When git supplies it, the value is read-only: tm and the dashboard both refuse to change it"}
+{"ts":"2026-07-31T04:22:23.519Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-041","patch":"acceptance","status":"open"}
+{"ts":"2026-07-31T04:22:23.519Z","event":"ac_met","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-041","index":3,"text":"When git supplies nothing, the current fallback stands and is clearly marked as a guess"}
+{"ts":"2026-07-31T04:22:23.588Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-041","patch":"acceptance","status":"open"}
+{"ts":"2026-07-31T04:22:23.589Z","event":"ac_met","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-041","index":4,"text":"A store whose git-derived identity later changes says so rather than silently re-labelling itself"}
+{"ts":"2026-07-31T04:22:23.662Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-041","patch":"evidence","status":"open"}
+{"ts":"2026-07-31T04:22:23.731Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-041","patch":"comments","status":"open"}
+{"ts":"2026-07-31T04:22:23.732Z","event":"comment","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-041","author":"main"}
+{"ts":"2026-07-31T04:22:52.489Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-041","patch":"status,closed","status":"done"}
+{"ts":"2026-07-31T04:22:52.490Z","event":"done","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-041"}

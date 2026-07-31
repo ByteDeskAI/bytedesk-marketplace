@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+## [0.9.1] — 2026-07-31
+
+### Changed
+- **Board identity is derived from git on every read, not trusted from a file** (TM-041). TM-036
+  stored it in `config.json`, which left the value that gates cross-board writes editable by anyone
+  who could open the file it was defending — a guard you can talk out of is not a guard. The origin
+  remote wins; the stored copy is only a record.
+- `boardIdentity()` says where its answer came from: `git` is derived and authoritative, `config`
+  is recorded for a project with no remote, and `directory` is an outright guess — two clones of a
+  remote-less project in differently-named directories will disagree, and saying so beats
+  presenting it as a fact.
+- `tm config boardId` refuses while git supplies one, and exits 2. The dashboard could never write
+  it — the settings allowlist already saw to that — and there is now a test saying so, because
+  "not currently writable" and "cannot be written" are different guarantees.
+- `tm doctor` reports `board-renamed` when the stored name no longer matches git, rather than the
+  board quietly re-labelling itself.
+
+### Fixed
+- A repo that gains a remote, is renamed, or moves owner changes its derived identity under a store
+  full of entities stamped with the old one — and the TM-036 write guard rejected all of them,
+  making a rename brick the board. Both the current and the recorded name now count as this board's
+  own. Found by the hooks suite, not by inspection.
+
 ## [0.9.0] — 2026-07-31
 
 ### Added

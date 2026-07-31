@@ -37,6 +37,7 @@ import {
   update,
   mutate,
   writeConfig,
+  boardIdentity,
   storeBoard,
   writeState,
 } from "../lib/store.mjs";
@@ -840,6 +841,19 @@ const VERBS = {
   config(key, value) {
     requireInit();
     if (!key) return out(JSON.stringify(config(P), null, 2));
+    // Identity is derived, not declared. When git answers, writing this key would change the file
+    // and change nothing else — `boardIdentity` reads git first — so the honest response is to
+    // refuse rather than accept an edit that silently does not take.
+    if (key === "boardId" && value !== undefined) {
+      const identity = boardIdentity(P);
+      if (identity.source === "git") {
+        die(
+          `boardId is read-only here: git says this project is ${identity.id}.\n` +
+            `It is derived from the origin remote, so editing it would not change what the guard uses.`,
+          2,
+        );
+      }
+    }
     const parsed = value === undefined ? undefined : JSON.parse(value);
     out(JSON.stringify(writeConfig({ [key]: parsed }, P), null, 2));
   },

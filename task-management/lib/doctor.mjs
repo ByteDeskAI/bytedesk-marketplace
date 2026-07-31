@@ -16,7 +16,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
-import { NOT_FOR_GIT, RESOLVED, list, logEvent, missingContractRules, reindex, reopenEpic, seedGitContract, state, storeBoard, update, writeState } from "./store.mjs";
+import { NOT_FOR_GIT, RESOLVED, list, logEvent, missingContractRules, reindex, reopenEpic, seedGitContract, state, boardIdentity, storeBoard, update, writeState } from "./store.mjs";
 import { LINK_TYPES } from "./issue.mjs";
 import { releaseClaim, staleClaims, sweepClaims } from "./claims.mjs";
 import { KINDS, paths } from "./paths.mjs";
@@ -258,16 +258,39 @@ export function diagnose(p = paths()) {
   }
 
   /**
+   * The stored identity no longer matches git.
+   *
+   * A repo gets renamed or moved between owners, and the board would otherwise re-label itself
+   * without a word — every entity created before the move keeps the old id and starts reading as
+   * foreign. Saying it is the whole fix: which of the two is right is a decision, not a repair.
+   */
+  const identity = boardIdentity(p);
+  if (identity.drifted) {
+    out.push(
+      finding(
+        "warning",
+        "board-renamed",
+        null,
+        `git says this project is ${identity.id}, but the store recorded ${identity.stored} — ` +
+          `entities created before the move still carry the old board. ` +
+          `\`tm config boardId\` cannot fix it: identity is derived, not declared.`,
+      ),
+    );
+  }
+
+  /**
    * An entity filed on another board.
    *
    * Not hypothetical: the write path had no such check, so a session whose store resolved to one
    * repo while its shell sat in another could file work into the wrong project entirely. The write
    * is refused now, but stores already carrying a stray have to be able to find it.
    */
-  const board = storeBoard(p);
+  // The store's own history counts as its own, including the name it had before a rename.
+  const ours = new Set([identity.id, identity.stored].filter(Boolean));
+  const board = identity.id;
   if (board) {
     for (const t of [...live, ...list("epic", {}, p)]) {
-      if (!t.board || t.board === board) continue;
+      if (!t.board || ours.has(t.board)) continue;
       out.push(
         finding(
           "error",

@@ -321,6 +321,15 @@ case "$(cat "$STORE/config.json")" in
   *'"enforce": false'*) no "the gate is untouched on disk" "enforce was overwritten" ;;
   *) ok "the gate is untouched on disk" ;;
 esac
+# The board's identity is not a setting. The allowlist already keeps it out of reach; this asserts
+# it, because "not currently writable" and "cannot be written" are different guarantees (TM-041).
+CODE="$(post /api/settings '{"boardId":"acme/hijack"}')"
+[[ "$CODE" == 400 ]] && ok "the dashboard cannot rewrite the board's identity" || no "the dashboard cannot rewrite the board's identity" "got $CODE"
+case "$(cat "$STORE/config.json")" in
+  *'acme/hijack'*) no "identity untouched on disk" "boardId was overwritten" ;;
+  *) ok "identity untouched on disk" ;;
+esac
+
 post /api/settings '{"grouped":false,"nonsense":1}' >/dev/null
 assert_contains "$(body)" '"ignored"' "an unknown key is named rather than silently stored"
 CODE="$(post /api/settings '"nope"')"

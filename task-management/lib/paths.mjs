@@ -64,14 +64,24 @@ export function currentCheckout(cwd = process.env.CLAUDE_PROJECT_DIR || process.
  * in differently-named directories read as different boards — but a project with no remote has no
  * better name, and the alternative is no identity at all.
  */
-export function boardId(dir) {
+/**
+ * What git says this project is: `owner/name` from the origin remote, or null.
+ *
+ * Kept separate from the fallback on purpose. A derived identity and an assumed one are different
+ * kinds of fact, and the caller has to be able to tell them apart — see `boardIdentity`.
+ */
+export function gitBoardId(dir) {
   if (!dir) return null;
   const remote = git(dir, ["remote", "get-url", "origin"]);
-  if (remote) {
-    const m = remote.match(/[:/]([^/:]+\/[^/]+?)(?:\.git)?$/);
-    if (m) return m[1].toLowerCase();
-  }
-  return basename(real(dir)).toLowerCase();
+  if (!remote) return null;
+  const m = remote.match(/[:/]([^/:]+\/[^/]+?)(?:\.git)?$/);
+  return m ? m[1].toLowerCase() : null;
+}
+
+/** Git's answer, or the directory name as a guess when the project has no remote. */
+export function boardId(dir) {
+  if (!dir) return null;
+  return gitBoardId(dir) || basename(real(dir)).toLowerCase();
 }
 
 let installCache;

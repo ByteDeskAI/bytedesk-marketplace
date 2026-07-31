@@ -278,5 +278,21 @@ assert_contains "$(tm sprint list)" "SP-001" "sprint list shows it"
 assert_contains "$(tm sprint done)" "unfinished, still on the board" "closing a sprint does not evaporate unfinished work"
 assert_contains "$(tm log 200 --json)" '"event": "sprint"' "sprint changes are on the timeline"
 
+# ── board identity is read-only when git supplies it (TM-041) ────────────────
+# The value that gates cross-board writes must not be editable by the thing it is defending. With
+# a remote configured, `tm config boardId` refuses and the file is left alone.
+git -C "$TM_ROOT" remote remove origin 2>/dev/null || true
+git -C "$TM_ROOT" remote add origin git@github.com:acme/identity-repo.git 2>/dev/null || \
+  { git init -q "$TM_ROOT"; git -C "$TM_ROOT" remote add origin git@github.com:acme/identity-repo.git; }
+BEFORE_ID="$(tm config --json 2>/dev/null | jq -r '.boardId // "unset"' 2>/dev/null || echo unset)"
+assert_status 2 "tm config refuses to overwrite a git-derived boardId" node "$PLUGIN_ROOT/bin/tm" config boardId '"acme/hijack"'
+assert_contains "$(tm config boardId '\"acme/hijack\"' 2>&1 || true)" "read-only" "and says why, naming what git reports"
+AFTER_ID="$(node -e '
+  const p = require("node:path").join(process.env.TM_ROOT, ".bytedesk/task-management/config.json");
+  const c = JSON.parse(require("node:fs").readFileSync(p, "utf8"));
+  console.log(c.boardId ?? "unset");
+')"
+[[ "$AFTER_ID" != "acme/hijack" ]] && ok "the refused write left the file alone" || no "the refused write left the file alone" "config now says $AFTER_ID"
+
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [[ "$FAIL" == 0 ]]
