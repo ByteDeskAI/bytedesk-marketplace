@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+## [0.6.2] — 2026-07-30
+
+### Fixed
+- **Two processes could hold the store lock at once, and eight concurrent creates minted one id
+  three times** (TM-015, reopened). Breaking a stale lock was `if (staleLock(lock)) unlink(lock)`
+  — a verdict about a file, acted on after the file may already be someone else's. Traced under
+  load: a holder releases, several waiters all read the now-empty path and all conclude "stale",
+  and each in turn deletes the fresh lock the previous winner just created and takes its own.
+  Four processes inside the critical section within two milliseconds.
+
+  A lock that *vanished* is no longer "broken" at all — it is simply gone, and the atomic
+  `open(…, "wx")` retry picks exactly one winner. A lock with a dead holder is now cleared under a
+  second lock, so only one process breaks it and it re-reads the verdict while holding that
+  exclusion. An orphaned breaker ages out, so a lock can never become permanently unbreakable.
+
+  `tests/test-concurrency.sh` now asserts the *cause* rather than the symptom: it traces every
+  acquire and release and fails if two processes are ever inside the lock together. Distinct ids
+  were only ever the visible half — plenty of runs had overlapping holders and still looked fine.
+
+### Changed
+- `withLock` gained an env-gated lock trace (`TM_LOCK_TRACE`). A bug that only appears under
+  contention cannot be reasoned about from the outside; this is how the above was found, and it is
+  what the new assertion reads.
+
 ### Fixed
 - **MCP handshake always includes `serverInfo.version`.** After commit-SHA versioning dropped
   `version` from the plugin manifest, `initialize` advertised `{ name: "task-management" }` with

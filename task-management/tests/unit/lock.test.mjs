@@ -21,6 +21,23 @@ function store() {
 }
 after(() => cleanup(...stores));
 
+/** Set env for one call, without leaking into the next test. */
+function withEnv(env, fn) {
+  const saved = {};
+  for (const [k, v] of Object.entries(env)) {
+    saved[k] = process.env[k];
+    process.env[k] = v;
+  }
+  try {
+    return fn();
+  } finally {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+}
+
 describe("withLock", () => {
   it("returns the callback's value and releases the lock", () => {
     const p = store();
@@ -43,6 +60,41 @@ describe("withLock", () => {
     const ancient = new Date(Date.now() - LOCK_STALE_MS * 2).toISOString();
     writeFileSync(lock, JSON.stringify({ pid: 999999, ts: ancient }));
     assert.equal(withLock(p, () => "recovered"), "recovered");
+  });
+
+  it("will not break a stale lock while another process is breaking it", () => {
+    const p = store();
+    const lock = join(p.base, "state.lock");
+    const ancient = new Date(Date.now() - LOCK_STALE_MS * 2).toISOString();
+    writeFileSync(lock, JSON.stringify({ pid: 999999, ts: ancient }));
+    // Someone else is mid-break. Breaking is exclusive precisely so that the loser cannot delete
+    // the fresh lock the winner is about to create — four processes once got inside the critical
+    // section that way, and eight concurrent creates minted one id three times.
+    const breaker = `${lock}.break`;
+    writeFileSync(breaker, "");
+    try {
+      assert.throws(
+        () => withEnv({ TM_LOCK_TIMEOUT_MS: "300" }, () => withLock(p, () => "should not run")),
+        /could not take the store lock/,
+        "a breaker in flight means wait, not break",
+      );
+      assert.equal(existsSync(lock), true, "the stale lock is the other process's to remove");
+    } finally {
+      rmSync(breaker, { force: true });
+    }
+  });
+
+  it("clears a breaker whose own process died, so a lock is never permanently unbreakable", () => {
+    const p = store();
+    const lock = join(p.base, "state.lock");
+    const ancient = new Date(Date.now() - LOCK_STALE_MS * 2).toISOString();
+    writeFileSync(lock, JSON.stringify({ pid: 999999, ts: ancient }));
+    const breaker = `${lock}.break`;
+    writeFileSync(breaker, "");
+    const old = new Date(Date.now() - LOCK_STALE_MS * 2);
+    utimesSync(breaker, old, old);
+
+    assert.equal(withLock(p, () => "recovered"), "recovered", "an orphaned breaker must age out too");
   });
 
   it("does not treat a freshly created empty lock as dead", () => {

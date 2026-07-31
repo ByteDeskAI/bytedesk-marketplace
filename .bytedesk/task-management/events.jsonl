@@ -835,3 +835,16 @@
 {"ts":"2026-07-31T02:51:06.580Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"EP-002","patch":"status,closed","status":"open"}
 {"ts":"2026-07-31T02:51:06.580Z","event":"epic_reopened","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"EP-002"}
 {"ts":"2026-07-31T02:51:06.580Z","event":"reopened","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-015","reason":"recurs: 8 concurrent creates still mint a duplicate id under full-suite load, ~1 run in 5-10. Reproduces on committed HEAD, so it is not the 0.6.x work. The empty-lock window fix in staleLock closed one cause; something else lets two holders through, since nextId already runs inside withLock."}
+{"ts":"2026-07-31T02:51:19.579Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-015","patch":"commits","status":"open"}
+{"ts":"2026-07-31T02:51:19.579Z","event":"git_link","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-015","ref":"74b2927"}
+{"ts":"2026-07-31T02:51:39.686Z","event":"subagent_stop","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","agent":"af83543b6529d88c1","tasks":[],"said":"fix TM-015","transcript":"/home/ryan/.claude/projects/-home-ryan-Documents-GitHub-ByteDeskAI-bytedesk-marketplace/61c67728-2ff2-46ea-87eb-2a99db9c96bd/subagents/agent-af83543b6529d88c1.jsonl"}
+{"ts":"2026-07-31T02:52:37.099Z","event":"notification","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","message":"Claude is waiting for your input"}
+{"ts":"2026-07-31T03:06:30.549Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-015","patch":"acceptance","status":"open"}
+{"ts":"2026-07-31T03:06:30.550Z","event":"ac_met","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-015","index":1,"text":"the failure is reproduced deliberately, or attributed to the environment with evidence"}
+{"ts":"2026-07-31T03:06:39.336Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-015","patch":"evidence","status":"open"}
+{"ts":"2026-07-31T03:06:39.395Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-015","patch":"comments","status":"open"}
+{"ts":"2026-07-31T03:06:39.396Z","event":"comment","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-015","author":"main"}
+{"ts":"2026-07-31T03:06:39.452Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-015","patch":"status,closed","status":"done"}
+{"ts":"2026-07-31T03:06:39.452Z","event":"done","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-015"}
+{"ts":"2026-07-31T03:06:39.458Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"EP-002","patch":"status,closed","status":"done"}
+{"ts":"2026-07-31T03:06:39.458Z","event":"epic_auto_closed","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"EP-002","tasks":32}

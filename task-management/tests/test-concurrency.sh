@@ -35,6 +35,11 @@ eq() { [[ "$1" == "$2" ]] && ok "$3" || no "$3" "expected $2, got $1"; }
 
 echo "test-concurrency"
 
+# Trace every lock acquire/release. Duplicate ids are the *symptom* of two processes holding the
+# store lock at once; the trace lets the suite assert the cause directly, which is the difference
+# between "8 ids this time" and "the lock held".
+export TM_LOCK_TRACE="$TM_ROOT/lock.trace"
+
 tm init >/dev/null
 tm epic new "Concurrency" >/dev/null
 
@@ -48,6 +53,20 @@ for i in $(seq 1 $N); do
   (TM_ALLOW_DUP=1 node "$PLUGIN_ROOT/bin/tm" task new "concurrent subject number $i" >/dev/null 2>>"$STORE/creates.err") &
 done
 wait
+
+# Never two holders. A break that deletes the winner's fresh lock put four processes inside the
+# critical section at once, and only some of those runs produced a visible duplicate.
+HOLDERS=$(node -e '
+  const lines = require("node:fs").readFileSync(process.argv[1], "utf8").split("\n").filter(Boolean);
+  const held = new Set(); let worst = 0;
+  for (const l of lines) {
+    let r; try { r = JSON.parse(l); } catch { continue; }
+    if (r.ev === "acquire") { held.add(r.pid); worst = Math.max(worst, held.size); }
+    if (r.ev === "release") held.delete(r.pid);
+  }
+  console.log(worst);
+' "$TM_ROOT/lock.trace")
+eq "$HOLDERS" "1" "only one process is ever inside the store lock"
 
 FILES=$(find "$STORE/tasks" -name 'TM-*.md' | wc -l | tr -d ' ')
 IDS=$(find "$STORE/tasks" -name 'TM-*.md' -exec basename {} \; | grep -o '^TM-[0-9]*' | sort -u | wc -l | tr -d ' ')
