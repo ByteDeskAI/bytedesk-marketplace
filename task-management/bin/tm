@@ -10,7 +10,7 @@ import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { homedir } from "node:os";
-import { currentCheckout, ensureDirs, isInitialized, legacyStore, paths } from "../lib/paths.mjs";
+import { boardId, currentCheckout, ensureDirs, isInitialized, legacyStore, paths } from "../lib/paths.mjs";
 import {
   kindOf,
   config,
@@ -37,6 +37,7 @@ import {
   update,
   mutate,
   writeConfig,
+  storeBoard,
   writeState,
 } from "../lib/store.mjs";
 import { consumeOverride, enforcementOff, gateDone, gateStop, gateTaskCreate, setOverride } from "../lib/enforce.mjs";
@@ -164,7 +165,11 @@ const VERBS = {
   init() {
     if (!P.root) die(P.unavailable);
     ensureDirs(P);
-    if (!existsSync(P.config)) writeConfig({}, P);
+    // The board goes in the committed config, not derived per-machine: a clone into a differently
+    // named directory is the same board, and a store that knows its own name is what lets a write
+    // from elsewhere be refused instead of silently accepted.
+    if (!existsSync(P.config)) writeConfig({ boardId: boardId(P.root) }, P);
+    else if (!config(P).boardId && boardId(P.root)) writeConfig({ boardId: boardId(P.root) }, P);
     if (!existsSync(P.state)) writeState({}, P);
     // Before anything is written that git would otherwise pick up.
     const contract = seedGitContract(P);
@@ -1782,6 +1787,23 @@ function linkGit(input) {
       ? [fromBranch]
       : list("task", { status: "in_progress" }, P).map((t) => t.id);
   if (!targets.length) return;
+
+  /**
+   * The ref comes from the checkout the command ran in; the tasks come from the store `tm`
+   * resolved. Those are usually the same repo and occasionally are not — `tm` follows
+   * CLAUDE_PROJECT_DIR while a shell sits wherever it sits — and when they differ, this used to
+   * staple one project's pull request onto another project's task. bytedesk-persona's TM-001
+   * carries 25 marketplace PR urls for exactly this reason.
+   *
+   * A cross-repo reference is a real thing worth recording, but it is a link that names the other
+   * repo, not a commit on a task that never touched it.
+   */
+  const from = boardId(CHECKOUT);
+  const mine = storeBoard(P);
+  if (from && mine && from !== mine) {
+    logEvent("git_link_skipped", { from, board: mine, reason: "ref came from another repo" }, P);
+    return;
+  }
 
   const sha = git(["rev-parse", "--short", "HEAD"]);
   const ref = /gh\s+pr\s+create/.test(cmd)

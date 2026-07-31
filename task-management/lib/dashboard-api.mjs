@@ -33,6 +33,7 @@ import {
   unblockDependents,
   update,
   writeState,
+  storeBoard,
 } from "./store.mjs";
 
 const STATUSES = ["backlog", "open", "in_progress", "blocked", "parked", "done"];
@@ -306,9 +307,21 @@ function bulk({ ids = [], op, args = {} }, p) {
 
 /** Everything the board needs in one round trip, for the initial render. */
 export function boardPayload(p = paths()) {
+  /**
+   * A board shows its own work and nothing else.
+   *
+   * The store is per-repo, so this is normally true by construction — but "normally true by
+   * construction" is what let a persona task collect marketplace pull requests. A stray filed here
+   * by an older `tm` is not this board's, and rendering it makes one project's board quietly wrong
+   * about another's. `tm doctor` reports it as `foreign-entity`; the board simply does not draw it.
+   *
+   * Entities written before boards existed carry none, and belong to whoever holds them.
+   */
+  const board = storeBoard(p);
+  const mine = (e) => !board || !e.board || e.board === board;
   return {
-    epics: list("epic", {}, p).map(({ body, file, ...e }) => e),
-    tasks: list("task", {}, p).map(({ body, file, ...t }) => t),
+    epics: list("epic", {}, p).filter(mine).map(({ body, file, ...e }) => e),
+    tasks: list("task", {}, p).filter(mine).map(({ body, file, ...t }) => t),
     backlog: backlog(p).map((t) => t.id),
     state: state(p),
     // Board preferences ride along with the board rather than needing a second round trip: the

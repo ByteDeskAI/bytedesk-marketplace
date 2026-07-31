@@ -9,7 +9,7 @@
  */
 import { appendFileSync, closeSync, statSync, existsSync, openSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { KINDS, ensureDirs, paths } from "./paths.mjs";
+import { KINDS, boardId, ensureDirs, paths } from "./paths.mjs";
 import { actor, actorLabel, sessionId } from "./actor.mjs";
 import { notifyEvent } from "./notify-hook.mjs";
 
@@ -632,8 +632,33 @@ export function read(id, p = paths()) {
   return { ...data, id: data.id || id, body, file };
 }
 
+/**
+ * This store's board, cached per root. Written into config.json by `tm init` so it survives a
+ * clone into a differently-named directory, and derived from the repo when config has none —
+ * every store predating this carries no `board`, and must keep working.
+ */
+export function storeBoard(p = paths()) {
+  return readJson(p.config, {}).boardId || boardId(p.root) || null;
+}
+
 export function write(doc, p = paths()) {
   const { body = "", file, ...data } = doc;
+  /**
+   * An entity is filed on the board it was created on, or nowhere.
+   *
+   * Nothing used to check this, and the write path is exactly where the two repos met: `tm`
+   * resolves a store from CLAUDE_PROJECT_DIR while a command runs in whatever checkout the shell
+   * is in, so a write aimed at one project could land in another's store and look completely
+   * normal afterwards. Entities created before this shipped carry no `board` and are grandfathered
+   * — refusing them would break every existing store to catch a bug that has already happened.
+   */
+  const here = storeBoard(p);
+  if (data.board && here && data.board !== here) {
+    throw new Error(
+      `${data.id} belongs to ${data.board}, but this store is ${here} — refusing to file it here.\n` +
+        `If the two are genuinely related, link them: tm link <id> relates-to ${data.board}#${data.id}`,
+    );
+  }
   const target = file || join(dirFor(kindOf(data.id), p), `${data.id}-${slug(data.title)}.md`);
   ensureDirs(p);
   const stamped = { ...data, updated: now() };
@@ -676,7 +701,9 @@ export function create(kind, fields, body = "", p = paths()) {
   ensureDirs(p);
   const doc = withLock(p, () => {
     const id = fields.id || nextId(kind, p);
-    return write({ id, kind, status: "open", created: now(), ...fields, body }, p);
+    // The board is stamped at creation and never rewritten: it is where this entity was born, and
+    // it is what lets a later write notice it is being filed into somebody else's store.
+    return write({ id, kind, status: "open", created: now(), board: storeBoard(p), ...fields, body }, p);
   });
   logEvent("create", { id: doc.id, kind, title: doc.title }, p);
   return doc;

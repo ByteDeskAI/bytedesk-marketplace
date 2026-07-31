@@ -21,5 +21,6 @@
     "watching": [],
     "grouped": true
   },
-  "activeEpic": "EP-003"
+  "activeEpic": "EP-003",
+  "boardId": "bytedeskai/bytedesk-marketplace"
 }

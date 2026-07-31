@@ -16,7 +16,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
-import { NOT_FOR_GIT, RESOLVED, list, logEvent, missingContractRules, reindex, reopenEpic, seedGitContract, state, update, writeState } from "./store.mjs";
+import { NOT_FOR_GIT, RESOLVED, list, logEvent, missingContractRules, reindex, reopenEpic, seedGitContract, state, storeBoard, update, writeState } from "./store.mjs";
 import { LINK_TYPES } from "./issue.mjs";
 import { releaseClaim, staleClaims, sweepClaims } from "./claims.mjs";
 import { KINDS, paths } from "./paths.mjs";
@@ -255,6 +255,28 @@ export function diagnose(p = paths()) {
         },
       ),
     );
+  }
+
+  /**
+   * An entity filed on another board.
+   *
+   * Not hypothetical: the write path had no such check, so a session whose store resolved to one
+   * repo while its shell sat in another could file work into the wrong project entirely. The write
+   * is refused now, but stores already carrying a stray have to be able to find it.
+   */
+  const board = storeBoard(p);
+  if (board) {
+    for (const t of [...live, ...list("epic", {}, p)]) {
+      if (!t.board || t.board === board) continue;
+      out.push(
+        finding(
+          "error",
+          "foreign-entity",
+          t.id,
+          `belongs to ${t.board}, but this store is ${board} — it was filed here by a write that crossed repos`,
+        ),
+      );
+    }
   }
 
   // The other half of the contract: the store has to actually reach git.

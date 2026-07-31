@@ -44,10 +44,16 @@ const ENV = { TM_NTFY_TOKEN: "tk_test", TM_NTFY_SERVER: undefined, TM_NTFY_TOPIC
 function emittedEvents() {
   const root = new URL("../../", import.meta.url);
   const names = new Set();
+  // Recursive: lib/ grew subdirectories (lib/harness/), and a flat scan both missed the events
+  // emitted there and died with EISDIR trying to read the directory as a file.
+  const files = (d) =>
+    readdirSync(d, { withFileTypes: true }).flatMap((e) =>
+      e.isDirectory() ? files(new URL(`${e.name}/`, d)) : [new URL(e.name, d)],
+    );
   for (const dir of ["lib", "bin"]) {
     const d = new URL(`${dir}/`, root);
-    for (const file of readdirSync(d)) {
-      const text = readFileSync(new URL(file, d), "utf8");
+    for (const file of files(d)) {
+      const text = readFileSync(file, "utf8");
       for (const m of text.matchAll(/logEvent\(/g)) {
         // Walk to the comma that ends the first argument, respecting nesting and strings.
         let i = m.index + m[0].length;

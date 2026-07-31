@@ -115,12 +115,44 @@ export function addComment(id, text, { author, p = paths() } = {}) {
 }
 
 /** Typed link, written to both ends so it is visible from either task. */
+/**
+ * `owner/repo#TM-007` — a task on another board.
+ *
+ * Cross-repo work is real: a persona ticket genuinely does relate to a marketplace pull request.
+ * What it must not be is a bare id, because a bare id resolves against whichever store the cwd
+ * happened to pick, which is how one repo's PRs ended up stapled to another repo's task. Naming
+ * the board makes the reference honest and un-resolvable by accident.
+ */
+const FOREIGN = /^([\w.-]+\/[\w.-]+)#([A-Z]+-\d+)$/;
+export const foreignRef = (ref) => {
+  const m = FOREIGN.exec(String(ref || ""));
+  return m ? { board: m[1].toLowerCase(), id: m[2] } : null;
+};
+
 export function addLink(fromId, type, toId, p = paths()) {
   if (fromId === toId) throw new Error("a task cannot link to itself");
-  const from = must(fromId, p);
-  const to = must(toId, p);
   const mirror = LINK_TYPES[type];
   if (!mirror) throw new Error(`unknown link type "${type}" — use one of: ${Object.keys(LINK_TYPES).join(", ")}`);
+
+  // A link to another board is one-sided by nature: the other store is not ours to write, and may
+  // not even be on this machine. Recorded here, named, and left at that.
+  const foreign = foreignRef(toId);
+  if (foreign) {
+    const from = must(fromId, p);
+    mutate(
+      from.id,
+      (doc) => {
+        const links = [...(doc.links || [])];
+        if (!links.some((l) => l.type === type && l.id === toId)) links.push({ type, id: toId, board: foreign.board });
+        return { links };
+      },
+      p,
+    );
+    return;
+  }
+
+  const from = must(fromId, p);
+  const to = must(toId, p);
 
   // Each end is a read-append-write; both go through mutate so two links added at once
   // do not overwrite one another. `from`/`to` above are only existence checks.

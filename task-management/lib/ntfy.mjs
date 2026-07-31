@@ -64,6 +64,14 @@ export const CATALOG = {
     worktree_new: { group: "writes", label: "A worktree is created for a task", priority: "low", tags: "deciduous_tree" },
     worktree_rm: { group: "writes", label: "A worktree is removed", priority: "min", tags: "wastebasket" },
     git_link: { group: "writes", label: "A commit or PR is attached to a task", priority: "low", tags: "octopus" },
+    // Worth saying out loud rather than swallowing: the alternative — attaching it anyway — is
+    // what put 25 marketplace pull requests on a persona task.
+    git_link_skipped: {
+      group: "writes",
+      label: "A commit or PR was not attached — it came from another repo",
+      priority: "low",
+      tags: "octopus",
+    },
     plan_captured: { group: "writes", label: "An approved plan becomes an epic", priority: "default", tags: "clipboard" },
     goal_imported: { group: "writes", label: "A goal doc becomes a task, its success criteria the gate", priority: "default", tags: "dart" },
     decision_captured: { group: "writes", label: "A decision is recorded as an ADR", priority: "low", tags: "memo" },

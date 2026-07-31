@@ -848,3 +848,52 @@
 {"ts":"2026-07-31T03:06:39.452Z","event":"done","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-015"}
 {"ts":"2026-07-31T03:06:39.458Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"EP-002","patch":"status,closed","status":"done"}
 {"ts":"2026-07-31T03:06:39.458Z","event":"epic_auto_closed","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"EP-002","tasks":32}
+{"ts":"2026-07-31T03:06:52.435Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-015","patch":"commits","status":"done"}
+{"ts":"2026-07-31T03:06:52.435Z","event":"git_link","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-015","ref":"fe274a2"}
+{"ts":"2026-07-31T03:06:52.437Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-003","patch":"commits","status":"done"}
+{"ts":"2026-07-31T03:06:52.437Z","event":"git_link","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-003","ref":"fe274a2"}
+{"ts":"2026-07-31T03:07:14.717Z","event":"subagent_stop","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","agent":"ae79d720aab5c2ec9","tasks":[],"said":"now fix TM-036","transcript":"/home/ryan/.claude/projects/-home-ryan-Documents-GitHub-ByteDeskAI-bytedesk-marketplace/61c67728-2ff2-46ea-87eb-2a99db9c96bd/subagents/agent-ae79d720aab5c2ec9.jsonl"}
+{"ts":"2026-07-31T03:08:11.997Z","event":"notification","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","message":"Claude is waiting for your input"}
+{"ts":"2026-07-31T03:18:40.021Z","event":"subagent_stop","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","agent":"a5250c93e1119bf50","tasks":[],"said":"We're building out the task-management plugin's board; I just fixed and shipped the store-lock bug (TM-015) as 0.6.2, pushed to main. Next open work is TM-036, TM-039, and TM-040 — say which to start.","transcript":"/home/ryan/.claude/projects/-home-ryan-Documents-GitHub-ByteDeskAI-bytedesk-marketplace/61c67728-2ff2-46ea-87eb-2a99db9c96bd/subagents/agent-a5250c93e1119bf50.jsonl"}
+{"ts":"2026-07-31T03:40:07.140Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-001","patch":"commits","status":"done"}
+{"ts":"2026-07-31T03:40:07.141Z","event":"git_link","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-001","ref":"pr"}
+{"ts":"2026-07-31T03:44:08.593Z","event":"git_link_skipped","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","from":"bytedeskai/bytedesk-marketplace","board":{"categories":["blocked","claim","gate","epic","assigned"],"me":"Ryan","watching":[],"grouped":true},"reason":"ref came from another repo"}
+{"ts":"2026-07-31T03:44:25.265Z","event":"git_link_skipped","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","from":"bytedeskai/bytedesk-marketplace","board":{"categories":["blocked","claim","gate","epic","assigned"],"me":"Ryan","watching":[],"grouped":true},"reason":"ref came from another repo"}
+{"ts":"2026-07-31T03:45:01.012Z","event":"git_link_skipped","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","from":"bytedeskai/bytedesk-marketplace","board":{"categories":["blocked","claim","gate","epic","assigned"],"me":"Ryan","watching":[],"grouped":true},"reason":"ref came from another repo"}
+{"ts":"2026-07-31T03:45:36.713Z","event":"git_link_skipped","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","from":"bytedeskai/bytedesk-marketplace","board":{"categories":["blocked","claim","gate","epic","assigned"],"me":"Ryan","watching":[],"grouped":true},"reason":"ref came from another repo"}
+{"ts":"2026-07-31T03:48:32.879Z","event":"init","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","root":"/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"}
+{"ts":"2026-07-31T03:48:36.980Z","event":"claim","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-036"}
+{"ts":"2026-07-31T03:48:36.996Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-036","patch":"status,actor,session,branch,worktree","status":"in_progress"}
+{"ts":"2026-07-31T03:48:43.696Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-036","patch":"acceptance","status":"in_progress"}
+{"ts":"2026-07-31T03:48:43.753Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-036","patch":"acceptance","status":"in_progress"}
+{"ts":"2026-07-31T03:48:43.830Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-036","patch":"acceptance","status":"in_progress"}
+{"ts":"2026-07-31T03:48:43.898Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-036","patch":"acceptance","status":"in_progress"}
+{"ts":"2026-07-31T03:48:43.957Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-036","patch":"acceptance","status":"in_progress"}
+{"ts":"2026-07-31T03:48:44.013Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-036","patch":"acceptance","status":"in_progress"}
+{"ts":"2026-07-31T03:48:44.014Z","event":"ac_met","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-036","index":1,"text":"Every entity records the board it belongs to, and a write to a store it does not belong to fails"}
+{"ts":"2026-07-31T03:48:44.081Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-036","patch":"acceptance","status":"in_progress"}
+{"ts":"2026-07-31T03:48:44.082Z","event":"ac_met","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-036","index":3,"text":"Cross-repo references are expressible as links that name the other repo"}
+{"ts":"2026-07-31T03:48:44.142Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-036","patch":"acceptance","status":"in_progress"}
+{"ts":"2026-07-31T03:48:44.142Z","event":"ac_met","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-036","index":4,"text":"The existing leak is cleaned up: persona TM-001 no longer carries marketplace PR URLs"}
+{"ts":"2026-07-31T03:48:44.207Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-036","patch":"acceptance","status":"in_progress"}
+{"ts":"2026-07-31T03:48:44.208Z","event":"ac_met","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-036","index":5,"text":"A test reproduces the leak on the old code and passes on the new"}
+{"ts":"2026-07-31T03:49:53.286Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-036","patch":"acceptance","status":"in_progress"}
+{"ts":"2026-07-31T03:49:53.286Z","event":"ac_met","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-036","index":2,"text":"A dashboard only ever renders entities belonging to its own board"}
+{"ts":"2026-07-31T03:49:57.278Z","event":"create","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-041","kind":"task","title":"Board identity should come from git, and be read-only when it does"}
+{"ts":"2026-07-31T03:50:16.162Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-041","patch":"acceptance","status":"open"}
+{"ts":"2026-07-31T03:50:16.219Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-041","patch":"acceptance","status":"open"}
+{"ts":"2026-07-31T03:50:16.276Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-041","patch":"acceptance","status":"open"}
+{"ts":"2026-07-31T03:50:16.336Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-041","patch":"acceptance","status":"open"}
+{"ts":"2026-07-31T03:50:16.415Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-041","patch":"body","status":"open"}
+{"ts":"2026-07-31T03:50:16.415Z","event":"edit","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-041","fields":"body"}
+{"ts":"2026-07-31T03:50:24.865Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-036","patch":"evidence","status":"in_progress"}
+{"ts":"2026-07-31T03:50:24.932Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-036","patch":"evidence","status":"in_progress"}
+{"ts":"2026-07-31T03:50:25.011Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-036","patch":"comments","status":"in_progress"}
+{"ts":"2026-07-31T03:50:25.011Z","event":"comment","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-036","author":"main"}
+{"ts":"2026-07-31T03:50:39.013Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-036","patch":"commits","status":"in_progress"}
+{"ts":"2026-07-31T03:50:39.013Z","event":"git_link","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-036","ref":"pr"}
+{"ts":"2026-07-31T03:50:39.015Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-007","patch":"commits","status":"done"}
+{"ts":"2026-07-31T03:50:39.015Z","event":"git_link","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-007","ref":"pr"}
+{"ts":"2026-07-31T03:50:43.357Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-036","patch":"status,closed","status":"done"}
+{"ts":"2026-07-31T03:50:43.358Z","event":"release","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-036"}
+{"ts":"2026-07-31T03:50:43.358Z","event":"done","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-036"}

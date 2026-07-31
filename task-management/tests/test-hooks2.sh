@@ -70,5 +70,21 @@ has "$(tm show TM-001 --json)" '"commits"' "a commit on a tm/ branch links to it
 [[ "$(tm show TM-001 --json | jq '.commits | length')" -ge 1 ]] && ok "the sha is attached" || no "the sha is attached"
 [[ "$(tm show TM-002 --json | jq '.commits | length')" == 0 ]] && ok "unrelated tasks stay untouched" || no "unrelated tasks stay untouched"
 
+# ── a ref never crosses repos (TM-036) ───────────────────────────────────────
+# The store resolves from CLAUDE_PROJECT_DIR while the shell sits wherever it sits. When those are
+# two different repos, `gh pr create` used to staple one project's pull request onto the other
+# project's task — which is how bytedesk-persona's TM-001 came to hold 25 marketplace PR urls.
+git -C "$TM_ROOT" remote remove origin 2>/dev/null || true
+git -C "$TM_ROOT" remote add origin git@github.com:acme/store-repo.git
+ELSEWHERE="$(mktemp -d)"
+git init -q "$ELSEWHERE" && git -C "$ELSEWHERE" remote add origin git@github.com:acme/other-repo.git
+BEFORE="$(tm show TM-002 --json | jq '.commits | length')"
+tm start TM-002 >/dev/null 2>&1
+(cd "$ELSEWHERE" && echo '{"tool_name":"Bash","tool_input":{"command":"gh pr create --title x"},"tool_response":{"stdout":"https://github.com/acme/other-repo/pull/7"}}'   | "$PLUGIN_ROOT/hooks/tm-hook.sh" post-bash >/dev/null 2>&1)
+AFTER="$(tm show TM-002 --json | jq '.commits | length')"
+[[ "$AFTER" == "$BEFORE" ]] && ok "a PR opened in another repo is not attached to this board's task"   || no "a PR opened in another repo is not attached to this board's task" "commits went $BEFORE → $AFTER"
+has "$(cat "$TM_ROOT/.bytedesk/task-management/events.jsonl")" "git_link_skipped" "and the refusal is on the record, not silent"
+rm -rf "$ELSEWHERE"
+
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [[ "$FAIL" == 0 ]]

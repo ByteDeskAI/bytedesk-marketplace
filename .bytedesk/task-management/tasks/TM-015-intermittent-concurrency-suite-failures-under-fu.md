@@ -7,13 +7,13 @@ title: "Intermittent concurrency-suite failures under full-suite runs"
 epic: "EP-002"
 acceptance: [{"text":"the failure is reproduced deliberately, or attributed to the environment with evidence","done":true,"at":"2026-07-31T03:06:30.540Z"},{"text":"if the lock is at fault, withLock's 30s deadline and staleLock's pid-liveness window are the two candidates to examine","done":true,"at":"2026-07-30T19:40:33.128Z"}]
 evidence: [".bytedesk/task-management/evidence/TM-015-store.mjs"]
-commits: ["https://github.com/ByteDeskAI/bytedesk-marketplace/pull/90","https://github.com/ByteDeskAI/bytedesk-marketplace/pull/92","74b2927"]
+commits: ["https://github.com/ByteDeskAI/bytedesk-marketplace/pull/90","https://github.com/ByteDeskAI/bytedesk-marketplace/pull/92","74b2927","fe274a2"]
 blockedBy: []
 blocks: []
 actor: "main"
 branch: "feat/task-management-plugin"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-07-31T03:06:39.445Z"
+updated: "2026-07-31T03:06:52.430Z"
 type: "bug"
 priority: "high"
 labels: ["flake","concurrency"]

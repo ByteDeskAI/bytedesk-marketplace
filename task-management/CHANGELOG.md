@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+## [0.7.0] — 2026-07-30
+
+### Added
+- **Entities belong to a board, and a write that crosses repos is refused** (TM-036). The store is
+  per-repo, but nothing checked that the thing being written belonged to the store being written
+  to — and the two really do come apart: `tm` resolves its store from `CLAUDE_PROJECT_DIR` while a
+  shell sits in whatever checkout it sits in. `bytedesk-persona`'s TM-001 held 25
+  `bytedesk-marketplace` pull-request urls, filed by `gh pr create` run in one repo while the store
+  resolved to another.
+
+  A board is identified by its origin remote reduced to `owner/name`, so a clone is the same board
+  and two siblings on one machine are not. `tm init` records it as `boardId` in the committed
+  config; `create` stamps it on every entity; `write` refuses an entity from elsewhere and names
+  the link that would express the relationship honestly. Entities written before this carry no
+  board and are grandfathered — refusing them would break every existing store to catch a bug that
+  has already happened.
+- The PR-attaching hook compares the repo the ref came from against the board it is writing to, and
+  records `git_link_skipped` instead of stapling one project's pull request to another's task.
+- Cross-repo references: `tm link <id> relates-to owner/repo#TM-007`. One-sided by nature — the
+  other store is not ours to write, and may not be on this machine.
+- `tm doctor` reports `foreign-entity` for a stray already filed on the wrong board, and the
+  dashboard does not render one.
+
+### Fixed
+- The event-catalog test scanned `lib/` flat, so it died with EISDIR once `lib/harness/` existed
+  and silently ignored every event emitted there.
+
 ### Changed
 - **Native-task mirroring is a multi-harness Bridge** (`lib/harness/`). Claude `TaskCreate` /
   `TaskUpdate`, Grok `todo_write`, and Codex `update_plan` are **Adapters** that only translate
