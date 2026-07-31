@@ -154,3 +154,63 @@ test("preCreateGate allows TaskCreate once an epic is active", () => {
   const d = preCreateGate({ tool_name: "TaskCreate" }, p);
   assert.equal(d.allow, true);
 });
+
+test("Codex update_plan intents use stable step hashes", () => {
+  const a = toIntents({
+    tool_name: "update_plan",
+    tool_input: {
+      explanation: "kickoff",
+      plan: [
+        { step: "Implement the adapter", status: "pending" },
+        { step: "Write tests", status: "in_progress" },
+      ],
+    },
+  });
+  assert.equal(a.length, 2);
+  assert.match(a[0].nativeId, /^codex-plan:[0-9a-f]{12}$/);
+  assert.equal(a[0].title, "Implement the adapter");
+  assert.equal(a[0].status, "open");
+  assert.equal(a[1].status, "in_progress");
+  // Same step text → same nativeId across calls
+  const b = toIntents({
+    tool_name: "update_plan",
+    tool_input: { plan: [{ step: "Implement the adapter", status: "completed" }] },
+  });
+  assert.equal(b[0].nativeId, a[0].nativeId);
+  assert.equal(b[0].status, "done");
+});
+
+test("apply Codex plan creates then completes without duplicates", () => {
+  const p = tempStore();
+  create("epic", { title: "C" }, "", p);
+  writeState({ activeEpic: list("epic", {}, p)[0].id }, p);
+
+  applyIntents(
+    toIntents({
+      tool_name: "update_plan",
+      tool_input: { plan: [{ step: "Codex step", status: "pending" }] },
+    }),
+    { p, stamp },
+  );
+  assert.equal(list("task", {}, p).length, 1);
+  assert.match(list("task", {}, p)[0].nativeId, /^codex-plan:/);
+
+  applyIntents(
+    toIntents({
+      tool_name: "update_plan",
+      tool_input: { plan: [{ step: "Codex step", status: "completed" }] },
+    }),
+    { p, stamp },
+  );
+  assert.equal(list("task", {}, p).length, 1);
+  assert.equal(list("task", {}, p)[0].status, "done");
+});
+
+test("preCreateGate denies create-ish update_plan without epic", () => {
+  const p = tempStore();
+  const d = preCreateGate(
+    { tool_name: "update_plan", tool_input: { plan: [{ step: "x", status: "pending" }] } },
+    p,
+  );
+  assert.equal(d.allow, false);
+});

@@ -33,7 +33,16 @@ const SHORT = 6;
  * in a Claude Code session the harness is the authority on its own id.
  */
 export function sessionId(env = process.env) {
-  return env.CLAUDE_CODE_SESSION_ID || env.CLAUDE_SESSION_ID || null;
+  // Claude Code sets CLAUDE_CODE_SESSION_ID. Codex puts session_id on hook JSON
+  // (preferred by callers that pass input through); env fallbacks cover wrappers.
+  return (
+    env.CLAUDE_CODE_SESSION_ID ||
+    env.CLAUDE_SESSION_ID ||
+    env.CODEX_THREAD_ID ||
+    env.CODEX_SESSION_ID ||
+    env.GROK_SESSION_ID ||
+    null
+  );
 }
 
 export function actor(env = process.env) {

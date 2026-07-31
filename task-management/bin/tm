@@ -1514,7 +1514,12 @@ function hook(event) {
 
     case "post-task": {
       // Wire → intents (Adapter) → store (domain side of Bridge).
-      mirrorNative(input, P, { stamp, findDuplicate });
+      // Prefer harness session_id from the hook payload (Codex/Claude both send it).
+      const stampHook = () => ({
+        ...stamp(),
+        session: input.session_id || sessionId() || undefined,
+      });
+      mirrorNative(input, P, { stamp: stampHook, findDuplicate });
       break;
     }
 

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "task-management": {
+      "type": "stdio",
+      "command": "./bin/tm-mcp",
+      "cwd": "."
+    }
+  }
+}
