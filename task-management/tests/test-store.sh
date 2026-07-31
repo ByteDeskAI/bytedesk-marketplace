@@ -294,5 +294,22 @@ AFTER_ID="$(node -e '
 ')"
 [[ "$AFTER_ID" != "acme/hijack" ]] && ok "the refused write left the file alone" || no "the refused write left the file alone" "config now says $AFTER_ID"
 
+# The person is recorded beside the board, and is read-only for the same reason (ADR-0002).
+# A fresh store, because this store already recorded its owner at the top of the suite — and a
+# board deliberately keeps the name of whoever set it up rather than re-labelling for each reader.
+FRESH="$(mktemp -d)"
+git init -q "$FRESH"
+git -C "$FRESH" config user.name "Ada Lovelace"
+git -C "$FRESH" config user.email "ada@example.com"
+TM_ROOT="$FRESH" node "$PLUGIN_ROOT/bin/tm" init >/dev/null 2>&1
+OWNER="$(node -e '
+  const p = require("node:path").join(process.argv[1], ".bytedesk/task-management/config.json");
+  console.log(JSON.parse(require("node:fs").readFileSync(p, "utf8")).owner ?? "unset");
+' "$FRESH")"
+[[ "$OWNER" == *"Ada Lovelace"* ]] && ok "tm init records who set the board up" || no "tm init records who set the board up" "owner is $OWNER"
+rm -rf "$FRESH"
+assert_status 2 "tm config refuses to overwrite a git-derived owner" node "$PLUGIN_ROOT/bin/tm" config owner '"Someone Else"'
+
+
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [[ "$FAIL" == 0 ]]

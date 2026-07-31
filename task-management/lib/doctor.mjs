@@ -105,7 +105,17 @@ export function ignoreRule(p) {
 export function diagnose(p = paths()) {
   const tasks = list("task", { includeDeleted: true }, p);
   const live = tasks.filter((t) => t.status !== "deleted");
-  const byId = new Map(tasks.map((t) => [t.id, t]));
+  /**
+   * Every linkable entity, not only tasks.
+   *
+   * `tm link <id> relates to ADR-0002` is accepted — `addLink` resolves any kind — and doctor then
+   * called the result dangling, because this map held tasks alone. A store that accepts a link and
+   * then reports it as broken is worse than one that refuses it: the CLI said yes and the audit
+   * said no, and neither is wrong on its own terms.
+   */
+  const byId = new Map(
+    [...tasks, ...list("epic", {}, p), ...list("adr", {}, p), ...list("capability", {}, p)].map((e) => [e.id, e]),
+  );
   const epics = new Set(list("epic", {}, p).map((e) => e.id));
   const out = [];
 

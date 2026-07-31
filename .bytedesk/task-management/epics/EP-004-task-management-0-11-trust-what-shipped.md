@@ -1,7 +1,7 @@
 ---
 id: "EP-004"
 kind: "epic"
-status: "open"
+status: "done"
 created: "2026-07-31T05:23:19.437Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "task-management 0.11 — trust what shipped"
@@ -9,7 +9,8 @@ actor: "main"
 session: "61c67728-2ff2-46ea-87eb-2a99db9c96bd"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-07-31T05:23:29.483Z"
+updated: "2026-07-31T05:38:26.219Z"
+closed: "2026-07-31T05:38:26.216Z"
 ---
 
 ## Why this epic

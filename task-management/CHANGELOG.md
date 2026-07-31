@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+## [0.11.0] — 2026-07-31
+
+### Added
+- **A board records who set it up** (TM-045, ADR-0002). `owner` is `git config user.name`/`user.email`
+  for the store's directory, recorded at `tm init` and read-only for the same reason `boardId` is:
+  it is derived, so writing it would change a file and change nothing else.
+
+  It is deliberately *beside* the identity rather than being it. One person commits to every repo on
+  a machine, so keying identity on them would make `bytedesk-persona` and `bytedesk-marketplace` the
+  same board and re-open the leak TM-036 closed. `ADR-0002` records that reasoning, since it is the
+  kind of decision a future reader would otherwise have to reverse-engineer from a guard.
+
+### Fixed
+- `tm doctor` no longer calls a link to an ADR dangling. `tm link <id> relates to ADR-0002` is
+  accepted — `addLink` resolves any kind — while the audit looked at tasks alone. A store that
+  accepts a link and then reports it as broken is worse than one that refuses it.
+- **The work stream is now legible under Codex and Grok, not merely parsed** (TM-044). It was only
+  ever *looked at* under Claude Code; opening it under the other two showed three problems at once.
+  Codex's stream opened with its own injected preamble — the instruction file, the plugin catalogue,
+  the environment block — thousands of characters before any work, burying the run inside it. Grok's
+  tool calls rendered empty because its argument keys are `target_file`/`target_directory` and
+  Codex's is `cmd`, none of which were in the allowlist. And every path was absolute and repeated.
+
+  Preamble dropped, argument names covered across all three, paths shortened to the project root.
+  Codex now reads as prompt → `exec_command` → result → answer; Grok as `WRITE` /
+  `RUN_TERMINAL_COMMAND` / `SEARCH_REPLACE` with their targets.
+- A single message can no longer push the rest of the stream off screen, and a transcript whose
+  format has changed falls back to raw lines rather than an empty panel — which reads as *idle*
+  when it means *broken*, the one lie this panel must not tell.
+
 ## [0.10.1] — 2026-07-31
 
 ### Fixed

@@ -21,6 +21,7 @@
     "watching": [],
     "grouped": true
   },
-  "activeEpic": "EP-004",
-  "boardId": "bytedeskai/bytedesk-marketplace"
+  "activeEpic": null,
+  "boardId": "bytedeskai/bytedesk-marketplace",
+  "owner": "Ryan Helms <ryan@helms.ai>"
 }

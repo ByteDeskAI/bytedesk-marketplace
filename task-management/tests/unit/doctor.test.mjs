@@ -140,6 +140,20 @@ describe("links, epics and parents", () => {
     assert.deepEqual(read(b.id, p).links, [{ type: "duplicated by", id: a.id }]);
   });
 
+  it("does not call a link to an ADR dangling — the CLI accepts those", () => {
+    const p = store();
+    const a = create("task", { title: "a" }, "", p);
+    const adr = create("adr", { title: "a decision", status: "proposed" }, "", p);
+    update(a.id, { links: [{ type: "relates to", id: adr.id }] }, p);
+
+    // A store that accepts a link and then reports it as broken is worse than one that refuses it.
+    assert.equal(
+      diagnose(p).some((f) => f.code === "dangling-link"),
+      false,
+      "tm link resolves any kind; the audit has to look at the same set",
+    );
+  });
+
   it("drops a link to a task that does not exist", () => {
     const p = store();
     const a = create("task", { title: "a" }, "", p);

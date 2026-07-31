@@ -84,6 +84,21 @@ export function boardId(dir) {
   return gitBoardId(dir) || basename(real(dir)).toLowerCase();
 }
 
+/**
+ * Who git says is working here — `Name <email>`, or null.
+ *
+ * Deliberately NOT the board's identity (see ADR-0002). One person commits to every repo on a
+ * machine, so keying identity on them would make two projects the same board and re-open the leak
+ * TM-036 closed. It answers a different question — who set this board up — that nothing recorded.
+ */
+export function gitUser(dir) {
+  if (!dir) return null;
+  const name = git(dir, ["config", "user.name"]);
+  const email = git(dir, ["config", "user.email"]);
+  if (!name && !email) return null;
+  return email ? `${name || email} <${email}>`.trim() : name;
+}
+
 let installCache;
 /**
  * This plugin's directory, but only when it is a *managed install* — the copy Claude Code

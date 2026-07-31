@@ -12,9 +12,9 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { cleanup, tempStore } from "./helpers.mjs";
-import { boardIdentity, create, read, storeBoard, write, writeConfig } from "../../lib/store.mjs";
+import { boardIdentity, boardOwner, create, read, storeBoard, write, writeConfig } from "../../lib/store.mjs";
 import { addLink, foreignRef } from "../../lib/issue.mjs";
-import { boardId, gitBoardId } from "../../lib/paths.mjs";
+import { boardId, gitBoardId, gitUser } from "../../lib/paths.mjs";
 import { diagnose } from "../../lib/doctor.mjs";
 import { boardPayload } from "../../lib/dashboard-api.mjs";
 
@@ -110,6 +110,58 @@ describe("identity is derived, not declared (TM-041)", () => {
     stores.push(p.root);
     assert.equal(gitBoardId(p.root), null, "no remote means git has no answer");
     assert.ok(boardId(p.root), "the fallback still produces a name");
+  });
+});
+
+describe("the person is recorded beside the board, not as it (ADR-0002, TM-045)", () => {
+  const withUser = (name, email) => {
+    const p = tempStore();
+    stores.push(p.root);
+    execFileSync("git", ["init", "-q", p.root]);
+    execFileSync("git", ["-C", p.root, "config", "user.name", name]);
+    execFileSync("git", ["-C", p.root, "config", "user.email", email]);
+    return p;
+  };
+
+  it("reads the person from git for this directory", () => {
+    const p = withUser("Ada Lovelace", "ada@example.com");
+    assert.equal(gitUser(p.root), "Ada Lovelace <ada@example.com>");
+    assert.equal(boardOwner(p), "Ada Lovelace <ada@example.com>");
+  });
+
+  it("keeps the person out of the board's identity", () => {
+    // The whole reason this is a separate field: one person commits to every repo on a machine, so
+    // keying identity on them would make two projects the same board and re-open TM-036's leak.
+    const one = withUser("Ada Lovelace", "ada@example.com");
+    const two = withUser("Ada Lovelace", "ada@example.com");
+    execFileSync("git", ["-C", one.root, "remote", "add", "origin", "git@github.com:acme/one.git"]);
+    execFileSync("git", ["-C", two.root, "remote", "add", "origin", "git@github.com:acme/two.git"]);
+
+    assert.equal(boardOwner(one), boardOwner(two), "same person");
+    assert.notEqual(storeBoard(one), storeBoard(two), "different boards, which is the point");
+  });
+
+  it("prefers the recorded owner over whoever is looking now", () => {
+    const p = withUser("Ada Lovelace", "ada@example.com");
+    writeConfig({ owner: "Grace Hopper <grace@example.com>" }, p);
+    assert.equal(boardOwner(p), "Grace Hopper <grace@example.com>", "a board keeps the name of whoever set it up");
+  });
+
+  it("falls back to the machine's git identity outside a repo, and to nobody with none at all", () => {
+    const p = tempStore();
+    stores.push(p.root);
+    // `git config user.name` reads the global file even outside a repository, and that is the right
+    // answer to "who is working here" — a person is a person whether or not this directory is a repo.
+    assert.equal(gitUser(p.root), gitUser(process.cwd()) ? gitUser(process.cwd()) : null);
+
+    const saved = process.env.GIT_CONFIG_GLOBAL;
+    process.env.GIT_CONFIG_GLOBAL = "/dev/null";
+    try {
+      assert.equal(gitUser(p.root), null, "git configured with no identity yields none, not a guess");
+    } finally {
+      if (saved === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+      else process.env.GIT_CONFIG_GLOBAL = saved;
+    }
   });
 });
 

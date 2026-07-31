@@ -9,7 +9,7 @@
  */
 import { appendFileSync, closeSync, statSync, existsSync, openSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { KINDS, boardId, gitBoardId, ensureDirs, paths } from "./paths.mjs";
+import { KINDS, boardId, gitBoardId, gitUser, ensureDirs, paths } from "./paths.mjs";
 import { actor, actorLabel, sessionId } from "./actor.mjs";
 import { notifyEvent } from "./notify-hook.mjs";
 
@@ -656,6 +656,17 @@ export function boardIdentity(p = paths()) {
 
 export function storeBoard(p = paths()) {
   return boardIdentity(p).id;
+}
+
+/**
+ * Who owns this board: the recorded owner, else whatever git says here.
+ *
+ * Recorded at `tm init` so a board keeps the name of whoever set it up rather than re-labelling
+ * itself for each person who opens it — the one way this differs from `boardId`, where drift is
+ * worth reporting because it re-labels every entity.
+ */
+export function boardOwner(p = paths()) {
+  return readJson(p.config, {}).owner || (p.root ? gitUser(p.root) : null) || null;
 }
 
 export function write(doc, p = paths()) {

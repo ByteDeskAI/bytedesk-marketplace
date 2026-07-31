@@ -115,6 +115,56 @@ describe("reading each format", () => {
   });
 });
 
+describe("what the panel actually shows (TM-044)", () => {
+  it("drops the harness's own preamble, which is not work", () => {
+    // Codex opens every turn by injecting the instruction file, the plugin catalogue and the
+    // environment block as a `user` message. Left in, it is the first and largest thing in the
+    // panel and the run is buried inside it.
+    const preamble = {
+      type: "response_item",
+      payload: { type: "message", role: "user", content: [{ type: "input_text", text: "<recommended_plugins>\nAtlassian Rovo\n</recommended_plugins>" }] },
+    };
+    assert.equal(toMessage(preamble, "codex-rollout"), null);
+
+    const real = {
+      type: "response_item",
+      payload: { type: "message", role: "user", content: [{ type: "input_text", text: "Run one command and stop." }] },
+    };
+    assert.equal(toMessage(real, "codex-rollout").parts[0].text, "Run one command and stop.");
+  });
+
+  it("shows a tool call's arguments whichever harness named the field", () => {
+    const codex = toMessage(
+      { type: "response_item", payload: { type: "function_call", name: "exec_command", call_id: "c", arguments: '{"cmd":"echo hi"}' } },
+      "codex-rollout",
+    );
+    assert.equal(codex.parts[0].args.cmd, "echo hi", "Codex calls it cmd");
+
+    const grok = toMessage({ role: "assistant", tool_calls: [{ id: "t", function: { name: "read_file", arguments: '{"target_file":"/repo/lib/x.mjs"}' } }] }, "grok-chat", "/repo");
+    assert.equal(grok.parts[0].args.target_file, "lib/x.mjs", "Grok calls it target_file — and the path is shortened to the project");
+  });
+
+  it("caps a single message so it cannot push the rest of the stream off screen", () => {
+    const long = "x".repeat(5000);
+    const msg = toMessage({ type: "user", message: { content: [{ type: "text", text: long }] } }, "claude-jsonl");
+    assert.ok(msg.parts[0].text.length < 1000, "a live view, not an archive");
+    assert.match(msg.parts[0].text, /…$/, "and it says it was cut");
+  });
+
+  it("falls back to raw lines when a format changes under us", () => {
+    const h = home();
+    const dir = join(h, ".codex", "sessions", "2026", "07", "31");
+    mkdirSync(dir, { recursive: true });
+    // Readable JSON that this version maps to nothing — the shape Codex might ship next.
+    writeFileSync(join(dir, "rollout-x-t9.jsonl"), `${JSON.stringify({ type: "turn_item", v: 2, content: "new shape" })}\n`);
+
+    const s = workStream({}, { session: "t9" }, "/repo", h, { CODEX_THREAD_ID: "t9" });
+    assert.equal(s.messages.length, 1, "showing it raw beats showing nothing");
+    assert.match(s.messages[0].parts[0].text, /turn_item/);
+    assert.match(s.reason, /format has changed/, "and the panel says why it looks like that");
+  });
+});
+
 describe("the work stream says what it cannot do", () => {
   it("names the harness it read from", () => {
     const h = home();

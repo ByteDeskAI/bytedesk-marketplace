@@ -10,7 +10,7 @@ import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { homedir } from "node:os";
-import { boardId, currentCheckout, ensureDirs, isInitialized, legacyStore, paths } from "../lib/paths.mjs";
+import { boardId, currentCheckout, ensureDirs, gitUser, isInitialized, legacyStore, paths } from "../lib/paths.mjs";
 import {
   kindOf,
   config,
@@ -169,8 +169,15 @@ const VERBS = {
     // The board goes in the committed config, not derived per-machine: a clone into a differently
     // named directory is the same board, and a store that knows its own name is what lets a write
     // from elsewhere be refused instead of silently accepted.
-    if (!existsSync(P.config)) writeConfig({ boardId: boardId(P.root) }, P);
-    else if (!config(P).boardId && boardId(P.root)) writeConfig({ boardId: boardId(P.root) }, P);
+    if (!existsSync(P.config)) writeConfig({ boardId: boardId(P.root), owner: gitUser(P.root) || undefined }, P);
+    else {
+      // Fill in what an older store never recorded, without overwriting what it did.
+      const have = config(P);
+      const add = {};
+      if (!have.boardId && boardId(P.root)) add.boardId = boardId(P.root);
+      if (!have.owner && gitUser(P.root)) add.owner = gitUser(P.root);
+      if (Object.keys(add).length) writeConfig(add, P);
+    }
     if (!existsSync(P.state)) writeState({}, P);
     // Before anything is written that git would otherwise pick up.
     const contract = seedGitContract(P);
@@ -844,6 +851,11 @@ const VERBS = {
     // Identity is derived, not declared. When git answers, writing this key would change the file
     // and change nothing else — `boardIdentity` reads git first — so the honest response is to
     // refuse rather than accept an edit that silently does not take.
+    // Both are derived from git, so both are read-only for the same reason: writing them would
+    // change the file and change nothing else (ADR-0002).
+    if (key === "owner" && value !== undefined && gitUser(P.root)) {
+      die(`owner is read-only here: git says you are ${gitUser(P.root)}.`, 2);
+    }
     if (key === "boardId" && value !== undefined) {
       const identity = boardIdentity(P);
       if (identity.source === "git") {
