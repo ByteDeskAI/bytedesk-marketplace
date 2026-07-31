@@ -48,6 +48,7 @@ import { applyTemplate, listTemplates, seedTemplates } from "../lib/templates.mj
 import { cycleTime, human as humanMs, summary as timeSummary, timeInStatus } from "../lib/time.mjs";
 import { upsertDecision } from "../lib/adr.mjs";
 import { accept as acceptCap, capLine, drop as dropCap, propose, ranked, score as capScore, ship as shipCap } from "../lib/capability.mjs";
+import { mirrorNative, preCreateGate } from "../lib/harness/index.mjs";
 import { claimTask, claimant, releaseClaim, staleClaims, sweepClaims } from "../lib/claims.mjs";
 import { actor, actorLabel, sessionId } from "../lib/actor.mjs";
 import { addComment, addLink, assign, backlog, dependencies, estimate, labels, prioritise, rank, setType, subtasks, typeOf } from "../lib/issue.mjs";
@@ -65,7 +66,7 @@ const argv = rawArgs.filter((a) => a !== "--json");
 const verb = argv[0];
 
 /** native (Claude Code) status → store status */
-const FROM_NATIVE = { pending: "open", in_progress: "in_progress", completed: "done", deleted: "deleted" };
+// Native status mapping lives in lib/harness/intents.mjs (shared by Claude + Grok adapters).
 
 /**
  * A closed reader is not an error. `tm board --json | head -1` writes the first line, `head`
@@ -1502,22 +1503,18 @@ function hook(event) {
     }
 
     case "pre-task-create": {
-      const gate = gateTaskCreate(P);
+      // Bridge entry: adapters decide whether this write creates work; shared gate applies.
+      const gate = preCreateGate(input, P);
       if (!gate.allow) {
-        // stderr carries the guidance; stdout carries the decision.
         process.stderr.write(`${gate.reason}\n`);
-        out(
-          JSON.stringify({
-            hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny" },
-            systemMessage: gate.reason,
-          }),
-        );
+        out(JSON.stringify(gate.denyPayload));
       }
       break;
     }
 
     case "post-task": {
-      mirrorNativeTask(input);
+      // Wire → intents (Adapter) → store (domain side of Bridge).
+      mirrorNative(input, P, { stamp, findDuplicate });
       break;
     }
 
@@ -1733,68 +1730,6 @@ function hook(event) {
       break;
   }
   process.exit(0);
-}
-
-/** Mirror a native TaskCreate/TaskUpdate into the markdown store. */
-function mirrorNativeTask(input) {
-  const ti = input.tool_input || {};
-  const resp = input.tool_response || {};
-  const nativeId = String(ti.taskId || resp.id || resp.taskId || "");
-  const existing = nativeId ? list("task", {}, P).find((t) => t.nativeId === nativeId) : null;
-
-  if (input.tool_name === "TaskCreate" || !existing) {
-    const title = ti.subject || resp.subject;
-    if (!title) return;
-    const dup = findDuplicate(title, P);
-    if (dup) {
-      update(dup.id, { nativeId: nativeId || dup.nativeId, ...stamp() }, P);
-      return;
-    }
-    create(
-      "task",
-      {
-        title,
-        nativeId: nativeId || undefined,
-        epic: state(P).activeEpic || null,
-        activeForm: ti.activeForm,
-        status: "open",
-        acceptance: [],
-        evidence: [],
-        commits: [],
-        blockedBy: [],
-        blocks: [],
-        ...stamp(),
-      },
-      ti.description || "",
-      P,
-    );
-    return;
-  }
-
-  const patch = { ...stamp() };
-  if (ti.status) patch.status = FROM_NATIVE[ti.status] || ti.status;
-  if (ti.subject) patch.title = ti.subject;
-  if (ti.activeForm) patch.activeForm = ti.activeForm;
-  if (ti.owner) patch.owner = ti.owner;
-  if (ti.addBlockedBy?.length) {
-    patch.blockedBy = [...new Set([...(existing.blockedBy || []), ...nativeIdsToStore(ti.addBlockedBy)])];
-  }
-  if (ti.addBlocks?.length) {
-    patch.blocks = [...new Set([...(existing.blocks || []), ...nativeIdsToStore(ti.addBlocks)])];
-  }
-  if (ti.description) patch.body = ti.description;
-  update(existing.id, patch, P);
-  if (patch.status === "done") {
-    release(existing.id, P);
-    logEvent("done", { id: existing.id, via: "native" }, P);
-    unblockDependents(existing.id, P);
-  }
-  if (patch.status === "deleted") release(existing.id, P);
-}
-
-function nativeIdsToStore(ids) {
-  const all = list("task", {}, P);
-  return ids.map((n) => all.find((t) => t.nativeId === String(n))?.id || `native:${n}`);
 }
 
 /** ExitPlanMode → copy the plan into the repo, open an epic, remember the link. */

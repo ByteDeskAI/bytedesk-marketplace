@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Changed
+- **Native-task mirroring is a multi-harness Bridge** (`lib/harness/`). Claude `TaskCreate` /
+  `TaskUpdate` and Grok `todo_write` are **Adapters** that only translate wire payloads into
+  domain intents; one apply path mutates the store. A **Strategy** map selects the adapter by
+  tool name. Pre-create gates (epic + WIP) and post-mirror behavior are shared. Hooks match
+  `todo_write` as well as Claude task tools. Deny envelopes include both Claude
+  (`permissionDecision`) and Grok (`decision: deny`) fields. Adding a third harness is a new
+  adapter module + registry entry — not a fork of store logic.
+
 ## [0.6.2] — 2026-07-30
 
 ### Fixed
