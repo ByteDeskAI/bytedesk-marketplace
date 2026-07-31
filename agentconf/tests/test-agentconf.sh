@@ -192,6 +192,62 @@ echo "$out" | grep -q "not in the shared source" \
   && ok "adopt counts what is not yet shared" || bad "adopt gave no overlap count" "$out"
 teardown
 
+# --- scan classifies, and never wires an unproven candidate --------------------
+setup
+export PATH="$HOME/bin:/usr/bin:/bin"
+mkdir -p "$HOME/bin"
+printf '#!/bin/sh\n' > "$HOME/bin/goose"; chmod +x "$HOME/bin/goose"
+out=$(conf scan 2>&1)
+echo "$out" | grep -q "unmanaged" && ok "scan reports an unmanaged tool" || bad "scan missed goose" "$out"
+echo "$out" | grep -q "HYPOTHESIS" \
+  && ok "scan says a candidate path is not a target" || bad "scan implied candidates are wired"
+[ ! -e "$HOME/.config/goose/.goosehints" ] \
+  && ok "scan wires nothing for an unproven tool" \
+  || bad "scan WROTE a candidate path — the one thing it must never do"
+
+# a documented candidate is still not an adapter
+echo "$out" | grep -q "Block goose" && ok "the catalogue names the tool" || bad "goose missing from output"
+teardown
+
+# --- newly installed tools are announced once ----------------------------------
+setup
+export PATH="$HOME/bin:/usr/bin:/bin"
+mkdir -p "$HOME/bin"
+printf '#!/bin/sh\n' > "$HOME/bin/claude"; chmod +x "$HOME/bin/claude"
+conf check >/dev/null 2>&1                                   # seeds state
+printf '#!/bin/sh\n' > "$HOME/bin/goose"; chmod +x "$HOME/bin/goose"
+first=$(conf check --quiet --context 2>&1)
+echo "$first" | grep -q "installed since the last scan" \
+  && ok "a newly installed tool is announced" || bad "new tool not announced" "$first"
+second=$(conf check --quiet --context 2>&1)
+echo "$second" | grep -q "installed since the last scan" \
+  && bad "the announcement repeats every session" \
+  || ok "the announcement does not repeat once recorded"
+teardown
+
+# --- the first ever run does not announce everything as new --------------------
+setup
+export PATH="$HOME/bin:/usr/bin:/bin"
+mkdir -p "$HOME/bin"
+printf '#!/bin/sh\n' > "$HOME/bin/goose"; chmod +x "$HOME/bin/goose"
+out=$(conf check --quiet --context 2>&1)
+echo "$out" | grep -q "installed since the last scan" \
+  && bad "first run announced every tool as new — that is noise, not news" \
+  || ok "the first run seeds state silently"
+teardown
+
+# --- discovery never breaks the integrity check --------------------------------
+# check must keep working if the catalogue is missing or unreadable; an integrity
+# check that dies because discovery failed is worse than one that skips discovery.
+setup
+conf wire >/dev/null 2>&1
+mv "$ROOT/catalog.json" "$ROOT/catalog.json.hidden"
+out=$(conf check 2>&1); rc=$?
+mv "$ROOT/catalog.json.hidden" "$ROOT/catalog.json"
+[ $rc -eq 0 ] && [[ "$out" == ok:* ]] \
+  && ok "check still works with no catalogue" || bad "a missing catalogue broke check" "$out"
+teardown
+
 echo
 echo "$pass passed, $fail failed"
 exit $((fail > 0))

@@ -39,6 +39,7 @@ agentconf detect            what is installed and logged in, via each vendor's o
 agentconf check             is the wiring intact? offline, fast, exit 1 on drift
 agentconf wire [--dry-run]  apply the adapters; backs up anything it replaces
 agentconf verify [--all]    canary: prove each tool actually READS the shared file
+agentconf scan              every agent tool here: managed, unmanaged, unrecognised
 agentconf adopt             what this machine already has, before you wire anything
 agentconf restore [stamp]   list backups, or put one back
 agentconf install-cli       wrapper in ~/.local/bin so your shell and Codex can call it too
@@ -82,6 +83,35 @@ generated file, so an allowlist that grew by accident can be walked back.
 - **Replace [rulesync](https://github.com/dyoshikawa/rulesync).** rulesync writes, across ~40
   targets, and is good at it. agentconf proves the write was read. `agentconf verify` after
   `rulesync generate` is the composition; a second syncer is not.
+
+## Finding tools, and staying current
+
+`agentconf scan` cross-references the machine against `catalog.json` — tools agentconf knows
+*exist* — and sorts what it finds into three groups:
+
+| group | meaning |
+|---|---|
+| **managed** | a canary proved it reads the shared file |
+| **unmanaged** | installed, with at most a *candidate* path — `documented`, `reported`, or `unverified` |
+| **unrecognised** | a config directory the catalogue has never heard of |
+
+The catalogue and the adapter registry are separate files on purpose, and collapsing them
+would be the obvious feature and the fatal one. A candidate path is a hypothesis: `reported`
+means another tool writes there and the vendor has not confirmed it — which is exactly the
+status of `~/.config/goose/.goosehints`. **Nothing in `unmanaged` is ever wired.**
+
+Staying current has two halves, and neither needs a cron job:
+
+- **A tool appears on this machine.** `scan` records what it saw; `check` — already on the
+  SessionStart hook — compares and announces a newcomer **once**. Install goose today and the
+  next session opens with *"Block goose was installed since the last scan and is not managed."*
+- **A tool appears in the world.** The catalogue and adapters ship with the plugin, and this
+  marketplace versions by commit SHA, so a new entry lands on the next session automatically.
+  There is nothing to subscribe to.
+
+Two limits worth stating plainly: `scan` sees PATH and `$HOME`, so a tool inside a container
+or a GUI bundle will not appear; and a tool released last week reads as `unrecognised` until
+an entry ships.
 
 ## Adding a tool
 

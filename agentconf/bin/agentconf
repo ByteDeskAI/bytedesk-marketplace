@@ -253,6 +253,84 @@ const lastLine = (s) => (s.split("\n").map((l) => l.trim()).filter(Boolean).pop(
 /** Absolute path without resolving symlinks — the symlink itself is what we manage. */
 const realish = (p) => { try { return join(dirname(expand(p)), expand(p).split("/").pop()); } catch { return expand(p); } };
 
+// ---------------------------------------------------------------- scan
+
+/**
+ * scan answers "what is on this machine, and what do we know about it?"
+ *
+ * The catalogue and the adapter registry are deliberately separate files. A catalogue entry
+ * means "we know this tool exists and where to look"; an adapter means "a canary proved this
+ * tool reads this file". Discovery is unbounded and cheap; wiring is gated on proof.
+ *
+ * Collapsing the two would be the obvious feature and the fatal one: it would let scan write
+ * ~/.config/goose/.goosehints on the strength of rulesync targeting it, and goose may never
+ * read that file. Coverage that lies is worse than no coverage, because it stops you looking.
+ */
+const STATE = join(SHARED_DIR, ".agentconf-state.json");
+
+function catalog() {
+  const p = join(ROOT, "catalog.json");
+  return existsSync(p) ? JSON.parse(readFileSync(p, "utf8")).tools || [] : [];
+}
+
+function scan() {
+  const adapted = new Set(adapters().map((a) => a.tool));
+  const rows = [];
+  const knownBins = new Set();
+
+  for (const t of catalog()) {
+    for (const b of t.bins || []) knownBins.add(b);
+    const bin = (t.bins || []).find((b) => has(b));
+    const dirs = (t.configDirs || []).filter((d) => existsSync(expand(d)));
+    if (!bin && !dirs.length) continue;                       // not on this machine at all
+    rows.push({
+      id: t.id,
+      name: t.name,
+      installed: Boolean(bin),
+      dirs: dirs.map(pretty),
+      state: adapted.has(t.id) ? "managed" : "unmanaged",
+      candidates: t.candidates || [],
+      note: t.note || "",
+    });
+  }
+
+  // Anything agent-shaped that the catalogue has never heard of. Reported, never acted on —
+  // the point is that an unknown tool is visible rather than silently uncovered.
+  const unknown = [];
+  for (const d of readdirSafe(HOME).concat(readdirSafe(join(HOME, ".config")).map((x) => join(".config", x)))) {
+    const name = d.split("/").pop().replace(/^\./, "");
+    if (name === "agents") continue;                          // our own shared directory
+    if (!/^(claude|codex|factory|gemini|cursor|goose|windsurf|copilot|github-copilot|continue|amp|aider|opencode|crush|zed|cline|kilocode|roo|qwen|amazonq)$/.test(name)) continue;
+    if (catalog().some((t) => (t.configDirs || []).some((c) => expand(c).endsWith(d.replace(/^\./, ".")) || pretty(expand(c)) === `~/${d}`))) continue;
+    unknown.push(`~/${d}`);
+  }
+  return { rows, unknown: [...new Set(unknown)] };
+}
+
+const readdirSafe = (p) => { try { return readdirSync(p).filter((f) => f.startsWith(".") || p.endsWith(".config")); } catch { return []; } };
+
+/**
+ * State is a set of tool ids seen on a previous scan, so "keep it up to date" has something
+ * to compare against. Installing a new agent should surface by itself rather than waiting
+ * for someone to remember to look.
+ */
+function readState() {
+  try { return JSON.parse(readFileSync(STATE, "utf8")); } catch { return { seen: [], updated: null }; }
+}
+function writeState(ids) {
+  mkdirSync(SHARED_DIR, { recursive: true });
+  writeFileSync(STATE, JSON.stringify({ seen: [...ids].sort(), updated: new Date().toISOString() }, null, 2) + "\n");
+}
+
+/** Tools present now that were not present at the last scan. */
+function newlyInstalled() {
+  const { rows } = scan();
+  const now = new Set(rows.filter((r) => r.installed).map((r) => r.id));
+  const before = new Set(readState().seen);
+  if (!before.size) return { first: true, added: [], now };      // never scanned: everything is "new", which is noise
+  return { first: false, added: [...now].filter((id) => !before.has(id)), now };
+}
+
 // ---------------------------------------------------------------- install-cli
 
 /**
@@ -360,12 +438,30 @@ if (cmd === "check") {
     if (!edited || !managed.has(realish(edited))) process.exit(0);
   }
   const { problems, ok } = check();
-  if (flag("--context") && problems.length) {
+
+  // The "keep it up to date" half. A new agent installed last week is invisible otherwise:
+  // check would keep passing, because it only looks at what already has an adapter.
+  let news = "";
+  if (!flag("--no-scan")) {
+    try {
+      const { first, added, now } = newlyInstalled();
+      if (first) writeState(now);
+      else if (added.length) {
+        const named = added.map((id) => catalog().find((t) => t.id === id)?.name || id);
+        news = `agentconf: ${named.join(", ")} ${added.length === 1 ? "was" : "were"} installed since the last scan and ${added.length === 1 ? "is" : "are"} not managed. Run \`agentconf scan\`, then /agentconf:audit to try to prove an adapter.`;
+        writeState(now);
+      }
+    } catch { /* discovery must never break the integrity check */ }
+  }
+
+  if (flag("--context")) {
     // SessionStart hooks read stdout as additional context, so speak to the agent here.
-    console.log(`agentconf: shared agent configuration is BROKEN.\n${problems.map((p) => `  - ${p}`).join("\n")}\nRun \`agentconf wire\` to repair, or tell the user.`);
+    if (problems.length) console.log(`agentconf: shared agent configuration is BROKEN.\n${problems.map((p) => `  - ${p}`).join("\n")}\nRun \`agentconf wire\` to repair, or tell the user.`);
+    if (news) console.log(news);
   } else if (!flag("--quiet")) {
     for (const p of problems) console.log(`BROKEN: ${p}`);
     if (!problems.length) console.log(`ok: ${ok.length} adapter${ok.length === 1 ? "" : "s"} wired and in sync (${ok.join(", ")})`);
+    if (news) console.log(news);
   }
   process.exit(problems.length ? 1 : 0);
 }
@@ -393,6 +489,33 @@ if (cmd === "verify") {
   const failed = results.filter((r) => r.state === "FAILED");
   if (failed.length) console.log(`\n${failed.length} adapter(s) are wired but the tool did not read the file. That is the silent failure this exists to find.`);
   process.exit(failed.length ? 1 : 0);
+}
+
+if (cmd === "scan") {
+  const { rows, unknown } = scan();
+  const managed = rows.filter((r) => r.state === "managed");
+  const unmanaged = rows.filter((r) => r.state === "unmanaged");
+
+  console.log(`managed — a canary proved these read the shared file (${managed.length})`);
+  for (const r of managed) console.log(`  ${r.name}`);
+
+  console.log(`\nunmanaged — installed, no proven adapter (${unmanaged.length})`);
+  for (const r of unmanaged) {
+    const c = r.candidates[0];
+    console.log(`  ${r.name.padEnd(24)} ${c ? `${c.path}  [${c.confidence}]` : "no candidate path known"}`);
+    if (r.note) console.log(`      note: ${r.note}`);
+  }
+
+  if (unknown.length) {
+    console.log(`\nunrecognised config directories (${unknown.length})`);
+    for (const u of unknown) console.log(`  ${u}`);
+  }
+
+  console.log(`\nA candidate path is a HYPOTHESIS, not a target. Nothing above gets wired until a
+canary proves the tool reads it — run /agentconf:audit <tool> to try, which produces an
+adapter or, honestly, no adapter. Coverage that lies is worse than no coverage.`);
+  writeState(rows.filter((r) => r.installed).map((r) => r.id));
+  process.exit(0);
 }
 
 if (cmd === "install-cli") {
@@ -447,6 +570,7 @@ console.log(`agentconf — capability-tested configuration for AI coding agents
   agentconf verify [--all]    canary: prove each tool actually READS the shared file
   agentconf adopt             what this machine already has, before you wire anything
   agentconf restore [stamp]   list backups, or put one back
+  agentconf scan              every agent tool on this machine: managed, unmanaged, unknown
   agentconf install-cli       wrapper in ~/.local/bin so your shell and Codex can call this too
 
 Shared source: ${pretty(SOURCE)}
