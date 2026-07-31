@@ -311,10 +311,66 @@ const realish = (p) => { try { return join(dirname(expand(p)), expand(p).split("
  */
 const STATE = join(SHARED_DIR, ".agentconf-state.json");
 
-function catalog() {
-  const p = join(ROOT, "catalog.json");
-  return existsSync(p) ? JSON.parse(readFileSync(p, "utf8")).tools || [] : [];
+/**
+ * Registry loading: bundled, then a user overlay merged over it by id.
+ *
+ * The overlay exists so a tool released this morning does not require a plugin release.
+ * Removal is explicit (`"retired": true`) rather than by omission, so a truncated or
+ * half-written overlay cannot silently delete coverage — it can only add wrong claims, and a
+ * claim never becomes a write without a canary. See docs/registry.md.
+ */
+function registry(file, key) {
+  const read = (p) => { try { return JSON.parse(readFileSync(p, "utf8"))[key] || []; } catch { return []; } };
+  const merged = new Map();
+  for (const entry of read(join(ROOT, file))) merged.set(entry.id, entry);
+  for (const entry of read(join(SHARED_DIR, file.replace(".json", ".local.json")))) {
+    merged.set(entry.id, { ...(merged.get(entry.id) || {}), ...entry, _local: true });
+  }
+  return [...merged.values()].filter((e) => !e.retired);
 }
+
+const catalog = () => registry("catalog.json", "tools");
+const providers = () => registry("providers.json", "providers");
+
+/**
+ * Provider state, by signal and never by secret: whether a variable is set, never its value,
+ * and never by opening a credential file.
+ *
+ * The env is read from a LOGIN SHELL, not this process. A key exported in ~/.zshrc is set for
+ * the user and absent here, and reporting "not configured" for a key that is plainly
+ * configured would be exactly the false negative this tool exists to prevent.
+ */
+function providerState() {
+  const names = [...new Set(providers().flatMap((p) => [...(p.authEnv || []), ...(p.baseUrlEnv || [])]))];
+  const script = names.map((n) => `[ -n "\${${n}:-}" ] && echo ${n}`).join("; ");
+  const r = spawnSync(process.env.SHELL || "/bin/sh", ["-lic", script], { encoding: "utf8", timeout: 30000 });
+  // An interactive shell prints whatever the user's rc does — a fastfetch banner here — and
+  // its trailing escape sequence lands glued to the FIRST line of real output. Exact-matching
+  // dropped OPENAI_API_KEY while GEMINI_API_KEY on the next line passed, which is a false
+  // negative on precisely the billing conflict this feature exists to surface.
+  const strip = (s) => s.replace(/\[[0-9;?]*[a-zA-Z]/g, "").trim();
+  const set = new Set(`${r.stdout || ""}`.split("\n").map(strip).filter((l) => names.includes(l)));
+
+  const installed = new Set(catalog().filter((t) => (t.bins || []).some(has) || (t.binPaths || []).some((p) => existsSync(expand(p)))).map((t) => t.id));
+
+  return providers().map((p) => {
+    const keys = (p.authEnv || []).filter((n) => set.has(n));
+    const urls = (p.baseUrlEnv || []).filter((n) => set.has(n));
+    const tools = (p.usedBy || []).filter((t) => installed.has(t));
+    const oauth = (p.oauthTools || []).filter((t) => installed.has(t));
+    const conflicts = [];
+    // The failure that matters is a RELATIONSHIP between two signals, which no single file
+    // check can see: a subscription signed in while an API key silently wins the billing.
+    if (keys.length && oauth.length) {
+      conflicts.push(`${oauth.join(", ")} can sign in interactively AND ${keys.join(", ")} is set — the key usually wins, so usage may bill to the key rather than the subscription.${p.conflictNote ? ` ${p.conflictNote}` : ""}`);
+    }
+    if (urls.length) conflicts.push(`${urls.join(", ")} redirects ${p.name} traffic. Legitimate for a gateway; worth confirming you set it.`);
+    if (keys.length && !tools.length && !oauth.length) conflicts.push(`configured, but no installed tool here is known to use it.`);
+    return { ...p, keys, urls, tools, oauth, conflicts };
+  });
+}
+
+// ---------------------------------------------------------------- update
 
 function scan() {
   const adapted = new Set(adapters().map((a) => a.tool));
@@ -539,6 +595,63 @@ if (cmd === "verify") {
   process.exit(failed.length ? 1 : 0);
 }
 
+if (cmd === "providers") {
+  const rows = providerState();
+  const configured = rows.filter((r) => r.keys.length || r.urls.length || r.oauth.length || (r.bins || []).some(has));
+  for (const r of configured) {
+    const sig = [r.keys.length ? `key: ${r.keys.join(", ")}` : "", r.oauth.length ? `login: ${r.oauth.join(", ")}` : ""].filter(Boolean).join("  |  ") || "—";
+    console.log(`  ${r.name.padEnd(22)} ${sig}`);
+    if (r.tools.length) console.log(`  ${"".padEnd(22)} used by ${r.tools.join(", ")}`);
+    for (const c of r.conflicts) console.log(`      ⚠ ${c}`);
+  }
+  const idle = rows.filter((r) => !configured.includes(r)).length;
+  console.log(`\n${configured.length} configured, ${idle} known but unconfigured.`);
+  console.log(`Signals only — agentconf never reads a credential file or a key's value.`);
+  process.exit(0);
+}
+
+if (cmd === "update") {
+  const url = rest.find((r) => r.startsWith("http"));
+  const from = rest.includes("--from") ? url : null;
+  if (from) {
+    console.log(`Remote registry updates are opt-in and not implemented as an automatic path.
+A remote source can only add CLAIMS — candidate paths and env-var names — because nothing in
+the write path consults the registry; only a locally-run canary promotes a claim to an adapter.
+That is what makes it safe, and also why it is not urgent.
+
+To use one today, fetch it yourself and drop it in as an overlay:
+  curl -fsSL ${from} -o ~/.agents/catalog.local.json
+  agentconf update`);
+    process.exit(0);
+  }
+  const bundled = (f, k) => { try { return JSON.parse(readFileSync(join(ROOT, f), "utf8"))[k] || []; } catch { return []; } };
+  for (const [file, key, label] of [["catalog.json", "tools", "tools"], ["providers.json", "providers", "providers"]]) {
+    const base = bundled(file, key).length;
+    const overlayFile = file.replace(".json", ".local.json");
+    // Read the overlay raw. registry() drops retired entries, so counting its output reports
+    // "no local changes" for an overlay whose whole purpose was to retire something.
+    let raw = [];
+    try { raw = JSON.parse(readFileSync(join(SHARED_DIR, overlayFile), "utf8"))[key] || []; } catch { /* no overlay */ }
+    const added = raw.filter((e) => !e.retired).map((e) => e.id);
+    const retired = raw.filter((e) => e.retired).map((e) => e.id);
+    const bits = [
+      added.length ? `+${added.length} from ~/.agents/${overlayFile} (${added.join(", ")})` : "",
+      retired.length ? `-${retired.length} retired locally (${retired.join(", ")})` : "",
+    ].filter(Boolean);
+    console.log(`  ${label.padEnd(10)} ${base} bundled${bits.length ? `  ${bits.join("  ")}` : ""}`);
+  }
+  console.log(`\nThe bundled registry updates with the plugin — this marketplace versions by commit
+SHA, so a new entry arrives on the next session with nothing to subscribe to. Add your own
+without waiting for a release by creating ~/.agents/catalog.local.json:
+
+  {"tools":[{"id":"mytool","name":"My Tool","bins":["mytool"],
+             "candidates":[{"path":"~/.mytool/AGENTS.md","kind":"instructions","confidence":"unverified"}]}]}
+
+Entries merge over the bundled set by id. Retire one with "retired": true — omission does not
+remove it, so a truncated file cannot silently drop coverage.`);
+  process.exit(0);
+}
+
 if (cmd === "scan") {
   const { rows, unknown } = scan();
   const managed = rows.filter((r) => r.state === "managed");
@@ -619,6 +732,8 @@ console.log(`agentconf — capability-tested configuration for AI coding agents
   agentconf adopt             what this machine already has, before you wire anything
   agentconf restore [stamp]   list backups, or put one back
   agentconf scan              every agent tool on this machine: managed, unmanaged, unknown
+  agentconf providers         model backends: configured, conflicting, idle
+  agentconf update            registry sources, and how to add your own
   agentconf install-cli       wrapper in ~/.local/bin so your shell and Codex can call this too
 
 Shared source: ${pretty(SOURCE)}

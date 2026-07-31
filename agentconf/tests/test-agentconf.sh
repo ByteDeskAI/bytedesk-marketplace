@@ -273,6 +273,37 @@ conf check >/dev/null 2>&1
 [ $? -eq 1 ] && ok "an edit to a composed file is caught as drift" || bad "drift in a composed file not caught"
 teardown
 
+# --- the registry never causes a write ----------------------------------------
+# The whole trust argument: a registry entry is a CLAIM. If a claim could wire a file,
+# an untrusted registry would be a supply-chain vector into $HOME.
+setup
+export PATH="$HOME/bin:/usr/bin:/bin"; mkdir -p "$HOME/bin"
+printf '#!/bin/sh\n' > "$HOME/bin/mytool"; chmod +x "$HOME/bin/mytool"
+cat > "$HOME/.agents/catalog.local.json" <<'JSON'
+{"tools":[{"id":"mytool","name":"My Tool","bins":["mytool"],
+  "candidates":[{"path":"~/.mytool/AGENTS.md","kind":"instructions","confidence":"unverified"}]}]}
+JSON
+conf scan >/dev/null 2>&1
+conf wire >/dev/null 2>&1
+[ ! -e "$HOME/.mytool/AGENTS.md" ] \
+  && ok "a local registry entry cannot cause a write" \
+  || bad "the registry wired a path with no adapter — the trust model is broken"
+conf scan 2>&1 | grep -q "My Tool" && ok "the local overlay is merged into scan" || bad "overlay ignored"
+teardown
+
+# --- retired is explicit; omission does not delete coverage ---------------------
+setup
+printf '{"tools":[{"id":"claude","retired":true}]}\n' > "$HOME/.agents/catalog.local.json"
+conf update 2>&1 | grep -q "retired locally" && ok "update reports a local retirement" || bad "a retirement was silently omitted"
+teardown
+
+# --- providers reports signals, never values -----------------------------------
+setup
+out=$(SHELL=/bin/sh conf providers 2>&1)
+echo "$out" | grep -qi "never reads a credential file" \
+  && ok "providers states it reads no secrets" || bad "providers omits the no-secrets claim"
+teardown
+
 echo
 echo "$pass passed, $fail failed"
 exit $((fail > 0))
