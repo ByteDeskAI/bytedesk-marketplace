@@ -1,11 +1,15 @@
 # Task Management
 
-Takes over Claude Code's task system. Native task calls, approved plans, decisions, and
-commits are mirrored into a git-tracked markdown store at `.bytedesk/task-management/`.
+Durable multi-harness task store at `.bytedesk/task-management/`.
 
-This plugin works across Claude Code, Codex, and grok-cli. Claude Code loads it via
-`.claude-plugin/plugin.json` and `hooks/hooks.json`; agents that read AGENTS.md use the CLI
-directly — every capability is reachable through `bin/tm`, the hooks add no behavior of their own.
+| Harness | How it loads | Native tools mirrored |
+|---------|--------------|------------------------|
+| Claude Code | `.claude-plugin/plugin.json` + `hooks/hooks.json` + `.mcp.json` | `TaskCreate`, `TaskUpdate` |
+| Codex | `.codex-plugin/plugin.json` + hooks + `.codex-mcp.json` | `update_plan` |
+| Grok | plugin install + MCP config | `todo_write` |
+
+Every capability is also reachable through `bin/tm` and MCP `tm_*` tools. Prefer those for full
+lifecycle (start/done/block/AC); native tools are mirrored into the same board.
 
 ## Rules for agents working in a repo with this plugin
 

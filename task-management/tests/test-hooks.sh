@@ -67,6 +67,16 @@ has "$(cat "$GROK_MD")" 'nativeId: "grok-todo:g1"' "grok nativeId recorded"
 hook post-task '{"tool_name":"todo_write","tool_input":{"todos":[{"id":"g1","content":"from grok","status":"completed"}]}}' >/dev/null
 has "$(cat "$GROK_MD")" 'status: "done"' "todo_write completed maps to done"
 
+# Codex update_plan — Bridge adapter (plan steps keyed by content hash)
+empty "$(hook pre-task-create '{"tool_name":"update_plan","tool_input":{"plan":[{"step":"Codex mirrored step","status":"pending"}]}}')" "update_plan allowed with active epic"
+hook post-task '{"tool_name":"update_plan","session_id":"codex-sess-1","tool_input":{"plan":[{"step":"Codex mirrored step","status":"pending"}]}}' >/dev/null
+has "$(tm board)" "Codex mirrored step" "update_plan is mirrored into the store"
+CODEX_MD="$(ls "$TM_ROOT"/.bytedesk/task-management/tasks/TM-*-codex-mirrored-step.md 2>/dev/null | head -1)"
+has "$(cat "$CODEX_MD")" 'nativeId: "codex-plan:' "codex nativeId prefix recorded"
+hook post-task '{"tool_name":"update_plan","session_id":"codex-sess-1","tool_input":{"plan":[{"step":"Codex mirrored step","status":"completed"}]}}' >/dev/null
+has "$(cat "$CODEX_MD")" 'status: "done"' "update_plan completed maps to done"
+
+
 # SessionStart injection
 has "$(hook session-start)" '"hookEventName":"SessionStart"' "session-start emits context"
 

@@ -14,7 +14,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "TaskCreate|todo_write",
+        "matcher": "TaskCreate|todo_write|update_plan",
         "hooks": [
           {
             "type": "command",
@@ -27,7 +27,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "TaskCreate|TaskUpdate|todo_write",
+        "matcher": "TaskCreate|TaskUpdate|todo_write|update_plan",
         "hooks": [
           {
             "type": "command",
@@ -57,7 +57,7 @@
         ]
       },
       {
-        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|apply_patch",
         "hooks": [
           {
             "type": "command",

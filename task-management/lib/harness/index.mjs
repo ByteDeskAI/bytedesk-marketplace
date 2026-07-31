@@ -18,6 +18,7 @@
  */
 import * as claude from "./claude.mjs";
 import * as grok from "./grok.mjs";
+import * as codex from "./codex.mjs";
 import { applyIntents } from "./apply.mjs";
 import { gateTaskCreate } from "../enforce.mjs";
 
@@ -26,6 +27,7 @@ const ADAPTERS = {
   TaskCreate: claude,
   TaskUpdate: claude,
   todo_write: grok,
+  update_plan: codex,
 };
 
 export function toolNameOf(input) {
@@ -100,3 +102,4 @@ export function mirrorNative(input, p, helpers) {
 export { applyIntents } from "./apply.mjs";
 export { CLAUDE_TOOLS } from "./claude.mjs";
 export { GROK_TOOLS } from "./grok.mjs";
+export { CODEX_TOOLS } from "./codex.mjs";

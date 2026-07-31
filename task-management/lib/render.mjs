@@ -176,7 +176,7 @@ export function sessionContext(p = paths()) {
   if (next.length) out.push("Next unblocked:", ...next.map((t) => `- ${taskLine(t)}`), "");
   out.push(
     "",
-    "Use `tm` for task state (`tm board`, `tm start <id>`, `tm done <id>`, `tm next`). Native Claude TaskCreate/TaskUpdate and Grok todo_write calls are mirrored into the store automatically (lib/harness Bridge).",
+    "Use `tm` for task state (`tm board`, `tm start <id>`, `tm done <id>`, `tm next`). Native Claude TaskCreate/TaskUpdate, Grok todo_write, and Codex update_plan calls are mirrored into the store automatically (lib/harness Bridge).",
   );
   return out.join("\n");
 }

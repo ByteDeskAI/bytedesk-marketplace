@@ -1,7 +1,7 @@
 {
   "name": "task-management",
   "version": "0.6.2",
-  "description": "Takes over Claude Code's task system. Native task calls, approved plans, decisions, and commits are mirrored into a git-tracked markdown store at .bytedesk/task-management/ \u2014 epics, tasks, ADRs, acceptance criteria, evidence.",
+  "description": "Durable git-tracked task store for Claude Code, Codex, and Grok. Native task tools (TaskCreate/TaskUpdate, update_plan, todo_write) and MCP tm_* tools share one board at .bytedesk/task-management/.",
   "author": {
     "name": "ByteDeskAI"
   },
@@ -15,13 +15,17 @@
     "adr",
     "plan-mode",
     "hooks",
-    "markdown"
+    "markdown",
+    "codex",
+    "mcp"
   ],
   "skills": "./skills/",
+  "hooks": "./hooks/hooks.json",
+  "mcpServers": "./.codex-mcp.json",
   "interface": {
     "displayName": "Task Management",
-    "shortDescription": "Durable, git-tracked task board that takes over Claude Code's ephemeral task state.",
-    "longDescription": "Mirrors native task calls, approved plans, decisions, and commits into .bytedesk/task-management/ as markdown \u2014 epics, tasks, ADRs, acceptance criteria, evidence, and an append-only event log. Gates enforce an active epic, WIP limits, acceptance criteria, and clean session exits, with a one-shot override and a global kill switch.",
+    "shortDescription": "Durable multi-harness task board (Claude, Codex, Grok) with gates, ADRs, and MCP tools.",
+    "longDescription": "Mirrors Claude TaskCreate/TaskUpdate, Codex update_plan, and Grok todo_write into .bytedesk/task-management/ as markdown — epics, tasks, ADRs, acceptance criteria, evidence, and an append-only event log. Gates enforce an active epic, WIP limits, acceptance criteria, and clean session exits. Prefer tm_* MCP tools or bin/tm for full lifecycle control.",
     "developerName": "ByteDeskAI",
     "category": "Engineering",
     "capabilities": [
@@ -30,7 +34,7 @@
     ],
     "websiteURL": "https://github.com/ByteDeskAI/bytedesk-marketplace",
     "defaultPrompt": [
-      "Show the task board \u2014 what's in progress, blocked, and next.",
+      "Show the task board — what's in progress, blocked, and next.",
       "Open an epic for this work and break it into tasks with acceptance criteria.",
       "Write an ADR for the decision we just made.",
       "Hand off this task to another agent with full context.",
