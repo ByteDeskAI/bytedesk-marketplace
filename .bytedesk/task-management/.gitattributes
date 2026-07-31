@@ -1,0 +1,6 @@
+# Written by `tm init`.
+#
+# events.jsonl is append-only, so two branches that both did work produce two sets of added lines at
+# the end of one file. That is a conflict git cannot resolve and a human should never have to: the
+# answer is always "keep both, in time order". Union does that.
+events.jsonl merge=union

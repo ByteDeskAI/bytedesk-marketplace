@@ -1,0 +1,298 @@
+#!/usr/bin/env node
+/**
+ * Live board. Serves the built Atlassian Design System SPA from dashboard/dist,
+ * exposes index.json at /api/board, and streams events.jsonl over SSE at /events.
+ *
+ * dist/ is committed: `/plugin install` must never require an npm install.
+ * Rebuild it with `cd dashboard && npm run build` after changing dashboard/src.
+ *
+ * One dashboard per project, first-wins: a second launch finds the running one,
+ * prints its URL and exits. The port is assigned once — probed free above 45000
+ * and persisted — so the project opens at the same URL on every load.
+ *
+ *   tm-dashboard             start, or report the one already running
+ *   tm-dashboard --status    print url/pid/port; exit 1 if nothing is running
+ *   tm-dashboard --restart   evict the incumbent and take over
+ *
+ * ponytail: node stdlib only, no build step. The lock lives in lib/singleton.mjs.
+ */
+import { createServer } from "node:http";
+import { existsSync, readFileSync, statSync, watch, openSync, readSync, closeSync } from "node:fs";
+import { dirname, join, normalize, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+import { ensureDirs, paths } from "../lib/paths.mjs";
+import { reindex } from "../lib/store.mjs";
+import { assignPort, ensurePort, liveInstance, release, takeover, writeInstance } from "../lib/singleton.mjs";
+import { boardPayload, handleWrite } from "../lib/dashboard-api.mjs";
+import { CATALOG } from "../lib/ntfy.mjs";
+import { collapseLog } from "../lib/render.mjs";
+
+// Degrade like `tm` does. Launched from a directory with no resolvable store —
+// an installed copy of the plugin — a raw stack trace is a terrible answer.
+const resolved = paths();
+if (!resolved.root) {
+  process.stderr.write(`${resolved.unavailable}\n`);
+  process.exit(1);
+}
+const P = ensureDirs(resolved);
+const HERE = dirname(fileURLToPath(import.meta.url));
+const DIST = resolve(HERE, "..", "dashboard", "dist");
+const PAGE = join(DIST, "index.html");
+const TYPES = {
+  ".js": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".html": "text/html; charset=utf-8",
+  ".json": "application/json",
+  ".svg": "image/svg+xml",
+  ".woff2": "font/woff2",
+  ".map": "application/json",
+  ".png": "image/png",
+  ".webmanifest": "application/manifest+json",
+};
+const args = new Set(process.argv.slice(2));
+const url = (port) => `http://127.0.0.1:${port}`;
+
+// ── singleton, first-wins ────────────────────────────────────────────────────
+if (args.has("--status")) {
+  const live = liveInstance(P);
+  if (!live) {
+    process.stderr.write(`no dashboard running for ${P.root}\n`);
+    process.exit(1);
+  }
+  process.stdout.write(`${url(live.port)}  pid ${live.pid}  port ${live.port}  (${P.root})\n`);
+  process.exit(0);
+}
+
+const evicted = args.has("--restart") ? takeover(P) : null;
+if (!args.has("--restart")) {
+  const live = liveInstance(P);
+  if (live) {
+    process.stdout.write(`task-management board already running: ${url(live.port)}  (pid ${live.pid})\n`);
+    process.exit(0);
+  }
+  release(P); // stale pid file — take it over
+}
+
+const assignment = await ensurePort(P, {
+  override: process.env.TM_DASHBOARD_PORT,
+  keep: Boolean(evicted), // our own incumbent still holds it for a moment
+});
+if (assignment.source === "reassigned") {
+  process.stdout.write(`port ${assignment.previous} is taken — reassigned this project to ${assignment.port}\n`);
+}
+
+// ── SSE fan-out ──────────────────────────────────────────────────────────────
+const subscribers = new Set();
+const broadcast = (line) => {
+  for (const res of subscribers) res.write(`data: ${line}\n\n`);
+};
+
+let offset = existsSync(P.events) ? statSync(P.events).size : 0;
+function tail() {
+  if (!existsSync(P.events)) return;
+  const size = statSync(P.events).size;
+  if (size < offset) offset = 0; // truncated
+  if (size === offset) return;
+  const fd = openSync(P.events, "r");
+  const buf = Buffer.alloc(size - offset);
+  readSync(fd, buf, 0, buf.length, offset);
+  closeSync(fd);
+  offset = size;
+  for (const line of buf.toString("utf8").split("\n").filter(Boolean)) broadcast(line);
+}
+try {
+  watch(P.base, { persistent: true }, (_e, file) => {
+    if (file === "events.jsonl") tail();
+  });
+} catch {
+  setInterval(tail, 2000); // fs.watch unavailable — poll instead
+}
+
+// ── server ───────────────────────────────────────────────────────────────────
+const json = (res, status, payload) => {
+  res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" });
+  res.end(JSON.stringify(payload));
+};
+
+const server = createServer((req, res) => {
+  // ── writes ────────────────────────────────────────────────────────────────
+  // Local-only server, but a browser page on another origin could still POST here,
+  // so require a same-origin fetch and cap the body.
+  if (req.method === "POST" || req.method === "PATCH") {
+    const origin = req.headers.origin;
+    if (origin && !origin.startsWith("http://127.0.0.1:") && !origin.startsWith("http://localhost:")) {
+      return json(res, 403, { error: "cross-origin writes are refused" });
+    }
+    let raw = "";
+    let tooBig = false;
+    req.on("data", (chunk) => {
+      raw += chunk;
+      if (raw.length > 256_000 && !tooBig) {
+        tooBig = true;
+        json(res, 413, { error: "body too large" });
+        req.destroy();
+      }
+    });
+    req.on("end", () => {
+      if (tooBig) return;
+      let body;
+      try {
+        body = raw ? JSON.parse(raw) : {};
+      } catch {
+        return json(res, 400, { error: "body is not valid JSON" });
+      }
+      let result;
+      try {
+        result = handleWrite(req.method, req.url || "", body, { p: P });
+      } catch (err) {
+        // A write must never take the board down with it.
+        result = { status: 500, body: { error: err.message } };
+      }
+      json(res, result.status, result.body);
+    });
+    return;
+  }
+
+  if (req.url === "/api/backlog") {
+    const result = handleWrite("GET", "/api/backlog", null, { p: P });
+    return json(res, result.status, result.body);
+  }
+
+  // One task in full, including the markdown body the list payload strips.
+  if (req.method === "GET" && /^\/api\/task\/[^/?]+$/.test(req.url || "")) {
+    const result = handleWrite("GET", req.url, null, { p: P });
+    return json(res, result.status, result.body);
+  }
+
+  if (req.url === "/api/board") {
+    return json(res, 200, boardPayload(P));
+  }
+  // History for the cycle-time and burndown maths. Bounded — the page only
+  // needs the recent past, and the log grows forever.
+  if (req.url?.startsWith("/api/events")) {
+    const lines = existsSync(P.events) ? readFileSync(P.events, "utf8").split("\n").filter(Boolean) : [];
+    const recent = lines.slice(-2000).map((l) => {
+      try {
+        return JSON.parse(l);
+      } catch {
+        return null;
+      }
+    });
+    /**
+     * `label` is attached here rather than in the SPA because the sentences live in the ntfy
+     * CATALOG, the SPA imports nothing from `lib/`, and a second copy of that vocabulary in
+     * TypeScript is a second thing to forget to update — a test already derives the catalog from
+     * the source that emits the events, and that guard only works if there is one catalog.
+     *
+     * `event` is left on the payload untouched: the burndown and cycle-time maths match on it, and
+     * those must not start depending on prose.
+     */
+    /**
+     * `_shadowed` marks an `update` that a specific event in the same second already explains, so
+     * the activity panel can skip it while burndown, startTimes and the PWA notification matcher
+     * still receive every row untouched. Marking rather than dropping is the point: that matcher
+     * switches on `event.event`.
+     */
+    const labelled = collapseLog(recent.filter(Boolean), { keep: true }).map((e) => ({
+      ...e,
+      label: CATALOG.events[e.event]?.label || e.event,
+    }));
+    res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+    res.end(JSON.stringify(labelled));
+    return;
+  }
+  if (req.url === "/events") {
+    res.writeHead(200, {
+      "content-type": "text/event-stream",
+      "cache-control": "no-cache",
+      connection: "keep-alive",
+    });
+    res.write(": connected\n\n");
+    subscribers.add(res);
+    req.on("close", () => subscribers.delete(res));
+    return;
+  }
+  // Hashed build assets and the PWA's icons. The resolve+prefix check is the
+  // whole traversal guard — one code path, so /icons/ cannot drift from /assets/.
+  const path = decodeURIComponent((req.url || "/").split("?")[0]);
+  if (path.startsWith("/assets/") || path.startsWith("/icons/")) {
+    const asset = resolve(DIST, `.${normalize(path)}`);
+    if (!asset.startsWith(DIST + sep) || !existsSync(asset)) {
+      res.writeHead(404).end("not found");
+      return;
+    }
+    const ext = asset.slice(asset.lastIndexOf("."));
+    res.writeHead(200, {
+      "content-type": TYPES[ext] || "application/octet-stream",
+      "cache-control": "public, max-age=31536000, immutable", // the filename carries the hash
+    });
+    res.end(readFileSync(asset));
+    return;
+  }
+
+  // The manifest and the worker. Both live at the site root: the worker's scope
+  // is the path it is served from, and a worker under /assets/ could not control
+  // the board. The worker must never be cached — a stale one outlives a rebuild
+  // and keeps serving yesterday's shell forever.
+  if (path === "/sw.js" || path === "/manifest.webmanifest") {
+    const file = join(DIST, path.slice(1));
+    if (!existsSync(file)) {
+      res.writeHead(404).end("not found — run: cd dashboard && npm run build");
+      return;
+    }
+    res.writeHead(200, {
+      "content-type": TYPES[path.slice(path.lastIndexOf("."))],
+      "cache-control": "no-cache",
+      ...(path === "/sw.js" ? { "service-worker-allowed": "/" } : {}),
+    });
+    res.end(readFileSync(file));
+    return;
+  }
+
+  if (!existsSync(PAGE)) {
+    res.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
+    res.end("dashboard/dist is missing. Build it: cd dashboard && npm run build\n");
+    return;
+  }
+  res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+  res.end(readFileSync(PAGE));
+});
+
+for (const sig of ["SIGINT", "SIGTERM"]) {
+  process.on(sig, () => {
+    if (liveInstance(P)?.pid === process.pid) release(P);
+    process.exit(0);
+  });
+}
+
+/**
+ * Bind the assigned port. An evicted incumbent's socket lingers a moment, so
+ * hold the port through that; only genuine occupancy moves us on — and when it
+ * does, the new port becomes the standing assignment.
+ */
+function listen(port, { waits = 0, moves = 0 } = {}) {
+  server.once("error", (err) => {
+    if (err.code !== "EADDRINUSE") throw err;
+    if (evicted && waits < 40) return setTimeout(() => listen(port, { waits: waits + 1, moves }), 50);
+    // Someone else claimed the store while we were starting — they win.
+    const live = liveInstance(P);
+    if (live) {
+      process.stdout.write(`task-management board already running: ${url(live.port)}  (pid ${live.pid})\n`);
+      process.exit(0);
+    }
+    if (moves < 20) {
+      const next = port + 1;
+      if (assignment.source !== "env") {
+        assignPort(P, next);
+        process.stdout.write(`port ${port} is taken — reassigned this project to ${next}\n`);
+      }
+      return listen(next, { moves: moves + 1 });
+    }
+    throw err;
+  });
+  server.listen(port, "127.0.0.1", () => {
+    writeInstance(P, { pid: process.pid, port });
+    process.stdout.write(`task-management board: ${url(port)}  (${P.root})\n`);
+  });
+}
+listen(assignment.port);

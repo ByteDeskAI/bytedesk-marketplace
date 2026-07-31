@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "agentconf",
+  "description": "Capability-tested configuration for AI coding agents. Keeps one shared instruction source wired into every agent on the machine, and proves each tool actually reads it with a canary rather than assuming the write landed. Does not read credential files, does not overwrite generated config, and does not replace rulesync.",
+  "author": { "name": "ByteDesk AI", "url": "https://github.com/ByteDeskAI" },
+  "homepage": "https://github.com/ByteDeskAI/bytedesk-marketplace/tree/main/agentconf",
+  "repository": "https://github.com/ByteDeskAI/bytedesk-marketplace",
+  "license": "MIT",
+  "keywords": ["configuration", "agents-md", "claude-code", "codex", "hooks", "dotfiles"]
+}

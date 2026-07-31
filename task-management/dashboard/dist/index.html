@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>task-management board</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+    <!-- The manifest carries one theme colour; the window chrome follows the OS
+         the way the board's Atlassian tokens already do. -->
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#0052CC" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#1D2125" />
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body, #root { min-height: 100%; }
+      /* Atlassian Sans is a design token, not a webfont request — a strict CSP allows no CDN. */
+      body {
+        font-family: var(--ds-font-family-body, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif);
+        background: var(--ds-surface, #fff);
+        color: var(--ds-text, #172b4d);
+        -webkit-font-smoothing: antialiased;
+      }
+      button, input, select, textarea { font-family: inherit; font-size: inherit; }
+    </style>
+    <script type="module" crossorigin src="/assets/index-BZANv0CC.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-CZIixFPL.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

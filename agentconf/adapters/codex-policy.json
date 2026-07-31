@@ -1,0 +1,18 @@
+{
+  "id": "codex-policy",
+  "tool": "codex",
+  "kind": "policy",
+  "detect": { "bin": "codex" },
+  "source": "~/.agents/shared.rules",
+  "target": "~/.codex/rules/shared.rules",
+  "mechanism": "copy",
+  "why": "A symlinked *.rules file is SILENTLY IGNORED by Codex (openai/codex#16452) — the rules simply do not apply and nothing warns you. So this one must be a real file, and a copy can drift, which `agentconf check` exists to catch. Codex scans every *.rules under each config layer, and ~/.codex/rules/default.rules is written BY Codex when you approve a command in the TUI, so hand-authored policy belongs in a separate file.",
+  "canary": {
+    "cmd": ["codex", "exec", "--skip-git-repo-check", "Run the command: cal 2026 . Report whether it printed a calendar or was blocked by policy."],
+    "expect": "blocked",
+    "probeRule": "prefix_rule(pattern=[\"cal\"], decision=\"forbidden\")",
+    "costly": true
+  },
+  "verified": "2026-07-30",
+  "verifiedBy": "forbidden rule honoured as a real file, ignored as a symlink; `forbidden` here also overrode `allow` in default.rules"
+}

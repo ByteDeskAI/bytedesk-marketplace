@@ -1,0 +1,1155 @@
+# Changelog
+
+## Unreleased
+
+Fixed: a fresh clone now runs as the committer's checkout did. `activeEpic` lived in the
+gitignored `state.json`, so it never travelled — the clone rendered a correct-looking board and
+then refused the next `tm task new` for having no active epic. It now lives in the committed
+`config.json`; claims, overrides and the last Stop block stay per-machine. Existing stores are
+read through transparently and move on the next write.
+
+Added: `tm init` and `tm doctor` both report a store the repo would keep out of git — an
+ancestor `.gitignore` swallowing `.bytedesk/`, named down to the `<file>:<line>:<pattern>` to
+edit (`store-ignored`, an error, in doctor; a warning on stderr at init). This is the one
+failure that stays silent: the board works, `git status` is clean, and not one task reaches a
+second clone or a CI run. `tm init` writes the store's own `.gitignore`, but nothing stopped
+the project's from swallowing the whole store.
+
+Changed: the store guard now covers an *installed* copy of the plugin (`~/.claude/plugins`,
+which `/plugin update` overwrites) rather than whatever git repo the plugin's source sits in.
+The marketplace repo is an ordinary project again — it tracks its own work with no `TM_ROOT`
+and no repo-local config. The old git-based test also mis-fired when the installed tree sat
+inside a dotfiles repo, claiming the whole home directory as the plugin's repo.
+
+## 0.4.0
+
+The release that made the store trustworthy under parallel work, and gave it a layer above
+tasks for deciding what to build.
+
+Two of the fixes below are the reason to upgrade rather than the features. `writeAtomic`
+staged into files ending in `.md`, so the store read its own half-written staging files as
+entities and a concurrent create could lose its write; and a waiter that timed out broke a
+lock a live process was still holding. Both only appear under parallel sessions, which is
+exactly what this plugin is for.
+
+Added: capabilities (`CAP-*`) and the `/enhance` loop, sprints, `tm find field:value`,
+`tm edit`/`tm move`/`tm type`/`tm reopen`, goal import, a git contract written by `tm init`,
+per-repo board preferences with a settings menu, and a subagent brief so a spawned agent
+knows what the session is already doing. The board now names the project it belongs to
+instead of calling itself `task-management` on every repo.
+
+Removed: `tm export pm`.
+
+Also: `monitors` moved under `experimental.monitors` in the manifest, which is where
+`claude plugin validate` now wants it — top-level still loads but is slated for removal.
+
+### Added
+
+- **Capabilities: the discovery layer above tasks, and `/enhance` to drive it.**
+
+  This started as `docs/capabilities/` in one product repo — a YAML registry, one markdown card
+  per capability, a `next_id` counter, and a python script whose entire job was checking that the
+  registry and the cards still agreed. Every one of those pieces is something the store already
+  does for epics, tasks and ADRs. So a capability is now a fourth kind (`CAP-*`) and all of it
+  goes away: ids, status, evidence, search, events, `tm find`, `tm doctor` and the MCP surface
+  come for free, and there is no index to hand-edit or validate.
+
+  `tm cap new` proposes, `tm cap list` ranks by impact × ease × confidence (1–27, small enough to
+  check by eye), `tm cap accept` mints the task that builds it and carries the card's acceptance
+  criteria across as that task's gate, `tm cap ship` refuses without evidence. The task links back
+  to the capability, so the reason for the work outlives the session that proposed it.
+
+  Impact and confidence stay H/M/L and effort stays S/M/L, deliberately — one uniform scale would
+  have silently reinterpreted `impact: L` from *low* to *large* on every imported card.
+
+  Skills: `enhance` (the loop), `enhance-capture`, `enhance-research`, `enhance-propose`,
+  `enhance-track`. The old suite's sixth skill, `enhance-refresh`, is folded into `enhance-track`
+  — both were "mark it shipped, with evidence".
+
+  `scripts/import-capability-cards.mjs` reads a legacy `docs/capabilities/` store once, preserving
+  ids so existing references still resolve. It is idempotent and has a `--dry-run`.
+
+  Also, because it was the same omission: `tm show` on a dropped capability now prints why it was
+  dropped. It already did this for `blocked` and `parked` and the third case was simply never added.
+
+  Not done: the dashboard has no capabilities panel yet — `tm cap list` and `tm find` are the
+  read paths for now.
+
+### Removed
+
+- **`tm export pm`.** The format emitted `pm_issue_create` payloads for the
+  `project-management` plugin, which has been removed from this marketplace — so it was
+  exporting to a destination that no longer exists here. `md`, `csv` and `json` are unchanged,
+  and an unknown format is still refused rather than silently substituted. This also retires the
+  README's long-standing note delegating sprints to that plugin, which means sprints are now a
+  legitimate candidate for this one: `burndown()` still has no denominator and `estimate()`
+  still has no consumer.
+
+### Added
+
+- **Sprints, which is what gives `estimate` a reader.** Points were writable from the CLI, the
+  dashboard and MCP, and consumed by nothing — the same write-only shape `priority` and `rank` had.
+  `burndown` counts *cards*, so a two-point card and a thirteen-point card moved the line by the
+  same amount. A sprint supplies the denominator: this much committed, this much done.
+
+  ```
+  tm sprint new "Sprint 12" --ends 2026-08-14
+  tm sprint add TM-001 TM-002
+  tm sprint
+    3/16 points done across 4 card(s), 1 unsized
+  ```
+
+  A sprint is its own kind — `sprints/SP-001-….md`, an id, a status, a body — because everything one
+  needs the store already does for epics and ADRs, and a parallel mechanism would be a second way to
+  say what it already says once. It is **not** a second epic: an epic says what a body of work *is*,
+  a sprint says what you committed to finishing this fortnight, and a task carries one of each.
+
+  Cards with no estimate are counted apart rather than as zero. "12 of 20 points done, and four
+  cards nobody sized" is true; folding the unsized into zero reports the sprint as further along
+  than it is.
+
+  Closing a sprint does not touch unfinished work — it is simply no longer committed, and the close
+  says how much is left. `tm find sprint:SP-001` lists what it holds.
+
+  This was parked because the README delegated sprints to the `project-management` plugin by name.
+  Removing that plugin removed the objection, and the note left on the task at the time —
+  "`burndown()` still has no denominator and `estimate()` still has no consumer" — turned out to be
+  the whole specification.
+
+- **`/goal` is captured onto the work in flight, and goals are reachable as a resource.**
+
+  I had parked this after reading Claude Code's own source: `/goal` is a *local, immediate* command,
+  and local immediate commands are handled client-side without a prompt round trip — so capturing it
+  looked impossible and I recorded that rather than guess. **That was wrong.** With a probe hook
+  installed, typing `/goal …` produced a `UserPromptSubmit` payload whose `prompt` field held the
+  literal text. Measured beats inferred, and the parked note was the thing that turned out to be a
+  guess.
+
+  What lands is a note on the **claimed** work, not a new task. A goal is a condition on the work in
+  flight — "keep going until X" — and minting a task for it would put a second entry on the board
+  for something already tracked, which is the exact duplication the rest of that hook exists to
+  prevent. With nothing claimed it stays silent rather than inventing an owner, and `/goal clear` is
+  not a goal.
+
+  `tm://goals` lists every task imported from a goal doc with its still-unmet success criteria —
+  a goal's acceptance criteria *are* the doc's criteria, so this answers "is it met" without having
+  to remember which id it was. `tm find goal:<doc>` finds them too.
+
+  **The Stop-hook collision is handled rather than left.** `/goal` registers its own Stop hook, so
+  two things can refuse one stop. They do not disagree — a goal says "keep going until X", the gate
+  says "do not leave work in_progress" — but two separate refusals read as the tool nagging twice.
+  When a goal is recorded against the claimed work, the gate names it, so the two arrive as one
+  story.
+
+  `tm show` also prints comments now. It was the one first-class field it did not, though it prints
+  labels, links, evidence and commits — so the detail view was missing the discussion about the
+  thing it was detailing.
+
+- **The board names the project it belongs to.** Every board called itself `task-management` — the
+  plugin's name, identical on all of them, which tells you nothing about which one you are looking
+  at. With two open, the header *and* the browser tab were the same on both, and the only way to
+  tell them apart was the port in the URL.
+
+  The repo's directory name in title case, so `bytedesk-persona` reads **Bytedesk Persona**. It
+  needs no configuration, it is what a person calls the project, and it is already what the store is
+  scoped to. The tab title is set from the payload rather than at build time, because one built
+  bundle serves every project.
+
+  A word that is already mixed case is left as written: `myApp` stays `myApp` rather than becoming
+  `Myapp`, which would be a worse name than the one its author chose.
+
+- **The store now has a git contract, written by `tm init` and audited by `tm doctor`.**
+  `.bytedesk/task-management/` is meant to be committed — one markdown file per entity is what makes
+  a board readable in a diff. But four kinds of file in there are not the project's business, and
+  with no rule they sat in `git status` forever and were one `git add -A` away from being committed
+  and conflicting on every pull: `index.json` (a derived cache the README already calls disposable),
+  `state.json` (session claims and overrides — whose machine, not what work), `dashboard.*` (a port
+  and a pid for a server running here, now) and `.tm-tmp-*` (the staging files `writeAtomic` renames
+  over the real ones).
+
+  `events.jsonl` gets `merge=union`, and that is the piece worth having. It is append-only, so two
+  branches that both did work produce two sets of added lines at the end of one file — a textbook
+  conflict that is never a real one, on the file least interesting to resolve by hand.
+
+  Seeding never overwrites: `tm init` is how an older board is adopted, so it writes only what is
+  missing and leaves hand-edited rules alone. `doctor` reports a store without a contract and can
+  write one, and separately warns when a per-machine file is **already tracked** — being ignored is
+  no help once git is carrying it, so that finding names the `git rm --cached` to run rather than
+  pretending it can fix it.
+
+- **Board preferences live in the repo, and there is a settings menu to reach them.** They had
+  nowhere to live: the notification switch was a bare button in the status bar, the group-by-epic
+  toggle was loose in the toolbar, and the rest was in `localStorage` with no surface at all. So a
+  preference was invisible until you found the control that owned it — and it applied to one browser
+  on one machine, which is why notifications had to be switched on again everywhere.
+
+  The preference was never about the browser; it was about the project. `POST /api/settings` writes
+  to the store's own config file next to the tasks, and the board payload carries it back, so any
+  browser opening that repo starts with the answer already given.
+
+  `localStorage` stays as a cache in front of it: this is an installable app with an offline outbox,
+  reading synchronously at mount avoids a flash of the wrong settings, and a board that cannot reach
+  its server still knows what you asked for. The store wins the moment it answers.
+
+  Writable keys are an **allowlist**, not just a namespace. The rest of the config holds the gates —
+  `enforce`, `wipLimit`, `requireAcceptance` — and a browser tab is not the place to switch off
+  rules the CLI and the hooks are enforcing; `tm config` still owns those. An unknown key is named
+  back in the response rather than silently accumulating in a file people read.
+
+  Two menus rather than one: a profile menu for "who does this board think I am" — which nothing
+  displayed before, though `me` is what decides whether a change counts as *your* work — and a
+  settings modal for how the board behaves. `installDismissed` is deliberately not shared; whether
+  this browser dismissed an install banner is genuinely about this browser.
+
+  The notification **permission** is a browser grant the page cannot store on anyone's behalf, so
+  the modal says so and offers to ask, rather than showing switches that cannot fire.
+
+  Built on `@atlaskit/dropdown-menu`, `@atlaskit/toggle` and `@atlaskit/modal-dialog` — Atlaskit is
+  the base component library here, so the rule is to reach for it before writing anything.
+
+- **A spawned agent is told what the session is already working on.** `SessionStart` fires once per
+  session; a subagent spawned mid-session got none of it, so it began knowing nothing about the
+  board — not which task its parent was holding, not what "done" meant for it — and could file a
+  duplicate for work already tracked. The plugin now answers `SubagentStart`:
+
+  ```
+  ## task-management — what this session is already working on
+
+  The parent session holds TM-018 "credential configuration through the UI" (EP-001).
+  Not yet met:
+  - [ ] the operator can set a provider key without editing a file
+
+  The parent holds the claim, so do not run `tm start`, `tm done`, `tm park` or `tm block` on these —
+  report what you found and let the parent record the outcome. Reads (`tm show`, `tm board`, `tm find`)
+  and additive notes (`tm comment`, `tm evidence`) are fine.
+  ```
+
+  Both halves of the hook contract were established by **spawning a real agent against a probe
+  hook** rather than inferred from the payload schema: the agent quoted back a marker token that
+  appeared nowhere in its prompt, and the captured payload confirmed `session_id` is the parent's —
+  the same key the claims are held under, so the lookup is the one `subagent-stop` already uses to
+  attribute the work afterwards.
+
+  Deliberately **not** `handoff()`. That is a cold-start dossier — epic body, evidence, commits,
+  branch, worktree — and it ends with `Resume with: tm start <id>`, which is precisely wrong advice
+  for an agent whose parent already holds the claim. What a subagent lacks is orientation and a
+  guardrail, and both are short.
+
+  Nothing claimed produces **no output at all**, not an empty envelope: this is prepended to every
+  agent in a fan-out. Capped at 3 tasks, 5 unmet criteria each and 1200 characters, and it says how
+  many it left out rather than truncating silently. Criteria already met are dropped — the useful
+  half of "done" is the part still outstanding.
+
+  It opens with its own heading because the live spawn showed every `SubagentStart` hook's
+  `additionalContext` arriving concatenated into one block, directly after another plugin's
+  instructions.
+
+- **A subagent is briefed on the work it was spawned into.** `SessionStart` fires once per session,
+  not per agent, so a spawned subagent started knowing nothing about the board — not that one
+  existed, not which task its parent held, not what "done" meant for it. It re-derived context the
+  parent already had, or filed a duplicate for work already tracked.
+
+  The plugin now answers `SubagentStart` with the parent's claimed work:
+
+  ```
+  ## task-management — what this session is already working on
+
+  The parent session holds TM-001 "wire the vendor SDK" (EP-001).
+  Not yet met:
+  - [ ] the token refresh path is covered by a test
+
+  The parent holds the claim, so do not run `tm start`, `tm done`, `tm park` or `tm block` on these —
+  report what you found and let the parent record the outcome. Reads (`tm show`, `tm board`, `tm find`)
+  and additive notes (`tm comment`, `tm evidence`) are fine.
+  ```
+
+  Both halves of the contract were established by **spawning a real agent against a probe hook**
+  rather than inferred from the payload schema: `SubagentStart` carries the *parent's* `session_id`
+  — which is exactly the key claims are held under — and whatever the hook returns as
+  `additionalContext` reaches the agent, prefixed `SubagentStart hook additional context:`. The
+  agent quoted back a token that appeared nowhere in its prompt.
+
+  Only the unticked criteria, because a met one is settled and the job is what is left. Nothing at
+  all when the parent holds nothing, since a brief injected into every fan-out regardless is a tax
+  every agent pays for the case where it happens to matter. Bounded at 3 tasks, 5 criteria each and
+  1200 characters, and it reports how many claims it left out rather than truncating in silence.
+
+  It is deliberately not `handoff()`: that is a cold-start dossier — epic body, evidence, commits,
+  branch, worktree — for someone picking a task up with nothing in hand, and it ends with
+  `Resume with: tm start <id>`, which is exactly wrong here. The parent already holds the claim, and
+  now that the interlock actually engages, an agent following that advice would burn its turn on a
+  refusal it cannot resolve. That is also why the brief names the lifecycle verbs as off limits
+  while pointing at `tm comment` and `tm evidence`, which are additive and safe from a subagent.
+
+  The brief opens with its own heading because every `SubagentStart` hook's `additionalContext` is
+  concatenated into one block under a single prefix — observed in the live spawn, where this text
+  landed directly after another plugin's instructions.
+
+- **`tm find` takes `field:value`: the terminal and the agent can ask what only the browser could.**
+  The board in the browser has always filtered by epic, assignee, actor, priority and label, and
+  saved the combination as a named view. `tm find` was a substring match over titles and bodies — so
+  "what is assigned to me and still open" was answerable on exactly one of the three surfaces, and
+  it was the surface an agent cannot use.
+
+  ```
+  tm find status:in_progress priority:highest
+  tm find assignee:ryan -label:stale
+  tm find epic:EP-002 type:bug "the half-remembered title"
+  tm find -assignee:                     # the unassigned queue
+  ```
+
+  Fields: `status`, `epic`, `assignee`, `actor`, `priority`, `type`, `label`, `kind`, `id`. Bare
+  words keep meaning exactly what they meant. Every filter ANDs, including a repeated key —
+  `label:ui label:perf` is "has both", and OR is running the search twice. `tm_find` takes the same
+  query as one string, so an agent asks the board a question rather than reading the whole board and
+  filtering it itself.
+
+  Deliberately **not JQL**. No operators, no precedence, no parentheses, no ORDER BY — this is the
+  `key:value` syntax `gh search` and GitHub's search box already use, because a query language needs
+  a parser, an error surface and a manual of its own, and none of that buys an answer you could not
+  already get.
+
+  An unrecognised field is **refused** with the list of real ones. `assigne:ryan` quietly returning
+  every task whose body contains that string is a wrong answer that looks like a right one — the
+  same reason `tm priority` refuses an unknown level rather than substituting a default. A token
+  whose value starts `//` stays a search term, so `tm find https://…/pull/73` does not parse as a
+  filter on the field `https`.
+
+  The browser keeps its own implementation in `dashboard/src/filters.ts`, which also drives the
+  dropdowns and the saved views; the SPA imports nothing from `lib/`. So a test reads the `Filters`
+  interface out of that file at test time and asserts the CLI covers every field it names — removing
+  one field from either side turns it red. Same technique as the ntfy catalog test, which has caught
+  a missing event twice.
+
+  `tm find` renders hits with the same line the board uses, so a filtered result shows status,
+  priority and blockers instead of just an id and a title. That put ADRs through `taskLine` for the
+  first time and they came out as `? ADR-0001`, so `proposed` now has a mark of its own (`◇`) — a
+  decision nobody has ratified yet, rather than a broken row.
+
+- **`tm edit` and `tm move`: nothing could correct a title or refile a task.** Every other field
+  on a task had a verb — assign, label, priority, type, estimate, rank, subtask, dep, link — and
+  the two you type first, the title and the body, had none. `tm edit TM-001 "..."` answered
+  `unknown verb: edit`, and none of the 16 MCP tools touched either field. The correction did
+  exist: `PATCH /api/task/:id`, reachable only from the browser.
+
+  The epic was worse — **nothing anywhere could change it**, not the CLI, not MCP, and not that
+  PATCH, which took title and body only. Since `tm task new` files into whatever epic is active
+  and the create gate *requires* an active epic, filing into the wrong one was one keystroke away
+  with no way back short of editing frontmatter by hand.
+
+  ```
+  tm edit <id> "<title>" [--body <text|->]      # --body - reads from stdin, like tm evidence
+  tm move <id> <EP-nnn|none>
+  ```
+
+  A retitle **keeps the file name**: `TM-001-typoed-titel.md` gains the corrected title inside.
+  The id is the identity and the slug is decoration — a rename is a delete-plus-add in git that
+  breaks blame on the entity's whole history, and the old path may already be recorded in a commit
+  message, an evidence ref, or a `tm show --json` a script is holding.
+
+  Re-submitting a value that is already stored writes nothing and says `unchanged`, so an
+  `updated` stamp still means the task actually moved. That needed care for the body: the
+  round-trip is not identity — `serializeDoc` writes a newline after the closing frontmatter fence
+  and `parseDoc` hands it back, so a body written as `"notes"` reads as `"\nnotes"` and a raw
+  `!==` reports a change every time. Compared trimmed, and the asymmetry is pinned by a test.
+
+  `move` respects both epics' lifecycles rather than writing a field: into a `done` epic an
+  unfinished task **reopens** it, and out of an epic the source gets the same **auto-close** check
+  finishing a task there would give it. An epic emptied entirely stays open — zero tasks is not an
+  achievement, which `autoCloseEpic` already declined.
+
+  All three surfaces: `tm edit`/`tm move`, the `tm_task_edit` tool, and `PATCH /api/task/:id`,
+  which now accepts `epic`. `edit` and `moved` are on the timeline as their own events, so the log
+  says "a title is corrected" rather than "a field changed" — and `moved` records where the task
+  came *from*, which the destination alone does not tell you.
+
+- **`tm log` renders for a person, and `tm log <id>` is a per-issue changelog.** Its human branch
+  was `rows.map((e) => JSON.stringify(e))` — the same output `--json` gives — so the one surface you
+  reach for when two agents disagreed about a claim, or a card moved and nobody knows who moved it,
+  was raw JSONL. Every other read verb had a renderer.
+
+  The tail groups by day; a single entity's history shows the status path it took with elapsed time
+  measured from its first start, which is the question a changelog answers. Two log lines per write
+  collapse into one — `prioritise()` calls `update()`, so every semantic write logged twice and the
+  fact was buried under its own bookkeeping. The per-event sentences are **not** redefined:
+  `CATALOG.events` already carries one for every kind the store emits, and a test derives that list
+  from the source, so a new event gets a description in both places or neither.
+
+- **`tm type <id> <bug|story|task|spike|chore>`** — issue type as a stored field with a vocabulary,
+  the last Jira system field this store treated as free text. `subtask` is deliberately *not* in
+  the vocabulary: `parent` expresses that, and conflating the two is the bug below.
+
+  Existing stores need no migration. `typeOf` reads the stored field first, then falls back to a
+  recognised type worn as a **label** — which is how the bug/spike/chore templates encoded it
+  before the field existed (`labels: ["bug"]`) — then to `task`. Templates now set the field and
+  keep the label, since a label is still a useful filter.
+
+- **`tm goal import <manifest.plan.json>`** — a whole program in one command: one epic, one task
+  per goal with criteria parsed from its own doc, the manifest's `dependsOn` as tm dependencies,
+  and its declared `touches` on the field `tm parallel` batches on. Measured across the 36
+  manifests and 506 goals in `bytedesk-platform`: every goal carries `dependsOn`, `mode`,
+  `needsHumanGate` and `touches`; 405 have real dependencies and 498 have real touches. So an
+  import makes `tm next`, `tm why` and `tm parallel` correct on a 20-goal program before any work
+  starts. A goal whose doc has no parseable criteria is skipped and named — never imported with an
+  empty gate — and the exit code is 2 when anything was skipped so a script notices.
+
+- **`tm goal import <doc.md>`** — a goal's own success criteria become the gate that closes it.
+  `/goal` is Claude Code's persistent-agent loop and it requires a verifiable stop condition;
+  `tm done` refuses until every acceptance criterion is ticked. Same requirement, already written
+  down in the goal doc. Reads both the `bytedesk-goals` doc form (`# Goal:` heading + criteria
+  list) and the 5-part `/goal` composer contract, where `**Stop when:**` is the criterion and
+  `**Validate:**` is kept as the command `tm evidence` stores output from. The Jira key, objective,
+  constraints and read-first notes are copied into the task body, because `bytedesk-goals` deletes
+  a goal doc once it is done.
+
+  Built against all **195** real goal docs rather than a sample, because there is no single format:
+  three header spellings and two item forms, of which **46 documents use numbered items** that a
+  dash-only parser drops. 171 parse; the other 24 are **refused** — a task with an empty acceptance
+  list passes `tm done` unchallenged, so a silent import would have the gate certify a goal nobody
+  verified. The refusal names the file and every header it looked for.
+
+- **`tm reopen <id> [why]`** — the way back from done, recorded rather than improvised.
+
+### Added
+
+- **Dependencies are removable, and the board can change them.** `tm dep <id> -<blocker>` removes,
+  using the leading-dash convention `tm label` already has — before this there was no way to remove
+  a dependency at all: `doctor` could drop a *dangling* reference, but a valid one added by mistake
+  was permanent.
+
+### Fixed
+
+- **The store read its own staging files, and a create could lose its write.** `writeAtomic` stages
+  at `.tm-tmp-<pid>-<name>` — built from the target's basename, so it **ends in `.md`**. Every reader
+  globbed `.endsWith(".md")`, so one process saw another's staging file in `readdirSync`, the rename
+  moved it, and the `readFileSync` that followed opened a path that no longer existed:
+
+  ```
+  tm task: ENOENT: no such file or directory, open '…/tasks/.tm-tmp-3705640-TM-003-….md'
+  ```
+
+  That is the create that never wrote a file: eight concurrent creates producing seven files, seven
+  ids and seven index rows. It needed a second process writing at the instant a first was listing,
+  which is why it only ever appeared with several suites running at once and never on its own.
+
+  The comment above `writeAtomic` claimed the leading dot meant it "never matches". The dot was
+  never consulted — the filter asked about the extension. It is consulted now, and `list` also skips
+  a name it cannot open rather than failing the whole read: the caller asked what is on the board,
+  and something that stopped existing is not on it.
+
+  Reproduced at fourteen parallel copies of the concurrency suite, where it failed in two rounds of
+  three; **42 of 42 clean** at that same load afterwards, plus two deterministic assertions that
+  fail against the previous behaviour.
+
+  `test-concurrency.sh` no longer sends the creates' stderr to `/dev/null`. It reported
+  "expected 8, got 7" and threw away the one line that said why, which is the reason this took so
+  long to find.
+
+- **A waiter that timed out broke a lock a live process was holding.** `withLock` read
+  `if (staleLock(lock) || Date.now() > deadline)`, so a process that had queued for the deadline
+  deleted the lock and walked in — overriding the answer `staleLock` had just given, which was that
+  the holder is alive and working. Both then held it, and a read-modify-write of `index.json` lost
+  one side.
+
+  The window needs a queue to open, which is why it only ever appeared under load: waiter W starts
+  at T; a *different* process takes the lock legitimately at T+25s; at T+30s W's own deadline passes
+  while that holder's lock is five seconds old and its pid alive. W broke it anyway.
+
+  Reproduced by running six copies of the concurrency suite at once — two failed on "index.json
+  carries every concurrently created task" while every file was present, which is the exact shape of
+  a lost index write.
+
+  Timing out is now a refusal the caller can see and retry. Thirty seconds for a lock held for
+  milliseconds means something is genuinely wrong, and a visible failure beats a store that quietly
+  disagrees with itself. A lock whose holder is actually gone is still cleared, which is the only
+  reason to break one.
+
+  `TM_LOCK_TIMEOUT_MS` overrides the wait. The right value depends on the filesystem — a network
+  mount can make a microsecond write take a very long time — and it lets a test prove the refusal
+  without waiting half a minute.
+
+- **Saved views followed the browser, not the board.** A view is a way of looking at *this* project,
+  and it was kept in `localStorage` where the project could not reach it — save one on your laptop
+  and it did not exist on your desktop, or for anyone else on the same repo.
+
+  They go to the repo's config now, through the `views` key the settings allowlist was already
+  holding open. `localStorage` stays as the cache that renders instantly and survives offline; the
+  repo's copy wins on any name defined in both, since a local copy of a shared name is a stale echo
+  of an earlier save. Names only one browser knows are kept rather than dropped, so a view saved
+  while the server was unreachable is not lost.
+
+  The note in `filters.ts` used to read "move to the store only if views need to follow the project
+  across machines". They did.
+
+- **Comments were an undifferentiated wall.** Each was a single `Text` holding author, timestamp and
+  body run together — `main · 2026-07-29 23:37 — …` — so nine comments became a solid block whose
+  only boundary marker was spotting `main ·` at the start of a line. The metadata shouted exactly as
+  loudly as the thing it labelled.
+
+  One entry per comment now: attribution above the body in subtlest text, a rule between entries,
+  and an explicit "No comments yet" instead of a section that renders as nothing.
+
+- **The card title was not a control.** It was a `Box` — a plain `div` — with `cursor: pointer` and
+  an onClick. It looked clickable and was clickable with a mouse, and that was the whole of it:
+  `Tab` never reached it, screen readers never announced it, and automation could not find it.
+
+  That last one is how it surfaced. Driving the board with agent-browser, the title could not be
+  clicked at all — there was no interactive element there to click, so the tool reported no match
+  where a person sees an obvious link. The board's `j`/`o` keys were a workaround you had to know
+  existed.
+
+  `Pressable` from `@atlaskit/primitives` — a real `button` underneath, with padding and background
+  reset so it still reads as a title — plus an `aria-label` naming the task it opens. The title now
+  appears in the accessibility tree, takes keyboard focus, and opens on Enter or Space for free.
+  Pinned by two assertions in `tests/browser/drawer.mjs`.
+
+- **`subagent_stop` logged where the transcript was filed, not what the agent said.** A path is a
+  file nobody opens: reading it means leaving the board, finding a JSONL of the whole conversation
+  and reconstructing the ending. Claude Code puts the agent's closing message on the payload as
+  `last_assistant_message` — confirmed by capturing a real SubagentStop — so the timeline says what
+  came back:
+
+  ```
+  before  A subagent finishes — a1  Explore  TM-001  /tmp/agent-a1.jsonl
+  after   A subagent finishes — a1  Explore  TM-001  Found 3 callers of resolve() in useBoardKeys.ts
+  ```
+
+  Headings, fences and bare bullets are skipped in favour of the first line of prose, because
+  `## Result` is a label rather than a finding and tells you nothing the event kind did not. Inline
+  emphasis is stripped — `**three** callers` reads worse than `three callers` in a line with no
+  bold — and the whole thing is clamped to 240 characters, since it renders in `tm log`, the
+  activity panel and a push notification. The transcript path stays, for when the summary is not
+  enough.
+
+- **`dashboard/node_modules` was a committed symlink to an absolute path, pointing at itself.**
+  `.gitignore` said `node_modules/` — with a trailing slash, which matches a directory and **not a
+  symlink** — so the link went in, carrying one developer's home directory into a shared repo. On
+  that machine it happened to resolve. Anywhere else it dangles.
+
+  What it cost was silent, which is why it survived: `npm run build` ran `tsc` (which passed), then
+  `vite`, which could not resolve through the loop and did nothing at all, and the script still
+  exited **0**. `dist/` simply stopped changing while every source edit looked applied. I shipped a
+  rebuild believing it had run and only caught it because the bundle hash had not moved.
+
+  Untracked, and the ignore rule loses its trailing slash so it matches a directory *and* a symlink.
+  A clean checkout now installs 685 packages and builds.
+
+  Guarded by `tests/unit/repo-hygiene.test.mjs`, which asserts the two halves of the defect: nothing
+  npm installs is tracked, and no committed symlink names an absolute path — a path on one machine
+  cannot be right anywhere else, and when it points inside the repo it can point at itself. Both
+  assertions fail against the previous commit and pass now.
+
+- **The drawer's text inputs read as text and become fields when clicked — and the title was
+  unreadable before.** It was a permanently-open single-line `Textfield` beside a Rename button, so
+  the panel's most important content was a form control. On a long title the browser scrolled that
+  input to its END: 605px of text in a 467px box, leaving the header showing
+  `ntity, captured from /goal the way plans are captured from ExitPlanMode`. You could not read
+  which task you had open.
+
+  `@atlaskit/inline-edit` for the title, assignee and estimate, `@atlaskit/icon` for the remove
+  glyph, and `IconButton` for the control that carried it. Atlaskit is the base component library
+  here, so the rule is to reach for it before writing anything.
+
+  Twelve controls in this drawer had no label, no `aria-label` and no accessible name — four used a
+  placeholder as a label, which vanishes the moment you type. The three converted fields now carry
+  a real `label` and an `editButtonLabel`, and the remove control announces itself as
+  `Remove acceptance criterion 3` instead of being a bare `✕` character.
+
+  **Escape belonged to two components at once.** `Drawer` closes on it and `InlineEdit` cancels on
+  it, and the drawer won — click a title, type, press Escape to back out, and the whole panel went.
+  Three fixes did not work, each found by trying rather than reasoning: a React `onKeyDown` with
+  `stopPropagation` (React delegates from the root, so it never reaches a native document listener);
+  reading `document.activeElement` in `onClose` (InlineEdit has already moved focus back to its
+  read-view button); and counting open fields (`onCancel` zeroes the count before `onClose` asks).
+  What works is a capture-phase listener on `document` while a field is open, which was measured to
+  stop the close outright — and since swallowing the key also denies InlineEdit its own handler, the
+  cancel is performed explicitly. `isEditing` is controlled, so returning to the read view without
+  confirming *is* the cancel.
+
+  Escape with no field open still closes the drawer, which was briefly regressed by an `onClose`
+  guard that became redundant once the capture listener worked. Both paths are verified in a
+  browser.
+
+- **The task drawer had no scroll of its own, so a third of a dense task was unreachable.** It was a
+  single `Stack` inside a fixed-height panel, and its content simply overflowed. Measured on a task
+  with five acceptance criteria at an 812px viewport:
+
+  ```
+  panel clientHeight   812
+  content scrollHeight 1022     → 210px unreachable
+  scrollable elements inside the panel: 0
+  ```
+
+  The whole COMMENTS section — every comment and the field to add one — sat below the fold with no
+  way to get to it. And because nothing inside the panel scrolled, a wheel over the drawer scrolled
+  **the board behind it**, which is how it was reported.
+
+  The drawer is a grid now: `auto 1fr`, header in row one, body in row two owning the overflow.
+  `minHeight: 0` on both rows is the load-bearing part — a grid item defaults to `min-height: auto`,
+  refuses to shrink below its content, and an item that cannot shrink cannot overflow, so without it
+  the body pushes the panel open again and the bug returns wearing a different shape.
+  `overscroll-behavior: contain` on the body is what stops a scroll that reaches the end from
+  chaining to the board underneath.
+
+  The identity — id, status, actor, epic and the title field — moved **out** of the scrolling region.
+  On a long task, scrolling back to remember which one you are looking at is a tax on every read.
+
+  The body is grouped into sections separated by a rule instead of ten control groups in one
+  undifferentiated column with two all-caps `Text` blobs doing the work of headings. One `Section`
+  component now, so every group is separated the same way.
+
+  Guarded by `tests/browser/drawer.mjs` — raw CDP against headless Chrome at a deliberately short
+  viewport, the same approach `tests/browser/keyboard.mjs` takes, because none of this is expressible
+  against jsdom: it is computed style, real layout and real overflow. It opens the card through the
+  board's own `j`/`o` keys rather than guessing at a clickable element, and it reports rather than
+  passing silently when nothing overflows. Checked against the pre-fix layout: 4 of its assertions
+  fail there, 7 of 7 pass now.
+
+- **Acceptance criteria were a one-way door.** Three surfaces could tick one and none could untick
+  it; the dashboard's checkbox set `isDisabled` the moment it was checked, locking the box it had
+  just ticked. Nothing anywhere could remove a criterion added by mistake. Since `tm done` is gated
+  on the list, a stray click or a typo permanently changed what the tool would accept — and the only
+  way back was editing the frontmatter JSON by hand.
+
+  Reported by a user who ticked one on the board and could not untick it. I had filed the missing
+  *remove* an hour earlier after hitting it myself; the missing *untick* is the sharper half and I
+  had not noticed it.
+
+  ```
+  tm accept <id> <n>            tick
+  tm accept <id> <n> --undo     put a mis-tick back
+  tm ac <id> --rm <n>           remove one that should never have been there
+  ```
+
+  All three surfaces: the board's checkbox toggles and each criterion gets a ✕; over MCP it is one
+  tool, `tm_ac_accept` with `undo` or `remove`. The HTTP action stayed `accept` with a flag rather
+  than gaining a second route, partly because the route matcher is `[a-z]+` and admits no underscore,
+  and mostly because that is the shape the MCP tool already takes — one verb, three intents,
+  described identically on both surfaces.
+
+  Unticking **does not reopen a done task**. That is a decision rather than an invariant: the work may
+  genuinely be finished and the criterion merely mis-ticked, and `tm doctor` already reports exactly
+  this as `done-unmet` and refuses to auto-repair it for the same reason. The CLI says so in its
+  output instead of acting on your behalf. Unticking also drops the met-at timestamp — a met-at on
+  something unmet reads as history and would survive into `tm export`.
+
+  Removing **renumbers what follows**, so every surface returns the surviving list: "AC 4" in an older
+  commit message now points at a different sentence.
+
+  Verified through the rendered UI, not just the API — tick, confirm the box is still enabled,
+  untick, remove — then checked against the store and the timeline.
+
+- **`tm standup` printed a machine trace, and the dashboard's activity panel printed raw event
+  keys.** The store's event log had a human rendering — `tm log` gained one — and the two places you
+  actually read history did not use it.
+
+  ```
+  $ tm standup                                     # before
+  - TM-001 the task — create → update → claim → update → update → update → release → done
+  ```
+
+  Three of those eight tokens are the word `update`, and none says what moved. A standup answers
+  what got finished, what is being worked on and what is stuck, so it is those sections now, and the
+  per-task line is the **status path** with the stop reason on anything stuck:
+
+  ```
+  ## Finished (1)
+  - TM-001 the finished one — in_progress → done (1 AC met)
+  ## In progress (1)
+  - TM-002 the one in flight — in_progress
+  ## Stuck (1)
+  - TM-003 the stuck one — blocked — waiting on the security review
+  ## Also touched (1)
+  - TM-005 just commented on — A task, epic or ADR is created, A comment is added
+  ```
+
+  Work that moved no status still gets a line, summarised by what did happen — a day of comments and
+  commits is real work and dropping it would make the report lie by omission.
+
+  The activity panel showed `02:01:02  main  update  TM-003`, three rows running, which says a field
+  changed on three tasks and nothing about which field or what it became. The payload was carrying
+  the answer all along: `update` holds `patch` and `status`, `moved` holds `from`/`to`, `park` and
+  `block` hold `reason`. It reads them now, and takes the sentence for the event kind from the
+  store's own catalog via `/api/events` rather than keeping a second vocabulary in TypeScript — so
+  the panel and `tm log` describe the same event the same way.
+
+- **Two bugs in `collapseLog`, both found by making the standup use it.**
+
+  Its status tracker was **one shared variable**, so any entity's status change masked another's:
+  with a task going `in_progress → done` and its epic auto-closing in the same window, the task's
+  `done` left the tracker reading "done", so the epic's own move to done counted as no move and was
+  dropped. The epic closed and the log said nothing. Keyed per entity now — interleaved work on one
+  board is the normal case, not the exotic one.
+
+  And **arriving at `open` counted as a transition.** Every `update` event carries the doc's status
+  whether or not the write changed it, and a `create` records none, so the first update after a
+  create always looked like a move into `open`: every task carried a `→ open` row saying nothing had
+  happened yet. A transition now requires the write to have actually touched status, read off the
+  `patch` field the event already records — so the intent is taken from the event rather than
+  guessed from the value, and deliberately reopening a task still reads as a transition.
+
+  `collapseLog` also grew a `keep` option that marks rather than drops. The dashboard serves one
+  events array to the activity panel *and* to burndown, `startTimes` and the PWA's notification
+  matcher — and that matcher switches on `event.event`, so rewriting an `update` there would have
+  silently changed which notifications fire. One judgement, expressed two ways, with a test that
+  asserts the two agree.
+
+  `renderLog` now collapses too. Only `renderHistory` did, so `tm log <id>` was clean while
+  `tm log` — the view you actually reach for — still printed the generic `update` immediately above
+  the specific event explaining it.
+
+- **A stopped card never said why it stopped, on either surface.** `tm park <id> <why>` and
+  `tm block <id> <why>` have always stored the sentence you typed. It was read by `tm why <id>`
+  (one task at a time), `tm export md`, and a PWA notification — and by neither board:
+
+  ```
+  $ tm park TM-001 waiting on the vendor SDK license
+  $ tm board
+  ## parked (1)
+  ⏸ TM-001 vendor integration [EP-001]          ← you typed a sentence; the tool swallowed it
+  ```
+
+  So "what is everything stuck on" was one command per task, and `tm show` on a blocked task
+  printed its status and not one word about what it was waiting for. `renderShow` already printed
+  `reopenedReason`, so the shape existed for one of the three reasons a task carries and the other
+  two were simply never added.
+
+  Now: on the board line right after the title — it is why that row is in the section you are
+  reading, not one more attribute at the end — and in full in `tm show`, since the detail view is
+  where an unabridged sentence belongs. The board clamps at 60 characters and ends in `…`, so a row
+  stays scannable and is visibly abridged rather than quietly wrong. A reason written across
+  several lines is flattened, because one row must stay one row.
+
+  A reason is only shown while it applies. `tm start` on a parked task does not clear
+  `parkedReason`, so an in-progress task can still carry the sentence that stopped it once, and
+  printing that would say a working task is waiting on something.
+
+  On the card, the reason is **prose, not a chip**. Everything else there is an enumerable fact you
+  scan — a priority, an epic, a count — and a Lozenge is the right shape for those; a free-text
+  sentence in one either truncates to uselessness or blows the badge row apart. So it gets its own
+  line in subtlest text with no background, border or icon: the status mark and the column already
+  say the card is stopped, and a callout box would make every blocked card shout. The clamp is on
+  the text rather than the box because a CSS line-clamp needs `-webkit-box-orient`, which ADS's
+  `cssMap` allowlist rejects — which has the side benefit of being the same rule as `tm board`. The
+  full sentence is on hover on both.
+
+- **The plugin read a session id Claude Code does not set, so claims, gates and attribution were
+  all inert.** Claude Code sets `CLAUDE_CODE_SESSION_ID`. Every reader except `lib/actor.mjs` asked
+  for `CLAUDE_SESSION_ID` alone — eleven sites across the CLI, MCP, the dashboard, the store's event
+  stamp, the Stop gate and `tm why`. Measured on this project's own board before the fix:
+
+  ```
+  events total            830
+    with session non-null   0
+  subagent_stop           340
+    with a task attributed  0
+  claim events              9
+    with a session          0
+  claim_stolen              0     (advertised as a subscribable notification)
+  ```
+
+  What that cost, in a production-shaped environment (only the real variable set):
+
+  ```
+  BEFORE   event session stamp: None
+           second session claiming the same task: TM-001 in progress — shared work
+  AFTER    event session stamp: 'sess-one'
+           second session claiming the same task: TM-001 is claimed by main in … on …
+  ```
+
+  The claim interlock — the reason every git worktree of a project shares one store — never once
+  fired. Two sessions comparing `null !== null` both got "not held by someone else", so parallel
+  agents silently took the same task. The Stop gate's session filter was likewise a no-op, so it
+  nagged about every `in_progress` task on the board rather than the ones this session claimed.
+
+  **Nine contract suites stayed green through all of it, because they exported the variable
+  production never had.** They now export `CLAUDE_CODE_SESSION_ID`, so the session-dependent paths
+  are exercised the way they actually run, and one assertion runs with the legacy name explicitly
+  unset so it cannot pass by inheritance. `tests/unit/actor.test.mjs` was scrubbing only the fake
+  name, which let the test runner's own real session id leak into its fixtures.
+
+  **A claim with no session is now treated as unowned rather than foreign.** Every claim on disk
+  anywhere carries `session: null`. The moment a real id flows, `null !== "abc123"` is true and the
+  holder of *your own* in-progress task reads as a stranger — `tm start` would refuse work you had
+  been resuming freely, and `--steal` would record you stealing from yourself. Adopting a
+  null-session claim keeps exactly the behaviour those claims already had while letting real ids
+  interlock.
+
+  The Stop gate narrows gradually and deliberately: a task with no recorded session still counts
+  toward the gate, so upgrading never silently switches it off — only newly stamped tasks are
+  scoped to their own session.
+
+- **`subagent_stop` recorded the parent as the agent, and the parent's transcript as the
+  subagent's.** The previous change to this handler was wrong twice, and both errors came from
+  guessing at the payload rather than reading Claude Code's schema for it. It selected claims with
+  `CLAUDE_SESSION_ID` (never set, so always no claims), and it recorded `input.session_id` as the
+  agent and `input.transcript_path` as the agent's transcript — but `SubagentStop` extends the base
+  hook payload, so both of those are the **parent's**. The store proves it: the only `agent` values
+  ever written are top-level session ids, and the single transcript ever recorded is the parent's
+  own conversation file.
+
+  Claude Code documents the real fields: *"Input to command is JSON with `agent_id`, `agent_type`,
+  and `agent_transcript_path`."* The subagent's identity had been sitting unread in the payload the
+  whole time. The event now carries `agent` from `agent_id`, the new `agent_type`, and the agent's
+  own transcript — with `transcript_path` kept only as a fallback for an older Claude Code. The
+  parent's session, which is what selects the claims, comes from `input.session_id`, preferring the
+  harness telling us directly over inferring it from the environment.
+
+  The contract assertions for that handler encoded the same guess and had to be corrected, not
+  merely extended: they fed `session_id` as though it were the subagent's, and passed only because
+  the suite injected the session variable production lacks.
+
+- **`priority` and `rank` were write-only: nothing ever read them.** `nextTasks` filtered and
+  returned whatever order `list` gave it, which is id order — creation order. So a task set to
+  `highest` and placed at the top of the backlog still came second behind an untouched `low` one:
+
+  ```
+  $ tm backlog
+    1. ○ TM-002 zzz the urgent one      ← rank #1, priority highest
+    2. ○ TM-001 aaa low thing
+  $ tm next
+  ○ TM-001 aaa low thing                ← the wrong one, and this is the verb agents call
+  ○ TM-002 zzz the urgent one
+  ```
+
+  `tm next` is what the README, the SessionStart context block and the `tm_next` tool all point
+  an agent at, so priority could not influence what any agent picked up — two fields the CLI, the
+  dashboard and MCP could all write, and no reader anywhere. It showed up in this project's own
+  orientation block, which listed "next unblocked" in id order.
+
+  Ordered now: an explicit `rank` first, then `priority`, then id. Ranked ahead of unranked rather
+  than interleaved — a fallback rank derived from list position gives every task a distinct
+  pseudo-rank, and priority as a tiebreaker on values that are never tied is priority that still
+  does nothing. Id last makes the order total, so the same board cannot render two ways.
+
+  The sort lives inside `nextTasks` rather than at its five call sites (`tm next`, the
+  SessionStart block, `tm_next`, the resource picker, `tm parallel`), because an order every
+  caller has to remember to apply is an order some caller will not have. `taskLine` shows
+  `!<priority>` when one is set, so the ordering has a visible reason.
+
+  `tm backlog` is deliberately untouched: `tm rank --before/--after` computes a new rank from the
+  positions backlog reports, so changing that order would change what those flags mean.
+
+  The priority vocabulary moved from `issue.mjs` to `store.mjs` — the queue order reads it and
+  store.mjs is what issue.mjs is built on, so the other direction would have been an import
+  cycle. `issue.mjs` re-exports it and still owns the field: validation, the event, the verb.
+
+- **`tm doctor --fix` deleted the evidence it could not resolve, including the url of the PR that
+  proved the task.** The check asked `existsSync(join(root, ref))` for every evidence ref and
+  offered to drop whatever came back false — and `join(root, "https://…/pull/69")` is a path that
+  can never exist, so a url was reported as drift and the repair removed it. Same for an absolute
+  path (`join(root, "/var/log/build.log")` is `<root>/var/log/build.log`, so a file sitting right
+  there read as gone) and for an opaque handle like `browser:019fb067-…`.
+
+  This is not a hypothetical: it was found because this project's own board carried two
+  `browser:` refs, they were the only two findings standing between it and a clean bill of health,
+  and the obvious next keystroke would have destroyed them.
+
+  Both writers — `tm evidence` and the `tm_evidence` tool — copy the file into the store, so
+  everything they record is store-relative and checkable. The third writer is a hand edit, which
+  is not abuse: openable markdown is the store's whole premise, and a person recording what proves
+  a task reaches for whatever is probative. So a ref with a scheme is now skipped rather than
+  reported (nothing here can resolve it, and a finding whose fix destroys data is worse than no
+  finding), and an absolute ref is checked where it actually points. An absolute ref that really
+  is missing is still reported — resolving it correctly must not mean never checking it — and a
+  Windows drive letter is still treated as a path, since RFC 3986 would otherwise let `C:` parse
+  as a scheme.
+
+- **A subagent's work was never attributed, in 317 consecutive firings.** The README promises "its
+  work is attributed on the timeline, so parallel agents are visible"; this project's own store holds
+  317 `subagent_stop` events and **not one** has a task against it. The filter asked whether a
+  claim's session equalled `input.session_id || CLAUDE_SESSION_ID`, and the `||` let the payload win
+  — but the payload's `session_id` is the **subagent's**, while every claim is held by the **parent**
+  (`tm start` runs there). The comparison could only match when the two ids happened to be identical.
+  Two different things were being read out of one field.
+
+  Separated: the parent's session selects the claims, since those are the tasks the fan-out is
+  working on, and the subagent's own id is recorded as the agent so the timeline says *which* agent
+  finished. `transcript_path` is carried too — it is in every hook payload and is the only durable
+  pointer back to what the subagent actually did.
+
+- **The CSV Issue Type column was fabricated from parentage.** `toCsv` wrote
+  `t.parent ? "Sub-task" : "Task"` — which is *structure*, not type — so a **bug** that happened to
+  be a subtask exported as `Sub-task` and its bug-ness was lost, and every top-level bug exported
+  as `Task`. The store already knew the answer; it was in the wrong field and the exporter did not
+  look.
+
+- **Dependency writes were the one mutation with no `lib/` function.** `issue.mjs` owns assignee,
+  labels, priority, estimate, comments, typed links, subtasks and rank — and contained zero
+  occurrences of `blockedBy`. Dependencies were two inline `mutate()` calls in `bin/tm`, with three
+  consequences: the dashboard rendered `⊘ TM-002` on a card and had **no route to change it**
+  (`dashboard-api`'s action switch had `link`/`subtask`/`rank`/`ac` and no `dep`), nothing logged an
+  event so a dependency appearing or vanishing was invisible in `tm log <id>`, and removal did not
+  exist. Now `dependencies(id, {add, remove})` in `issue.mjs`, used by the CLI, the dashboard and
+  the manifest importer alike.
+
+  A cycle is **refused at the point of writing**, matching how `subtasks` refuses a parent loop —
+  `doctor` finds cycles and will not repair them because which edge to cut is a judgement. A
+  refused edge writes nothing, rather than landing half of itself. Removing the last blocker
+  deliberately does **not** reopen the task: `unblockDependents` owns that transition and checks
+  every blocker, and two functions deciding one status is how they come to disagree.
+
+- **`tm goal import` mis-read the criteria it gates on, three ways.** The census behind the first
+  version counted only the 195 docs at the *top level* of `docs/goals`; there are **555**
+  recursively, and manifests reference nested paths directly, so the subdirectories were never an
+  edge case. Against the real corpus:
+
+  - a heading that qualifies the phrase rather than leading with it was missed —
+    `## Goal (verifiable success criteria)` (8 docs) and `## Remaining work (success criteria)`;
+  - **a fence inside a criterion ended the list.** A criterion that embeds the command proving it
+    contains a `#` comment, which the section-boundary test read as a heading: one real doc parsed
+    to **1 criterion where 6 exist**;
+  - **nested sub-bullets became peers.** Indentation was destroyed by trimming before matching, so
+    a criterion with five sub-items produced **11 criteria where 6 exist**, each sub-clause
+    becoming something a gate could be satisfied by alone.
+
+  The truncation and inflation are worse than a failed parse, and that asymmetry is now stated in
+  the module: zero criteria is *refused*, but a wrong-length list **looks like a successful import**
+  and the gate closes on the wrong thing. 530 of 555 now parse; the 25 refusals are all READMEs,
+  CONTEXT notes, EPIC stubs, JIRA scaffolds and audit docs. A corpus assertion in the unit tests
+  checks the census against the documents themselves, since a number in a comment is exactly what
+  went stale.
+
+- **The create form collected a markdown body and threw it away.** `CreateModal` held it in React
+  state behind a "Context (markdown body)" placeholder, and `write.create`'s payload type had no
+  `body` field — so the text a user watched themselves type was dropped on submit. The server had
+  accepted and stored it the whole time (`createTask` passes `body || ""` to `create()`); only the
+  browser never sent it.
+
+- **A body written by the CLI was unreachable from the board.** `boardPayload` strips `body` from
+  every task, which is right for a list — a 20-task board should not ship tens of kilobytes of
+  markdown — but there was no detail route, so the drawer showed a task as a title plus badges.
+  `GET /api/task/:id` returns the full record, and the drawer fetches it on open and renders it.
+
+- **Reopening a task left four things wrong, and `doctor` called it clean.** `tm start` on a done
+  task was the de facto reopen. It left `closed` in the frontmatter, so `tm export csv` reported
+  a resolution date in the `Resolved` column on in-progress work — the one column a Jira import
+  cannot repair. It left the epic `done` while holding a live child, and `autoCloseEpic` refuses
+  an epic that is already done, so nothing would ever re-close it. `autoCloseEpic` also never
+  cleared `state.activeEpic`, so finishing the last task left the active epic pointing at a
+  closed one and every subsequent `tm task new` filed into it — the exact condition
+  `dashboard-api`'s transition refuses by name, naming a verb that did not exist.
+
+  The guard lives in `update()`, the funnel all four writers share (CLI, dashboard transition,
+  `tm_task_update`, doctor's own fixes), and is held to exactly two effects: drop `closed`, and
+  reopen the parent epic. Kind-aware, so `reopenEpic`'s own update cannot re-enter it, and gated
+  on the same `autoCloseEpics` switch — a team that does not want epics closing themselves does
+  not want them reopening themselves either.
+
+  `tm doctor` gained **`epic-done-open-children`** (error, fixable) and **`closed-on-open-task`**
+  (warning, fixable), because a hand edit or a merge produces the same shapes.
+
+- **Three events were emitted but never classified**, so they were un-notifiable and invisible in
+  the ntfy settings panel with nothing to say so: `doctor_fix`, `doctor_release` and
+  `override_used`. The test that was supposed to catch this compared against a hand-written list,
+  which stopped testing the day someone added a `logEvent`. It now derives the list from the
+  source — in both directions, so a stale catalog entry advertising a notification that can never
+  fire is caught too. `tm start` refuses a task another live
+  session holds; `tm_task_update` with `action: "start"` — the path Claude actually uses — did a
+  bare `writeState` and took it silently. Three defects in that one line: no holder check, so
+  MCP took what the CLI refused; the replacement record was `{session, ts}` only, dropping
+  `actor`/`worktree`/`branch`/`pid`, and `expired()` reads `claim.worktree` to notice a dead
+  checkout — so a claim taken over MCP became permanently un-expirable and the next refusal
+  degraded to "session bob"; and no `claim_stolen` event, so the only trace was a generic
+  `update`.
+
+  `tm_claim` had its own variant: it compared sessions but never asked `expired()`, so a claim
+  left by a crashed session blocked an MCP agent forever while the CLI treated it as dead — two
+  callers disagreeing about one piece of state.
+
+  Every claim writer now goes through `claimTask`/`releaseClaim`: both MCP paths, `tm worktree
+  new` (also a bare unlocked write that could not refuse), and `doctor`'s `dropClaim`, which
+  read `state(p).claims` outside the lock and then called the locking `writeState` — the
+  stale-read-then-locked-write shape. `steal` is exposed on both MCP tools so taking someone's
+  work is deliberate and lands `claim_stolen`, and the refusal names it so an agent does not
+  retry in a loop.
+
+- **A closed reader crashed the CLI.** `tm board --json | head -1` wrote the first line, `head`
+  exited, and the next write past the pipe buffer raised `EPIPE` on a stream with no error
+  listener — an unhandled `'error'` event, so node died printing 1224 bytes of stack trace over
+  whatever the user was reading. Every read verb funnels through the same two writers, and
+  `bin/tm-mcp` had it too, where a vanished client is the *normal* way a session ends and the
+  stream is contractually JSON-RPC only.
+
+  Invisible on a small store, because the whole payload fits inside the 64 KB pipe buffer and
+  the write completes before the reader is gone — so the fixtures passed and real repos failed,
+  the worst possible schedule for a bug. One listener per stream in each entry point; anything
+  that is not `EPIPE` is rethrown, so a real `ENOSPC` or `EBADF` still fails loudly rather than
+  being swallowed into a silent exit 0.
+
+- **A write that died mid-rename left a phantom task.** `writeAtomic` named its temp
+  `${file}.${pid}.tmp` and `fileFor` resolved an id with `readdirSync(dir).find(f =>
+  f.startsWith(`${id}-`))` — so that temp was a candidate answer for "where does TM-002 live".
+  A crash during *create* left an entity that `tm show` rendered, `tm board` never listed
+  (`list()` filters `.md`), `tm doctor` called clean, and `nextId` counted — burning the id so
+  the next real task skipped it. Worse, `update()` read through `fileFor` and wrote back
+  through `doc.file`, so you could add acceptance criteria to a phantom, comment on it and
+  `tm start` it, leaving a task `in_progress` that even the Stop gate could not see (`gateStop`
+  lists `.md` too).
+
+  Three guards, because this failed silently once: the temp is now
+  `.tm-tmp-<pid>-<name>` and cannot match `${id}-`; `fileFor` requires `.md`; and `nextId`
+  requires `.md` so an interrupted write no longer reserves an id. `tm doctor` gained
+  **`stray-temp`**, which reports a leftover temp of either shape and deliberately does not
+  delete it — a temp file is the only surviving copy of whatever that write was carrying.
+
+- **`tests/test-hooks.sh` depended on the host's PATH.** `autolink()` reports when something
+  else already owns `tm` in `~/.local/bin`, which is true for every checkout except the one the
+  symlink points at — so the suite failed its "silent before init" assertion when run from a
+  git worktree. Pinned with `TM_NO_AUTOLINK=1`.
+
+### Added
+
+- **MCP resources: the board as context you pull, not only context the plugin pushes.**
+  `initialize` answered `capabilities: {}` and every method except `tools/*` fell to `-32601`,
+  so the only way board state reached Claude was the SessionStart injection or a tool the model
+  chose to call. Seven resources now: `tm://board`, `tm://session`, `tm://graph`, `tm://blocked`,
+  `tm://standup`, and `tm://handoff/<id>` per task in flight.
+
+  Only computed views — a task, epic or ADR is a markdown file `Read` and `@` already reach, so
+  a URI alias for a file path would just compete with the real file in the picker. `tm://graph`
+  and `tm://blocked` have no tool behind them at all; `tm://session` is the one view compaction
+  destroys that nothing else rebuilds.
+
+  Also fixes a latent bug found on the way: **`capabilities` never declared `tools` either.**
+  Claude Code is lenient enough that 18 tools worked anyway, but a stricter client is entitled
+  to ignore an undeclared capability.
+
+  `subscribe`/`listChanged` are deliberately not implemented — both need unsolicited stdout
+  writes, which would mean threading a writer into `handleRequest` and losing the pure
+  request-in/response-out contract that makes the protocol testable without a process.
+  Every resource renders live at read time, so there is nothing to invalidate.
+
+- **`touches` fills itself in, so `tm parallel` stops lying.** The field was documented in
+  both README and AGENTS as "what `tm parallel` uses to decide which work can run at the same
+  time", was read by `tm parallel` and printed by `tm show` — and **nothing ever wrote it**.
+  Empty everywhere, every task looked disjoint from every other, so `tm parallel` put two
+  tasks that rewrite the same file in one batch and told you to run them side by side. A
+  `PostToolUse` hook on `Edit`/`Write`/`MultiEdit`/`NotebookEdit` now records the edited file
+  against the task the session is holding, plus a `tm touches <id> [path...]` verb for
+  declaring paths ahead of time.
+
+  It attributes to a task it is sure about or to nothing: branch, then the single task in
+  progress, then this session's claim. Two tasks running in one session is ambiguous and the
+  edit is **dropped** — a path on the wrong task invents a collision that serializes work and
+  hides the real one. Paths are relative to the **checkout**, not the store root, so the same
+  file edited in two worktrees is the same path (anchoring on the root would have put every
+  worktree edit under `.bytedesk/` and dropped it — blinding the feature exactly where parallel
+  work happens). Failed edits are ignored, the store's own files are ignored, the list is
+  capped at 40, and `tm config trackTouches false` switches it off.
+
+### Fixed
+
+- **Concurrent writes lost data, silently.** One store is shared by every worktree and
+  the whole point of `tm parallel` / `tm claim` / `tm worktree` is several sessions at
+  once, so simultaneous writes are the normal case. `withLock` existed but only guarded
+  `state.json`: `create` did an unlocked `nextId` (max+1 over a directory read) then a
+  write, and `update` an unlocked read-then-write. Measured on a scratch store:
+
+  - **8 concurrent `tm task new` → 8 files, 7 distinct ids, 6 index rows.** A duplicate
+    id is not cosmetic: `fileFor` resolves an id to the first matching directory entry,
+    so the other file becomes permanently unaddressable — `tm show`, `tm start` and
+    `tm done` can never reach it again.
+  - **8 concurrent `tm comment` on one task → 5 stored, 7 of 8 processes exiting 0.**
+  - **`tm doctor` then certified the wreckage.** Its only symptom was `index-drift`,
+    `--fix` reindexed it away, and it reported "no problems found" over two files still
+    claiming one id.
+
+  The root cause underneath all of it: `openSync(lock, "wx")` creates the lock file
+  **empty** and writes the pid a moment later. A second process arriving in that window
+  read `""`, failed to parse it, concluded the lock was dead, unlinked it and walked in
+  — so two processes held the "mutex" simultaneously. `staleLock` now falls back to the
+  file's mtime, so a young empty lock is respected while a genuinely corrupt one still
+  ages out.
+
+  Also: `create` and `update` are now locked; a new `mutate(id, fn)` covers the
+  read-append-write shape that wrapping `update` alone cannot fix (both callers read the
+  same array, both append one item, second write wins) and the append callers are routed
+  through it — comments, labels, links, acceptance criteria, evidence, dependencies,
+  commit refs; `writeAtomic`'s temp file carries the pid, since a fixed `.tmp` is only
+  atomic for one writer; `consumeOverride` and the Stop gate's `lastStopBlock` are locked,
+  because a one-shot override token that two gates can each spend is not a gate.
+
+- **`tm doctor` gained `duplicate-id`**, the error it most needed and did not have. Not
+  auto-fixable: choosing which file keeps the id changes an identity that commits, links
+  and dependencies already point at.
+
+- **The dashboard dev server accepted a stale port file.** `dashboard.port` outlives the
+  board that wrote it, so `npm run dev` would start happily against a dead port and then
+  fail every request with a proxy error — which sends you reading the proxy config instead
+  of starting the board. It now checks the recorded pid is alive and gives the same
+  "no running board to proxy to" message it already gave when the file was missing.
+
+### Documentation
+
+- **HMR for the dashboard was already wired and entirely undocumented.** `npm --prefix
+  dashboard run dev` serves the board with hot reload and proxies `/api` and `/events` to
+  the running `bin/tm-dashboard`, so the UI is edited against live data from the real
+  store. The README never mentioned it, so the only discoverable workflow was a full
+  `npm run build` per change. Now documented, with the rebuild step and why `dist/` is
+  committed.
+
+## 0.3.0
+
+### Fixed
+
+- **The dashboard showed the wrong active epic.** The header lozenge and the burndown
+  chart computed it as `epics.find(e => e.status !== "done")` — "the first epic that
+  isn't finished" — rather than reading `state.activeEpic`, which the `/api/board`
+  payload has always carried. With one epic they coincide; with two, both pointed at the
+  wrong epic.
+
+### Added
+
+- **Epic swimlanes and an active-epic switcher.** Group by epic turns the five status
+  columns into one row per epic, with a progress bar and `done/total` per lane; the
+  active epic sorts first, then open epics by id, then closed ones, then unfiled work
+  (never dropped). An epic id with no epic file gets a lane marked `missing` rather than
+  hiding the tasks behind the fault. `POST /api/epic` switches the active epic with the
+  same validation and event as `tm epic use`, and refuses a closed one rather than
+  silently gating every later create — until now the only way to change it was the CLI,
+  so the board could create tasks but not say where they land. Grouping sorts tasks
+  lane-first, so the keyboard cursor keeps walking down the screen.
+
+- **`tm export [md|csv|json|pm]`** — the capability the README has promised since v0.2.
+  `md` is a report to paste into a PR or a standup; `csv` is RFC 4180 with Jira's column
+  names and status vocabulary; `json` is the whole store as one document (`--events` to
+  include the log); `pm` emits `pm_issue_create` payloads for the `project-management`
+  plugin in this marketplace, plus the follow-up `transitions` that call cannot express,
+  since it always creates at `TODO`. Filters: `--epic`, `--status`, `--open`; `--out
+  <file>`, defaulting to stdout so it pipes. CSV escaping is verified against a title
+  containing both a quote and a comma, a multi-line body, and multi-line criteria.
+
+- **`tm doctor [--fix]`** — store integrity. Markdown-in-git is what makes the board
+  readable and mergeable, and also why it drifts; `tm reindex` rebuilds the cache *from*
+  the files, so it reproduces whatever is wrong with them. Checks dangling and one-sided
+  dependency edges, one-sided and dangling Jira links, unknown link types, orphaned epic
+  and parent references, dependency and subtask cycles, tasks left `blocked` with nothing
+  blocking them, `done` tasks with unticked criteria, missing evidence files, duplicate
+  `nativeId`s, claims on tasks that are gone / parked / finished, `in_progress` work
+  nobody claimed, and `index.json` drift. **Exits 1 on any error-level finding**, so it
+  gates a commit hook or a CI step. `--fix` applies only the unambiguous repairs, reports
+  each one, and repeats until the store stops changing; cycles and unmet criteria are
+  decisions, not typos, and are reported rather than touched.
+
+- **A keyboard for the board, and a command palette.** The dashboard was mouse-only —
+  cards moved by HTML5 drag and nothing else. `j`/`k`/`h`/`l`/`g`/`G` move a cursor,
+  `1`–`5` move the focused card to that column (the number is printed in the column
+  heading), `[`/`]` reorder within a column, `x` selects, `w` watches, `o`/`Enter` opens,
+  `c` creates, `/` searches, `?` lists everything. `⌘K`/`Ctrl-K` opens a palette over
+  every board action and every visible task. Cards became real focusable list items with
+  `aria-label`s and a roving tabindex, so `Tab` and `j`/`k` agree. Shortcuts stay quiet
+  while you type or while a dialog is open, and no modifier chord except `⌘K` is
+  intercepted. Keyboard reordering needed no drag-and-drop library: `[`/`]` call the same
+  `rank` endpoint the drop gesture already called.
+
+- **`tm why <id>`** — why a task is not startable, walked to the root of its dependency
+  chain rather than one hop deep. Reports the reason at each hop (a parked blocker's
+  written reason, a claim another session holds, a hand-written `tm block`, the WIP limit,
+  a dependency cycle, a `blockedBy` pointing at nothing) and names the work at the bottom
+  as `roots`. `parked` is reported but not counted as blocking, because `tm start` resumes
+  a parked task. Also available over MCP as `tm_why`.
+- **`tm graph`** — the dependency graph as Mermaid, fenced so GitHub renders it inside a
+  PR diff. `--epic` scopes it (blockers from outside the epic are still drawn, since they
+  still explain the block), `--all` includes done work, `--raw` drops the fence, `--json`
+  gives `{nodes, edges}`.

@@ -1,0 +1,1880 @@
+#!/usr/bin/env node
+/**
+ * tm — the task-management CLI. Every write to .bytedesk/task-management/ goes
+ * through here, including the ones the hooks make, so there is exactly one
+ * code path that can mutate the store.
+ *
+ * Usage: tm <verb> [args]        tm help
+ */
+import { execFileSync } from "node:child_process";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { homedir } from "node:os";
+import { currentCheckout, ensureDirs, isInitialized, legacyStore, paths } from "../lib/paths.mjs";
+import {
+  kindOf,
+  config,
+  create,
+  editTask,
+  moveTask,
+  list,
+  logEvent,
+  nextTasks,
+  now,
+  readEvents,
+  release,
+  rotateEvents,
+  autoCloseEpic,
+  read,
+  seedGitContract,
+  removeCriterion,
+  setCriterion,
+  reindex,
+  slug,
+  staleTasks,
+  state,
+  unblockDependents,
+  update,
+  mutate,
+  writeConfig,
+  writeState,
+} from "../lib/store.mjs";
+import { consumeOverride, enforcementOff, gateDone, gateStop, gateTaskCreate, setOverride } from "../lib/enforce.mjs";
+import { board, handoff, renderHistory, renderLog, sessionContext, sprintReport, standup, subagentBrief, taskLine } from "../lib/render.mjs";
+import { FIELD_NAMES, describeQuery, matchesQuery, parseQuery } from "../lib/query.mjs";
+import { autolink, link as linkBins, status as linkStatus, unlink as unlinkBins } from "../lib/link.mjs";
+import { applyShares, createWorktree, listWorktrees, removeWorktree } from "../lib/worktree.mjs";
+import { applyTemplate, listTemplates, seedTemplates } from "../lib/templates.mjs";
+import { cycleTime, human as humanMs, summary as timeSummary, timeInStatus } from "../lib/time.mjs";
+import { upsertDecision } from "../lib/adr.mjs";
+import { accept as acceptCap, capLine, drop as dropCap, propose, ranked, score as capScore, ship as shipCap } from "../lib/capability.mjs";
+import { claimTask, claimant, releaseClaim, staleClaims, sweepClaims } from "../lib/claims.mjs";
+import { actor, actorLabel, sessionId } from "../lib/actor.mjs";
+import { addComment, addLink, assign, backlog, dependencies, estimate, labels, prioritise, rank, setType, subtasks, typeOf } from "../lib/issue.mjs";
+import { CATALOG, messageFor, ntfyConfig, send, shouldPublish } from "../lib/ntfy.mjs";
+import { graphData, mermaid, renderWhy, why } from "../lib/graph.mjs";
+import { diagnose, ignoreRule, render as renderDoctor, repairAll } from "../lib/doctor.mjs";
+import { FORMATS, exportStore } from "../lib/export.mjs";
+import { MAX_TOUCHES, observe, record } from "../lib/touches.mjs";
+import { goalBody, manifestGoalTitle, parseGoalDoc, parseManifest, refusal } from "../lib/goals.mjs";
+
+const P = paths();
+const rawArgs = process.argv.slice(2);
+const JSON_OUT = rawArgs.includes("--json");
+const argv = rawArgs.filter((a) => a !== "--json");
+const verb = argv[0];
+
+/** native (Claude Code) status → store status */
+const FROM_NATIVE = { pending: "open", in_progress: "in_progress", completed: "done", deleted: "deleted" };
+
+/**
+ * A closed reader is not an error. `tm board --json | head -1` writes the first line, `head`
+ * exits, and the next write past the pipe buffer raises EPIPE on a stream with no error
+ * listener — which in node is an unhandled 'error' event, so the process dies printing a stack
+ * trace over whatever the user was actually reading.
+ *
+ * Invisible on a small store: the whole payload fits inside the 64 KB pipe buffer, so the write
+ * completes before the reader is gone. It appears as the board grows, which is the worst
+ * possible schedule for a bug — the fixtures pass and the real repo fails.
+ *
+ * One listener per stream covers every caller: `out`, `emit`, and the raw
+ * `process.stdout.write(text)` in `export`. Anything that is NOT EPIPE is rethrown, so a real
+ * ENOSPC or EBADF still fails loudly instead of being swallowed into a silent exit 0.
+ */
+process.stdout.on("error", (err) => {
+  if (err.code === "EPIPE") process.exit(0);
+  throw err;
+});
+
+const out = (s) => process.stdout.write(`${s}\n`);
+/** Read verbs print human text by default and structured JSON with --json. */
+const emit = (data, human) => out(JSON_OUT ? JSON.stringify(data, null, 2) : human());
+const die = (s, code = 1) => {
+  process.stderr.write(`${s}\n`);
+  process.exit(code);
+};
+
+/** The checkout we're standing in — which is NOT the store root when we're in a worktree. */
+const CHECKOUT = P.root ? currentCheckout() : process.cwd();
+
+function git(args, cwd = CHECKOUT) {
+  try {
+    return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch {
+    return "";
+  }
+}
+
+function requireInit() {
+  if (!P.root) die(P.unavailable);
+  if (!isInitialized(P)) die("task-management not initialized here. Run: tm init");
+}
+
+function stamp() {
+  return {
+    actor: actorLabel(actor()),
+    session: sessionId() || undefined,
+    branch: git(["rev-parse", "--abbrev-ref", "HEAD"]) || undefined,
+    worktree: CHECKOUT,
+  };
+}
+
+const words = (s) => new Set(String(s).toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 3));
+
+/** Token overlap. Shared by the duplicate guard and the UserPromptSubmit matcher. */
+function overlapScore(a, b) {
+  if (!a.size || !b.size) return 0;
+  const shared = [...a].filter((w) => b.has(w)).length;
+  return shared / Math.max(a.size, b.size);
+}
+
+/** Fuzzy dup check — cheap and good enough to catch re-adds. */
+function findDuplicate(title, p = P) {
+  const a = words(title);
+  if (!a.size) return null;
+  for (const t of list("task", {}, p)) {
+    if (t.status === "done" || t.status === "deleted") continue;
+    if (overlapScore(a, words(t.title)) >= 0.7) return t;
+  }
+  return null;
+}
+
+/**
+ * Does this prompt describe work already on the board? Scored against the task's
+ * words rather than the prompt's, so a long sentence still matches a short title.
+ */
+function matchOpenTask(prompt) {
+  const a = words(prompt);
+  if (a.size < 2) return null;
+  let best = null;
+  for (const t of list("task", {}, P)) {
+    if (t.status === "done" || t.status === "deleted") continue;
+    const b = words(t.title);
+    if (!b.size) continue;
+    const score = [...b].filter((w) => a.has(w)).length / b.size;
+    if (score >= 0.6 && (!best || score > best.score)) best = { ...t, score };
+  }
+  return best;
+}
+
+// ── verbs ────────────────────────────────────────────────────────────────────
+
+const VERBS = {
+  init() {
+    if (!P.root) die(P.unavailable);
+    ensureDirs(P);
+    if (!existsSync(P.config)) writeConfig({}, P);
+    if (!existsSync(P.state)) writeState({}, P);
+    // Before anything is written that git would otherwise pick up.
+    const contract = seedGitContract(P);
+    seedTemplates(P);
+    reindex(P);
+    logEvent("init", { root: P.root }, P);
+    out(`initialized ${P.base}${contract.length ? ` (+ ${contract.join(", ")})` : ""}`);
+    // A store the repo already ignores is the one failure that stays silent: git status is
+    // clean, the board works, and not one task ever reaches a second clone. Say it at
+    // creation, where it costs one line to fix, not at the first missing handoff.
+    const ignored = ignoreRule(P);
+    if (ignored) {
+      process.stderr.write(
+        `! the store is ignored by git — ${ignored}\n` +
+          `  narrow that rule so ${P.base.replace(`${P.root}/`, "")} is committed; ` +
+          `the store's own .gitignore covers the per-machine files\n`,
+      );
+    }
+  },
+
+  epic(sub, ...rest) {
+    requireInit();
+    if (sub === "new") {
+      const title = rest.join(" ");
+      if (!title) die('usage: tm epic new "<title>"');
+      const e = create("epic", { title, ...stamp() }, "", P);
+      writeState({ activeEpic: e.id }, P);
+      out(`${e.id} created and set active — ${e.file}`);
+    } else if (sub === "use") {
+      const id = rest[0];
+      if (!read(id, P)) die(`no such epic: ${id}`);
+      writeState({ activeEpic: id }, P);
+      logEvent("epic_active", { id }, P);
+      out(`active epic: ${id}`);
+    } else if (sub === "done") {
+      update(rest[0], { status: "done" }, P);
+      if (state(P).activeEpic === rest[0]) writeState({ activeEpic: null }, P);
+      out(`${rest[0]} done`);
+    } else {
+      for (const e of list("epic", {}, P)) {
+        const kids = list("task", { epic: e.id }, P);
+        out(`${e.id === state(P).activeEpic ? "*" : " "} ${e.id} ${e.title} (${kids.filter((t) => t.status === "done").length}/${kids.length}) ${e.status}`);
+      }
+    }
+  },
+
+  task(sub, ...rest) {
+    requireInit();
+    if (sub === "new") {
+      const ti = rest.indexOf("--template");
+      const template = ti === -1 ? null : rest[ti + 1];
+      if (ti !== -1) rest.splice(ti, 2);
+      const title = rest.join(" ");
+      if (!title) die('usage: tm task new "<title>"');
+      const gate = gateTaskCreate(P);
+      if (!gate.allow) die(gate.reason, 2);
+      const dup = enforcementOff(P) ? null : findDuplicate(title, P);
+      if (dup && !process.env.TM_ALLOW_DUP) {
+        die(`possible duplicate of ${dup.id} "${dup.title}". Re-run with TM_ALLOW_DUP=1 if it really is new.`, 2);
+      }
+      const base = { title, epic: state(P).activeEpic || null, acceptance: [], evidence: [], commits: [], blockedBy: [], blocks: [], ...stamp() };
+      const applied = template ? applyTemplate(template, base, P) : { fields: base, body: "" };
+      const t = create("task", applied.fields, applied.body, P);
+      out(`${t.id} ${title}${t.epic ? ` [${t.epic}]` : ""}${template ? ` (from ${template})` : ""}`);
+    } else {
+      for (const t of list("task", {}, P)) out(taskLine(t));
+    }
+  },
+
+  /**
+   * Import a goal doc as a task whose acceptance criteria ARE the goal's success criteria.
+   *
+   * `/goal` demands a verifiable stop condition; `tm done` refuses to close a task until every
+   * criterion is ticked. Those are the same requirement, so this wires one to the other instead
+   * of asking anyone to retype it.
+   */
+  goal(sub, ...rest) {
+    requireInit();
+    if (sub !== "import") die('usage: tm goal import <doc.md|manifest.plan.json> [--epic EP-001]');
+    const ei = rest.indexOf("--epic");
+    const epic = ei === -1 ? null : rest[ei + 1];
+    const file = rest.filter((a) => !a.startsWith("--") && a !== epic)[0];
+    if (!file) die("usage: tm goal import <doc.md> [--epic EP-001]");
+    const path = resolve(file);
+    if (!existsSync(path)) die(`no such file: ${file}`);
+
+    if (/\.json$/i.test(path)) return importManifest(path);
+
+    const parsed = parseGoalDoc(readFileSync(path, "utf8"));
+    if (!parsed.title) die(`${file} has no \`# Goal:\` heading and no \`**Objective:**\` line — cannot name the task.`);
+    // Refuse rather than import an empty acceptance list. Measured: 24 of 195 real goal docs have
+    // no parseable criteria, and a task with none passes `tm done` unchallenged.
+    if (!parsed.criteria.length) die(refusal(file), 2);
+
+    const gate = gateTaskCreate(P);
+    if (!gate.allow) die(gate.reason, 2);
+    const rel = path.startsWith(`${P.root}/`) ? path.slice(P.root.length + 1) : path;
+    const t = create(
+      "task",
+      {
+        title: parsed.title,
+        epic: epic || state(P).activeEpic || null,
+        acceptance: parsed.criteria.map((text) => ({ text, done: false })),
+        goalDoc: rel,
+        evidence: [],
+        commits: [],
+        blockedBy: [],
+        blocks: [],
+        ...stamp(),
+      },
+      goalBody(parsed, rel),
+      P,
+    );
+    logEvent("goal_imported", { id: t.id, doc: rel, criteria: parsed.criteria.length, shape: parsed.shape }, P);
+    out(
+      `${t.id} ${parsed.title}${t.epic ? ` [${t.epic}]` : ""}\n` +
+        `   ${parsed.criteria.length} acceptance criterion/criteria from the goal's own success criteria\n` +
+        (parsed.validate ? `   validate: ${parsed.validate}\n` : "") +
+        `   \`tm done ${t.id}\` now refuses until every one is ticked`,
+    );
+  },
+
+  adr(sub, ...rest) {
+    requireInit();
+    const title = (sub === "new" ? rest : [sub, ...rest]).join(" ");
+    if (!title) die('usage: tm adr new "<title>"');
+    const a = create(
+      "adr",
+      { title, status: "proposed", epic: state(P).activeEpic || null, deciders: [], date: now().slice(0, 10) },
+      "## Context\n\n## Decision\n\n## Consequences\n",
+      P,
+    );
+    out(`${a.id} — ${a.file}`);
+  },
+
+  /**
+   * `tm cap` — the enhancement backlog. Proposals are ranked, accepted ones become tasks.
+   *
+   * Flags are parsed here rather than in capability.mjs so the library stays callable from
+   * MCP and the importer without a second argv convention.
+   */
+  cap(sub = "list", ...rest) {
+    requireInit();
+    const flags = {};
+    const words = [];
+    for (let i = 0; i < rest.length; i += 1) {
+      if (rest[i]?.startsWith("--")) flags[rest[i].slice(2)] = rest[i + 1]?.startsWith("--") ? true : rest[++i];
+      else words.push(rest[i]);
+    }
+    const title = words.join(" ");
+
+    if (sub === "new" || sub === "propose") {
+      if (!title) die('usage: tm cap new "<title>" [--area ux] [--impact S|M|L] [--effort S|M|L] [--confidence H|M|L] [--source research]');
+      let c;
+      try {
+        c = propose({ title, ...flags }, P);
+      } catch (e) {
+        die(e.message);
+      }
+      out(`${c.id} — ${c.file}`);
+      return;
+    }
+    if (sub === "accept") {
+      const id = words[0] || die("usage: tm cap accept <CAP-id>");
+      let res;
+      try {
+        res = acceptCap(id, P);
+      } catch (e) {
+        die(e.message);
+      }
+      out(
+        res.existing
+          ? `${id} already accepted → ${res.task.id}`
+          : `${id} accepted → ${res.task.id} (${res.task.acceptance.length} acceptance criteria carried over)`,
+      );
+      return;
+    }
+    if (sub === "ship") {
+      const id = words[0] || die("usage: tm cap ship <CAP-id> [--evidence <ref>]");
+      try {
+        const doc = shipCap(id, { evidence: flags.evidence, task: flags.task }, P);
+        out(`${id} shipped ${doc.shipped}`);
+      } catch (e) {
+        die(e.message);
+      }
+      return;
+    }
+    if (sub === "drop") {
+      const id = words[0] || die("usage: tm cap drop <CAP-id> [why]");
+      dropCap(id, words.slice(1).join(" "), P);
+      out(`${id} dropped`);
+      return;
+    }
+    if (sub === "list" || sub === undefined) {
+      const rows = ranked(P, flags.status ? { status: flags.status } : {});
+      emit(rows.map(({ body, file, ...r }) => r), () =>
+        rows.map((c) => capLine(c)).join("\n") || "(no capabilities — `tm cap new \"<title>\"`)",
+      );
+      return;
+    }
+    die(`unknown: tm cap ${sub} (new | list | accept | ship | drop)`);
+  },
+
+  start(id) {
+    requireInit();
+    const t = read(id, P) || die(`not found: ${id}`);
+    const cfg = config(P);
+    const wip = list("task", { status: "in_progress" }, P);
+    if (!enforcementOff(P) && cfg.wipLimit && wip.length >= cfg.wipLimit && !wip.some((w) => w.id === id)) {
+      if (!consumeOverride(P)) die(`WIP limit ${cfg.wipLimit} reached: ${wip.map((w) => w.id).join(", ")}`, 2);
+    }
+    const claim = claimTask(id, {
+      session: sessionId(),
+      actor: actorLabel(actor()),
+      worktree: CHECKOUT,
+      branch: git(["rev-parse", "--abbrev-ref", "HEAD"]) || undefined,
+      steal: argv.includes("--steal"),
+      p: P,
+    });
+    if (!claim.ok) die(claim.reason, 2);
+    const wasDone = t.status === "done";
+    update(id, { status: "in_progress", ...stamp() }, P);
+    out(
+      `${id} in progress — ${t.title}` +
+        (claim.stolenFrom ? `  (stolen from ${claim.stolenFrom})` : "") +
+        // Silence here is what made `tm start` a lying reopen: the task came back and nothing
+        // said the closed date and the epic status had moved with it.
+        (wasDone ? "  (reopened from done)" : ""),
+    );
+  },
+
+  done(id) {
+    requireInit();
+    const gate = gateDone(id, P);
+    if (!gate.allow) die(gate.reason, 2);
+    update(id, { status: "done", closed: now() }, P);
+    release(id, P);
+    logEvent("done", { id }, P);
+    const freed = unblockDependents(id, P);
+    const t = read(id, P);
+    const closedEpic = t?.epic && autoCloseEpic(t.epic, P) ? t.epic : null;
+    out(
+      `${id} done` +
+        (freed.length ? ` — unblocked: ${freed.join(", ")}` : "") +
+        (closedEpic ? `\n${closedEpic} closed — every task in it is done` : ""),
+    );
+  },
+
+  park(id, ...why) {
+    requireInit();
+    update(id, { status: "parked", parkedReason: why.join(" ") || undefined }, P);
+    release(id, P);
+    out(`${id} parked`);
+  },
+
+  block(id, ...why) {
+    requireInit();
+    update(id, { status: "blocked", blockedReason: why.join(" ") || undefined }, P);
+    release(id, P);
+    out(`${id} blocked`);
+  },
+
+  unblock(id) {
+    requireInit();
+    update(id, { status: "open", blockedReason: undefined }, P);
+    out(`${id} open`);
+  },
+
+  /**
+   * The way back from done. `tm start` was the de facto reopen and it lied: it left `closed`
+   * on the task and its epic marked done. Both are fixed in update() now, so this verb exists
+   * to make the intent explicit and to record why.
+   */
+  reopen(id, ...why) {
+    requireInit();
+    const t = read(id, P) || die(`not found: ${id}`);
+    if (!["done", "deleted"].includes(t.status)) die(`${id} is ${t.status}, not done — nothing to reopen`, 2);
+    const reason = why.join(" ");
+    update(id, { status: "open", reopenedReason: reason || undefined }, P);
+    logEvent("reopened", { id, reason: reason || null }, P);
+    const epic = read(id, P)?.epic;
+    out(`${id} reopened${reason ? ` — ${reason}` : ""}${epic && read(epic, P)?.status === "open" ? `\n${epic} reopened with it` : ""}`);
+  },
+
+
+  /**
+   * Sprints. A named, time-boxed commitment — which is what turns `estimate` from a field nobody
+   * reads into a number that means something.
+   *
+   * Deliberately NOT a second epic. An epic says what a body of work IS; a sprint says what you
+   * committed to finishing this fortnight. A task has one of each and they answer different
+   * questions, so `sprint` is its own field rather than a second epic id.
+   */
+  sprint(sub, ...rest) {
+    requireInit();
+    const active = () => state(P).activeSprint || null;
+
+    if (!sub || sub === "show") {
+      const id = rest[0] || active();
+      if (!id) return out("no active sprint — `tm sprint new \"<name>\"`");
+      return emit(read(id, P), () => sprintReport(id, P));
+    }
+
+    if (sub === "new") {
+      const ends = rest.indexOf("--ends");
+      const title = rest.slice(0, ends === -1 ? undefined : ends).join(" ").trim();
+      if (!title) die('usage: tm sprint new "<name>" [--ends YYYY-MM-DD]');
+      const doc = create("sprint", { title, status: "open", ...(ends === -1 ? {} : { ends: rest[ends + 1] }) }, "", P);
+      writeState({ activeSprint: doc.id }, P);
+      logEvent("sprint", { id: doc.id, action: "new" }, P);
+      return out(`${doc.id} created and set active — ${doc.file}`);
+    }
+
+    if (sub === "use") {
+      const id = rest[0];
+      if (!read(id, P)) die(`not found: ${id}`);
+      writeState({ activeSprint: id }, P);
+      return out(`${id} is the active sprint`);
+    }
+
+    if (sub === "add" || sub === "rm") {
+      const id = active();
+      if (!id && sub === "add") die("no active sprint — `tm sprint new \"<name>\"` or `tm sprint use <SP-id>`");
+      const moved = [];
+      for (const task of rest) {
+        if (!read(task, P)) die(`not found: ${task}`);
+        update(task, { sprint: sub === "add" ? id : undefined }, P);
+        moved.push(task);
+      }
+      logEvent("sprint", { id, action: sub, tasks: moved }, P);
+      return out(`${moved.join(", ")} ${sub === "add" ? `committed to ${id}` : "removed from the sprint"}`);
+    }
+
+    if (sub === "done") {
+      const id = rest[0] || active();
+      if (!id) die("no active sprint");
+      update(id, { status: "done", closed: now() }, P);
+      if (active() === id) writeState({ activeSprint: null }, P);
+      logEvent("sprint", { id, action: "done" }, P);
+      // Unfinished work does not evaporate because a sprint ended; it is simply no longer committed.
+      const left = list("task", {}, P).filter((t) => t.sprint === id && t.status !== "done");
+      return out(`${id} closed${left.length ? ` — ${left.length} card(s) unfinished, still on the board` : ""}`);
+    }
+
+    if (sub === "list") {
+      const rows = list("sprint", {}, P);
+      return emit(rows, () => rows.map((r) => `${r.status === "done" ? "●" : "○"} ${r.id} ${r.title}`).join("\n") || "(no sprints)");
+    }
+
+    die('usage: tm sprint [show|new "<name>"|use <id>|add <task>...|rm <task>...|done|list]');
+  },
+
+  /** `tm ac <id> "<text>"` adds; `tm ac <id> --rm <n>` removes one added by mistake. */
+  ac(id, ...text) {
+    requireInit();
+    if (!read(id, P)) die(`not found: ${id}`);
+    const rm = text.indexOf("--rm");
+    if (rm !== -1) {
+      const n = text[rm + 1];
+      if (n === undefined) die("usage: tm ac <id> --rm <n>");
+      let res;
+      try {
+        res = removeCriterion(id, n, P);
+      } catch (e) {
+        die(e.message);
+      }
+      // The surviving list is printed because removal RENUMBERS what follows: anything that
+      // referred to "AC 4" now points at a different sentence.
+      out([`${id} AC ${n} removed: ${res.removed}`, ...res.acceptance.map((a, i) => `  ${i + 1}. [${a.done ? "x" : " "}] ${a.text}`)].join("\n"));
+      return;
+    }
+    // Read-append-write: two criteria added at once would otherwise keep only one.
+    let acceptance = [];
+    mutate(id, (t) => {
+      acceptance = [...(t.acceptance || []), { text: text.join(" "), done: false }];
+      return { acceptance };
+    }, P);
+    out(`${id} AC ${acceptance.length}: ${text.join(" ")}`);
+  },
+
+  /** `tm accept <id> <n>` ticks a criterion; `--undo` unticks one ticked by mistake. */
+  accept(id, n, ...rest) {
+    requireInit();
+    const undo = rest.includes("--undo");
+    let res;
+    try {
+      res = setCriterion(id, n, !undo, P);
+    } catch (e) {
+      die(e.message);
+    }
+    const note =
+      undo && read(id, P)?.status === "done"
+        ? "  (this task is done with a criterion now unmet — `tm doctor` will say so)"
+        : "";
+    out(`${id} AC ${n} ${undo ? "unmet" : "met"} (${res.met}/${res.acceptance.length})${note}`);
+  },
+
+  evidence(id, path) {
+    requireInit();
+    const t = read(id, P) || die(`not found: ${id}`);
+    mkdirSync(P.evidence, { recursive: true });
+    let ref;
+    if (path && path !== "-") {
+      const dest = join(P.evidence, `${id}-${basename(path)}`);
+      copyFileSync(resolve(path), dest);
+      ref = dest.replace(`${P.root}/`, "");
+    } else {
+      const dest = join(P.evidence, `${id}-${Date.now()}.log`);
+      writeFileSync(dest, readFileSync(0, "utf8"));
+      ref = dest.replace(`${P.root}/`, "");
+    }
+    mutate(id, (doc) => ({ evidence: [...(doc.evidence || []), ref] }), P);
+    out(`${id} evidence: ${ref}`);
+  },
+
+  /**
+   * Paths a task touches — what `tm parallel` batches on. Normally filled in by the
+   * PostToolUse hook as edits happen; this is for declaring them ahead of time, which
+   * is what the README's "paths it will edit" always meant.
+   */
+  touches(id, ...files) {
+    requireInit();
+    const t = read(id, P) || die(`not found: ${id}`);
+    if (!files.length) {
+      const rows = t.touches || [];
+      return emit(rows, () => rows.join("\n") || "(none — the hook fills these in as files are edited)");
+    }
+    const { added, capped } = record(id, files, P, { base: CHECKOUT });
+    out(
+      `${id} touches: ${(read(id, P).touches || []).length} path(s)` +
+        (added.length ? ` (+${added.join(", ")})` : " (nothing new)") +
+        (capped ? `\ncapped at ${MAX_TOUCHES} — this task edits more files than a task should` : ""),
+    );
+  },
+
+  /**
+   * `tm dep <id> <blocker...>` adds, and a leading `-` removes — the same convention `tm label`
+   * already uses, so there is no second syntax to learn and no `tm undep` verb to discover.
+   * Removal did not exist at all before: doctor could drop a dangling reference, but a valid
+   * dependency added by mistake was permanent.
+   */
+  dep(id, ...args) {
+    requireInit();
+    if (!read(id, P)) die(`not found: ${id}`);
+    if (!args.length) {
+      const rows = read(id, P).blockedBy || [];
+      return emit(rows, () => rows.join("\n") || "(nothing blocking it)");
+    }
+    const remove = args.filter((a) => a.startsWith("-")).map((a) => a.slice(1));
+    const add = args.filter((a) => !a.startsWith("-"));
+    let blockedBy;
+    try {
+      blockedBy = dependencies(id, { add, remove }, P);
+    } catch (err) {
+      die(err.message, 2);
+    }
+    out(
+      `${id} blocked by ${blockedBy.join(", ") || "(nothing)"}` +
+        (add.length ? `\n   +${add.join(", ")}` : "") +
+        (remove.length ? `\n   -${remove.join(", ")}` : ""),
+    );
+  },
+
+  next() {
+    requireInit();
+    const rows = nextTasks(P);
+    emit(rows, () => (rows.length ? rows.map(taskLine).join("\n") : "(nothing unblocked — `tm board`)"));
+  },
+
+  board() {
+    requireInit();
+    emit({ ...reindex(P), state: state(P) }, () => board(P));
+  },
+
+  stale() {
+    requireInit();
+    const rows = staleTasks(P);
+    emit(rows, () => rows.map(taskLine).join("\n") || "(none)");
+  },
+
+  /** One entity, in full. The single-object read the CLI was missing. */
+  show(id) {
+    requireInit();
+    if (!id) die("usage: tm show <id>");
+    const doc = read(id, P);
+    if (!doc) die(`not found: ${id}`);
+    const detail =
+      kindOf(id) === "epic"
+        ? { ...doc, tasks: list("task", { epic: id }, P).map(({ body, file, ...t }) => t) }
+        : doc;
+    emit(detail, () => renderShow(detail));
+  },
+
+  /**
+   * Why a task is not startable, walked to the root rather than one hop deep.
+   * `blockedBy` on a card names the neighbour; this names the thing to go and do.
+   */
+  why(id) {
+    requireInit();
+    if (!id) die("usage: tm why <id>");
+    const w = why(id, P);
+    if (!w) die(`not found: ${id}`);
+    emit(w, () => renderWhy(w));
+  },
+
+  /** The dependency graph as Mermaid — GitHub renders it in the PR diff. */
+  graph(...args) {
+    requireInit();
+    const ei = args.indexOf("--epic");
+    const opts = {
+      epic: ei === -1 ? null : args[ei + 1],
+      includeDone: args.includes("--all"),
+      subtasks: !args.includes("--no-subtasks"),
+    };
+    if (JSON_OUT) return emit(graphData(opts, P), () => "");
+    const g = mermaid(opts, P);
+    if (!g.tasks) die("(no tasks to draw)");
+    out(args.includes("--raw") ? g.mermaid : `\`\`\`mermaid\n${g.mermaid}\n\`\`\``);
+  },
+
+  /**
+   * Bare words search titles and bodies, as they always did. `field:value` narrows — the
+   * questions the board in the browser could ask and the terminal could not.
+   */
+  find(...q) {
+    requireInit();
+    let query;
+    try {
+      query = parseQuery(q);
+    } catch (e) {
+      die(e.message);
+    }
+    const hits = [];
+    for (const kind of ["epic", "task", "adr", "capability"]) {
+      for (const d of list(kind, {}, P)) {
+        if (!matchesQuery({ ...d, kind }, query)) continue;
+        const { body, file, ...rest } = d;
+        hits.push(rest);
+      }
+    }
+    emit(hits, () =>
+      hits.map((d) => taskLine(d)).join("\n") || `(no match for ${describeQuery(query)})`,
+    );
+  },
+
+  /** `tm log [n]` for the tail, `tm log <TM-id>` for one task's whole history. */
+  log(arg = "20") {
+    requireInit();
+    const all = readEvents(P);
+    const rows = kindOf(arg) ? all.filter((e) => e.id === arg) : all.slice(-Number(arg) || -20);
+    // A human branch that was `JSON.stringify` is not a human branch. `tm log <id>` renders one
+    // entity's whole history — the per-issue changelog this store did not have.
+    emit(rows, () => (kindOf(arg) ? renderHistory(arg, rows, P) : renderLog(rows, P)));
+  },
+
+  standup(since) {
+    requireInit();
+    const from = since || new Date(Date.now() - 86_400_000).toISOString();
+    emit(
+      { since: from, events: readEvents(P).filter((e) => Date.parse(e.ts) >= Date.parse(from)) },
+      () => standup(from, P),
+    );
+  },
+
+  handoff(id, ...flags) {
+    requireInit();
+    const task = read(id, P) || die(`not found: ${id}`);
+    if (flags.includes("--worktree") || argv.includes("--worktree")) {
+      let path = task.worktree;
+      if (!path || !existsSync(path)) {
+        const res = createWorktree(task, { p: P });
+        update(task.id, { worktree: res.path, branch: res.branch }, P);
+        path = res.path;
+      }
+      out(`cd ${path}\n\n${handoff(id, P)}`);
+      return;
+    }
+    out(handoff(id, P));
+  },
+
+  /**
+   * The board, out. stdout by default so it pipes; `--out <file>` to write.
+   * Read-only — nothing in here touches the store.
+   */
+  export(...args) {
+    requireInit();
+    const VALUED = ["format", "epic", "status", "out", "title"];
+    const flag = (name) => {
+      const i = args.indexOf(`--${name}`);
+      return i === -1 ? null : args[i + 1];
+    };
+    // Positionals have to be picked out properly rather than searched for a known
+    // format: `args.find(a => FORMATS.includes(a))` returns undefined for a typo, which
+    // then falls through to the "md" default — so `tm export xlsx` silently wrote a
+    // markdown report and exited 0. A wrong format must be refused, not substituted.
+    const positional = [];
+    for (let i = 0; i < args.length; i += 1) {
+      if (args[i].startsWith("--")) {
+        if (VALUED.includes(args[i].slice(2))) i += 1;
+        continue;
+      }
+      positional.push(args[i]);
+    }
+    const format = flag("format") || positional[0] || "md";
+    if (!FORMATS.includes(format)) die(`unknown format "${format}" — use one of: ${FORMATS.join(", ")}`);
+    const text = exportStore(
+      format,
+      {
+        epic: flag("epic"),
+        status: flag("status"),
+        includeDone: !args.includes("--open"),
+        events: args.includes("--events"),
+        title: flag("title"),
+      },
+      P,
+    );
+    const out_ = flag("out");
+    if (!out_) return process.stdout.write(text);
+    writeFileSync(resolve(out_), text);
+    out(`${format} → ${out_} (${text.length} bytes)`);
+  },
+
+  /**
+   * What is inconsistent in the store, and optionally repair the unambiguous half.
+   * Exits 1 on an error-level finding so it can gate a commit or a CI step.
+   */
+  doctor(...args) {
+    requireInit();
+    const fixed = args.includes("--fix") ? repairAll(P) : null;
+    // Re-read after repairing: what is reported as remaining must be what remains.
+    const after = diagnose(P);
+    emit({ findings: after.map(({ fix, ...f }) => f), fixed }, () => renderDoctor(after, { fixed }));
+    if (after.some((f) => f.level === "error")) process.exit(1);
+  },
+
+  reindex() {
+    requireInit();
+    const idx = reindex(P);
+    out(
+      `indexed ${idx.epics.length} epics, ${idx.tasks.length} tasks, ${idx.adrs.length} adrs, ${idx.capabilities.length} capabilities`,
+    );
+  },
+
+  override(...reason) {
+    requireInit();
+    setOverride(reason.join(" ") || "unspecified", P);
+    out("override armed — the next gate will pass and clear it");
+  },
+
+  config(key, value) {
+    requireInit();
+    if (!key) return out(JSON.stringify(config(P), null, 2));
+    const parsed = value === undefined ? undefined : JSON.parse(value);
+    out(JSON.stringify(writeConfig({ [key]: parsed }, P), null, 2));
+  },
+
+  context() {
+    out(sessionContext(P));
+  },
+
+  // ── Jira-shaped fields (TM-028), shared by the CLI, the dashboard and MCP ──
+  assign(id, who) {
+    requireInit();
+    out(`${id} ${assign(id, who, P) ? `assigned to ${who}` : "unassigned"}`);
+  },
+
+  /**
+   * Correct the title or the body — the two fields `new` writes and nothing could change.
+   * `--body -` reads from stdin, the same convention `tm evidence` uses for a log.
+   */
+  edit(id, ...rest) {
+    requireInit();
+    const bodyAt = rest.indexOf("--body");
+    const title = bodyAt === -1 ? rest[0] : rest.slice(0, bodyAt)[0];
+    let body;
+    if (bodyAt !== -1) {
+      const given = rest[bodyAt + 1];
+      body = given === undefined || given === "-" ? readFileSync(0, "utf8") : given;
+    }
+    if (title === undefined && body === undefined) die('nothing to change — pass a title, or --body [text|-]');
+    const res = editTask(id, { title, body }, P);
+    emit(res, () =>
+      res.changed.length
+        ? `${id} ${res.changed.join(" and ")} updated${res.was && res.changed.includes("title") ? ` (was "${res.was}")` : ""}`
+        : `${id} unchanged`,
+    );
+  },
+
+  /** Refile under another epic, or `none` to detach. */
+  move(id, epic) {
+    requireInit();
+    if (epic === undefined) die("move needs a destination — an epic id, or `none`");
+    const res = moveTask(id, epic, P);
+    emit(res, () => {
+      if (!res.changed) return `${id} is already ${res.to ? `in ${res.to}` : "outside any epic"}`;
+      const extra = [res.reopened && `reopened ${res.reopened}`, res.closed && `closed ${res.closed}`].filter(Boolean);
+      return `${id} moved ${res.from || "(no epic)"} → ${res.to || "(no epic)"}${extra.length ? ` — ${extra.join(", ")}` : ""}`;
+    });
+  },
+
+  label(id, ...names) {
+    requireInit();
+    const remove = names.filter((n) => n.startsWith("-")).map((n) => n.slice(1));
+    const add = names.filter((n) => !n.startsWith("-"));
+    out(`${id} labels: ${labels(id, { add, remove }, P).join(", ") || "(none)"}`);
+  },
+
+  /** Issue type. `subtask` is not in the vocabulary — `parent` expresses that. */
+  type(id, value) {
+    requireInit();
+    if (value === undefined) {
+      const t = read(id, P) || die(`not found: ${id}`);
+      return out(`${id} type: ${typeOf(t)}${t.type ? "" : " (derived)"}`);
+    }
+    try {
+      out(`${id} type: ${setType(id, value, P) ?? "(cleared)"}`);
+    } catch (err) {
+      die(err.message, 2);
+    }
+  },
+
+  priority(id, value) {
+    requireInit();
+    out(`${id} priority: ${prioritise(id, value, P)}`);
+  },
+
+  estimate(id, points) {
+    requireInit();
+    out(`${id} estimate: ${estimate(id, points, P)}`);
+  },
+
+  comment(id, ...text) {
+    requireInit();
+    const comments = addComment(id, text.join(" "), { p: P });
+    out(`${id} comment ${comments.length} added`);
+  },
+
+  link(id, ...rest) {
+    requireInit();
+    // `tm link <id> <sha>` still attaches a commit; `tm link <id> <type> <id>` links tasks.
+    if (rest.length >= 2 && kindOf(rest.at(-1))) {
+      const target = rest.at(-1);
+      const type = rest.slice(0, -1).join(" ");
+      addLink(id, type, target, P);
+      return out(`${id} ${type} ${target}`);
+    }
+    const t = read(id, P) || die(`not found: ${id}`);
+    const ref = rest[0];
+    if ((t.commits || []).includes(ref)) return;
+    mutate(id, (doc) => ({ commits: [...new Set([...(doc.commits || []), ref])] }), P);
+    out(`${id} ← ${ref}`);
+  },
+
+  subtask(id, parent) {
+    requireInit();
+    if (parent === undefined) {
+      const kids = subtasks(id, {}, P);
+      return emit(kids, () => kids.map(taskLine).join("\n") || "(no subtasks)");
+    }
+    subtasks(id, { parent: parent === "none" ? null : parent }, P);
+    out(parent === "none" ? `${id} detached` : `${id} nested under ${parent}`);
+  },
+
+  rank(id, where, target) {
+    requireInit();
+    const opts = where === "--before" ? { before: target } : where === "--after" ? { after: target } : { to: Number(where) };
+    out(`${id} rank: ${rank(id, opts, P)}`);
+  },
+
+  backlog() {
+    requireInit();
+    const rows = backlog(P);
+    emit(rows, () => rows.map((t, i) => `${String(i + 1).padStart(3)}. ${taskLine(t)}`).join("\n") || "(empty)");
+  },
+
+  /** Push notifications: `tm ntfy` shows what's on, `on/off <kind>` toggles, `test` proves it. */
+  async ntfy(sub, ...rest) {
+    requireInit();
+    const cfg = ntfyConfig(P);
+    const stored = config(P).ntfy || {};
+
+    if (sub === "on" || sub === "off") {
+      const kinds = rest.length && rest[0] !== "recommended" && rest[0] !== "writes" && rest[0] !== "noise"
+        ? rest
+        : CATALOG[rest[0] || "recommended"];
+      const unknown = kinds.filter((k) => !CATALOG.events[k]);
+      if (unknown.length) die(`unknown event kind(s): ${unknown.join(", ")}\nSee \`tm ntfy\` for the full list.`);
+      const next = new Set(stored.categories || []);
+      for (const k of kinds) (sub === "on" ? next.add(k) : next.delete(k));
+      writeConfig({ ntfy: { ...stored, categories: [...next] } }, P);
+      return out(`${sub}: ${kinds.join(", ")}\nnow enabled: ${[...next].join(", ") || "(none)"}`);
+    }
+
+    if (sub === "enable" || sub === "disable") {
+      writeConfig({ ntfy: { ...stored, enabled: sub === "enable" } }, P);
+      const after = ntfyConfig(P);
+      return out(
+        `ntfy ${sub}d` +
+          (sub === "enable" && !after.enabled
+            ? `\nstill inactive: ${!after.token ? "TM_NTFY_TOKEN is not set" : "no topic configured"}`
+            : ""),
+      );
+    }
+
+    if (sub === "test") {
+      if (!cfg.token) die("TM_NTFY_TOKEN is not set in this environment");
+      if (!cfg.topic) die("no topic configured — `tm ntfy topic <name>`");
+      const msg = messageFor({ event: "notification", id: rest[0] || null, actor: actorLabel(actor()) }, null, cfg);
+      msg.title = "task-management test";
+      msg.body = `test push from ${P.root}`;
+      const res = await send(msg, cfg);
+      return res.ok ? out(`sent to ${cfg.server}/${cfg.topic}`) : die(`ntfy ${res.status}: ${res.error}`);
+    }
+
+    if (sub === "topic" || sub === "server" || sub === "board") {
+      const key = sub === "board" ? "boardUrl" : sub;
+      writeConfig({ ntfy: { ...stored, [key]: rest[0] } }, P);
+      return out(`${key} = ${rest[0]}`);
+    }
+
+    // Default: show what is on, and what is available to switch on.
+    const on = new Set(cfg.categories);
+    emit({ ...cfg, token: cfg.token ? "(set)" : null, catalog: CATALOG.events }, () => {
+      const lines = [
+        `ntfy: ${cfg.enabled ? "enabled" : "disabled"}   ${cfg.server}/${cfg.topic || "(no topic)"}`,
+        `token: ${cfg.token ? "set from environment" : "MISSING — export TM_NTFY_TOKEN"}`,
+        `board link: ${cfg.boardUrl || "(unset — notifications will not deep-link)"}`,
+        "",
+      ];
+      for (const group of ["recommended", "writes", "noise"]) {
+        lines.push(`## ${group}`);
+        for (const kind of CATALOG[group]) {
+          lines.push(`  [${on.has(kind) ? "x" : " "}] ${kind.padEnd(22)} ${CATALOG.events[kind].label}`);
+        }
+        lines.push("");
+      }
+      lines.push("tm ntfy on <kind...|recommended|writes>   tm ntfy off <kind...>   tm ntfy test");
+      return lines.join("\n");
+    });
+  },
+
+  template(sub, ...rest) {
+    requireInit();
+    if (sub === "seed") return out(`seeded: ${seedTemplates(P).join(", ") || "(already present)"}`);
+    const rows = listTemplates(P);
+    emit(rows, () => rows.map((t) => `${t.name}  ${t.description || ""}`).join("\n") || "(none)");
+  },
+
+  /** Where the time actually went, derived from the event log. */
+  time(id) {
+    requireInit();
+    if (id) {
+      const detail = { id, cycleTime: cycleTime(id, P), inStatus: timeInStatus(id, P) };
+      return emit(detail, () =>
+        [
+          `${id} cycle time: ${detail.cycleTime == null ? "(not closed)" : humanMs(detail.cycleTime)}`,
+          ...Object.entries(detail.inStatus).map(([k, ms]) => `  ${k.padEnd(12)} ${humanMs(ms)}`),
+        ].join("\n"),
+      );
+    }
+    const s = timeSummary(P);
+    emit(s, () =>
+      [
+        `completed:     ${s.completed ?? 0}`,
+        `median cycle:  ${s.median ?? "—"}`,
+        `mean cycle:    ${s.mean ?? "—"}`,
+        `oldest open:   ${s.oldestOpen ? `${s.oldestOpen.id} (${s.oldestOpen.human})` : "—"}`,
+        `in progress:   ${(s.wip || []).length}`,
+        ...(s.wip || []).map((w) => `  ${w.id.padEnd(8)} ${w.human}`),
+      ].join("\n"),
+    );
+  },
+
+  /** Explicit lock handling for parallel sessions. */
+  claim(id) {
+    requireInit();
+    const res = claimTask(id, {
+      session: sessionId(),
+      actor: actorLabel(actor()),
+      worktree: CHECKOUT,
+      branch: git(["rev-parse", "--abbrev-ref", "HEAD"]) || undefined,
+      steal: argv.includes("--steal"),
+      p: P,
+    });
+    if (!res.ok) die(res.reason, 2);
+    out(`${id} claimed${res.stolenFrom ? ` (stolen from ${res.stolenFrom})` : ""}`);
+  },
+
+  release(id) {
+    requireInit();
+    out(releaseClaim(id, P) ? `${id} released` : `${id} was not claimed`);
+  },
+
+  /** Drop claims whose sessions or worktrees are gone. */
+  sweep() {
+    requireInit();
+    const freed = sweepClaims(P);
+    out(freed.length ? `released stale claims: ${freed.join(", ")}` : "(no stale claims)");
+  },
+
+  /**
+   * Batches of work that can safely run at once: unblocked, unclaimed, and touching
+   * disjoint paths. Prints the worktree command for each so a batch is one paste.
+   */
+  parallel(...args) {
+    requireInit();
+    const ei = args.indexOf("--epic");
+    const epic = ei === -1 ? null : args[ei + 1];
+    const candidates = nextTasks(P)
+      .filter((t) => !epic || t.epic === epic)
+      .filter((t) => !claimant(t.id, P));
+
+    const batches = [];
+    for (const task of candidates) {
+      const touches = new Set(task.touches || []);
+      const batch = batches.find((b) => !b.touches.size || !touches.size || ![...touches].some((x) => b.touches.has(x)));
+      if (batch) {
+        batch.tasks.push(task);
+        for (const x of touches) batch.touches.add(x);
+      } else {
+        batches.push({ tasks: [task], touches: new Set(touches) });
+      }
+    }
+
+    emit(
+      batches.map((b) => ({ tasks: b.tasks.map((t) => t.id), touches: [...b.touches] })),
+      () =>
+        batches.length
+          ? batches
+              .map((b, i) =>
+                [
+                  `batch ${i + 1}${b.touches.size ? `  (touches: ${[...b.touches].join(", ")})` : ""}`,
+                  ...b.tasks.map((t) => `  tm worktree new ${t.id}   # ${t.title}`),
+                ].join("\n"),
+              )
+              .join("\n\n")
+          : "(nothing unblocked and unclaimed)",
+    );
+  },
+
+  /** Isolated checkouts for parallel work, with heavy artifacts shared not copied. */
+  worktree(sub, ...rest) {
+    requireInit();
+    const flags = new Set(rest.filter((a) => a.startsWith("--")));
+    const args = rest.filter((a) => !a.startsWith("--"));
+    const baseIdx = rest.indexOf("--base");
+    const base = baseIdx === -1 ? undefined : rest[baseIdx + 1];
+
+    if (sub === "new") {
+      const task = read(args[0], P) || die(`not found: ${args[0]}`);
+      const res = createWorktree(task, { base, share: !flags.has("--no-share"), p: P });
+      update(task.id, { worktree: res.path, branch: res.branch }, P);
+      // Through claimTask, like every other claim. The bare writeState here was an unlocked
+      // read-modify-write, and it also could not refuse: provisioning a worktree for a task
+      // another live session held took the claim silently.
+      claimTask(task.id, {
+        session: sessionId(),
+        actor: actorLabel(actor()),
+        worktree: res.path,
+        branch: res.branch,
+        steal: flags.has("--steal"),
+        p: P,
+      });
+      logEvent("worktree_new", { id: task.id, path: res.path, branch: res.branch, shared: res.shared.length }, P);
+      out(`${task.id} → ${res.path}\n   branch ${res.branch}${res.shared.length ? `\n   shared: ${res.shared.map((x) => x.path || x).join(", ")}` : ""}\n\ncd ${res.path}`);
+    } else if (sub === "rm") {
+      const task = read(args[0], P) || die(`not found: ${args[0]}`);
+      const res = removeWorktree(task, { force: flags.has("--force"), p: P });
+      if (!res.removed) die(res.reason || "refused");
+      update(task.id, { worktree: undefined, branch: undefined }, P);
+      release(task.id, P);
+      logEvent("worktree_rm", { id: task.id }, P);
+      out(`${task.id} worktree removed`);
+    } else if (sub === "share") {
+      const task = read(args[0], P) || die(`not found: ${args[0]}`);
+      if (!task.worktree) die(`${task.id} has no worktree`);
+      const shared = applyShares(task.worktree, { p: P });
+      out(shared.length ? `shared: ${shared.map((x) => x.path || x).join(", ")}` : "(nothing to share)");
+    } else {
+      const rows = listWorktrees(P);
+      emit(rows, () =>
+        rows
+          .map((w) => `${(w.taskId || "—").padEnd(8)} ${w.branch || "?"}  ${w.dirty ? "dirty" : "clean"}  ${w.path}`)
+          .join("\n") || "(none)",
+      );
+    }
+  },
+
+  /**
+   * Put `tm` / `tm-dashboard` on PATH. Runs automatically at SessionStart when safe.
+   * (Named `install`, not `link` — `tm link <id> <ref>` attaches commits to tasks.)
+   */
+  install(...flags) {
+    const res = linkBins({ force: flags.includes("--force") });
+    if (!res.ok) die(`link: ${res.reason}`);
+    out(res.created.length ? `linked:\n${res.created.map((f) => `  ${f}`).join("\n")}` : `already linked in ${res.dir}`);
+    if (!res.onPath) out(`note: ${res.dir} is not on your PATH`);
+  },
+
+  uninstall() {
+    const removed = unlinkBins();
+    out(removed.length ? `removed:\n${removed.map((f) => `  ${f}`).join("\n")}` : "nothing to remove");
+  },
+
+  where() {
+    const s = linkStatus();
+    out(JSON.stringify({ store: P.base, checkout: CHECKOUT, unavailable: P.unavailable, ...s }, null, 2));
+  },
+
+  /** Move a pre-v0.2 worktree store into the shared root. */
+  migrate() {
+    if (!P.root) die(P.unavailable);
+    const stranded = legacyStore(P.root);
+    if (!stranded) return out("nothing to migrate");
+    if (isInitialized(P)) {
+      die(`a store already exists at ${P.base}. Merge by hand — refusing to overwrite.\nStranded copy: ${stranded}`);
+    }
+    mkdirSync(join(P.root, ".bytedesk"), { recursive: true });
+    renameSync(stranded, P.base);
+    logEvent("migrate", { from: stranded, to: P.base }, P);
+    out(`moved ${stranded}\n   → ${P.base}`);
+  },
+
+  hook(event) {
+    return hook(event);
+  },
+
+  help() {
+    out(
+      [
+        "tm — task-management store (.bytedesk/task-management)",
+        "",
+        "  init                          create the store here",
+        '  epic new "<title>" | use <id> | done <id> | (list)',
+        '  task new "<title>" | (list)',
+        '  adr new "<title>"',
+        '  cap new "<title>" [--area --impact --effort --confidence --source]   the enhancement backlog',
+        "  cap list [--status open] | accept <CAP-id> | ship <CAP-id> [--evidence <ref>] | drop <CAP-id>",
+        "  goal import <doc.md>          a goal doc becomes a task; its success criteria become the gate",
+        "  start <id> | done <id> | park <id> [why] | block <id> [why] | unblock <id>",
+        "  reopen <id> [why]             bring a done task back, and its epic with it",
+        '  ac <id> "<criterion>" | ac <id> --rm <n> | accept <id> <n> [--undo]',
+        "  evidence <id> <path|-> | link <id> <ref> | dep <id> [-]<blocker>...",
+        "  touches <id> [path...]        paths a task owns; `tm parallel` batches on these",
+        "  edit <id> \"<title>\" [--body <text|->]   move <id> <EP-nnn|none>",
+        "  assign <id> <who> | label <id> [-]<name>... | priority <id> <level>",
+        "  type <id> [bug|story|task|spike|chore]   issue type; parent expresses subtask-ness",
+        "  estimate <id> <points> | comment <id> <text> | subtask <id> [parent|none]",
+        "  link <id> <type> <id> | rank <id> --before|--after <id> | backlog",
+        '  sprint [show|new "<name>"|use <id>|add <task>...|rm|done|list]',
+        "  next | board | stale | standup [iso] | handoff <id>",
+        `  find <words> [field:value]...          fields: ${FIELD_NAMES.join(", ")} (a leading - negates)`,
+        "  log [n] | log <id>            the event tail, or one entity's whole history",
+        "  why <id>                      what is actually holding a task up, to the root",
+        "  graph [--epic EP-1] [--all]   the dependency graph as Mermaid",
+        "  doctor [--fix]                what is inconsistent in the store; exits 1 on an error",
+        "  export [md|csv|json]          the board out; --epic, --status, --open, --out <file>",
+        "  reindex | override <reason> | config [key value] | context",
+        "  install [--force] | uninstall | where   put tm on PATH (auto at SessionStart)",
+        "  ntfy [on|off <kind>|enable|disable|test|topic <t>|board <url>]   push notifications",
+        "",
+        "  Gates: TM_ENFORCE=off disables all of them. `tm override` bypasses one.",
+      ].join("\n"),
+    );
+  },
+};
+
+/**
+ * Import a `*.plan.json` manifest: one epic, one task per goal, the manifest's own dependency
+ * graph, and its declared `touches`.
+ *
+ * A goal whose doc has no parseable criteria is SKIPPED and named, never imported with an empty
+ * acceptance list — the same rule as a single-doc import, for the same reason. Skipping rather
+ * than refusing the whole manifest is deliberate: one sloppy doc should not cost the other
+ * nineteen goals. But the exit code is 2 when anything was skipped, so a script notices.
+ *
+ * Dependencies are resolved AFTER every task exists, because a manifest lists goals in planning
+ * order and `dependsOn` freely points forward.
+ */
+function importManifest(path) {
+  const m = parseManifest(readFileSync(path, "utf8"));
+  if (m.error) die(`${path}: ${m.error}`);
+  if (!m.goals.length) die(`${path}: the manifest lists no usable goals (each needs an id and a doc)`);
+
+  const rel = (f) => (f.startsWith(`${P.root}/`) ? f.slice(P.root.length + 1) : f);
+  const manifestDir = dirname(path);
+  const epicBody = [
+    m.definitionOfDone ? `**Definition of done:** ${m.definitionOfDone}` : "",
+    m.gate ? `**Integration gate:** \`${m.gate}\`` : "",
+    m.autoMergeTo ? `**Auto-merges to:** ${m.autoMergeTo}` : "",
+    m.jiraEpicKey ? `Jira: ${m.jiraEpicKey}` : "",
+    `Imported from ${rel(path)}.`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  const epic = create("epic", { title: m.epicTitle, plan: rel(path), ...stamp() }, epicBody, P);
+  writeState({ activeEpic: epic.id }, P);
+
+  const made = new Map(); // manifest goal id → tm task id
+  const skipped = [];
+  for (const g of m.goals) {
+    // A manifest doc path is relative to the repo the manifest lives in, not to the store.
+    const docPath = isAbsolute(g.doc) ? g.doc : resolve(manifestDir, g.doc.replace(/^docs\/goals\//, ""));
+    const fallback = resolve(manifestDir, g.doc);
+    const found = existsSync(docPath) ? docPath : existsSync(fallback) ? fallback : null;
+    if (!found) {
+      skipped.push({ id: g.id, why: `doc not found: ${g.doc}` });
+      continue;
+    }
+    const parsed = parseGoalDoc(readFileSync(found, "utf8"));
+    if (!parsed.criteria.length) {
+      skipped.push({ id: g.id, why: `no parseable success criteria in ${g.doc}` });
+      continue;
+    }
+    const t = create(
+      "task",
+      {
+        title: manifestGoalTitle(g, parsed),
+        epic: epic.id,
+        acceptance: parsed.criteria.map((text) => ({ text, done: false })),
+        goalDoc: rel(found),
+        goalId: g.id,
+        // The manifest declares these; nothing else ever wrote the field it feeds.
+        touches: g.touches.length ? g.touches : undefined,
+        labels: [g.mode, g.needsHumanGate ? "human-gate" : null].filter(Boolean),
+        evidence: [],
+        commits: [],
+        blockedBy: [],
+        blocks: [],
+        ...stamp(),
+      },
+      goalBody(parsed, rel(found)),
+      P,
+    );
+    made.set(g.id, t.id);
+  }
+
+  // Dependencies last: a manifest lists goals in planning order and dependsOn points forward.
+  let edges = 0;
+  const danglingDeps = [];
+  for (const g of m.goals) {
+    const mine = made.get(g.id);
+    if (!mine) continue;
+    const deps = g.dependsOn.map((d) => made.get(d)).filter(Boolean);
+    const lost = g.dependsOn.filter((d) => !made.has(d));
+    if (lost.length) danglingDeps.push({ id: g.id, on: lost });
+    if (!deps.length) continue;
+    mutate(mine, (doc) => ({
+      blockedBy: [...new Set([...(doc.blockedBy || []), ...deps])],
+      status: doc.status === "open" ? "blocked" : doc.status,
+    }), P);
+    for (const d of deps) mutate(d, (doc) => ({ blocks: [...new Set([...(doc.blocks || []), mine])] }), P);
+    edges += deps.length;
+  }
+
+  logEvent("goal_imported", { id: epic.id, doc: rel(path), goals: made.size, skipped: skipped.length, edges }, P);
+
+  const touched = [...made.values()].filter((id) => (read(id, P).touches || []).length).length;
+  out(
+    [
+      `${epic.id} ${m.epicTitle}`,
+      `   ${made.size} task(s) from ${m.goals.length} goal(s), ${edges} dependency edge(s)`,
+      `   ${touched} carry declared touches — \`tm parallel\` batches on those`,
+      m.gate ? `   integration gate: ${m.gate}` : "",
+      ...(danglingDeps.length
+        ? ["", "   dependencies on goals that were not imported:", ...danglingDeps.map((d) => `     ${made.get(d.id)} → ${d.on.join(", ")}`)]
+        : []),
+      ...(skipped.length
+        ? ["", `   skipped ${skipped.length}, never imported with an empty gate:`, ...skipped.map((s) => `     ${s.id} — ${s.why}`)]
+        : []),
+      "",
+      `   \`tm next\` and \`tm parallel\` now answer for this program`,
+    ]
+      .filter((l) => l !== "")
+      .join("\n"),
+  );
+  if (skipped.length) process.exit(2);
+}
+
+function renderShow(doc) {
+  const lines = [`${doc.id}  ${doc.title}`, `status: ${doc.status}${doc.epic ? `   epic: ${doc.epic}` : ""}`];
+
+  /**
+   * Why it stopped, immediately under the status it qualifies, and never abridged — this is the
+   * detail view, and the board's own line is where the clamp belongs.
+   *
+   * `reopenedReason` was already here, so the shape existed for one of the three reasons a task
+   * carries and the other two were simply never added: `tm show` on a blocked task printed its
+   * status and not one word about what it was waiting for.
+   */
+  const stopped =
+    doc.status === "blocked"
+      ? doc.blockedReason
+      : doc.status === "parked"
+        ? doc.parkedReason
+        : // A dropped capability is the fourth reason work stops, and the only one whose
+          // reason is the whole point of keeping the record.
+          doc.status === "deleted"
+          ? doc.droppedReason
+          : null;
+  if (stopped) lines.push(`${doc.status}: ${stopped}`);
+
+  const facts = [
+    doc.kind === "capability" ? `impact: ${doc.impact}   effort: ${doc.effort}   confidence: ${doc.confidence}   score: ${capScore(doc)}` : "",
+    doc.area ? `area: ${doc.area}` : "",
+    doc.capability ? `capability: ${doc.capability}` : "",
+    doc.task ? `task: ${doc.task}` : "",
+    doc.assignee ? `assignee: ${doc.assignee}` : "",
+    doc.priority ? `priority: ${doc.priority}` : "",
+    doc.estimate !== undefined ? `estimate: ${doc.estimate}` : "",
+    doc.actor && doc.actor !== "main" ? `thread: ${doc.actor}` : "",
+    doc.parent ? `parent: ${doc.parent}` : "",
+    doc.reopenedReason ? `reopened: ${doc.reopenedReason}` : "",
+  ].filter(Boolean);
+  if (facts.length) lines.push(facts.join("   "));
+  if ((doc.labels || []).length) lines.push(`labels: ${doc.labels.join(", ")}`);
+  if ((doc.links || []).length) lines.push(`links: ${doc.links.map((l) => `${l.type} ${l.id}`).join(", ")}`);
+  if (doc.branch || doc.worktree) lines.push(`branch: ${doc.branch || "—"}   worktree: ${doc.worktree || "—"}`);
+  if ((doc.acceptance || []).length) {
+    lines.push("", "acceptance:", ...doc.acceptance.map((a) => `  [${a.done ? "x" : " "}] ${a.text}`));
+  }
+  for (const [label, key] of [["blocked by", "blockedBy"], ["blocks", "blocks"], ["evidence", "evidence"], ["commits", "commits"], ["touches", "touches"]]) {
+    if ((doc[key] || []).length) lines.push(`${label}: ${doc[key].join(", ")}`);
+  }
+  // Comments were the one first-class field `show` did not print, though it prints labels, links,
+  // evidence and commits — so the detail view was missing the discussion about the thing.
+  if ((doc.comments || []).length) {
+    lines.push(
+      "",
+      "comments:",
+      ...doc.comments.map((c) => `  ${c.author ?? "?"} · ${String(c.ts ?? "").slice(0, 16).replace("T", " ")} — ${c.text}`),
+    );
+  }
+  if ((doc.tasks || []).length) lines.push("", "tasks:", ...doc.tasks.map((t) => `  ${t.id} ${t.title} (${t.status})`));
+  if (doc.body?.trim()) lines.push("", doc.body.trim());
+  return lines.join("\n");
+}
+
+
+/** How much of a subagent's closing message the timeline carries. */
+const SAID_MAX = 240;
+
+/**
+ * One line of what an agent said, or nothing.
+ *
+ * A heading is a label, not a finding — "## Result" tells you nothing that the event kind did not
+ * already say — so headings, fences and bare list bullets are skipped and the first line of actual
+ * prose is taken. Inline emphasis is stripped from it because `**three** callers` reads worse than
+ * `three callers` in a log line that has no bold.
+ */
+function summarise(message) {
+  const line = String(message ?? "")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l && !/^#{1,6}\s/.test(l) && !l.startsWith("```") && !/^[-*_]{3,}$/.test(l))
+    .map((l) => l.replace(/^[-*+]\s+/, "").replace(/[*_`]/g, "").trim())
+    .find(Boolean);
+  if (!line) return undefined;
+  return line.length > SAID_MAX ? `${line.slice(0, SAID_MAX - 1)}…` : line;
+}
+
+// ── hook entry points ────────────────────────────────────────────────────────
+
+function readStdin() {
+  try {
+    return JSON.parse(readFileSync(0, "utf8") || "{}");
+  } catch {
+    return {};
+  }
+}
+
+/** Newest plan file in ~/.claude/plans, which is where ExitPlanMode writes. */
+function newestPlanFile() {
+  const dir = join(homedir(), ".claude", "plans");
+  if (!existsSync(dir)) return null;
+  const files = readdirSync(dir)
+    .filter((f) => f.endsWith(".md"))
+    .map((f) => ({ f, m: statSync(join(dir, f)).mtimeMs }))
+    .sort((a, b) => b.m - a.m);
+  return files.length ? join(dir, files[0].f) : null;
+}
+
+function hook(event) {
+  const input = readStdin();
+  if (!isInitialized(P) && event !== "session-start") process.exit(0);
+
+  switch (event) {
+    case "session-start": {
+      // PATH setup is global, so it runs even in repos with no store yet.
+      let note = null;
+      try {
+        note = autolink();
+      } catch {
+        /* never let PATH plumbing break a session */
+      }
+      if (!isInitialized(P)) {
+        if (note) out(JSON.stringify({ systemMessage: note }));
+        process.exit(0);
+      }
+      // A store left behind in a worktree by v0.1 would silently look like data loss.
+      const stranded = legacyStore(P.root);
+      if (stranded) {
+        note = `${note ? `${note}\n` : ""}task-management: found a pre-v0.2 store at ${stranded}. Stores are now shared across worktrees — move it with \`tm migrate\`.`;
+      }
+      if (rotateEvents(P)) logEvent("events_rotated", {}, P);
+      const ctx = sessionContext(P);
+      if (ctx || note) {
+        out(
+          JSON.stringify({
+            ...(ctx ? { hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: ctx } } : {}),
+            ...(note ? { systemMessage: note } : {}),
+          }),
+        );
+      }
+      break;
+    }
+
+    case "pre-task-create": {
+      const gate = gateTaskCreate(P);
+      if (!gate.allow) {
+        // stderr carries the guidance; stdout carries the decision.
+        process.stderr.write(`${gate.reason}\n`);
+        out(
+          JSON.stringify({
+            hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny" },
+            systemMessage: gate.reason,
+          }),
+        );
+      }
+      break;
+    }
+
+    case "post-task": {
+      mirrorNativeTask(input);
+      break;
+    }
+
+    // Compaction is exactly when task state evaporates — put the board back.
+    case "pre-compact": {
+      const ctx = sessionContext(P);
+      if (ctx) out(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreCompact", additionalContext: ctx } }));
+      break;
+    }
+
+    // Don't let the model open a duplicate for work that is already on the board.
+    case "user-prompt": {
+      const prompt = String(input.prompt || input.user_prompt || "");
+
+      /**
+       * `/goal <condition>` arrives here, and that is the whole reason this can work.
+       *
+       * `/goal` is a local, immediate command, and reading Claude Code's own source said local
+       * immediate commands are handled client-side without a prompt round trip — so I recorded that
+       * capturing it was probably impossible and parked the work rather than guess. That was wrong:
+       * with a probe hook installed, typing `/goal …` produced a UserPromptSubmit payload whose
+       * `prompt` field held the literal text. Measured beats inferred.
+       *
+       * What lands is a note on the active task, not a new one. A goal is a condition on the work
+       * in flight — "keep going until X" — and minting a task for it would put a second entry on
+       * the board for something already tracked, which is the exact duplication the rest of this
+       * hook exists to prevent. With nothing claimed there is nothing to annotate and it stays
+       * silent rather than inventing an owner.
+       */
+      const goal = /^\s*\/goal\s+(.+)$/s.exec(prompt);
+      if (goal) {
+        const condition = goal[1].trim();
+        if (condition && condition !== "clear") {
+          const held = Object.entries(state(P).claims || {})
+            .filter(([, c]) => c.session === sessionId())
+            .map(([id]) => id);
+          for (const id of held) {
+            addComment(id, `goal: ${condition}`, { p: P });
+          }
+          if (held.length) {
+            logEvent("goal_set", { tasks: held, condition: condition.slice(0, 200) }, P);
+            out(
+              JSON.stringify({
+                hookSpecificOutput: {
+                  hookEventName: "UserPromptSubmit",
+                  additionalContext: `task-management: recorded that goal on ${held.join(", ")}. Its acceptance criteria are the store's own stop condition — \`tm show <id>\` lists what is still unmet.`,
+                },
+              }),
+            );
+          }
+        }
+        break;
+      }
+
+      const hit = matchOpenTask(prompt);
+      if (hit) {
+        out(
+          JSON.stringify({
+            hookSpecificOutput: {
+              hookEventName: "UserPromptSubmit",
+              additionalContext: `task-management: this looks like ${hit.id} "${hit.title}" (${hit.status}). Resume it with \`tm start ${hit.id}\` rather than creating a new task.`,
+            },
+          }),
+        );
+      }
+      break;
+    }
+
+    /**
+     * A subagent is starting. Tell it what this session is already working on.
+     *
+     * `session_id` here is the PARENT's — confirmed by spawning an agent against a probe hook —
+     * which is exactly the key the claims are held under, so the lookup is the same one
+     * `subagent-stop` uses to attribute the work afterwards.
+     *
+     * Nothing claimed means no output at all. A hook that prints an empty envelope on every spawn
+     * is a cost paid by every fan-out for nothing.
+     */
+    case "subagent-start": {
+      const brief = subagentBrief(input.session_id || sessionId(), P);
+      if (brief) {
+        out(JSON.stringify({ hookSpecificOutput: { hookEventName: "SubagentStart", additionalContext: brief } }));
+      }
+      break;
+    }
+
+    // Parallel agents are invisible unless their work lands on the timeline.
+    /**
+     * A subagent finished. The README promises "its work is attributed on the timeline, so parallel
+     * agents are visible", and it never once was: 340 of these events in this project's own store,
+     * zero with a single task attributed — 23 of them after the change that claimed to fix it.
+     *
+     * That change was wrong twice, and both errors came from guessing at the payload instead of
+     * reading Claude Code's schema for it:
+     *
+     *   1. It selected claims with `CLAUDE_SESSION_ID`, which nothing sets. `parent` was always
+     *      null, so `held` was always empty. The fix could not have worked.
+     *   2. It recorded `input.session_id` as "the agent" and `input.transcript_path` as "the
+     *      subagent's transcript". Neither is the subagent. SubagentStop extends the base hook
+     *      payload, so those two fields are the PARENT's — which the store proves: the only
+     *      `agent` values ever written are top-level session ids, and the one transcript ever
+     *      recorded is the parent's own conversation file.
+     *
+     * Claude Code documents the real fields on this event: "Input to command is JSON with agent_id,
+     * agent_type, and agent_transcript_path." The subagent's identity was sitting unread in the
+     * payload the whole time.
+     *
+     * So: the parent's session selects the claims — `input.session_id` is exactly that, and it is
+     * preferred over the environment because the harness telling us directly beats inferring it —
+     * and the agent is `agent_id`, with its own transcript and its type. `transcript_path` survives
+     * only as a fallback, so an older Claude Code that predates `agent_transcript_path` still
+     * records a pointer rather than nothing.
+     */
+    case "subagent-stop": {
+      const parent = input.session_id || sessionId();
+      const claims = state(P).claims || {};
+      const held = Object.entries(claims)
+        .filter(([, c]) => parent && c.session === parent)
+        .map(([id]) => id);
+      logEvent(
+        "subagent_stop",
+        {
+          agent: input.agent_id || null,
+          agent_type: input.agent_type || undefined,
+          tasks: held,
+          /**
+           * What the agent actually concluded.
+           *
+           * The event recorded a transcript PATH, which is a file nobody opens: reading it means
+           * leaving the board, finding a JSONL of the whole conversation, and reconstructing the
+           * ending. Claude Code puts the agent's final message on the payload — `last_assistant_message`,
+           * confirmed by capturing a real SubagentStop — so the timeline can say what came back
+           * instead of where it is filed.
+           *
+           * Clamped, because an agent's closing message can be pages and this line renders in
+           * `tm log`, the activity panel and a push notification. The path stays for when the
+           * summary is not enough.
+           */
+          said: summarise(input.last_assistant_message),
+          transcript: input.agent_transcript_path || input.transcript_path || undefined,
+        },
+        P,
+      );
+      break;
+    }
+
+    case "notification": {
+      logEvent("notification", { message: String(input.message || "").slice(0, 200) }, P);
+      break;
+    }
+
+    // A session that ends must not leave `in_progress` lying about what is happening.
+    case "session-end": {
+      if (config(P).parkOnSessionEnd === false) break;
+      const session = sessionId();
+      for (const t of list("task", { status: "in_progress" }, P)) {
+        if (session && t.session && t.session !== session) continue;
+        update(t.id, { status: "parked", parkedReason: `session ended (${session || "unknown"})` }, P);
+        releaseClaim(t.id, P);
+        logEvent("parked_on_session_end", { id: t.id }, P);
+      }
+      break;
+    }
+
+    case "post-plan": {
+      capturePlan(input);
+      break;
+    }
+
+    case "post-bash": {
+      linkGit(input);
+      break;
+    }
+
+    // Every Edit and Write says something about which files a task owns. Silent by
+    // design: this fires hundreds of times a session, so the record in the task file
+    // is the output. Never allowed to fail — an edit must not break because we could
+    // not write a path down.
+    case "post-edit": {
+      try {
+        observe(input, {
+          p: P,
+          branch: git(["rev-parse", "--abbrev-ref", "HEAD"]) || null,
+          session: input.session_id || sessionId(),
+          // Relative to the checkout we are standing in, not the store root. In a
+          // worktree those differ, and `src/auth.ts` edited in two worktrees has to
+          // come out as the same path or the collision is invisible.
+          base: CHECKOUT,
+        });
+      } catch {
+        /* ignore */
+      }
+      break;
+    }
+
+    case "post-decision": {
+      captureDecision(input);
+      break;
+    }
+
+    case "stop": {
+      const gate = gateStop(P);
+      if (gate.block) {
+        // Stop is NOT a hookSpecificOutput union member — guidance on stderr,
+        // top-level decision/reason on stdout. (See security-guidance hook notes.)
+        process.stderr.write(`${gate.reason}\n`);
+        out(JSON.stringify({ decision: "block", reason: gate.reason }));
+      }
+      break;
+    }
+
+    default:
+      break;
+  }
+  process.exit(0);
+}
+
+/** Mirror a native TaskCreate/TaskUpdate into the markdown store. */
+function mirrorNativeTask(input) {
+  const ti = input.tool_input || {};
+  const resp = input.tool_response || {};
+  const nativeId = String(ti.taskId || resp.id || resp.taskId || "");
+  const existing = nativeId ? list("task", {}, P).find((t) => t.nativeId === nativeId) : null;
+
+  if (input.tool_name === "TaskCreate" || !existing) {
+    const title = ti.subject || resp.subject;
+    if (!title) return;
+    const dup = findDuplicate(title, P);
+    if (dup) {
+      update(dup.id, { nativeId: nativeId || dup.nativeId, ...stamp() }, P);
+      return;
+    }
+    create(
+      "task",
+      {
+        title,
+        nativeId: nativeId || undefined,
+        epic: state(P).activeEpic || null,
+        activeForm: ti.activeForm,
+        status: "open",
+        acceptance: [],
+        evidence: [],
+        commits: [],
+        blockedBy: [],
+        blocks: [],
+        ...stamp(),
+      },
+      ti.description || "",
+      P,
+    );
+    return;
+  }
+
+  const patch = { ...stamp() };
+  if (ti.status) patch.status = FROM_NATIVE[ti.status] || ti.status;
+  if (ti.subject) patch.title = ti.subject;
+  if (ti.activeForm) patch.activeForm = ti.activeForm;
+  if (ti.owner) patch.owner = ti.owner;
+  if (ti.addBlockedBy?.length) {
+    patch.blockedBy = [...new Set([...(existing.blockedBy || []), ...nativeIdsToStore(ti.addBlockedBy)])];
+  }
+  if (ti.addBlocks?.length) {
+    patch.blocks = [...new Set([...(existing.blocks || []), ...nativeIdsToStore(ti.addBlocks)])];
+  }
+  if (ti.description) patch.body = ti.description;
+  update(existing.id, patch, P);
+  if (patch.status === "done") {
+    release(existing.id, P);
+    logEvent("done", { id: existing.id, via: "native" }, P);
+    unblockDependents(existing.id, P);
+  }
+  if (patch.status === "deleted") release(existing.id, P);
+}
+
+function nativeIdsToStore(ids) {
+  const all = list("task", {}, P);
+  return ids.map((n) => all.find((t) => t.nativeId === String(n))?.id || `native:${n}`);
+}
+
+/** ExitPlanMode → copy the plan into the repo, open an epic, remember the link. */
+function capturePlan(input) {
+  const src = newestPlanFile();
+  if (!src) return;
+  mkdirSync(P.plans, { recursive: true });
+  const title = (readFileSync(src, "utf8").match(/^#\s+(.+)$/m) || [, basename(src, ".md")])[1];
+  const dest = join(P.plans, `${now().slice(0, 10)}-${slug(title)}.md`);
+  if (!existsSync(dest)) copyFileSync(src, dest);
+
+  let epicId = state(P).activeEpic;
+  if (!epicId) {
+    const e = create("epic", { title, plan: dest.replace(`${P.root}/`, ""), ...stamp() }, `Plan: ${dest.replace(`${P.root}/`, "")}\n`, P);
+    writeState({ activeEpic: e.id }, P);
+    epicId = e.id;
+  } else {
+    update(epicId, { plan: dest.replace(`${P.root}/`, "") }, P);
+  }
+  logEvent("plan_captured", { id: epicId, plan: dest }, P);
+  out(
+    JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: "PostToolUse",
+        additionalContext:
+          `task-management: plan saved to ${dest.replace(`${P.root}/`, "")} and linked to epic ${epicId} (now active). ` +
+          "Create the implementation tasks with TaskCreate — they will be filed under this epic automatically.",
+      },
+    }),
+  );
+}
+
+/** git commit / gh pr create → attach the ref to the task it mentions or the active claim. */
+function linkGit(input) {
+  if (!config(P).gitLink) return;
+  const cmd = String(input.tool_input?.command || "");
+  if (!/\bgit\s+commit\b|\bgh\s+pr\s+create\b/.test(cmd)) return;
+
+  const mentioned = cmd.match(/\bTM-\d+\b/g) || [];
+  // Branch first: `tm/TM-014-…` is unambiguous and needs no discipline in the message.
+  const fromBranch = (git(["rev-parse", "--abbrev-ref", "HEAD"]).match(/\bTM-\d+\b/) || [])[0];
+  const targets = mentioned.length
+    ? [...new Set(mentioned)]
+    : fromBranch
+      ? [fromBranch]
+      : list("task", { status: "in_progress" }, P).map((t) => t.id);
+  if (!targets.length) return;
+
+  const sha = git(["rev-parse", "--short", "HEAD"]);
+  const ref = /gh\s+pr\s+create/.test(cmd)
+    ? (String(input.tool_response?.stdout || "").match(/https:\/\/\S+/) || [""])[0] || "pr"
+    : sha;
+  if (!ref) return;
+  for (const id of targets) {
+    const t = read(id, P);
+    if (!t || (t.commits || []).includes(ref)) continue;
+    mutate(id, (doc) => ({ commits: [...new Set([...(doc.commits || []), ref])] }), P);
+    logEvent("git_link", { id, ref }, P);
+  }
+}
+
+/** AskUserQuestion → ADR, filtered and deduped by lib/adr.mjs (see TM-016). */
+function captureDecision(input) {
+  const res = upsertDecision(input, { p: P, config: config(P) });
+  if (res?.id) logEvent(res.created ? "decision_captured" : "decision_updated", { id: res.id }, P);
+  return;
+}
+
+function captureDecisionLegacy(input) {
+  if (!config(P).captureDecisions) return;
+  const questions = input.tool_input?.questions || [];
+  const answers = input.tool_response?.answers || input.tool_input?.answers || {};
+  const decided = Object.entries(answers);
+  if (!decided.length) return;
+
+  const title = questions[0]?.header ? `${questions[0].header} decision` : "Decision";
+  const body = [
+    "## Context",
+    "",
+    "Captured automatically from an AskUserQuestion during a Claude Code session.",
+    "",
+    "## Decision",
+    "",
+    ...decided.map(([q, a]) => `- **${q}**\n  → ${a}`),
+    "",
+    "## Consequences",
+    "",
+    "_TODO: fill in — this stub exists so the decision is not lost._",
+  ].join("\n");
+  const a = create("adr", { title, status: "proposed", epic: state(P).activeEpic || null, date: now().slice(0, 10) }, body, P);
+  logEvent("decision_captured", { id: a.id }, P);
+}
+
+// ── dispatch ─────────────────────────────────────────────────────────────────
+
+const fn = VERBS[verb || "help"];
+if (!fn) die(`unknown verb: ${verb}\n(try: tm help)`);
+try {
+  await fn(...argv.slice(1));
+} catch (err) {
+  die(`tm ${verb}: ${err.message}`);
+}

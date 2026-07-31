@@ -1,6 +1,14 @@
 ---
 name: setup-cli
-description: Install thin wrappers in ~/.local/bin/ so the fleet plugin's public CLIs (claude-sessions, claude-sessions-web, spawn-claude-feature) are callable from the user's interactive zsh / bash, not just from the Claude Code tool host. The wrappers resolve to the latest installed plugin version at exec time, so they survive `/plugin update`. Idempotent — re-running it overwrites stale wrappers but refuses to clobber foreign files at the same path. Use when the user says "setup cli", "/fleet:setup-cli", "claude-sessions: command not found", "put fleet on my PATH", "wire up the fleet wrappers", or any phrasing about getting the fleet CLI onto an interactive shell PATH.
+description: >-
+  Install thin wrappers in ~/.local/bin/ so the fleet plugin's public CLIs (claude-sessions,
+  claude-sessions-web, spawn-claude-feature) are callable from the user's interactive zsh / bash,
+  not just from the Claude Code tool host. The wrappers resolve to the latest installed plugin
+  version at exec time, so they survive `/plugin update`. Idempotent — re-running it overwrites
+  stale wrappers but refuses to clobber foreign files at the same path. Use when the user says
+  "setup cli", "/fleet:setup-cli", "claude-sessions: command not found", "put fleet on my PATH",
+  "wire up the fleet wrappers", or any phrasing about getting the fleet CLI onto an interactive
+  shell PATH.
 user-invokable: true
 argument-hint: ""
 allowed-tools:

@@ -1,0 +1,375 @@
+{
+  "_comment": [
+    "Tools agentconf knows EXIST. This is not the adapter registry and must never be confused",
+    "with it. An entry here means 'we know this tool and where to look'; an adapter in",
+    "adapters/ means 'a canary proved this tool reads this file'.",
+    "",
+    "Keeping those separate is the whole design. Every `candidates` path below is a HYPOTHESIS",
+    "— usually from vendor docs, sometimes from what another tool writes — and a hypothesis is",
+    "exactly what `agentconf scan` reports as unmanaged rather than silently wiring up.",
+    "",
+    "confidence: documented | reported | unverified",
+    "  documented  the vendor's own docs name this path",
+    "  reported    a third party (e.g. rulesync's target list) writes here; the vendor has not confirmed it",
+    "  unverified  a guess from the directory layout"
+  ],
+  "tools": [
+    {
+      "id": "claude",
+      "name": "Claude Code",
+      "bins": [
+        "claude"
+      ],
+      "configDirs": [
+        "~/.claude"
+      ],
+      "candidates": [
+        {
+          "path": "~/.claude/CLAUDE.md",
+          "kind": "instructions",
+          "confidence": "documented"
+        }
+      ],
+      "docs": "https://code.claude.com/docs/en/memory",
+      "adapter": "claude-instructions"
+    },
+    {
+      "id": "codex",
+      "name": "OpenAI Codex CLI",
+      "bins": [
+        "codex"
+      ],
+      "configDirs": [
+        "~/.codex"
+      ],
+      "candidates": [
+        {
+          "path": "~/.codex/AGENTS.md",
+          "kind": "instructions",
+          "confidence": "documented"
+        },
+        {
+          "path": "~/.codex/rules/*.rules",
+          "kind": "policy",
+          "confidence": "documented"
+        }
+      ],
+      "docs": "https://learn.chatgpt.com/docs/agent-configuration/agents-md",
+      "adapter": "codex-instructions"
+    },
+    {
+      "id": "droid",
+      "name": "Factory droid",
+      "bins": [
+        "droid"
+      ],
+      "configDirs": [
+        "~/.factory"
+      ],
+      "candidates": [
+        {
+          "path": "~/.factory/AGENTS.md",
+          "kind": "instructions",
+          "confidence": "reported"
+        }
+      ],
+      "note": "The binary references CLAUDE.md as well as AGENTS.md. Which wins is unestablished — check before wiring, or an adapter may change behaviour rather than add it.",
+      "docs": "https://docs.factory.ai/"
+    },
+    {
+      "id": "gemini",
+      "name": "Gemini CLI",
+      "bins": [
+        "gemini"
+      ],
+      "configDirs": [
+        "~/.gemini"
+      ],
+      "candidates": [
+        {
+          "path": "~/.gemini/GEMINI.md",
+          "kind": "instructions",
+          "confidence": "documented"
+        }
+      ],
+      "docs": "https://github.com/google-gemini/gemini-cli"
+    },
+    {
+      "id": "goose",
+      "name": "Block goose",
+      "bins": [
+        "goose"
+      ],
+      "configDirs": [
+        "~/.config/goose"
+      ],
+      "candidates": [
+        {
+          "path": "~/.config/goose/.goosehints",
+          "kind": "instructions",
+          "confidence": "reported"
+        }
+      ],
+      "note": "rulesync writes this path. `strings $(command -v goose)` showed ZERO references to '.goosehints' or 'AGENTS.md' on a machine where goose is installed — unproven, not disproven, since a stripped or compressed binary can hide a string. Do not wire without a canary.",
+      "docs": "https://block.github.io/goose/"
+    },
+    {
+      "id": "copilot",
+      "name": "GitHub Copilot CLI",
+      "bins": [
+        "copilot"
+      ],
+      "configDirs": [
+        "~/.copilot",
+        "~/.config/github-copilot"
+      ],
+      "candidates": [
+        {
+          "path": "~/.copilot/copilot-instructions.md",
+          "kind": "instructions",
+          "confidence": "reported"
+        }
+      ],
+      "docs": "https://docs.github.com/en/copilot"
+    },
+    {
+      "id": "cursor",
+      "name": "Cursor",
+      "bins": [
+        "cursor",
+        "cursor-agent"
+      ],
+      "configDirs": [
+        "~/.cursor"
+      ],
+      "candidates": [
+        {
+          "path": "~/.cursor/rules",
+          "kind": "instructions",
+          "confidence": "unverified"
+        }
+      ],
+      "note": "An editor rather than a CLI agent. A canary needs cursor-agent, not the GUI.",
+      "docs": "https://docs.cursor.com/"
+    },
+    {
+      "id": "windsurf",
+      "name": "Windsurf",
+      "bins": [
+        "windsurf"
+      ],
+      "configDirs": [
+        "~/.windsurf",
+        "~/.codeium"
+      ],
+      "candidates": [
+        {
+          "path": "~/.codeium/windsurf/memories/global_rules.md",
+          "kind": "instructions",
+          "confidence": "reported"
+        }
+      ],
+      "docs": "https://docs.windsurf.com/"
+    },
+    {
+      "id": "cline",
+      "name": "Cline",
+      "bins": [
+        "cline"
+      ],
+      "configDirs": [
+        "~/.cline"
+      ],
+      "candidates": [
+        {
+          "path": "~/.cline/rules",
+          "kind": "instructions",
+          "confidence": "unverified"
+        }
+      ],
+      "docs": "https://docs.cline.bot/"
+    },
+    {
+      "id": "zed",
+      "name": "Zed",
+      "bins": [
+        "zed"
+      ],
+      "configDirs": [
+        "~/.config/zed"
+      ],
+      "candidates": [
+        {
+          "path": "~/.config/zed/settings.json",
+          "kind": "settings",
+          "confidence": "documented"
+        }
+      ],
+      "note": "Its agent panel takes rules; whether a global instructions file exists is unestablished.",
+      "docs": "https://zed.dev/docs/"
+    },
+    {
+      "id": "antigravity",
+      "name": "Antigravity",
+      "bins": [
+        "antigravity"
+      ],
+      "configDirs": [
+        "~/.gemini/antigravity"
+      ],
+      "candidates": [],
+      "note": "Present on this machine under ~/.gemini/antigravity. No instruction path established.",
+      "docs": ""
+    },
+    {
+      "id": "continue",
+      "name": "Continue",
+      "bins": [
+        "continue"
+      ],
+      "configDirs": [
+        "~/.continue"
+      ],
+      "candidates": [
+        {
+          "path": "~/.continue/config.yaml",
+          "kind": "settings",
+          "confidence": "documented"
+        }
+      ],
+      "docs": "https://docs.continue.dev/"
+    },
+    {
+      "id": "amp",
+      "name": "Amp",
+      "bins": [
+        "amp"
+      ],
+      "configDirs": [
+        "~/.config"
+      ],
+      "candidates": [
+        {
+          "path": "~/.config/AGENTS.md",
+          "kind": "instructions",
+          "confidence": "reported"
+        }
+      ],
+      "docs": "https://ampcode.com/"
+    },
+    {
+      "id": "aider",
+      "name": "aider",
+      "bins": [
+        "aider"
+      ],
+      "configDirs": [
+        "~/.aider"
+      ],
+      "candidates": [
+        {
+          "path": "~/.aider.conf.yml",
+          "kind": "settings",
+          "confidence": "documented"
+        }
+      ],
+      "docs": "https://aider.chat/docs/"
+    },
+    {
+      "id": "opencode",
+      "name": "opencode",
+      "bins": [
+        "opencode"
+      ],
+      "configDirs": [
+        "~/.config/opencode"
+      ],
+      "candidates": [
+        {
+          "path": "~/.config/opencode/AGENTS.md",
+          "kind": "instructions",
+          "confidence": "reported"
+        }
+      ],
+      "docs": "https://opencode.ai/docs/"
+    },
+    {
+      "id": "crush",
+      "name": "Charm crush",
+      "bins": [
+        "crush"
+      ],
+      "configDirs": [
+        "~/.config/crush"
+      ],
+      "candidates": [
+        {
+          "path": "~/.config/crush/CRUSH.md",
+          "kind": "instructions",
+          "confidence": "reported"
+        }
+      ],
+      "docs": "https://github.com/charmbracelet/crush"
+    },
+    {
+      "id": "q",
+      "name": "Amazon Q Developer CLI",
+      "bins": [
+        "q"
+      ],
+      "configDirs": [
+        "~/.aws/amazonq"
+      ],
+      "candidates": [
+        {
+          "path": "~/.aws/amazonq/global_context.json",
+          "kind": "settings",
+          "confidence": "reported"
+        }
+      ],
+      "docs": "https://docs.aws.amazon.com/amazonq/"
+    },
+    {
+      "id": "grok",
+      "name": "Grok CLI (xAI)",
+      "bins": [
+        "grok"
+      ],
+      "configDirs": [
+        "~/.grok"
+      ],
+      "candidates": [
+        {
+          "path": "~/.grok/AGENTS.md",
+          "kind": "instructions",
+          "confidence": "proven"
+        }
+      ],
+      "note": "PROVEN 2026-07-30. Reads ~/.grok/AGENTS.md and follows a symlink for it. Does NOT expand @imports — verified by token count, not by asking the model. Also reads ~/.claude/CLAUDE.md as a [claude] global, but without import expansion that yields nothing.",
+      "docs": "https://github.com/superagent-ai/grok-cli",
+      "adapter": "grok-instructions"
+    },
+    {
+      "id": "kimi",
+      "name": "Kimi Code (Moonshot)",
+      "bins": [
+        "kimi"
+      ],
+      "binPaths": [
+        "~/.kimi-code/bin/kimi"
+      ],
+      "configDirs": [
+        "~/.kimi-code"
+      ],
+      "candidates": [
+        {
+          "path": "~/.kimi-code/AGENTS.md",
+          "kind": "instructions",
+          "confidence": "reported"
+        }
+      ],
+      "note": "strings on the 161MB binary shows 67 references to AGENTS.md, 12 to CLAUDE.md, and 4 to the literal '.kimi-code/AGENTS.md'. Which of AGENTS.md and CLAUDE.md wins is unestablished. The binary is NOT on PATH by default — it lives at ~/.kimi-code/bin/kimi.",
+      "docs": "https://www.kimi.com/"
+    }
+  ]
+}

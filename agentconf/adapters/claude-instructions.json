@@ -1,0 +1,16 @@
+{
+  "id": "claude-instructions",
+  "tool": "claude",
+  "kind": "instructions",
+  "detect": { "bin": "claude", "authCmd": ["claude", "auth", "status"] },
+  "target": "~/.claude/CLAUDE.md",
+  "mechanism": "import",
+  "importLine": "@~/.agents/AGENTS.md",
+  "why": "Claude Code expands `@path` imports inside CLAUDE.md, so the shared file loads without the tool-specific sections having to move. Absolute and `~` paths both resolve — tested.",
+  "canary": {
+    "cmd": ["claude", "-p", "{{probe}}", "--dangerously-skip-permissions"],
+    "cwd": "tmp"
+  },
+  "verified": "2026-07-30",
+  "verifiedBy": "canary HELIOS64 returned through the import"
+}

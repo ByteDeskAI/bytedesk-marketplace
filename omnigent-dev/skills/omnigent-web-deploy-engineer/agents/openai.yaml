@@ -1,4 +1,0 @@
-interface:
-  display_name: "Omnigent Web Deploy Engineer"
-  short_description: "ap-web, deploy targets, auth, sandboxes, and host topology."
-  default_prompt: "Use this skill for Omnigent web UI, deployment, sandbox, and auth work."

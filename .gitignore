@@ -1,5 +1,10 @@
 # Per-user fleet state — never commit
 .claude-sessions/
+.claude/plugins/
+# .bytedesk/task-management/ IS committed — the task store is shared work, and it carries
+# its own .gitignore for the machine-local parts (index.json, state.json, dashboard.*).
+.bytedesk/worktrees/
+**/.in_use/
 .claude/worktrees/
 notifications.fifo
 notify.log

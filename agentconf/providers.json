@@ -1,0 +1,137 @@
+{
+  "_comment": [
+    "Model backends, as distinct from the tools that call them. A tool is not a provider:",
+    "codex is a tool, OpenAI is a provider, and the interesting failures live in the gap.",
+    "",
+    "Detection is by SIGNAL, never by secret: whether an env var is set, never its value, and",
+    "never by opening a credential file. `authEnv` names variables whose presence indicates a",
+    "key is configured; `baseUrlEnv` names variables that REDIRECT the tool somewhere else,",
+    "which is legitimate for a gateway and the highest-value thing to notice if it appeared",
+    "without you setting it.",
+    "",
+    "See docs/registry.md for why this file can be updated from an untrusted source."
+  ],
+  "providers": [
+    {
+      "id": "anthropic",
+      "name": "Anthropic",
+      "authEnv": ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"],
+      "baseUrlEnv": ["ANTHROPIC_BASE_URL"],
+      "oauthTools": ["claude"],
+      "usedBy": ["claude"],
+      "docs": "https://docs.claude.com/"
+    },
+    {
+      "id": "openai",
+      "name": "OpenAI",
+      "authEnv": ["OPENAI_API_KEY"],
+      "baseUrlEnv": ["OPENAI_BASE_URL"],
+      "oauthTools": ["codex"],
+      "usedBy": ["codex", "opencode", "aider", "continue"],
+      "conflictNote": "codex supports both a ChatGPT login and an API key. When both are present the API KEY WINS, so usage bills to the key while the subscription sits idle. `codex doctor` reports this as 'mixed auth signals'.",
+      "docs": "https://platform.openai.com/docs"
+    },
+    {
+      "id": "xai",
+      "name": "xAI",
+      "authEnv": ["XAI_API_KEY", "GROK_API_KEY"],
+      "baseUrlEnv": ["XAI_BASE_URL"],
+      "oauthTools": ["grok"],
+      "usedBy": ["grok"],
+      "docs": "https://docs.x.ai/"
+    },
+    {
+      "id": "google",
+      "name": "Google (Gemini)",
+      "authEnv": ["GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_API_KEY"],
+      "baseUrlEnv": [],
+      "oauthTools": ["gemini"],
+      "usedBy": ["gemini", "antigravity"],
+      "conflictNote": "gemini supports a Google account login as well as an API key. GOOGLE_API_KEY is broad — it is used by many non-Gemini Google services, so its presence is weaker evidence than GEMINI_API_KEY.",
+      "docs": "https://ai.google.dev/"
+    },
+    {
+      "id": "moonshot",
+      "name": "Moonshot (Kimi)",
+      "authEnv": ["MOONSHOT_API_KEY", "KIMI_API_KEY"],
+      "baseUrlEnv": ["MOONSHOT_BASE_URL"],
+      "oauthTools": ["kimi"],
+      "usedBy": ["kimi"],
+      "docs": "https://platform.moonshot.cn/"
+    },
+    {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "authEnv": ["OPENROUTER_API_KEY"],
+      "baseUrlEnv": ["OPENROUTER_BASE_URL"],
+      "usedBy": ["aider", "opencode", "continue", "cline"],
+      "docs": "https://openrouter.ai/docs"
+    },
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "authEnv": ["DEEPSEEK_API_KEY"],
+      "baseUrlEnv": ["DEEPSEEK_BASE_URL"],
+      "usedBy": [],
+      "docs": "https://platform.deepseek.com/"
+    },
+    {
+      "id": "groq",
+      "name": "Groq",
+      "authEnv": ["GROQ_API_KEY"],
+      "baseUrlEnv": [],
+      "usedBy": [],
+      "docs": "https://console.groq.com/docs"
+    },
+    {
+      "id": "mistral",
+      "name": "Mistral",
+      "authEnv": ["MISTRAL_API_KEY"],
+      "baseUrlEnv": [],
+      "usedBy": [],
+      "docs": "https://docs.mistral.ai/"
+    },
+    {
+      "id": "together",
+      "name": "Together AI",
+      "authEnv": ["TOGETHER_API_KEY"],
+      "baseUrlEnv": [],
+      "usedBy": [],
+      "docs": "https://docs.together.ai/"
+    },
+    {
+      "id": "azure-openai",
+      "name": "Azure OpenAI",
+      "authEnv": ["AZURE_OPENAI_API_KEY"],
+      "baseUrlEnv": ["AZURE_OPENAI_ENDPOINT"],
+      "usedBy": [],
+      "docs": "https://learn.microsoft.com/azure/ai-services/openai/"
+    },
+    {
+      "id": "bedrock",
+      "name": "AWS Bedrock",
+      "authEnv": ["AWS_BEARER_TOKEN_BEDROCK", "CLAUDE_CODE_USE_BEDROCK"],
+      "baseUrlEnv": [],
+      "usedBy": ["claude", "q"],
+      "docs": "https://docs.aws.amazon.com/bedrock/"
+    },
+    {
+      "id": "vertex",
+      "name": "Google Vertex AI",
+      "authEnv": ["CLAUDE_CODE_USE_VERTEX", "GOOGLE_APPLICATION_CREDENTIALS"],
+      "baseUrlEnv": [],
+      "usedBy": ["claude", "gemini"],
+      "docs": "https://cloud.google.com/vertex-ai/docs"
+    },
+    {
+      "id": "ollama",
+      "name": "Ollama (local)",
+      "authEnv": [],
+      "baseUrlEnv": ["OLLAMA_HOST"],
+      "bins": ["ollama"],
+      "usedBy": ["continue", "aider", "opencode", "goose"],
+      "note": "Local, so absence of a key is normal. Presence of the binary is the signal.",
+      "docs": "https://ollama.com/"
+    }
+  ]
+}

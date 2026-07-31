@@ -1,0 +1,27 @@
+#!/usr/bin/env node
+/**
+ * tm-mcp — the task store as an MCP stdio server. All behavior lives in
+ * lib/mcp.mjs; this is the loop that turns lines into lines.
+ *
+ * stdout carries JSON-RPC and nothing else — anything else corrupts the stream.
+ */
+import { createInterface } from "node:readline";
+import { respondToLine } from "../lib/mcp.mjs";
+
+/**
+ * A closed stdout here means the client is gone, which is the normal way an MCP session ends.
+ * Without a listener that raises an unhandled 'error' event and node dies printing a stack —
+ * into a stream nobody is reading, and this stream is contractually JSON-RPC only. Exit
+ * quietly; rethrow anything that is not a vanished peer.
+ */
+process.stdout.on("error", (err) => {
+  if (err.code === "EPIPE") process.exit(0);
+  throw err;
+});
+
+const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
+
+rl.on("line", (line) => {
+  const response = respondToLine(line);
+  if (response) process.stdout.write(`${JSON.stringify(response)}\n`);
+});
