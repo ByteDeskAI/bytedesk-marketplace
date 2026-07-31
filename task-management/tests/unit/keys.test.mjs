@@ -38,13 +38,14 @@ describe("resolve", () => {
     }
   });
 
-  it("turns a digit into the column at that position, so 1 is always in progress", () => {
-    assert.deepEqual(resolve(ev("1")), { action: "status", status: "in_progress" });
-    assert.deepEqual(resolve(ev("5")), { action: "status", status: COLUMNS[4] });
+  it("turns a digit into the column at that position, so 1 is always the leftmost", () => {
+    assert.deepEqual(resolve(ev("1")), { action: "status", status: "backlog" });
+    assert.deepEqual(resolve(ev("2")), { action: "status", status: "open" }, "column 2 is todo — the status is still `open`");
+    assert.deepEqual(resolve(ev("6")), { action: "status", status: COLUMNS[5] });
   });
 
   it("ignores a digit past the last column instead of moving to undefined", () => {
-    assert.equal(resolve(ev("6")), null);
+    assert.equal(resolve(ev("7")), null);
     assert.equal(resolve(ev("9")), null);
   });
 

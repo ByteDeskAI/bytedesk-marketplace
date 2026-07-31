@@ -6,7 +6,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempStore } from "./helpers.mjs";
 import { createServer } from "node:net";
@@ -243,6 +243,50 @@ describe("takeover", () => {
       assert.doesNotThrow(() => process.kill(child.pid, 0), "a foreign process must survive takeover");
     } finally {
       child.kill("SIGKILL");
+    }
+  });
+});
+
+/**
+ * TM-037 — the board's URL is a thing people bookmark, so it has to survive a restart.
+ * portFor() makes the common case deterministic; the only state that can be lost is a port that
+ * *drifted* off it, which is exactly what a `dashboard.*` sweep used to take.
+ */
+describe("the port survives a restart", () => {
+  it("keeps a drifted assignment when the dashboard.* files are swept", async () => {
+    const p = tempStore();
+    const drifted = portFor(p.base) + 7; // something else held the natural port on first launch
+    assignPort(p, drifted);
+    const before = await ensurePort(p, {});
+    assert.equal(before.port, drifted);
+
+    rmSync(join(p.base, "dashboard.pid"), { force: true });
+    rmSync(join(p.base, "dashboard.port"), { force: true });
+
+    const after = await ensurePort(p, {});
+    assert.equal(after.port, drifted, "tidying the pid file must not move the board's URL");
+  });
+
+  it("adopts a pre-0.5 assignment written under the old name", async () => {
+    const p = tempStore();
+    const drifted = portFor(p.base) + 3;
+    writeFileSync(join(p.base, "dashboard.assigned-port"), `${drifted}\n`);
+
+    const got = await ensurePort(p, {});
+    assert.equal(got.port, drifted, "an existing board must not move ports on upgrade");
+  });
+
+  it("falls back and records the new assignment when the port is taken", async () => {
+    const p = tempStore();
+    const natural = portFor(p.base);
+    const squatter = createServer();
+    await new Promise((r) => squatter.listen(natural, "127.0.0.1", r));
+    try {
+      const got = await ensurePort(p, {});
+      assert.notEqual(got.port, natural, "a bound port is not available, whatever the hash says");
+      assert.equal(assignedPort(p), got.port, "the fallback has to be recorded or it happens again");
+    } finally {
+      await new Promise((r) => squatter.close(r));
     }
   });
 });

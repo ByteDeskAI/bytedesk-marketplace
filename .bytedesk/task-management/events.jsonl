@@ -661,3 +661,96 @@
 {"ts":"2026-07-31T00:22:41.372Z","event":"subagent_stop","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","agent":"ac9a568b3149e592e","tasks":[],"said":"use a separate board.json for activeEpic","transcript":"/home/ryan/.claude/projects/-home-ryan-Documents-GitHub-ByteDeskAI-bytedesk-marketplace/61c67728-2ff2-46ea-87eb-2a99db9c96bd/subagents/agent-ac9a568b3149e592e.jsonl"}
 {"ts":"2026-07-31T00:23:37.000Z","event":"notification","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","message":"Claude is waiting for your input"}
 {"ts":"2026-07-31T01:03:41.264Z","event":"subagent_stop","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","agent":"a3f36ba1f4aa706db","tasks":[],"said":"Goal was making task-management usable in the marketplace repo and safe to clone. That's done: guard rescoped, store committable, doctor and init enforce it, activeEpic now travels. Next: commit the changes, or split activeEpic out of conf…","transcript":"/home/ryan/.claude/projects/-home-ryan-Documents-GitHub-ByteDeskAI-bytedesk-marketplace/61c67728-2ff2-46ea-87eb-2a99db9c96bd/subagents/agent-a3f36ba1f4aa706db.jsonl"}
+{"ts":"2026-07-31T01:38:01.201Z","event":"subagent_stop","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","agent":"a24b4bbb197f05fbe","tasks":[],"said":"restart the dashboard so it picks up the new code","transcript":"/home/ryan/.claude/projects/-home-ryan-Documents-GitHub-ByteDeskAI-bytedesk-marketplace/61c67728-2ff2-46ea-87eb-2a99db9c96bd/subagents/agent-a24b4bbb197f05fbe.jsonl"}
+{"ts":"2026-07-31T01:38:44.582Z","event":"subagent_stop","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","agent":"a9ba5f09f8f9612df","tasks":[],"said":"fix the port so it stays stable across restarts","transcript":"/home/ryan/.claude/projects/-home-ryan-Documents-GitHub-ByteDeskAI-bytedesk-marketplace/61c67728-2ff2-46ea-87eb-2a99db9c96bd/subagents/agent-a9ba5f09f8f9612df.jsonl"}
+{"ts":"2026-07-31T01:39:54.846Z","event":"create","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-037","kind":"task","title":"Dashboard port must stay stable across restarts"}
+{"ts":"2026-07-31T01:39:54.932Z","event":"create","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-038","kind":"task","title":"Epics collapsible on the board, remembered in localStorage"}
+{"ts":"2026-07-31T01:40:09.061Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-037","patch":"acceptance","status":"open"}
+{"ts":"2026-07-31T01:40:09.126Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-037","patch":"acceptance","status":"open"}
+{"ts":"2026-07-31T01:40:09.187Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-038","patch":"acceptance","status":"open"}
+{"ts":"2026-07-31T01:40:09.252Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-038","patch":"acceptance","status":"open"}
+{"ts":"2026-07-31T01:40:23.146Z","event":"subagent_stop","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","agent":"a0693ca49c8a90f2a","tasks":[],"said":"start TM-037 and fix the port","transcript":"/home/ryan/.claude/projects/-home-ryan-Documents-GitHub-ByteDeskAI-bytedesk-marketplace/61c67728-2ff2-46ea-87eb-2a99db9c96bd/subagents/agent-a0693ca49c8a90f2a.jsonl"}
+{"ts":"2026-07-31T01:41:17.394Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-038","patch":"status","status":"deleted"}
+{"ts":"2026-07-31T01:41:26.115Z","event":"subagent_stop","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","agent":"acc07369ef9fb1d16","tasks":[],"said":"park it instead","transcript":"/home/ryan/.claude/projects/-home-ryan-Documents-GitHub-ByteDeskAI-bytedesk-marketplace/61c67728-2ff2-46ea-87eb-2a99db9c96bd/subagents/agent-acc07369ef9fb1d16.jsonl"}
+{"ts":"2026-07-31T01:42:18.178Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-038","patch":"status,reopenedReason,closed","status":"open"}
+{"ts":"2026-07-31T01:42:18.178Z","event":"reopened","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-038","reason":"belongs here after all — this is the task-management board"}
+{"ts":"2026-07-31T01:43:20.123Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","patch":"acceptance","status":"open"}
+{"ts":"2026-07-31T01:43:20.184Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-037","patch":"blockedBy,status","status":"blocked"}
+{"ts":"2026-07-31T01:43:20.185Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","patch":"blocks","status":"open"}
+{"ts":"2026-07-31T01:43:20.186Z","event":"dep","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-037","on":["TM-034"]}
+{"ts":"2026-07-31T01:43:20.242Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-038","patch":"blockedBy,status","status":"blocked"}
+{"ts":"2026-07-31T01:43:20.244Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","patch":"blocks","status":"open"}
+{"ts":"2026-07-31T01:43:20.244Z","event":"dep","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-038","on":["TM-034"]}
+{"ts":"2026-07-31T01:43:47.725Z","event":"subagent_stop","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","agent":"a12faa13141573ee5","tasks":[],"said":"yes, promote them and drop the prose block","transcript":"/home/ryan/.claude/projects/-home-ryan-Documents-GitHub-ByteDeskAI-bytedesk-marketplace/61c67728-2ff2-46ea-87eb-2a99db9c96bd/subagents/agent-a12faa13141573ee5.jsonl"}
+{"ts":"2026-07-31T01:44:25.928Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","patch":"acceptance","status":"open"}
+{"ts":"2026-07-31T01:44:25.929Z","event":"ac_removed","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","index":1,"text":"A backlog column holds future work, distinct from todo (queued next) and open"}
+{"ts":"2026-07-31T01:44:26.006Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","patch":"acceptance","status":"open"}
+{"ts":"2026-07-31T01:44:26.074Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","patch":"acceptance","status":"open"}
+{"ts":"2026-07-31T01:44:26.146Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","patch":"acceptance","status":"open"}
+{"ts":"2026-07-31T01:44:26.203Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","patch":"acceptance","status":"open"}
+{"ts":"2026-07-31T01:44:26.262Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","patch":"acceptance","status":"open"}
+{"ts":"2026-07-31T01:44:31.329Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","patch":"title,body","status":"open"}
+{"ts":"2026-07-31T01:44:31.329Z","event":"edit","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","fields":"title,body","was":"Board has a todo column"}
+{"ts":"2026-07-31T01:44:42.829Z","event":"subagent_stop","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","agent":"a26a741d9332efd14","tasks":[],"said":"commit the board changes","transcript":"/home/ryan/.claude/projects/-home-ryan-Documents-GitHub-ByteDeskAI-bytedesk-marketplace/61c67728-2ff2-46ea-87eb-2a99db9c96bd/subagents/agent-a26a741d9332efd14.jsonl"}
+{"ts":"2026-07-31T01:45:55.785Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","patch":"acceptance","status":"open"}
+{"ts":"2026-07-31T01:45:55.786Z","event":"ac_removed","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","index":5,"text":"A backlog column holds future work, distinct from todo (queued next) and open"}
+{"ts":"2026-07-31T01:45:55.863Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","patch":"acceptance","status":"open"}
+{"ts":"2026-07-31T01:45:55.864Z","event":"ac_removed","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","index":4,"text":"Tasks that never enter todo keep their existing status unchanged"}
+{"ts":"2026-07-31T01:45:55.925Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","patch":"acceptance","status":"open"}
+{"ts":"2026-07-31T01:45:55.926Z","event":"ac_removed","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","index":3,"text":"The status survives a reload and appears in `tm board`"}
+{"ts":"2026-07-31T01:45:55.989Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","patch":"acceptance","status":"open"}
+{"ts":"2026-07-31T01:45:55.990Z","event":"ac_removed","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","index":2,"text":"A task can be moved into and out of todo by drag and from the CLI"}
+{"ts":"2026-07-31T01:45:56.061Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","patch":"acceptance","status":"open"}
+{"ts":"2026-07-31T01:45:56.062Z","event":"ac_removed","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","index":1,"text":"The board renders a todo column"}
+{"ts":"2026-07-31T01:45:56.125Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","patch":"acceptance","status":"open"}
+{"ts":"2026-07-31T01:45:56.187Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","patch":"acceptance","status":"open"}
+{"ts":"2026-07-31T01:45:56.245Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","patch":"acceptance","status":"open"}
+{"ts":"2026-07-31T01:45:56.303Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","patch":"acceptance","status":"open"}
+{"ts":"2026-07-31T01:46:02.305Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","patch":"title,body","status":"open"}
+{"ts":"2026-07-31T01:46:02.305Z","event":"edit","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","fields":"title,body","was":"Board has a todo column and a backlog"}
+{"ts":"2026-07-31T01:46:11.116Z","event":"subagent_stop","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","agent":"add7da6e57d26ce94","tasks":[],"said":"commit this","transcript":"/home/ryan/.claude/projects/-home-ryan-Documents-GitHub-ByteDeskAI-bytedesk-marketplace/61c67728-2ff2-46ea-87eb-2a99db9c96bd/subagents/agent-add7da6e57d26ce94.jsonl"}
+{"ts":"2026-07-31T01:48:40.994Z","event":"claim","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034"}
+{"ts":"2026-07-31T01:48:41.010Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","patch":"status,actor,session,branch,worktree","status":"in_progress"}
+{"ts":"2026-07-31T01:49:16.417Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","patch":"touches","status":"in_progress"}
+{"ts":"2026-07-31T01:49:44.205Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-036","patch":"status","status":"backlog"}
+{"ts":"2026-07-31T01:49:44.327Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-036","patch":"status","status":"open"}
+{"ts":"2026-07-31T01:50:27.443Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","patch":"touches","status":"in_progress"}
+{"ts":"2026-07-31T01:55:53.362Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","patch":"acceptance","status":"in_progress"}
+{"ts":"2026-07-31T01:55:53.362Z","event":"ac_met","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","index":1,"text":"The column of open tasks is labelled ToDo — open IS todo, there is no separate status"}
+{"ts":"2026-07-31T01:55:53.440Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","patch":"acceptance","status":"in_progress"}
+{"ts":"2026-07-31T01:55:53.441Z","event":"ac_met","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","index":2,"text":"A backlog column holds future work, distinct from ToDo"}
+{"ts":"2026-07-31T01:55:53.520Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","patch":"acceptance","status":"in_progress"}
+{"ts":"2026-07-31T01:55:53.520Z","event":"ac_met","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","index":3,"text":"A task moves between backlog and ToDo by drag and from the CLI"}
+{"ts":"2026-07-31T01:55:53.588Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","patch":"acceptance","status":"in_progress"}
+{"ts":"2026-07-31T01:55:53.589Z","event":"ac_met","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","index":4,"text":"The status survives a reload and appears in `tm board`"}
+{"ts":"2026-07-31T01:55:53.669Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","patch":"evidence","status":"in_progress"}
+{"ts":"2026-07-31T01:55:53.739Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","patch":"evidence","status":"in_progress"}
+{"ts":"2026-07-31T01:55:56.526Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034","patch":"status,closed","status":"done"}
+{"ts":"2026-07-31T01:55:56.527Z","event":"release","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034"}
+{"ts":"2026-07-31T01:55:56.527Z","event":"done","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-034"}
+{"ts":"2026-07-31T01:55:56.530Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-037","patch":"status","status":"open"}
+{"ts":"2026-07-31T01:55:56.530Z","event":"unblocked","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-037","by":"TM-034"}
+{"ts":"2026-07-31T01:55:56.531Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-038","patch":"status","status":"open"}
+{"ts":"2026-07-31T01:55:56.531Z","event":"unblocked","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-038","by":"TM-034"}
+{"ts":"2026-07-31T01:56:01.070Z","event":"claim","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-037"}
+{"ts":"2026-07-31T01:56:01.085Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-037","patch":"status,actor,session,branch,worktree","status":"in_progress"}
+{"ts":"2026-07-31T01:56:01.149Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-037","patch":"acceptance","status":"in_progress"}
+{"ts":"2026-07-31T01:56:01.150Z","event":"ac_met","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-037","index":1,"text":"the dashboard reopens on the same port after a stop and a restart"}
+{"ts":"2026-07-31T01:56:01.224Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-037","patch":"acceptance","status":"in_progress"}
+{"ts":"2026-07-31T01:56:01.224Z","event":"ac_met","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-037","index":2,"text":"a port already taken by another process falls back and records the new assignment"}
+{"ts":"2026-07-31T01:56:01.286Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-037","patch":"evidence","status":"in_progress"}
+{"ts":"2026-07-31T01:56:01.362Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-037","patch":"status,closed","status":"done"}
+{"ts":"2026-07-31T01:56:01.363Z","event":"release","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-037"}
+{"ts":"2026-07-31T01:56:01.363Z","event":"done","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-037"}
+{"ts":"2026-07-31T01:56:01.434Z","event":"claim","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-038"}
+{"ts":"2026-07-31T01:56:01.450Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-038","patch":"status,actor,session,branch,worktree","status":"in_progress"}
+{"ts":"2026-07-31T01:56:01.520Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-038","patch":"acceptance","status":"in_progress"}
+{"ts":"2026-07-31T01:56:01.521Z","event":"ac_met","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-038","index":1,"text":"an epic collapses and expands on the board"}
+{"ts":"2026-07-31T01:56:01.590Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-038","patch":"acceptance","status":"in_progress"}
+{"ts":"2026-07-31T01:56:01.591Z","event":"ac_met","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-038","index":2,"text":"the collapsed set survives a reload, per project"}
+{"ts":"2026-07-31T01:56:01.665Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-038","patch":"evidence","status":"in_progress"}
+{"ts":"2026-07-31T01:56:01.738Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-038","patch":"status,closed","status":"done"}
+{"ts":"2026-07-31T01:56:01.739Z","event":"release","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-038"}
+{"ts":"2026-07-31T01:56:01.740Z","event":"done","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-038"}
+{"ts":"2026-07-31T01:56:24.041Z","event":"subagent_stop","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","agent":"a156f099cf397d429","tasks":[],"said":"bump the version and commit this","transcript":"/home/ryan/.claude/projects/-home-ryan-Documents-GitHub-ByteDeskAI-bytedesk-marketplace/61c67728-2ff2-46ea-87eb-2a99db9c96bd/subagents/agent-a156f099cf397d429.jsonl"}
+{"ts":"2026-07-31T01:57:18.155Z","event":"notification","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","message":"Claude is waiting for your input"}

@@ -49,6 +49,8 @@ export function EpicLane({
   fraction,
   onActivate,
   isNoEpic,
+  collapsed = false,
+  onToggle,
 }: {
   lane: Lane;
   done: number;
@@ -56,11 +58,25 @@ export function EpicLane({
   fraction: number;
   onActivate?: (id: string) => void;
   isNoEpic: boolean;
+  /** Folded lanes keep their header — the progress bar is the reason to fold, not lose. */
+  collapsed?: boolean;
+  onToggle?: () => void;
 }) {
   return (
     <Box xcss={styles.header}>
       <Box xcss={lane.active ? styles.active : undefined}>
         <Inline space="space.150" alignBlock="center" shouldWrap>
+          {onToggle ? (
+            <Button
+              appearance="subtle"
+              spacing="compact"
+              onClick={onToggle}
+              aria-expanded={!collapsed}
+              aria-label={`${collapsed ? "Expand" : "Collapse"} ${lane.title}`}
+            >
+              {collapsed ? "▸" : "▾"}
+            </Button>
+          ) : null}
           {!isNoEpic ? (
             <Box xcss={styles.id}>
               <Text size="small" weight="bold">

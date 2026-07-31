@@ -412,6 +412,24 @@ const VERBS = {
     );
   },
 
+  /**
+   * Backlog is where work waits to be *decided*, todo is where it waits to be *started*.
+   * Keeping them apart is the whole point: `tm next` reads todo, so anything parked in the
+   * backlog stops competing for attention without being closed or forgotten.
+   */
+  defer(id) {
+    requireInit();
+    update(id, { status: "backlog" }, P);
+    release(id, P);
+    out(`${id} → backlog`);
+  },
+
+  todo(id) {
+    requireInit();
+    update(id, { status: "open" }, P);
+    out(`${id} → todo`);
+  },
+
   park(id, ...why) {
     requireInit();
     update(id, { status: "parked", parkedReason: why.join(" ") || undefined }, P);
@@ -1204,6 +1222,7 @@ const VERBS = {
         "  cap list [--status open] | accept <CAP-id> | ship <CAP-id> [--evidence <ref>] | drop <CAP-id>",
         "  goal import <doc.md>          a goal doc becomes a task; its success criteria become the gate",
         "  start <id> | done <id> | park <id> [why] | block <id> [why] | unblock <id>",
+        "  defer <id> | todo <id>        move to the backlog column, or back to todo (`backlog` alone lists the ranked queue)",
         "  reopen <id> [why]             bring a done task back, and its epic with it",
         '  ac <id> "<criterion>" | ac <id> --rm <n> | accept <id> <n> [--undo]',
         "  evidence <id> <path|-> | link <id> <ref> | dep <id> [-]<blocker>...",

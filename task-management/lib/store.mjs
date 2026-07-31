@@ -732,6 +732,9 @@ export function reindex(p = paths()) {
  *   index.json      a derived cache. The README already says "delete it any time".
  *   state.json      session claims and one-shot overrides — whose laptop, not what work.
  *   dashboard.*     a port and a pid for a server running on one machine right now.
+ *   port.assigned   this machine's standing port for the board. Per-machine, but NOT swept with
+ *                   dashboard.* — losing it moves the URL of a board that drifted off its
+ *                   deterministic port.
  *   .tm-tmp-*       the temp file `writeAtomic` renames over the real one.
  *
  * `events.jsonl` gets `merge=union` and that is the piece worth having. It is append-only, so two
@@ -750,6 +753,10 @@ state.json
 
 # A port and a pid for a dashboard running here, now.
 dashboard.*
+
+# The standing port assignment. Per-machine like the above, but kept out of the dashboard.*
+# glob so tidying the pid file cannot move the board's URL.
+port.assigned
 
 # writeAtomic's staging files. Present only mid-write, or after a crash.
 .tm-tmp-*

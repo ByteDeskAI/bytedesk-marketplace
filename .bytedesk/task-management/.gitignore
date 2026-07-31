@@ -10,5 +10,9 @@ state.json
 # A port and a pid for a dashboard running here, now.
 dashboard.*
 
+# The standing port assignment. Per-machine like the above, but kept out of the dashboard.*
+# glob so tidying the pid file cannot move the board's URL.
+port.assigned
+
 # writeAtomic's staging files. Present only mid-write, or after a crash.
 .tm-tmp-*

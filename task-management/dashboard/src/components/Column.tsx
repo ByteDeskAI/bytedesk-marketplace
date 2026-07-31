@@ -3,6 +3,7 @@ import Badge from "@atlaskit/badge";
 import { cssMap } from "@atlaskit/css";
 import { Box, Inline, Stack, Text } from "@atlaskit/primitives/compiled";
 import { TaskCard } from "./TaskCard";
+import { label } from "../keys.mjs";
 import type { Status, Task } from "../types";
 
 const EMPTY_SET: Set<string> = new Set();
@@ -73,7 +74,7 @@ export function Column({
         <Inline space="space.075" alignBlock="center">
           <Box xcss={styles.heading}>
             <Text size="small" weight="bold" color="color.text.subtlest">
-              {status.replace("_", " ")}
+              {label(status)}
             </Text>
           </Box>
           <Badge>{tasks.length}</Badge>
@@ -87,7 +88,7 @@ export function Column({
             </Box>
           ) : null}
         </Inline>
-        <div role="list" aria-label={`${status.replace("_", " ")}, ${tasks.length} tasks`}>
+        <div role="list" aria-label={`${label(status)}, ${tasks.length} tasks`}>
           <Stack space="space.100">
             {tasks.length ? (
               tasks.map((t) => (

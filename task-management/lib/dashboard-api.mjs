@@ -35,7 +35,7 @@ import {
   writeState,
 } from "./store.mjs";
 
-const STATUSES = ["open", "in_progress", "blocked", "parked", "done"];
+const STATUSES = ["backlog", "open", "in_progress", "blocked", "parked", "done"];
 const ok = (body = {}) => ({ status: 200, body });
 const fail = (status, error) => ({ status, body: { error } });
 

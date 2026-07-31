@@ -62,7 +62,8 @@ describe("the sprint report", () => {
       { title: "finished", points: 1, status: "done" },
     ]);
     const out = sprintReport(s.id, p);
-    for (const heading of ["## in_progress (1)", "## blocked (1)", "## done (1)"]) {
+    // Headings read the same here as on the board — one COLUMNS/LABEL pair feeds both.
+    for (const heading of ["## in progress (1)", "## blocked (1)", "## done (1)"]) {
       assert.ok(out.includes(heading), `missing ${heading}\n${out}`);
     }
   });

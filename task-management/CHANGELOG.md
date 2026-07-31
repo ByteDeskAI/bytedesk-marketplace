@@ -2,24 +2,57 @@
 
 ## Unreleased
 
-Fixed: a fresh clone now runs as the committer's checkout did. `activeEpic` lived in the
-gitignored `state.json`, so it never travelled — the clone rendered a correct-looking board and
-then refused the next `tm task new` for having no active epic. It now lives in the committed
-`config.json`; claims, overrides and the last Stop block stay per-machine. Existing stores are
-read through transparently and move on the next write.
+## [0.5.0] — 2026-07-30
 
-Added: `tm init` and `tm doctor` both report a store the repo would keep out of git — an
-ancestor `.gitignore` swallowing `.bytedesk/`, named down to the `<file>:<line>:<pattern>` to
-edit (`store-ignored`, an error, in doctor; a warning on stderr at init). This is the one
-failure that stays silent: the board works, `git status` is clean, and not one task reaches a
-second clone or a CI run. `tm init` writes the store's own `.gitignore`, but nothing stopped
-the project's from swallowing the whole store.
+The release that made the board readable at a glance and the store portable.
 
-Changed: the store guard now covers an *installed* copy of the plugin (`~/.claude/plugins`,
-which `/plugin update` overwrites) rather than whatever git repo the plugin's source sits in.
-The marketplace repo is an ordinary project again — it tracks its own work with no `TM_ROOT`
-and no repo-local config. The old git-based test also mis-fired when the installed tree sat
-inside a dotfiles repo, claiming the whole home directory as the plugin's repo.
+Two of these are silent failures rather than features, and they are the reason to upgrade: a
+store the repo quietly ignored never reached a second clone, and a clone that did arrive
+refused the first task it was asked to create. Both looked healthy from the inside.
+
+### Added
+- **Backlog and ToDo columns** (TM-034). A `backlog` status, wired end to end: `tm defer <id>`
+  moves work out of the queue, `tm todo <id>` brings it back. Backlog sits outside `store.OPEN`,
+  so deferred work stops competing for attention in `tm next` without being closed. Column
+  order and display names now live in one `COLUMNS`/`LABEL` pair in `lib/render.mjs` that
+  `tm board`, `tm sprint` and the SPA all read — the terminal and the browser cannot disagree.
+  `open` renders as "todo" everywhere a human reads it: same status, honest name.
+- **Collapsible epic lanes** (TM-038), folded state kept per project in localStorage. One
+  browser has tabs open on several boards, so a single key would fold the wrong lane. A folded
+  lane keeps its header and progress bar — that is the reason to fold it, not lose it.
+- `tm init` and `tm doctor` report a store the repo would keep out of git — an ancestor
+  `.gitignore` swallowing `.bytedesk/`, named down to the `<file>:<line>:<pattern>` to edit
+  (`store-ignored`, an error, in doctor; a warning on stderr at init).
+
+### Fixed
+- **A fresh clone now runs as the committer's checkout did.** `activeEpic` lived in the
+  gitignored `state.json`, so it never travelled: the clone rendered a correct-looking board
+  and then refused the next `tm task new` for having no active epic. It moves to the committed
+  `config.json`; claims, overrides and the last Stop block stay per-machine. Existing stores
+  read through transparently and migrate on the next write.
+- **The dashboard keeps its port across a restart** (TM-037). `portFor()` derives a
+  deterministic port from the store path, so only a port that *drifted* off it — because
+  something else held it at first launch — depends on stored state. That assignment lived in
+  `dashboard.assigned-port` and was swept by anything clearing `dashboard.*`, which moved the
+  URL of a running board. It is now `port.assigned`, outside that glob, and a pre-0.5
+  assignment is adopted and migrated on first use.
+- The MCP handshake advertised a literal `0.3.0` after the manifest dropped its version; it
+  reads the manifest now, or reports no version at all, which is the honest answer under
+  commit-SHA versioning.
+
+### Changed
+- The store guard covers an *installed* copy of the plugin (`~/.claude/plugins`, which
+  `/plugin update` overwrites) rather than whatever git repo the plugin's source sits in. A
+  source checkout is an ordinary project: the marketplace repo tracks its own work with no
+  `TM_ROOT` and no repo-local config. The old git-based test also mis-fired when the installed
+  tree sat inside a dotfiles repo, claiming the whole home directory as the plugin's repo.
+- Keyboard digits follow the columns: `1` is backlog, `6` is done. Six columns, six digits.
+- `tm sprint` headings read `in progress` rather than `in_progress`, from the shared labels.
+
+### Notes for existing stores
+`tm doctor --fix` writes the store's `.gitignore` only when it is missing, so a store created
+before this release will not learn the `port.assigned` rule on its own. Delete
+`.bytedesk/task-management/.gitignore` and re-run `tm doctor --fix` to regenerate it.
 
 ## 0.4.0
 

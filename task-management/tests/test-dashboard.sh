@@ -78,7 +78,7 @@ assert_contains "$(curl -fsS "http://127.0.0.1:$PORT/api/board")" "TM-001" "/api
 [[ "$PORT" -gt 45000 && "$PORT" -lt 65000 ]] && ok "the port lands above 45000" || no "the port lands above 45000" "got $PORT"
 
 # The assignment is persisted, not re-derived at each launch.
-ASSIGNED="$(cat "$STORE/dashboard.assigned-port" 2>/dev/null)"
+ASSIGNED="$(cat "$STORE/port.assigned" 2>/dev/null)"
 [[ "$PORT" == "$ASSIGNED" ]] && ok "the port is persisted as this project's assignment" || no "the port is persisted as this project's assignment" "$PORT vs '$ASSIGNED'"
 
 # ── the data the board's metrics need ────────────────────────────────────────
@@ -203,7 +203,7 @@ wait_gone "$THIRD_PID"
 TM_DASHBOARD_PORT=7999 node "$PLUGIN_ROOT/bin/tm-dashboard" >"$TM_ROOT/env.log" 2>&1 &
 for _ in $(seq 1 50); do curl -fsS --max-time 1 "http://127.0.0.1:7999/api/board" >/dev/null 2>&1 && break; sleep 0.1; done
 assert_contains "$(curl -fsS "http://127.0.0.1:7999/api/board")" "TM-001" "TM_DASHBOARD_PORT overrides the assignment"
-[[ "$(cat "$STORE/dashboard.assigned-port")" == "$PORT" ]] && ok "an override does not clobber the stored assignment" || no "an override does not clobber the stored assignment" "assignment became $(cat "$STORE/dashboard.assigned-port")"
+[[ "$(cat "$STORE/port.assigned")" == "$PORT" ]] && ok "an override does not clobber the stored assignment" || no "an override does not clobber the stored assignment" "assignment became $(cat "$STORE/port.assigned")"
 ENV_PID="$(pid_of)"
 kill "$ENV_PID" 2>/dev/null
 wait_gone "$ENV_PID"

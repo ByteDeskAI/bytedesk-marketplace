@@ -29,6 +29,7 @@ import {
   laneTasks,
   sortForLanes,
 } from "./lanes.mjs";
+import { loadCollapsed, saveCollapsed } from "./collapsed";
 import { EpicLane } from "./components/EpicLane";
 import type { Lane } from "./components/EpicLane";
 import { useBoardKeys } from "./useBoardKeys";
@@ -77,6 +78,24 @@ export function App() {
     }
     void write.settings({ grouped: on });
   }, []);
+
+  /**
+   * Folded lanes. Seeded from localStorage once the project name is known — before that the
+   * key would be wrong, and reading it early would fold the wrong board for one frame.
+   */
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const project = board?.project ?? "";
+  useEffect(() => {
+    if (project) setCollapsed(loadCollapsed(project));
+  }, [project]);
+  const toggleLane = (id: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      if (project) saveCollapsed(project, next);
+      return next;
+    });
+  };
 
   const load = useCallback(() => {
     void fetchBoard().then(setBoard);
@@ -394,10 +413,12 @@ export function App() {
                     {...progress}
                     isNoEpic={lane.id === NO_EPIC}
                     onActivate={(id) => run(() => write.activeEpic(id))}
+                    collapsed={collapsed.has(lane.id)}
+                    onToggle={() => toggleLane(lane.id)}
                   />
                   {/* A lane the filter emptied is worth saying so, rather than
                       rendering five empty columns under a heading. */}
-                  {mine.length ? (
+                  {collapsed.has(lane.id) ? null : mine.length ? (
                     columnRow(mine)
                   ) : (
                     <Text size="small" color="color.text.subtlest">

@@ -1,6 +1,6 @@
 /** Exactly what index.json and events.jsonl already contain. Nothing invented. */
 export type Status =
-  "open" | "in_progress" | "blocked" | "parked" | "done" | "deleted";
+  "backlog" | "open" | "in_progress" | "blocked" | "parked" | "done" | "deleted";
 
 export interface Acceptance {
   text?: string;
