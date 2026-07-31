@@ -1488,6 +1488,16 @@ function newestPlanFile() {
 
 function hook(event) {
   const input = readStdin();
+  /**
+   * Adopt the session the payload names, when the environment does not name one.
+   *
+   * Claude Code sets CLAUDE_CODE_SESSION_ID in the hook's environment; Codex sets nothing at all
+   * and puts `session_id` on the JSON instead — captured, not assumed, in
+   * tests/fixtures/codex-pre-tool-use.json. Establishing it once here means nothing downstream
+   * needs to know which harness it is running under: claims, the Stop gate and event attribution
+   * all read `sessionId()` as before.
+   */
+  if (input?.session_id && !sessionId()) process.env.TM_SESSION_ID = String(input.session_id);
   if (!isInitialized(P) && event !== "session-start") process.exit(0);
 
   switch (event) {

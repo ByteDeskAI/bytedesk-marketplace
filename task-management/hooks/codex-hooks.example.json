@@ -1,0 +1,86 @@
+// Codex CLI reads <repo>/.codex/hooks.json. Copy this there and make `tm-hook` resolvable
+// (`tm install` symlinks the plugin's bin/ into ~/.local/bin), or replace it with an absolute path.
+//
+// The payload Codex sends is Claude-Code-shaped — session_id, cwd, tool_name, tool_input,
+// tool_use_id — captured verbatim in tests/fixtures/codex-pre-tool-use.json. The one difference
+// that matters: Codex passes a hook NO environment variables, so the session comes off the payload.
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "TaskCreate|todo_write|update_plan",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "tm-hook pre-task-create",
+            "timeout": 10,
+            "statusMessage": "task-management: checking epic + WIP..."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "TaskCreate|TaskUpdate|todo_write|update_plan",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "tm-hook post-task",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "ExitPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "tm-hook post-plan",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "tm-hook post-bash",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|apply_patch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "tm-hook post-edit",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "tm-hook post-decision",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "tm-hook stop",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

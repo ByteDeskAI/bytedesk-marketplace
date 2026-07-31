@@ -89,8 +89,16 @@ export const HARNESSES = [
 
 export const harnessById = (id) => HARNESSES.find((h) => h.id === id) || null;
 
-/** Every session variable any known harness sets, in precedence order. */
-export const SESSION_ENV = HARNESSES.flatMap((h) => h.sessionEnv);
+/**
+ * Every session variable any known harness sets, in precedence order.
+ *
+ * `TM_SESSION_ID` leads: it is the deliberate override, set by a wrapper, by CI, or by the hook
+ * entrypoint when a harness hands its session on the payload instead of in the environment. Codex
+ * does exactly that — it passes a hook NO environment variables at all, verified by capturing one
+ * (tests/fixtures/codex-pre-tool-use.json) — so without this the claim interlock, the Stop gate
+ * and every event's `session` column would be null for a whole harness.
+ */
+export const SESSION_ENV = ["TM_SESSION_ID", ...HARNESSES.flatMap((h) => h.sessionEnv)];
 
 /**
  * The harness running this process, by whichever session variable is set.

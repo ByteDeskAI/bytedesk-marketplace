@@ -1,0 +1,15 @@
+{
+  "session_id": "019fb669-cb1a-77f2-8d78-f24a4a184caf",
+  "turn_id": "019fb669-cc20-7240-8eed-2269c7fc037a",
+  "transcript_path": "/home/ryan/.codex/sessions/2026/07/31/rollout-2026-07-31T00-23-34-019fb669-cb1a-77f2-8d78-f24a4a184caf.jsonl",
+  "cwd": "/tmp/claude-1000/-home-ryan-Documents-GitHub-ByteDeskAI-bytedesk-marketplace/61c67728-2ff2-46ea-87eb-2a99db9c96bd/scratchpad/codex-capture",
+  "hook_event_name": "PreToolUse",
+  "model": "gpt-5.6-sol",
+  "permission_mode": "bypassPermissions",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "echo hello-from-codex"
+  },
+  "tool_use_id": "call_0xOX8IVjL1EpEC2G9DFHvwXo",
+  "_captured": "Verbatim from codex-cli 0.146.0 on 2026-07-31: a PreToolUse hook writing its stdin to a file during `codex exec`. Not written from memory. Codex passes NO environment variables to a hook \u2014 session identity must come from session_id here."
+}

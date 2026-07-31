@@ -97,5 +97,30 @@ done
 echo '{}' | env -u CLAUDE_CODE_SESSION_ID GROK_SESSION_ID=g-1 "$PLUGIN_ROOT/hooks/tm-hook.sh" stop >/dev/null 2>&1
 [[ "$?" == 0 ]] && ok "the Stop gate does not block a harness it cannot see" || no "the Stop gate does not block a harness it cannot see" "exit $?"
 
+# ── the hook works under Codex, on a payload Codex actually sent (TM-042) ────
+# The fixture is verbatim from codex-cli 0.146.0, captured by a hook writing its stdin to a file
+# during `codex exec`. The load-bearing difference from Claude Code: Codex passes a hook NO
+# environment variables, so the session has to come off the payload or every claim, gate and event
+# attributes to nobody.
+FIXTURE="$PLUGIN_ROOT/tests/fixtures/codex-pre-tool-use.json"
+CODEX_SESSION="$(jq -r .session_id "$FIXTURE")"
+tm task new "work claimed the codex way" >/dev/null 2>&1
+CODEX_TASK="$(tm find "work claimed the codex way" --json | jq -r '.[0].id')"
+# Claim it as Codex would: no CLAUDE_* variable anywhere, session named only on the JSON.
+env -u CLAUDE_CODE_SESSION_ID -u CLAUDE_SESSION_ID TM_SESSION_ID="$CODEX_SESSION" \
+  node "$PLUGIN_ROOT/bin/tm" start "$CODEX_TASK" >/dev/null 2>&1
+CLAIMED_BY="$(jq -r --arg id "$CODEX_TASK" '.claims[$id].session // "none"' "$TM_ROOT/.bytedesk/task-management/state.json")"
+[[ "$CLAIMED_BY" == "$CODEX_SESSION" ]] && ok "a Codex session id owns its claim" || no "a Codex session id owns its claim" "claimed by $CLAIMED_BY"
+
+# And the hook adopts it from the payload with nothing in the environment at all.
+OUT="$(env -u CLAUDE_CODE_SESSION_ID -u CLAUDE_SESSION_ID -u TM_SESSION_ID \
+  "$PLUGIN_ROOT/hooks/tm-hook.sh" post-tool-use < "$FIXTURE" 2>&1; echo "exit=$?")"
+case "$OUT" in
+  *exit=0*) ok "the hook accepts a real Codex payload without blocking the turn" ;;
+  *) no "the hook accepts a real Codex payload without blocking the turn" "${OUT:0:200}" ;;
+esac
+LAST_SESSION="$(tail -1 "$TM_ROOT/.bytedesk/task-management/events.jsonl" | jq -r '.session // "none"')"
+[[ "$LAST_SESSION" != "none" ]] && ok "the event it wrote is attributed, not anonymous" || no "the event it wrote is attributed, not anonymous" "session was null"
+
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [[ "$FAIL" == 0 ]]

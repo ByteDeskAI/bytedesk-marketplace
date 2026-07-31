@@ -972,3 +972,20 @@
 {"ts":"2026-07-31T04:22:23.732Z","event":"comment","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-041","author":"main"}
 {"ts":"2026-07-31T04:22:52.489Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-041","patch":"status,closed","status":"done"}
 {"ts":"2026-07-31T04:22:52.490Z","event":"done","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-041"}
+{"ts":"2026-07-31T04:22:52.686Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-041","patch":"commits","status":"done"}
+{"ts":"2026-07-31T04:22:52.686Z","event":"git_link","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-041","ref":"a7a2618"}
+{"ts":"2026-07-31T04:22:52.691Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-036","patch":"commits","status":"done"}
+{"ts":"2026-07-31T04:22:52.692Z","event":"git_link","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-036","ref":"a7a2618"}
+{"ts":"2026-07-31T04:30:26.849Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-042","patch":"acceptance","status":"open"}
+{"ts":"2026-07-31T04:30:26.849Z","event":"ac_met","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-042","index":1,"text":"A real Codex pre_tool_use payload is captured and committed as a fixture, not described from memory"}
+{"ts":"2026-07-31T04:30:26.921Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-042","patch":"acceptance","status":"open"}
+{"ts":"2026-07-31T04:30:26.922Z","event":"ac_met","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-042","index":2,"text":"The hook fires under Codex and gates the same actions it gates under Claude Code"}
+{"ts":"2026-07-31T04:30:26.990Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-042","patch":"acceptance","status":"open"}
+{"ts":"2026-07-31T04:30:26.990Z","event":"ac_met","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-042","index":3,"text":"The README capability matrix moves Codex hooks from warning to supported"}
+{"ts":"2026-07-31T04:30:27.066Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-042","patch":"evidence","status":"open"}
+{"ts":"2026-07-31T04:30:27.140Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-042","patch":"comments","status":"open"}
+{"ts":"2026-07-31T04:30:27.140Z","event":"comment","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-042","author":"main"}
+{"ts":"2026-07-31T04:30:37.264Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-042","patch":"status,closed","status":"done"}
+{"ts":"2026-07-31T04:30:37.265Z","event":"done","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-042"}
+{"ts":"2026-07-31T04:30:37.273Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"EP-003","patch":"status,closed","status":"done"}
+{"ts":"2026-07-31T04:30:37.273Z","event":"epic_auto_closed","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"EP-003","tasks":9}

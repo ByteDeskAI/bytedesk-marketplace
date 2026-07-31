@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+## [0.10.0] — 2026-07-31
+
+### Added
+- **Lifecycle hooks under Codex CLI** (TM-042). `hooks/codex-hooks.example.json` is the manifest to
+  copy to `<repo>/.codex/hooks.json`; the shape matches Claude Code's, verified against a real one
+  already on disk rather than inferred.
+- `tests/fixtures/codex-pre-tool-use.json` — a Codex hook payload captured verbatim from a live
+  `codex exec` turn by a hook that wrote its own stdin to a file. TM-039 deliberately left this
+  unwired rather than guess the schema; this is the guess replaced with a capture, and the suite
+  drives the fixture rather than a description of it.
+
+### Fixed
+- **Codex passes a hook no environment variables at all.** Its session arrives as `session_id` on
+  the payload, so the hook adopts it (`TM_SESSION_ID`) before anything reads it — without that,
+  every claim, gate and event under Codex attributed to nobody, silently. This also corrects a
+  claim in 0.8.0: `CODEX_THREAD_ID` exists in the binary but is *not* in a hook's environment.
+
 ## [0.9.1] — 2026-07-31
 
 ### Changed

@@ -313,12 +313,18 @@ against the installed CLIs — `codex-cli 0.146.0`, `grok 0.2.117` — not infer
 | MCP server (`bin/tm-mcp`) | ✅ `.mcp.json` | ✅ `codex mcp add` / `.codex-mcp.json` | ✅ `grok mcp add` |
 | Session identity | ✅ `CLAUDE_CODE_SESSION_ID` | ✅ `CODEX_THREAD_ID` | ✅ `GROK_SESSION_ID` |
 | Native task mirroring | ✅ `TaskCreate`/`TaskUpdate` | ✅ `update_plan` | ✅ `todo_write` |
-| Lifecycle hooks | ✅ `hooks/hooks.json` | ⚠️ `.codex/hooks.json`, `pre_tool_use` — not wired here yet | ❌ no hook surface |
+| Lifecycle hooks | ✅ `hooks/hooks.json` | ✅ `.codex/hooks.json` — copy `hooks/codex-hooks.example.json` | ❌ no hook surface |
 | Dashboard work stream | ✅ | ✅ reads `~/.codex/sessions/**/rollout-*.jsonl` | ✅ reads `~/.grok/sessions/<cwd>/<id>/chat_history.jsonl` |
 
 What ❌ costs you: without hooks, Grok gets no session-start briefing, no Stop gate and no
 automatic commit linking. The board still works — you drive it with `tm` and the MCP tools, and
 claims still hold, because those read the session variable rather than a hook.
+
+One difference worth knowing about Codex, because it decides whether claims work at all: **Codex
+passes a hook no environment variables**. Its session arrives as `session_id` on the payload
+instead, so the hook adopts it (`TM_SESSION_ID`) before anything reads it — otherwise every claim,
+gate and event under Codex would attribute to nobody. The payload is otherwise Claude-Code-shaped;
+a verbatim capture lives in `tests/fixtures/codex-pre-tool-use.json` and the suite drives it.
 
 Registering the MCP server:
 
