@@ -106,14 +106,19 @@ export function diagnose(p = paths()) {
   const tasks = list("task", { includeDeleted: true }, p);
   const live = tasks.filter((t) => t.status !== "deleted");
   /**
-   * Every linkable entity, not only tasks.
+   * Two maps, because two questions.
    *
-   * `tm link <id> relates to ADR-0002` is accepted — `addLink` resolves any kind — and doctor then
-   * called the result dangling, because this map held tasks alone. A store that accepts a link and
-   * then reports it as broken is worse than one that refuses it: the CLI said yes and the audit
-   * said no, and neither is wrong on its own terms.
+   * Dependencies and parents are between TASKS: a task cannot be blocked by a decision record, and
+   * a subtask's parent is a task. Links cross kinds on purpose — `tm link <id> relates to ADR-0002`
+   * is accepted, because `addLink` resolves any kind.
+   *
+   * One map served both for a while, which was wrong in both directions in turn. Tasks-only called
+   * an accepted link dangling; everything-linkable stopped noticing `blockedBy: ["ADR-0002"]`,
+   * which is a dependency on something that can never satisfy it. Widening the audit to fix the
+   * first quietly loosened three checks that wanted the narrow set.
    */
-  const byId = new Map(
+  const byId = new Map(tasks.map((t) => [t.id, t]));
+  const linkable = new Map(
     [...tasks, ...list("epic", {}, p), ...list("adr", {}, p), ...list("capability", {}, p)].map((e) => [e.id, e]),
   );
   const epics = new Set(list("epic", {}, p).map((e) => e.id));
@@ -163,7 +168,7 @@ export function diagnose(p = paths()) {
         out.push(finding("warning", "unknown-link-type", t.id, `link type "${link.type}" is not one the store knows`));
         continue;
       }
-      const other = byId.get(link.id);
+      const other = linkable.get(link.id);
       if (!other) {
         out.push(
           finding("error", "dangling-link", t.id, `links to ${link.id}, which does not exist`, () => {

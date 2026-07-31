@@ -140,6 +140,27 @@ describe("links, epics and parents", () => {
     assert.deepEqual(read(b.id, p).links, [{ type: "duplicated by", id: a.id }]);
   });
 
+  it("still calls a dependency on a non-task dangling", () => {
+    const p = store();
+    const adr = create("adr", { title: "a decision", status: "proposed" }, "", p);
+    const t = create("task", { title: "waiting on a decision", blockedBy: [adr.id] }, "", p);
+
+    // The mirror image of the link case, and the reason the two need separate maps: a task cannot
+    // be blocked by a decision record. Nothing about an ADR can satisfy `blockedBy`, so `tm next`
+    // would hold this task back forever.
+    const f = diagnose(p).find((x) => x.code === "dangling-dep" && x.id === t.id);
+    assert.ok(f, "widening the link audit must not stop this being an error");
+    assert.match(f.message, new RegExp(adr.id));
+  });
+
+  it("still calls a parent that is not a task an orphan", () => {
+    const p = store();
+    const adr = create("adr", { title: "a decision", status: "proposed" }, "", p);
+    const t = create("task", { title: "child of a decision", parent: adr.id }, "", p);
+
+    assert.ok(diagnose(p).some((x) => x.code === "orphan-parent" && x.id === t.id));
+  });
+
   it("does not call a link to an ADR dangling — the CLI accepts those", () => {
     const p = store();
     const a = create("task", { title: "a" }, "", p);

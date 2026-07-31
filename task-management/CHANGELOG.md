@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## [0.11.1] — 2026-07-31
+
+### Fixed
+- The 0.11.0 fix for cross-kind links widened one map that four checks shared, so it quietly
+  loosened three of them: `blockedBy: ["ADR-0002"]` and `parent: "ADR-0002"` stopped being reported.
+  A task cannot be blocked by a decision record — nothing about an ADR can ever satisfy a
+  dependency, so `tm next` would hold the task back forever without saying why.
+
+  Two maps now, because there are two questions: dependencies and parents are between tasks; links
+  cross kinds on purpose. Both directions have a test, since one map served both for a release and
+  was wrong in each direction in turn.
+
 ## [0.11.0] — 2026-07-31
 
 ### Added

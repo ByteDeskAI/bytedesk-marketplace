@@ -7,14 +7,14 @@ title: "Tickets must be scoped to their own board"
 epic: "EP-003"
 acceptance: [{"text":"Every entity records the board it belongs to, and a write to a store it does not belong to fails","done":true,"at":"2026-07-31T03:48:44.007Z"},{"text":"A dashboard only ever renders entities belonging to its own board","done":true,"at":"2026-07-31T03:49:53.275Z"},{"text":"Cross-repo references are expressible as links that name the other repo","done":true,"at":"2026-07-31T03:48:44.069Z"},{"text":"The existing leak is cleaned up: persona TM-001 no longer carries marketplace PR URLs","done":true,"at":"2026-07-31T03:48:44.135Z"},{"text":"A test reproduces the leak on the old code and passes on the new","done":true,"at":"2026-07-31T03:48:44.196Z"}]
 evidence: [".bytedesk/task-management/evidence/TM-036-paths.mjs",".bytedesk/task-management/evidence/TM-036-board-scope.test.mjs"]
-commits: ["pr","a7a2618"]
+commits: ["pr","a7a2618","a389cb8"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "61c67728-2ff2-46ea-87eb-2a99db9c96bd"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-07-31T04:22:52.689Z"
+updated: "2026-07-31T05:40:12.307Z"
 comments: [{"author":"main","ts":"2026-07-31T03:50:25.003Z","text":"Root cause: linkGit reads the ref from the checkout the command ran in (CHECKOUT) but writes it to the store tm resolved (P). When CLAUDE_PROJECT_DIR and the shell's cwd are different repos, one project's PR lands on another project's task. Reproduced deliberately with two temp repos: on the old code, acme/other-repo's PR attached to acme/store-repo's task; with the guard it does not, and logs git_link_skipped. Persona TM-001 cleaned: 23 marketplace pull/new URLs removed, 3 legitimate refs kept. Note the identity lives in config.boardId, not config.board — the latter is already the dashboard's board preferences object, a collision the dashboard suite caught."}]
 closed: "2026-07-31T03:50:43.350Z"
 ---
