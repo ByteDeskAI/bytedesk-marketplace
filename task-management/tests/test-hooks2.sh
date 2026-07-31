@@ -86,5 +86,16 @@ AFTER="$(tm show TM-002 --json | jq '.commits | length')"
 has "$(cat "$TM_ROOT/.bytedesk/task-management/events.jsonl")" "git_link_skipped" "and the refusal is on the record, not silent"
 rm -rf "$ELSEWHERE"
 
+# ── hooks degrade rather than block, under any harness (TM-039) ──────────────
+# Claude Code is the only CLI that invokes these, so under Codex or Grok they must simply not run
+# — never half-run and never block a turn. Exit 0 on a foreign payload, a malformed one, and on
+# the Stop gate with no Claude Code variable set at all.
+for CASE in '{}' '{"tool_name":"update_plan","tool_input":{"plan":[]}}' 'not json at all'; do
+  echo "$CASE" | env -u CLAUDE_CODE_SESSION_ID CODEX_THREAD_ID=t-1 "$PLUGIN_ROOT/hooks/tm-hook.sh" pre-tool-use >/dev/null 2>&1
+  [[ "$?" == 0 ]] && ok "pre-tool-use exits clean on: ${CASE:0:28}" || no "pre-tool-use exits clean on: ${CASE:0:28}" "exit $?"
+done
+echo '{}' | env -u CLAUDE_CODE_SESSION_ID GROK_SESSION_ID=g-1 "$PLUGIN_ROOT/hooks/tm-hook.sh" stop >/dev/null 2>&1
+[[ "$?" == 0 ]] && ok "the Stop gate does not block a harness it cannot see" || no "the Stop gate does not block a harness it cannot see" "exit $?"
+
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [[ "$FAIL" == 0 ]]

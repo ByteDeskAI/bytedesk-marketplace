@@ -15,6 +15,8 @@
  * `subagent:9855e3`. Opt into that guess with TM_ACTOR_INFER=1 if your setup
  * only sets it for children; a wrong name on the board is worse than a plain one.
  */
+import { SESSION_ENV } from "./harness/sessions.mjs";
+
 
 const SHORT = 6;
 
@@ -33,16 +35,16 @@ const SHORT = 6;
  * in a Claude Code session the harness is the authority on its own id.
  */
 export function sessionId(env = process.env) {
-  // Claude Code sets CLAUDE_CODE_SESSION_ID. Codex puts session_id on hook JSON
-  // (preferred by callers that pass input through); env fallbacks cover wrappers.
-  return (
-    env.CLAUDE_CODE_SESSION_ID ||
-    env.CLAUDE_SESSION_ID ||
-    env.CODEX_THREAD_ID ||
-    env.CODEX_SESSION_ID ||
-    env.GROK_SESSION_ID ||
-    null
-  );
+  /**
+   * Whichever harness we are in, by the variable it actually sets.
+   *
+   * The list lives in lib/harness/sessions.mjs so there is one place that knows the difference,
+   * and every name in it was read off an installed CLI. `CODEX_SESSION_ID` was in this chain and
+   * exists nowhere in Codex — an invented variable is worse than a missing one, because it looks
+   * like support and never matches.
+   */
+  for (const key of SESSION_ENV) if (env[key]) return env[key];
+  return null;
 }
 
 export function actor(env = process.env) {

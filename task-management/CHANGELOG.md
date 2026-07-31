@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+## [0.8.0] — 2026-07-31
+
+### Added
+- **The plugin runs under Codex CLI and Grok, not only Claude Code** (TM-039). Session identity
+  reads whichever harness is present — `CLAUDE_CODE_SESSION_ID`, `CODEX_THREAD_ID`,
+  `GROK_SESSION_ID` — and *no* variable set now means no session, rather than a bare shell being
+  quietly treated as Claude Code. `lib/harness/sessions.mjs` is the one module that knows the
+  difference; nothing else grew a conditional.
+- The dashboard work stream reads all three transcript formats and names which CLI it read from:
+  Claude Code's `~/.claude/projects/<sanitized-cwd>/<session>.jsonl`, Codex's
+  `~/.codex/sessions/YYYY/MM/DD/rollout-<ts>-<thread>.jsonl`, and Grok's
+  `~/.grok/sessions/<percent-encoded-cwd>/<id>/chat_history.jsonl`. Where there is no harness it
+  says so, instead of rendering an empty panel forever.
+- A capability matrix in the README, including the two things that do **not** work: Grok has no
+  hook surface, and Codex's is real but not wired here yet (TM-042). What that costs you is stated
+  rather than left to be discovered.
+
+### Fixed
+- `CODEX_SESSION_ID` was in the session fallback chain and exists nowhere in Codex — an invented
+  variable reads as support and silently never matches. Every harness constant in this release was
+  read off an installed CLI (`codex-cli 0.146.0`, `grok 0.2.117`) or a session file those tools had
+  already written, and the tests assert that rather than the behaviour alone.
+
 ## [0.7.0] — 2026-07-30
 
 ### Added

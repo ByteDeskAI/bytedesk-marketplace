@@ -133,5 +133,26 @@ OUT="$(printf '{not json\n' | mcp)"
 assert_contains "$OUT" '"code":-32700' "unparseable line is -32700"
 assert_contains "$OUT" '"id":null' "parse errors carry a null id"
 
+
+# ── the server is harness-agnostic (TM-039) ──────────────────────────────────
+# Driven the way Codex and Grok drive it: their own client identity, their own session variable,
+# and no Claude Code variable anywhere. The MCP surface is the one part that needs no adapter, and
+# the capability matrix in README.md claims exactly that — so it gets checked.
+for HARNESS in codex grok; do
+  case "$HARNESS" in
+    codex) SESSION_VAR=CODEX_THREAD_ID ;;
+    grok)  SESSION_VAR=GROK_SESSION_ID ;;
+  esac
+  OUT="$(printf '%s\n' \
+    "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\"clientInfo\":{\"name\":\"$HARNESS\",\"version\":\"1\"}}}" \
+    '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"tm_board","arguments":{}}}' \
+    | env -u CLAUDE_CODE_SESSION_ID -u CLAUDE_SESSION_ID "$SESSION_VAR=s-1" node "$PLUGIN_ROOT/bin/tm-mcp" 2>/dev/null)"
+  # The board text arrives JSON-escaped inside the tool result, so match the content, not the shape.
+  case "$OUT" in
+    *Board*) ok "the MCP server answers $HARNESS with no Claude Code variable set" ;;
+    *) no "the MCP server answers $HARNESS with no Claude Code variable set" "${OUT:0:200}" ;;
+  esac
+done
+
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [[ "$FAIL" == 0 ]]

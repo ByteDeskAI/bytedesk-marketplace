@@ -56,10 +56,11 @@ The symlink is purely so *you* can type `tm board`.
 Every **git worktree of a project shares one store** (resolved through `--git-common-dir`), which
 is what lets claims stop two parallel sessions grabbing the same task.
 
-**Which session?** `CLAUDE_CODE_SESSION_ID` — the variable Claude Code sets, in hooks and in
-stdio MCP servers alike. `CLAUDE_SESSION_ID` is accepted second, as an override for a wrapper or
-CI job driving `tm` outside Claude Code. Everything that distinguishes one thread from another
-reads this: the claim interlock, the Stop gate, subagent attribution, and the `session` column on
+**Which session?** Whichever agent CLI is running: `CLAUDE_CODE_SESSION_ID` (Claude Code, in hooks
+and stdio MCP servers alike), `CLAUDE_SESSION_ID` as a wrapper override, `CODEX_THREAD_ID` (Codex
+CLI) or `GROK_SESSION_ID` (Grok). No variable set means no session — a bare shell or a CI job is
+not silently treated as Claude Code. Everything that distinguishes one thread from another reads
+this: the claim interlock, the Stop gate, subagent attribution, and the `session` column on
 every event. The plugin refuses to create a store inside an *installed* copy of itself, under
 `~/.claude/plugins` — `/plugin update` would wipe it. A source checkout is an ordinary project:
 this repo tracks its own work with no `TM_ROOT` and no repo-local configuration.
@@ -299,6 +300,35 @@ before removing — your main checkout's `node_modules` is never at risk.
 **The tradeoff:** a symlinked `node_modules` is shared mutable state — `pnpm install` in one
 worktree changes them all. Right default for parallel agents reading one dependency tree, wrong
 one for a task that changes dependencies. Use `mode: copy` or `--no-share` there.
+
+## Running under Codex CLI and Grok
+
+The store, the CLI and the MCP server are harness-agnostic; the parts that hook into a session are
+not, and the difference is worth knowing before you rely on it. Everything below was checked
+against the installed CLIs — `codex-cli 0.146.0`, `grok 0.2.117` — not inferred from docs.
+
+| | Claude Code | Codex CLI | Grok |
+|---|---|---|---|
+| `tm` CLI, store, gates | ✅ | ✅ | ✅ |
+| MCP server (`bin/tm-mcp`) | ✅ `.mcp.json` | ✅ `codex mcp add` / `.codex-mcp.json` | ✅ `grok mcp add` |
+| Session identity | ✅ `CLAUDE_CODE_SESSION_ID` | ✅ `CODEX_THREAD_ID` | ✅ `GROK_SESSION_ID` |
+| Native task mirroring | ✅ `TaskCreate`/`TaskUpdate` | ✅ `update_plan` | ✅ `todo_write` |
+| Lifecycle hooks | ✅ `hooks/hooks.json` | ⚠️ `.codex/hooks.json`, `pre_tool_use` — not wired here yet | ❌ no hook surface |
+| Dashboard work stream | ✅ | ✅ reads `~/.codex/sessions/**/rollout-*.jsonl` | ✅ reads `~/.grok/sessions/<cwd>/<id>/chat_history.jsonl` |
+
+What ❌ costs you: without hooks, Grok gets no session-start briefing, no Stop gate and no
+automatic commit linking. The board still works — you drive it with `tm` and the MCP tools, and
+claims still hold, because those read the session variable rather than a hook.
+
+Registering the MCP server:
+
+```bash
+codex mcp add task-management -- <plugin>/bin/tm-mcp
+grok  mcp add task-management -- <plugin>/bin/tm-mcp
+```
+
+A harness this plugin does not recognise is reported rather than guessed at: the work stream says
+"no agent CLI is running this board" instead of rendering an empty panel forever.
 
 ## MCP
 

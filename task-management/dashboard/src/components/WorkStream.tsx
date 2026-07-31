@@ -23,6 +23,8 @@ interface StreamPayload {
   messages: Array<UIMessage & { createdAt?: string | null; sidechain?: boolean }>;
   session: string | null;
   file: string | null;
+  /** Which agent CLI wrote this — claude, codex, grok — or null when none is running. */
+  harness: string | null;
   reason: string | null;
 }
 
@@ -140,6 +142,9 @@ export function WorkStream({ taskId }: { taskId: string }) {
             WORK
           </Text>
           <Badge>{messages.length}</Badge>
+          {/* Name the source. Three CLIs write three different transcripts, and "whose work is
+              this" is the first question a reader has. */}
+          {payload?.harness ? <Lozenge appearance="new">{payload.harness}</Lozenge> : null}
           {payload?.session ? <Lozenge appearance="success">live</Lozenge> : null}
         </Inline>
       </Stack>

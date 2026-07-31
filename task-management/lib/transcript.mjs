@@ -21,6 +21,7 @@
 import { closeSync, existsSync, openSync, readSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { currentHarness } from "./harness/sessions.mjs";
 
 /** Bytes of transcript to read from the end. ~200 KB covers a long turn without loading 30 MB. */
 const TAIL_BYTES = 200_000;
@@ -33,23 +34,16 @@ export const sanitize = (cwd) => String(cwd).replace(/[/.]/g, "-");
 export const projectDir = (cwd, home = homedir()) => join(home, ".claude", "projects", sanitize(cwd));
 
 /**
- * The transcript for a session, or the most recently modified one in the project when the session
- * is unknown — a claim written by an older `tm` has no session, and the newest conversation is a
- * better answer than nothing.
+ * The transcript for a session, and which harness wrote it.
+ *
+ * Claude Code is no longer assumed. The harness is whichever one's session variable is set; each
+ * knows its own layout (see lib/harness/sessions.mjs), and a harness nobody recognises is a real
+ * answer the panel can say out loud instead of rendering an empty box forever.
  */
-export function findTranscript(cwd, session, home = homedir()) {
-  const dir = projectDir(cwd, home);
-  if (!existsSync(dir)) return null;
-  if (session) {
-    const exact = join(dir, `${session}.jsonl`);
-    if (existsSync(exact)) return exact;
-  }
-  const files = readdirSync(dir)
-    .filter((f) => f.endsWith(".jsonl"))
-    .map((f) => join(dir, f))
-    .map((f) => ({ f, m: statSync(f).mtimeMs }))
-    .sort((a, b) => b.m - a.m);
-  return files.length ? files[0].f : null;
+export function findTranscript(cwd, session, home = homedir(), env = process.env) {
+  const harness = currentHarness(env);
+  if (!harness) return { harness: null, file: null };
+  return { harness, file: harness.transcript(cwd, session, home) };
 }
 
 /**
@@ -76,10 +70,15 @@ export function readTail(file, bytes = TAIL_BYTES) {
 /**
  * One transcript entry → one UIMessage, or null when it carries nothing a reader wants.
  *
- * `thinking` and `image` parts are dropped: thinking is internal and its signature is opaque, and
- * a base64 image is megabytes of noise in a side panel.
+ * `thinking`/`reasoning` and images are dropped: internal, and megabytes of base64 respectively.
  */
-export function toMessage(entry) {
+export function toMessage(entry, format = "claude-jsonl") {
+  if (format === "codex-rollout") return fromCodex(entry);
+  if (format === "grok-chat") return fromGrok(entry);
+  return fromClaude(entry);
+}
+
+function fromClaude(entry) {
   if (!entry || (entry.type !== "user" && entry.type !== "assistant")) return null;
   const content = entry.message?.content;
   const blocks = Array.isArray(content) ? content : typeof content === "string" ? [{ type: "text", text: content }] : [];
@@ -88,12 +87,7 @@ export function toMessage(entry) {
     if (b?.type === "text" && b.text?.trim()) parts.push({ type: "text", text: b.text });
     else if (b?.type === "tool_use") parts.push({ type: "tool-call", toolCallId: b.id, toolName: b.name, args: summarize(b.input) });
     else if (b?.type === "tool_result")
-      parts.push({
-        type: "tool-result",
-        toolCallId: b.tool_use_id,
-        isError: Boolean(b.is_error),
-        result: firstLines(b.content),
-      });
+      parts.push({ type: "tool-result", toolCallId: b.tool_use_id, isError: Boolean(b.is_error), result: firstLines(b.content) });
   }
   if (!parts.length) return null;
   return {
@@ -101,9 +95,64 @@ export function toMessage(entry) {
     role: entry.type,
     parts,
     createdAt: entry.timestamp || null,
-    // Not part of UIMessage, but the panel wants it: a sidechain entry is a subagent's work.
     sidechain: Boolean(entry.isSidechain),
   };
+}
+
+/**
+ * Codex writes a rollout: every line is `{type, payload}` and the ones worth reading are
+ * `response_item`s whose payload is a message, a function_call, or its output. `developer` and
+ * `system` roles are the harness talking to itself.
+ */
+function fromCodex(entry) {
+  if (entry?.type !== "response_item") return null;
+  const pl = entry.payload || {};
+  const at = entry.timestamp || null;
+  if (pl.type === "message") {
+    if (pl.role !== "user" && pl.role !== "assistant") return null;
+    const text = (pl.content || [])
+      .filter((c) => c?.type === "input_text" || c?.type === "output_text")
+      .map((c) => c.text)
+      .join("\n")
+      .trim();
+    return text ? { id: pl.id || at, role: pl.role, parts: [{ type: "text", text }], createdAt: at, sidechain: false } : null;
+  }
+  if (pl.type === "function_call" || pl.type === "custom_tool_call") {
+    let args = {};
+    try {
+      args = summarize(JSON.parse(pl.arguments || "{}"));
+    } catch {
+      args = {}; // arguments are a JSON *string*; a half-written one is not worth a crash
+    }
+    return {
+      id: pl.id || at,
+      role: "assistant",
+      parts: [{ type: "tool-call", toolCallId: pl.call_id || pl.id, toolName: pl.name || "tool", args }],
+      createdAt: at,
+      sidechain: false,
+    };
+  }
+  if (pl.type === "function_call_output" || pl.type === "custom_tool_call_output") {
+    const result = firstLines(typeof pl.output === "string" ? pl.output : pl.output?.content);
+    return result
+      ? { id: pl.id || at, role: "user", parts: [{ type: "tool-result", toolCallId: pl.call_id, isError: false, result }], createdAt: at, sidechain: false }
+      : null;
+  }
+  return null;
+}
+
+/** Grok's chat_history.jsonl: role plus content, with tool calls alongside. */
+function fromGrok(entry) {
+  const role = entry?.role || entry?.type;
+  if (role !== "user" && role !== "assistant") return null;
+  const parts = [];
+  const text = typeof entry.content === "string" ? entry.content : (entry.content || []).map((c) => c?.text ?? "").join("\n");
+  if (text?.trim()) parts.push({ type: "text", text });
+  for (const call of entry.tool_calls || []) {
+    parts.push({ type: "tool-call", toolCallId: call.id, toolName: call.function?.name || call.name || "tool", args: summarize(call.function?.arguments || call.arguments) });
+  }
+  if (!parts.length) return null;
+  return { id: entry.id || entry.timestamp || String(parts.length), role, parts, createdAt: entry.timestamp || null, sidechain: false };
 }
 
 /** Tool input, flattened to the one or two fields worth showing on a card. */
@@ -125,11 +174,14 @@ function firstLines(value, lines = 3, chars = 400) {
  * The work stream for a task: messages, plus enough about the source for the panel to say why it
  * is empty. Never throws — a missing transcript is a normal state, not an error.
  */
-export function workStream(task, claim, cwd, home = homedir()) {
+export function workStream(task, claim, cwd, home = homedir(), env = process.env) {
   const session = claim?.session || null;
   try {
-    const file = findTranscript(cwd, session, home);
-    if (!file) return { messages: [], session, file: null, reason: "no transcript for this project yet" };
+    const { harness, file } = findTranscript(cwd, session, home, env);
+    if (!harness) {
+      return { messages: [], session, file: null, harness: null, reason: "no agent CLI is running this board — the work stream needs one" };
+    }
+    if (!file) return { messages: [], session, file: null, harness: harness.id, reason: `${harness.label} has written no transcript for this project yet` };
     const messages = [];
     for (const line of readTail(file)) {
       let entry;
@@ -138,11 +190,11 @@ export function workStream(task, claim, cwd, home = homedir()) {
       } catch {
         continue; // a partial write mid-flush; the next poll gets the whole line
       }
-      const m = toMessage(entry);
+      const m = toMessage(entry, harness.format);
       if (m) messages.push(m);
     }
-    return { messages: messages.slice(-MAX_MESSAGES), session, file, reason: null };
+    return { messages: messages.slice(-MAX_MESSAGES), session, file, harness: harness.id, reason: null };
   } catch (err) {
-    return { messages: [], session, file: null, reason: `transcript unreadable: ${err.message}` };
+    return { messages: [], session, file: null, harness: null, reason: `transcript unreadable: ${err.message}` };
   }
 }
