@@ -8,14 +8,14 @@ title: "Decide whether a board records the person as well as the repo"
 epic: "EP-004"
 acceptance: [{"text":"The question is answered in writing, either way, with the reason","done":false},{"text":"If a person is recorded, it is a separate field from the board and does not weaken TM-036's guard","done":false}]
 evidence: []
-commits: []
+commits: ["6c9e01a"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "61c67728-2ff2-46ea-87eb-2a99db9c96bd"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-07-31T05:24:05.209Z"
+updated: "2026-07-31T05:24:18.417Z"
 ---
 
 ## Problem

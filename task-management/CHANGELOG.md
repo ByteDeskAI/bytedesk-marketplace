@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## [0.10.1] — 2026-07-31
+
+### Fixed
+- **The store's git contract now ignores its own lock files** (TM-043). Every per-machine file was
+  listed except the two the lock itself creates. A process killed mid-write leaves `state.lock`
+  behind, and one `git add -A` later every clone has a lock owned by a pid that never existed on
+  that machine.
+
+  Noise rather than deadlock — `staleLock` reads a foreign pid as dead, verified by committing a
+  lock the way an older `tm` would, cloning, and writing to the clone — but noise in the one file
+  whose whole job is making concurrent writes safe.
+
+  Existing stores need no new mechanism: the 0.6.1 stale-contract check already tops up a contract
+  that predates a rule, so `tm doctor --fix` adds both lines and keeps anything added by hand.
+
 ## [0.10.0] — 2026-07-31
 
 ### Added

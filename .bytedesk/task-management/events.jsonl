@@ -1016,3 +1016,28 @@
 {"ts":"2026-07-31T05:24:05.139Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-045","patch":"acceptance","status":"open"}
 {"ts":"2026-07-31T05:24:05.215Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-045","patch":"body","status":"open"}
 {"ts":"2026-07-31T05:24:05.216Z","event":"edit","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-045","fields":"body"}
+{"ts":"2026-07-31T05:24:18.407Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-043","patch":"commits","status":"open"}
+{"ts":"2026-07-31T05:24:18.407Z","event":"git_link","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-043","ref":"6c9e01a"}
+{"ts":"2026-07-31T05:24:18.413Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-044","patch":"commits","status":"open"}
+{"ts":"2026-07-31T05:24:18.413Z","event":"git_link","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-044","ref":"6c9e01a"}
+{"ts":"2026-07-31T05:24:18.418Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-045","patch":"commits","status":"open"}
+{"ts":"2026-07-31T05:24:18.418Z","event":"git_link","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-045","ref":"6c9e01a"}
+{"ts":"2026-07-31T05:24:18.423Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-041","patch":"commits","status":"done"}
+{"ts":"2026-07-31T05:24:18.423Z","event":"git_link","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-041","ref":"6c9e01a"}
+{"ts":"2026-07-31T05:24:41.664Z","event":"subagent_stop","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","agent":"a333c1f5948af06d2","tasks":[],"said":"fix TM-043","transcript":"/home/ryan/.claude/projects/-home-ryan-Documents-GitHub-ByteDeskAI-bytedesk-marketplace/61c67728-2ff2-46ea-87eb-2a99db9c96bd/subagents/agent-a333c1f5948af06d2.jsonl"}
+{"ts":"2026-07-31T05:25:38.669Z","event":"notification","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","message":"Claude is waiting for your input"}
+{"ts":"2026-07-31T05:25:58.314Z","event":"claim","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-043"}
+{"ts":"2026-07-31T05:25:58.333Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-043","patch":"status,actor,session,branch,worktree","status":"in_progress"}
+{"ts":"2026-07-31T05:28:04.025Z","event":"doctor_fix","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","count":1,"codes":["stale-git-contract"]}
+{"ts":"2026-07-31T05:28:11.907Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-043","patch":"acceptance","status":"in_progress"}
+{"ts":"2026-07-31T05:28:11.907Z","event":"ac_met","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-043","index":1,"text":"state.lock and state.lock.break are ignored by the contract tm init writes"}
+{"ts":"2026-07-31T05:28:11.991Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-043","patch":"acceptance","status":"in_progress"}
+{"ts":"2026-07-31T05:28:11.991Z","event":"ac_met","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-043","index":2,"text":"tm doctor tops up an existing store, which the 0.6.1 stale-contract check already knows how to do"}
+{"ts":"2026-07-31T05:28:12.071Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-043","patch":"acceptance","status":"in_progress"}
+{"ts":"2026-07-31T05:28:12.072Z","event":"ac_met","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-043","index":3,"text":"A committed lock from before this cannot block a fresh clone"}
+{"ts":"2026-07-31T05:28:12.149Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-043","patch":"evidence","status":"in_progress"}
+{"ts":"2026-07-31T05:28:12.223Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-043","patch":"comments","status":"in_progress"}
+{"ts":"2026-07-31T05:28:12.223Z","event":"comment","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-043","author":"main"}
+{"ts":"2026-07-31T05:28:21.860Z","event":"update","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-043","patch":"status,closed","status":"done"}
+{"ts":"2026-07-31T05:28:21.860Z","event":"release","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-043"}
+{"ts":"2026-07-31T05:28:21.860Z","event":"done","session":"61c67728-2ff2-46ea-87eb-2a99db9c96bd","actor":"main","id":"TM-043"}

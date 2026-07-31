@@ -1,21 +1,23 @@
 ---
 id: "TM-043"
 kind: "task"
-status: "open"
+status: "done"
 created: "2026-07-31T05:23:36.378Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "The store's git contract does not ignore its own lock files"
 epic: "EP-004"
-acceptance: [{"text":"state.lock and state.lock.break are ignored by the contract tm init writes","done":false},{"text":"tm doctor tops up an existing store, which the 0.6.1 stale-contract check already knows how to do","done":false},{"text":"A committed lock from before this cannot block a fresh clone","done":false}]
-evidence: []
-commits: []
+acceptance: [{"text":"state.lock and state.lock.break are ignored by the contract tm init writes","done":true,"at":"2026-07-31T05:28:11.896Z"},{"text":"tm doctor tops up an existing store, which the 0.6.1 stale-contract check already knows how to do","done":true,"at":"2026-07-31T05:28:11.979Z"},{"text":"A committed lock from before this cannot block a fresh clone","done":true,"at":"2026-07-31T05:28:12.055Z"}]
+evidence: [".bytedesk/task-management/evidence/TM-043-store.mjs"]
+commits: ["6c9e01a"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "61c67728-2ff2-46ea-87eb-2a99db9c96bd"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-07-31T05:24:04.684Z"
+updated: "2026-07-31T05:28:21.853Z"
+comments: [{"author":"main","ts":"2026-07-31T05:28:12.212Z","text":"Template gains state.lock and state.lock.break. Existing stores are reached by the 0.6.1 stale-contract check with no new mechanism: doctor reports '.gitignore predates 2 rule(s) this version ships: state.lock, state.lock.break' and --fix appends them, preserving hand-added rules. Applied to this repo's own store the same way a user would. Third criterion verified end to end rather than reasoned about: built a store with a lock committed the way an older tm would, cloned it, and wrote to the clone — staleLock reads a pid from another machine as dead, so the clone is never blocked. That is why this was noise rather than deadlock, and still worth closing."}]
+closed: "2026-07-31T05:28:21.850Z"
 ---
 
 ## Problem

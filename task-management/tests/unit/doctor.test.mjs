@@ -330,6 +330,22 @@ describe("evidence, natives and the cache", () => {
     assert.match(f.message, /\.gitignore:1:\.bytedesk\//, "the finding must name the rule to edit");
   });
 
+  it("tops up a store written before the lock rules existed", () => {
+    const p = store();
+    // Exactly the shape every store created before 0.11 is in.
+    const shipped = readFileSync(p.gitignore, "utf8");
+    writeFileSync(p.gitignore, shipped.replace(/^state\.lock(\.break)?$/gm, ""));
+
+    const f = find(p, "stale-git-contract");
+    assert.ok(f, "a contract that exists is not a contract that is current");
+    assert.match(f.message, /state\.lock/);
+
+    heal(p);
+    const after = readFileSync(p.gitignore, "utf8");
+    assert.match(after, /^state\.lock$/m);
+    assert.match(after, /^state\.lock\.break$/m);
+  });
+
   it("reports a contract that predates a rule this version ships, and tops it up", () => {
     const p = store();
     // The shape every pre-0.5.0 store is in: a contract that exists, so the old check called it
@@ -369,7 +385,10 @@ describe("evidence, natives and the cache", () => {
     for (const keep of ["tasks/", "epics/", "events.jsonl", "config.json", "evidence"]) {
       assert.equal(rules.includes(`\n${keep}`), false, `${keep} is the shared record and must stay in git`);
     }
-    for (const drop of ["index.json", "state.json", "dashboard.*", ".tm-tmp-*"]) {
+    // state.lock is the one that got missed: every other per-machine file was listed, and a process
+    // killed mid-write leaves a lock behind for the next `git add -A` to commit — handing every
+    // clone a lock owned by a pid that never existed on that machine.
+    for (const drop of ["index.json", "state.json", "dashboard.*", "port.assigned", ".tm-tmp-*", "state.lock", "state.lock.break"]) {
       assert.match(rules, new RegExp(`^${drop.replace(/[.*]/g, (c) => `\\${c}`)}$`, "m"), `${drop} is per-machine`);
     }
   });

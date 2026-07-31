@@ -8,14 +8,14 @@ title: "The work stream renders Claude Code's transcript; Codex and Grok were on
 epic: "EP-004"
 acceptance: [{"text":"A Codex rollout and a Grok chat history render in the panel, looked at rather than assumed","done":false},{"text":"Tool calls and results from all three formats are legible side by side","done":false},{"text":"A format that changes under us degrades to text rather than rendering nothing","done":false}]
 evidence: []
-commits: []
+commits: ["6c9e01a"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "61c67728-2ff2-46ea-87eb-2a99db9c96bd"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-07-31T05:24:04.984Z"
+updated: "2026-07-31T05:24:18.410Z"
 ---
 
 ## Problem

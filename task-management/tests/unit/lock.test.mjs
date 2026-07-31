@@ -97,6 +97,18 @@ describe("withLock", () => {
     assert.equal(withLock(p, () => "recovered"), "recovered", "an orphaned breaker must age out too");
   });
 
+  it("is not blocked by a lock some older version committed to the repo", () => {
+    const p = store();
+    const lock = join(p.base, "state.lock");
+    // A store committed before state.lock was ignored hands every clone a lock file. Its pid is a
+    // number from somebody else's machine, so it belongs to no process here — which is precisely
+    // the case staleLock exists for. The clone has to be able to write.
+    writeFileSync(lock, JSON.stringify({ pid: 999999, ts: new Date().toISOString() }));
+
+    assert.equal(staleLock(lock), true, "a pid that does not exist here is a dead holder, however fresh the file");
+    assert.equal(withLock(p, () => "the clone can write"), "the clone can write");
+  });
+
   it("does not treat a freshly created empty lock as dead", () => {
     const p = store();
     const lock = join(p.base, "state.lock");

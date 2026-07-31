@@ -16,3 +16,7 @@ port.assigned
 
 # writeAtomic's staging files. Present only mid-write, or after a crash.
 .tm-tmp-*
+
+# Added by `tm doctor --fix` — rules this store predates.
+state.lock
+state.lock.break
