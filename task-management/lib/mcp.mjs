@@ -10,6 +10,7 @@
  */
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { paths } from "./paths.mjs";
 import { claimTask, releaseClaim } from "./claims.mjs";
 import { actor, actorLabel, sessionId } from "./actor.mjs";
@@ -22,27 +23,33 @@ import { describeQuery, matchesQuery, parseQuery } from "./query.mjs";
 import { accept, propose, ranked, score, ship } from "./capability.mjs";
 
 /**
- * The handshake advertises whatever the manifest declares — never a literal.
+ * MCP `serverInfo.version` must be a non-empty string on the wire.
  *
- * A hardcoded number here goes stale on the first release that forgets it, and then the MCP
- * handshake reports a different version than the plugin it ships in, which is exactly the bug
- * tests/unit/mcp.test.mjs exists to catch. It caught it: this file said "0.3.0" after the
- * manifest dropped `version` to move to commit-SHA versioning.
+ * Prefer the plugin manifest when it still declares `version`. Internal ByteDesk plugins often
+ * omit that field so installs track by commit SHA (directory names like `30ee6c8dd411`); in that
+ * case advertise the install-dir SHA when it looks like one. Never leave the field out — Grok's
+ * MCP client type-checks InitializeResult and fails the whole handshake when `version` is
+ * missing (`CustomResult` instead of `InitializeResult`), which is how tools silently vanish.
  *
- * With no `version` in the manifest the field is absent here too, which is the honest answer —
- * the plugin genuinely has no declared version, it is identified by commit. If a client ever
- * needs a version string, the fix is to restore the manifest field deliberately rather than to
- * reintroduce a literal that lies.
+ * Do not hardcode a semver here: that reintroduces the "handshake version ≠ plugin identity"
+ * drift `tests/unit/mcp.test.mjs` exists to catch.
  */
-const manifestVersion = () => {
+const PLUGIN_ROOT = fileURLToPath(new URL("..", import.meta.url));
+
+const serverVersion = () => {
   try {
-    return JSON.parse(readFileSync(new URL("../.claude-plugin/plugin.json", import.meta.url), "utf8")).version;
+    const v = JSON.parse(readFileSync(new URL("../.claude-plugin/plugin.json", import.meta.url), "utf8")).version;
+    if (v != null && String(v).length > 0) return String(v);
   } catch {
-    return undefined;
+    // fall through
   }
+  const dir = basename(PLUGIN_ROOT);
+  if (/^[0-9a-f]{7,40}$/i.test(dir)) return dir;
+  // Source checkout / worktree with no manifest version and no SHA-named parent.
+  return "dev";
 };
 
-export const SERVER_INFO = { name: "task-management", version: manifestVersion() };
+export const SERVER_INFO = { name: "task-management", version: serverVersion() };
 
 const ok = (fields = {}) => ({ ok: true, ...fields });
 const fail = (error) => ({ ok: false, error });

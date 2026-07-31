@@ -28,13 +28,23 @@ test("initialize returns the handshake, versioned from the plugin manifest", () 
   );
   const res = handleRequest({ jsonrpc: "2.0", id: 0, method: "initialize" }, { p: tempStore() });
   assert.equal(res.id, 0);
+  // Strict MCP clients (Grok) require serverInfo.version as a non-empty string. When the
+  // manifest omits version (commit-SHA install identity), the server still fills a string —
+  // never drop the field.
+  assert.equal(typeof res.result.serverInfo.version, "string");
+  assert.ok(res.result.serverInfo.version.length > 0, "serverInfo.version must not be empty");
+  const expectedVersion =
+    manifest.version != null && String(manifest.version).length > 0 ? String(manifest.version) : res.result.serverInfo.version;
   assert.deepEqual(res.result, {
     protocolVersion: "2024-11-05",
     // Both are MANDATORY declarations for the features we serve, and both empty because
     // neither sub-feature (subscribe, listChanged) is implemented.
     capabilities: { tools: {}, resources: {} },
-    serverInfo: { name: "task-management", version: manifest.version },
+    serverInfo: { name: "task-management", version: expectedVersion },
   });
+  if (manifest.version != null && String(manifest.version).length > 0) {
+    assert.equal(res.result.serverInfo.version, String(manifest.version));
+  }
 });
 
 test("notifications/initialized is answered with nothing at all", () => {
