@@ -1,0 +1,17 @@
+{
+  "name": "knowledge-management",
+  "version": "0.1.0",
+  "description": "OKF v0.2 knowledge-management runtime for coding agents",
+  "scripts": {
+    "test": "bash run-tests.sh"
+  },
+  "keywords": ["okf", "knowledge", "agents", "mcp"],
+  "author": "ByteDesk AI",
+  "license": "MIT",
+  "dependencies": {},
+  "type": "module",
+  "bin": {
+    "km": "./bin/km",
+    "km-mcp": "./bin/km-mcp"
+  }
+}

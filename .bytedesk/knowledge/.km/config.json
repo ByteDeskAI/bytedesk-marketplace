@@ -1,0 +1,22 @@
+{
+  "okfVersion": "0.2",
+  "injectOnSessionStart": true,
+  "injectMaxConcepts": 12,
+  "captureDecisions": "smart",
+  "softTmLink": true,
+  "warnStaleOnStop": false,
+  "defaultType": "Reference",
+  "recommendedTypes": [
+    "Architecture",
+    "Decision",
+    "API",
+    "Module",
+    "Runbook",
+    "Onboarding",
+    "Domain Concept",
+    "Playbook",
+    "Metric",
+    "Reference",
+    "Attested Computation"
+  ]
+}

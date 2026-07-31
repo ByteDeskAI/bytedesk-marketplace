@@ -1,0 +1,5 @@
+{
+  "name": "knowledge-management",
+  "version": "0.1.0",
+  "description": "OKF v0.2 knowledge runtime — markdown bundles, km CLI, MCP tools for search/show/validate."
+}

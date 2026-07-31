@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "knowledge-management": {
+      "type": "stdio",
+      "command": "./bin/km-mcp",
+      "cwd": "."
+    }
+  }
+}

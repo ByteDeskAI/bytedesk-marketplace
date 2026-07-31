@@ -1,0 +1,43 @@
+{
+  "generatedAt": "2026-07-31T04:45:36.989Z",
+  "concepts": [
+    {
+      "id": "architecture/task-management-architecture",
+      "path": "/architecture/task-management-architecture.md",
+      "type": "Architecture",
+      "title": "Task-management architecture",
+      "description": "Markdown store, hooks, MCP, claims — work tracking twin of knowledge-management",
+      "tags": [
+        "task-management"
+      ],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    },
+    {
+      "id": "decisions/use-okf-for-durable-knowledge",
+      "path": "/decisions/use-okf-for-durable-knowledge.md",
+      "type": "Decision",
+      "title": "Use OKF for durable knowledge",
+      "description": "Adopt Open Knowledge Format v0.2 as on-disk contract for agent knowledge",
+      "tags": [
+        "okf",
+        "architecture"
+      ],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    },
+    {
+      "id": "l",
+      "path": "/l.md",
+      "type": "Reference",
+      "title": "L",
+      "description": "L",
+      "tags": [],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    }
+  ]
+}

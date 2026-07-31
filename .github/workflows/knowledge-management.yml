@@ -1,0 +1,28 @@
+name: knowledge-management
+
+on:
+  push:
+    paths:
+      - "knowledge-management/**"
+      - ".bytedesk/knowledge/**"
+      - ".github/workflows/knowledge-management.yml"
+  pull_request:
+    paths:
+      - "knowledge-management/**"
+      - ".bytedesk/knowledge/**"
+
+jobs:
+  test-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      # YAML is vendored under knowledge-management/lib/vendor — no npm install required.
+      - name: Plugin tests (zero-install)
+        run: bash knowledge-management/run-tests.sh
+      - name: Dogfood validate
+        run: KM_NO_AUTOLINK=1 node knowledge-management/bin/km validate
+      - name: Viz smoke
+        run: KM_NO_AUTOLINK=1 node knowledge-management/bin/km viz --out /tmp/km-viz.html && test -f /tmp/km-viz.html

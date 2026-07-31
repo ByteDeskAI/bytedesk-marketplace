@@ -1,0 +1,24 @@
+#!/usr/bin/env node
+/**
+ * stdio MCP server for knowledge-management.
+ */
+import { createInterface } from "node:readline";
+import { handleRequest } from "../lib/mcp.mjs";
+import { paths } from "../lib/paths.mjs";
+
+const p = paths();
+
+const rl = createInterface({ input: process.stdin, terminal: false });
+
+rl.on("line", (line) => {
+  const trimmed = line.trim();
+  if (!trimmed) return;
+  let msg;
+  try {
+    msg = JSON.parse(trimmed);
+  } catch {
+    return;
+  }
+  const res = handleRequest(msg, p);
+  if (res != null) process.stdout.write(JSON.stringify(res) + "\n");
+});

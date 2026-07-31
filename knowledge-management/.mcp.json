@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "knowledge-management": {
+      "type": "stdio",
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/km-mcp"
+    }
+  }
+}

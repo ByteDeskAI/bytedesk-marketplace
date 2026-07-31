@@ -1,0 +1,32 @@
+# Example CI for consumer repos / plugin tree. Prefer repo-root
+# .github/workflows/knowledge-management.yml for this monorepo.
+name: validate-knowledge
+
+on:
+  push:
+    paths:
+      - ".bytedesk/knowledge/**"
+      - "knowledge-management/**"
+  pull_request:
+    paths:
+      - ".bytedesk/knowledge/**"
+      - "knowledge-management/**"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      # YAML is vendored under lib/vendor — no npm install required.
+      - name: Plugin tests (zero-install)
+        run: bash knowledge-management/run-tests.sh
+      - name: Dogfood or fixture validate
+        run: |
+          if [ -f .bytedesk/knowledge/index.md ]; then
+            KM_NO_AUTOLINK=1 node knowledge-management/bin/km validate
+          else
+            bash knowledge-management/tests/test-validate.sh
+          fi

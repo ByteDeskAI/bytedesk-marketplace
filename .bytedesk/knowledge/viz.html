@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Knowledge graph</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; background: #0f1419; color: #e7ecf1; }
+  header { padding: 1rem 1.5rem; border-bottom: 1px solid #243044; }
+  h1 { margin: 0; font-size: 1.1rem; }
+  main { display: grid; grid-template-columns: 1fr 320px; min-height: calc(100vh - 56px); }
+  #graph { padding: 1rem; overflow: auto; white-space: pre; font-family: ui-monospace, monospace; font-size: 12px; }
+  aside { border-left: 1px solid #243044; padding: 1rem; overflow: auto; }
+  .card { background: #1a2332; border-radius: 8px; padding: 0.75rem; margin-bottom: 0.5rem; }
+  .type { color: #7dd3fc; font-size: 0.75rem; }
+  .trust { color: #86efac; font-size: 0.75rem; }
+</style>
+</head>
+<body>
+<header><h1>OKF knowledge graph · 2 concepts · 1 links</h1></header>
+<main>
+  <pre id="graph">flowchart LR
+  "architecture/task-management-architecture"["Task-management architecture"]
+  "decisions/use-okf-for-durable-knowledge"["Use OKF for durable knowledge"]
+  "decisions/use-okf-for-durable-knowledge" --&gt; "architecture/task-management-architecture"</pre>
+  <aside id="list"></aside>
+</main>
+<script>
+const DATA = {"nodes":[{"id":"architecture/task-management-architecture","title":"Task-management architecture","type":"Architecture"},{"id":"decisions/use-okf-for-durable-knowledge","title":"Use OKF for durable knowledge","type":"Decision"}],"edges":[{"from":"decisions/use-okf-for-durable-knowledge","to":"architecture/task-management-architecture","label":"Task-management architecture","broken":false}],"concepts":[{"id":"architecture/task-management-architecture","title":"Task-management architecture","type":"Architecture","description":"Markdown store, hooks, MCP, claims — work tracking twin of knowledge-management","trust":"unverified"},{"id":"decisions/use-okf-for-durable-knowledge","title":"Use OKF for durable knowledge","type":"Decision","description":"Adopt Open Knowledge Format v0.2 as on-disk contract for agent knowledge","trust":"unverified"}]};
+const list = document.getElementById('list');
+for (const c of DATA.concepts) {
+  const el = document.createElement('div');
+  el.className = 'card';
+  el.innerHTML = '<div class="type">' + c.type + '</div><strong>' + c.title + '</strong>' +
+    '<div class="trust">' + c.trust + '</div><div style="opacity:.8;font-size:12px;margin-top:4px">' +
+    (c.description || '') + '</div><div style="opacity:.5;font-size:11px">' + c.id + '</div>';
+  list.appendChild(el);
+}
+</script>
+</body>
+</html>

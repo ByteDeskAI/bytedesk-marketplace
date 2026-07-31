@@ -1,0 +1,354 @@
+#!/usr/bin/env node
+/**
+ * km — knowledge-management CLI. Every write to .bytedesk/knowledge/ goes through here.
+ */
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { DEFAULT_CONFIG, PLUGIN_VERSION, ensureDirs, isInitialized, paths, resolveRoot } from "../lib/paths.mjs";
+import {
+  appendLogMd,
+  config,
+  createConcept,
+  initBundle,
+  listConcepts,
+  readConcept,
+  readEvents,
+  writeConcept,
+  writeConfig,
+} from "../lib/store.mjs";
+import { reindex } from "../lib/index.mjs";
+import { validateBundle, trustTier, isStale } from "../lib/validate.mjs";
+import { find } from "../lib/query.mjs";
+import { backlinks, graphData, mermaid } from "../lib/graph.mjs";
+import { lintBundle } from "../lib/lint.mjs";
+import { diagnose, renderDoctor, repairAll } from "../lib/doctor.mjs";
+import { migrateBundle } from "../lib/migrate.mjs";
+import { runHookFromStdin } from "../lib/enforce.mjs";
+import { autolink, link as linkBins, status as linkStatus, unlink as unlinkBins } from "../lib/link.mjs";
+import { linkTaskToConcept, listConceptTaskLinks } from "../lib/tm-link.mjs";
+import { exportStore, exportToFile } from "../lib/export.mjs";
+import { writeViz } from "../lib/viz.mjs";
+import { humanActor, now } from "../lib/actor.mjs";
+
+const rawArgs = process.argv.slice(2);
+const JSON_OUT = rawArgs.includes("--json");
+const argv = rawArgs.filter((a) => a !== "--json");
+const verb = argv[0];
+
+process.stdout.on("error", (err) => {
+  if (err.code === "EPIPE") process.exit(0);
+  throw err;
+});
+
+const out = (s) => process.stdout.write(`${s}\n`);
+const emit = (data, human) => out(JSON_OUT ? JSON.stringify(data, null, 2) : human());
+const die = (s, code = 1) => {
+  process.stderr.write(`${s}\n`);
+  process.exit(code);
+};
+
+function requireBundle() {
+  const p = paths();
+  if (!p.base) die(p.unavailable || "no project root");
+  if (!isInitialized(p) && verb !== "init" && verb !== "install" && verb !== "uninstall" && verb !== "where" && verb !== "help" && verb !== "hook") {
+    die("no knowledge bundle — run: km init");
+  }
+  return p;
+}
+
+function flag(name) {
+  return argv.includes(name);
+}
+
+function opt(name, fallback) {
+  const i = argv.indexOf(name);
+  if (i === -1) return fallback;
+  return argv[i + 1] ?? fallback;
+}
+
+const HELP = `km — Open Knowledge Format (OKF v0.2) knowledge-management CLI  v${PLUGIN_VERSION}
+
+  km init                         create .bytedesk/knowledge/ bundle
+  km validate                     OKF §11 conformance
+  km reindex                      rebuild index.md + .km/index.json
+  km concept new "<title>"        --type T --dir D --desc "..." --tag t --resource URI
+  km show <id>                    full concept
+  km find <words> [field:value]   search (type:, tag:, trust:, stale:)
+  km graph [--mermaid]            link graph
+  km backlinks <id>
+  km verify <id>                  stamp human verification
+  km lint                         orphans, broken links, stale
+  km doctor [--fix]              diagnose / repair
+  km migrate                      v0.1 → v0.2 best-effort
+  km log [n]                      event tail
+  km export [md|json] [--out f]
+  km viz [--out file.html]        static graph HTML (PR7)
+  km link task <TM-id> <concept>  soft TM cross-link
+  km install [--force] | uninstall | where
+  km hook <event>                 hook entry (stdin JSON)
+  km help
+`;
+
+async function main() {
+  if (!verb || verb === "help" || verb === "-h" || verb === "--help") {
+    out(HELP);
+    return;
+  }
+
+  if (verb === "hook") {
+    runHookFromStdin(argv[1] || "");
+    return;
+  }
+
+  if (verb === "where") {
+    const p = paths();
+    const s = linkStatus();
+    emit(
+      { paths: p, link: s, version: PLUGIN_VERSION },
+      () =>
+        [
+          `version: ${PLUGIN_VERSION}`,
+          `root: ${p.root || "(none)"}`,
+          `bundle: ${p.base || "(none)"}`,
+          `runtime: ${p.runtime || "(none)"}`,
+          `link dir: ${s.dir} (on PATH: ${s.onPath})`,
+          ...s.entries.map((e) => `  ${e.name}: ${e.state}`),
+        ].join("\n"),
+    );
+    return;
+  }
+
+  if (verb === "install") {
+    const r = linkBins({ force: flag("--force") });
+    if (!r.ok) die(r.reason || "install failed");
+    emit(r, () => `linked into ${r.dir}`);
+    return;
+  }
+
+  if (verb === "uninstall") {
+    const r = unlinkBins();
+    emit(r, () => `removed: ${(r.removed || []).join(", ") || "(nothing)"}`);
+    return;
+  }
+
+  if (verb === "init") {
+    const p = paths();
+    if (!p.root) die(p.unavailable || "no project root");
+    if (isInitialized(p) && !flag("--force")) {
+      emit({ ok: true, base: p.base, existed: true }, () => `already initialized: ${p.base}`);
+      return;
+    }
+    initBundle(p);
+    reindex(p);
+    const note = autolink();
+    emit({ ok: true, base: p.base }, () => `initialized OKF bundle at ${p.base}${note ? "\n" + note : ""}`);
+    return;
+  }
+
+  const p = requireBundle();
+
+  if (verb === "validate") {
+    const r = validateBundle(p);
+    emit(r, () => {
+      const lines = [
+        r.ok ? `ok — ${r.conceptCount} concept(s)` : `FAIL — ${r.errors.length} error(s)`,
+        ...r.errors.map((e) => `  error: ${e}`),
+        ...r.warnings.map((w) => `  warn: ${w}`),
+      ];
+      return lines.join("\n");
+    });
+    if (!r.ok) process.exit(1);
+    return;
+  }
+
+  if (verb === "reindex") {
+    const idx = reindex(p);
+    emit(idx, () => `reindexed ${idx.concepts.length} concept(s)`);
+    return;
+  }
+
+  if (verb === "concept" && argv[1] === "new") {
+    const title = argv[2];
+    if (!title) die('usage: km concept new "<title>" [--type T] [--dir D]');
+    const doc = createConcept(
+      {
+        title,
+        type: opt("--type", config(p).defaultType),
+        dir: opt("--dir", ""),
+        description: opt("--desc", "") || opt("--description", ""),
+        resource: opt("--resource", undefined),
+        tags: (() => {
+          const tags = [];
+          for (let i = 0; i < argv.length; i++) if (argv[i] === "--tag" && argv[i + 1]) tags.push(argv[i + 1]);
+          return tags;
+        })(),
+        body: opt("--body", ""),
+      },
+      p,
+    );
+    reindex(p);
+    emit(doc, () => `created ${doc.id}  type=${doc.type}  ${doc.path}`);
+    return;
+  }
+
+  if (verb === "show") {
+    const id = argv[1];
+    if (!id) die("usage: km show <id>");
+    const doc = readConcept(id, p);
+    if (!doc) die(`not found: ${id}`);
+    emit(
+      { ...doc, trust: trustTier(doc.data), stale: isStale(doc.data) },
+      () =>
+        [
+          `${doc.id}  [${doc.type}]  trust=${trustTier(doc.data)}${isStale(doc.data) ? "  STALE" : ""}`,
+          doc.title,
+          doc.description,
+          "---",
+          doc.body,
+        ].join("\n"),
+    );
+    return;
+  }
+
+  if (verb === "find") {
+    const tokens = argv.slice(1);
+    const hits = find(tokens, p);
+    emit(
+      hits.map((c) => ({ id: c.id, type: c.type, title: c.title, trust: trustTier(c.data) })),
+      () =>
+        hits.length
+          ? hits.map((c) => `${c.id}\t[${c.type}]\t${c.title}\t${trustTier(c.data)}`).join("\n")
+          : "(no matches)",
+    );
+    return;
+  }
+
+  if (verb === "graph") {
+    const g = graphData(p);
+    if (flag("--mermaid") || !JSON_OUT) {
+      emit({ ...g, mermaid: mermaid(p) }, () => mermaid(p));
+    } else {
+      emit(g, () => JSON.stringify(g, null, 2));
+    }
+    return;
+  }
+
+  if (verb === "backlinks") {
+    const id = argv[1];
+    if (!id) die("usage: km backlinks <id>");
+    const hits = backlinks(id, p);
+    emit(hits, () => (hits.length ? hits.map((h) => `${h.from}\t${h.title}`).join("\n") : "(none)"));
+    return;
+  }
+
+  if (verb === "verify") {
+    const id = argv[1];
+    if (!id) die("usage: km verify <id>");
+    const doc = readConcept(id, p);
+    if (!doc) die(`not found: ${id}`);
+    const prev = doc.data.verified;
+    const list = prev == null ? [] : Array.isArray(prev) ? [...prev] : [prev];
+    list.push({ by: humanActor(), at: now() });
+    writeConcept(id, { ...doc.data, verified: list }, doc.body, p);
+    appendLogMd("Update", `Verified [${doc.title}](/${doc.id}.md).`, p);
+    reindex(p);
+    emit({ id, verified: list, trust: trustTier({ verified: list }) }, () => `verified ${id} → ${trustTier({ verified: list })}`);
+    return;
+  }
+
+  if (verb === "lint") {
+    const r = lintBundle(p);
+    emit(r, () => {
+      const lines = [
+        `concepts=${r.counts.concepts} orphans=${r.counts.orphans} broken=${r.counts.broken} stale=${r.counts.stale}`,
+        ...r.issues.map((i) => `  [${i.severity}] ${i.id || "-"}: ${i.message}`),
+      ];
+      return lines.join("\n");
+    });
+    return;
+  }
+
+  if (verb === "doctor") {
+    if (flag("--fix")) {
+      const r = repairAll(p);
+      emit(r, () => `fixed: ${r.fixed.join(", ") || "(none)"}\nremaining:\n${renderDoctor({ problems: r.remaining })}`);
+      return;
+    }
+    const r = diagnose(p);
+    emit(r, () => renderDoctor(r));
+    return;
+  }
+
+  if (verb === "migrate") {
+    const r = migrateBundle(p);
+    reindex(p);
+    const n = r.filter((x) => x.migrated).length;
+    emit(r, () => `migrated ${n}/${r.length} concept(s)`);
+    return;
+  }
+
+  if (verb === "log") {
+    const n = Number(argv[1] || 20);
+    const events = readEvents(n, p);
+    emit(events, () => events.map((e) => `${e.ts}\t${e.kind}\t${e.id || ""}`).join("\n") || "(empty)");
+    return;
+  }
+
+  if (verb === "export") {
+    const format = argv[1] === "json" ? "json" : "md";
+    const outPath = opt("--out", null);
+    if (outPath) {
+      exportToFile(format, resolve(outPath), p);
+      emit({ out: outPath }, () => `wrote ${outPath}`);
+    } else {
+      out(exportStore(format, p));
+    }
+    return;
+  }
+
+  if (verb === "viz") {
+    const outPath = opt("--out", join(p.base, "viz.html"));
+    writeViz(resolve(outPath), p);
+    emit({ out: outPath }, () => `wrote ${outPath}`);
+    return;
+  }
+
+  if (verb === "link" && argv[1] === "task") {
+    const taskId = argv[2];
+    const concept = argv[3];
+    if (!taskId || !concept) die("usage: km link task <TM-id> <concept-id>");
+    const r = linkTaskToConcept(taskId, concept, p);
+    emit(r, () => `linked ${r.task} ↔ ${r.concept}${r.tmFile ? " (tm updated)" : " (concept only)"}`);
+    return;
+  }
+
+  if (verb === "links") {
+    const r = listConceptTaskLinks(p);
+    emit(r, () => (r.length ? r.map((x) => `${x.concept}\t${x.task}`).join("\n") : "(none)"));
+    return;
+  }
+
+  if (verb === "config") {
+    if (argv[1] && argv[2] !== undefined) {
+      const cfg = config(p);
+      const key = argv[1];
+      let val = argv[2];
+      if (val === "true") val = true;
+      else if (val === "false") val = false;
+      else if (/^\d+$/.test(val)) val = Number(val);
+      cfg[key] = val;
+      writeConfig(cfg, p);
+      emit(cfg, () => `set ${key}=${val}`);
+      return;
+    }
+    emit(config(p), () => JSON.stringify(config(p), null, 2));
+    return;
+  }
+
+  die(`unknown verb: ${verb}\n${HELP}`);
+}
+
+main().catch((e) => {
+  die(e.stack || e.message);
+});

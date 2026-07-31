@@ -1,0 +1,39 @@
+{
+  "name": "yaml",
+  "version": "2.9.0",
+  "license": "ISC",
+  "author": "Eemeli Aro <eemeli@gmail.com>",
+  "funding": "https://github.com/sponsors/eemeli",
+  "repository": "github:eemeli/yaml",
+  "description": "JavaScript parser and stringifier for YAML",
+  "keywords": [
+    "YAML",
+    "parser",
+    "stringifier"
+  ],
+  "homepage": "https://eemeli.org/yaml/",
+  "files": [
+    "browser/",
+    "dist/",
+    "util.js"
+  ],
+  "type": "commonjs",
+  "main": "./dist/index.js",
+  "browser": {
+    "./dist/index.js": "./browser/index.js",
+    "./dist/util.js": "./browser/dist/util.js",
+    "./util.js": "./browser/dist/util.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "browserslist": "defaults, not ie 11",
+  "engines": {
+    "node": ">= 14.6"
+  }
+}
