@@ -54,6 +54,25 @@ export default defineConfig(({ command }) => ({
     assetsDir: "assets",
     emptyOutDir: true,
     modulePreload: { polyfill: false }, // the polyfill is an inline script; a strict CSP would drop it
+    /**
+     * Dependencies in their own chunk, and the size warning turned off deliberately.
+     *
+     * This bundle is committed, so what matters is not first-paint over a network — it is served
+     * from localhost and the service worker precaches every file — but how much of it git has to
+     * store again on each release. Unsplit, one character of app code rewrote all 3.3 MB. Split,
+     * a typical change rewrites only the app chunk and the dependency chunk is reused.
+     *
+     * The warning cannot be satisfied honestly: Atlaskit alone is over the 500 kB default, and
+     * chopping a design system into arbitrary pieces to quiet a linter would trade a real
+     * property (one cacheable vendor chunk) for a cosmetic one. Naming the limit says the size is
+     * a decision rather than an oversight — and leaves the warning meaningful if it ever fires.
+     */
+    chunkSizeWarningLimit: 4500,  // above today's vendor chunk, so a jump past it is news
+    rollupOptions: {
+      output: {
+        manualChunks: (id: string) => (id.includes("node_modules") ? "vendor" : undefined),
+      },
+    },
   },
   server:
     command === "serve"

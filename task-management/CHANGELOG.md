@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## [0.12.1] — 2026-07-31
+
+### Changed
+- **Dependencies build into their own chunk, so a release stops rewriting 3.3 MB of git history.**
+  The bundle is committed — that is what lets `/plugin install` work with no npm and no network —
+  so the cost that matters is not first paint but how much of it git stores again each time. One
+  character of app code used to rewrite the whole thing; the app chunk is now 78 kB and the vendor
+  chunk is reused. Total on disk went down, 4.6 MB → 4.4 MB.
+- `chunkSizeWarningLimit` is set deliberately rather than left to warn on every build. The default
+  cannot be satisfied honestly — Atlaskit alone exceeds it, and chopping a design system into
+  arbitrary pieces to quiet a linter would trade a real property (one cacheable vendor chunk) for a
+  cosmetic one. The limit sits just above today's vendor chunk, so a jump past it is still news.
+
 ## [0.12.0] — 2026-07-31
 
 The round that asked whether anybody else could install this, and found out by trying.
