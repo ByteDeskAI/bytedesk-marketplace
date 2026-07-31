@@ -1,7 +1,9 @@
 import type { DragEvent } from "react";
 import Badge from "@atlaskit/badge";
 import { cssMap } from "@atlaskit/css";
+import { ExitingPersistence, FadeIn } from "@atlaskit/motion";
 import { Box, Inline, Stack, Text } from "@atlaskit/primitives/compiled";
+import { Bump } from "./Bump";
 import { TaskCard } from "./TaskCard";
 import { label } from "../keys.mjs";
 import type { Status, Task } from "../types";
@@ -41,6 +43,7 @@ export function Column({
   focusedId = null,
   onFocusCard,
   index,
+  working = EMPTY_SET,
 }: {
   status: Status;
   tasks: Task[];
@@ -59,6 +62,8 @@ export function Column({
   onFocusCard?: (id: string) => void;
   /** 1-based position, shown in the heading because that digit is the shortcut. */
   index?: number;
+  /** Ids whose session is writing right now. */
+  working?: Set<string>;
 }) {
   return (
     <div
@@ -77,7 +82,9 @@ export function Column({
               {label(status)}
             </Text>
           </Box>
-          <Badge>{tasks.length}</Badge>
+          <Bump on={tasks.length}>
+            <Badge>{tasks.length}</Badge>
+          </Bump>
           {/* The column's number IS its shortcut, so show it rather than hiding it
               in the help sheet. */}
           {index ? (
@@ -91,7 +98,23 @@ export function Column({
         <div role="list" aria-label={`${label(status)}, ${tasks.length} tasks`}>
           <Stack space="space.100">
             {tasks.length ? (
-              tasks.map((t) => (
+              /**
+               * Cards fade in and out rather than appearing and vanishing.
+               *
+               * This is the change nobody makes themselves: the board is multi-writer — CLI, MCP,
+               * hooks and other sessions all write, and SSE pushes the result — so a card can move
+               * column between glances with nothing to mark it. A card leaving one column and
+               * arriving in another reads as movement.
+               *
+               * ExitingPersistence keeps the leaving card mounted long enough to animate out;
+               * @atlaskit/motion honours prefers-reduced-motion itself, so there is no second
+               * switch to keep in sync here.
+               */
+              <ExitingPersistence appear>
+              {tasks.map((t) => (
+                <FadeIn key={t.id}>
+                  {(props) => (
+                    <div {...props}>
                 <TaskCard
                   key={t.id}
                   task={t}
@@ -106,8 +129,13 @@ export function Column({
                   outbox={outbox.get(t.id)}
                   focused={focusedId === t.id}
                   onFocusCard={onFocusCard}
+                  working={working.has(t.id)}
                 />
-              ))
+                    </div>
+                  )}
+                </FadeIn>
+              ))}
+              </ExitingPersistence>
             ) : (
               <Text size="small" color="color.text.subtlest">
                 —

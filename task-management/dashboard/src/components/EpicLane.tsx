@@ -4,6 +4,7 @@ import { cssMap } from "@atlaskit/css";
 import Lozenge from "@atlaskit/lozenge";
 import { Box, Inline, Text } from "@atlaskit/primitives/compiled";
 import Tooltip from "@atlaskit/tooltip";
+import { Bump } from "./Bump";
 
 const styles = cssMap({
   // Dense: one line, thin rule, monospace id, no decoration that isn't information.
@@ -32,6 +33,12 @@ const styles = cssMap({
     backgroundColor: "var(--ds-background-success-bold)",
     borderRadius: "var(--ds-radius-small)",
     height: "6px",
+    // A task closing *grows* the bar rather than teleporting it. This is the one number whose
+    // movement is itself the information — progress is a direction, not a value.
+    transitionProperty: "width",
+    transitionDuration: "400ms",
+    transitionTimingFunction: "ease-out",
+    "@media (prefers-reduced-motion: reduce)": { transitionDuration: "0s" },
   },
 });
 
@@ -98,7 +105,9 @@ export function EpicLane({
               <Box xcss={styles.fill} style={{ width: `${Math.round(fraction * 100)}%` }} />
             </Box>
           </Tooltip>
-          <Badge appearance={total && done === total ? "added" : "default"}>{`${done}/${total}`}</Badge>
+          <Bump on={done}>
+            <Badge appearance={total && done === total ? "added" : "default"}>{`${done}/${total}`}</Badge>
+          </Bump>
 
           {/* Task creation is gated on an active epic, so this is the one decision the
               board could not make for itself before. */}

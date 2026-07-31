@@ -8,14 +8,14 @@ title: "Wire the Codex pre_tool_use hook, once its payload schema is verified"
 epic: "EP-003"
 acceptance: [{"text":"A real Codex pre_tool_use payload is captured and committed as a fixture, not described from memory","done":false},{"text":"The hook fires under Codex and gates the same actions it gates under Claude Code","done":false},{"text":"The README capability matrix moves Codex hooks from warning to supported","done":false}]
 evidence: []
-commits: []
+commits: ["2bb38e1"]
 blockedBy: ["TM-039"]
 blocks: []
 actor: "main"
 session: "61c67728-2ff2-46ea-87eb-2a99db9c96bd"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-07-31T04:00:54.667Z"
+updated: "2026-07-31T04:01:25.404Z"
 ---
 
 ## Problem

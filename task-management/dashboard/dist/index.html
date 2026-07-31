@@ -22,8 +22,42 @@
         -webkit-font-smoothing: antialiased;
       }
       button, input, select, textarea { font-family: inherit; font-size: inherit; }
+
+      /*
+       * Motion as information (TM-040). Two jobs: show that work is happening, and show that
+       * something changed. Defined here because keyframes are global by nature — a component
+       * cannot scope an @keyframes rule, and duplicating it per component is how they drift.
+       *
+       * tmPulse runs only while a session is actively writing, so an idle board is still.
+       * tmFlash and tmBump run once, on a change.
+       */
+      @keyframes tmPulse {
+        0%, 100% { box-shadow: var(--ds-shadow-raised); }
+        50%      { box-shadow: var(--ds-shadow-raised), 0 0 0 3px var(--ds-border-accent-blue, #579dff); }
+      }
+      @keyframes tmFlash {
+        from { background-color: var(--ds-background-selected, #e9f2ff); }
+        to   { background-color: transparent; }
+      }
+      @keyframes tmBump {
+        0%   { transform: scale(1); }
+        40%  { transform: scale(1.25); }
+        100% { transform: scale(1); }
+      }
+
+      /*
+       * One switch for all of it. Every animation above is redundant with something already on the
+       * screen — a column, a count, a timestamp — so removing them removes no information.
+       */
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
     </style>
-    <script type="module" crossorigin src="/assets/index-MdwGiE8K.js"></script>
+    <script type="module" crossorigin src="/assets/index-C-Ci0f64.js"></script>
     <link rel="stylesheet" crossorigin href="/assets/index-CZIixFPL.css">
   </head>
   <body>

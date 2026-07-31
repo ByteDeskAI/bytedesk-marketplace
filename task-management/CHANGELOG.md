@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+## [0.9.0] — 2026-07-31
+
+### Added
+- **Motion on the board, carrying information rather than decorating it** (TM-040).
+  - A card whose session is writing *right now* pulses. Driven by real writes off the SSE feed the
+    board already holds — not by status, because `in_progress` is equally true of a card claimed
+    four hours ago, and pulsing that one says nothing. It stops when the writes stop.
+  - Cards fade in and out as they arrive, leave, or cross columns. This is the change nobody
+    watching makes themselves: the board is multi-writer, so a card could move between glances with
+    nothing to mark it.
+  - Numbers that move say so — column counts, epic progress, acceptance tallies. Progress *grows*
+    rather than teleporting, because progress is a direction.
+- Built on `@atlaskit/motion`, already a dependency: its durations, curves and `FadeIn` /
+  `ExitingPersistence` honour `prefers-reduced-motion` themselves, so there is no second switch to
+  keep in sync with the one in `index.html`.
+
+### Notes
+Two rules are held by tests rather than by care: **nothing loops on an idle board**, and
+**`prefers-reduced-motion` removes every animation without removing information** — everything
+motion says here is also said by a column, a number or a timestamp.
+
+Verified in a browser at 1600px: a quiet claimed card does not animate, the same card one second
+after a write does, a status change runs the enter animation and finishes, and under reduced motion
+nothing animates at all.
+
 ## [0.8.0] — 2026-07-31
 
 ### Added

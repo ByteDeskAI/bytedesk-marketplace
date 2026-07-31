@@ -1,4 +1,6 @@
 import type { DragEvent } from "react";
+import { useChanged } from "../motion";
+import { Bump } from "./Bump";
 import Badge from "@atlaskit/badge";
 import Checkbox from "@atlaskit/checkbox";
 import { cssMap } from "@atlaskit/css";
@@ -43,6 +45,33 @@ const styles = cssMap({
     outlineOffset: "var(--ds-space-025)",
     outlineStyle: "solid",
     outlineWidth: "var(--ds-border-width-focused)",
+  },
+  /**
+   * A card whose session is writing right now.
+   *
+   * Driven by real writes, not by status: `in_progress` is also true of a card claimed four hours
+   * ago, and pulsing that one says nothing. The animation stops when the writes stop, so an idle
+   * board is still — see LIVE_WINDOW_MS in motion.ts.
+   */
+  working: {
+    animationName: "tmPulse",
+    animationDuration: "1.8s",
+    animationIterationCount: "infinite",
+    animationTimingFunction: "ease-in-out",
+    "@media (prefers-reduced-motion: reduce)": {
+      // The information survives without the movement: a steady ring says the same thing.
+      animationName: "none",
+      outlineColor: "var(--ds-border-accent-blue)",
+      outlineStyle: "solid",
+      outlineWidth: "var(--ds-border-width-selected)",
+    },
+  },
+  /** A card whose status just changed — one flash, then still. */
+  changed: {
+    animationName: "tmFlash",
+    animationDuration: "900ms",
+    animationTimingFunction: "ease-out",
+    "@media (prefers-reduced-motion: reduce)": { animationName: "none" },
   },
   id: { fontFamily: "var(--ds-font-family-code)" },
   /**
@@ -133,6 +162,7 @@ export function TaskCard({
   onWatch,
   outbox,
   focused = false,
+  working = false,
   onFocusCard,
 }: {
   task: Task;
@@ -147,8 +177,14 @@ export function TaskCard({
   outbox?: { status: string; error?: string };
   /** The keyboard cursor is on this card. Roving tabindex — see useBoardKeys. */
   focused?: boolean;
+  /** The claiming session wrote something in the last LIVE_WINDOW_MS — work is happening now. */
+  working?: boolean;
   onFocusCard?: (id: string) => void;
 }) {
+  // One flash when this card's status moves — including a move made by another session or by the
+  // CLI, which is the case you would otherwise never notice.
+  const justChanged = useChanged(task.status);
+
   const ac = task.acceptance ?? [];
   const met = ac.filter((a) => a.done).length;
   const sat = elapsed(task, now);
@@ -201,6 +237,9 @@ export function TaskCard({
         onDropBefore(dragged, task.id);
       }}
     >
+      {/* The animation sits on a wrapper: Box takes a single xcss value, while the css prop
+          composes. Keeping the card's own styling untouched also keeps this reversible. */}
+      <div css={[working && styles.working, justChanged && styles.changed]}>
       <Box xcss={styles.card}>
         <Stack space="space.075">
           <Inline space="space.075" alignBlock="center" spread="space-between">
@@ -304,9 +343,11 @@ export function TaskCard({
             ) : null}
             {ac.length ? (
               <Tooltip content="acceptance criteria met">
-                <Badge
-                  appearance={met === ac.length ? "added" : "default"}
-                >{`${met}/${ac.length}`}</Badge>
+                <Bump on={met}>
+                  <Badge
+                    appearance={met === ac.length ? "added" : "default"}
+                  >{`${met}/${ac.length}`}</Badge>
+                </Bump>
               </Tooltip>
             ) : null}
             {(task.labels ?? []).map((l) => (
@@ -365,6 +406,7 @@ export function TaskCard({
           ) : null}
         </Stack>
       </Box>
+      </div>
     </div>
   );
 }

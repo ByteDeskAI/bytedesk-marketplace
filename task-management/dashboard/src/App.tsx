@@ -30,6 +30,7 @@ import {
   sortForLanes,
 } from "./lanes.mjs";
 import { loadCollapsed, saveCollapsed } from "./collapsed";
+import { useLiveWork } from "./motion";
 import { EpicLane } from "./components/EpicLane";
 import type { Lane } from "./components/EpicLane";
 import { useBoardKeys } from "./useBoardKeys";
@@ -289,6 +290,13 @@ export function App() {
     [keys.focusedId, pwa, selected.size],
   );
 
+  /**
+   * Which cards are being worked on right now — derived from the writes already streaming in over
+   * SSE, so no new endpoint and no per-card transcript read. A card claimed hours ago and a card
+   * being written to this second are both `in_progress`; only the second one moves.
+   */
+  const workingNow = useLiveWork(events, now);
+
   if (!board) {
     return (
       <Box xcss={styles.page}>
@@ -315,6 +323,7 @@ export function App() {
             tasks={rows.filter((t) => t.status === status)}
             starts={starts}
             now={now}
+            working={workingNow}
             focusedId={keys.focusedId}
             onFocusCard={(id) => {
               const at = locate(
