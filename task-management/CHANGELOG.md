@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Fixed
+- **MCP handshake always includes `serverInfo.version`.** After commit-SHA versioning dropped
+  `version` from the plugin manifest, `initialize` advertised `{ name: "task-management" }` with
+  no version field. Claude Code still connected; Grok's strict client rejects that shape as
+  `CustomResult` instead of `InitializeResult`, so every `tm_*` tool vanished for the session.
+  The wire field is now always a non-empty string: manifest version when present, else the
+  SHA-named install directory, else `"dev"`.
+
 ## [0.6.1] — 2026-07-30
 
 ### Fixed
