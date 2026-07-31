@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+## [0.6.0] — 2026-07-30
+
+### Added
+- **A live work stream beside the task drawer** (TM-035). Opening an in-progress task shows what
+  the claiming session is actually doing — messages and tool calls — in the space between the
+  drawer and the edge of the screen. `lib/transcript.mjs` joins the two halves the store already
+  had: a claim knows its session, and Claude Code writes that session's conversation to
+  `~/.claude/projects/<sanitized-cwd>/<session-id>.jsonl`. Served over SSE at
+  `GET /api/task/:id/stream` as TanStack AI `UIMessage`s.
+
+  Read-only by construction. The reader opens files and returns data; the panel renders and makes
+  one `EventSource` GET. Watching a run is never a way to steer one.
+
+  The transcript is read as a byte-range tail (a long session is 30+ MB), tolerates unknown event
+  types and half-written lines, and drops `thinking` and `image` blocks — internal, and megabytes
+  of base64 respectively. Rules in `.claude/rules/parsing-claude-jsonl.md`, including the
+  sanitizer that replaces both `/` **and** `.`, which a worktree path needs.
+- `Boundary.tsx` — a render error prints on the page instead of unmounting the tree. A React throw
+  painted an empty board and said nothing, which in a browser with no devtools open is
+  indistinguishable from a dead server.
+
+### Build
+- `@tanstack/ai-react` for the message model. Note it ships hooks and stream adapters, not chat
+  components, and its hooks are built around *sending* — so the library contributes `UIMessage` /
+  `MessagePart`, which the server now speaks, and the rendering stays Atlaskit like every other
+  surface here.
+
 ## [0.5.0] — 2026-07-30
 
 The release that made the board readable at a glance and the store portable.

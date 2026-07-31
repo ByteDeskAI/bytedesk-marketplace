@@ -5,6 +5,8 @@ import CrossIcon from "@atlaskit/icon/core/cross";
 import InlineEdit from "@atlaskit/inline-edit";
 import { cssMap } from "@atlaskit/css";
 import Drawer from "@atlaskit/drawer";
+import { Boundary } from "./Boundary";
+import { WorkStream } from "./WorkStream";
 import Lozenge from "@atlaskit/lozenge";
 import { Box, Inline, Stack, Text } from "@atlaskit/primitives/compiled";
 import Select from "@atlaskit/select";
@@ -51,6 +53,17 @@ const styles = cssMap({
    * cannot shrink cannot overflow — so without it the body grows and pushes the panel open again,
    * which is the bug restated.
    */
+  /**
+   * Drawer body + work stream, side by side. With no stream the split has one child and the
+   * shell's own maxWidth keeps the drawer exactly as wide as it was.
+   */
+  split: {
+    display: "flex",
+    gap: "var(--ds-space-150)",
+    height: "100%",
+    minHeight: "0",
+    paddingInlineEnd: "var(--ds-space-150)",
+  },
   shell: {
     display: "grid",
     gridTemplateRows: "auto 1fr",
@@ -276,8 +289,16 @@ export function TaskDrawer({
     run(() => write.act(task.id, action, payload));
   const others = tasks.filter((t) => t.id !== task.id);
 
+  /**
+   * Only work that is actually running has a stream worth watching, and a full-width drawer over
+   * a task nobody is on is just a bigger drawer. The width is the panel's tell: wide when it is
+   * fields, full when there is a run beside them.
+   */
+  const live = task.status === "in_progress";
+
   return (
-    <Drawer isOpen label={task.id} width="wide" onClose={onClose}>
+    <Drawer isOpen label={task.id} width={live ? "full" : "wide"} onClose={onClose}>
+      <Box xcss={styles.split}>
       <Box xcss={styles.shell}>
         {/* Row 1: who this is. Outside the scroller on purpose — the id and title are the answer to
             "what am I looking at", and scrolling to re-read them is a tax on every long task. */}
@@ -597,6 +618,12 @@ export function TaskDrawer({
             </Section>
           </Stack>
         </Box>
+      </Box>
+      {live ? (
+        <Boundary what="The work stream">
+          <WorkStream taskId={task.id} />
+        </Boundary>
+      ) : null}
       </Box>
     </Drawer>
   );

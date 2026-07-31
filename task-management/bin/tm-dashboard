@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * Live board. Serves the built Atlassian Design System SPA from dashboard/dist,
- * exposes index.json at /api/board, and streams events.jsonl over SSE at /events.
+ * exposes index.json at /api/board, streams events.jsonl over SSE at /events, and streams a
+ * task's work — the claiming session's transcript — at /api/task/:id/stream.
  *
  * dist/ is committed: `/plugin install` must never require an npm install.
  * Rebuild it with `cd dashboard && npm run build` after changing dashboard/src.
@@ -26,6 +27,8 @@ import { assignPort, ensurePort, liveInstance, release, takeover, writeInstance 
 import { boardPayload, handleWrite } from "../lib/dashboard-api.mjs";
 import { CATALOG } from "../lib/ntfy.mjs";
 import { collapseLog } from "../lib/render.mjs";
+import { workStream } from "../lib/transcript.mjs";
+import { read as readEntity, state } from "../lib/store.mjs";
 
 // Degrade like `tm` does. Launched from a directory with no resolvable store —
 // an installed copy of the plugin — a raw stack trace is a terrible answer.
@@ -199,6 +202,41 @@ const server = createServer((req, res) => {
     }));
     res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
     res.end(JSON.stringify(labelled));
+    return;
+  }
+  /**
+   * The work behind one task: the claiming session's transcript, as TanStack AI UIMessages.
+   *
+   * GET only, and the module it calls does nothing but read files — the panel promises a view of
+   * a run, never a handle on it. Poll-driven rather than watch-driven: the transcript lives
+   * outside the store, fs.watch on another process's append is unreliable across platforms, and
+   * a 2 s poll of a 200 KB tail is cheap.
+   */
+  const stream = req.url?.match(/^\/api\/task\/([\w-]+)\/stream$/);
+  if (stream) {
+    const id = stream[1];
+    const task = readEntity(id, P);
+    if (!task) {
+      res.writeHead(404, { "content-type": "application/json" }).end(JSON.stringify({ error: `no such task: ${id}` }));
+      return;
+    }
+    res.writeHead(200, {
+      "content-type": "text/event-stream",
+      "cache-control": "no-cache",
+      connection: "keep-alive",
+    });
+    let last = "";
+    const push = () => {
+      const claim = (state(P).claims || {})[id];
+      const payload = workStream(task, claim, P.root);
+      const json = JSON.stringify(payload);
+      if (json === last) return; // nothing new — do not wake the browser to re-render the same thing
+      last = json;
+      res.write(`data: ${json}\n\n`);
+    };
+    push();
+    const timer = setInterval(push, 2000);
+    req.on("close", () => clearInterval(timer));
     return;
   }
   if (req.url === "/events") {
