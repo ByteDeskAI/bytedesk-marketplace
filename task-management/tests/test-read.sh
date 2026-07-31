@@ -22,7 +22,7 @@ has() { case "$1" in *"$2"*) ok "$3" ;; *) no "$3" "expected: $2 | got: ${1:0:20
 # json <payload> [jq args...] <filter> <name>
 json() {
   local payload="$1"; shift
-  local name="${@: -1}"; local filter="${@: -2:1}"; local args=("${@:1:$#-2}")
+  local name="${*: -1}"; local filter="${*: -2:1}"; local args=("${@:1:$#-2}")
   echo "$payload" | jq -e "${args[@]}" "$filter" >/dev/null 2>&1 && ok "$name" || no "$name" "jq $filter failed on: ${payload:0:200}"
 }
 
@@ -96,7 +96,6 @@ tm export csv --out "$TM_ROOT/out.csv" >/dev/null
 # A reader that closes first is not an error. This needs a payload BIGGER than the 64 KB pipe
 # buffer, or the write completes before the reader is gone and the bug hides — which is exactly
 # why it never showed up on a fixture-sized store.
-BIG=$(node -e 'process.stdout.write("x".repeat(70000))')
 tm task new "the oversized one" >/dev/null 2>&1 || TM_ALLOW_DUP=1 tm task new "the oversized one" >/dev/null
 BIGID=$(tm find "the oversized one" --json | jq -r '.[0].id')
 node -e '

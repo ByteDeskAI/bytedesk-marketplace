@@ -8,14 +8,14 @@ title: "The Codex hooks example names a command that does not exist"
 epic: "EP-005"
 acceptance: [{"text":"The command the Codex example names resolves after a documented install step","done":true,"at":"2026-07-31T08:41:46.062Z"},{"text":"A hook fires under a real codex exec run, not only against the captured fixture","done":true,"at":"2026-07-31T08:41:46.128Z"},{"text":"The capability matrix claims what the setup path actually delivers","done":true,"at":"2026-07-31T08:41:46.187Z"}]
 evidence: [".bytedesk/task-management/evidence/TM-046-tm-hook"]
-commits: ["475d4fc"]
+commits: ["475d4fc","700f4f1"]
 blockedBy: []
 blocks: ["TM-048"]
 actor: "main"
 session: "61c67728-2ff2-46ea-87eb-2a99db9c96bd"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-07-31T08:41:46.366Z"
+updated: "2026-07-31T09:03:21.542Z"
 comments: [{"author":"main","ts":"2026-07-31T08:41:46.304Z","text":"bin/tm-hook now exists and tm install puts it on PATH alongside tm and tm-dashboard — Codex's hooks.json holds a bare command with no plugin-root substitution, so a resolvable name is the only thing that manifest can carry. Verified by running it rather than by reading it: installed the example verbatim into a scratch repo, ran codex exec, and watched PreToolUse and Stop fire and an update_plan land on the board as TM-002/TM-003. That run found a second bug the fixture could not: a hook inherits the environment of whatever launched the harness, so running codex from a Claude Code shell left CLAUDE_CODE_SESSION_ID set and every task Codex created was attributed to MY session. The payload now wins over the environment — the same rule subagent-stop already followed. One thing that looked like a third bug and was not: two later events carried my session because exporting TM_ROOT in that shell leaked into my own session's hooks, which then wrote into the scratch store. Test artifact, not product."}]
 closed: "2026-07-31T08:41:46.362Z"
 ---

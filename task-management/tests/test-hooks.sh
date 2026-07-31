@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Hook contract: what each event puts on stdout, and that a hook never fails hard.
+# shellcheck disable=SC1010
+# `done` is a tm verb (`tm done TM-001`), which shellcheck reads as the loop keyword.
 set -uo pipefail
 
 PLUGIN_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -161,7 +163,7 @@ has "$(tm show "$GID")" "keep going until the suite is green" "the condition is 
 json "$(tm find kind:task --json)" --arg g "$GID" 'map(select(.title | test("keep going"))) | length == 0' "a goal mints no task of its own"
 OUT="$(hook user-prompt '{"prompt":"/goal clear"}')"
 [[ -z "$OUT" ]] && ok "clearing a goal is not itself a goal" || no "clearing a goal is not a goal" "got: $OUT"
-tm park "$GID" done with the goal fixture >/dev/null
+tm park "$GID" "done with the goal fixture" >/dev/null
 
 # SubagentStart — a spawned agent used to know nothing about the board. Claude Code fires this
 # with the PARENT's session_id and takes additionalContext back; both were established by spawning
@@ -191,7 +193,7 @@ has "$OUT" 'tm done' "it tells the agent which verbs are the parent's to run"
 # A different session's fan-out must not be briefed on this session's work.
 OUT="$(hook subagent-start '{"session_id":"some-other-session","agent_id":"a2"}')"
 [[ -z "$OUT" ]] && ok "another session's spawn gets no briefing" || no "another session's spawn gets no briefing" "got: $OUT"
-tm park "$BID" done with the briefing fixture >/dev/null
+tm park "$BID" "done with the briefing fixture" >/dev/null
 
 # SubagentStop attribution. The README promises a subagent's work is attributed on the timeline;
 # it never was — 340 of these events in this project's own store, zero with a task attributed,
@@ -228,8 +230,8 @@ esac
 tm task new "Work under the real env var only" >/dev/null
 RID=$(tm find "Work under the real env var only" --json | jq -r '.[0].id')
 env -u CLAUDE_SESSION_ID CLAUDE_CODE_SESSION_ID=real-parent node "$PLUGIN_ROOT/bin/tm" start "$RID" >/dev/null
-REALOUT="$(printf '{"session_id":"real-parent","agent_id":"agent-real","agent_transcript_path":"/tmp/a.jsonl"}' \
-  | env -u CLAUDE_SESSION_ID CLAUDE_CODE_SESSION_ID=real-parent "$PLUGIN_ROOT/hooks/tm-hook.sh" subagent-stop 2>&1)"
+printf '{"session_id":"real-parent","agent_id":"agent-real","agent_transcript_path":"/tmp/a.jsonl"}' \
+  | env -u CLAUDE_SESSION_ID CLAUDE_CODE_SESSION_ID=real-parent "$PLUGIN_ROOT/hooks/tm-hook.sh" subagent-stop >/dev/null 2>&1
 has "$(tm log 1 --json)" "\"$RID\"" "a claim taken under CLAUDE_CODE_SESSION_ID is attributed"
 has "$(tm log 2 --json)" '"session": "real-parent"' "the event log records which session wrote it"
 

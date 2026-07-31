@@ -69,7 +69,6 @@ assert_status 1 "--status exits 1 when nothing is running" dashq --status
 
 # ── first launch ─────────────────────────────────────────────────────────────
 dash >"$TM_ROOT/first.log" 2>&1 &
-FIRST_JOB=$!
 wait_up && ok "the dashboard comes up and serves /api/board" || no "the dashboard comes up and serves /api/board" "$(cat "$TM_ROOT/first.log")"
 PORT="$(port_of)"
 FIRST_PID="$(pid_of)"

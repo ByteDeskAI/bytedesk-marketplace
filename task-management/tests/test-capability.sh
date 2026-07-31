@@ -54,7 +54,7 @@ assert_contains "$(tm cap accept CAP-0001)" "already accepted" "accepting twice 
 tm cap ship CAP-0001 >/dev/null 2>&1 && no "ship without evidence is refused" || ok "ship without evidence is refused"
 echo "cutover PASS" | tm evidence CAP-0001 - >/dev/null
 assert_contains "$(tm cap ship CAP-0001)" "shipped" "ship succeeds once there is evidence"
-assert_contains "$(tm cap list --status done)" "CAP-0001" "shipped capabilities are still queryable"
+assert_contains "$(tm cap list --status "done")" "CAP-0001" "shipped capabilities are still queryable"
 
 # The rest of the store knows about the new kind.
 assert_contains "$(tm find 'Speculative')" "CAP-0002" "find searches capabilities"

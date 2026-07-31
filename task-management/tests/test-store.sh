@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Store + CLI behavior. Self-isolating: every run gets a fresh TM_ROOT.
+# shellcheck disable=SC1010
+# `done` is a tm verb (`tm done TM-001`), which shellcheck reads as the loop keyword.
 set -uo pipefail
 
 PLUGIN_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -189,7 +191,6 @@ assert_contains "$OUT" "integration gate: make ci" "the integration gate is surf
 assert_contains "$OUT" "nocrit.md" "a goal with no parseable criteria is named, not silently dropped"
 assert_status 2 "a manifest with a skipped goal exits 2 so a script notices" node "$PLUGIN_ROOT/bin/tm" goal import "$TM_ROOT/g/p.plan.json"
 
-MEPIC=$(tm epic | tail -1 | grep -oE 'EP-[0-9]+')
 SECOND=$(tm find "Second thing" --json | jq -r '.[-1].id')
 assert_contains "$(tm show "$SECOND")" "blocked by" "the dependent goal is blocked by its dependency"
 assert_contains "$(tm show "$SECOND")" "src/b.ts" "declared touches land on the task"
@@ -284,7 +285,6 @@ assert_contains "$(tm log 200 --json)" '"event": "sprint"' "sprint changes are o
 git -C "$TM_ROOT" remote remove origin 2>/dev/null || true
 git -C "$TM_ROOT" remote add origin git@github.com:acme/identity-repo.git 2>/dev/null || \
   { git init -q "$TM_ROOT"; git -C "$TM_ROOT" remote add origin git@github.com:acme/identity-repo.git; }
-BEFORE_ID="$(tm config --json 2>/dev/null | jq -r '.boardId // "unset"' 2>/dev/null || echo unset)"
 assert_status 2 "tm config refuses to overwrite a git-derived boardId" node "$PLUGIN_ROOT/bin/tm" config boardId '"acme/hijack"'
 assert_contains "$(tm config boardId '\"acme/hijack\"' 2>&1 || true)" "read-only" "and says why, naming what git reports"
 AFTER_ID="$(node -e '
