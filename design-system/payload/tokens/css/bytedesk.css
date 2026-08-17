@@ -1,0 +1,121 @@
+/* ByteDesk canonical design tokens — CSS custom properties.
+ * Source of truth: ../bytedesk.tokens.json (values must stay in sync).
+ * Prefix: --bd-*. Consumers alias into their local token roots
+ * (e.g. Tailwind @theme maps --color-* to these). Dark-first; a light
+ * theme is a reserved contract (see tokens/README.md), not yet designed.
+ */
+:root {
+  /* Backgrounds */
+  --bd-bg-base: #0F1017;
+  --bd-bg-subtle: #1A1C25;
+  --bd-bg-surface: #23252F;
+  --bd-bg-elevated: #2A2C37;
+  --bd-bg-overlay: #343742;
+
+  /* Text */
+  --bd-text-primary: #E6E8ED;
+  --bd-text-secondary: #BFC4CA;
+  --bd-text-tertiary: #A2A8B2;
+  --bd-text-disabled: #6B7280;
+  --bd-text-on-brand: #FFE2D8; /* AA large only on brand orange */
+
+  /* Brand + interactive */
+  --bd-brand-orange: #EC4E02;
+  --bd-brand-orange-muted: #D96D00;
+  --bd-interactive-blue: #0079F2;
+
+  /* Semantic */
+  --bd-success: #009118;
+  --bd-success-muted: #007012;
+  --bd-danger: #E52222;
+  --bd-warning: #DFA700; /* oklch(0.76 0.16 85) */
+  --bd-info: #1DB8CE;    /* oklch(0.72 0.12 210) */
+
+  /* Borders */
+  --bd-border-dimmest: #252732;
+  --bd-border-dimmer: #31343F;
+  --bd-border-default: #3A3D48;
+  --bd-border-stronger: #444752;
+  --bd-border-strongest: #4D505C;
+
+  /* Derived (color-mix) */
+  --bd-bg-hover: color-mix(in srgb, var(--bd-bg-surface) 74%, var(--bd-text-primary) 8%);
+  --bd-glow-brand: color-mix(in srgb, var(--bd-brand-orange) 38%, transparent);
+  --bd-glow-interactive: color-mix(in srgb, var(--bd-interactive-blue) 32%, transparent);
+  --bd-overlay-backdrop: color-mix(in srgb, var(--bd-bg-base) 72%, transparent);
+
+  /* Product accents (identification only — never semantic) */
+  --bd-product-platform: #EC4E02;
+  --bd-product-gateway: #0079F2;
+  --bd-product-vault: #DFA700;
+  --bd-product-store: #009118;
+  --bd-product-workforce: #A170EB;   /* oklch(0.65 0.18 300) */
+  --bd-product-agent-browser: #1DB8CE;
+  --bd-product-agent-memory: #EA5DA9; /* oklch(0.68 0.19 350) */
+  --bd-product-capture: #0A84FF;
+
+  /* Active product accent — defaults to brand; scoped by data-bd-product */
+  --bd-accent: var(--bd-brand-orange);
+  --bd-accent-glow: color-mix(in srgb, var(--bd-accent) 32%, transparent);
+
+  /* Fonts */
+  --bd-font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --bd-font-display: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --bd-font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* Fluid type scale */
+  --bd-text-display: clamp(2.5rem, 2rem + 2.5vw, 5.5rem);
+  --bd-text-h1: clamp(2rem, 1.6rem + 2vw, 3.5rem);
+  --bd-text-h2: clamp(1.5rem, 1.25rem + 1.25vw, 2.5rem);
+  --bd-text-h3: clamp(1.25rem, 1.1rem + 0.75vw, 1.875rem);
+  --bd-text-h4: clamp(1.125rem, 1rem + 0.625vw, 1.5rem);
+  --bd-text-body-lg: clamp(1.0625rem, 1rem + 0.3125vw, 1.25rem);
+  --bd-text-body: clamp(0.9375rem, 0.9rem + 0.1875vw, 1.0625rem);
+  --bd-text-body-sm: clamp(0.8125rem, 0.8rem + 0.125vw, 0.875rem);
+  --bd-text-caption: clamp(0.6875rem, 0.675rem + 0.0625vw, 0.75rem);
+
+  /* Spacing */
+  --bd-space-section-x: clamp(1rem, 0.5rem + 2.5vw, 2rem);
+  --bd-space-section-y: clamp(3rem, 2rem + 5vw, 7rem);
+
+  /* Radii */
+  --bd-radius-sm: 0.25rem;
+  --bd-radius-md: 0.375rem;
+  --bd-radius-lg: 0.5rem;
+  --bd-radius-xl: 0.75rem;
+  --bd-radius-2xl: 1rem;
+  --bd-radius-full: 9999px;
+
+  /* Motion */
+  --bd-ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --bd-duration-fast: 150ms;
+  --bd-duration-base: 250ms;
+  --bd-duration-slow: 400ms;
+
+  /* Shadows */
+  --bd-shadow-card: inset 0 1px 0 0 color-mix(in srgb, var(--bd-text-primary) 4%, transparent),
+    0 1px 3px color-mix(in srgb, var(--bd-bg-base) 70%, transparent),
+    0 4px 12px color-mix(in srgb, var(--bd-bg-base) 52%, transparent);
+  --bd-shadow-elevated: 0 20px 40px color-mix(in srgb, var(--bd-bg-base) 72%, transparent),
+    0 8px 16px color-mix(in srgb, var(--bd-bg-base) 56%, transparent);
+  --bd-shadow-glow-accent: 0 0 40px var(--bd-accent-glow);
+}
+
+/* Product scoping: any element subtree can adopt a product identity.
+ * <body data-bd-product="workforce"> or a product card wrapper. */
+[data-bd-product="platform"]      { --bd-accent: var(--bd-product-platform); }
+[data-bd-product="gateway"]       { --bd-accent: var(--bd-product-gateway); }
+[data-bd-product="vault"]         { --bd-accent: var(--bd-product-vault); }
+[data-bd-product="store"]         { --bd-accent: var(--bd-product-store); }
+[data-bd-product="workforce"]     { --bd-accent: var(--bd-product-workforce); }
+[data-bd-product="agent-browser"] { --bd-accent: var(--bd-product-agent-browser); }
+[data-bd-product="agent-memory"]  { --bd-accent: var(--bd-product-agent-memory); }
+[data-bd-product="capture"]       { --bd-accent: var(--bd-product-capture); }
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --bd-duration-fast: 0ms;
+    --bd-duration-base: 0ms;
+    --bd-duration-slow: 0ms;
+  }
+}

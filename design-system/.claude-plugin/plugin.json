@@ -1,0 +1,18 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "design-system",
+  "description": "Delivers the ByteDesk design system into any repository by vendoring committed files — family --bd-* tokens plus the repo's own impeccable profile — from a payload embedded in the plugin. No submodule, no network, no private-repo access. /design-system-sync vendors and re-syncs; /design-system-scaffold creates a new site already wrapped in it.",
+  "author": {
+    "name": "ByteDeskAI"
+  },
+  "homepage": "https://github.com/ByteDeskAI/design-system",
+  "repository": "https://github.com/ByteDeskAI/bytedesk-marketplace",
+  "license": "Apache-2.0",
+  "keywords": [
+    "design-system",
+    "design-tokens",
+    "impeccable-context",
+    "scaffolding",
+    "tailwind"
+  ]
+}

@@ -1,0 +1,65 @@
+/* ByteDesk tokens — Tailwind CSS v4 adapter.
+ * Import AFTER tokens/css/bytedesk.css. Maps the canonical --bd-* variables
+ * into Tailwind theme tokens so utilities like bg-surface, text-secondary,
+ * text-brand, border-default, rounded-lg, font-sans resolve to family values.
+ *
+ * Usage in a consumer's root stylesheet:
+ *   @import "tailwindcss";
+ *   @import "<path-to>/tokens/css/bytedesk.css";
+ *   @import "<path-to>/tokens/tailwind/theme.css";
+ * Consumers may extend with local tokens below the import; they must not
+ * redefine a --bd-* value (that is a foundation change — land it here).
+ */
+@theme inline {
+  --color-bg-base: var(--bd-bg-base);
+  --color-bg-subtle: var(--bd-bg-subtle);
+  --color-bg-surface: var(--bd-bg-surface);
+  --color-bg-elevated: var(--bd-bg-elevated);
+  --color-bg-overlay: var(--bd-bg-overlay);
+  --color-bg-hover: var(--bd-bg-hover);
+
+  --color-text-primary: var(--bd-text-primary);
+  --color-text-secondary: var(--bd-text-secondary);
+  --color-text-tertiary: var(--bd-text-tertiary);
+  --color-text-disabled: var(--bd-text-disabled);
+  --color-text-on-brand: var(--bd-text-on-brand);
+
+  --color-brand: var(--bd-brand-orange);
+  --color-brand-muted: var(--bd-brand-orange-muted);
+  --color-interactive: var(--bd-interactive-blue);
+  --color-accent: var(--bd-accent);
+
+  --color-success: var(--bd-success);
+  --color-success-muted: var(--bd-success-muted);
+  --color-danger: var(--bd-danger);
+  --color-warning: var(--bd-warning);
+  --color-info: var(--bd-info);
+
+  --color-border-dimmest: var(--bd-border-dimmest);
+  --color-border-dimmer: var(--bd-border-dimmer);
+  --color-border-default: var(--bd-border-default);
+  --color-border-stronger: var(--bd-border-stronger);
+  --color-border-strongest: var(--bd-border-strongest);
+
+  --font-sans: var(--bd-font-sans);
+  --font-display: var(--bd-font-display);
+  --font-mono: var(--bd-font-mono);
+
+  --text-display: var(--bd-text-display);
+  --text-h1: var(--bd-text-h1);
+  --text-h2: var(--bd-text-h2);
+  --text-h3: var(--bd-text-h3);
+  --text-h4: var(--bd-text-h4);
+  --text-body-lg: var(--bd-text-body-lg);
+  --text-body: var(--bd-text-body);
+  --text-body-sm: var(--bd-text-body-sm);
+  --text-caption: var(--bd-text-caption);
+
+  --radius-sm: var(--bd-radius-sm);
+  --radius-md: var(--bd-radius-md);
+  --radius-lg: var(--bd-radius-lg);
+  --radius-xl: var(--bd-radius-xl);
+  --radius-2xl: var(--bd-radius-2xl);
+
+  --ease-out-expo: var(--bd-ease-out-expo);
+}
