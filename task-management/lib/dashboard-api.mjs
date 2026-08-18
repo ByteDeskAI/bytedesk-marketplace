@@ -2,6 +2,8 @@
  * The dashboard's write surface: `POST /api/task/:id/:action`, `PATCH /api/task/:id`,
  * `POST /api/task`, `POST /api/epic` (`{ id }` activate or `{ title }` create),
  * `GET /api/epic/:id`, `GET /api/adr/:id`, `POST /api/adr`, `POST /api/adr/:id/{accept,supersede}`,
+ * `POST /api/sprint` (`{ title, ends? }` create or `{ id }` activate), `GET /api/sprint/:id`,
+ * `POST /api/sprint/:id/done`, `POST /api/task/:id/sprint`,
  * `POST /api/bulk`, `GET /api/backlog`, `GET /api/templates[/:name]`.
  *
  * Evidence: `GET /api/task/:id/evidence` (derived items), `GET /api/task/:id/file?ref=`
@@ -47,6 +49,7 @@ import {
   storeBoard,
 } from "./store.mjs";
 import { applyTemplate, listTemplates, readTemplate } from "./templates.mjs";
+import { sprintCounts } from "./render.mjs";
 
 const STATUSES = ["backlog", "open", "in_progress", "blocked", "parked", "done"];
 const ok = (body = {}) => ({ status: 200, body });
@@ -79,6 +82,15 @@ function requireAdr(id, p) {
   return error ? { error } : { adr: doc };
 }
 
+function requireSprint(id, p) {
+  const { doc, error } = requireKind(id, "sprint", p);
+  return error ? { error } : { sprint: doc };
+}
+
+function reportFor(id, p) {
+  return sprintCounts(list("task", {}, p).filter((t) => t.sprint === id));
+}
+
 export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
   const raw = path || "";
   const url = raw.split("?")[0];
@@ -97,6 +109,7 @@ export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
   if (method === "POST" && url === "/api/bulk") return bulk(payload, p);
   if (method === "POST" && url === "/api/epic") return postEpic(payload, p);
   if (method === "POST" && url === "/api/adr") return createAdr(payload, p);
+  if (method === "POST" && url === "/api/sprint") return postSprint(payload, p);
   if (method === "POST" && url === "/api/settings") return saveSettings(payload, p);
 
   // The detail read. boardPayload strips `body` from the list on purpose — a 20-task board must
@@ -140,6 +153,25 @@ export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
     if (error) return error;
     if (method === "POST" && action === "accept") return acceptAdr(adr, p);
     if (method === "POST" && action === "supersede") return supersedeAdr(adr, payload, p);
+    return fail(404, `unknown action "${action}"`);
+  }
+
+  // Sprint detail and close sit beside adr so `/api/task/SP-*` stays requireTask (400).
+  const sprintGet = /^\/api\/sprint\/([^/]+)$/.exec(url);
+  if (method === "GET" && sprintGet) {
+    const { sprint, error } = requireSprint(decodeURIComponent(sprintGet[1]), p);
+    if (error) return error;
+    const { file, ...doc } = sprint;
+    return ok({ ...doc, report: reportFor(sprint.id, p) });
+  }
+
+  const sprintAct = /^\/api\/sprint\/([^/]+)\/([a-z]+)$/.exec(url);
+  if (sprintAct) {
+    const id = decodeURIComponent(sprintAct[1]);
+    const action = sprintAct[2];
+    const { sprint, error } = requireSprint(id, p);
+    if (error) return error;
+    if (method === "POST" && action === "done") return closeSprint(sprint, p);
     return fail(404, `unknown action "${action}"`);
   }
 
@@ -194,6 +226,8 @@ export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
         return acceptCriterion(task, payload, p);
       case "evidence":
         return writeEvidence(task, payload, p);
+      case "sprint":
+        return setTaskSprint(task, payload, p);
       default:
         return fail(404, `unknown action "${action}"`);
     }
@@ -503,6 +537,63 @@ function supersedeAdr(adr, { title, body }, p) {
   return { status: 201, body: { id: next.id, title: next.title, status: next.status, supersedes: adr.id } };
 }
 
+/**
+ * `POST /api/sprint` does two jobs: activate (`{ id }`) and create (`{ title, ends? }`).
+ * Create sets the new sprint active — the same write `tm sprint new` does.
+ * `id` wins when both are present, so `{ id }` clients keep activating.
+ */
+function postSprint(payload, p) {
+  if (payload && Object.prototype.hasOwnProperty.call(payload, "id")) return setActiveSprint(payload, p);
+  if (payload && typeof payload.title === "string") return createSprint(payload, p);
+  return fail(400, "POST /api/sprint needs { id } to activate or { title } to create");
+}
+
+function createSprint({ title, ends }, p) {
+  const name = String(title || "").trim();
+  if (!name) return fail(400, "a sprint needs a title");
+  const until = typeof ends === "string" && ends.trim() ? ends.trim() : undefined;
+  const doc = create("sprint", { title: name, status: "open", ...(until ? { ends: until } : {}) }, "", p);
+  writeState({ activeSprint: doc.id }, p);
+  logEvent("sprint", { id: doc.id, action: "new", via: "dashboard" }, p);
+  return { status: 201, body: { id: doc.id, title: doc.title, activeSprint: doc.id, ends: doc.ends } };
+}
+
+function setActiveSprint({ id }, p) {
+  if (id === null || id === "") {
+    writeState({ activeSprint: null }, p);
+    return ok({ activeSprint: null });
+  }
+  if (kindOf(id) !== "sprint") return fail(400, `not a sprint id: ${id}`);
+  const sprint = read(id, p);
+  if (!sprint) return fail(404, `no such sprint: ${id}`);
+  writeState({ activeSprint: id }, p);
+  return ok({ activeSprint: id });
+}
+
+function closeSprint(sprint, p) {
+  if (sprint.status === "done") return fail(409, `${sprint.id} is already done`);
+  update(sprint.id, { status: "done", closed: now() }, p);
+  if (state(p).activeSprint === sprint.id) writeState({ activeSprint: null }, p);
+  logEvent("sprint", { id: sprint.id, action: "done", via: "dashboard" }, p);
+  // Unfinished work stays on the board with sprint still set — closing does not evaporate it.
+  const left = list("task", {}, p).filter((t) => t.sprint === sprint.id && t.status !== "done");
+  return ok({ ...read(sprint.id, p), unfinished: left.length });
+}
+
+function setTaskSprint(task, payload, p) {
+  if (!payload || !Object.prototype.hasOwnProperty.call(payload, "sprint")) {
+    return fail(400, "POST /api/task/:id/sprint needs { sprint }");
+  }
+  const next = payload.sprint === null || payload.sprint === "" ? null : payload.sprint;
+  if (next) {
+    if (kindOf(next) !== "sprint") return fail(400, `not a sprint id: ${next}`);
+    if (!read(next, p)) return fail(404, `no such sprint: ${next}`);
+  }
+  update(task.id, { sprint: next || undefined }, p);
+  logEvent("sprint", { id: next, action: next ? "add" : "rm", tasks: [task.id], via: "dashboard" }, p);
+  return ok({ id: task.id, sprint: read(task.id, p).sprint ?? null });
+}
+
 function reopenEpicDoc(epic, p) {
   if (epic.status !== "done") return fail(409, `${epic.id} is not done`);
   // reopenEpic is the store's named path: it clears `closed` and logs epic_reopened.
@@ -596,6 +687,12 @@ export function boardPayload(p = paths()) {
     tasks: list("task", {}, p).filter(mine).map(({ body, file, ...t }) => t),
     // Empty `adrs/` is first-class: the list is `[]`, not omitted. Body stays on GET /api/adr/:id.
     adrs: list("adr", {}, p).filter(mine).map(({ body, file, ...a }) => a),
+    // Empty `sprints/` is first-class: `[]`, not omitted. Report numbers come from
+    // sprintCounts — the same helper sprintReport prints — so the header cannot drift.
+    sprints: list("sprint", {}, p).filter(mine).map(({ body, file, ...s }) => ({
+      ...s,
+      report: reportFor(s.id, p),
+    })),
     backlog: backlog(p).map((t) => t.id),
     state: state(p),
     // Board preferences ride along with the board rather than needing a second round trip: the

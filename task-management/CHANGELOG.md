@@ -3,6 +3,24 @@
 ## Unreleased
 
 ### Added
+- **Sprints on the board header and filter** (BDM-71). `/api/board` includes
+  `sprints` (body-stripped; `[]` when `sprints/` is empty). The header lozenge
+  shows `sprintReport` points (`N/M pts · K unsized`) beside the epic —
+  sparkline stays card counts. Toolbar **This sprint** filters `task.sprint`.
+  TaskDrawer and BulkBar commit/remove via `POST /api/task/:id/sprint`.
+  `POST /api/sprint` `{ title, ends? }` creates and sets `activeSprint`;
+  `{ id }` activates. `GET /api/sprint/:id` is the full record plus report
+  numbers. `POST /api/sprint/:id/done` closes and clears the active pointer
+  if it was this one — unfinished cards stay on the board with `sprint`
+  still set. Create task does not auto-commit to the active sprint.
+  `GET /api/task/SP-*` stays 400. `reindex()` now indexes `sprints/`.
+  Doctor reports a dangling `task.sprint`; `--fix` clears the field.
+  **`activeSprint` stays machine-local** (`state.json`); it is not added
+  to `SHARED_STATE`. `activeEpic` is shared because every `tm task new`
+  files under it. A sprint is a local work rhythm; two checkouts can
+  filter different sprints; the CLI already writes `activeSprint` via
+  `writeState` into state.json. `boardPayload.state` already sends
+  `state(p)`.
 - **ADRs on the board** (BDM-70). `/api/board` includes `adrs` (body-stripped; `[]` when
   `adrs/` is empty). `GET /api/adr/:id` returns the full record including `body`.
   `POST /api/adr` creates a `proposed` ADR that inherits `activeEpic`.

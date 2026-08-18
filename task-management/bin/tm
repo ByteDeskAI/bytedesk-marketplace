@@ -839,7 +839,7 @@ const VERBS = {
     requireInit();
     const idx = reindex(P);
     out(
-      `indexed ${idx.epics.length} epics, ${idx.tasks.length} tasks, ${idx.adrs.length} adrs, ${idx.capabilities.length} capabilities`,
+      `indexed ${idx.epics.length} epics, ${idx.tasks.length} tasks, ${idx.adrs.length} adrs, ${(idx.sprints || []).length} sprints, ${idx.capabilities.length} capabilities`,
     );
   },
 

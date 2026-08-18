@@ -41,6 +41,7 @@ export function Toolbar({
   epics = [],
   activeEpic = null,
   onActivate,
+  activeSprint = null,
   grouped = false,
   onGrouped,
   savedViews,
@@ -55,6 +56,7 @@ export function Toolbar({
   epics?: { id: string; title: string; status: string }[];
   activeEpic?: string | null;
   onActivate?: (id: string) => void;
+  activeSprint?: string | null;
   grouped?: boolean;
   onGrouped?: (on: boolean) => void;
   /** The repo's saved views, off the board payload. */
@@ -159,6 +161,18 @@ export function Toolbar({
               onChange={(o) => o && onActivate(o.value)}
             />
           </Box>
+        ) : null}
+        {activeSprint ? (
+          <Button
+            appearance={filters.sprint === activeSprint ? "primary" : "subtle"}
+            onClick={() =>
+              set({
+                sprint: filters.sprint === activeSprint ? null : activeSprint,
+              })
+            }
+          >
+            This sprint
+          </Button>
         ) : null}
         {onGrouped ? (
           <Button

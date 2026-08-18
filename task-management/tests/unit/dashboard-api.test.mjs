@@ -9,12 +9,13 @@
 import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { cleanup, tempStore } from "./helpers.mjs";
 import { backlog as backlogOf, boardPayload, handleWrite } from "../../lib/dashboard-api.mjs";
-import { create, list, read, readEvents, state, update, writeConfig, writeState } from "../../lib/store.mjs";
+import { create, list, read, readEvents, reindex, state, update, writeConfig, writeState } from "../../lib/store.mjs";
 import { seedTemplates } from "../../lib/templates.mjs";
+import { sprintCounts, sprintReport } from "../../lib/render.mjs";
 
 const stores = [];
 function store() {
@@ -622,6 +623,160 @@ describe("adrs on the board (BDM-70)", () => {
     const res = handleWrite("POST", `/api/adr/${old.id}/supersede`, { title: "newer" }, { p });
     assert.equal(res.status, 409);
     assert.equal(list("adr", {}, p).length, 1);
+  });
+});
+
+describe("sprints on the board (BDM-71)", () => {
+  it("includes sprints without body; an empty store is []", () => {
+    const empty = store();
+    assert.deepEqual(boardPayload(empty).sprints, [], "empty sprints/ is first-class, not omitted");
+
+    const p = store();
+    create("sprint", { title: "Sprint 12", status: "open" }, "SECRET BODY the list must not ship", p);
+    const [row] = boardPayload(p).sprints;
+    assert.equal(row.id, "SP-001");
+    assert.equal(row.title, "Sprint 12");
+    assert.equal(row.status, "open");
+    assert.equal("body" in row, false, "the list is the thing that stays small");
+    assert.equal("file" in row, false);
+    assert.ok(row.report, "the header reads report off the list so it does not fetch");
+  });
+
+  it("reindex includes sprints", () => {
+    const empty = store();
+    assert.deepEqual(reindex(empty).sprints, []);
+
+    const p = store();
+    const s = create("sprint", { title: "Sprint 12", status: "open" }, "keep this off the cache", p);
+    const idx = reindex(p);
+    assert.equal(idx.sprints.length, 1);
+    assert.equal(idx.sprints[0].id, s.id);
+    assert.equal("body" in idx.sprints[0], false);
+  });
+
+  it("creates from { title }, sets activeSprint in state.json, not config", () => {
+    const p = store();
+    const res = handleWrite("POST", "/api/sprint", { title: "Sprint 12", ends: "2026-08-28" }, { p });
+    assert.equal(res.status, 201);
+    assert.equal(res.body.id, "SP-001");
+    assert.equal(state(p).activeSprint, "SP-001");
+
+    const local = JSON.parse(readFileSync(p.state, "utf8"));
+    const cfg = JSON.parse(readFileSync(p.config, "utf8"));
+    assert.equal(local.activeSprint, "SP-001", "a sprint is a local work rhythm");
+    assert.equal("activeSprint" in cfg, false, "activeSprint is not SHARED_STATE");
+    assert.equal(read("SP-001", p).ends, "2026-08-28");
+  });
+
+  it("activates with { id } and does not mint a second sprint when a title is also present", () => {
+    const p = store();
+    const existing = create("sprint", { title: "already here", status: "open" }, "", p);
+    const before = list("sprint", {}, p).length;
+    const res = handleWrite("POST", "/api/sprint", { id: existing.id, title: "must not create" }, { p });
+    assert.equal(res.status, 200);
+    assert.equal(state(p).activeSprint, existing.id);
+    assert.equal(list("sprint", {}, p).length, before);
+  });
+
+  it("closes, clears the active pointer, and leaves unfinished work committed", () => {
+    const p = store();
+    const s = create("sprint", { title: "Sprint 12", status: "open" }, "", p);
+    writeState({ activeSprint: s.id }, p);
+    const open = task(p, "still going", { sprint: s.id, estimate: 5 });
+    const done = task(p, "shipped", { sprint: s.id, estimate: 3 });
+    update(done.id, { status: "done" }, p);
+
+    const res = handleWrite("POST", `/api/sprint/${s.id}/done`, {}, { p });
+    assert.equal(res.status, 200);
+    assert.equal(read(s.id, p).status, "done");
+    assert.ok(read(s.id, p).closed);
+    assert.equal(state(p).activeSprint ?? null, null);
+    assert.equal(read(open.id, p).sprint, s.id, "closing must not evaporate unfinished work");
+    assert.equal(read(open.id, p).status, "open");
+    assert.equal(read(done.id, p).sprint, s.id);
+    assert.equal(res.body.unfinished, 1);
+  });
+
+  it("commits and removes task.sprint", () => {
+    const p = store();
+    const s = create("sprint", { title: "Sprint 12", status: "open" }, "", p);
+    const t = task(p, "card");
+
+    const add = handleWrite("POST", `/api/task/${t.id}/sprint`, { sprint: s.id }, { p });
+    assert.equal(add.status, 200);
+    assert.equal(read(t.id, p).sprint, s.id);
+
+    const rm = handleWrite("POST", `/api/task/${t.id}/sprint`, { sprint: null }, { p });
+    assert.equal(rm.status, 200);
+    assert.equal(read(t.id, p).sprint, undefined);
+  });
+
+  it("does not auto-commit a new task to activeSprint", () => {
+    const p = store();
+    const s = create("sprint", { title: "Sprint 12", status: "open" }, "", p);
+    writeState({ activeSprint: s.id }, p);
+    const res = handleWrite("POST", "/api/task", { title: "born on the board" }, { p });
+    assert.equal(res.status, 201);
+    assert.equal(read(res.body.id, p).sprint, undefined);
+  });
+
+  it("header numbers are the same numbers sprintReport prints", () => {
+    const p = store();
+    const s = create("sprint", { title: "Sprint 12", status: "open" }, "", p);
+    task(p, "done five", { sprint: s.id, estimate: 5 });
+    update(list("task", {}, p)[0].id, { status: "done" }, p);
+    task(p, "open three", { sprint: s.id, estimate: 3 });
+    task(p, "open eight", { sprint: s.id, estimate: 8 });
+    task(p, "nobody sized this", { sprint: s.id });
+
+    const committed = list("task", {}, p).filter((t) => t.sprint === s.id);
+    const nums = sprintCounts(committed);
+    assert.match(
+      sprintReport(s.id, p),
+      new RegExp(`${nums.done}/${nums.committed} points done across ${nums.cards} card\\(s\\), ${nums.unsized} unsized`),
+    );
+
+    const detail = handleWrite("GET", `/api/sprint/${s.id}`, {}, { p });
+    assert.equal(detail.status, 200);
+    assert.deepEqual(detail.body.report, nums);
+
+    const [row] = boardPayload(p).sprints;
+    assert.deepEqual(row.report, nums, "the header reads these, so they must match sprintReport");
+  });
+
+  it("GET /api/task/SP-* stays 400 — requireTask stays on the task surface", () => {
+    const p = store();
+    const s = create("sprint", { title: "not a task" }, "belongs at /api/sprint", p);
+    const res = handleWrite("GET", `/api/task/${s.id}`, {}, { p });
+    assert.equal(res.status, 400);
+    assert.match(res.body.error, /not a task id/);
+    assert.equal(handleWrite("POST", `/api/task/${s.id}/transition`, { status: "done" }, { p }).status, 400);
+  });
+
+  it("GET /api/sprint/:id returns the body and report; a missing sprint is 404", () => {
+    const p = store();
+    const s = create("sprint", { title: "Sprint 12", status: "open" }, "the sprint goal", p);
+    const res = handleWrite("GET", `/api/sprint/${s.id}`, {}, { p });
+    assert.equal(res.status, 200);
+    assert.match(res.body.body, /the sprint goal/);
+    assert.deepEqual(res.body.report, { cards: 0, committed: 0, done: 0, unsized: 0 });
+
+    const wrong = handleWrite("GET", "/api/sprint/TM-001", {}, { p });
+    assert.equal(wrong.status, 400);
+    assert.match(wrong.body.error, /not a sprint id/);
+    assert.equal(handleWrite("GET", "/api/sprint/SP-404", {}, { p }).status, 404);
+  });
+
+  it("bulk fans sprint commit through /api/task/:id/sprint", () => {
+    const p = store();
+    const s = create("sprint", { title: "Sprint 12", status: "open" }, "", p);
+    const a = task(p, "one");
+    const b = task(p, "two");
+    const res = handleWrite("POST", "/api/bulk", { ids: [a.id, b.id], op: "sprint", args: { sprint: s.id } }, { p });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ok.length, 2);
+    assert.equal(read(a.id, p).sprint, s.id);
+    assert.equal(read(b.id, p).sprint, s.id);
   });
 });
 
