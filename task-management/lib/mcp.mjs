@@ -17,7 +17,7 @@ import { claimTask, releaseClaim } from "./claims.mjs";
 import { actor, actorLabel, sessionId } from "./actor.mjs";
 import { config, create, editTask, kindOf, list, logEvent, moveTask, nextTasks, now, read, removeCriterion, setCriterion, state, update, writeState } from "./store.mjs";
 import { consumeOverride, enforcementOff, gateDone, gateTaskCreate } from "./enforce.mjs";
-import { board, handoff, standup, taskLine } from "./render.mjs";
+import { board, handoff, sprintReport, standup, taskLine } from "./render.mjs";
 import { renderWhy, why } from "./graph.mjs";
 import { listResources, readResource } from "./resources.mjs";
 import { describeQuery, matchesQuery, parseQuery } from "./query.mjs";
@@ -554,6 +554,88 @@ export const TOOLS = [
       } catch (e) {
         return fail(e.message);
       }
+    },
+  },
+  {
+    name: "tm_sprint",
+    description:
+      "List sprints, open a new one, switch the active one, commit or remove tasks, close, or show the report. Same verbs as `tm sprint`. Creating a sprint sets it active; closing does not evaporate unfinished cards. Add requires an active sprint.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["show", "new", "use", "add", "rm", "done", "list"],
+          description: "Defaults to show.",
+        },
+        title: str("Title for action=new."),
+        id: str("Sprint id for show/use/done. Defaults to the active sprint."),
+        ends: str("Optional YYYY-MM-DD end date for action=new."),
+        tasks: { type: "array", items: { type: "string" }, description: "Task ids for action=add / action=rm." },
+      },
+    },
+    run: ({ action = "show", title, id, ends, tasks = [] }, p) => {
+      const active = () => state(p).activeSprint || null;
+
+      if (action === "new") {
+        if (!title) return fail("tm_sprint new needs a title");
+        const until = typeof ends === "string" && ends.trim() ? ends.trim() : undefined;
+        const doc = create("sprint", { title, status: "open", ...(until ? { ends: until } : {}) }, "", p);
+        writeState({ activeSprint: doc.id }, p);
+        logEvent("sprint", { id: doc.id, action: "new" }, p);
+        return ok({ id: doc.id, title, active: true, file: doc.file, ends: doc.ends });
+      }
+
+      if (action === "use") {
+        if (!id) return fail("tm_sprint use needs an id");
+        if (!read(id, p)) return fail(`not found: ${id}`);
+        writeState({ activeSprint: id }, p);
+        return ok({ activeSprint: id });
+      }
+
+      if (action === "add" || action === "rm") {
+        const sprintId = active();
+        if (!sprintId && action === "add") {
+          return fail('no active sprint — `tm sprint new "<name>"` or `tm sprint use <SP-id>`');
+        }
+        const moved = [];
+        for (const task of tasks) {
+          if (!read(task, p)) return fail(`not found: ${task}`);
+          update(task, { sprint: action === "add" ? sprintId : undefined }, p);
+          moved.push(task);
+        }
+        logEvent("sprint", { id: sprintId, action, tasks: moved }, p);
+        return ok({ id: sprintId, action, tasks: moved });
+      }
+
+      if (action === "done") {
+        const sprintId = id || active();
+        if (!sprintId) return fail("no active sprint");
+        if (!read(sprintId, p)) return fail(`not found: ${sprintId}`);
+        update(sprintId, { status: "done", closed: now() }, p);
+        if (active() === sprintId) writeState({ activeSprint: null }, p);
+        logEvent("sprint", { id: sprintId, action: "done" }, p);
+        const left = list("task", {}, p).filter((t) => t.sprint === sprintId && t.status !== "done");
+        return ok({ id: sprintId, status: "done", unfinished: left.length });
+      }
+
+      if (action === "list") {
+        const rows = list("sprint", {}, p);
+        return ok({
+          activeSprint: active(),
+          sprints: rows.map((r) => ({ id: r.id, title: r.title, status: r.status, ends: r.ends })),
+        });
+      }
+
+      if (action === "show") {
+        const sprintId = id || active();
+        if (!sprintId) return fail('no active sprint — `tm sprint new "<name>"`');
+        const doc = read(sprintId, p);
+        if (!doc) return fail(`not found: ${sprintId}`);
+        return ok({ doc, report: sprintReport(sprintId, p) });
+      }
+
+      return fail('usage: tm sprint [show|new "<name>"|use <id>|add <task>...|rm <task>...|done|list]');
     },
   },
   {

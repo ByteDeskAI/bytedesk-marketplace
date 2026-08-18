@@ -11,11 +11,13 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { cleanup, tempStore } from "./helpers.mjs";
+import { cleanup, tempRepo, tempStore } from "./helpers.mjs";
 import { backlog as backlogOf, boardPayload, handleWrite } from "../../lib/dashboard-api.mjs";
 import { acceptanceOf, propose } from "../../lib/capability.mjs";
 import { gateDone } from "../../lib/enforce.mjs";
-import { create, list, read, readEvents, reindex, setCriterion, state, update, writeConfig, writeState } from "../../lib/store.mjs";
+import { ensureDirs, paths } from "../../lib/paths.mjs";
+import { create, list, read, readEvents, reindex, seedGitContract, setCriterion, state, update, writeConfig, writeState } from "../../lib/store.mjs";
+import { listWorktrees } from "../../lib/worktree.mjs";
 import { seedTemplates } from "../../lib/templates.mjs";
 import { sprintCounts, sprintReport } from "../../lib/render.mjs";
 
@@ -1033,5 +1035,136 @@ describe("safety", () => {
   it("refuses a task id that isn't one", () => {
     const p = store();
     assert.equal(handleWrite("POST", "/api/task/..%2f..%2fetc/assign", { assignee: "x" }, { p }).status, 400);
+  });
+});
+
+describe("link remove (BDM-74)", () => {
+  it("POST /unlink drops both ends after a two-sided add", () => {
+    const p = store();
+    const a = task(p, "cause");
+    const b = task(p, "symptom");
+    act(p, { action: "link", id: a.id, type: "causes", to: b.id });
+    assert.equal(read(b.id, p).links.length, 1);
+
+    const res = handleWrite("POST", `/api/task/${a.id}/unlink`, { type: "causes", to: b.id }, { p });
+    assert.equal(res.status, 200);
+    assert.deepEqual(read(a.id, p).links || [], []);
+    assert.deepEqual(read(b.id, p).links || [], []);
+  });
+
+  it("POST /link { remove: true } is the same verb", () => {
+    const p = store();
+    const a = task(p, "blocker");
+    const b = task(p, "blocked");
+    act(p, { action: "link", id: a.id, type: "blocks", to: b.id });
+
+    const res = handleWrite("POST", `/api/task/${a.id}/link`, { type: "blocks", to: b.id, remove: true }, { p });
+    assert.equal(res.status, 200);
+    assert.deepEqual(read(a.id, p).links || [], []);
+    assert.deepEqual(read(b.id, p).links || [], []);
+  });
+});
+
+describe("GET /api/entity/:id (BDM-74)", () => {
+  it("returns EP/TM/ADR/SP/CAP when present; GET /api/task/EP-* stays 400", () => {
+    const p = store();
+    const e = create("epic", { title: "e" }, "epic body", p);
+    const t = task(p, "t");
+    const a = create("adr", { title: "a" }, "adr body", p);
+    const s = create("sprint", { title: "s" }, "sprint body", p);
+    const c = handleWrite("POST", "/api/capability", { title: "c", problem: "cap body" }, { p });
+    assert.equal(c.status, 201);
+
+    for (const id of [e.id, t.id, a.id, s.id, c.body.id]) {
+      const res = handleWrite("GET", `/api/entity/${id}`, {}, { p });
+      assert.equal(res.status, 200, id);
+      assert.equal(res.body.id, id);
+    }
+    assert.match(handleWrite("GET", `/api/entity/${e.id}`, {}, { p }).body.body, /epic body/);
+
+    const asTask = handleWrite("GET", `/api/task/${e.id}`, {}, { p });
+    assert.equal(asTask.status, 400);
+    assert.match(asTask.body.error, /not a task id/);
+  });
+
+  it("400s an unknown prefix and 404s a missing known id", () => {
+    const p = store();
+    const bad = handleWrite("GET", "/api/entity/FOO-1", {}, { p });
+    assert.equal(bad.status, 400);
+    assert.match(bad.body.error, /unknown prefix/);
+    const miss = handleWrite("GET", "/api/entity/EP-404", {}, { p });
+    assert.equal(miss.status, 404);
+    assert.match(miss.body.error, /not found/);
+  });
+});
+
+describe("worktrees (BDM-74)", () => {
+  function gitStore() {
+    const root = tempRepo();
+    const p = paths(root);
+    ensureDirs(p);
+    seedGitContract(p);
+    writeConfig({ requireEpic: false, requireAcceptance: true, wipLimit: 99 }, p);
+    stores.push(root);
+    return p;
+  }
+
+  it("GET /api/worktrees is [] when none exist", () => {
+    const p = store();
+    const res = handleWrite("GET", "/api/worktrees", {}, { p });
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body, []);
+    assert.deepEqual(listWorktrees(p), []);
+  });
+
+  it("does not serve worktree file contents", () => {
+    const p = store();
+    assert.equal(handleWrite("GET", "/api/worktrees/secret", {}, { p }).status, 404);
+  });
+
+  it("creates and removes a task worktree through the lib", () => {
+    const p = gitStore();
+    const t = task(p, "isolated checkout");
+
+    const created = handleWrite("POST", `/api/task/${t.id}/worktree`, { action: "create" }, { p });
+    assert.equal(created.status, 200);
+    const afterCreate = read(t.id, p);
+    assert.ok(afterCreate.worktree, "createWorktree stamps task.worktree");
+    assert.ok(afterCreate.branch, "createWorktree stamps task.branch");
+
+    const listed = handleWrite("GET", "/api/worktrees", {}, { p });
+    assert.equal(listed.status, 200);
+    assert.equal(listed.body.length, 1);
+    assert.equal(listed.body[0].taskId, t.id);
+    assert.equal(listWorktrees(p).length, 1);
+
+    const removed = handleWrite("POST", `/api/task/${t.id}/worktree`, { action: "remove" }, { p });
+    assert.equal(removed.status, 200);
+    assert.equal(read(t.id, p).worktree, undefined);
+    assert.equal(handleWrite("GET", "/api/worktrees", {}, { p }).body.length, 0);
+  });
+
+  it("refuses a dirty remove unless force is set", () => {
+    const p = gitStore();
+    const t = task(p, "dirty checkout");
+    const created = handleWrite("POST", `/api/task/${t.id}/worktree`, { action: "create" }, { p });
+    assert.equal(created.status, 200);
+    writeFileSync(join(read(t.id, p).worktree, "uncommitted.txt"), "dirty\n");
+
+    const refused = handleWrite("POST", `/api/task/${t.id}/worktree`, { action: "remove" }, { p });
+    assert.equal(refused.status, 409);
+    assert.match(refused.body.error, /uncommitted|force/i);
+    assert.ok(read(t.id, p).worktree, "a refused remove must leave the worktree");
+
+    const forced = handleWrite("POST", `/api/task/${t.id}/worktree`, { action: "remove", force: true }, { p });
+    assert.equal(forced.status, 200);
+    assert.equal(read(t.id, p).worktree, undefined);
+  });
+
+  it("400s an unknown worktree action", () => {
+    const p = store();
+    const t = task(p);
+    const res = handleWrite("POST", `/api/task/${t.id}/worktree`, { action: "share" }, { p });
+    assert.equal(res.status, 400);
   });
 });

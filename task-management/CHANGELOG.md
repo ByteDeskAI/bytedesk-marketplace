@@ -3,6 +3,22 @@
 ## Unreleased
 
 ### Added
+- **Deferred extras** (BDM-74). `GET /api/worktrees` lists
+  `.bytedesk/worktrees/` via `listWorktrees` (`[]` when none).
+  `POST /api/task/:id/worktree` `{ action: "create"|"remove", force? }`
+  delegates to `createWorktree` / `removeWorktree`. TaskDrawer shows
+  `task.worktree` / `task.branch` with create/remove; worktree file
+  contents are never served. `removeLink` drops a typed link on both
+  ends (foreign refs stay one-sided) under `mutate`. Dashboard:
+  `POST /api/task/:id/unlink` `{ type, to }`, or `POST .../link` with
+  `{ remove: true }`; each LINKS row has a remove control.
+  MCP `tm_sprint` mirrors CLI show/new/use/add/rm/done/list on the
+  same store functions. `GET /api/entity/:id` is generic `kindOf` +
+  `read` (404 missing, 400 unknown prefix) and does not replace
+  per-kind routes — `GET /api/task/EP-*` stays 400. One real
+  capability card is seeded under `capabilities/` via `propose()`
+  semantics. `tm_cap_drop` and the ExitPlanMode payload-path chooser
+  were already on this SHA.
 - **Sprints on the board header and filter** (BDM-71). `/api/board` includes
   `sprints` (body-stripped; `[]` when `sprints/` is empty). The header lozenge
   shows `sprintReport` points (`N/M pts · K unsized`) beside the epic —

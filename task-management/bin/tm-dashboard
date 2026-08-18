@@ -261,7 +261,14 @@ const server = createServer((req, res) => {
 
   // One entity in full, including the markdown body the list payload strips.
   // `/api/task/:id` stays requireTask (EP-*/ADR-*/SP-*/CAP-* is 400); other kinds have their own routes.
-  if (req.method === "GET" && /^\/api\/(task|epic|adr|sprint|capability)\/[^/?]+$/.test(req.url || "")) {
+  // `/api/entity/:id` is the generic kindOf+read; it does not replace per-kind routes.
+  if (req.method === "GET" && /^\/api\/(task|epic|adr|sprint|capability|entity)\/[^/?]+$/.test(req.url || "")) {
+    const result = handleWrite("GET", req.url, null, { p: P });
+    return json(res, result.status, result.body);
+  }
+
+  // Derived worktree list. Empty is []. Never serves file contents.
+  if (req.method === "GET" && (req.url || "").split("?")[0] === "/api/worktrees") {
     const result = handleWrite("GET", req.url, null, { p: P });
     return json(res, result.status, result.body);
   }

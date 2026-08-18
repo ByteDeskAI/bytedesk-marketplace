@@ -308,6 +308,24 @@ CODE="$(curl -s -o "$TM_ROOT/resp.json" -w '%{http_code}' "http://127.0.0.1:$POR
 [[ "$CODE" == 400 ]] && ok "GET /api/task/CAP-* is still 400" || no "GET /api/task/CAP-* is still 400" "got $CODE: $(body)"
 CODE="$(post /api/capability/CAP-0001/ship '{}')"
 [[ "$CODE" == 409 ]] && ok "shipping a capability without evidence is 409" || no "shipping a capability without evidence is 409" "got $CODE: $(body)"
+# BDM-74 — generic entity read is wired here; /api/task/EP-* stays requireTask.
+CODE="$(curl -s -o "$TM_ROOT/resp.json" -w '%{http_code}' "http://127.0.0.1:$PORT/api/entity/EP-001")"
+[[ "$CODE" == 200 ]] && ok "GET /api/entity/EP-* is 200" || no "GET /api/entity/EP-* is 200" "got $CODE: $(body)"
+CODE="$(curl -s -o "$TM_ROOT/resp.json" -w '%{http_code}' "http://127.0.0.1:$PORT/api/entity/TM-001")"
+[[ "$CODE" == 200 ]] && ok "GET /api/entity/TM-* is 200" || no "GET /api/entity/TM-* is 200" "got $CODE: $(body)"
+CODE="$(curl -s -o "$TM_ROOT/resp.json" -w '%{http_code}' "http://127.0.0.1:$PORT/api/entity/ADR-0001")"
+[[ "$CODE" == 200 ]] && ok "GET /api/entity/ADR-* is 200" || no "GET /api/entity/ADR-* is 200" "got $CODE: $(body)"
+CODE="$(curl -s -o "$TM_ROOT/resp.json" -w '%{http_code}' "http://127.0.0.1:$PORT/api/entity/CAP-0001")"
+[[ "$CODE" == 200 ]] && ok "GET /api/entity/CAP-* is 200" || no "GET /api/entity/CAP-* is 200" "got $CODE: $(body)"
+CODE="$(post /api/sprint '{"title":"Entity sprint"}')"
+[[ "$CODE" == 201 ]] && ok "creating a sprint for entity GET" || no "creating a sprint for entity GET" "got $CODE: $(body)"
+CODE="$(curl -s -o "$TM_ROOT/resp.json" -w '%{http_code}' "http://127.0.0.1:$PORT/api/entity/SP-001")"
+[[ "$CODE" == 200 ]] && ok "GET /api/entity/SP-* is 200" || no "GET /api/entity/SP-* is 200" "got $CODE: $(body)"
+CODE="$(curl -s -o "$TM_ROOT/resp.json" -w '%{http_code}' "http://127.0.0.1:$PORT/api/task/EP-001")"
+[[ "$CODE" == 400 ]] && ok "GET /api/task/EP-* is still 400 after /api/entity" || no "GET /api/task/EP-* is still 400 after /api/entity" "got $CODE"
+CODE="$(curl -s -o "$TM_ROOT/resp.json" -w '%{http_code}' "http://127.0.0.1:$PORT/api/worktrees")"
+[[ "$CODE" == 200 ]] && ok "GET /api/worktrees is 200" || no "GET /api/worktrees is 200" "got $CODE: $(body)"
+assert_contains "$(cat "$TM_ROOT/resp.json")" "[]" "empty worktrees list is []"
 post /api/epic '{"id":"EP-001"}' >/dev/null
 
 # Acceptance criteria are not a one-way door. Reported by a user who ticked one on the board and

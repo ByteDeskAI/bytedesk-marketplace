@@ -5,7 +5,8 @@
  * `POST /api/sprint` (`{ title, ends? }` create or `{ id }` activate), `GET /api/sprint/:id`,
  * `POST /api/sprint/:id/done`, `POST /api/task/:id/sprint`,
  * `GET /api/capability/:id`, `POST /api/capability`, `POST /api/capability/:id/{accept,ship,drop}`,
- * `POST /api/bulk`, `GET /api/backlog`, `GET /api/templates[/:name]`.
+ * `GET /api/worktrees`, `POST /api/task/:id/worktree`, `POST /api/task/:id/unlink`,
+ * `GET /api/entity/:id`, `POST /api/bulk`, `GET /api/backlog`, `GET /api/templates[/:name]`.
  *
  * Evidence: `GET /api/task/:id/evidence` (derived items), `GET /api/task/:id/file?ref=`
  * (allowlisted bytes metadata), `POST /api/task/:id/evidence` (attach text/path or detach).
@@ -24,7 +25,8 @@
  */
 import { basename } from "node:path";
 import { gateDone, gateTaskCreate } from "./enforce.mjs";
-import { addComment, addLink, assign, backlog, dependencies, estimate, labels, prioritise, rank, setType, subtasks } from "./issue.mjs";
+import { addComment, addLink, assign, backlog, dependencies, estimate, labels, prioritise, rank, removeLink, setType, subtasks } from "./issue.mjs";
+import { createWorktree, listWorktrees, removeWorktree } from "./worktree.mjs";
 import { execFileSync } from "node:child_process";
 import { currentCheckout, paths, projectName } from "./paths.mjs";
 import { claimTask } from "./claims.mjs";
@@ -110,6 +112,9 @@ export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
   if (method === "GET" && url === "/api/templates") return ok(listTemplates(p));
   // Derived inbox, not a KIND. Empty plans/ is [] — add these before the /api/task/ catch-all.
   if (method === "GET" && url === "/api/plans") return ok(listPlans(p));
+  if (method === "GET" && url === "/api/worktrees") return ok(listWorktrees(p));
+  const entityGet = /^\/api\/entity\/([^/]+)$/.exec(url);
+  if (method === "GET" && entityGet) return getEntity(decodeURIComponent(entityGet[1]), p);
   if (method === "GET" && url === "/api/plans/file") {
     const ref = query.get("ref") ?? payload.ref ?? "";
     const file = readPlanFile(ref, p);
@@ -251,7 +256,12 @@ export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
       case "comment":
         return ok({ comments: addComment(id, payload.text, { author: payload.author, p }) });
       case "link":
+        if (payload.remove) return ok({ links: removeLink(id, payload.type, payload.to, p) });
         return ok({ links: addLink(id, payload.type, payload.to, p) });
+      case "unlink":
+        return ok({ links: removeLink(id, payload.type, payload.to, p) });
+      case "worktree":
+        return taskWorktree(task, payload, p);
       case "subtask":
         subtasks(id, { parent: payload.parent || null }, p);
         return ok({ parent: read(id, p).parent ?? null });
@@ -618,6 +628,28 @@ function closeSprint(sprint, p) {
   // Unfinished work stays on the board with sprint still set — closing does not evaporate it.
   const left = list("task", {}, p).filter((t) => t.sprint === sprint.id && t.status !== "done");
   return ok({ ...read(sprint.id, p), unfinished: left.length });
+}
+
+function getEntity(id, p) {
+  const kind = kindOf(id);
+  if (!kind) return fail(400, `unknown prefix: ${id}`);
+  const doc = read(id, p);
+  return doc ? ok(doc) : fail(404, `not found: ${id}`);
+}
+
+function taskWorktree(task, payload, p) {
+  const action = payload?.action;
+  if (action === "create") {
+    const res = createWorktree(task, { p });
+    return ok({ id: task.id, worktree: res.path, branch: res.branch, shared: res.shared });
+  }
+  if (action === "remove") {
+    const res = removeWorktree(task, { force: Boolean(payload.force), p });
+    if (!res.removed) return fail(409, res.reason);
+    update(task.id, { worktree: undefined, branch: undefined }, p);
+    return ok({ id: task.id, worktree: null, ...res });
+  }
+  return fail(400, 'POST /api/task/:id/worktree needs { action: "create"|"remove" }');
 }
 
 function setTaskSprint(task, payload, p) {

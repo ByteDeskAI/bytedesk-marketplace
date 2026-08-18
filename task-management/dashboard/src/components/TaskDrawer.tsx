@@ -802,12 +802,58 @@ export function TaskDrawer({
               />
             </Section>
 
+            <Section title="WORKTREE">
+              {task.worktree || task.branch ? (
+                <Stack space="space.050">
+                  {task.branch ? (
+                    <Text size="small">{`branch: ${task.branch}`}</Text>
+                  ) : null}
+                  {task.worktree ? (
+                    <Text size="small">{`worktree: ${task.worktree}`}</Text>
+                  ) : null}
+                </Stack>
+              ) : (
+                <Text size="small" color="color.text.subtlest">
+                  no worktree
+                </Text>
+              )}
+              <Inline space="space.100" alignBlock="center">
+                <Button
+                  isDisabled={Boolean(task.worktree)}
+                  onClick={() => act("worktree", { action: "create" })}
+                >
+                  Create
+                </Button>
+                <Button
+                  isDisabled={!task.worktree}
+                  onClick={() => act("worktree", { action: "remove" })}
+                >
+                  Remove
+                </Button>
+              </Inline>
+            </Section>
+
             <Section title="LINKS">
               {(task.links ?? []).map((l) => (
-                <Text
+                <Inline
                   key={`${l.type}-${l.id}`}
-                  size="small"
-                >{`${l.type} → ${l.id}`}</Text>
+                  space="space.050"
+                  alignBlock="center"
+                  spread="space-between"
+                >
+                  <Text size="small">{`${l.type} → ${l.id}`}</Text>
+                  <Tooltip content="remove this link from both ends">
+                    <IconButton
+                      appearance="subtle"
+                      spacing="compact"
+                      label={`Remove link ${l.type} ${l.id}`}
+                      icon={(props) => <CrossIcon {...props} size="small" />}
+                      onClick={() =>
+                        act("unlink", { type: l.type, to: l.id })
+                      }
+                    />
+                  </Tooltip>
+                </Inline>
               ))}
               <Inline space="space.100" alignBlock="end">
                 <Select<Opt>
