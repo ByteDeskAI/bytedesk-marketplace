@@ -1,6 +1,6 @@
 import { queueWrite } from "./pwa/outbox.mjs";
 import { markSelfWrite } from "./pwa/usePwa";
-import type { Board, StoreEvent, Task } from "./types";
+import type { Board, Epic, StoreEvent, Task } from "./types";
 
 const json = <T>(url: string): Promise<T> =>
   fetch(url).then((r) => r.json() as Promise<T>);
@@ -17,6 +17,10 @@ export const fetchEvents = () =>
  */
 export const fetchTask = (id: string) =>
   json<Task>(`/api/task/${encodeURIComponent(id)}`);
+
+/** One epic in full. The board payload strips `body` the same way it does for tasks. */
+export const fetchEpic = (id: string) =>
+  json<Epic>(`/api/epic/${encodeURIComponent(id)}`);
 
 /** A refusal from a gate — the reason is written for the person reading the board. */
 export class WriteError extends Error {}
@@ -60,7 +64,12 @@ export const write = {
     assignee?: string;
     priority?: string;
   }) => send("POST", "/api/task", payload),
-  edit: (id: string, payload: { title?: string; body?: string }) =>
+  /** `{ title }` creates; `{ id }` still activates. Do not send both. */
+  createEpic: (payload: { title: string; body?: string }) =>
+    send("POST", "/api/epic", payload),
+  closeEpic: (id: string) => send("POST", `/api/epic/${id}/close`),
+  reopenEpic: (id: string) => send("POST", `/api/epic/${id}/reopen`),
+  edit: (id: string, payload: { title?: string; body?: string; epic?: string | null }) =>
     send("PATCH", `/api/task/${id}`, payload),
   act: (id: string, action: string, payload: Record<string, unknown> = {}) =>
     send("POST", `/api/task/${id}/${action}`, payload),

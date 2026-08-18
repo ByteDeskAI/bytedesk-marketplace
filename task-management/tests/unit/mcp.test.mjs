@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { gateTaskCreate } from "../../lib/enforce.mjs";
 import { TOOLS, handleRequest, respondToLine } from "../../lib/mcp.mjs";
+import { create, read, state, update, writeState } from "../../lib/store.mjs";
 import { tempStore } from "./helpers.mjs";
 
 delete process.env.TM_ENFORCE;
@@ -114,6 +115,31 @@ test("a full round trip: epic → task → acceptance → done → board", () =>
   call("tm_ac_accept", { id: "TM-001", index: 1 }, p);
   assert.equal(call("tm_task_update", { id: "TM-001", action: "done" }, p).ok, true);
   assert.match(call("tm_board", {}, p).board, /1\/1 done/);
+});
+
+test("tm_epic use refuses a done epic, same words as the dashboard 409", () => {
+  const p = tempStore();
+  const e = create("epic", { title: "shipped" }, "", p);
+  writeState({ activeEpic: e.id }, p);
+  const closed = call("tm_epic", { action: "done", id: e.id }, p);
+  assert.equal(closed.ok, true);
+  assert.ok(read(e.id, p).closed, "done writes the closed timestamp");
+  assert.equal(state(p).activeEpic, null);
+
+  const out = call("tm_epic", { action: "use", id: e.id }, p);
+  assert.equal(out.ok, false);
+  assert.match(out.error, /done — reopen/);
+  assert.equal(state(p).activeEpic, null, "a refused use must not have changed the pointer");
+});
+
+test("tm_epic use of an already-open epic still works", () => {
+  const p = tempStore();
+  call("tm_epic", { action: "new", title: "live" }, p);
+  update("EP-001", { status: "done", closed: new Date().toISOString() }, p);
+  const other = create("epic", { title: "next" }, "", p);
+  const out = call("tm_epic", { action: "use", id: other.id }, p);
+  assert.equal(out.ok, true);
+  assert.equal(state(p).activeEpic, other.id);
 });
 
 test("unknown tool names come back as a failed result, not a protocol error", () => {

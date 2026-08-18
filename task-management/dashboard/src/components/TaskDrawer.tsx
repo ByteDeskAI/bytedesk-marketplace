@@ -17,7 +17,7 @@ import Tooltip from "@atlaskit/tooltip";
 import { fetchTask, write } from "../api";
 import { Markdown } from "./Markdown";
 import { ActorBadge } from "./ActorBadge";
-import type { Priority, Task } from "../types";
+import type { Epic, Priority, Task } from "../types";
 
 const STATUSES: Task["status"][] = [
   "open",
@@ -254,11 +254,13 @@ function InlineField({
 export function TaskDrawer({
   task,
   tasks,
+  epics = [],
   onClose,
   run,
 }: {
   task: Task | null;
   tasks: Task[];
+  epics?: Epic[];
   onClose: () => void;
   run: (fn: () => Promise<unknown>) => void;
 }) {
@@ -288,6 +290,8 @@ export function TaskDrawer({
   const act = (action: string, payload: Record<string, unknown>) =>
     run(() => write.act(task.id, action, payload));
   const others = tasks.filter((t) => t.id !== task.id);
+  const epicOf = (id: string | null | undefined) =>
+    epics.find((e) => e.id === id);
 
   /**
    * Only work that is actually running has a stream worth watching, and a full-width drawer over
@@ -392,6 +396,34 @@ export function TaskDrawer({
                 options={opts(others.map((t) => t.id))}
                 value={current(task.parent)}
                 onChange={(o) => act("subtask", { parent: o?.value ?? null })}
+              />
+              <Select<Opt>
+                spacing="compact"
+                isClearable
+                placeholder="epic"
+                options={[
+                  { label: "(none)", value: "none" },
+                  ...epics.map((e) => ({
+                    label: `${e.id} ${e.title}`,
+                    value: e.id,
+                  })),
+                ]}
+                value={
+                  task.epic
+                    ? {
+                        label: epicOf(task.epic)
+                          ? `${task.epic} ${epicOf(task.epic)!.title}`
+                          : task.epic,
+                        value: task.epic,
+                      }
+                    : { label: "(none)", value: "none" }
+                }
+                onChange={(o) => {
+                  const next = o?.value ?? "none";
+                  if (next !== (task.epic || "none")) {
+                    run(() => write.edit(task.id, { epic: next }));
+                  }
+                }}
               />
             </Inline>
 

@@ -161,8 +161,9 @@ const server = createServer((req, res) => {
     return json(res, result.status, result.body);
   }
 
-  // One task in full, including the markdown body the list payload strips.
-  if (req.method === "GET" && /^\/api\/task\/[^/?]+$/.test(req.url || "")) {
+  // One entity in full, including the markdown body the list payload strips.
+  // `/api/task/:id` stays requireTask (EP-* is 400); `/api/epic/:id` is the epic body.
+  if (req.method === "GET" && /^\/api\/(task|epic)\/[^/?]+$/.test(req.url || "")) {
     const result = handleWrite("GET", req.url, null, { p: P });
     return json(res, result.status, result.body);
   }

@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Added
+- **`GET /api/epic/:id`** returns the full epic including `body` (BDM-65). `/api/board`
+  stays body-stripped. `GET /api/task/EP-*` remains 400 — `requireTask` still owns the
+  task surface, so later adr/capability detail routes copy this pattern instead of
+  widening lifecycle routes.
+- **Create, close and reopen an epic from the board** (BDM-66). `POST /api/epic`
+  `{ title, body? }` creates and sets `activeEpic`; `{ id }` still activates. The
+  drawer opens from a lane header (body, status/`closed`, children, plan chip,
+  make-active, close/reopen). Task drawer `<Select>` refiles via the existing
+  `PATCH { epic }` / `moveTask`. CreateModal lists open epics only.
+
+### Changed
+- **`tm epic use` / `tm_epic use` refuse a done epic** with the same reason the
+  dashboard already returned as 409. **`tm epic done` / `tm_epic done` write `closed`**,
+  matching auto-close and the drawer.
+
 ## [0.13.0] — 2026-08-18
 
 ### Changed

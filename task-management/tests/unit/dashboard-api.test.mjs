@@ -9,7 +9,7 @@
 import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { cleanup, tempStore } from "./helpers.mjs";
-import { backlog as backlogOf, handleWrite } from "../../lib/dashboard-api.mjs";
+import { backlog as backlogOf, boardPayload, handleWrite } from "../../lib/dashboard-api.mjs";
 import { create, read, readEvents, state, update, writeConfig, writeState } from "../../lib/store.mjs";
 
 const stores = [];
@@ -75,6 +75,100 @@ describe("the active epic", () => {
 
     assert.equal(handleWrite("POST", "/api/epic", { id: null }, { p }).status, 200);
     assert.equal(state(p).activeEpic, null);
+  });
+
+  it("creates from { title } without colliding with { id } activate", () => {
+    const p = store();
+    const res = handleWrite("POST", "/api/epic", { title: "from the board", body: "context" }, { p });
+    assert.equal(res.status, 201);
+    assert.equal(res.body.id, "EP-001");
+    assert.equal(state(p).activeEpic, "EP-001", "create sets the new epic active");
+    assert.match(read("EP-001", p).body, /context/);
+    assert.ok(readEvents(p).some((e) => e.event === "epic_active" && e.id === "EP-001"));
+  });
+
+  it("treats { id } as activate even when a title is also present", () => {
+    const p = store();
+    const existing = create("epic", { title: "already here" }, "", p);
+    const before = listEpics(p);
+    const res = handleWrite("POST", "/api/epic", { id: existing.id, title: "must not create" }, { p });
+    assert.equal(res.status, 200);
+    assert.equal(state(p).activeEpic, existing.id);
+    assert.equal(listEpics(p), before, "a title next to an id must not mint a second epic");
+  });
+
+  it("refuses an empty title on create", () => {
+    const p = store();
+    assert.equal(handleWrite("POST", "/api/epic", { title: "  " }, { p }).status, 400);
+    assert.equal(state(p).activeEpic ?? null, null);
+  });
+});
+
+function listEpics(p) {
+  return boardPayload(p).epics.map((e) => e.id).join(",");
+}
+
+describe("epic detail and close/reopen", () => {
+  it("returns the full epic including body", () => {
+    const p = store();
+    const e = create("epic", { title: "with body" }, "the markdown the list must not ship", p);
+    const res = handleWrite("GET", `/api/epic/${e.id}`, {}, { p });
+    assert.equal(res.status, 200);
+    assert.match(res.body.body, /the markdown/);
+    assert.equal(res.body.title, "with body");
+  });
+
+  it("keeps /api/board body-stripped", () => {
+    const p = store();
+    create("epic", { title: "with body" }, "secret context", p);
+    const [e] = boardPayload(p).epics;
+    assert.equal("body" in e, false, "the list is the thing that stays small");
+    assert.equal(e.title, "with body");
+  });
+
+  it("leaves GET /api/task/EP-* as 400 — requireTask stays on the task surface", () => {
+    const p = store();
+    const e = create("epic", { title: "not a task" }, "belongs at /api/epic", p);
+    const res = handleWrite("GET", `/api/task/${e.id}`, {}, { p });
+    assert.equal(res.status, 400);
+    assert.match(res.body.error, /not a task id/);
+    assert.equal(handleWrite("POST", `/api/task/${e.id}/transition`, { status: "done" }, { p }).status, 400);
+  });
+
+  it("closes with a timestamp and clears the active pointer", () => {
+    const p = store();
+    const e = create("epic", { title: "ship it" }, "", p);
+    writeState({ activeEpic: e.id }, p);
+
+    const res = handleWrite("POST", `/api/epic/${e.id}/close`, {}, { p });
+
+    assert.equal(res.status, 200);
+    const after = read(e.id, p);
+    assert.equal(after.status, "done");
+    assert.ok(after.closed, "tm epic done and the drawer both write closed");
+    assert.equal(state(p).activeEpic, null);
+  });
+
+  it("reopens through reopenEpic, dropping closed", () => {
+    const p = store();
+    const e = create("epic", { title: "shipped" }, "", p);
+    update(e.id, { status: "done", closed: "2026-01-01T00:00:00.000Z" }, p);
+
+    const res = handleWrite("POST", `/api/epic/${e.id}/reopen`, {}, { p });
+
+    assert.equal(res.status, 200);
+    assert.equal(read(e.id, p).status, "open");
+    assert.equal(read(e.id, p).closed, undefined);
+    assert.ok(readEvents(p).some((ev) => ev.event === "epic_reopened" && ev.id === e.id));
+  });
+
+  it("activating a done epic is still 409 after close", () => {
+    const p = store();
+    const e = create("epic", { title: "shipped" }, "", p);
+    handleWrite("POST", `/api/epic/${e.id}/close`, {}, { p });
+    const res = handleWrite("POST", "/api/epic", { id: e.id }, { p });
+    assert.equal(res.status, 409);
+    assert.match(res.body.error, /done/);
   });
 });
 

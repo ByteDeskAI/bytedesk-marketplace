@@ -270,8 +270,7 @@ CODE="$(post /api/task/TM-001 '{"title":"Renamed from the board"}' PATCH)"
 assert_contains "$(md TM-001)" "Renamed from the board" "edit rewrites the title"
 # The board could create a task under the active epic and never move it out again — PATCH took
 # title and body only, so the one surface that could edit anything could not refile anything.
-# `POST /api/epic` selects the active epic, it does not create one — the board has no
-# create-epic route at all — so the destination comes from the CLI, same store either way.
+# Destination can come from the CLI or from `POST /api/epic { title }` — `{ id }` still activates.
 tm epic new "A second epic" >/dev/null
 CODE="$(post /api/task/TM-001 '{"epic":"EP-002"}' PATCH)"
 [[ "$CODE" == 200 ]] && ok "the board can refile a task under another epic" || no "the board can refile a task" "got $CODE: $(body)"
@@ -279,6 +278,19 @@ assert_contains "$(md TM-001)" 'epic: "EP-002"' "the move is written to the file
 CODE="$(post /api/task/TM-001 '{"epic":"EP-404"}' PATCH)"
 [[ "$CODE" == 400 ]] && ok "a move to an epic that does not exist is refused" || no "a move to a missing epic is refused" "got $CODE"
 post /api/task/TM-001 '{"epic":"EP-001"}' PATCH >/dev/null   # put it back for what follows
+post /api/epic '{"id":"EP-001"}' >/dev/null
+
+# BDM-65/66: epic detail includes body; list does not; create is `{ title }` not `{ id }`.
+CODE="$(post /api/epic '{"title":"Opened from the board","body":"the epic body"}')"
+[[ "$CODE" == 201 ]] && ok "creating an epic from the board returns 201" || no "creating an epic from the board" "got $CODE: $(body)"
+assert_contains "$(body)" '"activeEpic"' "create sets the new epic active"
+assert_contains "$(curl -fsS "http://127.0.0.1:$PORT/api/epic/EP-003")" "the epic body" "GET /api/epic/:id includes the body"
+case "$(curl -fsS "http://127.0.0.1:$PORT/api/board")" in
+  *"the epic body"*) no "/api/board stays body-stripped" "list shipped the body" ;;
+  *) ok "/api/board stays body-stripped" ;;
+esac
+CODE="$(curl -s -o "$TM_ROOT/resp.json" -w '%{http_code}' "http://127.0.0.1:$PORT/api/task/EP-003")"
+[[ "$CODE" == 400 ]] && ok "GET /api/task/EP-* is still 400" || no "GET /api/task/EP-* is still 400" "got $CODE: $(body)"
 post /api/epic '{"id":"EP-001"}' >/dev/null
 
 # Acceptance criteria are not a one-way door. Reported by a user who ticked one on the board and

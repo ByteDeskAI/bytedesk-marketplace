@@ -36,6 +36,7 @@ export function Toolbar({
   filters,
   onChange,
   onCreate,
+  onCreateEpic,
   searchRef,
   epics = [],
   activeEpic = null,
@@ -48,6 +49,7 @@ export function Toolbar({
   filters: Filters;
   onChange: (f: Filters) => void;
   onCreate: () => void;
+  onCreateEpic?: () => void;
   /** `/` focuses the search field, so the owner of that shortcut needs a handle on it. */
   searchRef?: RefObject<HTMLInputElement>;
   epics?: { id: string; title: string; status: string }[];
@@ -164,6 +166,11 @@ export function Toolbar({
             onClick={() => onGrouped(!grouped)}
           >
             {grouped ? "Grouped by epic" : "Group by epic"}
+          </Button>
+        ) : null}
+        {onCreateEpic ? (
+          <Button appearance="subtle" onClick={onCreateEpic}>
+            Create epic
           </Button>
         ) : null}
         <Button appearance="primary" onClick={onCreate}>

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cssMap } from "@atlaskit/css";
 import Lozenge from "@atlaskit/lozenge";
 import { Box, Inline, Stack, Text } from "@atlaskit/primitives/compiled";
+import { Pressable } from "@atlaskit/primitives/compiled";
 import SectionMessage from "@atlaskit/section-message";
 import Spinner from "@atlaskit/spinner";
 import { burndown, startTimes } from "../metrics.mjs";
@@ -11,8 +12,9 @@ import type { Filters } from "./filters";
 import { Activity } from "./components/Activity";
 import { BulkBar } from "./components/BulkBar";
 import { Column } from "./components/Column";
-import { CreateModal } from "./components/CreateModal";
+import { CreateEpicModal, CreateModal } from "./components/CreateModal";
 import { Sparkline } from "./components/Sparkline";
+import { EpicDrawer } from "./components/EpicDrawer";
 import { TaskDrawer } from "./components/TaskDrawer";
 import { Toolbar } from "./components/Toolbar";
 import { PwaBar } from "./components/PwaBar";
@@ -49,6 +51,12 @@ const styles = cssMap({
     paddingBlockEnd: "var(--ds-space-200)",
   },
   board: { overflowX: "auto", paddingBlockEnd: "var(--ds-space-100)" },
+  lozenge: {
+    cursor: "pointer",
+    backgroundColor: "transparent",
+    borderWidth: "0",
+    padding: "0",
+  },
 });
 
 export function App() {
@@ -59,7 +67,7 @@ export function App() {
   const [filters, setFilters] = useState<Filters>(EMPTY);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [openId, setOpenId] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState<"task" | "epic" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [palette, setPalette] = useState(false);
   const [help, setHelp] = useState(false);
@@ -216,7 +224,7 @@ export function App() {
 
   // A drawer, the create dialog, the palette or the help sheet owns the keyboard
   // while it is up — otherwise `c` inside a title field files a task.
-  const modal = Boolean(openId) || creating || palette || help;
+  const modal = Boolean(openId) || Boolean(creating) || palette || help;
 
   const keys = useBoardKeys({
     visible,
@@ -227,7 +235,7 @@ export function App() {
       run(() => write.act(id, "rank", { [where]: target })),
     onSelect: toggle,
     onWatch: pwa.toggleWatch,
-    onCreate: () => setCreating(true),
+    onCreate: () => setCreating("task"),
     onSearch: () => searchRef.current?.focus(),
     onHelp: () => setHelp(true),
     onPalette: () => setPalette(true),
@@ -244,7 +252,12 @@ export function App() {
         key: "create",
         label: "Create task",
         hint: "c",
-        run: () => setCreating(true),
+        run: () => setCreating("task"),
+      },
+      {
+        key: "create-epic",
+        label: "Create epic",
+        run: () => setCreating("epic"),
       },
       {
         key: "clear",
@@ -361,9 +374,13 @@ export function App() {
           <Inline space="space.200" alignBlock="center" spread="space-between">
             <Inline space="space.150" alignBlock="center">
               <Text weight="bold">{board?.project ?? "task-management"}</Text>
-              <Lozenge appearance="inprogress">
-                {epic ?? "no active epic"}
-              </Lozenge>
+              {epic ? (
+                <Pressable xcss={styles.lozenge} onClick={() => setOpenId(epic)}>
+                  <Lozenge appearance="inprogress">{epic}</Lozenge>
+                </Pressable>
+              ) : (
+                <Lozenge appearance="inprogress">no active epic</Lozenge>
+              )}
               <Text size="small" color="color.text.subtlest">
                 {live ? "● live" : "○ reconnecting…"}
               </Text>
@@ -386,7 +403,8 @@ export function App() {
           tasks={board.tasks}
           filters={filters}
           onChange={setFilters}
-          onCreate={() => setCreating(true)}
+          onCreate={() => setCreating("task")}
+          onCreateEpic={() => setCreating("epic")}
           searchRef={searchRef}
           epics={board.epics}
           activeEpic={epic}
@@ -422,6 +440,7 @@ export function App() {
                     {...progress}
                     isNoEpic={lane.id === NO_EPIC}
                     onActivate={(id) => run(() => write.activeEpic(id))}
+                    onOpen={setOpenId}
                     collapsed={collapsed.has(lane.id)}
                     onToggle={() => toggleLane(lane.id)}
                   />
@@ -448,16 +467,28 @@ export function App() {
       <TaskDrawer
         task={board.tasks.find((t) => t.id === openId) ?? null}
         tasks={board.tasks}
+        epics={board.epics}
         onClose={() => setOpenId(null)}
         run={run}
       />
-      {creating ? (
+      <EpicDrawer
+        epic={board.epics.find((e) => e.id === openId) ?? null}
+        tasks={board.tasks}
+        activeEpic={epic}
+        onClose={() => setOpenId(null)}
+        onOpenTask={setOpenId}
+        run={run}
+      />
+      {creating === "task" ? (
         <CreateModal
           epics={board.epics}
           activeEpic={epic}
-          onClose={() => setCreating(false)}
+          onClose={() => setCreating(null)}
           run={run}
         />
+      ) : null}
+      {creating === "epic" ? (
+        <CreateEpicModal onClose={() => setCreating(null)} run={run} />
       ) : null}
       <Palette
         isOpen={palette}
