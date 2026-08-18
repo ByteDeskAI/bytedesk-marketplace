@@ -186,6 +186,39 @@ export function addLink(fromId, type, toId, p = paths()) {
 }
 
 /**
+ * Drop a typed link from both ends, the inverse of `addLink`.
+ *
+ * Local targets lose the mirror too — a leftover on the other card is how a
+ * deleted relationship stays visible from the end you are usually looking at.
+ * A foreign ref is one-sided by nature: the other store is not ours to write.
+ */
+export function removeLink(fromId, type, toId, p = paths()) {
+  const mirror = LINK_TYPES[type];
+  if (!mirror) throw new Error(`unknown link type "${type}" — use one of: ${Object.keys(LINK_TYPES).join(", ")}`);
+  must(fromId, p);
+
+  const drop = (docId, linkType, otherId) =>
+    mutate(
+      docId,
+      (doc) => {
+        const links = (doc.links || []).filter((l) => !(l.type === linkType && l.id === otherId));
+        return { links: links.length ? links : undefined };
+      },
+      p,
+    );
+
+  drop(fromId, type, toId);
+
+  if (!foreignRef(toId)) {
+    const to = read(toId, p);
+    if (to) drop(to.id, mirror, fromId);
+  }
+
+  logEvent("unlink", { id: fromId, type, to: toId }, p);
+  return read(fromId, p).links || [];
+}
+
+/**
  * Read children with `subtasks(parentId, {})`, or nest with `{ parent }`.
  * Refuses a cycle — a parent chain that loops makes every tree render hang.
  */

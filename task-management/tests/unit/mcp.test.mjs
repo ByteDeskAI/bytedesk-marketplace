@@ -147,3 +147,65 @@ test("unknown tool names come back as a failed result, not a protocol error", ()
   assert.equal(out.ok, false);
   assert.match(out.error, /Unknown tool/);
 });
+
+test("tm_sprint mirrors the CLI verbs on the same store functions", () => {
+  const p = tempStore();
+  const noActive = call("tm_sprint", { action: "show" }, p);
+  assert.equal(noActive.ok, false);
+  assert.match(noActive.error, /no active sprint/);
+
+  const created = call("tm_sprint", { action: "new", title: "Sprint 12", ends: "2026-08-28" }, p);
+  assert.equal(created.ok, true);
+  assert.equal(created.id, "SP-001");
+  assert.equal(state(p).activeSprint, "SP-001");
+  assert.equal(read("SP-001", p).ends, "2026-08-28");
+
+  const listed = call("tm_sprint", { action: "list" }, p);
+  assert.equal(listed.ok, true);
+  assert.equal(listed.sprints.length, 1);
+  assert.equal(listed.activeSprint, "SP-001");
+
+  call("tm_epic", { action: "new", title: "wave" }, p);
+  call("tm_task_create", { title: "card" }, p);
+
+  const added = call("tm_sprint", { action: "add", tasks: ["TM-001"] }, p);
+  assert.equal(added.ok, true);
+  assert.equal(read("TM-001", p).sprint, "SP-001");
+
+  const shown = call("tm_sprint", { action: "show" }, p);
+  assert.equal(shown.ok, true);
+  assert.equal(shown.doc.id, "SP-001");
+  assert.ok(typeof shown.report === "string" && shown.report.length);
+
+  const rm = call("tm_sprint", { action: "rm", tasks: ["TM-001"] }, p);
+  assert.equal(rm.ok, true);
+  assert.equal(read("TM-001", p).sprint, undefined);
+
+  call("tm_sprint", { action: "add", tasks: ["TM-001"] }, p);
+  const closed = call("tm_sprint", { action: "done" }, p);
+  assert.equal(closed.ok, true);
+  assert.equal(read("SP-001", p).status, "done");
+  assert.ok(read("SP-001", p).closed);
+  assert.equal(state(p).activeSprint, null);
+  assert.equal(read("TM-001", p).sprint, "SP-001", "closing must not evaporate unfinished work");
+});
+
+test("tm_sprint add without an active sprint is refused with the CLI's words", () => {
+  const p = tempStore();
+  const out = call("tm_sprint", { action: "add", tasks: ["TM-001"] }, p);
+  assert.equal(out.ok, false);
+  assert.match(out.error, /no active sprint/);
+});
+
+test("tm_cap_drop records the reason and keeps the card readable", () => {
+  const p = tempStore();
+  const proposed = call("tm_cap_propose", { title: "Speculative rewrite" }, p);
+  assert.equal(proposed.ok, true);
+  assert.equal(proposed.id, "CAP-0001");
+
+  const dropped = call("tm_cap_drop", { id: proposed.id, why: "not this year" }, p);
+  assert.equal(dropped.ok, true);
+  assert.equal(dropped.status, "deleted");
+  assert.equal(read(proposed.id, p).status, "deleted");
+  assert.equal(read(proposed.id, p).droppedReason, "not this year");
+});

@@ -18,6 +18,7 @@ import {
   labels,
   prioritise,
   rank,
+  removeLink,
   subtasks,
 } from "../../lib/issue.mjs";
 import { create, read, readEvents, update } from "../../lib/store.mjs";
@@ -119,6 +120,38 @@ describe("links", () => {
     const p = store();
     const a = task(p);
     assert.throws(() => addLink(a.id, "relates to", a.id, p), /itself/i);
+  });
+
+  it("two-sided add then remove leaves both ends clean (BDM-74 / TM-008)", () => {
+    const p = store();
+    const a = task(p, "the cause");
+    const b = task(p, "the symptom");
+    addLink(a.id, "causes", b.id, p);
+
+    removeLink(a.id, "causes", b.id, p);
+
+    assert.deepEqual(read(a.id, p).links || [], [], "the from-end must drop the edge");
+    assert.deepEqual(read(b.id, p).links || [], [], "the mirror must drop too — a leftover is the bug");
+  });
+
+  it("removing a foreign ref is one-sided", () => {
+    const p = store();
+    const a = task(p);
+    addLink(a.id, "relates to", "other/repo#TM-007", p);
+    assert.equal(read(a.id, p).links.length, 1);
+
+    removeLink(a.id, "relates to", "other/repo#TM-007", p);
+
+    assert.deepEqual(read(a.id, p).links || [], []);
+  });
+
+  it("is idempotent when the edge is already gone", () => {
+    const p = store();
+    const a = task(p, "a");
+    const b = task(p, "b");
+    removeLink(a.id, "blocks", b.id, p);
+    assert.deepEqual(read(a.id, p).links || [], []);
+    assert.deepEqual(read(b.id, p).links || [], []);
   });
 });
 

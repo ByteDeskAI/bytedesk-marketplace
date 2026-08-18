@@ -649,7 +649,9 @@ the same claim, fires the same dependency unblock and closes the epic the same w
 | `POST /api/task` | create (honours the active-epic gate) |
 | `PATCH /api/task/:id` | edit title/body/epic |
 | `POST /api/task/:id/transition` | status change, with claim + gate + unblock + epic auto-close |
-| `POST /api/task/:id/{assign,labels,priority,estimate,comment,link,subtask,rank,ac,accept}` | field writes |
+| `POST /api/task/:id/{assign,labels,priority,estimate,comment,link,unlink,subtask,rank,ac,accept,worktree}` | field writes |
+| `GET /api/worktrees` | `listWorktrees` — `[]` when none; never serves file contents |
+| `GET /api/entity/:id` | generic `kindOf` + `read` (404 missing, 400 unknown prefix). Does not replace per-kind routes; `GET /api/task/EP-*` stays 400 |
 | `POST /api/bulk` | one op across many ids, partial success reported per id |
 | `POST /api/epic` | `{ id }` activate (or `{id: null}` to clear); `{ title, body? }` create and set active |
 | `GET /api/epic/:id` | full epic including body (`GET /api/task/EP-*` stays 400) |
