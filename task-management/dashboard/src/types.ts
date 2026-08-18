@@ -43,6 +43,19 @@ export interface Task {
 
 export type Priority = "highest" | "high" | "medium" | "low" | "lowest";
 
+/** `GET /api/templates` — what the create picker lists. */
+export interface TemplateSummary {
+  name: string;
+  description: string;
+}
+
+/** `GET /api/templates/:name` — the file `readTemplate` returns. */
+export interface TemplateDetail {
+  name: string;
+  fields: Record<string, unknown>;
+  body: string;
+}
+
 export interface Comment {
   author?: string;
   ts: string;

@@ -1,6 +1,6 @@
 /**
  * The dashboard's write surface: `POST /api/task/:id/:action`, `PATCH /api/task/:id`,
- * `POST /api/task`, `POST /api/bulk`, `GET /api/backlog`.
+ * `POST /api/task`, `POST /api/bulk`, `GET /api/backlog`, `GET /api/templates[/:name]`.
  *
  * `handleWrite` is pure request-in / response-out so it unit-tests without a
  * server; bin/tm-dashboard is only plumbing. Every mutation delegates to the same
@@ -35,6 +35,7 @@ import {
   writeState,
   storeBoard,
 } from "./store.mjs";
+import { applyTemplate, listTemplates, readTemplate } from "./templates.mjs";
 
 const STATUSES = ["backlog", "open", "in_progress", "blocked", "parked", "done"];
 const ok = (body = {}) => ({ status: 200, body });
@@ -50,6 +51,15 @@ function requireTask(id, p) {
 export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
   const url = (path || "").split("?")[0];
   if (method === "GET" && url === "/api/backlog") return ok(backlog(p));
+  if (method === "GET" && url === "/api/templates") return ok(listTemplates(p));
+  const tpl = /^\/api\/templates\/([^/]+)$/.exec(url);
+  if (method === "GET" && tpl) {
+    try {
+      return getTemplate(decodeURIComponent(tpl[1]), p);
+    } catch (err) {
+      return fail(400, err.message);
+    }
+  }
   if (method === "POST" && url === "/api/task") return createTask(payload, p);
   if (method === "POST" && url === "/api/bulk") return bulk(payload, p);
   if (method === "POST" && url === "/api/epic") return setActiveEpic(payload, p);
@@ -261,29 +271,50 @@ function setActiveEpic({ id }, p) {
   return ok({ activeEpic: id });
 }
 
-function createTask({ title, epic, body, assignee, priority }, p) {
+function getTemplate(name, p) {
+  try {
+    const tpl = readTemplate(name, p);
+    return tpl ? ok(tpl) : fail(404, `no such template: ${name}`);
+  } catch (err) {
+    return fail(400, err.message);
+  }
+}
+
+function createTask({ title, epic, body, assignee, priority, template, acceptance }, p) {
   const name = String(title || "").trim();
   if (!name) return fail(400, "a task needs a title");
 
   const gate = gateTaskCreate(p);
   if (!gate.allow) return fail(409, gate.reason);
 
-  const task = create(
-    "task",
-    {
-      title: name,
-      epic: epic || state(p).activeEpic || null,
-      acceptance: [],
-      evidence: [],
-      commits: [],
-      blockedBy: [],
-      blocks: [],
-      ...(assignee ? { assignee } : {}),
-      ...(priority ? { priority } : {}),
-    },
-    body || "",
-    p,
-  );
+  const base = {
+    title: name,
+    epic: epic || state(p).activeEpic || null,
+    acceptance: template && Array.isArray(acceptance) ? acceptance : [],
+    evidence: [],
+    commits: [],
+    blockedBy: [],
+    blocks: [],
+    ...(assignee ? { assignee } : {}),
+    ...(priority ? { priority } : {}),
+  };
+
+  // Same merge as `tm task new --template`: applyTemplate then create. Empty
+  // acceptance/body are create defaults and must not erase what the template supplied.
+  let fields = base;
+  let taskBody = body || "";
+  if (template) {
+    try {
+      const applied = applyTemplate(template, base, p);
+      fields = applied.fields;
+      delete fields.description;
+      if (typeof body !== "string" || !body.trim()) taskBody = applied.body;
+    } catch (err) {
+      return fail(400, err.message);
+    }
+  }
+
+  const task = create("task", fields, taskBody, p);
   return { status: 201, body: { id: task.id, title: task.title, epic: task.epic } };
 }
 

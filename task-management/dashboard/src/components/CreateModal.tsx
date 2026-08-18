@@ -1,16 +1,20 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Button from "@atlaskit/button/new";
 import Modal, { ModalBody, ModalFooter, ModalHeader, ModalTitle } from "@atlaskit/modal-dialog";
 import Select from "@atlaskit/select";
 import { Stack } from "@atlaskit/primitives/compiled";
 import Textfield from "@atlaskit/textfield";
 import TextArea from "@atlaskit/textarea";
-import { write } from "../api";
-import type { Epic, Priority } from "../types";
+import { fetchTemplate, fetchTemplates, write } from "../api";
+import type { Epic, Priority, TemplateSummary } from "../types";
 
 const PRIORITIES: Priority[] = ["highest", "high", "medium", "low", "lowest"];
 type Opt = { label: string; value: string };
 const opts = (values: readonly string[]): Opt[] => values.map((v) => ({ label: v, value: v }));
+const templateOpt = (t: TemplateSummary): Opt => ({
+  label: t.description ? `${t.name} — ${t.description}` : t.name,
+  value: t.name,
+});
 
 export function CreateModal({
   epics,
@@ -27,11 +31,45 @@ export function CreateModal({
   const [body, setBody] = useState("");
   const [epic, setEpic] = useState<string | null>(activeEpic);
   const [priority, setPriority] = useState<string | null>(null);
+  const [template, setTemplate] = useState<string | null>(null);
+  const [templates, setTemplates] = useState<TemplateSummary[]>([]);
+
+  useEffect(() => {
+    let live = true;
+    void fetchTemplates()
+      .then((rows) => live && setTemplates(Array.isArray(rows) ? rows : []))
+      .catch(() => live && setTemplates([]));
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  const pickTemplate = (name: string | null) => {
+    setTemplate(name);
+    if (!name) return;
+    void fetchTemplate(name)
+      .then((tpl) => {
+        if (typeof tpl?.body === "string") setBody(tpl.body);
+      })
+      .catch(() => {
+        /* leave the textarea as the user has it */
+      });
+  };
 
   const submit = () => {
-    run(() => write.create({ title: title.trim(), epic, ...(body.trim() ? { body: body.trim() } : {}), ...(priority ? { priority } : {}) }));
+    run(() =>
+      write.create({
+        title: title.trim(),
+        epic,
+        ...(body.trim() ? { body: body.trim() } : {}),
+        ...(priority ? { priority } : {}),
+        ...(template ? { template } : {}),
+      }),
+    );
     onClose();
   };
+
+  const selected = templates.find((t) => t.name === template);
 
   return (
     <Modal onClose={onClose}>
@@ -46,6 +84,15 @@ export function CreateModal({
             value={title}
             onChange={(e) => setTitle((e.target as HTMLInputElement).value)}
           />
+          {templates.length ? (
+            <Select<Opt>
+              isClearable
+              placeholder="template"
+              options={templates.map(templateOpt)}
+              value={selected ? templateOpt(selected) : null}
+              onChange={(o) => pickTemplate(o?.value ?? null)}
+            />
+          ) : null}
           <Select<Opt>
             placeholder="epic"
             options={opts(epics.map((e) => e.id))}

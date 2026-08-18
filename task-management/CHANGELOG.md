@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+- **CreateModal can start a task from a store template** (BDM-68). `GET /api/templates`
+  lists `{ name, description }`; `GET /api/templates/:name` returns the file (`404` missing,
+  `400` unsafe). `POST /api/task` with `template` runs the same `applyTemplate` merge as
+  `tm task new --template` — unknown names are `400`, empty `acceptance` / `body` keep the
+  template's, and `description` never lands on the task. The picker is hidden when the
+  store has no templates.
+
 ## [0.13.0] — 2026-08-18
 
 ### Changed

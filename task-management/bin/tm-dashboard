@@ -167,6 +167,13 @@ const server = createServer((req, res) => {
     return json(res, result.status, result.body);
   }
 
+  // Template list + one file. Same GET-only dispatch as /api/task/:id — handleWrite
+  // is only reached from the POST/PATCH branch above, so these have to be wired here.
+  if (req.method === "GET" && (req.url === "/api/templates" || /^\/api\/templates\/[^/?]+$/.test(req.url || ""))) {
+    const result = handleWrite("GET", req.url, null, { p: P });
+    return json(res, result.status, result.body);
+  }
+
   if (req.url === "/api/board") {
     return json(res, 200, boardPayload(P));
   }

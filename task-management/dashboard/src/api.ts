@@ -1,6 +1,6 @@
 import { queueWrite } from "./pwa/outbox.mjs";
 import { markSelfWrite } from "./pwa/usePwa";
-import type { Board, StoreEvent, Task } from "./types";
+import type { Board, StoreEvent, Task, TemplateDetail, TemplateSummary } from "./types";
 
 const json = <T>(url: string): Promise<T> =>
   fetch(url).then((r) => r.json() as Promise<T>);
@@ -17,6 +17,11 @@ export const fetchEvents = () =>
  */
 export const fetchTask = (id: string) =>
   json<Task>(`/api/task/${encodeURIComponent(id)}`);
+
+export const fetchTemplates = () => json<TemplateSummary[]>("/api/templates");
+
+export const fetchTemplate = (name: string) =>
+  json<TemplateDetail>(`/api/templates/${encodeURIComponent(name)}`);
 
 /** A refusal from a gate — the reason is written for the person reading the board. */
 export class WriteError extends Error {}
@@ -59,6 +64,7 @@ export const write = {
     epic?: string | null;
     assignee?: string;
     priority?: string;
+    template?: string;
   }) => send("POST", "/api/task", payload),
   edit: (id: string, payload: { title?: string; body?: string }) =>
     send("PATCH", `/api/task/${id}`, payload),
