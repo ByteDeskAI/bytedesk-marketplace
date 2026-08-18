@@ -14,6 +14,7 @@ import { BulkBar } from "./components/BulkBar";
 import { Column } from "./components/Column";
 import { CreateEpicModal, CreateModal } from "./components/CreateModal";
 import { Sparkline } from "./components/Sparkline";
+import { AdrDrawer } from "./components/AdrDrawer";
 import { EpicDrawer } from "./components/EpicDrawer";
 import { TaskDrawer } from "./components/TaskDrawer";
 import { Toolbar } from "./components/Toolbar";
@@ -444,6 +445,7 @@ export function App() {
                     isNoEpic={lane.id === NO_EPIC}
                     onActivate={(id) => run(() => write.activeEpic(id))}
                     onOpen={setOpenId}
+                    adrs={(board.adrs ?? []).filter((a) => a.epic === lane.id)}
                     collapsed={collapsed.has(lane.id)}
                     onToggle={() => toggleLane(lane.id)}
                   />
@@ -464,14 +466,19 @@ export function App() {
           columnRow(visible)
         )}
 
-        <Activity events={[...events].reverse().slice(0, 60)} />
+        <Activity
+          events={[...events].reverse().slice(0, 60)}
+          onOpen={setOpenId}
+        />
       </Stack>
 
       <TaskDrawer
         task={board.tasks.find((t) => t.id === openId) ?? null}
         tasks={board.tasks}
         epics={board.epics}
+        adrs={board.adrs ?? []}
         onClose={() => setOpenId(null)}
+        onOpen={setOpenId}
         run={run}
       />
       <EpicDrawer
@@ -480,6 +487,12 @@ export function App() {
         activeEpic={epic}
         onClose={() => setOpenId(null)}
         onOpenTask={setOpenId}
+        run={run}
+      />
+      <AdrDrawer
+        adr={(board.adrs ?? []).find((a) => a.id === openId) ?? null}
+        onClose={() => setOpenId(null)}
+        onOpenEpic={setOpenId}
         run={run}
       />
       {creating === "task" ? (
@@ -497,6 +510,7 @@ export function App() {
         isOpen={palette}
         onClose={() => setPalette(false)}
         tasks={visible}
+        adrs={board.adrs ?? []}
         focused={keys.focusedId}
         commands={commands}
         onOpenTask={setOpenId}

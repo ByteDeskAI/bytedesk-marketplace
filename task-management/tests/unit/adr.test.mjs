@@ -4,12 +4,16 @@
  */
 import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { ensureDirs, paths } from "../../lib/paths.mjs";
-import { list, read } from "../../lib/store.mjs";
-import { decisionKey, renderDecision, shouldCapture, upsertDecision } from "../../lib/adr.mjs";
+import { create, list, read, readEvents, writeState } from "../../lib/store.mjs";
+import { decisionEventName, decisionKey, renderDecision, shouldCapture, upsertDecision } from "../../lib/adr.mjs";
+
+const TM = fileURLToPath(new URL("../../bin/tm", import.meta.url));
 
 const created = [];
 after(() => {
@@ -216,5 +220,61 @@ describe("upsertDecision", () => {
     assert.equal(res.action, "skipped");
     assert.ok(res.reason);
     assert.equal(list("adr", {}, p).length, 0);
+  });
+
+  it("writes epic on create when one is passed", () => {
+    const p = store();
+    const epic = create("epic", { title: "wave" }, "", p);
+    const res = upsertDecision(STORAGE, { p, config: {}, epic: epic.id });
+    assert.equal(res.action, "created");
+    assert.equal(read(res.id, p).epic, epic.id);
+  });
+});
+
+describe("decisionEventName", () => {
+  it("maps upsertDecision's action, not a nonexistent created flag", () => {
+    assert.equal(decisionEventName({ action: "created", id: "ADR-0001" }), "decision_captured");
+    assert.equal(decisionEventName({ action: "updated", id: "ADR-0001" }), "decision_updated");
+    assert.equal(decisionEventName({ action: "skipped", reason: "no" }), null);
+    assert.equal(decisionEventName({ created: true, id: "ADR-0001" }), null);
+  });
+});
+
+describe("captureDecision hook (BDM-70)", () => {
+  function hookPostDecision(p, payload) {
+    return spawnSync(process.execPath, [TM, "hook", "post-decision"], {
+      input: JSON.stringify(payload),
+      env: { ...process.env, TM_ROOT: p.root, TM_NO_AUTOLINK: "1" },
+      encoding: "utf8",
+    });
+  }
+
+  it("logs decision_captured, inherits activeEpic, and revises as decision_updated", () => {
+    const p = store();
+    const epic = create("epic", { title: "wave" }, "", p);
+    writeState({ activeEpic: epic.id }, p);
+
+    const first = hookPostDecision(p, STORAGE);
+    assert.equal(first.status, 0, first.stderr);
+
+    const created = list("adr", {}, p);
+    assert.equal(created.length, 1);
+    assert.equal(created[0].epic, epic.id, "captureDecision must pass state.activeEpic");
+    assert.ok(
+      readEvents(p).some((e) => e.event === "decision_captured" && e.id === created[0].id),
+      "first capture must log decision_captured, not decision_updated",
+    );
+
+    const flipped = hook(
+      STORAGE.tool_input.questions,
+      { "How should tasks be stored?": "SQLite" },
+    );
+    const second = hookPostDecision(p, flipped);
+    assert.equal(second.status, 0, second.stderr);
+    assert.equal(list("adr", {}, p).length, 1, "re-asking must still revise one ADR");
+    assert.ok(
+      readEvents(p).some((e) => e.event === "decision_updated" && e.id === created[0].id),
+      "a revision must log decision_updated",
+    );
   });
 });

@@ -5,7 +5,7 @@ import Modal, { ModalBody, ModalHeader, ModalTitle, ModalTransition } from "@atl
 import { Box, Inline, Stack, Text } from "@atlaskit/primitives/compiled";
 import Textfield from "@atlaskit/textfield";
 import { COLUMNS, filterCommands } from "../keys.mjs";
-import type { Status, Task } from "../types";
+import type { Adr, Status, Task } from "../types";
 
 export interface Command {
   key: string;
@@ -42,6 +42,7 @@ export function Palette({
   isOpen,
   onClose,
   tasks,
+  adrs = [],
   focused,
   commands,
   onOpenTask,
@@ -50,6 +51,7 @@ export function Palette({
   isOpen: boolean;
   onClose: () => void;
   tasks: Task[];
+  adrs?: Adr[];
   focused: string | null;
   commands: Command[];
   onOpenTask: (id: string) => void;
@@ -86,8 +88,15 @@ export function Palette({
       id: t.id,
       run: () => onOpenTask(t.id),
     }));
-    return [...forTarget, ...commands, ...openers];
-  }, [commands, focused, onOpenTask, onTransition, tasks]);
+    const adrOpeners: Command[] = adrs.map((a) => ({
+      key: `open-${a.id}`,
+      label: `Open ${a.id} — ${a.title}`,
+      hint: a.status,
+      id: a.id,
+      run: () => onOpenTask(a.id),
+    }));
+    return [...forTarget, ...commands, ...openers, ...adrOpeners];
+  }, [adrs, commands, focused, onOpenTask, onTransition, tasks]);
 
   const hits = useMemo(() => filterCommands(query, rows) as Command[], [query, rows]);
   const active = hits[Math.min(cursor, Math.max(0, hits.length - 1))];

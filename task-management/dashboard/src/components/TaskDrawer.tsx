@@ -9,6 +9,7 @@ import { Boundary } from "./Boundary";
 import { WorkStream } from "./WorkStream";
 import Lozenge from "@atlaskit/lozenge";
 import { Box, Inline, Stack, Text } from "@atlaskit/primitives/compiled";
+import { Pressable } from "@atlaskit/primitives/compiled";
 import Select from "@atlaskit/select";
 import Tag from "@atlaskit/tag";
 import Textfield from "@atlaskit/textfield";
@@ -18,7 +19,7 @@ import { attachEvidenceFile, fetchEvidence, fetchTask, stopReason, write } from 
 import { Markdown } from "./Markdown";
 import { ActorBadge } from "./ActorBadge";
 import { TYPES, typeOf } from "../types";
-import type { Epic, EvidenceItem, Priority, Task } from "../types";
+import type { Adr, Epic, EvidenceItem, Priority, Task } from "../types";
 
 const STATUSES: Task["status"][] = [
   "backlog",
@@ -128,6 +129,15 @@ const styles = cssMap({
   /** Matches the height an input would occupy, so the row does not jump on click. */
   readView: { paddingBlock: "var(--ds-space-075)", wordBreak: "break-word" },
   evidenceRef: { wordBreak: "break-all" },
+  id: { fontFamily: "var(--ds-font-family-code)" },
+  decision: {
+    cursor: "pointer",
+    backgroundColor: "transparent",
+    borderWidth: "0",
+    padding: "0",
+    textAlign: "left",
+    width: "100%",
+  },
 });
 
 const URI_SCHEME = /^[a-zA-Z][a-zA-Z0-9+.-]+:/;
@@ -337,17 +347,35 @@ function InlineArea({
 }
 
 /** Every field on one card. Each control is one call to the write API — no local model. */
+function decisionsFor(task: Task, adrs: Adr[]): Adr[] {
+  const byId = new Map(adrs.map((a) => [a.id, a]));
+  const ids = new Set<string>();
+  for (const link of task.links ?? []) {
+    if (link.id.startsWith("ADR-")) ids.add(link.id);
+  }
+  if (task.epic) {
+    for (const a of adrs) {
+      if (a.epic === task.epic) ids.add(a.id);
+    }
+  }
+  return [...ids].map((id) => byId.get(id) ?? { id, title: id, status: "" });
+}
+
 export function TaskDrawer({
   task,
   tasks,
   epics = [],
+  adrs = [],
   onClose,
+  onOpen,
   run,
 }: {
   task: Task | null;
   tasks: Task[];
   epics?: Epic[];
+  adrs?: Adr[];
   onClose: () => void;
+  onOpen?: (id: string) => void;
   run: (fn: () => Promise<unknown>) => void;
 }) {
   const [comment, setComment] = useState("");
@@ -732,14 +760,65 @@ export function TaskDrawer({
                 />
                 <Select<Opt>
                   spacing="compact"
-                  placeholder="task"
-                  options={opts(others.map((t) => t.id))}
+                  placeholder="task or ADR"
+                  options={opts([
+                    ...others.map((t) => t.id),
+                    ...adrs.map((a) => a.id),
+                  ])}
                   value={null}
                   onChange={(o) =>
                     o && act("link", { type: linkType, to: o.value })
                   }
                 />
               </Inline>
+            </Section>
+
+            <Section title="DECISIONS">
+              {(() => {
+                const rows = decisionsFor(task, adrs);
+                if (!rows.length) {
+                  return (
+                    <Text size="small" color="color.text.subtlest">
+                      no ADRs linked or filed under this epic
+                    </Text>
+                  );
+                }
+                return rows.map((a) =>
+                  onOpen ? (
+                    <Pressable
+                      key={a.id}
+                      xcss={styles.decision}
+                      onClick={() => onOpen(a.id)}
+                    >
+                      <Inline space="space.100" alignBlock="center">
+                        <Box xcss={styles.id}>
+                          <Text size="small" weight="bold">
+                            {a.id}
+                          </Text>
+                        </Box>
+                        <Text size="small">{a.title}</Text>
+                        {a.status === "proposed" ||
+                        a.status === "accepted" ||
+                        a.status === "superseded" ? (
+                          <Lozenge
+                            appearance={
+                              a.status === "accepted"
+                                ? "success"
+                                : a.status === "proposed"
+                                  ? "inprogress"
+                                  : "default"
+                            }
+                          >
+                            {a.status}
+                          </Lozenge>
+                        ) : null}
+                      </Inline>
+                    </Pressable>
+                  ) : (
+                    <Text key={a.id} size="small">{`${a.id} ${a.title}`}</Text>
+                  ),
+                );
+              })()}
             </Section>
 
             <Section title="EVIDENCE">

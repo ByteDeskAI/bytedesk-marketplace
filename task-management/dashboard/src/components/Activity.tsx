@@ -1,5 +1,6 @@
 import { cssMap } from "@atlaskit/css";
 import { Box, Inline, Stack, Text } from "@atlaskit/primitives/compiled";
+import { Pressable } from "@atlaskit/primitives/compiled";
 import type { StoreEvent } from "../types";
 
 const styles = cssMap({
@@ -17,6 +18,14 @@ const styles = cssMap({
   // A long detail must not push the timestamp column out of the panel.
   row: {
     minWidth: "0",
+  },
+  id: {
+    cursor: "pointer",
+    backgroundColor: "transparent",
+    borderWidth: "0",
+    padding: "0",
+    fontFamily: "var(--ds-font-family-code)",
+    flexShrink: 0,
   },
 });
 
@@ -63,7 +72,13 @@ function heading(e: StoreEvent): string {
   return e.label ?? e.event;
 }
 
-export function Activity({ events }: { events: StoreEvent[] }) {
+export function Activity({
+  events,
+  onOpen,
+}: {
+  events: StoreEvent[];
+  onOpen?: (id: string) => void;
+}) {
   return (
     <Stack space="space.100">
       <Text size="small" weight="bold" color="color.text.subtlest">
@@ -75,17 +90,26 @@ export function Activity({ events }: { events: StoreEvent[] }) {
             .filter((e) => !e._shadowed)
             .map((e, i) => {
               const extra = e._status ? "" : detail(e);
+              const adr = Boolean(e.id && e.id.startsWith("ADR-") && onOpen);
               return (
                 <Inline
                   key={`${e.ts}-${i}`}
                   space="space.075"
                   xcss={styles.row}
                 >
-                  <Box xcss={styles.fixed}>
-                    <Text size="small" color="color.text.subtlest">
-                      {`${e.ts?.slice(11, 19) ?? ""} ${e.id ?? "—"}`}
-                    </Text>
-                  </Box>
+                  {adr ? (
+                    <Pressable xcss={styles.id} onClick={() => onOpen!(e.id!)}>
+                      <Text size="small" color="color.text.subtlest">
+                        {`${e.ts?.slice(11, 19) ?? ""} ${e.id}`}
+                      </Text>
+                    </Pressable>
+                  ) : (
+                    <Box xcss={styles.fixed}>
+                      <Text size="small" color="color.text.subtlest">
+                        {`${e.ts?.slice(11, 19) ?? ""} ${e.id ?? "—"}`}
+                      </Text>
+                    </Box>
+                  )}
                   <Text size="small" color="color.text.subtlest">
                     {`${heading(e)}${extra ? ` — ${extra}` : ""}`}
                   </Text>
