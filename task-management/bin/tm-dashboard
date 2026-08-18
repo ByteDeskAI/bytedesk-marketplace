@@ -260,8 +260,8 @@ const server = createServer((req, res) => {
   }
 
   // One entity in full, including the markdown body the list payload strips.
-  // `/api/task/:id` stays requireTask (EP-* is 400); `/api/epic/:id` is the epic body.
-  if (req.method === "GET" && /^\/api\/(task|epic)\/[^/?]+$/.test(req.url || "")) {
+  // `/api/task/:id` stays requireTask (EP-*/ADR-* is 400); epic/adr bodies have their own routes.
+  if (req.method === "GET" && /^\/api\/(task|epic|adr)\/[^/?]+$/.test(req.url || "")) {
     const result = handleWrite("GET", req.url, null, { p: P });
     return json(res, result.status, result.body);
   }

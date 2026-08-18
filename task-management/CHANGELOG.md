@@ -3,6 +3,14 @@
 ## Unreleased
 
 ### Added
+- **ADRs on the board** (BDM-70). `/api/board` includes `adrs` (body-stripped; `[]` when
+  `adrs/` is empty). `GET /api/adr/:id` returns the full record including `body`.
+  `POST /api/adr` creates a `proposed` ADR that inherits `activeEpic`.
+  `POST /api/adr/:id/accept` accepts only from `proposed`.
+  `POST /api/adr/:id/supersede` writes a *new* ADR (`supersedes: old`) and marks the old
+  one `superseded` — an accepted Decision is never rewritten in place.
+  `GET /api/task/ADR-*` stays 400. AdrDrawer, lane `◇ N` chips, the task DECISIONS
+  section, activity links on `ADR-*`, and palette jump targets (`Open ADR-0001 — title`).
 - **`GET /api/epic/:id`** returns the full epic including `body` (BDM-65). `/api/board`
   stays body-stripped. `GET /api/task/EP-*` remains 400 — `requireTask` still owns the
   task surface, so later adr/capability detail routes copy this pattern instead of
@@ -42,6 +50,9 @@
   matching auto-close and the drawer.
 
 ### Fixed
+- AskUserQuestion capture inherits `activeEpic` and logs `decision_captured` on first write,
+  `decision_updated` on a revision (BDM-70). `upsertDecision` returns `{ action }`, so
+  `res.created` was always undefined and every first capture was logged as an update.
 - Clearing priority no longer 400s — `null` is not a ladder value, so the drawer omits the field
   and the API treats omit/undefined as a clear.
 - Clearing estimate removes the field instead of writing `0`.

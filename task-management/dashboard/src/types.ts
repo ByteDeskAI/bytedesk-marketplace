@@ -112,11 +112,29 @@ export interface Epic {
   body?: string;
 }
 
+/** ADR lifecycle only — never a task Status. */
+export type AdrStatus = "proposed" | "accepted" | "superseded";
+
+export interface Adr {
+  id: string;
+  title: string;
+  status: string;
+  epic?: string | null;
+  date?: string;
+  created?: string;
+  updated?: string;
+  deciders?: string[];
+  supersedes?: string;
+  decisionKey?: string;
+  /** Only present on a detail fetch — the list payload strips it. */
+  body?: string;
+}
+
 export interface Board {
   generated: string;
   epics: Epic[];
   tasks: Task[];
-  adrs: { id: string; title: string; status: string }[];
+  adrs: Adr[];
   /** state.json. The board payload has always carried this; the UI used to ignore it. */
   state?: { activeEpic?: string | null; claims?: Record<string, unknown> };
   /** Board preferences out of the repo's own config, so they follow the project not the browser. */

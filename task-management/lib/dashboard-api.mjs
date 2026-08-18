@@ -1,7 +1,8 @@
 /**
  * The dashboard's write surface: `POST /api/task/:id/:action`, `PATCH /api/task/:id`,
  * `POST /api/task`, `POST /api/epic` (`{ id }` activate or `{ title }` create),
- * `GET /api/epic/:id`, `POST /api/bulk`, `GET /api/backlog`, `GET /api/templates[/:name]`.
+ * `GET /api/epic/:id`, `GET /api/adr/:id`, `POST /api/adr`, `POST /api/adr/:id/{accept,supersede}`,
+ * `POST /api/bulk`, `GET /api/backlog`, `GET /api/templates[/:name]`.
  *
  * Evidence: `GET /api/task/:id/evidence` (derived items), `GET /api/task/:id/file?ref=`
  * (allowlisted bytes metadata), `POST /api/task/:id/evidence` (attach text/path or detach).
@@ -73,6 +74,11 @@ function requireEpic(id, p) {
   return error ? { error } : { epic: doc };
 }
 
+function requireAdr(id, p) {
+  const { doc, error } = requireKind(id, "adr", p);
+  return error ? { error } : { adr: doc };
+}
+
 export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
   const raw = path || "";
   const url = raw.split("?")[0];
@@ -90,6 +96,7 @@ export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
   if (method === "POST" && url === "/api/task") return createTask(payload, p);
   if (method === "POST" && url === "/api/bulk") return bulk(payload, p);
   if (method === "POST" && url === "/api/epic") return postEpic(payload, p);
+  if (method === "POST" && url === "/api/adr") return createAdr(payload, p);
   if (method === "POST" && url === "/api/settings") return saveSettings(payload, p);
 
   // The detail read. boardPayload strips `body` from the list on purpose — a 20-task board must
@@ -114,6 +121,25 @@ export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
     if (error) return error;
     if (method === "POST" && action === "close") return closeEpic(epic, p);
     if (method === "POST" && action === "reopen") return reopenEpicDoc(epic, p);
+    return fail(404, `unknown action "${action}"`);
+  }
+
+  // ADR detail and lifecycle sit beside the epic routes so `/api/task/ADR-*` stays
+  // requireTask (400). Status is proposed/accepted/superseded — not a task Status.
+  const adrGet = /^\/api\/adr\/([^/]+)$/.exec(url);
+  if (method === "GET" && adrGet) {
+    const { adr, error } = requireAdr(decodeURIComponent(adrGet[1]), p);
+    return error || ok(adr);
+  }
+
+  const adrAct = /^\/api\/adr\/([^/]+)\/([a-z]+)$/.exec(url);
+  if (adrAct) {
+    const id = decodeURIComponent(adrAct[1]);
+    const action = adrAct[2];
+    const { adr, error } = requireAdr(id, p);
+    if (error) return error;
+    if (method === "POST" && action === "accept") return acceptAdr(adr, p);
+    if (method === "POST" && action === "supersede") return supersedeAdr(adr, payload, p);
     return fail(404, `unknown action "${action}"`);
   }
 
@@ -425,6 +451,58 @@ function closeEpic(epic, p) {
   return ok(read(epic.id, p));
 }
 
+/**
+ * `POST /api/adr` matches `tm_adr_new`: proposed, deciders empty, date today,
+ * epic inherited from the active pointer. The drawer Accepts; supersede writes
+ * a *new* ADR rather than rewriting an accepted Decision in place.
+ */
+function createAdr({ title, body }, p) {
+  const name = String(title || "").trim();
+  if (!name) return fail(400, "an ADR needs a title");
+  const a = create(
+    "adr",
+    {
+      title: name,
+      status: "proposed",
+      epic: state(p).activeEpic || null,
+      deciders: [],
+      date: now().slice(0, 10),
+    },
+    body || "## Context\n\n## Decision\n\n## Consequences\n",
+    p,
+  );
+  return { status: 201, body: { id: a.id, title: a.title, status: a.status, epic: a.epic ?? null } };
+}
+
+function acceptAdr(adr, p) {
+  if (adr.status !== "proposed") {
+    return fail(409, `${adr.id} is ${adr.status} — only a proposed ADR can be accepted`);
+  }
+  update(adr.id, { status: "accepted" }, p);
+  return ok(read(adr.id, p));
+}
+
+function supersedeAdr(adr, { title, body }, p) {
+  if (adr.status === "superseded") return fail(409, `${adr.id} is already superseded`);
+  const name = String(title || "").trim();
+  if (!name) return fail(400, "a superseding ADR needs a title");
+  const next = create(
+    "adr",
+    {
+      title: name,
+      status: "proposed",
+      epic: adr.epic || state(p).activeEpic || null,
+      deciders: [],
+      date: now().slice(0, 10),
+      supersedes: adr.id,
+    },
+    body || "## Context\n\n## Decision\n\n## Consequences\n",
+    p,
+  );
+  update(adr.id, { status: "superseded" }, p);
+  return { status: 201, body: { id: next.id, title: next.title, status: next.status, supersedes: adr.id } };
+}
+
 function reopenEpicDoc(epic, p) {
   if (epic.status !== "done") return fail(409, `${epic.id} is not done`);
   // reopenEpic is the store's named path: it clears `closed` and logs epic_reopened.
@@ -516,6 +594,8 @@ export function boardPayload(p = paths()) {
   return {
     epics: list("epic", {}, p).filter(mine).map(({ body, file, ...e }) => e),
     tasks: list("task", {}, p).filter(mine).map(({ body, file, ...t }) => t),
+    // Empty `adrs/` is first-class: the list is `[]`, not omitted. Body stays on GET /api/adr/:id.
+    adrs: list("adr", {}, p).filter(mine).map(({ body, file, ...a }) => a),
     backlog: backlog(p).map((t) => t.id),
     state: state(p),
     // Board preferences ride along with the board rather than needing a second round trip: the

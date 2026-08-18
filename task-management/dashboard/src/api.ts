@@ -1,6 +1,6 @@
 import { queueWrite } from "./pwa/outbox.mjs";
 import { markSelfWrite } from "./pwa/usePwa";
-import type { Board, Epic, EvidenceItem, StoreEvent, Task, TemplateDetail, TemplateSummary } from "./types";
+import type { Adr, Board, Epic, EvidenceItem, StoreEvent, Task, TemplateDetail, TemplateSummary } from "./types";
 
 const json = <T>(url: string): Promise<T> =>
   fetch(url).then((r) => r.json() as Promise<T>);
@@ -21,6 +21,10 @@ export const fetchTask = (id: string) =>
 /** One epic in full. The board payload strips `body` the same way it does for tasks. */
 export const fetchEpic = (id: string) =>
   json<Epic>(`/api/epic/${encodeURIComponent(id)}`);
+
+/** One ADR in full. The board list strips `body` the same way it does for tasks and epics. */
+export const fetchAdr = (id: string) =>
+  json<Adr>(`/api/adr/${encodeURIComponent(id)}`);
 
 export const fetchTemplates = () => json<TemplateSummary[]>("/api/templates");
 
@@ -111,6 +115,11 @@ export const write = {
     send("POST", "/api/epic", payload),
   closeEpic: (id: string) => send("POST", `/api/epic/${id}/close`),
   reopenEpic: (id: string) => send("POST", `/api/epic/${id}/reopen`),
+  createAdr: (payload: { title: string; body?: string }) =>
+    send("POST", "/api/adr", payload),
+  acceptAdr: (id: string) => send("POST", `/api/adr/${id}/accept`),
+  supersedeAdr: (id: string, payload: { title: string; body?: string }) =>
+    send("POST", `/api/adr/${id}/supersede`, payload),
   edit: (id: string, payload: { title?: string; body?: string; epic?: string | null }) =>
     send("PATCH", `/api/task/${id}`, payload),
   act: (id: string, action: string, payload: Record<string, unknown> = {}) =>

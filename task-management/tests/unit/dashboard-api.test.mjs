@@ -506,6 +506,125 @@ describe("bulk edit", () => {
   });
 });
 
+describe("adrs on the board (BDM-70)", () => {
+  it("includes adrs without body; an empty store is []", () => {
+    const empty = store();
+    assert.deepEqual(boardPayload(empty).adrs, [], "empty adrs/ is first-class, not omitted");
+
+    const p = store();
+    create("adr", { title: "use files", status: "proposed" }, "SECRET BODY the list must not ship", p);
+    const [row] = boardPayload(p).adrs;
+    assert.equal(row.id, "ADR-0001");
+    assert.equal(row.title, "use files");
+    assert.equal(row.status, "proposed");
+    assert.equal("body" in row, false, "the list is the thing that stays small");
+    assert.equal("file" in row, false);
+  });
+
+  it("GET /api/adr/:id returns the body; GET /api/task/ADR-* stays 400", () => {
+    const p = store();
+    const a = create("adr", { title: "use files", status: "proposed" }, "the decision body", p);
+
+    const res = handleWrite("GET", `/api/adr/${a.id}`, {}, { p });
+    assert.equal(res.status, 200);
+    assert.match(res.body.body, /the decision body/);
+    assert.equal(res.body.title, "use files");
+
+    const asTask = handleWrite("GET", `/api/task/${a.id}`, {}, { p });
+    assert.equal(asTask.status, 400);
+    assert.match(asTask.body.error, /not a task id/);
+    assert.equal(handleWrite("POST", `/api/task/${a.id}/transition`, { status: "done" }, { p }).status, 400);
+  });
+
+  it("GET /api/adr/TM-* is 400 and a missing ADR is 404", () => {
+    const p = store();
+    const t = task(p);
+    const wrong = handleWrite("GET", `/api/adr/${t.id}`, {}, { p });
+    assert.equal(wrong.status, 400);
+    assert.match(wrong.body.error, /not a adr id/);
+    assert.equal(handleWrite("GET", "/api/adr/ADR-404", {}, { p }).status, 404);
+  });
+
+  it("POST /api/adr creates proposed and inherits activeEpic", () => {
+    const p = store();
+    const e = create("epic", { title: "wave" }, "", p);
+    writeState({ activeEpic: e.id }, p);
+
+    const res = handleWrite("POST", "/api/adr", { title: "store as markdown", body: "## Decision\n\nfiles" }, { p });
+    assert.equal(res.status, 201);
+    assert.equal(res.body.status, "proposed");
+    assert.equal(res.body.epic, e.id);
+
+    const doc = read(res.body.id, p);
+    assert.equal(doc.status, "proposed");
+    assert.equal(doc.epic, e.id);
+    assert.deepEqual(doc.deciders, []);
+    assert.match(doc.body, /files/);
+    assert.ok(doc.date);
+  });
+
+  it("POST /api/adr with no active epic still creates, epic null", () => {
+    const p = store();
+    const res = handleWrite("POST", "/api/adr", { title: "unscoped" }, { p });
+    assert.equal(res.status, 201);
+    assert.equal(read(res.body.id, p).epic, null);
+    assert.match(read(res.body.id, p).body, /## Context/);
+  });
+
+  it("accepts only from proposed", () => {
+    const p = store();
+    const a = create("adr", { title: "use files", status: "proposed" }, "", p);
+
+    const res = handleWrite("POST", `/api/adr/${a.id}/accept`, {}, { p });
+    assert.equal(res.status, 200);
+    assert.equal(read(a.id, p).status, "accepted");
+
+    const again = handleWrite("POST", `/api/adr/${a.id}/accept`, {}, { p });
+    assert.equal(again.status, 409);
+    assert.match(again.body.error, /accepted/);
+    assert.equal(read(a.id, p).status, "accepted", "a refused accept must not have changed anything");
+  });
+
+  it("supersede writes a new ADR and marks the old one, without rewriting its body", () => {
+    const p = store();
+    const e = create("epic", { title: "wave" }, "", p);
+    const old = create(
+      "adr",
+      { title: "use files", status: "accepted", epic: e.id },
+      "ORIGINAL DECISION — do not rewrite",
+      p,
+    );
+
+    const res = handleWrite(
+      "POST",
+      `/api/adr/${old.id}/supersede`,
+      { title: "use a database", body: "## Decision\n\nSQLite after all" },
+      { p },
+    );
+    assert.equal(res.status, 201);
+    assert.notEqual(res.body.id, old.id);
+    assert.equal(res.body.supersedes, old.id);
+    assert.equal(res.body.status, "proposed");
+
+    const next = read(res.body.id, p);
+    assert.equal(next.supersedes, old.id);
+    assert.equal(next.epic, e.id, "the replacement stays under the same epic");
+    assert.match(next.body, /SQLite after all/);
+
+    const was = read(old.id, p);
+    assert.equal(was.status, "superseded");
+    assert.match(was.body, /ORIGINAL DECISION/, "the accepted body is left alone");
+  });
+
+  it("refuses to supersede an already superseded ADR", () => {
+    const p = store();
+    const old = create("adr", { title: "old", status: "superseded" }, "", p);
+    const res = handleWrite("POST", `/api/adr/${old.id}/supersede`, { title: "newer" }, { p });
+    assert.equal(res.status, 409);
+    assert.equal(list("adr", {}, p).length, 1);
+  });
+});
+
 describe("safety", () => {
   it("404s an unknown route and an unknown task", () => {
     const p = store();

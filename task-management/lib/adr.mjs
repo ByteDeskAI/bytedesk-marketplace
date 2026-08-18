@@ -153,6 +153,17 @@ function revision(hookInput) {
 }
 
 /**
+ * Event name `captureDecision` logs. `upsertDecision` returns `{ action }`, not
+ * `{ created }` — reading `res.created` logged every first capture as an update.
+ */
+export function decisionEventName(res) {
+  if (!res?.id) return null;
+  if (res.action === "created") return "decision_captured";
+  if (res.action === "updated") return "decision_updated";
+  return null;
+}
+
+/**
  * Create the ADR, or revise the one that already answers this question set.
  * Returns {action: "created"|"updated"|"skipped", id, reason} — the reason is
  * the log line either way.

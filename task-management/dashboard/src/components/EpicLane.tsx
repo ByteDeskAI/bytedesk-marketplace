@@ -57,6 +57,14 @@ export interface Lane {
   active: boolean;
 }
 
+function newestAdr<T extends { id: string; created?: string }>(adrs: T[]): T | undefined {
+  return [...adrs].sort(
+    (a, b) =>
+      String(b.created || "").localeCompare(String(a.created || "")) ||
+      b.id.localeCompare(a.id),
+  )[0];
+}
+
 export function EpicLane({
   lane,
   done,
@@ -65,6 +73,7 @@ export function EpicLane({
   onActivate,
   onOpen,
   isNoEpic,
+  adrs = [],
   collapsed = false,
   onToggle,
 }: {
@@ -75,6 +84,8 @@ export function EpicLane({
   onActivate?: (id: string) => void;
   onOpen?: (id: string) => void;
   isNoEpic: boolean;
+  /** ADRs filed under this epic — the chip opens the newest. */
+  adrs?: { id: string; title?: string; created?: string }[];
   /** Folded lanes keep their header — the progress bar is the reason to fold, not lose. */
   collapsed?: boolean;
   onToggle?: () => void;
@@ -133,6 +144,26 @@ export function EpicLane({
           <Bump on={done}>
             <Badge appearance={total && done === total ? "added" : "default"}>{`${done}/${total}`}</Badge>
           </Bump>
+
+          {adrs.length > 0 && onOpen ? (
+            <Tooltip
+              content={
+                adrs.length === 1
+                  ? `${adrs[0].id}${adrs[0].title ? ` — ${adrs[0].title}` : ""}`
+                  : `${adrs.length} ADRs — opens the newest`
+              }
+            >
+              <Pressable
+                xcss={styles.open}
+                onClick={() => {
+                  const newest = newestAdr(adrs);
+                  if (newest) onOpen(newest.id);
+                }}
+              >
+                <Lozenge appearance="new">{`◇ ${adrs.length}`}</Lozenge>
+              </Pressable>
+            </Tooltip>
+          ) : null}
 
           {/* Task creation is gated on an active epic, so this is the one decision the
               board could not make for itself before. */}

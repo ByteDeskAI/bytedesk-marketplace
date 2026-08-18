@@ -291,6 +291,14 @@ case "$(curl -fsS "http://127.0.0.1:$PORT/api/board")" in
 esac
 CODE="$(curl -s -o "$TM_ROOT/resp.json" -w '%{http_code}' "http://127.0.0.1:$PORT/api/task/EP-003")"
 [[ "$CODE" == 400 ]] && ok "GET /api/task/EP-* is still 400" || no "GET /api/task/EP-* is still 400" "got $CODE: $(body)"
+# BDM-70 — GET /api/adr/:id must be wired here; handleWrite is only reached from POST/PATCH
+# for writes. An empty adrs/ is `[]` on the board; ADR-* is not a task.
+CODE="$(post /api/adr '{"title":"Use markdown files","body":"the adr body"}')"
+[[ "$CODE" == 201 ]] && ok "creating an ADR from the board returns 201" || no "creating an ADR from the board" "got $CODE: $(body)"
+assert_contains "$(curl -fsS "http://127.0.0.1:$PORT/api/adr/ADR-0001")" "the adr body" "GET /api/adr/:id includes the body"
+assert_contains "$(curl -fsS "http://127.0.0.1:$PORT/api/board")" '"adrs":[' "/api/board includes the adrs list"
+CODE="$(curl -s -o "$TM_ROOT/resp.json" -w '%{http_code}' "http://127.0.0.1:$PORT/api/task/ADR-0001")"
+[[ "$CODE" == 400 ]] && ok "GET /api/task/ADR-* is still 400" || no "GET /api/task/ADR-* is still 400" "got $CODE: $(body)"
 post /api/epic '{"id":"EP-001"}' >/dev/null
 
 # Acceptance criteria are not a one-way door. Reported by a user who ticked one on the board and
