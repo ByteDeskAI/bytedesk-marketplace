@@ -7,6 +7,7 @@
  * objects work but stay on one line; if that ever gets ugly, swap in a real
  * YAML lib behind parseDoc/serializeDoc.
  */
+import { execFileSync } from "node:child_process";
 import { appendFileSync, closeSync, statSync, existsSync, openSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { KINDS, boardId, gitBoardId, gitUser, ensureDirs, paths } from "./paths.mjs";
@@ -855,12 +856,14 @@ export function reindex(p = paths()) {
  * The store's own git contract.
  *
  * `.bytedesk/task-management/` is meant to be committed — one markdown file per entity is what
- * makes the board readable in a diff and mergeable in a PR. But four kinds of file in there are not
- * the project's business, and without a rule they sit in `git status` forever, get committed by an
+ * makes the board readable in a diff and mergeable in a PR. But several files in there are one
+ * machine's business, and without a rule they sit in `git status` forever, get committed by an
  * absent-minded `git add -A`, and then conflict on every pull:
  *
  *   index.json      a derived cache. The README already says "delete it any time".
  *   state.json      session claims and one-shot overrides — whose laptop, not what work.
+ *   events.jsonl    this host's audit log. Session ids and one machine's write stream.
+ *   events.*.jsonl  the rotated generation of that log.
  *   dashboard.*     a port and a pid for a server running on one machine right now.
  *   port.assigned   this machine's standing port for the board. Per-machine, but NOT swept with
  *                   dashboard.* — losing it moves the URL of a board that drifted off its
@@ -868,19 +871,24 @@ export function reindex(p = paths()) {
  *   .tm-tmp-*       the temp file `writeAtomic` renames over the real one.
  *   state.lock*     the cross-process lock, and the second lock that breaks a stale one.
  *
- * `events.jsonl` gets `merge=union` and that is the piece worth having. It is append-only, so two
- * branches that both did work produce two sets of added lines at the end of one file — a textbook
- * conflict that is never a real one. Union takes both sides. Without it, the audit log is the file
- * most likely to conflict and the least interesting to resolve by hand.
+ * `events.jsonl` used to ship as the shared record with `merge=union`. That still left a dirty
+ * working tree on every host that ran the board, and a clone still could not replay another
+ * machine's sessions. The log stays on disk; git just stops carrying it. The union attribute
+ * remains for anyone who force-adds the file.
  */
-const GITIGNORE = `# Written by \`tm init\`. The markdown, events.jsonl, config.json and evidence/ are the
-# shared record and belong in git. These four are not.
+const GITIGNORE = `# Written by \`tm init\`. The markdown, config.json and evidence/ are the
+# shared record and belong in git. Everything below is per-machine.
 
 # A derived cache — \`tm reindex\` rebuilds it from the files.
 index.json
 
 # Session claims, the active epic, one-shot overrides. Whose machine, not what work.
 state.json
+
+# This host's audit log, and the rotated generation. Session ids and one machine's
+# write stream — not a board artifact another clone can use.
+events.jsonl
+events.*.jsonl
 
 # A port and a pid for a dashboard running here, now.
 dashboard.*
@@ -901,9 +909,9 @@ state.lock.break
 
 const GITATTRIBUTES = `# Written by \`tm init\`.
 #
-# events.jsonl is append-only, so two branches that both did work produce two sets of added lines at
-# the end of one file. That is a conflict git cannot resolve and a human should never have to: the
-# answer is always "keep both, in time order". Union does that.
+# events.jsonl is ignored. If someone force-adds it, it is still append-only, so two
+# branches that both did work produce two sets of added lines at the end of one file.
+# Union keeps both sides in time order rather than asking a human to resolve noise.
 events.jsonl merge=union
 `;
 
@@ -969,8 +977,83 @@ export function seedGitContract(p = paths(), only = null) {
   return written;
 }
 
-/** Paths inside the store that git should not be carrying. Shared with doctor. */
-export const NOT_FOR_GIT = ["index.json", "state.json"];
+/**
+ * Ignore patterns the store must keep out of git. Shared with doctor and the
+ * contract tests — one list, so a new host file cannot be ignored in one place
+ * and still committed from another.
+ */
+export const NOT_FOR_GIT = [
+  "index.json",
+  "state.json",
+  "events.jsonl",
+  "events.*.jsonl",
+  "dashboard.*",
+  "port.assigned",
+  ".tm-tmp-*",
+  "state.lock",
+  "state.lock.break",
+];
+
+/** Basename of a store file that is per-machine, not the shared board. */
+export function isHostFile(name) {
+  if (
+    name === "index.json" ||
+    name === "state.json" ||
+    name === "events.jsonl" ||
+    name === "port.assigned" ||
+    name === "state.lock" ||
+    name === "state.lock.break"
+  ) {
+    return true;
+  }
+  if (name.startsWith("dashboard.")) return true;
+  if (name.startsWith(".tm-tmp-")) return true;
+  return /^events\.\d+\.jsonl$/.test(name);
+}
+
+/**
+ * Host files git is still carrying under the store. Asked of git, not guessed
+ * from a path: being ignored is no help once the file is already in the index.
+ */
+export function trackedHostFiles(p = paths()) {
+  if (!p.root || !p.base) return [];
+  try {
+    const out = execFileSync("git", ["ls-files", "-z", "--", p.base], {
+      cwd: p.root,
+      stdio: ["ignore", "pipe", "ignore"],
+      encoding: "utf8",
+    });
+    return out
+      .split("\0")
+      .filter(Boolean)
+      .filter((rel) => isHostFile(basename(rel)));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Drop host files from the index, leave them on disk.
+ *
+ * `git rm --cached -f` is the whole repair: the working tree stays, the next
+ * commit stops shipping another machine's pid, port, lock or event log. `-f`
+ * is required when the file is dirty in the index, which is the usual shape
+ * of a tracked `events.jsonl`. Never throws — a store outside a repo, or a
+ * machine with no git, is not a failure here.
+ */
+export function untrackHostFiles(p = paths(), files = null) {
+  const targets = files ?? trackedHostFiles(p);
+  if (!targets.length || !p.root) return [];
+  try {
+    execFileSync("git", ["rm", "-q", "--cached", "-f", "--ignore-unmatch", "--", ...targets], {
+      cwd: p.root,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    return targets;
+  } catch {
+    return [];
+  }
+}
 
 // ── derived views ────────────────────────────────────────────────────────────
 

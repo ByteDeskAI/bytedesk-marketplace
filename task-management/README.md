@@ -66,7 +66,7 @@ The symlink is purely so *you* can type `tm board`.
   plans/2026-07-25-close-the-memory-gaps.md  copied out of ~/.claude/plans
   templates/{bug,spike,chore}.md             starters for `tm task new --template`
   evidence/TM-014-vitest.log
-  events.jsonl    append-only audit — every write goes through it (rotates at 5 MB)
+  events.jsonl    this host's audit log — every write goes through it (rotates at 5 MB; not committed)
   index.json      derived cache; delete it any time, `tm reindex` rebuilds
   state.json      active epic, session claims, one-shot overrides
   config.json     gate policy
@@ -888,10 +888,12 @@ there is no Chrome or no board running, so it never fails for being unrunnable.
   so a worktree keeps its own board.
 - Markdown files are the source of truth. `index.json` is disposable.
 - Commit `.bytedesk/task-management/` — that's the point. One file per entity keeps merges sane.
-- `tm init` writes the store's own `.gitignore` and `.gitattributes`. The markdown, `events.jsonl`,
+- `tm init` writes the store's own `.gitignore` and `.gitattributes`. The markdown,
   `config.json` and `evidence/` are the shared record and belong in git; `index.json` (a cache),
-  `state.json` (session claims), `dashboard.*` (a port and a pid) and `.tm-tmp-*` do not.
-  `events.jsonl` gets `merge=union`, because two branches that both did work produce two sets of
-  appended lines — a conflict git cannot resolve and nobody should resolve by hand.
-- `tm doctor` reports a store with no contract and writes one, and warns when a per-machine file is
-  already tracked, since being ignored does not help once git is carrying it.
+  `state.json` (session claims), `events.jsonl` (this host's audit log), `dashboard.*` (a port
+  and a pid) and `.tm-tmp-*` do not. SessionStart after a plugin update tops the contract up
+  and `git rm --cached`s any of those files git is still carrying, so an already-tracked
+  `events.jsonl` leaves the index on the next session without being deleted from disk.
+- `tm doctor` reports a store with no contract and writes one, and `--fix` untracks a
+  per-machine file that is already in the index, since being ignored does not help once git
+  is carrying it.

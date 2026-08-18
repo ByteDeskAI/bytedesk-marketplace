@@ -27,6 +27,7 @@ import {
   autoCloseEpic,
   read,
   seedGitContract,
+  untrackHostFiles,
   removeCriterion,
   setCriterion,
   reindex,
@@ -181,10 +182,15 @@ const VERBS = {
     if (!existsSync(P.state)) writeState({}, P);
     // Before anything is written that git would otherwise pick up.
     const contract = seedGitContract(P);
+    const dropped = untrackHostFiles(P);
     seedTemplates(P);
     reindex(P);
     logEvent("init", { root: P.root }, P);
-    out(`initialized ${P.base}${contract.length ? ` (+ ${contract.join(", ")})` : ""}`);
+    const extras = [
+      ...(contract.length ? [`+ ${contract.join(", ")}`] : []),
+      ...(dropped.length ? [`untracked ${dropped.map((f) => basename(f)).join(", ")}`] : []),
+    ];
+    out(`initialized ${P.base}${extras.length ? ` (${extras.join("; ")})` : ""}`);
     // A store the repo already ignores is the one failure that stays silent: git status is
     // clean, the board works, and not one task ever reaches a second clone. Say it at
     // creation, where it costs one line to fix, not at the first missing handoff.
@@ -1531,6 +1537,18 @@ function hook(event) {
       if (!isInitialized(P)) {
         if (note) out(JSON.stringify({ systemMessage: note }));
         process.exit(0);
+      }
+      // A plugin update that adds ignore rules is inert until something writes them
+      // and drops already-tracked host files from the index. SessionStart is that
+      // something — the next session after `/plugin update` repairs the store.
+      try {
+        seedGitContract(P);
+        const dropped = untrackHostFiles(P);
+        if (dropped.length) {
+          note = `${note ? `${note}\n` : ""}task-management: untracked ${dropped.map((f) => basename(f)).join(", ")} — per-machine store files stay on disk, not in git`;
+        }
+      } catch {
+        /* never let hygiene break a session */
       }
       // A store left behind in a worktree by v0.1 would silently look like data loss.
       const stranded = legacyStore(P.root);

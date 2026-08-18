@@ -1,11 +1,16 @@
-# Written by `tm init`. The markdown, events.jsonl, config.json and evidence/ are the
-# shared record and belong in git. These four are not.
+# Written by `tm init`. The markdown, config.json and evidence/ are the
+# shared record and belong in git. Everything below is per-machine.
 
 # A derived cache — `tm reindex` rebuilds it from the files.
 index.json
 
 # Session claims, the active epic, one-shot overrides. Whose machine, not what work.
 state.json
+
+# This host's audit log, and the rotated generation. Session ids and one machine's
+# write stream — not a board artifact another clone can use.
+events.jsonl
+events.*.jsonl
 
 # A port and a pid for a dashboard running here, now.
 dashboard.*
@@ -17,6 +22,8 @@ port.assigned
 # writeAtomic's staging files. Present only mid-write, or after a crash.
 .tm-tmp-*
 
-# Added by `tm doctor --fix` — rules this store predates.
+# The cross-process lock, and the lock that breaks a stale one. Present only while a write is in
+# flight — or after a process was killed holding it, which is exactly when someone runs `git add -A`
+# and commits a lock belonging to a pid that never existed on anybody else's machine.
 state.lock
 state.lock.break

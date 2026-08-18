@@ -11,8 +11,9 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
-import { cleanup, tempStore } from "./helpers.mjs";
-import { create, read, state, update, writeState } from "../../lib/store.mjs";
+import { cleanup, git, tempRepo, tempStore } from "./helpers.mjs";
+import { create, read, seedGitContract, state, update, writeState } from "../../lib/store.mjs";
+import { ensureDirs, paths } from "../../lib/paths.mjs";
 import { diagnose, render, repair, repairAll } from "../../lib/doctor.mjs";
 
 const stores = [];
@@ -415,17 +416,46 @@ describe("evidence, natives and the cache", () => {
     heal(p);
     const rules = readFileSync(p.gitignore, "utf8");
 
-    // The markdown, events.jsonl, config.json and evidence/ are the shared record — ignoring any of
+    // The markdown, config.json and evidence/ are the shared record — ignoring any of
     // them would quietly stop the board being committed at all, which is the point of the store.
-    for (const keep of ["tasks/", "epics/", "events.jsonl", "config.json", "evidence"]) {
+    for (const keep of ["tasks/", "epics/", "config.json", "evidence"]) {
       assert.equal(rules.includes(`\n${keep}`), false, `${keep} is the shared record and must stay in git`);
     }
-    // state.lock is the one that got missed: every other per-machine file was listed, and a process
-    // killed mid-write leaves a lock behind for the next `git add -A` to commit — handing every
-    // clone a lock owned by a pid that never existed on that machine.
-    for (const drop of ["index.json", "state.json", "dashboard.*", "port.assigned", ".tm-tmp-*", "state.lock", "state.lock.break"]) {
+    for (const drop of [
+      "index.json",
+      "state.json",
+      "events.jsonl",
+      "events.*.jsonl",
+      "dashboard.*",
+      "port.assigned",
+      ".tm-tmp-*",
+      "state.lock",
+      "state.lock.break",
+    ]) {
       assert.match(rules, new RegExp(`^${drop.replace(/[.*]/g, (c) => `\\${c}`)}$`, "m"), `${drop} is per-machine`);
     }
+  });
+
+  it("untracks a host file git is still carrying, and leaves it on disk", () => {
+    const repo = tempRepo();
+    stores.push(repo);
+    const p = paths(repo);
+    ensureDirs(p);
+    seedGitContract(p);
+    // The pre-0.13 shape: events.jsonl was the shared record, so adopters committed it.
+    writeFileSync(p.events, '{"ts":"1","event":"init"}\n');
+    git(repo, "add", "-f", p.events);
+    git(repo, "commit", "-qm", "track events");
+
+    const f = find(p, "tracked-cache");
+    assert.ok(f, "a committed events.jsonl is the upgrade shape");
+    assert.equal(f.fixable, true);
+    assert.match(f.message, /events\.jsonl/);
+
+    heal(p);
+    assert.equal(codes(p).includes("tracked-cache"), false);
+    assert.equal(existsSync(p.events), true, "untrack is not delete");
+    assert.equal(git(repo, "ls-files", "--", p.events), "", "the next commit will drop it");
   });
 
   it("gives events.jsonl a union merge, because appending on two branches is never a real conflict", () => {

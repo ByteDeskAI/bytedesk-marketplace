@@ -15,8 +15,8 @@
  */
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { isAbsolute, join } from "node:path";
-import { NOT_FOR_GIT, RESOLVED, list, logEvent, missingContractRules, reindex, reopenEpic, seedGitContract, state, boardIdentity, storeBoard, update, writeState } from "./store.mjs";
+import { basename, isAbsolute, join } from "node:path";
+import { RESOLVED, list, logEvent, missingContractRules, reindex, reopenEpic, seedGitContract, state, boardIdentity, storeBoard, trackedHostFiles, untrackHostFiles, update, writeState } from "./store.mjs";
 import { LINK_TYPES } from "./issue.mjs";
 import { releaseClaim, staleClaims, sweepClaims } from "./claims.mjs";
 import { KINDS, paths } from "./paths.mjs";
@@ -62,24 +62,7 @@ const checkable = (ref) => typeof ref === "string" && ref.length > 0 && !URI.tes
 const evidenceTarget = (ref, p) => (isAbsolute(ref) ? ref : join(p.root, ref));
 
 
-/**
- * Is git carrying this file? Answered by asking git, not by guessing from a path.
- *
- * Never throws: a store outside a repo, or a machine with no git, is not a finding — it just means
- * the question does not apply.
- */
-function gitTracks(p, name) {
-  try {
-    const out = execFileSync("git", ["ls-files", "--error-unmatch", join(p.base, name)], {
-      cwd: p.root,
-      stdio: ["ignore", "pipe", "ignore"],
-      encoding: "utf8",
-    });
-    return Boolean(out.trim());
-  } catch {
-    return false;
-  }
-}
+
 
 /**
  * The rule that keeps the store out of git, as `<file>:<line>:<pattern>`, or null.
@@ -333,14 +316,20 @@ export function diagnose(p = paths()) {
   }
 
   // Being ignored is no help once a file is already tracked: git keeps carrying it.
-  for (const name of NOT_FOR_GIT) {
-    if (!gitTracks(p, name)) continue;
+  // The fix is `git rm --cached`, not a hint — SessionStart and `tm init` run the
+  // same repair so a plugin update untracks host files without anyone typing it.
+  for (const rel of trackedHostFiles(p)) {
+    const name = basename(rel);
     out.push(
       finding(
         "warning",
         "tracked-cache",
         null,
-        `${name} is tracked by git — it is per-machine, so it will conflict on every pull. Untrack it with: git rm --cached ${join(p.base, name)}`,
+        `${name} is tracked by git — it is per-machine, so it will conflict on every pull`,
+        () => {
+          const gone = untrackHostFiles(p, [rel]);
+          return gone.length ? `untracked ${name}` : `${name} is already untracked`;
+        },
       ),
     );
   }

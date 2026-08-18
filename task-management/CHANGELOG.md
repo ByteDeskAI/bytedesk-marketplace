@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## [0.13.0] — 2026-08-18
+
+### Changed
+- **The store's git contract treats the audit log as per-machine** (BDM-61). `events.jsonl`
+  and the rotated `events.*.jsonl` join `index.json`, `state.json`, `dashboard.*`, `port.assigned`,
+  `.tm-tmp-*` and `state.lock*` in the `.gitignore` `tm init` writes. The markdown, `config.json`
+  and `evidence/` stay the shared record. The log is still written on disk and still feeds
+  standup / the dashboard; git just stops shipping one host's session stream to every clone.
+
+### Added
+- **Already-tracked host files are untracked on the next session.** SessionStart (and `tm init` /
+  `tm doctor --fix`) run `git rm --cached` against any of those files git is still carrying, so a
+  store that committed `events.jsonl` under the old contract drops it from the index on
+  `/plugin update` without deleting the file. Being ignored never helped once git had the path.
+
 ## [0.12.1] — 2026-07-31
 
 ### Changed

@@ -45,6 +45,30 @@ assert_contains "$INIT_ERR" "ignored by git" "init warns when the repo would swa
 assert_contains "$INIT_ERR" ".gitignore:1:.bytedesk/" "the warning names the rule to edit"
 rm -rf "$IGN"
 
+# A host file another machine already committed must leave the index on the next
+# init / session — ignore rules do nothing while git is still carrying the file.
+HYG="$(mktemp -d)"
+git -C "$HYG" init -q
+git -C "$HYG" config user.email "t@example.com"
+git -C "$HYG" config user.name "T"
+git -C "$HYG" config commit.gpgsign false
+mkdir -p "$HYG/.bytedesk/task-management"
+printf '{}\n' > "$HYG/.bytedesk/task-management/events.jsonl"
+printf 'readme\n' > "$HYG/README"
+git -C "$HYG" add README .bytedesk/task-management/events.jsonl
+git -C "$HYG" commit -qm init
+TM_ROOT="$HYG" node "$PLUGIN_ROOT/bin/tm" init >/dev/null
+[[ -f "$HYG/.bytedesk/task-management/events.jsonl" ]] && ok "untrack leaves events.jsonl on disk" || no "untrack leaves events.jsonl on disk"
+TRACKED="$(git -C "$HYG" ls-files -- .bytedesk/task-management/events.jsonl)"
+[[ -z "$TRACKED" ]] && ok "tm init untracks a committed events.jsonl" || no "tm init untracks a committed events.jsonl" "still tracked: $TRACKED"
+git -C "$HYG" add -f .bytedesk/task-management/events.jsonl
+git -C "$HYG" commit -qm retrack
+echo '{}' | TM_ROOT="$HYG" TM_NO_AUTOLINK=1 "$PLUGIN_ROOT/hooks/tm-hook.sh" session-start >/dev/null
+TRACKED2="$(git -C "$HYG" ls-files -- .bytedesk/task-management/events.jsonl)"
+[[ -z "$TRACKED2" ]] && ok "session-start untracks a committed events.jsonl" || no "session-start untracks a committed events.jsonl" "still tracked: $TRACKED2"
+git -C "$HYG" check-ignore -q .bytedesk/task-management/events.jsonl && ok "the store gitignore covers events.jsonl" || no "the store gitignore covers events.jsonl"
+rm -rf "$HYG"
+
 # Gate: no epic → TaskCreate path refuses (exit 2)
 assert_status 2 "task create denied without an active epic" tm task new "orphan task"
 
