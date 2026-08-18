@@ -9,8 +9,8 @@
  * in sync instead of a definitions table plus a dispatch switch.
  */
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { paths } from "./paths.mjs";
 import { claimTask, releaseClaim } from "./claims.mjs";
@@ -22,6 +22,7 @@ import { renderWhy, why } from "./graph.mjs";
 import { listResources, readResource } from "./resources.mjs";
 import { describeQuery, matchesQuery, parseQuery } from "./query.mjs";
 import { accept, propose, ranked, score, ship } from "./capability.mjs";
+import { attachEvidence } from "./evidence.mjs";
 
 /**
  * MCP `serverInfo.version` must be a non-empty string on the wire.
@@ -423,21 +424,14 @@ export const TOOLS = [
       required: ["id"],
     },
     run: ({ id, text, path }, p) => {
-      const t = read(id, p);
-      if (!t) return fail(`not found: ${id}`);
+      if (!read(id, p)) return fail(`not found: ${id}`);
       if (!text && !path) return fail("tm_evidence needs text or path");
-      mkdirSync(p.evidence, { recursive: true });
-      let dest;
-      if (path) {
-        dest = join(p.evidence, `${id}-${basename(path)}`);
-        copyFileSync(resolve(path), dest);
-      } else {
-        dest = join(p.evidence, `${id}-${Date.now()}.log`);
-        writeFileSync(dest, text);
+      try {
+        const { ref } = attachEvidence(id, path ? { path } : { text }, p);
+        return ok({ id, evidence: ref });
+      } catch (e) {
+        return fail(e.message);
       }
-      const ref = dest.replace(`${p.root}/`, "");
-      update(id, { evidence: [...(t.evidence || []), ref] }, p);
-      return ok({ id, evidence: ref });
     },
   },
   {

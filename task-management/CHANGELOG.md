@@ -24,6 +24,17 @@
   epic through the existing `PATCH`. Moving to blocked/parked takes a reason; starting work from
   the board stamps `actor`/`session`/`branch`/`worktree` the way `tm start` does. Drawer and bulk
   status lists include `backlog`.
+- **Task drawer evidence, as attachments, not a CMS** (BDM-69). The EVIDENCE
+  section lists each `evidence[]` string: `http(s)` URLs are links, `browser:` and
+  other schemes are shown and never fetched. `GET /api/task/:id/evidence` returns
+  derived `{kind,name,exists,previewable}` items with no new frontmatter.
+  `GET /api/task/:id/file?ref=` is 200 only when the ref is on that task and the
+  realpath sits inside `p.evidence`; traversal, other-task files, absolute paths
+  outside the dir, and URLs are 404. Attach uses the same dest naming as
+  `tm evidence` (`TM-NNN-<ts>.log` for text, `TM-NNN-<basename>` for a file) and
+  `mutate` so two attaches cannot drop each other. Multipart is parsed in
+  `bin/tm-dashboard` because the JSON body cap is 256 KB. Detach filters the
+  array and leaves the file on disk.
 
 ### Changed
 - **`tm epic use` / `tm_epic use` refuse a done epic** with the same reason the

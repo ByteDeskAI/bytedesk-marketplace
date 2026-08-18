@@ -14,11 +14,11 @@ import Tag from "@atlaskit/tag";
 import Textfield from "@atlaskit/textfield";
 import TextArea from "@atlaskit/textarea";
 import Tooltip from "@atlaskit/tooltip";
-import { fetchTask, stopReason, write } from "../api";
+import { attachEvidenceFile, fetchEvidence, fetchTask, stopReason, write } from "../api";
 import { Markdown } from "./Markdown";
 import { ActorBadge } from "./ActorBadge";
 import { TYPES, typeOf } from "../types";
-import type { Epic, Priority, Task } from "../types";
+import type { Epic, EvidenceItem, Priority, Task } from "../types";
 
 const STATUSES: Task["status"][] = [
   "backlog",
@@ -127,7 +127,27 @@ const styles = cssMap({
   firstComment: { paddingBlockStart: "0" },
   /** Matches the height an input would occupy, so the row does not jump on click. */
   readView: { paddingBlock: "var(--ds-space-075)", wordBreak: "break-word" },
+  evidenceRef: { wordBreak: "break-all" },
 });
+
+const URI_SCHEME = /^[a-zA-Z][a-zA-Z0-9+.-]+:/;
+
+function fallbackEvidence(refs: string[]): EvidenceItem[] {
+  return refs.map((ref) => {
+    if (/^https?:\/\//i.test(ref)) {
+      return { ref, kind: "url" as const, name: ref, exists: true, previewable: false };
+    }
+    if (URI_SCHEME.test(ref)) {
+      return { ref, kind: "uri" as const, name: ref, exists: true, previewable: false };
+    }
+    const name = ref.split("/").pop() || ref;
+    return { ref, kind: "file" as const, name, exists: true, previewable: false };
+  });
+}
+
+function fileHref(id: string, ref: string) {
+  return `/api/task/${encodeURIComponent(id)}/file?ref=${encodeURIComponent(ref)}`;
+}
 
 type Opt = { label: string; value: string };
 const opts = (values: readonly string[]): Opt[] =>
@@ -333,9 +353,11 @@ export function TaskDrawer({
   const [comment, setComment] = useState("");
   const [label, setLabel] = useState("");
   const [criterion, setCriterion] = useState("");
+  const [note, setNote] = useState("");
   const [linkType, setLinkType] = useState<string>(LINK_TYPES[0]);
 
   const [detail, setDetail] = useState<Task | null>(null);
+  const [evidence, setEvidence] = useState<EvidenceItem[] | null>(null);
 
   // The board payload strips `body`, so the record has to be fetched when the drawer opens. Kept
   // separate from `task` rather than merged: the board stays the live source for everything it
@@ -350,6 +372,18 @@ export function TaskDrawer({
       live = false;
     };
   }, [task?.id, task?.updated]);
+
+  const evidenceKey = (task?.evidence ?? []).join("\0");
+  useEffect(() => {
+    if (!task?.id) return setEvidence(null);
+    let live = true;
+    void fetchEvidence(task.id)
+      .then((res) => live && setEvidence(res.evidence ?? []))
+      .catch(() => live && setEvidence(null));
+    return () => {
+      live = false;
+    };
+  }, [task?.id, evidenceKey]);
 
   if (!task) return null;
 
@@ -704,6 +738,88 @@ export function TaskDrawer({
                   onChange={(o) =>
                     o && act("link", { type: linkType, to: o.value })
                   }
+                />
+              </Inline>
+            </Section>
+
+            <Section title="EVIDENCE">
+              {(() => {
+                const rows = evidence ?? fallbackEvidence(task.evidence ?? []);
+                if (!rows.length) {
+                  return (
+                    <Text size="small" color="color.text.subtlest">
+                      No evidence yet.
+                    </Text>
+                  );
+                }
+                return rows.map((item) => {
+                  const missing = item.kind === "file" && !item.exists;
+                  const href =
+                    item.kind === "url"
+                      ? item.ref
+                      : item.previewable
+                        ? fileHref(task.id, item.ref)
+                        : null;
+                  return (
+                    <Inline
+                      key={item.ref}
+                      space="space.050"
+                      alignBlock="center"
+                      spread="space-between"
+                    >
+                      <Box xcss={styles.evidenceRef}>
+                        {href ? (
+                          <a href={href} target="_blank" rel="noreferrer">
+                            <Text size="small">{item.ref}</Text>
+                          </a>
+                        ) : (
+                          <Text
+                            size="small"
+                            color={missing ? "color.text.subtlest" : "color.text"}
+                          >
+                            {item.ref}
+                          </Text>
+                        )}
+                      </Box>
+                      <Tooltip content="detach this ref — the file stays on disk">
+                        <IconButton
+                          appearance="subtle"
+                          spacing="compact"
+                          label={`Detach evidence ${item.ref}`}
+                          icon={(props) => <CrossIcon {...props} size="small" />}
+                          onClick={() => act("evidence", { detach: item.ref })}
+                        />
+                      </Tooltip>
+                    </Inline>
+                  );
+                });
+              })()}
+              <TextArea
+                placeholder="paste output to attach as a log"
+                value={note}
+                minimumRows={2}
+                onChange={(e) =>
+                  setNote((e.target as HTMLTextAreaElement).value)
+                }
+              />
+              <Inline space="space.100" alignBlock="center" shouldWrap>
+                <Button
+                  isDisabled={!note.trim()}
+                  onClick={() => {
+                    act("evidence", { text: note });
+                    setNote("");
+                  }}
+                >
+                  Attach text
+                </Button>
+                <input
+                  type="file"
+                  aria-label={`Attach a file to ${task.id}`}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (file) run(() => attachEvidenceFile(task.id, file));
+                  }}
                 />
               </Inline>
             </Section>

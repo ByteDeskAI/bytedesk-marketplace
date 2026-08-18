@@ -81,6 +81,15 @@ export function typeOf(
   return (worn as IssueType) || "task";
 }
 
+/** Derived by GET /api/task/:id/evidence — not stored frontmatter. */
+export interface EvidenceItem {
+  ref: string;
+  kind: "file" | "url" | "uri";
+  name: string;
+  exists: boolean;
+  previewable: boolean;
+}
+
 export interface Comment {
   author?: string;
   ts: string;

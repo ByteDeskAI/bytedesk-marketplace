@@ -61,6 +61,7 @@ import { diagnose, ignoreRule, render as renderDoctor, repairAll } from "../lib/
 import { FORMATS, exportStore } from "../lib/export.mjs";
 import { MAX_TOUCHES, observe, record } from "../lib/touches.mjs";
 import { goalBody, manifestGoalTitle, parseGoalDoc, parseManifest, refusal } from "../lib/goals.mjs";
+import { attachEvidence } from "../lib/evidence.mjs";
 
 const P = paths();
 const rawArgs = process.argv.slice(2);
@@ -608,19 +609,9 @@ const VERBS = {
 
   evidence(id, path) {
     requireInit();
-    const t = read(id, P) || die(`not found: ${id}`);
-    mkdirSync(P.evidence, { recursive: true });
-    let ref;
-    if (path && path !== "-") {
-      const dest = join(P.evidence, `${id}-${basename(path)}`);
-      copyFileSync(resolve(path), dest);
-      ref = dest.replace(`${P.root}/`, "");
-    } else {
-      const dest = join(P.evidence, `${id}-${Date.now()}.log`);
-      writeFileSync(dest, readFileSync(0, "utf8"));
-      ref = dest.replace(`${P.root}/`, "");
-    }
-    mutate(id, (doc) => ({ evidence: [...(doc.evidence || []), ref] }), P);
+    read(id, P) || die(`not found: ${id}`);
+    const source = path && path !== "-" ? { path } : { text: readFileSync(0, "utf8") };
+    const { ref } = attachEvidence(id, source, P);
     out(`${id} evidence: ${ref}`);
   },
 
