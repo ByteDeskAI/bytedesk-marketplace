@@ -48,6 +48,8 @@ export interface Task {
   /** Set when the task was imported from a goal doc. */
   goalDoc?: string;
   touches?: string[];
+  /** Minted from a capability — join is `task.capability` → `CAP-*`, never the reverse epic field. */
+  capability?: string;
 }
 
 export type Priority = "highest" | "high" | "medium" | "low" | "lowest";
@@ -130,11 +132,37 @@ export interface Adr {
   body?: string;
 }
 
+/** Store vocabulary: proposed is `open`, accepted is `in_progress`, shipped is `done`. */
+export interface Capability {
+  id: string;
+  title: string;
+  status: string;
+  area?: string;
+  impact?: string;
+  effort?: string;
+  confidence?: string;
+  source?: string;
+  evidence?: string[];
+  related?: string[];
+  /** Minted task that builds this. Epic is on that task, never here. */
+  task?: string;
+  shipped?: string;
+  droppedReason?: string;
+  created?: string;
+  updated?: string;
+  /** Derived impact × ease × confidence, 1–27. Not a store field. */
+  score?: number;
+  /** Only present on a detail fetch — the list payload strips it. */
+  body?: string;
+}
+
 export interface Board {
   generated: string;
   epics: Epic[];
   tasks: Task[];
   adrs: Adr[];
+  /** Ranked enhancement backlog. Empty `capabilities/` is `[]`, not omitted. */
+  capabilities?: Capability[];
   /** state.json. The board payload has always carried this; the UI used to ignore it. */
   state?: { activeEpic?: string | null; claims?: Record<string, unknown> };
   /** Board preferences out of the repo's own config, so they follow the project not the browser. */

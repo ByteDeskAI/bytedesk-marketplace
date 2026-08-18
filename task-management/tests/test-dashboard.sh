@@ -299,6 +299,15 @@ assert_contains "$(curl -fsS "http://127.0.0.1:$PORT/api/adr/ADR-0001")" "the ad
 assert_contains "$(curl -fsS "http://127.0.0.1:$PORT/api/board")" '"adrs":[' "/api/board includes the adrs list"
 CODE="$(curl -s -o "$TM_ROOT/resp.json" -w '%{http_code}' "http://127.0.0.1:$PORT/api/task/ADR-0001")"
 [[ "$CODE" == 400 ]] && ok "GET /api/task/ADR-* is still 400" || no "GET /api/task/ADR-* is still 400" "got $CODE: $(body)"
+# BDM-73 — GET /api/capability/:id must be wired here; empty capabilities/ is `[]`.
+CODE="$(post /api/capability '{"title":"Cheap win","impact":"H","effort":"S","confidence":"H"}')"
+[[ "$CODE" == 201 ]] && ok "proposing a capability from the board returns 201" || no "proposing a capability from the board" "got $CODE: $(body)"
+assert_contains "$(curl -fsS "http://127.0.0.1:$PORT/api/capability/CAP-0001")" "Cheap win" "GET /api/capability/:id includes the record"
+assert_contains "$(curl -fsS "http://127.0.0.1:$PORT/api/board")" '"capabilities":[' "/api/board includes the capabilities list"
+CODE="$(curl -s -o "$TM_ROOT/resp.json" -w '%{http_code}' "http://127.0.0.1:$PORT/api/task/CAP-0001")"
+[[ "$CODE" == 400 ]] && ok "GET /api/task/CAP-* is still 400" || no "GET /api/task/CAP-* is still 400" "got $CODE: $(body)"
+CODE="$(post /api/capability/CAP-0001/ship '{}')"
+[[ "$CODE" == 409 ]] && ok "shipping a capability without evidence is 409" || no "shipping a capability without evidence is 409" "got $CODE: $(body)"
 post /api/epic '{"id":"EP-001"}' >/dev/null
 
 # Acceptance criteria are not a one-way door. Reported by a user who ticked one on the board and

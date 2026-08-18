@@ -74,6 +74,7 @@ export function EpicLane({
   onOpen,
   isNoEpic,
   adrs = [],
+  caps = [],
   collapsed = false,
   onToggle,
 }: {
@@ -86,6 +87,8 @@ export function EpicLane({
   isNoEpic: boolean;
   /** ADRs filed under this epic — the chip opens the newest. */
   adrs?: { id: string; title?: string; created?: string }[];
+  /** Caps whose minted task lives in this epic — never a field on the card. */
+  caps?: { id: string; title?: string }[];
   /** Folded lanes keep their header — the progress bar is the reason to fold, not lose. */
   collapsed?: boolean;
   onToggle?: () => void;
@@ -144,6 +147,16 @@ export function EpicLane({
           <Bump on={done}>
             <Badge appearance={total && done === total ? "added" : "default"}>{`${done}/${total}`}</Badge>
           </Bump>
+
+          {caps.length > 0 && onOpen
+            ? caps.map((c) => (
+                <Tooltip key={c.id} content={c.title ? `${c.id} — ${c.title}` : c.id}>
+                  <Pressable xcss={styles.open} onClick={() => onOpen(c.id)}>
+                    <Lozenge appearance="moved">{c.id}</Lozenge>
+                  </Pressable>
+                </Tooltip>
+              ))
+            : null}
 
           {adrs.length > 0 && onOpen ? (
             <Tooltip

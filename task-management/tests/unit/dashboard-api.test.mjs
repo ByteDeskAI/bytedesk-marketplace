@@ -13,7 +13,9 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { cleanup, tempStore } from "./helpers.mjs";
 import { backlog as backlogOf, boardPayload, handleWrite } from "../../lib/dashboard-api.mjs";
-import { create, list, read, readEvents, state, update, writeConfig, writeState } from "../../lib/store.mjs";
+import { acceptanceOf, propose } from "../../lib/capability.mjs";
+import { gateDone } from "../../lib/enforce.mjs";
+import { create, list, read, readEvents, setCriterion, state, update, writeConfig, writeState } from "../../lib/store.mjs";
 import { seedTemplates } from "../../lib/templates.mjs";
 
 const stores = [];
@@ -622,6 +624,153 @@ describe("adrs on the board (BDM-70)", () => {
     const res = handleWrite("POST", `/api/adr/${old.id}/supersede`, { title: "newer" }, { p });
     assert.equal(res.status, 409);
     assert.equal(list("adr", {}, p).length, 1);
+  });
+});
+
+describe("capabilities on the board (BDM-73)", () => {
+  it("includes capabilities without body; an empty store is []", () => {
+    const empty = store();
+    assert.deepEqual(boardPayload(empty).capabilities, [], "empty capabilities/ is first-class, not omitted");
+
+    const p = store();
+    handleWrite(
+      "POST",
+      "/api/capability",
+      { title: "Cheap big win", impact: "H", effort: "S", confidence: "H", criteria: ["palette lists help"] },
+      { p },
+    );
+    const [row] = boardPayload(p).capabilities;
+    assert.equal(row.id, "CAP-0001");
+    assert.equal(row.title, "Cheap big win");
+    assert.equal(row.status, "open");
+    assert.equal(row.score, 27);
+    assert.equal("body" in row, false, "the list is the thing that stays small");
+    assert.equal("file" in row, false);
+    assert.equal("epic" in row, false, "epic is not a field on the card");
+  });
+
+  it("GET /api/capability/:id returns the body; GET /api/task/CAP-* stays 400", () => {
+    const p = store();
+    const created = handleWrite("POST", "/api/capability", { title: "Cheap big win", problem: "the card body" }, { p });
+    assert.equal(created.status, 201);
+
+    const res = handleWrite("GET", `/api/capability/${created.body.id}`, {}, { p });
+    assert.equal(res.status, 200);
+    assert.match(res.body.body, /the card body/);
+    assert.equal(res.body.title, "Cheap big win");
+    assert.equal(res.body.score, 8);
+
+    const asTask = handleWrite("GET", `/api/task/${created.body.id}`, {}, { p });
+    assert.equal(asTask.status, 400);
+    assert.match(asTask.body.error, /not a task id/);
+    assert.equal(handleWrite("POST", `/api/task/${created.body.id}/transition`, { status: "done" }, { p }).status, 400);
+  });
+
+  it("GET /api/capability/TM-* is 400 and a missing CAP is 404", () => {
+    const p = store();
+    const t = task(p);
+    const wrong = handleWrite("GET", `/api/capability/${t.id}`, {}, { p });
+    assert.equal(wrong.status, 400);
+    assert.match(wrong.body.error, /not a capability id/);
+    assert.equal(handleWrite("GET", "/api/capability/CAP-404", {}, { p }).status, 404);
+  });
+
+  it("POST /api/capability proposes; accept/ship/drop go through the lib", () => {
+    const p = store();
+    const created = handleWrite(
+      "POST",
+      "/api/capability",
+      {
+        title: "Cheap big win",
+        impact: "H",
+        effort: "S",
+        confidence: "H",
+        criteria: ["the palette lists help items", "no network call"],
+      },
+      { p },
+    );
+    assert.equal(created.status, 201);
+    assert.equal(created.body.id, "CAP-0001");
+    assert.equal(read("CAP-0001", p).status, "open");
+
+    const accepted = handleWrite("POST", "/api/capability/CAP-0001/accept", {}, { p });
+    assert.equal(accepted.status, 200);
+    assert.equal(accepted.body.task, "TM-001");
+    assert.equal(read("CAP-0001", p).status, "in_progress");
+    assert.equal(read("CAP-0001", p).task, "TM-001");
+    assert.equal(read("TM-001", p).capability, "CAP-0001");
+
+    const again = handleWrite("POST", "/api/capability/CAP-0001/accept", {}, { p });
+    assert.equal(again.status, 200);
+    assert.equal(again.body.existing, true);
+    assert.equal(list("task", {}, p).length, 1, "accepting twice must not mint a second task");
+
+    const other = handleWrite("POST", "/api/capability", { title: "Speculative rewrite" }, { p });
+    const dropped = handleWrite("POST", `/api/capability/${other.body.id}/drop`, { why: "no one wants this" }, { p });
+    assert.equal(dropped.status, 200);
+    assert.equal(read(other.body.id, p).status, "deleted");
+    assert.equal(read(other.body.id, p).droppedReason, "no one wants this");
+  });
+
+  it("ship without evidence is 409 with the CLI wording", () => {
+    const p = store();
+    handleWrite("POST", "/api/capability", { title: "Cheap big win" }, { p });
+    const res = handleWrite("POST", "/api/capability/CAP-0001/ship", {}, { p });
+    assert.equal(res.status, 409);
+    assert.match(res.body.error, /no evidence/);
+    assert.match(res.body.error, /tm evidence CAP-0001/);
+    assert.equal(read("CAP-0001", p).status, "open", "a refused ship must not have changed anything");
+  });
+
+  it("ship succeeds once there is evidence", () => {
+    const p = store();
+    handleWrite("POST", "/api/capability", { title: "Cheap big win" }, { p });
+    update("CAP-0001", { evidence: ["cutover PASS"] }, p);
+    const res = handleWrite("POST", "/api/capability/CAP-0001/ship", {}, { p });
+    assert.equal(res.status, 200);
+    assert.equal(read("CAP-0001", p).status, "done");
+    assert.ok(read("CAP-0001", p).shipped);
+    assert.ok(readEvents(p).some((e) => e.event === "cap-ship" && e.id === "CAP-0001"));
+  });
+
+  it("acceptanceOf writes done, not met, and accept mints a gated task", () => {
+    const p = store();
+    const cap = propose(
+      {
+        title: "Cheap big win",
+        impact: "H",
+        effort: "S",
+        confidence: "H",
+        criteria: ["the palette lists help items", "no network call"],
+      },
+      p,
+    );
+    const criteria = acceptanceOf(cap);
+    assert.deepEqual(
+      criteria,
+      [
+        { text: "the palette lists help items", done: false },
+        { text: "no network call", done: false },
+      ],
+    );
+    assert.equal(criteria.every((a) => !Object.hasOwn(a, "met")), true);
+
+    const minted = handleWrite("POST", `/api/capability/${cap.id}/accept`, {}, { p });
+    assert.equal(minted.status, 200);
+    const t = read(minted.body.task, p);
+    assert.equal(t.acceptance.every((a) => a.done === false), true);
+    assert.equal(gateDone(t.id, p).allow, false, "unmet minted criteria must gate tm done");
+    assert.match(gateDone(t.id, p).reason, /unmet acceptance criteria/);
+
+    setCriterion(t.id, 1, true, p);
+    setCriterion(t.id, 2, true, p);
+    assert.equal(gateDone(t.id, p).allow, true);
+  });
+
+  it("refuses an empty title on propose", () => {
+    const p = store();
+    assert.equal(handleWrite("POST", "/api/capability", { title: "" }, { p }).status, 400);
+    assert.equal(list("capability", {}, p).length, 0);
   });
 });
 

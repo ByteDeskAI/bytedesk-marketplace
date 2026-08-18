@@ -15,6 +15,8 @@ import { Column } from "./components/Column";
 import { CreateEpicModal, CreateModal } from "./components/CreateModal";
 import { Sparkline } from "./components/Sparkline";
 import { AdrDrawer } from "./components/AdrDrawer";
+import { CapDrawer } from "./components/CapDrawer";
+import { EnhancePanel } from "./components/EnhancePanel";
 import { EpicDrawer } from "./components/EpicDrawer";
 import { TaskDrawer } from "./components/TaskDrawer";
 import { Toolbar } from "./components/Toolbar";
@@ -37,7 +39,7 @@ import { useLiveWork } from "./motion";
 import { EpicLane } from "./components/EpicLane";
 import type { Lane } from "./components/EpicLane";
 import { useBoardKeys } from "./useBoardKeys";
-import type { Board, Status, StoreEvent } from "./types";
+import type { Board, Capability, Status, StoreEvent } from "./types";
 
 // One order for the columns, the digit shortcuts and the keyboard walk — three
 // arrays that must agree is three chances for `3` to mean a different column.
@@ -52,6 +54,7 @@ const styles = cssMap({
     paddingBlockEnd: "var(--ds-space-200)",
   },
   board: { overflowX: "auto", paddingBlockEnd: "var(--ds-space-100)" },
+  boardGrow: { minWidth: "0", flexGrow: 1 },
   lozenge: {
     cursor: "pointer",
     backgroundColor: "transparent",
@@ -432,39 +435,49 @@ export function App() {
           run={run}
         />
 
-        {grouped ? (
-          <Stack space="space.100">
-            {(lanes as Lane[]).map((lane) => {
-              const mine = laneTasks(visible, lane.id);
-              const progress = laneProgress(laneTasks(board.tasks, lane.id));
-              return (
-                <Stack key={lane.id} space="space.075">
-                  <EpicLane
-                    lane={lane}
-                    {...progress}
-                    isNoEpic={lane.id === NO_EPIC}
-                    onActivate={(id) => run(() => write.activeEpic(id))}
-                    onOpen={setOpenId}
-                    adrs={(board.adrs ?? []).filter((a) => a.epic === lane.id)}
-                    collapsed={collapsed.has(lane.id)}
-                    onToggle={() => toggleLane(lane.id)}
-                  />
-                  {/* A lane the filter emptied is worth saying so, rather than
-                      rendering five empty columns under a heading. */}
-                  {collapsed.has(lane.id) ? null : mine.length ? (
-                    columnRow(mine)
-                  ) : (
-                    <Text size="small" color="color.text.subtlest">
-                      nothing here matches the filter
-                    </Text>
-                  )}
-                </Stack>
-              );
-            })}
-          </Stack>
-        ) : (
-          columnRow(visible)
-        )}
+        <Inline space="space.150" alignBlock="start">
+          <Box xcss={styles.boardGrow}>
+            {grouped ? (
+              <Stack space="space.100">
+                {(lanes as Lane[]).map((lane) => {
+                  const mine = laneTasks(visible, lane.id);
+                  const progress = laneProgress(laneTasks(board.tasks, lane.id));
+                  return (
+                    <Stack key={lane.id} space="space.075">
+                      <EpicLane
+                        lane={lane}
+                        {...progress}
+                        isNoEpic={lane.id === NO_EPIC}
+                        onActivate={(id) => run(() => write.activeEpic(id))}
+                        onOpen={setOpenId}
+                        adrs={(board.adrs ?? []).filter((a) => a.epic === lane.id)}
+                        caps={capsOnLane(lane.id, board)}
+                        collapsed={collapsed.has(lane.id)}
+                        onToggle={() => toggleLane(lane.id)}
+                      />
+                      {/* A lane the filter emptied is worth saying so, rather than
+                          rendering five empty columns under a heading. */}
+                      {collapsed.has(lane.id) ? null : mine.length ? (
+                        columnRow(mine)
+                      ) : (
+                        <Text size="small" color="color.text.subtlest">
+                          nothing here matches the filter
+                        </Text>
+                      )}
+                    </Stack>
+                  );
+                })}
+              </Stack>
+            ) : (
+              columnRow(visible)
+            )}
+          </Box>
+          <EnhancePanel
+            capabilities={board.capabilities ?? []}
+            onOpen={setOpenId}
+            run={run}
+          />
+        </Inline>
 
         <Activity
           events={[...events].reverse().slice(0, 60)}
@@ -495,6 +508,17 @@ export function App() {
         onOpenEpic={setOpenId}
         run={run}
       />
+      <CapDrawer
+        cap={
+          (board.capabilities ?? []).find((c) => c.id === openId) ??
+          (openId?.startsWith("CAP-")
+            ? { id: openId, title: "", status: "" }
+            : null)
+        }
+        onClose={() => setOpenId(null)}
+        onOpenTask={setOpenId}
+        run={run}
+      />
       {creating === "task" ? (
         <CreateModal
           epics={board.epics}
@@ -511,6 +535,7 @@ export function App() {
         onClose={() => setPalette(false)}
         tasks={visible}
         adrs={board.adrs ?? []}
+        capabilities={board.capabilities ?? []}
         focused={keys.focusedId}
         commands={commands}
         onOpenTask={setOpenId}
@@ -521,4 +546,13 @@ export function App() {
       <Shortcuts isOpen={help} onClose={() => setHelp(false)} />
     </Box>
   );
+}
+
+/** Caps on a lane only via the minted task's epic — never a field on the card. */
+function capsOnLane(laneId: string, board: Board): Capability[] {
+  const byId = new Map((board.tasks ?? []).map((t) => [t.id, t]));
+  return (board.capabilities ?? []).filter((c) => {
+    if (!c.task) return false;
+    return byId.get(c.task)?.epic === laneId;
+  });
 }

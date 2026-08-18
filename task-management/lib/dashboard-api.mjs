@@ -2,6 +2,7 @@
  * The dashboard's write surface: `POST /api/task/:id/:action`, `PATCH /api/task/:id`,
  * `POST /api/task`, `POST /api/epic` (`{ id }` activate or `{ title }` create),
  * `GET /api/epic/:id`, `GET /api/adr/:id`, `POST /api/adr`, `POST /api/adr/:id/{accept,supersede}`,
+ * `GET /api/capability/:id`, `POST /api/capability`, `POST /api/capability/:id/{accept,ship,drop}`,
  * `POST /api/bulk`, `GET /api/backlog`, `GET /api/templates[/:name]`.
  *
  * Evidence: `GET /api/task/:id/evidence` (derived items), `GET /api/task/:id/file?ref=`
@@ -47,6 +48,7 @@ import {
   storeBoard,
 } from "./store.mjs";
 import { applyTemplate, listTemplates, readTemplate } from "./templates.mjs";
+import { accept as acceptCap, drop as dropCap, propose, ranked, score as capScore, ship as shipCap } from "./capability.mjs";
 
 const STATUSES = ["backlog", "open", "in_progress", "blocked", "parked", "done"];
 const ok = (body = {}) => ({ status: 200, body });
@@ -79,6 +81,11 @@ function requireAdr(id, p) {
   return error ? { error } : { adr: doc };
 }
 
+function requireCapability(id, p) {
+  const { doc, error } = requireKind(id, "capability", p);
+  return error ? { error } : { cap: doc };
+}
+
 export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
   const raw = path || "";
   const url = raw.split("?")[0];
@@ -97,6 +104,7 @@ export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
   if (method === "POST" && url === "/api/bulk") return bulk(payload, p);
   if (method === "POST" && url === "/api/epic") return postEpic(payload, p);
   if (method === "POST" && url === "/api/adr") return createAdr(payload, p);
+  if (method === "POST" && url === "/api/capability") return createCapability(payload, p);
   if (method === "POST" && url === "/api/settings") return saveSettings(payload, p);
 
   // The detail read. boardPayload strips `body` from the list on purpose — a 20-task board must
@@ -140,6 +148,26 @@ export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
     if (error) return error;
     if (method === "POST" && action === "accept") return acceptAdr(adr, p);
     if (method === "POST" && action === "supersede") return supersedeAdr(adr, payload, p);
+    return fail(404, `unknown action "${action}"`);
+  }
+
+  // Capability detail and lifecycle sit beside adr/epic so `/api/task/CAP-*`
+  // stays requireTask (400). Caps are never a sixth kanban column.
+  const capGet = /^\/api\/capability\/([^/]+)$/.exec(url);
+  if (method === "GET" && capGet) {
+    const { cap, error } = requireCapability(decodeURIComponent(capGet[1]), p);
+    return error || ok({ ...cap, score: capScore(cap) });
+  }
+
+  const capAct = /^\/api\/capability\/([^/]+)\/([a-z]+)$/.exec(url);
+  if (capAct) {
+    const id = decodeURIComponent(capAct[1]);
+    const action = capAct[2];
+    const { cap, error } = requireCapability(id, p);
+    if (error) return error;
+    if (method === "POST" && action === "accept") return acceptCapability(cap, p);
+    if (method === "POST" && action === "ship") return shipCapability(cap, payload, p);
+    if (method === "POST" && action === "drop") return dropCapability(cap, payload, p);
     return fail(404, `unknown action "${action}"`);
   }
 
@@ -503,6 +531,64 @@ function supersedeAdr(adr, { title, body }, p) {
   return { status: 201, body: { id: next.id, title: next.title, status: next.status, supersedes: adr.id } };
 }
 
+/**
+ * `POST /api/capability` is `tm cap new`: propose, do not commit. Accept mints
+ * the task. No epic is written on the card — join is `cap.task` → `task.epic`.
+ */
+function createCapability(payload, p) {
+  try {
+    const cap = propose(payload || {}, p);
+    return {
+      status: 201,
+      body: {
+        id: cap.id,
+        title: cap.title,
+        status: cap.status,
+        area: cap.area,
+        impact: cap.impact,
+        effort: cap.effort,
+        confidence: cap.confidence,
+        score: capScore(cap),
+      },
+    };
+  } catch (e) {
+    return fail(400, e.message);
+  }
+}
+
+function acceptCapability(cap, p) {
+  try {
+    const res = acceptCap(cap.id, p);
+    return ok({
+      id: res.cap.id,
+      task: res.task?.id ?? null,
+      existing: Boolean(res.existing),
+      status: res.cap.status,
+    });
+  } catch (e) {
+    return fail(/not found/i.test(e.message) ? 404 : 400, e.message);
+  }
+}
+
+function shipCapability(cap, payload, p) {
+  try {
+    const doc = shipCap(cap.id, { evidence: payload?.evidence, task: payload?.task }, p);
+    return ok({ id: doc.id, status: doc.status, shipped: doc.shipped });
+  } catch (e) {
+    if (/no evidence/.test(e.message)) return fail(409, e.message);
+    return fail(/not found/i.test(e.message) ? 404 : 400, e.message);
+  }
+}
+
+function dropCapability(cap, payload, p) {
+  try {
+    const doc = dropCap(cap.id, payload?.why, p);
+    return ok({ id: doc.id, status: doc.status, droppedReason: doc.droppedReason || "" });
+  } catch (e) {
+    return fail(/not found/i.test(e.message) ? 404 : 400, e.message);
+  }
+}
+
 function reopenEpicDoc(epic, p) {
   if (epic.status !== "done") return fail(409, `${epic.id} is not done`);
   // reopenEpic is the store's named path: it clears `closed` and logs epic_reopened.
@@ -596,6 +682,11 @@ export function boardPayload(p = paths()) {
     tasks: list("task", {}, p).filter(mine).map(({ body, file, ...t }) => t),
     // Empty `adrs/` is first-class: the list is `[]`, not omitted. Body stays on GET /api/adr/:id.
     adrs: list("adr", {}, p).filter(mine).map(({ body, file, ...a }) => a),
+    // Ranked enhancement backlog. Empty `capabilities/` is `[]`, not omitted. Body on GET.
+    // Score is derived (impact × ease × confidence); epic is never stored on the card.
+    capabilities: ranked(p)
+      .filter(mine)
+      .map(({ body, file, ...c }) => ({ ...c, score: capScore(c) })),
     backlog: backlog(p).map((t) => t.id),
     state: state(p),
     // Board preferences ride along with the board rather than needing a second round trip: the

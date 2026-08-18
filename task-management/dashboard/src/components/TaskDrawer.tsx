@@ -138,6 +138,12 @@ const styles = cssMap({
     textAlign: "left",
     width: "100%",
   },
+  chip: {
+    cursor: "pointer",
+    backgroundColor: "transparent",
+    borderWidth: "0",
+    padding: "0",
+  },
 });
 
 const URI_SCHEME = /^[a-zA-Z][a-zA-Z0-9+.-]+:/;
@@ -446,6 +452,15 @@ export function TaskDrawer({
               <ActorBadge actor={task.actor} />
               {task.epic ? (
                 <Lozenge appearance="new">{task.epic}</Lozenge>
+              ) : null}
+              {task.capability ? (
+                onOpen ? (
+                  <Pressable xcss={styles.chip} onClick={() => onOpen(task.capability!)}>
+                    <Lozenge appearance="new">{task.capability}</Lozenge>
+                  </Pressable>
+                ) : (
+                  <Lozenge appearance="new">{task.capability}</Lozenge>
+                )
               ) : null}
             </Inline>
             {/*

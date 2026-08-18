@@ -1,6 +1,6 @@
 import { queueWrite } from "./pwa/outbox.mjs";
 import { markSelfWrite } from "./pwa/usePwa";
-import type { Adr, Board, Epic, EvidenceItem, StoreEvent, Task, TemplateDetail, TemplateSummary } from "./types";
+import type { Adr, Board, Capability, Epic, EvidenceItem, StoreEvent, Task, TemplateDetail, TemplateSummary } from "./types";
 
 const json = <T>(url: string): Promise<T> =>
   fetch(url).then((r) => r.json() as Promise<T>);
@@ -25,6 +25,10 @@ export const fetchEpic = (id: string) =>
 /** One ADR in full. The board list strips `body` the same way it does for tasks and epics. */
 export const fetchAdr = (id: string) =>
   json<Adr>(`/api/adr/${encodeURIComponent(id)}`);
+
+/** One capability in full. The board list strips `body` the same way it does for ADRs. */
+export const fetchCapability = (id: string) =>
+  json<Capability>(`/api/capability/${encodeURIComponent(id)}`);
 
 export const fetchTemplates = () => json<TemplateSummary[]>("/api/templates");
 
@@ -120,6 +124,21 @@ export const write = {
   acceptAdr: (id: string) => send("POST", `/api/adr/${id}/accept`),
   supersedeAdr: (id: string, payload: { title: string; body?: string }) =>
     send("POST", `/api/adr/${id}/supersede`, payload),
+  proposeCap: (payload: {
+    title: string;
+    area?: string;
+    impact?: string;
+    effort?: string;
+    confidence?: string;
+    problem?: string;
+    current?: string;
+    proposal?: string;
+    criteria?: string[];
+  }) => send("POST", "/api/capability", payload),
+  acceptCap: (id: string) => send("POST", `/api/capability/${id}/accept`),
+  shipCap: (id: string) => send("POST", `/api/capability/${id}/ship`),
+  dropCap: (id: string, why?: string) =>
+    send("POST", `/api/capability/${id}/drop`, why ? { why } : {}),
   edit: (id: string, payload: { title?: string; body?: string; epic?: string | null }) =>
     send("PATCH", `/api/task/${id}`, payload),
   act: (id: string, action: string, payload: Record<string, unknown> = {}) =>
