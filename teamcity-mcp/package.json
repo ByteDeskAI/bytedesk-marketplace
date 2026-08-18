@@ -1,0 +1,41 @@
+{
+  "name": "teamcity-mcp",
+  "version": "0.1.0",
+  "description": "MCP server exposing the full TeamCity REST API over streamable HTTP",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "bin": {
+    "teamcity-mcp": "bin/teamcity-mcp"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "docs"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "bundle": "esbuild src/index.ts --bundle --platform=node --format=cjs --target=node20 --outfile=dist/bundle.cjs",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/src/index.js",
+    "test": "vitest run",
+    "smoke": "tsx scripts/smoke.ts",
+    "pack:mcpb": "npm run bundle && mcpb pack . dist/teamcity-mcp.mcpb"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.0",
+    "express": "^4.21.2",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@anthropic-ai/mcpb": "^2.1.2",
+    "@types/express": "^4.17.23",
+    "@types/node": "^22.15.0",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.0"
+  }
+}

@@ -16,6 +16,7 @@ ByteDesk's Claude Code marketplace. Plugins for parallel multi-session orchestra
 | **[platform-ops](./platform-ops)** | TeamCity release policy, Gitflow operator |
 | **[bytedesk-goals](./bytedesk-goals)** | Goal pipeline, run_goals, Jira/Confluence, agent dispatch |
 | **[omnigent-dev](./omnigent-dev)** | Omnigent cross-repo engineering skills |
+| **[teamcity-mcp](./teamcity-mcp)** | TeamCity CI/CD over MCP — builds, logs, tests, queue, configs, agents |
 
 ## Installation
 

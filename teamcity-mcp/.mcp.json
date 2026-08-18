@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "teamcity": {
+      "type": "stdio",
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/teamcity-mcp",
+      "env": {
+        "TEAMCITY_URL": "https://deploy.prod.bytedesk.ai"
+      }
+    }
+  }
+}

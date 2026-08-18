@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "teamcity-mcp",
+  "description": "TeamCity CI/CD over MCP: the full REST API — trigger and monitor builds, tail build logs, inspect test failures, manage the queue, projects, build configs, agents, mutes, and investigations.",
+  "author": {
+    "name": "ByteDesk AI",
+    "url": "https://github.com/ByteDeskAI"
+  },
+  "homepage": "https://github.com/ByteDeskAI/bytedesk-marketplace/tree/main/teamcity-mcp",
+  "repository": "https://github.com/ByteDeskAI/bytedesk-marketplace",
+  "license": "MIT",
+  "keywords": [
+    "teamcity",
+    "ci-cd",
+    "mcp",
+    "builds",
+    "jetbrains",
+    "deployment"
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "name": "teamcity-mcp",
+  "version": "0.1.0",
+  "description": "TeamCity CI/CD over MCP: the full REST API — builds, logs, tests, queue, configs, agents, mutes, investigations.",
+  "mcpServers": {
+    "teamcity": {
+      "command": "${extensionPath}/bin/teamcity-mcp"
+    }
+  }
+}

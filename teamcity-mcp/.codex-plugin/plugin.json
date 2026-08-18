@@ -1,0 +1,39 @@
+{
+  "name": "teamcity-mcp",
+  "description": "TeamCity CI/CD over MCP: the full REST API — trigger and monitor builds, tail build logs, inspect test failures, manage the queue, projects, build configs, agents, mutes, and investigations.",
+  "author": {
+    "name": "ByteDeskAI"
+  },
+  "homepage": "https://github.com/ByteDeskAI/bytedesk-marketplace/tree/main/teamcity-mcp",
+  "repository": "https://github.com/ByteDeskAI/bytedesk-marketplace",
+  "license": "MIT",
+  "keywords": [
+    "teamcity",
+    "ci-cd",
+    "mcp",
+    "builds",
+    "jetbrains",
+    "deployment"
+  ],
+  "mcpServers": "./.codex-mcp.json",
+  "interface": {
+    "displayName": "TeamCity",
+    "shortDescription": "TeamCity CI/CD: builds, logs, tests, queue, configs, agents over MCP.",
+    "longDescription": "Full TeamCity REST API over MCP. Investigate failing builds, tail and grep build logs, inspect test failures and build problems, trigger and cancel builds, manage the queue, projects, build configurations, agents, mutes, and investigations.",
+    "developerName": "ByteDeskAI",
+    "category": "Engineering",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/ByteDeskAI/bytedesk-marketplace/tree/main/teamcity-mcp",
+    "defaultPrompt": [
+      "Why did the latest build fail? Pull the log tail and the test failures and summarize the cause.",
+      "List the currently failing build configurations and their last successful builds.",
+      "Trigger a build of <config> on branch <branch> and watch it until it finishes.",
+      "Show the build queue and anything blocking it.",
+      "Find who is assigned to investigate the current test failures and reassign to me."
+    ]
+  }
+}

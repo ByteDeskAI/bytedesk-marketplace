@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
   "name": "bytedesk",
-  "version": "1.27.0",
+  "version": "1.28.0",
   "description": "ByteDesk's Claude Code marketplace \u2014 parallel orchestration, design patterns, Structurizr C4, project management, and platform engineering plugins.",
   "owner": {
     "name": "ByteDesk AI",
@@ -72,6 +72,11 @@
       "name": "knowledge-management",
       "description": "OKF v0.2 knowledge runtime for coding agents \u2014 git-tracked markdown bundles at .bytedesk/knowledge/, km CLI, progressive-disclosure hooks, MCP search/validate, lint/doctor, soft links to task-management.",
       "source": "./knowledge-management"
+    },
+    {
+      "name": "teamcity-mcp",
+      "description": "TeamCity CI/CD over MCP — the full REST API: trigger and monitor builds, tail/grep build logs, test failures and build problems, queue control, projects and build configs, agents, mutes, investigations. stdio + streamable HTTP transports.",
+      "source": "./teamcity-mcp"
     },
     {
       "name": "design-system",

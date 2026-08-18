@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "teamcity": {
+      "type": "stdio",
+      "command": "./bin/teamcity-mcp",
+      "cwd": "."
+    }
+  }
+}
