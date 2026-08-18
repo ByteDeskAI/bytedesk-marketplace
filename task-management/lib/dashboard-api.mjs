@@ -1,6 +1,7 @@
 /**
  * The dashboard's write surface: `POST /api/task/:id/:action`, `PATCH /api/task/:id`,
- * `POST /api/task`, `POST /api/bulk`, `GET /api/backlog`.
+ * `POST /api/task`, `POST /api/epic` (`{ id }` activate or `{ title }` create),
+ * `GET /api/epic/:id`, `POST /api/bulk`, `GET /api/backlog`.
  *
  * `handleWrite` is pure request-in / response-out so it unit-tests without a
  * server; bin/tm-dashboard is only plumbing. Every mutation delegates to the same
@@ -22,6 +23,7 @@ import {
   writeConfig,
   editTask,
   kindOf,
+  now,
   removeCriterion,
   setCriterion,
   moveTask,
@@ -29,6 +31,7 @@ import {
   logEvent,
   read,
   release,
+  reopenEpic,
   state,
   unblockDependents,
   update,
@@ -40,11 +43,26 @@ const STATUSES = ["backlog", "open", "in_progress", "blocked", "parked", "done"]
 const ok = (body = {}) => ({ status: 200, body });
 const fail = (status, error) => ({ status, body: { error } });
 
-/** Anything that isn't one of our ids never reaches the store. */
+/**
+ * Kind-checked read. Lifecycle routes stay on `requireTask` so `GET /api/task/EP-*`
+ * (and every POST under `/api/task`) is still 400 — the epic body lives at
+ * `/api/epic/:id`. Same helper later covers adr/capability without widening the
+ * task surface.
+ */
+function requireKind(id, kind, p) {
+  if (kindOf(id) !== kind) return { error: fail(400, `not a ${kind} id: ${id}`) };
+  const doc = read(id, p);
+  return doc ? { doc } : { error: fail(404, `not found: ${id}`) };
+}
+
 function requireTask(id, p) {
-  if (kindOf(id) !== "task") return { error: fail(400, `not a task id: ${id}`) };
-  const task = read(id, p);
-  return task ? { task } : { error: fail(404, `not found: ${id}`) };
+  const { doc, error } = requireKind(id, "task", p);
+  return error ? { error } : { task: doc };
+}
+
+function requireEpic(id, p) {
+  const { doc, error } = requireKind(id, "epic", p);
+  return error ? { error } : { epic: doc };
 }
 
 export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
@@ -52,7 +70,7 @@ export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
   if (method === "GET" && url === "/api/backlog") return ok(backlog(p));
   if (method === "POST" && url === "/api/task") return createTask(payload, p);
   if (method === "POST" && url === "/api/bulk") return bulk(payload, p);
-  if (method === "POST" && url === "/api/epic") return setActiveEpic(payload, p);
+  if (method === "POST" && url === "/api/epic") return postEpic(payload, p);
   if (method === "POST" && url === "/api/settings") return saveSettings(payload, p);
 
   // The detail read. boardPayload strips `body` from the list on purpose — a 20-task board must
@@ -61,6 +79,23 @@ export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
   if (method === "GET" && detail) {
     const { task, error } = requireTask(decodeURIComponent(detail[1]), p);
     return error || ok(task);
+  }
+
+  const epicGet = /^\/api\/epic\/([^/]+)$/.exec(url);
+  if (method === "GET" && epicGet) {
+    const { epic, error } = requireEpic(decodeURIComponent(epicGet[1]), p);
+    return error || ok(epic);
+  }
+
+  const epicAct = /^\/api\/epic\/([^/]+)\/([a-z]+)$/.exec(url);
+  if (epicAct) {
+    const id = decodeURIComponent(epicAct[1]);
+    const action = epicAct[2];
+    const { epic, error } = requireEpic(id, p);
+    if (error) return error;
+    if (method === "POST" && action === "close") return closeEpic(epic, p);
+    if (method === "POST" && action === "reopen") return reopenEpicDoc(epic, p);
+    return fail(404, `unknown action "${action}"`);
   }
 
   const match = /^\/api\/task\/([^/]+)(?:\/([a-z]+))?$/.exec(url);
@@ -245,6 +280,28 @@ function saveSettings(patch, p) {
   return ok({ board, ...(rejected.length ? { ignored: rejected } : {}) });
 }
 
+/**
+ * `POST /api/epic` does two jobs: activate (`{ id }`) and create (`{ title, body? }`).
+ *
+ * They share a path because create always sets the new epic active — the same write
+ * `tm epic new` does — and a second route would be a second thing to remember. `id`
+ * wins when both are present, so the existing `{ id }` clients keep activating.
+ */
+function postEpic(payload, p) {
+  if (payload && Object.prototype.hasOwnProperty.call(payload, "id")) return setActiveEpic(payload, p);
+  if (payload && typeof payload.title === "string") return createEpic(payload, p);
+  return fail(400, "POST /api/epic needs { id } to activate or { title } to create");
+}
+
+function createEpic({ title, body }, p) {
+  const name = String(title || "").trim();
+  if (!name) return fail(400, "an epic needs a title");
+  const epic = create("epic", { title: name }, body || "", p);
+  writeState({ activeEpic: epic.id }, p);
+  logEvent("epic_active", { id: epic.id, via: "dashboard" }, p);
+  return { status: 201, body: { id: epic.id, title: epic.title, activeEpic: epic.id } };
+}
+
 function setActiveEpic({ id }, p) {
   if (id === null || id === "") {
     writeState({ activeEpic: null }, p);
@@ -259,6 +316,22 @@ function setActiveEpic({ id }, p) {
   writeState({ activeEpic: id }, p);
   logEvent("epic_active", { id, via: "dashboard" }, p);
   return ok({ activeEpic: id });
+}
+
+function closeEpic(epic, p) {
+  if (epic.status === "done") return fail(409, `${epic.id} is already done`);
+  update(epic.id, { status: "done", closed: now() }, p);
+  if (state(p).activeEpic === epic.id) writeState({ activeEpic: null }, p);
+  return ok(read(epic.id, p));
+}
+
+function reopenEpicDoc(epic, p) {
+  if (epic.status !== "done") return fail(409, `${epic.id} is not done`);
+  // reopenEpic is the store's named path: it clears `closed` and logs epic_reopened.
+  // It no-ops when autoCloseEpics is off; an explicit reopen still has to write the
+  // same fields, or the drawer button would lie.
+  if (!reopenEpic(epic.id, p)) update(epic.id, { status: "open", closed: undefined }, p);
+  return ok(read(epic.id, p));
 }
 
 function createTask({ title, epic, body, assignee, priority }, p) {

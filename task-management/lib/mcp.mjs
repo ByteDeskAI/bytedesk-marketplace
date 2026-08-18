@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import { paths } from "./paths.mjs";
 import { claimTask, releaseClaim } from "./claims.mjs";
 import { actor, actorLabel, sessionId } from "./actor.mjs";
-import { config, create, editTask, list, logEvent, moveTask, nextTasks, now, read, removeCriterion, setCriterion, state, update, writeState } from "./store.mjs";
+import { config, create, editTask, kindOf, list, logEvent, moveTask, nextTasks, now, read, removeCriterion, setCriterion, state, update, writeState } from "./store.mjs";
 import { consumeOverride, enforcementOff, gateDone, gateTaskCreate } from "./enforce.mjs";
 import { board, handoff, standup, taskLine } from "./render.mjs";
 import { renderWhy, why } from "./graph.mjs";
@@ -192,15 +192,19 @@ export const TOOLS = [
         return ok({ id: e.id, title, active: true, file: e.file });
       }
       if (action === "use") {
-        if (!read(id, p)) return fail(`no such epic: ${id}`);
+        const epic = read(id, p);
+        if (!epic) return fail(`no such epic: ${id}`);
+        if (kindOf(id) !== "epic") return fail(`not an epic id: ${id}`);
+        if (epic.status === "done") return fail(`${id} is done — reopen it or pick another epic`);
         writeState({ activeEpic: id }, p);
         logEvent("epic_active", { id }, p);
         return ok({ activeEpic: id });
       }
       if (action === "done") {
-        const e = update(id, { status: "done" }, p);
+        if (!id) return fail("tm_epic done needs an id");
+        const e = update(id, { status: "done", closed: now() }, p);
         if (state(p).activeEpic === id) writeState({ activeEpic: null }, p);
-        return ok({ id: e.id, status: "done" });
+        return ok({ id: e.id, status: "done", closed: e.closed });
       }
       const active = state(p).activeEpic;
       return ok({

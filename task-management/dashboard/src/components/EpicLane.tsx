@@ -3,6 +3,7 @@ import Button from "@atlaskit/button/new";
 import { cssMap } from "@atlaskit/css";
 import Lozenge from "@atlaskit/lozenge";
 import { Box, Inline, Text } from "@atlaskit/primitives/compiled";
+import { Pressable } from "@atlaskit/primitives/compiled";
 import Tooltip from "@atlaskit/tooltip";
 import { Bump } from "./Bump";
 
@@ -21,6 +22,13 @@ const styles = cssMap({
     paddingInlineStart: "var(--ds-space-100)",
   },
   id: { fontFamily: "var(--ds-font-family-code)" },
+  open: {
+    cursor: "pointer",
+    backgroundColor: "transparent",
+    borderWidth: "0",
+    padding: "0",
+    textAlign: "left",
+  },
   // A bar rather than a percentage: the eye compares lengths faster than it reads
   // numbers, and the numbers are right next to it for anyone who wants them.
   track: {
@@ -55,6 +63,7 @@ export function EpicLane({
   total,
   fraction,
   onActivate,
+  onOpen,
   isNoEpic,
   collapsed = false,
   onToggle,
@@ -64,6 +73,7 @@ export function EpicLane({
   total: number;
   fraction: number;
   onActivate?: (id: string) => void;
+  onOpen?: (id: string) => void;
   isNoEpic: boolean;
   /** Folded lanes keep their header — the progress bar is the reason to fold, not lose. */
   collapsed?: boolean;
@@ -84,14 +94,29 @@ export function EpicLane({
               {collapsed ? "▸" : "▾"}
             </Button>
           ) : null}
-          {!isNoEpic ? (
-            <Box xcss={styles.id}>
-              <Text size="small" weight="bold">
-                {lane.id}
-              </Text>
-            </Box>
-          ) : null}
-          <Text weight={isNoEpic ? "regular" : "medium"}>{lane.title}</Text>
+          {!isNoEpic && onOpen ? (
+            <Pressable xcss={styles.open} onClick={() => onOpen(lane.id)}>
+              <Inline space="space.100" alignBlock="center">
+                <Box xcss={styles.id}>
+                  <Text size="small" weight="bold">
+                    {lane.id}
+                  </Text>
+                </Box>
+                <Text weight="medium">{lane.title}</Text>
+              </Inline>
+            </Pressable>
+          ) : (
+            <>
+              {!isNoEpic ? (
+                <Box xcss={styles.id}>
+                  <Text size="small" weight="bold">
+                    {lane.id}
+                  </Text>
+                </Box>
+              ) : null}
+              <Text weight={isNoEpic ? "regular" : "medium"}>{lane.title}</Text>
+            </>
+          )}
           {lane.active ? <Lozenge appearance="inprogress">active</Lozenge> : null}
           {lane.status === "done" ? <Lozenge appearance="success">closed</Lozenge> : null}
           {lane.status === "missing" ? (

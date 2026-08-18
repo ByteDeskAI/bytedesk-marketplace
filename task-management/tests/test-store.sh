@@ -277,6 +277,14 @@ tm move "$EDITID" EP-404 2>/dev/null && no "a move to a missing epic is refused"
 tm move "$EDITID" "$EDITID" 2>/dev/null && no "a move to a non-epic id is refused" || ok "a move to a non-epic id is refused"
 assert_contains "$(tm log 200 --json)" '"event": "moved"' "the move is on the timeline, with where it came from"
 
+# BDM-66: `tm epic done` writes `closed`; `tm epic use` refuses a done epic (dashboard 409).
+tm epic new "An epic to close" >/dev/null
+CLOSE="$(tm find "An epic to close" --json | jq -r '.[0].id')"
+tm epic done "$CLOSE" >/dev/null
+assert_contains "$(tm show "$CLOSE" --json | jq -r .closed)" "T" "tm epic done writes closed"
+assert_status 2 "tm epic use refuses a done epic" tm epic use "$CLOSE"
+assert_contains "$(tm epic use "$CLOSE" 2>&1 || true)" "done — reopen" "the refusal names the same reason the dashboard 409 does"
+
 # Acceptance criteria: tick, untick, remove. The gate `tm done` reads must not be one-way.
 env TM_ENFORCE=off node "$PLUGIN_ROOT/bin/tm" task new "the gated one" >/dev/null
 GID="$(tm find "the gated one" --json | jq -r '.[0].id')"

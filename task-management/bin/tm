@@ -214,14 +214,21 @@ const VERBS = {
       out(`${e.id} created and set active — ${e.file}`);
     } else if (sub === "use") {
       const id = rest[0];
-      if (!read(id, P)) die(`no such epic: ${id}`);
+      const epic = read(id, P);
+      if (!epic) die(`no such epic: ${id}`);
+      if (kindOf(id) !== "epic") die(`not an epic id: ${id}`);
+      // Same refusal the dashboard returns as 409: a done epic as active would
+      // file every later `tm task new` into a closed container.
+      if (epic.status === "done") die(`${id} is done — reopen it or pick another epic`, 2);
       writeState({ activeEpic: id }, P);
       logEvent("epic_active", { id }, P);
       out(`active epic: ${id}`);
     } else if (sub === "done") {
-      update(rest[0], { status: "done" }, P);
-      if (state(P).activeEpic === rest[0]) writeState({ activeEpic: null }, P);
-      out(`${rest[0]} done`);
+      const id = rest[0];
+      if (!id) die("usage: tm epic done <id>");
+      update(id, { status: "done", closed: now() }, P);
+      if (state(P).activeEpic === id) writeState({ activeEpic: null }, P);
+      out(`${id} done`);
     } else {
       for (const e of list("epic", {}, P)) {
         const kids = list("task", { epic: e.id }, P);

@@ -58,6 +58,11 @@ export interface Epic {
   id: string;
   title: string;
   status: Status;
+  closed?: string;
+  /** Linked plan path, when this epic was captured from one. */
+  plan?: string;
+  /** Only present on a detail fetch — the list payload strips it. */
+  body?: string;
 }
 
 export interface Board {

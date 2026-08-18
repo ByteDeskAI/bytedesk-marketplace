@@ -647,11 +647,13 @@ the same claim, fires the same dependency unblock and closes the epic the same w
 | Route | Does |
 |---|---|
 | `POST /api/task` | create (honours the active-epic gate) |
-| `PATCH /api/task/:id` | edit title/body |
+| `PATCH /api/task/:id` | edit title/body/epic |
 | `POST /api/task/:id/transition` | status change, with claim + gate + unblock + epic auto-close |
 | `POST /api/task/:id/{assign,labels,priority,estimate,comment,link,subtask,rank,ac,accept}` | field writes |
 | `POST /api/bulk` | one op across many ids, partial success reported per id |
-| `POST /api/epic` | switch the active epic (`{id}`, or `{id: null}` to clear) |
+| `POST /api/epic` | `{ id }` activate (or `{id: null}` to clear); `{ title, body? }` create and set active |
+| `GET /api/epic/:id` | full epic including body (`GET /api/task/EP-*` stays 400) |
+| `POST /api/epic/:id/{close,reopen}` | close writes `closed`; reopen uses `reopenEpic` |
 | `GET /api/board` · `GET /api/backlog` · `GET /api/events` · `GET /events` (SSE) | reads |
 
 Refusals carry the CLI's own wording: a gate says no with **409** and the reason, bad input is
@@ -765,8 +767,11 @@ two tasks mirroring one native id, an `in_progress` task nobody claimed.
 Epics were second-class on the dashboard: one lozenge in the header, and no way to
 change which one was active — so the board could create tasks but not say which epic
 they land in, which is the one decision governing everything it does next. The active-epic
-selector in the toolbar does that now (`POST /api/epic`, same validation and same event as
-`tm epic use`; a closed epic is refused rather than silently gating every later create).
+selector in the toolbar does that now (`POST /api/epic { id }`, same validation and same
+event as `tm epic use`; a closed epic is refused rather than silently gating every later
+create). **Create epic** opens a new one (`POST /api/epic { title, body? }`) and sets it
+active. Clicking a lane header opens the epic drawer — body, children, plan chip, close
+and reopen.
 
 **Group by epic** turns the five status columns into one row of columns per epic, with a
 progress bar and `done/total` per lane. The active epic sorts first, then open epics by id,
