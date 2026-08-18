@@ -273,6 +273,12 @@ const server = createServer((req, res) => {
     return json(res, result.status, result.body);
   }
 
+  // Derived plans inbox + confined file GET. Not a KIND — empty plans/ is [].
+  if (req.method === "GET" && (req.url === "/api/plans" || (req.url || "").split("?")[0] === "/api/plans/file")) {
+    const result = handleWrite("GET", req.url, null, { p: P });
+    return json(res, result.status, result.body);
+  }
+
   // Derived evidence list — kind/name/exists/previewable, no new frontmatter.
   if (req.method === "GET" && /^\/api\/task\/[^/?]+\/evidence$/.test((req.url || "").split("?")[0])) {
     const result = handleWrite("GET", req.url, null, { p: P });

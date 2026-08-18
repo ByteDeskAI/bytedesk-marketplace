@@ -8,6 +8,9 @@
  * (allowlisted bytes metadata), `POST /api/task/:id/evidence` (attach text/path or detach).
  * Multipart uploads are parsed in bin/tm-dashboard — the JSON body cap is 256 KB.
  *
+ * Plans are not a KIND: `GET /api/plans` is a derived readdir, `GET /api/plans/file?ref=`
+ * is confined like evidence, `POST /api/epic/:id/plan` sets or clears `epic.plan`.
+ *
  * `handleWrite` is pure request-in / response-out so it unit-tests without a
  * server; bin/tm-dashboard is only plumbing. Every mutation delegates to the same
  * lib functions the CLI calls — never to the filesystem directly — so the gates,
@@ -24,6 +27,7 @@ import { currentCheckout, paths, projectName } from "./paths.mjs";
 import { claimTask } from "./claims.mjs";
 import { actor, actorLabel, sessionId } from "./actor.mjs";
 import { attachEvidence, detachEvidence, listEvidence, servableEvidencePath } from "./evidence.mjs";
+import { listPlans, readPlanFile } from "./plans.mjs";
 import {
   autoCloseEpic,
   config,
@@ -85,6 +89,13 @@ export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
   const query = new URLSearchParams(raw.includes("?") ? raw.slice(raw.indexOf("?") + 1) : "");
   if (method === "GET" && url === "/api/backlog") return ok(backlog(p));
   if (method === "GET" && url === "/api/templates") return ok(listTemplates(p));
+  // Derived inbox, not a KIND. Empty plans/ is [] — add these before the /api/task/ catch-all.
+  if (method === "GET" && url === "/api/plans") return ok(listPlans(p));
+  if (method === "GET" && url === "/api/plans/file") {
+    const ref = query.get("ref") ?? payload.ref ?? "";
+    const file = readPlanFile(ref, p);
+    return file ? ok(file) : fail(404, "not found");
+  }
   const tpl = /^\/api\/templates\/([^/]+)$/.exec(url);
   if (method === "GET" && tpl) {
     try {
@@ -121,6 +132,7 @@ export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
     if (error) return error;
     if (method === "POST" && action === "close") return closeEpic(epic, p);
     if (method === "POST" && action === "reopen") return reopenEpicDoc(epic, p);
+    if (method === "POST" && action === "plan") return setEpicPlan(epic, payload, p);
     return fail(404, `unknown action "${action}"`);
   }
 
@@ -501,6 +513,17 @@ function supersedeAdr(adr, { title, body }, p) {
   );
   update(adr.id, { status: "superseded" }, p);
   return { status: 201, body: { id: next.id, title: next.title, status: next.status, supersedes: adr.id } };
+}
+
+function setEpicPlan(epic, payload, p) {
+  if (!payload || !Object.prototype.hasOwnProperty.call(payload, "plan")) {
+    return fail(400, "POST /api/epic/:id/plan needs { plan }");
+  }
+  const raw = payload.plan;
+  if (raw != null && typeof raw !== "string") return fail(400, "plan must be a path string or null");
+  const next = raw == null || !String(raw).trim() ? undefined : String(raw).trim();
+  update(epic.id, { plan: next }, p);
+  return ok(read(epic.id, p));
 }
 
 function reopenEpicDoc(epic, p) {

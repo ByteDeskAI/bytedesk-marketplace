@@ -9,7 +9,7 @@
 import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { cleanup, tempStore } from "./helpers.mjs";
 import { backlog as backlogOf, boardPayload, handleWrite } from "../../lib/dashboard-api.mjs";
@@ -622,6 +622,99 @@ describe("adrs on the board (BDM-70)", () => {
     const res = handleWrite("POST", `/api/adr/${old.id}/supersede`, { title: "newer" }, { p });
     assert.equal(res.status, 409);
     assert.equal(list("adr", {}, p).length, 1);
+  });
+});
+
+describe("plans inbox (BDM-72)", () => {
+  const get = (p, path) => handleWrite("GET", path, {}, { p });
+
+  it("empty plans/ is [] — not a KIND, not omitted", () => {
+    const p = store();
+    const res = get(p, "/api/plans");
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body, []);
+    assert.equal("plans" in boardPayload(p), false, "the board payload must not grow a plans KIND");
+  });
+
+  it("lists files and marks linked vs unlinked", () => {
+    const p = store();
+    mkdirSync(p.plans, { recursive: true });
+    writeFileSync(join(p.plans, "linked.md"), "# Linked\n");
+    writeFileSync(join(p.plans, "loose.md"), "# Loose\n");
+    const e = create("epic", { title: "has a plan" }, "", p);
+    const rel = ".bytedesk/task-management/plans/linked.md";
+    const set = handleWrite("POST", `/api/epic/${e.id}/plan`, { plan: rel }, { p });
+    assert.equal(set.status, 200);
+    assert.equal(read(e.id, p).plan, rel);
+
+    const res = get(p, "/api/plans");
+    assert.equal(res.status, 200);
+    const byName = Object.fromEntries(res.body.map((row) => [row.name, row]));
+    assert.equal(byName["linked.md"].linkedEpic, e.id);
+    assert.equal(byName["linked.md"].exists, true);
+    assert.equal(byName["loose.md"].linkedEpic, undefined);
+    assert.equal(byName["loose.md"].path, ".bytedesk/task-management/plans/loose.md");
+  });
+
+  it("clears epic.plan via POST { plan: null }", () => {
+    const p = store();
+    const e = create("epic", { title: "has a plan", plan: "plans/x.md" }, "", p);
+    const res = handleWrite("POST", `/api/epic/${e.id}/plan`, { plan: null }, { p });
+    assert.equal(res.status, 200);
+    assert.equal(read(e.id, p).plan, undefined);
+  });
+
+  it("confined GET allows a file in p.plans and 404s traversal / absolute outside", () => {
+    const p = store();
+    mkdirSync(p.plans, { recursive: true });
+    writeFileSync(join(p.plans, "ok.md"), "# Inside\n");
+    const ref = ".bytedesk/task-management/plans/ok.md";
+    const okRes = get(p, `/api/plans/file?ref=${encodeURIComponent(ref)}`);
+    assert.equal(okRes.status, 200);
+    assert.equal(okRes.body.name, "ok.md");
+    assert.match(okRes.body.content, /Inside/);
+
+    const secret = join(p.base, "config.json");
+    assert.equal(existsSync(secret), true);
+    const traversal = ".bytedesk/task-management/plans/../config.json";
+    assert.equal(get(p, `/api/plans/file?ref=${encodeURIComponent(traversal)}`).status, 404);
+
+    const outside = join(p.root, "secret.md");
+    writeFileSync(outside, "nope\n");
+    assert.equal(get(p, `/api/plans/file?ref=${encodeURIComponent(outside)}`).status, 404);
+  });
+
+  it("serves an epic.plan file that lives outside p.plans (tm goal import)", () => {
+    const p = store();
+    const dest = join(p.root, "docs", "goals", "prog.plan.json");
+    mkdirSync(join(p.root, "docs", "goals"), { recursive: true });
+    writeFileSync(
+      dest,
+      JSON.stringify({
+        plan: "prog",
+        epic: { title: "Program" },
+        goals: [{ id: "g1", doc: "docs/goals/a.md", title: "Do A" }],
+      }),
+    );
+    const e = create("epic", { title: "imported", plan: "docs/goals/prog.plan.json" }, "", p);
+    const res = get(p, `/api/plans/file?ref=${encodeURIComponent("docs/goals/prog.plan.json")}`);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.manifest.epicTitle, "Program");
+    assert.equal(res.body.manifest.goals[0].title, "Do A");
+    assert.equal(get(p, "/api/plans").body.length, 0, "inbox is only p.plans, not the import source");
+    void e;
+  });
+
+  it("404s a symlink that escapes p.plans unless that file is epic.plan", () => {
+    const p = store();
+    mkdirSync(p.plans, { recursive: true });
+    const outside = join(p.root, "escape.md");
+    writeFileSync(outside, "escaped\n");
+    symlinkSync(outside, join(p.plans, "link.md"));
+    assert.equal(
+      get(p, `/api/plans/file?ref=${encodeURIComponent(".bytedesk/task-management/plans/link.md")}`).status,
+      404,
+    );
   });
 });
 

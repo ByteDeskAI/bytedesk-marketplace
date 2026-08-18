@@ -8,7 +8,7 @@
  */
 import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { cleanup, git, tempRepo, tempStore } from "./helpers.mjs";
@@ -552,6 +552,48 @@ describe("repairAll", () => {
     const p = store();
     create("task", { title: "fine" }, "", p);
     assert.deepEqual(repairAll(p), []);
+  });
+});
+
+describe("plans (BDM-72)", () => {
+  it("reports a dangling epic.plan and does not delete the pointer on --fix", () => {
+    const p = store();
+    const e = create("epic", { title: "ghost plan", plan: ".bytedesk/task-management/plans/gone.md" }, "", p);
+
+    const f = find(p, "dangling-plan");
+    assert.ok(f);
+    assert.equal(f.level, "warning");
+    assert.equal(f.fixable, false, "report-only — the pointer is a decision, not a typo");
+    assert.equal(f.id, e.id);
+
+    heal(p);
+    assert.equal(read(e.id, p).plan, ".bytedesk/task-management/plans/gone.md");
+    assert.ok(find(p, "dangling-plan"));
+  });
+
+  it("reports an unreferenced plans/*.md and does not delete the file", () => {
+    const p = store();
+    mkdirSync(p.plans, { recursive: true });
+    const dest = join(p.plans, "loose.md");
+    writeFileSync(dest, "# Loose\n");
+
+    const f = find(p, "unreferenced-plan");
+    assert.ok(f);
+    assert.equal(f.fixable, false, "no silent delete");
+    assert.match(f.message, /loose\.md/);
+
+    heal(p);
+    assert.equal(existsSync(dest), true);
+    assert.ok(find(p, "unreferenced-plan"));
+  });
+
+  it("is quiet when the plan file exists and is linked", () => {
+    const p = store();
+    mkdirSync(p.plans, { recursive: true });
+    writeFileSync(join(p.plans, "ok.md"), "# Ok\n");
+    create("epic", { title: "linked", plan: ".bytedesk/task-management/plans/ok.md" }, "", p);
+    assert.equal(codes(p).includes("dangling-plan"), false);
+    assert.equal(codes(p).includes("unreferenced-plan"), false);
   });
 });
 

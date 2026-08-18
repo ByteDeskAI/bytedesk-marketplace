@@ -15,11 +15,11 @@ import Tag from "@atlaskit/tag";
 import Textfield from "@atlaskit/textfield";
 import TextArea from "@atlaskit/textarea";
 import Tooltip from "@atlaskit/tooltip";
-import { attachEvidenceFile, fetchEvidence, fetchTask, stopReason, write } from "../api";
+import { attachEvidenceFile, fetchEvidence, fetchPlanFile, fetchTask, stopReason, write } from "../api";
 import { Markdown } from "./Markdown";
 import { ActorBadge } from "./ActorBadge";
 import { TYPES, typeOf } from "../types";
-import type { Adr, Epic, EvidenceItem, Priority, Task } from "../types";
+import type { Adr, Epic, EvidenceItem, PlanFile, Priority, Task } from "../types";
 
 const STATUSES: Task["status"][] = [
   "backlog",
@@ -386,6 +386,8 @@ export function TaskDrawer({
 
   const [detail, setDetail] = useState<Task | null>(null);
   const [evidence, setEvidence] = useState<EvidenceItem[] | null>(null);
+  const [planFile, setPlanFile] = useState<PlanFile | null>(null);
+  const [planMissing, setPlanMissing] = useState(false);
 
   // The board payload strips `body`, so the record has to be fetched when the drawer opens. Kept
   // separate from `task` rather than merged: the board stays the live source for everything it
@@ -412,6 +414,32 @@ export function TaskDrawer({
       live = false;
     };
   }, [task?.id, evidenceKey]);
+
+  const parentPlan = task?.epic
+    ? epics.find((e) => e.id === task.epic)?.plan
+    : undefined;
+  useEffect(() => {
+    if (!parentPlan) {
+      setPlanFile(null);
+      setPlanMissing(false);
+      return undefined;
+    }
+    let live = true;
+    void fetchPlanFile(parentPlan)
+      .then((file) => {
+        if (!live) return;
+        setPlanFile(file);
+        setPlanMissing(false);
+      })
+      .catch(() => {
+        if (!live) return;
+        setPlanFile(null);
+        setPlanMissing(true);
+      });
+    return () => {
+      live = false;
+    };
+  }, [parentPlan]);
 
   if (!task) return null;
 
@@ -820,6 +848,43 @@ export function TaskDrawer({
                 );
               })()}
             </Section>
+
+            {task.epic ? (
+              <Section title="PLAN">
+                {!parentPlan ? (
+                  <Text size="small" color="color.text.subtlest">
+                    no plan linked to this epic
+                  </Text>
+                ) : planMissing ? (
+                  <Text size="small" color="color.text.subtlest">
+                    {`${parentPlan} is missing`}
+                  </Text>
+                ) : planFile?.manifest && !planFile.manifest.error ? (
+                  <Stack space="space.075">
+                    <Text size="small" weight="medium">
+                      {planFile.manifest.epicTitle ||
+                        planFile.manifest.plan ||
+                        planFile.name}
+                    </Text>
+                    {(planFile.manifest.goals ?? []).map((g) => (
+                      <Text key={g.id} size="small">
+                        {`${g.id} ${g.title || ""}`.trim()}
+                      </Text>
+                    ))}
+                  </Stack>
+                ) : planFile?.manifest?.error ? (
+                  <Text size="small" color="color.text.subtlest">
+                    could not parse manifest
+                  </Text>
+                ) : planFile?.content ? (
+                  <Markdown source={planFile.content} />
+                ) : (
+                  <Text size="small" color="color.text.subtlest">
+                    {parentPlan}
+                  </Text>
+                )}
+              </Section>
+            ) : null}
 
             <Section title="EVIDENCE">
               {(() => {
