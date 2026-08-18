@@ -3,6 +3,7 @@ import { markSelfWrite } from "./pwa/usePwa";
 import type {
   Adr,
   Board,
+  Capability,
   Epic,
   EvidenceItem,
   PlanFile,
@@ -41,6 +42,10 @@ export const fetchAdr = (id: string) =>
 /** One sprint in full, plus the sprintCounts report the header already carries on the list. */
 export const fetchSprint = (id: string) =>
   json<Sprint>(`/api/sprint/${encodeURIComponent(id)}`);
+
+/** One capability in full. The board list strips `body` the same way it does for ADRs. */
+export const fetchCapability = (id: string) =>
+  json<Capability>(`/api/capability/${encodeURIComponent(id)}`);
 
 export const fetchTemplates = () => json<TemplateSummary[]>("/api/templates");
 
@@ -151,6 +156,21 @@ export const write = {
   acceptAdr: (id: string) => send("POST", `/api/adr/${id}/accept`),
   supersedeAdr: (id: string, payload: { title: string; body?: string }) =>
     send("POST", `/api/adr/${id}/supersede`, payload),
+  proposeCap: (payload: {
+    title: string;
+    area?: string;
+    impact?: string;
+    effort?: string;
+    confidence?: string;
+    problem?: string;
+    current?: string;
+    proposal?: string;
+    criteria?: string[];
+  }) => send("POST", "/api/capability", payload),
+  acceptCap: (id: string) => send("POST", `/api/capability/${id}/accept`),
+  shipCap: (id: string) => send("POST", `/api/capability/${id}/ship`),
+  dropCap: (id: string, why?: string) =>
+    send("POST", `/api/capability/${id}/drop`, why ? { why } : {}),
   edit: (id: string, payload: { title?: string; body?: string; epic?: string | null }) =>
     send("PATCH", `/api/task/${id}`, payload),
   act: (id: string, action: string, payload: Record<string, unknown> = {}) =>

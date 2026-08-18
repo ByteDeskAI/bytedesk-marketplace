@@ -90,14 +90,18 @@ export function Activity({
             .filter((e) => !e._shadowed)
             .map((e, i) => {
               const extra = e._status ? "" : detail(e);
-              const adr = Boolean(e.id && e.id.startsWith("ADR-") && onOpen);
+              const jump = Boolean(
+                e.id &&
+                  (e.id.startsWith("ADR-") || e.id.startsWith("CAP-")) &&
+                  onOpen,
+              );
               return (
                 <Inline
                   key={`${e.ts}-${i}`}
                   space="space.075"
                   xcss={styles.row}
                 >
-                  {adr ? (
+                  {jump ? (
                     <Pressable xcss={styles.id} onClick={() => onOpen!(e.id!)}>
                       <Text size="small" color="color.text.subtlest">
                         {`${e.ts?.slice(11, 19) ?? ""} ${e.id}`}

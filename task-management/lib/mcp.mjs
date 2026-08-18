@@ -21,7 +21,7 @@ import { board, handoff, standup, taskLine } from "./render.mjs";
 import { renderWhy, why } from "./graph.mjs";
 import { listResources, readResource } from "./resources.mjs";
 import { describeQuery, matchesQuery, parseQuery } from "./query.mjs";
-import { accept, propose, ranked, score, ship } from "./capability.mjs";
+import { accept, drop, propose, ranked, score, ship } from "./capability.mjs";
 import { attachEvidence } from "./evidence.mjs";
 
 /**
@@ -462,7 +462,7 @@ export const TOOLS = [
       properties: {
         title: str("The capability, stated as the outcome a user gets."),
         area: str("Product area, e.g. ux, platform, ops. Default: product."),
-        impact: str("S | M | L — how much it moves the product. Default M."),
+        impact: str("H | M | L — how much it moves the product. Default M."),
         effort: str("S | M | L — how much it costs to build. Default M."),
         confidence: str("H | M | L — how sure you are it is the right thing. Default M."),
         source: str("Where it came from: research, operator, incident, gap-backlog."),
@@ -533,6 +533,24 @@ export const TOOLS = [
       try {
         const doc = ship(id, { evidence }, p);
         return ok({ id: doc.id, shipped: doc.shipped });
+      } catch (e) {
+        return fail(e.message);
+      }
+    },
+  },
+  {
+    name: "tm_cap_drop",
+    description:
+      "Drop a capability from the enhancement backlog. The record stays readable with the reason; this is not a delete. Use when the operator has decided not to build it.",
+    inputSchema: {
+      type: "object",
+      properties: { id: str("Capability id."), why: str("Why it is being dropped.") },
+      required: ["id"],
+    },
+    run: ({ id, why }, p) => {
+      try {
+        const doc = drop(id, why, p);
+        return ok({ id: doc.id, status: doc.status, droppedReason: doc.droppedReason || "" });
       } catch (e) {
         return fail(e.message);
       }

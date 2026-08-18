@@ -119,7 +119,7 @@ export function accept(id, p, { create: createTask } = {}) {
 /** `- [ ] criterion` lines from the card become the task's gate. */
 export function acceptanceOf(cap) {
   return [...(cap.body || "").matchAll(/^- \[[ x]\] +(.+)$/gm)]
-    .map((m) => ({ text: m[1].trim(), met: false }))
+    .map((m) => ({ text: m[1].trim(), done: false }))
     .filter((c) => c.text);
 }
 

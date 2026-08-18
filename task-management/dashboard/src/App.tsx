@@ -15,6 +15,8 @@ import { Column } from "./components/Column";
 import { CreateEpicModal, CreateModal } from "./components/CreateModal";
 import { Sparkline } from "./components/Sparkline";
 import { AdrDrawer } from "./components/AdrDrawer";
+import { CapDrawer } from "./components/CapDrawer";
+import { EnhancePanel } from "./components/EnhancePanel";
 import { EpicDrawer } from "./components/EpicDrawer";
 import { TaskDrawer } from "./components/TaskDrawer";
 import { Toolbar } from "./components/Toolbar";
@@ -38,7 +40,7 @@ import { EpicLane } from "./components/EpicLane";
 import type { Lane } from "./components/EpicLane";
 import { PlansInbox } from "./components/PlansInbox";
 import { useBoardKeys } from "./useBoardKeys";
-import type { Board, PlanInboxItem, Sprint, Status, StoreEvent } from "./types";
+import type { Board, Capability, PlanInboxItem, Sprint, Status, StoreEvent } from "./types";
 
 function sprintLozenge(sprint: Sprint | null): string {
   if (!sprint) return "no active sprint";
@@ -480,6 +482,7 @@ export function App() {
                         onActivate={(id) => run(() => write.activeEpic(id))}
                         onOpen={setOpenId}
                         adrs={(board.adrs ?? []).filter((a) => a.epic === lane.id)}
+                        caps={capsOnLane(lane.id, board)}
                         collapsed={collapsed.has(lane.id)}
                         onToggle={() => toggleLane(lane.id)}
                       />
@@ -500,12 +503,19 @@ export function App() {
               columnRow(visible)
             )}
           </Box>
-          <PlansInbox
-            plans={plans}
-            epics={board.epics}
-            onOpen={setOpenId}
-            run={run}
-          />
+          <Stack space="space.200">
+            <PlansInbox
+              plans={plans}
+              epics={board.epics}
+              onOpen={setOpenId}
+              run={run}
+            />
+            <EnhancePanel
+              capabilities={board.capabilities ?? []}
+              onOpen={setOpenId}
+              run={run}
+            />
+          </Stack>
         </Inline>
 
         <Activity
@@ -538,6 +548,17 @@ export function App() {
         onOpenEpic={setOpenId}
         run={run}
       />
+      <CapDrawer
+        cap={
+          (board.capabilities ?? []).find((c) => c.id === openId) ??
+          (openId?.startsWith("CAP-")
+            ? { id: openId, title: "", status: "" }
+            : null)
+        }
+        onClose={() => setOpenId(null)}
+        onOpenTask={setOpenId}
+        run={run}
+      />
       {creating === "task" ? (
         <CreateModal
           epics={board.epics}
@@ -554,6 +575,7 @@ export function App() {
         onClose={() => setPalette(false)}
         tasks={visible}
         adrs={board.adrs ?? []}
+        capabilities={board.capabilities ?? []}
         focused={keys.focusedId}
         commands={commands}
         onOpenTask={setOpenId}
@@ -564,4 +586,13 @@ export function App() {
       <Shortcuts isOpen={help} onClose={() => setHelp(false)} />
     </Box>
   );
+}
+
+/** Caps on a lane only via the minted task's epic — never a field on the card. */
+function capsOnLane(laneId: string, board: Board): Capability[] {
+  const byId = new Map((board.tasks ?? []).map((t) => [t.id, t]));
+  return (board.capabilities ?? []).filter((c) => {
+    if (!c.task) return false;
+    return byId.get(c.task)?.epic === laneId;
+  });
 }

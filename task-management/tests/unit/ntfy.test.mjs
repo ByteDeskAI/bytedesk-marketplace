@@ -68,7 +68,7 @@ function emittedEvents() {
           } else if (c === "," && depth === 0) break;
           arg += c;
         }
-        for (const q of arg.matchAll(/"([a-z_]+)"/g)) names.add(q[1]);
+        for (const q of arg.matchAll(/"([a-z][a-z0-9_-]*)"/g)) names.add(q[1]);
       }
     }
   }

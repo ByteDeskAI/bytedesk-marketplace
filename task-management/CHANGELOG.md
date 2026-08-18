@@ -33,6 +33,15 @@
   set. Doctor reports dangling `epic.plan` and unreferenced `plans/*`
   without deleting them. ExitPlanMode capture prefers the payload path when
   that file exists, else newest-mtime.
+- **Enhance panel for capabilities** (BDM-73). `/api/board` includes `capabilities`
+  (ranked, body-stripped; `[]` when `capabilities/` is empty). `GET /api/capability/:id`
+  returns the full record. `POST /api/capability` proposes; `/:id/accept` mints the
+  task; `/:id/ship` is 409 without evidence (CLI wording); `/:id/drop` takes `{ why? }`.
+  `GET /api/task/CAP-*` stays 400. Caps stay off the kanban — the panel sits beside
+  the board. Accept / Drop / Ship; ship is disabled until `evidence.length`. Task
+  drawer shows `task.capability` as a chip; epic lanes list caps only via the
+  minted task's epic; palette jumps to `CAP-*`. MCP `tm_cap_drop` (also BDM-74)
+  and `tm_cap_propose` impact help is `H | M | L`.
 - **ADRs on the board** (BDM-70). `/api/board` includes `adrs` (body-stripped; `[]` when
   `adrs/` is empty). `GET /api/adr/:id` returns the full record including `body`.
   `POST /api/adr` creates a `proposed` ADR that inherits `activeEpic`.
@@ -80,6 +89,8 @@
   matching auto-close and the drawer.
 
 ### Fixed
+- **`acceptanceOf` writes `{ done: false }`**, not `{ met: false }` (BDM-73). Task
+  gates and `tm done` read `a.done`; minted criteria were invisible to `gateDone`.
 - AskUserQuestion capture inherits `activeEpic` and logs `decision_captured` on first write,
   `decision_updated` on a revision (BDM-70). `upsertDecision` returns `{ action }`, so
   `res.created` was always undefined and every first capture was logged as an update.
