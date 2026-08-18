@@ -77,7 +77,14 @@ export function labels(id, { add = [], remove = [] } = {}, p = paths()) {
 
 export function prioritise(id, priority, p = paths()) {
   must(id, p);
-  const value = String(priority || "").toLowerCase();
+  // Omit / undefined / empty clears. `null` is not a ladder value — the drawer used to send it
+  // and got a 400 — so treat it as a clear rather than as the string "null".
+  if (priority === undefined || priority === null || String(priority).trim() === "") {
+    update(id, { priority: undefined }, p);
+    logEvent("prioritise", { id, priority: null }, p);
+    return null;
+  }
+  const value = String(priority).toLowerCase();
   if (!PRIORITIES.includes(value)) {
     throw new Error(`unknown priority "${priority}" — use one of: ${PRIORITIES.join(", ")}`);
   }
@@ -88,6 +95,12 @@ export function prioritise(id, priority, p = paths()) {
 
 export function estimate(id, points, p = paths()) {
   must(id, p);
+  // Clearing must drop the field. Number("") is 0, which is a real estimate, not an empty one.
+  if (points === undefined || points === null || points === "") {
+    update(id, { estimate: undefined }, p);
+    logEvent("estimate", { id, estimate: null }, p);
+    return null;
+  }
   const value = Number(points);
   if (!Number.isFinite(value) || value < 0) throw new Error(`estimate must be a non-negative number, got "${points}"`);
   update(id, { estimate: value }, p);

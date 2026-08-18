@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Added
+- **The drawer tells the truth about type, body, epic and stop reasons** (BDM-67). Type is a
+  real field (`types.ts`, create, toolbar filter, `POST /api/task/:id/type`), including types
+  still worn only as a label. Context is inline-editable and a task can be refiled under another
+  epic through the existing `PATCH`. Moving to blocked/parked takes a reason; starting work from
+  the board stamps `actor`/`session`/`branch`/`worktree` the way `tm start` does. Drawer and bulk
+  status lists include `backlog`.
+
+### Fixed
+- Clearing priority no longer 400s — `null` is not a ladder value, so the drawer omits the field
+  and the API treats omit/undefined as a clear.
+- Clearing estimate removes the field instead of writing `0`.
+
 ## [0.13.0] — 2026-08-18
 
 ### Changed

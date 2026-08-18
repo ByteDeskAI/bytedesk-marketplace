@@ -97,7 +97,7 @@ export function Toolbar({
             }
           />
         </Box>
-        {(["epic", "assignee", "actor", "priority"] as const).map((key) => (
+        {(["epic", "assignee", "actor", "priority", "type"] as const).map((key) => (
           <Box key={key} xcss={styles.field}>
             <Select<Opt>
               isClearable
@@ -128,7 +128,7 @@ export function Toolbar({
             placeholder="saved views"
             options={opts(Object.keys(views))}
             value={null}
-            onChange={(o) => o && onChange(views[o.value])}
+            onChange={(o) => o && onChange({ ...EMPTY, ...views[o.value] })}
           />
         </Box>
         {isActive(filters) ? (

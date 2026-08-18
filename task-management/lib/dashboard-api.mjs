@@ -12,7 +12,8 @@
  */
 import { gateDone, gateTaskCreate } from "./enforce.mjs";
 import { addComment, addLink, assign, backlog, dependencies, estimate, labels, prioritise, rank, setType, subtasks } from "./issue.mjs";
-import { paths, projectName } from "./paths.mjs";
+import { execFileSync } from "node:child_process";
+import { currentCheckout, paths, projectName } from "./paths.mjs";
 import { claimTask } from "./claims.mjs";
 import { actor, actorLabel, sessionId } from "./actor.mjs";
 import {
@@ -76,7 +77,7 @@ export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
   try {
     switch (action) {
       case "transition":
-        return transition(task, payload.status, p);
+        return transition(task, payload.status, p, payload.reason);
       case "edit":
         return edit(task, payload, p);
       case "assign":
@@ -116,8 +117,38 @@ export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
   }
 }
 
+/**
+ * The same four fields `tm start` writes. The dashboard used to flip the status and take the
+ * claim without naming who, which session, which branch or which checkout — so a card started
+ * from the board looked unclaimed on the next `tm board`.
+ */
+function gitOut(cwd, args) {
+  try {
+    return execFileSync("git", ["-C", cwd, ...args], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return "";
+  }
+}
+
+function stamp(p) {
+  const checkout = currentCheckout(p.root) || p.root;
+  // symbolic-ref works on an unborn HEAD (just `git init -b`); rev-parse needs a commit.
+  const branch =
+    gitOut(checkout, ["symbolic-ref", "--short", "HEAD"]) ||
+    gitOut(checkout, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  return {
+    actor: actorLabel(actor()),
+    session: sessionId() || undefined,
+    branch: branch && branch !== "HEAD" ? branch : undefined,
+    worktree: checkout || undefined,
+  };
+}
+
 /** Status changes carry the same consequences the CLI applies — gate, claim, epic. */
-function transition(task, status, p) {
+function transition(task, status, p, reason) {
   if (!STATUSES.includes(status)) return fail(400, `unknown status "${status}" — use one of: ${STATUSES.join(", ")}`);
 
   if (status === "done") {
@@ -125,7 +156,18 @@ function transition(task, status, p) {
     if (!gate.allow) return fail(409, gate.reason);
   }
 
-  update(task.id, { status, ...(status === "done" ? { closed: new Date().toISOString() } : {}) }, p);
+  const why = typeof reason === "string" && reason.trim() ? reason.trim() : undefined;
+  update(
+    task.id,
+    {
+      status,
+      ...(status === "done" ? { closed: new Date().toISOString() } : {}),
+      blockedReason: status === "blocked" ? why : undefined,
+      parkedReason: status === "parked" ? why : undefined,
+      ...(status === "in_progress" ? stamp(p) : {}),
+    },
+    p,
+  );
 
   // Same consequences the CLI applies, or the board and the terminal disagree.
   if (status === "in_progress") {

@@ -2,10 +2,17 @@ import Button from "@atlaskit/button/new";
 import { cssMap } from "@atlaskit/css";
 import { Box, Inline, Text } from "@atlaskit/primitives/compiled";
 import Select from "@atlaskit/select";
-import { write } from "../api";
+import { stopReason, write } from "../api";
 import type { Priority, Status } from "../types";
 
-const STATUSES: Status[] = ["open", "in_progress", "blocked", "parked", "done"];
+const STATUSES: Status[] = [
+  "backlog",
+  "open",
+  "in_progress",
+  "blocked",
+  "parked",
+  "done",
+];
 const PRIORITIES: Priority[] = ["highest", "high", "medium", "low", "lowest"];
 
 const styles = cssMap({
@@ -44,7 +51,9 @@ export function BulkBar({
           placeholder="move to…"
           options={opts(STATUSES)}
           value={null}
-          onChange={(o) => o && bulk("transition", { status: o.value })}
+          onChange={(o) =>
+            o && bulk("transition", { status: o.value, ...stopReason(o.value) })
+          }
         />
         <Select<Opt>
           spacing="compact"

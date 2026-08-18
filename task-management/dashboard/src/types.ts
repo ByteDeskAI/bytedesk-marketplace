@@ -34,6 +34,11 @@ export interface Task {
   links?: Link[];
   parent?: string;
   rank?: number;
+  /**
+   * Stored issue type. May be absent on older tasks — those still have a type via `typeOf`
+   * (a recognised label, else `task`). `subtask` is not a type; `parent` expresses that.
+   */
+  type?: IssueType;
   /** Only present on a detail fetch — the list payload strips it. */
   body?: string;
   /** Set when the task was imported from a goal doc. */
@@ -42,6 +47,26 @@ export interface Task {
 }
 
 export type Priority = "highest" | "high" | "medium" | "low" | "lowest";
+
+/** The vocabulary `lib/issue.mjs` TYPES owns. `subtask` is parentage, not a type. */
+export const TYPES = ["task", "bug", "story", "spike", "chore"] as const;
+export type IssueType = (typeof TYPES)[number];
+
+/**
+ * How a task's type is decided — same order as `typeOf` in lib/issue.mjs.
+ * Stored field, then a recognised label (the pre-field encoding), then `task`.
+ */
+export function typeOf(
+  task?: Pick<Task, "type" | "labels"> | null,
+): IssueType {
+  if (task?.type && (TYPES as readonly string[]).includes(task.type)) {
+    return task.type;
+  }
+  const worn = (task?.labels ?? [])
+    .map((l) => String(l).toLowerCase())
+    .find((l) => (TYPES as readonly string[]).includes(l) && l !== "task");
+  return (worn as IssueType) || "task";
+}
 
 export interface Comment {
   author?: string;

@@ -1,3 +1,4 @@
+import { typeOf } from "./types";
 import type { Task } from "./types";
 
 export interface Filters {
@@ -6,6 +7,7 @@ export interface Filters {
   assignee: string | null;
   actor: string | null;
   priority: string | null;
+  type: string | null;
   label: string | null;
 }
 
@@ -15,6 +17,7 @@ export const EMPTY: Filters = {
   assignee: null,
   actor: null,
   priority: null,
+  type: null,
   label: null,
 };
 
@@ -23,6 +26,7 @@ export function matches(task: Task, f: Filters): boolean {
   if (f.assignee && task.assignee !== f.assignee) return false;
   if (f.actor && task.actor !== f.actor) return false;
   if (f.priority && task.priority !== f.priority) return false;
+  if (f.type && typeOf(task) !== f.type) return false;
   if (f.label && !(task.labels ?? []).includes(f.label)) return false;
   if (f.text) {
     const hay =
@@ -33,13 +37,22 @@ export function matches(task: Task, f: Filters): boolean {
 }
 
 export const isActive = (f: Filters) =>
-  JSON.stringify(f) !== JSON.stringify(EMPTY);
+  Boolean(f.text) ||
+  f.epic != null ||
+  f.assignee != null ||
+  f.actor != null ||
+  f.priority != null ||
+  f.type != null ||
+  f.label != null;
 
 /** Distinct values actually present on the board — no empty dropdowns. */
 export function options(
   tasks: Task[],
-  key: "epic" | "assignee" | "actor" | "priority",
+  key: "epic" | "assignee" | "actor" | "priority" | "type",
 ): string[] {
+  if (key === "type") {
+    return [...new Set(tasks.map((t) => typeOf(t)))].sort();
+  }
   return [
     ...new Set(tasks.map((t) => t[key]).filter((v): v is string => Boolean(v))),
   ].sort();

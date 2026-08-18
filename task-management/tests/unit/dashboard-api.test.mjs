@@ -8,6 +8,7 @@
  */
 import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { cleanup, tempStore } from "./helpers.mjs";
 import { backlog as backlogOf, handleWrite } from "../../lib/dashboard-api.mjs";
 import { create, read, readEvents, state, update, writeConfig, writeState } from "../../lib/store.mjs";
@@ -146,6 +147,91 @@ describe("field edits", () => {
     const after = read(t.id, p);
     assert.equal(after.title, "renamed");
     assert.match(after.body, /fuller context/);
+  });
+
+  it("sets type through POST /type", () => {
+    const p = store();
+    const t = task(p);
+    const res = act(p, { action: "type", id: t.id, type: "bug" });
+    assert.equal(res.status, 200);
+    assert.equal(read(t.id, p).type, "bug");
+  });
+
+  it("clears priority when the field is omitted rather than 400ing on null", () => {
+    // The drawer used to send `{ priority: null }`. null is not a ladder value, so
+    // prioritise() 400ed and the chip could never come off. Omit / undefined is the
+    // clear — the same shape assign already uses.
+    const p = store();
+    const t = task(p, "a task", { priority: "high" });
+
+    const omitted = handleWrite("POST", `/api/task/${t.id}/priority`, {}, { p });
+    assert.equal(omitted.status, 200, "an omitted priority is a clear, not a bad value");
+    assert.equal(read(t.id, p).priority, undefined);
+
+    act(p, { action: "priority", id: t.id, priority: "low" });
+    const undef = handleWrite("POST", `/api/task/${t.id}/priority`, { priority: undefined }, { p });
+    assert.equal(undef.status, 200);
+    assert.equal(read(t.id, p).priority, undefined);
+  });
+
+  it("clears estimate by removing the field rather than writing 0", () => {
+    const p = store();
+    const t = task(p);
+    act(p, { action: "estimate", id: t.id, estimate: 5 });
+    const res = handleWrite("POST", `/api/task/${t.id}/estimate`, {}, { p });
+    assert.equal(res.status, 200);
+    assert.equal(read(t.id, p).estimate, undefined, "a cleared estimate must vanish, not become 0");
+  });
+});
+
+describe("transition honesty (BDM-67)", () => {
+  it("writes blockedReason when moving to blocked with a reason", () => {
+    const p = store();
+    const t = task(p);
+    const res = act(p, { action: "transition", id: t.id, status: "blocked", reason: "waiting on design" });
+    assert.equal(res.status, 200);
+    assert.equal(read(t.id, p).status, "blocked");
+    assert.equal(read(t.id, p).blockedReason, "waiting on design");
+  });
+
+  it("writes parkedReason when moving to parked with a reason", () => {
+    const p = store();
+    const t = task(p);
+    const res = act(p, { action: "transition", id: t.id, status: "parked", reason: "until the API lands" });
+    assert.equal(res.status, 200);
+    assert.equal(read(t.id, p).status, "parked");
+    assert.equal(read(t.id, p).parkedReason, "until the API lands");
+  });
+
+  it("drops the stop reason when leaving blocked or parked", () => {
+    const p = store();
+    const t = task(p, "a task", { status: "blocked", blockedReason: "old reason" });
+    act(p, { action: "transition", id: t.id, status: "open" });
+    assert.equal(read(t.id, p).blockedReason, undefined);
+  });
+
+  it("stamps actor/session/branch/worktree when moving to in_progress, like tm start", () => {
+    const p = store();
+    execFileSync("git", ["init", "-q", "-b", "feat/stamp", p.root]);
+    const prevActor = process.env.TM_ACTOR;
+    const prevSession = process.env.CLAUDE_SESSION_ID;
+    process.env.TM_ACTOR = "dashboard-test";
+    process.env.CLAUDE_SESSION_ID = "sess-abc";
+    try {
+      const t = task(p);
+      const res = act(p, { action: "transition", id: t.id, status: "in_progress" });
+      assert.equal(res.status, 200);
+      const after = read(t.id, p);
+      assert.equal(after.actor, "@dashboard-test");
+      assert.equal(after.session, "sess-abc");
+      assert.equal(after.branch, "feat/stamp");
+      assert.equal(after.worktree, p.root);
+    } finally {
+      if (prevActor === undefined) delete process.env.TM_ACTOR;
+      else process.env.TM_ACTOR = prevActor;
+      if (prevSession === undefined) delete process.env.CLAUDE_SESSION_ID;
+      else process.env.CLAUDE_SESSION_ID = prevSession;
+    }
   });
 });
 

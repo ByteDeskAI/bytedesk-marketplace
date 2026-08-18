@@ -14,12 +14,14 @@ import Tag from "@atlaskit/tag";
 import Textfield from "@atlaskit/textfield";
 import TextArea from "@atlaskit/textarea";
 import Tooltip from "@atlaskit/tooltip";
-import { fetchTask, write } from "../api";
+import { fetchTask, stopReason, write } from "../api";
 import { Markdown } from "./Markdown";
 import { ActorBadge } from "./ActorBadge";
-import type { Priority, Task } from "../types";
+import { TYPES, typeOf } from "../types";
+import type { Epic, Priority, Task } from "../types";
 
 const STATUSES: Task["status"][] = [
+  "backlog",
   "open",
   "in_progress",
   "blocked",
@@ -250,15 +252,81 @@ function InlineField({
   );
 }
 
+function InlineArea({
+  value,
+  label,
+  editLabel,
+  placeholder,
+  onCommit,
+}: {
+  value: string;
+  label: string;
+  editLabel: string;
+  placeholder: string;
+  onCommit: (next: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const open = (next: boolean) => setEditing(next);
+
+  useEffect(() => {
+    if (!editing) return undefined;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      e.preventDefault();
+      open(false);
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  });
+  return (
+    <InlineEdit
+      defaultValue={value}
+      label={label}
+      editButtonLabel={editLabel}
+      readViewFitContainerWidth
+      keepEditViewOpenOnBlur
+      isEditing={editing}
+      onEdit={() => open(true)}
+      onCancel={() => open(false)}
+      onConfirm={(next: string) => {
+        open(false);
+        onCommit(next);
+      }}
+      editView={({ errorMessage, onChange, ...fieldProps }) => (
+        <TextArea
+          {...fieldProps}
+          minimumRows={6}
+          autoFocus
+          onChange={(e) =>
+            onChange((e.target as HTMLTextAreaElement).value)
+          }
+        />
+      )}
+      readView={() => (
+        <Box xcss={styles.readView}>
+          {value.trim() ? (
+            <Markdown source={value} />
+          ) : (
+            <Text color="color.text.subtlest">{placeholder}</Text>
+          )}
+        </Box>
+      )}
+    />
+  );
+}
+
 /** Every field on one card. Each control is one call to the write API — no local model. */
 export function TaskDrawer({
   task,
   tasks,
+  epics = [],
   onClose,
   run,
 }: {
   task: Task | null;
   tasks: Task[];
+  epics?: Epic[];
   onClose: () => void;
   run: (fn: () => Promise<unknown>) => void;
 }) {
@@ -281,7 +349,7 @@ export function TaskDrawer({
     return () => {
       live = false;
     };
-  }, [task?.id]);
+  }, [task?.id, task?.updated]);
 
   if (!task) return null;
 
@@ -349,16 +417,21 @@ export function TaskDrawer({
         {/* Row 2: everything else, and the only thing that scrolls. */}
         <Box xcss={styles.scroller}>
           <Stack space="space.150">
-            {detail?.body?.trim() ? (
-              <Box xcss={styles.section}>
-                <Stack space="space.050">
-                  <Text weight="bold" size="small" color="color.text.subtlest">
-                    CONTEXT
-                  </Text>
-                  <Markdown source={detail.body} />
-                </Stack>
-              </Box>
-            ) : null}
+            <Box xcss={styles.section}>
+              <InlineArea
+                key={`${task.id}-${detail ? "full" : "pending"}`}
+                value={detail?.body ?? ""}
+                label="Context"
+                editLabel={`Edit the body of ${task.id}`}
+                placeholder="Add context (markdown)"
+                onCommit={(next) => {
+                  if (next.trim() !== (detail?.body ?? "").trim()) {
+                    run(() => write.edit(task.id, { body: next }));
+                    setDetail((d) => (d ? { ...d, body: next } : { ...task, body: next }));
+                  }
+                }}
+              />
+            </Box>
 
             {detail?.goalDoc ? (
               <Text
@@ -373,7 +446,16 @@ export function TaskDrawer({
                 placeholder="status"
                 options={opts(STATUSES)}
                 value={current(task.status)}
-                onChange={(o) => o && act("transition", { status: o.value })}
+                onChange={(o) =>
+                  o && act("transition", { status: o.value, ...stopReason(o.value) })
+                }
+              />
+              <Select<Opt>
+                spacing="compact"
+                placeholder="type"
+                options={opts([...TYPES])}
+                value={current(typeOf(task))}
+                onChange={(o) => o && act("type", { type: o.value })}
               />
               <Select<Opt>
                 spacing="compact"
@@ -382,8 +464,23 @@ export function TaskDrawer({
                 options={opts(PRIORITIES)}
                 value={current(task.priority)}
                 onChange={(o) =>
-                  act("priority", { priority: o?.value ?? null })
+                  act("priority", o?.value ? { priority: o.value } : {})
                 }
+              />
+              <Select<Opt>
+                spacing="compact"
+                isClearable
+                placeholder="epic"
+                options={opts(
+                  epics.filter((e) => e.status !== "done").map((e) => e.id),
+                )}
+                value={current(task.epic)}
+                onChange={(o) => {
+                  const next = o?.value ?? null;
+                  if (next !== (task.epic ?? null)) {
+                    run(() => write.edit(task.id, { epic: next }));
+                  }
+                }}
               />
               <Select<Opt>
                 spacing="compact"
@@ -394,6 +491,14 @@ export function TaskDrawer({
                 onChange={(o) => act("subtask", { parent: o?.value ?? null })}
               />
             </Inline>
+            {(task.status === "blocked" && task.blockedReason) ||
+            (task.status === "parked" && task.parkedReason) ? (
+              <Text size="small" color="color.text.subtlest">
+                {task.status === "blocked"
+                  ? task.blockedReason
+                  : task.parkedReason}
+              </Text>
+            ) : null}
 
             {/* Both were placeholder-only, so each lost its name the moment you typed into it.
                 `label` is a real label, and the read view is a button assistive tech can announce. */}
@@ -416,8 +521,15 @@ export function TaskDrawer({
                 editLabel={`Edit the estimate of ${task.id}`}
                 placeholder="No estimate"
                 onCommit={(next) => {
-                  if (next.trim() !== String(task.estimate ?? "")) {
-                    act("estimate", { estimate: Number(next) || 0 });
+                  const raw = next.trim();
+                  if (raw === String(task.estimate ?? "")) return;
+                  if (!raw) {
+                    act("estimate", {});
+                    return;
+                  }
+                  const value = Number(raw);
+                  if (Number.isFinite(value) && value >= 0) {
+                    act("estimate", { estimate: value });
                   }
                 }}
               />

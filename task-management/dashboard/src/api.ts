@@ -49,6 +49,15 @@ async function send(method: string, url: string, payload?: unknown) {
   return data;
 }
 
+/** Prompt for a stop reason. Cancel / empty omits the field; the transition still happens. */
+export function stopReason(status: Task["status"] | string): { reason?: string } {
+  if (status !== "blocked" && status !== "parked") return {};
+  const why = window.prompt(
+    status === "blocked" ? "Why is this blocked?" : "Why is this parked?",
+  );
+  return why?.trim() ? { reason: why.trim() } : {};
+}
+
 /** One call per board action. The server owns the gates; this is only plumbing. */
 export const write = {
   // `body` was missing here, so the create form collected a markdown body into React state and
@@ -59,8 +68,8 @@ export const write = {
     epic?: string | null;
     assignee?: string;
     priority?: string;
-  }) => send("POST", "/api/task", payload),
-  edit: (id: string, payload: { title?: string; body?: string }) =>
+  }) => send("POST", "/api/task", payload) as Promise<{ id: string }>,
+  edit: (id: string, payload: { title?: string; body?: string; epic?: string | null }) =>
     send("PATCH", `/api/task/${id}`, payload),
   act: (id: string, action: string, payload: Record<string, unknown> = {}) =>
     send("POST", `/api/task/${id}/${action}`, payload),
@@ -69,8 +78,11 @@ export const write = {
     send("POST", "/api/settings", patch),
   bulk: (ids: string[], op: string, args: Record<string, unknown> = {}) =>
     send("POST", "/api/bulk", { ids, op, args }),
-  transition: (id: string, status: Task["status"]) =>
-    send("POST", `/api/task/${id}/transition`, { status }),
+  transition: (
+    id: string,
+    status: Task["status"],
+    extra: Record<string, unknown> = {},
+  ) => send("POST", `/api/task/${id}/transition`, { status, ...extra }),
   /** Add or remove blockers. Refused server-side if it would close a cycle. */
   dep: (id: string, change: { add?: string[]; remove?: string[] }) =>
     send("POST", `/api/task/${id}/dep`, change),
