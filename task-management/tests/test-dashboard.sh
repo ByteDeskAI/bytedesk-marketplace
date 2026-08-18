@@ -359,6 +359,19 @@ post /api/task/TM-003/rank '{"before":"TM-001"}' >/dev/null
 assert_contains "$(md TM-003)" "rank:" "a drag writes a rank"
 assert_contains "$(curl -fsS "$BASE/api/backlog")" "TM-003" "the backlog is served in order"
 
+# BDM-68 — GET /api/templates must be wired here; handleWrite is only reached from POST/PATCH.
+assert_contains "$(curl -fsS "$BASE/api/templates")" '"name":"bug"' "GET /api/templates lists store templates"
+assert_contains "$(curl -fsS "$BASE/api/templates/bug")" "## Repro" "GET /api/templates/:name returns the file"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/templates/ghost")"
+[[ "$CODE" == 404 ]] && ok "a missing template is 404" || no "a missing template is 404" "got $CODE"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/templates/..%2f..%2fetc")"
+[[ "$CODE" == 400 ]] && ok "an unsafe template name is 400" || no "an unsafe template name is 400" "got $CODE"
+CODE="$(post /api/task '{"title":"From a template","template":"bug"}')"
+[[ "$CODE" == 201 ]] && ok "create with a template returns 201" || no "create with a template returns 201" "got $CODE: $(body)"
+assert_contains "$(md TM-004)" "## Repro" "a templated create writes the skeleton body"
+CODE="$(post /api/task '{"title":"Ghost","template":"ghost"}')"
+[[ "$CODE" == 400 ]] && ok "an unknown template is 400 not a blank 201" || no "an unknown template is 400 not a blank 201" "got $CODE"
+
 # Bulk edit is one request, several store writes.
 post /api/bulk '{"ids":["TM-001","TM-003"],"op":"priority","args":{"priority":"low"}}' >/dev/null
 assert_contains "$(md TM-001)" 'priority: "low"' "bulk edit writes the first task"

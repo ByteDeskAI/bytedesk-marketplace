@@ -12,6 +12,12 @@
   drawer opens from a lane header (body, status/`closed`, children, plan chip,
   make-active, close/reopen). Task drawer `<Select>` refiles via the existing
   `PATCH { epic }` / `moveTask`. CreateModal lists open epics only.
+- **CreateModal can start a task from a store template** (BDM-68). `GET /api/templates`
+  lists `{ name, description }`; `GET /api/templates/:name` returns the file (`404` missing,
+  `400` unsafe). `POST /api/task` with `template` runs the same `applyTemplate` merge as
+  `tm task new --template` — unknown names are `400`, empty `acceptance` / `body` keep the
+  template's, and `description` never lands on the task. The picker is hidden when the
+  store has no templates.
 
 ### Changed
 - **`tm epic use` / `tm_epic use` refuse a done epic** with the same reason the

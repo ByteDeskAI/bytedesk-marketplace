@@ -8,9 +8,12 @@
  */
 import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { cleanup, tempStore } from "./helpers.mjs";
 import { backlog as backlogOf, boardPayload, handleWrite } from "../../lib/dashboard-api.mjs";
-import { create, read, readEvents, state, update, writeConfig, writeState } from "../../lib/store.mjs";
+import { create, list, read, readEvents, state, update, writeConfig, writeState } from "../../lib/store.mjs";
+import { seedTemplates } from "../../lib/templates.mjs";
 
 const stores = [];
 function store() {
@@ -294,6 +297,104 @@ describe("creation", () => {
   it("refuses an empty title", () => {
     const p = store();
     assert.equal(handleWrite("POST", "/api/task", { title: "  " }, { p }).status, 400);
+  });
+
+  it("applies a template the same way `tm task new --template` does", () => {
+    const p = store();
+    seedTemplates(p);
+    const res = handleWrite("POST", "/api/task", { title: "login 500s", template: "bug" }, { p });
+    assert.equal(res.status, 201);
+    const created = read(res.body.id, p);
+    assert.match(created.body, /## Repro/, "the template body is the task body");
+    assert.equal(created.acceptance.length, 1, "template acceptance must survive the create defaults");
+    assert.equal(created.description, undefined, "`description` describes the template, not the task");
+    assert.equal(created.type, "bug");
+  });
+
+  it("refuses an unknown template with 400 instead of minting a blank task", () => {
+    const p = store();
+    const before = list("task", {}, p).length;
+    const res = handleWrite("POST", "/api/task", { title: "orphan", template: "ghost" }, { p });
+    assert.equal(res.status, 400, "an unknown name is the caller's mistake, not a 201");
+    assert.match(res.body.error, /no such template/);
+    assert.equal(list("task", {}, p).length, before, "a refused template must not have created anything");
+  });
+
+  it("does not let empty acceptance or an empty body wipe the template", () => {
+    const p = store();
+    seedTemplates(p);
+    const res = handleWrite(
+      "POST",
+      "/api/task",
+      { title: "still a bug", template: "bug", acceptance: [], body: "" },
+      { p },
+    );
+    assert.equal(res.status, 201);
+    const created = read(res.body.id, p);
+    assert.equal(created.acceptance.length, 1, "acceptance: [] is a create default, not a wipe");
+    assert.match(created.body, /## Repro/, "an empty body must not erase the template skeleton");
+  });
+
+  it("does not invent a type for a template that never had one", () => {
+    // Seeded stores written before type existed must keep working; do not rewrite them.
+    const p = store();
+    mkdirSync(p.templates, { recursive: true });
+    writeFileSync(
+      join(p.templates, "legacy.md"),
+      '---\ndescription: "old starter"\nacceptance: ["prove it"]\nlabels: ["legacy"]\n---\n\n## Notes\n',
+    );
+    const res = handleWrite("POST", "/api/task", { title: "from legacy", template: "legacy" }, { p });
+    assert.equal(res.status, 201);
+    const created = read(res.body.id, p);
+    assert.equal(created.type, undefined, "a typeless template must not grow a type on create");
+    assert.equal(created.description, undefined);
+    assert.deepEqual(created.labels, ["legacy"]);
+  });
+});
+
+describe("templates", () => {
+  it("lists each template's name and description", () => {
+    const p = store();
+    seedTemplates(p);
+    const res = handleWrite("GET", "/api/templates", null, { p });
+    assert.equal(res.status, 200);
+    const names = res.body.map((t) => t.name);
+    assert.deepEqual(names, ["bug", "chore", "spike"]);
+    for (const t of res.body) {
+      assert.equal(typeof t.description, "string");
+      assert.ok(t.description.length, `${t.name} should carry a description`);
+    }
+  });
+
+  it("returns [] when the store has no templates at all", () => {
+    const p = store();
+    const res = handleWrite("GET", "/api/templates", null, { p });
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body, []);
+  });
+
+  it("reads one template in full", () => {
+    const p = store();
+    seedTemplates(p);
+    const res = handleWrite("GET", "/api/templates/bug", null, { p });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.name, "bug");
+    assert.match(res.body.body, /## Repro/);
+    assert.equal(res.body.fields.description, "a defect with a known repro, closed by a regression test");
+  });
+
+  it("404s a template that does not exist", () => {
+    const p = store();
+    const res = handleWrite("GET", "/api/templates/ghost", null, { p });
+    assert.equal(res.status, 404);
+    assert.match(res.body.error, /no such template/);
+  });
+
+  it("400s a path-unsafe name instead of walking out of the store", () => {
+    const p = store();
+    const res = handleWrite("GET", "/api/templates/..%2f..%2fetc%2fpasswd", null, { p });
+    assert.equal(res.status, 400);
+    assert.match(res.body.error, /unsafe template name/);
   });
 });
 
