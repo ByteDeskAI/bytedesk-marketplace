@@ -7,9 +7,8 @@
  * Usage: tm <verb> [args]        tm help
  */
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import { homedir } from "node:os";
 import { boardId, currentCheckout, ensureDirs, gitUser, isInitialized, legacyStore, paths } from "../lib/paths.mjs";
 import {
   kindOf,
@@ -62,6 +61,7 @@ import { FORMATS, exportStore } from "../lib/export.mjs";
 import { MAX_TOUCHES, observe, record } from "../lib/touches.mjs";
 import { goalBody, manifestGoalTitle, parseGoalDoc, parseManifest, refusal } from "../lib/goals.mjs";
 import { attachEvidence } from "../lib/evidence.mjs";
+import { capturePlan as saveCapturedPlan } from "../lib/plans.mjs";
 
 const P = paths();
 const rawArgs = process.argv.slice(2);
@@ -1433,6 +1433,7 @@ function renderShow(doc) {
     doc.actor && doc.actor !== "main" ? `thread: ${doc.actor}` : "",
     doc.parent ? `parent: ${doc.parent}` : "",
     doc.reopenedReason ? `reopened: ${doc.reopenedReason}` : "",
+    doc.plan ? `plan: ${doc.plan}` : "",
   ].filter(Boolean);
   if (facts.length) lines.push(facts.join("   "));
   if ((doc.labels || []).length) lines.push(`labels: ${doc.labels.join(", ")}`);
@@ -1489,17 +1490,6 @@ function readStdin() {
   } catch {
     return {};
   }
-}
-
-/** Newest plan file in ~/.claude/plans, which is where ExitPlanMode writes. */
-function newestPlanFile() {
-  const dir = join(homedir(), ".claude", "plans");
-  if (!existsSync(dir)) return null;
-  const files = readdirSync(dir)
-    .filter((f) => f.endsWith(".md"))
-    .map((f) => ({ f, m: statSync(join(dir, f)).mtimeMs }))
-    .sort((a, b) => b.m - a.m);
-  return files.length ? join(dir, files[0].f) : null;
 }
 
 function hook(event) {
@@ -1803,28 +1793,14 @@ function hook(event) {
 
 /** ExitPlanMode → copy the plan into the repo, open an epic, remember the link. */
 function capturePlan(input) {
-  const src = newestPlanFile();
-  if (!src) return;
-  mkdirSync(P.plans, { recursive: true });
-  const title = (readFileSync(src, "utf8").match(/^#\s+(.+)$/m) || [, basename(src, ".md")])[1];
-  const dest = join(P.plans, `${now().slice(0, 10)}-${slug(title)}.md`);
-  if (!existsSync(dest)) copyFileSync(src, dest);
-
-  let epicId = state(P).activeEpic;
-  if (!epicId) {
-    const e = create("epic", { title, plan: dest.replace(`${P.root}/`, ""), ...stamp() }, `Plan: ${dest.replace(`${P.root}/`, "")}\n`, P);
-    writeState({ activeEpic: e.id }, P);
-    epicId = e.id;
-  } else {
-    update(epicId, { plan: dest.replace(`${P.root}/`, "") }, P);
-  }
-  logEvent("plan_captured", { id: epicId, plan: dest }, P);
+  const res = saveCapturedPlan(input, P, { stamp: stamp() });
+  if (!res) return;
   out(
     JSON.stringify({
       hookSpecificOutput: {
         hookEventName: "PostToolUse",
         additionalContext:
-          `task-management: plan saved to ${dest.replace(`${P.root}/`, "")} and linked to epic ${epicId} (now active). ` +
+          `task-management: plan saved to ${res.rel} and linked to epic ${res.epicId} (now active). ` +
           "Create the implementation tasks with TaskCreate — they will be filed under this epic automatically.",
       },
     }),

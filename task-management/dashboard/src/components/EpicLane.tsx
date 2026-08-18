@@ -55,6 +55,8 @@ export interface Lane {
   title: string;
   status: string | null;
   active: boolean;
+  /** Repo-relative path when this epic has a linked plan. */
+  plan?: string;
 }
 
 function newestAdr<T extends { id: string; created?: string }>(adrs: T[]): T | undefined {
@@ -144,6 +146,12 @@ export function EpicLane({
           <Bump on={done}>
             <Badge appearance={total && done === total ? "added" : "default"}>{`${done}/${total}`}</Badge>
           </Bump>
+
+          {lane.plan ? (
+            <Tooltip content={lane.plan}>
+              <Lozenge appearance="new">plan</Lozenge>
+            </Tooltip>
+          ) : null}
 
           {adrs.length > 0 && onOpen ? (
             <Tooltip

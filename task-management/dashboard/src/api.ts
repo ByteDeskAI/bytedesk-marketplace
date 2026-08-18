@@ -1,6 +1,18 @@
 import { queueWrite } from "./pwa/outbox.mjs";
 import { markSelfWrite } from "./pwa/usePwa";
-import type { Adr, Board, Epic, EvidenceItem, Sprint, StoreEvent, Task, TemplateDetail, TemplateSummary } from "./types";
+import type {
+  Adr,
+  Board,
+  Epic,
+  EvidenceItem,
+  PlanFile,
+  PlanInboxItem,
+  Sprint,
+  StoreEvent,
+  Task,
+  TemplateDetail,
+  TemplateSummary,
+} from "./types";
 
 const json = <T>(url: string): Promise<T> =>
   fetch(url).then((r) => r.json() as Promise<T>);
@@ -40,6 +52,18 @@ export const fetchEvidence = (id: string) =>
   json<{ evidence: EvidenceItem[] }>(
     `/api/task/${encodeURIComponent(id)}/evidence`,
   );
+
+/** Derived inbox. Empty `plans/` is `[]`, not omitted. */
+export const fetchPlans = () =>
+  json<PlanInboxItem[]>("/api/plans").catch((): PlanInboxItem[] => []);
+
+/** Confined file GET. 404 outside p.plans unless the ref is an epic.plan file. */
+export async function fetchPlanFile(ref: string): Promise<PlanFile> {
+  const res = await fetch(`/api/plans/file?ref=${encodeURIComponent(ref)}`);
+  const data = (await res.json().catch(() => ({}))) as PlanFile & { error?: string };
+  if (!res.ok) throw new Error(data.error || "not found");
+  return data;
+}
 
 /** Multipart attach — not queued offline: a File cannot go through the JSON outbox. */
 export async function attachEvidenceFile(id: string, file: File) {
@@ -119,6 +143,9 @@ export const write = {
     send("POST", "/api/epic", payload),
   closeEpic: (id: string) => send("POST", `/api/epic/${id}/close`),
   reopenEpic: (id: string) => send("POST", `/api/epic/${id}/reopen`),
+  /** Set or clear `epic.plan`. `null` / `""` drops the pointer. */
+  epicPlan: (id: string, plan: string | null) =>
+    send("POST", `/api/epic/${id}/plan`, { plan }),
   createAdr: (payload: { title: string; body?: string }) =>
     send("POST", "/api/adr", payload),
   acceptAdr: (id: string) => send("POST", `/api/adr/${id}/accept`),

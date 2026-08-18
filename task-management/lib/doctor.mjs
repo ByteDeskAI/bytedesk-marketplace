@@ -16,6 +16,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { basename, isAbsolute, join } from "node:path";
+import { planFindings } from "./plans.mjs";
 import { RESOLVED, list, logEvent, missingContractRules, reindex, reopenEpic, seedGitContract, state, boardIdentity, storeBoard, trackedHostFiles, untrackHostFiles, update, writeState } from "./store.mjs";
 import { LINK_TYPES } from "./issue.mjs";
 import { releaseClaim, staleClaims, sweepClaims } from "./claims.mjs";
@@ -445,6 +446,10 @@ export function diagnose(p = paths()) {
       out.push(finding("warning", "unclaimed-wip", t.id, "in_progress with no claim — another session could take it"));
     }
   }
+
+  // Report-only: a missing epic.plan file, or a file in plans/ no epic points at.
+  // Never delete — the plan may be the only copy of the approved work.
+  out.push(...planFindings(p, finding));
 
   // The cache is disposable, but a stale one makes the dashboard and the CLI disagree.
   const drift = indexDrift(p, live);

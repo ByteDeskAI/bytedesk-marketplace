@@ -21,6 +21,18 @@
   filter different sprints; the CLI already writes `activeSprint` via
   `writeState` into state.json. `boardPayload.state` already sends
   `state(p)`.
+- **Plans inbox and epic.plan renderer** (BDM-72). Plans stay a derived
+  inbox, not a KIND: `GET /api/plans` is a readdir of `plans/` (`[]` when
+  empty), joined with the epic that points at each file. `GET /api/plans/file?ref=`
+  is 200 only when the realpath sits inside `p.plans` or is the exact
+  `epic.plan` file — traversal and paths outside are 404. `POST /api/epic/:id/plan`
+  sets or clears the pointer. The drawer PLAN section renders `.md` as
+  markdown and `*.plan.json` via `parseManifest` (title + goals, not a dump).
+  EpicLane chips a linked plan. The inbox sits beside the board, not as a
+  sixth column; unlinked files stay visible. `tm show` prints `plan:` when
+  set. Doctor reports dangling `epic.plan` and unreferenced `plans/*`
+  without deleting them. ExitPlanMode capture prefers the payload path when
+  that file exists, else newest-mtime.
 - **ADRs on the board** (BDM-70). `/api/board` includes `adrs` (body-stripped; `[]` when
   `adrs/` is empty). `GET /api/adr/:id` returns the full record including `body`.
   `POST /api/adr` creates a `proposed` ADR that inherits `activeEpic`.

@@ -6,7 +6,7 @@ import { Pressable } from "@atlaskit/primitives/compiled";
 import SectionMessage from "@atlaskit/section-message";
 import Spinner from "@atlaskit/spinner";
 import { burndown, startTimes } from "../metrics.mjs";
-import { fetchBoard, fetchEvents, stopReason, subscribe, write } from "./api";
+import { fetchBoard, fetchEvents, fetchPlans, stopReason, subscribe, write } from "./api";
 import { EMPTY, matches } from "./filters";
 import type { Filters } from "./filters";
 import { Activity } from "./components/Activity";
@@ -36,8 +36,9 @@ import { loadCollapsed, saveCollapsed } from "./collapsed";
 import { useLiveWork } from "./motion";
 import { EpicLane } from "./components/EpicLane";
 import type { Lane } from "./components/EpicLane";
+import { PlansInbox } from "./components/PlansInbox";
 import { useBoardKeys } from "./useBoardKeys";
-import type { Board, Sprint, Status, StoreEvent } from "./types";
+import type { Board, PlanInboxItem, Sprint, Status, StoreEvent } from "./types";
 
 function sprintLozenge(sprint: Sprint | null): string {
   if (!sprint) return "no active sprint";
@@ -60,6 +61,7 @@ const styles = cssMap({
     paddingBlockEnd: "var(--ds-space-200)",
   },
   board: { overflowX: "auto", paddingBlockEnd: "var(--ds-space-100)" },
+  boardMain: { minWidth: "0", flexGrow: 1 },
   lozenge: {
     cursor: "pointer",
     backgroundColor: "transparent",
@@ -71,6 +73,7 @@ const styles = cssMap({
 export function App() {
   const [board, setBoard] = useState<Board | null>(null);
   const [events, setEvents] = useState<StoreEvent[]>([]);
+  const [plans, setPlans] = useState<PlanInboxItem[]>([]);
   const [live, setLive] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const [filters, setFilters] = useState<Filters>(EMPTY);
@@ -118,6 +121,7 @@ export function App() {
   const load = useCallback(() => {
     void fetchBoard().then(setBoard);
     void fetchEvents().then(setEvents);
+    void fetchPlans().then(setPlans);
     setNow(Date.now());
   }, []);
 
@@ -460,39 +464,49 @@ export function App() {
           activeSprint={sprintId}
         />
 
-        {grouped ? (
-          <Stack space="space.100">
-            {(lanes as Lane[]).map((lane) => {
-              const mine = laneTasks(visible, lane.id);
-              const progress = laneProgress(laneTasks(board.tasks, lane.id));
-              return (
-                <Stack key={lane.id} space="space.075">
-                  <EpicLane
-                    lane={lane}
-                    {...progress}
-                    isNoEpic={lane.id === NO_EPIC}
-                    onActivate={(id) => run(() => write.activeEpic(id))}
-                    onOpen={setOpenId}
-                    adrs={(board.adrs ?? []).filter((a) => a.epic === lane.id)}
-                    collapsed={collapsed.has(lane.id)}
-                    onToggle={() => toggleLane(lane.id)}
-                  />
-                  {/* A lane the filter emptied is worth saying so, rather than
-                      rendering five empty columns under a heading. */}
-                  {collapsed.has(lane.id) ? null : mine.length ? (
-                    columnRow(mine)
-                  ) : (
-                    <Text size="small" color="color.text.subtlest">
-                      nothing here matches the filter
-                    </Text>
-                  )}
-                </Stack>
-              );
-            })}
-          </Stack>
-        ) : (
-          columnRow(visible)
-        )}
+        <Inline space="space.200" alignBlock="start">
+          <Box xcss={styles.boardMain}>
+            {grouped ? (
+              <Stack space="space.100">
+                {(lanes as Lane[]).map((lane) => {
+                  const mine = laneTasks(visible, lane.id);
+                  const progress = laneProgress(laneTasks(board.tasks, lane.id));
+                  return (
+                    <Stack key={lane.id} space="space.075">
+                      <EpicLane
+                        lane={lane}
+                        {...progress}
+                        isNoEpic={lane.id === NO_EPIC}
+                        onActivate={(id) => run(() => write.activeEpic(id))}
+                        onOpen={setOpenId}
+                        adrs={(board.adrs ?? []).filter((a) => a.epic === lane.id)}
+                        collapsed={collapsed.has(lane.id)}
+                        onToggle={() => toggleLane(lane.id)}
+                      />
+                      {/* A lane the filter emptied is worth saying so, rather than
+                          rendering five empty columns under a heading. */}
+                      {collapsed.has(lane.id) ? null : mine.length ? (
+                        columnRow(mine)
+                      ) : (
+                        <Text size="small" color="color.text.subtlest">
+                          nothing here matches the filter
+                        </Text>
+                      )}
+                    </Stack>
+                  );
+                })}
+              </Stack>
+            ) : (
+              columnRow(visible)
+            )}
+          </Box>
+          <PlansInbox
+            plans={plans}
+            epics={board.epics}
+            onOpen={setOpenId}
+            run={run}
+          />
+        </Inline>
 
         <Activity
           events={[...events].reverse().slice(0, 60)}

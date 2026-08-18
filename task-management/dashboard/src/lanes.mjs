@@ -32,6 +32,7 @@ export function laneOrder(epics, tasks, activeEpic) {
       title: e.title,
       status: e.status,
       active: e.id === activeEpic,
+      plan: e.plan || undefined,
     }))
     .sort((a, b) => {
       if (a.active !== b.active) return a.active ? -1 : 1;

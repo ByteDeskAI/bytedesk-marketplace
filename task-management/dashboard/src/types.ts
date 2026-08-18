@@ -114,6 +114,36 @@ export interface Epic {
   body?: string;
 }
 
+/** `GET /api/plans` — derived readdir, not a KIND. */
+export interface PlanInboxItem {
+  path: string;
+  name: string;
+  linkedEpic?: string;
+  exists: boolean;
+}
+
+/** One goal row from parseManifest — title + list, never a raw dump. */
+export interface PlanManifestGoal {
+  id: string;
+  title?: string | null;
+  doc?: string;
+}
+
+export interface PlanManifest {
+  plan?: string | null;
+  epicTitle?: string;
+  goals?: PlanManifestGoal[];
+  error?: string;
+}
+
+/** `GET /api/plans/file?ref=` — confined; 404 outside p.plans unless it is epic.plan. */
+export interface PlanFile {
+  ref: string;
+  name: string;
+  content?: string;
+  manifest?: PlanManifest;
+}
+
 /** ADR lifecycle only — never a task Status. */
 export type AdrStatus = "proposed" | "accepted" | "superseded";
 
