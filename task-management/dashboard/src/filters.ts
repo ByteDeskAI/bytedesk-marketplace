@@ -9,6 +9,7 @@ export interface Filters {
   priority: string | null;
   type: string | null;
   label: string | null;
+  sprint: string | null;
 }
 
 export const EMPTY: Filters = {
@@ -19,6 +20,7 @@ export const EMPTY: Filters = {
   priority: null,
   type: null,
   label: null,
+  sprint: null,
 };
 
 export function matches(task: Task, f: Filters): boolean {
@@ -28,6 +30,7 @@ export function matches(task: Task, f: Filters): boolean {
   if (f.priority && task.priority !== f.priority) return false;
   if (f.type && typeOf(task) !== f.type) return false;
   if (f.label && !(task.labels ?? []).includes(f.label)) return false;
+  if (f.sprint && task.sprint !== f.sprint) return false;
   if (f.text) {
     const hay =
       `${task.id} ${task.title} ${(task.labels ?? []).join(" ")}`.toLowerCase();
@@ -43,7 +46,8 @@ export const isActive = (f: Filters) =>
   f.actor != null ||
   f.priority != null ||
   f.type != null ||
-  f.label != null;
+  f.label != null ||
+  f.sprint != null;
 
 /** Distinct values actually present on the board — no empty dropdowns. */
 export function options(

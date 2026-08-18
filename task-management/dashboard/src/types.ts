@@ -48,6 +48,8 @@ export interface Task {
   /** Set when the task was imported from a goal doc. */
   goalDoc?: string;
   touches?: string[];
+  /** Sprint this card is committed to, when it is. Closing a sprint leaves this set. */
+  sprint?: string | null;
 }
 
 export type Priority = "highest" | "high" | "medium" | "low" | "lowest";
@@ -130,13 +132,34 @@ export interface Adr {
   body?: string;
 }
 
+/** Sized points only; unsized is counted separately and never treated as 0. */
+export interface SprintReport {
+  cards: number;
+  committed: number;
+  done: number;
+  unsized: number;
+}
+
+export interface Sprint {
+  id: string;
+  title: string;
+  status: string;
+  ends?: string;
+  closed?: string;
+  /** Derived by sprintCounts — the same helper sprintReport prints. */
+  report?: SprintReport;
+  /** Only present on a detail fetch — the list payload strips it. */
+  body?: string;
+}
+
 export interface Board {
   generated: string;
   epics: Epic[];
   tasks: Task[];
   adrs: Adr[];
+  sprints: Sprint[];
   /** state.json. The board payload has always carried this; the UI used to ignore it. */
-  state?: { activeEpic?: string | null; claims?: Record<string, unknown> };
+  state?: { activeEpic?: string | null; activeSprint?: string | null; claims?: Record<string, unknown> };
   /** Board preferences out of the repo's own config, so they follow the project not the browser. */
   settings?: {
     categories?: string[];

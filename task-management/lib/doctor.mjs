@@ -105,6 +105,7 @@ export function diagnose(p = paths()) {
     [...tasks, ...list("epic", {}, p), ...list("adr", {}, p), ...list("capability", {}, p)].map((e) => [e.id, e]),
   );
   const epics = new Set(list("epic", {}, p).map((e) => e.id));
+  const sprints = new Set(list("sprint", {}, p).map((s) => s.id));
   const out = [];
 
   for (const t of live) {
@@ -176,6 +177,15 @@ export function diagnose(p = paths()) {
         finding("error", "orphan-epic", t.id, `epic ${t.epic} does not exist`, () => {
           update(t.id, { epic: null }, p);
           return `cleared ${t.id}.epic`;
+        }),
+      );
+    }
+
+    if (t.sprint && !sprints.has(t.sprint)) {
+      out.push(
+        finding("error", "dangling-sprint", t.id, `sprint ${t.sprint} does not exist`, () => {
+          update(t.id, { sprint: undefined }, p);
+          return `cleared ${t.id}.sprint`;
         }),
       );
     }
@@ -442,7 +452,7 @@ export function diagnose(p = paths()) {
     out.push(
       finding("warning", "index-drift", null, drift, () => {
         const idx = reindex(p);
-        return `reindexed ${idx.epics.length} epics, ${idx.tasks.length} tasks, ${idx.adrs.length} adrs, ${idx.capabilities.length} capabilities`;
+        return `reindexed ${idx.epics.length} epics, ${idx.tasks.length} tasks, ${idx.adrs.length} adrs, ${(idx.sprints || []).length} sprints, ${idx.capabilities.length} capabilities`;
       }),
     );
   }

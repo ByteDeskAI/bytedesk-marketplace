@@ -206,6 +206,24 @@ describe("links, epics and parents", () => {
     assert.equal(read(t.id, p).epic, null);
   });
 
+  it("clears a sprint reference that points at nothing", () => {
+    const p = store();
+    const t = create("task", { title: "orphaned sprint", sprint: "SP-404" }, "", p);
+
+    const f = find(p, "dangling-sprint");
+    assert.equal(f.level, "error");
+    assert.ok(f.fixable);
+    heal(p);
+    assert.equal(read(t.id, p).sprint, undefined, "the broken reference is gone, not just unreported");
+  });
+
+  it("leaves a real sprint commitment alone", () => {
+    const p = store();
+    const s = create("sprint", { title: "Sprint 12", status: "open" }, "", p);
+    create("task", { title: "committed", sprint: s.id }, "", p);
+    assert.equal(codes(p).includes("dangling-sprint"), false);
+  });
+
   it("detaches a subtask whose parent is gone", () => {
     const p = store();
     const t = create("task", { title: "child", parent: "TM-404" }, "", p);

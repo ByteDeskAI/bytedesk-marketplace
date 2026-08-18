@@ -31,10 +31,12 @@ export function BulkBar({
   ids,
   onClear,
   run,
+  activeSprint = null,
 }: {
   ids: string[];
   onClear: () => void;
   run: (fn: () => Promise<unknown>) => void;
+  activeSprint?: string | null;
 }) {
   if (!ids.length) return null;
   const bulk = (op: string, args: Record<string, unknown>) => {
@@ -79,6 +81,20 @@ export function BulkBar({
           }}
         >
           Label…
+        </Button>
+        {activeSprint ? (
+          <Button
+            appearance="subtle"
+            onClick={() => bulk("sprint", { sprint: activeSprint })}
+          >
+            This sprint
+          </Button>
+        ) : null}
+        <Button
+          appearance="subtle"
+          onClick={() => bulk("sprint", { sprint: null })}
+        >
+          Uncommit
         </Button>
         <Button appearance="subtle" onClick={onClear}>
           Clear

@@ -19,7 +19,7 @@ import { attachEvidenceFile, fetchEvidence, fetchTask, stopReason, write } from 
 import { Markdown } from "./Markdown";
 import { ActorBadge } from "./ActorBadge";
 import { TYPES, typeOf } from "../types";
-import type { Adr, Epic, EvidenceItem, Priority, Task } from "../types";
+import type { Adr, Epic, EvidenceItem, Priority, Sprint, Task } from "../types";
 
 const STATUSES: Task["status"][] = [
   "backlog",
@@ -366,6 +366,7 @@ export function TaskDrawer({
   tasks,
   epics = [],
   adrs = [],
+  sprints = [],
   onClose,
   onOpen,
   run,
@@ -374,6 +375,7 @@ export function TaskDrawer({
   tasks: Task[];
   epics?: Epic[];
   adrs?: Adr[];
+  sprints?: Sprint[];
   onClose: () => void;
   onOpen?: (id: string) => void;
   run: (fn: () => Promise<unknown>) => void;
@@ -545,6 +547,19 @@ export function TaskDrawer({
                     run(() => write.edit(task.id, { epic: next }));
                   }
                 }}
+              />
+              <Select<Opt>
+                spacing="compact"
+                isClearable
+                placeholder="sprint"
+                options={sprints.map((s) => ({
+                  label: `${s.id} ${s.title}`,
+                  value: s.id,
+                }))}
+                value={current(task.sprint)}
+                onChange={(o) =>
+                  act("sprint", { sprint: o?.value ?? null })
+                }
               />
               <Select<Opt>
                 spacing="compact"

@@ -1,6 +1,6 @@
 import { queueWrite } from "./pwa/outbox.mjs";
 import { markSelfWrite } from "./pwa/usePwa";
-import type { Adr, Board, Epic, EvidenceItem, StoreEvent, Task, TemplateDetail, TemplateSummary } from "./types";
+import type { Adr, Board, Epic, EvidenceItem, Sprint, StoreEvent, Task, TemplateDetail, TemplateSummary } from "./types";
 
 const json = <T>(url: string): Promise<T> =>
   fetch(url).then((r) => r.json() as Promise<T>);
@@ -25,6 +25,10 @@ export const fetchEpic = (id: string) =>
 /** One ADR in full. The board list strips `body` the same way it does for tasks and epics. */
 export const fetchAdr = (id: string) =>
   json<Adr>(`/api/adr/${encodeURIComponent(id)}`);
+
+/** One sprint in full, plus the sprintCounts report the header already carries on the list. */
+export const fetchSprint = (id: string) =>
+  json<Sprint>(`/api/sprint/${encodeURIComponent(id)}`);
 
 export const fetchTemplates = () => json<TemplateSummary[]>("/api/templates");
 
@@ -139,6 +143,12 @@ export const write = {
     send("POST", `/api/task/${id}/dep`, change),
   /** Switch the active epic — the gate every subsequent task creation passes through. */
   activeEpic: (id: string | null) => send("POST", "/api/epic", { id }),
+  /** `{ title, ends? }` creates; `{ id }` activates. Do not send both. */
+  createSprint: (payload: { title: string; ends?: string }) =>
+    send("POST", "/api/sprint", payload),
+  closeSprint: (id: string) => send("POST", `/api/sprint/${id}/done`),
+  /** Switch the active sprint — machine-local; create task does not auto-commit to it. */
+  activeSprint: (id: string | null) => send("POST", "/api/sprint", { id }),
 };
 
 /** The server's SSE tail of events.jsonl. Reconnects are the browser's job. */

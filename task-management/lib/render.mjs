@@ -86,16 +86,26 @@ export function taskLine(t) {
  * of 20 points done, and four cards nobody sized" is telling you something true; folding the
  * unsized into 0 would report the same sprint as further along than it is.
  */
-export function sprintReport(id, p = paths()) {
-  const sprint = read(id, p);
-  if (!sprint) throw new Error(`not found: ${id}`);
-  const tasks = list("task", {}, p).filter((t) => t.sprint === id);
-
+/**
+ * Sized points only. Unsized cards are counted separately and never treated as 0 —
+ * folding them into the total would report the sprint further along than it is.
+ * `sprintReport` and the board header both call this so the two cannot drift.
+ */
+export function sprintCounts(tasks) {
   const pts = (t) => (typeof t.estimate === "number" ? t.estimate : null);
   const sized = tasks.filter((t) => pts(t) !== null);
   const unsized = tasks.length - sized.length;
   const committed = sized.reduce((n, t) => n + pts(t), 0);
   const done = sized.filter((t) => t.status === "done").reduce((n, t) => n + pts(t), 0);
+  return { cards: tasks.length, committed, done, unsized };
+}
+
+export function sprintReport(id, p = paths()) {
+  const sprint = read(id, p);
+  if (!sprint) throw new Error(`not found: ${id}`);
+  const tasks = list("task", {}, p).filter((t) => t.sprint === id);
+
+  const { committed, done, unsized } = sprintCounts(tasks);
 
   const out = [
     `${sprint.id}  ${sprint.title}`,
@@ -118,7 +128,7 @@ export function sprintReport(id, p = paths()) {
   }
   if (unsized) {
     out.push(`${unsized} card(s) carry no estimate, so they are outside the point total:`);
-    out.push(...tasks.filter((t) => pts(t) === null).map((t) => `  ${t.id} ${t.title}`), "");
+    out.push(...tasks.filter((t) => typeof t.estimate !== "number").map((t) => `  ${t.id} ${t.title}`), "");
   }
   return out.join("\n").trimEnd();
 }

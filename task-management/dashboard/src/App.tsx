@@ -37,7 +37,15 @@ import { useLiveWork } from "./motion";
 import { EpicLane } from "./components/EpicLane";
 import type { Lane } from "./components/EpicLane";
 import { useBoardKeys } from "./useBoardKeys";
-import type { Board, Status, StoreEvent } from "./types";
+import type { Board, Sprint, Status, StoreEvent } from "./types";
+
+function sprintLozenge(sprint: Sprint | null): string {
+  if (!sprint) return "no active sprint";
+  const r = sprint.report;
+  if (!r) return sprint.id;
+  const pts = `${r.done}/${r.committed} pts`;
+  return r.unsized ? `${sprint.id} ${pts} · ${r.unsized} unsized` : `${sprint.id} ${pts}`;
+}
 
 // One order for the columns, the digit shortcuts and the keyboard walk — three
 // arrays that must agree is three chances for `3` to mean a different column.
@@ -178,6 +186,9 @@ export function App() {
   // that isn't finished", which coincides with the active epic only while there is one
   // epic. With two, the header lozenge and the burndown both named the wrong one.
   const epic = board?.state?.activeEpic ?? null;
+  const sprintId = board?.state?.activeSprint ?? null;
+  const sprint =
+    (board?.sprints ?? []).find((s) => s.id === sprintId) ?? null;
 
   const lanes = useMemo(
     () => (board ? laneOrder(board.epics, board.tasks, epic) : []),
@@ -385,6 +396,21 @@ export function App() {
               ) : (
                 <Lozenge appearance="inprogress">no active epic</Lozenge>
               )}
+              {sprint ? (
+                <Pressable
+                  xcss={styles.lozenge}
+                  onClick={() =>
+                    setFilters((f) => ({
+                      ...f,
+                      sprint: f.sprint === sprint.id ? null : sprint.id,
+                    }))
+                  }
+                >
+                  <Lozenge appearance="new">{sprintLozenge(sprint)}</Lozenge>
+                </Pressable>
+              ) : (
+                <Lozenge appearance="new">no active sprint</Lozenge>
+              )}
               <Text size="small" color="color.text.subtlest">
                 {live ? "● live" : "○ reconnecting…"}
               </Text>
@@ -413,6 +439,7 @@ export function App() {
           epics={board.epics}
           activeEpic={epic}
           onActivate={(id) => run(() => write.activeEpic(id))}
+          activeSprint={sprintId}
           savedViews={
             board.settings?.views as Record<string, Filters> | undefined
           }
@@ -430,6 +457,7 @@ export function App() {
           ids={[...selected]}
           onClear={() => setSelected(new Set())}
           run={run}
+          activeSprint={sprintId}
         />
 
         {grouped ? (
@@ -477,6 +505,7 @@ export function App() {
         tasks={board.tasks}
         epics={board.epics}
         adrs={board.adrs ?? []}
+        sprints={board.sprints ?? []}
         onClose={() => setOpenId(null)}
         onOpen={setOpenId}
         run={run}
