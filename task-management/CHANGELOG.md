@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## [0.14.0] — 2026-08-18
+
+Store-folder dashboard integration (BDM-64–74). Internal plugin.json stays unpinned.
+
 ### Added
 - **Deferred extras** (BDM-74). `GET /api/worktrees` lists
   `.bytedesk/worktrees/` via `listWorktrees` (`[]` when none).
@@ -113,6 +117,9 @@
 - Clearing priority no longer 400s — `null` is not a ladder value, so the drawer omits the field
   and the API treats omit/undefined as a clear.
 - Clearing estimate removes the field instead of writing `0`.
+
+### Build
+- Dashboard bundle rebuilt after waves 1–4 (`index-BzSPLTgr.js`). plugin.json stays unpinned.
 
 ## [0.13.0] — 2026-08-18
 

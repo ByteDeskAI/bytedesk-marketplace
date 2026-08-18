@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
   "name": "bytedesk",
-  "version": "1.28.0",
+  "version": "1.29.0",
   "description": "ByteDesk's Claude Code marketplace \u2014 parallel orchestration, design patterns, Structurizr C4, project management, and platform engineering plugins.",
   "owner": {
     "name": "ByteDesk AI",
