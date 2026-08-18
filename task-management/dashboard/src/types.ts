@@ -43,6 +43,15 @@ export interface Task {
 
 export type Priority = "highest" | "high" | "medium" | "low" | "lowest";
 
+/** Derived by GET /api/task/:id/evidence — not stored frontmatter. */
+export interface EvidenceItem {
+  ref: string;
+  kind: "file" | "url" | "uri";
+  name: string;
+  exists: boolean;
+  previewable: boolean;
+}
+
 export interface Comment {
   author?: string;
   ts: string;

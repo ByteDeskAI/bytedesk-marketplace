@@ -2,6 +2,10 @@
  * The dashboard's write surface: `POST /api/task/:id/:action`, `PATCH /api/task/:id`,
  * `POST /api/task`, `POST /api/bulk`, `GET /api/backlog`.
  *
+ * Evidence: `GET /api/task/:id/evidence` (derived items), `GET /api/task/:id/file?ref=`
+ * (allowlisted bytes metadata), `POST /api/task/:id/evidence` (attach text/path or detach).
+ * Multipart uploads are parsed in bin/tm-dashboard — the JSON body cap is 256 KB.
+ *
  * `handleWrite` is pure request-in / response-out so it unit-tests without a
  * server; bin/tm-dashboard is only plumbing. Every mutation delegates to the same
  * lib functions the CLI calls — never to the filesystem directly — so the gates,
@@ -10,11 +14,13 @@
  * Refusals carry the reason the CLI would have printed, so the UI can show *why*
  * rather than a dead 500: gate refusals are 409, bad input is 400, missing is 404.
  */
+import { basename } from "node:path";
 import { gateDone, gateTaskCreate } from "./enforce.mjs";
 import { addComment, addLink, assign, backlog, dependencies, estimate, labels, prioritise, rank, setType, subtasks } from "./issue.mjs";
 import { paths, projectName } from "./paths.mjs";
 import { claimTask } from "./claims.mjs";
 import { actor, actorLabel, sessionId } from "./actor.mjs";
+import { attachEvidence, detachEvidence, listEvidence, servableEvidencePath } from "./evidence.mjs";
 import {
   autoCloseEpic,
   config,
@@ -48,7 +54,9 @@ function requireTask(id, p) {
 }
 
 export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
-  const url = (path || "").split("?")[0];
+  const raw = path || "";
+  const url = raw.split("?")[0];
+  const query = new URLSearchParams(raw.includes("?") ? raw.slice(raw.indexOf("?") + 1) : "");
   if (method === "GET" && url === "/api/backlog") return ok(backlog(p));
   if (method === "POST" && url === "/api/task") return createTask(payload, p);
   if (method === "POST" && url === "/api/bulk") return bulk(payload, p);
@@ -70,6 +78,13 @@ export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
   const action = match[2];
   const { task, error } = requireTask(id, p);
   if (error) return error;
+  if (method === "GET" && action === "evidence") return ok({ evidence: listEvidence(task, p) });
+  if (method === "GET" && action === "file") {
+    const ref = query.get("ref") ?? payload.ref ?? "";
+    const dest = servableEvidencePath(task, ref, p);
+    if (!dest) return fail(404, "not found");
+    return ok({ ref, name: basename(dest) });
+  }
   if (method === "PATCH" && !action) return edit(task, payload, p);
   if (method !== "POST") return fail(405, `${method} not allowed on ${url}`);
 
@@ -105,6 +120,8 @@ export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
         return addCriterion(task, payload.text, p);
       case "accept":
         return acceptCriterion(task, payload, p);
+      case "evidence":
+        return writeEvidence(task, payload, p);
       default:
         return fail(404, `unknown action "${action}"`);
     }
@@ -194,6 +211,37 @@ function acceptCriterion(task, { index, done = true, remove = false }, p) {
     return ok({ acceptance: res.acceptance });
   } catch (e) {
     return fail(400, e.message);
+  }
+}
+
+/**
+ * Attach or detach. Detach filters the array and leaves the file. Attach uses the
+ * same dest naming as `tm evidence` and appends under `mutate`.
+ */
+function writeEvidence(task, payload, p) {
+  try {
+    if (payload.detach != null || payload.remove != null) {
+      return ok({ evidence: detachEvidence(task.id, String(payload.detach ?? payload.remove), p) });
+    }
+    if (payload.path) {
+      const { ref } = attachEvidence(task.id, { path: payload.path }, p);
+      return ok({ attached: ref, evidence: read(task.id, p).evidence });
+    }
+    if (payload.filename && (payload.buffer != null || payload.content != null)) {
+      const { ref } = attachEvidence(task.id, {
+        filename: payload.filename,
+        buffer: payload.buffer,
+        content: payload.content,
+      }, p);
+      return ok({ attached: ref, evidence: read(task.id, p).evidence });
+    }
+    if (payload.text != null && String(payload.text).length) {
+      const { ref } = attachEvidence(task.id, { text: String(payload.text) }, p);
+      return ok({ attached: ref, evidence: read(task.id, p).evidence });
+    }
+    return fail(400, "evidence needs text, path, a file, or detach");
+  } catch (e) {
+    return fail(/not found/i.test(e.message) ? 404 : 400, e.message);
   }
 }
 

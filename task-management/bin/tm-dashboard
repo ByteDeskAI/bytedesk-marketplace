@@ -19,7 +19,7 @@
  */
 import { createServer } from "node:http";
 import { existsSync, readFileSync, statSync, watch, openSync, readSync, closeSync } from "node:fs";
-import { dirname, join, normalize, resolve, sep } from "node:path";
+import { basename, dirname, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureDirs, paths } from "../lib/paths.mjs";
 import { reindex } from "../lib/store.mjs";
@@ -28,7 +28,8 @@ import { boardPayload, handleWrite } from "../lib/dashboard-api.mjs";
 import { CATALOG } from "../lib/ntfy.mjs";
 import { collapseLog } from "../lib/render.mjs";
 import { workStream } from "../lib/transcript.mjs";
-import { read as readEntity, state } from "../lib/store.mjs";
+import { kindOf, read as readEntity, state } from "../lib/store.mjs";
+import { attachEvidence, servableEvidencePath } from "../lib/evidence.mjs";
 
 // Degrade like `tm` does. Launched from a directory with no resolvable store —
 // an installed copy of the plugin — a raw stack trace is a terrible answer.
@@ -50,8 +51,99 @@ const TYPES = {
   ".woff2": "font/woff2",
   ".map": "application/json",
   ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".log": "text/plain; charset=utf-8",
+  ".txt": "text/plain; charset=utf-8",
+  ".md": "text/markdown; charset=utf-8",
   ".webmanifest": "application/manifest+json",
 };
+
+/** JSON body is 256 KB; a screenshot is not. Multipart lives here for that reason. */
+const MULTIPART_MAX = 8 * 1024 * 1024;
+
+function indexOfBuf(buf, needle, from = 0) {
+  if (typeof buf.indexOf === "function") {
+    const at = buf.indexOf(needle, from);
+    return at;
+  }
+  return -1;
+}
+
+function parseMultipart(buf, contentType) {
+  const bm = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(contentType || "");
+  if (!bm) return [];
+  const boundary = Buffer.from(`--${(bm[1] || bm[2]).trim()}`);
+  const parts = [];
+  let start = indexOfBuf(buf, boundary);
+  if (start < 0) return [];
+  start += boundary.length;
+  while (start < buf.length) {
+    if (buf[start] === 13 && buf[start + 1] === 10) start += 2;
+    const next = indexOfBuf(buf, boundary, start);
+    if (next < 0) break;
+    let end = next;
+    if (end >= 2 && buf[end - 2] === 13 && buf[end - 1] === 10) end -= 2;
+    parts.push(buf.subarray(start, end));
+    start = next + boundary.length;
+    if (buf[start] === 45 && buf[start + 1] === 45) break;
+  }
+  return parts.map((part) => {
+    const sep = indexOfBuf(part, Buffer.from("\r\n\r\n"));
+    if (sep < 0) return null;
+    const headers = part.subarray(0, sep).toString("utf8");
+    const body = part.subarray(sep + 4);
+    const dispo = /content-disposition:\s*form-data;\s*(.*)/i.exec(headers);
+    if (!dispo) return null;
+    return {
+      name: /(?:^|;)\s*name="([^"]*)"/i.exec(dispo[1])?.[1],
+      filename: /(?:^|;)\s*filename="([^"]*)"/i.exec(dispo[1])?.[1],
+      buffer: body,
+    };
+  }).filter(Boolean);
+}
+
+function receiveMultipart(req, res) {
+  const idMatch = /^\/api\/task\/([^/?]+)\/evidence$/.exec((req.url || "").split("?")[0]);
+  const id = idMatch ? decodeURIComponent(idMatch[1]) : "";
+  const chunks = [];
+  let n = 0;
+  let tooBig = false;
+  req.on("data", (chunk) => {
+    n += chunk.length;
+    if (n > MULTIPART_MAX) {
+      tooBig = true;
+      json(res, 413, { error: "body too large" });
+      req.destroy();
+      return;
+    }
+    chunks.push(chunk);
+  });
+  req.on("end", () => {
+    if (tooBig) return;
+    if (kindOf(id) !== "task" || !readEntity(id, P)) {
+      return json(res, kindOf(id) === "task" ? 404 : 400, { error: kindOf(id) === "task" ? `not found: ${id}` : `not a task id: ${id}` });
+    }
+    const parts = parseMultipart(Buffer.concat(chunks), req.headers["content-type"]);
+    const file = parts.find((p) => p.filename);
+    const text = parts.find((p) => p.name === "text" && !p.filename);
+    try {
+      if (file) {
+        const { ref } = attachEvidence(id, { filename: file.filename, buffer: file.buffer }, P);
+        return json(res, 200, { attached: ref, evidence: readEntity(id, P).evidence });
+      }
+      if (text) {
+        const { ref } = attachEvidence(id, { text: text.buffer.toString("utf8") }, P);
+        return json(res, 200, { attached: ref, evidence: readEntity(id, P).evidence });
+      }
+      return json(res, 400, { error: "evidence needs text, path, a file, or detach" });
+    } catch (err) {
+      return json(res, 400, { error: err.message });
+    }
+  });
+}
 const args = new Set(process.argv.slice(2));
 const url = (port) => `http://127.0.0.1:${port}`;
 
@@ -126,6 +218,12 @@ const server = createServer((req, res) => {
     if (origin && !origin.startsWith("http://127.0.0.1:") && !origin.startsWith("http://localhost:")) {
       return json(res, 403, { error: "cross-origin writes are refused" });
     }
+    const upload = req.method === "POST" && /^\/api\/task\/[^/?]+\/evidence$/.test((req.url || "").split("?")[0])
+      && String(req.headers["content-type"] || "").includes("multipart/form-data");
+    if (upload) {
+      receiveMultipart(req, res);
+      return;
+    }
     let raw = "";
     let tooBig = false;
     req.on("data", (chunk) => {
@@ -165,6 +263,30 @@ const server = createServer((req, res) => {
   if (req.method === "GET" && /^\/api\/task\/[^/?]+$/.test(req.url || "")) {
     const result = handleWrite("GET", req.url, null, { p: P });
     return json(res, result.status, result.body);
+  }
+
+  // Derived evidence list — kind/name/exists/previewable, no new frontmatter.
+  if (req.method === "GET" && /^\/api\/task\/[^/?]+\/evidence$/.test((req.url || "").split("?")[0])) {
+    const result = handleWrite("GET", req.url, null, { p: P });
+    return json(res, result.status, result.body);
+  }
+
+  // Guarded file GET. 200 only if the ref is on this task and realpath is inside p.evidence.
+  const fileGet = (req.url || "").match(/^\/api\/task\/([^/?]+)\/file(?:\?(.*))?$/);
+  if (req.method === "GET" && fileGet) {
+    const id = decodeURIComponent(fileGet[1]);
+    const ref = new URLSearchParams(fileGet[2] || "").get("ref") || "";
+    const task = kindOf(id) === "task" ? readEntity(id, P) : null;
+    const dest = task && servableEvidencePath(task, ref, P);
+    if (!dest) return json(res, 404, { error: "not found" });
+    const ext = dest.slice(dest.lastIndexOf("."));
+    res.writeHead(200, {
+      "content-type": TYPES[ext] || "application/octet-stream",
+      "cache-control": "no-store",
+      "content-disposition": `inline; filename="${basename(dest)}"`,
+    });
+    res.end(readFileSync(dest));
+    return;
   }
 
   if (req.url === "/api/board") {

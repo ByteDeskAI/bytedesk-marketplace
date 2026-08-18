@@ -1,6 +1,6 @@
 import { queueWrite } from "./pwa/outbox.mjs";
 import { markSelfWrite } from "./pwa/usePwa";
-import type { Board, StoreEvent, Task } from "./types";
+import type { Board, EvidenceItem, StoreEvent, Task } from "./types";
 
 const json = <T>(url: string): Promise<T> =>
   fetch(url).then((r) => r.json() as Promise<T>);
@@ -17,6 +17,33 @@ export const fetchEvents = () =>
  */
 export const fetchTask = (id: string) =>
   json<Task>(`/api/task/${encodeURIComponent(id)}`);
+
+/** Derived items for the drawer. The task still only stores evidence[] strings. */
+export const fetchEvidence = (id: string) =>
+  json<{ evidence: EvidenceItem[] }>(
+    `/api/task/${encodeURIComponent(id)}/evidence`,
+  );
+
+/** Multipart attach — not queued offline: a File cannot go through the JSON outbox. */
+export async function attachEvidenceFile(id: string, file: File) {
+  markSelfWrite(id);
+  const body = new FormData();
+  body.append("file", file, file.name);
+  let res: Response;
+  try {
+    res = await fetch(`/api/task/${encodeURIComponent(id)}/evidence`, {
+      method: "POST",
+      body,
+    });
+  } catch {
+    throw new WriteError("offline — file attach is not queued");
+  }
+  const data = (await res.json().catch(() => ({}))) as { error?: string };
+  if (!res.ok) {
+    throw new WriteError(data.error || `POST evidence failed (${res.status})`);
+  }
+  return data;
+}
 
 /** A refusal from a gate — the reason is written for the person reading the board. */
 export class WriteError extends Error {}
