@@ -6,6 +6,7 @@ import { Stack } from "@atlaskit/primitives/compiled";
 import Textfield from "@atlaskit/textfield";
 import TextArea from "@atlaskit/textarea";
 import { fetchTemplate, fetchTemplates, write } from "../api";
+import { TYPES } from "../types";
 import type { Epic, Priority, TemplateSummary } from "../types";
 
 const PRIORITIES: Priority[] = ["highest", "high", "medium", "low", "lowest"];
@@ -34,6 +35,7 @@ export function CreateModal({
   const [priority, setPriority] = useState<string | null>(null);
   const [template, setTemplate] = useState<string | null>(null);
   const [templates, setTemplates] = useState<TemplateSummary[]>([]);
+  const [type, setType] = useState<string | null>(null);
   const openEpics = epics.filter((e) => e.status !== "done");
   const selectedEpic = openEpics.find((e) => e.id === epic);
 
@@ -60,15 +62,18 @@ export function CreateModal({
   };
 
   const submit = () => {
-    run(() =>
-      write.create({
+    run(async () => {
+      const created = await write.create({
         title: title.trim(),
         epic,
         ...(body.trim() ? { body: body.trim() } : {}),
         ...(priority ? { priority } : {}),
         ...(template ? { template } : {}),
-      }),
-    );
+      });
+      if (type && created.id) {
+        await write.act(created.id, "type", { type });
+      }
+    });
     onClose();
   };
 
@@ -108,6 +113,13 @@ export function CreateModal({
             options={opts(PRIORITIES)}
             value={priority ? { label: priority, value: priority } : null}
             onChange={(o) => setPriority(o?.value ?? null)}
+          />
+          <Select<Opt>
+            isClearable
+            placeholder="type"
+            options={opts([...TYPES])}
+            value={type ? { label: type, value: type } : null}
+            onChange={(o) => setType(o?.value ?? null)}
           />
           <TextArea
             placeholder="Context (markdown body)"

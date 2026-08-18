@@ -6,7 +6,7 @@ import { Pressable } from "@atlaskit/primitives/compiled";
 import SectionMessage from "@atlaskit/section-message";
 import Spinner from "@atlaskit/spinner";
 import { burndown, startTimes } from "../metrics.mjs";
-import { fetchBoard, fetchEvents, subscribe, write } from "./api";
+import { fetchBoard, fetchEvents, stopReason, subscribe, write } from "./api";
 import { EMPTY, matches } from "./filters";
 import type { Filters } from "./filters";
 import { Activity } from "./components/Activity";
@@ -230,7 +230,8 @@ export function App() {
     visible,
     modal,
     onOpen: setOpenId,
-    onTransition: (id, status) => run(() => write.transition(id, status)),
+    onTransition: (id, status) =>
+      run(() => write.transition(id, status, stopReason(status))),
     onRank: (id, target, where) =>
       run(() => write.act(id, "rank", { [where]: target })),
     onSelect: toggle,
@@ -350,7 +351,9 @@ export function App() {
             selected={selected}
             onSelect={select}
             onOpen={setOpenId}
-            onDrop={(id, to) => run(() => write.transition(id, to))}
+            onDrop={(id, to) =>
+              run(() => write.transition(id, to, stopReason(to)))
+            }
             watching={pwa.watching}
             onWatch={pwa.toggleWatch}
             outbox={pwa.pendingByTask}
@@ -358,7 +361,7 @@ export function App() {
               run(() =>
                 board.tasks.find((t) => t.id === dragged)?.status === status
                   ? write.act(dragged, "rank", { before })
-                  : write.transition(dragged, status),
+                  : write.transition(dragged, status, stopReason(status)),
               )
             }
           />
@@ -497,7 +500,9 @@ export function App() {
         focused={keys.focusedId}
         commands={commands}
         onOpenTask={setOpenId}
-        onTransition={(id, status) => run(() => write.transition(id, status))}
+        onTransition={(id, status) =>
+          run(() => write.transition(id, status, stopReason(status)))
+        }
       />
       <Shortcuts isOpen={help} onClose={() => setHelp(false)} />
     </Box>
