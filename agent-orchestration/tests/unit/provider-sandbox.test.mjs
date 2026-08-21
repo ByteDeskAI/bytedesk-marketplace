@@ -9,6 +9,51 @@ import { AUTH_BOOTSTRAP_PROMPT } from "../../src/runtime/bootstrap.mjs";
 
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
+function environmentFromSandboxArgs(args) {
+  return Object.fromEntries(args.flatMap((value, index) => value === "--setenv" ? [[args[index + 1], args[index + 2]]] : []));
+}
+
+async function sandboxArgsFor({ providerId, permissionProfile }) {
+  const root = await mkdtemp(join(os.tmpdir(), "ao-sandbox-mode-test-"));
+  const workspace = join(root, "workspace");
+  const commonGitDir = join(root, "consumer.git");
+  const sandboxTempDir = join(root, "temp");
+  const brokerControlDir = join(root, "broker-control");
+  await Promise.all([mkdir(workspace), mkdir(commonGitDir), mkdir(sandboxTempDir), mkdir(brokerControlDir)]);
+  await writeFile(join(workspace, ".git"), `gitdir: ${join(commonGitDir, "worktrees", "fixture")}\n`);
+  try {
+    return await sandboxArguments({ providerId, pluginRoot: "/plugin", workspacePath: workspace, commonGitDir, sandboxTempDir, brokerControlDir, providerExecutable: "/usr/bin/true", permissionProfile });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+test("Codex sandbox mode is broker-derived from the orchestration permission profile", async () => {
+  const ambient = process.env.INITIAL_AGENT_MODE;
+  process.env.INITIAL_AGENT_MODE = "agent-full-access";
+  try {
+    const readEnvironment = environmentFromSandboxArgs(await sandboxArgsFor({ providerId: "codex", permissionProfile: "read" }));
+    const writeEnvironment = environmentFromSandboxArgs(await sandboxArgsFor({ providerId: "codex", permissionProfile: "write" }));
+    assert.equal(readEnvironment.INITIAL_AGENT_MODE, "read-only");
+    assert.equal(writeEnvironment.INITIAL_AGENT_MODE, "agent");
+  } finally {
+    if (ambient === undefined) delete process.env.INITIAL_AGENT_MODE;
+    else process.env.INITIAL_AGENT_MODE = ambient;
+  }
+});
+
+test("non-Codex sandboxes do not receive INITIAL_AGENT_MODE", async () => {
+  const ambient = process.env.INITIAL_AGENT_MODE;
+  process.env.INITIAL_AGENT_MODE = "agent-full-access";
+  try {
+    const environment = environmentFromSandboxArgs(await sandboxArgsFor({ providerId: "grok-build", permissionProfile: "read" }));
+    assert.equal(Object.hasOwn(environment, "INITIAL_AGENT_MODE"), false);
+  } finally {
+    if (ambient === undefined) delete process.env.INITIAL_AGENT_MODE;
+    else process.env.INITIAL_AGENT_MODE = ambient;
+  }
+});
+
 test("write provider sandboxes make only the worktree writable and remount Git metadata read-only", async () => {
   const root = await mkdtemp(join(os.tmpdir(), "ao-sandbox-test-"));
   const workspace = join(root, "workspace");
