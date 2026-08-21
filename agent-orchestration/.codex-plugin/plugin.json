@@ -1,6 +1,5 @@
 {
   "name": "agent-orchestration",
-  "version": "0.1.0",
   "description": "Cross-provider agent orchestration for Claude Code, Codex, Grok Build, and Kimi over a durable MCP control plane.",
   "author": {
     "name": "ByteDeskAI"

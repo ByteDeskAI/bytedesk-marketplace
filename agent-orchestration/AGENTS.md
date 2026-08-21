@@ -19,10 +19,10 @@ provider execution changes the external model provider.
 
 These names are compatibility contracts:
 
-- Discovery and routing: `ao_capabilities`, `ao_doctor`, `ao_route`, `ao_plan`
-- Lifecycle: `ao_spawn`, `ao_send`, `ao_wait`, `ao_status`, `ao_list`, `ao_events`
-- Control: `ao_cancel`, `ao_cleanup`
-- Approval: `ao_decision_get`, `ao_decision_approve`
+- Discovery and routing: `orchestration_capabilities`, `orchestration_doctor`, `orchestration_route`, `orchestration_plan`
+- Lifecycle: `orchestration_spawn`, `orchestration_send`, `orchestration_wait`, `orchestration_status`, `orchestration_list`, `orchestration_events`
+- Control: `orchestration_cancel`, `orchestration_cleanup`
+- Approval: `orchestration_decision_get`, `orchestration_decision_approve`
 
 Provider IDs are `claude`, `codex`, `grok-build`, and `kimi`. Routing decisions and explanations travel in
 route, plan, spawn, and status results rather than a second provider-specific tool family.

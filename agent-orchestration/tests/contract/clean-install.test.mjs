@@ -15,6 +15,22 @@ const shippedEntries = [
   ".claude-plugin", ".codex-plugin", ".mcp.json", ".codex-mcp.json", "agents", "bin",
   "dist", "skills", "templates", "AGENTS.md", "CHANGELOG.md", "README.md",
 ];
+const expectedToolNames = [
+  "orchestration_capabilities",
+  "orchestration_doctor",
+  "orchestration_route",
+  "orchestration_plan",
+  "orchestration_spawn",
+  "orchestration_send",
+  "orchestration_wait",
+  "orchestration_status",
+  "orchestration_list",
+  "orchestration_events",
+  "orchestration_cancel",
+  "orchestration_cleanup",
+  "orchestration_decision_get",
+  "orchestration_decision_approve",
+];
 
 async function initRepo(path) {
   await mkdir(path);
@@ -50,6 +66,8 @@ test("tracked install bundle starts from plugin cwd but resolves only explicit c
     await Promise.all([chmod(join(fakeGrokBin, "grok"), 0o755), chmod(join(fakeKimiBin, "kimi"), 0o755)]);
     await assert.rejects(() => lstat(join(installed, "src")));
     await assert.rejects(() => lstat(join(installed, "node_modules")));
+    assert.equal(JSON.parse(await readFile(join(installed, ".claude-plugin", "plugin.json"), "utf8")).version, undefined);
+    assert.equal(JSON.parse(await readFile(join(installed, ".codex-plugin", "plugin.json"), "utf8")).version, undefined);
 
     const transport = new StdioClientTransport({
       command: join(installed, "bin", "agent-orchestration-mcp"),
@@ -68,33 +86,32 @@ test("tracked install bundle starts from plugin cwd but resolves only explicit c
     await client.connect(transport);
     try {
       const tools = await client.listTools();
-      const names = new Set(tools.tools.map((tool) => tool.name));
-      for (const name of ["ao_capabilities", "ao_doctor", "ao_route", "ao_plan", "ao_spawn", "ao_send", "ao_wait", "ao_status", "ao_list", "ao_events", "ao_cancel", "ao_cleanup", "ao_decision_get", "ao_decision_approve"]) {
-        assert.equal(names.has(name), true, `${name} missing from installed tool surface`);
-      }
+      const names = tools.tools.map((tool) => tool.name);
+      assert.deepEqual([...names].sort(), [...expectedToolNames].sort());
+      assert.equal(names.some((name) => name.startsWith("ao_")), false, "legacy ao_* tools must not be installed");
       for (const tool of tools.tools) {
         assert.equal(tool.outputSchema?.properties?.schemaVersion?.const, 1, `${tool.name} lacks the versioned output envelope`);
       }
-      const planTool = tools.tools.find((tool) => tool.name === "ao_plan");
+      const planTool = tools.tools.find((tool) => tool.name === "orchestration_plan");
       assert.equal(planTool.inputSchema.properties.effort.enum.includes("none"), true);
 
-      const doctor = await client.callTool({ name: "ao_doctor", arguments: {} });
+      const doctor = await client.callTool({ name: "orchestration_doctor", arguments: {} });
       const doctorPayload = JSON.parse(doctor.content[0].text);
       assert.equal(doctorPayload.providerProbes.find((entry) => entry.id === "kimi").ready, true, JSON.stringify(doctorPayload.providerProbes.find((entry) => entry.id === "kimi"), null, 2));
 
-      const planned = await client.callTool({ name: "ao_plan", arguments: { consumerCwd: consumer, intent: "implementation", task: "Plan a fixture change", permissionProfile: "read" } });
+      const planned = await client.callTool({ name: "orchestration_plan", arguments: { consumerCwd: consumer, intent: "implementation", task: "Plan a fixture change", permissionProfile: "read" } });
       assert.equal(planned.isError, undefined);
       const planPayload = JSON.parse(planned.content[0].text);
       assert.equal(planPayload.consumer.checkoutRoot, consumer);
       assert.equal(planPayload.plan.stages[0].route.selected.providerId, "codex");
 
-      const missing = await client.callTool({ name: "ao_plan", arguments: { intent: "implementation", task: "Must fail" } });
+      const missing = await client.callTool({ name: "orchestration_plan", arguments: { intent: "implementation", task: "Must fail" } });
       assert.equal(missing.isError, true);
 
-      const spawned = await client.callTool({ name: "ao_spawn", arguments: { consumerCwd: consumer, intent: "research", provider: "grok-build", task: `WRITE_FIXTURE\nFORBIDDEN_PATH=${forbiddenPath}`, permissionProfile: "write", timeoutMs: 20_000 } });
+      const spawned = await client.callTool({ name: "orchestration_spawn", arguments: { consumerCwd: consumer, intent: "research", provider: "grok-build", task: `WRITE_FIXTURE\nFORBIDDEN_PATH=${forbiddenPath}`, permissionProfile: "write", timeoutMs: 20_000 } });
       assert.equal(spawned.isError, undefined);
       const writeRunId = JSON.parse(spawned.content[0].text).run.runId;
-      const completed = await client.callTool({ name: "ao_wait", arguments: { consumerCwd: consumer, runId: writeRunId, timeoutMs: 20_000 } });
+      const completed = await client.callTool({ name: "orchestration_wait", arguments: { consumerCwd: consumer, runId: writeRunId, timeoutMs: 20_000 } });
       const completedRun = JSON.parse(completed.content[0].text);
       assert.equal(completedRun.state, "succeeded", JSON.stringify(completedRun, null, 2));
       assert.equal(await readFile(join(completedRun.workspace.path, "fake-agent-change.txt"), "utf8"), "sandbox write succeeded\n");
@@ -102,30 +119,30 @@ test("tracked install bundle starts from plugin cwd but resolves only explicit c
       await assert.rejects(() => access(join(completedRun.workspace.path, "client-callback-write.txt")));
       await assert.rejects(() => access(forbiddenPath));
       assert.equal(await readFile(join(fakeHome, ".grok", "auth.json"), "utf8"), "contract-secret-must-be-revoked\n");
-      const unsafeFollowup = await client.callTool({ name: "ao_send", arguments: { consumerCwd: consumer, runId: writeRunId, message: "continue writing" } });
+      const unsafeFollowup = await client.callTool({ name: "orchestration_send", arguments: { consumerCwd: consumer, runId: writeRunId, message: "continue writing" } });
       assert.equal(unsafeFollowup.isError, true);
       assert.equal(JSON.parse(unsafeFollowup.content[0].text).code, "AO_WRITE_FOLLOWUP_REQUIRES_NEW_RUN");
-      const cleaned = await client.callTool({ name: "ao_cleanup", arguments: { consumerCwd: consumer, runId: writeRunId } });
+      const cleaned = await client.callTool({ name: "orchestration_cleanup", arguments: { consumerCwd: consumer, runId: writeRunId } });
       assert.equal(JSON.parse(cleaned.content[0].text).cleaned, true);
       await assert.rejects(() => access(completedRun.workspace.path));
 
-      const blocking = await client.callTool({ name: "ao_spawn", arguments: { consumerCwd: consumer, intent: "research", provider: "grok-build", task: "BLOCK_UNTIL_CANCEL", permissionProfile: "read", timeoutMs: 20_000 } });
+      const blocking = await client.callTool({ name: "orchestration_spawn", arguments: { consumerCwd: consumer, intent: "research", provider: "grok-build", task: "BLOCK_UNTIL_CANCEL", permissionProfile: "read", timeoutMs: 20_000 } });
       const blockingRunId = JSON.parse(blocking.content[0].text).run.runId;
       let blockingState = "queued";
       for (let attempt = 0; attempt < 100 && blockingState === "queued"; attempt += 1) {
         await new Promise((resolve) => setTimeout(resolve, 50));
-        const status = await client.callTool({ name: "ao_status", arguments: { consumerCwd: consumer, runId: blockingRunId } });
+        const status = await client.callTool({ name: "orchestration_status", arguments: { consumerCwd: consumer, runId: blockingRunId } });
         blockingState = JSON.parse(status.content[0].text).state;
       }
       assert.notEqual(blockingState, "queued");
-      const cancelled = await client.callTool({ name: "ao_cancel", arguments: { consumerCwd: consumer, runId: blockingRunId } });
+      const cancelled = await client.callTool({ name: "orchestration_cancel", arguments: { consumerCwd: consumer, runId: blockingRunId } });
       assert.equal(JSON.parse(cancelled.content[0].text).state, "cancelled");
 
-      const readSpawn = await client.callTool({ name: "ao_spawn", arguments: { consumerCwd: consumer, intent: "research", provider: "grok-build", task: "READ_FIXTURE", permissionProfile: "read", timeoutMs: 20_000 } });
+      const readSpawn = await client.callTool({ name: "orchestration_spawn", arguments: { consumerCwd: consumer, intent: "research", provider: "grok-build", task: "READ_FIXTURE", permissionProfile: "read", timeoutMs: 20_000 } });
       const readRunId = JSON.parse(readSpawn.content[0].text).run.runId;
-      const readComplete = await client.callTool({ name: "ao_wait", arguments: { consumerCwd: consumer, runId: readRunId, timeoutMs: 20_000 } });
+      const readComplete = await client.callTool({ name: "orchestration_wait", arguments: { consumerCwd: consumer, runId: readRunId, timeoutMs: 20_000 } });
       assert.equal(JSON.parse(readComplete.content[0].text).state, "succeeded");
-      const followup = await client.callTool({ name: "ao_send", arguments: { consumerCwd: consumer, runId: readRunId, message: "Continue the fixture session", timeoutMs: 20_000 } });
+      const followup = await client.callTool({ name: "orchestration_send", arguments: { consumerCwd: consumer, runId: readRunId, message: "Continue the fixture session", timeoutMs: 20_000 } });
       assert.equal(followup.isError, true);
       assert.equal(JSON.parse(followup.content[0].text).code, "AO_FOLLOWUP_UNSUPPORTED");
     } finally {

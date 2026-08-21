@@ -7,8 +7,8 @@ argument-hint: "[provider: claude | codex | grok-build | kimi]"
 
 # Agent Orchestration Doctor
 
-1. Call `ao_capabilities` to inspect the server and provider catalog.
-2. Call `ao_doctor` and select the requested provider from its independent probe results.
+1. Call `orchestration_capabilities` to inspect the server and provider catalog.
+2. Call `orchestration_doctor` and select the requested provider from its independent probe results.
 3. Report executable discovery, adapter readiness, authentication status only as ready/not-ready,
    writable state-path checks, and actionable remediation.
 4. If a consumer repository matters, pass its explicit absolute path as `consumerCwd`. Never use the

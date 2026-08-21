@@ -6,7 +6,8 @@
 - Add bundled MCP and CLI launcher contracts.
 - Add cross-provider orchestration and diagnostic skills.
 - Add Claude-native orchestration agent and optional Codex custom-agent template.
-- Define the stable `ao_*` lifecycle, routing, event, cleanup, and approval surface.
+- Standardize the public MCP lifecycle, routing, event, cleanup, and approval surface on
+  `orchestration_*`; no compatibility aliases are exposed.
 - Require explicit absolute `consumerCwd` for consumer-grounded and mutating operations.
 - Add deterministic capability-aware routing, the max-effort adversarial architecture protocol,
   repository-derived worktrees, durable hash-chained state, readiness probes, and atomic scheduling.

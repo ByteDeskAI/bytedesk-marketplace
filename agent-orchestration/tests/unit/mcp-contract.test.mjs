@@ -7,6 +7,23 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createServer } from "../../src/mcp.mjs";
 
+const EXPECTED_TOOL_NAMES = [
+  "orchestration_capabilities",
+  "orchestration_doctor",
+  "orchestration_route",
+  "orchestration_plan",
+  "orchestration_spawn",
+  "orchestration_send",
+  "orchestration_wait",
+  "orchestration_status",
+  "orchestration_list",
+  "orchestration_events",
+  "orchestration_cancel",
+  "orchestration_cleanup",
+  "orchestration_decision_get",
+  "orchestration_decision_approve",
+];
+
 async function fixture() {
   const root = await mkdtemp(join(os.tmpdir(), "ao-mcp-contract-"));
   const pluginRoot = join(root, "plugin");
@@ -36,13 +53,24 @@ function successBranch(tool) {
   return branches[0];
 }
 
+test("public MCP surface exposes exactly the orchestration-prefixed contract", async () => {
+  const fx = await fixture();
+  try {
+    const names = (await fx.client.listTools()).tools.map((tool) => tool.name);
+    assert.deepEqual([...names].sort(), [...EXPECTED_TOOL_NAMES].sort());
+    assert.equal(names.some((name) => name.startsWith("ao_")), false, "legacy ao_* tools must not be exposed");
+  } finally {
+    await fx.cleanup();
+  }
+});
+
 test("MCP plan and spawn expose protocols while route remains a single-route preview", async () => {
   const fx = await fixture();
   try {
     const tools = new Map((await fx.client.listTools()).tools.map((tool) => [tool.name, tool]));
-    const route = tools.get("ao_route");
-    const plan = tools.get("ao_plan");
-    const spawn = tools.get("ao_spawn");
+    const route = tools.get("orchestration_route");
+    const plan = tools.get("orchestration_plan");
+    const spawn = tools.get("orchestration_spawn");
 
     assert.ok(route && plan && spawn);
     assert.equal(route.inputSchema.properties.protocolId, undefined);
@@ -62,18 +90,18 @@ test("every MCP tool publishes a concrete forward-compatible success/error envel
   try {
     const tools = new Map((await fx.client.listTools()).tools.map((tool) => [tool.name, tool]));
     const requiredSuccessField = {
-      ao_capabilities: "providerIds",
-      ao_doctor: "providerProbes",
-      ao_route: "decision",
-      ao_plan: "plan",
-      ao_spawn: "run",
-      ao_status: "runId",
-      ao_wait: "runId",
-      ao_send: "parentRunId",
-      ao_cancel: "runId",
-      ao_cleanup: "cleaned",
-      ao_decision_get: "runId",
-      ao_decision_approve: "decision",
+      orchestration_capabilities: "providerIds",
+      orchestration_doctor: "providerProbes",
+      orchestration_route: "decision",
+      orchestration_plan: "plan",
+      orchestration_spawn: "run",
+      orchestration_status: "runId",
+      orchestration_wait: "runId",
+      orchestration_send: "parentRunId",
+      orchestration_cancel: "runId",
+      orchestration_cleanup: "cleaned",
+      orchestration_decision_get: "runId",
+      orchestration_decision_approve: "decision",
     };
 
     for (const [name, requiredField] of Object.entries(requiredSuccessField)) {
@@ -89,7 +117,7 @@ test("every MCP tool publishes a concrete forward-compatible success/error envel
       assert.equal(success.additionalProperties !== false, true, `${name} must allow additive fields`);
     }
 
-    for (const [name, itemField] of [["ao_list", "runId"], ["ao_events", "seq"]]) {
+    for (const [name, itemField] of [["orchestration_list", "runId"], ["orchestration_events", "seq"]]) {
       const success = successBranch(tools.get(name));
       assert.equal(success.type, "array", `${name} success data must be an array`);
       assert.ok(success.items.required.includes(itemField), `${name} items must require ${itemField}`);
@@ -103,13 +131,13 @@ test("every MCP tool publishes a concrete forward-compatible success/error envel
 test("concrete output schemas preserve serialized operation errors", async () => {
   const fx = await fixture();
   try {
-    const capabilities = await fx.client.callTool({ name: "ao_capabilities", arguments: {} });
+    const capabilities = await fx.client.callTool({ name: "orchestration_capabilities", arguments: {} });
     assert.equal(capabilities.isError, undefined);
     assert.equal(capabilities.structuredContent.schemaVersion, 1);
     assert.ok(capabilities.structuredContent.data.providerIds.includes("codex"));
 
     const failed = await fx.client.callTool({
-      name: "ao_plan",
+      name: "orchestration_plan",
       arguments: {
         consumerCwd: "/definitely/not/a/repository",
         intent: "implementation",

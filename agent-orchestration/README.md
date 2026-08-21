@@ -74,17 +74,17 @@ The `agent-orchestrate` skill drives the public MCP surface:
 
 | Area | Tools |
 |---|---|
-| Discovery | `ao_capabilities`, `ao_doctor` |
-| Routing | `ao_route`, `ao_plan` |
-| Lifecycle | `ao_spawn`, `ao_send`, `ao_wait`, `ao_status`, `ao_list`, `ao_events` |
-| Control | `ao_cancel`, `ao_cleanup` |
-| Approval | `ao_decision_get`, `ao_decision_approve` |
+| Discovery | `orchestration_capabilities`, `orchestration_doctor` |
+| Routing | `orchestration_route`, `orchestration_plan` |
+| Lifecycle | `orchestration_spawn`, `orchestration_send`, `orchestration_wait`, `orchestration_status`, `orchestration_list`, `orchestration_events` |
+| Control | `orchestration_cancel`, `orchestration_cleanup` |
+| Approval | `orchestration_decision_get`, `orchestration_decision_approve` |
 
 Every mutating or consumer-grounded call requires `consumerCwd`: the explicit absolute path of the
 repository or worktree the external agent may observe or change. The server never infers it from its
 own process directory.
 
-`ao_send` creates a durable child run only when the parent was explicitly spawned with
+`orchestration_send` creates a durable child run only when the parent was explicitly spawned with
 `sessionMode: "persistent"`, stayed read-only, and the provider advertises durable session loading.
 The child retains its own status, events, worker, and cancellation boundary. One-shot, unsupported,
 and writable follow-ups fail closed; spawn a new scoped run instead.
@@ -139,7 +139,7 @@ and writable follow-ups fail closed; spawn a new scoped run instead.
 - Scheduler admission is atomic, idempotency is repository-scoped, and global/per-provider concurrency
   limits are configurable without changing provider adapters.
 - Partial results remain available when a provider stage fails or is unavailable.
-- `ao_cleanup` permanently discards a terminal worktree only after verifying its exact derived path,
+- `orchestration_cleanup` permanently discards a terminal worktree only after verifying its exact derived path,
   external broker ownership nonce, base SHA, Git marker, Git admin directory, and registration.
   Collect the result and patch first; the durable run journal and decision evidence remain.
 
