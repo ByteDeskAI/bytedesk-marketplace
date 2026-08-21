@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "agent-orchestration": {
+      "type": "stdio",
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/agent-orchestration-mcp"
+    }
+  }
+}

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
   "name": "bytedesk",
-  "version": "1.29.0",
+  "version": "1.30.0",
   "description": "ByteDesk's Claude Code marketplace \u2014 parallel orchestration, design patterns, Structurizr C4, project management, and platform engineering plugins.",
   "owner": {
     "name": "ByteDesk AI",
@@ -12,6 +12,11 @@
       "name": "fleet",
       "description": "Parallel multi-session Claude orchestration. Spawn agents on tickets, run them in parallel git worktrees, watch a dashboard, get push notifications when reviews land or merges happen. Hierarchical authorization (ADR-0001) lets parent agents delegate to children safely.",
       "source": "./fleet"
+    },
+    {
+      "name": "agent-orchestration",
+      "description": "Cross-provider agent orchestration — spawn, steer, observe, cancel, and collect Claude Code, Codex, Grok Build, and Kimi agents through one durable MCP control plane.",
+      "source": "./agent-orchestration"
     },
     {
       "name": "design-patterns",

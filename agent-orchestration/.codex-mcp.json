@@ -1,0 +1,6 @@
+{
+  "agent-orchestration": {
+    "command": "./bin/agent-orchestration-mcp",
+    "cwd": "."
+  }
+}

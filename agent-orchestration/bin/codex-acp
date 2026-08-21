@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+CODEX_PATH="${CODEX_PATH:-codex}"
+export CODEX_PATH
+exec node "$ROOT/dist/codex-acp.mjs" "$@"

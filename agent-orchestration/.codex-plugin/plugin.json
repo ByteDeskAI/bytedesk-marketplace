@@ -1,0 +1,42 @@
+{
+  "name": "agent-orchestration",
+  "version": "0.1.0",
+  "description": "Cross-provider agent orchestration for Claude Code, Codex, Grok Build, and Kimi over a durable MCP control plane.",
+  "author": {
+    "name": "ByteDeskAI"
+  },
+  "homepage": "https://github.com/ByteDeskAI/bytedesk-marketplace/tree/main/agent-orchestration",
+  "repository": "https://github.com/ByteDeskAI/bytedesk-marketplace",
+  "license": "MIT",
+  "keywords": [
+    "agents",
+    "orchestration",
+    "subagents",
+    "acp",
+    "claude",
+    "codex",
+    "grok",
+    "kimi",
+    "mcp"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.codex-mcp.json",
+  "interface": {
+    "displayName": "Agent Orchestration",
+    "shortDescription": "Delegate work to Claude, Grok, and Kimi from one durable control plane.",
+    "longDescription": "Spawn, steer, observe, cancel, and collect results from provider-native agents while preserving session identity, permissions, concurrency limits, and structured evidence.",
+    "developerName": "ByteDeskAI",
+    "category": "Engineering",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/ByteDeskAI/bytedesk-marketplace/tree/main/agent-orchestration",
+    "defaultPrompt": [
+      "Delegate independent reviews to Claude, Grok, and Kimi, then synthesize their findings.",
+      "Spawn one provider agent per workstream and wait for all results.",
+      "Ask Claude and OpenAI Sol for an adversarial architecture decision."
+    ]
+  }
+}

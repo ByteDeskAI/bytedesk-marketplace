@@ -1,0 +1,6 @@
+#!/bin/sh
+# Installed-plugin launcher. The committed bundle is authoritative: never build or install here.
+set -eu
+
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+exec node "$ROOT/dist/cli.cjs" "$@"

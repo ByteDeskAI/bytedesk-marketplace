@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "agent-orchestration",
+  "description": "Cross-provider agent orchestration for Claude Code, Codex, Grok Build, and Kimi over a durable MCP control plane.",
+  "author": {
+    "name": "ByteDesk AI",
+    "url": "https://github.com/ByteDeskAI"
+  },
+  "homepage": "https://github.com/ByteDeskAI/bytedesk-marketplace/tree/main/agent-orchestration",
+  "repository": "https://github.com/ByteDeskAI/bytedesk-marketplace",
+  "license": "MIT",
+  "keywords": [
+    "agents",
+    "orchestration",
+    "subagents",
+    "acp",
+    "claude",
+    "codex",
+    "grok",
+    "kimi"
+  ]
+}
