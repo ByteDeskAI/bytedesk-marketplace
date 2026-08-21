@@ -302,7 +302,7 @@ async function addReadOnlyMount(args, source, destination, created, mounted) {
   args.push(...parentDirectoryArgs(destination, created), "--ro-bind", sourcePath, destination);
   mounted.add(destination);
 }
-function sandboxEnvironment({ adapter, providerExecutable, command, providerHomeEnvironment, tempDir }) {
+function sandboxEnvironment({ adapter, providerExecutable, command, providerHomeEnvironment, tempDir, permissionProfile }) {
   const environment = {
     HOME: import_node_os2.default.homedir(),
     USER: import_node_os2.default.userInfo().username,
@@ -313,6 +313,9 @@ function sandboxEnvironment({ adapter, providerExecutable, command, providerHome
   };
   for (const key of BASE_ENV_KEYS) {
     if (typeof process.env[key] === "string") environment[key] = process.env[key];
+  }
+  if (adapter.providerId === "codex") {
+    environment.INITIAL_AGENT_MODE = permissionProfile === "write" ? "agent" : "read-only";
   }
   if (adapter.executableEnv) environment[adapter.executableEnv] = providerExecutable;
   return environment;
@@ -334,7 +337,7 @@ async function sandboxPlan({ providerId, pluginRoot, workspacePath, commonGitDir
   invariant(controlInfo.isDirectory() && !controlInfo.isSymbolicLink(), "AO_UNSAFE_BROKER_CONTROL_DIR", "Broker control path must be a real directory.");
   const { adapter, providerExecutable: executable, command } = await trustedCommand(providerId, pluginRoot, providerExecutable);
   const providerHome = await prepareProviderHome(adapter, controlDir, tempDir);
-  const environment = sandboxEnvironment({ adapter, providerExecutable: executable, command, providerHomeEnvironment: providerHome.environment, tempDir: SANDBOX_RUNTIME_ROOT });
+  const environment = sandboxEnvironment({ adapter, providerExecutable: executable, command, providerHomeEnvironment: providerHome.environment, tempDir: SANDBOX_RUNTIME_ROOT, permissionProfile });
   const created = /* @__PURE__ */ new Set(["/"]);
   const mounted = /* @__PURE__ */ new Set();
   const args = [
