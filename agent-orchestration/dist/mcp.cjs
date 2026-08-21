@@ -31010,9 +31010,8 @@ var StdioServerTransport = class {
 };
 
 // src/service.mjs
-var import_promises10 = require("node:fs/promises");
+var import_promises11 = require("node:fs/promises");
 var import_node_path13 = require("node:path");
-var import_node_child_process3 = require("node:child_process");
 
 // src/policy/catalog.mjs
 function deepFreeze(value) {
@@ -44256,6 +44255,56 @@ async function cleanupRun({ store, runId }) {
   return { cleaned: removal?.removed === true, reason: removal?.reason, run: await store.clearWorkspace(runId) };
 }
 
+// src/runtime/user-bus.mjs
+var import_promises10 = require("node:fs/promises");
+var import_node_child_process3 = require("node:child_process");
+var USER_MANAGER_EXECUTABLES = /* @__PURE__ */ new Set(["/usr/bin/systemctl", "/usr/bin/systemd-run"]);
+function validateUserManagerCommand(command, args) {
+  invariant(USER_MANAGER_EXECUTABLES.has(command), "AO_UNSAFE_USER_MANAGER_COMMAND", "Refusing to execute an unexpected user-manager command.");
+  invariant(Array.isArray(args), "AO_INVALID_ARGUMENT", "User-manager command arguments must be an array.");
+}
+async function canonicalUserBusEnvironment(environment = process.env, dependencies = {}) {
+  const uid = dependencies.uid ?? process.getuid?.();
+  const inspectPath = dependencies.lstat ?? import_promises10.lstat;
+  const canonicalizePath = dependencies.realpath ?? import_promises10.realpath;
+  invariant(Number.isInteger(uid) && uid >= 0, "AO_USER_BUS_UNAVAILABLE", "The current Unix user identity is unavailable.");
+  const runtimeDir = `/run/user/${uid}`;
+  const busPath = `${runtimeDir}/bus`;
+  const [runtimeInfo, busInfo, canonicalRuntimeDir, canonicalBusPath] = await Promise.all([
+    inspectPath(runtimeDir).catch(() => null),
+    inspectPath(busPath).catch(() => null),
+    canonicalizePath(runtimeDir).catch(() => null),
+    canonicalizePath(busPath).catch(() => null)
+  ]);
+  invariant(
+    runtimeInfo?.isDirectory() && runtimeInfo.uid === uid && (runtimeInfo.mode & 63) === 0 && canonicalRuntimeDir === runtimeDir,
+    "AO_USER_BUS_UNAVAILABLE",
+    "The canonical systemd user runtime directory is unavailable or unsafe."
+  );
+  invariant(
+    busInfo?.isSocket() && busInfo.uid === uid && canonicalBusPath === busPath,
+    "AO_USER_BUS_UNAVAILABLE",
+    "The canonical systemd user bus socket is unavailable or unsafe."
+  );
+  return {
+    ...environment,
+    XDG_RUNTIME_DIR: runtimeDir,
+    DBUS_SESSION_BUS_ADDRESS: `unix:path=${busPath}`
+  };
+}
+async function runUserManagerFile(command, args, options = {}, dependencies = {}) {
+  validateUserManagerCommand(command, args);
+  const runner = dependencies.runFile ?? runFile;
+  const env = await canonicalUserBusEnvironment(options.env ?? process.env, dependencies);
+  return runner(command, args, { ...options, env });
+}
+async function spawnUserManagerFile(command, args, options = {}, dependencies = {}) {
+  validateUserManagerCommand(command, args);
+  const spawnProcess = dependencies.spawn ?? import_node_child_process3.spawn;
+  const env = await canonicalUserBusEnvironment(options.env ?? process.env, dependencies);
+  return spawnProcess(command, args, { ...options, env });
+}
+
 // src/service.mjs
 var WORKER_STATES = /* @__PURE__ */ new Set(["queued", "preparing", "running", "verifying", "cancelling", "cleanup_required"]);
 function normalizeIntentInput(input) {
@@ -44274,7 +44323,7 @@ function normalizeIntentInput(input) {
 async function externalProviderPaths(pluginRoot, discovered, executableRoots = []) {
   const paths = [];
   for (const candidate of discovered) {
-    const resolvedCandidate = await (0, import_promises10.realpath)(candidate).catch(() => (0, import_node_path13.resolve)(candidate));
+    const resolvedCandidate = await (0, import_promises11.realpath)(candidate).catch(() => (0, import_node_path13.resolve)(candidate));
     if (isPathWithin(pluginRoot, candidate) || isPathWithin(pluginRoot, resolvedCandidate)) continue;
     if (!executableRoots.some((root) => isPathWithin(root, resolvedCandidate))) continue;
     if (!paths.includes(resolvedCandidate)) paths.push(resolvedCandidate);
@@ -44325,14 +44374,14 @@ var OrchestrationService = class {
     if (worker?.supervisorUnit) {
       invariant(/^agent-orchestration-run-[a-z0-9-]+\.(?:scope|service)$/.test(worker.supervisorUnit), "AO_UNSAFE_SUPERVISOR_UNIT", "Refusing to operate on an untrusted supervisor unit name.");
       const readState = async () => {
-        const { stdout } = await runFile("/usr/bin/systemctl", ["--user", "show", worker.supervisorUnit, "--property=LoadState", "--property=ActiveState"], { timeoutMs: 5e3 });
+        const { stdout } = await runUserManagerFile("/usr/bin/systemctl", ["--user", "show", worker.supervisorUnit, "--property=LoadState", "--property=ActiveState"], { timeoutMs: 5e3 });
         return Object.fromEntries(stdout.split("\n").filter(Boolean).map((line) => line.split(/=(.*)/s).slice(0, 2)));
       };
       const before = await readState().catch(() => null);
       if (!before) return false;
       if (before.LoadState === "not-found" || ["inactive", "failed"].includes(before.ActiveState)) return true;
       try {
-        await runFile("/usr/bin/systemctl", ["--user", "stop", worker.supervisorUnit], { timeoutMs: 1e4 });
+        await runUserManagerFile("/usr/bin/systemctl", ["--user", "stop", worker.supervisorUnit], { timeoutMs: 1e4 });
       } catch {
         return false;
       }
@@ -44427,7 +44476,7 @@ var OrchestrationService = class {
   async route(input) {
     const consumer = await this.resolveConsumer(input.consumerCwd, false);
     const plan = createExecutionPlan(normalizeIntentInput({ ...input, permissionProfile: "read", sessionMode: input.sessionMode ?? "oneshot" }), this.routingContext({ ...input, permissionProfile: "read" }));
-    invariant(plan.stages.length === 1 && plan.stages[0].route, "AO_PLAN_REQUIRED", "This request resolves to a multi-stage protocol; use ao_plan to preview all provider routes.", { protocolId: plan.protocolId });
+    invariant(plan.stages.length === 1 && plan.stages[0].route, "AO_PLAN_REQUIRED", "This request resolves to a multi-stage protocol; use orchestration_plan to preview all provider routes.", { protocolId: plan.protocolId });
     const decision = plan.stages[0].route;
     return { consumer, decision, explanation: getRoutingExplanation(decision) };
   }
@@ -44489,7 +44538,7 @@ var OrchestrationService = class {
         if (TERMINAL_STATES.has(run.state)) return run;
         const identity = await processStartIdentity(run.worker.pid);
         invariant(identity && identity === run.worker.startIdentity, "AO_WORKER_REGISTRATION_LOST", "The registered worker disappeared before startup acknowledgement.");
-        const scope = await runFile("/usr/bin/systemctl", ["--user", "show", supervisorUnit, "--property=LoadState", "--property=ActiveState", "--property=ControlGroup"], { timeoutMs: 2e3 }).catch(() => null);
+        const scope = await runUserManagerFile("/usr/bin/systemctl", ["--user", "show", supervisorUnit, "--property=LoadState", "--property=ActiveState", "--property=ControlGroup"], { timeoutMs: 2e3 }).catch(() => null);
         const properties = scope && Object.fromEntries(scope.stdout.split("\n").filter(Boolean).map((line) => line.split(/=(.*)/s).slice(0, 2)));
         if (properties?.LoadState === "loaded" && properties.ActiveState === "active" && properties.ControlGroup) return run;
       }
@@ -44542,12 +44591,12 @@ var OrchestrationService = class {
       "--run-id",
       runId
     ];
-    const stdout = await (0, import_promises10.open)((0, import_node_path13.join)(logDir, `${runId}.out.log`), "a", 384);
-    const stderr = await (0, import_promises10.open)((0, import_node_path13.join)(logDir, `${runId}.err.log`), "a", 384);
+    const stdout = await (0, import_promises11.open)((0, import_node_path13.join)(logDir, `${runId}.out.log`), "a", 384);
+    const stderr = await (0, import_promises11.open)((0, import_node_path13.join)(logDir, `${runId}.err.log`), "a", 384);
     let child;
     const launchState = { error: null, exited: null };
     try {
-      child = (0, import_node_child_process3.spawn)("/usr/bin/systemd-run", args, {
+      child = await spawnUserManagerFile("/usr/bin/systemd-run", args, {
         cwd: this.pluginRoot,
         env: { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: this.stateRoot, AGENT_ORCHESTRATION_CURRENT_WORKER_RUN_ID: runId },
         detached: true,
@@ -44588,8 +44637,8 @@ var OrchestrationService = class {
       run = await this.store.get(runId);
     }
     if (TERMINAL_STATES.has(run.state)) return run;
-    const { stdout: controlGroup } = await runFile("/usr/bin/systemctl", ["--user", "show", run.worker?.supervisorUnit, "--property=ControlGroup", "--value"], { timeoutMs: 5e3 });
-    const ownCgroups = await (0, import_promises10.readFile)("/proc/self/cgroup", "utf8");
+    const { stdout: controlGroup } = await runUserManagerFile("/usr/bin/systemctl", ["--user", "show", run.worker?.supervisorUnit, "--property=ControlGroup", "--value"], { timeoutMs: 5e3 });
+    const ownCgroups = await (0, import_promises11.readFile)("/proc/self/cgroup", "utf8");
     invariant(controlGroup && ownCgroups.includes(controlGroup), "AO_WORKER_REGISTRATION_MISSING", "The worker refused to execute outside its registered supervisor cgroup.");
     run = await this.store.update(runId, { worker: { ...run.worker, pid: process.pid, startIdentity: await processStartIdentity(process.pid), attachedAt: (/* @__PURE__ */ new Date()).toISOString() } }, "worker_attached_to_supervisor");
     return executeRun({ store: this.store, runId, pluginRoot: this.pluginRoot, stateRoot: this.stateRoot });
@@ -44735,7 +44784,7 @@ var OrchestrationService = class {
       }
     }));
     const supervisorUnit = newId("agent-orchestration-doctor").replaceAll("_", "-");
-    const supervisor = await runFile("/usr/bin/systemd-run", ["--user", "--wait", "--collect", "--quiet", `--unit=${supervisorUnit}`, "/usr/bin/true"], { timeoutMs: 1e4 }).then(() => ({ ok: true, kind: "systemd-user-cgroup" }), (error51) => ({ ok: false, kind: "systemd-user-cgroup", error: error51.message }));
+    const supervisor = await runUserManagerFile("/usr/bin/systemd-run", ["--user", "--wait", "--collect", "--quiet", `--unit=${supervisorUnit}`, "/usr/bin/true"], { timeoutMs: 1e4 }).then(() => ({ ok: true, kind: "systemd-user-cgroup" }), (error51) => ({ ok: false, kind: "systemd-user-cgroup", error: error51.message }));
     const providerProbes = await Promise.all(PROVIDER_CATALOG.map(async (provider2) => {
       const executable = executableChecks.find((entry) => entry.id === provider2.providerId);
       if (!executable?.ok) return { id: provider2.providerId, ready: false, reason: "executable_not_found" };
@@ -44745,7 +44794,7 @@ var OrchestrationService = class {
       for (const candidate of executable.paths) {
         try {
           const unitName = newId(`agent-orchestration-probe-${provider2.providerId}`).replaceAll("_", "-");
-          const { stdout } = await runFile("/usr/bin/systemd-run", [
+          const { stdout } = await runUserManagerFile("/usr/bin/systemd-run", [
             "--user",
             "--scope",
             "--collect",
@@ -45011,22 +45060,22 @@ function register(server, service, name, description, inputSchema, outputDataSch
 async function createServer(options = {}) {
   const service = await new OrchestrationService(options).initialize();
   const server = new McpServer({ name: "agent-orchestration", version: "0.1.0" });
-  register(server, service, "ao_capabilities", "Describe orchestration providers, intents, protocols, permissions, lifecycle, and repository isolation guarantees.", {}, capabilitiesData, function() {
+  register(server, service, "orchestration_capabilities", "Describe orchestration providers, intents, protocols, permissions, lifecycle, and repository isolation guarantees.", {}, capabilitiesData, function() {
     return this.capabilities();
   });
-  register(server, service, "ao_doctor", "Check provider readiness through bounded, sandboxed, non-prompting ACP sessions without reading or exposing credentials.", {}, doctorData, service.doctor);
-  register(server, service, "ao_route", "Resolve a consumer repository and preview one deterministic, capability-aware provider/model route. Use ao_plan for multi-stage protocols.", singleRouteFields, routeData, service.route);
-  register(server, service, "ao_plan", "Create an explainable execution plan. Architecture automatically uses the Claude-versus-Sol adversarial protocol.", { ...routingFields, permissionProfile: external_exports.enum(["read", "write"]).default("read"), expectedOutput: external_exports.string().optional(), timeoutMs: external_exports.number().int().positive().max(72e5).optional() }, planData, service.plan);
-  register(server, service, "ao_spawn", "Start a durable provider-native orchestration run. Write runs create an isolated worktree derived from consumerCwd.", { ...routingFields, permissionProfile: external_exports.enum(["read", "write"]).default("read"), expectedOutput: external_exports.string().optional(), timeoutMs: external_exports.number().int().positive().max(72e5).optional(), maxTurns: external_exports.number().int().positive().max(200).optional(), idempotencyKey: external_exports.string().min(1).max(256).optional() }, spawnData, service.spawn);
-  register(server, service, "ao_status", "Get a run after proving it belongs to the explicit consumer repository.", runFields, runData, service.getRun);
-  register(server, service, "ao_list", "List runs belonging only to the explicit consumer repository.", { consumerCwd }, external_exports.array(runData), service.list);
-  register(server, service, "ao_events", "Read durable run events after a sequence number.", { ...runFields, after: external_exports.number().int().nonnegative().optional() }, external_exports.array(eventData), service.events);
-  register(server, service, "ao_wait", "Wait up to 55 seconds for a run state change or terminal result.", { ...runFields, timeoutMs: external_exports.number().int().positive().max(55e3).optional(), pollIntervalMs: external_exports.number().int().positive().max(2e3).optional() }, runData, service.wait);
-  register(server, service, "ao_send", "Start a cancellable child run that continues the final read-only provider session with a scoped follow-up message.", { ...runFields, message: external_exports.string().min(1), timeoutMs: external_exports.number().int().positive().max(72e5).optional() }, followupData, service.send);
-  register(server, service, "ao_cancel", "Idempotently request cancellation and terminate the verified worker process group when active.", runFields, runData, service.cancel);
-  register(server, service, "ao_cleanup", "Permanently discard and remove a terminal run worktree through Git after repository ownership checks.", runFields, cleanupData, service.cleanup);
-  register(server, service, "ao_decision_get", "Return the attributed evidence and approval state for an architecture decision run.", runFields, decisionData, service.decision);
-  register(server, service, "ao_decision_approve", "Approve or reject an architecture decision with an auditable rationale.", { ...runFields, approved: external_exports.boolean(), rationale: external_exports.string().min(1), approvedBy: external_exports.string().min(1) }, approvedDecisionData, service.approveDecision);
+  register(server, service, "orchestration_doctor", "Check provider readiness through bounded, sandboxed, non-prompting ACP sessions without reading or exposing credentials.", {}, doctorData, service.doctor);
+  register(server, service, "orchestration_route", "Resolve a consumer repository and preview one deterministic, capability-aware provider/model route. Use orchestration_plan for multi-stage protocols.", singleRouteFields, routeData, service.route);
+  register(server, service, "orchestration_plan", "Create an explainable execution plan. Architecture automatically uses the Claude-versus-Sol adversarial protocol.", { ...routingFields, permissionProfile: external_exports.enum(["read", "write"]).default("read"), expectedOutput: external_exports.string().optional(), timeoutMs: external_exports.number().int().positive().max(72e5).optional() }, planData, service.plan);
+  register(server, service, "orchestration_spawn", "Start a durable provider-native orchestration run. Write runs create an isolated worktree derived from consumerCwd.", { ...routingFields, permissionProfile: external_exports.enum(["read", "write"]).default("read"), expectedOutput: external_exports.string().optional(), timeoutMs: external_exports.number().int().positive().max(72e5).optional(), maxTurns: external_exports.number().int().positive().max(200).optional(), idempotencyKey: external_exports.string().min(1).max(256).optional() }, spawnData, service.spawn);
+  register(server, service, "orchestration_status", "Get a run after proving it belongs to the explicit consumer repository.", runFields, runData, service.getRun);
+  register(server, service, "orchestration_list", "List runs belonging only to the explicit consumer repository.", { consumerCwd }, external_exports.array(runData), service.list);
+  register(server, service, "orchestration_events", "Read durable run events after a sequence number.", { ...runFields, after: external_exports.number().int().nonnegative().optional() }, external_exports.array(eventData), service.events);
+  register(server, service, "orchestration_wait", "Wait up to 55 seconds for a run state change or terminal result.", { ...runFields, timeoutMs: external_exports.number().int().positive().max(55e3).optional(), pollIntervalMs: external_exports.number().int().positive().max(2e3).optional() }, runData, service.wait);
+  register(server, service, "orchestration_send", "Start a cancellable child run that continues the final read-only provider session with a scoped follow-up message.", { ...runFields, message: external_exports.string().min(1), timeoutMs: external_exports.number().int().positive().max(72e5).optional() }, followupData, service.send);
+  register(server, service, "orchestration_cancel", "Idempotently request cancellation and terminate the verified worker process group when active.", runFields, runData, service.cancel);
+  register(server, service, "orchestration_cleanup", "Permanently discard and remove a terminal run worktree through Git after repository ownership checks.", runFields, cleanupData, service.cleanup);
+  register(server, service, "orchestration_decision_get", "Return the attributed evidence and approval state for an architecture decision run.", runFields, decisionData, service.decision);
+  register(server, service, "orchestration_decision_approve", "Approve or reject an architecture decision with an auditable rationale.", { ...runFields, approved: external_exports.boolean(), rationale: external_exports.string().min(1), approvedBy: external_exports.string().min(1) }, approvedDecisionData, service.approveDecision);
   return { server, service };
 }
 async function main() {

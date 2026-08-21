@@ -192,7 +192,7 @@ export class OrchestrationService {
   async route(input) {
     const consumer = await this.resolveConsumer(input.consumerCwd, false);
     const plan = createExecutionPlan(normalizeIntentInput({ ...input, permissionProfile: "read", sessionMode: input.sessionMode ?? "oneshot" }), this.routingContext({ ...input, permissionProfile: "read" }));
-    invariant(plan.stages.length === 1 && plan.stages[0].route, "AO_PLAN_REQUIRED", "This request resolves to a multi-stage protocol; use ao_plan to preview all provider routes.", { protocolId: plan.protocolId });
+    invariant(plan.stages.length === 1 && plan.stages[0].route, "AO_PLAN_REQUIRED", "This request resolves to a multi-stage protocol; use orchestration_plan to preview all provider routes.", { protocolId: plan.protocolId });
     const decision = plan.stages[0].route;
     return { consumer, decision, explanation: getRoutingExplanation(decision) };
   }
