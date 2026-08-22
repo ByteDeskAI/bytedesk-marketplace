@@ -2,6 +2,9 @@
 
 ## 0.2.0 - Unreleased
 
+- Add the Agent Orchestration Session plan and a Cobalt workbench mockup: a per-run loopback window
+  for conversation, handoffs, activity, approvals, and controls. `node session-ui/serve.mjs` prints
+  `Orchestration session: <url>` and opens a browser. Not wired into spawn yet.
 - Wire Claude Code, Codex, Grok Build, and Kimi Code as orchestration hosts of the same MCP control
   plane. Spawn targets stay the trusted catalog (`claude`, `codex`, `grok-build`, `kimi`).
 - Point sandbox `HOME` at the provider config dir so Claude Max subscription auth works without the
