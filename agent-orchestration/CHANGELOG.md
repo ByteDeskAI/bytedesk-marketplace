@@ -2,6 +2,18 @@
 
 ## 0.2.0 - Unreleased
 
+- Wire Claude Code, Codex, Grok Build, and Kimi Code as orchestration hosts of the same MCP control
+  plane. Spawn targets stay the trusted catalog (`claude`, `codex`, `grok-build`, `kimi`).
+- Point sandbox `HOME` at the provider config dir so Claude Max subscription auth works without the
+  unmounted host home.
+- Keep the Claude credential copy mounted until sandbox teardown. Mid-run shredding made the
+  bootstrap turn succeed and the task turn fail with AUTH_REQUIRED.
+- Run every spawned catalog CLI in yolo / skip-permissions mode: ACP auto-approves tools after
+  auth bootstrap, Codex starts in `agent-full-access`, Grok gets `--always-approve`. Bubblewrap
+  still enforces the orchestration read/write mount.
+- Admit the Kimi Code CLI from `~/.kimi-code/bin` in addition to the uv/pipx install roots.
+- Add `install-orchestration-host` to install/trust the Grok plugin and write Kimi `mcp.json` plus
+  skill/agent links without replacing unrelated MCP servers.
 - Ship the governed `ROADMAP.md` and the cross-host `roadmap-orchestrator` skill with Codex UI
   metadata.
 - Add validated task refinement, unlock materialization, trajectory extension, distance-aware gap

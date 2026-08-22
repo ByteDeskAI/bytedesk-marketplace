@@ -28,18 +28,34 @@ async function sandboxArgsFor({ providerId, permissionProfile }) {
   }
 }
 
-test("Codex sandbox mode is broker-derived from the orchestration permission profile", async () => {
+test("Codex sandbox always uses agent-full-access regardless of mount profile", async () => {
   const ambient = process.env.INITIAL_AGENT_MODE;
   process.env.INITIAL_AGENT_MODE = "agent-full-access";
   try {
     const readEnvironment = environmentFromSandboxArgs(await sandboxArgsFor({ providerId: "codex", permissionProfile: "read" }));
     const writeEnvironment = environmentFromSandboxArgs(await sandboxArgsFor({ providerId: "codex", permissionProfile: "write" }));
-    assert.equal(readEnvironment.INITIAL_AGENT_MODE, "read-only");
-    assert.equal(writeEnvironment.INITIAL_AGENT_MODE, "agent");
+    assert.equal(readEnvironment.INITIAL_AGENT_MODE, "agent-full-access");
+    assert.equal(writeEnvironment.INITIAL_AGENT_MODE, "agent-full-access");
   } finally {
     if (ambient === undefined) delete process.env.INITIAL_AGENT_MODE;
     else process.env.INITIAL_AGENT_MODE = ambient;
   }
+});
+
+test("Claude sandbox HOME is the provider config dir, not the unmounted host home", async () => {
+  const environment = environmentFromSandboxArgs(await sandboxArgsFor({ providerId: "claude", permissionProfile: "read" }));
+  assert.equal(environment.HOME, environment.CLAUDE_CONFIG_DIR);
+  assert.equal(environment.HOME, "/agent-orchestration-runtime/provider-home/claude");
+  assert.notEqual(environment.HOME, os.homedir());
+});
+
+test("Grok sandbox always passes --always-approve", async () => {
+  const args = await sandboxArgsFor({ providerId: "grok-build", permissionProfile: "read" });
+  const commandIndex = args.lastIndexOf("--");
+  assert.ok(commandIndex >= 0);
+  const command = args.slice(commandIndex + 1);
+  assert.equal(command.includes("--always-approve"), true);
+  assert.equal(command.at(-1), "stdio");
 });
 
 test("non-Codex sandboxes do not receive INITIAL_AGENT_MODE", async () => {
@@ -118,7 +134,7 @@ test("sandbox execution revalidates provider-specific executable authority", asy
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("ACP proxy revokes bootstrap before releasing pipelined prompts and disambiguates colliding IDs", async () => {
+test("ACP proxy releases pipelined prompts after bootstrap and revokes on close", async () => {
   const input = new PassThrough();
   const output = new PassThrough();
   const child = { stdin: new PassThrough(), stdout: new PassThrough(), kill() {} };
@@ -176,21 +192,17 @@ test("ACP proxy revokes bootstrap before releasing pipelined prompts and disambi
 
   child.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, result: { stopReason: "end_turn" } })}\n`);
   await settle();
-  assert.equal(typeof releaseRevocation, "function");
-  assert.equal(childMessages.some((message) => message.id === 3), false);
-  assert.equal(outputMessages.some((message) => message.result?.stopReason === "end_turn"), false);
-
-  releaseRevocation();
-  await settle();
-  await settle();
-  const revokeEnd = order.indexOf("revoke:end");
+  assert.equal(releaseRevocation, undefined, "successful bootstrap must not shred credentials before later turns");
+  assert.equal(outputMessages.some((message) => message.result?.stopReason === "end_turn"), true);
+  assert.equal(childMessages.some((message) => message.id === 3), true);
   const bootstrapResponse = order.indexOf("output:result:2");
   const releasedPrompt = order.indexOf("child:session/prompt:3");
-  assert.ok(revokeEnd >= 0 && bootstrapResponse > revokeEnd && releasedPrompt > bootstrapResponse, order.join(" -> "));
+  assert.ok(bootstrapResponse >= 0 && releasedPrompt > bootstrapResponse, order.join(" -> "));
 
   child.stdout.end();
   input.end();
   await proxyDone;
+  assert.equal(order.includes("revoke:start"), false);
 });
 
 test("ACP proxy rejects prompts before any session establishment", async () => {

@@ -48,7 +48,7 @@ export const PROVIDER_ADAPTERS = Object.freeze({
     executableRoots: Object.freeze([...SYSTEM_EXECUTABLE_ROOTS, join(os.homedir(), ".grok", "downloads")]),
     executableEnv: null,
     bridgeLauncher: null,
-    args: Object.freeze(["agent", "stdio"]),
+    args: Object.freeze(["agent", "--always-approve", "stdio"]),
     effortTransport: "runtime-probe",
     credentialEnv: Object.freeze([]),
     sandboxHome: Object.freeze({
@@ -63,6 +63,7 @@ export const PROVIDER_ADAPTERS = Object.freeze({
     executable: "kimi",
     executableRoots: Object.freeze([
       ...SYSTEM_EXECUTABLE_ROOTS,
+      join(os.homedir(), ".kimi-code", "bin"),
       join(os.homedir(), ".local", "share", "uv", "tools", "kimi-cli"),
       join(os.homedir(), ".local", "share", "pipx", "venvs", "kimi-cli"),
     ]),

@@ -25758,7 +25758,7 @@ var PROVIDER_ADAPTERS = Object.freeze({
     executableRoots: Object.freeze([...SYSTEM_EXECUTABLE_ROOTS, (0, import_node_path3.join)(import_node_os2.default.homedir(), ".grok", "downloads")]),
     executableEnv: null,
     bridgeLauncher: null,
-    args: Object.freeze(["agent", "stdio"]),
+    args: Object.freeze(["agent", "--always-approve", "stdio"]),
     effortTransport: "runtime-probe",
     credentialEnv: Object.freeze([]),
     sandboxHome: Object.freeze({
@@ -25773,6 +25773,7 @@ var PROVIDER_ADAPTERS = Object.freeze({
     executable: "kimi",
     executableRoots: Object.freeze([
       ...SYSTEM_EXECUTABLE_ROOTS,
+      (0, import_node_path3.join)(import_node_os2.default.homedir(), ".kimi-code", "bin"),
       (0, import_node_path3.join)(import_node_os2.default.homedir(), ".local", "share", "uv", "tools", "kimi-cli"),
       (0, import_node_path3.join)(import_node_os2.default.homedir(), ".local", "share", "pipx", "venvs", "kimi-cli")
     ]),
@@ -25854,15 +25855,15 @@ function createProviderRuntime({ pluginRoot: pluginRoot2, sessionStateDir, cwd: 
     // must never be enabled: doing so would let an ACP peer bypass the sandbox.
     permissionMode: "deny-all",
     nonInteractivePermissions: "deny",
-    onPermissionRequest: async (request) => {
+    onPermissionRequest: async () => {
       if (!permissionState.bootstrapComplete) return { outcome: "reject_once" };
-      if (permissionProfile === "write") return { outcome: "allow_once" };
-      return ["read", "search", "fetch"].includes(request.inferredKind) ? { outcome: "allow_once" } : { outcome: "reject_once" };
+      return { outcome: "allow_once" };
     },
     timeoutMs: runtimeTimeoutMs,
     verbose
   });
 }
+var YOLO_MODE_VALUES = Object.freeze(["bypassPermissions", "agent-full-access", "dontAsk", "auto"]);
 async function probeProviderSession({ pluginRoot: pluginRoot2, stateRoot: stateRoot2, cwd: cwd2, providerId: providerId2, providerExecutable: providerExecutable2 }) {
   const adapter = getProviderAdapter(providerId2);
   invariant(adapter, "AO_PROVIDER_ADAPTER_MISSING", `No trusted adapter is registered for provider ${providerId2}.`);

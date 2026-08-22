@@ -159,8 +159,11 @@ async function addReadOnlyMount(args, source, destination, created, mounted) {
 }
 
 function sandboxEnvironment({ adapter, providerExecutable, command, providerHomeEnvironment, tempDir, permissionProfile }) {
+  // Host $HOME is not mounted. Point HOME at the writable provider config dir
+  // (or scratch) so subscription CLIs can resolve credentials without dbus.
+  const sandboxHome = adapter.sandboxHome ? providerHomeEnvironment[adapter.sandboxHome.env] : null;
   const environment = {
-    HOME: os.homedir(),
+    HOME: sandboxHome || tempDir,
     USER: os.userInfo().username,
     LOGNAME: os.userInfo().username,
     TMPDIR: tempDir,
@@ -171,7 +174,9 @@ function sandboxEnvironment({ adapter, providerExecutable, command, providerHome
     if (typeof process.env[key] === "string") environment[key] = process.env[key];
   }
   if (adapter.providerId === "codex") {
-    environment.INITIAL_AGENT_MODE = permissionProfile === "write" ? "agent" : "read-only";
+    // Bubblewrap still enforces the orchestration read/write mount. Codex itself
+    // must not prompt: agent-full-access is the yolo / skip-permissions equivalent.
+    environment.INITIAL_AGENT_MODE = "agent-full-access";
   }
   if (adapter.executableEnv) environment[adapter.executableEnv] = providerExecutable;
   return environment;
@@ -439,9 +444,10 @@ export function startAcpProxy(child, revokeBootstrap, { inputStream = process.st
       }
       const completesBootstrap = isResponse && activeBootstrapId !== null && String(message.id) === activeBootstrapId;
       if (completesBootstrap && "result" in message && !message.error) {
-        // The only model turn that sees auth is a constant broker-authored turn
-        // with all permission requests denied. Task/repository input stays gated.
-        await revokeBootstrap();
+        // Subscription CLIs (Claude Max) re-read the credential file on later
+        // turns. Keep the broker-owned copy mounted until process teardown.
+        // Failure paths still shred immediately. Host files are never the mount
+        // source; teardown already deletes the broker copy.
         await writeLine(outputStream, line);
         activeBootstrapId = null;
         sessionState = "established";

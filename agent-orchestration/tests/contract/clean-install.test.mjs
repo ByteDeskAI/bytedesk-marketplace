@@ -84,6 +84,12 @@ test("tracked install bundle starts from plugin cwd but resolves only explicit c
     assert.match(roadmapSkillMetadata, /\$roadmap-orchestrator/);
     assert.equal(JSON.parse(await readFile(join(installed, ".claude-plugin", "plugin.json"), "utf8")).version, undefined);
     assert.equal(JSON.parse(await readFile(join(installed, ".codex-plugin", "plugin.json"), "utf8")).version, undefined);
+    const agentsMd = await readFile(join(installed, "AGENTS.md"), "utf8");
+    assert.match(agentsMd, /\| Grok Build \| Same `\.mcp\.json`/);
+    assert.match(agentsMd, /\| Kimi Code \| `~\/\.kimi-code\/mcp\.json`/);
+    assert.match(agentsMd, /Wire hosts with `skills\/install-orchestration-host`/);
+    const hostSkill = await readFile(join(installed, "skills", "install-orchestration-host", "SKILL.md"), "utf8");
+    assert.match(hostSkill, /^---\nname: install-orchestration-host\n/);
 
     const transport = new StdioClientTransport({
       command: join(installed, "bin", "agent-orchestration-mcp"),

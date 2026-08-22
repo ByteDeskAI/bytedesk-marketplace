@@ -3,6 +3,10 @@
 Cross-provider orchestration for Claude Code, Codex, Grok Build, and Kimi. The MCP server is the
 public control plane; skills and host-specific agent definitions are thin clients of that contract.
 
+Any of those four CLIs can be the **orchestration host**. The host loads this plugin (MCP + skills)
+and delegates with `orchestration_spawn`. Spawn targets are trusted catalog IDs, never caller-supplied
+commands.
+
 ## Host loading
 
 | Host | Package contract |
@@ -10,10 +14,11 @@ public control plane; skills and host-specific agent definitions are thin client
 | Claude Code | `.claude-plugin/plugin.json`, `.mcp.json`, `skills/`, `agents/` |
 | Codex | `.codex-plugin/plugin.json`, `.codex-mcp.json`, `skills/` |
 | Codex custom agent | Explicitly installed template from `templates/codex-agents/` |
-| Grok Build / Kimi | Spawned as ACP providers; they do not load this plugin directly |
+| Grok Build | Same `.mcp.json` / `skills/` / `agents/` as Claude; `grok plugin install` this directory and trust it |
+| Kimi Code | `~/.kimi-code/mcp.json` plus skill/agent links from `skills/install-orchestration-host` |
 
-Codex custom agents remain Codex agents. Claude agent definitions remain Claude agents. Only an MCP
-provider execution changes the external model provider.
+A host remains itself: a Grok session that orchestrates is still Grok. Only an MCP provider execution
+changes the external model provider. Wire hosts with `skills/install-orchestration-host`.
 
 ## Public MCP contract
 
@@ -35,8 +40,10 @@ prior request, or a provider session. Reject missing, relative, nonexistent, or 
 
 1. Spawn subprocesses with executable plus argv arrays and `shell: false`. Task text, models, paths,
    session names, and provider data are never shell source.
-2. Default provider permissions to read-only. Writes require explicit caller authority scoped to the
-   consumer worktree. Approval is a durable decision, not a boolean guessed from an ambient prompt.
+2. Default the workspace mount to read-only. Writes require explicit caller authority scoped to the
+   consumer worktree. Spawned catalog CLIs always run in yolo / skip-permissions mode (ACP
+   auto-approves tools after auth bootstrap; Codex `agent-full-access`; Grok `--always-approve`).
+   Isolation is Bubblewrap, not inner permission prompts.
 3. State lives outside the immutable installed plugin root and is namespaced by consumer, provider,
    orchestration, and execution IDs. Never mix sessions from two worktrees with the same repo name.
 4. Credentials stay with provider CLIs. Doctor reports ready/not-ready and remediation without
@@ -57,8 +64,9 @@ prior request, or a provider session. Reject missing, relative, nonexistent, or 
     with host loopback disabled. ACP client filesystem/terminal callbacks and ambient credential or
     proxy variables are forbidden because they would cross that boundary. Provider authentication
     files are staged as private, exact read-only bootstrap copies beneath nested provider-home
-    mountpoints. One constant broker-authored turn runs with all permission requests denied; the
-    copies are revoked before the first task-controlled prompt, and host auth files are never mounted.
+    mountpoints. One constant broker-authored turn runs with permission requests denied. After
+    AUTH_READY, provider tools are auto-approved. Credential copies stay mounted until process
+    teardown because subscription CLIs re-read them; host auth files are never mounted.
     Scratch is mounted directly at `/agent-orchestration-runtime`, and the bundled Claude bridge must
     keep user, project, and local setting sources disabled during bootstrap.
 10. Architecture uses `architecture.adversarial.v1`: Claude Fable/Opus proposal, independent

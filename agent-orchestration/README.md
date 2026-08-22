@@ -1,8 +1,9 @@
 # Agent Orchestration
 
-Agent Orchestration gives Claude Code and Codex one MCP control plane for delegating bounded work to
-Claude Code, Codex, Grok Build, and Kimi. It preserves provider attribution, durable execution identity,
-explicit permissions, lifecycle control, and structured results instead of scraping terminal output.
+Agent Orchestration gives Claude Code, Codex, Grok Build, and Kimi Code one MCP control plane for
+delegating bounded work to Claude Code, Codex, Grok Build, and Kimi. Any of those four CLIs can host
+orchestration. It preserves provider attribution, durable execution identity, explicit permissions,
+lifecycle control, and structured results instead of scraping terminal output.
 
 ## What it provides
 
@@ -13,8 +14,8 @@ explicit permissions, lifecycle control, and structured results instead of scrap
 - Durable approval decisions for governed actions.
 - A validated, lineage-aware roadmap and a shared skill for refining tasks, unlocks, trajectories,
   gaps, and goals without turning strategy into execution authority.
-- Shared skills for Claude Code and Codex, a Claude-native orchestration agent, and an optional Codex
-  custom-agent template.
+- Shared skills for Claude Code, Codex, Grok Build, and Kimi Code; a Claude/Grok orchestration agent;
+  and an optional Codex custom-agent template.
 
 The plugin does not turn a native Claude or Codex subagent into another provider. External provider
 work exists only when the MCP server starts a provider execution.
@@ -27,10 +28,10 @@ work exists only when the MCP server starts a provider execution.
 - An active systemd user manager (`systemd-run --user`) for per-run and per-probe cgroup ownership;
   orchestration fails closed when the user manager is unavailable.
 - At least one authenticated provider CLI:
-  - Claude Code for provider ID `claude`.
-  - Codex for provider ID `codex`.
-  - Grok Build for provider ID `grok-build` (`grok agent stdio`).
-  - Kimi CLI for provider ID `kimi` (`kimi acp`).
+  - Claude Code for provider ID `claude` (also a host).
+  - Codex for provider ID `codex` (also a host).
+  - Grok Build for provider ID `grok-build` (`grok agent stdio`; also a host after plugin install).
+  - Kimi CLI for provider ID `kimi` (`kimi acp`; also a host after `~/.kimi-code/mcp.json` wiring).
 
 Providers are optional and independent. Run the doctor after installation to see which are ready.
 Each candidate is admitted only after a bounded authenticated ACP session initialization; Kimi uses
@@ -55,6 +56,19 @@ Codex:
 ```sh
 codex plugin marketplace add /absolute/path/to/bytedesk-marketplace
 codex plugin add agent-orchestration@bytedesk
+```
+
+Grok Build:
+
+```sh
+grok plugin install /absolute/path/to/bytedesk-marketplace/agent-orchestration --trust
+```
+
+Kimi Code (and a dry-run of every host):
+
+```sh
+node skills/install-orchestration-host/scripts/install-host.mjs --dry-run --all
+node skills/install-orchestration-host/scripts/install-host.mjs --host kimi --host grok
 ```
 
 Start a fresh host session after installation so the MCP server and skills are discovered.
@@ -114,10 +128,9 @@ replacement and supersedes the historical record. Supersession chains must be ac
 live replacement. Retired history may retain evidence and lineage; constraints for the active
 projection apply only to live records.
 
-Claude Code and Codex discover the shared skill from the installed plugin. Grok Build and Kimi do
-not load the plugin; they may contribute only through an orchestration run started by a supported
-host. Those provider runs still require an explicit `consumerCwd` pointing at the intended consumer
-checkout or worktree. Mutate roadmaps only in a writable source checkout containing `ROADMAP.md` and
+Claude Code, Codex, Grok Build, and Kimi Code can each load the plugin as a host. A host session
+delegates through MCP; Grok and Kimi also remain spawn targets for the other hosts. Every provider
+run still requires an explicit `consumerCwd` pointing at the intended consumer checkout or worktree. Mutate roadmaps only in a writable source checkout containing `ROADMAP.md` and
 `scripts/roadmap.mjs`. The installed cache is read-only and neither its process directory nor its
 packaged roadmap becomes an implicit consumer repository.
 

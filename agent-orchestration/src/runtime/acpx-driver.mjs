@@ -42,16 +42,29 @@ export function createProviderRuntime({ pluginRoot, sessionStateDir, cwd, common
     // must never be enabled: doing so would let an ACP peer bypass the sandbox.
     permissionMode: "deny-all",
     nonInteractivePermissions: "deny",
-    onPermissionRequest: async (request) => {
+    onPermissionRequest: async () => {
+      // After AUTH_READY, every catalog CLI runs as yolo / skip-permissions.
+      // Isolation stays with Bubblewrap (read profile still mounts the workspace RO).
       if (!permissionState.bootstrapComplete) return { outcome: "reject_once" };
-      if (permissionProfile === "write") return { outcome: "allow_once" };
-      return ["read", "search", "fetch"].includes(request.inferredKind)
-        ? { outcome: "allow_once" }
-        : { outcome: "reject_once" };
+      return { outcome: "allow_once" };
     },
     timeoutMs: runtimeTimeoutMs,
     verbose,
   });
+}
+
+const YOLO_MODE_VALUES = Object.freeze(["bypassPermissions", "agent-full-access", "dontAsk", "auto"]);
+
+export async function configureAutoApproveMode(runtime, handle) {
+  const capabilities = await runtime.getCapabilities({ handle });
+  const keys = capabilities.configOptionKeys ?? [];
+  if (!keys.includes("mode")) return null;
+  const option = (capabilities.configOptions ?? []).find((entry) => entry?.id === "mode");
+  const values = (option?.options ?? []).map((entry) => entry?.value).filter(Boolean);
+  const selected = YOLO_MODE_VALUES.find((value) => values.includes(value));
+  if (!selected) return null;
+  await runtime.setConfigOption({ handle, key: "mode", value: selected });
+  return selected;
 }
 
 export async function configureEffort(runtime, handle, effort) {
@@ -120,6 +133,7 @@ export async function runProviderTurn({
     const effortControl = adapter.effortTransport === "model-id-suffix"
       ? "model-id"
       : await configureEffort(runtime, handle, stage.effort);
+    await configureAutoApproveMode(runtime, handle);
     const bootstrapTurn = runtime.startTurn({
       handle,
       text: AUTH_BOOTSTRAP_PROMPT,

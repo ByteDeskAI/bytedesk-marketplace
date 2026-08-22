@@ -1,14 +1,17 @@
 ---
 name: agent-orchestrate
-description: Delegate bounded work to Claude Code, Codex, Grok Build, or Kimi through the agent-orchestration MCP server. Use when the user asks for cross-provider agents, competing model reviews, external subagents, parallel provider work, or provider-attributed synthesis.
+description: Delegate bounded work to Claude Code, Codex, Grok Build, or Kimi through the agent-orchestration MCP server. Use when this host (Claude, Codex, Grok, or Kimi) should spawn another catalog CLI, run competing model reviews, or coordinate parallel provider work.
 user-invokable: true
 argument-hint: "<task> [--providers claude,grok-build,kimi]"
 ---
 
 # Agent Orchestrate
 
-Use the bundled `orchestration_*` MCP tools. Do not launch provider CLIs directly and do not claim that a native
-Claude or Codex subagent changes provider.
+Use the bundled `orchestration_*` MCP tools. This host may be Claude Code, Codex, Grok Build, or Kimi
+Code. Do not launch provider CLIs directly and do not claim that a native host subagent changes provider.
+
+If the tools are missing, the current CLI is not wired as a host. Run `install-orchestration-host`
+instead of shelling out to `claude`, `codex`, `grok`, or `kimi`.
 
 ## Process
 

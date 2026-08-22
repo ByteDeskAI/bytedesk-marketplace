@@ -119,7 +119,7 @@ var PROVIDER_ADAPTERS = Object.freeze({
     executableRoots: Object.freeze([...SYSTEM_EXECUTABLE_ROOTS, (0, import_node_path2.join)(import_node_os.default.homedir(), ".grok", "downloads")]),
     executableEnv: null,
     bridgeLauncher: null,
-    args: Object.freeze(["agent", "stdio"]),
+    args: Object.freeze(["agent", "--always-approve", "stdio"]),
     effortTransport: "runtime-probe",
     credentialEnv: Object.freeze([]),
     sandboxHome: Object.freeze({
@@ -134,6 +134,7 @@ var PROVIDER_ADAPTERS = Object.freeze({
     executable: "kimi",
     executableRoots: Object.freeze([
       ...SYSTEM_EXECUTABLE_ROOTS,
+      (0, import_node_path2.join)(import_node_os.default.homedir(), ".kimi-code", "bin"),
       (0, import_node_path2.join)(import_node_os.default.homedir(), ".local", "share", "uv", "tools", "kimi-cli"),
       (0, import_node_path2.join)(import_node_os.default.homedir(), ".local", "share", "pipx", "venvs", "kimi-cli")
     ]),
@@ -303,8 +304,9 @@ async function addReadOnlyMount(args, source, destination, created, mounted) {
   mounted.add(destination);
 }
 function sandboxEnvironment({ adapter, providerExecutable, command, providerHomeEnvironment, tempDir, permissionProfile }) {
+  const sandboxHome = adapter.sandboxHome ? providerHomeEnvironment[adapter.sandboxHome.env] : null;
   const environment = {
-    HOME: import_node_os2.default.homedir(),
+    HOME: sandboxHome || tempDir,
     USER: import_node_os2.default.userInfo().username,
     LOGNAME: import_node_os2.default.userInfo().username,
     TMPDIR: tempDir,
@@ -315,7 +317,7 @@ function sandboxEnvironment({ adapter, providerExecutable, command, providerHome
     if (typeof process.env[key] === "string") environment[key] = process.env[key];
   }
   if (adapter.providerId === "codex") {
-    environment.INITIAL_AGENT_MODE = permissionProfile === "write" ? "agent" : "read-only";
+    environment.INITIAL_AGENT_MODE = "agent-full-access";
   }
   if (adapter.executableEnv) environment[adapter.executableEnv] = providerExecutable;
   return environment;
@@ -606,7 +608,6 @@ function startAcpProxy(child, revokeBootstrap, { inputStream = process.stdin, ou
       }
       const completesBootstrap = isResponse && activeBootstrapId !== null && String(message.id) === activeBootstrapId;
       if (completesBootstrap && "result" in message && !message.error) {
-        await revokeBootstrap();
         await writeLine(outputStream, line);
         activeBootstrapId = null;
         sessionState = "established";
