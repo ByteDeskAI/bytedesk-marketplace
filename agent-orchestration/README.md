@@ -11,6 +11,8 @@ explicit permissions, lifecycle control, and structured results instead of scrap
 - One-shot and persistent provider sessions.
 - Spawn, follow-up, wait, status, event, cancellation, and cleanup controls.
 - Durable approval decisions for governed actions.
+- A validated, lineage-aware roadmap and a shared skill for refining tasks, unlocks, trajectories,
+  gaps, and goals without turning strategy into execution authority.
 - Shared skills for Claude Code and Codex, a Claude-native orchestration agent, and an optional Codex
   custom-agent template.
 
@@ -88,6 +90,39 @@ own process directory.
 `sessionMode: "persistent"`, stayed read-only, and the provider advertises durable session loading.
 The child retains its own status, events, worker, and cancellation boundary. One-shot, unsupported,
 and writable follow-ups fail closed; spawn a new scoped run instead.
+
+## Govern the roadmap
+
+The installed package includes `ROADMAP.md`, its append-only `ROADMAP-INVENTORY.json` identity
+ledger, its validator, portable `ROADMAP-SOURCES.json` seam integrity data, and the
+`roadmap-orchestrator` skill for reference and discovery. Invoke
+`$roadmap-orchestrator`, ask to “enhance the roadmap” or “extend the roadmap,” or name a roadmap
+task, unlock, trajectory, gap, or goal ID. The skill reads the repository roadmap, runs
+`npm run roadmap:check` (or `node scripts/roadmap.mjs --check`), preserves IDs and reciprocal
+lineage, and validates again after an edit. With no target, it presents at most five eligible
+actions instead of inventing work.
+
+Use the safe enhancement sequence exactly: (1) precheck with `npm run roadmap:check`, then edit
+canonical records; (2) when new IDs were added, run `npm run roadmap:append-inventory` and only
+append immutable inventory identities; (3) run `npm run roadmap:refresh-views`; (4) run
+`npm run roadmap:refresh-sources` only when referenced source content or anchors intentionally
+changed, and review the manifest diff; (5) run `npm run roadmap:check` again. Never hand-edit
+generated views or refresh source integrity data to hide unexplained drift.
+
+IDs are never renamed, recycled, or deleted. A strategic identity change creates a same-kind
+replacement and supersedes the historical record. Supersession chains must be acyclic and end at a
+live replacement. Retired history may retain evidence and lineage; constraints for the active
+projection apply only to live records.
+
+Claude Code and Codex discover the shared skill from the installed plugin. Grok Build and Kimi do
+not load the plugin; they may contribute only through an orchestration run started by a supported
+host. Those provider runs still require an explicit `consumerCwd` pointing at the intended consumer
+checkout or worktree. Mutate roadmaps only in a writable source checkout containing `ROADMAP.md` and
+`scripts/roadmap.mjs`. The installed cache is read-only and neither its process directory nor its
+packaged roadmap becomes an implicit consumer repository.
+
+Goals and trajectories remain strategic proposals. They cannot execute work, spend budget, reserve
+capacity, or mutate a workspace, and only a human roadmap steward may approve them for commitment.
 
 ## Safety model
 

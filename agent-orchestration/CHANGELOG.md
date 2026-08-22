@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.2.0 - Unreleased
+
+- Ship the governed `ROADMAP.md` and the cross-host `roadmap-orchestrator` skill with Codex UI
+  metadata.
+- Add validated task refinement, unlock materialization, trajectory extension, distance-aware gap
+  filling, and evidence-ranked goal advancement while preserving IDs and reciprocal lineage.
+- Preserve immutable roadmap identities in the packaged `ROADMAP-INVENTORY.json` ledger and require
+  the precheck, edit, inventory append, canonical-view refresh, conditional source refresh, and final
+  check sequence for enhancements.
+- Require acyclic supersession chains to terminate at a live replacement while retaining retired
+  evidence and lineage outside the active projection.
+- Validate dependency-closed trajectories, human strategic approval provenance, lifecycle state
+  combinations, semantic Mermaid relationships, and portable source seams in both source and clean
+  installed-cache copies.
+- Keep strategic proposals human-approved and non-executing, and preserve explicit
+  consumer-relative `consumerCwd` for every external provider run.
+
 ## 0.1.0 - Unreleased
 
 - Add dual Claude Code and Codex plugin manifests.

@@ -45,6 +45,39 @@ kind needs one explicit runtime executor and contract tests; provider turns rema
 boundary. `createOrchestrationWorktree` and `removeOrchestrationWorktree` are the workspace backend.
 Keep public MCP schemas stable while replacing an implementation behind one of those boundaries.
 
+## Extend the roadmap
+
+In a writable source checkout, use this exact sequence:
+
+1. Run `npm run roadmap:check`; stop on failure, then edit canonical records.
+2. If new IDs were added, run `npm run roadmap:append-inventory`. This may append immutable
+   identities to `ROADMAP-INVENTORY.json`; it must not rewrite, remove, recycle, or backfill them.
+3. Run `npm run roadmap:refresh-views`; generated Mermaid blocks and the trajectory index are never
+   hand-edited.
+4. Run `npm run roadmap:refresh-sources` only when referenced source content changed or source
+   anchors were intentionally added, removed, or changed. Review the manifest diff and never use a
+   refresh to hide unexplained drift.
+5. Run `npm run roadmap:check` again and report the resulting identity, lineage, readiness, view,
+   inventory, and source-manifest effects.
+
+`ROADMAP-SOURCES.json` makes source-seam validation portable into installed caches that intentionally
+omit `src/`. Treat an installed plugin cache as read-only reference and discovery content; never
+mutate its packaged roadmap. Preserve existing IDs, connect every addition to existing work, and
+maintain reciprocal lineage between tasks, unlocks, trajectories, gaps, and goals. Refine a task in place; materialize an
+unlock as a child task; extend a trajectory with the smallest connected step; and fill a gap according
+to its distance: one-hop task plus expected unlock, multi-hop child trajectory, or bounded research
+task when distance is unknown. Advancing a goal ranks its existing paths before proposing another.
+When strategic identity truly changes, preserve the old ID, create a same-kind replacement with the
+next unused suffix, mark the old record `superseded`, and link it with `supersededById`. Every
+supersession chain is same-kind, acyclic, and terminates at a live replacement. Retired historical
+records may retain evidence and lineage; active projection constraints apply only to live records.
+
+Keep strategic additions proposed until a human roadmap steward approves them. Goals and
+trajectories describe direction only: they never launch providers, spend budget, reserve capacity,
+or mutate a consumer workspace. External provider work continues through the public MCP lifecycle
+with explicit `consumerCwd`; never resolve a roadmap operation from the installed plugin cache or
+MCP process directory.
+
 Compatibility requires unit tests, tracked bundle drift, clean installed-cache startup, and a fresh
 host session. Provider executables and authentication are optional; readiness must report unavailable
 instead of silently falling back across a hard policy constraint.

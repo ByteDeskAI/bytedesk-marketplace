@@ -1,6 +1,6 @@
 {
   "name": "@bytedesk/agent-orchestration",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Cross-provider agent orchestration MCP server and CLI for Claude Code, Codex, Grok Build, and Kimi.",
   "type": "module",
@@ -22,7 +22,11 @@
     "templates",
     "AGENTS.md",
     "CHANGELOG.md",
-    "README.md"
+    "ROADMAP.md",
+    "ROADMAP-INVENTORY.json",
+    "ROADMAP-SOURCES.json",
+    "README.md",
+    "scripts/roadmap.mjs"
   ],
   "scripts": {
     "build": "node scripts/build.mjs",
@@ -31,6 +35,10 @@
     "test:unit": "node --test tests/unit/*.test.mjs",
     "test:contract": "bash run-tests.sh contract",
     "test:live": "node tests/live/provider-smoke.mjs",
+    "roadmap:check": "node scripts/roadmap.mjs --check ROADMAP.md",
+    "roadmap:append-inventory": "node scripts/roadmap.mjs --append-inventory ROADMAP.md",
+    "roadmap:refresh-sources": "node scripts/roadmap.mjs --refresh-sources ROADMAP.md",
+    "roadmap:refresh-views": "node scripts/roadmap.mjs --refresh-views ROADMAP.md",
     "prepack": "npm run build:check && npm test"
   },
   "engines": {

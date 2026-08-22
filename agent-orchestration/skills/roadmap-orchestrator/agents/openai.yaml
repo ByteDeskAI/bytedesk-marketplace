@@ -1,0 +1,4 @@
+interface:
+  display_name: "Roadmap Orchestrator"
+  short_description: "Govern and extend the orchestration roadmap"
+  default_prompt: "Use $roadmap-orchestrator to inspect ROADMAP.md and advance the next governed roadmap action."

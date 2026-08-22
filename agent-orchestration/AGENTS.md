@@ -74,6 +74,15 @@ prior request, or a provider session. Reject missing, relative, nonexistent, or 
     roots. Worker and probe scopes retain memory, process-count, runtime, core-dump, and per-file
     ceilings; ACP frames, aggregate transport, buffered requests, and stderr remain bounded with
     backpressure.
+14. Roadmap work occurs only in a writable source checkout. Start by reading `ROADMAP.md` and running
+    `npm run roadmap:check`, then preserve IDs, dependency closure, connectedness, and reciprocal lineage. If
+    referenced implementation changes, regenerate `ROADMAP-SOURCES.json` with
+    `npm run roadmap:refresh-sources` and review the integrity-manifest diff. With
+    no requested target, present at most five eligible actions. Strategic goals and trajectories
+    remain proposed until a human roadmap steward approves them; they never execute, spend, reserve,
+    or mutate. Installed-cache roadmap content is read-only reference/discovery material. External
+    provider work remains scoped by explicit consumer-relative `consumerCwd`, never the plugin cache
+    cwd.
 
 ## Packaging invariants
 
@@ -82,6 +91,9 @@ prior request, or a provider session. Reject missing, relative, nonexistent, or 
 - A compatibility claim requires launching the actual installed cache copy with no `node_modules`
   and no path back to the source checkout.
 - No absolute symlinks, tracked `node_modules`, generated credentials, or mutable session data.
+- Ship `ROADMAP.md`, `ROADMAP-INVENTORY.json`, `ROADMAP-SOURCES.json`, `scripts/roadmap.mjs`, and
+  `skills/roadmap-orchestrator/` in clean
+  installed-cache copies without shipping the other development scripts.
 - Keep `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, `package.json`, README, skills, and
   the MCP schemas synchronized when the public contract changes.
 

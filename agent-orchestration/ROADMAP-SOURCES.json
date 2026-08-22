@@ -1,0 +1,183 @@
+{
+  "schemaVersion": 1,
+  "hashAlgorithm": "sha256",
+  "files": {
+    "src/cli.mjs": {
+      "sha256": "68c38417c9bc91e212682fc1fb102dbee1d50040a502861fb5d6e1488cce1772",
+      "lineCount": 38,
+      "anchors": [
+        "Usage: agent-orchestration <worker|doctor|status> [options]"
+      ]
+    },
+    "src/errors.mjs": {
+      "sha256": "eee55ab55f16e945e44531f20fb94c1fde0815331d232f2d703e9170a4a8ece7",
+      "lineCount": 23,
+      "anchors": [
+        "export class AgentOrchestrationError",
+        "export function serializeError"
+      ]
+    },
+    "src/mcp.mjs": {
+      "sha256": "71b845deae9061bbe32870529f779f639053ca280baf5171fed631ce3d1c899c",
+      "lineCount": 266,
+      "anchors": [
+        "\"orchestration_capabilities\"",
+        "\"orchestration_decision_approve\"",
+        "\"orchestration_events\"",
+        "\"orchestration_spawn\"",
+        "\"orchestration_status\"",
+        "const routingFields =",
+        "export async function createServer"
+      ]
+    },
+    "src/policy/catalog.mjs": {
+      "sha256": "10026b57f6d7b42021c3c047a20ac8c59b4502467807396aa3701d2cf82c805a",
+      "lineCount": 83,
+      "anchors": [
+        "export const ROUTING_ALIASES",
+        "export const ROUTING_POLICY_VERSION"
+      ]
+    },
+    "src/policy/explanation.mjs": {
+      "sha256": "2d436ffe3e75bf2b19a03a678bb358fbe07dfb8c100ba60afa4ae253dd66859d",
+      "lineCount": 58,
+      "anchors": [
+        "export function getRoutingExplanation"
+      ]
+    },
+    "src/policy/router.mjs": {
+      "sha256": "383453102402ba574846abc5b701d6e41a74ea8df6cb8d5d6b34f63515210979",
+      "lineCount": 251,
+      "anchors": [
+        "const decisionBody =",
+        "export function routeTask",
+        "fallbackPath: eligible.map(",
+        "function capabilityState(",
+        "function evaluateCandidate(",
+        "function scoreCandidate("
+      ]
+    },
+    "src/protocols/definitions.mjs": {
+      "sha256": "d40df94d0b2922ae98daf72679a440aa7ce1d320244a7e88a441ec55d14ca71b",
+      "lineCount": 178,
+      "anchors": [
+        "const executorContracts =",
+        "export const PROTOCOL_DEFINITIONS",
+        "export const PROTOCOL_VERSION",
+        "export function validateProtocolDefinition",
+        "outputContract: \"architecture.disposition-matrix.v1\"",
+        "protocolId: \"architecture.adversarial.v1\"",
+        "unresolvedHighSeverityDisposition: \"waiting_for_decision\""
+      ]
+    },
+    "src/protocols/planner.mjs": {
+      "sha256": "1ae649ce4aaa8f201aab8c3b2e25786468c50997d845ce8cc167808d2ca31cab",
+      "lineCount": 161,
+      "anchors": [
+        "export function createExecutionPlan",
+        "planId: stableId(\"plan\", body)"
+      ]
+    },
+    "src/provider-sandbox.mjs": {
+      "sha256": "f5b76142d1d26a6c6ce2725ff66bfa3fa756762e59bcbdce5869cf49af55dede",
+      "lineCount": 586,
+      "anchors": [
+        "\"AO_ACP_PROVIDER_REQUEST_LIMIT\""
+      ]
+    },
+    "src/providers/adapters.mjs": {
+      "sha256": "b8070583937d5c08a4e2b6a190171efec26102fb57398db10e2c843bf95db3e3",
+      "lineCount": 85,
+      "anchors": [
+        "export const PROVIDER_ADAPTERS",
+        "export function getProviderAdapter"
+      ]
+    },
+    "src/providers/catalog.mjs": {
+      "sha256": "b4ad3afd05610a6b947c573cc549461b2a0715798374c4888629caaac2065005",
+      "lineCount": 211,
+      "anchors": [
+        "export const MODEL_CATALOG =",
+        "export const PROVIDER_CATALOG =",
+        "export const PROVIDER_CATALOG_VERSION"
+      ]
+    },
+    "src/runtime/acpx-driver.mjs": {
+      "sha256": "1fdd813b4c28d6a5604306dd6be8289d19e0eddaea54e82bc9cee5a5f1348048",
+      "lineCount": 247,
+      "anchors": [
+        "const permissionState =",
+        "export function createProviderRuntime"
+      ]
+    },
+    "src/runtime/engine.mjs": {
+      "sha256": "99d3ac9491536e7e46947bc63bdf4019812a29b73c1c29b9d9088741a6c21c3c",
+      "lineCount": 314,
+      "anchors": [
+        "\"AO_PROVIDER_FAILED\"",
+        "\"AO_UNSAFE_AGENT_CHANGE\"",
+        "\"decision_waiting_for_approval\"",
+        "\"provider_event\"",
+        "\"stage_completed\"",
+        "No stage executor is registered for selection kind",
+        "const finalPatch =",
+        "const sourceSession =",
+        "export async function executeRun",
+        "for (const stage of plannedStages)",
+        "function canFallbackBeforeTurn(",
+        "function dependencyOutputs(",
+        "function parseContractOutput(",
+        "function parseStructuredOutput(",
+        "function planStages(",
+        "resumeSupported: providerDescriptor?.capabilities?.persistent_session"
+      ]
+    },
+    "src/runtime/prompts.mjs": {
+      "sha256": "37555a8ef8043db170bf8908502eb7987da209277a04897426361a8420cd0d6f",
+      "lineCount": 46,
+      "anchors": [
+        "const contract = {",
+        "export const ORCHESTRATOR_GUARDRAILS",
+        "export function stagePrompt"
+      ]
+    },
+    "src/service.mjs": {
+      "sha256": "277f72d00e58fcb8516aed40b778f03a7211cae14288c93063127c8533dfe126",
+      "lineCount": 569,
+      "anchors": [
+        "async cancel(",
+        "async decision(",
+        "async doctor(",
+        "async events(",
+        "async getRun(",
+        "async providerAvailabilitySnapshot(",
+        "async recoverInterruptedRuns(",
+        "async send(",
+        "async spawn(",
+        "const providerProbes =",
+        "const selectedProviders =",
+        "findByIdempotencyKey(input.idempotencyKey",
+        "plan: prepared.plan",
+        "routingContext(input) {"
+      ]
+    },
+    "src/state/store.mjs": {
+      "sha256": "9a67798830317af2ba50b622e393a1b2c9570fc73b1100f8838c9b50314299d0",
+      "lineCount": 325,
+      "anchors": [
+        "async appendEventUnlocked(",
+        "async createUnlocked(",
+        "async get(",
+        "async list(",
+        "async transition("
+      ]
+    },
+    "src/workspace/worktrees.mjs": {
+      "sha256": "54a5e7639a92a10bfbca4b46ee543112207b00b602db611fa5eb6a2084d09cf5",
+      "lineCount": 165,
+      "anchors": [
+        "export async function createOrchestrationWorktree"
+      ]
+    }
+  }
+}

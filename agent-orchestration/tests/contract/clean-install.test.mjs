@@ -11,10 +11,9 @@ import { promisify } from "node:util";
 
 const run = promisify(execFile);
 const sourceRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
-const shippedEntries = [
-  ".claude-plugin", ".codex-plugin", ".mcp.json", ".codex-mcp.json", "agents", "bin",
-  "dist", "skills", "templates", "AGENTS.md", "CHANGELOG.md", "README.md",
-];
+const packageManifest = JSON.parse(await readFile(join(sourceRoot, "package.json"), "utf8"));
+const shippedEntries = packageManifest.files;
+const shippedTopLevelEntries = [...new Set(shippedEntries.map((entry) => entry.split("/")[0]))];
 const expectedToolNames = [
   "orchestration_capabilities",
   "orchestration_doctor",
@@ -56,7 +55,9 @@ test("tracked install bundle starts from plugin cwd but resolves only explicit c
   try {
     await writeFile(join(fakeHome, ".grok", "auth.json"), "contract-secret-must-be-revoked\n", { mode: 0o600 });
     for (const entry of shippedEntries) {
-      await cp(join(sourceRoot, entry), join(installed, entry), { recursive: true });
+      const destination = join(installed, entry);
+      await mkdir(dirname(destination), { recursive: true });
+      await cp(join(sourceRoot, entry), destination, { recursive: true });
     }
     for (const launcher of await readdir(join(installed, "bin"))) await chmod(join(installed, "bin", launcher), 0o755);
     await Promise.all([
@@ -66,6 +67,21 @@ test("tracked install bundle starts from plugin cwd but resolves only explicit c
     await Promise.all([chmod(join(fakeGrokBin, "grok"), 0o755), chmod(join(fakeKimiBin, "kimi"), 0o755)]);
     await assert.rejects(() => lstat(join(installed, "src")));
     await assert.rejects(() => lstat(join(installed, "node_modules")));
+    await access(join(installed, "ROADMAP.md"));
+    await access(join(installed, "ROADMAP-SOURCES.json"));
+    await access(join(installed, "ROADMAP-INVENTORY.json"));
+    await access(join(installed, "scripts", "roadmap.mjs"));
+    assert.deepEqual(await readdir(join(installed, "scripts")), ["roadmap.mjs"]);
+    assert.equal(shippedEntries.includes("src"), false, "package files must not ship the implementation source tree");
+    assert.equal(shippedEntries.includes("ROADMAP-SOURCES.json"), true, "package files must ship source-seam integrity data");
+    assert.equal(shippedEntries.includes("ROADMAP-INVENTORY.json"), true, "package files must ship append-only roadmap identity data");
+    const roadmapCheck = await run(process.execPath, [join(installed, "scripts", "roadmap.mjs"), "--check", join(installed, "ROADMAP.md")], { cwd: installed });
+    assert.match(roadmapCheck.stdout, /^ROADMAP OK:/);
+    const roadmapSkill = await readFile(join(installed, "skills", "roadmap-orchestrator", "SKILL.md"), "utf8");
+    assert.match(roadmapSkill, /^---\nname: roadmap-orchestrator\ndescription: .+\n---\n/);
+    const roadmapSkillMetadata = await readFile(join(installed, "skills", "roadmap-orchestrator", "agents", "openai.yaml"), "utf8");
+    assert.match(roadmapSkillMetadata, /display_name: "Roadmap Orchestrator"/);
+    assert.match(roadmapSkillMetadata, /\$roadmap-orchestrator/);
     assert.equal(JSON.parse(await readFile(join(installed, ".claude-plugin", "plugin.json"), "utf8")).version, undefined);
     assert.equal(JSON.parse(await readFile(join(installed, ".codex-plugin", "plugin.json"), "utf8")).version, undefined);
 
@@ -149,7 +165,7 @@ test("tracked install bundle starts from plugin cwd but resolves only explicit c
       await client.close();
     }
 
-    assert.deepEqual((await readdir(installed)).sort(), shippedEntries.sort());
+    assert.deepEqual((await readdir(installed)).sort(), shippedTopLevelEntries.sort());
     assert.deepEqual(await readdir(decoy), [".git", "README.md"]);
     assert.equal((await readdir(stateRoot)).includes("runs"), true);
   } finally {

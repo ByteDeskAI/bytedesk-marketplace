@@ -1,0 +1,1070 @@
+{
+  "schemaVersion": 1,
+  "records": {
+    "task": [
+      {
+        "id": "AO-COL-001",
+        "capabilityKey": "task.collaboration.typed-messages",
+        "category": "Agent Collaboration"
+      },
+      {
+        "id": "AO-COL-002",
+        "capabilityKey": "task.collaboration.handoff-leases",
+        "category": "Agent Collaboration"
+      },
+      {
+        "id": "AO-COL-003",
+        "capabilityKey": "task.collaboration.mission-blackboard",
+        "category": "Agent Collaboration"
+      },
+      {
+        "id": "AO-COL-004",
+        "capabilityKey": "task.collaboration.stigmergic-signals",
+        "category": "Agent Collaboration"
+      },
+      {
+        "id": "AO-COL-005",
+        "capabilityKey": "task.collaboration.dissent-evidence-graph",
+        "category": "Agent Collaboration"
+      },
+      {
+        "id": "AO-COL-006",
+        "capabilityKey": "task.collaboration.live-team-topologies",
+        "category": "Agent Collaboration"
+      },
+      {
+        "id": "AO-DEL-001",
+        "capabilityKey": "task.delivery.acceptance-contracts",
+        "category": "Autonomous Delivery"
+      },
+      {
+        "id": "AO-DEL-002",
+        "capabilityKey": "task.delivery.workspace-merge-train",
+        "category": "Autonomous Delivery"
+      },
+      {
+        "id": "AO-DEL-003",
+        "capabilityKey": "task.delivery.verification-pipelines",
+        "category": "Autonomous Delivery"
+      },
+      {
+        "id": "AO-DEL-004",
+        "capabilityKey": "task.delivery.compensation-recovery",
+        "category": "Autonomous Delivery"
+      },
+      {
+        "id": "AO-DEL-005",
+        "capabilityKey": "task.delivery.governed-change-flow",
+        "category": "Autonomous Delivery"
+      },
+      {
+        "id": "AO-EXT-001",
+        "capabilityKey": "task.extensibility.provider-sdk",
+        "category": "Extensibility"
+      },
+      {
+        "id": "AO-EXT-002",
+        "capabilityKey": "task.extensibility.protocol-primitive-registries",
+        "category": "Extensibility"
+      },
+      {
+        "id": "AO-EXT-003",
+        "capabilityKey": "task.extensibility.routing-strategy-api",
+        "category": "Extensibility"
+      },
+      {
+        "id": "AO-EXT-004",
+        "capabilityKey": "task.extensibility.compatibility-migrations-trust",
+        "category": "Extensibility"
+      },
+      {
+        "id": "AO-EXT-005",
+        "capabilityKey": "task.extensibility.federated-domain-protocol",
+        "category": "Extensibility"
+      },
+      {
+        "id": "AO-GOV-001",
+        "capabilityKey": "task.governance.policy-authority",
+        "category": "Governance and Safety"
+      },
+      {
+        "id": "AO-GOV-002",
+        "capabilityKey": "task.governance.approval-quorum",
+        "category": "Governance and Safety"
+      },
+      {
+        "id": "AO-GOV-003",
+        "capabilityKey": "task.governance.delegation-passports",
+        "category": "Governance and Safety"
+      },
+      {
+        "id": "AO-GOV-004",
+        "capabilityKey": "task.governance.credential-data-customs",
+        "category": "Governance and Safety"
+      },
+      {
+        "id": "AO-GOV-005",
+        "capabilityKey": "task.governance.refusal-receipts",
+        "category": "Governance and Safety"
+      },
+      {
+        "id": "AO-GOV-006",
+        "capabilityKey": "task.governance.compliance-contestability",
+        "category": "Governance and Safety"
+      },
+      {
+        "id": "AO-LRN-001",
+        "capabilityKey": "task.learning.outcome-feedback-contracts",
+        "category": "Learning and Adaptation"
+      },
+      {
+        "id": "AO-LRN-002",
+        "capabilityKey": "task.learning.counterfactual-simulator",
+        "category": "Learning and Adaptation"
+      },
+      {
+        "id": "AO-LRN-003",
+        "capabilityKey": "task.learning.capability-performance-calibration",
+        "category": "Learning and Adaptation"
+      },
+      {
+        "id": "AO-LRN-004",
+        "capabilityKey": "task.learning.evidence-backed-patterns",
+        "category": "Learning and Adaptation"
+      },
+      {
+        "id": "AO-LRN-005",
+        "capabilityKey": "task.learning.champion-challenger-experiments",
+        "category": "Learning and Adaptation"
+      },
+      {
+        "id": "AO-LRN-006",
+        "capabilityKey": "task.learning.promotion-rollback-forgetting",
+        "category": "Learning and Adaptation"
+      },
+      {
+        "id": "AO-OBS-001",
+        "capabilityKey": "task.observability.telemetry-model",
+        "category": "Observability"
+      },
+      {
+        "id": "AO-OBS-002",
+        "capabilityKey": "task.observability.causal-traces",
+        "category": "Observability"
+      },
+      {
+        "id": "AO-OBS-003",
+        "capabilityKey": "task.observability.usage-budget-accounting",
+        "category": "Observability"
+      },
+      {
+        "id": "AO-OBS-004",
+        "capabilityKey": "task.observability.capacity-slos",
+        "category": "Observability"
+      },
+      {
+        "id": "AO-OBS-005",
+        "capabilityKey": "task.observability.forensic-audit-projections",
+        "category": "Observability"
+      },
+      {
+        "id": "AO-ORK-001",
+        "capabilityKey": "task.kernel.mission-aggregate",
+        "category": "Orchestration Kernel"
+      },
+      {
+        "id": "AO-ORK-002",
+        "capabilityKey": "task.kernel.declarative-specifications",
+        "category": "Orchestration Kernel"
+      },
+      {
+        "id": "AO-ORK-003",
+        "capabilityKey": "task.kernel.execution-lockfiles",
+        "category": "Orchestration Kernel"
+      },
+      {
+        "id": "AO-ORK-004",
+        "capabilityKey": "task.kernel.mission-event-sourcing",
+        "category": "Orchestration Kernel"
+      },
+      {
+        "id": "AO-ORK-005",
+        "capabilityKey": "task.kernel.primitive-registry",
+        "category": "Orchestration Kernel"
+      },
+      {
+        "id": "AO-REL-001",
+        "capabilityKey": "task.reliability.deterministic-replay",
+        "category": "Reliability"
+      },
+      {
+        "id": "AO-REL-002",
+        "capabilityKey": "task.reliability.semantic-checkpoints",
+        "category": "Reliability"
+      },
+      {
+        "id": "AO-REL-003",
+        "capabilityKey": "task.reliability.idempotent-effects",
+        "category": "Reliability"
+      },
+      {
+        "id": "AO-REL-004",
+        "capabilityKey": "task.reliability.coordination-immune-system",
+        "category": "Reliability"
+      },
+      {
+        "id": "AO-REL-005",
+        "capabilityKey": "task.reliability.chaos-failover-campaigns",
+        "category": "Reliability"
+      },
+      {
+        "id": "AO-RTR-001",
+        "capabilityKey": "task.routing.semantic-intent-classification",
+        "category": "Dynamic Routing"
+      },
+      {
+        "id": "AO-RTR-002",
+        "capabilityKey": "task.routing.provider-capability-cards",
+        "category": "Dynamic Routing"
+      },
+      {
+        "id": "AO-RTR-003",
+        "capabilityKey": "task.routing.contract-net-bidding",
+        "category": "Dynamic Routing"
+      },
+      {
+        "id": "AO-RTR-004",
+        "capabilityKey": "task.routing.strategy-portfolios",
+        "category": "Dynamic Routing"
+      },
+      {
+        "id": "AO-RTR-005",
+        "capabilityKey": "task.routing.shadow-learning",
+        "category": "Dynamic Routing"
+      },
+      {
+        "id": "AO-TUX-001",
+        "capabilityKey": "task.terminal.mission-control-host",
+        "category": "Terminal UX"
+      },
+      {
+        "id": "AO-TUX-002",
+        "capabilityKey": "task.terminal.event-driven-tui",
+        "category": "Terminal UX"
+      },
+      {
+        "id": "AO-TUX-003",
+        "capabilityKey": "task.terminal.conversation-inbox",
+        "category": "Terminal UX"
+      },
+      {
+        "id": "AO-TUX-004",
+        "capabilityKey": "task.terminal.topology-control-tower",
+        "category": "Terminal UX"
+      },
+      {
+        "id": "AO-TUX-005",
+        "capabilityKey": "task.terminal.evidence-inspector",
+        "category": "Terminal UX"
+      },
+      {
+        "id": "AO-TUX-006",
+        "capabilityKey": "task.terminal.authority-command-palette",
+        "category": "Terminal UX"
+      },
+      {
+        "id": "AO-TUX-007",
+        "capabilityKey": "task.terminal.accessible-offline-continuity",
+        "category": "Terminal UX"
+      }
+    ],
+    "unlock": [
+      {
+        "id": "AO-U-001",
+        "capabilityKey": "kernel.mission-aggregate",
+        "from": "AO-ORK-001",
+        "to": "AO-ORK-002",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-002",
+        "capabilityKey": "kernel.declarative-specs",
+        "from": "AO-ORK-002",
+        "to": "AO-ORK-003",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-003",
+        "capabilityKey": "kernel.execution-lockfile",
+        "from": "AO-ORK-003",
+        "to": "AO-ORK-004",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-004",
+        "capabilityKey": "kernel.primitive-contracts",
+        "from": "AO-ORK-002",
+        "to": "AO-ORK-005",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-005",
+        "capabilityKey": "routing.mission-intent-anchor",
+        "from": "AO-ORK-001",
+        "to": "AO-RTR-001",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-006",
+        "capabilityKey": "routing.bid-eligibility",
+        "from": "AO-RTR-002",
+        "to": "AO-RTR-003",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-007",
+        "capabilityKey": "routing.bid-lockfile",
+        "from": "AO-ORK-003",
+        "to": "AO-RTR-003",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-008",
+        "capabilityKey": "routing.semantic-portfolio-input",
+        "from": "AO-RTR-001",
+        "to": "AO-RTR-004",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-009",
+        "capabilityKey": "routing.market-strategy",
+        "from": "AO-RTR-003",
+        "to": "AO-RTR-004",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-010",
+        "capabilityKey": "routing.learnable-portfolio",
+        "from": "AO-RTR-004",
+        "to": "AO-RTR-005",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-011",
+        "capabilityKey": "collaboration.message-primitive",
+        "from": "AO-ORK-005",
+        "to": "AO-COL-001",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-012",
+        "capabilityKey": "collaboration.handoff-messages",
+        "from": "AO-COL-001",
+        "to": "AO-COL-002",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-013",
+        "capabilityKey": "collaboration.blackboard-journal",
+        "from": "AO-ORK-004",
+        "to": "AO-COL-003",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-014",
+        "capabilityKey": "collaboration.blackboard-envelope",
+        "from": "AO-COL-001",
+        "to": "AO-COL-003",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-015",
+        "capabilityKey": "collaboration.signal-surface",
+        "from": "AO-COL-003",
+        "to": "AO-COL-004",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-016",
+        "capabilityKey": "collaboration.evidence-nodes",
+        "from": "AO-COL-003",
+        "to": "AO-COL-005",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-017",
+        "capabilityKey": "collaboration.topology-dissent",
+        "from": "AO-COL-005",
+        "to": "AO-COL-006",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-018",
+        "capabilityKey": "collaboration.role-leases",
+        "from": "AO-COL-002",
+        "to": "AO-COL-006",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-019",
+        "capabilityKey": "delivery.contract-primitive",
+        "from": "AO-ORK-005",
+        "to": "AO-DEL-001",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-020",
+        "capabilityKey": "delivery.workspace-handoff",
+        "from": "AO-COL-002",
+        "to": "AO-DEL-002",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-021",
+        "capabilityKey": "delivery.verifiable-output",
+        "from": "AO-DEL-001",
+        "to": "AO-DEL-003",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-022",
+        "capabilityKey": "delivery.leased-workspace",
+        "from": "AO-DEL-002",
+        "to": "AO-DEL-003",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-023",
+        "capabilityKey": "delivery.failure-localization",
+        "from": "AO-DEL-003",
+        "to": "AO-DEL-004",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-024",
+        "capabilityKey": "delivery.compensated-flow",
+        "from": "AO-DEL-004",
+        "to": "AO-DEL-005",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-025",
+        "capabilityKey": "delivery.authenticated-gates",
+        "from": "AO-GOV-002",
+        "to": "AO-DEL-005",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-026",
+        "capabilityKey": "governance.policy-events",
+        "from": "AO-ORK-004",
+        "to": "AO-GOV-001",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-027",
+        "capabilityKey": "governance.approval-policy",
+        "from": "AO-GOV-001",
+        "to": "AO-GOV-002",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-028",
+        "capabilityKey": "governance.delegation-envelope",
+        "from": "AO-COL-001",
+        "to": "AO-GOV-003",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-029",
+        "capabilityKey": "governance.delegation-policy",
+        "from": "AO-GOV-001",
+        "to": "AO-GOV-003",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-030",
+        "capabilityKey": "governance.customs-authority",
+        "from": "AO-GOV-003",
+        "to": "AO-GOV-004",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-031",
+        "capabilityKey": "governance.negative-effect-evidence",
+        "from": "AO-GOV-004",
+        "to": "AO-GOV-005",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-032",
+        "capabilityKey": "governance.contestable-approval",
+        "from": "AO-GOV-002",
+        "to": "AO-GOV-006",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-033",
+        "capabilityKey": "governance.contestable-refusal",
+        "from": "AO-GOV-005",
+        "to": "AO-GOV-006",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-034",
+        "capabilityKey": "terminal.mission-event-stream",
+        "from": "AO-ORK-004",
+        "to": "AO-TUX-001",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-035",
+        "capabilityKey": "terminal.host-runtime",
+        "from": "AO-TUX-001",
+        "to": "AO-TUX-002",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-036",
+        "capabilityKey": "terminal.typed-conversations",
+        "from": "AO-COL-001",
+        "to": "AO-TUX-003",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-037",
+        "capabilityKey": "terminal.thread-host",
+        "from": "AO-TUX-001",
+        "to": "AO-TUX-003",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-038",
+        "capabilityKey": "terminal.live-topology",
+        "from": "AO-COL-006",
+        "to": "AO-TUX-004",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-039",
+        "capabilityKey": "terminal.topology-shell",
+        "from": "AO-TUX-002",
+        "to": "AO-TUX-004",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-040",
+        "capabilityKey": "terminal.dissent-inspection",
+        "from": "AO-COL-005",
+        "to": "AO-TUX-005",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-041",
+        "capabilityKey": "terminal.inspector-shell",
+        "from": "AO-TUX-002",
+        "to": "AO-TUX-005",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-042",
+        "capabilityKey": "terminal.topology-intervention-context",
+        "from": "AO-TUX-004",
+        "to": "AO-TUX-006",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-043",
+        "capabilityKey": "terminal.evidence-intervention-context",
+        "from": "AO-TUX-005",
+        "to": "AO-TUX-006",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-044",
+        "capabilityKey": "terminal.complete-interaction-model",
+        "from": "AO-TUX-006",
+        "to": "AO-TUX-007",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-045",
+        "capabilityKey": "observability.mission-events",
+        "from": "AO-ORK-004",
+        "to": "AO-OBS-001",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-046",
+        "capabilityKey": "observability.trace-semantics",
+        "from": "AO-OBS-001",
+        "to": "AO-OBS-002",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-047",
+        "capabilityKey": "observability.usage-semantics",
+        "from": "AO-OBS-001",
+        "to": "AO-OBS-003",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-048",
+        "capabilityKey": "observability.mission-budget-owner",
+        "from": "AO-ORK-001",
+        "to": "AO-OBS-003",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-049",
+        "capabilityKey": "observability.queue-semantics",
+        "from": "AO-OBS-001",
+        "to": "AO-OBS-004",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-050",
+        "capabilityKey": "observability.forensic-causality",
+        "from": "AO-OBS-002",
+        "to": "AO-OBS-005",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-051",
+        "capabilityKey": "observability.audit-case",
+        "from": "AO-GOV-006",
+        "to": "AO-OBS-005",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-052",
+        "capabilityKey": "reliability.replayable-mission-stream",
+        "from": "AO-ORK-004",
+        "to": "AO-REL-001",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-053",
+        "capabilityKey": "reliability.replay-checkpoint",
+        "from": "AO-REL-001",
+        "to": "AO-REL-002",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-054",
+        "capabilityKey": "reliability.handoff-idempotency",
+        "from": "AO-COL-002",
+        "to": "AO-REL-003",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-055",
+        "capabilityKey": "reliability.idempotency-journal",
+        "from": "AO-ORK-004",
+        "to": "AO-REL-003",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-056",
+        "capabilityKey": "reliability.immune-telemetry",
+        "from": "AO-OBS-001",
+        "to": "AO-REL-004",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-057",
+        "capabilityKey": "reliability.signal-control",
+        "from": "AO-COL-004",
+        "to": "AO-REL-004",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-058",
+        "capabilityKey": "reliability.chaos-recovery-oracle",
+        "from": "AO-REL-002",
+        "to": "AO-REL-005",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-059",
+        "capabilityKey": "reliability.chaos-immune-oracle",
+        "from": "AO-REL-004",
+        "to": "AO-REL-005",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-060",
+        "capabilityKey": "extensibility.provider-card-contract",
+        "from": "AO-RTR-002",
+        "to": "AO-EXT-001",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-061",
+        "capabilityKey": "extensibility.registry-boundary",
+        "from": "AO-ORK-005",
+        "to": "AO-EXT-002",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-062",
+        "capabilityKey": "extensibility.strategy-contract",
+        "from": "AO-RTR-004",
+        "to": "AO-EXT-003",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-063",
+        "capabilityKey": "extensibility.provider-versioning",
+        "from": "AO-EXT-001",
+        "to": "AO-EXT-004",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-064",
+        "capabilityKey": "extensibility.protocol-versioning",
+        "from": "AO-EXT-002",
+        "to": "AO-EXT-004",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-065",
+        "capabilityKey": "extensibility.policy-versioning",
+        "from": "AO-EXT-003",
+        "to": "AO-EXT-004",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-066",
+        "capabilityKey": "learning.economic-outcomes",
+        "from": "AO-OBS-003",
+        "to": "AO-LRN-001",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-067",
+        "capabilityKey": "learning.dissent-outcomes",
+        "from": "AO-COL-005",
+        "to": "AO-LRN-001",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-068",
+        "capabilityKey": "learning.simulation-outcomes",
+        "from": "AO-LRN-001",
+        "to": "AO-LRN-002",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-069",
+        "capabilityKey": "learning.shadow-decisions",
+        "from": "AO-RTR-005",
+        "to": "AO-LRN-002",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-070",
+        "capabilityKey": "learning.card-calibration",
+        "from": "AO-RTR-002",
+        "to": "AO-LRN-003",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-071",
+        "capabilityKey": "learning.observed-performance",
+        "from": "AO-OBS-001",
+        "to": "AO-LRN-003",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-072",
+        "capabilityKey": "learning.pattern-evidence",
+        "from": "AO-LRN-003",
+        "to": "AO-LRN-004",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-073",
+        "capabilityKey": "learning.pattern-corpus",
+        "from": "AO-COL-003",
+        "to": "AO-LRN-004",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-074",
+        "capabilityKey": "learning.experiment-simulator",
+        "from": "AO-LRN-002",
+        "to": "AO-LRN-005",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-075",
+        "capabilityKey": "learning.experiment-variants",
+        "from": "AO-LRN-004",
+        "to": "AO-LRN-005",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-076",
+        "capabilityKey": "learning.contestable-promotion",
+        "from": "AO-GOV-006",
+        "to": "AO-LRN-006",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-077",
+        "capabilityKey": "learning.promotion-evidence",
+        "from": "AO-LRN-005",
+        "to": "AO-LRN-006",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-078",
+        "capabilityKey": "goal.terminal-mission-control.event-tui",
+        "from": "AO-TUX-007",
+        "to": "AO-GOAL-001",
+        "relation": "bridge"
+      },
+      {
+        "id": "AO-U-079",
+        "capabilityKey": "goal.terminal-mission-control.ag-ui",
+        "from": "AO-TUX-003",
+        "to": "AO-GOAL-001",
+        "relation": "bridge"
+      },
+      {
+        "id": "AO-U-080",
+        "capabilityKey": "bridge.fabric.extension-compatibility-attainment",
+        "from": "AO-EXT-004",
+        "to": "AO-GOAL-002",
+        "relation": "bridge"
+      },
+      {
+        "id": "AO-U-081",
+        "capabilityKey": "bridge.delivery.governed-flow-attainment",
+        "from": "AO-DEL-005",
+        "to": "AO-GOAL-003",
+        "relation": "bridge"
+      },
+      {
+        "id": "AO-U-082",
+        "capabilityKey": "bridge.replay.checkpoint-attainment",
+        "from": "AO-REL-002",
+        "to": "AO-GOAL-004",
+        "relation": "bridge"
+      },
+      {
+        "id": "AO-U-083",
+        "capabilityKey": "bridge.learning.promotion-attainment",
+        "from": "AO-LRN-006",
+        "to": "AO-GOAL-005",
+        "relation": "bridge"
+      },
+      {
+        "id": "AO-U-084",
+        "capabilityKey": "bridge.federation.domain-protocol-attainment",
+        "from": "AO-EXT-005",
+        "to": "AO-GOAL-006",
+        "relation": "bridge"
+      },
+      {
+        "id": "AO-U-085",
+        "capabilityKey": "delivery.economic-governance",
+        "from": "AO-OBS-003",
+        "to": "AO-GOAL-003",
+        "relation": "enhances"
+      },
+      {
+        "id": "AO-U-086",
+        "capabilityKey": "federation.portable-extensions",
+        "from": "AO-EXT-004",
+        "to": "AO-GOAL-006",
+        "relation": "enhances"
+      },
+      {
+        "id": "AO-U-087",
+        "capabilityKey": "replay.operator-inspection",
+        "from": "AO-TUX-005",
+        "to": "AO-GOAL-004",
+        "relation": "enhances"
+      },
+      {
+        "id": "AO-U-088",
+        "capabilityKey": "fabric.learned-portable-patterns",
+        "from": "AO-LRN-004",
+        "to": "AO-GOAL-002",
+        "relation": "enhances"
+      },
+      {
+        "id": "AO-U-089",
+        "capabilityKey": "terminal.capacity-overlay",
+        "from": "AO-OBS-004",
+        "to": "AO-GOAL-001",
+        "relation": "enhances"
+      },
+      {
+        "id": "AO-U-090",
+        "capabilityKey": "replay.forensic-diff",
+        "from": "AO-OBS-005",
+        "to": "AO-GOAL-004",
+        "relation": "enhances"
+      },
+      {
+        "id": "AO-U-091",
+        "capabilityKey": "delivery.idempotent-effects",
+        "from": "AO-REL-003",
+        "to": "AO-GOAL-003",
+        "relation": "enhances"
+      },
+      {
+        "id": "AO-U-092",
+        "capabilityKey": "replay.chaos-proof",
+        "from": "AO-REL-005",
+        "to": "AO-GOAL-004",
+        "relation": "enhances"
+      },
+      {
+        "id": "AO-U-093",
+        "capabilityKey": "delivery.contestable-governance",
+        "from": "AO-GOV-006",
+        "to": "AO-DEL-005",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-094",
+        "capabilityKey": "federation.compatible-extension",
+        "from": "AO-EXT-004",
+        "to": "AO-EXT-005",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-095",
+        "capabilityKey": "federation.contestable-authority",
+        "from": "AO-GOV-006",
+        "to": "AO-EXT-005",
+        "relation": "requires"
+      },
+      {
+        "id": "AO-U-096",
+        "capabilityKey": "federation.reconcilable-topology",
+        "from": "AO-COL-006",
+        "to": "AO-EXT-005",
+        "relation": "requires"
+      }
+    ],
+    "goal": [
+      {
+        "id": "AO-GOAL-001",
+        "capabilityKey": "goal.terminal-mission-control"
+      },
+      {
+        "id": "AO-GOAL-002",
+        "capabilityKey": "goal.provider-neutral-fabric"
+      },
+      {
+        "id": "AO-GOAL-003",
+        "capabilityKey": "goal.governed-autonomous-delivery"
+      },
+      {
+        "id": "AO-GOAL-004",
+        "capabilityKey": "goal.replay-time-travel"
+      },
+      {
+        "id": "AO-GOAL-005",
+        "capabilityKey": "goal.self-improving-orchestration"
+      },
+      {
+        "id": "AO-GOAL-006",
+        "capabilityKey": "goal.federated-human-agent-organization"
+      }
+    ],
+    "trajectory": [
+      {
+        "id": "AO-TRJ-001",
+        "capabilityKey": "trajectory.terminal.event-tui",
+        "goalId": "AO-GOAL-001",
+        "strategyKey": "event-tui"
+      },
+      {
+        "id": "AO-TRJ-002",
+        "capabilityKey": "trajectory.terminal.ag-ui",
+        "goalId": "AO-GOAL-001",
+        "strategyKey": "ag-ui-adapter"
+      },
+      {
+        "id": "AO-TRJ-003",
+        "capabilityKey": "trajectory.fabric.public-extension-contracts",
+        "goalId": "AO-GOAL-002",
+        "strategyKey": "versioned-extension-spi"
+      },
+      {
+        "id": "AO-TRJ-004",
+        "capabilityKey": "trajectory.delivery.governed-effects",
+        "goalId": "AO-GOAL-003",
+        "strategyKey": "contract-gate-compensate"
+      },
+      {
+        "id": "AO-TRJ-005",
+        "capabilityKey": "trajectory.replay.semantic-checkpoints",
+        "goalId": "AO-GOAL-004",
+        "strategyKey": "event-checkpoint-fork"
+      },
+      {
+        "id": "AO-TRJ-006",
+        "capabilityKey": "trajectory.learning.governed-loop",
+        "goalId": "AO-GOAL-005",
+        "strategyKey": "shadow-evaluate-promote"
+      },
+      {
+        "id": "AO-TRJ-007",
+        "capabilityKey": "trajectory.federation.bounded-delegation",
+        "goalId": "AO-GOAL-006",
+        "strategyKey": "domain-contract-federation"
+      }
+    ],
+    "gap": [
+      {
+        "id": "AO-GAP-001",
+        "capabilityKey": "gap.terminal.mission-control-loop",
+        "trajectoryId": "AO-TRJ-001",
+        "kind": "capability"
+      },
+      {
+        "id": "AO-GAP-002",
+        "capabilityKey": "gap.terminal.ag-ui-evidence",
+        "trajectoryId": "AO-TRJ-002",
+        "kind": "evidence"
+      },
+      {
+        "id": "AO-GAP-003",
+        "capabilityKey": "gap.fabric.extension-platform",
+        "trajectoryId": "AO-TRJ-003",
+        "kind": "capability"
+      },
+      {
+        "id": "AO-GAP-004",
+        "capabilityKey": "gap.delivery.end-to-end-governance",
+        "trajectoryId": "AO-TRJ-004",
+        "kind": "dependency"
+      },
+      {
+        "id": "AO-GAP-005",
+        "capabilityKey": "gap.replay.complete-effect-history",
+        "trajectoryId": "AO-TRJ-005",
+        "kind": "capability"
+      },
+      {
+        "id": "AO-GAP-006",
+        "capabilityKey": "gap.learning.governed-evidence-loop",
+        "trajectoryId": "AO-TRJ-006",
+        "kind": "evidence"
+      },
+      {
+        "id": "AO-GAP-007",
+        "capabilityKey": "gap.federation.cross-domain-contracts",
+        "trajectoryId": "AO-TRJ-007",
+        "kind": "capability"
+      }
+    ]
+  }
+}
