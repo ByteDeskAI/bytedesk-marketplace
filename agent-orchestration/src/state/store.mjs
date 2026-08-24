@@ -268,6 +268,16 @@ export class RunStore {
     });
   }
 
+  async appendJournal(runId, type, payload = {}) {
+    return this.withLock(runId, async () => {
+      const current = await this.get(runId);
+      const next = { ...current, revision: current.revision + 1, updatedAt: new Date().toISOString() };
+      await this.appendEventUnlocked(next, type, { ...payload, updatedAt: next.updatedAt });
+      await atomicWriteJson(this.snapshotPath(runId), next);
+      return next;
+    });
+  }
+
   async events(runId, after = 0) {
     assertRunId(runId);
     const text = await readFile(this.eventsPath(runId), "utf8").catch((error) => {

@@ -2,6 +2,12 @@
 
 ## 0.2.0 - Unreleased
 
+- Project the session transcript, activity, and handoffs from the journal, and POST cancel /
+  follow-up / decision through the broker. Follow-ups persist as `operator_message` events. Loopback
+  Origin is required for browser mutations.
+- Stream the hash-chained run journal to the session UI over cookie-auth SSE
+  (`GET /api/runs/:id/events`). `after` / `Last-Event-ID` resume, a corrupt chain returns 409,
+  and the status bar shows `live` / `reconnecting` / `detached`. The stage rail is `plan.stages`.
 - Start a per-state-root Agent Orchestration Session host on `127.0.0.1`. Spawn returns a one-use
   `session.url`; the host exchanges it for an HttpOnly cookie and serves the committed session UI.
   Capability secrets stay out of `snapshot.json`. `agent-orchestration session-host` is the CLI bind.

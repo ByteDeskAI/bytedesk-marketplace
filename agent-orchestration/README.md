@@ -13,8 +13,10 @@ lifecycle control, and structured results instead of scraping terminal output.
 - Spawn, follow-up, wait, status, event, cancellation, and cleanup controls.
 - Durable approval decisions for governed actions.
 - A per-run **Agent Orchestration Session** on loopback. `orchestration_spawn` returns `session.url`;
-  print that URL verbatim. The session host exchanges a one-use capability for a cookie and serves
-  `dist/session-ui/`. Plan: `docs/plans/2026-08-22-orchestration-session.md`.
+  print that URL verbatim. The session host exchanges a one-use capability for a cookie, serves
+  `dist/session-ui/`, and streams the hash-chained journal over SSE. The page can cancel, queue a
+  follow-up, and settle an architecture decision for that run. Plan:
+  `docs/plans/2026-08-22-orchestration-session.md`.
 - A validated, lineage-aware roadmap and a shared skill for refining tasks, unlocks, trajectories,
   gaps, and goals without turning strategy into execution authority.
 - Shared skills for Claude Code, Codex, Grok Build, and Kimi Code; a Claude/Grok orchestration agent;

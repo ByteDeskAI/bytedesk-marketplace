@@ -260,8 +260,20 @@ export class OrchestrationService {
       this.sessionHost = { port: live.port, hostNonce: live.hostNonce, bind: live.bind, close: async () => {} };
       return this.sessionHost;
     }
-    this.sessionHost = await startSessionHost({ stateRoot: this.stateRoot, uiRoot: this.sessionUiRoot });
+    this.sessionHost = await startSessionHost({
+      stateRoot: this.stateRoot,
+      uiRoot: this.sessionUiRoot,
+      controls: this.sessionControls(),
+    });
     return this.sessionHost;
+  }
+
+  sessionControls() {
+    return {
+      cancel: (runId) => this.applyCancel(runId),
+      followUp: (runId, message) => this.sessionFollowUp(runId, message),
+      decide: (runId, body) => this.sessionDecide(runId, body),
+    };
   }
 
   async openRunSession(runId) {
@@ -412,7 +424,11 @@ export class OrchestrationService {
 
   async cancel(input) {
     await this.getRun(input);
-    let run = await this.store.requestCancel(input.runId);
+    return this.applyCancel(input.runId);
+  }
+
+  async applyCancel(runId) {
+    let run = await this.store.requestCancel(runId);
     if (TERMINAL_STATES.has(run.state)) return run;
     if (run.worker?.pid && WORKER_STATES.has(run.state)) {
       const cooperativeDeadline = Date.now() + 2_000;
@@ -420,26 +436,56 @@ export class OrchestrationService {
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
       const stopped = await this.terminateRecordedProcessGroup(run.worker);
-      run = await this.store.get(input.runId);
+      run = await this.store.get(runId);
       if (!stopped) {
         if (!TERMINAL_STATES.has(run.state)) {
           const patch = {
             cancellation: { state: "process_group_survived", at: new Date().toISOString() },
           };
           return run.state === "cleanup_required"
-            ? this.store.update(input.runId, patch, "cancellation_still_unproven")
-            : this.store.transition(input.runId, [run.state], "cleanup_required", patch, "cancellation_unproven");
+            ? this.store.update(runId, patch, "cancellation_still_unproven")
+            : this.store.transition(runId, [run.state], "cleanup_required", patch, "cancellation_unproven");
         }
         invariant(false, "AO_CANCELLATION_UNPROVEN", "The run reached a terminal state, but its recorded process group is still alive.");
       }
       if (!TERMINAL_STATES.has(run.state)) {
-        run = await this.store.transition(input.runId, [run.state], "cancelled", { cancellation: { state: "confirmed_stopped", at: new Date().toISOString() } }, "worker_cancelled");
+        run = await this.store.transition(runId, [run.state], "cancelled", { cancellation: { state: "confirmed_stopped", at: new Date().toISOString() } }, "worker_cancelled");
       }
     } else if (!TERMINAL_STATES.has(run.state)) {
       const safelyInactive = ["queued", "waiting_for_decision"].includes(run.state);
-      run = await this.store.transition(input.runId, [run.state], safelyInactive ? "cancelled" : "cleanup_required", {}, safelyInactive ? "cancelled_without_worker" : "cancellation_worker_identity_missing");
+      run = await this.store.transition(runId, [run.state], safelyInactive ? "cancelled" : "cleanup_required", {}, safelyInactive ? "cancelled_without_worker" : "cancellation_worker_identity_missing");
     }
     return run;
+  }
+
+  async sessionFollowUp(runId, message) {
+    const text = typeof message === "string" ? message.trim() : "";
+    invariant(text.length > 0, "AO_INVALID_FOLLOWUP", "Follow-up message is required.");
+    const run = await this.store.get(runId);
+    if (["failed", "cancelled", "timed_out", "rejected", "recovery_required"].includes(run.state)) {
+      invariant(false, "AO_RUN_NOT_READY_FOR_FOLLOWUP", "Run ended. Start a new run to continue.");
+    }
+    invariant(run.input.permissionProfile === "read", "AO_WRITE_FOLLOWUP_REQUIRES_NEW_RUN", "Writable persistent-session follow-up is disabled until workspace leases can prevent cross-run cleanup; spawn a new scoped write run instead.");
+    await this.store.appendJournal(runId, "operator_message", { text: text.slice(0, 8_000) });
+    if (run.state === "succeeded") {
+      return this.send({
+        runId,
+        consumerCwd: run.consumer.checkoutRoot ?? run.consumer.requestedCwd,
+        message: text,
+      });
+    }
+    return { queued: true, runId };
+  }
+
+  async sessionDecide(runId, body = {}) {
+    const run = await this.store.get(runId);
+    return this.approveDecision({
+      runId,
+      consumerCwd: run.consumer.checkoutRoot ?? run.consumer.requestedCwd,
+      approved: Boolean(body.approved),
+      rationale: typeof body.rationale === "string" ? body.rationale.slice(0, 500) : "",
+      approvedBy: "operator",
+    });
   }
 
   async send(input) {

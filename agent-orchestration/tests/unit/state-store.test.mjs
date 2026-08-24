@@ -58,6 +58,20 @@ test("events are sequenced and terminal states are immutable", async () => {
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test("operator_message events append to the verified hash chain", async () => {
+  const root = await mkdtemp(join(os.tmpdir(), "ao-state-test-"));
+  try {
+    const store = await new RunStore(root).initialize();
+    const run = await store.create({ ...input(), idempotencyKey: null });
+    await store.appendJournal(run.runId, "operator_message", { text: "tighten the bind test" });
+    const events = await store.events(run.runId);
+    assert.equal(events.at(-1).type, "operator_message");
+    assert.equal(events.at(-1).payload.text, "tighten the bind test");
+    assert.equal(events.at(-1).previousHash, events[0].hash);
+    assert.equal(events.at(-1).seq, 2);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("cancel requests are idempotent", async () => {
   const root = await mkdtemp(join(os.tmpdir(), "ao-state-test-"));
   try {

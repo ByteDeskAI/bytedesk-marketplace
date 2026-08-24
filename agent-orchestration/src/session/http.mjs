@@ -2,6 +2,9 @@ import { createReadStream } from "node:fs";
 import { lstat, readdir } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { hashesEqual, isExpired, parseCookie, readSessionMeta, runPagePath, sessionCookie, writeSessionMeta } from "./capability.mjs";
+import { attachRunEventStream } from "./sse.mjs";
+import { RunStore } from "../state/store.mjs";
+import { AgentOrchestrationError, serializeError } from "../errors.mjs";
 import { readJson, sha256 } from "../util.mjs";
 
 const TYPES = {
@@ -36,7 +39,48 @@ function safeUiFile(uiRoot, urlPath) {
   return resolved;
 }
 
-export function createSessionHandler({ stateRoot, uiRoot, hostNonce, port }) {
+function parseAfter(url, req) {
+  const raw = url.searchParams.get("after") ?? req.headers["last-event-id"];
+  if (raw === undefined || raw === null || raw === "") return 0;
+  const after = Number(raw);
+  if (!Number.isInteger(after) || after < 0) return null;
+  return after;
+}
+
+function allowedOrigin(req, port) {
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  return origin === `http://127.0.0.1:${port}` || origin === `http://localhost:${port}`;
+}
+
+async function readJsonBody(req, limit = 32_768) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > limit) {
+      throw new AgentOrchestrationError("AO_SESSION_BODY", "Request body is too large.");
+    }
+    chunks.push(chunk);
+  }
+  if (size === 0) return {};
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    throw new AgentOrchestrationError("AO_SESSION_BODY", "Request body must be JSON.");
+  }
+}
+
+function controlStatus(error) {
+  if (error?.code === "AO_SESSION_ORIGIN") return 403;
+  if (error?.code === "AO_SESSION_UNAUTHORIZED") return 401;
+  if (error?.code === "AO_SESSION_BODY" || error?.code === "AO_INVALID_FOLLOWUP") return 400;
+  if (error?.code === "AO_RUN_NOT_FOUND") return 404;
+  if (typeof error?.code === "string" && error.code.startsWith("AO_")) return 409;
+  return 500;
+}
+
+export function createSessionHandler({ stateRoot, uiRoot, hostNonce, port, store = new RunStore(stateRoot), controls = undefined }) {
   return async function handle(req, res) {
     if (!allowedHost(req.headers.host, port)) {
       send(res, 421, { code: "AO_SESSION_HOST", message: "Session host is loopback-only." });
@@ -69,6 +113,61 @@ export function createSessionHandler({ stateRoot, uiRoot, hostNonce, port }) {
         return;
       }
       send(res, 200, publicSnapshot(snapshot));
+      return;
+    }
+
+    const apiEvents = path.match(/^\/api\/runs\/(run_[0-9a-f-]{36})\/events$/i);
+    if (req.method === "GET" && apiEvents) {
+      const runId = apiEvents[1];
+      if (!await authorizeRun(stateRoot, runId, req)) {
+        send(res, 401, { code: "AO_SESSION_UNAUTHORIZED", message: "Session cookie does not match this run." });
+        return;
+      }
+      const after = parseAfter(url, req);
+      if (after === null) {
+        send(res, 400, { code: "AO_SESSION_AFTER", message: "after / Last-Event-ID must be a non-negative integer." });
+        return;
+      }
+      const snapshot = await readJson(join(stateRoot, "runs", runId, "snapshot.json"), null);
+      if (!snapshot) {
+        send(res, 404, { code: "AO_RUN_NOT_FOUND", message: "Run snapshot is missing." });
+        return;
+      }
+      await attachRunEventStream({ store, runId, after, req, res });
+      return;
+    }
+
+    const apiControl = path.match(/^\/api\/runs\/(run_[0-9a-f-]{36})\/(cancel|follow-up|decision)$/i);
+    if (req.method === "POST" && apiControl) {
+      const runId = apiControl[1];
+      const action = apiControl[2].toLowerCase();
+      if (!allowedOrigin(req, port)) {
+        send(res, 403, { code: "AO_SESSION_ORIGIN", message: "Session mutations require a loopback Origin or a non-browser client." });
+        return;
+      }
+      if (!await authorizeRun(stateRoot, runId, req)) {
+        send(res, 401, { code: "AO_SESSION_UNAUTHORIZED", message: "Session cookie does not match this run." });
+        return;
+      }
+      if (!controls) {
+        send(res, 501, { code: "AO_SESSION_CONTROLS", message: "This session host has no control plane." });
+        return;
+      }
+      try {
+        const body = await readJsonBody(req);
+        if (action === "cancel") {
+          send(res, 200, await controls.cancel(runId));
+          return;
+        }
+        if (action === "follow-up") {
+          const result = await controls.followUp(runId, body.message ?? body.text);
+          send(res, result?.queued ? 202 : 200, result);
+          return;
+        }
+        send(res, 200, await controls.decide(runId, body));
+      } catch (error) {
+        send(res, controlStatus(error), serializeError(error));
+      }
       return;
     }
 

@@ -32376,6 +32376,15 @@ var RunStore = class {
       return next;
     });
   }
+  async appendJournal(runId, type, payload = {}) {
+    return this.withLock(runId, async () => {
+      const current = await this.get(runId);
+      const next = { ...current, revision: current.revision + 1, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
+      await this.appendEventUnlocked(next, type, { ...payload, updatedAt: next.updatedAt });
+      await atomicWriteJson(this.snapshotPath(runId), next);
+      return next;
+    });
+  }
   async events(runId, after = 0) {
     assertRunId(runId);
     const text = await (0, import_promises3.readFile)(this.eventsPath(runId), "utf8").catch((error51) => {
@@ -44375,9 +44384,100 @@ var import_node_path15 = require("node:path");
 var import_node_child_process4 = require("node:child_process");
 
 // src/session/http.mjs
-var import_node_fs3 = require("node:fs");
+var import_node_fs4 = require("node:fs");
 var import_promises11 = require("node:fs/promises");
 var import_node_path14 = require("node:path");
+
+// src/session/sse.mjs
+var import_node_fs3 = require("node:fs");
+var HEARTBEAT_MS = 15e3;
+var POLL_MS = 250;
+function writeSse(res, chunk) {
+  if (res.writableEnded) return;
+  res.write(chunk);
+}
+function sendEvent(res, event) {
+  writeSse(res, `id: ${event.seq}
+data: ${JSON.stringify(event)}
+
+`);
+}
+async function attachRunEventStream({ store, runId, after, req, res }) {
+  let lastSeq = after;
+  let closed = false;
+  let initial;
+  try {
+    initial = await store.events(runId, after);
+  } catch (error51) {
+    if (error51?.code === "AO_EVENT_LOG_CORRUPT") {
+      res.writeHead(409, { "content-type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify(serializeError(error51)));
+      return;
+    }
+    throw error51;
+  }
+  req.socket?.setNoDelay?.(true);
+  res.writeHead(200, {
+    "content-type": "text/event-stream; charset=utf-8",
+    "cache-control": "no-cache, no-transform",
+    connection: "keep-alive",
+    "x-accel-buffering": "no"
+  });
+  res.flushHeaders?.();
+  writeSse(res, ": connected\n\n");
+  for (const event of initial) {
+    sendEvent(res, event);
+    lastSeq = event.seq;
+  }
+  async function flush() {
+    if (closed) return;
+    try {
+      const events = await store.events(runId, lastSeq);
+      for (const event of events) {
+        sendEvent(res, event);
+        lastSeq = event.seq;
+      }
+    } catch (error51) {
+      if (error51?.code === "AO_EVENT_LOG_CORRUPT") {
+        writeSse(res, `event: error
+data: ${JSON.stringify(serializeError(error51))}
+
+`);
+        close();
+        return;
+      }
+      close();
+    }
+  }
+  const heartbeat = setInterval(() => writeSse(res, ": heartbeat\n\n"), HEARTBEAT_MS);
+  heartbeat.unref?.();
+  const poll = setInterval(() => {
+    flush().catch(() => {
+    });
+  }, POLL_MS);
+  let watcher = null;
+  try {
+    watcher = (0, import_node_fs3.watch)(store.runDir(runId), { persistent: false }, () => {
+      flush().catch(() => {
+      });
+    });
+  } catch {
+    watcher = null;
+  }
+  function close() {
+    if (closed) return;
+    closed = true;
+    clearInterval(heartbeat);
+    clearInterval(poll);
+    watcher?.close?.();
+    if (!res.writableEnded) res.end();
+    req.socket?.destroy?.();
+  }
+  req.on("close", close);
+  res.on("close", close);
+}
+
+// src/session/http.mjs
 var TYPES = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -44405,7 +44505,44 @@ function safeUiFile(uiRoot, urlPath) {
   if (!resolved.startsWith(uiRoot)) return null;
   return resolved;
 }
-function createSessionHandler({ stateRoot: stateRoot2, uiRoot, hostNonce, port }) {
+function parseAfter(url2, req) {
+  const raw = url2.searchParams.get("after") ?? req.headers["last-event-id"];
+  if (raw === void 0 || raw === null || raw === "") return 0;
+  const after = Number(raw);
+  if (!Number.isInteger(after) || after < 0) return null;
+  return after;
+}
+function allowedOrigin(req, port) {
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  return origin === `http://127.0.0.1:${port}` || origin === `http://localhost:${port}`;
+}
+async function readJsonBody(req, limit = 32768) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > limit) {
+      throw new AgentOrchestrationError("AO_SESSION_BODY", "Request body is too large.");
+    }
+    chunks.push(chunk);
+  }
+  if (size === 0) return {};
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    throw new AgentOrchestrationError("AO_SESSION_BODY", "Request body must be JSON.");
+  }
+}
+function controlStatus(error51) {
+  if (error51?.code === "AO_SESSION_ORIGIN") return 403;
+  if (error51?.code === "AO_SESSION_UNAUTHORIZED") return 401;
+  if (error51?.code === "AO_SESSION_BODY" || error51?.code === "AO_INVALID_FOLLOWUP") return 400;
+  if (error51?.code === "AO_RUN_NOT_FOUND") return 404;
+  if (typeof error51?.code === "string" && error51.code.startsWith("AO_")) return 409;
+  return 500;
+}
+function createSessionHandler({ stateRoot: stateRoot2, uiRoot, hostNonce, port, store = new RunStore(stateRoot2), controls = void 0 }) {
   return async function handle(req, res) {
     if (!allowedHost(req.headers.host, port)) {
       send(res, 421, { code: "AO_SESSION_HOST", message: "Session host is loopback-only." });
@@ -44435,6 +44572,59 @@ function createSessionHandler({ stateRoot: stateRoot2, uiRoot, hostNonce, port }
         return;
       }
       send(res, 200, publicSnapshot(snapshot));
+      return;
+    }
+    const apiEvents = path3.match(/^\/api\/runs\/(run_[0-9a-f-]{36})\/events$/i);
+    if (req.method === "GET" && apiEvents) {
+      const runId = apiEvents[1];
+      if (!await authorizeRun(stateRoot2, runId, req)) {
+        send(res, 401, { code: "AO_SESSION_UNAUTHORIZED", message: "Session cookie does not match this run." });
+        return;
+      }
+      const after = parseAfter(url2, req);
+      if (after === null) {
+        send(res, 400, { code: "AO_SESSION_AFTER", message: "after / Last-Event-ID must be a non-negative integer." });
+        return;
+      }
+      const snapshot = await readJson((0, import_node_path14.join)(stateRoot2, "runs", runId, "snapshot.json"), null);
+      if (!snapshot) {
+        send(res, 404, { code: "AO_RUN_NOT_FOUND", message: "Run snapshot is missing." });
+        return;
+      }
+      await attachRunEventStream({ store, runId, after, req, res });
+      return;
+    }
+    const apiControl = path3.match(/^\/api\/runs\/(run_[0-9a-f-]{36})\/(cancel|follow-up|decision)$/i);
+    if (req.method === "POST" && apiControl) {
+      const runId = apiControl[1];
+      const action = apiControl[2].toLowerCase();
+      if (!allowedOrigin(req, port)) {
+        send(res, 403, { code: "AO_SESSION_ORIGIN", message: "Session mutations require a loopback Origin or a non-browser client." });
+        return;
+      }
+      if (!await authorizeRun(stateRoot2, runId, req)) {
+        send(res, 401, { code: "AO_SESSION_UNAUTHORIZED", message: "Session cookie does not match this run." });
+        return;
+      }
+      if (!controls) {
+        send(res, 501, { code: "AO_SESSION_CONTROLS", message: "This session host has no control plane." });
+        return;
+      }
+      try {
+        const body = await readJsonBody(req);
+        if (action === "cancel") {
+          send(res, 200, await controls.cancel(runId));
+          return;
+        }
+        if (action === "follow-up") {
+          const result2 = await controls.followUp(runId, body.message ?? body.text);
+          send(res, result2?.queued ? 202 : 200, result2);
+          return;
+        }
+        send(res, 200, await controls.decide(runId, body));
+      } catch (error51) {
+        send(res, controlStatus(error51), serializeError(error51));
+      }
       return;
     }
     const pageMatch = path3.match(/^\/runs\/(run_[0-9a-f-]{36})(?:\/(.*))?$/i);
@@ -44503,7 +44693,7 @@ async function streamUi(res, file2) {
     return;
   }
   res.writeHead(200, { "content-type": TYPES[(0, import_node_path14.extname)(file2)] ?? "application/octet-stream" });
-  (0, import_node_fs3.createReadStream)(file2).pipe(res);
+  (0, import_node_fs4.createReadStream)(file2).pipe(res);
 }
 
 // src/session/host.mjs
@@ -44516,13 +44706,13 @@ function sessionHostDir(stateRoot2) {
 function leasePath(stateRoot2) {
   return (0, import_node_path15.join)(sessionHostDir(stateRoot2), "lease.json");
 }
-async function startSessionHost({ stateRoot: stateRoot2, uiRoot, port: requestedPort = void 0 }) {
+async function startSessionHost({ stateRoot: stateRoot2, uiRoot, port: requestedPort = void 0, controls = void 0 }) {
   assertLoopbackBind(BIND);
   await ensurePrivateDir(sessionHostDir(stateRoot2));
   const hostNonce = newId("host");
   const preferred = await preferredPort(stateRoot2, requestedPort);
   const { server, port } = await listenLoopback(preferred);
-  const handle = createSessionHandler({ stateRoot: stateRoot2, uiRoot, hostNonce, port });
+  const handle = createSessionHandler({ stateRoot: stateRoot2, uiRoot, hostNonce, port, controls });
   server.on("request", (req, res) => {
     Promise.resolve(handle(req, res)).catch(() => {
       if (!res.headersSent) {
@@ -44547,7 +44737,10 @@ async function startSessionHost({ stateRoot: stateRoot2, uiRoot, port: requested
     port,
     hostNonce,
     bind: `${BIND}:${port}`,
-    close: () => new Promise((resolve5, reject) => server.close((error51) => error51 ? reject(error51) : resolve5()))
+    close: () => new Promise((resolve5, reject) => {
+      server.closeAllConnections?.();
+      server.close((error51) => error51 ? reject(error51) : resolve5());
+    })
   };
 }
 async function preferredPort(stateRoot2, requestedPort) {
@@ -44849,8 +45042,19 @@ var OrchestrationService = class {
       } };
       return this.sessionHost;
     }
-    this.sessionHost = await startSessionHost({ stateRoot: this.stateRoot, uiRoot: this.sessionUiRoot });
+    this.sessionHost = await startSessionHost({
+      stateRoot: this.stateRoot,
+      uiRoot: this.sessionUiRoot,
+      controls: this.sessionControls()
+    });
     return this.sessionHost;
+  }
+  sessionControls() {
+    return {
+      cancel: (runId) => this.applyCancel(runId),
+      followUp: (runId, message) => this.sessionFollowUp(runId, message),
+      decide: (runId, body) => this.sessionDecide(runId, body)
+    };
   }
   async openRunSession(runId) {
     const host = await this.ensureSessionHost();
@@ -45013,7 +45217,10 @@ var OrchestrationService = class {
   }
   async cancel(input) {
     await this.getRun(input);
-    let run = await this.store.requestCancel(input.runId);
+    return this.applyCancel(input.runId);
+  }
+  async applyCancel(runId) {
+    let run = await this.store.requestCancel(runId);
     if (TERMINAL_STATES.has(run.state)) return run;
     if (run.worker?.pid && WORKER_STATES.has(run.state)) {
       const cooperativeDeadline = Date.now() + 2e3;
@@ -45021,24 +45228,52 @@ var OrchestrationService = class {
         await new Promise((resolve5) => setTimeout(resolve5, 100));
       }
       const stopped = await this.terminateRecordedProcessGroup(run.worker);
-      run = await this.store.get(input.runId);
+      run = await this.store.get(runId);
       if (!stopped) {
         if (!TERMINAL_STATES.has(run.state)) {
           const patch = {
             cancellation: { state: "process_group_survived", at: (/* @__PURE__ */ new Date()).toISOString() }
           };
-          return run.state === "cleanup_required" ? this.store.update(input.runId, patch, "cancellation_still_unproven") : this.store.transition(input.runId, [run.state], "cleanup_required", patch, "cancellation_unproven");
+          return run.state === "cleanup_required" ? this.store.update(runId, patch, "cancellation_still_unproven") : this.store.transition(runId, [run.state], "cleanup_required", patch, "cancellation_unproven");
         }
         invariant(false, "AO_CANCELLATION_UNPROVEN", "The run reached a terminal state, but its recorded process group is still alive.");
       }
       if (!TERMINAL_STATES.has(run.state)) {
-        run = await this.store.transition(input.runId, [run.state], "cancelled", { cancellation: { state: "confirmed_stopped", at: (/* @__PURE__ */ new Date()).toISOString() } }, "worker_cancelled");
+        run = await this.store.transition(runId, [run.state], "cancelled", { cancellation: { state: "confirmed_stopped", at: (/* @__PURE__ */ new Date()).toISOString() } }, "worker_cancelled");
       }
     } else if (!TERMINAL_STATES.has(run.state)) {
       const safelyInactive = ["queued", "waiting_for_decision"].includes(run.state);
-      run = await this.store.transition(input.runId, [run.state], safelyInactive ? "cancelled" : "cleanup_required", {}, safelyInactive ? "cancelled_without_worker" : "cancellation_worker_identity_missing");
+      run = await this.store.transition(runId, [run.state], safelyInactive ? "cancelled" : "cleanup_required", {}, safelyInactive ? "cancelled_without_worker" : "cancellation_worker_identity_missing");
     }
     return run;
+  }
+  async sessionFollowUp(runId, message) {
+    const text = typeof message === "string" ? message.trim() : "";
+    invariant(text.length > 0, "AO_INVALID_FOLLOWUP", "Follow-up message is required.");
+    const run = await this.store.get(runId);
+    if (["failed", "cancelled", "timed_out", "rejected", "recovery_required"].includes(run.state)) {
+      invariant(false, "AO_RUN_NOT_READY_FOR_FOLLOWUP", "Run ended. Start a new run to continue.");
+    }
+    invariant(run.input.permissionProfile === "read", "AO_WRITE_FOLLOWUP_REQUIRES_NEW_RUN", "Writable persistent-session follow-up is disabled until workspace leases can prevent cross-run cleanup; spawn a new scoped write run instead.");
+    await this.store.appendJournal(runId, "operator_message", { text: text.slice(0, 8e3) });
+    if (run.state === "succeeded") {
+      return this.send({
+        runId,
+        consumerCwd: run.consumer.checkoutRoot ?? run.consumer.requestedCwd,
+        message: text
+      });
+    }
+    return { queued: true, runId };
+  }
+  async sessionDecide(runId, body = {}) {
+    const run = await this.store.get(runId);
+    return this.approveDecision({
+      runId,
+      consumerCwd: run.consumer.checkoutRoot ?? run.consumer.requestedCwd,
+      approved: Boolean(body.approved),
+      rationale: typeof body.rationale === "string" ? body.rationale.slice(0, 500) : "",
+      approvedBy: "operator"
+    });
   }
   async send(input) {
     const parent = await this.getRun(input);

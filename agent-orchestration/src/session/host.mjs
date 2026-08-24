@@ -18,13 +18,13 @@ export function leasePath(stateRoot) {
   return join(sessionHostDir(stateRoot), "lease.json");
 }
 
-export async function startSessionHost({ stateRoot, uiRoot, port: requestedPort = undefined }) {
+export async function startSessionHost({ stateRoot, uiRoot, port: requestedPort = undefined, controls = undefined }) {
   assertLoopbackBind(BIND);
   await ensurePrivateDir(sessionHostDir(stateRoot));
   const hostNonce = newId("host");
   const preferred = await preferredPort(stateRoot, requestedPort);
   const { server, port } = await listenLoopback(preferred);
-  const handle = createSessionHandler({ stateRoot, uiRoot, hostNonce, port });
+  const handle = createSessionHandler({ stateRoot, uiRoot, hostNonce, port, controls });
   server.on("request", (req, res) => {
     Promise.resolve(handle(req, res)).catch(() => {
       if (!res.headersSent) {
@@ -49,7 +49,10 @@ export async function startSessionHost({ stateRoot, uiRoot, port: requestedPort 
     port,
     hostNonce,
     bind: `${BIND}:${port}`,
-    close: () => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())),
+    close: () => new Promise((resolve, reject) => {
+      server.closeAllConnections?.();
+      server.close((error) => error ? reject(error) : resolve());
+    }),
   };
 }
 

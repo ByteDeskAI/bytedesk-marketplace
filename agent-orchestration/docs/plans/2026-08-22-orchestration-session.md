@@ -1,7 +1,7 @@
 # Agent Orchestration Session
 
 Date: 2026-08-22  
-Status: Phase 1 in progress (loopback host + spawn `session.url`; live SSE/controls still later)  
+Status: Phase 3 done (journal projection + cancel/follow-up/decision). Phase 4 is skill/docs polish.  
 Plugin: `agent-orchestration@bytedesk`
 
 This is the operator window for **one broker run**. When `orchestration_spawn` starts a run, a
