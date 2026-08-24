@@ -3,7 +3,11 @@
 Per-run operator window. The broker will start a loopback HTTP server when a run is spawned, print
 the URL on the host terminal, and open a browser.
 
-This directory currently holds the **Phase 0 mockup** plus the implementation plan:
+Phase 1 ships a loopback session host. `orchestration_spawn` returns `session.url`. The CLI
+`agent-orchestration session-host` binds `127.0.0.1` and serves `dist/session-ui/` (copied from
+`session-ui/mockup/` at build time).
+
+This directory still holds the operator mockup plus:
 
 - Plan: `docs/plans/2026-08-22-orchestration-session.md`
 - Mockup: `session-ui/mockup/`

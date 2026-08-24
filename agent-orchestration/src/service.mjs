@@ -11,6 +11,8 @@ import { RunStore, TERMINAL_STATES } from "./state/store.mjs";
 import { cleanupRun, executeRun } from "./runtime/engine.mjs";
 import { checkBundledBridges } from "./runtime/acpx-driver.mjs";
 import { runUserManagerFile, spawnUserManagerFile } from "./runtime/user-bus.mjs";
+import { capabilityUrl, isExpired, mintCapability, readSessionMeta, writeSessionMeta } from "./session/capability.mjs";
+import { openSessionBrowser, probeSessionHost, startSessionHost } from "./session/host.mjs";
 
 const WORKER_STATES = new Set(["queued", "preparing", "running", "verifying", "cancelling", "cleanup_required"]);
 
@@ -52,7 +54,7 @@ export async function discoverProviderPaths(pluginRoot, adapter, discovered, res
 }
 
 export class OrchestrationService {
-  constructor({ pluginRoot = PLUGIN_ROOT, stateRoot = resolveStateRoot(), workerEntrypoint = join(pluginRoot, "dist", "cli.cjs"), maxConcurrentRuns = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_RUNS || 4), maxConcurrentPerProvider = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_PER_PROVIDER || 2), autoRecover = true, recoveryGraceMs = 5_000 } = {}) {
+  constructor({ pluginRoot = PLUGIN_ROOT, stateRoot = resolveStateRoot(), workerEntrypoint = join(pluginRoot, "dist", "cli.cjs"), maxConcurrentRuns = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_RUNS || 4), maxConcurrentPerProvider = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_PER_PROVIDER || 2), autoRecover = true, recoveryGraceMs = 5_000, sessionUiRoot = join(pluginRoot, "dist", "session-ui") } = {}) {
     this.pluginRoot = pluginRoot;
     this.stateRoot = stateRoot;
     this.workerEntrypoint = workerEntrypoint;
@@ -60,6 +62,8 @@ export class OrchestrationService {
     this.maxConcurrentPerProvider = Number.isInteger(maxConcurrentPerProvider) && maxConcurrentPerProvider > 0 ? maxConcurrentPerProvider : 2;
     this.autoRecover = autoRecover;
     this.recoveryGraceMs = recoveryGraceMs;
+    this.sessionUiRoot = sessionUiRoot;
+    this.sessionHost = null;
     this.store = new RunStore(stateRoot);
     this.availabilityCache = null;
     this.recoveryTimer = null;
@@ -215,7 +219,7 @@ export class OrchestrationService {
     return this.store.withLock("scheduler", async () => {
       if (input.idempotencyKey) {
         const existing = await this.store.findByIdempotencyKey(input.idempotencyKey, prepared.consumer.repositoryKey);
-        if (existing) return { run: existing, explanation: prepared.explanation };
+        if (existing) return { run: existing, explanation: prepared.explanation, session: await this.sessionForRun(existing.runId) };
       }
       const active = (await this.store.list()).filter((run) => WORKER_STATES.has(run.state));
       invariant(active.length < this.maxConcurrentRuns, "AO_CONCURRENCY_LIMIT", "The global orchestration concurrency limit is reached.", { limit: this.maxConcurrentRuns });
@@ -244,8 +248,43 @@ export class OrchestrationService {
       const launchedRun = run.state === "queued"
         ? (await this.launchWorker(run.runId)) ?? await this.store.get(run.runId)
         : run;
-      return { run: launchedRun, explanation: prepared.explanation };
+      const session = await this.openRunSession(launchedRun.runId);
+      return { run: launchedRun, explanation: prepared.explanation, session };
     });
+  }
+
+  async ensureSessionHost() {
+    if (this.sessionHost) return this.sessionHost;
+    const live = await probeSessionHost(this.stateRoot);
+    if (live) {
+      this.sessionHost = { port: live.port, hostNonce: live.hostNonce, bind: live.bind, close: async () => {} };
+      return this.sessionHost;
+    }
+    this.sessionHost = await startSessionHost({ stateRoot: this.stateRoot, uiRoot: this.sessionUiRoot });
+    return this.sessionHost;
+  }
+
+  async openRunSession(runId) {
+    const host = await this.ensureSessionHost();
+    const cap = mintCapability();
+    await writeSessionMeta(this.stateRoot, runId, {
+      tokenHash: cap.tokenHash,
+      expiresAt: cap.expiresAt,
+      exchangedAt: null,
+      hostNonce: host.hostNonce,
+    });
+    const url = capabilityUrl(host.port, cap.token);
+    const opened = await openSessionBrowser(url);
+    return { url, port: host.port, expiresAt: cap.expiresAt, opened, bind: host.bind };
+  }
+
+  async sessionForRun(runId) {
+    const host = await this.ensureSessionHost();
+    const existing = await readSessionMeta(this.stateRoot, runId);
+    if (existing && !isExpired(existing.expiresAt) && !existing.exchangedAt) {
+      return { url: null, port: host.port, expiresAt: existing.expiresAt, opened: false, bind: host.bind, pendingExchange: true };
+    }
+    return this.openRunSession(runId);
   }
 
   async waitForWorkerRegistration(runId, supervisorUnit, child, launchState, timeoutMs = 10_000) {
@@ -348,7 +387,8 @@ export class OrchestrationService {
   async getRun(input) {
     const [consumer, run] = await Promise.all([this.resolveConsumer(input.consumerCwd, false), this.store.get(input.runId)]);
     invariant(consumer.repositoryKey === run.consumer.repositoryKey, "AO_RUN_REPOSITORY_MISMATCH", "The run belongs to a different consumer repository.");
-    return run;
+    const session = await this.sessionForRun(run.runId);
+    return { ...run, session };
   }
 
   async list(input) {

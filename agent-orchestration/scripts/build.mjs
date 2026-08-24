@@ -1,5 +1,5 @@
 import { build } from "esbuild";
-import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { copyFile, cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
@@ -55,6 +55,8 @@ await copyFile(
   require.resolve("@agentclientprotocol/codex-acp/dist/index.js"),
   join(outdir, "codex-acp.mjs"),
 );
+
+await cp(join(root, "session-ui", "mockup"), join(outdir, "session-ui"), { recursive: true });
 
 // Keep committed install artifacts compatible with repository whitespace
 // gates, including third-party bridge output that contains trailing blanks.

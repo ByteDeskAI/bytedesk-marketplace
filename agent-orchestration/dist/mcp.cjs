@@ -2237,8 +2237,8 @@ var require_resolve = __commonJS({
       }
       return count;
     }
-    function getFullPath(resolver, id = "", normalize) {
-      if (normalize !== false)
+    function getFullPath(resolver, id = "", normalize2) {
+      if (normalize2 !== false)
         id = normalizeId(id);
       const p = resolver.parse(id);
       return _getFullPath(resolver, p);
@@ -3634,7 +3634,7 @@ var require_fast_uri = __commonJS({
     "use strict";
     var { normalizeIPv6, removeDotSegments, recomposeAuthority, normalizePercentEncoding, normalizePathEncoding, escapePreservingEscapes, reescapeHostDelimiters, isIPv4, nonSimpleDomain } = require_utils();
     var { SCHEMES, getSchemeHandler } = require_schemes();
-    function normalize(uri, options) {
+    function normalize2(uri, options) {
       if (typeof uri === "string") {
         uri = /** @type {T} */
         normalizeString(uri, options);
@@ -3927,7 +3927,7 @@ var require_fast_uri = __commonJS({
     }
     var fastUri = {
       SCHEMES,
-      normalize,
+      normalize: normalize2,
       resolve: resolve5,
       resolveComponent,
       equal,
@@ -6920,7 +6920,7 @@ var require_dist = __commonJS({
 // src/mcp.mjs
 var mcp_exports = {};
 __export(mcp_exports, {
-  createServer: () => createServer
+  createServer: () => createServer2
 });
 module.exports = __toCommonJS(mcp_exports);
 
@@ -31010,8 +31010,8 @@ var StdioServerTransport = class {
 };
 
 // src/service.mjs
-var import_promises11 = require("node:fs/promises");
-var import_node_path13 = require("node:path");
+var import_promises12 = require("node:fs/promises");
+var import_node_path16 = require("node:path");
 
 // src/policy/catalog.mjs
 function deepFreeze(value) {
@@ -32317,9 +32317,9 @@ var RunStore = class {
     return snapshot;
   }
   async list() {
-    const { readdir: readdir2 } = await import("node:fs/promises");
+    const { readdir: readdir3 } = await import("node:fs/promises");
     await this.initialize();
-    const ids = (await readdir2((0, import_node_path6.join)(this.root, "runs"))).filter((id) => RUN_ID.test(id));
+    const ids = (await readdir3((0, import_node_path6.join)(this.root, "runs"))).filter((id) => RUN_ID.test(id));
     const snapshots = await Promise.all(ids.map((id) => this.get(id)));
     return snapshots.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
@@ -44318,6 +44318,304 @@ async function spawnUserManagerFile(command, args, options = {}, dependencies = 
   return spawnProcess(command, args, { ...options, env });
 }
 
+// src/session/capability.mjs
+var import_node_crypto6 = require("node:crypto");
+var import_node_path13 = require("node:path");
+var SESSION_TTL_MS = 10 * 60 * 1e3;
+var COOKIE_NAME = "ao_session";
+function sessionMetaPath(stateRoot2, runId) {
+  return (0, import_node_path13.join)(stateRoot2, "runs", runId, "session.json");
+}
+function mintCapability(now = Date.now()) {
+  const token = (0, import_node_crypto6.randomBytes)(32).toString("base64url");
+  return {
+    token,
+    tokenHash: sha256(token),
+    expiresAt: new Date(now + SESSION_TTL_MS).toISOString()
+  };
+}
+function hashesEqual(left, right) {
+  if (typeof left !== "string" || typeof right !== "string" || left.length !== right.length) return false;
+  return (0, import_node_crypto6.timingSafeEqual)(Buffer.from(left), Buffer.from(right));
+}
+async function writeSessionMeta(stateRoot2, runId, record2) {
+  await atomicWriteJson(sessionMetaPath(stateRoot2, runId), record2);
+}
+async function readSessionMeta(stateRoot2, runId) {
+  return readJson(sessionMetaPath(stateRoot2, runId), null);
+}
+function capabilityUrl(port, token) {
+  return `http://127.0.0.1:${port}/s/${token}`;
+}
+function runPagePath(runId) {
+  return `/runs/${runId}`;
+}
+function parseCookie(header, name = COOKIE_NAME) {
+  if (typeof header !== "string") return null;
+  for (const part of header.split(";")) {
+    const [rawName, ...rest] = part.trim().split("=");
+    if (rawName === name) return rest.join("=");
+  }
+  return null;
+}
+function sessionCookie(token, maxAgeSeconds = 86400) {
+  return `${COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAgeSeconds}`;
+}
+function isExpired(expiresAt, now = Date.now()) {
+  const at = Date.parse(expiresAt);
+  return !Number.isFinite(at) || at <= now;
+}
+function assertLoopbackBind(address) {
+  invariant(address === "127.0.0.1", "AO_SESSION_BIND", "The session host must bind 127.0.0.1 only.", { address });
+}
+
+// src/session/host.mjs
+var import_node_http = require("node:http");
+var import_node_path15 = require("node:path");
+var import_node_child_process4 = require("node:child_process");
+
+// src/session/http.mjs
+var import_node_fs3 = require("node:fs");
+var import_promises11 = require("node:fs/promises");
+var import_node_path14 = require("node:path");
+var TYPES = {
+  ".html": "text/html; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".json": "application/json; charset=utf-8"
+};
+var RUN_ID2 = /^run_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function send(res, status, body, headers = {}) {
+  const isJson = typeof body === "object" && body !== null && !Buffer.isBuffer(body);
+  const payload = isJson ? JSON.stringify(body) : body;
+  res.writeHead(status, {
+    "content-type": isJson ? "application/json; charset=utf-8" : "text/plain; charset=utf-8",
+    ...headers
+  });
+  res.end(payload);
+}
+function allowedHost(hostHeader, port) {
+  return hostHeader === `127.0.0.1:${port}` || hostHeader === `localhost:${port}`;
+}
+function safeUiFile(uiRoot, urlPath) {
+  const decoded = decodeURIComponent(urlPath.split("?")[0] || "/");
+  const relative2 = decoded === "/" || decoded.endsWith("/") ? "index.html" : decoded.replace(/^\/+/, "");
+  const resolved = (0, import_node_path14.normalize)((0, import_node_path14.join)(uiRoot, relative2));
+  if (!resolved.startsWith(uiRoot)) return null;
+  return resolved;
+}
+function createSessionHandler({ stateRoot: stateRoot2, uiRoot, hostNonce, port }) {
+  return async function handle(req, res) {
+    if (!allowedHost(req.headers.host, port)) {
+      send(res, 421, { code: "AO_SESSION_HOST", message: "Session host is loopback-only." });
+      return;
+    }
+    const url2 = new URL(req.url || "/", `http://127.0.0.1:${port}`);
+    const path3 = url2.pathname;
+    if (req.method === "GET" && path3 === "/api/health") {
+      send(res, 200, { ok: true, hostNonce, bind: `127.0.0.1:${port}` });
+      return;
+    }
+    const capMatch = path3.match(/^\/s\/([^/]+)$/);
+    if (req.method === "GET" && capMatch) {
+      await exchangeCapability(stateRoot2, capMatch[1], res);
+      return;
+    }
+    const apiSnap = path3.match(/^\/api\/runs\/(run_[0-9a-f-]{36})\/snapshot$/i);
+    if (req.method === "GET" && apiSnap) {
+      const runId = apiSnap[1];
+      if (!await authorizeRun(stateRoot2, runId, req)) {
+        send(res, 401, { code: "AO_SESSION_UNAUTHORIZED", message: "Session cookie does not match this run." });
+        return;
+      }
+      const snapshot = await readJson((0, import_node_path14.join)(stateRoot2, "runs", runId, "snapshot.json"), null);
+      if (!snapshot) {
+        send(res, 404, { code: "AO_RUN_NOT_FOUND", message: "Run snapshot is missing." });
+        return;
+      }
+      send(res, 200, publicSnapshot(snapshot));
+      return;
+    }
+    const pageMatch = path3.match(/^\/runs\/(run_[0-9a-f-]{36})(?:\/(.*))?$/i);
+    if (req.method === "GET" && pageMatch) {
+      const runId = pageMatch[1];
+      const rest = pageMatch[2] || "";
+      if (!await authorizeRun(stateRoot2, runId, req)) {
+        send(res, 401, { code: "AO_SESSION_UNAUTHORIZED", message: "Session cookie does not match this run." });
+        return;
+      }
+      const file2 = rest ? safeUiFile(uiRoot, `/${rest}`) : safeUiFile(uiRoot, "/index.html");
+      await streamUi(res, file2);
+      return;
+    }
+    if (req.method === "GET") {
+      await streamUi(res, safeUiFile(uiRoot, path3));
+      return;
+    }
+    send(res, 404, { code: "AO_SESSION_NOT_FOUND", message: "Not found." });
+  };
+}
+async function exchangeCapability(stateRoot2, token, res) {
+  const tokenHash = sha256(token);
+  const dir = (0, import_node_path14.join)(stateRoot2, "runs");
+  const names = await (0, import_promises11.readdir)(dir).catch((error51) => error51?.code === "ENOENT" ? [] : Promise.reject(error51));
+  let matched = null;
+  for (const runId of names.filter((name) => RUN_ID2.test(name))) {
+    const meta3 = await readSessionMeta(stateRoot2, runId);
+    if (meta3?.tokenHash && hashesEqual(meta3.tokenHash, tokenHash)) {
+      matched = { runId, meta: meta3 };
+      break;
+    }
+  }
+  if (!matched || isExpired(matched.meta.expiresAt) || matched.meta.exchangedAt) {
+    send(res, 404, { code: "AO_SESSION_CAPABILITY", message: "Session capability is missing, expired, or already used." });
+    return;
+  }
+  await writeSessionMeta(stateRoot2, matched.runId, { ...matched.meta, exchangedAt: (/* @__PURE__ */ new Date()).toISOString() });
+  res.writeHead(302, {
+    location: runPagePath(matched.runId),
+    "set-cookie": sessionCookie(token)
+  });
+  res.end();
+}
+async function authorizeRun(stateRoot2, runId, req) {
+  const token = parseCookie(req.headers.cookie);
+  if (!token) return false;
+  const meta3 = await readSessionMeta(stateRoot2, runId);
+  return Boolean(meta3?.tokenHash && hashesEqual(meta3.tokenHash, sha256(token)));
+}
+function publicSnapshot(snapshot) {
+  const { worker, ...rest } = snapshot;
+  return {
+    ...rest,
+    worker: worker ? { pid: worker.pid, supervisorUnit: worker.supervisorUnit, startedAt: worker.startedAt } : null
+  };
+}
+async function streamUi(res, file2) {
+  if (!file2) {
+    send(res, 403, { code: "AO_SESSION_FORBIDDEN", message: "Forbidden." });
+    return;
+  }
+  const info = await (0, import_promises11.lstat)(file2).catch(() => null);
+  if (!info?.isFile()) {
+    send(res, 404, { code: "AO_SESSION_NOT_FOUND", message: "Not found." });
+    return;
+  }
+  res.writeHead(200, { "content-type": TYPES[(0, import_node_path14.extname)(file2)] ?? "application/octet-stream" });
+  (0, import_node_fs3.createReadStream)(file2).pipe(res);
+}
+
+// src/session/host.mjs
+var BIND = "127.0.0.1";
+var PORT_MIN = 45e3;
+var PORT_MAX = 45032;
+function sessionHostDir(stateRoot2) {
+  return (0, import_node_path15.join)(stateRoot2, "session-host");
+}
+function leasePath(stateRoot2) {
+  return (0, import_node_path15.join)(sessionHostDir(stateRoot2), "lease.json");
+}
+async function startSessionHost({ stateRoot: stateRoot2, uiRoot, port: requestedPort = void 0 }) {
+  assertLoopbackBind(BIND);
+  await ensurePrivateDir(sessionHostDir(stateRoot2));
+  const hostNonce = newId("host");
+  const preferred = await preferredPort(stateRoot2, requestedPort);
+  const { server, port } = await listenLoopback(preferred);
+  const handle = createSessionHandler({ stateRoot: stateRoot2, uiRoot, hostNonce, port });
+  server.on("request", (req, res) => {
+    Promise.resolve(handle(req, res)).catch(() => {
+      if (!res.headersSent) {
+        res.writeHead(500, { "content-type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify({ code: "AO_SESSION_INTERNAL", message: "Session host failed." }));
+      }
+    });
+  });
+  server.unref();
+  const lease = {
+    pid: process.pid,
+    startIdentity: await processStartIdentity(process.pid),
+    hostNonce,
+    boundAt: (/* @__PURE__ */ new Date()).toISOString(),
+    bind: `${BIND}:${port}`,
+    port
+  };
+  await atomicWriteJson(leasePath(stateRoot2), lease);
+  await atomicWriteJson((0, import_node_path15.join)(sessionHostDir(stateRoot2), "port.json"), { port });
+  return {
+    server,
+    port,
+    hostNonce,
+    bind: `${BIND}:${port}`,
+    close: () => new Promise((resolve5, reject) => server.close((error51) => error51 ? reject(error51) : resolve5()))
+  };
+}
+async function preferredPort(stateRoot2, requestedPort) {
+  if (Number.isInteger(requestedPort) && requestedPort > 0) return requestedPort;
+  const stored = await readJson((0, import_node_path15.join)(sessionHostDir(stateRoot2), "port.json"), null);
+  if (Number.isInteger(stored?.port) && stored.port >= PORT_MIN) return stored.port;
+  return PORT_MIN;
+}
+async function listenLoopback(preferred) {
+  const candidates = [preferred];
+  for (let port = PORT_MIN; port <= PORT_MAX; port += 1) {
+    if (port !== preferred) candidates.push(port);
+  }
+  let lastError = null;
+  for (const port of candidates) {
+    try {
+      const server = await bindPort(port);
+      return { server, port: server.address().port };
+    } catch (error51) {
+      lastError = error51;
+      if (error51?.code !== "EADDRINUSE") throw error51;
+    }
+  }
+  invariant(false, "AO_SESSION_BIND", "No loopback port is available for the session host.", { lastError: lastError?.message });
+}
+function bindPort(port) {
+  return new Promise((resolve5, reject) => {
+    const server = (0, import_node_http.createServer)();
+    const onError = (error51) => {
+      server.off("listening", onListening);
+      reject(error51);
+    };
+    const onListening = () => {
+      server.off("error", onError);
+      resolve5(server);
+    };
+    server.once("error", onError);
+    server.once("listening", onListening);
+    server.listen(port, BIND);
+  });
+}
+async function probeSessionHost(stateRoot2) {
+  const lease = await readJson(leasePath(stateRoot2), null);
+  if (!lease?.port || !lease.hostNonce) return null;
+  if (await processStartIdentity(lease.pid) !== lease.startIdentity) return null;
+  try {
+    const response = await fetch(`http://127.0.0.1:${lease.port}/api/health`, {
+      headers: { host: `127.0.0.1:${lease.port}` }
+    });
+    if (!response.ok) return null;
+    const body = await response.json();
+    if (body.hostNonce !== lease.hostNonce) return null;
+    return lease;
+  } catch {
+    return null;
+  }
+}
+async function openSessionBrowser(url2) {
+  if (process.env.AGENT_ORCHESTRATION_OPEN_BROWSER === "0") return false;
+  if (!process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) return false;
+  try {
+    (0, import_node_child_process4.spawn)("xdg-open", [url2], { stdio: "ignore", detached: true, shell: false }).unref();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // src/service.mjs
 var WORKER_STATES = /* @__PURE__ */ new Set(["queued", "preparing", "running", "verifying", "cancelling", "cleanup_required"]);
 function normalizeIntentInput(input) {
@@ -44336,7 +44634,7 @@ function normalizeIntentInput(input) {
 async function externalProviderPaths(pluginRoot, discovered, executableRoots = []) {
   const paths = [];
   for (const candidate of discovered) {
-    const resolvedCandidate = await (0, import_promises11.realpath)(candidate).catch(() => (0, import_node_path13.resolve)(candidate));
+    const resolvedCandidate = await (0, import_promises12.realpath)(candidate).catch(() => (0, import_node_path16.resolve)(candidate));
     if (isPathWithin(pluginRoot, candidate) || isPathWithin(pluginRoot, resolvedCandidate)) continue;
     if (!executableRoots.some((root) => isPathWithin(root, resolvedCandidate))) continue;
     if (!paths.includes(resolvedCandidate)) paths.push(resolvedCandidate);
@@ -44346,7 +44644,7 @@ async function externalProviderPaths(pluginRoot, discovered, executableRoots = [
 async function discoverProviderPaths(pluginRoot, adapter, discovered, resolverRunner = runFile) {
   const candidates = [...discovered];
   for (const resolver of adapter.candidateResolvers ?? []) {
-    invariant((0, import_node_path13.isAbsolute)(resolver.executable), "AO_PROVIDER_RESOLVER_NOT_ABSOLUTE", "Provider candidate resolvers must use an absolute executable path.");
+    invariant((0, import_node_path16.isAbsolute)(resolver.executable), "AO_PROVIDER_RESOLVER_NOT_ABSOLUTE", "Provider candidate resolvers must use an absolute executable path.");
     try {
       const { stdout } = await resolverRunner(resolver.executable, [...resolver.args], { timeoutMs: 5e3 });
       candidates.push(...stdout.split("\n").map((line) => line.trim()).filter(Boolean));
@@ -44356,7 +44654,7 @@ async function discoverProviderPaths(pluginRoot, adapter, discovered, resolverRu
   return externalProviderPaths(pluginRoot, candidates, adapter.executableRoots);
 }
 var OrchestrationService = class {
-  constructor({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot2 = stateRoot(), workerEntrypoint = (0, import_node_path13.join)(pluginRoot, "dist", "cli.cjs"), maxConcurrentRuns = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_RUNS || 4), maxConcurrentPerProvider = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_PER_PROVIDER || 2), autoRecover = true, recoveryGraceMs = 5e3 } = {}) {
+  constructor({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot2 = stateRoot(), workerEntrypoint = (0, import_node_path16.join)(pluginRoot, "dist", "cli.cjs"), maxConcurrentRuns = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_RUNS || 4), maxConcurrentPerProvider = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_PER_PROVIDER || 2), autoRecover = true, recoveryGraceMs = 5e3, sessionUiRoot = (0, import_node_path16.join)(pluginRoot, "dist", "session-ui") } = {}) {
     this.pluginRoot = pluginRoot;
     this.stateRoot = stateRoot2;
     this.workerEntrypoint = workerEntrypoint;
@@ -44364,6 +44662,8 @@ var OrchestrationService = class {
     this.maxConcurrentPerProvider = Number.isInteger(maxConcurrentPerProvider) && maxConcurrentPerProvider > 0 ? maxConcurrentPerProvider : 2;
     this.autoRecover = autoRecover;
     this.recoveryGraceMs = recoveryGraceMs;
+    this.sessionUiRoot = sessionUiRoot;
+    this.sessionHost = null;
     this.store = new RunStore(stateRoot2);
     this.availabilityCache = null;
     this.recoveryTimer = null;
@@ -44510,7 +44810,7 @@ var OrchestrationService = class {
     return this.store.withLock("scheduler", async () => {
       if (input.idempotencyKey) {
         const existing = await this.store.findByIdempotencyKey(input.idempotencyKey, prepared.consumer.repositoryKey);
-        if (existing) return { run: existing, explanation: prepared.explanation };
+        if (existing) return { run: existing, explanation: prepared.explanation, session: await this.sessionForRun(existing.runId) };
       }
       const active = (await this.store.list()).filter((run2) => WORKER_STATES.has(run2.state));
       invariant(active.length < this.maxConcurrentRuns, "AO_CONCURRENCY_LIMIT", "The global orchestration concurrency limit is reached.", { limit: this.maxConcurrentRuns });
@@ -44537,8 +44837,41 @@ var OrchestrationService = class {
         idempotencyKey: input.idempotencyKey ?? null
       });
       const launchedRun = run.state === "queued" ? await this.launchWorker(run.runId) ?? await this.store.get(run.runId) : run;
-      return { run: launchedRun, explanation: prepared.explanation };
+      const session = await this.openRunSession(launchedRun.runId);
+      return { run: launchedRun, explanation: prepared.explanation, session };
     });
+  }
+  async ensureSessionHost() {
+    if (this.sessionHost) return this.sessionHost;
+    const live = await probeSessionHost(this.stateRoot);
+    if (live) {
+      this.sessionHost = { port: live.port, hostNonce: live.hostNonce, bind: live.bind, close: async () => {
+      } };
+      return this.sessionHost;
+    }
+    this.sessionHost = await startSessionHost({ stateRoot: this.stateRoot, uiRoot: this.sessionUiRoot });
+    return this.sessionHost;
+  }
+  async openRunSession(runId) {
+    const host = await this.ensureSessionHost();
+    const cap = mintCapability();
+    await writeSessionMeta(this.stateRoot, runId, {
+      tokenHash: cap.tokenHash,
+      expiresAt: cap.expiresAt,
+      exchangedAt: null,
+      hostNonce: host.hostNonce
+    });
+    const url2 = capabilityUrl(host.port, cap.token);
+    const opened = await openSessionBrowser(url2);
+    return { url: url2, port: host.port, expiresAt: cap.expiresAt, opened, bind: host.bind };
+  }
+  async sessionForRun(runId) {
+    const host = await this.ensureSessionHost();
+    const existing = await readSessionMeta(this.stateRoot, runId);
+    if (existing && !isExpired(existing.expiresAt) && !existing.exchangedAt) {
+      return { url: null, port: host.port, expiresAt: existing.expiresAt, opened: false, bind: host.bind, pendingExchange: true };
+    }
+    return this.openRunSession(runId);
   }
   async waitForWorkerRegistration(runId, supervisorUnit, child, launchState, timeoutMs = 1e4) {
     const deadline = Date.now() + timeoutMs;
@@ -44578,7 +44911,7 @@ var OrchestrationService = class {
     }, stopped ? "worker_launch_failed" : "worker_launch_cleanup_required");
   }
   async launchWorker(runId) {
-    const logDir = await ensurePrivateDir((0, import_node_path13.join)(this.stateRoot, "logs"));
+    const logDir = await ensurePrivateDir((0, import_node_path16.join)(this.stateRoot, "logs"));
     const unitBase = `agent-orchestration-run-${runId.replaceAll("_", "-")}`;
     const supervisorUnit = `${unitBase}.scope`;
     const args = [
@@ -44604,8 +44937,8 @@ var OrchestrationService = class {
       "--run-id",
       runId
     ];
-    const stdout = await (0, import_promises11.open)((0, import_node_path13.join)(logDir, `${runId}.out.log`), "a", 384);
-    const stderr = await (0, import_promises11.open)((0, import_node_path13.join)(logDir, `${runId}.err.log`), "a", 384);
+    const stdout = await (0, import_promises12.open)((0, import_node_path16.join)(logDir, `${runId}.out.log`), "a", 384);
+    const stderr = await (0, import_promises12.open)((0, import_node_path16.join)(logDir, `${runId}.err.log`), "a", 384);
     let child;
     const launchState = { error: null, exited: null };
     try {
@@ -44651,7 +44984,7 @@ var OrchestrationService = class {
     }
     if (TERMINAL_STATES.has(run.state)) return run;
     const { stdout: controlGroup } = await runUserManagerFile("/usr/bin/systemctl", ["--user", "show", run.worker?.supervisorUnit, "--property=ControlGroup", "--value"], { timeoutMs: 5e3 });
-    const ownCgroups = await (0, import_promises11.readFile)("/proc/self/cgroup", "utf8");
+    const ownCgroups = await (0, import_promises12.readFile)("/proc/self/cgroup", "utf8");
     invariant(controlGroup && ownCgroups.includes(controlGroup), "AO_WORKER_REGISTRATION_MISSING", "The worker refused to execute outside its registered supervisor cgroup.");
     run = await this.store.update(runId, { worker: { ...run.worker, pid: process.pid, startIdentity: await processStartIdentity(process.pid), attachedAt: (/* @__PURE__ */ new Date()).toISOString() } }, "worker_attached_to_supervisor");
     return executeRun({ store: this.store, runId, pluginRoot: this.pluginRoot, stateRoot: this.stateRoot });
@@ -44659,7 +44992,8 @@ var OrchestrationService = class {
   async getRun(input) {
     const [consumer, run] = await Promise.all([this.resolveConsumer(input.consumerCwd, false), this.store.get(input.runId)]);
     invariant(consumer.repositoryKey === run.consumer.repositoryKey, "AO_RUN_REPOSITORY_MISMATCH", "The run belongs to a different consumer repository.");
-    return run;
+    const session = await this.sessionForRun(run.runId);
+    return { ...run, session };
   }
   async list(input) {
     const consumer = await this.resolveConsumer(input.consumerCwd, false);
@@ -44823,7 +45157,7 @@ var OrchestrationService = class {
             "--fsize=268435456",
             "--",
             process.execPath,
-            (0, import_node_path13.join)(this.pluginRoot, "dist", "probe-worker.cjs"),
+            (0, import_node_path16.join)(this.pluginRoot, "dist", "probe-worker.cjs"),
             this.pluginRoot,
             this.stateRoot,
             this.pluginRoot,
@@ -45070,7 +45404,7 @@ function register(server, service, name, description, inputSchema, outputDataSch
     }
   });
 }
-async function createServer(options = {}) {
+async function createServer2(options = {}) {
   const service = await new OrchestrationService(options).initialize();
   const server = new McpServer({ name: "agent-orchestration", version: "0.1.0" });
   register(server, service, "orchestration_capabilities", "Describe orchestration providers, intents, protocols, permissions, lifecycle, and repository isolation guarantees.", {}, capabilitiesData, function() {
@@ -45092,7 +45426,7 @@ async function createServer(options = {}) {
   return { server, service };
 }
 async function main() {
-  const { server } = await createServer();
+  const { server } = await createServer2();
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }

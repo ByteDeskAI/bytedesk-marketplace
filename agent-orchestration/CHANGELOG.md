@@ -2,6 +2,9 @@
 
 ## 0.2.0 - Unreleased
 
+- Start a per-state-root Agent Orchestration Session host on `127.0.0.1`. Spawn returns a one-use
+  `session.url`; the host exchanges it for an HttpOnly cookie and serves the committed session UI.
+  Capability secrets stay out of `snapshot.json`. `agent-orchestration session-host` is the CLI bind.
 - Add the Agent Orchestration Session plan and a Cobalt workbench mockup: a per-run loopback window
   for conversation, handoffs, activity, approvals, and controls. `node session-ui/serve.mjs` prints
   `Orchestration session: <url>` and opens a browser. Not wired into spawn yet.

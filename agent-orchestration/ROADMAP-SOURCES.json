@@ -3,8 +3,8 @@
   "hashAlgorithm": "sha256",
   "files": {
     "src/cli.mjs": {
-      "sha256": "68c38417c9bc91e212682fc1fb102dbee1d50040a502861fb5d6e1488cce1772",
-      "lineCount": 38,
+      "sha256": "9c9523d4c2ca2f919e10b988c99426cd855fc27ae165cda842dc0b8222dc2628",
+      "lineCount": 52,
       "anchors": [
         "Usage: agent-orchestration <worker|doctor|status> [options]"
       ]
@@ -79,15 +79,15 @@
       ]
     },
     "src/provider-sandbox.mjs": {
-      "sha256": "f5b76142d1d26a6c6ce2725ff66bfa3fa756762e59bcbdce5869cf49af55dede",
-      "lineCount": 586,
+      "sha256": "68f1c89324f4b7b72b477addb88eeac9b94b596543e69c26ed537adb90326aa2",
+      "lineCount": 592,
       "anchors": [
         "\"AO_ACP_PROVIDER_REQUEST_LIMIT\""
       ]
     },
     "src/providers/adapters.mjs": {
-      "sha256": "b8070583937d5c08a4e2b6a190171efec26102fb57398db10e2c843bf95db3e3",
-      "lineCount": 85,
+      "sha256": "840bfea6543597eae751edf13e2e069fffcce82721f8b84ef0f0add21520497b",
+      "lineCount": 86,
       "anchors": [
         "export const PROVIDER_ADAPTERS",
         "export function getProviderAdapter"
@@ -103,8 +103,8 @@
       ]
     },
     "src/runtime/acpx-driver.mjs": {
-      "sha256": "1fdd813b4c28d6a5604306dd6be8289d19e0eddaea54e82bc9cee5a5f1348048",
-      "lineCount": 247,
+      "sha256": "9d4d8214770430d07e4e8e02c6118b599899f78c05f604933780391b9e73f1c0",
+      "lineCount": 261,
       "anchors": [
         "const permissionState =",
         "export function createProviderRuntime"
@@ -133,7 +133,7 @@
       ]
     },
     "src/runtime/prompts.mjs": {
-      "sha256": "37555a8ef8043db170bf8908502eb7987da209277a04897426361a8420cd0d6f",
+      "sha256": "7b1c69c40b1de1dfe37f707d02897e2760013b24b4fe7a9c86e9de08a02f0437",
       "lineCount": 46,
       "anchors": [
         "const contract = {",
@@ -142,8 +142,8 @@
       ]
     },
     "src/service.mjs": {
-      "sha256": "277f72d00e58fcb8516aed40b778f03a7211cae14288c93063127c8533dfe126",
-      "lineCount": 569,
+      "sha256": "15c2591bb15381024fd6d31018c7aef9a5b537181d76e1789644df19120899e6",
+      "lineCount": 609,
       "anchors": [
         "async cancel(",
         "async decision(",

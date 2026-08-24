@@ -94,7 +94,8 @@ prior request, or a provider session. Reject missing, relative, nonexistent, or 
 
 ## Packaging invariants
 
-- `dist/mcp.cjs`, `dist/cli.cjs`, `dist/provider-sandbox.cjs`, and `dist/probe-worker.cjs` are committed, authoritative install artifacts.
+- `dist/mcp.cjs`, `dist/cli.cjs`, `dist/provider-sandbox.cjs`, `dist/probe-worker.cjs`, and
+  `dist/session-ui/` are committed, authoritative install artifacts.
 - `bin/` only locates and executes those bundles. It never installs, invokes `npx`, or rebuilds.
 - A compatibility claim requires launching the actual installed cache copy with no `node_modules`
   and no path back to the source checkout.

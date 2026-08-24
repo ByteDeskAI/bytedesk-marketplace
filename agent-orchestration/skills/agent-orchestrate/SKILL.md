@@ -22,15 +22,19 @@ instead of shelling out to `claude`, `codex`, `grok`, or `kimi`.
    for architecture and every other multi-stage protocol so every provider route is visible.
 4. Before each `orchestration_spawn`, state the exact task, expected result, provider, permission profile,
    timeout, session mode, and owned files or read-only boundary. Default to read-only.
-5. For parallel work, spawn only disjoint scopes. Record each orchestration and execution ID.
-6. Use `orchestration_events` or `orchestration_status` for progress and `orchestration_wait` for completion. Use `orchestration_send` only when
+5. After spawn, print `session.url` from the tool result **verbatim** to the operator. Never paste that
+   URL into a provider prompt, sandbox env, or follow-up task text. `xdg-open` may also run on the host
+   when a display is present; the printed URL is the operator path. A human-invoked
+   `agent-orchestration session-host` prints a host bind line, not a capability secret.
+6. For parallel work, spawn only disjoint scopes. Record each orchestration and execution ID.
+7. Use `orchestration_events` or `orchestration_status` for progress and `orchestration_wait` for completion. Use `orchestration_send` only when
    the parent was explicitly read-only and persistent and its provider supports session loading;
    otherwise spawn a new scoped run. Do not poll aggressively.
-7. If a provider requests approval, inspect it with `orchestration_decision_get`. Call `orchestration_decision_approve`
+8. If a provider requests approval, inspect it with `orchestration_decision_get`. Call `orchestration_decision_approve`
    only when the user or existing policy explicitly authorizes that exact action.
-8. Cancel stalled or superseded work with `orchestration_cancel`. Use `orchestration_cleanup` only after results and
+9. Cancel stalled or superseded work with `orchestration_cancel`. Use `orchestration_cleanup` only after results and
    evidence have been collected; cleanup permanently discards the terminal worktree and its patch.
-9. Synthesize results by provider. Preserve disagreements, partial failures, verification gaps, and
+10. Synthesize results by provider. Preserve disagreements, partial failures, verification gaps, and
    the difference between observed evidence and model opinion.
 
 ## Tool surface

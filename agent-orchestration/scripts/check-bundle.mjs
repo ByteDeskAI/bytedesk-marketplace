@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,7 +21,17 @@ try {
     child.once("exit", resolve);
   });
   if (exitCode !== 0) process.exit(exitCode ?? 1);
-  for (const name of await readdir(scratch)) {
+  async function walk(dir, prefix = "") {
+    const names = [];
+    for (const entry of await readdir(dir)) {
+      const rel = prefix ? `${prefix}/${entry}` : entry;
+      const info = await stat(join(dir, entry));
+      if (info.isDirectory()) names.push(...await walk(join(dir, entry), rel));
+      else names.push(rel);
+    }
+    return names;
+  }
+  for (const name of await walk(scratch)) {
     const [expected, actual] = await Promise.all([
       readFile(join(root, "dist", name)),
       readFile(join(scratch, name)),
