@@ -28,7 +28,9 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/design-system-sync.mjs --app gateway
 | --- | --- |
 | `--app <slug>` | the product whose profile this repo vendors; remembered after the first run |
 | `--dir <path>` | destination, default `.context/design-system` |
-| `--check` | drift gate — writes nothing, exits 1 when the vendored SHA differs |
+| `--dry-run` | exact add/change/delete plan; writes nothing |
+| `--check` | checksum and profile integrity gate; writes nothing |
+| `--doctor` | integrity plus actionable runtime, instruction, and CI wiring checks |
 
 ### `/design-system-scaffold`
 
@@ -42,12 +44,15 @@ A sync writes exactly this into `<dir>`:
 
 ```text
 .context/design-system/
-├── tokens/css/bytedesk.css        the canonical --bd-* layer
-├── tokens/tailwind/theme.css      the Tailwind v4 adapter
+├── DESIGN.md                       the shared ByteDesk foundation
+├── tokens/bytedesk.tokens.json     canonical DTCG-style values
+├── tokens/css/bytedesk.css         the canonical --bd-* layer
+├── tokens/tailwind/theme.css       the Tailwind v4 adapter
 ├── profiles/<app>/                THIS app's profile only — DESIGN.md, PRODUCT.md
-├── .source-sha                    the design-system commit this came from
-├── .design-system.json            { "app": "<slug>" }
-└── README.md                      the do-not-edit stamp
+├── .source-sha                     the design-system commit this came from
+├── .design-system.json             remembered app and source revision
+├── .managed-files.json             checksums and sizes for managed files
+└── README.md                       the do-not-edit stamp
 ```
 
 and appends `export IMPECCABLE_CONTEXT_DIR=<dir>/profiles/<app>` to `.envrc` if
@@ -57,7 +62,9 @@ Rules the contract enforces:
 
 - **One repository vendors one profile — its own.** Never a sibling product's.
 - **The vendored tree is read-only.** It is build input, not source.
-- **The sync is idempotent.** Re-running rewrites the same bytes.
+- **The sync is idempotent and atomic.** A healthy rerun writes nothing; an
+  interrupted replacement restores the previous tree.
+- **Deleted upstream files are removed.** Stale managed content cannot survive.
 - The vendored tree is **committed**. That is the whole point.
 
 ## Authoring lives upstream
@@ -65,7 +72,7 @@ Rules the contract enforces:
 ```text
 ByteDeskAI/design-system          author tokens + profiles, commit
   └─ node scripts/publish-plugin.mjs
-       └─ this plugin's payload/ + payload/.source-sha    commit + push
+       └─ this plugin's runtime + checksummed payload     commit + push
             └─ consumer: /design-system-sync              commit the vendored tree
 ```
 
@@ -81,8 +88,11 @@ check instead:
 node <plugin>/scripts/design-system-sync.mjs --check
 ```
 
-Exit 1 means the repository is vendoring an older design-system commit than the
-plugin publishes — re-sync and commit.
+The check verifies source revision, selected profile, missing or corrupted
+files, stale records, and unexpected files. Exit codes are stable: `0` healthy,
+`1` managed-content drift, `2` consumer misconfiguration, and `3` tool or
+payload failure. Run `--doctor` during adoption to get exact fixes for missing
+token imports, design inheritance, agent instructions, or the CI drift gate.
 
 ## SessionStart hook
 

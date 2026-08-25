@@ -85,7 +85,7 @@
     },
     {
       "name": "design-system",
-      "description": "Delivers the ByteDesk design system into any repository by vendoring committed files — the family --bd-* tokens plus the repository's own impeccable profile — from a payload embedded in the plugin. No submodule, no network, no private-repo access. /design-system-sync vendors and re-syncs, with a --check drift gate for CI; /design-system-scaffold creates a new site already wrapped in it.",
+      "description": "Installs and verifies the ByteDesk design foundation, canonical tokens, and the repository's own profile from a checksummed embedded payload. No submodule, network, or private-repo access. /design-system-sync supports atomic sync, dry-run, integrity checks, and actionable diagnostics; /design-system-scaffold creates a wrapped site.",
       "source": "./design-system"
     }
   ]

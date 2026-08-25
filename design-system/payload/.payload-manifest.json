@@ -1,0 +1,116 @@
+{
+  "schemaVersion": 1,
+  "sourceSha": "233da5057ad0df5744d21d506ec53d193bc36594",
+  "files": [
+    {
+      "path": "DESIGN.md",
+      "sha256": "f44bff3bdbf94dd280f1553bebde45cf955ff322646db21ab93b8f1ba5f607a3",
+      "size": 5874
+    },
+    {
+      "path": "profiles/_template/DESIGN.md",
+      "sha256": "8e349f2e8e2b00176ba3c747cb5ba7c48c0e13661c20803b9a95e66163c28b12",
+      "size": 714
+    },
+    {
+      "path": "profiles/ade/DESIGN.md",
+      "sha256": "41f877373f1422559915ee1a84f8ecb8c1888287b17bd069cfa86e07c69036cf",
+      "size": 13065
+    },
+    {
+      "path": "profiles/agent-browser-website/DESIGN.md",
+      "sha256": "1e5bbc9f51dbd113b58634ebaa615bf7346c3d0f57805722c09a995195818349",
+      "size": 11270
+    },
+    {
+      "path": "profiles/bytedesk-ai/DESIGN.md",
+      "sha256": "e9d1ab541d6c382ff0e3dfcc0da3619882d75652cc196ebe55aa4ea6d6e03ef1",
+      "size": 6556
+    },
+    {
+      "path": "profiles/bytedesk-ai/PRODUCT.md",
+      "sha256": "24841cfc5961bae1407fc5b56a301aa9d2052dcf6a907fd3d21a59d283ec85ab",
+      "size": 5068
+    },
+    {
+      "path": "profiles/capture-website/DESIGN.md",
+      "sha256": "5b1d49581b1f6cfc7a8f33c5dc95b023c3b25aa2631b33fa659169fc5c76914c",
+      "size": 5964
+    },
+    {
+      "path": "profiles/capture/DESIGN.md",
+      "sha256": "73533b511c1bdf616dacd58f4b41cde106d0c481992ad59063e1cfc2495a29fc",
+      "size": 4433
+    },
+    {
+      "path": "profiles/gateway/DESIGN.md",
+      "sha256": "af4769ed1e2c6d635b4bf37b905a863c6d7a22ec6199d8936485526071b7c86e",
+      "size": 6921
+    },
+    {
+      "path": "profiles/gateway/PRODUCT.md",
+      "sha256": "45f8e3b1a74887fb57b2f9c7e086b5edbe0f14f61fa3940106f62cede3ef1060",
+      "size": 4096
+    },
+    {
+      "path": "profiles/marketplace/DESIGN.md",
+      "sha256": "96a8588f92550e561531ebb698cb2da24e77fbc574d506fea7da82e34215a356",
+      "size": 5625
+    },
+    {
+      "path": "profiles/marketplace/PRODUCT.md",
+      "sha256": "fec0006866370959e9b6b9d5eae04ec5b464211741cf07ac7301853df57ebdba",
+      "size": 2458
+    },
+    {
+      "path": "profiles/store/DESIGN.md",
+      "sha256": "db194167f8f0f9aac65005077aa83430cfc994eb699e123721f54859347e38b6",
+      "size": 7729
+    },
+    {
+      "path": "profiles/store/PRODUCT.md",
+      "sha256": "a77dbd0e206d02d02207dd17b034dff025a2963c07625cbf84ab5b0128b38cfe",
+      "size": 3997
+    },
+    {
+      "path": "profiles/terminal/DESIGN.md",
+      "sha256": "cede4220719b6275b31a3796d4ae5a7acfefe23805227ddd7ca2ac2093afc532",
+      "size": 43297
+    },
+    {
+      "path": "profiles/vault/DESIGN.md",
+      "sha256": "4e7e990e5b80bd9c5553726594368f38e5ed02d62367e2af3b32f63fce208a16",
+      "size": 8801
+    },
+    {
+      "path": "profiles/vault/PRODUCT.md",
+      "sha256": "71e7c707b0a74d19e0ed5598bf536b56d4cec5e42a48aba5febcab47704e8801",
+      "size": 3658
+    },
+    {
+      "path": "profiles/workforce/DESIGN.md",
+      "sha256": "e5723340e5384694e0055c62ff6c3db8d379a1088150a4d5c2de79e04af7b079",
+      "size": 18461
+    },
+    {
+      "path": "tokens/README.md",
+      "sha256": "79e7b5754dd1e0c70a576bc74484f71bc5b17e2d631364aac1fe57e8f0274769",
+      "size": 5069
+    },
+    {
+      "path": "tokens/bytedesk.tokens.json",
+      "sha256": "c820029fbdf838e4f3bc859906cc41c4dfa0977b0e90720bc4b5774cc9d62b71",
+      "size": 6355
+    },
+    {
+      "path": "tokens/css/bytedesk.css",
+      "sha256": "364f3582fd9131d7160c32ee218caffbad6d98845037fdf9141cfb1b2fc86974",
+      "size": 5013
+    },
+    {
+      "path": "tokens/tailwind/theme.css",
+      "sha256": "60e98a7b7091f3dd6f8b89e741fc09d4eb97fcdd6fdbc30424f801fb82833b0e",
+      "size": 2514
+    }
+  ]
+}

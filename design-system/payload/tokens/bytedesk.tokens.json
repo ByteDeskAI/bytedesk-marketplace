@@ -1,0 +1,84 @@
+{
+  "$schema": "https://design-tokens.github.io/community-group/format/",
+  "$description": "ByteDesk canonical design tokens — the shared family foundation. Dark-first. CSS runtimes consume tokens/css/bytedesk.css; Tailwind v4 apps layer tokens/tailwind/theme.css; non-CSS runtimes (egui, native) read this file directly. Hex values are sRGB; tokens with an oklch source note carry it in $description.",
+  "color": {
+    "bg": {
+      "base":     { "$type": "color", "$value": "#0F1017", "$description": "App/page background. The family ground." },
+      "subtle":   { "$type": "color", "$value": "#1A1C25" },
+      "surface":  { "$type": "color", "$value": "#23252F", "$description": "Cards, panels." },
+      "elevated": { "$type": "color", "$value": "#2A2C37" },
+      "overlay":  { "$type": "color", "$value": "#343742", "$description": "Menus, popovers, tooltips." }
+    },
+    "text": {
+      "primary":   { "$type": "color", "$value": "#E6E8ED", "$description": "15.5:1 on bg.base" },
+      "secondary": { "$type": "color", "$value": "#BFC4CA", "$description": "10.8:1 on bg.base" },
+      "tertiary":  { "$type": "color", "$value": "#A2A8B2", "$description": "7.9:1 on bg.base, 6.4:1 on bg.surface" },
+      "disabled":  { "$type": "color", "$value": "#6B7280" },
+      "on-brand":  { "$type": "color", "$value": "#FFE2D8", "$description": "Text on brand-orange fills. 3.0:1 vs orange — AA large text only (>=18.66px bold / 24px regular)." }
+    },
+    "brand": {
+      "orange":       { "$type": "color", "$value": "#EC4E02", "$description": "ByteDesk brand. Conversion moments, brand marks. 5.1:1 on bg.base." },
+      "orange-muted": { "$type": "color", "$value": "#D96D00" }
+    },
+    "interactive": {
+      "blue": { "$type": "color", "$value": "#0079F2", "$description": "Links, focus, interactive affordances. 4.5:1 on bg.base." }
+    },
+    "semantic": {
+      "success":       { "$type": "color", "$value": "#009118", "$description": "4.6:1 on bg.base" },
+      "success-muted": { "$type": "color", "$value": "#007012" },
+      "danger":        { "$type": "color", "$value": "#E52222", "$description": "4.1:1 on bg.base — pair with icon/text, AA large only as text color." },
+      "warning":       { "$type": "color", "$value": "#DFA700", "$description": "oklch(0.76 0.16 85). 8.7:1 on bg.base." },
+      "info":          { "$type": "color", "$value": "#1DB8CE", "$description": "oklch(0.72 0.12 210). 8.0:1 on bg.base." }
+    },
+    "border": {
+      "dimmest":   { "$type": "color", "$value": "#252732" },
+      "dimmer":    { "$type": "color", "$value": "#31343F" },
+      "default":   { "$type": "color", "$value": "#3A3D48" },
+      "stronger":  { "$type": "color", "$value": "#444752" },
+      "strongest": { "$type": "color", "$value": "#4D505C" }
+    }
+  },
+  "product": {
+    "$description": "Per-product accent hues. Used for product identification (marks, chips, card gradients, docs), never replacing semantic colors. All >=4.5:1 on bg.base except noted.",
+    "platform":      { "$type": "color", "$value": "#EC4E02", "$description": "Flagship carries the brand orange. 5.1:1." },
+    "gateway":       { "$type": "color", "$value": "#0079F2", "$description": "4.5:1." },
+    "vault":         { "$type": "color", "$value": "#DFA700", "$description": "Keys/amber. oklch(0.76 0.16 85). 8.7:1." },
+    "store":         { "$type": "color", "$value": "#009118", "$description": "Commerce/green. 4.6:1." },
+    "workforce":     { "$type": "color", "$value": "#A170EB", "$description": "oklch(0.65 0.18 300). 5.5:1." },
+    "agent-browser": { "$type": "color", "$value": "#1DB8CE", "$description": "oklch(0.72 0.12 210). 8.0:1." },
+    "agent-memory":  { "$type": "color", "$value": "#EA5DA9", "$description": "oklch(0.68 0.19 350). 6.0:1." },
+    "capture":       { "$type": "color", "$value": "#0A84FF", "$description": "Matches the existing capture profile accent. 5.2:1." }
+  },
+  "font": {
+    "sans":    { "$type": "fontFamily", "$value": ["IBM Plex Sans", "ui-sans-serif", "system-ui", "-apple-system", "sans-serif"] },
+    "display": { "$type": "fontFamily", "$value": ["IBM Plex Sans", "ui-sans-serif", "system-ui", "-apple-system", "sans-serif"] },
+    "mono":    { "$type": "fontFamily", "$value": ["IBM Plex Mono", "ui-monospace", "SFMono-Regular", "monospace"] }
+  },
+  "type": {
+    "$description": "Web runtimes use the fluid clamp() values from tokens/css/bytedesk.css. The px values here are the static desktop scale (clamp minimums) for native runtimes.",
+    "display": { "$type": "dimension", "$value": "40px", "web": "clamp(2.5rem, 2rem + 2.5vw, 5.5rem)" },
+    "h1":      { "$type": "dimension", "$value": "32px", "web": "clamp(2rem, 1.6rem + 2vw, 3.5rem)" },
+    "h2":      { "$type": "dimension", "$value": "24px", "web": "clamp(1.5rem, 1.25rem + 1.25vw, 2.5rem)" },
+    "h3":      { "$type": "dimension", "$value": "20px", "web": "clamp(1.25rem, 1.1rem + 0.75vw, 1.875rem)" },
+    "h4":      { "$type": "dimension", "$value": "18px", "web": "clamp(1.125rem, 1rem + 0.625vw, 1.5rem)" },
+    "body-lg": { "$type": "dimension", "$value": "17px", "web": "clamp(1.0625rem, 1rem + 0.3125vw, 1.25rem)" },
+    "body":    { "$type": "dimension", "$value": "15px", "web": "clamp(0.9375rem, 0.9rem + 0.1875vw, 1.0625rem)" },
+    "body-sm": { "$type": "dimension", "$value": "13px", "web": "clamp(0.8125rem, 0.8rem + 0.125vw, 0.875rem)" },
+    "caption": { "$type": "dimension", "$value": "11px", "web": "clamp(0.6875rem, 0.675rem + 0.0625vw, 0.75rem)" }
+  },
+  "radius": {
+    "sm":   { "$type": "dimension", "$value": "4px" },
+    "md":   { "$type": "dimension", "$value": "6px" },
+    "lg":   { "$type": "dimension", "$value": "8px" },
+    "xl":   { "$type": "dimension", "$value": "12px" },
+    "2xl":  { "$type": "dimension", "$value": "16px" },
+    "full": { "$type": "dimension", "$value": "9999px" }
+  },
+  "motion": {
+    "duration-fast": { "$type": "duration", "$value": "150ms" },
+    "duration-base": { "$type": "duration", "$value": "250ms" },
+    "duration-slow": { "$type": "duration", "$value": "400ms" },
+    "ease-out-expo": { "$type": "cubicBezier", "$value": [0.16, 1, 0.3, 1] },
+    "$description": "Reduced-motion: every consumer honors prefers-reduced-motion by disabling non-essential animation."
+  }
+}
