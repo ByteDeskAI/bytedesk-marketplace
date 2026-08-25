@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.5.2] — 2026-08-25
+
+### Fixed
+
+- Generated CI drift workflows now target the consumer's tracked default
+  branch, supporting both `main` and `develop` repositories idempotently.
+- Published from immutable design-system source revision `3c92040`.
+
 ## [1.5.1] — 2026-08-25
 
 ### Fixed

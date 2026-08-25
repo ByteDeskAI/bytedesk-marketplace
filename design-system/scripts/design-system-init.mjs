@@ -131,6 +131,20 @@ function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function ciBranch(cwd) {
+  const candidates = [
+    ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
+    ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
+  ];
+  for (const args of candidates) {
+    const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+    if (result.status !== 0) continue;
+    const branch = result.stdout.trim().replace(/^origin\//, "");
+    if (branch && branch !== "HEAD" && !branch.includes("..")) return branch;
+  }
+  return "main";
+}
+
 function markdownBlock(app, target) {
   const heading = target === "AGENTS.md" ? "## ByteDesk design context" : "## ByteDesk design inheritance";
   return [
@@ -180,9 +194,10 @@ async function integrationWrites(opts, cwd, app, runtime) {
   };
   writes.set(".bytedesk/design-system.json", `${JSON.stringify(config, null, 2)}\n`);
   writes.set(".bytedesk/design-system-check.mjs", await readFile(checkRuntime));
+  const defaultBranch = ciBranch(cwd);
   writes.set(".github/workflows/bytedesk-design-system.yml", [
     "name: ByteDesk design system",
-    "", "on:", "  pull_request:", "  push:", "    branches: [main]", "",
+    "", "on:", "  pull_request:", "  push:", `    branches: [${defaultBranch}]`, "",
     "jobs:", "  integrity:", "    runs-on: ubuntu-latest", "    steps:",
     "      - uses: actions/checkout@v4", "      - uses: actions/setup-node@v4",
     "        with:", "          node-version: 22",

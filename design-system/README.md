@@ -3,7 +3,7 @@
 Delivers the ByteDesk design system into any repository as **plain committed
 files**. The plugin carries the payload; a sync copies it into the repo tree.
 
-Install the same `1.5.1` bundle in either provider:
+Install the same `1.5.2` bundle in either provider:
 
 ```bash
 # Claude Code
