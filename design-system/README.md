@@ -3,7 +3,7 @@
 Delivers the ByteDesk design system into any repository as **plain committed
 files**. The plugin carries the payload; a sync copies it into the repo tree.
 
-Install the same `1.0.1` bundle in either provider:
+Install the same `1.1.0` bundle in either provider:
 
 ```bash
 # Claude Code
@@ -33,6 +33,31 @@ tokens, assets, migration, release, and scaffold. It also includes twenty
 reviewed design-craft skills. Provider installation makes all 30 discoverable;
 the consuming repository does not need its own `.agents/skills` copy.
 
+### One-command adoption
+
+Run the executable from the installed plugin at the root of an existing
+repository. It detects the runtime and exact product identity when unambiguous;
+use flags when either choice needs to be explicit.
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/design-system-init.mjs --app gateway
+```
+
+The command vendors the profile, wires web tokens or a Go/native adapter,
+maintains marked sections in `DESIGN.md` and `AGENTS.md`, installs a standalone
+CI drift gate, verifies the result, and prints `git status` plus a diff summary.
+Preview without writing via `--dry-run`.
+
+Legacy adoption is deliberately two-step:
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/design-system-init.mjs migrate --app gateway
+node ${CLAUDE_PLUGIN_ROOT}/scripts/design-system-init.mjs migrate --app gateway --apply
+```
+
+Migration removes only a verified clean submodule or manual snapshot. A dirty
+legacy tree is a hard stop so local work cannot be discarded.
+
 ### `/design-system-sync`
 
 Vendors into an existing repository.
@@ -51,9 +76,10 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/design-system-sync.mjs --app gateway
 
 ### `/design-system-scaffold`
 
-Creates a **new** site already wrapped in the system, via `scaffold/create.mjs`
-in a checkout of `ByteDeskAI/design-system` (the starter templates live there).
-See `skills/design-system-scaffold/SKILL.md`.
+Creates a **new** site already wrapped in the system via the plugin-embedded
+`scaffold/create.mjs`, then hands off to the same init executable. No source
+checkout, private-repository token, or submodule is required. See
+`skills/design-system-scaffold/SKILL.md`.
 
 ## The vendored contract
 
@@ -102,14 +128,15 @@ A submodule pin is enforced by git; a vendored directory is not. So CI runs the
 check instead:
 
 ```bash
-node <plugin>/scripts/design-system-sync.mjs --check
+node .bytedesk/design-system-check.mjs
 ```
 
 The check verifies source revision, selected profile, missing or corrupted
-files, stale records, and unexpected files. Exit codes are stable: `0` healthy,
-`1` managed-content drift, `2` consumer misconfiguration, and `3` tool or
-payload failure. Run `--doctor` during adoption to get exact fixes for missing
-token imports, design inheritance, agent instructions, or the CI drift gate.
+files, stale records, and unexpected files. Because the checker is committed in
+the consumer, CI does not need the plugin installed. Exit codes are stable: `0`
+healthy, `1` managed-content drift, and `2` consumer or tool configuration
+failure. Run sync with `--doctor` for exact fixes to token imports, design
+inheritance, agent instructions, or the CI drift gate.
 
 ## SessionStart hook
 

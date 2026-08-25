@@ -115,6 +115,14 @@ async function validateManifests() {
   requireValue(claude.description === codex.description, "Claude and Codex descriptions must match");
   requireValue(codex.skills === "./skills/", "Codex manifest must expose ./skills/");
   requireValue(existsSync(path.join(pluginRoot, "LICENSE")), "plugin root LICENSE is missing");
+  for (const relative of [
+    "scripts/design-system-init.mjs",
+    "scripts/design-system-sync.mjs",
+    "scripts/design-system-check.mjs",
+    "scaffold/create.mjs",
+    "scaffold/templates/nextjs-site/package.json",
+    "templates/consumer/DESIGN.md",
+  ]) requireValue(existsSync(path.join(pluginRoot, relative)), `plugin runtime is incomplete: ${relative}`);
   return { pluginVersion: codex.version };
 }
 

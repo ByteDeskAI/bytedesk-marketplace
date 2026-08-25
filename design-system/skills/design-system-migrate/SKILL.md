@@ -5,24 +5,23 @@ description: Plan and perform a reviewed migration from a legacy ByteDesk design
 
 # Design System Migrate
 
-Start with a read-only preflight: inspect `.gitmodules`, the gitlink status,
-local changes inside the submodule, current source SHA, selected profile, token
-imports, `.envrc`, CI, and any files outside the mount derived from it.
+Resolve the installed plugin root and start with its executable preflight:
+
+`node <plugin>/scripts/design-system-init.mjs migrate --app <slug> --dry-run`
 
 Before removing a submodule, gitlink, or directory, show the exact targets and
 obtain explicit user authorization. Stop if the legacy checkout has uncommitted
 work or its source revision cannot be recorded.
 
-After authorization:
+After authorization, rerun with `--apply`. The executable:
 
 1. Record the old source SHA and product slug in the migration diff or PR.
-2. Remove only the verified submodule registration, gitlink, and module metadata;
-   do not use broad recursive cleanup.
-3. Run the installed sync runtime with `--app <slug> --dry-run`, review it, then
-   apply. The runtime intentionally refuses to overwrite a Git checkout.
-4. Update imports, local design/agent inheritance, `.envrc`, and CI to the same
+2. Removes only the verified submodule registration/gitlink or clean tracked
+   manual snapshot; dirty legacy content is a hard stop.
+3. Installs the checksummed managed payload.
+4. Updates imports, local design/agent inheritance, `.envrc`, and CI to the same
    `.context/design-system` managed path. Remove redundant vendored token copies.
-5. Run `--doctor`, `--check`, and the consumer build. Confirm Git now records
+5. Runs doctor and prints the review diff. Run the consumer build and confirm Git records
    ordinary managed files rather than a gitlink.
 
 Migration does not authorize a profile switch or unrelated design changes.

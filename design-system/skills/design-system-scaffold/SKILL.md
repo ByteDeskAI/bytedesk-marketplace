@@ -5,21 +5,20 @@ description: Create a new ByteDesk Next.js site with canonical token imports, pr
 
 # Design System Scaffold
 
-The zero-dependency scaffold lives in a checkout of `ByteDeskAI/design-system`;
-the installed plugin provides delivery and validation. Resolve the plugin root
-as two directories above this `SKILL.md`.
+The zero-dependency scaffold and its templates ship inside the installed plugin.
+Resolve the plugin root as two directories above this `SKILL.md`.
 
 1. Settle the lowercase kebab-case slug, display name, and one existing product
    accent (`platform`, `gateway`, `vault`, `store`, `workforce`,
    `agent-browser`, `agent-memory`, or `capture`). Never invent an accent.
-2. From the canonical source checkout run:
+2. Run from the installed plugin:
 
-   `node scaffold/create.mjs <target> <slug> --accent <product> --name "<name>" --no-submodule`
+   `node <plugin>/scaffold/create.mjs <target> <slug> --accent <product> --name "<name>" --no-submodule --no-profile`
 
    Use `--no-profile` only when an approved profile already exists. Do not use
    `--force` without reviewing the exact existing target files.
-3. From the generated repository run the installed sync runtime with
-   `--app <slug>`, then install dependencies and run the production build.
+3. From the generated repository run `design-system-init.mjs --app <slug>`,
+   then install dependencies and run the production build.
 4. Replace starter profile prompts with real product decisions in the upstream
    source, catalog the profile, validate, publish, and resync the generated site.
 5. Run `--doctor` and commit `.context/design-system/` with the consumer adapter.

@@ -1,0 +1,159 @@
+@import "tailwindcss";
+
+/* Family value layer, consumed from the pinned design-system submodule.
+ * These two paths are rewritten by scaffold/create.mjs; never vendor a copy
+ * of the token CSS into this repository. A design token change lands in
+ * ByteDeskAI/design-system, then this repository re-pins the submodule. */
+@import "__BD_TOKENS_CSS__";
+@import "__BD_TOKENS_TAILWIND__";
+
+/* --------------------------------------------------------------------------
+   Local token root — __APP_NAME__
+   Every name below ALIASES a --bd-* value. Never restate a literal here: a
+   hex code in this file is drift, not a decision. Product accent resolves
+   from data-bd-product="__ACCENT__" on <html> (see src/app/layout.tsx).
+   -------------------------------------------------------------------------- */
+@theme inline {
+  /* next/font loads IBM Plex and exposes it as --font-body / --font-code.
+     The --bd-* stack stays the fallback so the site is legible before the
+     webfont resolves. */
+  --font-sans: var(--font-body, var(--bd-font-sans));
+  --font-display: var(--font-body, var(--bd-font-display));
+  --font-mono: var(--font-code, var(--bd-font-mono));
+
+  --color-accent-glow: var(--bd-accent-glow);
+  --color-bg-hover: var(--bd-bg-hover);
+}
+
+/* --------------------------------------------------------------------------
+   Base
+   -------------------------------------------------------------------------- */
+html {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+body {
+  background-color: var(--bd-bg-base);
+  color: var(--bd-text-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background-color: color-mix(in srgb, var(--bd-accent) 30%, transparent);
+  color: var(--bd-text-primary);
+}
+
+:focus-visible {
+  outline: 2px solid var(--bd-interactive-blue);
+  outline-offset: 2px;
+}
+
+/* --------------------------------------------------------------------------
+   Shared vocabulary
+   Extend these before inventing new CSS — a growing pile of one-off classes
+   is how a consumer drifts away from the family system.
+   -------------------------------------------------------------------------- */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+  padding: 0.625rem 1rem;
+  background-color: var(--bd-bg-elevated);
+  color: var(--bd-text-primary);
+  border: 1px solid var(--bd-border-default);
+  border-radius: var(--bd-radius-md);
+}
+
+.skip-link:focus {
+  left: 1rem;
+  top: 1rem;
+}
+
+/* Bounded reading column shared by every section band. */
+.shell {
+  width: 100%;
+  max-width: 72rem;
+  margin-inline: auto;
+  padding-inline: var(--bd-space-section-x);
+}
+
+/* A full-width horizontal band. Sections are bands separated by rules —
+   not a uniform grid of cards. */
+.band {
+  padding-block: var(--bd-space-section-y);
+  border-bottom: 1px solid var(--bd-border-dimmer);
+}
+
+.surface-card {
+  background-color: var(--bd-bg-subtle);
+  border: 1px solid var(--bd-border-dimmer);
+  border-radius: var(--bd-radius-lg);
+  padding: 1.5rem;
+  transition: border-color var(--bd-duration-fast) var(--bd-ease-out-expo);
+}
+
+.surface-card:hover {
+  border-color: var(--bd-border-stronger);
+}
+
+/* Product identity chip — reads --bd-accent, so it recolors with
+   data-bd-product and never hardcodes the product's hue. */
+.accent-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.625rem;
+  border: 1px solid color-mix(in srgb, var(--bd-accent) 45%, transparent);
+  border-radius: var(--bd-radius-full);
+  background-color: color-mix(in srgb, var(--bd-accent) 10%, transparent);
+  color: var(--bd-accent);
+  font-size: var(--bd-text-caption);
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+}
+
+.button-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  height: 2.75rem;
+  padding-inline: 1.25rem;
+  border-radius: var(--bd-radius-md);
+  background-color: var(--bd-interactive-blue);
+  color: var(--bd-text-primary);
+  font-weight: 600;
+  transition: opacity var(--bd-duration-fast) var(--bd-ease-out-expo);
+}
+
+.button-primary:hover {
+  opacity: 0.88;
+}
+
+.button-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  height: 2.75rem;
+  padding-inline: 1.25rem;
+  border-radius: var(--bd-radius-md);
+  border: 1px solid var(--bd-border-default);
+  color: var(--bd-text-secondary);
+  transition:
+    border-color var(--bd-duration-fast) var(--bd-ease-out-expo),
+    color var(--bd-duration-fast) var(--bd-ease-out-expo);
+}
+
+.button-ghost:hover {
+  border-color: var(--bd-border-strongest);
+  color: var(--bd-text-primary);
+}

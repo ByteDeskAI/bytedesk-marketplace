@@ -82,6 +82,7 @@ function parseArgs(argv) {
     check: false,
     doctor: false,
     dryRun: false,
+    migrationPreview: false,
     help: false,
   };
   for (let index = 0; index < argv.length; index += 1) {
@@ -94,6 +95,8 @@ function parseArgs(argv) {
       opts.doctor = true;
     } else if (arg === "--dry-run") {
       opts.dryRun = true;
+    } else if (arg === "--migration-preview") {
+      opts.migrationPreview = true;
     } else if (arg === "--app" || arg === "--dir") {
       const value = argv[index + 1];
       if (!value || value.startsWith("--")) throw new UsageError(`${arg} needs a value`);
@@ -105,6 +108,7 @@ function parseArgs(argv) {
   }
   const modes = [opts.check, opts.doctor, opts.dryRun].filter(Boolean).length;
   if (modes > 1) throw new UsageError("choose only one of --check, --doctor, or --dry-run");
+  if (opts.migrationPreview && !opts.dryRun) throw new UsageError("--migration-preview requires --dry-run");
   if (opts.app && !/^[a-z][a-z0-9-]*$/.test(opts.app)) {
     throw new UsageError(`app must be lowercase kebab-case: ${opts.app}`);
   }
@@ -303,7 +307,7 @@ async function ensureDestinationCanBeManaged(destDir, state) {
 }
 
 async function planChanges(destDir, desired) {
-  const current = await walkFiles(destDir);
+  const current = await walkFiles(destDir, "", new Set([".git"]));
   const changes = [];
   for (const [relative, bytes] of desired) {
     const absolute = path.join(destDir, relative);
@@ -324,7 +328,7 @@ async function envrcPlan(cwd, destDir, app) {
   const envrc = path.join(cwd, ".envrc");
   const profileDir = path.join(destDir, "profiles", app);
   const relative = path.relative(cwd, profileDir);
-  const contextDir = relative && !relative.startsWith("..") ? relative : profileDir;
+  const contextDir = relative && !relative.startsWith("..") ? posix(relative) : posix(profileDir);
   const line = `export IMPECCABLE_CONTEXT_DIR=${contextDir}`;
   const current = existsSync(envrc) ? await readFile(envrc, "utf8") : "";
   const present = current.split(/\r?\n/).some((entry) => entry.trim() === line);
@@ -517,9 +521,12 @@ function integrationChecks(cwd, destDir, app, texts) {
   });
   const workflowTexts = texts.filter((file) => file.path.startsWith(".github/workflows/"));
   checks.push({
-    ok: workflowTexts.some((file) => file.text.includes("design-system-sync.mjs") && file.text.includes("--check")),
+    ok: workflowTexts.some((file) => (
+      (file.text.includes("design-system-sync.mjs") && file.text.includes("--check"))
+      || file.text.includes("design-system-check.mjs")
+    )),
     label: "CI drift gate",
-    fix: "add design-system-sync.mjs --check to a pull-request workflow",
+    fix: "add the standalone .bytedesk/design-system-check.mjs integrity gate to a pull-request workflow",
   });
   return checks;
 }
@@ -564,11 +571,11 @@ async function main() {
   }
   if (opts.doctor) return runDoctor(cwd, destDir, payload, app);
 
-  await ensureDestinationCanBeManaged(destDir, state);
+  if (!opts.migrationPreview) await ensureDestinationCanBeManaged(destDir, state);
   const tree = desiredTree(payload, app, state);
   const changes = await planChanges(destDir, tree.desired);
   const envrc = await envrcPlan(cwd, destDir, app);
-  printPlan(path.relative(cwd, destDir) || opts.dir, changes, envrc);
+  printPlan(posix(path.relative(cwd, destDir)) || posix(opts.dir), changes, envrc);
   if (opts.dryRun) return EXIT.healthy;
   if (changes.length > 0) await applyAtomic(destDir, tree.desired);
   await applyEnvrc(envrc);

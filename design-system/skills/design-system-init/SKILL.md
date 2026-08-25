@@ -8,21 +8,22 @@ description: Adopt the ByteDesk design system in an existing repository by selec
 Work from the consumer repository root. Resolve the installed plugin root as two
 directories above this `SKILL.md`; do not assume a provider-specific cache path.
 
-1. Inspect the repository runtime and its product identity. If the product slug
-   is ambiguous, show the profile directories under `<plugin>/payload/profiles/`
-   and ask the user—never guess a sibling product.
-2. Run `node <plugin>/scripts/design-system-sync.mjs --app <slug> --dry-run`.
-   Review the exact destination and add/change/delete plan, then run the same
-   command without `--dry-run`.
-3. Make the repository root `DESIGN.md` inherit, in order,
-   `.context/design-system/DESIGN.md` and the selected profile. Add the same
-   reading order to `AGENTS.md`. Keep only consumer-specific exceptions locally.
-4. Wire the runtime adapter described by the managed `tokens/README.md`: CSS and
-   Tailwind imports for web, generated stamped CSS for Go-embedded UIs, or JSON
-   token mappings for native code.
-5. Add a pull-request CI step running the installed sync runtime with `--check`.
-6. Run `--doctor`, fix each actionable finding outside the managed directory,
-   and rerun until healthy. Tell the user to commit `.context/design-system/`
-   because builds do not have a plugin layer.
+1. Resolve the installed plugin root, then run:
+
+   `node <plugin>/scripts/design-system-init.mjs --app <slug> --dry-run`
+
+   Omit `--app` only when the repository or package name exactly matches one
+   available profile. The executable refuses ambiguous identity and runtime
+   detection instead of guessing.
+2. Review the complete managed payload, instruction, runtime-adapter, consumer
+   config, and CI plan. Apply with the same command without `--dry-run`.
+3. The executable preserves product-local prose outside its marker blocks,
+   vendors a standalone CI integrity checker, runs doctor, and prints the Git
+   status/stat as a ready-to-review adoption diff.
+4. Run the consumer's build or test command, then commit the managed payload and
+   integration files. Builds never depend on the machine-local plugin cache.
+
+For an existing submodule or manual snapshot, use the migration skill and the
+same executable's `migrate` command.
 
 Never edit managed files. Upstream changes belong in `ByteDeskAI/design-system`.
