@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "pluginVersion": "1.4.0",
-  "sourceSha": "f96b2fbb773127e5d005832b3d43b4757da70546",
+  "pluginVersion": "1.5.0",
+  "sourceSha": "7e545e40ed300679f02dea1ad791c0c329c16586",
   "files": [
     {
       "path": "DESIGN.md",
@@ -22,6 +22,16 @@
       "path": "profiles/agent-browser-website/DESIGN.md",
       "sha256": "bfb2541020a44d6cb4650c5ce947d1c72be3d4bbbd5c9d08546688e93018d20e",
       "size": 11066
+    },
+    {
+      "path": "profiles/agent-memory-website/DESIGN.md",
+      "sha256": "dcfa0eb84dda440f8e8233f4e960763e3a71b1564280811c6373f275bf940bc8",
+      "size": 3615
+    },
+    {
+      "path": "profiles/agent-memory-website/PRODUCT.md",
+      "sha256": "d9e3e79d2671659d841300f5987a3f4de5f25c29b18237b3ac4cd90f2ba90df1",
+      "size": 1364
     },
     {
       "path": "profiles/bytedesk-ai/DESIGN.md",

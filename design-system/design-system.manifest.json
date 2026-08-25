@@ -2,10 +2,10 @@
   "$schema": "./design-system.manifest.schema.json",
   "schemaVersion": 1,
   "id": "bytedesk-design-system",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "catalog": {
     "sourcePath": "catalog.json",
-    "sha256": "fec678f3646b00b75623f4c97b471317f7ca82e1f61a9878ad3143495f14e162",
+    "sha256": "0486567cc9675a9fc67d6147333062ad9764057113f205e155c4f07128e908b4",
     "schemaVersion": 1
   },
   "providers": [
@@ -213,6 +213,30 @@
         "payload"
       ],
       "profile": "agent-browser-website"
+    },
+    {
+      "id": "file:profiles/agent-memory-website/DESIGN.md",
+      "kind": "profile",
+      "sourcePath": "profiles/agent-memory-website/DESIGN.md",
+      "deliveryPath": "profiles/agent-memory-website/DESIGN.md",
+      "sha256": "dcfa0eb84dda440f8e8233f4e960763e3a71b1564280811c6373f275bf940bc8",
+      "size": 3615,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "agent-memory-website"
+    },
+    {
+      "id": "file:profiles/agent-memory-website/PRODUCT.md",
+      "kind": "profile",
+      "sourcePath": "profiles/agent-memory-website/PRODUCT.md",
+      "deliveryPath": "profiles/agent-memory-website/PRODUCT.md",
+      "sha256": "d9e3e79d2671659d841300f5987a3f4de5f25c29b18237b3ac4cd90f2ba90df1",
+      "size": 1364,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "agent-memory-website"
     },
     {
       "id": "file:profiles/bytedesk-ai/DESIGN.md",
@@ -870,6 +894,20 @@
       "sourceCommit": "725dadeca0a2c4c5841f58c8bfcc12886005e3a6",
       "files": [
         "file:profiles/agent-browser-website/DESIGN.md"
+      ],
+      "dependsOn": [
+        "bundle:foundation"
+      ]
+    },
+    {
+      "id": "profile:agent-memory-website",
+      "slug": "agent-memory-website",
+      "status": "active",
+      "sourceRepository": "ByteDeskAI/design-system",
+      "sourceCommit": "7dfc9796ac397016016712f6753632c678ae821c",
+      "files": [
+        "file:profiles/agent-memory-website/DESIGN.md",
+        "file:profiles/agent-memory-website/PRODUCT.md"
       ],
       "dependsOn": [
         "bundle:foundation"
@@ -1676,6 +1714,8 @@
         "file:profiles/_template/DESIGN.md",
         "file:profiles/ade/DESIGN.md",
         "file:profiles/agent-browser-website/DESIGN.md",
+        "file:profiles/agent-memory-website/DESIGN.md",
+        "file:profiles/agent-memory-website/PRODUCT.md",
         "file:profiles/bytedesk-ai/DESIGN.md",
         "file:profiles/bytedesk-ai/PRODUCT.md",
         "file:profiles/capture-website/DESIGN.md",

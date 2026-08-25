@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.5.0] — 2026-08-25
+
+### Added
+
+- Added the canonical `agent-memory-website` profile for the Agent Memory
+  marketing site.
+- Published from immutable design-system source revision `7e545e4`.
+
 ## [1.4.0] — 2026-08-25
 
 ### Added
