@@ -32034,10 +32034,15 @@ async function waitForProcessGroupExit(processGroup, timeoutMs, pollMs = 50) {
 
 // src/config.mjs
 var PLUGIN_ROOT = (0, import_node_path3.dirname)((0, import_node_path3.dirname)((0, import_node_url.fileURLToPath)(__aoImportMetaUrl)));
-function stateRoot(env = process.env) {
+function stateRoot(env = process.env, platform = process.platform, home = import_node_os2.default.homedir()) {
   if (env.AGENT_ORCHESTRATION_STATE_HOME) return env.AGENT_ORCHESTRATION_STATE_HOME;
-  const base = env.XDG_STATE_HOME || (0, import_node_path3.join)(import_node_os2.default.homedir(), ".local", "state");
-  return (0, import_node_path3.join)(base, "bytedesk", "agent-orchestration");
+  const pathApi = platform === "win32" ? import_node_path3.win32 : import_node_path3.posix;
+  if (platform === "win32") {
+    const base2 = env.LOCALAPPDATA || pathApi.join(home, "AppData", "Local");
+    return pathApi.join(base2, "ByteDesk", "agent-orchestration");
+  }
+  const base = env.XDG_STATE_HOME || pathApi.join(home, ".local", "state");
+  return pathApi.join(base, "bytedesk", "agent-orchestration");
 }
 function validateStateRoot(candidate, pluginRoot = PLUGIN_ROOT) {
   invariant(typeof candidate === "string" && (0, import_node_path3.isAbsolute)(candidate), "AO_STATE_ROOT_NOT_ABSOLUTE", "The orchestration state root must be an absolute path.");
@@ -32045,7 +32050,7 @@ function validateStateRoot(candidate, pluginRoot = PLUGIN_ROOT) {
     let cursor = (0, import_node_path3.resolve)(value);
     const suffix = [];
     while (!(0, import_node_fs.existsSync)(cursor)) {
-      suffix.unshift(cursor.slice(cursor.lastIndexOf("/") + 1));
+      suffix.unshift((0, import_node_path3.basename)(cursor));
       const parent = (0, import_node_path3.dirname)(cursor);
       if (parent === cursor) break;
       cursor = parent;

@@ -28,6 +28,9 @@ work exists only when the MCP server starts a provider execution.
 ## Requirements
 
 - Node.js 22.13 or newer.
+- Plugin installation, MCP discovery, and durable state paths support Windows and Linux. Native
+  provider execution still requires the Linux isolation stack below; on Windows the plugin loads
+  and reports that execution prerequisite clearly instead of failing during host startup.
 - Linux with Bubblewrap (`bwrap`), `slirp4netns`, and `prlimit` for provider filesystem,
   process, network-namespace, core-dump, and per-file isolation.
 - An active systemd user manager (`systemd-run --user`) for per-run and per-probe cgroup ownership;

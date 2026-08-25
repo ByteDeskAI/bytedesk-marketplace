@@ -2,6 +2,10 @@
 
 ## 0.2.0 - Unreleased
 
+- Advertise Agent Orchestration in the Codex marketplace manifest and use Node-based MCP entries
+  that load consistently on Windows and Linux.
+- Store Windows state under `LOCALAPPDATA`, retain the XDG state location on Linux, and resolve
+  missing nested state directories without duplicating Windows path segments.
 - Project the session transcript, activity, and handoffs from the journal, and POST cancel /
   follow-up / decision through the broker. Follow-ups persist as `operator_message` events. Loopback
   Origin is required for browser mutations.

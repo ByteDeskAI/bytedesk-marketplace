@@ -1,6 +1,10 @@
 {
-  "agent-orchestration": {
-    "command": "./bin/agent-orchestration-mcp",
-    "cwd": "."
+  "mcpServers": {
+    "agent-orchestration": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["./dist/mcp.cjs"],
+      "cwd": "."
+    }
   }
 }

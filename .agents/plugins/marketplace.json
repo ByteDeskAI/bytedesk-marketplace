@@ -5,6 +5,18 @@
   },
   "plugins": [
     {
+      "name": "agent-orchestration",
+      "source": {
+        "source": "local",
+        "path": "./agent-orchestration"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Engineering"
+    },
+    {
       "name": "design-system",
       "source": {
         "source": "local",

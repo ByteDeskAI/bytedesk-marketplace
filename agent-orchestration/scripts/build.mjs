@@ -26,7 +26,7 @@ const cjsApplication = {
 const isolateClaudeSettings = {
   name: "isolate-claude-settings",
   setup(context) {
-    context.onLoad({ filter: /claude-agent-acp\/dist\/acp-agent\.js$/ }, async ({ path }) => {
+    context.onLoad({ filter: /claude-agent-acp[\\/]dist[\\/]acp-agent\.js$/ }, async ({ path }) => {
       const source = await readFile(path, "utf8");
       const unsafeDefault = 'settingSources: ["user", "project", "local"]';
       const occurrences = source.split(unsafeDefault).length - 1;
