@@ -2,6 +2,7 @@
 name: setup-cli
 description: Put plugin-rsync on the user's PATH (~/.local/bin). Use after installing plugin-rsync@bytedesk at user scope, or when plugin-rsync is command not found.
 user-invokable: true
+user-invocable: true
 allowed-tools:
   - Bash
 ---

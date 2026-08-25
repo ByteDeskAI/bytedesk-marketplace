@@ -2,6 +2,7 @@
 name: plugin-rsync
 description: Rsync ByteDesk marketplace plugin source into globally installed Claude, Grok, and Codex caches. Use when the user says rsync plugins, refresh the plugin cache, update installed plugins from source, or "sync task-management into grok/claude".
 user-invokable: true
+user-invocable: true
 argument-hint: "[plugin[,plugin...]]"
 allowed-tools:
   - Bash

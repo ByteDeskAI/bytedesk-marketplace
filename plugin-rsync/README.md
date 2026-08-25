@@ -33,6 +33,20 @@ Destinations (existing installs only — this never creates a new plugin install
 ./install.sh --uninstall
 ```
 
+## Local skill symlinks
+
+Grok's slash menu reads **`~/.grok/skills`**, not only `~/.agents/skills`. Claude reads `~/.claude/skills`. Codex reads `~/.codex/skills`. Point all four at `plugin-rsync/skills/plugin-rsync`:
+
+```bash
+src=../../Documents/GitHub/ByteDeskAI/bytedesk-marketplace/plugin-rsync/skills/plugin-rsync
+ln -sfn "$src" ~/.grok/skills/plugin-rsync
+ln -sfn "$src" ~/.claude/skills/plugin-rsync
+ln -sfn "$src" ~/.codex/skills/plugin-rsync
+ln -sfn "$src" ~/.agents/skills/plugin-rsync
+```
+
+Open a new session after linking. The plugin skill used to live in `skills/sync`, which advertised as `/plugin-rsync:sync` rather than `/plugin-rsync`.
+
 ## Tests
 
 ```bash
