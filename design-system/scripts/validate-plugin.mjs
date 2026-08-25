@@ -10,6 +10,8 @@ const scriptRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".
 const pluginRoot = path.resolve(process.argv[2] ?? scriptRoot);
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 const SHA = /^[0-9a-f]{40}$/;
+const TEXT_EXTENSIONS = new Set([".css", ".go", ".js", ".json", ".md", ".mjs", ".rs", ".sh", ".ts", ".tsx", ".txt", ".yaml", ".yml"]);
+const TEXT_NAMES = new Set(["LICENSE", "_gitignore", "bd-design"]);
 
 function requireValue(condition, message) {
   if (!condition) throw new Error(message);
@@ -17,6 +19,12 @@ function requireValue(condition, message) {
 
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
+}
+
+function canonicalBytes(relative, bytes) {
+  const name = path.basename(relative);
+  if (!TEXT_EXTENSIONS.has(path.extname(name)) && !TEXT_NAMES.has(name)) return bytes;
+  return Buffer.from(bytes.toString("utf8").replaceAll("\r\n", "\n"));
 }
 
 async function readJson(relative, label) {
@@ -60,7 +68,7 @@ async function validateFileManifest(rootRelative, manifest, excluded, label) {
     expected.push(relative);
     const absolute = path.join(root, relative);
     requireValue(existsSync(absolute), `${label}: missing file ${relative}`);
-    const bytes = await readFile(absolute);
+    const bytes = canonicalBytes(relative, await readFile(absolute));
     requireValue(item.size === bytes.length, `${label}: size mismatch for ${relative}`);
     requireValue(item.sha256 === sha256(bytes), `${label}: checksum mismatch for ${relative}`);
   }
@@ -126,7 +134,7 @@ async function validateManifests() {
     const relative = safeRelative(item.deliveryPath, "design kit plugin file");
     const absolute = path.join(pluginRoot, relative);
     requireValue(existsSync(absolute), `plugin runtime is incomplete: ${relative}`);
-    const bytes = await readFile(absolute);
+    const bytes = canonicalBytes(relative, await readFile(absolute));
     requireValue(bytes.length === item.size && sha256(bytes) === item.sha256, `design kit plugin checksum mismatch: ${relative}`);
   }
   return { pluginVersion: codex.version, designKit };

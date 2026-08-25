@@ -555,8 +555,8 @@
       "kind": "runtime",
       "sourcePath": "scripts/validate-plugin.mjs",
       "deliveryPath": "scripts/validate-plugin.mjs",
-      "sha256": "ebcd1fc3193db7c457bcff084d9348688a869cbaa009d953cb714e83d9b3da99",
-      "size": 13275,
+      "sha256": "5ae2ebaabd12942ef73c342a9184df3e875fe0920000a4eeb0ca402262b212fb",
+      "size": 13774,
       "distributions": [
         "plugin"
       ]
