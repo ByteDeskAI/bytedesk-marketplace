@@ -18,8 +18,8 @@
       ]
     },
     "src/mcp.mjs": {
-      "sha256": "71b845deae9061bbe32870529f779f639053ca280baf5171fed631ce3d1c899c",
-      "lineCount": 266,
+      "sha256": "98e9b814405b466c445285a3169e9d045b2e5ef8ff0c90772515c2711cc00ae2",
+      "lineCount": 268,
       "anchors": [
         "\"orchestration_capabilities\"",
         "\"orchestration_decision_approve\"",
@@ -79,15 +79,15 @@
       ]
     },
     "src/provider-sandbox.mjs": {
-      "sha256": "68f1c89324f4b7b72b477addb88eeac9b94b596543e69c26ed537adb90326aa2",
-      "lineCount": 592,
+      "sha256": "ab98a9852778d4f1eaee792fdf50c833bed746db48c373225ddec158f7211621",
+      "lineCount": 772,
       "anchors": [
         "\"AO_ACP_PROVIDER_REQUEST_LIMIT\""
       ]
     },
     "src/providers/adapters.mjs": {
-      "sha256": "840bfea6543597eae751edf13e2e069fffcce82721f8b84ef0f0add21520497b",
-      "lineCount": 86,
+      "sha256": "d195e44b2dae13f1ecceb241bad74d764d0c28efaf73c3b06e68a2dfa0dcc895",
+      "lineCount": 93,
       "anchors": [
         "export const PROVIDER_ADAPTERS",
         "export function getProviderAdapter"
@@ -103,8 +103,8 @@
       ]
     },
     "src/runtime/acpx-driver.mjs": {
-      "sha256": "9d4d8214770430d07e4e8e02c6118b599899f78c05f604933780391b9e73f1c0",
-      "lineCount": 261,
+      "sha256": "029e58adb50d3d9ea88cb6847880d8adaf95191099f8790b5a3419ae6ac43875",
+      "lineCount": 274,
       "anchors": [
         "const permissionState =",
         "export function createProviderRuntime"
@@ -142,8 +142,8 @@
       ]
     },
     "src/service.mjs": {
-      "sha256": "ccff46bcf2ac7848a3bca5715c6db20f6be8d86ba92dfb1d6bcda572bff85f95",
-      "lineCount": 655,
+      "sha256": "1e067c60fb8a31a0a4bafccb5911ff70dc6390f39062e20892a48a7c7ba80abe",
+      "lineCount": 578,
       "anchors": [
         "async cancel(",
         "async decision(",
@@ -162,7 +162,7 @@
       ]
     },
     "src/state/store.mjs": {
-      "sha256": "59e60d65295c5af2c6a6127407b3c799943acaf5ad2b54867fd50498cf66b314",
+      "sha256": "abaac7400d050f6ae3c75722129df16942aabbaf5c56eac8ec996148fdecc1e5",
       "lineCount": 335,
       "anchors": [
         "async appendEventUnlocked(",
@@ -173,8 +173,8 @@
       ]
     },
     "src/workspace/worktrees.mjs": {
-      "sha256": "54a5e7639a92a10bfbca4b46ee543112207b00b602db611fa5eb6a2084d09cf5",
-      "lineCount": 165,
+      "sha256": "279152592c9dd02f96a65b74ea72e7040f3c545eb1eaee0ccb3277a2acfad958",
+      "lineCount": 166,
       "anchors": [
         "export async function createOrchestrationWorktree"
       ]

@@ -28,7 +28,7 @@ async function sandboxArgsFor({ providerId, permissionProfile }) {
   }
 }
 
-test("Codex sandbox always uses agent-full-access regardless of mount profile", async () => {
+test("Codex sandbox always uses agent-full-access regardless of mount profile", { skip: process.platform === "win32" }, async () => {
   const ambient = process.env.INITIAL_AGENT_MODE;
   process.env.INITIAL_AGENT_MODE = "agent-full-access";
   try {
@@ -42,14 +42,14 @@ test("Codex sandbox always uses agent-full-access regardless of mount profile", 
   }
 });
 
-test("Claude sandbox HOME is the provider config dir, not the unmounted host home", async () => {
+test("Claude sandbox HOME is the provider config dir, not the unmounted host home", { skip: process.platform === "win32" }, async () => {
   const environment = environmentFromSandboxArgs(await sandboxArgsFor({ providerId: "claude", permissionProfile: "read" }));
   assert.equal(environment.HOME, environment.CLAUDE_CONFIG_DIR);
   assert.equal(environment.HOME, "/agent-orchestration-runtime/provider-home/claude");
   assert.notEqual(environment.HOME, os.homedir());
 });
 
-test("Grok sandbox always passes --always-approve", async () => {
+test("Grok sandbox always passes --always-approve", { skip: process.platform === "win32" }, async () => {
   const args = await sandboxArgsFor({ providerId: "grok-build", permissionProfile: "read" });
   const commandIndex = args.lastIndexOf("--");
   assert.ok(commandIndex >= 0);
@@ -58,7 +58,7 @@ test("Grok sandbox always passes --always-approve", async () => {
   assert.equal(command.at(-1), "stdio");
 });
 
-test("non-Codex sandboxes do not receive INITIAL_AGENT_MODE", async () => {
+test("non-Codex sandboxes do not receive INITIAL_AGENT_MODE", { skip: process.platform === "win32" }, async () => {
   const ambient = process.env.INITIAL_AGENT_MODE;
   process.env.INITIAL_AGENT_MODE = "agent-full-access";
   try {
@@ -70,7 +70,7 @@ test("non-Codex sandboxes do not receive INITIAL_AGENT_MODE", async () => {
   }
 });
 
-test("write provider sandboxes make only the worktree writable and remount Git metadata read-only", async () => {
+test("write provider sandboxes make only the worktree writable and remount Git metadata read-only", { skip: process.platform === "win32" }, async () => {
   const root = await mkdtemp(join(os.tmpdir(), "ao-sandbox-test-"));
   const workspace = join(root, "workspace");
   const commonGitDir = join(root, "consumer.git");
@@ -113,7 +113,7 @@ test("write provider sandboxes make only the worktree writable and remount Git m
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("sandbox execution revalidates provider-specific executable authority", async () => {
+test("sandbox execution revalidates provider-specific executable authority", { skip: process.platform === "win32" }, async () => {
   const root = await mkdtemp(join(os.tmpdir(), "ao-sandbox-authority-test-"));
   const workspace = join(root, "workspace");
   const commonGitDir = join(root, "consumer.git");

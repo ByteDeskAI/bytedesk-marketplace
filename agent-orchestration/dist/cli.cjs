@@ -29,11 +29,11 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 
 // src/cli.mjs
 var import_node_util3 = require("node:util");
-var import_node_path17 = require("node:path");
+var import_node_path21 = require("node:path");
 
 // src/service.mjs
-var import_promises12 = require("node:fs/promises");
-var import_node_path16 = require("node:path");
+var import_promises16 = require("node:fs/promises");
+var import_node_path20 = require("node:path");
 
 // src/policy/catalog.mjs
 function deepFreeze(value) {
@@ -311,13 +311,20 @@ function getModelDescriptor(endpointId) {
 // src/providers/adapters.mjs
 var import_node_os = __toESM(require("node:os"), 1);
 var import_node_path = require("node:path");
-var SYSTEM_EXECUTABLE_ROOTS = Object.freeze(["/usr/bin", "/usr/local/bin"]);
+var WINDOWS_EXECUTABLE_ROOTS = Object.freeze([
+  process.env.ProgramFiles,
+  process.env["ProgramFiles(x86)"],
+  process.env.LOCALAPPDATA && (0, import_node_path.join)(process.env.LOCALAPPDATA, "Programs"),
+  process.env.APPDATA && (0, import_node_path.join)(process.env.APPDATA, "npm"),
+  (0, import_node_path.join)(import_node_os.default.homedir(), ".local", "bin")
+].filter(Boolean));
+var SYSTEM_EXECUTABLE_ROOTS = Object.freeze(process.platform === "win32" ? WINDOWS_EXECUTABLE_ROOTS : ["/usr/bin", "/usr/local/bin"]);
 var PROVIDER_ADAPTERS = Object.freeze({
   claude: Object.freeze({
     providerId: "claude",
     agentTarget: "claude",
     executable: "claude",
-    executableRoots: Object.freeze([...SYSTEM_EXECUTABLE_ROOTS, (0, import_node_path.join)(import_node_os.default.homedir(), ".local", "share", "claude")]),
+    executableRoots: Object.freeze([...SYSTEM_EXECUTABLE_ROOTS, (0, import_node_path.join)(import_node_os.default.homedir(), ".claude"), (0, import_node_path.join)(import_node_os.default.homedir(), ".local", "share", "claude")]),
     executableEnv: "CLAUDE_CODE_EXECUTABLE",
     bridgeLauncher: "claude-agent-acp",
     args: Object.freeze([]),
@@ -333,7 +340,7 @@ var PROVIDER_ADAPTERS = Object.freeze({
     providerId: "codex",
     agentTarget: "codex",
     executable: "codex",
-    executableRoots: Object.freeze([...SYSTEM_EXECUTABLE_ROOTS, (0, import_node_path.join)(import_node_os.default.homedir(), ".volta", "tools", "image")]),
+    executableRoots: Object.freeze([...SYSTEM_EXECUTABLE_ROOTS, (0, import_node_path.join)(import_node_os.default.homedir(), ".codex"), (0, import_node_path.join)(import_node_os.default.homedir(), ".cache", "codex-runtimes"), (0, import_node_path.join)(import_node_os.default.homedir(), ".volta", "tools", "image")]),
     candidateResolvers: Object.freeze([
       Object.freeze({ executable: (0, import_node_path.join)(import_node_os.default.homedir(), ".volta", "bin", "volta"), args: Object.freeze(["which", "codex"]) })
     ]),
@@ -949,6 +956,7 @@ var import_node_child_process = require("node:child_process");
 var import_node_crypto3 = require("node:crypto");
 var import_promises = require("node:fs/promises");
 var import_node_path2 = require("node:path");
+var import_promises2 = require("node:timers/promises");
 var import_node_util = require("node:util");
 var execFile = (0, import_node_util.promisify)(import_node_child_process.execFile);
 async function runFile(command, args, options = {}) {
@@ -964,7 +972,7 @@ async function runFile(command, args, options = {}) {
   return { stdout: result.stdout.trim(), stderr: result.stderr.trim() };
 }
 async function git(cwd, args, options = {}) {
-  return runFile("/usr/bin/git", ["-C", cwd, ...args], options);
+  return runFile(process.platform === "win32" ? "git.exe" : "/usr/bin/git", ["-C", cwd, ...args], options);
 }
 function assertAbsolutePath(value, fieldName) {
   invariant(typeof value === "string" && value.length > 0, "AO_CONSUMER_CWD_REQUIRED", `${fieldName} is required.`);
@@ -1011,12 +1019,23 @@ async function atomicWriteJson(path3, value) {
   } finally {
     await handle.close();
   }
-  await (0, import_promises.rename)(tempPath, path3);
-  const directory = await (0, import_promises.open)((0, import_node_path2.dirname)(path3), "r");
-  try {
-    await directory.sync();
-  } finally {
-    await directory.close();
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await (0, import_promises.rename)(tempPath, path3);
+      break;
+    } catch (error51) {
+      const transientWindowsLock = process.platform === "win32" && ["EACCES", "EBUSY", "EPERM"].includes(error51?.code);
+      if (!transientWindowsLock || attempt >= 7) throw error51;
+      await (0, import_promises2.setTimeout)(10 * (attempt + 1));
+    }
+  }
+  if (process.platform !== "win32") {
+    const directory = await (0, import_promises.open)((0, import_node_path2.dirname)(path3), "r");
+    try {
+      await directory.sync();
+    } finally {
+      await directory.close();
+    }
   }
 }
 async function processStartIdentity(pid) {
@@ -1035,7 +1054,7 @@ async function processStartIdentity(pid) {
     return null;
   }
 }
-function processGroupExists(processGroup) {
+function processGroupExists2(processGroup) {
   if (!Number.isInteger(processGroup) || processGroup <= 0) return false;
   try {
     process.kill(-processGroup, 0);
@@ -1048,10 +1067,10 @@ function processGroupExists(processGroup) {
 }
 async function waitForProcessGroupExit(processGroup, timeoutMs, pollMs = 50) {
   const deadline = Date.now() + timeoutMs;
-  while (processGroupExists(processGroup) && Date.now() < deadline) {
+  while (processGroupExists2(processGroup) && Date.now() < deadline) {
     await new Promise((resolve5) => setTimeout(resolve5, pollMs));
   }
-  return !processGroupExists(processGroup);
+  return !processGroupExists2(processGroup);
 }
 
 // src/config.mjs
@@ -1090,10 +1109,43 @@ function validateStateRoot(candidate, pluginRoot = PLUGIN_ROOT) {
 }
 
 // src/workspace/repository.mjs
-var import_node_path4 = require("node:path");
 var import_node_path5 = require("node:path");
-var import_promises2 = require("node:fs/promises");
+var import_node_path6 = require("node:path");
+var import_promises3 = require("node:fs/promises");
+
+// src/platform/path-mapper.mjs
+var import_node_path4 = require("node:path");
+var IdentityPathAdapter = class {
+  async toRuntimePath(path3) {
+    return path3;
+  }
+};
+var WslPathAdapter = class {
+  constructor({ runner = runFile } = {}) {
+    this.runner = runner;
+  }
+  async toRuntimePath(path3) {
+    const isWindowsHostPath = /^[A-Za-z]:[\\/]/.test(path3) || /^\\\\/.test(path3);
+    if (!isWindowsHostPath) return path3;
+    const { stdout } = await this.runner("/usr/bin/wslpath", ["-a", "-u", path3], { timeoutMs: 5e3 });
+    invariant(stdout, "AO_WSL_PATH_TRANSLATION_FAILED", "WSL could not translate consumerCwd.", { path: path3 });
+    return stdout.trim();
+  }
+};
+function createPathAdapter({ hostPlatform = process.env.AGENT_ORCHESTRATION_HOST_PLATFORM, platform = process.platform } = {}) {
+  if (platform === "linux" && hostPlatform === "win32") return new WslPathAdapter();
+  return new IdentityPathAdapter();
+}
+async function runtimePath(path3, options) {
+  const mapped = await createPathAdapter(options).toRuntimePath(path3);
+  invariant((0, import_node_path4.isAbsolute)(mapped), "AO_PATH_NOT_ABSOLUTE", "The mapped runtime path must be absolute.", { path: path3, mapped });
+  return mapped;
+}
+
+// src/workspace/repository.mjs
 async function resolveConsumerRepository({ consumerCwd, pluginRoot, stateRoot: stateRoot2, requireClean = false }) {
+  invariant(typeof consumerCwd === "string" && consumerCwd.length > 0, "AO_CONSUMER_CWD_REQUIRED", "consumerCwd is required and must be an absolute repository or worktree path.");
+  consumerCwd = await runtimePath(consumerCwd);
   assertAbsolutePath(consumerCwd, "consumerCwd");
   await assertDirectory(consumerCwd, "consumerCwd");
   const requestedCwd = await canonicalPath(consumerCwd);
@@ -1112,8 +1164,8 @@ async function resolveConsumerRepository({ consumerCwd, pluginRoot, stateRoot: s
   checkoutRoot = await canonicalPath(checkoutRoot);
   invariant(!canonicalPluginRoot || !isPathWithin(canonicalPluginRoot, checkoutRoot) && !isPathWithin(checkoutRoot, canonicalPluginRoot), "AO_PLUGIN_ROOT_IS_NOT_CONSUMER", "The plugin installation or marketplace source cannot be used as a consumer repository.");
   invariant(!canonicalStateRoot || !isPathWithin(canonicalStateRoot, checkoutRoot) && !isPathWithin(checkoutRoot, canonicalStateRoot), "AO_STATE_ROOT_IS_NOT_CONSUMER", "The orchestration state root cannot be used as a consumer repository.");
-  const marketplaceManifest = (0, import_node_path5.join)(checkoutRoot, ".claude-plugin", "marketplace.json");
-  const isMarketplaceSource = await (0, import_promises2.access)(marketplaceManifest).then(() => true, () => false);
+  const marketplaceManifest = (0, import_node_path6.join)(checkoutRoot, ".claude-plugin", "marketplace.json");
+  const isMarketplaceSource = await (0, import_promises3.access)(marketplaceManifest).then(() => true, () => false);
   invariant(!isMarketplaceSource, "AO_MARKETPLACE_IS_NOT_CONSUMER", "A marketplace source checkout cannot be used as an orchestration consumer repository.");
   const [{ stdout: commonGitDir }, { stdout: baseSha }, { stdout: branch }, { stdout: status }] = await Promise.all([
     git(checkoutRoot, ["rev-parse", "--path-format=absolute", "--git-common-dir"]),
@@ -1132,7 +1184,7 @@ async function resolveConsumerRepository({ consumerCwd, pluginRoot, stateRoot: s
     baseSha,
     branch: branch || null,
     dirty: status !== "",
-    repositoryName: (0, import_node_path4.basename)(checkoutRoot),
+    repositoryName: (0, import_node_path5.basename)(checkoutRoot),
     // Authority is checkout-scoped, not merely repository-scoped. Linked
     // worktrees share a common Git directory but must not be able to inspect or
     // control one another's runs.
@@ -1141,8 +1193,8 @@ async function resolveConsumerRepository({ consumerCwd, pluginRoot, stateRoot: s
 }
 
 // src/state/store.mjs
-var import_promises3 = require("node:fs/promises");
-var import_node_path6 = require("node:path");
+var import_promises4 = require("node:fs/promises");
+var import_node_path7 = require("node:path");
 var TERMINAL_STATES = /* @__PURE__ */ new Set(["succeeded", "failed", "cancelled", "timed_out", "rejected", "recovery_required"]);
 var RUN_ID = /^run_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 var UPDATE_FIELDS = /* @__PURE__ */ new Set([
@@ -1174,26 +1226,26 @@ var RunStore = class {
     this.root = root;
   }
   async initialize() {
-    await ensurePrivateDir((0, import_node_path6.join)(this.root, "runs"));
-    await ensurePrivateDir((0, import_node_path6.join)(this.root, "locks"));
-    await ensurePrivateDir((0, import_node_path6.join)(this.root, "sessions"));
+    await ensurePrivateDir((0, import_node_path7.join)(this.root, "runs"));
+    await ensurePrivateDir((0, import_node_path7.join)(this.root, "locks"));
+    await ensurePrivateDir((0, import_node_path7.join)(this.root, "sessions"));
     return this;
   }
   runDir(runId) {
     assertRunId(runId);
-    return (0, import_node_path6.join)(this.root, "runs", runId);
+    return (0, import_node_path7.join)(this.root, "runs", runId);
   }
   snapshotPath(runId) {
-    return (0, import_node_path6.join)(this.runDir(runId), "snapshot.json");
+    return (0, import_node_path7.join)(this.runDir(runId), "snapshot.json");
   }
   eventsPath(runId) {
-    return (0, import_node_path6.join)(this.runDir(runId), "events.ndjson");
+    return (0, import_node_path7.join)(this.runDir(runId), "events.ndjson");
   }
   lockPath(lockKey) {
-    return (0, import_node_path6.join)(this.root, "locks", `${sha256(lockKey)}.lock`);
+    return (0, import_node_path7.join)(this.root, "locks", `${sha256(lockKey)}.lock`);
   }
   async tryBreakStaleLock(path3) {
-    const observedInfo = await (0, import_promises3.lstat)(path3).catch((error51) => error51?.code === "ENOENT" ? null : Promise.reject(error51));
+    const observedInfo = await (0, import_promises4.lstat)(path3).catch((error51) => error51?.code === "ENOENT" ? null : Promise.reject(error51));
     if (!observedInfo) return false;
     const observedRecord = await readJson(path3).catch(() => null);
     if (ageFromRecordOrFile(observedRecord, observedInfo) < 1e3) return false;
@@ -1201,30 +1253,30 @@ var RunStore = class {
     const breakerPath = `${path3}.breaker`;
     let breaker;
     try {
-      breaker = await (0, import_promises3.open)(breakerPath, "wx", 384);
+      breaker = await (0, import_promises4.open)(breakerPath, "wx", 384);
       await breaker.writeFile(JSON.stringify({ pid: process.pid, startIdentity: await processStartIdentity(process.pid), at: (/* @__PURE__ */ new Date()).toISOString() }));
       await breaker.sync();
     } catch (error51) {
       if (breaker) {
         await breaker.close().catch(() => {
         });
-        await (0, import_promises3.unlink)(breakerPath).catch(() => {
+        await (0, import_promises4.unlink)(breakerPath).catch(() => {
         });
         breaker = null;
       }
       if (error51?.code !== "EEXIST") throw error51;
       const [breakerRecord, breakerInfo] = await Promise.all([
         readJson(breakerPath).catch(() => null),
-        (0, import_promises3.lstat)(breakerPath).catch(() => null)
+        (0, import_promises4.lstat)(breakerPath).catch(() => null)
       ]);
       const breakerAge = breakerInfo ? ageFromRecordOrFile(breakerRecord, breakerInfo) : 0;
       const ownerAlive = breakerRecord?.pid && breakerRecord?.startIdentity ? await processStartIdentity(breakerRecord.pid) === breakerRecord.startIdentity : false;
-      if (breakerAge >= 1e3 && !ownerAlive) await (0, import_promises3.unlink)(breakerPath).catch(() => {
+      if (breakerAge >= 1e3 && !ownerAlive) await (0, import_promises4.unlink)(breakerPath).catch(() => {
       });
       return false;
     }
     try {
-      const currentInfo = await (0, import_promises3.lstat)(path3).catch((error51) => error51?.code === "ENOENT" ? null : Promise.reject(error51));
+      const currentInfo = await (0, import_promises4.lstat)(path3).catch((error51) => error51?.code === "ENOENT" ? null : Promise.reject(error51));
       if (!sameFileIdentity(observedInfo, currentInfo)) return false;
       const current = await readJson(path3).catch(() => null);
       if (completeLockRecord(observedRecord)) {
@@ -1233,13 +1285,13 @@ var RunStore = class {
         return false;
       }
       if (completeLockRecord(current) && await processStartIdentity(current.pid) === current.startIdentity) return false;
-      await (0, import_promises3.unlink)(path3).catch((error51) => {
+      await (0, import_promises4.unlink)(path3).catch((error51) => {
         if (error51?.code !== "ENOENT") throw error51;
       });
       return true;
     } finally {
       await breaker.close();
-      await (0, import_promises3.unlink)(breakerPath).catch(() => {
+      await (0, import_promises4.unlink)(breakerPath).catch(() => {
       });
     }
   }
@@ -1249,7 +1301,7 @@ var RunStore = class {
     let nonce;
     for (let attempt = 0; attempt < 500; attempt += 1) {
       try {
-        handle = await (0, import_promises3.open)(path3, "wx", 384);
+        handle = await (0, import_promises4.open)(path3, "wx", 384);
         nonce = newId("lock");
         await handle.writeFile(JSON.stringify({ pid: process.pid, nonce, startIdentity: await processStartIdentity(process.pid), at: (/* @__PURE__ */ new Date()).toISOString() }));
         await handle.sync();
@@ -1259,7 +1311,7 @@ var RunStore = class {
           await handle.close().catch(() => {
           });
           handle = void 0;
-          await (0, import_promises3.unlink)(path3).catch(() => {
+          await (0, import_promises4.unlink)(path3).catch(() => {
           });
         }
         if (error51?.code !== "EEXIST") throw error51;
@@ -1273,7 +1325,7 @@ var RunStore = class {
     } finally {
       await handle.close();
       const current = await readJson(path3).catch(() => null);
-      if (current?.nonce === nonce) await (0, import_promises3.unlink)(path3).catch(() => {
+      if (current?.nonce === nonce) await (0, import_promises4.unlink)(path3).catch(() => {
       });
     }
   }
@@ -1288,7 +1340,7 @@ var RunStore = class {
   }
   async createUnlocked({ input, consumer, plan, idempotencyKey = null, parentRunId = null }) {
     const runId = newId("run");
-    await (0, import_promises3.mkdir)(this.runDir(runId), { recursive: false, mode: 448 });
+    await (0, import_promises4.mkdir)(this.runDir(runId), { recursive: false, mode: 448 });
     const now = (/* @__PURE__ */ new Date()).toISOString();
     const snapshot = {
       schemaVersion: 1,
@@ -1346,7 +1398,7 @@ var RunStore = class {
   async list() {
     const { readdir: readdir3 } = await import("node:fs/promises");
     await this.initialize();
-    const ids = (await readdir3((0, import_node_path6.join)(this.root, "runs"))).filter((id) => RUN_ID.test(id));
+    const ids = (await readdir3((0, import_node_path7.join)(this.root, "runs"))).filter((id) => RUN_ID.test(id));
     const snapshots = await Promise.all(ids.map((id) => this.get(id)));
     return snapshots.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
@@ -1414,7 +1466,7 @@ var RunStore = class {
   }
   async events(runId, after = 0) {
     assertRunId(runId);
-    const text = await (0, import_promises3.readFile)(this.eventsPath(runId), "utf8").catch((error51) => {
+    const text = await (0, import_promises4.readFile)(this.eventsPath(runId), "utf8").catch((error51) => {
       if (error51?.code === "ENOENT") return "";
       throw error51;
     });
@@ -1441,10 +1493,10 @@ var RunStore = class {
   }
   async appendEventUnlocked(snapshot, type, payload) {
     const eventPath = this.eventsPath(snapshot.runId);
-    const currentText = await (0, import_promises3.readFile)(eventPath, "utf8").catch((error51) => error51?.code === "ENOENT" ? "" : Promise.reject(error51));
+    const currentText = await (0, import_promises4.readFile)(eventPath, "utf8").catch((error51) => error51?.code === "ENOENT" ? "" : Promise.reject(error51));
     if (currentText && !currentText.endsWith("\n")) {
       const lastNewline = currentText.lastIndexOf("\n");
-      await (0, import_promises3.truncate)(eventPath, lastNewline + 1);
+      await (0, import_promises4.truncate)(eventPath, lastNewline + 1);
     }
     const existing = await this.events(snapshot.runId, 0);
     const previous = existing.at(-1) ?? null;
@@ -1459,9 +1511,9 @@ var RunStore = class {
       payload: type === "run_created" ? { ...payload, snapshot } : { ...payload, updatedAt: snapshot.updatedAt }
     };
     const event = { ...base, hash: sha256(JSON.stringify(base)) };
-    await (0, import_promises3.appendFile)(eventPath, `${JSON.stringify(event)}
+    await (0, import_promises4.appendFile)(eventPath, `${JSON.stringify(event)}
 `, { encoding: "utf8", mode: 384 });
-    const handle = await (0, import_promises3.open)(eventPath, "r");
+    const handle = await (0, import_promises4.open)(eventPath, process.platform === "win32" ? "r+" : "r");
     try {
       await handle.sync();
     } finally {
@@ -1472,9 +1524,9 @@ var RunStore = class {
 };
 
 // src/runtime/engine.mjs
-var import_node_path11 = require("node:path");
-var import_promises9 = require("node:fs/promises");
 var import_node_path12 = require("node:path");
+var import_promises10 = require("node:fs/promises");
+var import_node_path13 = require("node:path");
 
 // node_modules/zod/v4/classic/external.js
 var external_exports = {};
@@ -3090,8 +3142,8 @@ function emoji() {
 }
 var ipv4 = /^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])$/;
 var ipv6 = /^(([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:))$/;
-var mac = (delimiter) => {
-  const escapedDelim = escapeRegex(delimiter ?? ":");
+var mac = (delimiter2) => {
+  const escapedDelim = escapeRegex(delimiter2 ?? ":");
   return new RegExp(`^(?:[0-9A-F]{2}${escapedDelim}){5}[0-9A-F]{2}$|^(?:[0-9a-f]{2}${escapedDelim}){5}[0-9a-f]{2}$`);
 };
 var cidrv4 = /^((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\/([0-9]|[1-2][0-9]|3[0-2])$/;
@@ -15991,20 +16043,20 @@ function date4(params) {
 config(en_default());
 
 // src/workspace/worktrees.mjs
-var import_promises4 = require("node:fs/promises");
-var import_node_path7 = require("node:path");
+var import_promises5 = require("node:fs/promises");
+var import_node_path8 = require("node:path");
 var SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 function orchestrationWorktreeRoot(repository) {
-  const repoName = (0, import_node_path7.basename)(repository.checkoutRoot).replace(/[^A-Za-z0-9._-]/g, "-");
-  return (0, import_node_path7.resolve)((0, import_node_path7.dirname)(repository.checkoutRoot), `.${repoName}-worktrees`, "agent-orchestration", repository.repositoryKey);
+  const repoName = (0, import_node_path8.basename)(repository.checkoutRoot).replace(/[^A-Za-z0-9._-]/g, "-");
+  return (0, import_node_path8.resolve)((0, import_node_path8.dirname)(repository.checkoutRoot), `.${repoName}-worktrees`, "agent-orchestration", repository.repositoryKey);
 }
 function orchestrationWorktreePath(repository, runId, taskId = "primary") {
   invariant(SAFE_ID.test(runId), "AO_INVALID_RUN_ID", "runId contains unsafe characters.");
   invariant(SAFE_ID.test(taskId), "AO_INVALID_TASK_ID", "taskId contains unsafe characters.");
-  return (0, import_node_path7.join)(orchestrationWorktreeRoot(repository), runId, taskId);
+  return (0, import_node_path8.join)(orchestrationWorktreeRoot(repository), runId, taskId);
 }
 function orchestrationOwnershipPath(repository, runId, taskId = "primary") {
-  return (0, import_node_path7.join)((0, import_node_path7.dirname)(orchestrationWorktreePath(repository, runId, taskId)), ".broker-ownership", `${taskId}.json`);
+  return (0, import_node_path8.join)((0, import_node_path8.dirname)(orchestrationWorktreePath(repository, runId, taskId)), ".broker-ownership", `${taskId}.json`);
 }
 function registeredWorktreePaths(porcelain) {
   return porcelain.split("\0").filter((record2) => record2.startsWith("worktree ")).map((record2) => record2.slice("worktree ".length));
@@ -16028,9 +16080,9 @@ async function createOrchestrationWorktree(repository, { runId, taskId = "primar
   invariant(repository.dirty === false, "AO_CONSUMER_DIRTY", "A clean consumer repository is required before worktree creation.");
   const root = orchestrationWorktreeRoot(repository);
   const worktreePath = orchestrationWorktreePath(repository, runId, taskId);
-  await (0, import_promises4.mkdir)((0, import_node_path7.dirname)(worktreePath), { recursive: true, mode: 448 });
+  await (0, import_promises5.mkdir)((0, import_node_path8.dirname)(worktreePath), { recursive: true, mode: 448 });
   await git(repository.checkoutRoot, ["worktree", "add", "--detach", "--", worktreePath, baseSha], { timeoutMs: 12e4 });
-  const actualPath = await (0, import_promises4.realpath)(worktreePath);
+  const actualPath = await (0, import_promises5.realpath)(worktreePath);
   invariant(isPathWithin(root, actualPath), "AO_WORKTREE_ESCAPE", "Git created a worktree outside the consumer-derived orchestration root.");
   const [{ stdout: head }, { stdout: commonGitDir }, { stdout: gitDir }] = await Promise.all([
     git(actualPath, ["rev-parse", "HEAD"]),
@@ -16038,11 +16090,11 @@ async function createOrchestrationWorktree(repository, { runId, taskId = "primar
     git(actualPath, ["rev-parse", "--path-format=absolute", "--git-dir"])
   ]);
   invariant(head === baseSha, "AO_WORKTREE_HEAD_MISMATCH", "Created worktree does not match the requested base SHA.");
-  invariant(await (0, import_promises4.realpath)(commonGitDir) === repository.commonGitDir, "AO_WORKTREE_REPOSITORY_MISMATCH", "Created worktree belongs to a different repository.");
-  const actualGitDir = await (0, import_promises4.realpath)(gitDir);
-  const worktreeAdminRoot = await (0, import_promises4.realpath)((0, import_node_path7.join)(repository.commonGitDir, "worktrees"));
+  invariant(await (0, import_promises5.realpath)(commonGitDir) === repository.commonGitDir, "AO_WORKTREE_REPOSITORY_MISMATCH", "Created worktree belongs to a different repository.");
+  const actualGitDir = await (0, import_promises5.realpath)(gitDir);
+  const worktreeAdminRoot = await (0, import_promises5.realpath)((0, import_node_path8.join)(repository.commonGitDir, "worktrees"));
   invariant(isPathWithin(worktreeAdminRoot, actualGitDir) && actualGitDir !== worktreeAdminRoot, "AO_WORKTREE_REPOSITORY_MISMATCH", "Created worktree lacks a dedicated Git administration entry.");
-  const gitMarker = await (0, import_promises4.readFile)((0, import_node_path7.join)(actualPath, ".git"));
+  const gitMarker = await (0, import_promises5.readFile)((0, import_node_path8.join)(actualPath, ".git"));
   const ownershipPath = orchestrationOwnershipPath(repository, runId, taskId);
   const ownershipNonce = newId("workspace");
   const workspace = {
@@ -16058,7 +16110,7 @@ async function createOrchestrationWorktree(repository, { runId, taskId = "primar
     ownership: { nonce: ownershipNonce, path: ownershipPath }
   };
   try {
-    await (0, import_promises4.mkdir)((0, import_node_path7.dirname)(ownershipPath), { recursive: true, mode: 448 });
+    await (0, import_promises5.mkdir)((0, import_node_path8.dirname)(ownershipPath), { recursive: true, mode: 448 });
     await atomicWriteJson(ownershipPath, {
       schemaVersion: 1,
       nonce: ownershipNonce,
@@ -16088,18 +16140,18 @@ async function removeOrchestrationWorktree(repository, workspace) {
   invariant(typeof workspace.ownership?.nonce === "string" && workspace.ownership.nonce.length > 0 && typeof workspace.ownership.path === "string", "AO_WORKSPACE_OWNERSHIP_MISSING", "Workspace is missing its broker ownership record.");
   const expectedPath = orchestrationWorktreePath(repository, workspace.runId, workspace.taskId);
   const expectedOwnershipPath = orchestrationOwnershipPath(repository, workspace.runId, workspace.taskId);
-  invariant((0, import_node_path7.resolve)(workspace.path) === expectedPath && isPathWithin(root, expectedPath) && expectedPath !== root, "AO_UNSAFE_WORKTREE_REMOVAL", "Workspace path does not match its exact consumer-derived run path.");
-  invariant((0, import_node_path7.resolve)(workspace.ownership.path) === expectedOwnershipPath, "AO_WORKSPACE_OWNERSHIP_MISMATCH", "Workspace ownership record path does not match its exact broker-derived path.");
+  invariant((0, import_node_path8.resolve)(workspace.path) === expectedPath && isPathWithin(root, expectedPath) && expectedPath !== root, "AO_UNSAFE_WORKTREE_REMOVAL", "Workspace path does not match its exact consumer-derived run path.");
+  invariant((0, import_node_path8.resolve)(workspace.ownership.path) === expectedOwnershipPath, "AO_WORKSPACE_OWNERSHIP_MISMATCH", "Workspace ownership record path does not match its exact broker-derived path.");
   const [workspaceInfo, ownershipInfo] = await Promise.all([
-    (0, import_promises4.lstat)(expectedPath).catch((error51) => error51?.code === "ENOENT" ? null : Promise.reject(error51)),
-    (0, import_promises4.lstat)(expectedOwnershipPath).catch((error51) => error51?.code === "ENOENT" ? null : Promise.reject(error51))
+    (0, import_promises5.lstat)(expectedPath).catch((error51) => error51?.code === "ENOENT" ? null : Promise.reject(error51)),
+    (0, import_promises5.lstat)(expectedOwnershipPath).catch((error51) => error51?.code === "ENOENT" ? null : Promise.reject(error51))
   ]);
   if (!workspaceInfo) {
     if (ownershipInfo) {
       invariant(ownershipInfo.isFile(), "AO_WORKSPACE_OWNERSHIP_MISMATCH", "Workspace ownership metadata must be a regular file.");
       const record3 = await readJson(expectedOwnershipPath);
       assertOwnershipRecord(record3, workspace, expectedPath, expectedOwnershipPath);
-      await (0, import_promises4.unlink)(expectedOwnershipPath);
+      await (0, import_promises5.unlink)(expectedOwnershipPath);
     }
     return { removed: false, reason: "already_removed" };
   }
@@ -16107,46 +16159,48 @@ async function removeOrchestrationWorktree(repository, workspace) {
   invariant(ownershipInfo?.isFile(), "AO_WORKSPACE_OWNERSHIP_MISSING", "The broker ownership record is required before worktree removal.");
   const record2 = await readJson(expectedOwnershipPath);
   assertOwnershipRecord(record2, workspace, expectedPath, expectedOwnershipPath);
-  const actualPath = await (0, import_promises4.realpath)(expectedPath);
+  const actualPath = await (0, import_promises5.realpath)(expectedPath);
   invariant(actualPath === expectedPath, "AO_UNSAFE_WORKTREE_REMOVAL", "Workspace path resolves away from its exact broker-derived path.");
-  const markerInfo = await (0, import_promises4.lstat)((0, import_node_path7.join)(actualPath, ".git"));
+  const markerInfo = await (0, import_promises5.lstat)((0, import_node_path8.join)(actualPath, ".git"));
   invariant(markerInfo.isFile(), "AO_GIT_METADATA_CHANGED", "The worktree .git marker was replaced before cleanup.");
-  invariant(sha256(await (0, import_promises4.readFile)((0, import_node_path7.join)(actualPath, ".git"))) === workspace.gitMarkerHash, "AO_GIT_METADATA_CHANGED", "The worktree .git marker changed before cleanup.");
+  invariant(sha256(await (0, import_promises5.readFile)((0, import_node_path8.join)(actualPath, ".git"))) === workspace.gitMarkerHash, "AO_GIT_METADATA_CHANGED", "The worktree .git marker changed before cleanup.");
   const [{ stdout: commonGitDir }, { stdout: head }, { stdout: gitDir }, { stdout: worktreeList }] = await Promise.all([
     git(actualPath, ["rev-parse", "--path-format=absolute", "--git-common-dir"]),
     git(actualPath, ["rev-parse", "HEAD"]),
     git(actualPath, ["rev-parse", "--path-format=absolute", "--git-dir"]),
     git(repository.checkoutRoot, ["worktree", "list", "--porcelain", "-z"])
   ]);
-  invariant(await (0, import_promises4.realpath)(commonGitDir) === repository.commonGitDir, "AO_FOREIGN_WORKTREE", "Refusing to remove a worktree registered to another repository.");
+  invariant(await (0, import_promises5.realpath)(commonGitDir) === repository.commonGitDir, "AO_FOREIGN_WORKTREE", "Refusing to remove a worktree registered to another repository.");
   invariant(head === workspace.baseSha, "AO_WORKTREE_HEAD_MISMATCH", "Refusing to remove a worktree whose HEAD no longer matches its broker base SHA.");
-  invariant(await (0, import_promises4.realpath)(gitDir) === workspace.gitAdminDir, "AO_WORKSPACE_OWNERSHIP_MISMATCH", "Refusing to remove a worktree with a different Git administration entry.");
-  invariant(registeredWorktreePaths(worktreeList).includes(actualPath), "AO_FOREIGN_WORKTREE", "Refusing to remove a worktree not registered at the exact broker path.");
+  invariant(await (0, import_promises5.realpath)(gitDir) === workspace.gitAdminDir, "AO_WORKSPACE_OWNERSHIP_MISMATCH", "Refusing to remove a worktree with a different Git administration entry.");
+  const registeredPaths = await Promise.all(registeredWorktreePaths(worktreeList).map((path3) => (0, import_promises5.realpath)(path3).catch(() => (0, import_node_path8.resolve)(path3))));
+  invariant(registeredPaths.includes(actualPath), "AO_FOREIGN_WORKTREE", "Refusing to remove a worktree not registered at the exact broker path.");
   try {
     await git(repository.checkoutRoot, ["worktree", "remove", "--force", "--", actualPath], { timeoutMs: 12e4 });
   } catch (error51) {
-    const stillExists = await (0, import_promises4.lstat)(expectedPath).then(() => true, (failure) => failure?.code === "ENOENT" ? false : Promise.reject(failure));
+    const stillExists = await (0, import_promises5.lstat)(expectedPath).then(() => true, (failure) => failure?.code === "ENOENT" ? false : Promise.reject(failure));
     if (stillExists) throw error51;
-    await (0, import_promises4.unlink)(expectedOwnershipPath).catch((failure) => {
+    await (0, import_promises5.unlink)(expectedOwnershipPath).catch((failure) => {
       if (failure?.code !== "ENOENT") throw failure;
     });
     return { removed: false, reason: "already_removed" };
   }
-  await (0, import_promises4.unlink)(expectedOwnershipPath).catch((error51) => {
+  await (0, import_promises5.unlink)(expectedOwnershipPath).catch((error51) => {
     if (error51?.code !== "ENOENT") throw error51;
   });
   return { removed: true };
 }
 
 // src/runtime/acpx-driver.mjs
-var import_promises8 = require("node:fs/promises");
-var import_node_path10 = require("node:path");
+var import_promises9 = require("node:fs/promises");
+var import_node_path11 = require("node:path");
+var import_node_os4 = __toESM(require("node:os"), 1);
 
 // node_modules/acpx/dist/live-checkpoint-ClPCSdrW.js
 var import_node_fs2 = __toESM(require("node:fs"), 1);
 var import_node_url2 = require("node:url");
-var import_node_path8 = __toESM(require("node:path"), 1);
-var import_promises5 = __toESM(require("node:fs/promises"), 1);
+var import_node_path9 = __toESM(require("node:path"), 1);
+var import_promises6 = __toESM(require("node:fs/promises"), 1);
 var import_node_os3 = __toESM(require("node:os"), 1);
 var import_node_crypto4 = require("node:crypto");
 var import_node_child_process2 = require("node:child_process");
@@ -20170,7 +20224,7 @@ var ClientSideConnection = class {
 };
 
 // node_modules/acpx/dist/live-checkpoint-ClPCSdrW.js
-var import_promises6 = __toESM(require("node:readline/promises"), 1);
+var import_promises7 = __toESM(require("node:readline/promises"), 1);
 var import_node_util2 = require("node:util");
 var AcpxOperationalError = class extends Error {
   outputCode;
@@ -20590,15 +20644,15 @@ function findBuiltInAgentPackage(agentCommand) {
 }
 function defaultResolvePackageRoot(packageName) {
   const segments = packageName.split("/");
-  let cursor = import_node_path8.default.dirname((0, import_node_url2.fileURLToPath)(__aoImportMetaUrl));
+  let cursor = import_node_path9.default.dirname((0, import_node_url2.fileURLToPath)(__aoImportMetaUrl));
   while (true) {
-    const candidateRoot = import_node_path8.default.join(cursor, "node_modules", ...segments);
-    const manifestPath = import_node_path8.default.join(candidateRoot, "package.json");
+    const candidateRoot = import_node_path9.default.join(cursor, "node_modules", ...segments);
+    const manifestPath = import_node_path9.default.join(candidateRoot, "package.json");
     if (import_node_fs2.default.existsSync(manifestPath)) try {
       if (JSON.parse(import_node_fs2.default.readFileSync(manifestPath, "utf8")).name === packageName) return candidateRoot;
     } catch {
     }
-    const parent = import_node_path8.default.dirname(cursor);
+    const parent = import_node_path9.default.dirname(cursor);
     if (parent === cursor) throw new Error(`Built-in agent package not found: ${packageName}`);
     cursor = parent;
   }
@@ -20609,7 +20663,7 @@ function resolvePackageBin(spec, manifest) {
   return manifest.bin[spec.preferredBinName] ?? (Object.keys(manifest.bin).length === 1 ? Object.values(manifest.bin)[0] : void 0);
 }
 function defaultResolveNpmCliPath(execPath) {
-  const candidate = import_node_path8.default.resolve(import_node_path8.default.dirname(execPath), "..", "lib", "node_modules", "npm", "bin", "npm-cli.js");
+  const candidate = import_node_path9.default.resolve(import_node_path9.default.dirname(execPath), "..", "lib", "node_modules", "npm", "bin", "npm-cli.js");
   if (!import_node_fs2.default.existsSync(candidate)) throw new Error(`npm CLI not found for execPath: ${execPath}`);
   return candidate;
 }
@@ -20641,11 +20695,11 @@ function resolveInstalledBuiltInAgentLaunch(agentCommand, options = {}) {
 }
 function resolveInstalledBuiltInAgentPackage(spec, options) {
   const packageRoot = options.resolvePackageRoot(spec.packageName);
-  const manifest = JSON.parse(options.readFileSync(import_node_path8.default.join(packageRoot, "package.json"), "utf8"));
+  const manifest = JSON.parse(options.readFileSync(import_node_path9.default.join(packageRoot, "package.json"), "utf8"));
   if (manifest.name !== spec.packageName) return;
   const relativeBinPath = resolvePackageBin(spec, manifest);
   if (!relativeBinPath) return;
-  const binPath = import_node_path8.default.resolve(packageRoot, relativeBinPath);
+  const binPath = import_node_path9.default.resolve(packageRoot, relativeBinPath);
   return options.existsSync(binPath) ? {
     packageVersion: manifest.version,
     binPath
@@ -20792,13 +20846,13 @@ function isSessionUpdateNotification(message) {
 }
 var DEFAULT_EVENT_SEGMENT_MAX_BYTES = 64 * 1024 * 1024;
 function sessionBaseDir$1() {
-  return import_node_path8.default.join(import_node_os3.default.homedir(), ".acpx", "sessions");
+  return import_node_path9.default.join(import_node_os3.default.homedir(), ".acpx", "sessions");
 }
 function safeSessionId(sessionId) {
   return encodeURIComponent(sessionId);
 }
 function sessionEventActivePath(sessionId) {
-  return import_node_path8.default.join(sessionBaseDir$1(), `${safeSessionId(sessionId)}.stream.ndjson`);
+  return import_node_path9.default.join(sessionBaseDir$1(), `${safeSessionId(sessionId)}.stream.ndjson`);
 }
 function defaultSessionEventLog(sessionId) {
   return {
@@ -21396,7 +21450,7 @@ function assertPersistedKeyPolicy(value) {
   throw new Error(`Persisted key policy violation (expected snake_case keys): ${violations.join(", ")}`);
 }
 function absolutePath(value) {
-  return import_node_path8.default.resolve(value);
+  return import_node_path9.default.resolve(value);
 }
 function isoNow$2() {
   return (/* @__PURE__ */ new Date()).toISOString();
@@ -21408,7 +21462,7 @@ ${options.header}
 `);
   if (options.details && options.details.trim().length > 0) process.stderr.write(`${options.details}
 `);
-  const rl = import_promises6.default.createInterface({
+  const rl = import_promises7.default.createInterface({
     input: process.stdin,
     output: process.stderr
   });
@@ -21425,8 +21479,8 @@ function nowIso$1() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function isWithinRoot(rootDir, targetPath) {
-  const relative2 = import_node_path8.default.relative(rootDir, targetPath);
-  return relative2.length === 0 || !relative2.startsWith("..") && !import_node_path8.default.isAbsolute(relative2);
+  const relative2 = import_node_path9.default.relative(rootDir, targetPath);
+  return relative2.length === 0 || !relative2.startsWith("..") && !import_node_path9.default.isAbsolute(relative2);
 }
 function toWritePreview(content) {
   const lines = content.replace(/\r\n/g, "\n").split("\n");
@@ -21455,7 +21509,7 @@ var FileSystemHandlers = class {
   usesDefaultConfirmWrite;
   confirmWrite;
   constructor(options) {
-    this.rootDir = import_node_path8.default.resolve(options.cwd);
+    this.rootDir = import_node_path9.default.resolve(options.cwd);
     this.permissionMode = options.permissionMode;
     this.nonInteractivePermissions = options.nonInteractivePermissions ?? "deny";
     this.onOperation = options.onOperation;
@@ -21478,7 +21532,7 @@ var FileSystemHandlers = class {
     });
     try {
       if (this.permissionMode === "deny-all") throw new PermissionDeniedError("Permission denied for fs/read_text_file (--deny-all)");
-      const content = await import_promises5.default.readFile(filePath, "utf8");
+      const content = await import_promises6.default.readFile(filePath, "utf8");
       const sliced = this.sliceContent(content, params.line, params.limit);
       this.emitOperation({
         method: "fs/read_text_file",
@@ -21513,8 +21567,8 @@ var FileSystemHandlers = class {
     });
     try {
       if (!await this.isWriteApproved(filePath, preview)) throw new PermissionDeniedError("Permission denied for fs/write_text_file");
-      await import_promises5.default.mkdir(import_node_path8.default.dirname(filePath), { recursive: true });
-      await import_promises5.default.writeFile(filePath, params.content, "utf8");
+      await import_promises6.default.mkdir(import_node_path9.default.dirname(filePath), { recursive: true });
+      await import_promises6.default.writeFile(filePath, params.content, "utf8");
       this.emitOperation({
         method: "fs/write_text_file",
         status: "completed",
@@ -21542,8 +21596,8 @@ var FileSystemHandlers = class {
     return await this.confirmWrite(filePath, preview);
   }
   resolvePathWithinRoot(rawPath) {
-    if (!import_node_path8.default.isAbsolute(rawPath)) throw new Error(`Path must be absolute: ${rawPath}`);
-    const resolved = import_node_path8.default.resolve(rawPath);
+    if (!import_node_path9.default.isAbsolute(rawPath)) throw new Error(`Path must be absolute: ${rawPath}`);
+    const resolved = import_node_path9.default.resolve(rawPath);
     if (!isWithinRoot(this.rootDir, resolved)) throw new Error(`Path is outside allowed cwd subtree: ${resolved}`);
     return resolved;
   }
@@ -21822,11 +21876,11 @@ function windowsExecutableExtensions(env) {
   return (readWindowsEnvValue(env, "PATHEXT") ?? ".COM;.EXE;.BAT;.CMD").split(";").map((value) => value.trim().toLowerCase()).filter((value) => value.length > 0);
 }
 function commandCandidates(command, env) {
-  if (import_node_path8.default.extname(command).length > 0) return [command];
+  if (import_node_path9.default.extname(command).length > 0) return [command];
   return windowsExecutableExtensions(env).map((extension) => `${command}${extension}`);
 }
 function commandHasPath(command) {
-  return command.includes("/") || command.includes("\\") || import_node_path8.default.isAbsolute(command);
+  return command.includes("/") || command.includes("\\") || import_node_path9.default.isAbsolute(command);
 }
 function resolveWindowsPathCommand(command, env) {
   const candidates = commandCandidates(command, env);
@@ -21840,13 +21894,13 @@ function resolveWindowsPathCommand(command, env) {
 function findExistingCommandInDirectory(directory, candidates) {
   const trimmedDirectory = directory.trim();
   if (trimmedDirectory.length === 0) return;
-  return candidates.map((candidate) => import_node_path8.default.join(trimmedDirectory, candidate)).find((resolved) => import_node_fs2.default.existsSync(resolved));
+  return candidates.map((candidate) => import_node_path9.default.join(trimmedDirectory, candidate)).find((resolved) => import_node_fs2.default.existsSync(resolved));
 }
 function resolveWindowsWrapperToken(token, wrapperPath) {
   const relative2 = token.match(/%~?dp0%?\s*[\\/]*(.*)$/i)?.[1]?.trim();
   if (!relative2) return;
-  const candidate = import_node_path8.default.resolve(import_node_path8.default.dirname(wrapperPath), relative2.replace(/[\\/]+/g, import_node_path8.default.sep).replace(/^[\\/]+/, ""));
-  return import_node_path8.default.extname(candidate).toLowerCase() === ".exe" && import_node_fs2.default.existsSync(candidate) ? candidate : void 0;
+  const candidate = import_node_path9.default.resolve(import_node_path9.default.dirname(wrapperPath), relative2.replace(/[\\/]+/g, import_node_path9.default.sep).replace(/^[\\/]+/, ""));
+  return import_node_path9.default.extname(candidate).toLowerCase() === ".exe" && import_node_fs2.default.existsSync(candidate) ? candidate : void 0;
 }
 function resolveWindowsWrapperExecutable(wrapperPath) {
   if (!import_node_fs2.default.existsSync(wrapperPath)) return;
@@ -21864,8 +21918,8 @@ function resolveWindowsCommand(command, env = process.env) {
 function resolveWindowsExecutablePath(command, env = process.env) {
   const resolved = resolveWindowsCommand(command, env);
   if (!resolved) return;
-  const absolute = import_node_path8.default.resolve(resolved);
-  const extension = import_node_path8.default.extname(absolute).toLowerCase();
+  const absolute = import_node_path9.default.resolve(resolved);
+  const extension = import_node_path9.default.extname(absolute).toLowerCase();
   if (extension === ".exe") return absolute;
   if (extension !== ".cmd" && extension !== ".bat" && extension !== ".ps1") return;
   const siblingExecutable = `${absolute.slice(0, -extension.length)}.exe`;
@@ -21874,7 +21928,7 @@ function resolveWindowsExecutablePath(command, env = process.env) {
 function shouldUseWindowsBatchShell(command, platform = process.platform, env = process.env) {
   if (platform !== "win32") return false;
   const resolvedCommand = resolveWindowsCommand(command, env) ?? command;
-  const ext = import_node_path8.default.extname(resolvedCommand).toLowerCase();
+  const ext = import_node_path9.default.extname(resolvedCommand).toLowerCase();
   return ext === ".cmd" || ext === ".bat";
 }
 function buildSpawnCommandOptions(command, options, platform = process.platform, env = process.env) {
@@ -21909,7 +21963,7 @@ function buildTerminalShellSpawnCommand(command, platform = process.platform) {
   };
 }
 var UNKNOWN_VERSION = "0.0.0-unknown";
-var MODULE_DIR = import_node_path8.default.dirname((0, import_node_url2.fileURLToPath)(__aoImportMetaUrl));
+var MODULE_DIR = import_node_path9.default.dirname((0, import_node_url2.fileURLToPath)(__aoImportMetaUrl));
 var cachedVersion = null;
 function parseVersion(value) {
   if (typeof value !== "string") return null;
@@ -21926,9 +21980,9 @@ function readPackageVersion(packageJsonPath) {
 function resolveVersionFromAncestors(startDir) {
   let current = startDir;
   while (true) {
-    const packageVersion = readPackageVersion(import_node_path8.default.join(current, "package.json"));
+    const packageVersion = readPackageVersion(import_node_path9.default.join(current, "package.json"));
     if (packageVersion) return packageVersion;
-    const parent = import_node_path8.default.dirname(current);
+    const parent = import_node_path9.default.dirname(current);
     if (parent === current) return null;
     current = parent;
   }
@@ -22091,7 +22145,7 @@ function flushCommandLinePart(parts, current, hasPart) {
   if (hasPart) parts.push(current);
 }
 function asAbsoluteCwd(cwd) {
-  return import_node_path8.default.resolve(cwd);
+  return import_node_path9.default.resolve(cwd);
 }
 async function resolveAgentSessionCwd(cwd, agentCommand, options = {}) {
   const resolved = asAbsoluteCwd(cwd);
@@ -22123,7 +22177,7 @@ async function runWslpath(cwd) {
   return stdout;
 }
 function basenameToken(value) {
-  return import_node_path8.default.basename(value).toLowerCase().replace(/\.(cmd|exe|bat)$/u, "");
+  return import_node_path9.default.basename(value).toLowerCase().replace(/\.(cmd|exe|bat)$/u, "");
 }
 var DEFAULT_AGENT_CLOSE_AFTER_STDIN_END_MS = 100;
 var QODER_AGENT_CLOSE_AFTER_STDIN_END_MS = 750;
@@ -22960,7 +23014,7 @@ function hasWindowsShellSyntax(command) {
 }
 function commandPathExists(command, cwd) {
   if (!/[\\/]/u.test(command)) return false;
-  const resolvedPath = import_node_path8.default.isAbsolute(command) ? command : import_node_path8.default.resolve(cwd, command);
+  const resolvedPath = import_node_path9.default.isAbsolute(command) ? command : import_node_path9.default.resolve(cwd, command);
   return import_node_fs2.default.existsSync(resolvedPath);
 }
 async function listDescendantPids(rootPid) {
@@ -25601,8 +25655,8 @@ var LiveSessionCheckpoint = class {
 };
 
 // node_modules/acpx/dist/runtime.js
-var import_node_path9 = __toESM(require("node:path"), 1);
-var import_promises7 = __toESM(require("node:fs/promises"), 1);
+var import_node_path10 = __toESM(require("node:path"), 1);
+var import_promises8 = __toESM(require("node:fs/promises"), 1);
 var import_node_crypto5 = require("node:crypto");
 var AcpRuntimeError = class extends Error {
   code;
@@ -26051,7 +26105,7 @@ function updateStatusEvent(payload, tag) {
 }
 function shouldReuseExistingRecord(record2, params) {
   if (record2.acpx?.reset_on_next_ensure === true) return false;
-  if (import_node_path9.default.resolve(record2.cwd) !== import_node_path9.default.resolve(params.cwd)) return false;
+  if (import_node_path10.default.resolve(record2.cwd) !== import_node_path10.default.resolve(params.cwd)) return false;
   if (record2.agentCommand !== params.agentCommand) return false;
   if (params.resumeSessionId && record2.acpSessionId !== params.resumeSessionId) return false;
   return true;
@@ -26414,7 +26468,7 @@ var AcpRuntimeManager = class {
     };
   }
   async ensureSession(input) {
-    const cwd = import_node_path9.default.resolve(input.cwd?.trim() || this.options.cwd);
+    const cwd = import_node_path10.default.resolve(input.cwd?.trim() || this.options.cwd);
     const agentCommand = this.options.agentRegistry.resolve(input.agent);
     const existing = await this.options.sessionStore.load(input.sessionKey);
     if (input.mode === "persistent" && existing && shouldReuseExistingRecord(existing, {
@@ -26951,19 +27005,19 @@ var FileSessionStore = class {
     this.stateDir = stateDir;
   }
   get sessionDir() {
-    return import_node_path9.default.join(this.stateDir, "sessions");
+    return import_node_path10.default.join(this.stateDir, "sessions");
   }
   filePath(sessionId) {
-    return import_node_path9.default.join(this.sessionDir, `${safeSessionId2(sessionId)}.json`);
+    return import_node_path10.default.join(this.sessionDir, `${safeSessionId2(sessionId)}.json`);
   }
   async ensureDir() {
-    await import_promises7.default.mkdir(this.sessionDir, { recursive: true });
+    await import_promises8.default.mkdir(this.sessionDir, { recursive: true });
   }
   async load(sessionId) {
     await this.ensureDir();
     let payload;
     try {
-      payload = await import_promises7.default.readFile(this.filePath(sessionId), "utf8");
+      payload = await import_promises8.default.readFile(this.filePath(sessionId), "utf8");
     } catch (error51) {
       if (error51.code === "ENOENT") return;
       throw error51;
@@ -26983,13 +27037,13 @@ var FileSessionStore = class {
     const file2 = this.filePath(record2.acpxRecordId);
     const tempFile = `${file2}.${process.pid}.${Date.now()}.tmp`;
     const payload = JSON.stringify(persisted, null, 2);
-    await import_promises7.default.writeFile(tempFile, `${payload}
+    await import_promises8.default.writeFile(tempFile, `${payload}
 `, "utf8");
-    await import_promises7.default.rename(tempFile, file2);
+    await import_promises8.default.rename(tempFile, file2);
   }
 };
 function createFileSessionStore(options) {
-  return new FileSessionStore(import_node_path9.default.resolve(options.stateDir));
+  return new FileSessionStore(import_node_path10.default.resolve(options.stateDir));
 }
 var ACPX_RUNTIME_HANDLE_PREFIX = "acpx:v2:";
 function encodeAcpxRuntimeHandleState(state) {
@@ -27302,24 +27356,32 @@ var AUTH_BOOTSTRAP_PROMPT = "Respond with exactly AUTH_READY. Do not call tools,
 
 // src/runtime/acpx-driver.mjs
 async function createEphemeralScratch(kind) {
-  for (const entry of await (0, import_promises8.readdir)("/dev/shm", { withFileTypes: true })) {
+  const scratchRoot = process.platform === "win32" ? import_node_os4.default.tmpdir() : "/dev/shm";
+  for (const entry of await (0, import_promises9.readdir)(scratchRoot, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const match = /^agent-orchestration-(?:turn|probe-[a-z0-9-]+)-(\d+)-/.exec(entry.name);
     if (!match) continue;
     try {
       process.kill(Number(match[1]), 0);
     } catch (error51) {
-      if (error51?.code === "ESRCH") await (0, import_promises8.rm)((0, import_node_path10.join)("/dev/shm", entry.name), { recursive: true, force: true });
+      if (error51?.code === "ESRCH") await (0, import_promises9.rm)((0, import_node_path11.join)(scratchRoot, entry.name), { recursive: true, force: true, maxRetries: 8, retryDelay: 50 });
     }
   }
-  const path3 = await (0, import_promises8.mkdtemp)((0, import_node_path10.join)("/dev/shm", `agent-orchestration-${kind}-${process.pid}-`));
+  const path3 = await (0, import_promises9.mkdtemp)((0, import_node_path11.join)(scratchRoot, `agent-orchestration-${kind}-${process.pid}-`));
   return path3;
 }
 function shellQuote(value) {
   return `'${String(value).replaceAll("'", `'\\''`)}'`;
 }
+function windowsQuote(value) {
+  return `"${String(value).replaceAll("\\", "/").replaceAll('"', '\\"')}"`;
+}
 function providerCommandOverrides(pluginRoot, sandboxEnvironment = {}) {
-  const launcher = shellQuote((0, import_node_path10.join)(pluginRoot, "bin", "provider-sandbox"));
+  if (process.platform === "win32") {
+    const launcher2 = `${windowsQuote(process.execPath)} ${windowsQuote((0, import_node_path11.join)(pluginRoot, "dist", "provider-sandbox.cjs"))}`;
+    return Object.fromEntries(Object.values(PROVIDER_ADAPTERS).map((adapter) => [adapter.agentTarget, `${launcher2} ${windowsQuote(adapter.providerId)}`]));
+  }
+  const launcher = shellQuote((0, import_node_path11.join)(pluginRoot, "bin", "provider-sandbox"));
   const environment = Object.entries(sandboxEnvironment).map(([key, value]) => `${key}=${shellQuote(value)}`).join(" ");
   return Object.fromEntries(Object.values(PROVIDER_ADAPTERS).map((adapter) => [adapter.agentTarget, `${environment ? `env ${environment} ` : ""}${launcher} ${shellQuote(adapter.providerId)}`]));
 }
@@ -27473,15 +27535,15 @@ async function runProviderTurn({
         }
       }
     }
-    await (0, import_promises8.rm)(sandboxTempDir, { recursive: true, force: true });
+    await (0, import_promises9.rm)(sandboxTempDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 50 });
     if (closeError && !operationError) throw closeError;
   }
 }
 async function checkBundledBridges(pluginRoot) {
   const checks = await Promise.all(["claude-agent-acp", "codex-acp", "provider-sandbox"].map(async (name) => {
-    const path3 = (0, import_node_path10.join)(pluginRoot, "bin", name);
+    const path3 = process.platform === "win32" ? (0, import_node_path11.join)(pluginRoot, "dist", `${name}${name === "provider-sandbox" ? ".cjs" : ".mjs"}`) : (0, import_node_path11.join)(pluginRoot, "bin", name);
     try {
-      await (0, import_promises8.access)(path3);
+      await (0, import_promises9.access)(path3);
       return { id: name, ok: true, path: path3 };
     } catch {
       return { id: name, ok: false, path: path3 };
@@ -27685,14 +27747,14 @@ function dependencyOutputs(stage, stages, outputs) {
   return outputs.filter((output) => needed.has(output.stageId));
 }
 async function validateWorkspace(workspace, consumer) {
-  const markerInfo = await (0, import_promises9.lstat)((0, import_node_path11.join)(workspace.path, ".git"));
+  const markerInfo = await (0, import_promises10.lstat)((0, import_node_path12.join)(workspace.path, ".git"));
   invariant(markerInfo.isFile(), "AO_GIT_METADATA_CHANGED", "The worktree .git marker was replaced.");
-  invariant(sha256(await (0, import_promises9.readFile)((0, import_node_path11.join)(workspace.path, ".git"))) === workspace.gitMarkerHash, "AO_GIT_METADATA_CHANGED", "The worktree .git marker changed during provider execution.");
+  invariant(sha256(await (0, import_promises10.readFile)((0, import_node_path12.join)(workspace.path, ".git"))) === workspace.gitMarkerHash, "AO_GIT_METADATA_CHANGED", "The worktree .git marker changed during provider execution.");
   invariant(await gitMetadataFingerprint(consumer) === workspace.gitMetadataFingerprint, "AO_GIT_METADATA_CHANGED", "Shared Git refs or configuration changed during provider execution.");
   const { stdout } = await git(workspace.path, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
   const changedPaths = stdout.split("\0").filter(Boolean).map((record2) => /^[ MADRCU?!]{2} /.test(record2) ? record2.slice(3) : record2);
   for (const path3 of changedPaths) {
-    invariant(!(0, import_node_path12.isAbsolute)(path3) && path3 !== ".." && !path3.startsWith("../") && !path3.includes("/../") && path3 !== ".git" && !path3.startsWith(".git/"), "AO_UNSAFE_AGENT_CHANGE", `Agent changed a forbidden path: ${path3}`);
+    invariant(!(0, import_node_path13.isAbsolute)(path3) && path3 !== ".." && !path3.startsWith("../") && !path3.includes("/../") && path3 !== ".git" && !path3.startsWith(".git/"), "AO_UNSAFE_AGENT_CHANGE", `Agent changed a forbidden path: ${path3}`);
   }
   return changedPaths;
 }
@@ -27745,7 +27807,7 @@ async function executeRun({ store, runId, pluginRoot, stateRoot: stateRoot2 }) {
         try {
           result = await runProviderTurn({
             pluginRoot,
-            sessionStateDir: (0, import_node_path11.join)(stateRoot2, "sessions"),
+            sessionStateDir: (0, import_node_path12.join)(stateRoot2, "sessions"),
             workspacePath,
             commonGitDir: run.consumer.commonGitDir,
             providerExecutable: run.input.providerExecutables?.[candidate.providerId ?? candidate.provider],
@@ -27818,8 +27880,12 @@ async function cleanupRun({ store, runId }) {
   return { cleaned: removal?.removed === true, reason: removal?.reason, run: await store.clearWorkspace(runId) };
 }
 
+// src/platform/linux-runtime.mjs
+var import_promises13 = require("node:fs/promises");
+var import_node_path15 = require("node:path");
+
 // src/runtime/user-bus.mjs
-var import_promises10 = require("node:fs/promises");
+var import_promises11 = require("node:fs/promises");
 var import_node_child_process3 = require("node:child_process");
 var USER_MANAGER_EXECUTABLES = /* @__PURE__ */ new Set(["/usr/bin/systemctl", "/usr/bin/systemd-run"]);
 function validateUserManagerCommand(command, args) {
@@ -27828,8 +27894,8 @@ function validateUserManagerCommand(command, args) {
 }
 async function canonicalUserBusEnvironment(environment = process.env, dependencies = {}) {
   const uid = dependencies.uid ?? process.getuid?.();
-  const inspectPath = dependencies.lstat ?? import_promises10.lstat;
-  const canonicalizePath = dependencies.realpath ?? import_promises10.realpath;
+  const inspectPath = dependencies.lstat ?? import_promises11.lstat;
+  const canonicalizePath = dependencies.realpath ?? import_promises11.realpath;
   invariant(Number.isInteger(uid) && uid >= 0, "AO_USER_BUS_UNAVAILABLE", "The current Unix user identity is unavailable.");
   const runtimeDir = `/run/user/${uid}`;
   const busPath = `${runtimeDir}/bus`;
@@ -27868,13 +27934,550 @@ async function spawnUserManagerFile(command, args, options = {}, dependencies = 
   return spawnProcess(command, args, { ...options, env });
 }
 
+// src/platform/executable-resolvers.mjs
+var import_node_path14 = require("node:path");
+var import_promises12 = require("node:fs/promises");
+var import_node_fs3 = require("node:fs");
+
+// src/platform/contracts.mjs
+function abstractMethod(type, method) {
+  throw new AgentOrchestrationError(
+    "AO_PLATFORM_METHOD_NOT_IMPLEMENTED",
+    `${type} must implement ${method}().`
+  );
+}
+var ExecutableResolverStrategy = class {
+  async findAll(_command) {
+    return abstractMethod(this.constructor.name, "findAll");
+  }
+};
+var WorkerSupervisorStrategy = class {
+  async isAlive(_worker) {
+    return abstractMethod(this.constructor.name, "isAlive");
+  }
+  async terminate(_worker) {
+    return abstractMethod(this.constructor.name, "terminate");
+  }
+  async launch(_context) {
+    return abstractMethod(this.constructor.name, "launch");
+  }
+  async attach(_context) {
+    return abstractMethod(this.constructor.name, "attach");
+  }
+  async probe(_context) {
+    return abstractMethod(this.constructor.name, "probe");
+  }
+  async runProbe(_context) {
+    return abstractMethod(this.constructor.name, "runProbe");
+  }
+};
+var ProviderSandboxStrategy = class {
+  get requiredExecutables() {
+    return [];
+  }
+  async probe() {
+    return abstractMethod(this.constructor.name, "probe");
+  }
+};
+var PlatformRuntime = class {
+  constructor({ id, hostPlatform, executableResolver, workerSupervisor, providerSandbox, metadata = {} }) {
+    this.id = id;
+    this.hostPlatform = hostPlatform;
+    this.executableResolver = executableResolver;
+    this.workerSupervisor = workerSupervisor;
+    this.providerSandbox = providerSandbox;
+    this.metadata = Object.freeze({ ...metadata });
+    Object.freeze(this);
+  }
+  describe() {
+    return {
+      id: this.id,
+      hostPlatform: this.hostPlatform,
+      sandbox: this.providerSandbox.constructor.name,
+      supervisor: this.workerSupervisor.constructor.name,
+      executableResolver: this.executableResolver.constructor.name,
+      ...this.metadata
+    };
+  }
+};
+var PlatformRuntimeFactory = class {
+  supports(_context) {
+    return false;
+  }
+  async create(_context) {
+    return abstractMethod(this.constructor.name, "create");
+  }
+};
+
+// src/platform/executable-resolvers.mjs
+async function canonicalExecutable(path3) {
+  try {
+    await (0, import_promises12.access)(path3, import_node_fs3.constants.X_OK);
+    return await (0, import_promises12.realpath)(path3);
+  } catch {
+    return null;
+  }
+}
+var LinuxExecutableResolver = class extends ExecutableResolverStrategy {
+  constructor({ runner = runFile } = {}) {
+    super();
+    this.runner = runner;
+  }
+  async findAll(command) {
+    const { stdout } = await this.runner("/usr/bin/which", ["-a", command], { timeoutMs: 5e3 });
+    return [...new Set(stdout.split("\n").map((value) => value.trim()).filter(Boolean))];
+  }
+};
+var WindowsExecutableResolver = class extends ExecutableResolverStrategy {
+  constructor({ env = process.env, runner = runFile } = {}) {
+    super();
+    this.env = env;
+    this.runner = runner;
+  }
+  async findAll(command) {
+    if ((0, import_node_path14.isAbsolute)(command)) {
+      const resolved = await canonicalExecutable(command);
+      return resolved ? [resolved] : [];
+    }
+    const names = (0, import_node_path14.extname)(command) ? [command] : (this.env.PATHEXT || ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean).map((extension) => `${command}${extension.toLowerCase()}`);
+    const direct = [];
+    for (const directory of (this.env.PATH || "").split(import_node_path14.delimiter).filter(Boolean)) {
+      for (const name of names) {
+        const resolved = await canonicalExecutable((0, import_node_path14.join)(directory, name));
+        if (resolved && !direct.includes(resolved)) direct.push(resolved);
+      }
+    }
+    if (direct.length > 0) return direct;
+    try {
+      const { stdout } = await this.runner("where.exe", [command], { timeoutMs: 5e3 });
+      return [...new Set(stdout.split(/\r?\n/).map((value) => value.trim()).filter(Boolean))];
+    } catch {
+      return [];
+    }
+  }
+};
+
+// src/platform/linux-runtime.mjs
+var BubblewrapSandboxStrategy = class extends ProviderSandboxStrategy {
+  get requiredExecutables() {
+    return Object.freeze([
+      Object.freeze({ id: "bwrap", command: "bwrap" }),
+      Object.freeze({ id: "slirp4netns", command: "slirp4netns" })
+    ]);
+  }
+  async probe({ checks }) {
+    const missing = this.requiredExecutables.filter(({ id }) => !checks.find((entry) => entry.id === id)?.ok).map(({ id }) => id);
+    return { ok: missing.length === 0, kind: "bubblewrap-slirp4netns", missing };
+  }
+};
+var SystemdWorkerSupervisorStrategy = class extends WorkerSupervisorStrategy {
+  get requiredExecutables() {
+    return Object.freeze([
+      Object.freeze({ id: "systemd-run", command: "systemd-run" }),
+      Object.freeze({ id: "prlimit", command: "prlimit" })
+    ]);
+  }
+  async isAlive(worker) {
+    if (worker?.supervisorUnit) {
+      const { stdout } = await runUserManagerFile("/usr/bin/systemctl", ["--user", "show", worker.supervisorUnit, "--property=LoadState", "--property=ActiveState"], { timeoutMs: 5e3 }).catch(() => ({ stdout: "" }));
+      const state = Object.fromEntries(stdout.split("\n").filter(Boolean).map((line) => line.split(/=(.*)/s).slice(0, 2)));
+      return state.LoadState === "loaded" && state.ActiveState === "active";
+    }
+    const identity = worker?.pid ? await processStartIdentity(worker.pid) : null;
+    return Boolean(identity && identity === worker?.startIdentity);
+  }
+  async terminate(worker) {
+    if (worker?.supervisorUnit) {
+      invariant(/^agent-orchestration-run-[a-z0-9-]+\.(?:scope|service)$/.test(worker.supervisorUnit), "AO_UNSAFE_SUPERVISOR_UNIT", "Refusing to operate on an untrusted supervisor unit name.");
+      const readState = async () => {
+        const { stdout } = await runUserManagerFile("/usr/bin/systemctl", ["--user", "show", worker.supervisorUnit, "--property=LoadState", "--property=ActiveState"], { timeoutMs: 5e3 });
+        return Object.fromEntries(stdout.split("\n").filter(Boolean).map((line) => line.split(/=(.*)/s).slice(0, 2)));
+      };
+      const before = await readState().catch(() => null);
+      if (!before) return false;
+      if (before.LoadState === "not-found" || ["inactive", "failed"].includes(before.ActiveState)) return true;
+      try {
+        await runUserManagerFile("/usr/bin/systemctl", ["--user", "stop", worker.supervisorUnit], { timeoutMs: 1e4 });
+      } catch {
+        return false;
+      }
+      const after = await readState().catch(() => null);
+      return Boolean(after && (after.LoadState === "not-found" || ["inactive", "failed"].includes(after.ActiveState)));
+    }
+    if (!worker?.processGroup || !processGroupExists2(worker.processGroup)) return true;
+    const identity = worker.pid ? await processStartIdentity(worker.pid) : null;
+    if (!identity || identity !== worker.startIdentity) return false;
+    try {
+      process.kill(-worker.processGroup, "SIGTERM");
+    } catch (error51) {
+      if (error51?.code !== "ESRCH") throw error51;
+    }
+    if (!await waitForProcessGroupExit(worker.processGroup, 2e3)) {
+      try {
+        process.kill(-worker.processGroup, "SIGKILL");
+      } catch (error51) {
+        if (error51?.code !== "ESRCH") throw error51;
+      }
+    }
+    return waitForProcessGroupExit(worker.processGroup, 2e3);
+  }
+  async waitForRegistration({ runId, supervisorUnit, child, launchState, store, terminalStates, timeoutMs = 1e4 }) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (launchState.error) throw new AgentOrchestrationError("AO_WORKER_LAUNCH_FAILED", "The worker supervisor failed before registration.", { cause: launchState.error.message });
+      const run = await store.get(runId);
+      if (run.worker?.attachedAt) {
+        if (terminalStates.has(run.state)) return run;
+        const identity = await processStartIdentity(run.worker.pid);
+        invariant(identity && identity === run.worker.startIdentity, "AO_WORKER_REGISTRATION_LOST", "The registered worker disappeared before startup acknowledgement.");
+        const scope = await runUserManagerFile("/usr/bin/systemctl", ["--user", "show", supervisorUnit, "--property=LoadState", "--property=ActiveState", "--property=ControlGroup"], { timeoutMs: 2e3 }).catch(() => null);
+        const properties = scope && Object.fromEntries(scope.stdout.split("\n").filter(Boolean).map((line) => line.split(/=(.*)/s).slice(0, 2)));
+        if (properties?.LoadState === "loaded" && properties.ActiveState === "active" && properties.ControlGroup) return run;
+      }
+      if (terminalStates.has(run.state)) throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_MISSING", "The run terminated before its worker acknowledged the supervisor scope.");
+      if (launchState.exited) throw new AgentOrchestrationError("AO_WORKER_LAUNCH_FAILED", "systemd-run exited before the worker registered.", launchState.exited);
+      await new Promise((resolve5) => setTimeout(resolve5, 25));
+    }
+    throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_TIMEOUT", "Timed out waiting for the worker to register in its named supervisor scope.", { supervisorUnit, launcherPid: child.pid });
+  }
+  async launch({ runId, pluginRoot, stateRoot: stateRoot2, workerEntrypoint, store, terminalStates, onLaunchFailure }) {
+    const logDir = await ensurePrivateDir((0, import_node_path15.join)(stateRoot2, "logs"));
+    const unitBase = `agent-orchestration-run-${runId.replaceAll("_", "-")}`;
+    const supervisorUnit = `${unitBase}.scope`;
+    const args = [
+      "--user",
+      "--scope",
+      "--collect",
+      "--quiet",
+      `--unit=${unitBase}`,
+      "--property=KillMode=control-group",
+      "--property=TimeoutStopSec=3s",
+      "--property=RuntimeMaxSec=8h",
+      "--property=MemoryMax=8G",
+      "--property=TasksMax=512",
+      "/usr/bin/prlimit",
+      "--core=0",
+      "--fsize=1073741824",
+      "--",
+      process.execPath,
+      workerEntrypoint,
+      "worker",
+      "--state-root",
+      stateRoot2,
+      "--run-id",
+      runId
+    ];
+    const stdout = await (0, import_promises13.open)((0, import_node_path15.join)(logDir, `${runId}.out.log`), "a", 384);
+    const stderr = await (0, import_promises13.open)((0, import_node_path15.join)(logDir, `${runId}.err.log`), "a", 384);
+    let child;
+    const launchState = { error: null, exited: null };
+    try {
+      child = await spawnUserManagerFile("/usr/bin/systemd-run", args, {
+        cwd: pluginRoot,
+        env: { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: stateRoot2, AGENT_ORCHESTRATION_CURRENT_WORKER_RUN_ID: runId },
+        detached: true,
+        stdio: ["ignore", stdout.fd, stderr.fd],
+        shell: false
+      });
+      child.on("error", (error51) => {
+        launchState.error = error51;
+      });
+      child.on("exit", (code, signal) => {
+        launchState.exited = { code, signal };
+      });
+      await new Promise((resolveSpawn, rejectSpawn) => {
+        child.once("spawn", resolveSpawn);
+        child.once("error", rejectSpawn);
+      });
+      child.unref();
+      const startIdentity = await processStartIdentity(child.pid);
+      invariant(startIdentity, "AO_WORKER_LAUNCH_FAILED", "Could not establish the systemd-run launcher identity.");
+      await store.update(runId, { worker: { pid: child.pid, processGroup: null, startIdentity, supervisorUnit, supervisorKind: "systemd-user-cgroup", startedAt: (/* @__PURE__ */ new Date()).toISOString() } }, "worker_started");
+      return await this.waitForRegistration({ runId, supervisorUnit, child, launchState, store, terminalStates });
+    } catch (error51) {
+      await onLaunchFailure?.(supervisorUnit, error51).catch(() => {
+      });
+      throw error51;
+    } finally {
+      await stdout.close().catch(() => {
+      });
+      await stderr.close().catch(() => {
+      });
+    }
+  }
+  async attach({ runId, store, terminalStates }) {
+    const deadline = Date.now() + 5e3;
+    let run = await store.get(runId);
+    while (!run.worker?.supervisorUnit && !terminalStates.has(run.state) && Date.now() < deadline) {
+      await new Promise((resolve5) => setTimeout(resolve5, 25));
+      run = await store.get(runId);
+    }
+    if (terminalStates.has(run.state)) return run;
+    const { stdout: controlGroup } = await runUserManagerFile("/usr/bin/systemctl", ["--user", "show", run.worker?.supervisorUnit, "--property=ControlGroup", "--value"], { timeoutMs: 5e3 });
+    const ownCgroups = await (0, import_promises13.readFile)("/proc/self/cgroup", "utf8");
+    invariant(controlGroup && ownCgroups.includes(controlGroup), "AO_WORKER_REGISTRATION_MISSING", "The worker refused to execute outside its registered supervisor cgroup.");
+    return store.update(runId, { worker: { ...run.worker, pid: process.pid, startIdentity: await processStartIdentity(process.pid), attachedAt: (/* @__PURE__ */ new Date()).toISOString() } }, "worker_attached_to_supervisor");
+  }
+  async probe() {
+    const supervisorUnit = newId("agent-orchestration-doctor").replaceAll("_", "-");
+    return runUserManagerFile("/usr/bin/systemd-run", ["--user", "--wait", "--collect", "--quiet", `--unit=${supervisorUnit}`, "/usr/bin/true"], { timeoutMs: 1e4 }).then(() => ({ ok: true, kind: "systemd-user-cgroup" }), (error51) => ({ ok: false, kind: "systemd-user-cgroup", error: error51.message }));
+  }
+  async runProbe({ pluginRoot, stateRoot: stateRoot2, providerId, candidate }) {
+    const unitName = newId(`agent-orchestration-probe-${providerId}`).replaceAll("_", "-");
+    const { stdout } = await runUserManagerFile("/usr/bin/systemd-run", [
+      "--user",
+      "--scope",
+      "--collect",
+      "--quiet",
+      `--unit=${unitName}`,
+      "--property=RuntimeMaxSec=10s",
+      "--property=TimeoutStopSec=2s",
+      "--property=KillMode=control-group",
+      "--property=MemoryMax=2G",
+      "--property=TasksMax=128",
+      "/usr/bin/prlimit",
+      "--core=0",
+      "--fsize=268435456",
+      "--",
+      process.execPath,
+      (0, import_node_path15.join)(pluginRoot, "dist", "probe-worker.cjs"),
+      pluginRoot,
+      stateRoot2,
+      pluginRoot,
+      providerId,
+      candidate
+    ], { timeoutMs: 15e3 });
+    return JSON.parse(stdout);
+  }
+};
+var LinuxRuntimeFactory = class extends PlatformRuntimeFactory {
+  supports({ platform = process.platform, backend = process.env.AGENT_ORCHESTRATION_RUNTIME_BACKEND } = {}) {
+    return platform !== "win32" || backend === "linux-native";
+  }
+  create() {
+    return new PlatformRuntime({
+      id: "linux-native",
+      hostPlatform: process.env.AGENT_ORCHESTRATION_HOST_PLATFORM || process.platform,
+      executableResolver: new LinuxExecutableResolver(),
+      workerSupervisor: new SystemdWorkerSupervisorStrategy(),
+      providerSandbox: new BubblewrapSandboxStrategy(),
+      metadata: { isolation: "bubblewrap", supervision: "systemd-user-cgroup" }
+    });
+  }
+};
+
+// src/platform/windows-native-runtime.mjs
+var import_node_child_process4 = require("node:child_process");
+var import_node_path16 = require("node:path");
+var import_promises14 = require("node:fs/promises");
+var WindowsNativeHelperAdapter = class {
+  constructor({ pluginRoot, runner = runFile, executable = "dotnet" } = {}) {
+    this.helperPath = (0, import_node_path16.join)(pluginRoot, "dist", "windows-native", "AgentOrchestration.Windows.dll");
+    this.executable = executable;
+    this.runner = runner;
+  }
+  args(command, args = []) {
+    return [this.helperPath, command, ...args];
+  }
+  async available() {
+    return (0, import_promises14.access)(this.helperPath).then(() => true, () => false);
+  }
+  async runJson(command, args = [], options = {}) {
+    invariant(await this.available(), "AO_WINDOWS_HELPER_MISSING", "The native Windows isolation helper is not installed.", { helperPath: this.helperPath });
+    const { stdout } = await this.runner(this.executable, this.args(command, args), options);
+    return stdout ? JSON.parse(stdout) : {};
+  }
+  spawn(command, args = [], options = {}) {
+    return (0, import_node_child_process4.spawn)(this.executable, this.args(command, args), { windowsHide: true, shell: false, ...options });
+  }
+};
+var WindowsAppContainerSandboxStrategy = class extends ProviderSandboxStrategy {
+  constructor({ helper }) {
+    super();
+    this.helper = helper;
+  }
+  get requiredExecutables() {
+    return Object.freeze([Object.freeze({ id: "dotnet", command: "dotnet" })]);
+  }
+  async probe() {
+    try {
+      const result = await this.helper.runJson("doctor");
+      return { ok: result.appContainer === true, kind: "windows-appcontainer", helper: this.helper.helperPath, ...result };
+    } catch (error51) {
+      return { ok: false, kind: "windows-appcontainer", helper: this.helper.helperPath, error: error51.message };
+    }
+  }
+};
+var WindowsJobObjectSupervisorStrategy = class extends WorkerSupervisorStrategy {
+  constructor({ helper }) {
+    super();
+    this.helper = helper;
+  }
+  get requiredExecutables() {
+    return Object.freeze([Object.freeze({ id: "dotnet", command: "dotnet" })]);
+  }
+  validateJobName(value) {
+    invariant(/^Local\\ByteDesk-Agent-Orchestration-[A-Za-z0-9-]+$/.test(value || ""), "AO_UNSAFE_SUPERVISOR_UNIT", "Refusing to operate on an untrusted Windows Job Object name.");
+    return value;
+  }
+  async isAlive(worker) {
+    if (!worker?.supervisorUnit) return false;
+    try {
+      return (await this.helper.runJson("exists", ["--job", this.validateJobName(worker.supervisorUnit)], { timeoutMs: 5e3 })).exists === true;
+    } catch {
+      return false;
+    }
+  }
+  async terminate(worker) {
+    if (!worker?.supervisorUnit) return true;
+    try {
+      return (await this.helper.runJson("terminate", ["--job", this.validateJobName(worker.supervisorUnit)], { timeoutMs: 1e4 })).terminated === true;
+    } catch {
+      return false;
+    }
+  }
+  async waitForRegistration({ runId, supervisorUnit, child, launchState, store, terminalStates, timeoutMs = 1e4 }) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (launchState.error) throw new AgentOrchestrationError("AO_WORKER_LAUNCH_FAILED", "The Windows Job Object supervisor failed before registration.", { cause: launchState.error.message });
+      const run = await store.get(runId);
+      if (run.worker?.attachedAt) {
+        invariant(await this.isAlive(run.worker), "AO_WORKER_REGISTRATION_LOST", "The registered Windows worker Job Object disappeared before startup acknowledgement.");
+        return run;
+      }
+      if (terminalStates.has(run.state)) throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_MISSING", "The run terminated before its worker acknowledged the Windows Job Object.");
+      if (launchState.exited) throw new AgentOrchestrationError("AO_WORKER_LAUNCH_FAILED", "The Windows Job Object supervisor exited before the worker registered.", launchState.exited);
+      await new Promise((resolve5) => setTimeout(resolve5, 25));
+    }
+    throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_TIMEOUT", "Timed out waiting for the worker to register in its Windows Job Object.", { supervisorUnit, launcherPid: child.pid });
+  }
+  async launch({ runId, pluginRoot, stateRoot: stateRoot2, workerEntrypoint, store, terminalStates, onLaunchFailure }) {
+    const supervisorUnit = `Local\\ByteDesk-Agent-Orchestration-${runId.replaceAll("_", "-")}`;
+    const logDir = (0, import_node_path16.join)(stateRoot2, "logs");
+    const launchState = { error: null, exited: null };
+    let child;
+    try {
+      child = this.helper.spawn("supervise", [
+        "--job",
+        supervisorUnit,
+        "--stdout",
+        (0, import_node_path16.join)(logDir, `${runId}.out.log`),
+        "--stderr",
+        (0, import_node_path16.join)(logDir, `${runId}.err.log`),
+        "--memory-bytes",
+        String(8 * 1024 * 1024 * 1024),
+        "--process-limit",
+        "512",
+        "--runtime-ms",
+        String(8 * 60 * 60 * 1e3),
+        "--",
+        process.execPath,
+        workerEntrypoint,
+        "worker",
+        "--state-root",
+        stateRoot2,
+        "--run-id",
+        runId
+      ], {
+        cwd: pluginRoot,
+        env: { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: stateRoot2, AGENT_ORCHESTRATION_CURRENT_WORKER_RUN_ID: runId },
+        detached: false,
+        stdio: "ignore"
+      });
+      child.on("error", (error51) => {
+        launchState.error = error51;
+      });
+      child.on("exit", (code, signal) => {
+        launchState.exited = { code, signal };
+      });
+      await new Promise((resolveSpawn, rejectSpawn) => {
+        child.once("spawn", resolveSpawn);
+        child.once("error", rejectSpawn);
+      });
+      child.unref();
+      await store.update(runId, { worker: { pid: child.pid, processGroup: null, startIdentity: supervisorUnit, supervisorUnit, supervisorKind: "windows-job-object", startedAt: (/* @__PURE__ */ new Date()).toISOString() } }, "worker_started");
+      return await this.waitForRegistration({ runId, supervisorUnit, child, launchState, store, terminalStates });
+    } catch (error51) {
+      await onLaunchFailure?.(supervisorUnit, error51).catch(() => {
+      });
+      throw error51;
+    }
+  }
+  async attach({ runId, store, terminalStates }) {
+    const deadline = Date.now() + 5e3;
+    let run = await store.get(runId);
+    while (!run.worker?.supervisorUnit && !terminalStates.has(run.state) && Date.now() < deadline) {
+      await new Promise((resolve5) => setTimeout(resolve5, 25));
+      run = await store.get(runId);
+    }
+    if (terminalStates.has(run.state)) return run;
+    const result = await this.helper.runJson("contains", ["--job", this.validateJobName(run.worker?.supervisorUnit), "--pid", String(process.pid)], { timeoutMs: 5e3 });
+    invariant(result.contains === true, "AO_WORKER_REGISTRATION_MISSING", "The worker refused to execute outside its registered Windows Job Object.");
+    return store.update(runId, { worker: { ...run.worker, pid: process.pid, startIdentity: run.worker.supervisorUnit, attachedAt: (/* @__PURE__ */ new Date()).toISOString() } }, "worker_attached_to_supervisor");
+  }
+  async probe() {
+    try {
+      const result = await this.helper.runJson("doctor", [], { timeoutMs: 1e4 });
+      return { ok: result.jobObjects === true, kind: "windows-job-object", helper: this.helper.helperPath, ...result };
+    } catch (error51) {
+      return { ok: false, kind: "windows-job-object", helper: this.helper.helperPath, error: error51.message };
+    }
+  }
+  async runProbe({ pluginRoot, stateRoot: stateRoot2, providerId, candidate }) {
+    const job = `Local\\ByteDesk-Agent-Orchestration-${newId(`probe-${providerId}`).replaceAll("_", "-")}`;
+    return this.helper.runJson("run", [
+      "--job",
+      job,
+      "--memory-bytes",
+      String(2 * 1024 * 1024 * 1024),
+      "--process-limit",
+      "128",
+      "--runtime-ms",
+      "30000",
+      "--",
+      process.execPath,
+      (0, import_node_path16.join)(pluginRoot, "dist", "probe-worker.cjs"),
+      pluginRoot,
+      stateRoot2,
+      pluginRoot,
+      providerId,
+      candidate
+    ], { timeoutMs: 4e4 });
+  }
+};
+var WindowsNativeRuntimeFactory = class extends PlatformRuntimeFactory {
+  supports({ platform = process.platform, backend = process.env.AGENT_ORCHESTRATION_RUNTIME_BACKEND } = {}) {
+    return platform === "win32" && (!backend || backend === "windows-native");
+  }
+  create({ pluginRoot }) {
+    const helper = new WindowsNativeHelperAdapter({ pluginRoot });
+    return new PlatformRuntime({
+      id: "windows-native",
+      hostPlatform: "win32",
+      executableResolver: new WindowsExecutableResolver(),
+      workerSupervisor: new WindowsJobObjectSupervisorStrategy({ helper }),
+      providerSandbox: new WindowsAppContainerSandboxStrategy({ helper }),
+      metadata: { isolation: "appcontainer", supervision: "windows-job-object" }
+    });
+  }
+};
+
+// src/platform/factory.mjs
+var factories = [new WindowsNativeRuntimeFactory(), new LinuxRuntimeFactory()];
+function createPlatformRuntime(context = {}) {
+  const requested = context.backend || process.env.AGENT_ORCHESTRATION_RUNTIME_BACKEND;
+  const factory = factories.find((candidate) => candidate.supports({ ...context, backend: requested }));
+  invariant(factory, "AO_PLATFORM_RUNTIME_UNAVAILABLE", "No secure orchestration runtime is available for this platform.", { platform: context.platform || process.platform, requested });
+  return factory.create({ ...context, backend: requested });
+}
+
 // src/session/capability.mjs
 var import_node_crypto6 = require("node:crypto");
-var import_node_path13 = require("node:path");
+var import_node_path17 = require("node:path");
 var SESSION_TTL_MS = 10 * 60 * 1e3;
 var COOKIE_NAME = "ao_session";
 function sessionMetaPath(stateRoot2, runId) {
-  return (0, import_node_path13.join)(stateRoot2, "runs", runId, "session.json");
+  return (0, import_node_path17.join)(stateRoot2, "runs", runId, "session.json");
 }
 function mintCapability(now = Date.now()) {
   const token = (0, import_node_crypto6.randomBytes)(32).toString("base64url");
@@ -27921,16 +28524,16 @@ function assertLoopbackBind(address) {
 
 // src/session/host.mjs
 var import_node_http = require("node:http");
-var import_node_path15 = require("node:path");
-var import_node_child_process4 = require("node:child_process");
+var import_node_path19 = require("node:path");
+var import_node_child_process5 = require("node:child_process");
 
 // src/session/http.mjs
-var import_node_fs4 = require("node:fs");
-var import_promises11 = require("node:fs/promises");
-var import_node_path14 = require("node:path");
+var import_node_fs5 = require("node:fs");
+var import_promises15 = require("node:fs/promises");
+var import_node_path18 = require("node:path");
 
 // src/session/sse.mjs
-var import_node_fs3 = require("node:fs");
+var import_node_fs4 = require("node:fs");
 var HEARTBEAT_MS = 15e3;
 var POLL_MS = 250;
 function writeSse(res, chunk) {
@@ -27997,13 +28600,15 @@ data: ${JSON.stringify(serializeError(error51))}
     });
   }, POLL_MS);
   let watcher = null;
-  try {
-    watcher = (0, import_node_fs3.watch)(store.runDir(runId), { persistent: false }, () => {
-      flush().catch(() => {
+  if (process.platform !== "win32") {
+    try {
+      watcher = (0, import_node_fs4.watch)(store.runDir(runId), { persistent: false }, () => {
+        flush().catch(() => {
+        });
       });
-    });
-  } catch {
-    watcher = null;
+    } catch {
+      watcher = null;
+    }
   }
   function close() {
     if (closed) return;
@@ -28042,7 +28647,7 @@ function allowedHost(hostHeader, port) {
 function safeUiFile(uiRoot, urlPath) {
   const decoded = decodeURIComponent(urlPath.split("?")[0] || "/");
   const relative2 = decoded === "/" || decoded.endsWith("/") ? "index.html" : decoded.replace(/^\/+/, "");
-  const resolved = (0, import_node_path14.normalize)((0, import_node_path14.join)(uiRoot, relative2));
+  const resolved = (0, import_node_path18.normalize)((0, import_node_path18.join)(uiRoot, relative2));
   if (!resolved.startsWith(uiRoot)) return null;
   return resolved;
 }
@@ -28107,7 +28712,7 @@ function createSessionHandler({ stateRoot: stateRoot2, uiRoot, hostNonce, port, 
         send(res, 401, { code: "AO_SESSION_UNAUTHORIZED", message: "Session cookie does not match this run." });
         return;
       }
-      const snapshot = await readJson((0, import_node_path14.join)(stateRoot2, "runs", runId, "snapshot.json"), null);
+      const snapshot = await readJson((0, import_node_path18.join)(stateRoot2, "runs", runId, "snapshot.json"), null);
       if (!snapshot) {
         send(res, 404, { code: "AO_RUN_NOT_FOUND", message: "Run snapshot is missing." });
         return;
@@ -28127,7 +28732,7 @@ function createSessionHandler({ stateRoot: stateRoot2, uiRoot, hostNonce, port, 
         send(res, 400, { code: "AO_SESSION_AFTER", message: "after / Last-Event-ID must be a non-negative integer." });
         return;
       }
-      const snapshot = await readJson((0, import_node_path14.join)(stateRoot2, "runs", runId, "snapshot.json"), null);
+      const snapshot = await readJson((0, import_node_path18.join)(stateRoot2, "runs", runId, "snapshot.json"), null);
       if (!snapshot) {
         send(res, 404, { code: "AO_RUN_NOT_FOUND", message: "Run snapshot is missing." });
         return;
@@ -28189,8 +28794,8 @@ function createSessionHandler({ stateRoot: stateRoot2, uiRoot, hostNonce, port, 
 }
 async function exchangeCapability(stateRoot2, token, res) {
   const tokenHash = sha256(token);
-  const dir = (0, import_node_path14.join)(stateRoot2, "runs");
-  const names = await (0, import_promises11.readdir)(dir).catch((error51) => error51?.code === "ENOENT" ? [] : Promise.reject(error51));
+  const dir = (0, import_node_path18.join)(stateRoot2, "runs");
+  const names = await (0, import_promises15.readdir)(dir).catch((error51) => error51?.code === "ENOENT" ? [] : Promise.reject(error51));
   let matched = null;
   for (const runId of names.filter((name) => RUN_ID2.test(name))) {
     const meta3 = await readSessionMeta(stateRoot2, runId);
@@ -28228,13 +28833,13 @@ async function streamUi(res, file2) {
     send(res, 403, { code: "AO_SESSION_FORBIDDEN", message: "Forbidden." });
     return;
   }
-  const info = await (0, import_promises11.lstat)(file2).catch(() => null);
+  const info = await (0, import_promises15.lstat)(file2).catch(() => null);
   if (!info?.isFile()) {
     send(res, 404, { code: "AO_SESSION_NOT_FOUND", message: "Not found." });
     return;
   }
-  res.writeHead(200, { "content-type": TYPES[(0, import_node_path14.extname)(file2)] ?? "application/octet-stream" });
-  (0, import_node_fs4.createReadStream)(file2).pipe(res);
+  res.writeHead(200, { "content-type": TYPES[(0, import_node_path18.extname)(file2)] ?? "application/octet-stream" });
+  (0, import_node_fs5.createReadStream)(file2).pipe(res);
 }
 
 // src/session/host.mjs
@@ -28242,10 +28847,10 @@ var BIND = "127.0.0.1";
 var PORT_MIN = 45e3;
 var PORT_MAX = 45032;
 function sessionHostDir(stateRoot2) {
-  return (0, import_node_path15.join)(stateRoot2, "session-host");
+  return (0, import_node_path19.join)(stateRoot2, "session-host");
 }
 function leasePath(stateRoot2) {
-  return (0, import_node_path15.join)(sessionHostDir(stateRoot2), "lease.json");
+  return (0, import_node_path19.join)(sessionHostDir(stateRoot2), "lease.json");
 }
 async function startSessionHost({ stateRoot: stateRoot2, uiRoot, port: requestedPort = void 0, controls = void 0 }) {
   assertLoopbackBind(BIND);
@@ -28272,7 +28877,7 @@ async function startSessionHost({ stateRoot: stateRoot2, uiRoot, port: requested
     port
   };
   await atomicWriteJson(leasePath(stateRoot2), lease);
-  await atomicWriteJson((0, import_node_path15.join)(sessionHostDir(stateRoot2), "port.json"), { port });
+  await atomicWriteJson((0, import_node_path19.join)(sessionHostDir(stateRoot2), "port.json"), { port });
   return {
     server,
     port,
@@ -28286,7 +28891,7 @@ async function startSessionHost({ stateRoot: stateRoot2, uiRoot, port: requested
 }
 async function preferredPort(stateRoot2, requestedPort) {
   if (Number.isInteger(requestedPort) && requestedPort > 0) return requestedPort;
-  const stored = await readJson((0, import_node_path15.join)(sessionHostDir(stateRoot2), "port.json"), null);
+  const stored = await readJson((0, import_node_path19.join)(sessionHostDir(stateRoot2), "port.json"), null);
   if (Number.isInteger(stored?.port) && stored.port >= PORT_MIN) return stored.port;
   return PORT_MIN;
 }
@@ -28295,6 +28900,7 @@ async function listenLoopback(preferred) {
   for (let port = PORT_MIN; port <= PORT_MAX; port += 1) {
     if (port !== preferred) candidates.push(port);
   }
+  candidates.push(0);
   let lastError = null;
   for (const port of candidates) {
     try {
@@ -28343,7 +28949,7 @@ async function openSessionBrowser(url2) {
   if (process.env.AGENT_ORCHESTRATION_OPEN_BROWSER === "0") return false;
   if (!process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) return false;
   try {
-    (0, import_node_child_process4.spawn)("xdg-open", [url2], { stdio: "ignore", detached: true, shell: false }).unref();
+    (0, import_node_child_process5.spawn)("xdg-open", [url2], { stdio: "ignore", detached: true, shell: false }).unref();
     return true;
   } catch {
     return false;
@@ -28367,10 +28973,12 @@ function normalizeIntentInput(input) {
 }
 async function externalProviderPaths(pluginRoot, discovered, executableRoots = []) {
   const paths = [];
+  const canonicalPluginRoot = await (0, import_promises16.realpath)(pluginRoot).catch(() => (0, import_node_path20.resolve)(pluginRoot));
+  const canonicalRoots = await Promise.all(executableRoots.map((root) => (0, import_promises16.realpath)(root).catch(() => (0, import_node_path20.resolve)(root))));
   for (const candidate of discovered) {
-    const resolvedCandidate = await (0, import_promises12.realpath)(candidate).catch(() => (0, import_node_path16.resolve)(candidate));
-    if (isPathWithin(pluginRoot, candidate) || isPathWithin(pluginRoot, resolvedCandidate)) continue;
-    if (!executableRoots.some((root) => isPathWithin(root, resolvedCandidate))) continue;
+    const resolvedCandidate = await (0, import_promises16.realpath)(candidate).catch(() => (0, import_node_path20.resolve)(candidate));
+    if (isPathWithin(canonicalPluginRoot, resolvedCandidate)) continue;
+    if (!canonicalRoots.some((root) => isPathWithin(root, resolvedCandidate))) continue;
     if (!paths.includes(resolvedCandidate)) paths.push(resolvedCandidate);
   }
   return paths;
@@ -28378,7 +28986,7 @@ async function externalProviderPaths(pluginRoot, discovered, executableRoots = [
 async function discoverProviderPaths(pluginRoot, adapter, discovered, resolverRunner = runFile) {
   const candidates = [...discovered];
   for (const resolver of adapter.candidateResolvers ?? []) {
-    invariant((0, import_node_path16.isAbsolute)(resolver.executable), "AO_PROVIDER_RESOLVER_NOT_ABSOLUTE", "Provider candidate resolvers must use an absolute executable path.");
+    invariant((0, import_node_path20.isAbsolute)(resolver.executable), "AO_PROVIDER_RESOLVER_NOT_ABSOLUTE", "Provider candidate resolvers must use an absolute executable path.");
     try {
       const { stdout } = await resolverRunner(resolver.executable, [...resolver.args], { timeoutMs: 5e3 });
       candidates.push(...stdout.split("\n").map((line) => line.trim()).filter(Boolean));
@@ -28388,7 +28996,7 @@ async function discoverProviderPaths(pluginRoot, adapter, discovered, resolverRu
   return externalProviderPaths(pluginRoot, candidates, adapter.executableRoots);
 }
 var OrchestrationService = class {
-  constructor({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot2 = stateRoot(), workerEntrypoint = (0, import_node_path16.join)(pluginRoot, "dist", "cli.cjs"), maxConcurrentRuns = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_RUNS || 4), maxConcurrentPerProvider = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_PER_PROVIDER || 2), autoRecover = true, recoveryGraceMs = 5e3, sessionUiRoot = (0, import_node_path16.join)(pluginRoot, "dist", "session-ui") } = {}) {
+  constructor({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot2 = stateRoot(), workerEntrypoint = (0, import_node_path20.join)(pluginRoot, "dist", "cli.cjs"), platformRuntime = createPlatformRuntime({ pluginRoot, stateRoot: stateRoot2 }), maxConcurrentRuns = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_RUNS || 4), maxConcurrentPerProvider = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_PER_PROVIDER || 2), autoRecover = true, recoveryGraceMs = 5e3, sessionUiRoot = (0, import_node_path20.join)(pluginRoot, "dist", "session-ui") } = {}) {
     this.pluginRoot = pluginRoot;
     this.stateRoot = stateRoot2;
     this.workerEntrypoint = workerEntrypoint;
@@ -28397,6 +29005,7 @@ var OrchestrationService = class {
     this.autoRecover = autoRecover;
     this.recoveryGraceMs = recoveryGraceMs;
     this.sessionUiRoot = sessionUiRoot;
+    this.platformRuntime = platformRuntime;
     this.sessionHost = null;
     this.store = new RunStore(stateRoot2);
     this.availabilityCache = null;
@@ -28417,40 +29026,16 @@ var OrchestrationService = class {
     }
     return this;
   }
+  async dispose() {
+    if (this.recoveryTimer) clearInterval(this.recoveryTimer);
+    this.recoveryTimer = null;
+    if (this.sessionHost?.server) {
+      await new Promise((resolveClose) => this.sessionHost.server.close(resolveClose));
+    }
+    this.sessionHost = null;
+  }
   async terminateRecordedProcessGroup(worker) {
-    if (worker?.supervisorUnit) {
-      invariant(/^agent-orchestration-run-[a-z0-9-]+\.(?:scope|service)$/.test(worker.supervisorUnit), "AO_UNSAFE_SUPERVISOR_UNIT", "Refusing to operate on an untrusted supervisor unit name.");
-      const readState = async () => {
-        const { stdout } = await runUserManagerFile("/usr/bin/systemctl", ["--user", "show", worker.supervisorUnit, "--property=LoadState", "--property=ActiveState"], { timeoutMs: 5e3 });
-        return Object.fromEntries(stdout.split("\n").filter(Boolean).map((line) => line.split(/=(.*)/s).slice(0, 2)));
-      };
-      const before = await readState().catch(() => null);
-      if (!before) return false;
-      if (before.LoadState === "not-found" || ["inactive", "failed"].includes(before.ActiveState)) return true;
-      try {
-        await runUserManagerFile("/usr/bin/systemctl", ["--user", "stop", worker.supervisorUnit], { timeoutMs: 1e4 });
-      } catch {
-        return false;
-      }
-      const after = await readState().catch(() => null);
-      return Boolean(after && (after.LoadState === "not-found" || ["inactive", "failed"].includes(after.ActiveState)));
-    }
-    if (!worker?.processGroup || !processGroupExists(worker.processGroup)) return true;
-    const identity = worker.pid ? await processStartIdentity(worker.pid) : null;
-    if (!identity || identity !== worker.startIdentity) return false;
-    try {
-      process.kill(-worker.processGroup, "SIGTERM");
-    } catch (error51) {
-      if (error51?.code !== "ESRCH") throw error51;
-    }
-    if (!await waitForProcessGroupExit(worker.processGroup, 2e3)) {
-      try {
-        process.kill(-worker.processGroup, "SIGKILL");
-      } catch (error51) {
-        if (error51?.code !== "ESRCH") throw error51;
-      }
-    }
-    return waitForProcessGroupExit(worker.processGroup, 2e3);
+    return this.platformRuntime.workerSupervisor.terminate(worker);
   }
   async recoverInterruptedRuns() {
     const now = Date.now();
@@ -28460,8 +29045,7 @@ var OrchestrationService = class {
       await this.store.withLock(`recovery:${candidate.runId}`, async () => {
         const run = await this.store.get(candidate.runId);
         if (!WORKER_STATES.has(run.state)) return;
-        const identity = run.worker?.pid ? await processStartIdentity(run.worker.pid) : null;
-        const workerAlive = Boolean(identity && identity === run.worker?.startIdentity);
+        const workerAlive = await this.platformRuntime.workerSupervisor.isAlive(run.worker);
         if (workerAlive && run.state !== "cleanup_required") return;
         if (run.state === "queued") {
           await this.launchWorker(run.runId);
@@ -28619,29 +29203,7 @@ var OrchestrationService = class {
     return this.openRunSession(runId);
   }
   async waitForWorkerRegistration(runId, supervisorUnit, child, launchState, timeoutMs = 1e4) {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-      if (launchState.error) {
-        throw new AgentOrchestrationError("AO_WORKER_LAUNCH_FAILED", "The worker supervisor failed before registration.", { cause: launchState.error.message });
-      }
-      const run = await this.store.get(runId);
-      if (run.worker?.attachedAt) {
-        if (TERMINAL_STATES.has(run.state)) return run;
-        const identity = await processStartIdentity(run.worker.pid);
-        invariant(identity && identity === run.worker.startIdentity, "AO_WORKER_REGISTRATION_LOST", "The registered worker disappeared before startup acknowledgement.");
-        const scope = await runUserManagerFile("/usr/bin/systemctl", ["--user", "show", supervisorUnit, "--property=LoadState", "--property=ActiveState", "--property=ControlGroup"], { timeoutMs: 2e3 }).catch(() => null);
-        const properties = scope && Object.fromEntries(scope.stdout.split("\n").filter(Boolean).map((line) => line.split(/=(.*)/s).slice(0, 2)));
-        if (properties?.LoadState === "loaded" && properties.ActiveState === "active" && properties.ControlGroup) return run;
-      }
-      if (TERMINAL_STATES.has(run.state)) {
-        throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_MISSING", "The run terminated before its worker acknowledged the supervisor scope.");
-      }
-      if (launchState.exited) {
-        throw new AgentOrchestrationError("AO_WORKER_LAUNCH_FAILED", "systemd-run exited before the worker registered.", launchState.exited);
-      }
-      await new Promise((resolve5) => setTimeout(resolve5, 25));
-    }
-    throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_TIMEOUT", "Timed out waiting for the worker to register in its named supervisor scope.", { supervisorUnit, launcherPid: child.pid });
+    return this.platformRuntime.workerSupervisor.waitForRegistration({ runId, supervisorUnit, child, launchState, store: this.store, terminalStates: TERMINAL_STATES, timeoutMs });
   }
   async quarantineWorkerLaunchFailure(runId, supervisorUnit, error51) {
     const stopped = await this.terminateRecordedProcessGroup({ supervisorUnit }).catch(() => false);
@@ -28656,82 +29218,19 @@ var OrchestrationService = class {
     }, stopped ? "worker_launch_failed" : "worker_launch_cleanup_required");
   }
   async launchWorker(runId) {
-    const logDir = await ensurePrivateDir((0, import_node_path16.join)(this.stateRoot, "logs"));
-    const unitBase = `agent-orchestration-run-${runId.replaceAll("_", "-")}`;
-    const supervisorUnit = `${unitBase}.scope`;
-    const args = [
-      "--user",
-      "--scope",
-      "--collect",
-      "--quiet",
-      `--unit=${unitBase}`,
-      "--property=KillMode=control-group",
-      "--property=TimeoutStopSec=3s",
-      "--property=RuntimeMaxSec=8h",
-      "--property=MemoryMax=8G",
-      "--property=TasksMax=512",
-      "/usr/bin/prlimit",
-      "--core=0",
-      "--fsize=1073741824",
-      "--",
-      process.execPath,
-      this.workerEntrypoint,
-      "worker",
-      "--state-root",
-      this.stateRoot,
-      "--run-id",
-      runId
-    ];
-    const stdout = await (0, import_promises12.open)((0, import_node_path16.join)(logDir, `${runId}.out.log`), "a", 384);
-    const stderr = await (0, import_promises12.open)((0, import_node_path16.join)(logDir, `${runId}.err.log`), "a", 384);
-    let child;
-    const launchState = { error: null, exited: null };
-    try {
-      child = await spawnUserManagerFile("/usr/bin/systemd-run", args, {
-        cwd: this.pluginRoot,
-        env: { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: this.stateRoot, AGENT_ORCHESTRATION_CURRENT_WORKER_RUN_ID: runId },
-        detached: true,
-        stdio: ["ignore", stdout.fd, stderr.fd],
-        shell: false
-      });
-      child.on("error", (error51) => {
-        launchState.error = error51;
-      });
-      child.on("exit", (code, signal) => {
-        launchState.exited = { code, signal };
-      });
-      await new Promise((resolveSpawn, rejectSpawn) => {
-        child.once("spawn", resolveSpawn);
-        child.once("error", rejectSpawn);
-      });
-      child.unref();
-      const startIdentity = await processStartIdentity(child.pid);
-      invariant(startIdentity, "AO_WORKER_LAUNCH_FAILED", "Could not establish the systemd-run launcher identity.");
-      await this.store.update(runId, { worker: { pid: child.pid, processGroup: null, startIdentity, supervisorUnit, startedAt: (/* @__PURE__ */ new Date()).toISOString() } }, "worker_started");
-      return await this.waitForWorkerRegistration(runId, supervisorUnit, child, launchState);
-    } catch (error51) {
-      await this.quarantineWorkerLaunchFailure(runId, supervisorUnit, error51).catch(() => {
-      });
-      throw error51;
-    } finally {
-      await stdout.close().catch(() => {
-      });
-      await stderr.close().catch(() => {
-      });
-    }
+    return this.platformRuntime.workerSupervisor.launch({
+      runId,
+      pluginRoot: this.pluginRoot,
+      stateRoot: this.stateRoot,
+      workerEntrypoint: this.workerEntrypoint,
+      store: this.store,
+      terminalStates: TERMINAL_STATES,
+      onLaunchFailure: (supervisorUnit, error51) => this.quarantineWorkerLaunchFailure(runId, supervisorUnit, error51)
+    });
   }
   async worker(runId) {
-    const deadline = Date.now() + 5e3;
-    let run = await this.store.get(runId);
-    while (!run.worker?.supervisorUnit && !TERMINAL_STATES.has(run.state) && Date.now() < deadline) {
-      await new Promise((resolve5) => setTimeout(resolve5, 25));
-      run = await this.store.get(runId);
-    }
+    const run = await this.platformRuntime.workerSupervisor.attach({ runId, store: this.store, terminalStates: TERMINAL_STATES });
     if (TERMINAL_STATES.has(run.state)) return run;
-    const { stdout: controlGroup } = await runUserManagerFile("/usr/bin/systemctl", ["--user", "show", run.worker?.supervisorUnit, "--property=ControlGroup", "--value"], { timeoutMs: 5e3 });
-    const ownCgroups = await (0, import_promises12.readFile)("/proc/self/cgroup", "utf8");
-    invariant(controlGroup && ownCgroups.includes(controlGroup), "AO_WORKER_REGISTRATION_MISSING", "The worker refused to execute outside its registered supervisor cgroup.");
-    run = await this.store.update(runId, { worker: { ...run.worker, pid: process.pid, startIdentity: await processStartIdentity(process.pid), attachedAt: (/* @__PURE__ */ new Date()).toISOString() } }, "worker_attached_to_supervisor");
     return executeRun({ store: this.store, runId, pluginRoot: this.pluginRoot, stateRoot: this.stateRoot });
   }
   async getRun(input) {
@@ -28889,25 +29388,27 @@ var OrchestrationService = class {
   }
   async doctor() {
     const providerExecutables = Object.values(PROVIDER_ADAPTERS).map((adapter) => [adapter.providerId, adapter.executable]);
-    const executableChecks = await Promise.all([
-      ...providerExecutables,
-      ["git", "git"],
-      ["bwrap", "bwrap"],
-      ["slirp4netns", "slirp4netns"],
-      ["systemd-run", "systemd-run"],
-      ["prlimit", "prlimit"]
-    ].map(async ([id, command]) => {
+    const infrastructureExecutables = [
+      ...this.platformRuntime.providerSandbox.requiredExecutables,
+      ...this.platformRuntime.workerSupervisor.requiredExecutables
+    ];
+    const executableDescriptors = [
+      ...providerExecutables.map(([id, command]) => ({ id, command })),
+      { id: "git", command: "git" },
+      ...infrastructureExecutables
+    ];
+    const uniqueExecutableDescriptors = [...new Map(executableDescriptors.map((entry) => [entry.id, entry])).values()];
+    const executableChecks = await Promise.all(uniqueExecutableDescriptors.map(async ({ id, command }) => {
       try {
-        const { stdout } = await runFile("/usr/bin/which", ["-a", command], { timeoutMs: 5e3 });
-        const discovered = [...new Set(stdout.split("\n").filter(Boolean))];
+        const discovered = await this.platformRuntime.executableResolver.findAll(command);
         const paths = PROVIDER_ADAPTERS[id] ? await discoverProviderPaths(this.pluginRoot, PROVIDER_ADAPTERS[id], discovered) : discovered;
         return { id, command, ok: paths.length > 0, path: paths[0], paths };
       } catch (error51) {
         return { id, command, ok: false, error: error51.message };
       }
     }));
-    const supervisorUnit = newId("agent-orchestration-doctor").replaceAll("_", "-");
-    const supervisor = await runUserManagerFile("/usr/bin/systemd-run", ["--user", "--wait", "--collect", "--quiet", `--unit=${supervisorUnit}`, "/usr/bin/true"], { timeoutMs: 1e4 }).then(() => ({ ok: true, kind: "systemd-user-cgroup" }), (error51) => ({ ok: false, kind: "systemd-user-cgroup", error: error51.message }));
+    const supervisor = await this.platformRuntime.workerSupervisor.probe({ pluginRoot: this.pluginRoot, stateRoot: this.stateRoot });
+    const sandbox = await this.platformRuntime.providerSandbox.probe({ checks: executableChecks, pluginRoot: this.pluginRoot, stateRoot: this.stateRoot });
     const providerProbes = await Promise.all(PROVIDER_CATALOG.map(async (provider) => {
       const executable = executableChecks.find((entry) => entry.id === provider.providerId);
       if (!executable?.ok) return { id: provider.providerId, ready: false, reason: "executable_not_found" };
@@ -28916,31 +29417,7 @@ var OrchestrationService = class {
       let sessionProbe = null;
       for (const candidate of executable.paths) {
         try {
-          const unitName = newId(`agent-orchestration-probe-${provider.providerId}`).replaceAll("_", "-");
-          const { stdout } = await runUserManagerFile("/usr/bin/systemd-run", [
-            "--user",
-            "--scope",
-            "--collect",
-            "--quiet",
-            `--unit=${unitName}`,
-            "--property=RuntimeMaxSec=10s",
-            "--property=TimeoutStopSec=2s",
-            "--property=KillMode=control-group",
-            "--property=MemoryMax=2G",
-            "--property=TasksMax=128",
-            "/usr/bin/prlimit",
-            "--core=0",
-            "--fsize=268435456",
-            "--",
-            process.execPath,
-            (0, import_node_path16.join)(this.pluginRoot, "dist", "probe-worker.cjs"),
-            this.pluginRoot,
-            this.stateRoot,
-            this.pluginRoot,
-            provider.providerId,
-            candidate
-          ], { timeoutMs: 15e3 });
-          sessionProbe = JSON.parse(stdout);
+          sessionProbe = await this.platformRuntime.workerSupervisor.runProbe({ pluginRoot: this.pluginRoot, stateRoot: this.stateRoot, providerId: provider.providerId, candidate });
           if (!sessionProbe?.ok) continue;
           authenticationReady = true;
           selectedExecutable = candidate;
@@ -28954,12 +29431,14 @@ var OrchestrationService = class {
     }));
     const bridges = await checkBundledBridges(this.pluginRoot);
     return {
-      ok: executableChecks.find((entry) => entry.id === "git")?.ok === true && executableChecks.find((entry) => entry.id === "bwrap")?.ok === true && executableChecks.find((entry) => entry.id === "slirp4netns")?.ok === true && executableChecks.find((entry) => entry.id === "systemd-run")?.ok === true && executableChecks.find((entry) => entry.id === "prlimit")?.ok === true && supervisor.ok && bridges.every((entry) => entry.ok),
+      ok: executableChecks.find((entry) => entry.id === "git")?.ok === true && sandbox.ok && supervisor.ok && bridges.every((entry) => entry.ok),
+      runtime: this.platformRuntime.describe(),
       pluginRoot: this.pluginRoot,
       stateRoot: this.stateRoot,
       executables: executableChecks,
       providerProbes,
       supervisor,
+      sandbox,
       bundledBridges: bridges,
       availability: this.availabilityFromProbes(executableChecks, providerProbes),
       note: "Provider authentication remains owned by each provider CLI and is never read or logged by this plugin."
@@ -29002,7 +29481,7 @@ async function main() {
     const stateRoot2 = validateStateRoot(values["state-root"] || stateRoot(), PLUGIN_ROOT);
     const host = await startSessionHost({
       stateRoot: stateRoot2,
-      uiRoot: (0, import_node_path17.join)(PLUGIN_ROOT, "dist", "session-ui")
+      uiRoot: (0, import_node_path21.join)(PLUGIN_ROOT, "dist", "session-ui")
     });
     host.server.ref();
     process.stderr.write(`Orchestration session host: http://127.0.0.1:${host.port}/

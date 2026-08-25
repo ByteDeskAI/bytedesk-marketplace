@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import { access, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,6 +10,8 @@ const scratch = await mkdtemp(join(os.tmpdir(), "ao-build-check-"));
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 
 try {
+  await Promise.all([".deps.json", ".dll", ".exe", ".runtimeconfig.json"].map((suffix) =>
+    access(join(root, "dist", "windows-native", `AgentOrchestration.Windows${suffix}`))));
   const child = spawn(process.execPath, [join(root, "scripts", "build.mjs")], {
     cwd: root,
     env: { ...process.env, AO_BUILD_OUTDIR: scratch },

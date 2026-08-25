@@ -150,7 +150,8 @@ export async function removeOrchestrationWorktree(repository, workspace) {
   invariant(await realpath(commonGitDir) === repository.commonGitDir, "AO_FOREIGN_WORKTREE", "Refusing to remove a worktree registered to another repository.");
   invariant(head === workspace.baseSha, "AO_WORKTREE_HEAD_MISMATCH", "Refusing to remove a worktree whose HEAD no longer matches its broker base SHA.");
   invariant(await realpath(gitDir) === workspace.gitAdminDir, "AO_WORKSPACE_OWNERSHIP_MISMATCH", "Refusing to remove a worktree with a different Git administration entry.");
-  invariant(registeredWorktreePaths(worktreeList).includes(actualPath), "AO_FOREIGN_WORKTREE", "Refusing to remove a worktree not registered at the exact broker path.");
+  const registeredPaths = await Promise.all(registeredWorktreePaths(worktreeList).map((path) => realpath(path).catch(() => resolve(path))));
+  invariant(registeredPaths.includes(actualPath), "AO_FOREIGN_WORKTREE", "Refusing to remove a worktree not registered at the exact broker path.");
   try {
     await git(repository.checkoutRoot, ["worktree", "remove", "--force", "--", actualPath], { timeoutMs: 120_000 });
   } catch (error) {

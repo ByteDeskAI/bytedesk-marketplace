@@ -66,10 +66,12 @@ export async function attachRunEventStream({ store, runId, after, req, res }) {
   const poll = setInterval(() => { flush().catch(() => {}); }, POLL_MS);
 
   let watcher = null;
-  try {
-    watcher = watch(store.runDir(runId), { persistent: false }, () => { flush().catch(() => {}); });
-  } catch {
-    watcher = null;
+  if (process.platform !== "win32") {
+    try {
+      watcher = watch(store.runDir(runId), { persistent: false }, () => { flush().catch(() => {}); });
+    } catch {
+      watcher = null;
+    }
   }
 
   function close() {

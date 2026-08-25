@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { access, chmod, cp, lstat, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, chmod, cp, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -77,7 +77,7 @@ test("tracked install bundle starts from plugin cwd but resolves only explicit c
     assert.equal(shippedEntries.includes("ROADMAP-INVENTORY.json"), true, "package files must ship append-only roadmap identity data");
     const roadmapCheck = await run(process.execPath, [join(installed, "scripts", "roadmap.mjs"), "--check", join(installed, "ROADMAP.md")], { cwd: installed });
     assert.match(roadmapCheck.stdout, /^ROADMAP OK:/);
-    const roadmapSkill = await readFile(join(installed, "skills", "roadmap-orchestrator", "SKILL.md"), "utf8");
+    const roadmapSkill = (await readFile(join(installed, "skills", "roadmap-orchestrator", "SKILL.md"), "utf8")).replace(/\r\n?/g, "\n");
     assert.match(roadmapSkill, /^---\nname: roadmap-orchestrator\ndescription: .+\n---\n/);
     const roadmapSkillMetadata = await readFile(join(installed, "skills", "roadmap-orchestrator", "agents", "openai.yaml"), "utf8");
     assert.match(roadmapSkillMetadata, /display_name: "Roadmap Orchestrator"/);
@@ -88,14 +88,14 @@ test("tracked install bundle starts from plugin cwd but resolves only explicit c
     assert.match(agentsMd, /\| Grok Build \| Same `\.mcp\.json`/);
     assert.match(agentsMd, /\| Kimi Code \| `~\/\.kimi-code\/mcp\.json`/);
     assert.match(agentsMd, /Wire hosts with `skills\/install-orchestration-host`/);
-    const hostSkill = await readFile(join(installed, "skills", "install-orchestration-host", "SKILL.md"), "utf8");
+    const hostSkill = (await readFile(join(installed, "skills", "install-orchestration-host", "SKILL.md"), "utf8")).replace(/\r\n?/g, "\n");
     assert.match(hostSkill, /^---\nname: install-orchestration-host\n/);
 
     const transport = new StdioClientTransport({
       command: join(installed, "bin", "agent-orchestration-mcp"),
       cwd: installed,
       env: {
-        PATH: `${fakeGrokBin}:${fakeKimiBin}:${process.env.PATH}`,
+        PATH: [fakeGrokBin, fakeKimiBin, process.env.PATH].filter(Boolean).join(delimiter),
         HOME: fakeHome,
         XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
         DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS,
@@ -119,17 +119,23 @@ test("tracked install bundle starts from plugin cwd but resolves only explicit c
 
       const doctor = await client.callTool({ name: "orchestration_doctor", arguments: {} });
       const doctorPayload = JSON.parse(doctor.content[0].text);
-      assert.equal(doctorPayload.providerProbes.find((entry) => entry.id === "kimi").ready, true, JSON.stringify(doctorPayload.providerProbes.find((entry) => entry.id === "kimi"), null, 2));
+      if (process.platform === "win32") {
+        assert.equal(doctorPayload.ok, true, JSON.stringify(doctorPayload, null, 2));
+        assert.equal(doctorPayload.runtime.id, "windows-native");
+      } else {
+        assert.equal(doctorPayload.providerProbes.find((entry) => entry.id === "kimi").ready, true, JSON.stringify(doctorPayload.providerProbes.find((entry) => entry.id === "kimi"), null, 2));
+      }
 
       const planned = await client.callTool({ name: "orchestration_plan", arguments: { consumerCwd: consumer, intent: "implementation", task: "Plan a fixture change", permissionProfile: "read" } });
       assert.equal(planned.isError, undefined);
       const planPayload = JSON.parse(planned.content[0].text);
-      assert.equal(planPayload.consumer.checkoutRoot, consumer);
+      assert.equal(planPayload.consumer.checkoutRoot, await realpath(consumer));
       assert.equal(planPayload.plan.stages[0].route.selected.providerId, "codex");
 
       const missing = await client.callTool({ name: "orchestration_plan", arguments: { intent: "implementation", task: "Must fail" } });
       assert.equal(missing.isError, true);
 
+      if (process.platform !== "win32") {
       const spawned = await client.callTool({ name: "orchestration_spawn", arguments: { consumerCwd: consumer, intent: "research", provider: "grok-build", task: `WRITE_FIXTURE\nFORBIDDEN_PATH=${forbiddenPath}`, permissionProfile: "write", timeoutMs: 20_000 } });
       assert.equal(spawned.isError, undefined);
       const writeRunId = JSON.parse(spawned.content[0].text).run.runId;
@@ -167,6 +173,7 @@ test("tracked install bundle starts from plugin cwd but resolves only explicit c
       const followup = await client.callTool({ name: "orchestration_send", arguments: { consumerCwd: consumer, runId: readRunId, message: "Continue the fixture session", timeoutMs: 20_000 } });
       assert.equal(followup.isError, true);
       assert.equal(JSON.parse(followup.content[0].text).code, "AO_FOLLOWUP_UNSUPPORTED");
+      }
     } finally {
       await client.close();
     }

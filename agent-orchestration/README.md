@@ -28,13 +28,14 @@ work exists only when the MCP server starts a provider execution.
 ## Requirements
 
 - Node.js 22.13 or newer.
-- Plugin installation, MCP discovery, and durable state paths support Windows and Linux. Native
-  provider execution still requires the Linux isolation stack below; on Windows the plugin loads
-  and reports that execution prerequisite clearly instead of failing during host startup.
-- Linux with Bubblewrap (`bwrap`), `slirp4netns`, and `prlimit` for provider filesystem,
-  process, network-namespace, core-dump, and per-file isolation.
-- An active systemd user manager (`systemd-run --user`) for per-run and per-probe cgroup ownership;
-  orchestration fails closed when the user manager is unavailable.
+- One supported execution backend:
+  - **Linux:** Bubblewrap (`bwrap`), `slirp4netns`, `prlimit`, and an active systemd user manager
+    (`systemd-run --user`).
+  - **Windows native:** Windows 10 version 1809 or newer, .NET 8, AppContainer, and Job Objects.
+  - **Windows with WSL2:** a WSL2 distribution that meets the Linux requirements above.
+- On Windows, `AGENT_ORCHESTRATION_WINDOWS_BACKEND=auto` is the default. It uses the native backend
+  when its health check passes, then falls back to WSL2. Set the value to `native` or `wsl` to
+  require one backend. A required backend fails closed when a security dependency is missing.
 - At least one authenticated provider CLI:
   - Claude Code for provider ID `claude` (also a host).
   - Codex for provider ID `codex` (also a host).
@@ -44,6 +45,21 @@ work exists only when the MCP server starts a provider execution.
 Providers are optional and independent. Run the doctor after installation to see which are ready.
 Each candidate is admitted only after a bounded authenticated ACP session initialization; Kimi uses
 that handshake directly because its CLI does not expose a separate non-mutating auth-status command.
+
+## Platform architecture
+
+The public MCP contract is the same on Linux, native Windows, and Windows through WSL2. The runtime
+uses four small, replaceable design-pattern roles:
+
+- An **Abstract Factory** selects one compatible set of sandbox, worker supervisor, and executable
+  resolver implementations.
+- **Strategy** implementations contain the operating-system behavior for those three services.
+- A **Facade** gives the orchestration service one platform-neutral runtime API.
+- The WSL2 **Adapter** translates Windows paths and launches the Linux runtime without changing the
+  orchestration service or provider adapters.
+
+This split keeps provider routing and lifecycle rules reusable. Adding another operating system or
+isolation backend does not require a second orchestration implementation.
 
 Default routing is capability-aware and explainable: architecture is an adversarial max-effort
 conversation between Claude Fable (Opus fallback) and OpenAI Sol, design prefers Fable/Opus,
@@ -165,25 +181,29 @@ capacity, or mutate a workspace, and only a human roadmap steward may approve th
 - Write runs use detached Git worktrees under
   `../.<consumer-repo>-worktrees/agent-orchestration/<repository-key>/`; paths are derived from the explicitly resolved
   consumer repository, never from the marketplace or plugin cache.
-- Every provider turn runs inside Bubblewrap with an empty root, fresh `/dev`, allowlisted system and
-  provider files, a cleared environment, and a revocable provider bootstrap home. The consumer
+- Every provider turn runs inside the selected platform sandbox with allowlisted system and provider
+  files, a cleared environment, and a revocable provider bootstrap home. Linux and WSL2 use
+  Bubblewrap with an empty root and fresh `/dev`. Native Windows uses a dedicated AppContainer with
+  exact access-control entries. The consumer
   worktree is read-only for read runs and is the only writable project path for write runs; the
   `.git` marker and shared Git metadata are read-only. Per-turn provider scratch is a fresh tmpfs tree
   mounted directly at `/agent-orchestration-runtime` and is the only additional writable mount;
   broker control sources are never broadly exposed. The bundled Claude bridge disables user,
   project, and local setting sources so consumer hooks or MCP configuration cannot run during the
   credential-visible bootstrap.
-  `slirp4netns` provides
-  outbound networking from a separate namespace with host loopback disabled.
+  On Linux and WSL2, `slirp4netns` provides outbound networking from a separate namespace with host
+  loopback disabled. Native Windows grants only the AppContainer internet-client capability; it
+  does not grant private-network or loopback capability.
 - ACP client-side filesystem and terminal callbacks are denied because they execute in the broker,
-  outside Bubblewrap. Provider-native tools remain governed by the declared read/write profile inside
+  outside the provider sandbox. Provider-native tools remain governed by the declared read/write profile inside
   the sandbox. Ambient API-key and proxy variables are not forwarded through observable process argv.
 - The hash-chained journal is the recovery authority for snapshots, terminal evidence is immutable,
   stale locks/breakers are reclaimable by owner identity, and a periodic supervisor watchdog detects
   workers lost after initial startup recovery.
-- Workers and readiness probes run in uniquely named transient systemd user scopes with
-  `KillMode=control-group`, so provider descendants are reaped even if the Node leader exits. Spawn
-  succeeds only after the worker acknowledges its exact active scope; failed launches are quarantined.
+- Workers and readiness probes run in an owned process boundary: transient systemd user scopes on
+  Linux and WSL2, or Windows Job Objects with kill-on-close on native Windows. Provider descendants
+  are reaped even if the Node leader exits. Spawn succeeds only after the worker acknowledges its
+  exact active boundary; failed launches are quarantined.
   Worker scopes are capped at 8 GiB/512 tasks and readiness probes at 2 GiB/128 tasks in addition to
   their runtime deadlines. Core dumps are disabled, per-file output is capped at 1 GiB for workers
   and 256 MiB for probes, ACP frames and transports are bounded, and provider stderr is backpressured
@@ -204,21 +224,28 @@ capacity, or mutate a workspace, and only a human roadmap steward may approve th
 The launchers execute committed bundles and never build at runtime:
 
 ```text
-bin/agent-orchestration-mcp -> dist/mcp.cjs
+MCP manifests             -> dist/host-launcher.cjs -> selected host backend -> dist/mcp.cjs
 bin/agent-orchestration     -> dist/cli.cjs
 bin/provider-sandbox        -> dist/provider-sandbox.cjs
+native Windows sandbox      -> dist/windows-native/AgentOrchestration.Windows.dll
 ```
 
 Build and verify:
 
 ```sh
 npm ci
-npm run build
+npm run build:all
 npm run build:check
 npm test
 npm run test:contract
 claude plugin validate .
 ```
+
+`npm run build` rebuilds the JavaScript bundles. On Windows, `npm run build:windows-native`
+publishes the .NET helper; on other systems it verifies that the committed Windows artifacts exist.
+Set `AGENT_ORCHESTRATION_FORCE_WINDOWS_BUILD=1` only on a non-Windows cross-compilation host that is
+prepared to target Windows. `npm run build:all` runs both checks. Release packages commit both sets
+of artifacts so installed copies never build at startup.
 
 With provider credentials available, run an opt-in sandboxed write smoke (defaults to Codex):
 

@@ -327,7 +327,7 @@ export class RunStore {
     };
     const event = { ...base, hash: sha256(JSON.stringify(base)) };
     await appendFile(eventPath, `${JSON.stringify(event)}\n`, { encoding: "utf8", mode: 0o600 });
-    const handle = await open(eventPath, "r");
+    const handle = await open(eventPath, process.platform === "win32" ? "r+" : "r");
     try { await handle.sync(); } finally { await handle.close(); }
     return event;
   }

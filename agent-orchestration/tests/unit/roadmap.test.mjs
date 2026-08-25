@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -91,6 +91,7 @@ function connectFutureTaskWithEnhancement(parsed, task) {
 }
 
 function appendRecordToFence(source, fence, value) {
+  source = source.replace(/\r\n?/g, "\n");
   const opening = `\`\`\`${fence}\n[`;
   const start = source.indexOf(opening);
   assert.notEqual(start, -1, `fixture requires ${fence}`);
@@ -623,7 +624,8 @@ test("documented maintenance sequence handles new IDs plus source drift end to e
     const inventoryPath = join(plugin, "ROADMAP-INVENTORY.json");
     const sourceManifestPath = join(plugin, "ROADMAP-SOURCES.json");
     const sourceManifestBefore = readFileSync(sourceManifestPath, "utf8");
-    assert.equal(runCli("--check").status, 0, "pre-edit check must establish a green floor");
+    const precheck = runCli("--check");
+    assert.equal(precheck.status, 0, `pre-edit check must establish a green floor: ${precheck.stderr}`);
 
     const edited = freshRoadmap();
     const task = addFutureTask(edited);
@@ -828,7 +830,8 @@ test("CLI accepts only the canonical roadmap path and prints stale canonical vie
   const alias = join(PLUGIN_ROOT, ".roadmap-test-alias.md");
   try {
     writeFileSync(outside, ROADMAP_SOURCE);
-    symlinkSync(ROADMAP_PATH, alias);
+    if (process.platform === "win32") linkSync(ROADMAP_PATH, alias);
+    else symlinkSync(ROADMAP_PATH, alias);
     for (const path of [outside, alias]) {
       const result = spawnSync(process.execPath, [join(PLUGIN_ROOT, "scripts", "roadmap.mjs"), "--check", path], {
         cwd: PLUGIN_ROOT,

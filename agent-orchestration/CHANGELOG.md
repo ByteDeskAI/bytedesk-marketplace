@@ -2,6 +2,15 @@
 
 ## 0.2.0 - Unreleased
 
+- Add a reusable cross-platform runtime built with Abstract Factory, Strategy, Facade, and Adapter
+  roles. Linux keeps Bubblewrap/systemd isolation; Windows can use native AppContainer/Job Object
+  isolation or a WSL2 adapter that reuses the Linux backend.
+- Select the Windows backend with `AGENT_ORCHESTRATION_WINDOWS_BACKEND=auto|native|wsl`. Automatic
+  selection prefers a healthy native backend and falls back to a fully provisioned WSL2 backend.
+  Both explicit modes fail closed when required security dependencies are unavailable.
+- Add a committed .NET 8 Windows helper for AppContainer launch, exact filesystem access rules,
+  bounded Job Objects, owned-process verification, and cooperative-then-forceful termination.
+- Fall back to an OS-assigned loopback port when Hyper-V or WSL reserves the fixed session-host range.
 - Advertise Agent Orchestration in the Codex marketplace manifest and use Node-based MCP entries
   that load consistently on Windows and Linux.
 - Store Windows state under `LOCALAPPDATA`, retain the XDG state location on Linux, and resolve

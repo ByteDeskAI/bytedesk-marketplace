@@ -1,5 +1,6 @@
 import { access, mkdtemp, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
+import os from "node:os";
 import { createAcpRuntime, createAgentRegistry, createRuntimeStore } from "acpx/runtime";
 import { AgentOrchestrationError, invariant } from "../errors.mjs";
 import { PROVIDER_ADAPTERS, getProviderAdapter } from "../providers/adapters.mjs";
@@ -7,15 +8,16 @@ import { ensurePrivateDir, git, newId } from "../util.mjs";
 import { AUTH_BOOTSTRAP_PROMPT } from "./bootstrap.mjs";
 
 async function createEphemeralScratch(kind) {
-  for (const entry of await readdir("/dev/shm", { withFileTypes: true })) {
+  const scratchRoot = process.platform === "win32" ? os.tmpdir() : "/dev/shm";
+  for (const entry of await readdir(scratchRoot, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const match = /^agent-orchestration-(?:turn|probe-[a-z0-9-]+)-(\d+)-/.exec(entry.name);
     if (!match) continue;
     try { process.kill(Number(match[1]), 0); } catch (error) {
-      if (error?.code === "ESRCH") await rm(join("/dev/shm", entry.name), { recursive: true, force: true });
+      if (error?.code === "ESRCH") await rm(join(scratchRoot, entry.name), { recursive: true, force: true, maxRetries: 8, retryDelay: 50 });
     }
   }
-  const path = await mkdtemp(join("/dev/shm", `agent-orchestration-${kind}-${process.pid}-`));
+  const path = await mkdtemp(join(scratchRoot, `agent-orchestration-${kind}-${process.pid}-`));
   return path;
 }
 
@@ -23,7 +25,16 @@ function shellQuote(value) {
   return `'${String(value).replaceAll("'", `'\\''`)}'`;
 }
 
+function windowsQuote(value) {
+  return `"${String(value).replaceAll("\\", "/").replaceAll('"', '\\"')}"`;
+}
+
 export function providerCommandOverrides(pluginRoot, sandboxEnvironment = {}) {
+  if (process.platform === "win32") {
+    const launcher = `${windowsQuote(process.execPath)} ${windowsQuote(join(pluginRoot, "dist", "provider-sandbox.cjs"))}`;
+    return Object.fromEntries(Object.values(PROVIDER_ADAPTERS)
+      .map((adapter) => [adapter.agentTarget, `${launcher} ${windowsQuote(adapter.providerId)}`]));
+  }
   const launcher = shellQuote(join(pluginRoot, "bin", "provider-sandbox"));
   const environment = Object.entries(sandboxEnvironment)
     .map(([key, value]) => `${key}=${shellQuote(value)}`)
@@ -196,7 +207,7 @@ export async function runProviderTurn({
         }
       }
     }
-    await rm(sandboxTempDir, { recursive: true, force: true });
+    await rm(sandboxTempDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 50 });
     if (closeError && !operationError) throw closeError;
   }
 }
@@ -242,13 +253,15 @@ export async function probeProviderSession({ pluginRoot, stateRoot, cwd, provide
         if (error?.code !== "ACP_BACKEND_UNSUPPORTED_CONTROL") throw error;
       }
     }
-    await rm(sandboxTempDir, { recursive: true, force: true });
+    await rm(sandboxTempDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 50 });
   }
 }
 
 export async function checkBundledBridges(pluginRoot) {
   const checks = await Promise.all(["claude-agent-acp", "codex-acp", "provider-sandbox"].map(async (name) => {
-    const path = join(pluginRoot, "bin", name);
+    const path = process.platform === "win32"
+      ? join(pluginRoot, "dist", `${name}${name === "provider-sandbox" ? ".cjs" : ".mjs"}`)
+      : join(pluginRoot, "bin", name);
     try {
       await access(path);
       return { id: name, ok: true, path };

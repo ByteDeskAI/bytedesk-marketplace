@@ -1,6 +1,14 @@
-#!/bin/sh
-# Installed-plugin launcher. The committed bundle is authoritative: never build or install here.
-set -eu
+#!/usr/bin/env node
+// Installed-plugin launcher. The committed bundle is authoritative.
+import { spawn } from "node:child_process";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
-exec node "$ROOT/dist/mcp.cjs" "$@"
+const root = dirname(dirname(fileURLToPath(import.meta.url)));
+const child = spawn(process.execPath, [join(root, "dist", "host-launcher.cjs"), ...process.argv.slice(2)], {
+  stdio: "inherit",
+  shell: false,
+  windowsHide: true,
+});
+for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => child.kill(signal));
+child.once("exit", (code, signal) => signal ? process.kill(process.pid, signal) : process.exit(code ?? 1));

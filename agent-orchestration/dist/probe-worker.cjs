@@ -30,6 +30,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 // src/runtime/acpx-driver.mjs
 var import_promises5 = require("node:fs/promises");
 var import_node_path4 = require("node:path");
+var import_node_os3 = __toESM(require("node:os"), 1);
 
 // node_modules/acpx/dist/live-checkpoint-ClPCSdrW.js
 var import_node_fs = __toESM(require("node:fs"), 1);
@@ -25718,13 +25719,20 @@ function invariant(condition, code, message, details = void 0) {
 // src/providers/adapters.mjs
 var import_node_os2 = __toESM(require("node:os"), 1);
 var import_node_path3 = require("node:path");
-var SYSTEM_EXECUTABLE_ROOTS = Object.freeze(["/usr/bin", "/usr/local/bin"]);
+var WINDOWS_EXECUTABLE_ROOTS = Object.freeze([
+  process.env.ProgramFiles,
+  process.env["ProgramFiles(x86)"],
+  process.env.LOCALAPPDATA && (0, import_node_path3.join)(process.env.LOCALAPPDATA, "Programs"),
+  process.env.APPDATA && (0, import_node_path3.join)(process.env.APPDATA, "npm"),
+  (0, import_node_path3.join)(import_node_os2.default.homedir(), ".local", "bin")
+].filter(Boolean));
+var SYSTEM_EXECUTABLE_ROOTS = Object.freeze(process.platform === "win32" ? WINDOWS_EXECUTABLE_ROOTS : ["/usr/bin", "/usr/local/bin"]);
 var PROVIDER_ADAPTERS = Object.freeze({
   claude: Object.freeze({
     providerId: "claude",
     agentTarget: "claude",
     executable: "claude",
-    executableRoots: Object.freeze([...SYSTEM_EXECUTABLE_ROOTS, (0, import_node_path3.join)(import_node_os2.default.homedir(), ".local", "share", "claude")]),
+    executableRoots: Object.freeze([...SYSTEM_EXECUTABLE_ROOTS, (0, import_node_path3.join)(import_node_os2.default.homedir(), ".claude"), (0, import_node_path3.join)(import_node_os2.default.homedir(), ".local", "share", "claude")]),
     executableEnv: "CLAUDE_CODE_EXECUTABLE",
     bridgeLauncher: "claude-agent-acp",
     args: Object.freeze([]),
@@ -25740,7 +25748,7 @@ var PROVIDER_ADAPTERS = Object.freeze({
     providerId: "codex",
     agentTarget: "codex",
     executable: "codex",
-    executableRoots: Object.freeze([...SYSTEM_EXECUTABLE_ROOTS, (0, import_node_path3.join)(import_node_os2.default.homedir(), ".volta", "tools", "image")]),
+    executableRoots: Object.freeze([...SYSTEM_EXECUTABLE_ROOTS, (0, import_node_path3.join)(import_node_os2.default.homedir(), ".codex"), (0, import_node_path3.join)(import_node_os2.default.homedir(), ".cache", "codex-runtimes"), (0, import_node_path3.join)(import_node_os2.default.homedir(), ".volta", "tools", "image")]),
     candidateResolvers: Object.freeze([
       Object.freeze({ executable: (0, import_node_path3.join)(import_node_os2.default.homedir(), ".volta", "bin", "volta"), args: Object.freeze(["which", "codex"]) })
     ]),
@@ -25812,7 +25820,7 @@ async function runFile(command, args, options = {}) {
   return { stdout: result.stdout.trim(), stderr: result.stderr.trim() };
 }
 async function git(cwd2, args, options = {}) {
-  return runFile("/usr/bin/git", ["-C", cwd2, ...args], options);
+  return runFile(process.platform === "win32" ? "git.exe" : "/usr/bin/git", ["-C", cwd2, ...args], options);
 }
 function newId(prefix) {
   return `${prefix}_${(0, import_node_crypto3.randomUUID)()}`;
@@ -25824,23 +25832,31 @@ async function ensurePrivateDir(path3) {
 
 // src/runtime/acpx-driver.mjs
 async function createEphemeralScratch(kind) {
-  for (const entry of await (0, import_promises5.readdir)("/dev/shm", { withFileTypes: true })) {
+  const scratchRoot = process.platform === "win32" ? import_node_os3.default.tmpdir() : "/dev/shm";
+  for (const entry of await (0, import_promises5.readdir)(scratchRoot, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const match = /^agent-orchestration-(?:turn|probe-[a-z0-9-]+)-(\d+)-/.exec(entry.name);
     if (!match) continue;
     try {
       process.kill(Number(match[1]), 0);
     } catch (error51) {
-      if (error51?.code === "ESRCH") await (0, import_promises5.rm)((0, import_node_path4.join)("/dev/shm", entry.name), { recursive: true, force: true });
+      if (error51?.code === "ESRCH") await (0, import_promises5.rm)((0, import_node_path4.join)(scratchRoot, entry.name), { recursive: true, force: true, maxRetries: 8, retryDelay: 50 });
     }
   }
-  const path3 = await (0, import_promises5.mkdtemp)((0, import_node_path4.join)("/dev/shm", `agent-orchestration-${kind}-${process.pid}-`));
+  const path3 = await (0, import_promises5.mkdtemp)((0, import_node_path4.join)(scratchRoot, `agent-orchestration-${kind}-${process.pid}-`));
   return path3;
 }
 function shellQuote(value) {
   return `'${String(value).replaceAll("'", `'\\''`)}'`;
 }
+function windowsQuote(value) {
+  return `"${String(value).replaceAll("\\", "/").replaceAll('"', '\\"')}"`;
+}
 function providerCommandOverrides(pluginRoot2, sandboxEnvironment = {}) {
+  if (process.platform === "win32") {
+    const launcher2 = `${windowsQuote(process.execPath)} ${windowsQuote((0, import_node_path4.join)(pluginRoot2, "dist", "provider-sandbox.cjs"))}`;
+    return Object.fromEntries(Object.values(PROVIDER_ADAPTERS).map((adapter) => [adapter.agentTarget, `${launcher2} ${windowsQuote(adapter.providerId)}`]));
+  }
   const launcher = shellQuote((0, import_node_path4.join)(pluginRoot2, "bin", "provider-sandbox"));
   const environment = Object.entries(sandboxEnvironment).map(([key, value]) => `${key}=${shellQuote(value)}`).join(" ");
   return Object.fromEntries(Object.values(PROVIDER_ADAPTERS).map((adapter) => [adapter.agentTarget, `${environment ? `env ${environment} ` : ""}${launcher} ${shellQuote(adapter.providerId)}`]));
@@ -25905,7 +25921,7 @@ async function probeProviderSession({ pluginRoot: pluginRoot2, stateRoot: stateR
         if (error51?.code !== "ACP_BACKEND_UNSUPPORTED_CONTROL") throw error51;
       }
     }
-    await (0, import_promises5.rm)(sandboxTempDir, { recursive: true, force: true });
+    await (0, import_promises5.rm)(sandboxTempDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 50 });
   }
 }
 

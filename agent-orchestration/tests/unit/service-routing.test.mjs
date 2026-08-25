@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -20,7 +20,7 @@ async function fixture() {
   await git(consumerCwd, ["add", "README.md"]);
   await git(consumerCwd, ["commit", "-qm", "fixture"]);
   const service = await new OrchestrationService({ pluginRoot, stateRoot }).initialize();
-  return { root, consumerCwd, service, cleanup: () => rm(root, { recursive: true, force: true }) };
+  return { root, consumerCwd, service, cleanup: async () => { await service.dispose(); await rm(root, { recursive: true, force: true }); } };
 }
 
 const allAvailable = {
@@ -33,14 +33,15 @@ test("provider executable discovery excludes plugin-local binaries and aliases",
   const pluginRoot = join(root, "plugin");
   const localBinary = join(pluginRoot, "node_modules", ".bin", "codex");
   const externalBinary = join(root, "external-codex");
-  const externalAliasToLocal = join(root, "aliased-local-codex");
+  const externalAliasRoot = join(root, "aliased-local-bin");
+  const externalAliasToLocal = join(externalAliasRoot, "codex");
   try {
     await mkdir(join(pluginRoot, "node_modules", ".bin"), { recursive: true });
     await Promise.all([writeFile(localBinary, "local\n"), writeFile(externalBinary, "external\n")]);
-    await symlink(localBinary, externalAliasToLocal);
+    await symlink(join(pluginRoot, "node_modules", ".bin"), externalAliasRoot, "junction");
     assert.deepEqual(
       await externalProviderPaths(pluginRoot, [localBinary, externalAliasToLocal, externalBinary], [root]),
-      [externalBinary],
+      [await realpath(externalBinary)],
     );
   } finally { await rm(root, { recursive: true, force: true }); }
 });
@@ -65,7 +66,7 @@ test("provider executable discovery resolves a trusted target when PATH contains
       assert.deepEqual(args, ["which", "codex"]);
       return { stdout: `${target}\n` };
     });
-    assert.deepEqual(paths, [target]);
+    assert.deepEqual(paths, [await realpath(target)]);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

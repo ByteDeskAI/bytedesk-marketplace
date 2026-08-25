@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { access, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
-import { join, dirname, basename } from "node:path";
+import { join, dirname, basename, isAbsolute } from "node:path";
 import test from "node:test";
 import { git } from "../../src/util.mjs";
 import { resolveConsumerRepository } from "../../src/workspace/repository.mjs";
@@ -49,9 +49,9 @@ test("worktrees derive from the consumer repository sibling and register only th
   try {
     const repo = await resolveConsumerRepository({ consumerCwd: fx.consumer, pluginRoot: fx.plugin, stateRoot: fx.state, requireClean: true });
     const workspace = await createOrchestrationWorktree(repo, { runId: "run_fixture", taskId: "implementation" });
-    assert.equal(orchestrationWorktreeRoot(repo), join(dirname(fx.consumer), `.${basename(fx.consumer)}-worktrees`, "agent-orchestration", repo.repositoryKey));
+    assert.equal(orchestrationWorktreeRoot(repo), join(dirname(repo.checkoutRoot), `.${basename(repo.checkoutRoot)}-worktrees`, "agent-orchestration", repo.repositoryKey));
     assert.ok(workspace.path.startsWith(orchestrationWorktreeRoot(repo)));
-    assert.equal((await git(workspace.path, ["rev-parse", "--git-common-dir"])).stdout.startsWith("/"), true);
+    assert.equal(isAbsolute((await git(workspace.path, ["rev-parse", "--git-common-dir"])).stdout), true);
     assert.equal((await git(workspace.path, ["rev-parse", "HEAD"])).stdout, repo.baseSha);
     assert.equal(workspace.runId, "run_fixture");
     assert.equal(dirname(workspace.ownership.path), join(dirname(workspace.path), ".broker-ownership"));
@@ -95,10 +95,12 @@ test("cleanup verifies the marker hash, base SHA, and exact Git administration e
     const repo = await resolveConsumerRepository({ consumerCwd: fx.consumer, pluginRoot: fx.plugin, stateRoot: fx.state, requireClean: true });
     const workspace = await createOrchestrationWorktree(repo, { runId: "run_integrity", taskId: "implementation" });
     const markerPath = join(workspace.path, ".git");
-    const marker = await readFile(markerPath);
+    const markerBackup = `${markerPath}.original`;
+    await rename(markerPath, markerBackup);
     await writeFile(markerPath, "gitdir: /tmp/foreign\n");
     await assert.rejects(() => removeOrchestrationWorktree(repo, workspace), { code: "AO_GIT_METADATA_CHANGED" });
-    await writeFile(markerPath, marker);
+    await rm(markerPath, { force: true });
+    await rename(markerBackup, markerPath);
 
     const ownership = JSON.parse(await readFile(workspace.ownership.path, "utf8"));
     const wrongBase = "f".repeat(40);

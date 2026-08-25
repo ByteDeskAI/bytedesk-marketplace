@@ -68,6 +68,10 @@ async function listenLoopback(preferred) {
   for (let port = PORT_MIN; port <= PORT_MAX; port += 1) {
     if (port !== preferred) candidates.push(port);
   }
+  // Hyper-V and WSL can reserve contiguous Windows port ranges without
+  // exposing a listening process. Let the OS select a free loopback port
+  // after the stable range is exhausted.
+  candidates.push(0);
   let lastError = null;
   for (const port of candidates) {
     try {

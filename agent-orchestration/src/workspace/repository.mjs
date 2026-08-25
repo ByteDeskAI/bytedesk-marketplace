@@ -3,8 +3,11 @@ import { join } from "node:path";
 import { access } from "node:fs/promises";
 import { assertAbsolutePath, assertDirectory, canonicalPath, git, isPathWithin, sha256 } from "../util.mjs";
 import { invariant } from "../errors.mjs";
+import { runtimePath } from "../platform/path-mapper.mjs";
 
 export async function resolveConsumerRepository({ consumerCwd, pluginRoot, stateRoot, requireClean = false }) {
+  invariant(typeof consumerCwd === "string" && consumerCwd.length > 0, "AO_CONSUMER_CWD_REQUIRED", "consumerCwd is required and must be an absolute repository or worktree path.");
+  consumerCwd = await runtimePath(consumerCwd);
   assertAbsolutePath(consumerCwd, "consumerCwd");
   await assertDirectory(consumerCwd, "consumerCwd");
 

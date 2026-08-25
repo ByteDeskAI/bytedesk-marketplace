@@ -2,6 +2,7 @@ import { execFile as execFileCallback } from "node:child_process";
 import { randomUUID, createHash } from "node:crypto";
 import { mkdir, open, readFile, realpath, rename, stat } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 import { invariant } from "./errors.mjs";
 
@@ -21,7 +22,7 @@ export async function runFile(command, args, options = {}) {
 }
 
 export async function git(cwd, args, options = {}) {
-  return runFile("/usr/bin/git", ["-C", cwd, ...args], options);
+  return runFile(process.platform === "win32" ? "git.exe" : "/usr/bin/git", ["-C", cwd, ...args], options);
 }
 
 export function assertAbsolutePath(value, fieldName) {
@@ -76,12 +77,23 @@ export async function atomicWriteJson(path, value) {
   } finally {
     await handle.close();
   }
-  await rename(tempPath, path);
-  const directory = await open(dirname(path), "r");
-  try {
-    await directory.sync();
-  } finally {
-    await directory.close();
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await rename(tempPath, path);
+      break;
+    } catch (error) {
+      const transientWindowsLock = process.platform === "win32" && ["EACCES", "EBUSY", "EPERM"].includes(error?.code);
+      if (!transientWindowsLock || attempt >= 7) throw error;
+      await delay(10 * (attempt + 1));
+    }
+  }
+  if (process.platform !== "win32") {
+    const directory = await open(dirname(path), "r");
+    try {
+      await directory.sync();
+    } finally {
+      await directory.close();
+    }
   }
 }
 

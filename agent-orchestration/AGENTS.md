@@ -43,7 +43,8 @@ prior request, or a provider session. Reject missing, relative, nonexistent, or 
 2. Default the workspace mount to read-only. Writes require explicit caller authority scoped to the
    consumer worktree. Spawned catalog CLIs always run in yolo / skip-permissions mode (ACP
    auto-approves tools after auth bootstrap; Codex `agent-full-access`; Grok `--always-approve`).
-   Isolation is Bubblewrap, not inner permission prompts.
+   Isolation comes from the selected governed platform sandbox, not inner permission prompts:
+   Bubblewrap on Linux/WSL2 or AppContainer on native Windows.
 3. State lives outside the immutable installed plugin root and is namespaced by consumer, provider,
    orchestration, and execution IDs. Never mix sessions from two worktrees with the same repo name.
 4. Credentials stay with provider CLIs. Doctor reports ready/not-ready and remediation without
@@ -58,7 +59,7 @@ prior request, or a provider session. Reject missing, relative, nonexistent, or 
 9. Writable execution uses a detached worktree rooted at
    `../.<consumer-repo>-worktrees/agent-orchestration/<repository-key>/<run>/<task>`. It is always derived from the
     repository resolved from `consumerCwd`; marketplace and plugin process paths are forbidden inputs.
-    Every provider is wrapped by Bubblewrap with an allowlisted root and cleared environment: the
+    Every provider is wrapped by the selected platform sandbox with an allowlisted root and cleared environment: the
     workspace permission matches the profile, shared Git metadata is read-only, and only broker
     scratch is additionally writable. Outbound networking uses a separate `slirp4netns` namespace
     with host loopback disabled. ACP client filesystem/terminal callbacks and ambient credential or
@@ -67,8 +68,11 @@ prior request, or a provider session. Reject missing, relative, nonexistent, or 
     mountpoints. One constant broker-authored turn runs with permission requests denied. After
     AUTH_READY, provider tools are auto-approved. Credential copies stay mounted until process
     teardown because subscription CLIs re-read them; host auth files are never mounted.
-    Scratch is mounted directly at `/agent-orchestration-runtime`, and the bundled Claude bridge must
-    keep user, project, and local setting sources disabled during bootstrap.
+    Linux and WSL2 use Bubblewrap plus `slirp4netns`; native Windows uses AppContainer plus Job
+    Objects and grants internet-client capability without private-network or loopback capability.
+    Scratch is mounted directly at `/agent-orchestration-runtime` on Linux/WSL2 and mapped to an
+    exact broker-owned directory on native Windows. The bundled Claude bridge must keep user,
+    project, and local setting sources disabled during bootstrap.
 10. Architecture uses `architecture.adversarial.v1`: Claude Fable/Opus proposal, independent
     OpenAI Sol critique, same-Claude revision, and a deterministic approval gate. The proposal and
     critique run at max effort with no silent downgrade.
@@ -94,8 +98,9 @@ prior request, or a provider session. Reject missing, relative, nonexistent, or 
 
 ## Packaging invariants
 
-- `dist/mcp.cjs`, `dist/cli.cjs`, `dist/provider-sandbox.cjs`, `dist/probe-worker.cjs`, and
-  `dist/session-ui/` are committed, authoritative install artifacts.
+- `dist/host-launcher.cjs`, `dist/mcp.cjs`, `dist/cli.cjs`, `dist/provider-sandbox.cjs`,
+  `dist/probe-worker.cjs`, `dist/windows-native/`, and `dist/session-ui/` are committed,
+  authoritative install artifacts.
 - `bin/` only locates and executes those bundles. It never installs, invokes `npx`, or rebuilds.
 - A compatibility claim requires launching the actual installed cache copy with no `node_modules`
   and no path back to the source checkout.
@@ -112,7 +117,7 @@ Run the narrow tests first, then the package gate:
 
 ```sh
 npm ci
-npm run build
+npm run build:all
 npm run build:check
 npm test
 npm run test:contract

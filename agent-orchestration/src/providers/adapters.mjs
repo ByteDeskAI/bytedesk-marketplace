@@ -1,7 +1,14 @@
 import os from "node:os";
 import { join } from "node:path";
 
-const SYSTEM_EXECUTABLE_ROOTS = Object.freeze(["/usr/bin", "/usr/local/bin"]);
+const WINDOWS_EXECUTABLE_ROOTS = Object.freeze([
+  process.env.ProgramFiles,
+  process.env["ProgramFiles(x86)"],
+  process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, "Programs"),
+  process.env.APPDATA && join(process.env.APPDATA, "npm"),
+  join(os.homedir(), ".local", "bin"),
+].filter(Boolean));
+const SYSTEM_EXECUTABLE_ROOTS = Object.freeze(process.platform === "win32" ? WINDOWS_EXECUTABLE_ROOTS : ["/usr/bin", "/usr/local/bin"]);
 
 /**
  * Trusted transport descriptors. They are deliberately separate from routing
@@ -14,7 +21,7 @@ export const PROVIDER_ADAPTERS = Object.freeze({
     providerId: "claude",
     agentTarget: "claude",
     executable: "claude",
-    executableRoots: Object.freeze([...SYSTEM_EXECUTABLE_ROOTS, join(os.homedir(), ".local", "share", "claude")]),
+    executableRoots: Object.freeze([...SYSTEM_EXECUTABLE_ROOTS, join(os.homedir(), ".claude"), join(os.homedir(), ".local", "share", "claude")]),
     executableEnv: "CLAUDE_CODE_EXECUTABLE",
     bridgeLauncher: "claude-agent-acp",
     args: Object.freeze([]),
@@ -30,7 +37,7 @@ export const PROVIDER_ADAPTERS = Object.freeze({
     providerId: "codex",
     agentTarget: "codex",
     executable: "codex",
-    executableRoots: Object.freeze([...SYSTEM_EXECUTABLE_ROOTS, join(os.homedir(), ".volta", "tools", "image")]),
+    executableRoots: Object.freeze([...SYSTEM_EXECUTABLE_ROOTS, join(os.homedir(), ".codex"), join(os.homedir(), ".cache", "codex-runtimes"), join(os.homedir(), ".volta", "tools", "image")]),
     candidateResolvers: Object.freeze([
       Object.freeze({ executable: join(os.homedir(), ".volta", "bin", "volta"), args: Object.freeze(["which", "codex"]) }),
     ]),

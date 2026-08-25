@@ -1,3 +1,9 @@
 # The plugin carries file-level SHA-256 manifests. Git must preserve every
 # published byte across Windows, macOS, and Linux checkouts.
 design-system/** -text
+
+# Agent Orchestration commits generated JavaScript bundles and uses shell
+# launchers on Linux. Keep their bytes stable in Windows checkouts.
+agent-orchestration/** text eol=lf
+agent-orchestration/dist/windows-native/*.dll binary
+agent-orchestration/dist/windows-native/*.exe binary

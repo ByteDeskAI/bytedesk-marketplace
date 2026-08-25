@@ -2,7 +2,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const PLUGIN_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -115,6 +115,10 @@ function canonical(value) {
 
 function digest(value) {
   return createHash("sha256").update(JSON.stringify(canonical(value))).digest("hex");
+}
+
+function canonicalSourceText(value) {
+  return value.replace(/\r\n?/g, "\n");
 }
 
 function normalizedText(value) {
@@ -396,7 +400,8 @@ export function generateSourceManifest(source, { rootDir = PLUGIN_ROOT } = {}) {
       issue(`Source seam file '${seamPath}' is missing or unreadable under the plugin root.`);
       continue;
     }
-    const lineCount = contents.split(/\r?\n/).length;
+    contents = canonicalSourceText(contents);
+    const lineCount = contents.split("\n").length;
     for (const [start, end] of reference.spans) {
       if (start < 1 || end < start || end > lineCount) issue(`Source seam '${seamPath}:${start}-${end}' is outside 1-${lineCount}.`);
     }
@@ -1324,8 +1329,9 @@ export function validateRoadmap(source, { rootDir = PLUGIN_ROOT, sourceManifest,
             issue(`${label}: source seam '${seamPath}' is not a readable file.`);
             continue;
           }
+          contents = canonicalSourceText(contents);
           const actualHash = createHash("sha256").update(contents).digest("hex");
-          const actualLineCount = contents.split(/\r?\n/).length;
+          const actualLineCount = contents.split("\n").length;
           if (actualHash !== manifestEntry.sha256 || actualLineCount !== manifestEntry.lineCount) {
             issue(`${label}: source seam '${seamPath}' does not match ROADMAP-SOURCES.json; refresh the manifest from the source checkout.`);
           }
@@ -1735,9 +1741,6 @@ async function main() {
   const canonicalRoot = await realpath(PLUGIN_ROOT);
   const canonicalRoadmapPath = await realpath(join(canonicalRoot, "ROADMAP.md"));
   const requestedRoadmapPath = resolve(process.cwd(), requestedPath ?? canonicalRoadmapPath);
-  if (requestedRoadmapPath !== canonicalRoadmapPath) {
-    throw new Error(`Roadmap path must be canonical plugin file '${canonicalRoadmapPath}'.`);
-  }
   let roadmapPath;
   try {
     roadmapPath = await realpath(requestedRoadmapPath);
@@ -1752,7 +1755,7 @@ async function main() {
     throw new Error("Mutating roadmap maintenance commands require the canonical source checkout; installed caches are read-only.");
   }
   const atomicWrite = async (targetPath, contents) => {
-    const temporaryPath = join(canonicalRoot, `.${targetPath.slice(targetPath.lastIndexOf("/") + 1)}.${process.pid}.tmp`);
+    const temporaryPath = join(canonicalRoot, `.${basename(targetPath)}.${process.pid}.tmp`);
     try {
       await writeFile(temporaryPath, contents, { mode: 0o644 });
       await rename(temporaryPath, targetPath);

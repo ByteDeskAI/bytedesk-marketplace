@@ -3,12 +3,12 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { access, chmod, copyFile, lstat, mkdir, mkdtemp, open, readdir, realpath, rm, unlink, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
-import { dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
+import { delimiter, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import os from "node:os";
 import readline from "node:readline";
 import { AgentOrchestrationError, invariant, serializeError } from "./errors.mjs";
-import { isPathWithin } from "./util.mjs";
+import { atomicWriteJson, isPathWithin } from "./util.mjs";
 import { getProviderAdapter } from "./providers/adapters.mjs";
 import { AUTH_BOOTSTRAP_PROMPT } from "./runtime/bootstrap.mjs";
 
@@ -23,7 +23,7 @@ async function pathExists(path) {
 }
 
 async function resolveExecutable(name, env = process.env) {
-  for (const directory of (env.PATH ?? "").split(":")) {
+  for (const directory of (env.PATH ?? "").split(delimiter)) {
     if (!directory) continue;
     const candidate = join(directory, name);
     try {
@@ -64,10 +64,29 @@ async function trustedCommand(providerId, pluginRoot, selectedExecutable) {
   const providerExecutable = await realpath(selected);
   invariant(!isPathWithin(pluginRoot, providerExecutable), "AO_PROVIDER_EXECUTABLE_UNTRUSTED", "A provider executable cannot come from the plugin installation.");
   invariant(adapter.executableRoots.some((root) => isPathWithin(root, providerExecutable)), "AO_PROVIDER_EXECUTABLE_UNTRUSTED", "The provider executable is outside its declared trusted installation roots.", { providerId, providerExecutable });
-  const executable = adapter.bridgeLauncher
-    ? join(pluginRoot, "bin", adapter.bridgeLauncher)
-    : providerExecutable;
-  return { adapter, providerExecutable, command: [executable, ...adapter.args] };
+  const command = adapter.bridgeLauncher
+    ? process.platform === "win32"
+      ? [process.execPath, "--preserve-symlinks", "--preserve-symlinks-main", join(pluginRoot, "dist", `${adapter.bridgeLauncher}.mjs`)]
+      : [join(pluginRoot, "bin", adapter.bridgeLauncher)]
+    : [providerExecutable];
+  return { adapter, providerExecutable, command: [...command, ...adapter.args] };
+}
+
+async function prepareNativeProviderHome(adapter, brokerControlDir) {
+  if (!adapter.sandboxHome) return { environment: {}, bootstrapFiles: [], root: null };
+  const root = join(brokerControlDir, "provider-home", adapter.providerId);
+  await mkdir(root, { recursive: true, mode: 0o700 });
+  const bootstrapFiles = [];
+  for (const name of adapter.sandboxHome.bootstrapFiles) {
+    const source = join(os.homedir(), adapter.sandboxHome.sourceDir, name);
+    try { await access(source); } catch { continue; }
+    const target = join(root, name);
+    await mkdir(dirname(target), { recursive: true, mode: 0o700 });
+    await copyFile(await realpath(source), target, constants.COPYFILE_EXCL);
+    await chmod(target, 0o600);
+    bootstrapFiles.push(target);
+  }
+  return { environment: { [adapter.sandboxHome.env]: root }, bootstrapFiles, root };
 }
 
 async function prepareProviderHome(adapter, brokerControlDir, tempDir) {
@@ -131,8 +150,13 @@ async function revokeBootstrapFiles(paths) {
     const info = await lstat(path).catch((error) => error?.code === "ENOENT" ? null : Promise.reject(error));
     if (!info) continue;
     invariant(info.isFile() && !info.isSymbolicLink(), "AO_BOOTSTRAP_FILE_REPLACED", "Provider bootstrap material was replaced before revocation.");
-    const handle = await open(path, constants.O_WRONLY | constants.O_TRUNC | constants.O_NOFOLLOW);
-    try { await handle.sync(); } finally { await handle.close(); }
+    const handle = process.platform === "win32"
+      ? await open(path, "r+")
+      : await open(path, constants.O_WRONLY | constants.O_TRUNC | constants.O_NOFOLLOW);
+    try {
+      if (process.platform === "win32") await handle.truncate(0);
+      await handle.sync();
+    } finally { await handle.close(); }
     await unlink(path);
   }
 }
@@ -167,9 +191,31 @@ function sandboxEnvironment({ adapter, providerExecutable, command, providerHome
     USER: os.userInfo().username,
     LOGNAME: os.userInfo().username,
     TMPDIR: tempDir,
-    PATH: [...new Set(["/usr/local/bin", "/usr/bin", "/bin", dirname(process.execPath), dirname(providerExecutable), dirname(command[0])])].join(":"),
+    PATH: [...new Set(process.platform === "win32"
+      ? [dirname(process.execPath), dirname(providerExecutable), dirname(command[0]), process.env.SystemRoot && join(process.env.SystemRoot, "System32")].filter(Boolean)
+      : ["/usr/local/bin", "/usr/bin", "/bin", dirname(process.execPath), dirname(providerExecutable), dirname(command[0])])].join(delimiter),
     ...providerHomeEnvironment,
   };
+  if (process.platform === "win32") {
+    environment.TEMP = tempDir;
+    environment.TMP = tempDir;
+    environment.USERPROFILE = sandboxHome || tempDir;
+    environment.SystemRoot = process.env.SystemRoot;
+    environment.WINDIR = process.env.WINDIR;
+    environment.SystemDrive = process.env.SystemDrive;
+    environment.ComSpec = process.env.ComSpec;
+    environment.PATHEXT = process.env.PATHEXT;
+    environment.OS = process.env.OS;
+    environment.PROCESSOR_ARCHITECTURE = process.env.PROCESSOR_ARCHITECTURE;
+    environment.NUMBER_OF_PROCESSORS = process.env.NUMBER_OF_PROCESSORS;
+    for (const key of [
+      "LOCALAPPDATA", "APPDATA", "ProgramData", "ProgramFiles", "ProgramW6432",
+      "CommonProgramFiles", "CommonProgramW6432", "HOMEDRIVE", "HOMEPATH",
+      "USERNAME", "USERDOMAIN", "PUBLIC",
+    ]) {
+      if (typeof process.env[key] === "string") environment[key] = process.env[key];
+    }
+  }
   for (const key of BASE_ENV_KEYS) {
     if (typeof process.env[key] === "string") environment[key] = process.env[key];
   }
@@ -261,6 +307,139 @@ async function sandboxPlan({ providerId, pluginRoot, workspacePath, commonGitDir
 
 export async function sandboxArguments(params) {
   return (await sandboxPlan(params)).args;
+}
+
+/** Strategy payload consumed by the native Windows AppContainer helper. */
+export async function windowsSandboxPlan({ providerId, pluginRoot, workspacePath, commonGitDir, sandboxTempDir, brokerControlDir, providerExecutable, permissionProfile }) {
+  invariant(process.platform === "win32" || process.env.AGENT_ORCHESTRATION_TEST_WINDOWS_SANDBOX === "1", "AO_WINDOWS_SANDBOX_PLATFORM", "The AppContainer sandbox strategy runs only on Windows.");
+  invariant(isAbsolute(workspacePath) && isAbsolute(commonGitDir) && isAbsolute(sandboxTempDir) && isAbsolute(brokerControlDir), "AO_SANDBOX_PATH_NOT_ABSOLUTE", "Sandbox paths must be absolute.");
+  const [workspace, gitDir, tempDir, controlDir, canonicalPluginRoot] = await Promise.all([
+    realpath(workspacePath), realpath(commonGitDir), realpath(sandboxTempDir), realpath(brokerControlDir), realpath(pluginRoot),
+  ]);
+  if (permissionProfile === "write") invariant(!isPathWithin(workspace, gitDir), "AO_UNSAFE_GIT_LAYOUT", "Shared Git metadata cannot be inside the writable workspace.");
+  const gitFile = join(workspace, ".git");
+  const gitMarker = await lstat(gitFile);
+  if (permissionProfile === "write") invariant(gitMarker.isFile(), "AO_UNSAFE_GIT_LAYOUT", "A write workspace must be a linked worktree with a .git pointer file.");
+  const controlInfo = await lstat(controlDir);
+  invariant(controlInfo.isDirectory() && !controlInfo.isSymbolicLink(), "AO_UNSAFE_BROKER_CONTROL_DIR", "Broker control path must be a real directory.");
+  const trusted = await trustedCommand(providerId, canonicalPluginRoot, providerExecutable);
+  const { adapter, providerExecutable: executable } = trusted;
+  const command = [...trusted.command];
+  let sandboxExecutable = executable;
+  const protectedWindowsRoot = (path) => {
+    const roots = [process.env.ProgramFiles, process.env["ProgramFiles(x86)"], process.env.SystemRoot].filter(Boolean);
+    return roots.some((root) => isPathWithin(root, path));
+  };
+  if (protectedWindowsRoot(executable)) {
+    const stagedProvider = join(tempDir, "native-provider");
+    await mkdir(stagedProvider, { recursive: true, mode: 0o700 });
+    sandboxExecutable = join(stagedProvider, parse(executable).base);
+    await copyFile(executable, sandboxExecutable, constants.COPYFILE_EXCL);
+    if (!adapter.bridgeLauncher) command[0] = sandboxExecutable;
+  }
+  if (adapter.bridgeLauncher) {
+    const stagedRuntime = join(tempDir, "native-runtime");
+    await mkdir(stagedRuntime, { recursive: true, mode: 0o700 });
+    const stagedNode = join(stagedRuntime, "node.exe");
+    await copyFile(await realpath(process.execPath), stagedNode, constants.COPYFILE_EXCL);
+    command[0] = stagedNode;
+  }
+  invariant(!/[.](?:bat|cmd)$/i.test(command[0]), "AO_WINDOWS_PROVIDER_SHIM_UNSUPPORTED", "Native Windows isolation requires a provider executable, not a batch or command shim.", { providerId, executable: command[0] });
+  const providerHome = await prepareNativeProviderHome(adapter, controlDir);
+  const environment = sandboxEnvironment({ adapter, providerExecutable: sandboxExecutable, command, providerHomeEnvironment: providerHome.environment, tempDir, permissionProfile });
+  const readablePaths = [
+    canonicalPluginRoot,
+    gitFile,
+    gitDir,
+    protectedWindowsRoot(executable) ? null : dirname(executable),
+    dirname(command[0]),
+  ].filter(Boolean);
+  const writablePaths = [tempDir];
+  if (providerHome.root) writablePaths.push(providerHome.root);
+  if (permissionProfile === "write") writablePaths.push(workspace);
+  else readablePaths.push(workspace);
+  const profileSuffix = `${process.pid}-${Date.now().toString(36)}`.replace(/[^a-z0-9-]/gi, "").slice(-32);
+  return {
+    helper: join(canonicalPluginRoot, "dist", "windows-native", "AgentOrchestration.Windows.dll"),
+    config: {
+      profileName: `ByteDesk.AO.${profileSuffix}`,
+      // AppContainer process creation needs a writable current directory on
+      // some Windows builds. ACP still receives the explicit workspace path,
+      // whose ACL remains read-only for read profiles.
+      workingDirectory: tempDir,
+      readablePaths: [...new Set(readablePaths)],
+      writablePaths: [...new Set(writablePaths)],
+      protectedPaths: providerHome.bootstrapFiles,
+      allowInternet: true,
+      memoryBytes: 8 * 1024 * 1024 * 1024,
+      processLimit: 512,
+      runtimeMilliseconds: 8 * 60 * 60 * 1000,
+    },
+    command,
+    environment,
+    bootstrapFiles: providerHome.bootstrapFiles,
+  };
+}
+
+async function runWindowsSandbox({ providerId, pluginRoot }) {
+  const brokerControlDir = await mkdtemp(join(os.tmpdir(), `agent-orchestration-broker-${process.pid}-`));
+  let child;
+  const plan = await windowsSandboxPlan({
+    providerId,
+    pluginRoot,
+    workspacePath: process.env.ao_sandbox_workspace,
+    commonGitDir: process.env.ao_sandbox_common_git_dir,
+    sandboxTempDir: process.env.ao_sandbox_temp_dir,
+    brokerControlDir,
+    providerExecutable: process.env.ao_provider_executable,
+    permissionProfile: process.env.ao_sandbox_permission_profile,
+  }).catch(async (error) => {
+    await rm(brokerControlDir, { recursive: true, force: true });
+    throw error;
+  });
+  const configPath = join(brokerControlDir, "appcontainer.json");
+  await atomicWriteJson(configPath, plan.config);
+  let bootstrapRevoked = false;
+  const revokeBootstrap = async () => {
+    if (bootstrapRevoked) return;
+    await revokeBootstrapFiles(plan.bootstrapFiles);
+    bootstrapRevoked = true;
+  };
+  try {
+    const dotnet = join(process.env.ProgramFiles || "C:\\Program Files", "dotnet", "dotnet.exe");
+    child = spawn(dotnet, [plan.helper, "sandbox", "--config", configPath, "--", ...plan.command], {
+      stdio: ["pipe", "pipe", "pipe"],
+      env: plan.environment,
+      cwd: plan.config.workingDirectory,
+      windowsHide: true,
+      shell: false,
+    });
+    let stderrBytes = 0;
+    child.stderr.on("data", (chunk) => {
+      stderrBytes += chunk.length;
+      if (stderrBytes > 8 * 1024 * 1024) {
+        child.kill("SIGKILL");
+        return;
+      }
+      if (!process.stderr.write(chunk)) {
+        child.stderr.pause();
+        process.stderr.once("drain", () => child.stderr.resume());
+      }
+    });
+    const childOutcome = new Promise((resolveOutcome, rejectOutcome) => {
+      child.once("error", rejectOutcome);
+      child.once("exit", (code, signal) => resolveOutcome({ code, signal }));
+    });
+    const proxyDone = startAcpProxy(child, revokeBootstrap);
+    const outcome = await childOutcome;
+    await proxyDone;
+    if (outcome.signal) process.kill(process.pid, outcome.signal);
+    else process.exitCode = outcome.code ?? 1;
+  } finally {
+    child?.kill("SIGKILL");
+    await revokeBootstrap();
+    await rm(brokerControlDir, { recursive: true, force: true });
+  }
 }
 
 async function readBubblewrapInfo(stream, timeoutMs = 10_000) {
@@ -484,6 +663,7 @@ export function startAcpProxy(child, revokeBootstrap, { inputStream = process.st
 async function main() {
   const providerId = process.argv[2];
   const pluginRoot = await realpath(fileURLToPath(new URL("..", import.meta.url)));
+  if (process.platform === "win32") return runWindowsSandbox({ providerId, pluginRoot });
   for (const entry of await readdir("/dev/shm", { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const match = /^agent-orchestration-broker-(\d+)-/.exec(entry.name);
@@ -583,7 +763,7 @@ async function main() {
   else process.exitCode = outcome.code ?? 1;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && resolve(fileURLToPath(import.meta.url)) === resolve(process.argv[1])) {
   main().catch((error) => {
     process.stderr.write(`[agent-orchestration-sandbox] ${JSON.stringify(serializeError(error))}\n`);
     process.exitCode = 1;

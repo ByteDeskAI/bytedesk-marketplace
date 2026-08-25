@@ -4,7 +4,7 @@
  * Spawn targets stay the trusted catalog (claude, codex, grok-build, kimi).
  */
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -157,7 +157,11 @@ export function applyHostInstall(plan, { dryRun = false, spawn = spawnSync } = {
       } else if (action.kind === "symlink") {
         mkdirSync(path.dirname(action.to), { recursive: true });
         rmSync(action.to, { recursive: true, force: true });
-        symlinkSync(action.from, action.to);
+        if (process.platform === "win32" && !lstatSync(action.from).isDirectory()) {
+          copyFileSync(action.from, action.to);
+        } else {
+          symlinkSync(action.from, action.to, process.platform === "win32" ? "junction" : undefined);
+        }
         results.push({ host: hostPlan.host, action, status: "ok" });
       } else if (action.kind === "exec") {
         const ran = spawn(action.command, action.args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });

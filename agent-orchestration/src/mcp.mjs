@@ -2,6 +2,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { OrchestrationService } from "./service.mjs";
 import { serializeError } from "./errors.mjs";
 import { TASK_INTENTS } from "./policy/catalog.mjs";
@@ -257,7 +259,7 @@ process.stdout.on("error", (error) => {
   throw error;
 });
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && resolve(fileURLToPath(import.meta.url)) === resolve(process.argv[1])) {
   main().catch((error) => {
     process.stderr.write(`[agent-orchestration] ${JSON.stringify(serializeError(error))}\n`);
     process.exitCode = 1;

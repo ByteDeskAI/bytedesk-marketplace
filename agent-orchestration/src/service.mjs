@@ -1,16 +1,16 @@
-import { open, readFile, realpath } from "node:fs/promises";
+import { realpath } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 import { getRoutingExplanation, routeTask } from "./policy/index.mjs";
 import { createExecutionPlan, PROTOCOL_VERSION } from "./protocols/index.mjs";
 import { PROVIDER_ADAPTERS, PROVIDER_CATALOG, MODEL_CATALOG, getProviderDescriptor } from "./providers/index.mjs";
 import { PLUGIN_ROOT, stateRoot as resolveStateRoot, validateStateRoot } from "./config.mjs";
 import { AgentOrchestrationError, invariant } from "./errors.mjs";
-import { ensurePrivateDir, isPathWithin, newId, processGroupExists, processStartIdentity, runFile, waitForProcessGroupExit } from "./util.mjs";
+import { isPathWithin, runFile } from "./util.mjs";
 import { resolveConsumerRepository } from "./workspace/repository.mjs";
 import { RunStore, TERMINAL_STATES } from "./state/store.mjs";
 import { cleanupRun, executeRun } from "./runtime/engine.mjs";
 import { checkBundledBridges } from "./runtime/acpx-driver.mjs";
-import { runUserManagerFile, spawnUserManagerFile } from "./runtime/user-bus.mjs";
+import { createPlatformRuntime } from "./platform/factory.mjs";
 import { capabilityUrl, isExpired, mintCapability, readSessionMeta, writeSessionMeta } from "./session/capability.mjs";
 import { openSessionBrowser, probeSessionHost, startSessionHost } from "./session/host.mjs";
 
@@ -32,10 +32,12 @@ function normalizeIntentInput(input) {
 
 export async function externalProviderPaths(pluginRoot, discovered, executableRoots = []) {
   const paths = [];
+  const canonicalPluginRoot = await realpath(pluginRoot).catch(() => resolve(pluginRoot));
+  const canonicalRoots = await Promise.all(executableRoots.map((root) => realpath(root).catch(() => resolve(root))));
   for (const candidate of discovered) {
     const resolvedCandidate = await realpath(candidate).catch(() => resolve(candidate));
-    if (isPathWithin(pluginRoot, candidate) || isPathWithin(pluginRoot, resolvedCandidate)) continue;
-    if (!executableRoots.some((root) => isPathWithin(root, resolvedCandidate))) continue;
+    if (isPathWithin(canonicalPluginRoot, resolvedCandidate)) continue;
+    if (!canonicalRoots.some((root) => isPathWithin(root, resolvedCandidate))) continue;
     if (!paths.includes(resolvedCandidate)) paths.push(resolvedCandidate);
   }
   return paths;
@@ -54,7 +56,7 @@ export async function discoverProviderPaths(pluginRoot, adapter, discovered, res
 }
 
 export class OrchestrationService {
-  constructor({ pluginRoot = PLUGIN_ROOT, stateRoot = resolveStateRoot(), workerEntrypoint = join(pluginRoot, "dist", "cli.cjs"), maxConcurrentRuns = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_RUNS || 4), maxConcurrentPerProvider = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_PER_PROVIDER || 2), autoRecover = true, recoveryGraceMs = 5_000, sessionUiRoot = join(pluginRoot, "dist", "session-ui") } = {}) {
+  constructor({ pluginRoot = PLUGIN_ROOT, stateRoot = resolveStateRoot(), workerEntrypoint = join(pluginRoot, "dist", "cli.cjs"), platformRuntime = createPlatformRuntime({ pluginRoot, stateRoot }), maxConcurrentRuns = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_RUNS || 4), maxConcurrentPerProvider = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_PER_PROVIDER || 2), autoRecover = true, recoveryGraceMs = 5_000, sessionUiRoot = join(pluginRoot, "dist", "session-ui") } = {}) {
     this.pluginRoot = pluginRoot;
     this.stateRoot = stateRoot;
     this.workerEntrypoint = workerEntrypoint;
@@ -63,6 +65,7 @@ export class OrchestrationService {
     this.autoRecover = autoRecover;
     this.recoveryGraceMs = recoveryGraceMs;
     this.sessionUiRoot = sessionUiRoot;
+    this.platformRuntime = platformRuntime;
     this.sessionHost = null;
     this.store = new RunStore(stateRoot);
     this.availabilityCache = null;
@@ -83,30 +86,17 @@ export class OrchestrationService {
     return this;
   }
 
+  async dispose() {
+    if (this.recoveryTimer) clearInterval(this.recoveryTimer);
+    this.recoveryTimer = null;
+    if (this.sessionHost?.server) {
+      await new Promise((resolveClose) => this.sessionHost.server.close(resolveClose));
+    }
+    this.sessionHost = null;
+  }
+
   async terminateRecordedProcessGroup(worker) {
-    if (worker?.supervisorUnit) {
-      invariant(/^agent-orchestration-run-[a-z0-9-]+\.(?:scope|service)$/.test(worker.supervisorUnit), "AO_UNSAFE_SUPERVISOR_UNIT", "Refusing to operate on an untrusted supervisor unit name.");
-      const readState = async () => {
-        const { stdout } = await runUserManagerFile("/usr/bin/systemctl", ["--user", "show", worker.supervisorUnit, "--property=LoadState", "--property=ActiveState"], { timeoutMs: 5_000 });
-        return Object.fromEntries(stdout.split("\n").filter(Boolean).map((line) => line.split(/=(.*)/s).slice(0, 2)));
-      };
-      const before = await readState().catch(() => null);
-      if (!before) return false;
-      if (before.LoadState === "not-found" || ["inactive", "failed"].includes(before.ActiveState)) return true;
-      try { await runUserManagerFile("/usr/bin/systemctl", ["--user", "stop", worker.supervisorUnit], { timeoutMs: 10_000 }); } catch { return false; }
-      const after = await readState().catch(() => null);
-      return Boolean(after && (after.LoadState === "not-found" || ["inactive", "failed"].includes(after.ActiveState)));
-    }
-    if (!worker?.processGroup || !processGroupExists(worker.processGroup)) return true;
-    const identity = worker.pid ? await processStartIdentity(worker.pid) : null;
-    // A numeric PGID is reusable. Never signal unless the recorded leader is
-    // still present and its start identity proves ownership of this group.
-    if (!identity || identity !== worker.startIdentity) return false;
-    try { process.kill(-worker.processGroup, "SIGTERM"); } catch (error) { if (error?.code !== "ESRCH") throw error; }
-    if (!await waitForProcessGroupExit(worker.processGroup, 2_000)) {
-      try { process.kill(-worker.processGroup, "SIGKILL"); } catch (error) { if (error?.code !== "ESRCH") throw error; }
-    }
-    return waitForProcessGroupExit(worker.processGroup, 2_000);
+    return this.platformRuntime.workerSupervisor.terminate(worker);
   }
 
   async recoverInterruptedRuns() {
@@ -117,8 +107,7 @@ export class OrchestrationService {
       await this.store.withLock(`recovery:${candidate.runId}`, async () => {
         const run = await this.store.get(candidate.runId);
         if (!WORKER_STATES.has(run.state)) return;
-        const identity = run.worker?.pid ? await processStartIdentity(run.worker.pid) : null;
-        const workerAlive = Boolean(identity && identity === run.worker?.startIdentity);
+        const workerAlive = await this.platformRuntime.workerSupervisor.isAlive(run.worker);
         if (workerAlive && run.state !== "cleanup_required") return;
         if (run.state === "queued") {
           await this.launchWorker(run.runId);
@@ -300,29 +289,7 @@ export class OrchestrationService {
   }
 
   async waitForWorkerRegistration(runId, supervisorUnit, child, launchState, timeoutMs = 10_000) {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-      if (launchState.error) {
-        throw new AgentOrchestrationError("AO_WORKER_LAUNCH_FAILED", "The worker supervisor failed before registration.", { cause: launchState.error.message });
-      }
-      const run = await this.store.get(runId);
-      if (run.worker?.attachedAt) {
-        if (TERMINAL_STATES.has(run.state)) return run;
-        const identity = await processStartIdentity(run.worker.pid);
-        invariant(identity && identity === run.worker.startIdentity, "AO_WORKER_REGISTRATION_LOST", "The registered worker disappeared before startup acknowledgement.");
-        const scope = await runUserManagerFile("/usr/bin/systemctl", ["--user", "show", supervisorUnit, "--property=LoadState", "--property=ActiveState", "--property=ControlGroup"], { timeoutMs: 2_000 }).catch(() => null);
-        const properties = scope && Object.fromEntries(scope.stdout.split("\n").filter(Boolean).map((line) => line.split(/=(.*)/s).slice(0, 2)));
-        if (properties?.LoadState === "loaded" && properties.ActiveState === "active" && properties.ControlGroup) return run;
-      }
-      if (TERMINAL_STATES.has(run.state)) {
-        throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_MISSING", "The run terminated before its worker acknowledged the supervisor scope.");
-      }
-      if (launchState.exited) {
-        throw new AgentOrchestrationError("AO_WORKER_LAUNCH_FAILED", "systemd-run exited before the worker registered.", launchState.exited);
-      }
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
-    throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_TIMEOUT", "Timed out waiting for the worker to register in its named supervisor scope.", { supervisorUnit, launcherPid: child.pid });
+    return this.platformRuntime.workerSupervisor.waitForRegistration({ runId, supervisorUnit, child, launchState, store: this.store, terminalStates: TERMINAL_STATES, timeoutMs });
   }
 
   async quarantineWorkerLaunchFailure(runId, supervisorUnit, error) {
@@ -339,60 +306,20 @@ export class OrchestrationService {
   }
 
   async launchWorker(runId) {
-    const logDir = await ensurePrivateDir(join(this.stateRoot, "logs"));
-    const unitBase = `agent-orchestration-run-${runId.replaceAll("_", "-")}`;
-    const supervisorUnit = `${unitBase}.scope`;
-    const args = [
-      "--user", "--scope", "--collect", "--quiet", `--unit=${unitBase}`,
-      "--property=KillMode=control-group", "--property=TimeoutStopSec=3s", "--property=RuntimeMaxSec=8h",
-      "--property=MemoryMax=8G", "--property=TasksMax=512",
-      "/usr/bin/prlimit", "--core=0", "--fsize=1073741824", "--",
-      process.execPath, this.workerEntrypoint, "worker", "--state-root", this.stateRoot, "--run-id", runId,
-    ];
-    const stdout = await open(join(logDir, `${runId}.out.log`), "a", 0o600);
-    const stderr = await open(join(logDir, `${runId}.err.log`), "a", 0o600);
-    let child;
-    const launchState = { error: null, exited: null };
-    try {
-      child = await spawnUserManagerFile("/usr/bin/systemd-run", args, {
-        cwd: this.pluginRoot,
-        env: { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: this.stateRoot, AGENT_ORCHESTRATION_CURRENT_WORKER_RUN_ID: runId },
-        detached: true,
-        stdio: ["ignore", stdout.fd, stderr.fd],
-        shell: false,
-      });
-      child.on("error", (error) => { launchState.error = error; });
-      child.on("exit", (code, signal) => { launchState.exited = { code, signal }; });
-      await new Promise((resolveSpawn, rejectSpawn) => {
-        child.once("spawn", resolveSpawn);
-        child.once("error", rejectSpawn);
-      });
-      child.unref();
-      const startIdentity = await processStartIdentity(child.pid);
-      invariant(startIdentity, "AO_WORKER_LAUNCH_FAILED", "Could not establish the systemd-run launcher identity.");
-      await this.store.update(runId, { worker: { pid: child.pid, processGroup: null, startIdentity, supervisorUnit, startedAt: new Date().toISOString() } }, "worker_started");
-      return await this.waitForWorkerRegistration(runId, supervisorUnit, child, launchState);
-    } catch (error) {
-      await this.quarantineWorkerLaunchFailure(runId, supervisorUnit, error).catch(() => {});
-      throw error;
-    } finally {
-      await stdout.close().catch(() => {});
-      await stderr.close().catch(() => {});
-    }
+    return this.platformRuntime.workerSupervisor.launch({
+      runId,
+      pluginRoot: this.pluginRoot,
+      stateRoot: this.stateRoot,
+      workerEntrypoint: this.workerEntrypoint,
+      store: this.store,
+      terminalStates: TERMINAL_STATES,
+      onLaunchFailure: (supervisorUnit, error) => this.quarantineWorkerLaunchFailure(runId, supervisorUnit, error),
+    });
   }
 
   async worker(runId) {
-    const deadline = Date.now() + 5_000;
-    let run = await this.store.get(runId);
-    while (!run.worker?.supervisorUnit && !TERMINAL_STATES.has(run.state) && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 25));
-      run = await this.store.get(runId);
-    }
+    const run = await this.platformRuntime.workerSupervisor.attach({ runId, store: this.store, terminalStates: TERMINAL_STATES });
     if (TERMINAL_STATES.has(run.state)) return run;
-    const { stdout: controlGroup } = await runUserManagerFile("/usr/bin/systemctl", ["--user", "show", run.worker?.supervisorUnit, "--property=ControlGroup", "--value"], { timeoutMs: 5_000 });
-    const ownCgroups = await readFile("/proc/self/cgroup", "utf8");
-    invariant(controlGroup && ownCgroups.includes(controlGroup), "AO_WORKER_REGISTRATION_MISSING", "The worker refused to execute outside its registered supervisor cgroup.");
-    run = await this.store.update(runId, { worker: { ...run.worker, pid: process.pid, startIdentity: await processStartIdentity(process.pid), attachedAt: new Date().toISOString() } }, "worker_attached_to_supervisor");
     return executeRun({ store: this.store, runId, pluginRoot: this.pluginRoot, stateRoot: this.stateRoot });
   }
 
@@ -565,12 +492,19 @@ export class OrchestrationService {
 
   async doctor() {
     const providerExecutables = Object.values(PROVIDER_ADAPTERS).map((adapter) => [adapter.providerId, adapter.executable]);
-    const executableChecks = await Promise.all([
-      ...providerExecutables, ["git", "git"], ["bwrap", "bwrap"], ["slirp4netns", "slirp4netns"], ["systemd-run", "systemd-run"], ["prlimit", "prlimit"],
-    ].map(async ([id, command]) => {
+    const infrastructureExecutables = [
+      ...this.platformRuntime.providerSandbox.requiredExecutables,
+      ...this.platformRuntime.workerSupervisor.requiredExecutables,
+    ];
+    const executableDescriptors = [
+      ...providerExecutables.map(([id, command]) => ({ id, command })),
+      { id: "git", command: "git" },
+      ...infrastructureExecutables,
+    ];
+    const uniqueExecutableDescriptors = [...new Map(executableDescriptors.map((entry) => [entry.id, entry])).values()];
+    const executableChecks = await Promise.all(uniqueExecutableDescriptors.map(async ({ id, command }) => {
       try {
-        const { stdout } = await runFile("/usr/bin/which", ["-a", command], { timeoutMs: 5_000 });
-        const discovered = [...new Set(stdout.split("\n").filter(Boolean))];
+        const discovered = await this.platformRuntime.executableResolver.findAll(command);
         const paths = PROVIDER_ADAPTERS[id]
           ? await discoverProviderPaths(this.pluginRoot, PROVIDER_ADAPTERS[id], discovered)
           : discovered;
@@ -579,9 +513,8 @@ export class OrchestrationService {
         return { id, command, ok: false, error: error.message };
       }
     }));
-    const supervisorUnit = newId("agent-orchestration-doctor").replaceAll("_", "-");
-    const supervisor = await runUserManagerFile("/usr/bin/systemd-run", ["--user", "--wait", "--collect", "--quiet", `--unit=${supervisorUnit}`, "/usr/bin/true"], { timeoutMs: 10_000 })
-      .then(() => ({ ok: true, kind: "systemd-user-cgroup" }), (error) => ({ ok: false, kind: "systemd-user-cgroup", error: error.message }));
+    const supervisor = await this.platformRuntime.workerSupervisor.probe({ pluginRoot: this.pluginRoot, stateRoot: this.stateRoot });
+    const sandbox = await this.platformRuntime.providerSandbox.probe({ checks: executableChecks, pluginRoot: this.pluginRoot, stateRoot: this.stateRoot });
     const providerProbes = await Promise.all(PROVIDER_CATALOG.map(async (provider) => {
       const executable = executableChecks.find((entry) => entry.id === provider.providerId);
       if (!executable?.ok) return { id: provider.providerId, ready: false, reason: "executable_not_found" };
@@ -590,16 +523,7 @@ export class OrchestrationService {
       let sessionProbe = null;
       for (const candidate of executable.paths) {
         try {
-          const unitName = newId(`agent-orchestration-probe-${provider.providerId}`).replaceAll("_", "-");
-          const { stdout } = await runUserManagerFile("/usr/bin/systemd-run", [
-            "--user", "--scope", "--collect", "--quiet", `--unit=${unitName}`,
-            "--property=RuntimeMaxSec=10s", "--property=TimeoutStopSec=2s", "--property=KillMode=control-group",
-            "--property=MemoryMax=2G", "--property=TasksMax=128",
-            "/usr/bin/prlimit", "--core=0", "--fsize=268435456", "--",
-            process.execPath, join(this.pluginRoot, "dist", "probe-worker.cjs"),
-            this.pluginRoot, this.stateRoot, this.pluginRoot, provider.providerId, candidate,
-          ], { timeoutMs: 15_000 });
-          sessionProbe = JSON.parse(stdout);
+          sessionProbe = await this.platformRuntime.workerSupervisor.runProbe({ pluginRoot: this.pluginRoot, stateRoot: this.stateRoot, providerId: provider.providerId, candidate });
           if (!sessionProbe?.ok) continue;
           authenticationReady = true;
           selectedExecutable = candidate;
@@ -614,17 +538,16 @@ export class OrchestrationService {
     const bridges = await checkBundledBridges(this.pluginRoot);
     return {
       ok: executableChecks.find((entry) => entry.id === "git")?.ok === true
-        && executableChecks.find((entry) => entry.id === "bwrap")?.ok === true
-        && executableChecks.find((entry) => entry.id === "slirp4netns")?.ok === true
-        && executableChecks.find((entry) => entry.id === "systemd-run")?.ok === true
-        && executableChecks.find((entry) => entry.id === "prlimit")?.ok === true
+        && sandbox.ok
         && supervisor.ok
         && bridges.every((entry) => entry.ok),
+      runtime: this.platformRuntime.describe(),
       pluginRoot: this.pluginRoot,
       stateRoot: this.stateRoot,
       executables: executableChecks,
       providerProbes,
       supervisor,
+      sandbox,
       bundledBridges: bridges,
       availability: this.availabilityFromProbes(executableChecks, providerProbes),
       note: "Provider authentication remains owned by each provider CLI and is never read or logged by this plugin.",
