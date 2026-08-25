@@ -135,6 +135,10 @@ async function validatePayload(pluginVersion) {
 }
 
 async function validateSkills(pluginVersion, sourceSha) {
+  requireValue(
+    !existsSync(path.join(pluginRoot, "commands")),
+    "legacy commands directory duplicates provider-native skills",
+  );
   const provenance = await readJson("skills/.provenance.json", "skill provenance");
   const manifest = await readJson("skills/.skill-manifest.json", "skill manifest");
   requireValue(provenance.schemaVersion === 1, "skill provenance schemaVersion must be 1");

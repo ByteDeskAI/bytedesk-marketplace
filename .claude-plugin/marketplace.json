@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
   "name": "bytedesk",
-  "version": "1.31.0",
+  "version": "1.31.1",
   "description": "ByteDesk's Claude and Codex marketplace \u2014 orchestration, design systems, architecture, project management, and platform engineering plugins.",
   "owner": {
     "name": "ByteDesk AI",
@@ -85,7 +85,7 @@
     },
     {
       "name": "design-system",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "description": "Install and govern the ByteDesk design foundation, tokens, profiles, assets, and reviewed design workflows across Claude and Codex.",
       "source": "./design-system"
     }
