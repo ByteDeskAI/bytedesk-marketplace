@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "pluginVersion": "1.1.1",
-  "designSystemSourceSha": "8fe167db3b4c8086ae0bae014fd181f98fbb8ce6",
+  "pluginVersion": "1.2.0",
+  "designSystemSourceSha": "1a562b6040eacb1cc36290317f45ce9109b35f50",
   "skills": [
     "animate",
     "animate-expo",
@@ -37,7 +37,7 @@
   "files": [
     {
       "path": ".provenance.json",
-      "sha256": "3f0ec97febb127e2d3b6955cc56f4318171c8eee1c2fbe8187bc0d57c2924270",
+      "sha256": "3cdfb16002f35971462c6ad0f103bdc83b8eb28043e97e8ed2c46ebcd33a5152",
       "size": 2932
     },
     {
@@ -407,8 +407,8 @@
     },
     {
       "path": "design-system-doctor/SKILL.md",
-      "sha256": "a23a470607f04a5d49a2f910cb9cfdf82ba32b38da3c90ad6cf5cd1049c5f89c",
-      "size": 1181
+      "sha256": "9cf628efb8e996503dff3ff191b6035541b32450c695a78035e0be0f3ca3d206",
+      "size": 1162
     },
     {
       "path": "design-system-doctor/agents/openai.yaml",
@@ -417,8 +417,8 @@
     },
     {
       "path": "design-system-init/SKILL.md",
-      "sha256": "3d26fb494f9f6d3c310746ffefca381d10ba13e6b867f0fac30ddb7e85339d80",
-      "size": 1512
+      "sha256": "16041d0afa55bfc86fbd5eedd822b62bf8096b558b1f5d7d5d5878a17ae1fd83",
+      "size": 1498
     },
     {
       "path": "design-system-init/agents/openai.yaml",
@@ -427,8 +427,8 @@
     },
     {
       "path": "design-system-migrate/SKILL.md",
-      "sha256": "f6d4bb0b5ac1785caef3259eb04fa5e4134d6ffb92c1bf11841a926238c47185",
-      "size": 1370
+      "sha256": "b02c7cdb013aac1399c87c97e8684bcbf030580d69f9f98743c89a1467f9fec5",
+      "size": 1353
     },
     {
       "path": "design-system-migrate/agents/openai.yaml",
@@ -467,8 +467,8 @@
     },
     {
       "path": "design-system-sync/SKILL.md",
-      "sha256": "7fdb7ba86df91b482b7f956522becdf553d506d15e873da28cecdb45dfcf1db3",
-      "size": 1329
+      "sha256": "db48e7a04d215b83c7a0bf2a6878da6da38f65d98ec74a4da12fc97ecac5d74e",
+      "size": 1317
     },
     {
       "path": "design-system-sync/agents/openai.yaml",

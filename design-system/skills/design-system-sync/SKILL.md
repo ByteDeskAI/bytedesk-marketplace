@@ -10,7 +10,7 @@ the consumer repository root.
 
 1. Confirm `.context/design-system/.design-system.json` exists and names the
    intended product. Do not switch profiles as part of a routine update.
-2. Run `node <plugin>/scripts/design-system-sync.mjs --dry-run`. Summarize the
+2. Run `node <plugin>/bin/bd-design sync --dry-run`. Summarize the
    source revision and every add/change/delete operation. Unexpected profile or
    broad deletion changes require investigation before applying.
 3. Run the sync without `--dry-run`. Replacement is atomic and removes stale

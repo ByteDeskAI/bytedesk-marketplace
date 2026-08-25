@@ -1,0 +1,1366 @@
+{
+  "$schema": "./design-system.manifest.schema.json",
+  "schemaVersion": 1,
+  "id": "bytedesk-design-system",
+  "version": "1.2.0",
+  "catalog": {
+    "sourcePath": "catalog.json",
+    "sha256": "fec678f3646b00b75623f4c97b471317f7ca82e1f61a9878ad3143495f14e162",
+    "schemaVersion": 1
+  },
+  "providers": [
+    {
+      "id": "claude",
+      "manifest": "plugin/.claude-plugin/plugin.json",
+      "compatibility": ">=1.0"
+    },
+    {
+      "id": "codex",
+      "manifest": "plugin/.codex-plugin/plugin.json",
+      "compatibility": ">=1.0"
+    }
+  ],
+  "runtimes": [
+    {
+      "id": "web",
+      "detects": [
+        "package.json"
+      ],
+      "adapter": "adapter:web"
+    },
+    {
+      "id": "go",
+      "detects": [
+        "go.mod"
+      ],
+      "adapter": "adapter:go"
+    },
+    {
+      "id": "native",
+      "detects": [
+        "Cargo.toml"
+      ],
+      "adapter": "adapter:native"
+    }
+  ],
+  "files": [
+    {
+      "id": "file:bin/bd-design",
+      "kind": "cli",
+      "sourcePath": "bin/bd-design",
+      "deliveryPath": "bin/bd-design",
+      "sha256": "e56ecd01d4896157b8eaa49fbd9ee769b54e66a861efb1d86416ecdfd9a18828",
+      "size": 4372,
+      "distributions": [
+        "plugin"
+      ]
+    },
+    {
+      "id": "file:design-system.manifest.schema.json",
+      "kind": "schema",
+      "sourcePath": "design-system.manifest.schema.json",
+      "deliveryPath": "design-system.manifest.schema.json",
+      "sha256": "641467e8af509ef6d8542fc1f52f26bd1ef5db84988073f6852c33ad395517bf",
+      "size": 3337,
+      "distributions": [
+        "plugin"
+      ]
+    },
+    {
+      "id": "file:DESIGN.md",
+      "kind": "foundation",
+      "sourcePath": "DESIGN.md",
+      "deliveryPath": "DESIGN.md",
+      "sha256": "2145932fb1b3cff9826902609a825c3bb1e2364e767807b4d95d9fe1a6ada868",
+      "size": 5781,
+      "distributions": [
+        "payload"
+      ]
+    },
+    {
+      "id": "file:profiles/_template/DESIGN.md",
+      "kind": "profile",
+      "sourcePath": "profiles/_template/DESIGN.md",
+      "deliveryPath": "profiles/_template/DESIGN.md",
+      "sha256": "feb213d56bd292885b02bc8bbc8d85e91ece08241402f249cc681acefe1abf5e",
+      "size": 689,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "_template"
+    },
+    {
+      "id": "file:profiles/ade/DESIGN.md",
+      "kind": "profile",
+      "sourcePath": "profiles/ade/DESIGN.md",
+      "deliveryPath": "profiles/ade/DESIGN.md",
+      "sha256": "b4f3ae5bea56eaf3da48b485154d94b91b1bc2649a5fe9a00bf7674ba73a21c2",
+      "size": 12746,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "ade"
+    },
+    {
+      "id": "file:profiles/agent-browser-website/DESIGN.md",
+      "kind": "profile",
+      "sourcePath": "profiles/agent-browser-website/DESIGN.md",
+      "deliveryPath": "profiles/agent-browser-website/DESIGN.md",
+      "sha256": "bfb2541020a44d6cb4650c5ce947d1c72be3d4bbbd5c9d08546688e93018d20e",
+      "size": 11066,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "agent-browser-website"
+    },
+    {
+      "id": "file:profiles/bytedesk-ai/DESIGN.md",
+      "kind": "profile",
+      "sourcePath": "profiles/bytedesk-ai/DESIGN.md",
+      "deliveryPath": "profiles/bytedesk-ai/DESIGN.md",
+      "sha256": "6b3bca5fbb4cf0c062a403174397b72dca2f19af647698d42f89ce162f7d67fa",
+      "size": 6443,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "bytedesk-ai"
+    },
+    {
+      "id": "file:profiles/bytedesk-ai/PRODUCT.md",
+      "kind": "profile",
+      "sourcePath": "profiles/bytedesk-ai/PRODUCT.md",
+      "deliveryPath": "profiles/bytedesk-ai/PRODUCT.md",
+      "sha256": "335693ec4d6c4b5ef718c81298a701b846ba1eca8395f545403737cabdd0d0a7",
+      "size": 4961,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "bytedesk-ai"
+    },
+    {
+      "id": "file:profiles/capture-website/DESIGN.md",
+      "kind": "profile",
+      "sourcePath": "profiles/capture-website/DESIGN.md",
+      "deliveryPath": "profiles/capture-website/DESIGN.md",
+      "sha256": "23718bcea5a1cf4005ab8e718565ac6aa54278b3778c23028550d49c92c8f1ba",
+      "size": 5830,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "capture-website"
+    },
+    {
+      "id": "file:profiles/capture/DESIGN.md",
+      "kind": "profile",
+      "sourcePath": "profiles/capture/DESIGN.md",
+      "deliveryPath": "profiles/capture/DESIGN.md",
+      "sha256": "5e891a1817b0cf30ef69039f87397196018c808371f369ea4fd3dec46d02c019",
+      "size": 4340,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "capture"
+    },
+    {
+      "id": "file:profiles/gateway/DESIGN.md",
+      "kind": "profile",
+      "sourcePath": "profiles/gateway/DESIGN.md",
+      "deliveryPath": "profiles/gateway/DESIGN.md",
+      "sha256": "eef1e2ea3884f5b77dd850f4335c7e30187019c76f7c80ca59acd74e84e0f11a",
+      "size": 6805,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "gateway"
+    },
+    {
+      "id": "file:profiles/gateway/PRODUCT.md",
+      "kind": "profile",
+      "sourcePath": "profiles/gateway/PRODUCT.md",
+      "deliveryPath": "profiles/gateway/PRODUCT.md",
+      "sha256": "0a2671a62407bb3a9ca7ede268ed6df3d6ee9793c2621c7e501eff32c32031a7",
+      "size": 4014,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "gateway"
+    },
+    {
+      "id": "file:profiles/marketplace/DESIGN.md",
+      "kind": "profile",
+      "sourcePath": "profiles/marketplace/DESIGN.md",
+      "deliveryPath": "profiles/marketplace/DESIGN.md",
+      "sha256": "037934d81512cade8e6e3824b1818a92e740f24611f433ad938bdb65f5634371",
+      "size": 5520,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "marketplace"
+    },
+    {
+      "id": "file:profiles/marketplace/PRODUCT.md",
+      "kind": "profile",
+      "sourcePath": "profiles/marketplace/PRODUCT.md",
+      "deliveryPath": "profiles/marketplace/PRODUCT.md",
+      "sha256": "5c0fd0e80d87a174ae88d58fe5df3329504b85e1d665688d5d8eab6d2bae01b1",
+      "size": 2405,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "marketplace"
+    },
+    {
+      "id": "file:profiles/store/DESIGN.md",
+      "kind": "profile",
+      "sourcePath": "profiles/store/DESIGN.md",
+      "deliveryPath": "profiles/store/DESIGN.md",
+      "sha256": "15985c4b5d170433719c09a2b1bf0b5c84e710cbf13fda5099f22350e834452c",
+      "size": 7597,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "store"
+    },
+    {
+      "id": "file:profiles/store/PRODUCT.md",
+      "kind": "profile",
+      "sourcePath": "profiles/store/PRODUCT.md",
+      "deliveryPath": "profiles/store/PRODUCT.md",
+      "sha256": "bfeb436ef7aa5611a65b711d026daa3bb7a5a7914e041ae4481821b9fe43b477",
+      "size": 3908,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "store"
+    },
+    {
+      "id": "file:profiles/terminal/DESIGN.md",
+      "kind": "profile",
+      "sourcePath": "profiles/terminal/DESIGN.md",
+      "deliveryPath": "profiles/terminal/DESIGN.md",
+      "sha256": "72b811036da25a06a57467c72f1f12d6be360fddc41f42f952f81a93c20b5042",
+      "size": 42320,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "terminal"
+    },
+    {
+      "id": "file:profiles/vault/DESIGN.md",
+      "kind": "profile",
+      "sourcePath": "profiles/vault/DESIGN.md",
+      "deliveryPath": "profiles/vault/DESIGN.md",
+      "sha256": "e110937a2f49dcd18f2479c68316d45d1acbaeb9abb56ee2d37218a7eba761e9",
+      "size": 8651,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "vault"
+    },
+    {
+      "id": "file:profiles/vault/PRODUCT.md",
+      "kind": "profile",
+      "sourcePath": "profiles/vault/PRODUCT.md",
+      "deliveryPath": "profiles/vault/PRODUCT.md",
+      "sha256": "bba99a02bdf9c7d6a0fb8e2c870d1067c3bf3f5b20eaf12d662830f3233f9caf",
+      "size": 3579,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "vault"
+    },
+    {
+      "id": "file:profiles/workforce/DESIGN.md",
+      "kind": "profile",
+      "sourcePath": "profiles/workforce/DESIGN.md",
+      "deliveryPath": "profiles/workforce/DESIGN.md",
+      "sha256": "eb00cf4c809eea534eac2587f638296ac7b61872b9d6f42b3a140635b8d24d0b",
+      "size": 18220,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "workforce"
+    },
+    {
+      "id": "file:scaffold/create.mjs",
+      "kind": "scaffold",
+      "sourcePath": "scaffold/create.mjs",
+      "deliveryPath": "scaffold/create.mjs",
+      "sha256": "66a4c533812286a576cca7bddf95f7c3d1bdcaaa705f1337fc9a2abeb24a0312",
+      "size": 17406,
+      "distributions": [
+        "plugin"
+      ]
+    },
+    {
+      "id": "file:scaffold/templates/nextjs-site/_gitignore",
+      "kind": "scaffold",
+      "sourcePath": "scaffold/templates/nextjs-site/_gitignore",
+      "deliveryPath": "scaffold/templates/nextjs-site/_gitignore",
+      "sha256": "95c6580e29f9b7a75808447a3c97cd494a5fc042f1b40127cb7d107ba42b2fc6",
+      "size": 311,
+      "distributions": [
+        "plugin"
+      ]
+    },
+    {
+      "id": "file:scaffold/templates/nextjs-site/eslint.config.mjs",
+      "kind": "scaffold",
+      "sourcePath": "scaffold/templates/nextjs-site/eslint.config.mjs",
+      "deliveryPath": "scaffold/templates/nextjs-site/eslint.config.mjs",
+      "sha256": "f11123839a1de9838b04f3dece6d31706d05322870c75bdc0f5fc7470f0296e7",
+      "size": 209,
+      "distributions": [
+        "plugin"
+      ]
+    },
+    {
+      "id": "file:scaffold/templates/nextjs-site/next.config.ts",
+      "kind": "scaffold",
+      "sourcePath": "scaffold/templates/nextjs-site/next.config.ts",
+      "deliveryPath": "scaffold/templates/nextjs-site/next.config.ts",
+      "sha256": "ae3aefa2ac34f943eeddef633cd25ee34ed885809ec269af27536a37e29aac4d",
+      "size": 359,
+      "distributions": [
+        "plugin"
+      ]
+    },
+    {
+      "id": "file:scaffold/templates/nextjs-site/package.json",
+      "kind": "scaffold",
+      "sourcePath": "scaffold/templates/nextjs-site/package.json",
+      "deliveryPath": "scaffold/templates/nextjs-site/package.json",
+      "sha256": "3d0431e3f315a552a769aa65dc924c173a879f6d92e5a37b2664287af4f4c194",
+      "size": 530,
+      "distributions": [
+        "plugin"
+      ]
+    },
+    {
+      "id": "file:scaffold/templates/nextjs-site/postcss.config.mjs",
+      "kind": "scaffold",
+      "sourcePath": "scaffold/templates/nextjs-site/postcss.config.mjs",
+      "deliveryPath": "scaffold/templates/nextjs-site/postcss.config.mjs",
+      "sha256": "dfac7ac2d86d326a0e5adb024e7943c181393ed17a5fcb8f0315b24c7da6ddde",
+      "size": 94,
+      "distributions": [
+        "plugin"
+      ]
+    },
+    {
+      "id": "file:scaffold/templates/nextjs-site/README.md",
+      "kind": "scaffold",
+      "sourcePath": "scaffold/templates/nextjs-site/README.md",
+      "deliveryPath": "scaffold/templates/nextjs-site/README.md",
+      "sha256": "ff65bd5cfa01f1bff472a852fd92c2e5a85367b333a7ab70727a0de291a00876",
+      "size": 2751,
+      "distributions": [
+        "plugin"
+      ]
+    },
+    {
+      "id": "file:scaffold/templates/nextjs-site/src/app/globals.css",
+      "kind": "scaffold",
+      "sourcePath": "scaffold/templates/nextjs-site/src/app/globals.css",
+      "deliveryPath": "scaffold/templates/nextjs-site/src/app/globals.css",
+      "sha256": "6a31da837e9453f5067371b8ccbaa7c40e4642fe2828a6a2c2f88c5e902f30cb",
+      "size": 4720,
+      "distributions": [
+        "plugin"
+      ]
+    },
+    {
+      "id": "file:scaffold/templates/nextjs-site/src/app/layout.tsx",
+      "kind": "scaffold",
+      "sourcePath": "scaffold/templates/nextjs-site/src/app/layout.tsx",
+      "deliveryPath": "scaffold/templates/nextjs-site/src/app/layout.tsx",
+      "sha256": "6f184dc74408c8251bf9d4b98bcb71e0623a91f937234c862f9507fe4256fbac",
+      "size": 1289,
+      "distributions": [
+        "plugin"
+      ]
+    },
+    {
+      "id": "file:scaffold/templates/nextjs-site/src/app/page.tsx",
+      "kind": "scaffold",
+      "sourcePath": "scaffold/templates/nextjs-site/src/app/page.tsx",
+      "deliveryPath": "scaffold/templates/nextjs-site/src/app/page.tsx",
+      "sha256": "b0ad7b90f2d90dffb9b9a79a7106dabf389bb779e03975abca4374ea11d1cafe",
+      "size": 1896,
+      "distributions": [
+        "plugin"
+      ]
+    },
+    {
+      "id": "file:scaffold/templates/nextjs-site/src/components/Footer.tsx",
+      "kind": "scaffold",
+      "sourcePath": "scaffold/templates/nextjs-site/src/components/Footer.tsx",
+      "deliveryPath": "scaffold/templates/nextjs-site/src/components/Footer.tsx",
+      "sha256": "7d4f051741c1e5196093547f42bfbf1b19ef4af4ae19de1bd95cb91a1aee09da",
+      "size": 812,
+      "distributions": [
+        "plugin"
+      ]
+    },
+    {
+      "id": "file:scaffold/templates/nextjs-site/src/components/Header.tsx",
+      "kind": "scaffold",
+      "sourcePath": "scaffold/templates/nextjs-site/src/components/Header.tsx",
+      "deliveryPath": "scaffold/templates/nextjs-site/src/components/Header.tsx",
+      "sha256": "e1fa64615424aac7d96a41d3da5dc1c4126a02a1c453361a1725f19b3925d13d",
+      "size": 1504,
+      "distributions": [
+        "plugin"
+      ]
+    },
+    {
+      "id": "file:scaffold/templates/nextjs-site/src/content/site.ts",
+      "kind": "scaffold",
+      "sourcePath": "scaffold/templates/nextjs-site/src/content/site.ts",
+      "deliveryPath": "scaffold/templates/nextjs-site/src/content/site.ts",
+      "sha256": "2b40fc0425aa73ee6ae8d2fe4272491cee8d485e5c7b348b834b4008a3aaa7b1",
+      "size": 2847,
+      "distributions": [
+        "plugin"
+      ]
+    },
+    {
+      "id": "file:scaffold/templates/nextjs-site/tsconfig.json",
+      "kind": "scaffold",
+      "sourcePath": "scaffold/templates/nextjs-site/tsconfig.json",
+      "deliveryPath": "scaffold/templates/nextjs-site/tsconfig.json",
+      "sha256": "a1b8c88c9652ec4caac939a03c4ea397fea8f46cd884e7706a02277ce7dd1edc",
+      "size": 640,
+      "distributions": [
+        "plugin"
+      ]
+    },
+    {
+      "id": "file:scripts/design-system-check.mjs",
+      "kind": "runtime",
+      "sourcePath": "scripts/design-system-check.mjs",
+      "deliveryPath": "scripts/design-system-check.mjs",
+      "sha256": "1067ec4d47060c202b90b274ab8a45aff9de0e26cce21e117265269369bb1d6f",
+      "size": 3889,
+      "distributions": [
+        "plugin"
+      ]
+    },
+    {
+      "id": "file:scripts/design-system-init.mjs",
+      "kind": "runtime",
+      "sourcePath": "scripts/design-system-init.mjs",
+      "deliveryPath": "scripts/design-system-init.mjs",
+      "sha256": "36efcd1d77b6e9f7f0523e73f3b0bdff8f2a35d47b42154df4eaaebb33785ff7",
+      "size": 18567,
+      "distributions": [
+        "plugin"
+      ]
+    },
+    {
+      "id": "file:scripts/design-system-sync.mjs",
+      "kind": "runtime",
+      "sourcePath": "scripts/design-system-sync.mjs",
+      "deliveryPath": "scripts/design-system-sync.mjs",
+      "sha256": "227b532d60d8d46c19c53c772788332ad83bef567425e0b14c043fad568a546a",
+      "size": 25169,
+      "distributions": [
+        "plugin"
+      ]
+    },
+    {
+      "id": "file:scripts/validate-plugin.mjs",
+      "kind": "runtime",
+      "sourcePath": "scripts/validate-plugin.mjs",
+      "deliveryPath": "scripts/validate-plugin.mjs",
+      "sha256": "faa29b2d64fd57fd770a11b7ca0c2f3be8d8fa32e78161347a667acb5f12a393",
+      "size": 11847,
+      "distributions": [
+        "plugin"
+      ]
+    },
+    {
+      "id": "file:templates/consumer/AGENTS.snippet.md",
+      "kind": "consumer-template",
+      "sourcePath": "templates/consumer/AGENTS.snippet.md",
+      "deliveryPath": "templates/consumer/AGENTS.snippet.md",
+      "sha256": "3764b732ee93b4344e5313f7278dab00652cf1070553619970cd1f0dd68846a1",
+      "size": 553,
+      "distributions": [
+        "plugin"
+      ]
+    },
+    {
+      "id": "file:templates/consumer/context-readme.md",
+      "kind": "consumer-template",
+      "sourcePath": "templates/consumer/context-readme.md",
+      "deliveryPath": "templates/consumer/context-readme.md",
+      "sha256": "7beb951db0aa742cb360d57ffaa7f80db00e5d465913f9d158a1ddd34237c53f",
+      "size": 823,
+      "distributions": [
+        "plugin"
+      ]
+    },
+    {
+      "id": "file:templates/consumer/DESIGN.md",
+      "kind": "consumer-template",
+      "sourcePath": "templates/consumer/DESIGN.md",
+      "deliveryPath": "templates/consumer/DESIGN.md",
+      "sha256": "809ee958fb442bf388c96626af700b77132c493a88a590fa3977290d13e52159",
+      "size": 447,
+      "distributions": [
+        "plugin"
+      ]
+    },
+    {
+      "id": "file:tokens/bytedesk.tokens.json",
+      "kind": "token",
+      "sourcePath": "tokens/bytedesk.tokens.json",
+      "deliveryPath": "tokens/bytedesk.tokens.json",
+      "sha256": "0e60a09643a64be1cf48aebb867328c0c32598ea9f9c56e8f5dd0f2aae45d119",
+      "size": 6271,
+      "distributions": [
+        "payload"
+      ]
+    },
+    {
+      "id": "file:tokens/css/bytedesk.css",
+      "kind": "token",
+      "sourcePath": "tokens/css/bytedesk.css",
+      "deliveryPath": "tokens/css/bytedesk.css",
+      "sha256": "9d4f367a3a7e7d20e727e874f38e47bf829e0e32054f65f93a2e03d079a183c4",
+      "size": 4892,
+      "distributions": [
+        "payload"
+      ]
+    },
+    {
+      "id": "file:tokens/README.md",
+      "kind": "token",
+      "sourcePath": "tokens/README.md",
+      "deliveryPath": "tokens/README.md",
+      "sha256": "b44caade6b2dd3dd4bc2eaac10a8df05170f6c9407fd49ffd4877f8f08648ff6",
+      "size": 4972,
+      "distributions": [
+        "payload"
+      ]
+    },
+    {
+      "id": "file:tokens/tailwind/theme.css",
+      "kind": "token",
+      "sourcePath": "tokens/tailwind/theme.css",
+      "deliveryPath": "tokens/tailwind/theme.css",
+      "sha256": "d77071236175db20c228f6c44a3abdeab1e7bc6d492db924f15a00990b3f4461",
+      "size": 2449,
+      "distributions": [
+        "payload"
+      ]
+    }
+  ],
+  "tokens": [
+    {
+      "id": "token:tokens/README.md",
+      "sourcePath": "tokens/README.md",
+      "files": [
+        "file:tokens/README.md"
+      ]
+    },
+    {
+      "id": "token:tokens/bytedesk.tokens.json",
+      "sourcePath": "tokens/bytedesk.tokens.json",
+      "files": [
+        "file:tokens/bytedesk.tokens.json"
+      ]
+    },
+    {
+      "id": "token:tokens/css/bytedesk.css",
+      "sourcePath": "tokens/css/bytedesk.css",
+      "files": [
+        "file:tokens/css/bytedesk.css"
+      ]
+    },
+    {
+      "id": "token:tokens/tailwind/theme.css",
+      "sourcePath": "tokens/tailwind/theme.css",
+      "files": [
+        "file:tokens/tailwind/theme.css"
+      ]
+    }
+  ],
+  "adapters": [
+    {
+      "id": "adapter:web",
+      "runtime": "web",
+      "files": [
+        "file:tokens/css/bytedesk.css",
+        "file:tokens/tailwind/theme.css"
+      ],
+      "dependsOn": [
+        "bundle:foundation"
+      ]
+    },
+    {
+      "id": "adapter:go",
+      "runtime": "go",
+      "files": [
+        "file:tokens/bytedesk.tokens.json",
+        "file:tokens/css/bytedesk.css"
+      ],
+      "generatedPath": "internal/design_tokens/bytedesk_generated.go",
+      "dependsOn": [
+        "bundle:foundation"
+      ]
+    },
+    {
+      "id": "adapter:native",
+      "runtime": "native",
+      "files": [
+        "file:tokens/bytedesk.tokens.json"
+      ],
+      "generatedPath": ".bytedesk/design-token-map.json",
+      "dependsOn": [
+        "bundle:foundation"
+      ]
+    }
+  ],
+  "profiles": [
+    {
+      "id": "profile:_template",
+      "slug": "_template",
+      "status": "template",
+      "sourceRepository": "ByteDeskAI/design-system",
+      "sourceCommit": null,
+      "files": [
+        "file:profiles/_template/DESIGN.md"
+      ],
+      "dependsOn": [
+        "bundle:foundation"
+      ]
+    },
+    {
+      "id": "profile:ade",
+      "slug": "ade",
+      "status": "imported",
+      "sourceRepository": "ByteDeskAI/bytedesk-ade",
+      "sourceCommit": "d937a998b9864f4c33033bb2d6fbd194af7f3847",
+      "files": [
+        "file:profiles/ade/DESIGN.md"
+      ],
+      "dependsOn": [
+        "bundle:foundation"
+      ]
+    },
+    {
+      "id": "profile:agent-browser-website",
+      "slug": "agent-browser-website",
+      "status": "imported",
+      "sourceRepository": "ByteDeskAI/bytedesk-agent-browser-website",
+      "sourceCommit": "725dadeca0a2c4c5841f58c8bfcc12886005e3a6",
+      "files": [
+        "file:profiles/agent-browser-website/DESIGN.md"
+      ],
+      "dependsOn": [
+        "bundle:foundation"
+      ]
+    },
+    {
+      "id": "profile:bytedesk-ai",
+      "slug": "bytedesk-ai",
+      "status": "active",
+      "sourceRepository": "ByteDeskAI/design-system",
+      "sourceCommit": "2d1c7a4090eb372e0c8b15e9ca559c61c5b88b18",
+      "files": [
+        "file:profiles/bytedesk-ai/DESIGN.md",
+        "file:profiles/bytedesk-ai/PRODUCT.md"
+      ],
+      "dependsOn": [
+        "bundle:foundation"
+      ]
+    },
+    {
+      "id": "profile:capture",
+      "slug": "capture",
+      "status": "imported",
+      "sourceRepository": "ByteDeskAI/bytedesk-capture",
+      "sourceCommit": "db3fc598b8150d6336a28ed9c5348d4704842c15",
+      "files": [
+        "file:profiles/capture/DESIGN.md"
+      ],
+      "dependsOn": [
+        "bundle:foundation"
+      ]
+    },
+    {
+      "id": "profile:capture-website",
+      "slug": "capture-website",
+      "status": "imported",
+      "sourceRepository": "ByteDeskAI/bytedesk-capture-website",
+      "sourceCommit": "8b1818cdfb5416a6fdb48c0c432ab6f8e37c3f9c",
+      "files": [
+        "file:profiles/capture-website/DESIGN.md"
+      ],
+      "dependsOn": [
+        "bundle:foundation"
+      ]
+    },
+    {
+      "id": "profile:gateway",
+      "slug": "gateway",
+      "status": "active",
+      "sourceRepository": "ByteDeskAI/design-system",
+      "sourceCommit": "2d1c7a4090eb372e0c8b15e9ca559c61c5b88b18",
+      "files": [
+        "file:profiles/gateway/DESIGN.md",
+        "file:profiles/gateway/PRODUCT.md"
+      ],
+      "dependsOn": [
+        "bundle:foundation"
+      ]
+    },
+    {
+      "id": "profile:marketplace",
+      "slug": "marketplace",
+      "status": "active",
+      "sourceRepository": "ByteDeskAI/design-system",
+      "sourceCommit": "932d4676508b9e9337cd9cc047208df7d92b46d1",
+      "files": [
+        "file:profiles/marketplace/DESIGN.md",
+        "file:profiles/marketplace/PRODUCT.md"
+      ],
+      "dependsOn": [
+        "bundle:foundation"
+      ]
+    },
+    {
+      "id": "profile:store",
+      "slug": "store",
+      "status": "active",
+      "sourceRepository": "ByteDeskAI/design-system",
+      "sourceCommit": "2d1c7a4090eb372e0c8b15e9ca559c61c5b88b18",
+      "files": [
+        "file:profiles/store/DESIGN.md",
+        "file:profiles/store/PRODUCT.md"
+      ],
+      "dependsOn": [
+        "bundle:foundation"
+      ]
+    },
+    {
+      "id": "profile:terminal",
+      "slug": "terminal",
+      "status": "imported",
+      "sourceRepository": "ByteDeskAI/bytedesk-terminal",
+      "sourceCommit": "6ef17ce5906b861234dab0965249c9c96394daf3",
+      "files": [
+        "file:profiles/terminal/DESIGN.md"
+      ],
+      "dependsOn": [
+        "bundle:foundation"
+      ]
+    },
+    {
+      "id": "profile:vault",
+      "slug": "vault",
+      "status": "imported",
+      "sourceRepository": "ByteDeskAI/bytedesk-vault",
+      "sourceCommit": "36ced0a7cc5b9c7655b657a97e27a22010df95b9",
+      "files": [
+        "file:profiles/vault/DESIGN.md",
+        "file:profiles/vault/PRODUCT.md"
+      ],
+      "dependsOn": [
+        "bundle:foundation"
+      ]
+    },
+    {
+      "id": "profile:workforce",
+      "slug": "workforce",
+      "status": "active",
+      "sourceRepository": "ByteDeskAI/design-system",
+      "sourceCommit": "262c4a88865ff562e6662b68bf550a52d7fc7e4c",
+      "files": [
+        "file:profiles/workforce/DESIGN.md"
+      ],
+      "dependsOn": [
+        "bundle:foundation"
+      ]
+    }
+  ],
+  "assets": [
+    {
+      "id": "asset:workforce-icon",
+      "product": "workforce",
+      "path": "assets/products/workforce/icon.svg",
+      "mediaType": "image/svg+xml",
+      "sourceRepository": "ByteDeskAI/workforce",
+      "sourcePath": "docs/favicon.svg",
+      "sourceCommit": "a079a14754bb33cdc7cc69a9d39ded940874caf2",
+      "sha256": "f403d62e99ce62bf6fce6389c353cc932ea70f95595290d062c9036ec6f2f579",
+      "usage": "Workforce product icon and favicon"
+    },
+    {
+      "id": "asset:workforce-login-organization-departments",
+      "product": "workforce",
+      "path": "assets/products/workforce/login-organization-departments.png",
+      "mediaType": "image/png",
+      "sourceRepository": "ByteDeskAI/workforce",
+      "sourcePath": "ui/storybook/prototypes/public-entry/assets/workforce-organization-departments.png",
+      "sourceCommit": "dc8053c6a0cae3b3b9defd3861b7c1d437a4842a",
+      "sha256": "80486d6248bc8ae1c6a55d117af50ae79fb1170a5ab992f6b86229d55a95f16a",
+      "usage": "Approved decorative organizational workflow background for Workforce public-entry surfaces; not a product identity mark"
+    },
+    {
+      "id": "asset:agent-browser-favicon",
+      "product": "agent-browser",
+      "path": "assets/products/agent-browser/favicon.svg",
+      "mediaType": "image/svg+xml",
+      "sourceRepository": "ByteDeskAI/bytedesk-agent-browser-website",
+      "sourcePath": "public/favicon.svg",
+      "sourceCommit": "725dadeca0a2c4c5841f58c8bfcc12886005e3a6",
+      "sha256": "ee4b76ddf39b4353f09a7e806273e3e9630ac89812176ab6c7a54e1b52804a72",
+      "usage": "Agent Browser website favicon"
+    },
+    {
+      "id": "asset:capture-favicon",
+      "product": "capture",
+      "path": "assets/products/capture/favicon.svg",
+      "mediaType": "image/svg+xml",
+      "sourceRepository": "ByteDeskAI/bytedesk-capture-website",
+      "sourcePath": "public/favicon.svg",
+      "sourceCommit": "8b1818cdfb5416a6fdb48c0c432ab6f8e37c3f9c",
+      "sha256": "f3a06a68c4cb0e362a65b371c57ab35738818c023b7ccb1d68137bdd138509fc",
+      "usage": "Capture website favicon"
+    },
+    {
+      "id": "asset:omnigent-mark-svg",
+      "product": "omnigent",
+      "path": "assets/products/omnigent/mark.svg",
+      "mediaType": "image/svg+xml",
+      "sourceRepository": "ByteDeskAI/bytedesk-omnigent",
+      "sourcePath": "docs/images/omnigent-logo.svg",
+      "sourceCommit": "245fba59fafaf88ebeb873f5a3ab03ff9e87ab4e",
+      "sha256": "ba05b826766c5deab89ddfcc4f16d09cb83fedbee554b52671e35c89c8f9d9fb",
+      "usage": "Omnigent full-color mark"
+    },
+    {
+      "id": "asset:omnigent-mark-png",
+      "product": "omnigent",
+      "path": "assets/products/omnigent/mark.png",
+      "mediaType": "image/png",
+      "sourceRepository": "ByteDeskAI/bytedesk-omnigent",
+      "sourcePath": "docs/images/omnigent-logo.png",
+      "sourceCommit": "245fba59fafaf88ebeb873f5a3ab03ff9e87ab4e",
+      "sha256": "eb1e1a809811f7a4c3df1521add080439a1f09a09197e6aa296d08260fadf029",
+      "usage": "Omnigent raster mark"
+    },
+    {
+      "id": "asset:omnigent-wordmark",
+      "product": "omnigent",
+      "path": "assets/products/omnigent/wordmark.svg",
+      "mediaType": "image/svg+xml",
+      "sourceRepository": "ByteDeskAI/bytedesk-omnigent",
+      "sourcePath": "ap-web/electron/setup/assets/omnigents-logo.svg",
+      "sourceCommit": "245fba59fafaf88ebeb873f5a3ab03ff9e87ab4e",
+      "sha256": "2bb542cf4603b12d2281ed6803c3bcd8184f86cf93fc8a24615b1b1b73893b56",
+      "usage": "Omnigent wordmark for light surfaces"
+    },
+    {
+      "id": "asset:omnigent-wordmark-reverse",
+      "product": "omnigent",
+      "path": "assets/products/omnigent/wordmark-reverse.svg",
+      "mediaType": "image/svg+xml",
+      "sourceRepository": "ByteDeskAI/bytedesk-omnigent",
+      "sourcePath": "ap-web/electron/setup/assets/omnigents-logo-reverse.svg",
+      "sourceCommit": "245fba59fafaf88ebeb873f5a3ab03ff9e87ab4e",
+      "sha256": "244f35f49c36c82ba2c1a6d414e9d10f5624fb75e6e36a5010c7893e4bfa9d44",
+      "usage": "Omnigent reverse wordmark for dark surfaces"
+    }
+  ],
+  "templates": [
+    {
+      "id": "template:consumer",
+      "sourcePath": "templates/consumer",
+      "files": [
+        "file:templates/consumer/AGENTS.snippet.md",
+        "file:templates/consumer/context-readme.md",
+        "file:templates/consumer/DESIGN.md"
+      ]
+    },
+    {
+      "id": "template:nextjs-site",
+      "sourcePath": "scaffold/templates/nextjs-site",
+      "files": [
+        "file:scaffold/create.mjs",
+        "file:scaffold/templates/nextjs-site/_gitignore",
+        "file:scaffold/templates/nextjs-site/eslint.config.mjs",
+        "file:scaffold/templates/nextjs-site/next.config.ts",
+        "file:scaffold/templates/nextjs-site/package.json",
+        "file:scaffold/templates/nextjs-site/postcss.config.mjs",
+        "file:scaffold/templates/nextjs-site/README.md",
+        "file:scaffold/templates/nextjs-site/src/app/globals.css",
+        "file:scaffold/templates/nextjs-site/src/app/layout.tsx",
+        "file:scaffold/templates/nextjs-site/src/app/page.tsx",
+        "file:scaffold/templates/nextjs-site/src/components/Footer.tsx",
+        "file:scaffold/templates/nextjs-site/src/components/Header.tsx",
+        "file:scaffold/templates/nextjs-site/src/content/site.ts",
+        "file:scaffold/templates/nextjs-site/tsconfig.json"
+      ],
+      "dependsOn": [
+        "adapter:web"
+      ]
+    }
+  ],
+  "skills": [
+    {
+      "id": "skill:animate",
+      "name": "animate",
+      "classification": "reviewed",
+      "sourcePath": ".agents/skills/animate",
+      "providers": [
+        "claude",
+        "codex"
+      ]
+    },
+    {
+      "id": "skill:animate-expo",
+      "name": "animate-expo",
+      "classification": "reviewed",
+      "sourcePath": ".agents/skills/animate-expo",
+      "providers": [
+        "claude",
+        "codex"
+      ]
+    },
+    {
+      "id": "skill:animation-vocabulary",
+      "name": "animation-vocabulary",
+      "classification": "reviewed",
+      "sourcePath": ".agents/skills/animation-vocabulary",
+      "providers": [
+        "claude",
+        "codex"
+      ]
+    },
+    {
+      "id": "skill:apple-design",
+      "name": "apple-design",
+      "classification": "reviewed",
+      "sourcePath": ".agents/skills/apple-design",
+      "providers": [
+        "claude",
+        "codex"
+      ]
+    },
+    {
+      "id": "skill:ask-sonner",
+      "name": "ask-sonner",
+      "classification": "reviewed",
+      "sourcePath": ".agents/skills/ask-sonner",
+      "providers": [
+        "claude",
+        "codex"
+      ]
+    },
+    {
+      "id": "skill:awwwards-creative-frontend",
+      "name": "awwwards-creative-frontend",
+      "classification": "reviewed",
+      "sourcePath": ".agents/skills/awwwards-creative-frontend",
+      "providers": [
+        "claude",
+        "codex"
+      ]
+    },
+    {
+      "id": "skill:awwwards-micro-interactions",
+      "name": "awwwards-micro-interactions",
+      "classification": "reviewed",
+      "sourcePath": ".agents/skills/awwwards-micro-interactions",
+      "providers": [
+        "claude",
+        "codex"
+      ]
+    },
+    {
+      "id": "skill:awwwards-webgl-shaders",
+      "name": "awwwards-webgl-shaders",
+      "classification": "reviewed",
+      "sourcePath": ".agents/skills/awwwards-webgl-shaders",
+      "providers": [
+        "claude",
+        "codex"
+      ]
+    },
+    {
+      "id": "skill:beautiful-article",
+      "name": "beautiful-article",
+      "classification": "reviewed",
+      "sourcePath": ".agents/skills/beautiful-article",
+      "providers": [
+        "claude",
+        "codex"
+      ]
+    },
+    {
+      "id": "skill:design-system-assets",
+      "name": "design-system-assets",
+      "classification": "core",
+      "sourcePath": "plugin/skills/design-system-assets",
+      "providers": [
+        "claude",
+        "codex"
+      ]
+    },
+    {
+      "id": "skill:design-system-audit",
+      "name": "design-system-audit",
+      "classification": "core",
+      "sourcePath": "plugin/skills/design-system-audit",
+      "providers": [
+        "claude",
+        "codex"
+      ]
+    },
+    {
+      "id": "skill:design-system-doctor",
+      "name": "design-system-doctor",
+      "classification": "core",
+      "sourcePath": "plugin/skills/design-system-doctor",
+      "providers": [
+        "claude",
+        "codex"
+      ]
+    },
+    {
+      "id": "skill:design-system-init",
+      "name": "design-system-init",
+      "classification": "core",
+      "sourcePath": "plugin/skills/design-system-init",
+      "providers": [
+        "claude",
+        "codex"
+      ]
+    },
+    {
+      "id": "skill:design-system-migrate",
+      "name": "design-system-migrate",
+      "classification": "core",
+      "sourcePath": "plugin/skills/design-system-migrate",
+      "providers": [
+        "claude",
+        "codex"
+      ]
+    },
+    {
+      "id": "skill:design-system-profile",
+      "name": "design-system-profile",
+      "classification": "core",
+      "sourcePath": "plugin/skills/design-system-profile",
+      "providers": [
+        "claude",
+        "codex"
+      ]
+    },
+    {
+      "id": "skill:design-system-release",
+      "name": "design-system-release",
+      "classification": "core",
+      "sourcePath": "plugin/skills/design-system-release",
+      "providers": [
+        "claude",
+        "codex"
+      ]
+    },
+    {
+      "id": "skill:design-system-scaffold",
+      "name": "design-system-scaffold",
+      "classification": "core",
+      "sourcePath": "plugin/skills/design-system-scaffold",
+      "providers": [
+        "claude",
+        "codex"
+      ]
+    },
+    {
+      "id": "skill:design-system-sync",
+      "name": "design-system-sync",
+      "classification": "core",
+      "sourcePath": "plugin/skills/design-system-sync",
+      "providers": [
+        "claude",
+        "codex"
+      ]
+    },
+    {
+      "id": "skill:design-system-tokens",
+      "name": "design-system-tokens",
+      "classification": "core",
+      "sourcePath": "plugin/skills/design-system-tokens",
+      "providers": [
+        "claude",
+        "codex"
+      ]
+    },
+    {
+      "id": "skill:emil-design-eng",
+      "name": "emil-design-eng",
+      "classification": "reviewed",
+      "sourcePath": ".agents/skills/emil-design-eng",
+      "providers": [
+        "claude",
+        "codex"
+      ]
+    },
+    {
+      "id": "skill:find-animation-opportunities",
+      "name": "find-animation-opportunities",
+      "classification": "reviewed",
+      "sourcePath": ".agents/skills/find-animation-opportunities",
+      "providers": [
+        "claude",
+        "codex"
+      ]
+    },
+    {
+      "id": "skill:gpt-image-2",
+      "name": "gpt-image-2",
+      "classification": "reviewed",
+      "sourcePath": ".agents/skills/gpt-image-2",
+      "providers": [
+        "claude",
+        "codex"
+      ]
+    },
+    {
+      "id": "skill:improve-animations",
+      "name": "improve-animations",
+      "classification": "reviewed",
+      "sourcePath": ".agents/skills/improve-animations",
+      "providers": [
+        "claude",
+        "codex"
+      ]
+    },
+    {
+      "id": "skill:kb-retriever",
+      "name": "kb-retriever",
+      "classification": "reviewed",
+      "sourcePath": ".agents/skills/kb-retriever",
+      "providers": [
+        "claude",
+        "codex"
+      ]
+    },
+    {
+      "id": "skill:pick-ui-library",
+      "name": "pick-ui-library",
+      "classification": "reviewed",
+      "sourcePath": ".agents/skills/pick-ui-library",
+      "providers": [
+        "claude",
+        "codex"
+      ]
+    },
+    {
+      "id": "skill:prototype",
+      "name": "prototype",
+      "classification": "reviewed",
+      "sourcePath": ".agents/skills/prototype",
+      "providers": [
+        "claude",
+        "codex"
+      ]
+    },
+    {
+      "id": "skill:review-animations",
+      "name": "review-animations",
+      "classification": "reviewed",
+      "sourcePath": ".agents/skills/review-animations",
+      "providers": [
+        "claude",
+        "codex"
+      ]
+    },
+    {
+      "id": "skill:web-design-engineer",
+      "name": "web-design-engineer",
+      "classification": "reviewed",
+      "sourcePath": ".agents/skills/web-design-engineer",
+      "providers": [
+        "claude",
+        "codex"
+      ]
+    },
+    {
+      "id": "skill:web-video-presentation",
+      "name": "web-video-presentation",
+      "classification": "reviewed",
+      "sourcePath": ".agents/skills/web-video-presentation",
+      "providers": [
+        "claude",
+        "codex"
+      ]
+    },
+    {
+      "id": "skill:write-swift",
+      "name": "write-swift",
+      "classification": "reviewed",
+      "sourcePath": ".agents/skills/write-swift",
+      "providers": [
+        "claude",
+        "codex"
+      ]
+    }
+  ],
+  "skillSources": [
+    {
+      "id": "skill-source:1",
+      "name": "ByteDesk design-system",
+      "repository": "https://github.com/ByteDeskAI/design-system",
+      "license": "MIT",
+      "licenseFile": "BYTEDESK-MIT.md",
+      "skills": [
+        "design-system-assets",
+        "design-system-audit",
+        "design-system-doctor",
+        "design-system-init",
+        "design-system-migrate",
+        "design-system-profile",
+        "design-system-release",
+        "design-system-scaffold",
+        "design-system-sync",
+        "design-system-tokens"
+      ]
+    },
+    {
+      "id": "skill-source:2",
+      "name": "Emil Kowalski skills",
+      "repository": "https://github.com/emilkowalski/skills",
+      "sourceCommit": "d23d7f88a2e21c9e4b1418c7abe420f5c1052ba7",
+      "license": "MIT",
+      "licenseFile": "EMIL-KOWALSKI-LICENSE.md",
+      "skills": [
+        "animate",
+        "animate-expo",
+        "animation-vocabulary",
+        "apple-design",
+        "ask-sonner",
+        "emil-design-eng",
+        "find-animation-opportunities",
+        "improve-animations",
+        "pick-ui-library",
+        "prototype",
+        "review-animations",
+        "write-swift"
+      ]
+    },
+    {
+      "id": "skill-source:3",
+      "name": "Garden Skills",
+      "repository": "https://github.com/ConardLi/garden-skills",
+      "sourceCommit": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
+      "license": "MIT",
+      "licenseFile": "GARDEN-SKILLS-LICENSE.md",
+      "skills": [
+        "beautiful-article",
+        "gpt-image-2",
+        "kb-retriever",
+        "web-design-engineer",
+        "web-video-presentation"
+      ]
+    },
+    {
+      "id": "skill-source:4",
+      "name": "Awwwards Agent Skills",
+      "repository": "https://github.com/d2ms2/awwwards-agent-skills",
+      "sourceCommit": "7393cc85cf13e90a1eabcc281d34ab0e25b76bc5",
+      "license": "MIT",
+      "licenseFile": "AWWWARDS-AGENT-SKILLS-LICENSE.md",
+      "skills": [
+        "awwwards-creative-frontend",
+        "awwwards-micro-interactions",
+        "awwwards-webgl-shaders"
+      ]
+    }
+  ],
+  "agents": [],
+  "mcpServers": [],
+  "bundles": [
+    {
+      "id": "bundle:foundation",
+      "files": [
+        "file:DESIGN.md",
+        "file:tokens/bytedesk.tokens.json",
+        "file:tokens/css/bytedesk.css",
+        "file:tokens/README.md",
+        "file:tokens/tailwind/theme.css"
+      ]
+    },
+    {
+      "id": "bundle:profiles",
+      "files": [
+        "file:profiles/_template/DESIGN.md",
+        "file:profiles/ade/DESIGN.md",
+        "file:profiles/agent-browser-website/DESIGN.md",
+        "file:profiles/bytedesk-ai/DESIGN.md",
+        "file:profiles/bytedesk-ai/PRODUCT.md",
+        "file:profiles/capture-website/DESIGN.md",
+        "file:profiles/capture/DESIGN.md",
+        "file:profiles/gateway/DESIGN.md",
+        "file:profiles/gateway/PRODUCT.md",
+        "file:profiles/marketplace/DESIGN.md",
+        "file:profiles/marketplace/PRODUCT.md",
+        "file:profiles/store/DESIGN.md",
+        "file:profiles/store/PRODUCT.md",
+        "file:profiles/terminal/DESIGN.md",
+        "file:profiles/vault/DESIGN.md",
+        "file:profiles/vault/PRODUCT.md",
+        "file:profiles/workforce/DESIGN.md"
+      ],
+      "dependsOn": [
+        "bundle:foundation"
+      ]
+    },
+    {
+      "id": "bundle:plugin-runtime",
+      "files": [
+        "file:bin/bd-design",
+        "file:design-system.manifest.schema.json",
+        "file:scripts/design-system-check.mjs",
+        "file:scripts/design-system-init.mjs",
+        "file:scripts/design-system-sync.mjs",
+        "file:scripts/validate-plugin.mjs"
+      ]
+    },
+    {
+      "id": "bundle:scaffold",
+      "files": [
+        "file:scaffold/create.mjs",
+        "file:scaffold/templates/nextjs-site/_gitignore",
+        "file:scaffold/templates/nextjs-site/eslint.config.mjs",
+        "file:scaffold/templates/nextjs-site/next.config.ts",
+        "file:scaffold/templates/nextjs-site/package.json",
+        "file:scaffold/templates/nextjs-site/postcss.config.mjs",
+        "file:scaffold/templates/nextjs-site/README.md",
+        "file:scaffold/templates/nextjs-site/src/app/globals.css",
+        "file:scaffold/templates/nextjs-site/src/app/layout.tsx",
+        "file:scaffold/templates/nextjs-site/src/app/page.tsx",
+        "file:scaffold/templates/nextjs-site/src/components/Footer.tsx",
+        "file:scaffold/templates/nextjs-site/src/components/Header.tsx",
+        "file:scaffold/templates/nextjs-site/src/content/site.ts",
+        "file:scaffold/templates/nextjs-site/tsconfig.json"
+      ],
+      "dependsOn": [
+        "adapter:web"
+      ]
+    },
+    {
+      "id": "bundle:consumer-templates",
+      "files": [
+        "file:templates/consumer/AGENTS.snippet.md",
+        "file:templates/consumer/context-readme.md",
+        "file:templates/consumer/DESIGN.md"
+      ]
+    }
+  ]
+}

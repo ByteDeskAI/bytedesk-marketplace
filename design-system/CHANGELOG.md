@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.2.0] — 2026-08-25
+
+### Added
+
+- Added the schema-validated `design-system.manifest.json` capability graph,
+  inventorying every distributable file, token, adapter, profile, asset,
+  template, skill, agent, MCP server, bundle, dependency, provider, and runtime.
+- Added the zero-dependency `bin/bd-design` CLI with `list`, `inspect`, `init`,
+  `migrate`, `sync`, `check`, and `doctor` commands.
+- Publication, managed sync, and validation now resolve their file sets from the
+  same manifest and reject stale checksums, broken dependencies, and uncataloged
+  distributable files.
+
 ## [1.1.1] — 2026-08-25
 
 ### Fixed

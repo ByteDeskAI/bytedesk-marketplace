@@ -3,7 +3,7 @@
 Delivers the ByteDesk design system into any repository as **plain committed
 files**. The plugin carries the payload; a sync copies it into the repo tree.
 
-Install the same `1.1.1` bundle in either provider:
+Install the same `1.2.0` bundle in either provider:
 
 ```bash
 # Claude Code
@@ -40,19 +40,22 @@ repository. It detects the runtime and exact product identity when unambiguous;
 use flags when either choice needs to be explicit.
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/design-system-init.mjs --app gateway
+node ${CLAUDE_PLUGIN_ROOT}/bin/bd-design list
+node ${CLAUDE_PLUGIN_ROOT}/bin/bd-design inspect profile:gateway
+node ${CLAUDE_PLUGIN_ROOT}/bin/bd-design init --app gateway
 ```
 
 The command vendors the profile, wires web tokens or a Go/native adapter,
 maintains marked sections in `DESIGN.md` and `AGENTS.md`, installs a standalone
 CI drift gate, verifies the result, and prints `git status` plus a diff summary.
-Preview without writing via `--dry-run`.
+Preview without writing via `--dry-run`. The same CLI exposes `sync`, `check`,
+`doctor`, and `migrate`, so developers never need to locate internal scripts.
 
 Legacy adoption is deliberately two-step:
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/design-system-init.mjs migrate --app gateway
-node ${CLAUDE_PLUGIN_ROOT}/scripts/design-system-init.mjs migrate --app gateway --apply
+node ${CLAUDE_PLUGIN_ROOT}/bin/bd-design migrate --app gateway
+node ${CLAUDE_PLUGIN_ROOT}/bin/bd-design migrate --app gateway --apply
 ```
 
 Migration removes only a verified clean submodule or manual snapshot. A dirty

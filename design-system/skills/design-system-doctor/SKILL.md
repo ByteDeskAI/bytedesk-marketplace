@@ -6,7 +6,7 @@ description: Diagnose a ByteDesk design-system consumer by checking managed-file
 # Design System Doctor
 
 Resolve the plugin root as two directories above this `SKILL.md`. From the
-consumer root, run `node <plugin>/scripts/design-system-sync.mjs --doctor`.
+consumer root, run `node <plugin>/bin/bd-design doctor`.
 
 Treat the result by category:
 

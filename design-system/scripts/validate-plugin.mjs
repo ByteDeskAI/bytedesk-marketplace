@@ -10,18 +10,6 @@ const scriptRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".
 const pluginRoot = path.resolve(process.argv[2] ?? scriptRoot);
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 const SHA = /^[0-9a-f]{40}$/;
-const CORE_SKILLS = new Set([
-  "design-system-assets",
-  "design-system-audit",
-  "design-system-doctor",
-  "design-system-init",
-  "design-system-migrate",
-  "design-system-profile",
-  "design-system-release",
-  "design-system-scaffold",
-  "design-system-sync",
-  "design-system-tokens",
-]);
 
 function requireValue(condition, message) {
   if (!condition) throw new Error(message);
@@ -115,24 +103,33 @@ async function validateManifests() {
   requireValue(claude.description === codex.description, "Claude and Codex descriptions must match");
   requireValue(codex.skills === "./skills/", "Codex manifest must expose ./skills/");
   requireValue(existsSync(path.join(pluginRoot, "LICENSE")), "plugin root LICENSE is missing");
-  for (const relative of [
-    "scripts/design-system-init.mjs",
-    "scripts/design-system-sync.mjs",
-    "scripts/design-system-check.mjs",
-    "scaffold/create.mjs",
-    "scaffold/templates/nextjs-site/package.json",
-    "templates/consumer/DESIGN.md",
-  ]) requireValue(existsSync(path.join(pluginRoot, relative)), `plugin runtime is incomplete: ${relative}`);
-  return { pluginVersion: codex.version };
+  const designKit = await readJson("design-system.manifest.json", "design kit manifest");
+  requireValue(designKit.schemaVersion === 1 && designKit.id === "bytedesk-design-system", "design kit schema/id is unsupported");
+  requireValue(designKit.version === codex.version, "design kit version does not match provider manifests");
+  for (const category of ["providers", "runtimes", "files", "tokens", "adapters", "profiles", "assets", "templates", "skills", "agents", "mcpServers", "bundles"]) {
+    requireValue(Array.isArray(designKit[category]), `design kit ${category} must be an array`);
+  }
+  for (const item of designKit.files.filter((file) => file.distributions?.includes("plugin"))) {
+    const relative = safeRelative(item.deliveryPath, "design kit plugin file");
+    const absolute = path.join(pluginRoot, relative);
+    requireValue(existsSync(absolute), `plugin runtime is incomplete: ${relative}`);
+    const bytes = await readFile(absolute);
+    requireValue(bytes.length === item.size && sha256(bytes) === item.sha256, `design kit plugin checksum mismatch: ${relative}`);
+  }
+  return { pluginVersion: codex.version, designKit };
 }
 
-async function validatePayload(pluginVersion) {
+async function validatePayload(pluginVersion, designKit) {
   const manifest = await readJson("payload/.payload-manifest.json", "payload manifest");
   const sourceSha = (await readFile(path.join(pluginRoot, "payload", ".source-sha"), "utf8")).trim();
   requireValue(manifest.schemaVersion === 1, "payload manifest schemaVersion must be 1");
   requireValue(manifest.pluginVersion === pluginVersion, "payload pluginVersion does not match plugin manifests");
   requireValue(SHA.test(sourceSha), "payload source SHA must be an immutable 40-character Git SHA");
   requireValue(manifest.sourceSha === sourceSha, "payload manifest and .source-sha disagree");
+  const expected = designKit.files.filter((item) => item.distributions?.includes("payload"))
+    .map((item) => item.deliveryPath).sort();
+  const actual = manifest.files.map((item) => item.path).sort();
+  requireValue(JSON.stringify(actual) === JSON.stringify(expected), "payload manifest does not match the design kit bundle");
   await validateFileManifest(
     "payload",
     manifest,
@@ -142,7 +139,7 @@ async function validatePayload(pluginVersion) {
   return sourceSha;
 }
 
-async function validateSkills(pluginVersion, sourceSha) {
+async function validateSkills(pluginVersion, sourceSha, designKit) {
   requireValue(
     !existsSync(path.join(pluginRoot, "commands")),
     "legacy commands directory duplicates provider-native skills",
@@ -152,8 +149,10 @@ async function validateSkills(pluginVersion, sourceSha) {
   requireValue(provenance.schemaVersion === 1, "skill provenance schemaVersion must be 1");
   requireValue(provenance.pluginVersion === pluginVersion, "skill provenance pluginVersion is stale");
   requireValue(provenance.designSystemSourceSha === sourceSha, "skill provenance source SHA is stale");
-  requireValue(provenance.reviewedSkillCount === 20, "exactly twenty reviewed skills must be declared");
-  requireValue(provenance.reviewedSkills?.length === 20, "reviewed skill inventory must contain twenty names");
+  const expectedReviewed = designKit.skills.filter((item) => item.classification === "reviewed").map((item) => item.name).sort();
+  const expectedCore = designKit.skills.filter((item) => item.classification === "core").map((item) => item.name).sort();
+  requireValue(provenance.reviewedSkillCount === expectedReviewed.length, "reviewed skill count disagrees with design kit");
+  requireValue(JSON.stringify([...provenance.reviewedSkills].sort()) === JSON.stringify(expectedReviewed), "reviewed skill inventory disagrees with design kit");
 
   const skillsRoot = path.join(pluginRoot, "skills");
   const skillDirectories = (await readdir(skillsRoot, { withFileTypes: true }))
@@ -186,7 +185,7 @@ async function validateSkills(pluginVersion, sourceSha) {
   requireValue(new Set(cataloged).size === cataloged.length, "skill provenance assigns a skill more than once");
   const catalogedSorted = [...cataloged].sort();
   requireValue(JSON.stringify(catalogedSorted) === JSON.stringify(skillDirectories), "skill provenance and plugin directories disagree");
-  requireValue([...CORE_SKILLS].every((name) => frontmatterNames.has(name)), "core ByteDesk lifecycle skills are incomplete");
+  requireValue(expectedCore.every((name) => frontmatterNames.has(name)), "core ByteDesk lifecycle skills are incomplete");
 
   requireValue(manifest.schemaVersion === 1, "skill manifest schemaVersion must be 1");
   requireValue(manifest.pluginVersion === pluginVersion, "skill manifest pluginVersion is stale");
@@ -198,9 +197,9 @@ async function validateSkills(pluginVersion, sourceSha) {
 
 try {
   requireValue(existsSync(pluginRoot), `plugin directory does not exist: ${pluginRoot}`);
-  const { pluginVersion } = await validateManifests();
-  const sourceSha = await validatePayload(pluginVersion);
-  const skillCount = await validateSkills(pluginVersion, sourceSha);
+  const { pluginVersion, designKit } = await validateManifests();
+  const sourceSha = await validatePayload(pluginVersion, designKit);
+  const skillCount = await validateSkills(pluginVersion, sourceSha, designKit);
   process.stdout.write(`design-system plugin valid: version=${pluginVersion} source=${sourceSha} skills=${skillCount}\n`);
 } catch (error) {
   process.stderr.write(`validate-plugin: ${error.message}\n`);

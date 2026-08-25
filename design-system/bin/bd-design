@@ -1,0 +1,92 @@
+#!/usr/bin/env node
+import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const manifestPath = path.join(root, "design-system.manifest.json");
+const categories = ["providers", "runtimes", "tokens", "adapters", "profiles", "assets", "templates", "skills", "agents", "mcpServers", "bundles", "files"];
+
+function usage() {
+  return [
+    "Usage: bd-design <command> [options]",
+    "",
+    "Discovery:",
+    "  list [category] [--json]   list the complete kit or one category",
+    "  inspect <id> [--json]      inspect any profile, adapter, skill, bundle, asset, or file",
+    "",
+    "Consumer lifecycle:",
+    "  init [args]                adopt the design system",
+    "  migrate [args]             preview/apply legacy migration",
+    "  sync [args]                update the managed payload",
+    "  check [args]               verify managed integrity",
+    "  doctor [args]              verify integrity and consumer wiring",
+  ].join("\n");
+}
+
+async function loadManifest() {
+  if (!existsSync(manifestPath)) throw new Error(`design kit manifest missing at ${manifestPath}`);
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  if (manifest.schemaVersion !== 1 || manifest.id !== "bytedesk-design-system") throw new Error("unsupported design kit manifest");
+  return manifest;
+}
+
+function delegate(script, args) {
+  const result = spawnSync(process.execPath, [path.join(root, script), ...args], { stdio: "inherit" });
+  if (result.error) throw result.error;
+  return result.status ?? 1;
+}
+
+function label(item) {
+  return item.id ?? item.name ?? item.sourcePath;
+}
+
+const [command = "help", ...rawArgs] = process.argv.slice(2);
+const json = rawArgs.includes("--json");
+const args = rawArgs.filter((arg) => arg !== "--json");
+
+try {
+  if (command === "help" || command === "--help" || command === "-h") {
+    process.stdout.write(`${usage()}\n`);
+  } else if (command === "list") {
+    const manifest = await loadManifest();
+    const category = args[0];
+    if (category && !categories.includes(category)) throw new Error(`unknown category "${category}"; expected ${categories.join(", ")}`);
+    if (json) {
+      process.stdout.write(`${JSON.stringify(category ? manifest[category] : manifest, null, 2)}\n`);
+    } else if (category) {
+      process.stdout.write(`${category} (${manifest[category].length})\n`);
+      for (const item of manifest[category]) process.stdout.write(`  ${label(item)}\n`);
+    } else {
+      process.stdout.write(`ByteDesk design kit ${manifest.version}\n`);
+      for (const name of categories) process.stdout.write(`  ${name.padEnd(12)} ${manifest[name].length}\n`);
+    }
+  } else if (command === "inspect") {
+    const requested = args[0];
+    if (!requested) throw new Error("inspect needs an id");
+    const manifest = await loadManifest();
+    const matches = categories.flatMap((category) => manifest[category].map((item) => ({ category, item })))
+      .filter(({ item }) => [item.id, item.name, item.slug, item.sourcePath].includes(requested));
+    if (matches.length === 0) throw new Error(`no design-kit item matches "${requested}"`);
+    if (matches.length > 1) throw new Error(`"${requested}" is ambiguous; use its namespaced id`);
+    const match = matches[0];
+    process.stdout.write(json ? `${JSON.stringify(match, null, 2)}\n` : `${match.category}\n${JSON.stringify(match.item, null, 2)}\n`);
+  } else if (command === "init") {
+    process.exitCode = delegate("scripts/design-system-init.mjs", args);
+  } else if (command === "migrate") {
+    process.exitCode = delegate("scripts/design-system-init.mjs", ["migrate", ...args]);
+  } else if (command === "sync") {
+    process.exitCode = delegate("scripts/design-system-sync.mjs", args);
+  } else if (command === "check") {
+    process.exitCode = delegate("scripts/design-system-sync.mjs", ["--check", ...args]);
+  } else if (command === "doctor") {
+    process.exitCode = delegate("scripts/design-system-sync.mjs", ["--doctor", ...args]);
+  } else {
+    throw new Error(`unknown command "${command}"\n\n${usage()}`);
+  }
+} catch (error) {
+  process.stderr.write(`bd-design: ${error.message}\n`);
+  process.exitCode = 2;
+}

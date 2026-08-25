@@ -10,7 +10,7 @@ directories above this `SKILL.md`; do not assume a provider-specific cache path.
 
 1. Resolve the installed plugin root, then run:
 
-   `node <plugin>/scripts/design-system-init.mjs --app <slug> --dry-run`
+   `node <plugin>/bin/bd-design init --app <slug> --dry-run`
 
    Omit `--app` only when the repository or package name exactly matches one
    available profile. The executable refuses ambiguous identity and runtime
@@ -23,7 +23,7 @@ directories above this `SKILL.md`; do not assume a provider-specific cache path.
 4. Run the consumer's build or test command, then commit the managed payload and
    integration files. Builds never depend on the machine-local plugin cache.
 
-For an existing submodule or manual snapshot, use the migration skill and the
-same executable's `migrate` command.
+For an existing submodule or manual snapshot, use the migration skill and
+`node <plugin>/bin/bd-design migrate`.
 
 Never edit managed files. Upstream changes belong in `ByteDeskAI/design-system`.

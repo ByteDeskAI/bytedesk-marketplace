@@ -22,6 +22,7 @@ import { fileURLToPath } from "node:url";
 
 const pluginRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const payloadDir = path.join(pluginRoot, "payload");
+const KIT_MANIFEST = "design-system.manifest.json";
 const DEFAULT_DIR = ".context/design-system";
 const STATE_FILE = ".design-system.json";
 const SOURCE_FILE = ".source-sha";
@@ -163,6 +164,18 @@ async function loadPayload() {
     throw new PayloadError(`payload manifest missing at ${manifestPath}; republish the plugin`);
   }
   const manifest = await readJson(manifestPath, PayloadError, "payload manifest");
+  const kitPath = path.join(pluginRoot, KIT_MANIFEST);
+  if (!existsSync(kitPath)) throw new PayloadError(`design kit manifest missing at ${kitPath}; republish the plugin`);
+  const designKit = await readJson(kitPath, PayloadError, "design kit manifest");
+  if (designKit.schemaVersion !== 1 || designKit.id !== "bytedesk-design-system") {
+    throw new PayloadError("design kit manifest schema/id is unsupported");
+  }
+  if (!Array.isArray(designKit.files) || !Array.isArray(designKit.profiles)) {
+    throw new PayloadError("design kit manifest files/profiles must be arrays");
+  }
+  const kitPayload = new Map(designKit.files
+    .filter((item) => item.distributions?.includes("payload"))
+    .map((item) => [safeRelative(item.deliveryPath, "design kit delivery path"), item]));
   if (manifest.schemaVersion !== 1) throw new PayloadError("payload manifest schemaVersion must be 1");
   if (!/^[0-9a-f]{40}$/.test(manifest.sourceSha ?? "")) {
     throw new PayloadError("payload manifest sourceSha must be a full Git SHA");
@@ -189,18 +202,21 @@ async function loadPayload() {
     const bytes = await readFile(absolute);
     const checksum = sha256(bytes);
     if (checksum !== item.sha256) throw new PayloadError(`payload checksum mismatch: ${relative}`);
-    files.push({ path: relative, sha256: checksum, size: bytes.length, bytes });
+    const kitFile = kitPayload.get(relative);
+    if (!kitFile) throw new PayloadError(`payload file is absent from design kit manifest: ${relative}`);
+    if (kitFile.sha256 !== checksum || kitFile.size !== bytes.length) {
+      throw new PayloadError(`design kit file metadata mismatch: ${relative}`);
+    }
+    files.push({ path: relative, sha256: checksum, size: bytes.length, bytes, profile: kitFile.profile ?? null });
   }
+  if (files.length !== kitPayload.size) throw new PayloadError("payload does not contain the complete design kit payload bundle");
   const manifested = new Set(files.map((file) => file.path));
   for (const relative of await walkFiles(payloadDir)) {
     if (relative === SOURCE_FILE || relative === PAYLOAD_MANIFEST) continue;
     if (!manifested.has(relative)) throw new PayloadError(`unmanifested payload file: ${relative}`);
   }
-  const apps = [...new Set(files.flatMap((file) => {
-    const match = /^profiles\/([^/]+)\//.exec(file.path);
-    return match && !match[1].startsWith("_") ? [match[1]] : [];
-  }))].sort();
-  return { sourceSha, files, apps };
+  const apps = designKit.profiles.map((item) => item.slug).filter((slug) => slug && !slug.startsWith("_")).sort();
+  return { sourceSha, files, apps, designKit };
 }
 
 function resolveDestination(cwd, requested) {
@@ -241,10 +257,7 @@ function resolveApp(opts, state, payload) {
 }
 
 function selectPayloadFiles(payload, app) {
-  return payload.files.filter((file) => {
-    if (!file.path.startsWith("profiles/")) return true;
-    return file.path.startsWith(`profiles/${app}/`);
-  });
+  return payload.files.filter((file) => !file.profile || file.profile === app);
 }
 
 function readmeStamp(app, sourceSha, files) {

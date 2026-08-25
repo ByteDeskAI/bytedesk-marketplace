@@ -7,7 +7,7 @@ description: Plan and perform a reviewed migration from a legacy ByteDesk design
 
 Resolve the installed plugin root and start with its executable preflight:
 
-`node <plugin>/scripts/design-system-init.mjs migrate --app <slug> --dry-run`
+`node <plugin>/bin/bd-design migrate --app <slug> --dry-run`
 
 Before removing a submodule, gitlink, or directory, show the exact targets and
 obtain explicit user authorization. Stop if the legacy checkout has uncommitted
