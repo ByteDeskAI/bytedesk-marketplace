@@ -3,7 +3,7 @@
 Delivers the ByteDesk design system into any repository as **plain committed
 files**. The plugin carries the payload; a sync copies it into the repo tree.
 
-Install the same `1.2.0` bundle in either provider:
+Install the same `1.3.0` bundle in either provider:
 
 ```bash
 # Claude Code
@@ -32,6 +32,14 @@ The plugin includes ten ByteDesk workflows: init, sync, doctor, audit, profile,
 tokens, assets, migration, release, and scaffold. It also includes twenty
 reviewed design-craft skills. Provider installation makes all 30 discoverable;
 the consuming repository does not need its own `.agents/skills` copy.
+
+### Read-only MCP
+
+Claude and Codex register the same offline stdio server automatically. It exposes
+five deterministic tools: `list_design_items`, `search_design_system`,
+`get_design_item`, `explain_rule`, and `audit_repository`. Agents can discover
+the full design-kit graph, resolve shared/profile/consumer authority with source
+citations, and audit a repository without writing to it or calling the network.
 
 ### One-command adoption
 
@@ -94,6 +102,7 @@ A sync writes exactly this into `<dir>`:
 ├── tokens/bytedesk.tokens.json     canonical DTCG-style values
 ├── tokens/css/bytedesk.css         the canonical --bd-* layer
 ├── tokens/tailwind/theme.css       the Tailwind v4 adapter
+├── tokens/platforms/               generated TypeScript, Go, and Rust adapters
 ├── profiles/<app>/                THIS app's profile only — DESIGN.md, PRODUCT.md
 ├── .source-sha                     the design-system commit this came from
 ├── .design-system.json             remembered app and source revision

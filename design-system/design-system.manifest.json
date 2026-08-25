@@ -2,7 +2,7 @@
   "$schema": "./design-system.manifest.schema.json",
   "schemaVersion": 1,
   "id": "bytedesk-design-system",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "catalog": {
     "sourcePath": "catalog.json",
     "sha256": "fec678f3646b00b75623f4c97b471317f7ca82e1f61a9878ad3143495f14e162",
@@ -12,11 +12,13 @@
     {
       "id": "claude",
       "manifest": "plugin/.claude-plugin/plugin.json",
+      "mcpRegistration": ".mcp.json",
       "compatibility": ">=1.0"
     },
     {
       "id": "codex",
       "manifest": "plugin/.codex-plugin/plugin.json",
+      "mcpRegistration": ".codex-mcp.json",
       "compatibility": ">=1.0"
     }
   ],
@@ -49,8 +51,8 @@
       "kind": "cli",
       "sourcePath": "bin/bd-design",
       "deliveryPath": "bin/bd-design",
-      "sha256": "e56ecd01d4896157b8eaa49fbd9ee769b54e66a861efb1d86416ecdfd9a18828",
-      "size": 4372,
+      "sha256": "ffd270ba3631e20fc45d3aedfe3ad1b191402b04620305a7f62702132e700e05",
+      "size": 4488,
       "distributions": [
         "plugin"
       ]
@@ -75,6 +77,50 @@
       "size": 5781,
       "distributions": [
         "payload"
+      ]
+    },
+    {
+      "id": "file:mcp/design-system-mcp.mjs",
+      "kind": "mcp-server",
+      "sourcePath": "mcp/design-system-mcp.mjs",
+      "deliveryPath": "mcp/design-system-mcp.mjs",
+      "sha256": "568cafacbf2291a4256daf70b20ef417ad9f7f48d6c24ac25c6a95202ad5510b",
+      "size": 17375,
+      "distributions": [
+        "plugin"
+      ]
+    },
+    {
+      "id": "file:plugin/.codex-mcp.json",
+      "kind": "provider-registration",
+      "sourcePath": "plugin/.codex-mcp.json",
+      "deliveryPath": ".codex-mcp.json",
+      "sha256": "b545991469bf20e1c782076b9f37611bc162231695cb16069d6b1d3d4d0288a3",
+      "size": 167,
+      "distributions": [
+        "plugin"
+      ]
+    },
+    {
+      "id": "file:plugin/.mcp.json",
+      "kind": "provider-registration",
+      "sourcePath": "plugin/.mcp.json",
+      "deliveryPath": ".mcp.json",
+      "sha256": "848e67d4138a72fcefe24320b6d330b880c8605debe667e8680c44a667ecbc6d",
+      "size": 169,
+      "distributions": [
+        "plugin"
+      ]
+    },
+    {
+      "id": "file:plugin/package.json",
+      "kind": "provider-runtime",
+      "sourcePath": "plugin/package.json",
+      "deliveryPath": "package.json",
+      "sha256": "e44cb63b2a1ccf1a6b531aa936e0b3422b7c730fdc099aeb1dc7ad5be2ef809f",
+      "size": 86,
+      "distributions": [
+        "plugin"
       ]
     },
     {
@@ -162,12 +208,36 @@
       "profile": "capture"
     },
     {
+      "id": "file:profiles/gateway/CLIENT_UI.md",
+      "kind": "profile",
+      "sourcePath": "profiles/gateway/CLIENT_UI.md",
+      "deliveryPath": "profiles/gateway/CLIENT_UI.md",
+      "sha256": "62f758a77bb0bc77258d34780413efd7e5b55b0a08ba5540410c1c714f12fc71",
+      "size": 15329,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "gateway"
+    },
+    {
+      "id": "file:profiles/gateway/COMPONENTS.md",
+      "kind": "profile",
+      "sourcePath": "profiles/gateway/COMPONENTS.md",
+      "deliveryPath": "profiles/gateway/COMPONENTS.md",
+      "sha256": "0d01370ab13ab2248f30fcbb3d528f13e000e05137edabaadb7492ad9c6eb733",
+      "size": 12208,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "gateway"
+    },
+    {
       "id": "file:profiles/gateway/DESIGN.md",
       "kind": "profile",
       "sourcePath": "profiles/gateway/DESIGN.md",
       "deliveryPath": "profiles/gateway/DESIGN.md",
-      "sha256": "eef1e2ea3884f5b77dd850f4335c7e30187019c76f7c80ca59acd74e84e0f11a",
-      "size": 6805,
+      "sha256": "2806d7eb0f9d948b50f3a0a64f2a42a57486b50a2d17d54e22049818537d4be1",
+      "size": 10001,
       "distributions": [
         "payload"
       ],
@@ -178,8 +248,20 @@
       "kind": "profile",
       "sourcePath": "profiles/gateway/PRODUCT.md",
       "deliveryPath": "profiles/gateway/PRODUCT.md",
-      "sha256": "0a2671a62407bb3a9ca7ede268ed6df3d6ee9793c2621c7e501eff32c32031a7",
-      "size": 4014,
+      "sha256": "baf9f352326be3716dbea9742e432bb5aa34f4030d4b6ce1a073cebcb6e97b95",
+      "size": 6560,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "gateway"
+    },
+    {
+      "id": "file:profiles/gateway/VISUALIZATIONS.md",
+      "kind": "profile",
+      "sourcePath": "profiles/gateway/VISUALIZATIONS.md",
+      "deliveryPath": "profiles/gateway/VISUALIZATIONS.md",
+      "sha256": "661aa82dd3e8cadcb57527f77af6caac21d1d0bcc1174ea8d24b82a75e41629c",
+      "size": 7257,
       "distributions": [
         "payload"
       ],
@@ -473,8 +555,8 @@
       "kind": "runtime",
       "sourcePath": "scripts/validate-plugin.mjs",
       "deliveryPath": "scripts/validate-plugin.mjs",
-      "sha256": "faa29b2d64fd57fd770a11b7ca0c2f3be8d8fa32e78161347a667acb5f12a393",
-      "size": 11847,
+      "sha256": "ebcd1fc3193db7c457bcff084d9348688a869cbaa009d953cb714e83d9b3da99",
+      "size": 13275,
       "distributions": [
         "plugin"
       ]
@@ -517,8 +599,8 @@
       "kind": "token",
       "sourcePath": "tokens/bytedesk.tokens.json",
       "deliveryPath": "tokens/bytedesk.tokens.json",
-      "sha256": "0e60a09643a64be1cf48aebb867328c0c32598ea9f9c56e8f5dd0f2aae45d119",
-      "size": 6271,
+      "sha256": "0ca07fff00c12b18b5d23ba631e80cf43e967c8940b0c92159b542c6f9a6afb7",
+      "size": 19168,
       "distributions": [
         "payload"
       ]
@@ -528,8 +610,52 @@
       "kind": "token",
       "sourcePath": "tokens/css/bytedesk.css",
       "deliveryPath": "tokens/css/bytedesk.css",
-      "sha256": "9d4f367a3a7e7d20e727e874f38e47bf829e0e32054f65f93a2e03d079a183c4",
-      "size": 4892,
+      "sha256": "8682777a21824afc87c0febee76e2589631d3edabdeb159adbbe29e13d212e5a",
+      "size": 10083,
+      "distributions": [
+        "payload"
+      ]
+    },
+    {
+      "id": "file:tokens/platforms/go/bytedesk_tokens.go",
+      "kind": "token",
+      "sourcePath": "tokens/platforms/go/bytedesk_tokens.go",
+      "deliveryPath": "tokens/platforms/go/bytedesk_tokens.go",
+      "sha256": "638edc6ffd7b9868e4fa427d0da7003164dadf7f31b8981c77324aa24a503d01",
+      "size": 15629,
+      "distributions": [
+        "payload"
+      ]
+    },
+    {
+      "id": "file:tokens/platforms/README.md",
+      "kind": "token",
+      "sourcePath": "tokens/platforms/README.md",
+      "deliveryPath": "tokens/platforms/README.md",
+      "sha256": "a78001b2c73f3c9fed727a34de86ef89799271f26e2ea89444a6f16af6e29ee6",
+      "size": 1054,
+      "distributions": [
+        "payload"
+      ]
+    },
+    {
+      "id": "file:tokens/platforms/rust/bytedesk_tokens.rs",
+      "kind": "token",
+      "sourcePath": "tokens/platforms/rust/bytedesk_tokens.rs",
+      "deliveryPath": "tokens/platforms/rust/bytedesk_tokens.rs",
+      "sha256": "5582190603836b688704c418d96791bf9af37fc01183c08af590215449ebe300",
+      "size": 13446,
+      "distributions": [
+        "payload"
+      ]
+    },
+    {
+      "id": "file:tokens/platforms/typescript/bytedesk-tokens.ts",
+      "kind": "token",
+      "sourcePath": "tokens/platforms/typescript/bytedesk-tokens.ts",
+      "deliveryPath": "tokens/platforms/typescript/bytedesk-tokens.ts",
+      "sha256": "8da7836afe11aaf431ef4807940120005255a5fbbd4f11e09b420d6d013e0599",
+      "size": 5699,
       "distributions": [
         "payload"
       ]
@@ -539,8 +665,8 @@
       "kind": "token",
       "sourcePath": "tokens/README.md",
       "deliveryPath": "tokens/README.md",
-      "sha256": "b44caade6b2dd3dd4bc2eaac10a8df05170f6c9407fd49ffd4877f8f08648ff6",
-      "size": 4972,
+      "sha256": "1e59b583c12e03f385335c4dcedd9851586546c76e9c491c75e85d4d922c3cb2",
+      "size": 7391,
       "distributions": [
         "payload"
       ]
@@ -550,8 +676,8 @@
       "kind": "token",
       "sourcePath": "tokens/tailwind/theme.css",
       "deliveryPath": "tokens/tailwind/theme.css",
-      "sha256": "d77071236175db20c228f6c44a3abdeab1e7bc6d492db924f15a00990b3f4461",
-      "size": 2449,
+      "sha256": "66215db8137e559d018e4ae5fcb3e843494f3f78e7f7d029ca054e606916be2c",
+      "size": 6156,
       "distributions": [
         "payload"
       ]
@@ -580,6 +706,34 @@
       ]
     },
     {
+      "id": "token:tokens/platforms/README.md",
+      "sourcePath": "tokens/platforms/README.md",
+      "files": [
+        "file:tokens/platforms/README.md"
+      ]
+    },
+    {
+      "id": "token:tokens/platforms/go/bytedesk_tokens.go",
+      "sourcePath": "tokens/platforms/go/bytedesk_tokens.go",
+      "files": [
+        "file:tokens/platforms/go/bytedesk_tokens.go"
+      ]
+    },
+    {
+      "id": "token:tokens/platforms/rust/bytedesk_tokens.rs",
+      "sourcePath": "tokens/platforms/rust/bytedesk_tokens.rs",
+      "files": [
+        "file:tokens/platforms/rust/bytedesk_tokens.rs"
+      ]
+    },
+    {
+      "id": "token:tokens/platforms/typescript/bytedesk-tokens.ts",
+      "sourcePath": "tokens/platforms/typescript/bytedesk-tokens.ts",
+      "files": [
+        "file:tokens/platforms/typescript/bytedesk-tokens.ts"
+      ]
+    },
+    {
       "id": "token:tokens/tailwind/theme.css",
       "sourcePath": "tokens/tailwind/theme.css",
       "files": [
@@ -593,7 +747,8 @@
       "runtime": "web",
       "files": [
         "file:tokens/css/bytedesk.css",
-        "file:tokens/tailwind/theme.css"
+        "file:tokens/tailwind/theme.css",
+        "file:tokens/platforms/typescript/bytedesk-tokens.ts"
       ],
       "dependsOn": [
         "bundle:foundation"
@@ -604,7 +759,8 @@
       "runtime": "go",
       "files": [
         "file:tokens/bytedesk.tokens.json",
-        "file:tokens/css/bytedesk.css"
+        "file:tokens/css/bytedesk.css",
+        "file:tokens/platforms/go/bytedesk_tokens.go"
       ],
       "generatedPath": "internal/design_tokens/bytedesk_generated.go",
       "dependsOn": [
@@ -615,7 +771,8 @@
       "id": "adapter:native",
       "runtime": "native",
       "files": [
-        "file:tokens/bytedesk.tokens.json"
+        "file:tokens/bytedesk.tokens.json",
+        "file:tokens/platforms/rust/bytedesk_tokens.rs"
       ],
       "generatedPath": ".bytedesk/design-token-map.json",
       "dependsOn": [
@@ -710,8 +867,11 @@
       "sourceRepository": "ByteDeskAI/design-system",
       "sourceCommit": "2d1c7a4090eb372e0c8b15e9ca559c61c5b88b18",
       "files": [
+        "file:profiles/gateway/CLIENT_UI.md",
+        "file:profiles/gateway/COMPONENTS.md",
         "file:profiles/gateway/DESIGN.md",
-        "file:profiles/gateway/PRODUCT.md"
+        "file:profiles/gateway/PRODUCT.md",
+        "file:profiles/gateway/VISUALIZATIONS.md"
       ],
       "dependsOn": [
         "bundle:foundation"
@@ -1284,7 +1444,32 @@
     }
   ],
   "agents": [],
-  "mcpServers": [],
+  "mcpServers": [
+    {
+      "id": "mcp:design-system",
+      "name": "design-system",
+      "transport": "stdio",
+      "sourcePath": "mcp/design-system-mcp.mjs",
+      "providers": [
+        "claude",
+        "codex"
+      ],
+      "offline": true,
+      "readOnly": true,
+      "files": [
+        "file:mcp/design-system-mcp.mjs",
+        "file:plugin/.mcp.json",
+        "file:plugin/.codex-mcp.json"
+      ],
+      "tools": [
+        "list_design_items",
+        "search_design_system",
+        "get_design_item",
+        "explain_rule",
+        "audit_repository"
+      ]
+    }
+  ],
   "bundles": [
     {
       "id": "bundle:foundation",
@@ -1292,6 +1477,10 @@
         "file:DESIGN.md",
         "file:tokens/bytedesk.tokens.json",
         "file:tokens/css/bytedesk.css",
+        "file:tokens/platforms/go/bytedesk_tokens.go",
+        "file:tokens/platforms/README.md",
+        "file:tokens/platforms/rust/bytedesk_tokens.rs",
+        "file:tokens/platforms/typescript/bytedesk-tokens.ts",
         "file:tokens/README.md",
         "file:tokens/tailwind/theme.css"
       ]
@@ -1306,8 +1495,11 @@
         "file:profiles/bytedesk-ai/PRODUCT.md",
         "file:profiles/capture-website/DESIGN.md",
         "file:profiles/capture/DESIGN.md",
+        "file:profiles/gateway/CLIENT_UI.md",
+        "file:profiles/gateway/COMPONENTS.md",
         "file:profiles/gateway/DESIGN.md",
         "file:profiles/gateway/PRODUCT.md",
+        "file:profiles/gateway/VISUALIZATIONS.md",
         "file:profiles/marketplace/DESIGN.md",
         "file:profiles/marketplace/PRODUCT.md",
         "file:profiles/store/DESIGN.md",
@@ -1326,6 +1518,10 @@
       "files": [
         "file:bin/bd-design",
         "file:design-system.manifest.schema.json",
+        "file:mcp/design-system-mcp.mjs",
+        "file:plugin/.codex-mcp.json",
+        "file:plugin/.mcp.json",
+        "file:plugin/package.json",
         "file:scripts/design-system-check.mjs",
         "file:scripts/design-system-init.mjs",
         "file:scripts/design-system-sync.mjs",

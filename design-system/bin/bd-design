@@ -34,8 +34,10 @@ async function loadManifest() {
 }
 
 function delegate(script, args) {
-  const result = spawnSync(process.execPath, [path.join(root, script), ...args], { stdio: "inherit" });
+  const result = spawnSync(process.execPath, [path.join(root, script), ...args], { encoding: "utf8" });
   if (result.error) throw result.error;
+  if (result.stdout) process.stdout.write(result.stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
   return result.status ?? 1;
 }
 

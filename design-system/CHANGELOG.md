@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.3.0] — 2026-08-25
+
+### Added
+
+- Added an offline, read-only MCP server with deterministic tools for inventory,
+  search, item inspection, rule-authority explanation, and consumer audits.
+- Added matching automatic Claude and Codex MCP registrations.
+- Published generated TypeScript, Go, and Rust token adapters and the expanded
+  Gateway client design contract from source revision `2c5f690`.
+
 ## [1.2.0] — 2026-08-25
 
 ### Added

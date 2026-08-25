@@ -102,13 +102,26 @@ async function validateManifests() {
   requireValue(claude.version === codex.version, "Claude and Codex versions must match");
   requireValue(claude.description === codex.description, "Claude and Codex descriptions must match");
   requireValue(codex.skills === "./skills/", "Codex manifest must expose ./skills/");
+  requireValue(codex.mcpServers === "./.codex-mcp.json", "Codex manifest must expose ./.codex-mcp.json");
   requireValue(existsSync(path.join(pluginRoot, "LICENSE")), "plugin root LICENSE is missing");
+  const claudeMcp = await readJson(".mcp.json", "Claude MCP registration");
+  const codexMcp = await readJson(".codex-mcp.json", "Codex MCP registration");
+  const packageManifest = await readJson("package.json", "plugin package manifest");
+  requireValue(packageManifest.private === true && packageManifest.type === "module", "plugin package must establish a private ESM boundary");
+  const claudeServer = claudeMcp.mcpServers?.["design-system"];
+  const codexServer = codexMcp.mcpServers?.["design-system"];
+  requireValue(claudeServer?.type === "stdio" && codexServer?.type === "stdio", "both providers must register the design-system stdio MCP server");
+  requireValue(claudeServer.command === "node" && codexServer.command === "node", "both MCP registrations must use the cross-platform Node command");
+  requireValue(claudeServer.args?.[0]?.endsWith("/mcp/design-system-mcp.mjs"), "Claude MCP registration points at the wrong server");
+  requireValue(codexServer.args?.[0] === "./mcp/design-system-mcp.mjs", "Codex MCP registration points at the wrong server");
   const designKit = await readJson("design-system.manifest.json", "design kit manifest");
   requireValue(designKit.schemaVersion === 1 && designKit.id === "bytedesk-design-system", "design kit schema/id is unsupported");
   requireValue(designKit.version === codex.version, "design kit version does not match provider manifests");
   for (const category of ["providers", "runtimes", "files", "tokens", "adapters", "profiles", "assets", "templates", "skills", "agents", "mcpServers", "bundles"]) {
     requireValue(Array.isArray(designKit[category]), `design kit ${category} must be an array`);
   }
+  requireValue(designKit.mcpServers.length === 1, "design kit must expose exactly one MCP server");
+  requireValue(designKit.mcpServers[0].readOnly === true && designKit.mcpServers[0].offline === true, "design-system MCP must be offline and read-only");
   for (const item of designKit.files.filter((file) => file.distributions?.includes("plugin"))) {
     const relative = safeRelative(item.deliveryPath, "design kit plugin file");
     const absolute = path.join(pluginRoot, relative);

@@ -1,7 +1,9 @@
 # Product — ByteDesk Gateway
 
 Canonical product direction for `bytedesk-remote-gateway`. Paired with
-[`DESIGN.md`](DESIGN.md).
+[`DESIGN.md`](DESIGN.md), [`CLIENT_UI.md`](CLIENT_UI.md),
+[`COMPONENTS.md`](COMPONENTS.md), and
+[`VISUALIZATIONS.md`](VISUALIZATIONS.md).
 
 ## Register
 
@@ -9,74 +11,123 @@ product
 
 ## Product purpose
 
-ByteDesk Gateway is a small Go service that puts **secure remote access to your own
-workstation** behind real authentication: a protected terminal, desktop and live screen
-surfaces, a full file browser, an agentic workroom, and connection administration —
-reachable from a laptop or a phone without exposing the machine.
+ByteDesk Gateway provides **secure remote access to a workstation and the agents
+running on it**. The host service owns authentication, policy, sessions, terminal and
+remote-display surfaces, files, projects, system operations, plugins, and agent
+execution. Browser and desktop clients provide consistent operator interfaces over
+those capabilities.
 
-It is the **free, top-of-funnel product** of the ByteDesk host layer. Gateway owns the
-host: sessions, policy enforcement, CSP, lockdown. It does **not** own identity
-directories (that is Vault) or catalog, licensing, and billing (that is Store); against
-both it is an authenticated client only.
+Gateway is the free host-control layer in the ByteDesk product family. It does not own
+the identity directory (Vault) or catalog, licensing, and billing (Store); it is an
+authenticated client of both.
 
 ## Users
 
-A single technical operator, or a small team of them, running their own machines:
-developers, solo operators, and on-call engineers. They live in terminals, read
-monospace fluently, and value density and precision over decoration. They are often
-mobile — the phone is a real client, not an afterthought.
+The primary user is a technical operator working alone or with a small trusted team:
+developers, on-call engineers, systems operators, and agent supervisors. They are
+comfortable with terminals and machine values, value density and precision, and may
+move between a browser, Windows, Linux, macOS, and a phone during one incident or
+work session.
+
+## Product topology
+
+Gateway is a client/server product with one authoritative Go host service and multiple
+frontends:
+
+- **Browser/PWA** for zero-install and mobile access.
+- **Windows, Linux, and macOS desktop clients** for native credential storage,
+  notifications, file integration, windowing, and shortcuts.
+- **Web surface fallbacks** for terminal, noVNC, Monaco, and plugin panels until a
+  native renderer demonstrably reaches semantic and operational parity.
+
+The server advertises capabilities and representations. A client may choose the best
+representation it supports, but it cannot omit an authorized workflow and still claim
+feature parity.
+
+Structured agent interaction crosses the client boundary through **AG-UI**. Provider
+and agent-runtime protocols such as ACP stay southbound inside the host. Raw terminal
+bytes, remote-display traffic, file transfer, and general product events retain their
+purpose-built transports.
 
 ## What it does
 
-- **Authenticated access**: password + TOTP, optional post-MFA approval link, optional
-  push notification, CIDR and geo allowlists, signed short-lived session cookies, local
-  rate limiting.
-- **Sessions**: an authenticated tab launcher for terminals, coding agents, a browser,
-  a virtual desktop, and a live screen mirror.
-- **Mission Control**: live health for tunnel, backends, units, deploy and watchdog
-  state, streamed over Server-Sent Events rather than client polling.
-- **Files**: upload/download, multi-select, resumable transfer, zip.
-- **Connection admin**: see logged-in sessions and live viewers, kick, ban by IP with
-  optional expiry, audit the result.
-- **Host awareness**: an on-screen border on the physical display while a remote viewer
-  is connected, and a clipboard bridge back to the host.
-- **Installable PWA** with on-screen terminal keys for mobile use.
+- **Authenticated access**: password and TOTP, optional approval, scoped credentials,
+  access policy, rate limiting, and auditable sessions.
+- **Sessions**: durable terminal and coding-agent sessions, multi-pane staging,
+  browser, desktop, live screen, recordings, handoff, pins, and stream capacity.
+- **Projects**: project and worktree context, files, editor, Git, terminals, tasks, and
+  a project-scoped agent workspace.
+- **Files**: local and S3-compatible locations, guest grants, resumable transfer,
+  archive operations, preview, editing, metadata, and trash.
+- **Mission Control and Infrastructure**: live health, tunnel and service posture,
+  deploy and watchdog state, and operational next actions.
+- **System**: host telemetry, processes, anomalies, incidents, and approved actions.
+- **Agents**: Assistant and Agentic workspaces with messages, tool activity, state,
+  approvals, handoffs, and progress delivered through AG-UI.
+- **Security and administration**: connections, bans, audit, users, tokens, plugins,
+  settings, Store, and Vault integration.
+- **Host awareness**: visible remote-view indication, clipboard integration, and
+  explicit control/view permissions.
 
-## Product surface architecture
+## Product experience
 
-The React SPA is the single source of truth for every product document route; embedded
-legacy HTML exists only as a fallback when the SPA bundle is missing. Everything ships
-inside one Go binary — the UI is embedded, CDN-free, and works on a private network
-with no external asset fetches.
+The interface is **The Operator Console**. The active terminal, file tree, editor,
+remote surface, chart, or agent run is the product; chrome frames it without competing
+for space. The same information architecture, action hierarchy, state vocabulary, and
+consequences apply on every frontend.
+
+Pixel identity is not required across operating systems. Semantic parity is:
+
+- the same authorized capabilities are discoverable;
+- the same action names and consequences are used;
+- live, stale, disconnected, pending, approved, failed, and destructive states mean
+  the same thing;
+- keyboard and accessibility paths remain complete;
+- native operating-system affordances may replace browser affordances where they are
+  stronger.
 
 ## Brand and tone
 
-Direct, operational, honest. The console states facts and current posture; it does not
-sell inside the work surface. Where a security control is absent, the UI says so
-plainly rather than implying an enterprise capability that is not there.
+Direct, operational, and honest. The console states current posture and the next
+available action. It does not hide missing controls behind optimistic language, present
+stale data as live, or add marketing decoration inside work surfaces.
 
 ## Anti-references
 
-- Generic SaaS admin templates: hero-metric tiles, identical icon card grids, icon soup.
-- Bootstrap-dark or default component-library dashboards.
-- Marketing gloss inside the console: gradients, glassmorphism, decorative illustration.
-- Fake enterprise RBAC chrome standing in for controls that do not exist.
+- Generic SaaS dashboards built from interchangeable metric cards.
+- Separate visual languages for browser, Windows, Linux, and macOS.
+- Desktop wrappers that expose privileged native APIs to arbitrary plugin WebViews.
+- Agent chat streams that hide tool execution, approval state, or errors.
+- Decorative gradients, glassmorphism, illustration, or animation over live work.
+- Fake enterprise controls standing in for policy the server does not enforce.
+- A native rewrite that removes terminal, remote-display, editor, or plugin parity.
 
 ## Strategic principles
 
-1. **The host is the product.** Chrome frames the terminal, desktop, and files; it never
-   competes with them for space or attention.
-2. **Authentication is not decoration.** Every non-health endpoint stays authenticated,
-   and launch validation stays server-side even when the UI also disables the choice.
-3. **Live state must be honest.** Health is streamed, and stale data is labeled stale.
-4. **Self-healing over alarming.** Watchdogs roll back bad deploys and re-heal the
-   public path; the UI reports what happened rather than demanding operator triage.
-5. **Free core, clean seams.** Commerce and identity live in Store and Vault; Gateway
-   keeps client seams rather than absorbing their authority.
-6. **Zero external dependencies at runtime.** The binary carries its own UI.
+1. **The host is authoritative.** Authentication, authorization, launch validation,
+   files, processes, agents, and destructive operations remain server-side.
+2. **One design contract, multiple renderers.** Tokens, component semantics, state,
+   accessibility, and interaction rules are shared across clients.
+3. **Capability parity before native purity.** Reuse proven web surfaces until a native
+   implementation is measurably better and complete.
+4. **AG-UI is the agent-to-user boundary.** It does not replace terminal, file, VNC,
+   telemetry, or ordinary resource APIs.
+5. **Live state must be honest.** Clients distinguish live, delayed, stale,
+   disconnected, and replayed data.
+6. **Security follows the surface.** Credentials stay out of untrusted renderers;
+   remote and plugin surfaces receive short-lived, narrow capabilities.
+7. **Free core, clean seams.** Store and Vault remain separate authorities with
+   explicit client contracts.
+8. **Portable by design.** New features define browser and desktop representations,
+   keyboard behavior, compact behavior, and accessibility before shipping.
 
 ## Success criteria
 
-An operator can reach a live terminal on their own machine from a phone, over a public
-hostname, in seconds — through real auth, with the host visibly signalling the remote
-session, and with a one-liner install that needed no manual configuration.
+An operator can connect from a browser or a supported desktop client, authenticate
+safely, resume the same workspace, open a terminal or remote surface, inspect host
+state, work with files and projects, and supervise agents without learning a different
+product on each platform.
+
+A client is successful when it preserves all authorized workflows, clearly communicates
+connection and execution state, and makes the active host surface the shortest path
+between operator intent and result.

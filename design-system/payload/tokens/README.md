@@ -1,97 +1,195 @@
-# ByteDesk Canonical Tokens
+# ByteDesk canonical tokens
 
 This directory is the shared **value layer** of the ByteDesk family: one dark-first
-foundation (backgrounds, text, brand, semantic colors, borders, type, radii, motion)
-plus a per-product accent map, published in three forms:
+foundation plus product identity, cross-platform density/layout values, operational
+visualization colors, and generated runtime adapters.
 
-| File | Form | For |
+## Published forms
+
+| File | Form | Consumer |
 |---|---|---|
-| `bytedesk.tokens.json` | DTCG-style JSON | Non-CSS runtimes (egui/native, codegen, tooling) |
-| `css/bytedesk.css` | CSS custom properties (`--bd-*`) | Any web runtime, including Go-embedded admin HTML |
-| `tailwind/theme.css` | Tailwind v4 `@theme` adapter | Next.js / Vite React apps |
+| `bytedesk.tokens.json` | DTCG-style canonical JSON | source of truth, tooling, native adapters |
+| `css/bytedesk.css` | CSS custom properties (`--bd-*`) | browser, WebView, embedded HTML |
+| `tailwind/theme.css` | Tailwind v4 `@theme` mapping | Next.js and Vite/React |
+| `platforms/typescript/bytedesk-tokens.ts` | generated TypeScript map | canvas/chart tooling and non-CSS TypeScript |
+| `platforms/rust/bytedesk_tokens.rs` | generated Rust constants | Tauri/native Rust adapters |
+| `platforms/go/bytedesk_tokens.go` | generated Go constants | Go UI/tooling adapters |
 
-`bytedesk.tokens.json` is the source of truth; the CSS files must stay in sync with it.
-Change values here first (Change discipline, shared `DESIGN.md` §8), then consumers
-adopt via submodule pointer bump.
+`bytedesk.tokens.json` is authoritative. CSS values and derived aliases remain reviewed
+human-readable adapters; TypeScript, Rust, and Go files are generated and checked.
 
-Consumers reach these files through the submodule mounted at `.context/design-system`.
-The same mount also carries each app's design profile
-(`profiles/<app>/DESIGN.md` + `PRODUCT.md`), so one pointer bump moves an app's tokens
-and its design context together.
+Generate and verify:
 
-## The family contract
+```bash
+node scripts/generate-platform-tokens.mjs
+node scripts/generate-platform-tokens.mjs --check
+node scripts/validate.mjs
+```
 
-- **Ground**: every product surface starts from `bg.base #0F1017` and the shared ramp.
-- **Brand**: orange `#EC4E02` is ByteDesk — conversion moments and brand marks only.
-- **Interaction**: blue `#0079F2` — links, focus, affordances.
-- **Product accents** identify products (marks, chips, card gradients, doc headers) and
-  never replace semantic colors:
+## Family contract
 
-  | Product | Accent | Contrast on bg.base |
-  |---|---|---|
-  | Platform | `#EC4E02` (brand) | 5.1:1 |
-  | Gateway | `#0079F2` | 4.5:1 |
-  | Vault | `#DFA700` | 8.7:1 |
-  | Store | `#009118` | 4.6:1 |
-  | Workforce | `#A170EB` | 5.5:1 |
-  | Agent Browser | `#1DB8CE` | 8.0:1 |
-  | Agent Memory | `#EA5DA9` | 6.0:1 |
-  | Capture | `#0A84FF` | 5.2:1 |
+### Ground and surface
 
-- **Type**: IBM Plex Sans (Plex Mono for code/terminal surfaces). Fluid scale on web,
-  static px scale (the clamp minimums) on native.
-- **Accessibility**: WCAG 2.2 AA. Contrast ratios above are computed, not estimated.
-  Two flagged pairs: `text.on-brand` on orange is 3.0:1 (AA **large** only — CTA-size
-  text) and `danger` on bg.base is 4.1:1 (pair with an icon/label; AA large as text).
-- **Motion**: 150/250/400ms, `ease-out-expo`; consumers honor `prefers-reduced-motion`
-  (the CSS zeroes the duration tokens automatically).
+Every product surface starts from `color.bg.base` / `--bd-bg-base`. Dark is canonical.
+Subtle, surface, elevated, and overlay form the tonal elevation ladder. Resting panels
+do not use decorative shadows.
+
+### Brand and interaction
+
+- Brand orange identifies ByteDesk and conversion/commerce moments.
+- Gateway blue is the shared interaction and focus family.
+- Product accents identify products and providers; they never replace semantic status.
+- The Gateway blue ramp and desk tints belong to operator-console chrome; the terminal
+  and remote-surface stage stays on the base ground.
+
+### Semantic status
+
+Success, warning, danger, and info include foreground, background, and line roles.
+Status is always icon/dot **plus a word**. Color is not the only carrier.
+
+### Typography
+
+IBM Plex Sans is the chrome family and IBM Plex Mono is for terminal output, commands,
+paths, IDs, IPs, logs, and aligned machine values.
+
+Web marketing type may use the fluid `clamp()` values in CSS. Native clients use the
+static JSON values. Gateway console chrome uses `type.console` and `type.console-sm`.
+
+### Density and layout
+
+The fixed spacing ladder is:
+
+```text
+0, 2, 4, 6, 8, 12, 16, 20, 24, 32, 40, 48
+```
+
+Shared sizes define compact/default/touch controls and rows, pointer/touch targets,
+icons, shell regions, panels, terminal tabs, and charts. Native values are logical
+density-independent units.
+
+Breakpoints are based on available content width:
+
+- compact: up to 719;
+- standard: 720–1199;
+- wide: 1200–1599;
+- ultrawide: 1600+.
+
+Native clients apply those values to content width, not physical monitor pixels.
+
+### Visualization
+
+`color.chart.series-1` through `series-8` provide one ordered categorical palette for
+browser and native renderers. Grid, axis, plot, and selection colors are also canonical.
+Series always combine color with labels, markers, line style, direct values, or a table.
+
+### Motion
+
+Durations are 150, 250, and 400 ms with `ease-out-expo`. Consumers disable
+non-essential motion when the browser or operating system requests reduced motion.
+Terminal and remote-surface layout never animates for decoration.
+
+## Product accents
+
+| Product | Accent | Role |
+|---|---|---|
+| Platform | brand orange | ByteDesk suite |
+| Gateway | Gateway blue | operator console |
+| Vault | amber | identity/keys |
+| Store | green | commerce identity |
+| Workforce | violet | workforce identity |
+| Agent Browser | cyan | browser identity |
+| Agent Memory | pink | memory identity |
+| Capture | bright blue | capture identity |
+
+Where a product accent equals a semantic color, identity and status remain separate:
+status still requires a word and semantic component treatment.
+
+## Consumption by runtime
+
+### Browser / WebView
+
+Import the canonical CSS and optional Tailwind adapter from the pinned design-system
+mount:
+
+```css
+@import "../../../.context/design-system/tokens/css/bytedesk.css";
+@import "../../../.context/design-system/tokens/tailwind/theme.css";
+```
+
+The consumer token root aliases local names to `--bd-*`. It does not copy literals.
+Canvas or TypeScript-only code may import the generated TypeScript adapter.
+
+### Rust desktop/native
+
+Use `platforms/rust/bytedesk_tokens.rs` as generated source or copy it through a
+deterministic build step. Map the raw canonical values once into the renderer's typed
+theme:
+
+```text
+color.bg.base          -> application/window ground
+color.text.primary     -> primary text
+product.gateway        -> active product accent
+size.control.compact   -> dense pointer control
+size.control.touch     -> coarse-pointer control
+color.chart.series-*   -> visualization palette
+```
+
+The typed mapping belongs in a client adapter module, not in individual components.
+Expose `TOKEN_SOURCE_SHA256` in diagnostics.
+
+### Go desktop/native or embedded UI
+
+Use `platforms/go/bytedesk_tokens.go` or inline the CSS at build time for embedded HTML.
+A Go renderer maps the generated raw values into its toolkit theme once. Do not maintain
+a separate Go palette.
+
+### TypeScript tooling and charts
+
+`platforms/typescript/bytedesk-tokens.ts` preserves strings, numbers, and arrays from
+the canonical JSON. Use it for chart/canvas values that cannot reliably consume CSS
+custom properties, for token diagnostics, and for visual regression metadata.
+
+## Consumer-local adapters
+
+The inheritance order remains:
+
+1. shared canonical values here;
+2. product profile decisions under `profiles/<product>/`;
+3. one consumer-local adapter for toolkit names and explicit implementation exceptions.
+
+A local adapter may translate `color.bg.base` to `Visuals.panel_fill`, a Slint global, a
+Tauri theme object, or a CSS alias. It may not introduce product values that belong in
+the canonical or profile layer.
+
+## Accessibility
+
+- Target WCAG 2.2 AA.
+- Respect text scaling, reduced motion, and contrast preferences.
+- Touch targets use the touch size even when the visual control remains compact.
+- Charts provide non-color distinction and a table/value alternative.
+- Focus uses the canonical focus color and stroke.
+- `text.on-brand` remains AA large-text only on brand orange; avoid it for small text.
+- Danger as plain text on the base ground is not sufficient by color alone; pair it with
+  label/icon and component background/line treatment.
 
 ## Themeability
 
-- Dark is the canonical theme. A light theme is a **reserved contract**: when designed,
-  it will ship here as `[data-bd-theme="light"]` overrides of the same `--bd-*` names,
-  so consumers that alias tokens get it for free. Do not invent per-product light themes.
-- Product scoping: set `data-bd-product="<product>"` on any subtree; `--bd-accent`
-  (and `--bd-accent-glow`, `--bd-shadow-glow-accent`) resolve to that product's accent.
+Dark is the only approved theme. A future light theme will override the same semantic
+names. Do not create per-product or per-platform light themes.
 
-## Consumption per runtime
+Product scoping on web uses `data-bd-product`; native clients select the equivalent
+product accent in their theme object. Gateway desk tints use `data-bd-desk` or an
+equivalent native desk role and apply only to chrome.
 
-**Tailwind v4 / Vite / Next.js app (bytedesk.ai, Workforce `ui/`, Gateway `web/`)** —
-`@import` the two CSS files from the submodule mount in the root stylesheet:
+## Generated adapters
 
-```css
-@import "tailwindcss";
-@import "../../.context/design-system/tokens/css/bytedesk.css";
-@import "../../.context/design-system/tokens/tailwind/theme.css";
-/* local product tokens/utilities below — must reference --bd-* vars, not literals */
-```
-
-Importing from the mount is the contract; a vendored copy is a fallback for build
-setups that cannot resolve outside the source root, and it must carry a header naming
-the design-system commit it came from.
-
-**Go-embedded admin HTML (Store, Vault)** — a **build step reads
-`tokens/css/bytedesk.css` from the mount** and inlines it into the embedded stylesheet,
-emitting a generated header that names the design-system commit. These UIs are
-CDN-free and zero-dependency by design, so inlining — not importing — is how they
-consume the layer; the build step is what keeps the inlined block from becoming a
-hand-maintained palette. Style against `--bd-*` variables only, and never hand-edit the
-generated block.
-
-**egui / native (Capture)** — map from `bytedesk.tokens.json` at build or dev time:
-`bg.base → Visuals.panel_fill`, `bg.surface → Visuals.widgets.inactive.bg_fill`,
-`text.primary → Visuals.override_text_color`, `product.capture → selection/accent`,
-radius `lg` (8px) for window/widget rounding, the static `type` scale for text styles.
-Capture's existing profile accent `#0a84ff` is preserved as its family accent.
-
-**Docs/marketing surfaces** — same as Tailwind or raw CSS var consumption; product
-pages scope with `data-bd-product`.
+See [`platforms/README.md`](platforms/README.md). Generated files carry the source JSON
+SHA-256 and are verified by `scripts/validate.mjs`.
 
 ## What this layer is not
 
-- Not a component library. Components stay in products; this is values + contract.
-- Not the brand asset store. Brand SVG masters currently live in the `bytedesk.ai`
-  site repo (`public/brand/`); nominating them into `assets/brand/` requires either
-  mirroring that repo into the ByteDeskAI org or amending the catalog provenance rule
-  (`scripts/validate.mjs` accepts only `ByteDeskAI/*` sources) — flagged as an owner
-  decision in `CHANGELOG.md`.
+- not a framework-specific component library;
+- not application runtime code;
+- not a place for product-local literals;
+- not a substitute for the Gateway component and visualization contracts;
+- not a source of third-party surface themes beyond best-effort configuration.

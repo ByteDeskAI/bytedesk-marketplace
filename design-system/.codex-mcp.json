@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "design-system": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["./mcp/design-system-mcp.mjs"],
+      "cwd": "."
+    }
+  }
+}
