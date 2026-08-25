@@ -32,7 +32,8 @@ work exists only when the MCP server starts a provider execution.
   - **Linux:** Bubblewrap (`bwrap`), `slirp4netns`, `prlimit`, and an active systemd user manager
     (`systemd-run --user`).
   - **Windows native:** Windows 10 version 1809 or newer, .NET 8, AppContainer, and Job Objects.
-  - **Windows with WSL2:** a WSL2 distribution that meets the Linux requirements above.
+  - **Windows with WSL2:** Node.js, Git, Bubblewrap (`bwrap`), `pasta` from the `passt` package,
+    `unshare`, `prlimit`, and an active systemd user manager inside the distribution.
 - On Windows, `AGENT_ORCHESTRATION_WINDOWS_BACKEND=auto` is the default. It uses the native backend
   when its health check passes, then falls back to WSL2. Set the value to `native` or `wsl` to
   require one backend. A required backend fails closed when a security dependency is missing.
@@ -191,9 +192,10 @@ capacity, or mutate a workspace, and only a human roadmap steward may approve th
   broker control sources are never broadly exposed. The bundled Claude bridge disables user,
   project, and local setting sources so consumer hooks or MCP configuration cannot run during the
   credential-visible bootstrap.
-  On Linux and WSL2, `slirp4netns` provides outbound networking from a separate namespace with host
-  loopback disabled. Native Windows grants only the AppContainer internet-client capability; it
-  does not grant private-network or loopback capability.
+  Native Linux uses `slirp4netns` for outbound networking from a separate namespace with host
+  loopback disabled. WSL2 creates an outer mapped user namespace and uses `pasta` with gateway-to-host
+  mapping and inbound port forwarding disabled. Native Windows grants only the AppContainer
+  internet-client capability; it does not grant private-network or loopback capability.
 - ACP client-side filesystem and terminal callbacks are denied because they execute in the broker,
   outside the provider sandbox. Provider-native tools remain governed by the declared read/write profile inside
   the sandbox. Ambient API-key and proxy variables are not forwarded through observable process argv.

@@ -16827,7 +16827,7 @@ function startCodexConnection(codexPath, env) {
   const spawnEnv = env ?? process.env;
   let codex;
   if (codexPath) {
-    codex = process.platform === "win32" ? spawn(`"${codexPath}" app-server`, { shell: true, env: spawnEnv }) : spawn(codexPath, ["app-server"], { env: spawnEnv });
+    codex = spawn(codexPath, ["app-server"], { env: spawnEnv, windowsHide: true, shell: false });
   } else {
     const bundledCodexPath = createRequire(import.meta.url).resolve("@openai/codex/bin/codex.js");
     codex = spawn(process.execPath, [bundledCodexPath, "app-server"], { env: spawnEnv });

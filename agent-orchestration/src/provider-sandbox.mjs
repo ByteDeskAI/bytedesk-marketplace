@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { access, chmod, copyFile, lstat, mkdir, mkdtemp, open, readdir, realpath, rm, unlink, writeFile } from "node:fs/promises";
+import { access, chmod, copyFile, lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rm, unlink, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { delimiter, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -243,7 +243,8 @@ async function sandboxPlan({ providerId, pluginRoot, workspacePath, commonGitDir
   const gitFile = join(workspace, ".git");
   const gitMarker = await lstat(gitFile);
   if (permissionProfile === "write") invariant(gitMarker.isFile(), "AO_UNSAFE_GIT_LAYOUT", "A write workspace must be a linked worktree with a .git pointer file.");
-  await Promise.all([access("/usr/bin/bwrap"), access("/usr/bin/slirp4netns")]);
+  const wslHosted = process.env.AGENT_ORCHESTRATION_HOST_PLATFORM === "win32";
+  await Promise.all([access("/usr/bin/bwrap"), access(wslHosted ? "/usr/bin/pasta" : "/usr/bin/slirp4netns")]);
 
   const controlDir = await realpath(brokerControlDir);
   const controlInfo = await lstat(controlDir);
@@ -270,7 +271,10 @@ async function sandboxPlan({ providerId, pluginRoot, workspacePath, commonGitDir
     if (await pathExists(systemPath)) await addReadOnlyMount(args, systemPath, systemPath, created, mounted);
   }
   const sandboxDnsConfig = join(controlDir, "resolv.conf");
-  await writeFile(sandboxDnsConfig, "nameserver 10.0.2.3\noptions timeout:2 attempts:3\n", { mode: 0o600, flag: "wx" });
+  const dnsConfig = wslHosted
+    ? await readFile("/etc/resolv.conf", "utf8")
+    : "nameserver 10.0.2.3\noptions timeout:2 attempts:3\n";
+  await writeFile(sandboxDnsConfig, dnsConfig, { mode: 0o600, flag: "wx" });
   await addReadOnlyMount(args, sandboxDnsConfig, "/etc/resolv.conf", created, mounted);
   for (const [target, value] of [["/bin", "usr/bin"], ["/sbin", "usr/sbin"], ["/lib", "usr/lib"], ["/lib64", "usr/lib64"]]) {
     if (await pathExists(target)) args.push("--symlink", value, target);
@@ -733,16 +737,33 @@ async function main() {
     });
     const proxyDone = startAcpProxy(child, revokeBootstrap);
     const info = await readBubblewrapInfo(child.stdio[3]);
-    network = spawn("/usr/bin/slirp4netns", [
-      "--configure", "--mtu=65520", "--disable-host-loopback",
-      "--enable-sandbox", "--ready-fd=3", "--exit-fd=4",
-      String(info["child-pid"]), "tap0",
-    ], {
-      stdio: ["ignore", "ignore", "inherit", "pipe", "pipe"],
-      env: { PATH: "/usr/bin:/bin", LANG: process.env.LANG ?? "C.UTF-8" },
-      shell: false,
-    });
-    await waitForNetworkReady(network, network.stdio[3]);
+    const wslHosted = process.env.AGENT_ORCHESTRATION_HOST_PLATFORM === "win32";
+    if (wslHosted) {
+      network = spawn("/usr/bin/pasta", [
+        "--foreground", "--quiet", "--config-net", "--no-map-gw",
+        "--tcp-ports", "none", "--udp-ports", "none",
+        String(info["child-pid"]),
+      ], {
+        stdio: ["ignore", "ignore", "inherit"],
+        env: { PATH: "/usr/bin:/bin", LANG: process.env.LANG ?? "C.UTF-8" },
+        shell: false,
+      });
+      await Promise.race([
+        new Promise((resolveReady) => setTimeout(resolveReady, 500)),
+        once(network, "exit").then(([code, signal]) => { throw new Error(`pasta exited before readiness (exit=${code}, signal=${signal}).`); }),
+      ]);
+    } else {
+      network = spawn("/usr/bin/slirp4netns", [
+        "--configure", "--mtu=65520", "--disable-host-loopback",
+        "--enable-sandbox", "--ready-fd=3", "--exit-fd=4",
+        String(info["child-pid"]), "tap0",
+      ], {
+        stdio: ["ignore", "ignore", "inherit", "pipe", "pipe"],
+        env: { PATH: "/usr/bin:/bin", LANG: process.env.LANG ?? "C.UTF-8" },
+        shell: false,
+      });
+      await waitForNetworkReady(network, network.stdio[3]);
+    }
     child.stdio[4].end("1");
     outcome = await childOutcome;
     await proxyDone;

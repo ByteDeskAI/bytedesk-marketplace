@@ -1054,7 +1054,7 @@ async function processStartIdentity(pid) {
     return null;
   }
 }
-function processGroupExists2(processGroup) {
+function processGroupExists(processGroup) {
   if (!Number.isInteger(processGroup) || processGroup <= 0) return false;
   try {
     process.kill(-processGroup, 0);
@@ -1067,10 +1067,10 @@ function processGroupExists2(processGroup) {
 }
 async function waitForProcessGroupExit(processGroup, timeoutMs, pollMs = 50) {
   const deadline = Date.now() + timeoutMs;
-  while (processGroupExists2(processGroup) && Date.now() < deadline) {
+  while (processGroupExists(processGroup) && Date.now() < deadline) {
     await new Promise((resolve5) => setTimeout(resolve5, pollMs));
   }
-  return !processGroupExists2(processGroup);
+  return !processGroupExists(processGroup);
 }
 
 // src/config.mjs
@@ -28060,14 +28060,17 @@ var WindowsExecutableResolver = class extends ExecutableResolverStrategy {
 // src/platform/linux-runtime.mjs
 var BubblewrapSandboxStrategy = class extends ProviderSandboxStrategy {
   get requiredExecutables() {
+    const networkHelper = process.env.AGENT_ORCHESTRATION_HOST_PLATFORM === "win32" ? Object.freeze({ id: "pasta", command: "pasta" }) : Object.freeze({ id: "slirp4netns", command: "slirp4netns" });
     return Object.freeze([
       Object.freeze({ id: "bwrap", command: "bwrap" }),
-      Object.freeze({ id: "slirp4netns", command: "slirp4netns" })
+      networkHelper,
+      ...process.env.AGENT_ORCHESTRATION_HOST_PLATFORM === "win32" ? [Object.freeze({ id: "unshare", command: "unshare" })] : []
     ]);
   }
   async probe({ checks }) {
     const missing = this.requiredExecutables.filter(({ id }) => !checks.find((entry) => entry.id === id)?.ok).map(({ id }) => id);
-    return { ok: missing.length === 0, kind: "bubblewrap-slirp4netns", missing };
+    const network = process.env.AGENT_ORCHESTRATION_HOST_PLATFORM === "win32" ? "pasta" : "slirp4netns";
+    return { ok: missing.length === 0, kind: `bubblewrap-${network}`, missing };
   }
 };
 var SystemdWorkerSupervisorStrategy = class extends WorkerSupervisorStrategy {
@@ -28104,7 +28107,7 @@ var SystemdWorkerSupervisorStrategy = class extends WorkerSupervisorStrategy {
       const after = await readState().catch(() => null);
       return Boolean(after && (after.LoadState === "not-found" || ["inactive", "failed"].includes(after.ActiveState)));
     }
-    if (!worker?.processGroup || !processGroupExists2(worker.processGroup)) return true;
+    if (!worker?.processGroup || !processGroupExists(worker.processGroup)) return true;
     const identity = worker.pid ? await processStartIdentity(worker.pid) : null;
     if (!identity || identity !== worker.startIdentity) return false;
     try {
@@ -28230,7 +28233,7 @@ var SystemdWorkerSupervisorStrategy = class extends WorkerSupervisorStrategy {
       "--collect",
       "--quiet",
       `--unit=${unitName}`,
-      "--property=RuntimeMaxSec=10s",
+      "--property=RuntimeMaxSec=30s",
       "--property=TimeoutStopSec=2s",
       "--property=KillMode=control-group",
       "--property=MemoryMax=2G",
@@ -28246,7 +28249,7 @@ var SystemdWorkerSupervisorStrategy = class extends WorkerSupervisorStrategy {
       pluginRoot,
       providerId,
       candidate
-    ], { timeoutMs: 15e3 });
+    ], { timeoutMs: 4e4 });
     return JSON.parse(stdout);
   }
 };

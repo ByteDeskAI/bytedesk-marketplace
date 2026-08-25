@@ -41,7 +41,7 @@ export class WindowsWslHostAdapter {
   }
 
   async probe() {
-    const commands = ["node", "git", "bwrap", "slirp4netns", "systemd-run", "prlimit"];
+    const commands = ["node", "git", "bwrap", "pasta", "unshare", "systemd-run", "prlimit"];
     const script = `for command in ${commands.join(" ")}; do command -v "$command" >/dev/null 2>&1 || printf '%s\\n' "$command"; done`;
     try {
       const { stdout } = await this.runner("wsl.exe", [...this.baseArgs(), "--exec", "/bin/sh", "-c", script], { timeoutMs: 15_000 });

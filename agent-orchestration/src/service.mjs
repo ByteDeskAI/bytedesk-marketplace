@@ -5,7 +5,7 @@ import { createExecutionPlan, PROTOCOL_VERSION } from "./protocols/index.mjs";
 import { PROVIDER_ADAPTERS, PROVIDER_CATALOG, MODEL_CATALOG, getProviderDescriptor } from "./providers/index.mjs";
 import { PLUGIN_ROOT, stateRoot as resolveStateRoot, validateStateRoot } from "./config.mjs";
 import { AgentOrchestrationError, invariant } from "./errors.mjs";
-import { isPathWithin, runFile } from "./util.mjs";
+import { isPathWithin, processGroupExists, runFile } from "./util.mjs";
 import { resolveConsumerRepository } from "./workspace/repository.mjs";
 import { RunStore, TERMINAL_STATES } from "./state/store.mjs";
 import { cleanupRun, executeRun } from "./runtime/engine.mjs";

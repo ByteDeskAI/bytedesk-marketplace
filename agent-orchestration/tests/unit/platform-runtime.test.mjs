@@ -47,11 +47,15 @@ test("WSL Adapter checks the Linux security stack and translates the entrypoint"
   assert.equal(command.executable, "wsl.exe");
   assert.ok(command.args.includes("AGENT_ORCHESTRATION_HOST_PLATFORM=win32"));
   assert.ok(command.args.includes("/mnt/c/plugin/dist/mcp.cjs"));
+  const probeScript = calls.find(({ args }) => args.includes("/bin/sh"))?.args.at(-1) ?? "";
+  assert.match(probeScript, /\bpasta\b/);
+  assert.match(probeScript, /\bunshare\b/);
+  assert.doesNotMatch(probeScript, /\bslirp4netns\b/);
   assert.ok(calls.every(({ command: executable }) => executable === "wsl.exe"));
 });
 
 test("WSL Adapter fails closed when an isolation dependency is missing", async () => {
-  const adapter = new WindowsWslHostAdapter({ runner: async () => ({ stdout: "bwrap\nslirp4netns\n", stderr: "" }) });
+  const adapter = new WindowsWslHostAdapter({ runner: async () => ({ stdout: "bwrap\npasta\nunshare\n", stderr: "" }) });
   await assert.rejects(() => adapter.command("C:\\plugin\\dist\\mcp.cjs"), { code: "AO_WSL_RUNTIME_NOT_READY" });
 });
 

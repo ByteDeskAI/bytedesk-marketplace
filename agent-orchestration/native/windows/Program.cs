@@ -327,8 +327,11 @@ internal static class Program
         start.ArgumentList.Add(rule);
         start.ArgumentList.Add("/Q");
         using var process = Process.Start(start) ?? throw new InvalidOperationException("icacls did not start.");
+        var stdoutTask = process.StandardOutput.ReadToEndAsync();
+        var stderrTask = process.StandardError.ReadToEndAsync();
         process.WaitForExit();
-        if (throwOnFailure && process.ExitCode != 0) throw new InvalidOperationException($"icacls rejected the AppContainer access rule: {process.StandardError.ReadToEnd()}");
+        Task.WaitAll(stdoutTask, stderrTask);
+        if (throwOnFailure && process.ExitCode != 0) throw new InvalidOperationException($"icacls rejected the AppContainer access rule: {stderrTask.Result}");
     }
 
     private static string[] CommandAfterSeparator(string[] args)

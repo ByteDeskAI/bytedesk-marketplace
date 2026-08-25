@@ -4,7 +4,13 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const child = spawn(process.execPath, [join(root, "dist", "provider-sandbox.cjs"), ...process.argv.slice(2)], {
+const sandboxEntrypoint = join(root, "dist", "provider-sandbox.cjs");
+const wslHosted = process.env.AGENT_ORCHESTRATION_HOST_PLATFORM === "win32";
+const executable = wslHosted ? "/usr/bin/unshare" : process.execPath;
+const args = wslHosted
+  ? ["--user", "--map-root-user", process.execPath, sandboxEntrypoint, ...process.argv.slice(2)]
+  : [sandboxEntrypoint, ...process.argv.slice(2)];
+const child = spawn(executable, args, {
   stdio: "inherit",
   shell: false,
   windowsHide: true,

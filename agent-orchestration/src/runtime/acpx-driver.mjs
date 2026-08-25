@@ -232,7 +232,7 @@ export async function probeProviderSession({ pluginRoot, stateRoot, cwd, provide
       ao_sandbox_permission_profile: "read",
       ao_provider_executable: providerExecutable,
     },
-    runtimeTimeoutMs: 10_000,
+    runtimeTimeoutMs: 30_000,
   });
   const sessionOptions = { env: {
     ao_sandbox_workspace: probeWorkspace,

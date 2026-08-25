@@ -1,5 +1,5 @@
 import { build } from "esbuild";
-import { copyFile, cp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
@@ -52,10 +52,12 @@ await Promise.all([
   }),
 ]);
 
-await copyFile(
-  require.resolve("@agentclientprotocol/codex-acp/dist/index.js"),
-  join(outdir, "codex-acp.mjs"),
-);
+const codexBridgeSource = await readFile(require.resolve("@agentclientprotocol/codex-acp/dist/index.js"), "utf8");
+const unsafeWindowsCodexLaunch = 'codex = process.platform === "win32" ? spawn(`"${codexPath}" app-server`, { shell: true, env: spawnEnv }) : spawn(codexPath, ["app-server"], { env: spawnEnv });';
+const safeCodexLaunch = 'codex = spawn(codexPath, ["app-server"], { env: spawnEnv, windowsHide: true, shell: false });';
+const codexLaunchOccurrences = codexBridgeSource.split(unsafeWindowsCodexLaunch).length - 1;
+if (codexLaunchOccurrences !== 1) throw new Error(`Expected one unsafe Windows Codex launch, found ${codexLaunchOccurrences}.`);
+await writeFile(join(outdir, "codex-acp.mjs"), codexBridgeSource.replace(unsafeWindowsCodexLaunch, safeCodexLaunch));
 
 await cp(join(root, "session-ui", "mockup"), join(outdir, "session-ui"), { recursive: true });
 

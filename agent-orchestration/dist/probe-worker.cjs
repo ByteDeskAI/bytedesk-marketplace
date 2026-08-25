@@ -25900,7 +25900,7 @@ async function probeProviderSession({ pluginRoot: pluginRoot2, stateRoot: stateR
       ao_sandbox_permission_profile: "read",
       ao_provider_executable: providerExecutable2
     },
-    runtimeTimeoutMs: 1e4
+    runtimeTimeoutMs: 3e4
   });
   const sessionOptions = { env: {
     ao_sandbox_workspace: probeWorkspace,

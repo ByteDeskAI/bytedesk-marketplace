@@ -53,6 +53,12 @@ test("declared Claude model IDs exist in the committed bridge catalog", async ()
   assert.match(bridge, /settingSources:\s*\[\]/, "bundled Claude sessions must explicitly isolate settings");
 });
 
+test("bundled Codex bridge launches app-server without a shell", async () => {
+  const bridge = await readFile(new URL("../../dist/codex-acp.mjs", import.meta.url), "utf8");
+  assert.doesNotMatch(bridge, /spawn\(`"\$\{codexPath\}" app-server`,\s*\{\s*shell:\s*true/, "Windows Codex launch must not use cmd.exe");
+  assert.match(bridge, /spawn\(codexPath,\s*\["app-server"\],\s*\{\s*env:\s*spawnEnv,\s*windowsHide:\s*true,\s*shell:\s*false\s*\}\)/);
+});
+
 test("default aliases preserve the agreed architecture, design, and implementation order", () => {
   assert.deepEqual(ROUTING_ALIASES["architecture.proposal"], [
     { endpointId: "claude.fable-5", effort: "max" },

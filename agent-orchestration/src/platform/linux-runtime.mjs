@@ -8,15 +8,22 @@ import { PlatformRuntime, PlatformRuntimeFactory, ProviderSandboxStrategy, Worke
 
 export class BubblewrapSandboxStrategy extends ProviderSandboxStrategy {
   get requiredExecutables() {
+    const networkHelper = process.env.AGENT_ORCHESTRATION_HOST_PLATFORM === "win32"
+      ? Object.freeze({ id: "pasta", command: "pasta" })
+      : Object.freeze({ id: "slirp4netns", command: "slirp4netns" });
     return Object.freeze([
       Object.freeze({ id: "bwrap", command: "bwrap" }),
-      Object.freeze({ id: "slirp4netns", command: "slirp4netns" }),
+      networkHelper,
+      ...(process.env.AGENT_ORCHESTRATION_HOST_PLATFORM === "win32"
+        ? [Object.freeze({ id: "unshare", command: "unshare" })]
+        : []),
     ]);
   }
 
   async probe({ checks }) {
     const missing = this.requiredExecutables.filter(({ id }) => !checks.find((entry) => entry.id === id)?.ok).map(({ id }) => id);
-    return { ok: missing.length === 0, kind: "bubblewrap-slirp4netns", missing };
+    const network = process.env.AGENT_ORCHESTRATION_HOST_PLATFORM === "win32" ? "pasta" : "slirp4netns";
+    return { ok: missing.length === 0, kind: `bubblewrap-${network}`, missing };
   }
 }
 
@@ -149,12 +156,12 @@ export class SystemdWorkerSupervisorStrategy extends WorkerSupervisorStrategy {
     const unitName = newId(`agent-orchestration-probe-${providerId}`).replaceAll("_", "-");
     const { stdout } = await runUserManagerFile("/usr/bin/systemd-run", [
       "--user", "--scope", "--collect", "--quiet", `--unit=${unitName}`,
-      "--property=RuntimeMaxSec=10s", "--property=TimeoutStopSec=2s", "--property=KillMode=control-group",
+      "--property=RuntimeMaxSec=30s", "--property=TimeoutStopSec=2s", "--property=KillMode=control-group",
       "--property=MemoryMax=2G", "--property=TasksMax=128",
       "/usr/bin/prlimit", "--core=0", "--fsize=268435456", "--",
       process.execPath, join(pluginRoot, "dist", "probe-worker.cjs"),
       pluginRoot, stateRoot, pluginRoot, providerId, candidate,
-    ], { timeoutMs: 15_000 });
+    ], { timeoutMs: 40_000 });
     return JSON.parse(stdout);
   }
 }
