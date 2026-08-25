@@ -1,0 +1,285 @@
+#!/usr/bin/env node
+/**
+ * Copy ByteDesk marketplace plugin source into installed caches (Claude, Grok, Codex).
+ *
+ * User-scope only. This is a machine tool, not a project one: a repo that enables
+ * plugin-rsync@bytedesk in extraKnownMarketplaces is the wrong install.
+ */
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+const HOME = process.env.HOME || homedir();
+const EXCLUDES = ["node_modules", ".git", ".vite", "*.tsbuildinfo"];
+const SENTINEL = "# plugin-rsync-setup-cli-wrapper";
+
+const pretty = (p) => (p.startsWith(HOME) ? `~${p.slice(HOME.length)}` : p);
+
+function readJson(file, fallback) {
+  try {
+    return JSON.parse(readFileSync(file, "utf8"));
+  } catch {
+    return fallback;
+  }
+}
+
+function real(p) {
+  try {
+    return realpathSync(p);
+  } catch {
+    return resolve(p);
+  }
+}
+
+function isDir(p) {
+  try {
+    return lstatSync(p).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/** Names: no args → all; `foo,bar` or `foo bar` → those. */
+export function parseNames(argv) {
+  const out = [];
+  for (const raw of argv) {
+    if (raw.startsWith("-")) continue;
+    for (const part of String(raw).split(",")) {
+      const n = part.trim();
+      if (n) out.push(n);
+    }
+  }
+  return [...new Set(out)];
+}
+
+export function marketplaceRoot() {
+  if (process.env.BYTEDESK_MARKETPLACE) return resolve(process.env.BYTEDESK_MARKETPLACE);
+  const sibling = join(ROOT, "..");
+  if (existsSync(join(sibling, ".claude-plugin", "marketplace.json"))) return sibling;
+  const km = readJson(join(HOME, ".claude", "plugins", "known_marketplaces.json"), {});
+  const path = km?.bytedesk?.source?.path || km?.bytedesk?.installLocation;
+  if (path && existsSync(join(path, ".claude-plugin", "marketplace.json"))) return path;
+  const registry = readJson(join(HOME, ".grok", "installed-plugins", "registry.json"), {});
+  for (const entry of Object.values(registry.repos || {})) {
+    const src = entry?.kind?.source_path;
+    if (typeof src !== "string") continue;
+    const root = entry.kind.subdir ? src : src.replace(/[/\\][^/\\]+$/, "");
+    const candidate = existsSync(join(src, ".claude-plugin", "marketplace.json"))
+      ? src
+      : existsSync(join(root, ".claude-plugin", "marketplace.json"))
+        ? root
+        : null;
+    if (candidate) return candidate;
+  }
+  return null;
+}
+
+export function catalog(market) {
+  const file = join(market, ".claude-plugin", "marketplace.json");
+  const names = [];
+  const sources = {};
+  for (const p of readJson(file, {}).plugins || []) {
+    if (!p?.name) continue;
+    names.push(p.name);
+    const rel = typeof p.source === "string" ? p.source : p.source?.path;
+    sources[p.name] = resolve(market, rel || `./${p.name}`);
+  }
+  return { names, sources };
+}
+
+function addDest(map, name, dest, host) {
+  if (!dest || !isDir(dest)) return;
+  const key = real(dest);
+  if (!map.has(name)) map.set(name, []);
+  const list = map.get(name);
+  if (list.some((d) => d.real === key)) return;
+  list.push({ host, dest: resolve(dest), real: key });
+}
+
+function looksLikeInstall(dir) {
+  return (
+    existsSync(join(dir, ".claude-plugin", "plugin.json")) ||
+    existsSync(join(dir, ".codex-plugin", "plugin.json"))
+  );
+}
+
+function shaDirs(parent) {
+  if (!isDir(parent)) return [];
+  return readdirSync(parent)
+    .filter((n) => !n.startsWith(".") && n !== "node_modules")
+    .map((n) => join(parent, n))
+    .filter((p) => isDir(p) && looksLikeInstall(p));
+}
+
+/** Installed copies of each catalog plugin on this machine. */
+export function installedDests(names, home = HOME) {
+  const map = new Map();
+  const installed = readJson(join(home, ".claude", "plugins", "installed_plugins.json"), {});
+  for (const name of names) {
+    for (const rec of installed.plugins?.[`${name}@bytedesk`] || []) {
+      addDest(map, name, rec.installPath, "claude");
+    }
+    for (const dir of shaDirs(join(home, ".claude", "plugins", "cache", "bytedesk", name))) {
+      addDest(map, name, dir, "claude");
+    }
+    for (const dir of shaDirs(join(home, ".codex", "plugins", "cache", "bytedesk", name))) {
+      addDest(map, name, dir, "codex");
+    }
+    const codexFlat = join(home, ".codex", "plugins", "cache", "bytedesk", name);
+    if (looksLikeInstall(codexFlat)) addDest(map, name, codexFlat, "codex");
+  }
+
+  const registry = readJson(join(home, ".grok", "installed-plugins", "registry.json"), {});
+  for (const entry of Object.values(registry.repos || {})) {
+    const path = entry?.path;
+    if (!path) continue;
+    const plugins = entry.plugins || {};
+    for (const name of names) {
+      const meta = plugins[name];
+      if (!meta) continue;
+      const sub = meta.subdir || (isDir(join(path, name)) ? name : "");
+      addDest(map, name, sub ? join(path, sub) : path, "grok");
+    }
+  }
+  return map;
+}
+
+export function rsyncArgs(src, dest) {
+  const args = ["-a", "--delete"];
+  for (const e of EXCLUDES) args.push("--exclude", e);
+  args.push(`${src}/`, `${dest}/`);
+  return args;
+}
+
+function runRsync(src, dest, dry) {
+  const args = rsyncArgs(src, dest);
+  if (dry) return { ok: true, dry: true, args };
+  const r = spawnSync("rsync", args, { encoding: "utf8" });
+  if (r.error?.code === "ENOENT") return { ok: false, err: "rsync is not on PATH" };
+  if (r.status !== 0) return { ok: false, err: (r.stderr || r.stdout || `rsync exited ${r.status}`).trim() };
+  return { ok: true };
+}
+
+function help() {
+  return `plugin-rsync — refresh installed ByteDesk marketplace plugin caches from source.
+
+  plugin-rsync                         every installed bytedesk plugin
+  plugin-rsync task-management         one plugin
+  plugin-rsync task-management,fleet   several (comma-separated; spaces also work)
+
+  --list        print destinations, do not copy
+  --dry-run     print rsync argv, do not copy
+  install-cli   wrapper in ~/.local/bin (user-scope; never a project)
+
+User-scope only. Do not add plugin-rsync@bytedesk to a repo's extraKnownMarketplaces.
+
+Source: BYTEDESK_MARKETPLACE, or the marketplace next to this plugin, or the
+directory-source bytedesk marketplace in ~/.claude/plugins/known_marketplaces.json.
+`;
+}
+
+function installCli() {
+  const destDir = join(HOME, ".local", "bin");
+  const target = join(destDir, "plugin-rsync");
+  if (existsSync(target) && !readFileSync(target, "utf8").includes(SENTINEL)) {
+    return { state: "foreign", target };
+  }
+  const script = `#!/usr/bin/env bash
+${SENTINEL}
+# Auto-generated by plugin-rsync install-cli. User-scope PATH wrapper.
+src="${ROOT}/bin/plugin-rsync"
+if [ -x "$src" ]; then exec node "$src" "$@"; fi
+latest="$(ls -dt "$HOME"/.claude/plugins/cache/bytedesk/plugin-rsync/*/bin/plugin-rsync 2>/dev/null | head -1)"
+if [ -n "$latest" ] && [ -x "$latest" ]; then exec node "$latest" "$@"; fi
+echo "plugin-rsync: no installed copy found. Re-run install-cli after installing plugin-rsync@bytedesk (user scope)." >&2
+exit 127
+`;
+  mkdirSync(destDir, { recursive: true });
+  const existed = existsSync(target);
+  writeFileSync(target, script, { mode: 0o755 });
+  return {
+    state: existed ? "refreshed" : "created",
+    target,
+    onPath: (process.env.PATH || "").split(":").includes(destDir),
+  };
+}
+
+function main(argv) {
+  if (argv.includes("-h") || argv.includes("--help")) {
+    process.stdout.write(help());
+    return 0;
+  }
+  if (argv[0] === "install-cli") {
+    const r = installCli();
+    if (r.state === "foreign") {
+      console.error(`plugin-rsync: ${pretty(r.target)} exists and is not our wrapper — not overwriting`);
+      return 2;
+    }
+    console.log(`${r.state}: ${pretty(r.target)}`);
+    if (!r.onPath) console.log("note: ~/.local/bin is not on PATH");
+    return 0;
+  }
+
+  const dry = argv.includes("--dry-run");
+  const listOnly = argv.includes("--list");
+  const wanted = parseNames(argv);
+  const market = marketplaceRoot();
+  if (!market) {
+    console.error("plugin-rsync: cannot find the bytedesk marketplace source (set BYTEDESK_MARKETPLACE)");
+    return 2;
+  }
+  const { names, sources } = catalog(market);
+  const selected = wanted.length ? wanted : names;
+  const unknown = selected.filter((n) => !names.includes(n));
+  if (unknown.length) {
+    console.error(`plugin-rsync: not in the marketplace: ${unknown.join(", ")}`);
+    return 2;
+  }
+
+  const dests = installedDests(names);
+  const srcReal = real(market);
+  let copies = 0;
+  let missing = 0;
+  let failed = 0;
+
+  for (const name of selected) {
+    const src = sources[name];
+    const rows = (dests.get(name) || []).filter((d) => d.real !== real(src) && d.real !== srcReal);
+    if (!rows.length) {
+      console.log(`${name}: not installed`);
+      missing += 1;
+      continue;
+    }
+    console.log(name);
+    for (const row of rows) {
+      if (listOnly) {
+        console.log(`  ${row.host.padEnd(6)} ${pretty(row.dest)}`);
+        continue;
+      }
+      const result = runRsync(src, row.dest, dry);
+      if (result.dry) {
+        console.log(`  ${row.host.padEnd(6)} ${pretty(row.dest)}`);
+        console.log(`         rsync ${result.args.join(" ")}`);
+        copies += 1;
+        continue;
+      }
+      if (!result.ok) {
+        console.log(`  ${row.host.padEnd(6)} ${pretty(row.dest)}  FAIL ${result.err}`);
+        failed += 1;
+        continue;
+      }
+      console.log(`  ${row.host.padEnd(6)} ${pretty(row.dest)}  ok`);
+      copies += 1;
+    }
+  }
+
+  if (listOnly) return 0;
+  if (wanted.length && copies === 0 && failed === 0) return 2;
+  return failed ? 1 : 0;
+}
+
+const isMain = process.argv[1] && real(process.argv[1]) === real(fileURLToPath(import.meta.url));
+if (isMain) process.exit(main(process.argv.slice(2)));

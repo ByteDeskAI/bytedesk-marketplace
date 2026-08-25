@@ -18,6 +18,7 @@ ByteDesk's Claude and Codex plugin marketplace. Plugins for parallel orchestrati
 | **[omnigent-dev](./omnigent-dev)** | Omnigent cross-repo engineering skills |
 | **[teamcity-mcp](./teamcity-mcp)** | TeamCity CI/CD over MCP — builds, logs, tests, queue, configs, agents |
 | **[design-system](./design-system)** | Versioned design context, four specialist roles, 31 workflows, offline sync, and a read-only MCP for Claude and Codex |
+| **[plugin-rsync](./plugin-rsync)** | Rsync marketplace source into globally installed Claude/Grok/Codex caches (user-scope only) |
 
 ## Installation
 
@@ -26,6 +27,8 @@ ByteDesk's Claude and Codex plugin marketplace. Plugins for parallel orchestrati
 /plugin install platform-dev@bytedesk
 /plugin install bytedesk-goals@bytedesk
 ```
+
+`plugin-rsync` is **user-scope only** (`/plugin install plugin-rsync@bytedesk` in user settings, then `plugin-rsync/install.sh`). Do not enable it on a project.
 
 Codex can install the dual-provider design plugin directly:
 

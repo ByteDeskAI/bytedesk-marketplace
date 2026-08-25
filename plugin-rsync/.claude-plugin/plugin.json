@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "plugin-rsync",
+  "description": "Rsync ByteDesk marketplace plugin source into globally installed Claude, Grok, and Codex caches. No arguments refreshes every installed bytedesk plugin; pass one name or a comma-separated list. User-scope only — never enable this in a project.",
+  "author": {
+    "name": "ByteDesk AI",
+    "url": "https://github.com/ByteDeskAI"
+  },
+  "homepage": "https://github.com/ByteDeskAI/bytedesk-marketplace/tree/main/plugin-rsync",
+  "repository": "https://github.com/ByteDeskAI/bytedesk-marketplace",
+  "license": "MIT",
+  "keywords": [
+    "rsync",
+    "plugins",
+    "marketplace",
+    "cache",
+    "claude-code",
+    "grok",
+    "codex"
+  ]
+}

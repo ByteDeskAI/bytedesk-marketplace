@@ -1,0 +1,18 @@
+{
+  "name": "plugin-rsync",
+  "description": "Rsync ByteDesk marketplace plugin source into globally installed Claude, Grok, and Codex caches. No arguments refreshes every installed bytedesk plugin; pass one name or a comma-separated list.",
+  "author": { "name": "ByteDeskAI" },
+  "homepage": "https://github.com/ByteDeskAI/bytedesk-marketplace/tree/main/plugin-rsync",
+  "repository": "https://github.com/ByteDeskAI/bytedesk-marketplace",
+  "license": "MIT",
+  "keywords": ["rsync", "plugins", "marketplace", "cache"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Plugin rsync",
+    "shortDescription": "Refresh installed ByteDesk plugin caches from marketplace source.",
+    "developerName": "ByteDeskAI",
+    "category": "Engineering",
+    "capabilities": ["Read"],
+    "websiteURL": "https://github.com/ByteDeskAI/bytedesk-marketplace"
+  }
+}
