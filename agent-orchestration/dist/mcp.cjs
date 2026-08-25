@@ -412,11 +412,11 @@ var require_codegen = __commonJS({
         const rhs = this.rhs === void 0 ? "" : ` = ${this.rhs}`;
         return `${varKind} ${this.name}${rhs};` + _n;
       }
-      optimizeNames(names, constants2) {
+      optimizeNames(names, constants3) {
         if (!names[this.name.str])
           return;
         if (this.rhs)
-          this.rhs = optimizeExpr(this.rhs, names, constants2);
+          this.rhs = optimizeExpr(this.rhs, names, constants3);
         return this;
       }
       get names() {
@@ -433,10 +433,10 @@ var require_codegen = __commonJS({
       render({ _n }) {
         return `${this.lhs} = ${this.rhs};` + _n;
       }
-      optimizeNames(names, constants2) {
+      optimizeNames(names, constants3) {
         if (this.lhs instanceof code_1.Name && !names[this.lhs.str] && !this.sideEffects)
           return;
-        this.rhs = optimizeExpr(this.rhs, names, constants2);
+        this.rhs = optimizeExpr(this.rhs, names, constants3);
         return this;
       }
       get names() {
@@ -497,8 +497,8 @@ var require_codegen = __commonJS({
       optimizeNodes() {
         return `${this.code}` ? this : void 0;
       }
-      optimizeNames(names, constants2) {
-        this.code = optimizeExpr(this.code, names, constants2);
+      optimizeNames(names, constants3) {
+        this.code = optimizeExpr(this.code, names, constants3);
         return this;
       }
       get names() {
@@ -527,12 +527,12 @@ var require_codegen = __commonJS({
         }
         return nodes.length > 0 ? this : void 0;
       }
-      optimizeNames(names, constants2) {
+      optimizeNames(names, constants3) {
         const { nodes } = this;
         let i = nodes.length;
         while (i--) {
           const n = nodes[i];
-          if (n.optimizeNames(names, constants2))
+          if (n.optimizeNames(names, constants3))
             continue;
           subtractNames(names, n.names);
           nodes.splice(i, 1);
@@ -585,12 +585,12 @@ var require_codegen = __commonJS({
           return void 0;
         return this;
       }
-      optimizeNames(names, constants2) {
+      optimizeNames(names, constants3) {
         var _a3;
-        this.else = (_a3 = this.else) === null || _a3 === void 0 ? void 0 : _a3.optimizeNames(names, constants2);
-        if (!(super.optimizeNames(names, constants2) || this.else))
+        this.else = (_a3 = this.else) === null || _a3 === void 0 ? void 0 : _a3.optimizeNames(names, constants3);
+        if (!(super.optimizeNames(names, constants3) || this.else))
           return;
-        this.condition = optimizeExpr(this.condition, names, constants2);
+        this.condition = optimizeExpr(this.condition, names, constants3);
         return this;
       }
       get names() {
@@ -613,10 +613,10 @@ var require_codegen = __commonJS({
       render(opts) {
         return `for(${this.iteration})` + super.render(opts);
       }
-      optimizeNames(names, constants2) {
-        if (!super.optimizeNames(names, constants2))
+      optimizeNames(names, constants3) {
+        if (!super.optimizeNames(names, constants3))
           return;
-        this.iteration = optimizeExpr(this.iteration, names, constants2);
+        this.iteration = optimizeExpr(this.iteration, names, constants3);
         return this;
       }
       get names() {
@@ -652,10 +652,10 @@ var require_codegen = __commonJS({
       render(opts) {
         return `for(${this.varKind} ${this.name} ${this.loop} ${this.iterable})` + super.render(opts);
       }
-      optimizeNames(names, constants2) {
-        if (!super.optimizeNames(names, constants2))
+      optimizeNames(names, constants3) {
+        if (!super.optimizeNames(names, constants3))
           return;
-        this.iterable = optimizeExpr(this.iterable, names, constants2);
+        this.iterable = optimizeExpr(this.iterable, names, constants3);
         return this;
       }
       get names() {
@@ -697,11 +697,11 @@ var require_codegen = __commonJS({
         (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNodes();
         return this;
       }
-      optimizeNames(names, constants2) {
+      optimizeNames(names, constants3) {
         var _a3, _b;
-        super.optimizeNames(names, constants2);
-        (_a3 = this.catch) === null || _a3 === void 0 ? void 0 : _a3.optimizeNames(names, constants2);
-        (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNames(names, constants2);
+        super.optimizeNames(names, constants3);
+        (_a3 = this.catch) === null || _a3 === void 0 ? void 0 : _a3.optimizeNames(names, constants3);
+        (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNames(names, constants3);
         return this;
       }
       get names() {
@@ -1002,7 +1002,7 @@ var require_codegen = __commonJS({
     function addExprNames(names, from) {
       return from instanceof code_1._CodeOrName ? addNames(names, from.names) : names;
     }
-    function optimizeExpr(expr, names, constants2) {
+    function optimizeExpr(expr, names, constants3) {
       if (expr instanceof code_1.Name)
         return replaceName(expr);
       if (!canOptimize(expr))
@@ -1017,14 +1017,14 @@ var require_codegen = __commonJS({
         return items;
       }, []));
       function replaceName(n) {
-        const c = constants2[n.str];
+        const c = constants3[n.str];
         if (c === void 0 || names[n.str] !== 1)
           return n;
         delete names[n.str];
         return c;
       }
       function canOptimize(e) {
-        return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names[c.str] === 1 && constants2[c.str] !== void 0);
+        return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names[c.str] === 1 && constants3[c.str] !== void 0);
       }
     }
     function subtractNames(names, from) {
@@ -2986,7 +2986,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve6.call(this, root, ref);
+      let _sch = resolve7.call(this, root, ref);
       if (_sch === void 0) {
         const schema = (_a3 = root.localRefs) === null || _a3 === void 0 ? void 0 : _a3[ref];
         const { schemaId } = this.opts;
@@ -3013,7 +3013,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve6(root, ref) {
+    function resolve7(root, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -3644,7 +3644,7 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve6(baseURI, relativeURI, options) {
+    function resolve7(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const { parsed: baseParsed, malformedAuthorityOrPort: baseMalformed } = parseWithStatus(baseURI, schemelessOptions);
       const { parsed: relativeParsed, malformedAuthorityOrPort: relativeMalformed } = parseWithStatus(relativeURI, schemelessOptions);
@@ -3928,7 +3928,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize: normalize2,
-      resolve: resolve6,
+      resolve: resolve7,
       resolveComponent,
       equal,
       serialize,
@@ -28882,7 +28882,7 @@ var Protocol = class {
           return;
         }
         const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-        await new Promise((resolve6) => setTimeout(resolve6, pollInterval));
+        await new Promise((resolve7) => setTimeout(resolve7, pollInterval));
         options?.signal?.throwIfAborted();
       }
     } catch (error51) {
@@ -28899,7 +28899,7 @@ var Protocol = class {
    */
   request(request, resultSchema, options) {
     const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-    return new Promise((resolve6, reject) => {
+    return new Promise((resolve7, reject) => {
       const earlyReject = (error51) => {
         reject(error51);
       };
@@ -28977,7 +28977,7 @@ var Protocol = class {
           if (!parseResult.success) {
             reject(parseResult.error);
           } else {
-            resolve6(parseResult.data);
+            resolve7(parseResult.data);
           }
         } catch (error51) {
           reject(error51);
@@ -29238,12 +29238,12 @@ var Protocol = class {
       }
     } catch {
     }
-    return new Promise((resolve6, reject) => {
+    return new Promise((resolve7, reject) => {
       if (signal.aborted) {
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
         return;
       }
-      const timeoutId = setTimeout(resolve6, interval);
+      const timeoutId = setTimeout(resolve7, interval);
       signal.addEventListener("abort", () => {
         clearTimeout(timeoutId);
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -30334,7 +30334,7 @@ var McpServer = class {
     let task = createTaskResult.task;
     const pollInterval = task.pollInterval ?? 5e3;
     while (task.status !== "completed" && task.status !== "failed" && task.status !== "cancelled") {
-      await new Promise((resolve6) => setTimeout(resolve6, pollInterval));
+      await new Promise((resolve7) => setTimeout(resolve7, pollInterval));
       const updatedTask = await extra.taskStore.getTask(taskId);
       if (!updatedTask) {
         throw new McpError(ErrorCode.InternalError, `Task ${taskId} not found during polling`);
@@ -30998,24 +30998,24 @@ var StdioServerTransport = class {
     this.onclose?.();
   }
   send(message) {
-    return new Promise((resolve6) => {
+    return new Promise((resolve7) => {
       const json2 = serializeMessage(message);
       if (this._stdout.write(json2)) {
-        resolve6();
+        resolve7();
       } else {
-        this._stdout.once("drain", resolve6);
+        this._stdout.once("drain", resolve7);
       }
     });
   }
 };
 
 // src/mcp.mjs
-var import_node_path21 = require("node:path");
+var import_node_path22 = require("node:path");
 var import_node_url3 = require("node:url");
 
 // src/service.mjs
-var import_promises16 = require("node:fs/promises");
-var import_node_path20 = require("node:path");
+var import_promises18 = require("node:fs/promises");
+var import_node_path21 = require("node:path");
 
 // src/policy/catalog.mjs
 function deepFreeze(value) {
@@ -32050,7 +32050,7 @@ function processGroupExists(processGroup) {
 async function waitForProcessGroupExit(processGroup, timeoutMs, pollMs = 50) {
   const deadline = Date.now() + timeoutMs;
   while (processGroupExists(processGroup) && Date.now() < deadline) {
-    await new Promise((resolve6) => setTimeout(resolve6, pollMs));
+    await new Promise((resolve7) => setTimeout(resolve7, pollMs));
   }
   return !processGroupExists(processGroup);
 }
@@ -32298,7 +32298,7 @@ var RunStore = class {
         }
         if (error51?.code !== "EEXIST") throw error51;
         await this.tryBreakStaleLock(path3);
-        await new Promise((resolve6) => setTimeout(resolve6, 10));
+        await new Promise((resolve7) => setTimeout(resolve7, 10));
       }
     }
     invariant(handle, "AO_LOCK_TIMEOUT", `Timed out acquiring run lock for ${runId}.`);
@@ -34822,11 +34822,11 @@ var Connection = class {
     const id = this.nextRequestId++;
     let cancel = () => {
     };
-    const response = new Promise((resolve6, reject) => {
+    const response = new Promise((resolve7, reject) => {
       const pendingResponse = {
         resolve: (value) => {
           try {
-            resolve6(mapResponse ? mapResponse(value) : value);
+            resolve7(mapResponse ? mapResponse(value) : value);
           } catch (error51) {
             reject(error51);
           }
@@ -34883,8 +34883,8 @@ var Connection = class {
     this.stream = stream;
     this.staticHandlers = handlers;
     this.allowBatches = options?.allowBatches ?? true;
-    this.closedPromise = new Promise((resolve6) => {
-      this.abortController.signal.addEventListener("abort", () => resolve6());
+    this.closedPromise = new Promise((resolve7) => {
+      this.abortController.signal.addEventListener("abort", () => resolve7());
     });
     void this.receive();
   }
@@ -35621,8 +35621,8 @@ var AsyncQueue = class {
     if (this.failed) {
       return Promise.reject(this.failure);
     }
-    return new Promise((resolve6, reject) => {
-      this.waiters.push({ resolve: resolve6, reject });
+    return new Promise((resolve7, reject) => {
+      this.waiters.push({ resolve: resolve7, reject });
     });
   }
 };
@@ -37234,7 +37234,7 @@ async function withTimeout(promise2, timeoutMs) {
   }
 }
 async function withInterrupt(run, onInterrupt) {
-  return await new Promise((resolve6, reject) => {
+  return await new Promise((resolve7, reject) => {
     let settled = false;
     const finish = (cb) => {
       if (settled) return;
@@ -37261,7 +37261,7 @@ async function withInterrupt(run, onInterrupt) {
     process.once("SIGINT", onSigint);
     process.once("SIGTERM", onSigterm);
     process.once("SIGHUP", onSighup);
-    run().then((result2) => finish(() => resolve6(result2)), (error51) => finish(() => reject(error51)));
+    run().then((result2) => finish(() => resolve7(result2)), (error51) => finish(() => reject(error51)));
   });
 }
 function promptCapabilityRequirement(block) {
@@ -38476,10 +38476,10 @@ function isoNow$1() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function waitForSpawn$1(child) {
-  return new Promise((resolve6, reject) => {
+  return new Promise((resolve7, reject) => {
     const onSpawn = () => {
       child.off("error", onError);
-      resolve6();
+      resolve7();
     };
     const onError = (error51) => {
       child.off("spawn", onSpawn);
@@ -38498,7 +38498,7 @@ function requireAgentStdio(child) {
 }
 function waitForChildExit(child, timeoutMs) {
   if (!isChildProcessRunning(child)) return Promise.resolve(true);
-  return new Promise((resolve6) => {
+  return new Promise((resolve7) => {
     let settled = false;
     const timer = setTimeout(() => {
       finish(false);
@@ -38509,7 +38509,7 @@ function waitForChildExit(child, timeoutMs) {
       child.off("close", onExitLike);
       child.off("exit", onExitLike);
       clearTimeout(timer);
-      resolve6(value);
+      resolve7(value);
     };
     const onExitLike = () => {
       finish(true);
@@ -38763,7 +38763,7 @@ async function resolveGeminiCommandArgs(command, args) {
   return [...args];
 }
 async function readCommandOutput(command, args, timeoutMs) {
-  return await new Promise((resolve6) => {
+  return await new Promise((resolve7) => {
     const child = (0, import_node_child_process2.spawn)(command, [...args], buildSpawnCommandOptions(command, {
       stdio: [
         "ignore",
@@ -38782,7 +38782,7 @@ async function readCommandOutput(command, args, timeoutMs) {
       child.removeAllListeners();
       child.stdout?.removeAllListeners();
       child.stderr?.removeAllListeners();
-      resolve6(value);
+      resolve7(value);
     };
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
@@ -39136,10 +39136,10 @@ function trimToUtf8Boundary(buffer, limit) {
   return buffer.subarray(start);
 }
 function waitForSpawn(process4) {
-  return new Promise((resolve6, reject) => {
+  return new Promise((resolve7, reject) => {
     const onSpawn = () => {
       process4.off("error", onError);
-      resolve6();
+      resolve7();
     };
     const onError = (error51) => {
       process4.off("spawn", onSpawn);
@@ -39157,8 +39157,8 @@ function canPromptForPermission() {
   return process.stdin.isTTY && process.stderr.isTTY;
 }
 function waitMs(ms) {
-  return new Promise((resolve6) => {
-    setTimeout(resolve6, Math.max(0, ms));
+  return new Promise((resolve7) => {
+    setTimeout(resolve7, Math.max(0, ms));
   });
 }
 var TerminalManager = class {
@@ -39198,8 +39198,8 @@ var TerminalManager = class {
       const { proc, spawnCommand } = await spawnTerminalProcess(params, this.cwd);
       let resolveExit = () => {
       };
-      const exitPromise = new Promise((resolve6) => {
-        resolveExit = resolve6;
+      const exitPromise = new Promise((resolve7) => {
+        resolveExit = resolve7;
       });
       const terminal = {
         process: proc,
@@ -39523,7 +39523,7 @@ function parseProcessListLine(line) {
 }
 async function runProcessListCommand() {
   if (process.platform === "win32") return await runWindowsProcessListCommand();
-  return await new Promise((resolve6, reject) => {
+  return await new Promise((resolve7, reject) => {
     const child = (0, import_node_child_process2.spawn)("ps", ["-eo", "pid=,ppid="], { stdio: [
       "ignore",
       "pipe",
@@ -39542,7 +39542,7 @@ async function runProcessListCommand() {
     child.once("error", reject);
     child.once("close", (code, signal) => {
       if (code === 0) {
-        resolve6(stdout);
+        resolve7(stdout);
         return;
       }
       reject(/* @__PURE__ */ new Error(`ps exited with code ${code ?? "null"} signal ${signal ?? "null"}: ${stderr}`));
@@ -39576,7 +39576,7 @@ async function listProcessGroupPids(processGroupId) {
   return pids;
 }
 async function runProcessGroupListCommand() {
-  return await new Promise((resolve6, reject) => {
+  return await new Promise((resolve7, reject) => {
     const child = (0, import_node_child_process2.spawn)("ps", ["-eo", "pid=,pgid="], { stdio: [
       "ignore",
       "pipe",
@@ -39595,7 +39595,7 @@ async function runProcessGroupListCommand() {
     child.once("error", reject);
     child.once("close", (code, signal) => {
       if (code === 0) {
-        resolve6(stdout);
+        resolve7(stdout);
         return;
       }
       reject(/* @__PURE__ */ new Error(`ps exited with code ${code ?? "null"} signal ${signal ?? "null"}: ${stderr}`));
@@ -39603,7 +39603,7 @@ async function runProcessGroupListCommand() {
   });
 }
 async function runWindowsProcessListCommand() {
-  return await new Promise((resolve6, reject) => {
+  return await new Promise((resolve7, reject) => {
     const child = (0, import_node_child_process2.spawn)("powershell.exe", [
       "-NoProfile",
       "-NonInteractive",
@@ -39630,7 +39630,7 @@ async function runWindowsProcessListCommand() {
     child.once("error", reject);
     child.once("close", (code, signal) => {
       if (code === 0) {
-        resolve6(stdout);
+        resolve7(stdout);
         return;
       }
       reject(/* @__PURE__ */ new Error(`powershell process list exited with code ${code ?? "null"} signal ${signal ?? "null"}: ${stderr}`));
@@ -39644,7 +39644,7 @@ async function killWindowsProcessTree(pid, signal) {
     "/t"
   ];
   if (signal === "SIGKILL") args.push("/f");
-  await new Promise((resolve6) => {
+  await new Promise((resolve7) => {
     const child = (0, import_node_child_process2.spawn)("taskkill", args, {
       stdio: [
         "ignore",
@@ -39653,8 +39653,8 @@ async function killWindowsProcessTree(pid, signal) {
       ],
       windowsHide: true
     });
-    child.once("error", () => resolve6());
-    child.once("close", () => resolve6());
+    child.once("error", () => resolve7());
+    child.once("close", () => resolve7());
   });
 }
 function sendSignal(pid, signal) {
@@ -40389,8 +40389,8 @@ var AcpClient = class {
     }
     if (waitMs2 <= 0) return;
     let timer;
-    const timeoutPromise = new Promise((resolve6) => {
-      timer = setTimeout(resolve6, waitMs2);
+    const timeoutPromise = new Promise((resolve7) => {
+      timer = setTimeout(resolve7, waitMs2);
     });
     try {
       return await Promise.race([active.promise.then((response) => response, () => void 0), timeoutPromise]);
@@ -40691,7 +40691,7 @@ var AcpClient = class {
     return error51;
   }
   async runConnectionRequest(run) {
-    return await new Promise((resolve6, reject) => {
+    return await new Promise((resolve7, reject) => {
       const pending = {
         settled: false,
         reject
@@ -40703,7 +40703,7 @@ var AcpClient = class {
         cb();
       };
       this.pendingConnectionRequests.add(pending);
-      Promise.resolve().then(run).then((value) => finish(() => resolve6(value)), (error51) => finish(() => reject(error51)));
+      Promise.resolve().then(run).then((value) => finish(() => resolve7(value)), (error51) => finish(() => reject(error51)));
     });
   }
   rejectPendingConnectionRequests(error51) {
@@ -40818,8 +40818,8 @@ var AcpClient = class {
         await this.sessionUpdateChain;
         if (this.processedSessionUpdates === this.observedSessionUpdates) return;
       }
-      await new Promise((resolve6) => {
-        setTimeout(resolve6, DRAIN_POLL_INTERVAL_MS);
+      await new Promise((resolve7) => {
+        setTimeout(resolve7, DRAIN_POLL_INTERVAL_MS);
       });
     }
     throw new Error(`Timed out waiting for session replay drain after ${normalizedTimeoutMs}ms`);
@@ -42579,14 +42579,14 @@ function shouldReuseExistingRecord(record2, params) {
   return true;
 }
 function createDeferred() {
-  let resolve6;
+  let resolve7;
   let reject;
   return {
     promise: new Promise((res, rej) => {
-      resolve6 = res;
+      resolve7 = res;
       reject = rej;
     }),
-    resolve: resolve6,
+    resolve: resolve7,
     reject
   };
 }
@@ -44607,7 +44607,7 @@ var SystemdWorkerSupervisorStrategy = class extends WorkerSupervisorStrategy {
       }
       if (terminalStates.has(run.state)) throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_MISSING", "The run terminated before its worker acknowledged the supervisor scope.");
       if (launchState.exited) throw new AgentOrchestrationError("AO_WORKER_LAUNCH_FAILED", "systemd-run exited before the worker registered.", launchState.exited);
-      await new Promise((resolve6) => setTimeout(resolve6, 25));
+      await new Promise((resolve7) => setTimeout(resolve7, 25));
     }
     throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_TIMEOUT", "Timed out waiting for the worker to register in its named supervisor scope.", { supervisorUnit, launcherPid: child.pid });
   }
@@ -44680,7 +44680,7 @@ var SystemdWorkerSupervisorStrategy = class extends WorkerSupervisorStrategy {
     const deadline = Date.now() + 5e3;
     let run = await store.get(runId);
     while (!run.worker?.supervisorUnit && !terminalStates.has(run.state) && Date.now() < deadline) {
-      await new Promise((resolve6) => setTimeout(resolve6, 25));
+      await new Promise((resolve7) => setTimeout(resolve7, 25));
       run = await store.get(runId);
     }
     if (terminalStates.has(run.state)) return run;
@@ -44818,7 +44818,7 @@ var WindowsJobObjectSupervisorStrategy = class extends WorkerSupervisorStrategy 
       }
       if (terminalStates.has(run.state)) throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_MISSING", "The run terminated before its worker acknowledged the Windows Job Object.");
       if (launchState.exited) throw new AgentOrchestrationError("AO_WORKER_LAUNCH_FAILED", "The Windows Job Object supervisor exited before the worker registered.", launchState.exited);
-      await new Promise((resolve6) => setTimeout(resolve6, 25));
+      await new Promise((resolve7) => setTimeout(resolve7, 25));
     }
     throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_TIMEOUT", "Timed out waiting for the worker to register in its Windows Job Object.", { supervisorUnit, launcherPid: child.pid });
   }
@@ -44878,7 +44878,7 @@ var WindowsJobObjectSupervisorStrategy = class extends WorkerSupervisorStrategy 
     const deadline = Date.now() + 5e3;
     let run = await store.get(runId);
     while (!run.worker?.supervisorUnit && !terminalStates.has(run.state) && Date.now() < deadline) {
-      await new Promise((resolve6) => setTimeout(resolve6, 25));
+      await new Promise((resolve7) => setTimeout(resolve7, 25));
       run = await store.get(runId);
     }
     if (terminalStates.has(run.state)) return run;
@@ -45354,9 +45354,9 @@ async function startSessionHost({ stateRoot: stateRoot2, uiRoot, port: requested
     port,
     hostNonce,
     bind: `${BIND}:${port}`,
-    close: () => new Promise((resolve6, reject) => {
+    close: () => new Promise((resolve7, reject) => {
       server.closeAllConnections?.();
-      server.close((error51) => error51 ? reject(error51) : resolve6());
+      server.close((error51) => error51 ? reject(error51) : resolve7());
     })
   };
 }
@@ -45385,7 +45385,7 @@ async function listenLoopback(preferred) {
   invariant(false, "AO_SESSION_BIND", "No loopback port is available for the session host.", { lastError: lastError?.message });
 }
 function bindPort(port) {
-  return new Promise((resolve6, reject) => {
+  return new Promise((resolve7, reject) => {
     const server = (0, import_node_http.createServer)();
     const onError = (error51) => {
       server.off("listening", onListening);
@@ -45393,7 +45393,7 @@ function bindPort(port) {
     };
     const onListening = () => {
       server.off("error", onError);
-      resolve6(server);
+      resolve7(server);
     };
     server.once("error", onError);
     server.once("listening", onListening);
@@ -45427,6 +45427,127 @@ async function openSessionBrowser(url2) {
   }
 }
 
+// src/session/supervisor.mjs
+var import_promises16 = require("node:fs/promises");
+var import_node_fs6 = require("node:fs");
+var import_node_path20 = require("node:path");
+var import_promises17 = require("node:timers/promises");
+var SESSION_SUPERVISOR_UNIT_PATTERN = /^agent-orchestration-session-[a-f0-9]{12}\.scope$/;
+function sessionSupervisorUnitBase(stateRoot2) {
+  invariant(typeof stateRoot2 === "string" && (0, import_node_path20.isAbsolute)(stateRoot2), "AO_UNSAFE_SUPERVISOR_UNIT", "Session supervisor state root must be an absolute path.");
+  return `agent-orchestration-session-${sha256((0, import_node_path20.resolve)(stateRoot2)).slice(0, 12)}`;
+}
+function sessionSupervisorUnit(stateRoot2) {
+  return `${sessionSupervisorUnitBase(stateRoot2)}.scope`;
+}
+function assertSessionSupervisorUnit(unit) {
+  invariant(SESSION_SUPERVISOR_UNIT_PATTERN.test(unit), "AO_UNSAFE_SUPERVISOR_UNIT", "Refusing to operate on an untrusted session supervisor unit name.");
+}
+function sessionHostCliPath(pluginRoot) {
+  return (0, import_node_path20.join)(pluginRoot, "dist", "cli.cjs");
+}
+function sessionSupervisorEnabled({ platform = process.platform, env = process.env } = {}) {
+  if (env.AGENT_ORCHESTRATION_SESSION_SUPERVISOR === "0") return false;
+  if (env.AGENT_ORCHESTRATION_SESSION_HOST === "1") return false;
+  if (platform === "win32") return false;
+  return true;
+}
+async function shouldSuperviseSessionHost({
+  pluginRoot,
+  cliPath = pluginRoot ? sessionHostCliPath(pluginRoot) : void 0,
+  platform = process.platform,
+  env = process.env
+} = {}) {
+  if (!sessionSupervisorEnabled({ platform, env })) return false;
+  if (typeof cliPath !== "string" || cliPath.length === 0) return false;
+  try {
+    await (0, import_promises16.access)(cliPath, import_node_fs6.constants.F_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function sessionSupervisorArgs({
+  nodePath = process.execPath,
+  cliPath,
+  stateRoot: stateRoot2
+}) {
+  const unitBase = sessionSupervisorUnitBase(stateRoot2);
+  return [
+    "--user",
+    "--scope",
+    "--collect",
+    "--quiet",
+    `--unit=${unitBase}`,
+    "--property=KillMode=control-group",
+    "--property=TimeoutStopSec=3s",
+    "--property=RuntimeMaxSec=24h",
+    "--property=MemoryMax=8G",
+    "--property=TasksMax=512",
+    "/usr/bin/prlimit",
+    "--core=0",
+    "--fsize=1073741824",
+    "--",
+    nodePath,
+    cliPath,
+    "session-host",
+    "--state-root",
+    stateRoot2
+  ];
+}
+async function waitForSessionHostLease(stateRoot2, { timeoutMs = 5e3, intervalMs = 50, probe = probeSessionHost } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const live = await probe(stateRoot2);
+    if (live) return live;
+    await (0, import_promises17.setTimeout)(intervalMs);
+  }
+  return null;
+}
+async function launchSessionSupervisor({
+  pluginRoot,
+  stateRoot: stateRoot2,
+  cliPath = sessionHostCliPath(pluginRoot),
+  nodePath = process.execPath,
+  spawnUserManager = spawnUserManagerFile,
+  openLog = defaultOpenLog
+} = {}) {
+  const unit = sessionSupervisorUnit(stateRoot2);
+  assertSessionSupervisorUnit(unit);
+  const { stdout, stderr } = await openLog(stateRoot2);
+  let child;
+  try {
+    child = await spawnUserManager("/usr/bin/systemd-run", sessionSupervisorArgs({ nodePath, cliPath, stateRoot: stateRoot2 }), {
+      cwd: pluginRoot,
+      env: {
+        ...process.env,
+        AGENT_ORCHESTRATION_STATE_HOME: stateRoot2,
+        AGENT_ORCHESTRATION_SESSION_HOST: "1"
+      },
+      detached: true,
+      stdio: ["ignore", stdout.fd, stderr.fd],
+      shell: false
+    });
+    await new Promise((resolveSpawn, rejectSpawn) => {
+      child.once("spawn", resolveSpawn);
+      child.once("error", rejectSpawn);
+    });
+    child.unref();
+    return { child, unit, supervisorUnit: unit };
+  } finally {
+    await stdout.close?.().catch(() => {
+    });
+    await stderr.close?.().catch(() => {
+    });
+  }
+}
+async function defaultOpenLog(stateRoot2) {
+  const logDir = await ensurePrivateDir((0, import_node_path20.join)(stateRoot2, "logs"));
+  const stdout = await (0, import_promises16.open)((0, import_node_path20.join)(logDir, "session-host.out.log"), "a", 384);
+  const stderr = await (0, import_promises16.open)((0, import_node_path20.join)(logDir, "session-host.err.log"), "a", 384);
+  return { stdout, stderr };
+}
+
 // src/service.mjs
 var WORKER_STATES = /* @__PURE__ */ new Set(["queued", "preparing", "running", "verifying", "cancelling", "cleanup_required"]);
 function normalizeIntentInput(input) {
@@ -45444,10 +45565,10 @@ function normalizeIntentInput(input) {
 }
 async function externalProviderPaths(pluginRoot, discovered, executableRoots = []) {
   const paths = [];
-  const canonicalPluginRoot = await (0, import_promises16.realpath)(pluginRoot).catch(() => (0, import_node_path20.resolve)(pluginRoot));
-  const canonicalRoots = await Promise.all(executableRoots.map((root) => (0, import_promises16.realpath)(root).catch(() => (0, import_node_path20.resolve)(root))));
+  const canonicalPluginRoot = await (0, import_promises18.realpath)(pluginRoot).catch(() => (0, import_node_path21.resolve)(pluginRoot));
+  const canonicalRoots = await Promise.all(executableRoots.map((root) => (0, import_promises18.realpath)(root).catch(() => (0, import_node_path21.resolve)(root))));
   for (const candidate of discovered) {
-    const resolvedCandidate = await (0, import_promises16.realpath)(candidate).catch(() => (0, import_node_path20.resolve)(candidate));
+    const resolvedCandidate = await (0, import_promises18.realpath)(candidate).catch(() => (0, import_node_path21.resolve)(candidate));
     if (isPathWithin(canonicalPluginRoot, resolvedCandidate)) continue;
     if (!canonicalRoots.some((root) => isPathWithin(root, resolvedCandidate))) continue;
     if (!paths.includes(resolvedCandidate)) paths.push(resolvedCandidate);
@@ -45457,7 +45578,7 @@ async function externalProviderPaths(pluginRoot, discovered, executableRoots = [
 async function discoverProviderPaths(pluginRoot, adapter, discovered, resolverRunner = runFile) {
   const candidates = [...discovered];
   for (const resolver of adapter.candidateResolvers ?? []) {
-    invariant((0, import_node_path20.isAbsolute)(resolver.executable), "AO_PROVIDER_RESOLVER_NOT_ABSOLUTE", "Provider candidate resolvers must use an absolute executable path.");
+    invariant((0, import_node_path21.isAbsolute)(resolver.executable), "AO_PROVIDER_RESOLVER_NOT_ABSOLUTE", "Provider candidate resolvers must use an absolute executable path.");
     try {
       const { stdout } = await resolverRunner(resolver.executable, [...resolver.args], { timeoutMs: 5e3 });
       candidates.push(...stdout.split("\n").map((line) => line.trim()).filter(Boolean));
@@ -45467,7 +45588,7 @@ async function discoverProviderPaths(pluginRoot, adapter, discovered, resolverRu
   return externalProviderPaths(pluginRoot, candidates, adapter.executableRoots);
 }
 var OrchestrationService = class {
-  constructor({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot2 = stateRoot(), workerEntrypoint = (0, import_node_path20.join)(pluginRoot, "dist", "cli.cjs"), platformRuntime = createPlatformRuntime({ pluginRoot, stateRoot: stateRoot2 }), maxConcurrentRuns = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_RUNS || 4), maxConcurrentPerProvider = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_PER_PROVIDER || 2), autoRecover = true, recoveryGraceMs = 5e3, sessionUiRoot = (0, import_node_path20.join)(pluginRoot, "dist", "session-ui") } = {}) {
+  constructor({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot2 = stateRoot(), workerEntrypoint = (0, import_node_path21.join)(pluginRoot, "dist", "cli.cjs"), platformRuntime = createPlatformRuntime({ pluginRoot, stateRoot: stateRoot2 }), maxConcurrentRuns = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_RUNS || 4), maxConcurrentPerProvider = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_PER_PROVIDER || 2), autoRecover = true, recoveryGraceMs = 5e3, sessionUiRoot = (0, import_node_path21.join)(pluginRoot, "dist", "session-ui") } = {}) {
     this.pluginRoot = pluginRoot;
     this.stateRoot = stateRoot2;
     this.workerEntrypoint = workerEntrypoint;
@@ -45630,13 +45751,30 @@ var OrchestrationService = class {
       return { run: launchedRun, explanation: prepared.explanation, session };
     });
   }
+  joinSessionHost(live) {
+    this.sessionHost = {
+      port: live.port,
+      hostNonce: live.hostNonce,
+      bind: live.bind,
+      close: async () => {
+      }
+    };
+    return this.sessionHost;
+  }
   async ensureSessionHost() {
     if (this.sessionHost) return this.sessionHost;
     const live = await probeSessionHost(this.stateRoot);
-    if (live) {
-      this.sessionHost = { port: live.port, hostNonce: live.hostNonce, bind: live.bind, close: async () => {
-      } };
-      return this.sessionHost;
+    if (live) return this.joinSessionHost(live);
+    if (await shouldSuperviseSessionHost({ pluginRoot: this.pluginRoot })) {
+      try {
+        await launchSessionSupervisor({
+          pluginRoot: this.pluginRoot,
+          stateRoot: this.stateRoot
+        });
+        const supervised = await waitForSessionHostLease(this.stateRoot);
+        if (supervised) return this.joinSessionHost(supervised);
+      } catch {
+      }
     }
     this.sessionHost = await startSessionHost({
       stateRoot: this.stateRoot,
@@ -45723,7 +45861,7 @@ var OrchestrationService = class {
     while (true) {
       const run = await this.getRun(input);
       if (TERMINAL_STATES.has(run.state) || run.state === "waiting_for_decision" || Date.now() >= deadline) return run;
-      await new Promise((resolve6) => setTimeout(resolve6, Math.min(input.pollIntervalMs ?? 250, 2e3)));
+      await new Promise((resolve7) => setTimeout(resolve7, Math.min(input.pollIntervalMs ?? 250, 2e3)));
     }
   }
   async cancel(input) {
@@ -45736,7 +45874,7 @@ var OrchestrationService = class {
     if (run.worker?.pid && WORKER_STATES.has(run.state)) {
       const cooperativeDeadline = Date.now() + 2e3;
       while (Date.now() < cooperativeDeadline && processGroupExists(run.worker.processGroup)) {
-        await new Promise((resolve6) => setTimeout(resolve6, 100));
+        await new Promise((resolve7) => setTimeout(resolve7, 100));
       }
       const stopped = await this.terminateRecordedProcessGroup(run.worker);
       run = await this.store.get(runId);
@@ -46160,7 +46298,7 @@ process.stdout.on("error", (error51) => {
   if (error51?.code === "EPIPE") process.exit(0);
   throw error51;
 });
-if (process.argv[1] && (0, import_node_path21.resolve)((0, import_node_url3.fileURLToPath)(__aoImportMetaUrl)) === (0, import_node_path21.resolve)(process.argv[1])) {
+if (process.argv[1] && (0, import_node_path22.resolve)((0, import_node_url3.fileURLToPath)(__aoImportMetaUrl)) === (0, import_node_path22.resolve)(process.argv[1])) {
   main().catch((error51) => {
     process.stderr.write(`[agent-orchestration] ${JSON.stringify(serializeError(error51))}
 `);

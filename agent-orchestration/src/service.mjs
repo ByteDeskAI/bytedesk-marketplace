@@ -13,6 +13,7 @@ import { checkBundledBridges } from "./runtime/acpx-driver.mjs";
 import { createPlatformRuntime } from "./platform/factory.mjs";
 import { capabilityUrl, isExpired, mintCapability, readSessionMeta, writeSessionMeta } from "./session/capability.mjs";
 import { openSessionBrowser, probeSessionHost, startSessionHost } from "./session/host.mjs";
+import { launchSessionSupervisor, shouldSuperviseSessionHost, waitForSessionHostLease } from "./session/supervisor.mjs";
 
 const WORKER_STATES = new Set(["queued", "preparing", "running", "verifying", "cancelling", "cleanup_required"]);
 
@@ -242,12 +243,31 @@ export class OrchestrationService {
     });
   }
 
+  joinSessionHost(live) {
+    this.sessionHost = {
+      port: live.port,
+      hostNonce: live.hostNonce,
+      bind: live.bind,
+      close: async () => {},
+    };
+    return this.sessionHost;
+  }
+
   async ensureSessionHost() {
     if (this.sessionHost) return this.sessionHost;
     const live = await probeSessionHost(this.stateRoot);
-    if (live) {
-      this.sessionHost = { port: live.port, hostNonce: live.hostNonce, bind: live.bind, close: async () => {} };
-      return this.sessionHost;
+    if (live) return this.joinSessionHost(live);
+    if (await shouldSuperviseSessionHost({ pluginRoot: this.pluginRoot })) {
+      try {
+        await launchSessionSupervisor({
+          pluginRoot: this.pluginRoot,
+          stateRoot: this.stateRoot,
+        });
+        const supervised = await waitForSessionHostLease(this.stateRoot);
+        if (supervised) return this.joinSessionHost(supervised);
+      } catch {
+        // systemd-run unavailable or the unit lost the race; listen in-process.
+      }
     }
     this.sessionHost = await startSessionHost({
       stateRoot: this.stateRoot,

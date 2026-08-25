@@ -1,7 +1,7 @@
 # Agent Orchestration Session
 
 Date: 2026-08-22  
-Status: Phase 3 done (journal projection + cancel/follow-up/decision). Phase 4 is skill/docs polish.  
+Status: Phase 4 done. Session host is a Linux/WSL `systemd-run --user --scope` process per state root (in-process fallback; native Windows in-process).  
 Plugin: `agent-orchestration@bytedesk`
 
 This is the operator window for **one broker run**. When `orchestration_spawn` starts a run, a
@@ -73,9 +73,9 @@ variants with the real `state` string on the pill.
 | In-broker multiplexed listener | Simpler. Dies when the host MCP process dies. |
 | Session-host process per state root (`systemd-run --user --scope`, first-wins lock) | Proposal recommendation: survives host-session restart, outlives the worker for post-run review. |
 
-**v1 pick until the architecture gate says otherwise:** in-broker mux (fewer moving parts, matches
-the mockup server). If the gate accepts the proposal's session-host, Phase 1 implements that instead
-of rewriting the URL/auth/event contracts.
+**Shipped:** Linux/WSL uses a state-root session-host process (`systemd-run --user --scope`, first-wins
+unit name + `lease.json` probe). MCP joins a live host and does not stop it on dispose. Native Windows
+and `AGENT_ORCHESTRATION_SESSION_SUPERVISOR=0` stay in-process. URL/auth/event contracts are unchanged.
 
 MCP stdout is JSON-RPC only (`src/mcp.mjs`). Hosts do not reliably show MCP stderr. The URL must
 travel in the `orchestration_spawn` structured result (`session: { url, bind, opened }`) **and**

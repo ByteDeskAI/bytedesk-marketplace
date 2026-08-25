@@ -3,8 +3,8 @@
   "hashAlgorithm": "sha256",
   "files": {
     "src/cli.mjs": {
-      "sha256": "9c9523d4c2ca2f919e10b988c99426cd855fc27ae165cda842dc0b8222dc2628",
-      "lineCount": 52,
+      "sha256": "b9a9a60530c3ea43d262ef46b64e3af2f09ce41efa3171bde7a3bfd3628d6450",
+      "lineCount": 58,
       "anchors": [
         "Usage: agent-orchestration <worker|doctor|status> [options]"
       ]
@@ -142,8 +142,8 @@
       ]
     },
     "src/service.mjs": {
-      "sha256": "23ab3f208ae330c3cc3a002078667a121ced0959828e41dd64a79c9068c4a177",
-      "lineCount": 578,
+      "sha256": "bda3c62c66af3e12072b7def2b7e873855e04658bd7a74d53344e1c720fe547e",
+      "lineCount": 598,
       "anchors": [
         "async cancel(",
         "async decision(",

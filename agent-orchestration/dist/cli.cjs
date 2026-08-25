@@ -29,11 +29,11 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 
 // src/cli.mjs
 var import_node_util3 = require("node:util");
-var import_node_path21 = require("node:path");
+var import_node_path22 = require("node:path");
 
 // src/service.mjs
-var import_promises16 = require("node:fs/promises");
-var import_node_path20 = require("node:path");
+var import_promises18 = require("node:fs/promises");
+var import_node_path21 = require("node:path");
 
 // src/policy/catalog.mjs
 function deepFreeze(value) {
@@ -1068,7 +1068,7 @@ function processGroupExists(processGroup) {
 async function waitForProcessGroupExit(processGroup, timeoutMs, pollMs = 50) {
   const deadline = Date.now() + timeoutMs;
   while (processGroupExists(processGroup) && Date.now() < deadline) {
-    await new Promise((resolve5) => setTimeout(resolve5, pollMs));
+    await new Promise((resolve6) => setTimeout(resolve6, pollMs));
   }
   return !processGroupExists(processGroup);
 }
@@ -1316,7 +1316,7 @@ var RunStore = class {
         }
         if (error51?.code !== "EEXIST") throw error51;
         await this.tryBreakStaleLock(path3);
-        await new Promise((resolve5) => setTimeout(resolve5, 10));
+        await new Promise((resolve6) => setTimeout(resolve6, 10));
       }
     }
     invariant(handle, "AO_LOCK_TIMEOUT", `Timed out acquiring run lock for ${runId}.`);
@@ -18354,11 +18354,11 @@ var Connection = class {
     const id = this.nextRequestId++;
     let cancel = () => {
     };
-    const response = new Promise((resolve5, reject) => {
+    const response = new Promise((resolve6, reject) => {
       const pendingResponse = {
         resolve: (value) => {
           try {
-            resolve5(mapResponse ? mapResponse(value) : value);
+            resolve6(mapResponse ? mapResponse(value) : value);
           } catch (error51) {
             reject(error51);
           }
@@ -18415,8 +18415,8 @@ var Connection = class {
     this.stream = stream;
     this.staticHandlers = handlers;
     this.allowBatches = options?.allowBatches ?? true;
-    this.closedPromise = new Promise((resolve5) => {
-      this.abortController.signal.addEventListener("abort", () => resolve5());
+    this.closedPromise = new Promise((resolve6) => {
+      this.abortController.signal.addEventListener("abort", () => resolve6());
     });
     void this.receive();
   }
@@ -19153,8 +19153,8 @@ var AsyncQueue = class {
     if (this.failed) {
       return Promise.reject(this.failure);
     }
-    return new Promise((resolve5, reject) => {
-      this.waiters.push({ resolve: resolve5, reject });
+    return new Promise((resolve6, reject) => {
+      this.waiters.push({ resolve: resolve6, reject });
     });
   }
 };
@@ -20766,7 +20766,7 @@ async function withTimeout(promise2, timeoutMs) {
   }
 }
 async function withInterrupt(run, onInterrupt) {
-  return await new Promise((resolve5, reject) => {
+  return await new Promise((resolve6, reject) => {
     let settled = false;
     const finish = (cb) => {
       if (settled) return;
@@ -20793,7 +20793,7 @@ async function withInterrupt(run, onInterrupt) {
     process.once("SIGINT", onSigint);
     process.once("SIGTERM", onSigterm);
     process.once("SIGHUP", onSighup);
-    run().then((result) => finish(() => resolve5(result)), (error51) => finish(() => reject(error51)));
+    run().then((result) => finish(() => resolve6(result)), (error51) => finish(() => reject(error51)));
   });
 }
 function promptCapabilityRequirement(block) {
@@ -22008,10 +22008,10 @@ function isoNow$1() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function waitForSpawn$1(child) {
-  return new Promise((resolve5, reject) => {
+  return new Promise((resolve6, reject) => {
     const onSpawn = () => {
       child.off("error", onError);
-      resolve5();
+      resolve6();
     };
     const onError = (error51) => {
       child.off("spawn", onSpawn);
@@ -22030,7 +22030,7 @@ function requireAgentStdio(child) {
 }
 function waitForChildExit(child, timeoutMs) {
   if (!isChildProcessRunning(child)) return Promise.resolve(true);
-  return new Promise((resolve5) => {
+  return new Promise((resolve6) => {
     let settled = false;
     const timer = setTimeout(() => {
       finish(false);
@@ -22041,7 +22041,7 @@ function waitForChildExit(child, timeoutMs) {
       child.off("close", onExitLike);
       child.off("exit", onExitLike);
       clearTimeout(timer);
-      resolve5(value);
+      resolve6(value);
     };
     const onExitLike = () => {
       finish(true);
@@ -22295,7 +22295,7 @@ async function resolveGeminiCommandArgs(command, args) {
   return [...args];
 }
 async function readCommandOutput(command, args, timeoutMs) {
-  return await new Promise((resolve5) => {
+  return await new Promise((resolve6) => {
     const child = (0, import_node_child_process2.spawn)(command, [...args], buildSpawnCommandOptions(command, {
       stdio: [
         "ignore",
@@ -22314,7 +22314,7 @@ async function readCommandOutput(command, args, timeoutMs) {
       child.removeAllListeners();
       child.stdout?.removeAllListeners();
       child.stderr?.removeAllListeners();
-      resolve5(value);
+      resolve6(value);
     };
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
@@ -22668,10 +22668,10 @@ function trimToUtf8Boundary(buffer, limit) {
   return buffer.subarray(start);
 }
 function waitForSpawn(process3) {
-  return new Promise((resolve5, reject) => {
+  return new Promise((resolve6, reject) => {
     const onSpawn = () => {
       process3.off("error", onError);
-      resolve5();
+      resolve6();
     };
     const onError = (error51) => {
       process3.off("spawn", onSpawn);
@@ -22689,8 +22689,8 @@ function canPromptForPermission() {
   return process.stdin.isTTY && process.stderr.isTTY;
 }
 function waitMs(ms) {
-  return new Promise((resolve5) => {
-    setTimeout(resolve5, Math.max(0, ms));
+  return new Promise((resolve6) => {
+    setTimeout(resolve6, Math.max(0, ms));
   });
 }
 var TerminalManager = class {
@@ -22730,8 +22730,8 @@ var TerminalManager = class {
       const { proc, spawnCommand } = await spawnTerminalProcess(params, this.cwd);
       let resolveExit = () => {
       };
-      const exitPromise = new Promise((resolve5) => {
-        resolveExit = resolve5;
+      const exitPromise = new Promise((resolve6) => {
+        resolveExit = resolve6;
       });
       const terminal = {
         process: proc,
@@ -23055,7 +23055,7 @@ function parseProcessListLine(line) {
 }
 async function runProcessListCommand() {
   if (process.platform === "win32") return await runWindowsProcessListCommand();
-  return await new Promise((resolve5, reject) => {
+  return await new Promise((resolve6, reject) => {
     const child = (0, import_node_child_process2.spawn)("ps", ["-eo", "pid=,ppid="], { stdio: [
       "ignore",
       "pipe",
@@ -23074,7 +23074,7 @@ async function runProcessListCommand() {
     child.once("error", reject);
     child.once("close", (code, signal) => {
       if (code === 0) {
-        resolve5(stdout);
+        resolve6(stdout);
         return;
       }
       reject(/* @__PURE__ */ new Error(`ps exited with code ${code ?? "null"} signal ${signal ?? "null"}: ${stderr}`));
@@ -23108,7 +23108,7 @@ async function listProcessGroupPids(processGroupId) {
   return pids;
 }
 async function runProcessGroupListCommand() {
-  return await new Promise((resolve5, reject) => {
+  return await new Promise((resolve6, reject) => {
     const child = (0, import_node_child_process2.spawn)("ps", ["-eo", "pid=,pgid="], { stdio: [
       "ignore",
       "pipe",
@@ -23127,7 +23127,7 @@ async function runProcessGroupListCommand() {
     child.once("error", reject);
     child.once("close", (code, signal) => {
       if (code === 0) {
-        resolve5(stdout);
+        resolve6(stdout);
         return;
       }
       reject(/* @__PURE__ */ new Error(`ps exited with code ${code ?? "null"} signal ${signal ?? "null"}: ${stderr}`));
@@ -23135,7 +23135,7 @@ async function runProcessGroupListCommand() {
   });
 }
 async function runWindowsProcessListCommand() {
-  return await new Promise((resolve5, reject) => {
+  return await new Promise((resolve6, reject) => {
     const child = (0, import_node_child_process2.spawn)("powershell.exe", [
       "-NoProfile",
       "-NonInteractive",
@@ -23162,7 +23162,7 @@ async function runWindowsProcessListCommand() {
     child.once("error", reject);
     child.once("close", (code, signal) => {
       if (code === 0) {
-        resolve5(stdout);
+        resolve6(stdout);
         return;
       }
       reject(/* @__PURE__ */ new Error(`powershell process list exited with code ${code ?? "null"} signal ${signal ?? "null"}: ${stderr}`));
@@ -23176,7 +23176,7 @@ async function killWindowsProcessTree(pid, signal) {
     "/t"
   ];
   if (signal === "SIGKILL") args.push("/f");
-  await new Promise((resolve5) => {
+  await new Promise((resolve6) => {
     const child = (0, import_node_child_process2.spawn)("taskkill", args, {
       stdio: [
         "ignore",
@@ -23185,8 +23185,8 @@ async function killWindowsProcessTree(pid, signal) {
       ],
       windowsHide: true
     });
-    child.once("error", () => resolve5());
-    child.once("close", () => resolve5());
+    child.once("error", () => resolve6());
+    child.once("close", () => resolve6());
   });
 }
 function sendSignal(pid, signal) {
@@ -23921,8 +23921,8 @@ var AcpClient = class {
     }
     if (waitMs2 <= 0) return;
     let timer;
-    const timeoutPromise = new Promise((resolve5) => {
-      timer = setTimeout(resolve5, waitMs2);
+    const timeoutPromise = new Promise((resolve6) => {
+      timer = setTimeout(resolve6, waitMs2);
     });
     try {
       return await Promise.race([active.promise.then((response) => response, () => void 0), timeoutPromise]);
@@ -24223,7 +24223,7 @@ var AcpClient = class {
     return error51;
   }
   async runConnectionRequest(run) {
-    return await new Promise((resolve5, reject) => {
+    return await new Promise((resolve6, reject) => {
       const pending = {
         settled: false,
         reject
@@ -24235,7 +24235,7 @@ var AcpClient = class {
         cb();
       };
       this.pendingConnectionRequests.add(pending);
-      Promise.resolve().then(run).then((value) => finish(() => resolve5(value)), (error51) => finish(() => reject(error51)));
+      Promise.resolve().then(run).then((value) => finish(() => resolve6(value)), (error51) => finish(() => reject(error51)));
     });
   }
   rejectPendingConnectionRequests(error51) {
@@ -24350,8 +24350,8 @@ var AcpClient = class {
         await this.sessionUpdateChain;
         if (this.processedSessionUpdates === this.observedSessionUpdates) return;
       }
-      await new Promise((resolve5) => {
-        setTimeout(resolve5, DRAIN_POLL_INTERVAL_MS);
+      await new Promise((resolve6) => {
+        setTimeout(resolve6, DRAIN_POLL_INTERVAL_MS);
       });
     }
     throw new Error(`Timed out waiting for session replay drain after ${normalizedTimeoutMs}ms`);
@@ -26111,14 +26111,14 @@ function shouldReuseExistingRecord(record2, params) {
   return true;
 }
 function createDeferred() {
-  let resolve5;
+  let resolve6;
   let reject;
   return {
     promise: new Promise((res, rej) => {
-      resolve5 = res;
+      resolve6 = res;
       reject = rej;
     }),
-    resolve: resolve5,
+    resolve: resolve6,
     reject
   };
 }
@@ -28139,7 +28139,7 @@ var SystemdWorkerSupervisorStrategy = class extends WorkerSupervisorStrategy {
       }
       if (terminalStates.has(run.state)) throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_MISSING", "The run terminated before its worker acknowledged the supervisor scope.");
       if (launchState.exited) throw new AgentOrchestrationError("AO_WORKER_LAUNCH_FAILED", "systemd-run exited before the worker registered.", launchState.exited);
-      await new Promise((resolve5) => setTimeout(resolve5, 25));
+      await new Promise((resolve6) => setTimeout(resolve6, 25));
     }
     throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_TIMEOUT", "Timed out waiting for the worker to register in its named supervisor scope.", { supervisorUnit, launcherPid: child.pid });
   }
@@ -28212,7 +28212,7 @@ var SystemdWorkerSupervisorStrategy = class extends WorkerSupervisorStrategy {
     const deadline = Date.now() + 5e3;
     let run = await store.get(runId);
     while (!run.worker?.supervisorUnit && !terminalStates.has(run.state) && Date.now() < deadline) {
-      await new Promise((resolve5) => setTimeout(resolve5, 25));
+      await new Promise((resolve6) => setTimeout(resolve6, 25));
       run = await store.get(runId);
     }
     if (terminalStates.has(run.state)) return run;
@@ -28350,7 +28350,7 @@ var WindowsJobObjectSupervisorStrategy = class extends WorkerSupervisorStrategy 
       }
       if (terminalStates.has(run.state)) throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_MISSING", "The run terminated before its worker acknowledged the Windows Job Object.");
       if (launchState.exited) throw new AgentOrchestrationError("AO_WORKER_LAUNCH_FAILED", "The Windows Job Object supervisor exited before the worker registered.", launchState.exited);
-      await new Promise((resolve5) => setTimeout(resolve5, 25));
+      await new Promise((resolve6) => setTimeout(resolve6, 25));
     }
     throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_TIMEOUT", "Timed out waiting for the worker to register in its Windows Job Object.", { supervisorUnit, launcherPid: child.pid });
   }
@@ -28410,7 +28410,7 @@ var WindowsJobObjectSupervisorStrategy = class extends WorkerSupervisorStrategy 
     const deadline = Date.now() + 5e3;
     let run = await store.get(runId);
     while (!run.worker?.supervisorUnit && !terminalStates.has(run.state) && Date.now() < deadline) {
-      await new Promise((resolve5) => setTimeout(resolve5, 25));
+      await new Promise((resolve6) => setTimeout(resolve6, 25));
       run = await store.get(runId);
     }
     if (terminalStates.has(run.state)) return run;
@@ -28886,9 +28886,9 @@ async function startSessionHost({ stateRoot: stateRoot2, uiRoot, port: requested
     port,
     hostNonce,
     bind: `${BIND}:${port}`,
-    close: () => new Promise((resolve5, reject) => {
+    close: () => new Promise((resolve6, reject) => {
       server.closeAllConnections?.();
-      server.close((error51) => error51 ? reject(error51) : resolve5());
+      server.close((error51) => error51 ? reject(error51) : resolve6());
     })
   };
 }
@@ -28917,7 +28917,7 @@ async function listenLoopback(preferred) {
   invariant(false, "AO_SESSION_BIND", "No loopback port is available for the session host.", { lastError: lastError?.message });
 }
 function bindPort(port) {
-  return new Promise((resolve5, reject) => {
+  return new Promise((resolve6, reject) => {
     const server = (0, import_node_http.createServer)();
     const onError = (error51) => {
       server.off("listening", onListening);
@@ -28925,7 +28925,7 @@ function bindPort(port) {
     };
     const onListening = () => {
       server.off("error", onError);
-      resolve5(server);
+      resolve6(server);
     };
     server.once("error", onError);
     server.once("listening", onListening);
@@ -28959,6 +28959,127 @@ async function openSessionBrowser(url2) {
   }
 }
 
+// src/session/supervisor.mjs
+var import_promises16 = require("node:fs/promises");
+var import_node_fs6 = require("node:fs");
+var import_node_path20 = require("node:path");
+var import_promises17 = require("node:timers/promises");
+var SESSION_SUPERVISOR_UNIT_PATTERN = /^agent-orchestration-session-[a-f0-9]{12}\.scope$/;
+function sessionSupervisorUnitBase(stateRoot2) {
+  invariant(typeof stateRoot2 === "string" && (0, import_node_path20.isAbsolute)(stateRoot2), "AO_UNSAFE_SUPERVISOR_UNIT", "Session supervisor state root must be an absolute path.");
+  return `agent-orchestration-session-${sha256((0, import_node_path20.resolve)(stateRoot2)).slice(0, 12)}`;
+}
+function sessionSupervisorUnit(stateRoot2) {
+  return `${sessionSupervisorUnitBase(stateRoot2)}.scope`;
+}
+function assertSessionSupervisorUnit(unit) {
+  invariant(SESSION_SUPERVISOR_UNIT_PATTERN.test(unit), "AO_UNSAFE_SUPERVISOR_UNIT", "Refusing to operate on an untrusted session supervisor unit name.");
+}
+function sessionHostCliPath(pluginRoot) {
+  return (0, import_node_path20.join)(pluginRoot, "dist", "cli.cjs");
+}
+function sessionSupervisorEnabled({ platform = process.platform, env = process.env } = {}) {
+  if (env.AGENT_ORCHESTRATION_SESSION_SUPERVISOR === "0") return false;
+  if (env.AGENT_ORCHESTRATION_SESSION_HOST === "1") return false;
+  if (platform === "win32") return false;
+  return true;
+}
+async function shouldSuperviseSessionHost({
+  pluginRoot,
+  cliPath = pluginRoot ? sessionHostCliPath(pluginRoot) : void 0,
+  platform = process.platform,
+  env = process.env
+} = {}) {
+  if (!sessionSupervisorEnabled({ platform, env })) return false;
+  if (typeof cliPath !== "string" || cliPath.length === 0) return false;
+  try {
+    await (0, import_promises16.access)(cliPath, import_node_fs6.constants.F_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function sessionSupervisorArgs({
+  nodePath = process.execPath,
+  cliPath,
+  stateRoot: stateRoot2
+}) {
+  const unitBase = sessionSupervisorUnitBase(stateRoot2);
+  return [
+    "--user",
+    "--scope",
+    "--collect",
+    "--quiet",
+    `--unit=${unitBase}`,
+    "--property=KillMode=control-group",
+    "--property=TimeoutStopSec=3s",
+    "--property=RuntimeMaxSec=24h",
+    "--property=MemoryMax=8G",
+    "--property=TasksMax=512",
+    "/usr/bin/prlimit",
+    "--core=0",
+    "--fsize=1073741824",
+    "--",
+    nodePath,
+    cliPath,
+    "session-host",
+    "--state-root",
+    stateRoot2
+  ];
+}
+async function waitForSessionHostLease(stateRoot2, { timeoutMs = 5e3, intervalMs = 50, probe = probeSessionHost } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const live = await probe(stateRoot2);
+    if (live) return live;
+    await (0, import_promises17.setTimeout)(intervalMs);
+  }
+  return null;
+}
+async function launchSessionSupervisor({
+  pluginRoot,
+  stateRoot: stateRoot2,
+  cliPath = sessionHostCliPath(pluginRoot),
+  nodePath = process.execPath,
+  spawnUserManager = spawnUserManagerFile,
+  openLog = defaultOpenLog
+} = {}) {
+  const unit = sessionSupervisorUnit(stateRoot2);
+  assertSessionSupervisorUnit(unit);
+  const { stdout, stderr } = await openLog(stateRoot2);
+  let child;
+  try {
+    child = await spawnUserManager("/usr/bin/systemd-run", sessionSupervisorArgs({ nodePath, cliPath, stateRoot: stateRoot2 }), {
+      cwd: pluginRoot,
+      env: {
+        ...process.env,
+        AGENT_ORCHESTRATION_STATE_HOME: stateRoot2,
+        AGENT_ORCHESTRATION_SESSION_HOST: "1"
+      },
+      detached: true,
+      stdio: ["ignore", stdout.fd, stderr.fd],
+      shell: false
+    });
+    await new Promise((resolveSpawn, rejectSpawn) => {
+      child.once("spawn", resolveSpawn);
+      child.once("error", rejectSpawn);
+    });
+    child.unref();
+    return { child, unit, supervisorUnit: unit };
+  } finally {
+    await stdout.close?.().catch(() => {
+    });
+    await stderr.close?.().catch(() => {
+    });
+  }
+}
+async function defaultOpenLog(stateRoot2) {
+  const logDir = await ensurePrivateDir((0, import_node_path20.join)(stateRoot2, "logs"));
+  const stdout = await (0, import_promises16.open)((0, import_node_path20.join)(logDir, "session-host.out.log"), "a", 384);
+  const stderr = await (0, import_promises16.open)((0, import_node_path20.join)(logDir, "session-host.err.log"), "a", 384);
+  return { stdout, stderr };
+}
+
 // src/service.mjs
 var WORKER_STATES = /* @__PURE__ */ new Set(["queued", "preparing", "running", "verifying", "cancelling", "cleanup_required"]);
 function normalizeIntentInput(input) {
@@ -28976,10 +29097,10 @@ function normalizeIntentInput(input) {
 }
 async function externalProviderPaths(pluginRoot, discovered, executableRoots = []) {
   const paths = [];
-  const canonicalPluginRoot = await (0, import_promises16.realpath)(pluginRoot).catch(() => (0, import_node_path20.resolve)(pluginRoot));
-  const canonicalRoots = await Promise.all(executableRoots.map((root) => (0, import_promises16.realpath)(root).catch(() => (0, import_node_path20.resolve)(root))));
+  const canonicalPluginRoot = await (0, import_promises18.realpath)(pluginRoot).catch(() => (0, import_node_path21.resolve)(pluginRoot));
+  const canonicalRoots = await Promise.all(executableRoots.map((root) => (0, import_promises18.realpath)(root).catch(() => (0, import_node_path21.resolve)(root))));
   for (const candidate of discovered) {
-    const resolvedCandidate = await (0, import_promises16.realpath)(candidate).catch(() => (0, import_node_path20.resolve)(candidate));
+    const resolvedCandidate = await (0, import_promises18.realpath)(candidate).catch(() => (0, import_node_path21.resolve)(candidate));
     if (isPathWithin(canonicalPluginRoot, resolvedCandidate)) continue;
     if (!canonicalRoots.some((root) => isPathWithin(root, resolvedCandidate))) continue;
     if (!paths.includes(resolvedCandidate)) paths.push(resolvedCandidate);
@@ -28989,7 +29110,7 @@ async function externalProviderPaths(pluginRoot, discovered, executableRoots = [
 async function discoverProviderPaths(pluginRoot, adapter, discovered, resolverRunner = runFile) {
   const candidates = [...discovered];
   for (const resolver of adapter.candidateResolvers ?? []) {
-    invariant((0, import_node_path20.isAbsolute)(resolver.executable), "AO_PROVIDER_RESOLVER_NOT_ABSOLUTE", "Provider candidate resolvers must use an absolute executable path.");
+    invariant((0, import_node_path21.isAbsolute)(resolver.executable), "AO_PROVIDER_RESOLVER_NOT_ABSOLUTE", "Provider candidate resolvers must use an absolute executable path.");
     try {
       const { stdout } = await resolverRunner(resolver.executable, [...resolver.args], { timeoutMs: 5e3 });
       candidates.push(...stdout.split("\n").map((line) => line.trim()).filter(Boolean));
@@ -28999,7 +29120,7 @@ async function discoverProviderPaths(pluginRoot, adapter, discovered, resolverRu
   return externalProviderPaths(pluginRoot, candidates, adapter.executableRoots);
 }
 var OrchestrationService = class {
-  constructor({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot2 = stateRoot(), workerEntrypoint = (0, import_node_path20.join)(pluginRoot, "dist", "cli.cjs"), platformRuntime = createPlatformRuntime({ pluginRoot, stateRoot: stateRoot2 }), maxConcurrentRuns = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_RUNS || 4), maxConcurrentPerProvider = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_PER_PROVIDER || 2), autoRecover = true, recoveryGraceMs = 5e3, sessionUiRoot = (0, import_node_path20.join)(pluginRoot, "dist", "session-ui") } = {}) {
+  constructor({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot2 = stateRoot(), workerEntrypoint = (0, import_node_path21.join)(pluginRoot, "dist", "cli.cjs"), platformRuntime = createPlatformRuntime({ pluginRoot, stateRoot: stateRoot2 }), maxConcurrentRuns = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_RUNS || 4), maxConcurrentPerProvider = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_PER_PROVIDER || 2), autoRecover = true, recoveryGraceMs = 5e3, sessionUiRoot = (0, import_node_path21.join)(pluginRoot, "dist", "session-ui") } = {}) {
     this.pluginRoot = pluginRoot;
     this.stateRoot = stateRoot2;
     this.workerEntrypoint = workerEntrypoint;
@@ -29162,13 +29283,30 @@ var OrchestrationService = class {
       return { run: launchedRun, explanation: prepared.explanation, session };
     });
   }
+  joinSessionHost(live) {
+    this.sessionHost = {
+      port: live.port,
+      hostNonce: live.hostNonce,
+      bind: live.bind,
+      close: async () => {
+      }
+    };
+    return this.sessionHost;
+  }
   async ensureSessionHost() {
     if (this.sessionHost) return this.sessionHost;
     const live = await probeSessionHost(this.stateRoot);
-    if (live) {
-      this.sessionHost = { port: live.port, hostNonce: live.hostNonce, bind: live.bind, close: async () => {
-      } };
-      return this.sessionHost;
+    if (live) return this.joinSessionHost(live);
+    if (await shouldSuperviseSessionHost({ pluginRoot: this.pluginRoot })) {
+      try {
+        await launchSessionSupervisor({
+          pluginRoot: this.pluginRoot,
+          stateRoot: this.stateRoot
+        });
+        const supervised = await waitForSessionHostLease(this.stateRoot);
+        if (supervised) return this.joinSessionHost(supervised);
+      } catch {
+      }
     }
     this.sessionHost = await startSessionHost({
       stateRoot: this.stateRoot,
@@ -29255,7 +29393,7 @@ var OrchestrationService = class {
     while (true) {
       const run = await this.getRun(input);
       if (TERMINAL_STATES.has(run.state) || run.state === "waiting_for_decision" || Date.now() >= deadline) return run;
-      await new Promise((resolve5) => setTimeout(resolve5, Math.min(input.pollIntervalMs ?? 250, 2e3)));
+      await new Promise((resolve6) => setTimeout(resolve6, Math.min(input.pollIntervalMs ?? 250, 2e3)));
     }
   }
   async cancel(input) {
@@ -29268,7 +29406,7 @@ var OrchestrationService = class {
     if (run.worker?.pid && WORKER_STATES.has(run.state)) {
       const cooperativeDeadline = Date.now() + 2e3;
       while (Date.now() < cooperativeDeadline && processGroupExists(run.worker.processGroup)) {
-        await new Promise((resolve5) => setTimeout(resolve5, 100));
+        await new Promise((resolve6) => setTimeout(resolve6, 100));
       }
       const stopped = await this.terminateRecordedProcessGroup(run.worker);
       run = await this.store.get(runId);
@@ -29481,10 +29619,16 @@ async function main() {
     allowPositionals: true
   });
   if (command === "session-host") {
+    process.env.AGENT_ORCHESTRATION_SESSION_HOST = "1";
     const stateRoot2 = validateStateRoot(values["state-root"] || stateRoot(), PLUGIN_ROOT);
+    const service2 = await new OrchestrationService({
+      stateRoot: stateRoot2,
+      autoRecover: false
+    }).initialize();
     const host = await startSessionHost({
       stateRoot: stateRoot2,
-      uiRoot: (0, import_node_path21.join)(PLUGIN_ROOT, "dist", "session-ui")
+      uiRoot: (0, import_node_path22.join)(PLUGIN_ROOT, "dist", "session-ui"),
+      controls: service2.sessionControls()
     });
     host.server.ref();
     process.stderr.write(`Orchestration session host: http://127.0.0.1:${host.port}/

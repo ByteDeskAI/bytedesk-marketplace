@@ -18,10 +18,16 @@ async function main() {
     allowPositionals: true,
   });
   if (command === "session-host") {
+    process.env.AGENT_ORCHESTRATION_SESSION_HOST = "1";
     const stateRoot = validateStateRoot(values["state-root"] || resolveStateRoot(), PLUGIN_ROOT);
+    const service = await new OrchestrationService({
+      stateRoot,
+      autoRecover: false,
+    }).initialize();
     const host = await startSessionHost({
       stateRoot,
       uiRoot: join(PLUGIN_ROOT, "dist", "session-ui"),
+      controls: service.sessionControls(),
     });
     host.server.ref();
     process.stderr.write(`Orchestration session host: http://127.0.0.1:${host.port}/\n`);

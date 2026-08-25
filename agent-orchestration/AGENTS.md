@@ -32,6 +32,12 @@ These names are compatibility contracts:
 Provider IDs are `claude`, `codex`, `grok-build`, and `kimi`. Routing decisions and explanations travel in
 route, plan, spawn, and status results rather than a second provider-specific tool family.
 
+The loopback session host is the operator window for one run. On Linux/WSL it is a
+`systemd-run --user --scope` process per state root (first-wins unit + lease probe) so it outlives the
+MCP process. Native Windows and `AGENT_ORCHESTRATION_SESSION_SUPERVISOR=0` listen in-process. MCP
+`dispose` must not stop a joined supervisor. The session-host CLI is a store-backed control plane with
+`autoRecover: false`.
+
 Every mutating or consumer-grounded tool requires `consumerCwd`, supplied as an explicit absolute
 repository or worktree path. Never infer it from `process.cwd()`, the plugin cache, the MCP host, a
 prior request, or a provider session. Reject missing, relative, nonexistent, or disallowed paths.

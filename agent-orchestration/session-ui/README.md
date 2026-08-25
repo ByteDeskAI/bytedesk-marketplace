@@ -1,11 +1,12 @@
 # Agent Orchestration Session
 
-Per-run operator window. The broker will start a loopback HTTP server when a run is spawned, print
-the URL on the host terminal, and open a browser.
+Per-run operator window. `orchestration_spawn` returns `session.url`. On Linux/WSL the broker launches
+`agent-orchestration session-host` under `systemd-run --user --scope` (one unit per state root) and
+joins a live lease instead of listening in the MCP process. Native Windows stays in-process.
+`AGENT_ORCHESTRATION_SESSION_SUPERVISOR=0` forces in-process.
 
-Phase 1 ships a loopback session host. `orchestration_spawn` returns `session.url`. The CLI
-`agent-orchestration session-host` binds `127.0.0.1` and serves `dist/session-ui/` (copied from
-`session-ui/mockup/` at build time).
+The CLI binds `127.0.0.1` and serves `dist/session-ui/` (copied from `session-ui/mockup/` at build
+time). It is a store-backed control plane so cancel / follow-up / decision still work after MCP exit.
 
 This directory still holds the operator mockup plus:
 

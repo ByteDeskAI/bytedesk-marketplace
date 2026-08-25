@@ -2,6 +2,10 @@
 
 ## 0.2.0 - Unreleased
 
+- Supervise the loopback session host with `systemd-run --user --scope` on Linux/WSL so the operator
+  page outlives the MCP process. Native Windows stays in-process.
+  `AGENT_ORCHESTRATION_SESSION_SUPERVISOR=0` forces in-process. The session-host CLI is a store-backed
+  control plane (`autoRecover: false`) so cancel / follow-up / decision still work after MCP exit.
 - Add a reusable cross-platform runtime built with Abstract Factory, Strategy, Facade, and Adapter
   roles. Linux keeps Bubblewrap/systemd isolation; Windows can use native AppContainer/Job Object
   isolation or a WSL2 adapter that reuses the Linux backend.

@@ -22,10 +22,10 @@ instead of shelling out to `claude`, `codex`, `grok`, or `kimi`.
    for architecture and every other multi-stage protocol so every provider route is visible.
 4. Before each `orchestration_spawn`, state the exact task, expected result, provider, permission profile,
    timeout, session mode, and owned files or read-only boundary. Default to read-only.
-5. After spawn, print `session.url` from the tool result **verbatim** to the operator. Never paste that
-   URL into a provider prompt, sandbox env, or follow-up task text. `xdg-open` may also run on the host
-   when a display is present; the printed URL is the operator path. A human-invoked
-   `agent-orchestration session-host` prints a host bind line, not a capability secret.
+5. After spawn, print `session.url` from the tool result **verbatim** to the operator **before** waiting.
+   Never paste that URL into a provider prompt, sandbox env, or follow-up task text. On Linux/WSL the
+   page outlives this MCP process. `xdg-open` may also run on the host when a display is present. A
+   human-invoked `agent-orchestration session-host` prints a host bind line, not a capability secret.
 6. For parallel work, spawn only disjoint scopes. Record each orchestration and execution ID.
 7. Use `orchestration_events` or `orchestration_status` for progress and `orchestration_wait` for completion. Use `orchestration_send` only when
    the parent was explicitly read-only and persistent and its provider supports session loading;
