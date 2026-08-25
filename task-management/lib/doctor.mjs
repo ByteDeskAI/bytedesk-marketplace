@@ -242,6 +242,7 @@ export function diagnose(p = paths()) {
   for (const [key, name, why] of [
     ["gitignore", ".gitignore", "its cache, session claims and dashboard pid will land in git"],
     ["gitattributes", ".gitattributes", "every branch that adds events will conflict on events.jsonl"],
+    ["bytedeskGitignore", ".bytedesk/.gitignore", "tm worktrees under .bytedesk/worktrees/ will land in git"],
   ]) {
     const missing = missingContractRules(p, key);
     if (!missing.length) continue;

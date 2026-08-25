@@ -23,26 +23,24 @@ the dashboard. This is the path, in order, verified from a clean `HOME` with the
 of the marketplace and nothing symlinked back:
 
 ```bash
-<plugin>/bin/tm install     # puts tm, tm-dashboard and tm-hook on PATH (~/.local/bin)
-cd your-repo && tm init     # creates .bytedesk/task-management/ and its git contract
-tm epic new "First epic"    # a board needs an epic before it takes tasks
-tm task new "first task"
-tm-dashboard                # serves the board; prints the URL it chose
+cd your-repo && node <plugin>/bin/tm init   # store + .bytedesk/bin/tm (and tm.cmd)
+.bytedesk/bin/tm epic new "First epic"      # a board needs an epic before it takes tasks
+.bytedesk/bin/tm task new "first task"
+.bytedesk/bin/tm-dashboard                  # serves the board; prints the URL it chose
 ```
 
-`tm install` comes first for a reason: a Codex `.codex/hooks.json` and any other manifest without
-`${CLAUDE_PLUGIN_ROOT}` substitution can only name a command, so the entrypoints have to resolve by
-name before those manifests mean anything.
+Codex `.codex/hooks.json` should invoke `.bytedesk/bin/tm-hook` (written by `tm init`), not a
+global `tm-hook`. Optional `tm install` still puts names on PATH for humans who want that.
 
 `tm init` records the repo as the board's identity and your git user as its owner, so a clone knows
 which project it belongs to and who set it up.
 
 ### The `tm` command
 
-The first session after install links `tm` and `tm-dashboard` into `~/.local/bin` for you
-(`TM_BIN_DIR` to point elsewhere) and says so once. It only does this when the directory
-exists and nothing else owns the name — if something does, it tells you instead of
-clobbering it. Opt out with `TM_NO_AUTOLINK=1`, or drive it yourself:
+`tm init` writes project-local launchers at `.bytedesk/bin/tm` and `tm.cmd` (plus hook and
+dashboard twins). SessionStart also autolinks onto `~/.local/bin` (Windows:
+`%USERPROFILE%\\.local\\bin`, as `.cmd` wrappers) unless `TM_NO_AUTOLINK=1`. The bin dir
+is created if missing:
 
 ```bash
 ./install.sh              # or: node bin/tm install
@@ -895,10 +893,13 @@ there is no Chrome or no board running, so it never fails for being unrunnable.
   so a worktree keeps its own board.
 - Markdown files are the source of truth. `index.json` is disposable.
 - Commit `.bytedesk/task-management/` — that's the point. One file per entity keeps merges sane.
-- `tm init` writes the store's own `.gitignore` and `.gitattributes`. The markdown,
-  `config.json` and `evidence/` are the shared record and belong in git; `index.json` (a cache),
-  `state.json` (session claims), `events.jsonl` (this host's audit log), `dashboard.*` (a port
-  and a pid) and `.tm-tmp-*` do not. SessionStart after a plugin update tops the contract up
+- `tm init` writes the store's own `.gitignore` and `.gitattributes`, plus
+  `.bytedesk/.gitignore` for worktrees (they live next to the store, so a store-local
+  rule cannot see them). The markdown, `config.json`, `evidence/` and `.bytedesk/bin/`
+  launchers are the shared record and belong in git; `index.json` (a cache),
+  `state.json` (session claims), `events.jsonl` (this host's audit log), `dashboard.pid` /
+  `dashboard.port` / `dashboard.*`, `port.assigned`, `state.lock*` and `.tm-tmp-*` do not.
+  SessionStart after a plugin update tops the contract up
   and `git rm --cached`s any of those files git is still carrying, so an already-tracked
   `events.jsonl` leaves the index on the next session without being deleted from disk.
 - `tm doctor` reports a store with no contract and writes one, and `--fix` untracks a

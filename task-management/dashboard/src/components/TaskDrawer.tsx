@@ -15,7 +15,9 @@ import Tag from "@atlaskit/tag";
 import Textfield from "@atlaskit/textfield";
 import TextArea from "@atlaskit/textarea";
 import Tooltip from "@atlaskit/tooltip";
+import SectionMessage from "@atlaskit/section-message";
 import { attachEvidenceFile, fetchEvidence, fetchPlanFile, fetchTask, stopReason, write } from "../api";
+import { answerOf, attentionOf, decisionRole, hasAnswer, setAnswer } from "../../../lib/decision.mjs";
 import { Markdown } from "./Markdown";
 import { ActorBadge } from "./ActorBadge";
 import { TYPES, typeOf } from "../types";
@@ -373,6 +375,7 @@ export function TaskDrawer({
   epics = [],
   adrs = [],
   sprints = [],
+  labelCatalog = [],
   onClose,
   onOpen,
   run,
@@ -382,6 +385,7 @@ export function TaskDrawer({
   epics?: Epic[];
   adrs?: Adr[];
   sprints?: Sprint[];
+  labelCatalog?: string[];
   onClose: () => void;
   onOpen?: (id: string) => void;
   run: (fn: () => Promise<unknown>) => void;
@@ -483,6 +487,23 @@ export function TaskDrawer({
               {task.epic ? (
                 <Lozenge appearance="new">{task.epic}</Lozenge>
               ) : null}
+              {(() => {
+                const role = decisionRole(task.labels);
+                const attn = attentionOf(role);
+                return (
+                  <>
+                    {role ? (
+                      <Lozenge appearance="inprogress">{role.slice("decision:".length)}</Lozenge>
+                    ) : null}
+                    {attn ? (
+                      <Lozenge appearance={attn === "HITL" ? "moved" : "new"}>{attn}</Lozenge>
+                    ) : null}
+                    {role && !hasAnswer(detail?.body ?? "") && task.status !== "done" ? (
+                      <Lozenge appearance="removed">needs answer</Lozenge>
+                    ) : null}
+                  </>
+                );
+              })()}
               {task.capability ? (
                 onOpen ? (
                   <Pressable xcss={styles.chip} onClick={() => onOpen(task.capability!)}>
@@ -541,6 +562,35 @@ export function TaskDrawer({
                 }}
               />
             </Box>
+
+            {decisionRole(task.labels) ? (
+              <Box xcss={styles.section}>
+                <Stack space="space.100">
+                  <Text weight="bold" size="small" color="color.text.subtlest">
+                    ANSWER
+                  </Text>
+                  {hasAnswer(detail?.body ?? "") ? null : (
+                    <SectionMessage appearance="warning" title="Closing is gated on this">
+                      <Text>
+                        Write the decision under ## Answer. `tm done` and the board both refuse without it.
+                      </Text>
+                    </SectionMessage>
+                  )}
+                  <InlineArea
+                    key={`${task.id}-answer-${detail ? "full" : "pending"}`}
+                    value={answerOf(detail?.body ?? "") ?? ""}
+                    label="Answer"
+                    editLabel={`Edit the answer on ${task.id}`}
+                    placeholder="The recorded decision (markdown)"
+                    onCommit={(next) => {
+                      const body = setAnswer(detail?.body ?? "", next);
+                      run(() => write.edit(task.id, { body }));
+                      setDetail((d) => (d ? { ...d, body } : { ...task, body }));
+                    }}
+                  />
+                </Stack>
+              </Box>
+            ) : null}
 
             {detail?.goalDoc ? (
               <Text
@@ -697,9 +747,21 @@ export function TaskDrawer({
                 ))}
               </Inline>
               <Inline space="space.100" alignBlock="end">
+                <Select
+                  spacing="compact"
+                  placeholder="catalog"
+                  inputId="tm-label-catalog"
+                  options={labelCatalog
+                    .filter((l) => l !== "decision:map" && !(task.labels ?? []).includes(l))
+                    .map((l) => ({ label: l, value: l }))}
+                  value={null}
+                  onChange={(o) => {
+                    if (o?.value) act("labels", { add: [o.value] });
+                  }}
+                />
                 <Textfield
                   isCompact
-                  placeholder="add a label"
+                  placeholder="or type one"
                   value={label}
                   onChange={(e) =>
                     setLabel((e.target as HTMLInputElement).value)

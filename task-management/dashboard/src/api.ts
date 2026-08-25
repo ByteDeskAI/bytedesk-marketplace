@@ -20,6 +20,14 @@ const json = <T>(url: string): Promise<T> =>
 
 export const fetchBoard = () => json<Board>("/api/board");
 
+export const fetchSettings = () =>
+  json<{
+    groups: { id: string; label: string; help?: string }[];
+    fields: Array<Record<string, unknown> & { key: string; group: string; label: string; type: string }>;
+    ntfy?: { token: string | null; active: boolean };
+    autolink?: { dir: string; onPath: boolean; linked: boolean; platform?: string };
+  }>("/api/settings");
+
 export const fetchEvents = () =>
   json<StoreEvent[]>("/api/events").catch((): StoreEvent[] => []);
 
@@ -175,7 +183,7 @@ export const write = {
     send("PATCH", `/api/task/${id}`, payload),
   act: (id: string, action: string, payload: Record<string, unknown> = {}) =>
     send("POST", `/api/task/${id}/${action}`, payload),
-  /** Board preferences, written to the repo's config so they follow the project. */
+  /** Project settings (catalog in lib/settings.mjs), written to config.json. */
   settings: (patch: Record<string, unknown>) =>
     send("POST", "/api/settings", patch),
   bulk: (ids: string[], op: string, args: Record<string, unknown> = {}) =>

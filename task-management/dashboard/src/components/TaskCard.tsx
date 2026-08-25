@@ -12,6 +12,7 @@ import Tooltip from "@atlaskit/tooltip";
 import { claim, cycleTime, elapsed, fmtDuration } from "../../metrics.mjs";
 import { ActorBadge } from "./ActorBadge";
 import type { Task } from "../types";
+import { attentionOf, decisionRole } from "../../../lib/decision.mjs";
 
 const STALE_MS = 90 * 60_000; // the store's default staleMinutes
 const PRIORITY_TONE = {
@@ -350,9 +351,36 @@ export function TaskCard({
                 </Bump>
               </Tooltip>
             ) : null}
-            {(task.labels ?? []).map((l) => (
-              <SimpleTag key={l} text={l} />
-            ))}
+            {(() => {
+              const role = decisionRole(task.labels);
+              const attn = attentionOf(role);
+              return (
+                <>
+                  {role ? (
+                    <Lozenge appearance="inprogress">{role.slice("decision:".length)}</Lozenge>
+                  ) : null}
+                  {attn ? (
+                    <Tooltip content={attn === "HITL" ? "needs a human" : "safe to run AFK"}>
+                      <Lozenge appearance={attn === "HITL" ? "moved" : "new"}>{attn}</Lozenge>
+                    </Tooltip>
+                  ) : null}
+                  {role && !task.hasAnswer && task.status !== "done" ? (
+                    <Lozenge appearance="removed">needs answer</Lozenge>
+                  ) : null}
+                </>
+              );
+            })()}
+            {(task.labels ?? [])
+              .filter((l) => !l.startsWith("decision:"))
+              .map((l) =>
+                ["needs-triage", "needs-info", "ready-for-agent", "ready-for-human", "wontfix"].includes(l) ? (
+                  <Lozenge key={l} appearance="moved">
+                    {l}
+                  </Lozenge>
+                ) : (
+                  <SimpleTag key={l} text={l} />
+                ),
+              )}
             {(task.blockedBy ?? []).length ? (
               <Tooltip
                 content={`waiting on ${(task.blockedBy ?? []).join(", ")} — open the card to change it`}

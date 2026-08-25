@@ -10,8 +10,38 @@
  * stay authoritative no matter whether the CLI, the dashboard or MCP called it.
  */
 import { actor, actorLabel } from "./actor.mjs";
-import { PRIORITIES, RANK_STEP, list, logEvent, mutate, now, read, update } from "./store.mjs";
+import { PRIORITIES, RANK_STEP, config, kindOf, list, logEvent, mutate, now, read, update } from "./store.mjs";
 import { paths } from "./paths.mjs";
+
+/** Decision-map roles. Generic names — not Matt Pocock's `wayfinder:*` strings. */
+export const DECISION_MAP = "decision:map";
+export const DECISION_KIND = [
+  "decision:interview",
+  "decision:research",
+  "decision:prototype",
+  "decision:unblock",
+];
+export const TRIAGE_LABELS = [
+  "needs-triage",
+  "needs-info",
+  "ready-for-agent",
+  "ready-for-human",
+  "wontfix",
+];
+export const LABEL_CATALOG = [DECISION_MAP, ...DECISION_KIND, ...TRIAGE_LABELS];
+
+const EXCLUSIVE = [TRIAGE_LABELS, DECISION_KIND];
+
+/** Catalog plus any extras the repo's config.json listed. Defaults always remain. */
+export function labelCatalog(p = paths()) {
+  const extra = config(p).labels?.catalog;
+  const extras = Array.isArray(extra) ? extra.map((x) => String(x).trim()).filter(Boolean) : [];
+  return [...new Set([...LABEL_CATALOG, ...extras])];
+}
+
+function exclusiveGroup(name) {
+  return EXCLUSIVE.find((g) => g.includes(name)) || null;
+}
 
 /**
  * Jira's ladder, lowercased. Anything else is a typo, not a new priority. Defined in
@@ -55,8 +85,27 @@ export function assign(id, who, p = paths()) {
   return assignee ?? null;
 }
 
-export function labels(id, { add = [], remove = [] } = {}, p = paths()) {
+export function labels(id, { add = [], remove = [], force = false } = {}, p = paths()) {
   must(id, p);
+  const kind = kindOf(id);
+  const catalog = labelCatalog(p);
+  const toAdd = add.map((l) => String(l).trim()).filter(Boolean);
+  const toRemove = remove.map((l) => String(l).trim()).filter(Boolean);
+
+  for (const l of toAdd) {
+    if (l.startsWith("decision:") && !catalog.includes(l) && !force) {
+      throw new Error(
+        `unknown decision label "${l}" — use one of: ${catalog.filter((x) => x.startsWith("decision:")).join(", ")} (or force)`,
+      );
+    }
+    if (l === DECISION_MAP && kind !== "epic") {
+      throw new Error(`${DECISION_MAP} is for epics only`);
+    }
+    if (kind === "epic" && DECISION_KIND.includes(l)) {
+      throw new Error(`${l} is for tasks, not epics`);
+    }
+  }
+
   // Read-append-write, so it goes through mutate: two concurrent label adds that each
   // read the same list would otherwise keep only the second one's label.
   let labelList = [];
@@ -64,8 +113,12 @@ export function labels(id, { add = [], remove = [] } = {}, p = paths()) {
     id,
     (t) => {
       const next = new Set(t.labels || []);
-      for (const l of add) if (String(l).trim()) next.add(String(l).trim());
-      for (const l of remove) next.delete(String(l).trim());
+      for (const l of toRemove) next.delete(l);
+      for (const l of toAdd) {
+        const group = exclusiveGroup(l);
+        if (group) for (const other of group) if (other !== l) next.delete(other);
+        next.add(l);
+      }
       labelList = [...next];
       return { labels: labelList.length ? labelList : undefined };
     },

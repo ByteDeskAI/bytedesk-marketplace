@@ -62,8 +62,8 @@ export function options(
   ].sort();
 }
 
-export const labelOptions = (tasks: Task[]) =>
-  [...new Set(tasks.flatMap((t) => t.labels ?? []))].sort();
+export const labelOptions = (tasks: Task[], catalog: string[] = []) =>
+  [...new Set([...catalog.filter((c) => c !== "decision:map"), ...tasks.flatMap((t) => t.labels ?? [])])].sort();
 
 // ── saved views ──────────────────────────────────────────────────────────────
 // The note that used to sit here said "localStorage, per browser — move to the store only if views

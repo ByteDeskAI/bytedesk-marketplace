@@ -8,7 +8,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { LIVE_WINDOW_MS, lastWriteByEntity } from "../../dashboard/src/motion.ts";
+import { LIVE_WINDOW_MS, lastWriteByEntity } from "../../dashboard/src/liveness.mjs";
 
 const at = (msAgo, id, event = "update") => ({ ts: new Date(Date.now() - msAgo).toISOString(), id, event });
 const live = (events, now = Date.now()) =>

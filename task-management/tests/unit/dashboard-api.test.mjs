@@ -450,7 +450,7 @@ describe("templates", () => {
     const res = handleWrite("GET", "/api/templates", null, { p });
     assert.equal(res.status, 200);
     const names = res.body.map((t) => t.name);
-    assert.deepEqual(names, ["bug", "chore", "spike"]);
+    assert.deepEqual(names, ["bug", "chore", "interview", "prototype", "research", "spike", "unblock"]);
     for (const t of res.body) {
       assert.equal(typeof t.description, "string");
       assert.ok(t.description.length, `${t.name} should carry a description`);

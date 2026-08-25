@@ -174,6 +174,9 @@ export function paths(root = resolveRoot()) {
     config: join(base, "config.json"),
     gitignore: join(base, ".gitignore"),
     gitattributes: join(base, ".gitattributes"),
+    // Sibling of the store. Worktrees live here, not under task-management/, so the
+    // store's own .gitignore cannot keep them out of git.
+    bytedeskGitignore: join(root, ".bytedesk", ".gitignore"),
   };
 }
 

@@ -62,6 +62,40 @@ describe("labels", () => {
     labels(t.id, { remove: ["urgent"] }, p);
     assert.deepEqual(read(t.id, p).labels, ["backend"]);
   });
+
+  it("exclusive triage roles replace each other", () => {
+    const p = store();
+    const t = task(p);
+    labels(t.id, { add: ["needs-triage"] }, p);
+    labels(t.id, { add: ["ready-for-agent"] }, p);
+    assert.deepEqual(read(t.id, p).labels, ["ready-for-agent"]);
+  });
+
+  it("exclusive decision roles replace each other", () => {
+    const p = store();
+    const t = task(p);
+    labels(t.id, { add: ["decision:interview"] }, p);
+    labels(t.id, { add: ["decision:research"] }, p);
+    assert.deepEqual(read(t.id, p).labels, ["decision:research"]);
+  });
+
+  it("refuses unknown decision:* unless force", () => {
+    const p = store();
+    const t = task(p);
+    assert.throws(() => labels(t.id, { add: ["decision:grilling"] }, p), /unknown decision label/);
+    labels(t.id, { add: ["decision:grilling"], force: true }, p);
+    assert.deepEqual(read(t.id, p).labels, ["decision:grilling"]);
+  });
+
+  it("decision:map is epic-only", () => {
+    const p = store();
+    const t = task(p);
+    assert.throws(() => labels(t.id, { add: ["decision:map"] }, p), /epics only/);
+    const e = create("epic", { title: "a map" }, "", p);
+    labels(e.id, { add: ["decision:map"] }, p);
+    assert.deepEqual(read(e.id, p).labels, ["decision:map"]);
+    assert.throws(() => labels(e.id, { add: ["decision:interview"] }, p), /not epics/);
+  });
 });
 
 describe("priority and estimate", () => {

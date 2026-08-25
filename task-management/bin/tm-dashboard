@@ -25,6 +25,8 @@ import { ensureDirs, paths } from "../lib/paths.mjs";
 import { reindex } from "../lib/store.mjs";
 import { assignPort, ensurePort, liveInstance, release, takeover, writeInstance } from "../lib/singleton.mjs";
 import { boardPayload, handleWrite } from "../lib/dashboard-api.mjs";
+import { launchBrowserEnabled } from "../lib/settings.mjs";
+import { openUrl } from "../lib/open-url.mjs";
 import { CATALOG } from "../lib/ntfy.mjs";
 import { collapseLog } from "../lib/render.mjs";
 import { workStream } from "../lib/transcript.mjs";
@@ -162,7 +164,9 @@ const evicted = args.has("--restart") ? takeover(P) : null;
 if (!args.has("--restart")) {
   const live = liveInstance(P);
   if (live) {
-    process.stdout.write(`task-management board already running: ${url(live.port)}  (pid ${live.pid})\n`);
+    const u = url(live.port);
+    process.stdout.write(`task-management board already running: ${u}  (pid ${live.pid})\n`);
+    if (launchBrowserEnabled(P, process.env, process.argv)) openUrl(u);
     process.exit(0);
   }
   release(P); // stale pid file — take it over
@@ -256,6 +260,10 @@ const server = createServer((req, res) => {
 
   if (req.url === "/api/backlog") {
     const result = handleWrite("GET", "/api/backlog", null, { p: P });
+    return json(res, result.status, result.body);
+  }
+  if (req.method === "GET" && (req.url || "").split("?")[0] === "/api/settings") {
+    const result = handleWrite("GET", "/api/settings", null, { p: P });
     return json(res, result.status, result.body);
   }
 
@@ -458,7 +466,9 @@ function listen(port, { waits = 0, moves = 0 } = {}) {
     // Someone else claimed the store while we were starting — they win.
     const live = liveInstance(P);
     if (live) {
-      process.stdout.write(`task-management board already running: ${url(live.port)}  (pid ${live.pid})\n`);
+      const u = url(live.port);
+      process.stdout.write(`task-management board already running: ${u}  (pid ${live.pid})\n`);
+      if (launchBrowserEnabled(P, process.env, process.argv)) openUrl(u);
       process.exit(0);
     }
     if (moves < 20) {
@@ -473,7 +483,9 @@ function listen(port, { waits = 0, moves = 0 } = {}) {
   });
   server.listen(port, "127.0.0.1", () => {
     writeInstance(P, { pid: process.pid, port });
-    process.stdout.write(`task-management board: ${url(port)}  (${P.root})\n`);
+    const u = url(port);
+    process.stdout.write(`task-management board: ${u}  (${P.root})\n`);
+    if (launchBrowserEnabled(P, process.env, process.argv)) openUrl(u);
   });
 }
 listen(assignment.port);

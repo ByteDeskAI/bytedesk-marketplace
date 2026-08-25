@@ -61,6 +61,71 @@ branch, or a written "no, because".
 ## Findings
 `,
   ],
+  interview: [
+    {
+      description: "HITL interview that records a decision on the task",
+      acceptance: ["the answer is written on this task under ## Answer"],
+      type: "spike",
+      labels: ["decision:interview"],
+    },
+    `## Question
+
+The decision this interview settles.
+
+## Answer
+
+`,
+  ],
+  research: [
+    {
+      description: "AFK research whose findings are attached as evidence",
+      acceptance: [
+        "the question is answered in writing",
+        "findings are attached as evidence under .bytedesk/task-management/research/",
+      ],
+      type: "spike",
+      labels: ["decision:research"],
+    },
+    `## Question
+
+The fact this research must surface.
+
+## Answer
+
+`,
+  ],
+  prototype: [
+    {
+      description: "HITL prototype; a human chooses the variant",
+      acceptance: ["a human chose a variant and the pointer is stored as evidence"],
+      type: "spike",
+      labels: ["decision:prototype"],
+    },
+    `## Question
+
+What should this look like, or how should it behave?
+
+The agent must not pick the variant. Record the human's choice and the throwaway path under ## Answer.
+
+## Answer
+
+`,
+  ],
+  unblock: [
+    {
+      description: "manual work that unblocks a decision, not a slice of the build",
+      acceptance: ["the blocking work is done and any resulting facts are recorded under ## Answer"],
+      type: "chore",
+      labels: ["decision:unblock"],
+    },
+    `## Question
+
+What must happen before a decision can be made (access, signup, data move).
+
+## Answer
+
+`,
+  ],
   chore: [
     {
       description: "maintenance with no user-visible behaviour change",

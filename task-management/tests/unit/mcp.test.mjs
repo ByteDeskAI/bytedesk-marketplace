@@ -117,6 +117,35 @@ test("a full round trip: epic → task → acceptance → done → board", () =>
   assert.match(call("tm_board", {}, p).board, /1\/1 done/);
 });
 
+test("tm_label catalog, exclusive roles, and create-time labels", () => {
+  const p = tempStore();
+  const catalog = call("tm_label", {}, p);
+  assert.equal(catalog.ok, true);
+  assert.ok(catalog.catalog.includes("decision:interview"));
+  assert.ok(catalog.catalog.includes("ready-for-agent"));
+
+  call("tm_epic", { action: "new", title: "Map" }, p);
+  const created = call("tm_task_create", { title: "Decide the store", labels: ["decision:interview"] }, p);
+  assert.deepEqual(created.labels, ["decision:interview"]);
+
+  call("tm_label", { id: created.id, add: ["ready-for-agent"] }, p);
+  const after = call("tm_label", { id: created.id, add: ["needs-triage"] }, p);
+  assert.ok(after.labels.includes("needs-triage"));
+  assert.equal(after.labels.includes("ready-for-agent"), false, "triage roles are exclusive");
+
+  const bad = call("tm_label", { id: created.id, add: ["decision:grilling"] }, p);
+  assert.equal(bad.ok, false);
+  assert.match(bad.error, /unknown decision label/);
+
+  const mapOnTask = call("tm_label", { id: created.id, add: ["decision:map"] }, p);
+  assert.equal(mapOnTask.ok, false);
+  assert.match(mapOnTask.error, /epics only/);
+
+  const onEpic = call("tm_label", { id: "EP-001", add: ["decision:map"] }, p);
+  assert.equal(onEpic.ok, true);
+  assert.deepEqual(onEpic.labels, ["decision:map"]);
+});
+
 test("tm_epic use refuses a done epic, same words as the dashboard 409", () => {
   const p = tempStore();
   const e = create("epic", { title: "shipped" }, "", p);

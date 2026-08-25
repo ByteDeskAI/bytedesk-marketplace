@@ -23,6 +23,7 @@ import { listResources, readResource } from "./resources.mjs";
 import { describeQuery, matchesQuery, parseQuery } from "./query.mjs";
 import { accept, drop, propose, ranked, score, ship } from "./capability.mjs";
 import { attachEvidence } from "./evidence.mjs";
+import { labelCatalog, labels as setLabels } from "./issue.mjs";
 
 /**
  * MCP `serverInfo.version` must be a non-empty string on the wire.
@@ -238,10 +239,15 @@ export const TOOLS = [
           items: { type: "string" },
           description: "Acceptance criteria. Closing the task is gated on ticking these, so write them now.",
         },
+        labels: {
+          type: "array",
+          items: { type: "string" },
+          description: "Labels to apply at create. Decision roles (decision:interview|research|prototype|unblock) are exclusive; triage roles too.",
+        },
       },
       required: ["title"],
     },
-    run: ({ title, body = "", acceptance = [] }, p) => {
+    run: ({ title, body = "", acceptance = [], labels: tagList = [] }, p) => {
       const gate = gateTaskCreate(p);
       if (!gate.allow) return fail(gate.reason);
       const t = create(
@@ -256,7 +262,8 @@ export const TOOLS = [
         body,
         p,
       );
-      return ok({ id: t.id, title, epic: t.epic, file: t.file });
+      if (tagList.length) setLabels(t.id, { add: tagList }, p);
+      return ok({ id: t.id, title, epic: t.epic, file: t.file, labels: read(t.id, p).labels || [] });
     },
   },
   {
@@ -672,6 +679,29 @@ export const TOOLS = [
       if (!claimed.ok) return fail(claimed.reason);
       update(id, { status: "in_progress", session: session() || undefined }, p);
       return ok({ id, status: "in_progress", session: session(), ...(claimed.stolenFrom ? { stolenFrom: claimed.stolenFrom } : {}) });
+    },
+  },
+  {
+    name: "tm_label",
+    description:
+      "Add or remove labels on an epic or task. Omit add/remove to read the current labels and the catalog. Decision roles (decision:interview|research|prototype|unblock) and triage roles (needs-triage|needs-info|ready-for-agent|ready-for-human|wontfix) are exclusive within their group. decision:map is epic-only. Unknown decision:* labels are refused unless force is set.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: str("Entity id. Omit to just list the catalog."),
+        add: { type: "array", items: { type: "string" }, description: "Labels to add." },
+        remove: { type: "array", items: { type: "string" }, description: "Labels to remove." },
+        force: { type: "boolean", description: "Allow an unknown decision:* label." },
+      },
+    },
+    run: ({ id, add, remove, force }, p) => {
+      const catalog = labelCatalog(p);
+      if (!id) return ok({ catalog });
+      if (!read(id, p)) return fail(`not found: ${id}`);
+      if (!(add && add.length) && !(remove && remove.length)) {
+        return ok({ id, labels: read(id, p).labels || [], catalog });
+      }
+      return ok({ id, labels: setLabels(id, { add: add || [], remove: remove || [], force: Boolean(force) }, p), catalog });
     },
   },
 ];

@@ -8,7 +8,7 @@
  * YAML lib behind parseDoc/serializeDoc.
  */
 import { execFileSync } from "node:child_process";
-import { appendFileSync, closeSync, statSync, existsSync, openSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
+import { appendFileSync, closeSync, statSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { KINDS, boardId, gitBoardId, gitUser, ensureDirs, paths } from "./paths.mjs";
 import { actor, actorLabel, sessionId } from "./actor.mjs";
@@ -25,7 +25,24 @@ const DEFAULT_CONFIG = {
   autoCloseEpics: true,
   eventMaxBytes: 5_000_000,
   claimTtlMinutes: 240,
+  parkOnSessionEnd: true,
+  trackTouches: true,
+  plugin: { autolink: true },
+  board: {
+    launchBrowser: false,
+    grouped: false,
+    views: {
+      Interview: { label: "decision:interview" },
+      Research: { label: "decision:research" },
+      Prototype: { label: "decision:prototype" },
+      "Needs triage": { label: "needs-triage" },
+      "Needs info": { label: "needs-info" },
+      "Ready for agent": { label: "ready-for-agent" },
+    },
+  },
 };
+
+const NESTED_CONFIG = ["board", "ntfy", "plugin", "labels"];
 
 export const now = () => new Date().toISOString();
 
@@ -334,11 +351,22 @@ function sleep(ms) {
 }
 
 export function config(p = paths()) {
-  return { ...DEFAULT_CONFIG, ...readJson(p.config, {}) };
+  const stored = readJson(p.config, {});
+  const next = { ...DEFAULT_CONFIG, ...stored };
+  for (const k of NESTED_CONFIG) {
+    next[k] = { ...(DEFAULT_CONFIG[k] || {}), ...(stored[k] || {}) };
+  }
+  return next;
 }
 
 export function writeConfig(patch, p = paths()) {
-  const next = { ...config(p), ...patch };
+  const cur = config(p);
+  const next = { ...cur, ...patch };
+  for (const k of NESTED_CONFIG) {
+    if (patch[k] && typeof patch[k] === "object" && !Array.isArray(patch[k])) {
+      next[k] = { ...(cur[k] || {}), ...patch[k] };
+    }
+  }
   writeAtomic(p.config, `${JSON.stringify(next, null, 2)}\n`);
   return next;
 }
@@ -892,8 +920,12 @@ state.json
 events.jsonl
 events.*.jsonl
 
-# A port and a pid for a dashboard running here, now.
+# A port and a pid for a dashboard running here, now. Named twice: the glob covers
+# dashboard.assigned-port (pre-0.5 leftover) and anything else this process writes
+# under that prefix; the two exact names are what people look for in git status.
 dashboard.*
+dashboard.pid
+dashboard.port
 
 # The standing port assignment. Per-machine like the above, but kept out of the dashboard.*
 # glob so tidying the pid file cannot move the board's URL.
@@ -917,7 +949,25 @@ const GITATTRIBUTES = `# Written by \`tm init\`.
 events.jsonl merge=union
 `;
 
-const CONTRACT = { gitignore: GITIGNORE, gitattributes: GITATTRIBUTES };
+/**
+ * Lives at <repo>/.bytedesk/.gitignore, not in the store. Worktrees are checkouts of the
+ * project, not board markdown, and they sit next to the store — a rule inside
+ * task-management/ never matches them. No trailing slash: a symlink named worktrees
+ * would otherwise slip through the same way dashboard/node_modules once did.
+ *
+ * `.bytedesk/bin/` is *not* listed. Those launchers are generated but portable and
+ * belong in git so a clone can run `tm` without a global install.
+ */
+const BYTEDESS_GITIGNORE = `# Written by \`tm init\`. Worktrees are local checkouts, not shared board state.
+# The store at task-management/ carries its own .gitignore for pid/port/cache.
+worktrees
+`;
+
+const CONTRACT = {
+  gitignore: GITIGNORE,
+  gitattributes: GITATTRIBUTES,
+  bytedeskGitignore: BYTEDESS_GITIGNORE,
+};
 
 /** The rules a contract file carries: the template's lines, minus comments and blanks. */
 const rulesOf = (body) =>
@@ -940,7 +990,7 @@ const rulesOf = (body) =>
  */
 export function missingContractRules(p = paths(), key) {
   const body = CONTRACT[key];
-  if (!body) return [];
+  if (!body || !p[key]) return [];
   if (!existsSync(p[key])) return rulesOf(body);
   const have = new Set(
     readFileSync(p[key], "utf8")
@@ -962,9 +1012,11 @@ export function seedGitContract(p = paths(), only = null) {
   const written = [];
   for (const [key, body] of Object.entries(CONTRACT)) {
     if (only && only !== key) continue;
+    if (!p[key]) continue;
     if (!existsSync(p[key])) {
+      mkdirSync(dirname(p[key]), { recursive: true });
       writeAtomic(p[key], body);
-      written.push(basename(p[key]));
+      written.push(key === "bytedeskGitignore" ? ".bytedesk/.gitignore" : basename(p[key]));
       continue;
     }
     const missing = missingContractRules(p, key);
@@ -974,7 +1026,7 @@ export function seedGitContract(p = paths(), only = null) {
       p[key],
       `${current.endsWith("\n") ? current : `${current}\n`}\n# Added by \`tm doctor --fix\` — rules this store predates.\n${missing.join("\n")}\n`,
     );
-    written.push(basename(p[key]));
+    written.push(key === "bytedeskGitignore" ? ".bytedesk/.gitignore" : basename(p[key]));
   }
   return written;
 }
@@ -990,6 +1042,8 @@ export const NOT_FOR_GIT = [
   "events.jsonl",
   "events.*.jsonl",
   "dashboard.*",
+  "dashboard.pid",
+  "dashboard.port",
   "port.assigned",
   ".tm-tmp-*",
   "state.lock",

@@ -142,7 +142,7 @@ describe("the templates", () => {
   it("gives every shipped template a type in the vocabulary", () => {
     const p = store();
     seedTemplates(p);
-    for (const name of ["bug", "spike", "chore"]) {
+    for (const name of ["bug", "spike", "chore", "interview", "research", "prototype", "unblock"]) {
       const t = applyTemplate(name, { title: "x" }, p).fields.type;
       assert.ok(TYPES.includes(t), `${name} template has type ${t}`);
     }

@@ -32,6 +32,8 @@ export interface Task {
   // TM-028 (lib/issue.mjs). All optional — a task with none of them set is unchanged.
   assignee?: string;
   labels?: string[];
+  /** Derived on the board payload — true when the task body has a non-empty ## Answer. */
+  hasAnswer?: boolean;
   priority?: Priority;
   estimate?: number;
   comments?: Comment[];
@@ -112,6 +114,7 @@ export interface Epic {
   closed?: string;
   /** Linked plan path, when this epic was captured from one. */
   plan?: string;
+  labels?: string[];
   /** Only present on a detail fetch — the list payload strips it. */
   body?: string;
 }
@@ -230,6 +233,8 @@ export interface Board {
   actor?: string;
   /** The project this board belongs to, in title case, from the repo's directory name. */
   project?: string;
+  /** Canonical + configured label vocabulary (decision:* and triage roles). */
+  labelCatalog?: string[];
 }
 
 export interface StoreEvent {

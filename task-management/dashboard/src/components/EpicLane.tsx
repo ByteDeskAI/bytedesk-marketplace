@@ -57,6 +57,7 @@ export interface Lane {
   active: boolean;
   /** Repo-relative path when this epic has a linked plan. */
   plan?: string;
+  labels?: string[];
 }
 
 function newestAdr<T extends { id: string; created?: string }>(adrs: T[]): T | undefined {
@@ -79,6 +80,7 @@ export function EpicLane({
   caps = [],
   collapsed = false,
   onToggle,
+  fog = 0,
 }: {
   lane: Lane;
   done: number;
@@ -94,7 +96,10 @@ export function EpicLane({
   /** Folded lanes keep their header — the progress bar is the reason to fold, not lose. */
   collapsed?: boolean;
   onToggle?: () => void;
+  /** Open decision:* children remaining on a map epic. */
+  fog?: number;
 }) {
+  const isMap = (lane.labels ?? []).includes("decision:map");
   return (
     <Box xcss={styles.header}>
       <Box xcss={lane.active ? styles.active : undefined}>
@@ -150,6 +155,12 @@ export function EpicLane({
             <Badge appearance={total && done === total ? "added" : "default"}>{`${done}/${total}`}</Badge>
           </Bump>
 
+          {isMap ? <Lozenge appearance="inprogress">map</Lozenge> : null}
+          {isMap && fog > 0 ? (
+            <Tooltip content="open decision tickets still in fog">
+              <Lozenge appearance="moved">{`fog ${fog}`}</Lozenge>
+            </Tooltip>
+          ) : null}
           {lane.plan ? (
             <Tooltip content={lane.plan}>
               <Lozenge appearance="new">plan</Lozenge>

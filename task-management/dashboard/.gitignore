@@ -7,6 +7,8 @@
 # the whole thing still exited 0. The dist/ bundle simply stopped changing while every source edit
 # looked applied.
 node_modules
+.vite
+*.tsbuildinfo
 *.local
 
 # The marketplace root ignores *.png, but dist/ is committed on purpose so that

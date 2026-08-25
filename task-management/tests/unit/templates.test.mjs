@@ -25,11 +25,12 @@ function writeTemplate(p, name, text) {
 }
 
 describe("seedTemplates", () => {
-  it("writes the three starters on a fresh store", () => {
+  it("writes the starters on a fresh store", () => {
     const p = store();
     const created = seedTemplates(p);
-    assert.deepEqual(created.sort(), ["bug", "chore", "spike"], "all three starters must land");
-    assert.deepEqual(listTemplates(p).map((t) => t.name).sort(), ["bug", "chore", "spike"]);
+    const expected = ["bug", "chore", "interview", "prototype", "research", "spike", "unblock"];
+    assert.deepEqual(created.sort(), expected, "all starters must land");
+    assert.deepEqual(listTemplates(p).map((t) => t.name).sort(), expected);
   });
 
   it("is idempotent — a second seed creates nothing", () => {

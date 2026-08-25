@@ -25,7 +25,9 @@
  */
 import { basename } from "node:path";
 import { gateDone, gateTaskCreate } from "./enforce.mjs";
-import { addComment, addLink, assign, backlog, dependencies, estimate, labels, prioritise, rank, removeLink, setType, subtasks } from "./issue.mjs";
+import { addComment, addLink, assign, backlog, dependencies, estimate, labelCatalog, labels, prioritise, rank, removeLink, setType, subtasks } from "./issue.mjs";
+import { hasAnswer } from "./decision.mjs";
+import { applySettings, settingsSnapshot } from "./settings.mjs";
 import { createWorktree, listWorktrees, removeWorktree } from "./worktree.mjs";
 import { execFileSync } from "node:child_process";
 import { currentCheckout, paths, projectName } from "./paths.mjs";
@@ -37,7 +39,6 @@ import {
   autoCloseEpic,
   config,
   create,
-  writeConfig,
   editTask,
   kindOf,
   now,
@@ -134,6 +135,7 @@ export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
   if (method === "POST" && url === "/api/adr") return createAdr(payload, p);
   if (method === "POST" && url === "/api/sprint") return postSprint(payload, p);
   if (method === "POST" && url === "/api/capability") return createCapability(payload, p);
+  if (method === "GET" && url === "/api/settings") return ok(settingsSnapshot(p));
   if (method === "POST" && url === "/api/settings") return saveSettings(payload, p);
 
   // The detail read. boardPayload strips `body` from the list on purpose — a 20-task board must
@@ -452,42 +454,17 @@ function writeEvidence(task, payload, p) {
  */
 
 /**
- * Which preferences a browser may write.
- *
- * The rest of the config holds the gates — `enforce`, `wipLimit`, `requireAcceptance` — and a
- * browser tab is not the place to switch off rules the CLI and the hooks are enforcing. `tm config`
- * still owns those, deliberately.
- */
-const BOARD_SETTINGS = new Set(["categories", "me", "watching", "grouped", "views"]);
-
-/**
- * Board preferences, written where the tasks are.
- *
- * These lived in `localStorage`, which is why notifications had to be re-enabled in every browser
- * and on every machine: the preference was never about the browser, it was about this project. The
- * store already had a per-repo config file with a reader and an atomic writer, so this is a route
- * onto something that existed rather than a new mechanism.
- *
- * Only keys under `board` are writable from here. The rest of the config holds the gates —
- * `enforce`, `wipLimit`, `requireAcceptance` — and a browser tab is not the place to switch off the
- * rules the CLI and the hooks are enforcing; `tm config` still owns those deliberately.
+ * Project settings. The catalog in settings.mjs is the allowlist — identity and
+ * unknown keys are refused, policy keys are writable because they already are via
+ * `tm config` and they are project-scoped.
  */
 function saveSettings(patch, p) {
-  if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
-    return fail(400, "settings must be an object");
+  try {
+    const res = applySettings(patch, p);
+    return ok({ board: config(p).board, ...res });
+  } catch (err) {
+    return fail(err.status || 400, err.message);
   }
-  // An allowlist, not just a namespace. Nesting under `board` already keeps the gates out of reach,
-  // but without this any key a page invented would accumulate in the repo's config forever — and a
-  // config file is read by people, so junk in it is a cost paid by whoever opens it next.
-  const known = Object.fromEntries(Object.entries(patch).filter(([k]) => BOARD_SETTINGS.has(k)));
-  const rejected = Object.keys(patch).filter((k) => !BOARD_SETTINGS.has(k));
-  if (!Object.keys(known).length) {
-    return fail(400, `no writable setting in: ${Object.keys(patch).join(", ") || "(empty)"}`);
-  }
-  const board = { ...(config(p).board || {}), ...known };
-  writeConfig({ board }, p);
-  logEvent("settings", { keys: Object.keys(known).join(",") }, p);
-  return ok({ board, ...(rejected.length ? { ignored: rejected } : {}) });
 }
 
 /**
@@ -825,7 +802,10 @@ export function boardPayload(p = paths()) {
   const mine = (e) => !board || !e.board || e.board === board;
   return {
     epics: list("epic", {}, p).filter(mine).map(({ body, file, ...e }) => e),
-    tasks: list("task", {}, p).filter(mine).map(({ body, file, ...t }) => t),
+    tasks: list("task", {}, p).filter(mine).map(({ body, file, ...t }) => ({
+      ...t,
+      hasAnswer: hasAnswer(body),
+    })),
     // Empty `adrs/` is first-class: the list is `[]`, not omitted. Body stays on GET /api/adr/:id.
     adrs: list("adr", {}, p).filter(mine).map(({ body, file, ...a }) => a),
     // Empty `sprints/` is first-class: `[]`, not omitted. Report numbers come from
@@ -852,6 +832,8 @@ export function boardPayload(p = paths()) {
     // Which project this board is for. Every board called itself "task-management" — the plugin's
     // name, identical on all of them — so two open boards were indistinguishable.
     project: projectName(p),
+    // Canonical + configured label vocabulary, so the picker can offer roles that no card wears yet.
+    labelCatalog: labelCatalog(p),
   };
 }
 

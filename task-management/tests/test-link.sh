@@ -13,6 +13,7 @@ export TM_ROOT TM_BIN_DIR
 export CLAUDE_CODE_SESSION_ID="test-session"
 export PATH="$TM_BIN_DIR:$PATH"
 unset TM_NO_AUTOLINK
+unset TM_AUTOLINK
 trap 'rm -rf "$TM_ROOT" "$TM_BIN_DIR"' EXIT
 
 tm() { node "$PLUGIN_ROOT/bin/tm" "$@"; }
@@ -26,11 +27,11 @@ empty() { [[ -z "$1" ]] && ok "$2" || no "$2" "expected no output, got: ${1:0:20
 
 echo "test-link"
 
-# Autolink on SessionStart, before any store exists.
+# Autolink is on by default.
 OUT="$(hook session-start)"
-has "$OUT" "linked" "session-start links tm on first run"
-[[ -L "$TM_BIN_DIR/tm" && -x "$TM_BIN_DIR/tm" ]] && ok "tm symlink is created and executable" || no "tm symlink is created and executable"
-[[ -L "$TM_BIN_DIR/tm-dashboard" ]] && ok "tm-dashboard symlink is created" || no "tm-dashboard symlink is created"
+has "$OUT" "linked" "session-start links tm by default"
+[[ -e "$TM_BIN_DIR/tm" ]] && ok "tm is linked by default" || no "tm is linked by default"
+[[ -e "$TM_BIN_DIR/tm-dashboard" ]] && ok "tm-dashboard is linked by default" || no "tm-dashboard is linked by default"
 has "$("$TM_BIN_DIR/tm" help)" "task-management store" "the linked binary runs"
 
 # Idempotent: no second announcement, no churn.
@@ -38,14 +39,15 @@ empty "$(hook session-start)" "session-start is silent once linked"
 has "$(tm install)" "already linked" "link is idempotent"
 
 # Opt out.
-rm -f "$TM_BIN_DIR/tm" "$TM_BIN_DIR/tm-dashboard"
+rm -f "$TM_BIN_DIR/tm" "$TM_BIN_DIR/tm-dashboard" "$TM_BIN_DIR/tm-hook"
 empty "$(TM_NO_AUTOLINK=1 hook session-start)" "TM_NO_AUTOLINK suppresses autolink"
 [[ ! -e "$TM_BIN_DIR/tm" ]] && ok "TM_NO_AUTOLINK creates nothing" || no "TM_NO_AUTOLINK creates nothing"
+empty "$(TM_AUTOLINK=0 hook session-start)" "TM_AUTOLINK=0 suppresses autolink"
 
 # Someone else owns the name → suggest, never clobber.
 echo '#!/bin/sh' > "$TM_BIN_DIR/tm"
 chmod +x "$TM_BIN_DIR/tm"
-has "$(hook session-start)" "already owns" "a foreign tm is reported, not overwritten"
+has "$(TM_AUTOLINK=1 hook session-start)" "already owns" "a foreign tm is reported, not overwritten"
 has "$(cat "$TM_BIN_DIR/tm")" "#!/bin/sh" "the foreign tm is left intact"
 tm install >/dev/null 2>&1 && no "link refuses to clobber without --force" || ok "link refuses to clobber without --force"
 tm install --force >/dev/null && ok "link --force takes the name" || no "link --force takes the name"
@@ -57,7 +59,7 @@ has "$(tm uninstall)" "$TM_BIN_DIR/tm" "unlink removes our symlinks"
 
 # Broken symlink from a moved checkout heals instead of erroring.
 ln -s /nonexistent/tm "$TM_BIN_DIR/tm"
-has "$(hook session-start)" "linked" "a broken symlink is replaced"
+has "$(TM_AUTOLINK=1 hook session-start)" "linked" "a broken symlink is replaced"
 [[ "$(readlink "$TM_BIN_DIR/tm")" == "$PLUGIN_ROOT/bin/tm" ]] && ok "symlink points at this checkout" || no "symlink points at this checkout"
 
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"

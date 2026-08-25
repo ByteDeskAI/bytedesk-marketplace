@@ -445,12 +445,66 @@ describe("evidence, natives and the cache", () => {
       "events.jsonl",
       "events.*.jsonl",
       "dashboard.*",
+      "dashboard.pid",
+      "dashboard.port",
       "port.assigned",
       ".tm-tmp-*",
       "state.lock",
       "state.lock.break",
     ]) {
       assert.match(rules, new RegExp(`^${drop.replace(/[.*]/g, (c) => `\\${c}`)}$`, "m"), `${drop} is per-machine`);
+    }
+  });
+
+  it("gitignores generated runtime files and keeps the board and launchers committable", () => {
+    const repo = tempRepo();
+    stores.push(repo);
+    const p = paths(repo);
+    ensureDirs(p);
+    seedGitContract(p);
+    writeFileSync(join(p.base, "dashboard.pid"), "1\n");
+    writeFileSync(join(p.base, "dashboard.port"), "45001\n");
+    writeFileSync(join(p.base, "dashboard.assigned-port"), "45001\n");
+    writeFileSync(join(p.base, "port.assigned"), "45001\n");
+    writeFileSync(join(p.base, "state.lock"), "{}\n");
+    writeFileSync(join(p.base, "index.json"), "{}\n");
+    writeFileSync(join(p.base, "state.json"), "{}\n");
+    writeFileSync(p.events, "{}\n");
+    mkdirSync(join(p.worktrees, "TM-001-x"), { recursive: true });
+    writeFileSync(join(p.worktrees, "TM-001-x", "x"), "x");
+    mkdirSync(join(p.root, ".bytedesk", "bin"), { recursive: true });
+    writeFileSync(join(p.root, ".bytedesk", "bin", "tm"), "#!/bin/sh\n");
+    writeFileSync(join(p.tasks, "keep.md"), "keep\n");
+    writeFileSync(p.config, "{}\n");
+
+    const ignored = (rel) => {
+      try {
+        execFileSync("git", ["check-ignore", "-q", "--", rel], { cwd: repo, stdio: "ignore" });
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    for (const rel of [
+      ".bytedesk/task-management/dashboard.pid",
+      ".bytedesk/task-management/dashboard.port",
+      ".bytedesk/task-management/dashboard.assigned-port",
+      ".bytedesk/task-management/port.assigned",
+      ".bytedesk/task-management/state.lock",
+      ".bytedesk/task-management/index.json",
+      ".bytedesk/task-management/state.json",
+      ".bytedesk/task-management/events.jsonl",
+      ".bytedesk/worktrees/TM-001-x/x",
+    ]) {
+      assert.equal(ignored(rel), true, `${rel} is generated and must stay out of git`);
+    }
+    for (const rel of [
+      ".bytedesk/bin/tm",
+      ".bytedesk/task-management/tasks/keep.md",
+      ".bytedesk/task-management/config.json",
+    ]) {
+      assert.equal(ignored(rel), false, `${rel} is the shared record and must stay committable`);
     }
   });
 

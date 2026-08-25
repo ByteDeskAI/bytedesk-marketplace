@@ -45,6 +45,7 @@ export function Toolbar({
   grouped = false,
   onGrouped,
   savedViews,
+  labelCatalog = [],
 }: {
   tasks: Task[];
   filters: Filters;
@@ -61,6 +62,7 @@ export function Toolbar({
   onGrouped?: (on: boolean) => void;
   /** The repo's saved views, off the board payload. */
   savedViews?: Record<string, Filters>;
+  labelCatalog?: string[];
 }) {
   const [views, setViews] = useState(loadViews);
 
@@ -120,7 +122,7 @@ export function Toolbar({
             isClearable
             spacing="compact"
             placeholder="label"
-            options={opts(labelOptions(tasks))}
+            options={opts(labelOptions(tasks, labelCatalog))}
             value={current(filters.label)}
             onChange={(o) => set({ label: o?.value ?? null })}
           />

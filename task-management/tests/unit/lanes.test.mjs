@@ -52,6 +52,12 @@ describe("the active epic", () => {
 });
 
 describe("laneOrder", () => {
+  it("carries decision:map onto the lane so the header can chip it", () => {
+    const epics = [{ id: "EP-001", title: "a map", status: "open", labels: ["decision:map"] }];
+    const lanes = laneOrder(epics, [task("TM-1", "EP-001")], "EP-001");
+    assert.deepEqual(lanes[0].labels, ["decision:map"]);
+  });
+
   it("shows the active epic even with no tasks in it yet", () => {
     // A freshly opened epic is exactly when you want to see the lane to drop work into.
     const lanes = laneOrder([epic("EP-001"), epic("EP-002")], [task("TM-1", "EP-001")], "EP-002");

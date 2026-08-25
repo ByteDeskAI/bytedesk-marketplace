@@ -122,7 +122,10 @@ function place(mode, src, dest) {
   if (mode === "copy") return cpSync(src, dest, { recursive: true });
   // ponytail: no stdlib recursive hardlink; `cp -al` is one call and exists everywhere
   // this plugin runs. Swap for a walk if a Windows shell ever needs it.
-  if (mode === "hardlink") return void execFileSync("cp", ["-al", src, dest]);
+  if (mode === "hardlink") {
+    if (process.platform === "win32") return cpSync(src, dest, { recursive: true });
+    return void execFileSync("cp", ["-al", src, dest]);
+  }
   throw new Error(`unknown share mode: ${mode}`);
 }
 

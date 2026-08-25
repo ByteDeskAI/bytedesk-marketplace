@@ -10,6 +10,7 @@
 import { acceptanceOpen, config, list, logEvent, now, read, state, withLock, writeState } from "./store.mjs";
 import { paths } from "./paths.mjs";
 import { sessionId } from "./actor.mjs";
+import { decisionRole, hasAnswer } from "./decision.mjs";
 
 export function enforcementOff(p = paths()) {
   if (String(process.env.TM_ENFORCE || "").toLowerCase() === "off") return true;
@@ -84,19 +85,47 @@ function epicList(p) {
 
 export function gateDone(id, p = paths()) {
   if (enforcementOff(p)) return { allow: true };
-  if (!config(p).requireAcceptance) return { allow: true };
   const task = read(id, p);
   if (!task) return { allow: false, reason: `not found: ${id}` };
-  const open = acceptanceOpen(task);
-  if (open.length === 0) return { allow: true };
-  if (consumeOverride(p)) return { allow: true };
-  return {
-    allow: false,
-    reason:
-      `${id} has unmet acceptance criteria:\n` +
-      open.map((a) => `  [ ] ${a.text}`).join("\n") +
-      `\nTick them:  tm accept ${id} <n>    Bypass once: tm override "<reason>"`,
-  };
+
+  if (config(p).requireAcceptance) {
+    const open = acceptanceOpen(task);
+    if (open.length) {
+      if (consumeOverride(p)) return { allow: true };
+      return {
+        allow: false,
+        reason:
+          `${id} has unmet acceptance criteria:\n` +
+          open.map((a) => `  [ ] ${a.text}`).join("\n") +
+          `\nTick them:  tm accept ${id} <n>    Bypass once: tm override "<reason>"`,
+      };
+    }
+  }
+
+  const role = decisionRole(task.labels);
+  if (role && !hasAnswer(task.body)) {
+    if (consumeOverride(p)) return { allow: true };
+    return {
+      allow: false,
+      reason:
+        `${id} is a ${role} ticket — write the answer under ## Answer before closing.\n` +
+        `  tm edit ${id} --body -    Bypass once: tm override "<reason>"`,
+    };
+  }
+  if (
+    (role === "decision:prototype" || role === "decision:research") &&
+    !(task.evidence || []).length
+  ) {
+    if (consumeOverride(p)) return { allow: true };
+    const what = role === "decision:prototype" ? "the variant the human chose" : "the research pack";
+    return {
+      allow: false,
+      reason:
+        `${id} needs evidence (${what}) before it can close.\n` +
+        `  tm evidence ${id} <path>    Bypass once: tm override "<reason>"`,
+    };
+  }
+  return { allow: true };
 }
 
 // ── Stop gate ────────────────────────────────────────────────────────────────

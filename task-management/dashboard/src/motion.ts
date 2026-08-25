@@ -17,28 +17,9 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { StoreEvent } from "./types";
+import { LIVE_WINDOW_MS, lastWriteByEntity } from "./liveness.mjs";
 
-/**
- * How long after a write a card counts as "being worked on".
- *
- * Long enough to survive the gap between a tool call and the next store write, short enough that a
- * session which stopped stops pulsing while you are still looking at it. The board's own clock
- * ticks every 15s, so this is comfortably above one tick.
- */
-export const LIVE_WINDOW_MS = 45_000;
-
-/** The last time each entity was written, newest wins. */
-export function lastWriteByEntity(events: StoreEvent[]): Map<string, number> {
-  const seen = new Map<string, number>();
-  for (const e of events) {
-    if (!e.id) continue;
-    const t = Date.parse(e.ts);
-    if (Number.isNaN(t)) continue;
-    const prev = seen.get(e.id);
-    if (prev === undefined || t > prev) seen.set(e.id, t);
-  }
-  return seen;
-}
+export { LIVE_WINDOW_MS, lastWriteByEntity };
 
 /**
  * Which cards are being worked on *now*, as opposed to merely claimed.

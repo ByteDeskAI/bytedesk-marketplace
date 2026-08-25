@@ -22,6 +22,7 @@ import { TaskDrawer } from "./components/TaskDrawer";
 import { Toolbar } from "./components/Toolbar";
 import { PwaBar } from "./components/PwaBar";
 import { SettingsMenu } from "./components/SettingsMenu";
+import { SettingsPage } from "./components/SettingsPage";
 import { Palette } from "./components/Palette";
 import type { Command } from "./components/Palette";
 import { KeyHint, Shortcuts } from "./components/Shortcuts";
@@ -40,7 +41,7 @@ import { EpicLane } from "./components/EpicLane";
 import type { Lane } from "./components/EpicLane";
 import { PlansInbox } from "./components/PlansInbox";
 import { useBoardKeys } from "./useBoardKeys";
-import type { Board, Capability, PlanInboxItem, Sprint, Status, StoreEvent } from "./types";
+import type { Board, Capability, PlanInboxItem, Sprint, Status, StoreEvent, Task } from "./types";
 
 function sprintLozenge(sprint: Sprint | null): string {
   if (!sprint) return "no active sprint";
@@ -87,6 +88,7 @@ export function App() {
   const [help, setHelp] = useState(false);
   // localStorage is the cache that avoids a flash on load; the repo's config is the answer. It
   // used to be localStorage alone, which meant the layout you chose applied to one browser.
+  const [page, setPage] = useState<"board" | "settings">("board");
   const [grouped, setGrouped] = useState(
     () => localStorage.getItem("tm.grouped") === "1",
   );
@@ -307,6 +309,16 @@ export function App() {
               label: `Watch ${keys.focusedId}`,
               run: () => pwa.toggleWatch(keys.focusedId!),
             },
+            ...(board?.labelCatalog ?? [])
+              .filter((l) => l !== "decision:map")
+              .map((l) => ({
+                key: `label-${l}`,
+                label: `Label ${keys.focusedId} as ${l.replace(/^decision:/, "")}`,
+                run: () =>
+                  run(() =>
+                    write.act(keys.focusedId!, "labels", { add: [l] }),
+                  ),
+              })),
           ]
         : []),
       ...(selected.size
@@ -319,7 +331,7 @@ export function App() {
           ]
         : []),
     ],
-    [keys.focusedId, pwa, selected.size],
+    [board?.labelCatalog, keys.focusedId, pwa, selected.size],
   );
 
   /**
@@ -423,9 +435,8 @@ export function App() {
               <PwaBar pwa={pwa} />
               <SettingsMenu
                 pwa={pwa}
-                grouped={grouped}
-                onGrouped={setGroupedPersisted}
                 actor={board?.actor ?? null}
+                onOpenSettings={() => setPage("settings")}
               />
             </Inline>
             <Inline space="space.200" alignBlock="center">
@@ -435,6 +446,10 @@ export function App() {
           </Inline>
         </Box>
 
+        {page === "settings" ? (
+          <SettingsPage pwa={pwa} onBack={() => setPage("board")} />
+        ) : (
+          <>
         <Toolbar
           tasks={board.tasks}
           filters={filters}
@@ -449,6 +464,7 @@ export function App() {
           savedViews={
             board.settings?.views as Record<string, Filters> | undefined
           }
+          labelCatalog={board.labelCatalog ?? []}
           grouped={grouped}
           onGrouped={setGroupedPersisted}
         />
@@ -485,6 +501,11 @@ export function App() {
                         caps={capsOnLane(lane.id, board)}
                         collapsed={collapsed.has(lane.id)}
                         onToggle={() => toggleLane(lane.id)}
+                        fog={laneTasks(board.tasks, lane.id).filter(
+                          (t: Task) =>
+                            t.status !== "done" &&
+                            (t.labels ?? []).some((l: string) => l.startsWith("decision:")),
+                        ).length}
                       />
                       {/* A lane the filter emptied is worth saying so, rather than
                           rendering five empty columns under a heading. */}
@@ -522,6 +543,8 @@ export function App() {
           events={[...events].reverse().slice(0, 60)}
           onOpen={setOpenId}
         />
+          </>
+        )}
       </Stack>
 
       <TaskDrawer
@@ -530,6 +553,7 @@ export function App() {
         epics={board.epics}
         adrs={board.adrs ?? []}
         sprints={board.sprints ?? []}
+        labelCatalog={board.labelCatalog ?? []}
         onClose={() => setOpenId(null)}
         onOpen={setOpenId}
         run={run}

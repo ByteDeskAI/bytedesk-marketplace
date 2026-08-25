@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Added
+- **Decision-map flow** (generic `/task-management:*` names). Skills `map`, `interview`, `research`, `prototype`, `spec`, `tickets`, `implement`, `route`. Store labels `decision:map` (epic), `decision:interview|research|prototype|unblock` (tickets). Templates `interview`, `research`, `prototype`, `unblock`.
+- **Label catalog.** Canonical decision + triage roles, exclusive within each group. `tm label --catalog`, MCP `tm_label`, `tm_task_create.labels`. Dashboard catalog picker, semantic chips, palette "Label as …", seeded saved views. Map epics chip `map` plus remaining-fog count on the lane. Decision cards chip HITL/AFK and **needs answer**. The task drawer has an Answer field; map epics split Destination / Decisions so far / fog / Out of scope.
+- **Decision done gate.** `tm done` / dashboard Done refuse a `decision:*` ticket until `## Answer` is written. Prototype and research also need evidence.
+- **Project-local `tm`.** `tm init` writes `.bytedesk/bin/tm` and `tm.cmd` (and hook/dashboard twins) that discover the plugin without a home-directory path. `bin/tm-hook` is Node so Windows/Codex do not need bash.
+- **Settings catalog.** `GET /api/settings` plus a settings page for every project-scoped option that is safe to write (dashboard, policy, workflow, ntfy, plugin autolink). Identity (`boardId`/`owner`) is read-only. `board.launchBrowser` opens the default browser when `tm-dashboard` starts.
+
+### Changed
+- Worktree `hardlink` share copies on Windows instead of calling `cp -al`.
+- **Autolink is on by default** (opt out `TM_NO_AUTOLINK=1` / `TM_AUTOLINK=0`). Windows gets `.cmd` wrappers in `%USERPROFILE%\\.local\\bin`; the bin dir is created if missing.
+- **Generated runtime files stay out of git.** Store `.gitignore` now names `dashboard.pid` and `dashboard.port` explicitly (still covered by `dashboard.*`). `tm init` / `tm doctor --fix` writes `.bytedesk/.gitignore` so `worktrees/` is ignored without swallowing the store or the project-local `bin/` launchers. Dashboard `.gitignore` also drops Vite/tsc leftovers (`.vite`, `*.tsbuildinfo`).
+
 ## [0.14.0] — 2026-08-18
 
 Store-folder dashboard integration (BDM-64–74). Internal plugin.json stays unpinned.

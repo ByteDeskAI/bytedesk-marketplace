@@ -8,6 +8,7 @@ import { Pressable } from "@atlaskit/primitives/compiled";
 import { fetchEpic, write } from "../api";
 import { Markdown } from "./Markdown";
 import type { Epic, Task } from "../types";
+import { attentionOf, decisionRole, MAP_HEADINGS, sectionsOf } from "../../../lib/decision.mjs";
 
 const styles = cssMap({
   shell: {
@@ -93,6 +94,8 @@ export function EpicDrawer({
   const children = tasks.filter((t) => t.epic === epic.id);
   const plan = detail?.plan || epic.plan;
   const closedAt = detail?.closed || epic.closed;
+  const isMap = (detail?.labels ?? epic.labels ?? []).includes("decision:map");
+  const mapSections = isMap ? sectionsOf(detail?.body ?? epic.body ?? "") : [];
 
   return (
     <Drawer isOpen label={epic.id} width="wide" onClose={onClose}>
@@ -110,6 +113,9 @@ export function EpicDrawer({
                 <Lozenge appearance="inprogress">active</Lozenge>
               ) : null}
               {plan ? <Lozenge appearance="new">{`plan ${plan}`}</Lozenge> : null}
+              {(detail?.labels ?? epic.labels ?? []).includes("decision:map") ? (
+                <Lozenge appearance="inprogress">map</Lozenge>
+              ) : null}
             </Inline>
             <Text>{epic.title}</Text>
             {closedAt ? (
@@ -150,7 +156,24 @@ export function EpicDrawer({
 
         <Box xcss={styles.scroller}>
           <Stack space="space.150">
-            {detail?.body?.trim() ? (
+            {isMap && mapSections.length ? (
+              mapSections.map((sec, i) => (
+                <Box key={sec.heading || "lead"} xcss={i === 0 ? styles.firstSection : styles.section}>
+                  <Stack space="space.050">
+                    <Text weight="bold" size="small" color="color.text.subtlest">
+                      {(sec.heading || "CONTEXT").toUpperCase()}
+                    </Text>
+                    {sec.body ? (
+                      <Markdown source={sec.body} />
+                    ) : (
+                      <Text size="small" color="color.text.subtlest">
+                        {MAP_HEADINGS.includes(sec.heading || "") ? "empty" : ""}
+                      </Text>
+                    )}
+                  </Stack>
+                </Box>
+              ))
+            ) : detail?.body?.trim() ? (
               <Box xcss={styles.firstSection}>
                 <Stack space="space.050">
                   <Text weight="bold" size="small" color="color.text.subtlest">
@@ -185,6 +208,20 @@ export function EpicDrawer({
                         >
                           {t.status}
                         </Lozenge>
+                        {(() => {
+                          const role = decisionRole(t.labels);
+                          const attn = attentionOf(role);
+                          return (
+                            <>
+                              {role ? (
+                                <Lozenge appearance="inprogress">
+                                  {role.slice("decision:".length)}
+                                </Lozenge>
+                              ) : null}
+                              {attn ? <Lozenge appearance="new">{attn}</Lozenge> : null}
+                            </>
+                          );
+                        })()}
                       </Inline>
                     </Pressable>
                   ))

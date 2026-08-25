@@ -55,6 +55,7 @@ export const CATALOG = {
     estimate: { group: "writes", label: "An estimate is set", priority: "min", tags: "1234" },
     comment: { group: "writes", label: "A comment is added", priority: "low", tags: "speech_balloon" },
     link: { group: "writes", label: "Two tasks are linked", priority: "min", tags: "link" },
+    unlink: { group: "writes", label: "A typed link is removed", priority: "min", tags: "broken_heart" },
     dep: { group: "writes", label: "A dependency is added", priority: "low", tags: "no_entry" },
     undep: { group: "writes", label: "A dependency is removed", priority: "low", tags: "arrow_forward" },
     subtask: { group: "writes", label: "A task is nested under a parent", priority: "min", tags: "family" },

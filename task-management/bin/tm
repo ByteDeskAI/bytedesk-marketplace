@@ -9,6 +9,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { boardId, currentCheckout, ensureDirs, gitUser, isInitialized, legacyStore, paths } from "../lib/paths.mjs";
 import {
   kindOf,
@@ -45,6 +46,7 @@ import { consumeOverride, enforcementOff, gateDone, gateStop, gateTaskCreate, se
 import { board, handoff, renderHistory, renderLog, sessionContext, sprintReport, standup, subagentBrief, taskLine } from "../lib/render.mjs";
 import { FIELD_NAMES, describeQuery, matchesQuery, parseQuery } from "../lib/query.mjs";
 import { autolink, link as linkBins, status as linkStatus, unlink as unlinkBins } from "../lib/link.mjs";
+import { launcherDir, writeLaunchers } from "../lib/launcher.mjs";
 import { applyShares, createWorktree, listWorktrees, removeWorktree } from "../lib/worktree.mjs";
 import { applyTemplate, listTemplates, seedTemplates } from "../lib/templates.mjs";
 import { cycleTime, human as humanMs, summary as timeSummary, timeInStatus } from "../lib/time.mjs";
@@ -53,7 +55,7 @@ import { accept as acceptCap, capLine, drop as dropCap, propose, ranked, score a
 import { mirrorNative, preCreateGate } from "../lib/harness/index.mjs";
 import { claimTask, claimant, releaseClaim, staleClaims, sweepClaims } from "../lib/claims.mjs";
 import { actor, actorLabel, sessionId } from "../lib/actor.mjs";
-import { addComment, addLink, assign, backlog, dependencies, estimate, labels, prioritise, rank, setType, subtasks, typeOf } from "../lib/issue.mjs";
+import { addComment, addLink, assign, backlog, dependencies, estimate, labelCatalog, labels, prioritise, rank, setType, subtasks, typeOf } from "../lib/issue.mjs";
 import { CATALOG, messageFor, ntfyConfig, send, shouldPublish } from "../lib/ntfy.mjs";
 import { graphData, mermaid, renderWhy, why } from "../lib/graph.mjs";
 import { diagnose, ignoreRule, render as renderDoctor, repairAll } from "../lib/doctor.mjs";
@@ -185,6 +187,7 @@ const VERBS = {
     const contract = seedGitContract(P);
     const dropped = untrackHostFiles(P);
     seedTemplates(P);
+    writeLaunchers(P.root);
     reindex(P);
     logEvent("init", { root: P.root }, P);
     const extras = [
@@ -920,9 +923,22 @@ const VERBS = {
 
   label(id, ...names) {
     requireInit();
-    const remove = names.filter((n) => n.startsWith("-")).map((n) => n.slice(1));
-    const add = names.filter((n) => !n.startsWith("-"));
-    out(`${id} labels: ${labels(id, { add, remove }, P).join(", ") || "(none)"}`);
+    if (id === "--catalog" || (!id && names.includes("--catalog"))) {
+      for (const l of labelCatalog(P)) out(l);
+      return;
+    }
+    if (!id) die("usage: tm label <id> [-]<name>... | tm label --catalog");
+    const force = names.includes("--force") || id === "--force";
+    const rest = names.filter((n) => n !== "--force" && n !== "--catalog");
+    const realId = id === "--force" || id === "--catalog" ? rest.shift() : id;
+    if (!realId) die("usage: tm label <id> [-]<name>... | tm label --catalog");
+    const remove = rest.filter((n) => n.startsWith("-")).map((n) => n.slice(1));
+    const add = rest.filter((n) => !n.startsWith("-"));
+    try {
+      out(`${realId} labels: ${labels(realId, { add, remove, force }, P).join(", ") || "(none)"}`);
+    } catch (err) {
+      die(err.message, 2);
+    }
   },
 
   /** Issue type. `subtask` is not in the vocabulary — `parent` expresses that. */
@@ -1224,7 +1240,15 @@ const VERBS = {
 
   where() {
     const s = linkStatus();
-    out(JSON.stringify({ store: P.base, checkout: CHECKOUT, unavailable: P.unavailable, ...s }, null, 2));
+    const launchers = P.root ? launcherDir(P.root) : null;
+    out(JSON.stringify({
+      store: P.base,
+      checkout: CHECKOUT,
+      pluginBin: dirname(fileURLToPath(import.meta.url)),
+      launchers,
+      unavailable: P.unavailable,
+      ...s,
+    }, null, 2));
   },
 
   /** Move a pre-v0.2 worktree store into the shared root. */
@@ -1264,7 +1288,8 @@ const VERBS = {
         "  evidence <id> <path|-> | link <id> <ref> | dep <id> [-]<blocker>...",
         "  touches <id> [path...]        paths a task owns; `tm parallel` batches on these",
         "  edit <id> \"<title>\" [--body <text|->]   move <id> <EP-nnn|none>",
-        "  assign <id> <who> | label <id> [-]<name>... | priority <id> <level>",
+        "  assign <id> <who> | label <id> [-]<name>... [--force] | label --catalog",
+        "  priority <id> <level>",
         "  type <id> [bug|story|task|spike|chore]   issue type; parent expresses subtask-ness",
         "  estimate <id> <points> | comment <id> <text> | subtask <id> [parent|none]",
         "  link <id> <type> <id> | rank <id> --before|--after <id> | backlog",
@@ -1277,8 +1302,9 @@ const VERBS = {
         "  doctor [--fix]                what is inconsistent in the store; exits 1 on an error",
         "  export [md|csv|json]          the board out; --epic, --status, --open, --out <file>",
         "  reindex | override <reason> | config [key value] | context",
-        "  install [--force] | uninstall | where   put tm on PATH (auto at SessionStart)",
+        "  install [--force] | uninstall | where   PATH link (default on; TM_NO_AUTOLINK=1 to skip)",
         "  ntfy [on|off <kind>|enable|disable|test|topic <t>|board <url>]   push notifications",
+        "  tm-dashboard [--browser|--no-browser]   live board; --browser opens it",
         "",
         "  Gates: TM_ENFORCE=off disables all of them. `tm override` bypasses one.",
       ].join("\n"),

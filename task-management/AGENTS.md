@@ -40,6 +40,8 @@ lifecycle (start/done/block/AC); native tools are mirrored into the same board.
 - **standup** — what changed since a timestamp, straight from the event log.
 - **groom** — backlog pass: zombies, duplicates, false blocks, missing criteria.
 - **override** — bypass one gate, with the reason recorded.
+- **map** / **interview** / **research** / **prototype** / **spec** / **tickets** / **implement** / **route** — decision-map planning (generic names; not Matt Pocock's). Labels are `decision:*`.
+- Prefer `.bytedesk/bin/tm` (or `tm.cmd` on Windows) or MCP `tm_*`. Do not assume a global `tm` on PATH.
 
 ## Issue fields
 
@@ -58,10 +60,10 @@ whole history. If MCP is available, prefer the `tm_*` tools — same gates, type
 
 `bin/tm help` lists every verb. `bin/tm-dashboard` serves the live board.
 
-`tm` and `tm-dashboard` are symlinked onto PATH by the SessionStart hook on first run
-(`~/.local/bin`, or `TM_BIN_DIR`); `TM_NO_AUTOLINK=1` opts out, `./install.sh` does it manually,
-`tm where` reports store path and link state. The hooks never depend on the symlink — they call
-`bin/tm` by absolute path.
+Prefer the project-local launcher `.bytedesk/bin/tm` (`.cmd` on Windows) written by `tm init`.
+SessionStart also autolinks `tm` onto `~/.local/bin` (or `%USERPROFILE%\\.local\\bin` on Windows)
+unless `TM_NO_AUTOLINK=1` / `TM_AUTOLINK=0`. `tm where` reports store, checkout, and link state.
+Hooks call the plugin `bin/tm` by absolute path and never depend on PATH.
 
 ## Escape hatches
 

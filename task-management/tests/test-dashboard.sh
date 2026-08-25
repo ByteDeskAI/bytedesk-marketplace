@@ -360,13 +360,14 @@ CODE="$(post /api/settings '{"categories":["blocked"],"me":"ryan","grouped":true
 assert_contains "$(curl -fsS "http://127.0.0.1:$PORT/api/board")" '"me":"ryan"' "the board payload carries them back"
 assert_contains "$(cat "$STORE/config.json")" '"me": "ryan"' "and they are written to the repo's own config"
 assert_contains "$(curl -fsS "http://127.0.0.1:$PORT/api/board")" '"actor"' "the payload names the session, for the profile menu"
-# The gates are not a browser preference — tm config owns those deliberately.
+# Policy keys are project-scoped and writable from the settings page (same as tm config).
 CODE="$(post /api/settings '{"enforce":false,"wipLimit":99}')"
-[[ "$CODE" == 400 ]] && ok "a browser cannot switch off the store's gates" || no "a browser cannot switch off the gates" "got $CODE"
-case "$(cat "$STORE/config.json")" in
-  *'"enforce": false'*) no "the gate is untouched on disk" "enforce was overwritten" ;;
-  *) ok "the gate is untouched on disk" ;;
-esac
+[[ "$CODE" == 200 ]] && ok "policy settings are writable over HTTP" || no "policy settings are writable over HTTP" "got $CODE: $(body)"
+assert_contains "$(cat "$STORE/config.json")" '"enforce": false' "enforce is stored in the project config"
+post /api/settings '{"enforce":true,"wipLimit":3}' >/dev/null
+SETTINGS="$(curl -sS "http://127.0.0.1:$PORT/api/settings")"
+case "$SETTINGS" in *'"groups"'*) ok "GET /api/settings returns the catalog" ;; *) no "GET /api/settings returns the catalog" "${SETTINGS:0:200}" ;; esac
+assert_contains "$SETTINGS" "board.launchBrowser" "the catalog includes launch-browser"
 # The board's identity is not a setting. The allowlist already keeps it out of reach; this asserts
 # it, because "not currently writable" and "cannot be written" are different guarantees (TM-041).
 CODE="$(post /api/settings '{"boardId":"acme/hijack"}')"

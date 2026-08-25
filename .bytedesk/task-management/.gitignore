@@ -27,3 +27,7 @@ port.assigned
 # and commits a lock belonging to a pid that never existed on anybody else's machine.
 state.lock
 state.lock.break
+
+# Added by `tm doctor --fix` — rules this store predates.
+dashboard.pid
+dashboard.port
