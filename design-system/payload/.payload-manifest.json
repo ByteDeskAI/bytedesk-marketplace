@@ -1,117 +1,117 @@
 {
   "schemaVersion": 1,
-  "pluginVersion": "1.1.0",
-  "sourceSha": "d6309d1516b3a963f28ffc61d8fe91c9eaab8c46",
+  "pluginVersion": "1.1.1",
+  "sourceSha": "8fe167db3b4c8086ae0bae014fd181f98fbb8ce6",
   "files": [
     {
       "path": "DESIGN.md",
-      "sha256": "f44bff3bdbf94dd280f1553bebde45cf955ff322646db21ab93b8f1ba5f607a3",
-      "size": 5874
+      "sha256": "2145932fb1b3cff9826902609a825c3bb1e2364e767807b4d95d9fe1a6ada868",
+      "size": 5781
     },
     {
       "path": "profiles/_template/DESIGN.md",
-      "sha256": "8e349f2e8e2b00176ba3c747cb5ba7c48c0e13661c20803b9a95e66163c28b12",
-      "size": 714
+      "sha256": "feb213d56bd292885b02bc8bbc8d85e91ece08241402f249cc681acefe1abf5e",
+      "size": 689
     },
     {
       "path": "profiles/ade/DESIGN.md",
-      "sha256": "41f877373f1422559915ee1a84f8ecb8c1888287b17bd069cfa86e07c69036cf",
-      "size": 13065
+      "sha256": "b4f3ae5bea56eaf3da48b485154d94b91b1bc2649a5fe9a00bf7674ba73a21c2",
+      "size": 12746
     },
     {
       "path": "profiles/agent-browser-website/DESIGN.md",
-      "sha256": "1e5bbc9f51dbd113b58634ebaa615bf7346c3d0f57805722c09a995195818349",
-      "size": 11270
+      "sha256": "bfb2541020a44d6cb4650c5ce947d1c72be3d4bbbd5c9d08546688e93018d20e",
+      "size": 11066
     },
     {
       "path": "profiles/bytedesk-ai/DESIGN.md",
-      "sha256": "e9d1ab541d6c382ff0e3dfcc0da3619882d75652cc196ebe55aa4ea6d6e03ef1",
-      "size": 6556
+      "sha256": "6b3bca5fbb4cf0c062a403174397b72dca2f19af647698d42f89ce162f7d67fa",
+      "size": 6443
     },
     {
       "path": "profiles/bytedesk-ai/PRODUCT.md",
-      "sha256": "24841cfc5961bae1407fc5b56a301aa9d2052dcf6a907fd3d21a59d283ec85ab",
-      "size": 5068
+      "sha256": "335693ec4d6c4b5ef718c81298a701b846ba1eca8395f545403737cabdd0d0a7",
+      "size": 4961
     },
     {
       "path": "profiles/capture-website/DESIGN.md",
-      "sha256": "5b1d49581b1f6cfc7a8f33c5dc95b023c3b25aa2631b33fa659169fc5c76914c",
-      "size": 5964
+      "sha256": "23718bcea5a1cf4005ab8e718565ac6aa54278b3778c23028550d49c92c8f1ba",
+      "size": 5830
     },
     {
       "path": "profiles/capture/DESIGN.md",
-      "sha256": "73533b511c1bdf616dacd58f4b41cde106d0c481992ad59063e1cfc2495a29fc",
-      "size": 4433
+      "sha256": "5e891a1817b0cf30ef69039f87397196018c808371f369ea4fd3dec46d02c019",
+      "size": 4340
     },
     {
       "path": "profiles/gateway/DESIGN.md",
-      "sha256": "af4769ed1e2c6d635b4bf37b905a863c6d7a22ec6199d8936485526071b7c86e",
-      "size": 6921
+      "sha256": "eef1e2ea3884f5b77dd850f4335c7e30187019c76f7c80ca59acd74e84e0f11a",
+      "size": 6805
     },
     {
       "path": "profiles/gateway/PRODUCT.md",
-      "sha256": "45f8e3b1a74887fb57b2f9c7e086b5edbe0f14f61fa3940106f62cede3ef1060",
-      "size": 4096
+      "sha256": "0a2671a62407bb3a9ca7ede268ed6df3d6ee9793c2621c7e501eff32c32031a7",
+      "size": 4014
     },
     {
       "path": "profiles/marketplace/DESIGN.md",
-      "sha256": "96a8588f92550e561531ebb698cb2da24e77fbc574d506fea7da82e34215a356",
-      "size": 5625
+      "sha256": "037934d81512cade8e6e3824b1818a92e740f24611f433ad938bdb65f5634371",
+      "size": 5520
     },
     {
       "path": "profiles/marketplace/PRODUCT.md",
-      "sha256": "fec0006866370959e9b6b9d5eae04ec5b464211741cf07ac7301853df57ebdba",
-      "size": 2458
+      "sha256": "5c0fd0e80d87a174ae88d58fe5df3329504b85e1d665688d5d8eab6d2bae01b1",
+      "size": 2405
     },
     {
       "path": "profiles/store/DESIGN.md",
-      "sha256": "db194167f8f0f9aac65005077aa83430cfc994eb699e123721f54859347e38b6",
-      "size": 7729
+      "sha256": "15985c4b5d170433719c09a2b1bf0b5c84e710cbf13fda5099f22350e834452c",
+      "size": 7597
     },
     {
       "path": "profiles/store/PRODUCT.md",
-      "sha256": "a77dbd0e206d02d02207dd17b034dff025a2963c07625cbf84ab5b0128b38cfe",
-      "size": 3997
+      "sha256": "bfeb436ef7aa5611a65b711d026daa3bb7a5a7914e041ae4481821b9fe43b477",
+      "size": 3908
     },
     {
       "path": "profiles/terminal/DESIGN.md",
-      "sha256": "cede4220719b6275b31a3796d4ae5a7acfefe23805227ddd7ca2ac2093afc532",
-      "size": 43297
+      "sha256": "72b811036da25a06a57467c72f1f12d6be360fddc41f42f952f81a93c20b5042",
+      "size": 42320
     },
     {
       "path": "profiles/vault/DESIGN.md",
-      "sha256": "4e7e990e5b80bd9c5553726594368f38e5ed02d62367e2af3b32f63fce208a16",
-      "size": 8801
+      "sha256": "e110937a2f49dcd18f2479c68316d45d1acbaeb9abb56ee2d37218a7eba761e9",
+      "size": 8651
     },
     {
       "path": "profiles/vault/PRODUCT.md",
-      "sha256": "71e7c707b0a74d19e0ed5598bf536b56d4cec5e42a48aba5febcab47704e8801",
-      "size": 3658
+      "sha256": "bba99a02bdf9c7d6a0fb8e2c870d1067c3bf3f5b20eaf12d662830f3233f9caf",
+      "size": 3579
     },
     {
       "path": "profiles/workforce/DESIGN.md",
-      "sha256": "e5723340e5384694e0055c62ff6c3db8d379a1088150a4d5c2de79e04af7b079",
-      "size": 18461
+      "sha256": "eb00cf4c809eea534eac2587f638296ac7b61872b9d6f42b3a140635b8d24d0b",
+      "size": 18220
     },
     {
       "path": "tokens/README.md",
-      "sha256": "79e7b5754dd1e0c70a576bc74484f71bc5b17e2d631364aac1fe57e8f0274769",
-      "size": 5069
+      "sha256": "b44caade6b2dd3dd4bc2eaac10a8df05170f6c9407fd49ffd4877f8f08648ff6",
+      "size": 4972
     },
     {
       "path": "tokens/bytedesk.tokens.json",
-      "sha256": "c820029fbdf838e4f3bc859906cc41c4dfa0977b0e90720bc4b5774cc9d62b71",
-      "size": 6355
+      "sha256": "0e60a09643a64be1cf48aebb867328c0c32598ea9f9c56e8f5dd0f2aae45d119",
+      "size": 6271
     },
     {
       "path": "tokens/css/bytedesk.css",
-      "sha256": "364f3582fd9131d7160c32ee218caffbad6d98845037fdf9141cfb1b2fc86974",
-      "size": 5013
+      "sha256": "9d4f367a3a7e7d20e727e874f38e47bf829e0e32054f65f93a2e03d079a183c4",
+      "size": 4892
     },
     {
       "path": "tokens/tailwind/theme.css",
-      "sha256": "60e98a7b7091f3dd6f8b89e741fc09d4eb97fcdd6fdbc30424f801fb82833b0e",
-      "size": 2514
+      "sha256": "d77071236175db20c228f6c44a3abdeab1e7bc6d492db924f15a00990b3f4461",
+      "size": 2449
     }
   ]
 }

@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.1] — 2026-08-25
+
+### Fixed
+
+- Normalized published text before calculating byte-level manifests, making the
+  plugin artifact and its integrity validation deterministic across Windows and
+  Unix checkouts.
+
 ## [1.1.0] — 2026-08-25
 
 ### Added
