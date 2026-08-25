@@ -3,7 +3,7 @@
 Delivers the ByteDesk design system into any repository as **plain committed
 files**. The plugin carries the payload; a sync copies it into the repo tree.
 
-Install the same `1.3.0` bundle in either provider:
+Install the same `1.4.0` bundle in either provider:
 
 ```bash
 # Claude Code
@@ -32,6 +32,14 @@ The plugin includes ten ByteDesk workflows: init, sync, doctor, audit, profile,
 tokens, assets, migration, release, and scaffold. It also includes twenty
 reviewed design-craft skills. Provider installation makes all 30 discoverable;
 the consuming repository does not need its own `.agents/skills` copy.
+
+The provider-portable `design-system-agents` skill adds one governed router, for
+31 total skills. Claude also discovers four native specialists:
+`profile-architect`, `token-accessibility-auditor`,
+`consumer-migration-specialist`, and `design-system-reviewer`. Codex executes
+the same canonical role contracts through the routing skill because its plugin
+manifest cannot register custom agents. Read-only roles expose no mutating
+tools; migration requires an explicit request and reviewed dry-run before apply.
 
 ### Read-only MCP
 

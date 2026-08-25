@@ -130,6 +130,29 @@ async function validateManifests() {
   }
   requireValue(designKit.mcpServers.length === 1, "design kit must expose exactly one MCP server");
   requireValue(designKit.mcpServers[0].readOnly === true && designKit.mcpServers[0].offline === true, "design-system MCP must be offline and read-only");
+  const agentCatalog = await readJson("agent-catalog.json", "agent catalog");
+  requireValue(agentCatalog.schemaVersion === 1 && agentCatalog.agents?.length === 4, "agent catalog must expose four governed roles");
+  requireValue(designKit.agents.length === 4, "design kit must expose four specialist agents");
+  for (const agent of designKit.agents) {
+    const catalogAgent = agentCatalog.agents.find((item) => item.name === agent.name);
+    requireValue(catalogAgent, `agent is missing from catalog: ${agent.name}`);
+    requireValue(agent.providers?.includes("claude"), `${agent.name}: Claude native provider is required`);
+    requireValue(agent.fallbackProviders?.includes("codex"), `${agent.name}: Codex fallback provider is required`);
+    requireValue(agent.fallbackSkill === "skill:design-system-agents", `${agent.name}: fallback skill is invalid`);
+    const agentPath = path.join(pluginRoot, "agents", `${agent.name}.md`);
+    requireValue(existsSync(agentPath), `${agent.name}: native agent file is missing`);
+    const agentText = await readFile(agentPath, "utf8");
+    const metadata = frontmatter(agentText, `agent ${agent.name}`);
+    requireValue(metadata.name === agent.name, `${agent.name}: agent frontmatter name is invalid`);
+    requireValue(/design-system` MCP|design-system\.manifest\.json/.test(agentText), `${agent.name}: canonical discovery instructions are missing`);
+    requireValue(/Non-goals:/.test(agentText), `${agent.name}: non-goals are missing`);
+    for (const section of catalogAgent.requiredSections) requireValue(agentText.includes(`## ${section}`), `${agent.name}: required output section is missing: ${section}`);
+    if (catalogAgent.mode === "read-only") {
+      requireValue(!/tools:.*\b(?:Write|Edit|Bash)\b/.test(agentText), `${agent.name}: read-only agent exposes a mutating tool`);
+    } else {
+      requireValue(/explicit user request/i.test(agentText) && /dry-run/i.test(agentText), `${agent.name}: migration approval gate is missing`);
+    }
+  }
   for (const item of designKit.files.filter((file) => file.distributions?.includes("plugin"))) {
     const relative = safeRelative(item.deliveryPath, "design kit plugin file");
     const absolute = path.join(pluginRoot, relative);
@@ -221,7 +244,7 @@ try {
   const { pluginVersion, designKit } = await validateManifests();
   const sourceSha = await validatePayload(pluginVersion, designKit);
   const skillCount = await validateSkills(pluginVersion, sourceSha, designKit);
-  process.stdout.write(`design-system plugin valid: version=${pluginVersion} source=${sourceSha} skills=${skillCount}\n`);
+  process.stdout.write(`design-system plugin valid: version=${pluginVersion} source=${sourceSha} skills=${skillCount} agents=${designKit.agents.length}\n`);
 } catch (error) {
   process.stderr.write(`validate-plugin: ${error.message}\n`);
   process.exitCode = 1;

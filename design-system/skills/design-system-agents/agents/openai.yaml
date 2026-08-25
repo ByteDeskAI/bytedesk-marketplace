@@ -1,0 +1,10 @@
+interface:
+  display_name: "Design System Specialists"
+  short_description: "Route work to four governed design roles"
+  default_prompt: "Use $design-system-agents to choose and run the right ByteDesk design specialist."
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "design-system"
+      description: "Offline ByteDesk design-kit discovery and repository audit tools"
+      transport: "stdio"

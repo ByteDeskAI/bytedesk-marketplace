@@ -2,7 +2,7 @@
   "$schema": "./design-system.manifest.schema.json",
   "schemaVersion": 1,
   "id": "bytedesk-design-system",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "catalog": {
     "sourcePath": "catalog.json",
     "sha256": "fec678f3646b00b75623f4c97b471317f7ca82e1f61a9878ad3143495f14e162",
@@ -108,6 +108,61 @@
       "deliveryPath": ".mcp.json",
       "sha256": "848e67d4138a72fcefe24320b6d330b880c8605debe667e8680c44a667ecbc6d",
       "size": 169,
+      "distributions": [
+        "plugin"
+      ]
+    },
+    {
+      "id": "file:plugin/agent-catalog.json",
+      "kind": "agent-catalog",
+      "sourcePath": "plugin/agent-catalog.json",
+      "deliveryPath": "agent-catalog.json",
+      "sha256": "fc01a0a2a5b444263dd6a2b50b547ef38a44fdf3221758ceeba7133051972dfb",
+      "size": 3640,
+      "distributions": [
+        "plugin"
+      ]
+    },
+    {
+      "id": "file:plugin/agents/consumer-migration-specialist.md",
+      "kind": "agent",
+      "sourcePath": "plugin/agents/consumer-migration-specialist.md",
+      "deliveryPath": "agents/consumer-migration-specialist.md",
+      "sha256": "64f9eb1c8e3177bcb60c77f8f1f1a190cfe2f4783bffaea3a377ac4207c9f2e6",
+      "size": 1716,
+      "distributions": [
+        "plugin"
+      ]
+    },
+    {
+      "id": "file:plugin/agents/design-system-reviewer.md",
+      "kind": "agent",
+      "sourcePath": "plugin/agents/design-system-reviewer.md",
+      "deliveryPath": "agents/design-system-reviewer.md",
+      "sha256": "4b6d4d0fe401ba4540f53df5fb130f45da6b20cafe14bcf5d3e28d8a082dc5dc",
+      "size": 1551,
+      "distributions": [
+        "plugin"
+      ]
+    },
+    {
+      "id": "file:plugin/agents/profile-architect.md",
+      "kind": "agent",
+      "sourcePath": "plugin/agents/profile-architect.md",
+      "deliveryPath": "agents/profile-architect.md",
+      "sha256": "1e85f4158518af52167957d715fedb805855fa5a465b44325dd02bd94e962800",
+      "size": 1747,
+      "distributions": [
+        "plugin"
+      ]
+    },
+    {
+      "id": "file:plugin/agents/token-accessibility-auditor.md",
+      "kind": "agent",
+      "sourcePath": "plugin/agents/token-accessibility-auditor.md",
+      "deliveryPath": "agents/token-accessibility-auditor.md",
+      "sha256": "7d5d42b70c8d9616fc1a48204e933faee522aa057ccf98735d833c553772b07f",
+      "size": 1478,
       "distributions": [
         "plugin"
       ]
@@ -555,8 +610,8 @@
       "kind": "runtime",
       "sourcePath": "scripts/validate-plugin.mjs",
       "deliveryPath": "scripts/validate-plugin.mjs",
-      "sha256": "5ae2ebaabd12942ef73c342a9184df3e875fe0920000a4eeb0ca402262b212fb",
-      "size": 13774,
+      "sha256": "72ab6896bb5766487d7e6022924c672947be414eac622ef9adb1f1b340db059d",
+      "size": 15808,
       "distributions": [
         "plugin"
       ]
@@ -1162,6 +1217,16 @@
       ]
     },
     {
+      "id": "skill:design-system-agents",
+      "name": "design-system-agents",
+      "classification": "core",
+      "sourcePath": "plugin/skills/design-system-agents",
+      "providers": [
+        "claude",
+        "codex"
+      ]
+    },
+    {
       "id": "skill:design-system-assets",
       "name": "design-system-assets",
       "classification": "core",
@@ -1380,6 +1445,7 @@
       "license": "MIT",
       "licenseFile": "BYTEDESK-MIT.md",
       "skills": [
+        "design-system-agents",
         "design-system-assets",
         "design-system-audit",
         "design-system-doctor",
@@ -1443,7 +1509,126 @@
       ]
     }
   ],
-  "agents": [],
+  "agents": [
+    {
+      "id": "agent:profile-architect",
+      "name": "profile-architect",
+      "description": "Designs the narrowest correct shared, profile, and consumer-local authority boundary before profile changes are authored.",
+      "mode": "read-only",
+      "sourcePath": "plugin/agents/profile-architect.md",
+      "providers": [
+        "claude"
+      ],
+      "fallbackProviders": [
+        "codex"
+      ],
+      "fallbackSkill": "skill:design-system-agents",
+      "skills": [
+        "skill:design-system-profile"
+      ],
+      "mcpServer": "mcp:design-system",
+      "requiredSections": [
+        "Authority map",
+        "Profile decision",
+        "Evidence",
+        "Proposed changes",
+        "Validation"
+      ],
+      "files": [
+        "file:plugin/agents/profile-architect.md",
+        "file:plugin/agent-catalog.json"
+      ]
+    },
+    {
+      "id": "agent:token-accessibility-auditor",
+      "name": "token-accessibility-auditor",
+      "description": "Audits canonical and consumer token usage together with accessibility requirements and reports evidence-backed remediation.",
+      "mode": "read-only",
+      "sourcePath": "plugin/agents/token-accessibility-auditor.md",
+      "providers": [
+        "claude"
+      ],
+      "fallbackProviders": [
+        "codex"
+      ],
+      "fallbackSkill": "skill:design-system-agents",
+      "skills": [
+        "skill:design-system-tokens",
+        "skill:design-system-audit"
+      ],
+      "mcpServer": "mcp:design-system",
+      "requiredSections": [
+        "Findings",
+        "Evidence",
+        "Accessibility impact",
+        "Remediation",
+        "Verification"
+      ],
+      "files": [
+        "file:plugin/agents/token-accessibility-auditor.md",
+        "file:plugin/agent-catalog.json"
+      ]
+    },
+    {
+      "id": "agent:consumer-migration-specialist",
+      "name": "consumer-migration-specialist",
+      "description": "Plans and, only when explicitly authorized, applies a preview-first migration to the managed design-system delivery.",
+      "mode": "explicit-write",
+      "sourcePath": "plugin/agents/consumer-migration-specialist.md",
+      "providers": [
+        "claude"
+      ],
+      "fallbackProviders": [
+        "codex"
+      ],
+      "fallbackSkill": "skill:design-system-agents",
+      "skills": [
+        "skill:design-system-migrate",
+        "skill:design-system-doctor"
+      ],
+      "mcpServer": "mcp:design-system",
+      "requiredSections": [
+        "Current delivery",
+        "Dry-run plan",
+        "Safety checks",
+        "Apply status",
+        "Review diff"
+      ],
+      "files": [
+        "file:plugin/agents/consumer-migration-specialist.md",
+        "file:plugin/agent-catalog.json"
+      ]
+    },
+    {
+      "id": "agent:design-system-reviewer",
+      "name": "design-system-reviewer",
+      "description": "Reviews a consumer implementation against canonical authority, its selected product profile, and integration health without editing it.",
+      "mode": "read-only",
+      "sourcePath": "plugin/agents/design-system-reviewer.md",
+      "providers": [
+        "claude"
+      ],
+      "fallbackProviders": [
+        "codex"
+      ],
+      "fallbackSkill": "skill:design-system-agents",
+      "skills": [
+        "skill:design-system-audit"
+      ],
+      "mcpServer": "mcp:design-system",
+      "requiredSections": [
+        "Findings",
+        "Authority",
+        "Evidence",
+        "Risk",
+        "Recommendation"
+      ],
+      "files": [
+        "file:plugin/agents/design-system-reviewer.md",
+        "file:plugin/agent-catalog.json"
+      ]
+    }
+  ],
   "mcpServers": [
     {
       "id": "mcp:design-system",
@@ -1521,6 +1706,11 @@
         "file:mcp/design-system-mcp.mjs",
         "file:plugin/.codex-mcp.json",
         "file:plugin/.mcp.json",
+        "file:plugin/agent-catalog.json",
+        "file:plugin/agents/consumer-migration-specialist.md",
+        "file:plugin/agents/design-system-reviewer.md",
+        "file:plugin/agents/profile-architect.md",
+        "file:plugin/agents/token-accessibility-auditor.md",
         "file:plugin/package.json",
         "file:scripts/design-system-check.mjs",
         "file:scripts/design-system-init.mjs",

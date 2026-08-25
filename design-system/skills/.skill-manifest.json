@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "pluginVersion": "1.3.0",
-  "designSystemSourceSha": "9ac04829a3baeb4fb4b0e68b9719f3f8a9fe4d8f",
+  "pluginVersion": "1.4.0",
+  "designSystemSourceSha": "f96b2fbb773127e5d005832b3d43b4757da70546",
   "skills": [
     "animate",
     "animate-expo",
@@ -12,6 +12,7 @@
     "awwwards-micro-interactions",
     "awwwards-webgl-shaders",
     "beautiful-article",
+    "design-system-agents",
     "design-system-assets",
     "design-system-audit",
     "design-system-doctor",
@@ -37,8 +38,8 @@
   "files": [
     {
       "path": ".provenance.json",
-      "sha256": "51a230094ef5763ecad939488804c0e28c5ffe4bf19104251f223ef942dca611",
-      "size": 2932
+      "sha256": "8dd157079d2905fd61a75ec0155b53bc8dc262c37ae2de8726cb2bfab8ae7150",
+      "size": 2992
     },
     {
       "path": "animate-expo/RECIPES.md",
@@ -384,6 +385,16 @@
       "path": "beautiful-article/theme-profiles/vignelli.md",
       "sha256": "c698715aa981bbba412a2f210380ebae7cab5279abf79e0c99507d7fd06bd403",
       "size": 3655
+    },
+    {
+      "path": "design-system-agents/SKILL.md",
+      "sha256": "cc0f3f5c8c9504b58fbd2674d9930cf8e9de55ac9ce76257d35e131972992d55",
+      "size": 1812
+    },
+    {
+      "path": "design-system-agents/agents/openai.yaml",
+      "sha256": "4594c32d16429d125afe528e4dfed9c5b18c4850b2c117de81f5cdba1d0cea12",
+      "size": 402
     },
     {
       "path": "design-system-assets/SKILL.md",

@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.4.0] — 2026-08-25
+
+### Added
+
+- Added four native Claude specialist agents for profile architecture,
+  token/accessibility auditing, preview-first migration, and design-system
+  review.
+- Added the `design-system-agents` Codex fallback skill, machine-readable agent
+  catalog, and golden routing, safety, and output-contract tests.
+- Published from immutable design-system source revision `f96b2fb`.
+
 ## [1.3.0] — 2026-08-25
 
 ### Added

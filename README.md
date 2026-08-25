@@ -17,7 +17,7 @@ ByteDesk's Claude and Codex plugin marketplace. Plugins for parallel orchestrati
 | **[bytedesk-goals](./bytedesk-goals)** | Goal pipeline, run_goals, Jira/Confluence, agent dispatch |
 | **[omnigent-dev](./omnigent-dev)** | Omnigent cross-repo engineering skills |
 | **[teamcity-mcp](./teamcity-mcp)** | TeamCity CI/CD over MCP — builds, logs, tests, queue, configs, agents |
-| **[design-system](./design-system)** | Versioned ByteDesk design context, offline sync, read-only MCP, and 30 reviewed workflows for Claude and Codex |
+| **[design-system](./design-system)** | Versioned design context, four specialist roles, 31 workflows, offline sync, and a read-only MCP for Claude and Codex |
 
 ## Installation
 

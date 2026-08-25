@@ -24,6 +24,7 @@
     "write-swift"
   ],
   "coreSkills": [
+    "design-system-agents",
     "design-system-assets",
     "design-system-audit",
     "design-system-doctor",
@@ -42,6 +43,7 @@
       "license": "MIT",
       "licenseFile": "BYTEDESK-MIT.md",
       "skills": [
+        "design-system-agents",
         "design-system-assets",
         "design-system-audit",
         "design-system-doctor",
@@ -102,6 +104,6 @@
       ]
     }
   ],
-  "pluginVersion": "1.3.0",
-  "designSystemSourceSha": "9ac04829a3baeb4fb4b0e68b9719f3f8a9fe4d8f"
+  "pluginVersion": "1.4.0",
+  "designSystemSourceSha": "f96b2fbb773127e5d005832b3d43b4757da70546"
 }

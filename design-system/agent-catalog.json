@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "fallbackSkill": "design-system-agents",
+  "agents": [
+    {
+      "name": "profile-architect",
+      "description": "Designs the narrowest correct shared, profile, and consumer-local authority boundary before profile changes are authored.",
+      "mode": "read-only",
+      "nativeProviders": ["claude"],
+      "fallbackProviders": ["codex"],
+      "triggers": ["profile", "inheritance", "authority", "shared rule", "product identity"],
+      "requiredSections": ["Authority map", "Profile decision", "Evidence", "Proposed changes", "Validation"],
+      "skills": ["design-system-profile"],
+      "mcpTools": ["list_design_items", "search_design_system", "get_design_item", "explain_rule"]
+    },
+    {
+      "name": "token-accessibility-auditor",
+      "description": "Audits canonical and consumer token usage together with accessibility requirements and reports evidence-backed remediation.",
+      "mode": "read-only",
+      "nativeProviders": ["claude"],
+      "fallbackProviders": ["codex"],
+      "triggers": ["token", "contrast", "accessibility", "wcag", "focus", "reduced motion"],
+      "requiredSections": ["Findings", "Evidence", "Accessibility impact", "Remediation", "Verification"],
+      "skills": ["design-system-tokens", "design-system-audit"],
+      "mcpTools": ["list_design_items", "search_design_system", "get_design_item", "explain_rule", "audit_repository"]
+    },
+    {
+      "name": "consumer-migration-specialist",
+      "description": "Plans and, only when explicitly authorized, applies a preview-first migration to the managed design-system delivery.",
+      "mode": "explicit-write",
+      "nativeProviders": ["claude"],
+      "fallbackProviders": ["codex"],
+      "triggers": ["migrate", "migration", "submodule", "manual snapshot", "managed payload", "adopt"],
+      "requiredSections": ["Current delivery", "Dry-run plan", "Safety checks", "Apply status", "Review diff"],
+      "skills": ["design-system-migrate", "design-system-doctor"],
+      "mcpTools": ["list_design_items", "get_design_item", "audit_repository"]
+    },
+    {
+      "name": "design-system-reviewer",
+      "description": "Reviews a consumer implementation against canonical authority, its selected product profile, and integration health without editing it.",
+      "mode": "read-only",
+      "nativeProviders": ["claude"],
+      "fallbackProviders": ["codex"],
+      "triggers": ["review", "audit ui", "design drift", "implementation", "pull request", "design system compliance"],
+      "requiredSections": ["Findings", "Authority", "Evidence", "Risk", "Recommendation"],
+      "skills": ["design-system-audit"],
+      "mcpTools": ["list_design_items", "search_design_system", "get_design_item", "explain_rule", "audit_repository"]
+    }
+  ],
+  "goldenScenarios": [
+    {
+      "prompt": "Decide whether the Gateway command palette rule belongs in the shared foundation or its product profile.",
+      "expectedAgent": "profile-architect",
+      "expectsMutation": false
+    },
+    {
+      "prompt": "Audit these token mappings for WCAG contrast, keyboard focus, and reduced-motion problems.",
+      "expectedAgent": "token-accessibility-auditor",
+      "expectsMutation": false
+    },
+    {
+      "prompt": "Migrate this legacy design-system submodule to the managed payload, showing the dry-run before any apply.",
+      "expectedAgent": "consumer-migration-specialist",
+      "expectsMutation": true
+    },
+    {
+      "prompt": "Review this pull request for design drift against the selected product profile.",
+      "expectedAgent": "design-system-reviewer",
+      "expectsMutation": false
+    }
+  ]
+}

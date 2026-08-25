@@ -1,6 +1,6 @@
 {
   "name": "design-system",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Install and govern the ByteDesk design foundation, tokens, profiles, assets, and reviewed design workflows across Claude and Codex.",
   "author": {
     "name": "ByteDeskAI",
@@ -21,7 +21,7 @@
   "interface": {
     "displayName": "ByteDesk Design System",
     "shortDescription": "Governed design context and expert workflows.",
-    "longDescription": "Discover and query the complete ByteDesk design kit through one manifest, CLI, and offline read-only MCP server; adopt or migrate a repository in one command; and use thirty reviewed workflows.",
+    "longDescription": "Discover and query the complete ByteDesk design kit through one manifest, CLI, and offline read-only MCP server; route work through four governed specialist roles; adopt or migrate a repository in one command; and use thirty-one reviewed workflows.",
     "developerName": "ByteDeskAI",
     "category": "Design",
     "capabilities": [
