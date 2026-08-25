@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.5.1] — 2026-08-25
+
+### Fixed
+
+- Package-free static websites can adopt through an explicit web runtime and
+  stylesheet without adding a root Node project.
+- Doctor uses the recorded consumer runtime when checking nonstandard layouts.
+- Published from immutable design-system source revision `ccb8d5d`.
+
 ## [1.5.0] — 2026-08-25
 
 ### Added

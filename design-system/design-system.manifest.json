@@ -2,7 +2,7 @@
   "$schema": "./design-system.manifest.schema.json",
   "schemaVersion": 1,
   "id": "bytedesk-design-system",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "catalog": {
     "sourcePath": "catalog.json",
     "sha256": "0486567cc9675a9fc67d6147333062ad9764057113f205e155c4f07128e908b4",
@@ -612,8 +612,8 @@
       "kind": "runtime",
       "sourcePath": "scripts/design-system-init.mjs",
       "deliveryPath": "scripts/design-system-init.mjs",
-      "sha256": "36efcd1d77b6e9f7f0523e73f3b0bdff8f2a35d47b42154df4eaaebb33785ff7",
-      "size": 18567,
+      "sha256": "62eccb8f557f474e19d1870058465a9a70a8d8d2025f2909165db78dc3356600",
+      "size": 18647,
       "distributions": [
         "plugin"
       ]
@@ -623,8 +623,8 @@
       "kind": "runtime",
       "sourcePath": "scripts/design-system-sync.mjs",
       "deliveryPath": "scripts/design-system-sync.mjs",
-      "sha256": "227b532d60d8d46c19c53c772788332ad83bef567425e0b14c043fad568a546a",
-      "size": 25169,
+      "sha256": "407e13a6a7470e7ba8bbccddb14d233f5a21373a91ccfb3f4b74b8d26e46b13c",
+      "size": 25725,
       "distributions": [
         "plugin"
       ]

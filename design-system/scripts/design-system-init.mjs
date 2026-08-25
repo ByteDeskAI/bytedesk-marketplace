@@ -198,7 +198,10 @@ async function integrationWrites(opts, cwd, app, runtime) {
       "",
     );
     const base = posix(path.relative(path.dirname(absolute), path.join(cwd, managedRelative, "tokens")));
-    const packageJson = JSON.parse(await readFile(path.join(cwd, "package.json"), "utf8"));
+    const packagePath = path.join(cwd, "package.json");
+    const packageJson = existsSync(packagePath)
+      ? JSON.parse(await readFile(packagePath, "utf8"))
+      : {};
     const dependencies = { ...packageJson.dependencies, ...packageJson.devDependencies };
     const imports = [`@import "${base}/css/bytedesk.css";`];
     if (dependencies.tailwindcss) imports.push(`@import "${base}/tailwind/theme.css";`);

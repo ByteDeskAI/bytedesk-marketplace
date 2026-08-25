@@ -488,9 +488,12 @@ async function scanRepository(cwd, destDir) {
   return texts;
 }
 
-function integrationChecks(cwd, destDir, app, texts) {
+function integrationChecks(cwd, destDir, app, texts, configuredRuntime = null) {
   const checks = [];
-  const runtime = existsSync(path.join(cwd, "package.json"))
+  const runtime = configuredRuntime === "go" ? "go-embedded"
+    : configuredRuntime === "native" ? "native"
+    : configuredRuntime === "web" ? "web"
+    : existsSync(path.join(cwd, "package.json"))
     ? "web"
     : existsSync(path.join(cwd, "go.mod"))
       ? "go-embedded"
@@ -552,7 +555,16 @@ async function runDoctor(cwd, destDir, payload, app) {
     for (const finding of inspection.drift) process.stdout.write(`DRIFT ${finding}\n`);
     for (const finding of inspection.configuration) process.stdout.write(`ERROR ${finding}\n`);
   }
-  const checks = integrationChecks(cwd, destDir, app, await scanRepository(cwd, destDir));
+  const consumerConfigPath = path.join(cwd, ".bytedesk", "design-system.json");
+  let configuredRuntime = null;
+  if (existsSync(consumerConfigPath)) {
+    try {
+      configuredRuntime = JSON.parse(await readFile(consumerConfigPath, "utf8")).runtime ?? null;
+    } catch {
+      // The managed-payload inspection reports malformed integration state separately.
+    }
+  }
+  const checks = integrationChecks(cwd, destDir, app, await scanRepository(cwd, destDir), configuredRuntime);
   for (const check of checks) {
     process.stdout.write(check.ok ? `OK ${check.label}\n` : `ERROR ${check.label}; fix: ${check.fix}\n`);
   }
