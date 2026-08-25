@@ -1,0 +1,4 @@
+interface:
+  display_name: "Scaffold ByteDesk Site"
+  short_description: "Create a ByteDesk site with managed design"
+  default_prompt: "Use $design-system-scaffold to create a new ByteDesk site with its design profile and token wiring."

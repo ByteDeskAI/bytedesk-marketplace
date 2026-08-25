@@ -1,0 +1,1769 @@
+{
+  "schemaVersion": 1,
+  "pluginVersion": "1.0.0",
+  "designSystemSourceSha": "8a7adf126c35f79a2a52b08c12cb196c31ee78b3",
+  "skills": [
+    "animate",
+    "animate-expo",
+    "animation-vocabulary",
+    "apple-design",
+    "ask-sonner",
+    "awwwards-creative-frontend",
+    "awwwards-micro-interactions",
+    "awwwards-webgl-shaders",
+    "beautiful-article",
+    "design-system-assets",
+    "design-system-audit",
+    "design-system-doctor",
+    "design-system-init",
+    "design-system-migrate",
+    "design-system-profile",
+    "design-system-release",
+    "design-system-scaffold",
+    "design-system-sync",
+    "design-system-tokens",
+    "emil-design-eng",
+    "find-animation-opportunities",
+    "gpt-image-2",
+    "improve-animations",
+    "kb-retriever",
+    "pick-ui-library",
+    "prototype",
+    "review-animations",
+    "web-design-engineer",
+    "web-video-presentation",
+    "write-swift"
+  ],
+  "files": [
+    {
+      "path": ".provenance.json",
+      "sha256": "69d22e32635ac4619e850a19bc4b2597dde0231de86656b1b61b6eca1596dc0e",
+      "size": 2932
+    },
+    {
+      "path": "animate-expo/RECIPES.md",
+      "sha256": "c8ffbd6233744e045ec67b7f80b15a2b67303a23ad45c0b40d823ecc87c68d03",
+      "size": 17193
+    },
+    {
+      "path": "animate-expo/SKILL.md",
+      "sha256": "8893293d36b73e0ff998aa71ced0ac99c4e72bbcc0d7caab8666f6cad4475233",
+      "size": 17819
+    },
+    {
+      "path": "animate/RECIPES.md",
+      "sha256": "7b835d46748f13e05048ef1a7f3b49587a1b7fee4a72854c788992e184af9cf5",
+      "size": 8281
+    },
+    {
+      "path": "animate/SKILL.md",
+      "sha256": "58306092db4b965f050047791c94b91dad57d5ac612a6156773d4633f4697818",
+      "size": 11774
+    },
+    {
+      "path": "animation-vocabulary/SKILL.md",
+      "sha256": "de5828e11055239691504b288519b894fd4b355d6bfc418a88762e9d75568267",
+      "size": 13301
+    },
+    {
+      "path": "apple-design/SKILL.md",
+      "sha256": "da9581408c2b37a49565a9c7e32f26763f78b581c7e802dfa2357738e43ba7d5",
+      "size": 22997
+    },
+    {
+      "path": "ask-sonner/API.md",
+      "sha256": "5d85db5cbd0d4f3b0c68259e897b8d6d3c6518bdadaca0b0fb830176a44f4038",
+      "size": 4609
+    },
+    {
+      "path": "ask-sonner/SKILL.md",
+      "sha256": "c3cd825fa863f15b11256a780c0c835f766c7bcdde3f456e873358dd8f2a7920",
+      "size": 7024
+    },
+    {
+      "path": "awwwards-creative-frontend/SKILL.md",
+      "sha256": "deda64274361fb4aafde39fe8591909397f1fb84fb48cbfce5dec777b8ae5e50",
+      "size": 6956
+    },
+    {
+      "path": "awwwards-micro-interactions/SKILL.md",
+      "sha256": "8819e7e1337bd6eb7a78a5e99adc0a5cce4cef7d9edb030b60e6517287279d09",
+      "size": 5999
+    },
+    {
+      "path": "awwwards-webgl-shaders/SKILL.md",
+      "sha256": "dbdaa65331ba044108c3ec21cf0aa56b9a2bbbb2773e9b9d98b21689e289571d",
+      "size": 5332
+    },
+    {
+      "path": "beautiful-article/README.md",
+      "sha256": "54be7bc019f8ec81bb06192bc364fa5ce6c0cb65003d610f6e6be08c369908a6",
+      "size": 24659
+    },
+    {
+      "path": "beautiful-article/README.zh-CN.md",
+      "sha256": "94d0955c81aec3dde2529d1a195cc5a29d88d0a12f244eb7086f26b0f07e1de0",
+      "size": 24209
+    },
+    {
+      "path": "beautiful-article/SKILL.md",
+      "sha256": "8b5603ce907a1ca25c1854ad4534defa64cc86bc925b13ac6b9f4c67862cb455",
+      "size": 31948
+    },
+    {
+      "path": "beautiful-article/assets/scaffold-template/.npmrc",
+      "sha256": "318005a48dd48023832c89a67fcc1f03926da16d5998197d083314a9faa414bb",
+      "size": 38
+    },
+    {
+      "path": "beautiful-article/assets/scaffold-template/article/Article.tsx",
+      "sha256": "3a0fb47038baab5b342ff4f362933563fb913d956c59f47c91b3a463c6e17438",
+      "size": 2880
+    },
+    {
+      "path": "beautiful-article/assets/scaffold-template/article/Cover.tsx",
+      "sha256": "be419f5834d822c359777b6379819a0a46ce0455dd08cc0e63d5126f326ed18e",
+      "size": 7832
+    },
+    {
+      "path": "beautiful-article/assets/scaffold-template/article/main.tsx",
+      "sha256": "4196523b83fdcf5c45bc0017e87fbddd869437ad7c418effc4e9a87555c99d80",
+      "size": 1199
+    },
+    {
+      "path": "beautiful-article/assets/scaffold-template/article/sections/01-opening.tsx",
+      "sha256": "35c3277331cda74c5651998549f3d7518554b684aade4846554afd3604963413",
+      "size": 1344
+    },
+    {
+      "path": "beautiful-article/assets/scaffold-template/index.html",
+      "sha256": "e4e1b3ba87de5ff47d1326d70dac51d4779cac82d5a4cfea3b4c946a493f1c59",
+      "size": 774
+    },
+    {
+      "path": "beautiful-article/assets/scaffold-template/package.json",
+      "sha256": "52381be149d5f53af9fe5903e0b0b0eeb9d80f8b0393dfcc5860df357fa1a79a",
+      "size": 809
+    },
+    {
+      "path": "beautiful-article/assets/scaffold-template/tsconfig.json",
+      "sha256": "b07d660fa6506ec472b5385f16c79d1a3eac082f93d50d8694107698c123f067",
+      "size": 532
+    },
+    {
+      "path": "beautiful-article/assets/scaffold-template/tsconfig.node.json",
+      "sha256": "cb2afbaa50107c3d6c8b84d741632923616f8daf85ca4afcb067dc51437e627f",
+      "size": 241
+    },
+    {
+      "path": "beautiful-article/assets/scaffold-template/vite.config.ts",
+      "sha256": "972dd9dec18f8f1a0f3d7ba9d60c3524bf28c43b429b3e88192b4b32f4bee143",
+      "size": 632
+    },
+    {
+      "path": "beautiful-article/manifest.json",
+      "sha256": "23934d8be71823a4d4c7578f633ed9b176953d48d2878cc7491a5475fbaafea4",
+      "size": 748
+    },
+    {
+      "path": "beautiful-article/references/article-types.md",
+      "sha256": "707a8eae37464931ff7ca8e72d0c879788cf4c621a1ab9aa3a753872ef4623ab",
+      "size": 3809
+    },
+    {
+      "path": "beautiful-article/references/article-types/briefing.md",
+      "sha256": "299c83accd49aac45d28339aa89d5da7d57a7db1df4e5ba75b35553e127c48be",
+      "size": 2209
+    },
+    {
+      "path": "beautiful-article/references/article-types/dialogue.md",
+      "sha256": "783ff232948a52d5eac91030a4d4810bec020789ac08b010233be808c2a68723",
+      "size": 2211
+    },
+    {
+      "path": "beautiful-article/references/article-types/essay.md",
+      "sha256": "ee26763321d60c0612aa839b504de6004a19b986fd55195f2178d1a4bb7a77c6",
+      "size": 2160
+    },
+    {
+      "path": "beautiful-article/references/article-types/explainer.md",
+      "sha256": "473d9cd8d5163cb10101766da86678bc14725574b98771e612067bffe0145cf4",
+      "size": 2420
+    },
+    {
+      "path": "beautiful-article/references/article-types/full-report.md",
+      "sha256": "adb7fad9055ca7ed84bfc0ce0a1f4705c206476dcdf6c96a04c7a6bcecb2de07",
+      "size": 2454
+    },
+    {
+      "path": "beautiful-article/references/article-types/interactive-explainer.md",
+      "sha256": "26047d4e98ab8acc1767896ba6dd9be5377e4b2814b15efee39db4c698fceb31",
+      "size": 5108
+    },
+    {
+      "path": "beautiful-article/references/article-types/longform.md",
+      "sha256": "4f94d9fcbc5df3a16eaf7d35df7bd41782ff90e7d1d379c9e860cbb0933c0a98",
+      "size": 2357
+    },
+    {
+      "path": "beautiful-article/references/article-types/review.md",
+      "sha256": "fb6ef5abf1f15665b1c17de3e6ba9979a9c88f19ee38ce42cff2ed944a47c893",
+      "size": 2374
+    },
+    {
+      "path": "beautiful-article/references/article-types/tutorial.md",
+      "sha256": "7ea157ccd7a3a2375d36c78a5a42ba1bc5ad10b84a3884d1823681e4c5bfdd24",
+      "size": 2298
+    },
+    {
+      "path": "beautiful-article/references/article-types/visual-essay.md",
+      "sha256": "bb11815116a2d6784348f38aa7ace96c81f0f786b8a2963704a95a173a8620f1",
+      "size": 2537
+    },
+    {
+      "path": "beautiful-article/references/asset-policy.md",
+      "sha256": "b69be8e60c3e8cb637db8fd558df2b5bd03cfc4572d79347d84d5ef7533a5e94",
+      "size": 3904
+    },
+    {
+      "path": "beautiful-article/references/component-policy.md",
+      "sha256": "d9cf35b4469d15badefc074a2e32356c507fbeaf9b987770d3e04a7bb1bcf7d8",
+      "size": 5646
+    },
+    {
+      "path": "beautiful-article/references/cover.md",
+      "sha256": "a0221fd46e7971f4e3672e70ffb5ab745c247e25c35445fafd9b289f8dc91438",
+      "size": 12076
+    },
+    {
+      "path": "beautiful-article/references/harness.md",
+      "sha256": "1e20069731933bb81c0b82fc280a2653bf858a0c08567c752e4ee395030dbc66",
+      "size": 2158
+    },
+    {
+      "path": "beautiful-article/references/html-output.md",
+      "sha256": "2ea769b11cbfba1a763ff05ff5064756972b46f23990912691a7c520e47848fa",
+      "size": 2030
+    },
+    {
+      "path": "beautiful-article/references/information-density.md",
+      "sha256": "0c4c87fc25fd938ee852bfeae62e6fa79bed83b8c9768d2504cc8b9837ebf9f5",
+      "size": 3288
+    },
+    {
+      "path": "beautiful-article/references/layout.md",
+      "sha256": "45689c76591eec76d736a49af05141acfb80d85979eb0e70ce36a6a668760648",
+      "size": 2049
+    },
+    {
+      "path": "beautiful-article/references/pdf-output.md",
+      "sha256": "1f4ff9bd3acb919ecfb00b2c011692cde42e8b1b7d2644425f157bddebdf0f1e",
+      "size": 10249
+    },
+    {
+      "path": "beautiful-article/references/plan-template.md",
+      "sha256": "aacca0a1de94d44e088fa0ad69c2be2976860477479dc033e98cee6ffe6c80f1",
+      "size": 5960
+    },
+    {
+      "path": "beautiful-article/references/raw-policy.md",
+      "sha256": "0bac9c3ccde50323c83bde8b91ea2c0df555be8a78af54e194fbe0c432a9bdf8",
+      "size": 4571
+    },
+    {
+      "path": "beautiful-article/references/repair-policy.md",
+      "sha256": "bdb8475881748e2ca8e786ecadd63ebfb08522a62ed96f030b178e3107202dd5",
+      "size": 1271
+    },
+    {
+      "path": "beautiful-article/references/review-checklist.md",
+      "sha256": "36b14542fb8f52e72dc980758431390a538584c33254f2ac7a3764d73d62ed4b",
+      "size": 7445
+    },
+    {
+      "path": "beautiful-article/references/scaffold.md",
+      "sha256": "0f087398b24d534efe5fb94e7d1eef68e58934b490fc7826b7baf1286e866502",
+      "size": 3679
+    },
+    {
+      "path": "beautiful-article/references/section-build.md",
+      "sha256": "498b5c433b899b26bbdc2618354a02bf070a9a5477283db995f102a4b51649ba",
+      "size": 5505
+    },
+    {
+      "path": "beautiful-article/references/source-to-markdown.md",
+      "sha256": "5f3de2e17de9a80d396d86998f16a8dca03b7a227f1a943be19fa65075f431da",
+      "size": 6519
+    },
+    {
+      "path": "beautiful-article/references/theme-selection.md",
+      "sha256": "c08306a2b0e6480e33a53df0e029090ceaf3520820151d2e7a2ca888a201faf7",
+      "size": 2349
+    },
+    {
+      "path": "beautiful-article/scripts/html-to-pdf.sh",
+      "sha256": "816d65186c1fe62f36de6f9915aa65cb7ee186b0960dc0d2859d94c3c6aa8c76",
+      "size": 6377
+    },
+    {
+      "path": "beautiful-article/scripts/pdf-print-overrides.css",
+      "sha256": "6f8c07be7703d3d2ab6dc84ef5d1c56c3e770e2b9838870c76efe3f7caf9a1fb",
+      "size": 6649
+    },
+    {
+      "path": "beautiful-article/scripts/scaffold.sh",
+      "sha256": "1a5ffec7c4d0ce0bacaa3c47f50cbd0acb03cb8efdfc66e4391e0ed9f7ec1692",
+      "size": 7516
+    },
+    {
+      "path": "beautiful-article/scripts/source-to-markdown-markitdown.py",
+      "sha256": "96b580671dd1149ec86a7fe8630c7bc8f7b4e82578ba5a5291dcdeaa8df9d60b",
+      "size": 3308
+    },
+    {
+      "path": "beautiful-article/scripts/source-to-markdown.py",
+      "sha256": "195b9f40fde04d428731ba0402713eddb9164ee32466242c4cb14d8a395ed132",
+      "size": 5992
+    },
+    {
+      "path": "beautiful-article/theme-profiles/andy.md",
+      "sha256": "04caeecf06e145bb2efb909ffb68dfb49fa940cc83d5ae5988d6dc9a0387d8b8",
+      "size": 3483
+    },
+    {
+      "path": "beautiful-article/theme-profiles/bayer.md",
+      "sha256": "fc963ff4517e94b6d3ec15e05a98d0edb38533fc26f7d4f17221c27983f95705",
+      "size": 3255
+    },
+    {
+      "path": "beautiful-article/theme-profiles/bodoni.md",
+      "sha256": "87a9fda08c8375c5d8b3c37f5e9d7ffd2f9945b1f8b69ef7557c8abc50dc9cd9",
+      "size": 3364
+    },
+    {
+      "path": "beautiful-article/theme-profiles/freddie.md",
+      "sha256": "b5885a945465e759a87ee4311c212ec3d3caded1dbf89c0c04243bb3f2555551",
+      "size": 3477
+    },
+    {
+      "path": "beautiful-article/theme-profiles/fuller.md",
+      "sha256": "fb2818b0a0cffc81cefb60749aaee324fd3599ad050409ee6b6895c29ae5bb1a",
+      "size": 3332
+    },
+    {
+      "path": "beautiful-article/theme-profiles/index.json",
+      "sha256": "38ef72951a0d04983ea9ae51012176bfb2196e0b308adaabc04265570b07650a",
+      "size": 6024
+    },
+    {
+      "path": "beautiful-article/theme-profiles/knuth.md",
+      "sha256": "4d774d582d346125c0cb149a7c5e76829e3bd6ac619cfeb1c0fa3b3b7a12d86e",
+      "size": 3663
+    },
+    {
+      "path": "beautiful-article/theme-profiles/press.md",
+      "sha256": "b3072619c2640cadb55c0b3a06ab8109b64d630bf7684950e8c661745ade457e",
+      "size": 3694
+    },
+    {
+      "path": "beautiful-article/theme-profiles/shannon.md",
+      "sha256": "651ead9378c8d525bad0f4042213b237cec8b2c9ed96a303f0323a52fc3586e1",
+      "size": 3895
+    },
+    {
+      "path": "beautiful-article/theme-profiles/sottsass.md",
+      "sha256": "79c3ee486b84a279f2762359ea8416817a1d53997f53dfb4a5a9601eb2454fab",
+      "size": 3477
+    },
+    {
+      "path": "beautiful-article/theme-profiles/tufte.md",
+      "sha256": "908bdbd5f826f6c48a7bd53ae055e8dee16730d43651398c254f1cf7a8189d6c",
+      "size": 3685
+    },
+    {
+      "path": "beautiful-article/theme-profiles/vignelli.md",
+      "sha256": "fa0101b86528528d91cfb8037691ff854f521f1b04c20785a5d6794b38d52f51",
+      "size": 3718
+    },
+    {
+      "path": "design-system-assets/SKILL.md",
+      "sha256": "7705b61056d4fea095e7015ce1cf3dd7837acd2c498c3b3a7fea78fc37c29096",
+      "size": 1345
+    },
+    {
+      "path": "design-system-assets/agents/openai.yaml",
+      "sha256": "2acaa42f7aa5e3e496e0c11b114aaff4d669042aa012fe407987ce4024cc9ba0",
+      "size": 218
+    },
+    {
+      "path": "design-system-audit/SKILL.md",
+      "sha256": "69b1ca952bab366bdeea4e568120c1d9096c72e154bcf9309667b7be43230081",
+      "size": 1330
+    },
+    {
+      "path": "design-system-audit/agents/openai.yaml",
+      "sha256": "4cb9ec8373d28edabe3a8ed8af1ab30c996890c857e8d381c65118d33cb21435",
+      "size": 235
+    },
+    {
+      "path": "design-system-doctor/SKILL.md",
+      "sha256": "f65ff973b23643ea4c374d4eebb0ccec254aa9ae6812c1f038b777fc97c4cb1d",
+      "size": 1205
+    },
+    {
+      "path": "design-system-doctor/agents/openai.yaml",
+      "sha256": "6949d276c06a810af6c60218212eb6f11e7499c5479aa77cf79770e2e1f8ff43",
+      "size": 237
+    },
+    {
+      "path": "design-system-init/SKILL.md",
+      "sha256": "9d633162993c80687549450ce63211bef40dba586863e094248eb9c6cf7908ba",
+      "size": 1698
+    },
+    {
+      "path": "design-system-init/agents/openai.yaml",
+      "sha256": "32aa65b58a9c3b3275db675cddc9cef4fbaa7fd45ff5dc4a8567f020a289d16b",
+      "size": 229
+    },
+    {
+      "path": "design-system-migrate/SKILL.md",
+      "sha256": "175fe1296baf84af64b4073789de08323381c187ab6f9f07b570085c244da790",
+      "size": 1518
+    },
+    {
+      "path": "design-system-migrate/agents/openai.yaml",
+      "sha256": "f0d02776e2c31d7bd70cd8953238252a191771d952f36a5bdc03987f5889f7fe",
+      "size": 241
+    },
+    {
+      "path": "design-system-profile/SKILL.md",
+      "sha256": "aec7699df8843607f0063e12e9b7723b6cfb98c2db6ce80f8237f16df033cae8",
+      "size": 1334
+    },
+    {
+      "path": "design-system-profile/agents/openai.yaml",
+      "sha256": "c8520231c7ca2d448653c7d1a9f5cc2df4c21866f30e766108afc275a30cf958",
+      "size": 223
+    },
+    {
+      "path": "design-system-release/SKILL.md",
+      "sha256": "e242120ef8ebe686a4cc5dc8b26941bd4172895d732da7123856f53adf2d7854",
+      "size": 1421
+    },
+    {
+      "path": "design-system-release/agents/openai.yaml",
+      "sha256": "3c4213a0ef18a960a1e50fccbd54276153ee60d0ef3df8267f8866e83111ed1d",
+      "size": 235
+    },
+    {
+      "path": "design-system-scaffold/SKILL.md",
+      "sha256": "a583c24b439f89dce9a92e69cbfcda804867cf64a57ba1ff6836fb74fbfa7902",
+      "size": 1726
+    },
+    {
+      "path": "design-system-scaffold/agents/openai.yaml",
+      "sha256": "950c0bf435d1cd0bdd687d9417def4de3c117e0f1a32ba145ad424aba64bd116",
+      "size": 242
+    },
+    {
+      "path": "design-system-sync/SKILL.md",
+      "sha256": "9e7a553d24de5100386963c68b3da558270bd442ae0f37b0b1b65fdcacb4f51a",
+      "size": 1353
+    },
+    {
+      "path": "design-system-sync/agents/openai.yaml",
+      "sha256": "e4b8c71da1543332b0278a547986a18c315c0e014124060048ab374b964cd7ad",
+      "size": 232
+    },
+    {
+      "path": "design-system-tokens/SKILL.md",
+      "sha256": "fd50b8cbb91ac8de9e640ee9a5dc4c71f987c6e6716c23ab0320b98a8891e912",
+      "size": 1224
+    },
+    {
+      "path": "design-system-tokens/agents/openai.yaml",
+      "sha256": "ddd1cd521a132bfbf0c0e403a7b880534d134e3f61e069d7f6b53f1239222ac0",
+      "size": 216
+    },
+    {
+      "path": "emil-design-eng/SKILL.md",
+      "sha256": "defffff8bea4583897b001b9173ccd6fb6f8341fffc63a1891a38372137a1848",
+      "size": 27900
+    },
+    {
+      "path": "find-animation-opportunities/SKILL.md",
+      "sha256": "38edd3c52f6fad37a27934b947c9e807736459ba0eeebf6ccf1fc869aadc01cc",
+      "size": 9623
+    },
+    {
+      "path": "gpt-image-2/README.md",
+      "sha256": "8017cb63966c341d3715fb1f390a28555a165a34887ccfa5f1a04f17a6d80cbd",
+      "size": 19473
+    },
+    {
+      "path": "gpt-image-2/README.zh-CN.md",
+      "sha256": "5d4a7c9c254f5023ee5834c07da8212e1b8b3b9c9174f52fe4fecdf1b4fcd826",
+      "size": 19236
+    },
+    {
+      "path": "gpt-image-2/SKILL.md",
+      "sha256": "17b83bc0e8d48d3ccc2913eb5a7173f1cdd94621d31ffa309b21b2c46bcd1e90",
+      "size": 27142
+    },
+    {
+      "path": "gpt-image-2/manifest.json",
+      "sha256": "1b33effc5bbfa7957002231a8150901c8cb378176ad428586d53dbe0f6614513",
+      "size": 595
+    },
+    {
+      "path": "gpt-image-2/references/academic-figures/graphical-abstract.md",
+      "sha256": "2cd8ebb65db77abc06866ac26ef44d6f77c3926c65a0347d52fd7584a758a376",
+      "size": 10624
+    },
+    {
+      "path": "gpt-image-2/references/academic-figures/mechanism-diagram.md",
+      "sha256": "0a54e5649c0718109a1b559a59c07743e51085bcc99ec41bd7829db6b0eac37c",
+      "size": 11761
+    },
+    {
+      "path": "gpt-image-2/references/academic-figures/method-pipeline-overview.md",
+      "sha256": "6cbd2d0da6e1b02e44726d885804837f9316f874bbaf8c806e5fb15b57b8576e",
+      "size": 13152
+    },
+    {
+      "path": "gpt-image-2/references/academic-figures/multi-condition-comparison.md",
+      "sha256": "ba3eea9994536baa7f1f5730f05ef0b302e8372945f30ebf7c117f1348bdd83b",
+      "size": 11288
+    },
+    {
+      "path": "gpt-image-2/references/academic-figures/neural-network-architecture.md",
+      "sha256": "f0174b9c5b74d92dd3d630e05443dcc8179290f7f62f672cd6c9e48382cef3db",
+      "size": 10071
+    },
+    {
+      "path": "gpt-image-2/references/academic-figures/publication-chart.md",
+      "sha256": "4b8ef0f23051c55f36e3113111ce3eca81b2dba7ca44bef5140faafb65dafad6",
+      "size": 11846
+    },
+    {
+      "path": "gpt-image-2/references/academic-figures/qualitative-comparison-grid.md",
+      "sha256": "466ef8e22a8e712a6658bf2c7498e7fd24290063c1078b77c3c91d6442e1ca38",
+      "size": 9888
+    },
+    {
+      "path": "gpt-image-2/references/academic-figures/research-overview-poster.md",
+      "sha256": "9c87ee136000c1572b26fe8e0f5b99df039e74e76172013830b5a94806cd5839",
+      "size": 11964
+    },
+    {
+      "path": "gpt-image-2/references/academic-figures/scientific-schematic.md",
+      "sha256": "99ceb5183564f0eaba4fcd68e2378ef3a4675862cada372d43b0ef40d860dff9",
+      "size": 11355
+    },
+    {
+      "path": "gpt-image-2/references/assets-and-props/game-screenshot-mockup.md",
+      "sha256": "9fe24798ecb6e840ab7eb7467d4d02c90f61e26ba246e2f47901a58aaf8f7fb2",
+      "size": 6117
+    },
+    {
+      "path": "gpt-image-2/references/assets-and-props/retro-skeuomorphic-icons.md",
+      "sha256": "ed6453d644050a476e43bb376633203a14eb96a798307b37927007e753661cf5",
+      "size": 5625
+    },
+    {
+      "path": "gpt-image-2/references/avatars-and-profile/character-grid-portrait.md",
+      "sha256": "a000b5005040088f5353324b1de93cb98ec323ca0c7fd2bc628998ce50c3cfdc",
+      "size": 6895
+    },
+    {
+      "path": "gpt-image-2/references/avatars-and-profile/cultural-portrait-series.md",
+      "sha256": "3989d20f3631469e3bdaafc5bc253650462c9930e8f0bf0b159eb0117c6dd142",
+      "size": 5651
+    },
+    {
+      "path": "gpt-image-2/references/avatars-and-profile/sticker-set.md",
+      "sha256": "67a28c47186108177a9e77e4c6f2d70f664a15e618e389396312b429c9399ce9",
+      "size": 5595
+    },
+    {
+      "path": "gpt-image-2/references/avatars-and-profile/style-transfer-selfie.md",
+      "sha256": "aee1d1056a84dcf422ab1758b24baef9f1bc6af5ee2920fa032fdeb81ead3bc6",
+      "size": 5334
+    },
+    {
+      "path": "gpt-image-2/references/avatars-and-profile/themed-3d-icon.md",
+      "sha256": "97d3196f0f88f25f5d883c3c55f468c232303685369e74f86b1fdc9b230dc8cd",
+      "size": 5302
+    },
+    {
+      "path": "gpt-image-2/references/branding-and-packaging/beverage-label-design.md",
+      "sha256": "c287c37f3d15aa4b5ef12ba43f336f5a199f9b8018c818e0e044c06dcbd46d83",
+      "size": 5414
+    },
+    {
+      "path": "gpt-image-2/references/branding-and-packaging/brand-identity-board.md",
+      "sha256": "712d4f18fcf2d9df2bb544a00a6d521174c64382b6f91811b47e630a47703986",
+      "size": 6001
+    },
+    {
+      "path": "gpt-image-2/references/branding-and-packaging/character-merch-board.md",
+      "sha256": "21e8768f37f1074202b2633cdce0fc15582d8aed36e291a2b077aea519adb417",
+      "size": 15389
+    },
+    {
+      "path": "gpt-image-2/references/branding-and-packaging/cosmetic-packaging.md",
+      "sha256": "971dc9a3a5242b28ea359639dfc450c1dd64aeb779c07f62a67749eb949ac0a0",
+      "size": 5492
+    },
+    {
+      "path": "gpt-image-2/references/branding-and-packaging/full-mascot-brand-doc.md",
+      "sha256": "bd87e164e67a792fa2cea8a3b82bf9aed87d0bbbcdf2d63dc5aa22e1b5f2a085",
+      "size": 13626
+    },
+    {
+      "path": "gpt-image-2/references/branding-and-packaging/mascot-brand-kit.md",
+      "sha256": "4ae29c6c4676bfe7c840d442d0027a2944534800de71ee7dedd0911d92a25ef3",
+      "size": 5784
+    },
+    {
+      "path": "gpt-image-2/references/editing-workflows/background-replacement.md",
+      "sha256": "e531c21ff47b1bce06105d8c6658911a180500d96941b2ca80b8cae86f891121",
+      "size": 3813
+    },
+    {
+      "path": "gpt-image-2/references/editing-workflows/local-object-replacement.md",
+      "sha256": "60e372c33450e790fd9b6d00dd05ac1912a8a403f3ac42016f2739d8650ea1ea",
+      "size": 3533
+    },
+    {
+      "path": "gpt-image-2/references/editing-workflows/object-removal.md",
+      "sha256": "db5e8cb637673c3071fb3d3af0535d61e6c34ae5dffdf505111a917272ef845d",
+      "size": 2999
+    },
+    {
+      "path": "gpt-image-2/references/editing-workflows/portrait-local-edit.md",
+      "sha256": "413d123d9c6f1e6a7d0727b43199ab3de9d71bb78480322c14446e17c4385915",
+      "size": 3561
+    },
+    {
+      "path": "gpt-image-2/references/editing-workflows/product-retouching.md",
+      "sha256": "74e5893c4a7589973a3614a4caf209be1985a8a44ef4891ff349e43720833d22",
+      "size": 3413
+    },
+    {
+      "path": "gpt-image-2/references/grids-and-collages/ad-banner-multi-grid.md",
+      "sha256": "6ddb36fb833c9e6ad1090fc2517144ba2becd4d446d7e6a64cdbed2a07f83fe1",
+      "size": 11062
+    },
+    {
+      "path": "gpt-image-2/references/grids-and-collages/anime-pitch-board.md",
+      "sha256": "1fd09ca3c256f92b7e4317ac063b000f49b75211cf2c3ee2e1e14584ca3a9db1",
+      "size": 5997
+    },
+    {
+      "path": "gpt-image-2/references/grids-and-collages/banner-grid-2x2.md",
+      "sha256": "e7e9a591a41416c6db0794a7004f581c00284c8c7dae53e749510097e42444b6",
+      "size": 5974
+    },
+    {
+      "path": "gpt-image-2/references/grids-and-collages/lookbook-grid.md",
+      "sha256": "e291f1b18f530db7d30b2ffac08d20516d09a6c542e52264dce38dd449014857",
+      "size": 5759
+    },
+    {
+      "path": "gpt-image-2/references/grids-and-collages/mixed-style-multi-panel.md",
+      "sha256": "b3d4a8a7b5c4c1837906a253fd0cbaef842c1b0b4eac6d21f810223a3d72ac69",
+      "size": 5959
+    },
+    {
+      "path": "gpt-image-2/references/infographics/bento-grid-infographic.md",
+      "sha256": "0c78eece9c7007024215ca3bf24160339fa9883783cf1f113ba19b9b6fc8d712",
+      "size": 8816
+    },
+    {
+      "path": "gpt-image-2/references/infographics/comparison-infographic.md",
+      "sha256": "39c3e8f83e8fd3a02a84647c5b3651833ad10e9111a5dce04452ded646c6df36",
+      "size": 7820
+    },
+    {
+      "path": "gpt-image-2/references/infographics/hand-drawn-infographic.md",
+      "sha256": "15e340eb8ce1f3e985002f9a37f4ac25ca7fc1758b287f4db5960d23df9f405d",
+      "size": 8500
+    },
+    {
+      "path": "gpt-image-2/references/infographics/kpi-dashboard-infographic.md",
+      "sha256": "d96c5a42a679643c01c096ca9057327439ea90b76f32122595d2c5e009570f9f",
+      "size": 9252
+    },
+    {
+      "path": "gpt-image-2/references/infographics/legend-heavy-infographic.md",
+      "sha256": "e3e36cb95db2d29b9da1a505fdd06ef24a5d04e66aa964ee927cc41e1485e052",
+      "size": 6925
+    },
+    {
+      "path": "gpt-image-2/references/infographics/step-by-step-infographic.md",
+      "sha256": "8c369fba11b6e67490ef58b2b088a2527c6647cf68e96b11cfc02ddcc5d07e4e",
+      "size": 8354
+    },
+    {
+      "path": "gpt-image-2/references/maps/food-map.md",
+      "sha256": "ecd0c7ece552a4054dccc51b527ec675a1946bb0bce63e48ef77c92692f9b4be",
+      "size": 7329
+    },
+    {
+      "path": "gpt-image-2/references/maps/illustrated-city-map.md",
+      "sha256": "3fc8ac03d6120b9b8ac61c2132dd78c4dd7c861fd3b9425d1194276444a67199",
+      "size": 5192
+    },
+    {
+      "path": "gpt-image-2/references/maps/itinerary-day-trip-map.md",
+      "sha256": "2ead7829b02fd0f3f407d785314cde14670fabe3b805d82279449eac255875e0",
+      "size": 14158
+    },
+    {
+      "path": "gpt-image-2/references/maps/store-distribution-map.md",
+      "sha256": "d84a18d8874f53e59310e1634b5a31639e5f1b38dd9011aec7d57f5e323d383c",
+      "size": 5736
+    },
+    {
+      "path": "gpt-image-2/references/maps/travel-route-map.md",
+      "sha256": "338d93ee9b437376d63b80a2a7df32ee77928bf71838564848be0ffbd1d1a4be",
+      "size": 6120
+    },
+    {
+      "path": "gpt-image-2/references/portraits-and-characters/character-sheet.md",
+      "sha256": "b7dbcfce37fbf1cdc130ffb753c4f8bf1f1c0939ab0d76ddb54d472d8956e7c9",
+      "size": 5664
+    },
+    {
+      "path": "gpt-image-2/references/portraits-and-characters/founder-portrait.md",
+      "sha256": "f8b0c25de50e514ffeeab9cee17dff56cbffc70b7873ff9a4ce9894309b800f8",
+      "size": 5280
+    },
+    {
+      "path": "gpt-image-2/references/portraits-and-characters/pose-reference-sheet.md",
+      "sha256": "df0fb75a6bd6d7a1d77879fa7680d914054d97a7ee0dfae3be8999d907cc53ac",
+      "size": 12999
+    },
+    {
+      "path": "gpt-image-2/references/portraits-and-characters/professional-portrait.md",
+      "sha256": "68ac90cec4dfa7889c668353c0e719af9f08e1f79d33961284dde553e4208dbd",
+      "size": 4910
+    },
+    {
+      "path": "gpt-image-2/references/portraits-and-characters/virtual-host.md",
+      "sha256": "2edef4e3045e097ffb5b8f9a2b161694b0f584b27def877c7b4157bdc9f9b029",
+      "size": 5181
+    },
+    {
+      "path": "gpt-image-2/references/poster-and-campaigns/banner-hero.md",
+      "sha256": "4173eeb52a5f46b102236d4cd5a50278158b4d75769e1216eee1f43a8acf5f58",
+      "size": 4933
+    },
+    {
+      "path": "gpt-image-2/references/poster-and-campaigns/biomimetic-concept-poster.md",
+      "sha256": "bc42736b1fbb7f293d46d6e51b3505c8398750912c9322676436b0f592891508",
+      "size": 11573
+    },
+    {
+      "path": "gpt-image-2/references/poster-and-campaigns/brand-poster.md",
+      "sha256": "69119d4b7f8d50f299c636f3ba4734e1881b55896c607bef9d5d6c05179c36f0",
+      "size": 4669
+    },
+    {
+      "path": "gpt-image-2/references/poster-and-campaigns/campaign-kv.md",
+      "sha256": "b4bbc441b6e10496b39157498be367c5c4cb106c6f217a7ad90cd1f993391f78",
+      "size": 5107
+    },
+    {
+      "path": "gpt-image-2/references/poster-and-campaigns/character-catalog-poster.md",
+      "sha256": "22167b028070429241958d848017c2e78fb8ff816f55b9900d887a4e95888c07",
+      "size": 13624
+    },
+    {
+      "path": "gpt-image-2/references/poster-and-campaigns/editorial-cover.md",
+      "sha256": "3c988426561e9f4eb52c93bc6543d3020a5c606f904377d6163f3e9dbd3a2da4",
+      "size": 5421
+    },
+    {
+      "path": "gpt-image-2/references/poster-and-campaigns/lineup-comparison-poster.md",
+      "sha256": "ece917e8ccd8f3a76cd68aead782f14f5048bbf21b1000296a68c0f47a6d6e42",
+      "size": 12592
+    },
+    {
+      "path": "gpt-image-2/references/poster-and-campaigns/vintage-editorial-infographic.md",
+      "sha256": "d14051e776d8074d6ba612e2fae9948a373fc668a4b5023eed68238dc23eea3e",
+      "size": 13259
+    },
+    {
+      "path": "gpt-image-2/references/product-visuals/ecommerce-marketing-board.md",
+      "sha256": "d86b3784001d41effe209b40c22651eceeea97f1ae770da93ebddc9b979a6ec4",
+      "size": 14417
+    },
+    {
+      "path": "gpt-image-2/references/product-visuals/exploded-view-poster.md",
+      "sha256": "dae27f33ac8e71a0936fc682bb6393dec8e6c6fa07b38784c04afa0ef04c9042",
+      "size": 8241
+    },
+    {
+      "path": "gpt-image-2/references/product-visuals/lifestyle-product-scene.md",
+      "sha256": "04de89aacb05f067cbf6c9ff3eead7d6c569f018c2e433f522e2ada8669ab784",
+      "size": 7564
+    },
+    {
+      "path": "gpt-image-2/references/product-visuals/packaging-showcase.md",
+      "sha256": "8498693a75cab3b98516f43bbf3febc3b37ec0b2ea70bf934d8ddad4a4ad392f",
+      "size": 7424
+    },
+    {
+      "path": "gpt-image-2/references/product-visuals/premium-studio-product.md",
+      "sha256": "63ce1c789e61a3aff2d6cf56a3820d37efe640b4581662b298115a123021b310",
+      "size": 7108
+    },
+    {
+      "path": "gpt-image-2/references/product-visuals/white-background-product.md",
+      "sha256": "eef165aeff9ba319aca146985a245f85a92220a961e368fd3c69190016eb8e47",
+      "size": 6062
+    },
+    {
+      "path": "gpt-image-2/references/prompt-writing.md",
+      "sha256": "08208117b66b97d6ddf7d3c628142c020ee7bff15e015ccbc14717db2721a744",
+      "size": 25024
+    },
+    {
+      "path": "gpt-image-2/references/scenes-and-illustrations/concept-scene.md",
+      "sha256": "96529f651499d45205f9ebad8bf70261e664f750860501d5901ed9a6adb897cf",
+      "size": 4739
+    },
+    {
+      "path": "gpt-image-2/references/scenes-and-illustrations/healing-scene.md",
+      "sha256": "7865ed2df612ef4261379542d7a37f0f603db6022b85fb8354a6cb05b89ce9e6",
+      "size": 4683
+    },
+    {
+      "path": "gpt-image-2/references/scenes-and-illustrations/minimalist-mood-scene.md",
+      "sha256": "75eac5b811721e0e9d58fde0900767779a52c96c3b6461feb6e96b0d4af44edf",
+      "size": 4603
+    },
+    {
+      "path": "gpt-image-2/references/scenes-and-illustrations/picture-book-scene.md",
+      "sha256": "169511ac225cce324f73dcadeca15f793c06d56c3f8e1163ce526f809af6a823",
+      "size": 4716
+    },
+    {
+      "path": "gpt-image-2/references/slides-and-visual-docs/dense-explainer-slides.md",
+      "sha256": "7a89c2f7b9e8edc32fb2312c09fbba7d8c771fff1e616d15cb859ccd31d46ac2",
+      "size": 5790
+    },
+    {
+      "path": "gpt-image-2/references/slides-and-visual-docs/educational-diagram-slide.md",
+      "sha256": "fb2722b22616c6a24c5461c51cf3acebb76f7927015527b8531e2a2a173e6f9a",
+      "size": 5425
+    },
+    {
+      "path": "gpt-image-2/references/slides-and-visual-docs/policy-style-slide.md",
+      "sha256": "5b16a64ddae6246c7502c14f8fd929f3845fd4c906b217513f7346a496da91c9",
+      "size": 6041
+    },
+    {
+      "path": "gpt-image-2/references/slides-and-visual-docs/visual-report-page.md",
+      "sha256": "09bae48db63efcd96ebe69bbe0e53f815c2bff9b6e358eb9b4734d6b5439be39",
+      "size": 6186
+    },
+    {
+      "path": "gpt-image-2/references/storyboards-and-sequences/anime-key-visual.md",
+      "sha256": "cd078b5cc0ebcf0232dd487e3bdb2d7fbe59137e6b4e311f5458a9e964766612",
+      "size": 4985
+    },
+    {
+      "path": "gpt-image-2/references/storyboards-and-sequences/character-relationship-diagram.md",
+      "sha256": "832fcdae222404a7031a1f3f31546c8b2af29d0931ab10b96bfb3ded16cffeda",
+      "size": 5970
+    },
+    {
+      "path": "gpt-image-2/references/storyboards-and-sequences/cinematic-storyboard-grid.md",
+      "sha256": "00995d56be5dcd8f5205488c56672af37b90ab74427c017dfbe96d16f1008ddd",
+      "size": 12133
+    },
+    {
+      "path": "gpt-image-2/references/storyboards-and-sequences/four-panel-comic.md",
+      "sha256": "63da31aa22275da2cc88815d44a82e406d9f762b8e6f415f580347a99e06c7b1",
+      "size": 6062
+    },
+    {
+      "path": "gpt-image-2/references/storyboards-and-sequences/manga-spread-page.md",
+      "sha256": "17f8f18fdbc74c28ae5b9dc5f510eb673acc5f5dfed4317168bfe953f25984bf",
+      "size": 6023
+    },
+    {
+      "path": "gpt-image-2/references/storyboards-and-sequences/process-photo-board.md",
+      "sha256": "900e90f44a01790eaf1d5d1e10cc46bdfd5d76b017cfd29fc83c0555de77bc92",
+      "size": 14643
+    },
+    {
+      "path": "gpt-image-2/references/storyboards-and-sequences/product-tvc-storyboard.md",
+      "sha256": "f7ddde956e9d0b5d5f8ede8ae2c4af1c0e1250df4927df4888bc73b7f7fe3104",
+      "size": 11543
+    },
+    {
+      "path": "gpt-image-2/references/storyboards-and-sequences/recipe-process-flowchart.md",
+      "sha256": "88b60ee5f2677c2bc08d7893b2b70e884a647d1f6e86a1e7e7f6bc64bfa70e8d",
+      "size": 6010
+    },
+    {
+      "path": "gpt-image-2/references/technical-diagrams/er-diagram.md",
+      "sha256": "ba0e207ea18cd5aea80a99e37ac8e43b81253462f0c84dbb475278f35cebb1f8",
+      "size": 11279
+    },
+    {
+      "path": "gpt-image-2/references/technical-diagrams/flowchart-decision.md",
+      "sha256": "5f31d302568381d6d5d4c9f7a6092ab9eb6620565b1ad3f317386d3d0aaf9221",
+      "size": 10411
+    },
+    {
+      "path": "gpt-image-2/references/technical-diagrams/mind-map-tech.md",
+      "sha256": "47eaa0e042250b957e2a19fe8fbbb00775c117e7a49f71918188c285ef6dff52",
+      "size": 10124
+    },
+    {
+      "path": "gpt-image-2/references/technical-diagrams/network-topology.md",
+      "sha256": "afffae8692a35c34f9f71a03dafadc346aa3ffa53f63d168a58d2dd47f0bb3b0",
+      "size": 11675
+    },
+    {
+      "path": "gpt-image-2/references/technical-diagrams/sequence-diagram.md",
+      "sha256": "9d237be08b65f9162a1875b391792137f0f34bcc6076109f9c5b18469e3f3b56",
+      "size": 11067
+    },
+    {
+      "path": "gpt-image-2/references/technical-diagrams/state-machine.md",
+      "sha256": "fc57dcd2bbfed49a512640db8fbd40c6e9cffcd0ecbfecbf8ae51df9bd176b62",
+      "size": 10373
+    },
+    {
+      "path": "gpt-image-2/references/technical-diagrams/system-architecture.md",
+      "sha256": "eedfea8dd2f1da929395d0378a396f0edb41c60565dad61687e24581a5bc22e5",
+      "size": 12028
+    },
+    {
+      "path": "gpt-image-2/references/typography-and-text-layout/bilingual-layout-visual.md",
+      "sha256": "b63f5a1b608278cf9c0f6f324de4c55ba8dcb42467a44d27789db32355159f18",
+      "size": 5735
+    },
+    {
+      "path": "gpt-image-2/references/typography-and-text-layout/title-safe-poster.md",
+      "sha256": "915811ac7eabcc359a30b59a7a8aca4d00390558d65c2462242a913d169c8ec1",
+      "size": 4943
+    },
+    {
+      "path": "gpt-image-2/references/ui-mockups/chat-interface-scene.md",
+      "sha256": "5f8eb8ae4c293df22c4195da8542d381fd750190e6ed15e28a8013705b58a55b",
+      "size": 9329
+    },
+    {
+      "path": "gpt-image-2/references/ui-mockups/landing-page-case-study.md",
+      "sha256": "bb8785a5df0c4f6665ceb27374fce8ac50a6c0ce79133b307b1b4b3026e6b2a5",
+      "size": 12965
+    },
+    {
+      "path": "gpt-image-2/references/ui-mockups/live-commerce-ui.md",
+      "sha256": "bb5878a2e0894149d08b33fe14a883850ffff040d99d2b6ea73227e1e59ac041",
+      "size": 8915
+    },
+    {
+      "path": "gpt-image-2/references/ui-mockups/product-card-overlay.md",
+      "sha256": "e16175caf48faa4268de7775354abe6be732f797ca3799e6311da32964e11f63",
+      "size": 8748
+    },
+    {
+      "path": "gpt-image-2/references/ui-mockups/short-video-cover-ui.md",
+      "sha256": "1990edf03eb9c29a088c760d1cd90952b721cc8d11c27ef1866b9fe0555e7778",
+      "size": 7764
+    },
+    {
+      "path": "gpt-image-2/references/ui-mockups/social-interface-mockup.md",
+      "sha256": "7759f34a405f3af027d22e86932735a56b725c58116dca717a936a4475d15e9d",
+      "size": 9616
+    },
+    {
+      "path": "gpt-image-2/scripts/check-mode.js",
+      "sha256": "6467befad28db01bbe2a26bef1cd8a96de5fd3cdb36bc1ae8d2d1628eed36ee4",
+      "size": 2213
+    },
+    {
+      "path": "gpt-image-2/scripts/edit.js",
+      "sha256": "5cdce6440827630b4338fa858876e9529b07b1ad643f33bd8575d41fffa040d6",
+      "size": 7078
+    },
+    {
+      "path": "gpt-image-2/scripts/generate.js",
+      "sha256": "4893f188d34ab6299e20807ca699b1101b351a2e6f6ab0b78610b89bb5856f46",
+      "size": 5681
+    },
+    {
+      "path": "gpt-image-2/scripts/package.json",
+      "sha256": "f0b771d5e3fecbf4f8cfe603ae5fce421c96083b2b7c1996996b4a6ce37ce7f2",
+      "size": 72
+    },
+    {
+      "path": "gpt-image-2/scripts/shared.js",
+      "sha256": "fb5aa330daf5e777081b1a1930c538feac746981c4c987c84fb3c98df5302be8",
+      "size": 6324
+    },
+    {
+      "path": "improve-animations/AUDIT.md",
+      "sha256": "4c7e350c639564b4e572c9f0e20bab2d427f5c9c469daa8aa9b7ac5275728ea1",
+      "size": 7502
+    },
+    {
+      "path": "improve-animations/PLAN-TEMPLATE.md",
+      "sha256": "886e54b73ac550749b434eebe928df7be0683684f5a66a1bf0cf8326e09fe50b",
+      "size": 3173
+    },
+    {
+      "path": "improve-animations/SKILL.md",
+      "sha256": "f7bcd002f28be07c3c4d53a57af59950cff80645a9b4b94f59fa1f4810b66d5b",
+      "size": 8016
+    },
+    {
+      "path": "kb-retriever/README.md",
+      "sha256": "19923763973f2f3e94fa141df9b32554c4161d4e11081608be71c765defc93bf",
+      "size": 7483
+    },
+    {
+      "path": "kb-retriever/README.zh-CN.md",
+      "sha256": "bbb42922783a652d380d00244c8e627c99df29eabed4e602b245f1b8a1667cc0",
+      "size": 6948
+    },
+    {
+      "path": "kb-retriever/SKILL.md",
+      "sha256": "179084610070de79af796ab0ea0e4e60fd72ff484ab38250588712a35d225a28",
+      "size": 14216
+    },
+    {
+      "path": "kb-retriever/manifest.json",
+      "sha256": "89165e9290e3d630b1ee73c54b68217ce179a38ee1f18188c4cbc9c2cca3ca4f",
+      "size": 561
+    },
+    {
+      "path": "kb-retriever/references/excel_analysis.md",
+      "sha256": "40da363ba33dc444b0c96b6185d481c614364ca1532cbae6271feabf8a5d98f4",
+      "size": 2874
+    },
+    {
+      "path": "kb-retriever/references/excel_reading.md",
+      "sha256": "5b58dcb434e3212a8ee122aaaf20ef7a60af9d53d19fdeb78829189b9790b10c",
+      "size": 1814
+    },
+    {
+      "path": "kb-retriever/references/pdf_reading.md",
+      "sha256": "41b20cf978ffb4a6034b7a223907f97cff8148e322f40e0658f16ca1224b0c62",
+      "size": 9800
+    },
+    {
+      "path": "kb-retriever/scripts/convert_pdf_to_images.py",
+      "sha256": "734f09cf9a9dc5abb861683aa48fda5af15cb830fc8a38d39c53f4b8175fd936",
+      "size": 1115
+    },
+    {
+      "path": "pick-ui-library/SKILL.md",
+      "sha256": "26c7dc79e9f38550076bd2643f591bbbd2b839895e4861fdd3e8354af4f0775d",
+      "size": 4591
+    },
+    {
+      "path": "prototype/PICKER.md",
+      "sha256": "e04b8ceb7686888f05eefc301dc1197963cfa699189c95966e5a39b1f1cf6c24",
+      "size": 7745
+    },
+    {
+      "path": "prototype/SKILL.md",
+      "sha256": "848a67552f2df8cd61cdcbacdbf7eb6f59567ae0bb79dfbb56ba7e762793a88a",
+      "size": 7578
+    },
+    {
+      "path": "review-animations/SKILL.md",
+      "sha256": "9b9766965a0d9ca2afd0a1b44e74386810008a1afdd968c62b6aa84c150cc20f",
+      "size": 8220
+    },
+    {
+      "path": "review-animations/STANDARDS.md",
+      "sha256": "ca2b681e825638ea78cb8b6adc76234d849663cc3774eb2ad8d47181bad3098f",
+      "size": 9988
+    },
+    {
+      "path": "web-design-engineer/README.md",
+      "sha256": "e7299cc1e06782c9c4a1bce80743a1463f70e0f24dc918a2d563d8e808a07eac",
+      "size": 28770
+    },
+    {
+      "path": "web-design-engineer/README.zh-CN.md",
+      "sha256": "bd7f14e4e7f80a63fc6abb1c3100ce13f9f5cffcac8c92725c832341d7664931",
+      "size": 28053
+    },
+    {
+      "path": "web-design-engineer/SKILL.md",
+      "sha256": "10d97200bb34d02465b0984a815bb85da52a3c08b5e2e42e4d5ee60b1a78a78d",
+      "size": 35898
+    },
+    {
+      "path": "web-design-engineer/agents/openai.yaml",
+      "sha256": "6845f8270b96c9f5c7de3fe04a476177052bf8e63e38e61fc78dd0316b740a76",
+      "size": 295
+    },
+    {
+      "path": "web-design-engineer/manifest.json",
+      "sha256": "50e7f1d92dbd6389df42834dd2307837a67aac78ee4d5f10cc9bc31b872b5871",
+      "size": 624
+    },
+    {
+      "path": "web-design-engineer/references/advanced-patterns.md",
+      "sha256": "196d2fbf0cfa61ab577c9eaa266f617e07ebcea6ad4c971d0586f437f6cd99fd",
+      "size": 15215
+    },
+    {
+      "path": "web-design-engineer/references/block-library.md",
+      "sha256": "d5f6322c71d3d1ef13f91037a40076f7456c11ef0a708a68f4ab5f6ac51207f8",
+      "size": 1805
+    },
+    {
+      "path": "web-design-engineer/references/browser-acceptance.md",
+      "sha256": "9225d992105ae21629cd113a34499840af8643d96397583f9b032f87bcc4c637",
+      "size": 4770
+    },
+    {
+      "path": "web-design-engineer/references/critique-guide.md",
+      "sha256": "c0ee755f3a3ff850b10d7b98a2d13d39e6c78c9e55b72775370505f995093292",
+      "size": 10672
+    },
+    {
+      "path": "web-design-engineer/references/design-calibration.md",
+      "sha256": "991dfc17eea82e6e31693d4537651b17cd56deb75978f10adb8387ead1079fef",
+      "size": 6275
+    },
+    {
+      "path": "web-design-engineer/references/design-directions.md",
+      "sha256": "c930ac9958fcc3250f9734fa22604583dafda16ab4afec6976451ffa0174cabb",
+      "size": 14293
+    },
+    {
+      "path": "web-design-engineer/references/failure-patterns.md",
+      "sha256": "65ede0b573c9fde63b8efee5a41ae4f59bb6ffeae9a935184b881c8077b9d527",
+      "size": 7278
+    },
+    {
+      "path": "web-design-engineer/references/redesign-protocol.md",
+      "sha256": "4fffc17027d3ff4d7ac8b1e62e0e0a2b758c603df032cd2d7e1307bc2ab77b7e",
+      "size": 4304
+    },
+    {
+      "path": "web-design-engineer/references/style-recipes/INDEX.md",
+      "sha256": "21dbd5597ca19664eab381c9b9227751607c6956de5ad510927f2b38b658f452",
+      "size": 12322
+    },
+    {
+      "path": "web-design-engineer/references/style-recipes/active-theory.md",
+      "sha256": "f54160d376e54e468b215da0d4e0e11be28b8bac87a4c73fb03f52ba5b45e4a2",
+      "size": 2628
+    },
+    {
+      "path": "web-design-engineer/references/style-recipes/aesop.md",
+      "sha256": "a23c86c3f0ba3b4f1ed25673a91ad08ab6058b42c71c219c721c915a6d4bfe83",
+      "size": 2846
+    },
+    {
+      "path": "web-design-engineer/references/style-recipes/apple-hig.md",
+      "sha256": "fd4363808db2bfc52ce0393af9643364cb556b6533092fe10186a03628278fc0",
+      "size": 3126
+    },
+    {
+      "path": "web-design-engineer/references/style-recipes/are-na.md",
+      "sha256": "851c850f68bf9315273d9281a084412d6cddf886373363fcaf24eec85f04832d",
+      "size": 2283
+    },
+    {
+      "path": "web-design-engineer/references/style-recipes/balenciaga-post-2017.md",
+      "sha256": "d9eab345d859288d986ebe584772b77678a389d8bf86d7ade9e87c4cc323678e",
+      "size": 2411
+    },
+    {
+      "path": "web-design-engineer/references/style-recipes/bloomberg-businessweek-turley.md",
+      "sha256": "5689fcbb54d527bb15d810cd7095b97d75f222b4b53209476ccbc450dd3338db",
+      "size": 2635
+    },
+    {
+      "path": "web-design-engineer/references/style-recipes/bloomberg-terminal.md",
+      "sha256": "90d9b5e6f86a2ddb1b8dbaba91b35e571a1bcebf8a91ebdc242dbbf6d28e376b",
+      "size": 2826
+    },
+    {
+      "path": "web-design-engineer/references/style-recipes/dieter-rams-braun.md",
+      "sha256": "e74a0b18363cab5ec7c9cba5e78645d7ce011b17faade30c06cfe9b352dcde88",
+      "size": 2650
+    },
+    {
+      "path": "web-design-engineer/references/style-recipes/field-io.md",
+      "sha256": "686afef791f1bbf287981f571f743c3fb2700af98187320b690f8d359ff358af",
+      "size": 2969
+    },
+    {
+      "path": "web-design-engineer/references/style-recipes/headspace-meditation.md",
+      "sha256": "a8e8742c8fde8f1f28afaf026432b6b19666d0f70fc16b7cffa253b1404ee5cf",
+      "size": 2725
+    },
+    {
+      "path": "web-design-engineer/references/style-recipes/linear.md",
+      "sha256": "a557f9251a90f9a0ba3b3230d5cd86d0c7f06e12daefaf6434cf9fa6d2e2237e",
+      "size": 3233
+    },
+    {
+      "path": "web-design-engineer/references/style-recipes/mailchimp-freddie.md",
+      "sha256": "f954aad3a15b0dbf6fbac68151d85d09d7209c6539f83eeec4b947a0b3bc8c91",
+      "size": 2590
+    },
+    {
+      "path": "web-design-engineer/references/style-recipes/mid-century-modern.md",
+      "sha256": "0baeb7d4b379f302b69d9d05fff146edccfb33c8e20d85a9ac67ebaddcd455a7",
+      "size": 2773
+    },
+    {
+      "path": "web-design-engineer/references/style-recipes/monocle-magazine.md",
+      "sha256": "ccc18ca3c7f507f60ee343f5f38805ab4212691d9acb60f1aeb5093901ce90b4",
+      "size": 2671
+    },
+    {
+      "path": "web-design-engineer/references/style-recipes/muji-kenya-hara.md",
+      "sha256": "63fe8b2560e7c40d756f44cac40c8ea19002173327bebce05398e6c6b203e46e",
+      "size": 2763
+    },
+    {
+      "path": "web-design-engineer/references/style-recipes/notion-pre-ai.md",
+      "sha256": "ab995bc4b3caf112e13222550e5a2d1505e0c1e3aad5ea6ee95799ae4b2a9f91",
+      "size": 2918
+    },
+    {
+      "path": "web-design-engineer/references/style-recipes/nyt-the-daily.md",
+      "sha256": "d8347ddc1bbba3cd0a3a776b63f3a413a15a2373c3f44269b0f19d11c146447c",
+      "size": 2743
+    },
+    {
+      "path": "web-design-engineer/references/style-recipes/pentagram.md",
+      "sha256": "9cecf276e0a2f631858e7147be8cadb743bec5d08cef96be571a242e35bc4c36",
+      "size": 2885
+    },
+    {
+      "path": "web-design-engineer/references/style-recipes/raycast.md",
+      "sha256": "5525b4a50126da1d13222df856f3a0fc58d9bfc7c7b6af6015d09446d624289d",
+      "size": 3290
+    },
+    {
+      "path": "web-design-engineer/references/style-recipes/resn-storytelling.md",
+      "sha256": "0ccf939b355ded89bac612b2b3f5bcb7e200898d3f6ab825d43f5ce745f1e30a",
+      "size": 2488
+    },
+    {
+      "path": "web-design-engineer/references/style-recipes/stripe-press.md",
+      "sha256": "3f0e258e766ce9af830075879491e6c86271619a7f69f05774c70a4e93a47c6c",
+      "size": 2932
+    },
+    {
+      "path": "web-design-engineer/references/style-recipes/tufte-dataink.md",
+      "sha256": "d7c0ed717285631edc8c2a425975a940990c3818d36667000ae26f805b9b9e7f",
+      "size": 2641
+    },
+    {
+      "path": "web-design-engineer/references/style-recipes/vercel-mesh.md",
+      "sha256": "63169e3648ecc26e3bc23333f770ebe16c834f6aef764c792a40c9d44b4537ca",
+      "size": 3029
+    },
+    {
+      "path": "web-design-engineer/references/style-recipes/vignelli-swiss-helvetica.md",
+      "sha256": "fe0f0c69d99ca37fa1c64f1b658c75dab8d9a6322e8bd3918b73c9c1f9b30bf8",
+      "size": 2565
+    },
+    {
+      "path": "web-design-engineer/references/style-recipes/y2k-retrofuturism.md",
+      "sha256": "96bf7ec23b45c0a80b4f9d7652bd477d93181e9fcf4e4925a42db10f7cd416c9",
+      "size": 2802
+    },
+    {
+      "path": "web-video-presentation/README.md",
+      "sha256": "1b98798a2663ca60acb9e34b8c5b9b26affc1eb2d6782da0e7018b7884df5ec3",
+      "size": 18296
+    },
+    {
+      "path": "web-video-presentation/README.zh-CN.md",
+      "sha256": "941cbe4eb4bdb0d5b221b9aa96569cb8d7fadd149d56ed1222e5985a648fb06c",
+      "size": 17920
+    },
+    {
+      "path": "web-video-presentation/SKILL.md",
+      "sha256": "39ff4dad3b096bcb7898f4ec286a944f4f0946c223c79d26faccf694305d827d",
+      "size": 23690
+    },
+    {
+      "path": "web-video-presentation/manifest.json",
+      "sha256": "5cd072899a253fec3516e4cd44450ac9c72276fd0132e607d587eca018c670f3",
+      "size": 644
+    },
+    {
+      "path": "web-video-presentation/references/AUDIO.md",
+      "sha256": "04780cdf6e5b85dc24259678bb5d7afd6f730bef7ac036bdc49ebc39c702c208",
+      "size": 11402
+    },
+    {
+      "path": "web-video-presentation/references/CHAPTER-CRAFT.md",
+      "sha256": "d8188e972938e1349dd913c885dee40a5d343f9089f382a2b116369cd8577b8c",
+      "size": 10899
+    },
+    {
+      "path": "web-video-presentation/references/EXAMPLES/README.md",
+      "sha256": "a7fe681e9469a2388d31c98e9c47bf71ef9519ea1a4d2d7e1f7f0b47fc6a84fa",
+      "size": 5262
+    },
+    {
+      "path": "web-video-presentation/references/EXAMPLES/case-tech-review/README.md",
+      "sha256": "cc52d5887899276d53157cd6eae3027c98800cef881d934a806e988bf774cc01",
+      "size": 2973
+    },
+    {
+      "path": "web-video-presentation/references/EXAMPLES/case-tech-review/outline-snippet.md",
+      "sha256": "9c7c6fb14f9c7a8bb81ecd5e534e8d8d5b8cc42c142ef5a60cb8df8be74112a4",
+      "size": 6587
+    },
+    {
+      "path": "web-video-presentation/references/EXAMPLES/hook-chapter/README.md",
+      "sha256": "5bcdd00e87d3f5376616c07beec09b145fe89545bf950ae4bb8f59aee1f02564",
+      "size": 3949
+    },
+    {
+      "path": "web-video-presentation/references/EXAMPLES/hook-chapter/chapter.css",
+      "sha256": "6e6411a9db97c676bef8d27ead9f0a36a9efadf0d7d6244652076164ef432ee9",
+      "size": 5079
+    },
+    {
+      "path": "web-video-presentation/references/EXAMPLES/hook-chapter/chapter.tsx",
+      "sha256": "17bc656415f536a2fa269bc5155ca90cc82a2c8588afe679fe60eeb3d2c2c610",
+      "size": 4654
+    },
+    {
+      "path": "web-video-presentation/references/EXAMPLES/list-reveal/README.md",
+      "sha256": "cdfaeee11f3232cb91026e1cbf0001c6d901d96d4cb0f467a7ecb92319594b66",
+      "size": 3751
+    },
+    {
+      "path": "web-video-presentation/references/EXAMPLES/list-reveal/chapter.css",
+      "sha256": "4ad410e6b3963f3d9cb8eaa4a1126240c68368598f75cde1ceaae867557f54e5",
+      "size": 3645
+    },
+    {
+      "path": "web-video-presentation/references/EXAMPLES/list-reveal/chapter.tsx",
+      "sha256": "ff0eaded03e9d88933d50b53aef478061481d272b2574c59b6856381e9e75cc3",
+      "size": 3652
+    },
+    {
+      "path": "web-video-presentation/references/OUTLINE-FORMAT.md",
+      "sha256": "d99e2b12598c9edaa8c2f26b0fd3298eb8d5a26e090ce770b63eef50ca3c5f24",
+      "size": 8726
+    },
+    {
+      "path": "web-video-presentation/references/RECORDING.md",
+      "sha256": "362f4710e3c3d68bda0ba47c91378e6ab5da65def7903db16c31fefb70d707a8",
+      "size": 3065
+    },
+    {
+      "path": "web-video-presentation/references/SCRIPT-STYLE.md",
+      "sha256": "e4677911a4da161480aac42a1b8d0da7bb224c8f440417131c2a423567a241e6",
+      "size": 18359
+    },
+    {
+      "path": "web-video-presentation/references/THEMES.md",
+      "sha256": "3eb23ee58383734c5a5308d49254221161a88c8976bf1dee1f3d925b8c87af3a",
+      "size": 23710
+    },
+    {
+      "path": "web-video-presentation/scripts/scaffold.sh",
+      "sha256": "42da66790da184fc9e6eea0af5ddfbc8cec74b382943e5e6f2a28402509594f7",
+      "size": 9537
+    },
+    {
+      "path": "web-video-presentation/templates/index.html",
+      "sha256": "694339b8db79d01c3ce56cc02ca0778213327b795e41c3516e0aef8d35ca5bc1",
+      "size": 314
+    },
+    {
+      "path": "web-video-presentation/templates/scripts/extract-narrations.ts",
+      "sha256": "8e030123611c1613ab397c769d6d4d1469c55291798377cf1c195e6feb58c98d",
+      "size": 4854
+    },
+    {
+      "path": "web-video-presentation/templates/scripts/synthesize-audio.sh",
+      "sha256": "bb91adcdf02baa15ff0a0a51a6f1c505a1c694a25c29e595ccfdbab1c1e96cd4",
+      "size": 5119
+    },
+    {
+      "path": "web-video-presentation/templates/scripts/tts-providers/README.md",
+      "sha256": "cb14135c577c1c4c69c6af958f40bbbef44b9c9e437172defd80bd1cadba8716",
+      "size": 12274
+    },
+    {
+      "path": "web-video-presentation/templates/scripts/tts-providers/minimax.sh",
+      "sha256": "0799cd8af0a576889e845d9487ea472f5a5b695e7899b8a71ca3199ecb658e76",
+      "size": 1771
+    },
+    {
+      "path": "web-video-presentation/templates/scripts/tts-providers/openai.sh",
+      "sha256": "969fe614c04124e7550f353971f959c90abf740f4b922257738b384744fa67bb",
+      "size": 2636
+    },
+    {
+      "path": "web-video-presentation/templates/src/App.tsx",
+      "sha256": "29a8d7823ec8c3dade5a94518561e17f11ab04aff20d02dc3ff058db499e86b6",
+      "size": 2560
+    },
+    {
+      "path": "web-video-presentation/templates/src/chapters/01-example/Example.css",
+      "sha256": "a33e35599301a4e6851c7c13fa155c59d888ff55b4e851719c6ecc61cc4941cd",
+      "size": 2070
+    },
+    {
+      "path": "web-video-presentation/templates/src/chapters/01-example/Example.tsx",
+      "sha256": "2f09ab0ec85e13850041f00f9839dcec892a275df182e99d8cf951735aecd4be",
+      "size": 3982
+    },
+    {
+      "path": "web-video-presentation/templates/src/chapters/01-example/narrations.ts",
+      "sha256": "c5f130d66fd79be9921fb747e7a4bc8dea61e7997942ae0cca689a2e1f8efe8a",
+      "size": 1308
+    },
+    {
+      "path": "web-video-presentation/templates/src/components/AutoStartGate.css",
+      "sha256": "d934935786d4c8b4c4c4abeb7eecc0b89b1643252cc300ecde9387f846f1549c",
+      "size": 1264
+    },
+    {
+      "path": "web-video-presentation/templates/src/components/AutoStartGate.tsx",
+      "sha256": "02eae4aa16237f4055cc91a4c36deec7a9b3588c670ec21610b110e10848b17a",
+      "size": 1050
+    },
+    {
+      "path": "web-video-presentation/templates/src/components/AutoToggle.css",
+      "sha256": "e2938b5d29b1bb833e2eae93a372b94d1deec4e563cb10747318c712349373e8",
+      "size": 1115
+    },
+    {
+      "path": "web-video-presentation/templates/src/components/AutoToggle.tsx",
+      "sha256": "8a836d8798cb1a389bfcedc6991fcbfe5b10120fff3e8f9955053f1b5d6196b1",
+      "size": 934
+    },
+    {
+      "path": "web-video-presentation/templates/src/components/MaskReveal.tsx",
+      "sha256": "69ee136aff267a572fc68017f1273655343598857563b8c8ca7f4de54ca88e38",
+      "size": 832
+    },
+    {
+      "path": "web-video-presentation/templates/src/components/ProgressBar.css",
+      "sha256": "ab5930c7a67390d00b147f591d1ee1210ed95d1afe5827ff957cd4b7848b92b0",
+      "size": 2623
+    },
+    {
+      "path": "web-video-presentation/templates/src/components/ProgressBar.tsx",
+      "sha256": "083cb84f095ed8822143196d8adba468c0f291238f6ae93452bf53a09fa57a73",
+      "size": 3946
+    },
+    {
+      "path": "web-video-presentation/templates/src/components/Stage.tsx",
+      "sha256": "ad9216b12aa37259d05430ddcc3e38b88ec3b0560cb11558a94148c0fe8043bc",
+      "size": 1555
+    },
+    {
+      "path": "web-video-presentation/templates/src/hooks/useAudioPlayer.ts",
+      "sha256": "0bc96482a88bdaa74b42e09f1fe1d715e86bf9d20a46a39cee9133abd84493cf",
+      "size": 3880
+    },
+    {
+      "path": "web-video-presentation/templates/src/hooks/useAutoMode.ts",
+      "sha256": "b66e5fe564230188e4c6483f0fd6e8012527104b726362a97c6d0b11f91d5c2f",
+      "size": 2539
+    },
+    {
+      "path": "web-video-presentation/templates/src/hooks/useStageScale.ts",
+      "sha256": "1114d6f269adfc10db6beadcc703db1e38c4bafe12e9019f9deb45adfb21e2e8",
+      "size": 871
+    },
+    {
+      "path": "web-video-presentation/templates/src/hooks/useStepper.ts",
+      "sha256": "7aa842a403c824eb0260b22e70d73eecd313101cc8cf48ebac364e48f0f07a76",
+      "size": 5366
+    },
+    {
+      "path": "web-video-presentation/templates/src/main.tsx",
+      "sha256": "4657a8973a4a8c4be198aa0855ad4e5f5855771c8b4a8e467fce4c4ab09d929f",
+      "size": 218
+    },
+    {
+      "path": "web-video-presentation/templates/src/registry/chapters.ts",
+      "sha256": "fd81f437c93518f59b850162d72f929419a593b79c4b7bd57a8febb0a24cfa35",
+      "size": 856
+    },
+    {
+      "path": "web-video-presentation/templates/src/registry/types.ts",
+      "sha256": "c02c3c22353351c9a662d9a27b3a67939abedc69c05354653e30c58c8b90c64f",
+      "size": 729
+    },
+    {
+      "path": "web-video-presentation/templates/src/styles/animations.css",
+      "sha256": "08aa5be0c51f9c95ba4a32acabf66a38e8f0069aa42a8a68a1c3ca39eba3cd33",
+      "size": 2383
+    },
+    {
+      "path": "web-video-presentation/templates/src/styles/base.css",
+      "sha256": "a520a1df7e36fc9b4682caf7a47e041281e8b404e5b3ba41a359dd41db4635f0",
+      "size": 15686
+    },
+    {
+      "path": "web-video-presentation/templates/src/styles/fonts.css",
+      "sha256": "86696cf7d1351c469d3d28f5a1d4763b550fc705b30d789c05301d64d2b77035",
+      "size": 2149
+    },
+    {
+      "path": "web-video-presentation/templates/vite.config.ts",
+      "sha256": "58c8e3468a63fc766d79419c2dbc3336ffd2dd92056d5cbc345e02344f744390",
+      "size": 206
+    },
+    {
+      "path": "web-video-presentation/themes/bauhaus-bold/theme.json",
+      "sha256": "e431e04f0d3b0ea3e5c00b17186650e60c439cfb88412dd13e63667175ca4ebd",
+      "size": 777
+    },
+    {
+      "path": "web-video-presentation/themes/bauhaus-bold/tokens.css",
+      "sha256": "3668e3705c28049ad1244f5363461a0cc54ffc785eac53aa84ce6a9937c6a7a9",
+      "size": 2827
+    },
+    {
+      "path": "web-video-presentation/themes/blueprint/theme.json",
+      "sha256": "3f5107a54103408af3bda61250ead9fda3955c5d1dadad21bec0560b9dc91c5a",
+      "size": 772
+    },
+    {
+      "path": "web-video-presentation/themes/blueprint/tokens.css",
+      "sha256": "2ed2bcb2a26ef6320883bc0da1fc7408e76f5c5e69c28ea82ea26ad332ed8be2",
+      "size": 3022
+    },
+    {
+      "path": "web-video-presentation/themes/bold-signal/theme.json",
+      "sha256": "037910a34b9ed08dd441d46e8e3407875f562b5166d6ba9940d78363bdaf6f6a",
+      "size": 984
+    },
+    {
+      "path": "web-video-presentation/themes/bold-signal/tokens.css",
+      "sha256": "e5086fdf1919d70b5f80aaf8c0fb4ffc09b6ac48f4376a820cdd7b20d16372a0",
+      "size": 3255
+    },
+    {
+      "path": "web-video-presentation/themes/chalk-garden/theme.json",
+      "sha256": "1623d3bef7a7ae7b71f4fc621ebedfe9bd25db4d2e9471b873f582ec3c766143",
+      "size": 733
+    },
+    {
+      "path": "web-video-presentation/themes/chalk-garden/tokens.css",
+      "sha256": "55c5e5bab9b84e3ea89055682695c86c02b6a66243f256117cb504197c79b668",
+      "size": 2981
+    },
+    {
+      "path": "web-video-presentation/themes/creative-voltage/theme.json",
+      "sha256": "fec37dfd3171595a74264e36d3f93bf4c2bfdae8ba1873820eab8090eb032c5d",
+      "size": 998
+    },
+    {
+      "path": "web-video-presentation/themes/creative-voltage/tokens.css",
+      "sha256": "8c442357e7c7ff1fc9bae2d114f10c22e484cba5b601015b6cfc391ba70bd561",
+      "size": 3155
+    },
+    {
+      "path": "web-video-presentation/themes/dark-botanical/theme.json",
+      "sha256": "182e379410bfe25fddcfafa1c13a5ab80345d8b796ec62b73b8c7e6e96bc1962",
+      "size": 939
+    },
+    {
+      "path": "web-video-presentation/themes/dark-botanical/tokens.css",
+      "sha256": "2fca932296a14532c5ebcc4d879b9240ab935819301e6309c7edfb3d5ec80367",
+      "size": 3279
+    },
+    {
+      "path": "web-video-presentation/themes/dune/theme.json",
+      "sha256": "04830e6ffe14eea8a97d28c2cd0d13a9d3bbd9676e8d0001ac2c023fd5416374",
+      "size": 907
+    },
+    {
+      "path": "web-video-presentation/themes/dune/tokens.css",
+      "sha256": "68ec0da19a887b75c032c8d534c5d25cfe9ee42e478e16bbfd93e123ddc50852",
+      "size": 2982
+    },
+    {
+      "path": "web-video-presentation/themes/electric-studio/theme.json",
+      "sha256": "cd46d689d4e8a250bb9c64badd068d743173d8406ec45e93fc9a40ca723d0d25",
+      "size": 913
+    },
+    {
+      "path": "web-video-presentation/themes/electric-studio/tokens.css",
+      "sha256": "3c89b10b9c6a23d0012850410cc79e19cc45a67caf0e057e52af79271bfe4c0c",
+      "size": 3081
+    },
+    {
+      "path": "web-video-presentation/themes/forest-ink/theme.json",
+      "sha256": "9d8f3424a83d7491cd3cbbed9d1f0b6e0556ed247dfacd7e92deb18aec5b8eaa",
+      "size": 930
+    },
+    {
+      "path": "web-video-presentation/themes/forest-ink/tokens.css",
+      "sha256": "61bea5692970b1896adeaad7e7aa8b82c5dc38ff22440fda5022d15a490d2658",
+      "size": 3405
+    },
+    {
+      "path": "web-video-presentation/themes/indigo-porcelain/theme.json",
+      "sha256": "4e85d2d3a882ced7dd31655f89af42dbb1d7576855ff78cf1ae40c51cb82a1f2",
+      "size": 981
+    },
+    {
+      "path": "web-video-presentation/themes/indigo-porcelain/tokens.css",
+      "sha256": "ca2bd826ce91ed3bd69ab3609639b1d89ea50645303023f6c8813bd01a96088a",
+      "size": 2993
+    },
+    {
+      "path": "web-video-presentation/themes/kraft-paper/theme.json",
+      "sha256": "15c901eb8926aca47c5b0bee7ddab26474feb994d798e486362f779f81679e48",
+      "size": 897
+    },
+    {
+      "path": "web-video-presentation/themes/kraft-paper/tokens.css",
+      "sha256": "fdafedf0990253aa0ba897799f41410f21d1f661d915ddba58b99de605a107ed",
+      "size": 3308
+    },
+    {
+      "path": "web-video-presentation/themes/midnight-press/theme.json",
+      "sha256": "9c7951b19caa23a89f70a97b00600211c6b60fc5b44bc74ee3d3fc27a2a1e90b",
+      "size": 649
+    },
+    {
+      "path": "web-video-presentation/themes/midnight-press/tokens.css",
+      "sha256": "4353fae0fc51bf406cd9a66f7f9343cf034d18eeeb22a73b3f2d1e13ed14bb30",
+      "size": 2511
+    },
+    {
+      "path": "web-video-presentation/themes/monochrome-print/theme.json",
+      "sha256": "ac9e42e81506c1b88e8d1f4c5dbc2ecac69e8b23f66c5eb33651ad06a113b914",
+      "size": 846
+    },
+    {
+      "path": "web-video-presentation/themes/monochrome-print/tokens.css",
+      "sha256": "af9689ea41ef0db05297833edb3d014694694fe25be269c066b513ab191e9fa3",
+      "size": 2814
+    },
+    {
+      "path": "web-video-presentation/themes/neon-cyber/theme.json",
+      "sha256": "8efba5162359a0a909eb8d78f0f95e5013528eac0356bd4e4ec698576514f04b",
+      "size": 902
+    },
+    {
+      "path": "web-video-presentation/themes/neon-cyber/tokens.css",
+      "sha256": "49f23846bd1f0e4abe69c1321a18022138f1c12f17d2f6b7b5b150c304f1716f",
+      "size": 3526
+    },
+    {
+      "path": "web-video-presentation/themes/newsroom/theme.json",
+      "sha256": "35d881cab15393f274e20ae733db25bef9edbf2959279fb380fdb44c9b590c08",
+      "size": 762
+    },
+    {
+      "path": "web-video-presentation/themes/newsroom/tokens.css",
+      "sha256": "6e83e69149c3192dfdd5cc6b8bb8a1161bc6d3e5e340dc3777f3548b7cc99cdd",
+      "size": 3115
+    },
+    {
+      "path": "web-video-presentation/themes/paper-press/theme.json",
+      "sha256": "e358bc38894e25e85187ba46afd93ecca31fcc8a106d8e484e23a6b2460c94b4",
+      "size": 664
+    },
+    {
+      "path": "web-video-presentation/themes/paper-press/tokens.css",
+      "sha256": "7a95f00423d584b93b3c655003f52b4de5bace8a2d81af245b08774a99a0f39b",
+      "size": 2985
+    },
+    {
+      "path": "web-video-presentation/themes/pastel-dream/theme.json",
+      "sha256": "7f3911fd098755137418aa719d61919a95d688fb0c0178b08da6555136fd66dc",
+      "size": 936
+    },
+    {
+      "path": "web-video-presentation/themes/pastel-dream/tokens.css",
+      "sha256": "00b1db45e0ad542857c039a7d8c7d0eef3c6c0f8fa4c554dc4d995f90409032e",
+      "size": 3482
+    },
+    {
+      "path": "web-video-presentation/themes/split-canvas/theme.json",
+      "sha256": "7f3069416d53e215432df1194013696aef68d4a0fd5b4e43fa0dc5a9c86e3bbf",
+      "size": 916
+    },
+    {
+      "path": "web-video-presentation/themes/split-canvas/tokens.css",
+      "sha256": "9c958a30535705d0a87aef43b6dfa4496edb52a0a88a3a1d282cac90ac95b3e3",
+      "size": 3170
+    },
+    {
+      "path": "web-video-presentation/themes/sunset-zine/theme.json",
+      "sha256": "7c1d658f8b01f5f1ee402265408e2f68b54317cc4923e50ead4ab003efa9005c",
+      "size": 773
+    },
+    {
+      "path": "web-video-presentation/themes/sunset-zine/tokens.css",
+      "sha256": "f29c99e2f14f7edee7f839a4d85c16f2ce296fec9931bc124d045064b9f0c4e6",
+      "size": 3185
+    },
+    {
+      "path": "web-video-presentation/themes/swiss-ikb/theme.json",
+      "sha256": "4d033afe06a0dafaae62b7850354b2de3af9deb4934a9df7edc087c05080dbd1",
+      "size": 1076
+    },
+    {
+      "path": "web-video-presentation/themes/swiss-ikb/tokens.css",
+      "sha256": "f2264e7bc325ea6593922352c4ff0d84c73bc15fb916f26673fb3d8250c0d99b",
+      "size": 3812
+    },
+    {
+      "path": "web-video-presentation/themes/terminal-green/theme.json",
+      "sha256": "d5b6f32b308cfbb5de39210420b9846792e6f6de38b3233d9b9feb7ccac60436",
+      "size": 808
+    },
+    {
+      "path": "web-video-presentation/themes/terminal-green/tokens.css",
+      "sha256": "03d66dfe54f4af6c4db751db96a98c10b33f22056caf83028c4eeb3af1d3c210",
+      "size": 3171
+    },
+    {
+      "path": "web-video-presentation/themes/vintage-editorial/theme.json",
+      "sha256": "52b21d72c75d6f2841a3f544695493b2dff555f2bd13f25e70614437c81c2375",
+      "size": 998
+    },
+    {
+      "path": "web-video-presentation/themes/vintage-editorial/tokens.css",
+      "sha256": "b40f36ced9b7941592bdf352168e9b0a299995cdd2fafa7a08469e9f7d30182d",
+      "size": 3340
+    },
+    {
+      "path": "web-video-presentation/themes/warm-keynote/theme.json",
+      "sha256": "223771591004e4fb3b195ef37a724c112d09ce3fdb988e642c94f412f57518bb",
+      "size": 708
+    },
+    {
+      "path": "web-video-presentation/themes/warm-keynote/tokens.css",
+      "sha256": "8f882524088c2a76f5b60f56a28ce156f3da0cc33da0997398f9751f06246169",
+      "size": 2915
+    },
+    {
+      "path": "write-swift/SKILL.md",
+      "sha256": "eec011d6e7dc9c280a581397863d8f999eab79fc9ee8b28aad3f4aa940cd43ef",
+      "size": 42571
+    }
+  ]
+}

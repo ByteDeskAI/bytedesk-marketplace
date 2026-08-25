@@ -1,0 +1,4 @@
+interface:
+  display_name: "Author Product Profile"
+  short_description: "Author governed ByteDesk product profiles"
+  default_prompt: "Use $design-system-profile to create or revise a ByteDesk product design profile."

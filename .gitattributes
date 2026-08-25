@@ -1,0 +1,4 @@
+# These trees carry file-level SHA-256 manifests. Git must preserve the exact
+# published bytes across Windows, macOS, and Linux checkouts.
+design-system/payload/** -text
+design-system/skills/** -text

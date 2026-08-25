@@ -1,6 +1,7 @@
 {
   "schemaVersion": 1,
-  "sourceSha": "233da5057ad0df5744d21d506ec53d193bc36594",
+  "pluginVersion": "1.0.0",
+  "sourceSha": "8a7adf126c35f79a2a52b08c12cb196c31ee78b3",
   "files": [
     {
       "path": "DESIGN.md",

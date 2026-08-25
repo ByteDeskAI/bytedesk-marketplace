@@ -1,18 +1,19 @@
 {
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "design-system",
-  "description": "Installs and verifies the ByteDesk design foundation, canonical tokens, and the repository's own profile from a checksummed embedded payload. No submodule, network, or private-repo access. /design-system-sync supports atomic sync, dry-run, integrity checks, and actionable diagnostics; /design-system-scaffold creates a wrapped site.",
+  "version": "1.0.0",
+  "description": "Install and govern the ByteDesk design foundation, tokens, profiles, assets, and reviewed design workflows across Claude and Codex.",
   "author": {
     "name": "ByteDeskAI"
   },
   "homepage": "https://github.com/ByteDeskAI/design-system",
   "repository": "https://github.com/ByteDeskAI/bytedesk-marketplace",
-  "license": "Apache-2.0",
+  "license": "MIT",
   "keywords": [
     "design-system",
     "design-tokens",
-    "impeccable-context",
-    "scaffolding",
-    "tailwind"
+    "design-engineering",
+    "accessibility",
+    "motion"
   ]
 }

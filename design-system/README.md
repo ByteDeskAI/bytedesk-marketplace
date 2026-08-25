@@ -3,6 +3,18 @@
 Delivers the ByteDesk design system into any repository as **plain committed
 files**. The plugin carries the payload; a sync copies it into the repo tree.
 
+Install the same `1.0.0` bundle in either provider:
+
+```bash
+# Claude Code
+claude plugin marketplace add ByteDeskAI/bytedesk-marketplace
+claude plugin install design-system@bytedesk
+
+# Codex
+codex plugin marketplace add ByteDeskAI/bytedesk-marketplace --ref main
+codex plugin add design-system@bytedesk
+```
+
 ## Why vendored files, not a submodule
 
 A plugin is machine-local. A build is not. `next build`, `go:embed`, and above
@@ -14,7 +26,12 @@ That also kills the private-repo gate: because the payload is embedded in the
 plugin, a sync needs no network access and no PAT for the private
 `ByteDeskAI/design-system` repository. CI just builds committed files.
 
-## The two commands
+## Core workflows
+
+The plugin includes ten ByteDesk workflows: init, sync, doctor, audit, profile,
+tokens, assets, migration, release, and scaffold. It also includes twenty
+reviewed design-craft skills. Provider installation makes all 30 discoverable;
+the consuming repository does not need its own `.agents/skills` copy.
 
 ### `/design-system-sync`
 
@@ -106,7 +123,13 @@ repository. Refreshing an already-vendored tree stays an explicit
 
 ## Versioning
 
-This plugin carries no `version` field, so Claude Code resolves its version to
-the marketplace commit SHA and consumers update on every commit. The
-`.source-sha` in the payload — not a plugin version — is what identifies the
-design-system content being delivered.
+The Claude and Codex manifests share one semantic version. The payload manifest
+and skill provenance record both that version and the immutable source commit.
+Plugin version identifies the capability bundle; `.source-sha` identifies the
+exact design-system content delivered into a consumer.
+
+Run the complete release check with:
+
+```bash
+node scripts/validate-plugin.mjs .
+```

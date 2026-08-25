@@ -1,0 +1,4 @@
+interface:
+  display_name: "Sync ByteDesk Design"
+  short_description: "Update managed ByteDesk design context safely"
+  default_prompt: "Use $design-system-sync to preview and apply the current ByteDesk design-system payload."

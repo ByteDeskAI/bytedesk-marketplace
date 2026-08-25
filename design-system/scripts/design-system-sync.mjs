@@ -356,21 +356,34 @@ async function applyAtomic(destDir, desired) {
       await writeFile(target, bytes);
     }
     if (existsSync(destDir)) {
-      await rename(destDir, backup);
+      await renameWithRetry(destDir, backup);
       movedExisting = true;
     }
     if (process.env.BYTEDESK_DESIGN_SYNC_TEST_FAIL === "after-backup") {
       throw new Error("injected sync interruption after backup");
     }
-    await rename(stage, destDir);
+    await renameWithRetry(stage, destDir);
     if (movedExisting) await rm(backup, { recursive: true, force: true });
   } catch (error) {
     await rm(stage, { recursive: true, force: true });
     if (movedExisting && existsSync(backup)) {
       if (existsSync(destDir)) await rm(destDir, { recursive: true, force: true });
-      await rename(backup, destDir);
+      await renameWithRetry(backup, destDir);
     }
     throw error;
+  }
+}
+
+async function renameWithRetry(source, destination) {
+  const transient = new Set(["EACCES", "EBUSY", "EPERM"]);
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await rename(source, destination);
+      return;
+    } catch (error) {
+      if (process.platform !== "win32" || !transient.has(error.code) || attempt >= 7) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 25 * (2 ** attempt)));
+    }
   }
 }
 

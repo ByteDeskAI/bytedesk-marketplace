@@ -1,8 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
   "name": "bytedesk",
-  "version": "1.30.0",
-  "description": "ByteDesk's Claude Code marketplace \u2014 parallel orchestration, design patterns, Structurizr C4, project management, and platform engineering plugins.",
+  "version": "1.31.0",
+  "description": "ByteDesk's Claude and Codex marketplace \u2014 orchestration, design systems, architecture, project management, and platform engineering plugins.",
   "owner": {
     "name": "ByteDesk AI",
     "url": "https://github.com/ByteDeskAI"
@@ -85,7 +85,8 @@
     },
     {
       "name": "design-system",
-      "description": "Installs and verifies the ByteDesk design foundation, canonical tokens, and the repository's own profile from a checksummed embedded payload. No submodule, network, or private-repo access. /design-system-sync supports atomic sync, dry-run, integrity checks, and actionable diagnostics; /design-system-scaffold creates a wrapped site.",
+      "version": "1.0.0",
+      "description": "Install and govern the ByteDesk design foundation, tokens, profiles, assets, and reviewed design workflows across Claude and Codex.",
       "source": "./design-system"
     }
   ]

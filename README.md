@@ -1,6 +1,6 @@
 # bytedesk-marketplace
 
-ByteDesk's Claude Code marketplace. Plugins for parallel multi-session orchestration, design patterns, Structurizr C4 modeling, project management, and **platform engineering skills**.
+ByteDesk's Claude and Codex plugin marketplace. Plugins for parallel orchestration, design systems, architecture, project management, and platform engineering.
 
 ## Plugins
 
@@ -17,13 +17,21 @@ ByteDesk's Claude Code marketplace. Plugins for parallel multi-session orchestra
 | **[bytedesk-goals](./bytedesk-goals)** | Goal pipeline, run_goals, Jira/Confluence, agent dispatch |
 | **[omnigent-dev](./omnigent-dev)** | Omnigent cross-repo engineering skills |
 | **[teamcity-mcp](./teamcity-mcp)** | TeamCity CI/CD over MCP — builds, logs, tests, queue, configs, agents |
+| **[design-system](./design-system)** | Versioned ByteDesk design context, offline sync, and 30 reviewed workflows for Claude and Codex |
 
 ## Installation
 
-```
+```bash
 /plugin marketplace add ByteDeskAI/bytedesk-marketplace
 /plugin install platform-dev@bytedesk
 /plugin install bytedesk-goals@bytedesk
+```
+
+Codex can install the dual-provider design plugin directly:
+
+```bash
+codex plugin marketplace add ByteDeskAI/bytedesk-marketplace --ref main
+codex plugin add design-system@bytedesk
 ```
 
 Recommended platform checkout set (see `bytedesk-platform/.claude/settings.json`):

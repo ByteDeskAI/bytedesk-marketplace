@@ -1,0 +1,39 @@
+{
+  "name": "design-system",
+  "version": "1.0.0",
+  "description": "Install and govern the ByteDesk design foundation, tokens, profiles, assets, and reviewed design workflows across Claude and Codex.",
+  "author": {
+    "name": "ByteDeskAI",
+    "url": "https://github.com/ByteDeskAI"
+  },
+  "homepage": "https://github.com/ByteDeskAI/design-system",
+  "repository": "https://github.com/ByteDeskAI/bytedesk-marketplace",
+  "license": "MIT",
+  "keywords": [
+    "design-system",
+    "design-tokens",
+    "design-engineering",
+    "accessibility",
+    "motion"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "ByteDesk Design System",
+    "shortDescription": "Governed design context and expert workflows.",
+    "longDescription": "Install the versioned ByteDesk design foundation, canonical tokens, product profile, and thirty reviewed design workflows in Claude and Codex.",
+    "developerName": "ByteDeskAI",
+    "category": "Design",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/ByteDeskAI/design-system",
+    "defaultPrompt": [
+      "Adopt the ByteDesk design system in this repository.",
+      "Audit this UI against its ByteDesk design profile.",
+      "Diagnose this repository's design-system integration."
+    ],
+    "brandColor": "#EC4E02"
+  }
+}

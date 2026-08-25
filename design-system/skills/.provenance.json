@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 1,
+  "reviewedSkillCount": 20,
+  "reviewedSkills": [
+    "animate",
+    "animate-expo",
+    "animation-vocabulary",
+    "apple-design",
+    "ask-sonner",
+    "awwwards-creative-frontend",
+    "awwwards-micro-interactions",
+    "awwwards-webgl-shaders",
+    "beautiful-article",
+    "emil-design-eng",
+    "find-animation-opportunities",
+    "gpt-image-2",
+    "improve-animations",
+    "kb-retriever",
+    "pick-ui-library",
+    "prototype",
+    "review-animations",
+    "web-design-engineer",
+    "web-video-presentation",
+    "write-swift"
+  ],
+  "coreSkills": [
+    "design-system-assets",
+    "design-system-audit",
+    "design-system-doctor",
+    "design-system-init",
+    "design-system-migrate",
+    "design-system-profile",
+    "design-system-release",
+    "design-system-scaffold",
+    "design-system-sync",
+    "design-system-tokens"
+  ],
+  "sources": [
+    {
+      "name": "ByteDesk design-system",
+      "repository": "https://github.com/ByteDeskAI/design-system",
+      "license": "MIT",
+      "licenseFile": "BYTEDESK-MIT.md",
+      "skills": [
+        "design-system-assets",
+        "design-system-audit",
+        "design-system-doctor",
+        "design-system-init",
+        "design-system-migrate",
+        "design-system-profile",
+        "design-system-release",
+        "design-system-scaffold",
+        "design-system-sync",
+        "design-system-tokens"
+      ]
+    },
+    {
+      "name": "Emil Kowalski skills",
+      "repository": "https://github.com/emilkowalski/skills",
+      "sourceCommit": "d23d7f88a2e21c9e4b1418c7abe420f5c1052ba7",
+      "license": "MIT",
+      "licenseFile": "EMIL-KOWALSKI-LICENSE.md",
+      "skills": [
+        "animate",
+        "animate-expo",
+        "animation-vocabulary",
+        "apple-design",
+        "ask-sonner",
+        "emil-design-eng",
+        "find-animation-opportunities",
+        "improve-animations",
+        "pick-ui-library",
+        "prototype",
+        "review-animations",
+        "write-swift"
+      ]
+    },
+    {
+      "name": "Garden Skills",
+      "repository": "https://github.com/ConardLi/garden-skills",
+      "sourceCommit": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
+      "license": "MIT",
+      "licenseFile": "GARDEN-SKILLS-LICENSE.md",
+      "skills": [
+        "beautiful-article",
+        "gpt-image-2",
+        "kb-retriever",
+        "web-design-engineer",
+        "web-video-presentation"
+      ]
+    },
+    {
+      "name": "Awwwards Agent Skills",
+      "repository": "https://github.com/d2ms2/awwwards-agent-skills",
+      "sourceCommit": "7393cc85cf13e90a1eabcc281d34ab0e25b76bc5",
+      "license": "MIT",
+      "licenseFile": "AWWWARDS-AGENT-SKILLS-LICENSE.md",
+      "skills": [
+        "awwwards-creative-frontend",
+        "awwwards-micro-interactions",
+        "awwwards-webgl-shaders"
+      ]
+    }
+  ],
+  "pluginVersion": "1.0.0",
+  "designSystemSourceSha": "8a7adf126c35f79a2a52b08c12cb196c31ee78b3"
+}

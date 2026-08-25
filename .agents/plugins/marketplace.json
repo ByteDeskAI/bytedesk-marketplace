@@ -1,0 +1,20 @@
+{
+  "name": "bytedesk",
+  "interface": {
+    "displayName": "ByteDesk"
+  },
+  "plugins": [
+    {
+      "name": "design-system",
+      "source": {
+        "source": "local",
+        "path": "./design-system"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Design"
+    }
+  ]
+}

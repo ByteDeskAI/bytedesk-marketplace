@@ -1,0 +1,26 @@
+name: Design system plugin
+
+on:
+  pull_request:
+    paths:
+      - "design-system/**"
+      - ".claude-plugin/marketplace.json"
+      - ".agents/plugins/marketplace.json"
+      - ".github/workflows/design-system.yml"
+  push:
+    branches: [main]
+    paths:
+      - "design-system/**"
+      - ".claude-plugin/marketplace.json"
+      - ".agents/plugins/marketplace.json"
+      - ".github/workflows/design-system.yml"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node design-system/scripts/validate-plugin.mjs design-system

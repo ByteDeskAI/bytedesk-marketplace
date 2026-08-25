@@ -1,0 +1,4 @@
+interface:
+  display_name: "Initialize ByteDesk Design"
+  short_description: "Adopt ByteDesk design context in a repository"
+  default_prompt: "Use $design-system-init to adopt the ByteDesk design system in this repository."
