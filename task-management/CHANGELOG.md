@@ -16,6 +16,9 @@
 - **Autolink is on by default** (opt out `TM_NO_AUTOLINK=1` / `TM_AUTOLINK=0`). Windows gets `.cmd` wrappers in `%USERPROFILE%\\.local\\bin`; the bin dir is created if missing.
 - **Generated runtime files stay out of git.** Store `.gitignore` now names `dashboard.pid` and `dashboard.port` explicitly (still covered by `dashboard.*`). `tm init` / `tm doctor --fix` writes `.bytedesk/.gitignore` so `worktrees/` is ignored without swallowing the store or the project-local `bin/` launchers. Dashboard `.gitignore` also drops Vite/tsc leftovers (`.vite`, `*.tsbuildinfo`).
 
+### Fixed
+- **A unit test read the ambient session id instead of its own fixture.** `dashboard-api`'s actor/session stamping test set `CLAUDE_SESSION_ID`, which `CLAUDE_CODE_SESSION_ID` outranks in the `SESSION_ENV` chain — so it passed in CI and in a bare shell and failed only when run from inside a Claude Code session. New `withSessionEnv()` test helper clears every variable in `SESSION_ENV` before setting the ones under test, deriving the list from the source of truth so adding a harness cannot reintroduce the leak.
+
 ## [0.14.0] — 2026-08-18
 
 Store-folder dashboard integration (BDM-64–74). Internal plugin.json stays unpinned.

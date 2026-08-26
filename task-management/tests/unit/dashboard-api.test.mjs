@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { cleanup, tempRepo, tempStore } from "./helpers.mjs";
+import { cleanup, tempRepo, tempStore, withSessionEnv } from "./helpers.mjs";
 import { backlog as backlogOf, boardPayload, handleWrite } from "../../lib/dashboard-api.mjs";
 import { acceptanceOf, propose } from "../../lib/capability.mjs";
 import { gateDone } from "../../lib/enforce.mjs";
@@ -315,11 +315,10 @@ describe("transition honesty (BDM-67)", () => {
   it("stamps actor/session/branch/worktree when moving to in_progress, like tm start", () => {
     const p = store();
     execFileSync("git", ["init", "-q", "-b", "feat/stamp", p.root]);
-    const prevActor = process.env.TM_ACTOR;
-    const prevSession = process.env.CLAUDE_SESSION_ID;
-    process.env.TM_ACTOR = "dashboard-test";
-    process.env.CLAUDE_SESSION_ID = "sess-abc";
-    try {
+    // Every session variable is cleared, not just the one being set: this suite
+    // runs inside a real agent session, and the ambient CLAUDE_CODE_SESSION_ID
+    // outranks CLAUDE_SESSION_ID in the precedence chain.
+    withSessionEnv({ TM_ACTOR: "dashboard-test", CLAUDE_SESSION_ID: "sess-abc" }, () => {
       const t = task(p);
       const res = act(p, { action: "transition", id: t.id, status: "in_progress" });
       assert.equal(res.status, 200);
@@ -328,12 +327,7 @@ describe("transition honesty (BDM-67)", () => {
       assert.equal(after.session, "sess-abc");
       assert.equal(after.branch, "feat/stamp");
       assert.equal(after.worktree, p.root);
-    } finally {
-      if (prevActor === undefined) delete process.env.TM_ACTOR;
-      else process.env.TM_ACTOR = prevActor;
-      if (prevSession === undefined) delete process.env.CLAUDE_SESSION_ID;
-      else process.env.CLAUDE_SESSION_ID = prevSession;
-    }
+    });
   });
 });
 

@@ -4,7 +4,41 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ensureDirs, paths } from "../../lib/paths.mjs";
+import { SESSION_ENV } from "../../lib/harness/sessions.mjs";
 import { seedGitContract } from "../../lib/store.mjs";
+
+/**
+ * Runs `fn` with the session environment under the test's control.
+ *
+ * This suite runs inside a real agent session, so the harness's own session
+ * variable is already exported. Setting one name and trusting it does not work:
+ * `sessionId()` walks SESSION_ENV in precedence order, so a test that set
+ * `CLAUDE_SESSION_ID` was silently outranked by the runner's ambient
+ * `CLAUDE_CODE_SESSION_ID` and read the live session id instead of its fixture.
+ * The test then passed in CI and in a bare shell, and failed only for whoever
+ * ran it from inside Claude Code — which is where it is most often run.
+ *
+ * The list is derived from SESSION_ENV rather than written out, so adding a
+ * harness to `lib/harness/sessions.mjs` cannot quietly reintroduce the leak.
+ */
+export function withSessionEnv(vars, fn) {
+  const saved = new Map();
+  for (const key of [...SESSION_ENV, ...Object.keys(vars)]) {
+    saved.set(key, process.env[key]);
+    delete process.env[key];
+  }
+  for (const [key, value] of Object.entries(vars)) {
+    if (value !== undefined) process.env[key] = value;
+  }
+  try {
+    return fn();
+  } finally {
+    for (const [key, value] of saved) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
 
 export function git(cwd, ...args) {
   return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
