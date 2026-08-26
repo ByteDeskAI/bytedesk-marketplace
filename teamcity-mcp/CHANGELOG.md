@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1] — 2026-08-26
+
+### Fixed
+- Ship the self-contained server bundle as an installation artifact and never invoke npm or
+  publisher build tooling from an installed launcher when extraction changes source mtimes.
+- Fail with an actionable reinstall/build message when the shipped bundle is absent.
+
 ## [0.1.0] — 2026-08-18
 
 ### Added

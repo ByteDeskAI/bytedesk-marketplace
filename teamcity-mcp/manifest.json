@@ -1,7 +1,7 @@
 {
   "manifest_version": "0.3",
   "name": "teamcity-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "TeamCity CI/CD over MCP: the full REST API — trigger and monitor builds, tail build logs, inspect test failures, manage the queue, projects, build configs, agents, mutes, and investigations.",
   "author": {
     "name": "ByteDesk AI",
