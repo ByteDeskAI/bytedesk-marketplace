@@ -66,6 +66,43 @@ export function parseDoc(text) {
   return { data, body: text.slice(end + 4).replace(/^\n/, "") };
 }
 
+/**
+ * Rejects a body carrying an agent's own tool-call XML.
+ *
+ * This is not hypothetical tidiness. Eleven records were written with fragments
+ * of the calls that created them: seven EP-002 tasks ended `...verify green.
+ * </parameter>` followed by a bare `<parameter name="activeForm">` line, two more
+ * carried an unclosed opening tag, and one task's entire body was replaced by a
+ * different task's progress note. The store accepted every one of them, so the
+ * damage was invisible until somebody read the tasks months later — by which
+ * point the only way to tell what a record was supposed to say was to find the
+ * commit that delivered it.
+ *
+ * The detector is deliberately narrow, because the cost of a false positive is a
+ * caller who cannot save legitimate text. It matches the corruption's actual
+ * shape — a tag alone on a line, at the start of a line, or trailing at the very
+ * end of the body — rather than the substring anywhere. Fenced code is skipped
+ * outright, so documenting this rule with an example (the first thing anyone
+ * will want to do) still saves.
+ */
+const TOOL_CALL_TAG = /^\s*<\/?(?:parameter|invoke|function_calls)\b/;
+
+export function findToolCallMarkup(body = "") {
+  const text = String(body);
+  let fenced = false;
+  for (const line of text.split("\n")) {
+    if (/^\s*```/.test(line)) {
+      fenced = !fenced;
+      continue;
+    }
+    if (!fenced && TOOL_CALL_TAG.test(line)) return line.trim().slice(0, 60);
+  }
+  // The trailing case: `...succeed.</parameter>` closes a line of real content,
+  // so it never starts one and the line scan above cannot see it.
+  const tail = /<\/(?:parameter|invoke|function_calls)>\s*$/.exec(text.trimEnd());
+  return tail ? tail[0].trim() : null;
+}
+
 export function serializeDoc(data, body = "") {
   const lines = Object.entries(data)
     .filter(([, v]) => v !== undefined)
@@ -726,6 +763,21 @@ export function write(doc, p = paths()) {
     throw new Error(
       `${data.id} belongs to ${data.board}, but this store is ${here} — refusing to file it here.\n` +
         `If the two are genuinely related, link them: tm link <id> relates-to ${data.board}#${data.id}`,
+    );
+  }
+  /**
+   * Checked here rather than in `editTask`, because a body reaches the store
+   * from four directions — the CLI, MCP `tm_task_create`/`tm_task_edit`, the
+   * dashboard's `PATCH /api/task/:id`, and the harness bridge mirroring a native
+   * TaskCreate. The bridge is where the eleven corrupted records came from, and
+   * it is the one path a check on the CLI would have missed entirely.
+   */
+  const markup = findToolCallMarkup(body);
+  if (markup) {
+    throw new Error(
+      `${data.id}: refusing to write a body containing tool-call markup (${markup}).\n` +
+        "This is your own tool call leaking into the text — send the body only.\n" +
+        "To include an example deliberately, put it in a fenced code block.",
     );
   }
   const target = file || join(dirFor(kindOf(data.id), p), `${data.id}-${slug(data.title)}.md`);

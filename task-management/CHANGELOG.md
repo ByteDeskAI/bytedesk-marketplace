@@ -9,6 +9,8 @@
 - **Project-local `tm`.** `tm init` writes `.bytedesk/bin/tm` and `tm.cmd` (and hook/dashboard twins) that discover the plugin without a home-directory path. `bin/tm-hook` is Node so Windows/Codex do not need bash.
 - **Settings catalog.** `GET /api/settings` plus a settings page for every project-scoped option that is safe to write (dashboard, policy, workflow, ntfy, plugin autolink). Identity (`boardId`/`owner`) is read-only. `board.launchBrowser` opens the default browser when `tm-dashboard` starts.
 
+- **Tool-call markup is refused at the store boundary.** A body containing an agent's own `<parameter …>` / `<invoke …>` fragments is rejected by `write()`, so every entry point is covered — CLI, MCP, the dashboard's `PATCH /api/task/:id`, and the harness bridge mirroring a native `TaskCreate`. Eleven records were written with their own tool calls embedded before this existed, including one whose entire body was replaced by another task's progress note; the store accepted all of it silently. The check matches the corruption's shape (a tag alone on a line, at the start of one, or trailing at the end of the body) rather than the substring, and skips fenced code so documenting the rule still saves.
+
 ### Changed
 - Worktree `hardlink` share copies on Windows instead of calling `cp -al`.
 - **Autolink is on by default** (opt out `TM_NO_AUTOLINK=1` / `TM_AUTOLINK=0`). Windows gets `.cmd` wrappers in `%USERPROFILE%\\.local\\bin`; the bin dir is created if missing.
