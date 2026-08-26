@@ -538,7 +538,7 @@ impl TmuxSupervisor {
 
 **Why one typed aggregate, not a dynamic registry.** v1 doesn't need
 hot-reload or per-feature dynamic toggles. The hard-coded
-`/home/ryan/Documents/...` in `integrations.rs:259` is the smell to fix
+an absolute developer-home path in `integrations.rs:259` is the smell to fix
 first. Layered loader: defaults < `~/.config/bdterm/config.toml` < env
 `BDTERM_*`.
 

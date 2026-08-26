@@ -366,6 +366,11 @@
       "$value": "#A170EB",
       "$description": "oklch(0.65 0.18 300). 5.5:1."
     },
+    "toolbox": {
+      "$type": "color",
+      "$value": "#7C8AE8",
+      "$description": "Toolbox periwinkle. 6.02:1 on bg.base, 5.38:1 on bg.subtle, and 4.83:1 on bg.surface."
+    },
     "agent-browser": {
       "$type": "color",
       "$value": "#1DB8CE",

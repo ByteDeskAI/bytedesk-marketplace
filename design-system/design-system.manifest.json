@@ -5,7 +5,7 @@
   "version": "1.5.2",
   "catalog": {
     "sourcePath": "catalog.json",
-    "sha256": "0486567cc9675a9fc67d6147333062ad9764057113f205e155c4f07128e908b4",
+    "sha256": "9ada7aa93fcbd3e46b92f2740150760387ad76a6e8af85b2f0f1e874a62bed6a",
     "schemaVersion": 1
   },
   "providers": [
@@ -20,6 +20,18 @@
       "manifest": "plugin/.codex-plugin/plugin.json",
       "mcpRegistration": ".codex-mcp.json",
       "compatibility": ">=1.0"
+    },
+    {
+      "id": "grok",
+      "manifest": "plugin/.grok-plugin/plugin.json",
+      "mcpRegistration": ".grok-mcp.json",
+      "compatibility": "main-observed-2026-08-19"
+    },
+    {
+      "id": "kimi",
+      "manifest": "plugin/kimi.plugin.json",
+      "mcpRegistration": "kimi.plugin.json",
+      "compatibility": "0.38.0"
     }
   ],
   "runtimes": [
@@ -84,8 +96,8 @@
       "kind": "mcp-server",
       "sourcePath": "mcp/design-system-mcp.mjs",
       "deliveryPath": "mcp/design-system-mcp.mjs",
-      "sha256": "568cafacbf2291a4256daf70b20ef417ad9f7f48d6c24ac25c6a95202ad5510b",
-      "size": 17375,
+      "sha256": "16ffbf48d617329850b509dfbdd8a0d84c3aa150134912b32e71e18e58d43558",
+      "size": 17603,
       "distributions": [
         "plugin"
       ]
@@ -95,7 +107,18 @@
       "kind": "provider-registration",
       "sourcePath": "plugin/.codex-mcp.json",
       "deliveryPath": ".codex-mcp.json",
-      "sha256": "b545991469bf20e1c782076b9f37611bc162231695cb16069d6b1d3d4d0288a3",
+      "sha256": "9236800967a8653b60e779533c3c877e8a306000a14171a0d5d9234665013da9",
+      "size": 167,
+      "distributions": [
+        "plugin"
+      ]
+    },
+    {
+      "id": "file:plugin/.grok-mcp.json",
+      "kind": "provider-registration",
+      "sourcePath": "plugin/.grok-mcp.json",
+      "deliveryPath": ".grok-mcp.json",
+      "sha256": "9236800967a8653b60e779533c3c877e8a306000a14171a0d5d9234665013da9",
       "size": 167,
       "distributions": [
         "plugin"
@@ -117,8 +140,8 @@
       "kind": "agent-catalog",
       "sourcePath": "plugin/agent-catalog.json",
       "deliveryPath": "agent-catalog.json",
-      "sha256": "fc01a0a2a5b444263dd6a2b50b547ef38a44fdf3221758ceeba7133051972dfb",
-      "size": 3640,
+      "sha256": "8b24458e3cd3d08373a52fb9f28fc92cfb8e5c342f85a073576b6048e5d4d0f6",
+      "size": 3704,
       "distributions": [
         "plugin"
       ]
@@ -168,12 +191,34 @@
       ]
     },
     {
+      "id": "file:plugin/hooks/hooks.json",
+      "kind": "hook",
+      "sourcePath": "plugin/hooks/hooks.json",
+      "deliveryPath": "hooks/hooks.json",
+      "sha256": "434e5d718802b75963358737a6626c61266c83bff40ea126a0f13aa645f1c63f",
+      "size": 251,
+      "distributions": [
+        "plugin"
+      ]
+    },
+    {
+      "id": "file:plugin/hooks/session-start-sync.sh",
+      "kind": "hook",
+      "sourcePath": "plugin/hooks/session-start-sync.sh",
+      "deliveryPath": "hooks/session-start-sync.sh",
+      "sha256": "6345ff2e61ed260dc43598fc1d44c870fd17afa2733aef0ed3097b173bff4f81",
+      "size": 1512,
+      "distributions": [
+        "plugin"
+      ]
+    },
+    {
       "id": "file:plugin/package.json",
       "kind": "provider-runtime",
       "sourcePath": "plugin/package.json",
       "deliveryPath": "package.json",
-      "sha256": "e44cb63b2a1ccf1a6b531aa936e0b3422b7c730fdc099aeb1dc7ad5be2ef809f",
-      "size": 86,
+      "sha256": "88f108b265dabfaf8f19360a523100c552f7b865fd45d61074ce2f2af0305572",
+      "size": 222,
       "distributions": [
         "plugin"
       ]
@@ -213,6 +258,18 @@
         "payload"
       ],
       "profile": "agent-browser-website"
+    },
+    {
+      "id": "file:profiles/agent-mail/DESIGN.md",
+      "kind": "profile",
+      "sourcePath": "profiles/agent-mail/DESIGN.md",
+      "deliveryPath": "profiles/agent-mail/DESIGN.md",
+      "sha256": "f83601dd67d7c5bf2c523b06ece7b8ee20ec441c9d2f49eb0aef4df6085e5227",
+      "size": 3080,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "agent-mail"
     },
     {
       "id": "file:profiles/agent-memory-website/DESIGN.md",
@@ -399,12 +456,36 @@
       "kind": "profile",
       "sourcePath": "profiles/terminal/DESIGN.md",
       "deliveryPath": "profiles/terminal/DESIGN.md",
-      "sha256": "72b811036da25a06a57467c72f1f12d6be360fddc41f42f952f81a93c20b5042",
-      "size": 42320,
+      "sha256": "881c11e613891aab6219525601ac67250bdd3cdddd3428b18d0be011057ac02b",
+      "size": 42325,
       "distributions": [
         "payload"
       ],
       "profile": "terminal"
+    },
+    {
+      "id": "file:profiles/toolbox/DESIGN.md",
+      "kind": "profile",
+      "sourcePath": "profiles/toolbox/DESIGN.md",
+      "deliveryPath": "profiles/toolbox/DESIGN.md",
+      "sha256": "07fd3fd9a4b03cdf7812c96f79a941f49583dd0fdd2d1e829189e338c4adedc0",
+      "size": 8510,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "toolbox"
+    },
+    {
+      "id": "file:profiles/toolbox/PRODUCT.md",
+      "kind": "profile",
+      "sourcePath": "profiles/toolbox/PRODUCT.md",
+      "deliveryPath": "profiles/toolbox/PRODUCT.md",
+      "sha256": "fdae66efe388156b4956517b6e04d814f34e69c8c01454fcfd219b5afeadbe13",
+      "size": 2640,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "toolbox"
     },
     {
       "id": "file:profiles/vault/DESIGN.md",
@@ -634,8 +715,8 @@
       "kind": "runtime",
       "sourcePath": "scripts/validate-plugin.mjs",
       "deliveryPath": "scripts/validate-plugin.mjs",
-      "sha256": "72ab6896bb5766487d7e6022924c672947be414eac622ef9adb1f1b340db059d",
-      "size": 15808,
+      "sha256": "fdb7b38025f3cac2559ea8917d7f4f1723a0f25adf6cf5218132b22aadead72d",
+      "size": 17021,
       "distributions": [
         "plugin"
       ]
@@ -678,8 +759,8 @@
       "kind": "token",
       "sourcePath": "tokens/bytedesk.tokens.json",
       "deliveryPath": "tokens/bytedesk.tokens.json",
-      "sha256": "0ca07fff00c12b18b5d23ba631e80cf43e967c8940b0c92159b542c6f9a6afb7",
-      "size": 19168,
+      "sha256": "9cef3545f14533db2eb75b27a807dfff06855b4c7205f786d2e90890ed1de857",
+      "size": 19353,
       "distributions": [
         "payload"
       ]
@@ -689,8 +770,8 @@
       "kind": "token",
       "sourcePath": "tokens/css/bytedesk.css",
       "deliveryPath": "tokens/css/bytedesk.css",
-      "sha256": "8682777a21824afc87c0febee76e2589631d3edabdeb159adbbe29e13d212e5a",
-      "size": 10083,
+      "sha256": "634755aeaf95ebfd792540f723d5fbe9c0706d381f5ace3155420fa662133160",
+      "size": 10194,
       "distributions": [
         "payload"
       ]
@@ -700,8 +781,8 @@
       "kind": "token",
       "sourcePath": "tokens/platforms/go/bytedesk_tokens.go",
       "deliveryPath": "tokens/platforms/go/bytedesk_tokens.go",
-      "sha256": "638edc6ffd7b9868e4fa427d0da7003164dadf7f31b8981c77324aa24a503d01",
-      "size": 15629,
+      "sha256": "6072fc272aabbca81c8e42bf3ad1ac12dfa2aafe2508ec4c0f3350a1c7b71faa",
+      "size": 15727,
       "distributions": [
         "payload"
       ]
@@ -722,8 +803,8 @@
       "kind": "token",
       "sourcePath": "tokens/platforms/rust/bytedesk_tokens.rs",
       "deliveryPath": "tokens/platforms/rust/bytedesk_tokens.rs",
-      "sha256": "5582190603836b688704c418d96791bf9af37fc01183c08af590215449ebe300",
-      "size": 13446,
+      "sha256": "2fa41e1305558082262917888668d37c014a5952407f18c95e829ec29c32a039",
+      "size": 13527,
       "distributions": [
         "payload"
       ]
@@ -733,8 +814,8 @@
       "kind": "token",
       "sourcePath": "tokens/platforms/typescript/bytedesk-tokens.ts",
       "deliveryPath": "tokens/platforms/typescript/bytedesk-tokens.ts",
-      "sha256": "8da7836afe11aaf431ef4807940120005255a5fbbd4f11e09b420d6d013e0599",
-      "size": 5699,
+      "sha256": "00100c361792dc3af5dcc38b90f82fc435ba1baf44660d0cba11be87e1271dc1",
+      "size": 5731,
       "distributions": [
         "payload"
       ]
@@ -744,8 +825,8 @@
       "kind": "token",
       "sourcePath": "tokens/README.md",
       "deliveryPath": "tokens/README.md",
-      "sha256": "1e59b583c12e03f385335c4dcedd9851586546c76e9c491c75e85d4d922c3cb2",
-      "size": 7391,
+      "sha256": "5bba29427b3b337f8459252cc83e0086bf73ab8f0c8612e47e7eaeaa9149e744",
+      "size": 7452,
       "distributions": [
         "payload"
       ]
@@ -900,6 +981,19 @@
       ]
     },
     {
+      "id": "profile:agent-mail",
+      "slug": "agent-mail",
+      "status": "active",
+      "sourceRepository": "ByteDeskAI/design-system",
+      "sourceCommit": "f5b536857b03b5b3896d1dffc7397f1767ee7729",
+      "files": [
+        "file:profiles/agent-mail/DESIGN.md"
+      ],
+      "dependsOn": [
+        "bundle:foundation"
+      ]
+    },
+    {
       "id": "profile:agent-memory-website",
       "slug": "agent-memory-website",
       "status": "active",
@@ -1006,6 +1100,20 @@
       "sourceCommit": "6ef17ce5906b861234dab0965249c9c96394daf3",
       "files": [
         "file:profiles/terminal/DESIGN.md"
+      ],
+      "dependsOn": [
+        "bundle:foundation"
+      ]
+    },
+    {
+      "id": "profile:toolbox",
+      "slug": "toolbox",
+      "status": "active",
+      "sourceRepository": "ByteDeskAI/design-system",
+      "sourceCommit": "13da7c3251f1547f963635c901b83cf80b894f94",
+      "files": [
+        "file:profiles/toolbox/DESIGN.md",
+        "file:profiles/toolbox/PRODUCT.md"
       ],
       "dependsOn": [
         "bundle:foundation"
@@ -1171,7 +1279,9 @@
       "sourcePath": ".agents/skills/animate",
       "providers": [
         "claude",
-        "codex"
+        "codex",
+        "grok",
+        "kimi"
       ]
     },
     {
@@ -1181,7 +1291,9 @@
       "sourcePath": ".agents/skills/animate-expo",
       "providers": [
         "claude",
-        "codex"
+        "codex",
+        "grok",
+        "kimi"
       ]
     },
     {
@@ -1191,7 +1303,9 @@
       "sourcePath": ".agents/skills/animation-vocabulary",
       "providers": [
         "claude",
-        "codex"
+        "codex",
+        "grok",
+        "kimi"
       ]
     },
     {
@@ -1201,7 +1315,9 @@
       "sourcePath": ".agents/skills/apple-design",
       "providers": [
         "claude",
-        "codex"
+        "codex",
+        "grok",
+        "kimi"
       ]
     },
     {
@@ -1211,7 +1327,9 @@
       "sourcePath": ".agents/skills/ask-sonner",
       "providers": [
         "claude",
-        "codex"
+        "codex",
+        "grok",
+        "kimi"
       ]
     },
     {
@@ -1221,7 +1339,9 @@
       "sourcePath": ".agents/skills/awwwards-creative-frontend",
       "providers": [
         "claude",
-        "codex"
+        "codex",
+        "grok",
+        "kimi"
       ]
     },
     {
@@ -1231,7 +1351,9 @@
       "sourcePath": ".agents/skills/awwwards-micro-interactions",
       "providers": [
         "claude",
-        "codex"
+        "codex",
+        "grok",
+        "kimi"
       ]
     },
     {
@@ -1241,7 +1363,9 @@
       "sourcePath": ".agents/skills/awwwards-webgl-shaders",
       "providers": [
         "claude",
-        "codex"
+        "codex",
+        "grok",
+        "kimi"
       ]
     },
     {
@@ -1251,7 +1375,9 @@
       "sourcePath": ".agents/skills/beautiful-article",
       "providers": [
         "claude",
-        "codex"
+        "codex",
+        "grok",
+        "kimi"
       ]
     },
     {
@@ -1261,7 +1387,9 @@
       "sourcePath": "plugin/skills/design-system-agents",
       "providers": [
         "claude",
-        "codex"
+        "codex",
+        "grok",
+        "kimi"
       ]
     },
     {
@@ -1271,7 +1399,9 @@
       "sourcePath": "plugin/skills/design-system-assets",
       "providers": [
         "claude",
-        "codex"
+        "codex",
+        "grok",
+        "kimi"
       ]
     },
     {
@@ -1281,7 +1411,9 @@
       "sourcePath": "plugin/skills/design-system-audit",
       "providers": [
         "claude",
-        "codex"
+        "codex",
+        "grok",
+        "kimi"
       ]
     },
     {
@@ -1291,7 +1423,9 @@
       "sourcePath": "plugin/skills/design-system-doctor",
       "providers": [
         "claude",
-        "codex"
+        "codex",
+        "grok",
+        "kimi"
       ]
     },
     {
@@ -1301,7 +1435,9 @@
       "sourcePath": "plugin/skills/design-system-init",
       "providers": [
         "claude",
-        "codex"
+        "codex",
+        "grok",
+        "kimi"
       ]
     },
     {
@@ -1311,7 +1447,9 @@
       "sourcePath": "plugin/skills/design-system-migrate",
       "providers": [
         "claude",
-        "codex"
+        "codex",
+        "grok",
+        "kimi"
       ]
     },
     {
@@ -1321,7 +1459,9 @@
       "sourcePath": "plugin/skills/design-system-profile",
       "providers": [
         "claude",
-        "codex"
+        "codex",
+        "grok",
+        "kimi"
       ]
     },
     {
@@ -1331,7 +1471,9 @@
       "sourcePath": "plugin/skills/design-system-release",
       "providers": [
         "claude",
-        "codex"
+        "codex",
+        "grok",
+        "kimi"
       ]
     },
     {
@@ -1341,7 +1483,9 @@
       "sourcePath": "plugin/skills/design-system-scaffold",
       "providers": [
         "claude",
-        "codex"
+        "codex",
+        "grok",
+        "kimi"
       ]
     },
     {
@@ -1351,7 +1495,9 @@
       "sourcePath": "plugin/skills/design-system-sync",
       "providers": [
         "claude",
-        "codex"
+        "codex",
+        "grok",
+        "kimi"
       ]
     },
     {
@@ -1361,7 +1507,9 @@
       "sourcePath": "plugin/skills/design-system-tokens",
       "providers": [
         "claude",
-        "codex"
+        "codex",
+        "grok",
+        "kimi"
       ]
     },
     {
@@ -1371,7 +1519,9 @@
       "sourcePath": ".agents/skills/emil-design-eng",
       "providers": [
         "claude",
-        "codex"
+        "codex",
+        "grok",
+        "kimi"
       ]
     },
     {
@@ -1381,7 +1531,9 @@
       "sourcePath": ".agents/skills/find-animation-opportunities",
       "providers": [
         "claude",
-        "codex"
+        "codex",
+        "grok",
+        "kimi"
       ]
     },
     {
@@ -1391,7 +1543,9 @@
       "sourcePath": ".agents/skills/gpt-image-2",
       "providers": [
         "claude",
-        "codex"
+        "codex",
+        "grok",
+        "kimi"
       ]
     },
     {
@@ -1401,7 +1555,9 @@
       "sourcePath": ".agents/skills/improve-animations",
       "providers": [
         "claude",
-        "codex"
+        "codex",
+        "grok",
+        "kimi"
       ]
     },
     {
@@ -1411,7 +1567,9 @@
       "sourcePath": ".agents/skills/kb-retriever",
       "providers": [
         "claude",
-        "codex"
+        "codex",
+        "grok",
+        "kimi"
       ]
     },
     {
@@ -1421,7 +1579,9 @@
       "sourcePath": ".agents/skills/pick-ui-library",
       "providers": [
         "claude",
-        "codex"
+        "codex",
+        "grok",
+        "kimi"
       ]
     },
     {
@@ -1431,7 +1591,9 @@
       "sourcePath": ".agents/skills/prototype",
       "providers": [
         "claude",
-        "codex"
+        "codex",
+        "grok",
+        "kimi"
       ]
     },
     {
@@ -1441,7 +1603,9 @@
       "sourcePath": ".agents/skills/review-animations",
       "providers": [
         "claude",
-        "codex"
+        "codex",
+        "grok",
+        "kimi"
       ]
     },
     {
@@ -1451,7 +1615,9 @@
       "sourcePath": ".agents/skills/web-design-engineer",
       "providers": [
         "claude",
-        "codex"
+        "codex",
+        "grok",
+        "kimi"
       ]
     },
     {
@@ -1461,7 +1627,9 @@
       "sourcePath": ".agents/skills/web-video-presentation",
       "providers": [
         "claude",
-        "codex"
+        "codex",
+        "grok",
+        "kimi"
       ]
     },
     {
@@ -1471,7 +1639,9 @@
       "sourcePath": ".agents/skills/write-swift",
       "providers": [
         "claude",
-        "codex"
+        "codex",
+        "grok",
+        "kimi"
       ]
     }
   ],
@@ -1555,7 +1725,9 @@
       "mode": "read-only",
       "sourcePath": "plugin/agents/profile-architect.md",
       "providers": [
-        "claude"
+        "claude",
+        "grok",
+        "kimi"
       ],
       "fallbackProviders": [
         "codex"
@@ -1584,7 +1756,9 @@
       "mode": "read-only",
       "sourcePath": "plugin/agents/token-accessibility-auditor.md",
       "providers": [
-        "claude"
+        "claude",
+        "grok",
+        "kimi"
       ],
       "fallbackProviders": [
         "codex"
@@ -1614,7 +1788,9 @@
       "mode": "explicit-write",
       "sourcePath": "plugin/agents/consumer-migration-specialist.md",
       "providers": [
-        "claude"
+        "claude",
+        "grok",
+        "kimi"
       ],
       "fallbackProviders": [
         "codex"
@@ -1644,7 +1820,9 @@
       "mode": "read-only",
       "sourcePath": "plugin/agents/design-system-reviewer.md",
       "providers": [
-        "claude"
+        "claude",
+        "grok",
+        "kimi"
       ],
       "fallbackProviders": [
         "codex"
@@ -1675,14 +1853,17 @@
       "sourcePath": "mcp/design-system-mcp.mjs",
       "providers": [
         "claude",
-        "codex"
+        "codex",
+        "grok",
+        "kimi"
       ],
       "offline": true,
       "readOnly": true,
       "files": [
         "file:mcp/design-system-mcp.mjs",
         "file:plugin/.mcp.json",
-        "file:plugin/.codex-mcp.json"
+        "file:plugin/.codex-mcp.json",
+        "file:plugin/.grok-mcp.json"
       ],
       "tools": [
         "list_design_items",
@@ -1714,6 +1895,7 @@
         "file:profiles/_template/DESIGN.md",
         "file:profiles/ade/DESIGN.md",
         "file:profiles/agent-browser-website/DESIGN.md",
+        "file:profiles/agent-mail/DESIGN.md",
         "file:profiles/agent-memory-website/DESIGN.md",
         "file:profiles/agent-memory-website/PRODUCT.md",
         "file:profiles/bytedesk-ai/DESIGN.md",
@@ -1730,6 +1912,8 @@
         "file:profiles/store/DESIGN.md",
         "file:profiles/store/PRODUCT.md",
         "file:profiles/terminal/DESIGN.md",
+        "file:profiles/toolbox/DESIGN.md",
+        "file:profiles/toolbox/PRODUCT.md",
         "file:profiles/vault/DESIGN.md",
         "file:profiles/vault/PRODUCT.md",
         "file:profiles/workforce/DESIGN.md"
@@ -1745,12 +1929,15 @@
         "file:design-system.manifest.schema.json",
         "file:mcp/design-system-mcp.mjs",
         "file:plugin/.codex-mcp.json",
+        "file:plugin/.grok-mcp.json",
         "file:plugin/.mcp.json",
         "file:plugin/agent-catalog.json",
         "file:plugin/agents/consumer-migration-specialist.md",
         "file:plugin/agents/design-system-reviewer.md",
         "file:plugin/agents/profile-architect.md",
         "file:plugin/agents/token-accessibility-auditor.md",
+        "file:plugin/hooks/hooks.json",
+        "file:plugin/hooks/session-start-sync.sh",
         "file:plugin/package.json",
         "file:scripts/design-system-check.mjs",
         "file:scripts/design-system-init.mjs",

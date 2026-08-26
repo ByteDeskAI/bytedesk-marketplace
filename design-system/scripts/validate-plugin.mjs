@@ -100,28 +100,41 @@ function frontmatter(text, label) {
 async function validateManifests() {
   const claude = await readJson(".claude-plugin/plugin.json", "Claude plugin manifest");
   const codex = await readJson(".codex-plugin/plugin.json", "Codex plugin manifest");
-  for (const [provider, manifest] of [["Claude", claude], ["Codex", codex]]) {
+  const grok = await readJson(".grok-plugin/plugin.json", "Grok plugin manifest");
+  const kimi = await readJson("kimi.plugin.json", "Kimi plugin manifest");
+  for (const [provider, manifest] of [["Claude", claude], ["Codex", codex], ["Grok", grok], ["Kimi", kimi]]) {
     requireValue(manifest.name === "design-system", `${provider}: plugin name must be design-system`);
-    requireValue(SEMVER.test(manifest.version ?? ""), `${provider}: version must be strict semver`);
     requireValue(manifest.description, `${provider}: description is required`);
+  }
+  requireValue(!Object.hasOwn(claude, "version"), "internal Claude manifest must remain versionless");
+  for (const [provider, manifest] of [["Codex", codex], ["Grok", grok], ["Kimi", kimi]]) {
+    requireValue(SEMVER.test(manifest.version ?? ""), `${provider}: version must be strict semver`);
+    requireValue(manifest.version === codex.version, `${provider}: version must match Codex`);
+  }
+  for (const [provider, manifest] of [["Claude", claude], ["Codex", codex], ["Grok", grok]]) {
     requireValue(manifest.author?.name === "ByteDeskAI", `${provider}: author must be ByteDeskAI`);
     requireValue(manifest.license === "MIT", `${provider}: license must match bundled MIT license`);
   }
-  requireValue(claude.version === codex.version, "Claude and Codex versions must match");
   requireValue(claude.description === codex.description, "Claude and Codex descriptions must match");
   requireValue(codex.skills === "./skills/", "Codex manifest must expose ./skills/");
   requireValue(codex.mcpServers === "./.codex-mcp.json", "Codex manifest must expose ./.codex-mcp.json");
   requireValue(existsSync(path.join(pluginRoot, "LICENSE")), "plugin root LICENSE is missing");
   const claudeMcp = await readJson(".mcp.json", "Claude MCP registration");
   const codexMcp = await readJson(".codex-mcp.json", "Codex MCP registration");
+  const grokMcp = await readJson(".grok-mcp.json", "Grok MCP registration");
   const packageManifest = await readJson("package.json", "plugin package manifest");
+  requireValue(packageManifest.name === "@bytedesk/design-system" && packageManifest.version === codex.version, "plugin package coordinate is invalid");
   requireValue(packageManifest.private === true && packageManifest.type === "module", "plugin package must establish a private ESM boundary");
   const claudeServer = claudeMcp.mcpServers?.["design-system"];
   const codexServer = codexMcp.mcpServers?.["design-system"];
-  requireValue(claudeServer?.type === "stdio" && codexServer?.type === "stdio", "both providers must register the design-system stdio MCP server");
-  requireValue(claudeServer.command === "node" && codexServer.command === "node", "both MCP registrations must use the cross-platform Node command");
+  const grokServer = grokMcp.mcpServers?.["design-system"];
+  const kimiServer = kimi.mcpServers?.["design-system"];
+  requireValue([claudeServer, codexServer, grokServer].every((server) => server?.type === "stdio") && kimiServer?.transport === "stdio", "all providers must register the design-system stdio MCP server");
+  requireValue([claudeServer, codexServer, grokServer, kimiServer].every((server) => server.command === "node"), "all MCP registrations must use the cross-platform Node command");
   requireValue(claudeServer.args?.[0]?.endsWith("/mcp/design-system-mcp.mjs"), "Claude MCP registration points at the wrong server");
-  requireValue(codexServer.args?.[0] === "./mcp/design-system-mcp.mjs", "Codex MCP registration points at the wrong server");
+  for (const [provider, server] of [["Codex", codexServer], ["Grok", grokServer], ["Kimi", kimiServer]]) {
+    requireValue(server.args?.[0] === "./design-system-mcp.mjs" && server.cwd === "./mcp", `${provider} MCP registration points at the wrong server`);
+  }
   const designKit = await readJson("design-system.manifest.json", "design kit manifest");
   requireValue(designKit.schemaVersion === 1 && designKit.id === "bytedesk-design-system", "design kit schema/id is unsupported");
   requireValue(designKit.version === codex.version, "design kit version does not match provider manifests");
@@ -137,6 +150,7 @@ async function validateManifests() {
     const catalogAgent = agentCatalog.agents.find((item) => item.name === agent.name);
     requireValue(catalogAgent, `agent is missing from catalog: ${agent.name}`);
     requireValue(agent.providers?.includes("claude"), `${agent.name}: Claude native provider is required`);
+    requireValue(agent.providers?.includes("grok") && agent.providers?.includes("kimi"), `${agent.name}: Grok and Kimi native providers are required`);
     requireValue(agent.fallbackProviders?.includes("codex"), `${agent.name}: Codex fallback provider is required`);
     requireValue(agent.fallbackSkill === "skill:design-system-agents", `${agent.name}: fallback skill is invalid`);
     const agentPath = path.join(pluginRoot, "agents", `${agent.name}.md`);

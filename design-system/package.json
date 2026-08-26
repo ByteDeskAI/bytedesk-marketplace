@@ -1,5 +1,7 @@
 {
-  "name": "@bytedesk/design-system-plugin",
+  "name": "@bytedesk/design-system",
+  "version": "1.5.2",
+  "description": "ByteDesk design authority, governed skills, specialist agents, and offline design-system MCP server.",
   "private": true,
   "type": "module"
 }
