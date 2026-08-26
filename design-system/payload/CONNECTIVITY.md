@@ -81,6 +81,31 @@ Managed files are read-only in the consumer. Local implementation details live i
 consumer root `DESIGN.md`, token adapter, Storybook, HTML prototypes, and runtime source.
 Do not patch `.context/design-system/` to make a local build pass.
 
+### Project marketplace wiring
+
+Every consumer commits `.claude/settings.json`. Register the marketplace by a path
+relative to the consumer's main checkout and enable the internal plugin beside it:
+
+```json
+{
+  "extraKnownMarketplaces": {
+    "bytedesk": {
+      "source": { "source": "directory", "path": "../bytedesk-marketplace" },
+      "autoUpdate": true
+    }
+  },
+  "enabledPlugins": { "design-system@bytedesk": true }
+}
+```
+
+The literal relative path depends on repository layout. ByteDeskAI siblings normally
+use `../bytedesk-marketplace`; a checkout beside the `ByteDeskAI/` directory uses
+`../ByteDeskAI/bytedesk-marketplace`. Never commit an absolute workstation path.
+Project trust may be required before Claude Code activates the declaration.
+
+Do not ignore `.claude/settings.json`. Ignore only machine-local plugin caches,
+worktrees, telemetry, and `settings.local.json`.
+
 ## Reading order in a consumer
 
 1. `.context/design-system/DESIGN.md`
@@ -102,8 +127,10 @@ it is temporary. Copying upstream prose into a local file does not create an ove
 7. Run repository tests, validation, release verification, and clean-copy checks.
 8. Publish into the marketplace plugin from the clean commit.
 9. Validate the plugin and commit its payload update in the marketplace repository.
-10. Sync the consumer, inspect the diff, commit the vendored context, and run
-    `design-system-sync --check` in CI.
+10. Sync the consumer, inspect the diff, and commit the vendored context.
+11. In CI, checkout the public `ByteDeskAI/bytedesk-marketplace` repository and run
+    its `design-system-sync --app <product> --check` against the consumer. Also run
+    the committed `.bytedesk/design-system-check.mjs` for cache-independent integrity.
 
 Publication refuses dirty source because a payload must never contain bytes that its
 stamped Git SHA cannot reproduce.
@@ -123,6 +150,13 @@ node <plugin>/scripts/design-system-sync.mjs --app <product> --doctor
 `--dry-run` shows the exact add/change/delete plan. Apply is atomic. `--check` verifies
 the source SHA, selected profile, file set, and checksums without needing the private
 source repository. `--doctor` also explains missing consumer wiring.
+
+The two CI checks answer different questions:
+
+- plugin `design-system-sync --check`: is this consumer current with the published
+  marketplace payload and selected profile?
+- committed `design-system-check.mjs`: is the vendored tree internally complete and
+  checksummed even when no plugin cache or source checkout exists?
 
 ## Mockup, Storybook, and upstream feedback
 

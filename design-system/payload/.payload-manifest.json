@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "pluginVersion": "1.5.3",
-  "sourceSha": "bf7aa15d2988b25ccf4f08b8f8349188d49c7b66",
+  "sourceSha": "de482617dfd28db5a0c6afd0ffdd637767dff053",
   "files": [
     {
       "path": "CONNECTIVITY.md",
-      "sha256": "ea6cb1e1ca0e56ebc02093fa04f7a83bdb356ee0ef82e3c7e25ce53a46398b0e",
-      "size": 6960
+      "sha256": "8a9670c7a4e8b825550ba0e38dddf14d79eb7e9ebd333ace4e3263ae9b4a2576",
+      "size": 8385
     },
     {
       "path": "DESIGN.md",
