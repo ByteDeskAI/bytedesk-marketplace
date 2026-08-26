@@ -106,6 +106,9 @@
   --bd-product-agent-memory: #EA5DA9; /* oklch(0.68 0.19 350) */
   --bd-product-capture: #0A84FF;
   --bd-product-toolbox: #4C7DFF;
+  --bd-product-agent-orchestration: #4C7DFF;
+  --bd-product-mangodisk: #FF8A3D;
+  --bd-product-openseo: #20B8A6;
 
   /* Active product accent — defaults to brand; scoped by data-bd-product */
   --bd-accent: var(--bd-brand-orange);
@@ -314,6 +317,9 @@
 [data-bd-product="agent-memory"]  { --bd-accent: var(--bd-product-agent-memory); }
 [data-bd-product="capture"]       { --bd-accent: var(--bd-product-capture); }
 [data-bd-product="toolbox"]       { --bd-accent: var(--bd-product-toolbox); }
+[data-bd-product="agent-orchestration"] { --bd-accent: var(--bd-product-agent-orchestration); }
+[data-bd-product="mangodisk"]     { --bd-accent: var(--bd-product-mangodisk); }
+[data-bd-product="openseo"]       { --bd-accent: var(--bd-product-openseo); }
 
 @media (prefers-reduced-motion: reduce) {
   :root {

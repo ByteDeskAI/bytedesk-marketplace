@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "pluginVersion": "1.5.3",
-  "sourceSha": "43248f324b6fc0f5bcde9b912910ffaac455babb",
+  "sourceSha": "bf7aa15d2988b25ccf4f08b8f8349188d49c7b66",
   "files": [
     {
       "path": "CONNECTIVITY.md",
@@ -104,6 +104,16 @@
       "size": 11066
     },
     {
+      "path": "profiles/agent-browser/DESIGN.md",
+      "sha256": "752519306abb267b664f77661933d40533bb578e27fcee12d6570da8b7f58c65",
+      "size": 2077
+    },
+    {
+      "path": "profiles/agent-browser/PRODUCT.md",
+      "sha256": "e4bbd709fcedf38d4c2ea9521501801508f2f52b6e5591760e6bde9d949053ec",
+      "size": 790
+    },
+    {
       "path": "profiles/agent-mail/DESIGN.md",
       "sha256": "f83601dd67d7c5bf2c523b06ece7b8ee20ec441c9d2f49eb0aef4df6085e5227",
       "size": 3080
@@ -117,6 +127,26 @@
       "path": "profiles/agent-memory-website/PRODUCT.md",
       "sha256": "d9e3e79d2671659d841300f5987a3f4de5f25c29b18237b3ac4cd90f2ba90df1",
       "size": 1364
+    },
+    {
+      "path": "profiles/agent-memory/DESIGN.md",
+      "sha256": "884f9929e698df42e2251c2cb9455433d4017e3b9d1bb7962942298359264cf3",
+      "size": 2028
+    },
+    {
+      "path": "profiles/agent-memory/PRODUCT.md",
+      "sha256": "a7ab7c76bc72b2a7a2e3b2ed05e96f2d6457029c646c5ec1d881bc6ed09f7854",
+      "size": 913
+    },
+    {
+      "path": "profiles/agent-orchestration/DESIGN.md",
+      "sha256": "ccfd8b0acbc22b5dd6e52b6e62cd74495d76261f7ae2f8e6adc00a965877e866",
+      "size": 2838
+    },
+    {
+      "path": "profiles/agent-orchestration/PRODUCT.md",
+      "sha256": "987e5e2f93b79daddf304bb650f7bb9f0e0aa68392ebd34b4a174b58ac79c555",
+      "size": 1361
     },
     {
       "path": "profiles/bytedesk-ai/DESIGN.md",
@@ -164,6 +194,16 @@
       "size": 7257
     },
     {
+      "path": "profiles/mangodisk/DESIGN.md",
+      "sha256": "8cda09ffc673edad6d848558e39f6e803412b4f0c13808a87e5bbaaa6d7297d7",
+      "size": 1803
+    },
+    {
+      "path": "profiles/mangodisk/PRODUCT.md",
+      "sha256": "dd7458f115562fcea641e9ac037beeb4d2b1cda281bedc63e52faa719b1063bf",
+      "size": 927
+    },
+    {
       "path": "profiles/marketplace/DESIGN.md",
       "sha256": "982c4aa1661f8c0af616a028038bffddcbacdd8fa3660b6a9512000ff5a6707e",
       "size": 5486
@@ -172,6 +212,16 @@
       "path": "profiles/marketplace/PRODUCT.md",
       "sha256": "5c0fd0e80d87a174ae88d58fe5df3329504b85e1d665688d5d8eab6d2bae01b1",
       "size": 2405
+    },
+    {
+      "path": "profiles/openseo/DESIGN.md",
+      "sha256": "706a3fdb2d8fb9ff27a581c3f18fe46585a2b2c4b124289ff1310506322fd9a7",
+      "size": 1973
+    },
+    {
+      "path": "profiles/openseo/PRODUCT.md",
+      "sha256": "0d18006c2aab8de44390f167ce787f991da0dd78091d9e5fc29cf6643c27a0af",
+      "size": 858
     },
     {
       "path": "profiles/store/DESIGN.md",
@@ -220,13 +270,13 @@
     },
     {
       "path": "tokens/bytedesk.tokens.json",
-      "sha256": "64b2337122ed0d440f659e0341834b96a68b9abc0147a1e1c23a1db1329ffc05",
-      "size": 23489
+      "sha256": "d2e30ea21f14a61c8f88116691e89ba853ecc8acb790b99a4d3e6906424451a8",
+      "size": 24125
     },
     {
       "path": "tokens/css/bytedesk.css",
-      "sha256": "e58599c4b6cba520c10f1de2e07fca789786297a8d1c25c190af0da4c8c42ea3",
-      "size": 11949
+      "sha256": "47aa6acf78ed5d3f770038b07bd7c280605fd6076f595a60bea3d54fa8dfc02b",
+      "size": 12316
     },
     {
       "path": "tokens/platforms/README.md",
@@ -235,18 +285,18 @@
     },
     {
       "path": "tokens/platforms/go/bytedesk_tokens.go",
-      "sha256": "7491b7c2d71920b16a0284612e8dcaa04c25b2716d83148115a2b7c18f25bfc4",
-      "size": 23366
+      "sha256": "88d44819f36be1f67b0c42e0446b6fd01a1691c8bb11c474cc930ddec815ca2e",
+      "size": 23709
     },
     {
       "path": "tokens/platforms/rust/bytedesk_tokens.rs",
-      "sha256": "168c8d58bf9aad19a1ca965ede2876b91cdf2df3d81e6ef15cb3e46e41157558",
-      "size": 18517
+      "sha256": "3e126bdfbfd072c208bee047cd38855f45a04832eb460cda41d9fecd14253b48",
+      "size": 18788
     },
     {
       "path": "tokens/platforms/typescript/bytedesk-tokens.ts",
-      "sha256": "1e0370f1d41a5521435f25376b870d36be854eca439209ca5852719acbc629a7",
-      "size": 7802
+      "sha256": "cb16cefcfccfb64144736890b3a5bb8a7cc41271bf34f2079a31de822411d532",
+      "size": 7912
     },
     {
       "path": "tokens/tailwind/theme.css",

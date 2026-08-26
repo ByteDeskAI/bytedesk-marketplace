@@ -5,7 +5,7 @@
   "version": "1.5.3",
   "catalog": {
     "sourcePath": "catalog.json",
-    "sha256": "fc289637bcc2336aa77cda0be74643cf96bac98ed988dcf48645eac0f8fc3e96",
+    "sha256": "2bb7b580ebf89c7bb6224f164b45f898c815ad17251ded8161fb10e8b61ceee8",
     "schemaVersion": 1
   },
   "providers": [
@@ -436,6 +436,30 @@
       "profile": "agent-browser-website"
     },
     {
+      "id": "file:profiles/agent-browser/DESIGN.md",
+      "kind": "profile",
+      "sourcePath": "profiles/agent-browser/DESIGN.md",
+      "deliveryPath": "profiles/agent-browser/DESIGN.md",
+      "sha256": "752519306abb267b664f77661933d40533bb578e27fcee12d6570da8b7f58c65",
+      "size": 2077,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "agent-browser"
+    },
+    {
+      "id": "file:profiles/agent-browser/PRODUCT.md",
+      "kind": "profile",
+      "sourcePath": "profiles/agent-browser/PRODUCT.md",
+      "deliveryPath": "profiles/agent-browser/PRODUCT.md",
+      "sha256": "e4bbd709fcedf38d4c2ea9521501801508f2f52b6e5591760e6bde9d949053ec",
+      "size": 790,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "agent-browser"
+    },
+    {
       "id": "file:profiles/agent-mail/DESIGN.md",
       "kind": "profile",
       "sourcePath": "profiles/agent-mail/DESIGN.md",
@@ -470,6 +494,54 @@
         "payload"
       ],
       "profile": "agent-memory-website"
+    },
+    {
+      "id": "file:profiles/agent-memory/DESIGN.md",
+      "kind": "profile",
+      "sourcePath": "profiles/agent-memory/DESIGN.md",
+      "deliveryPath": "profiles/agent-memory/DESIGN.md",
+      "sha256": "884f9929e698df42e2251c2cb9455433d4017e3b9d1bb7962942298359264cf3",
+      "size": 2028,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "agent-memory"
+    },
+    {
+      "id": "file:profiles/agent-memory/PRODUCT.md",
+      "kind": "profile",
+      "sourcePath": "profiles/agent-memory/PRODUCT.md",
+      "deliveryPath": "profiles/agent-memory/PRODUCT.md",
+      "sha256": "a7ab7c76bc72b2a7a2e3b2ed05e96f2d6457029c646c5ec1d881bc6ed09f7854",
+      "size": 913,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "agent-memory"
+    },
+    {
+      "id": "file:profiles/agent-orchestration/DESIGN.md",
+      "kind": "profile",
+      "sourcePath": "profiles/agent-orchestration/DESIGN.md",
+      "deliveryPath": "profiles/agent-orchestration/DESIGN.md",
+      "sha256": "ccfd8b0acbc22b5dd6e52b6e62cd74495d76261f7ae2f8e6adc00a965877e866",
+      "size": 2838,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "agent-orchestration"
+    },
+    {
+      "id": "file:profiles/agent-orchestration/PRODUCT.md",
+      "kind": "profile",
+      "sourcePath": "profiles/agent-orchestration/PRODUCT.md",
+      "deliveryPath": "profiles/agent-orchestration/PRODUCT.md",
+      "sha256": "987e5e2f93b79daddf304bb650f7bb9f0e0aa68392ebd34b4a174b58ac79c555",
+      "size": 1361,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "agent-orchestration"
     },
     {
       "id": "file:profiles/bytedesk-ai/DESIGN.md",
@@ -580,6 +652,30 @@
       "profile": "gateway"
     },
     {
+      "id": "file:profiles/mangodisk/DESIGN.md",
+      "kind": "profile",
+      "sourcePath": "profiles/mangodisk/DESIGN.md",
+      "deliveryPath": "profiles/mangodisk/DESIGN.md",
+      "sha256": "8cda09ffc673edad6d848558e39f6e803412b4f0c13808a87e5bbaaa6d7297d7",
+      "size": 1803,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "mangodisk"
+    },
+    {
+      "id": "file:profiles/mangodisk/PRODUCT.md",
+      "kind": "profile",
+      "sourcePath": "profiles/mangodisk/PRODUCT.md",
+      "deliveryPath": "profiles/mangodisk/PRODUCT.md",
+      "sha256": "dd7458f115562fcea641e9ac037beeb4d2b1cda281bedc63e52faa719b1063bf",
+      "size": 927,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "mangodisk"
+    },
+    {
       "id": "file:profiles/marketplace/DESIGN.md",
       "kind": "profile",
       "sourcePath": "profiles/marketplace/DESIGN.md",
@@ -602,6 +698,30 @@
         "payload"
       ],
       "profile": "marketplace"
+    },
+    {
+      "id": "file:profiles/openseo/DESIGN.md",
+      "kind": "profile",
+      "sourcePath": "profiles/openseo/DESIGN.md",
+      "deliveryPath": "profiles/openseo/DESIGN.md",
+      "sha256": "706a3fdb2d8fb9ff27a581c3f18fe46585a2b2c4b124289ff1310506322fd9a7",
+      "size": 1973,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "openseo"
+    },
+    {
+      "id": "file:profiles/openseo/PRODUCT.md",
+      "kind": "profile",
+      "sourcePath": "profiles/openseo/PRODUCT.md",
+      "deliveryPath": "profiles/openseo/PRODUCT.md",
+      "sha256": "0d18006c2aab8de44390f167ce787f991da0dd78091d9e5fc29cf6643c27a0af",
+      "size": 858,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "openseo"
     },
     {
       "id": "file:profiles/store/DESIGN.md",
@@ -935,8 +1055,8 @@
       "kind": "token",
       "sourcePath": "tokens/bytedesk.tokens.json",
       "deliveryPath": "tokens/bytedesk.tokens.json",
-      "sha256": "64b2337122ed0d440f659e0341834b96a68b9abc0147a1e1c23a1db1329ffc05",
-      "size": 23489,
+      "sha256": "d2e30ea21f14a61c8f88116691e89ba853ecc8acb790b99a4d3e6906424451a8",
+      "size": 24125,
       "distributions": [
         "payload"
       ]
@@ -946,8 +1066,8 @@
       "kind": "token",
       "sourcePath": "tokens/css/bytedesk.css",
       "deliveryPath": "tokens/css/bytedesk.css",
-      "sha256": "e58599c4b6cba520c10f1de2e07fca789786297a8d1c25c190af0da4c8c42ea3",
-      "size": 11949,
+      "sha256": "47aa6acf78ed5d3f770038b07bd7c280605fd6076f595a60bea3d54fa8dfc02b",
+      "size": 12316,
       "distributions": [
         "payload"
       ]
@@ -957,8 +1077,8 @@
       "kind": "token",
       "sourcePath": "tokens/platforms/go/bytedesk_tokens.go",
       "deliveryPath": "tokens/platforms/go/bytedesk_tokens.go",
-      "sha256": "7491b7c2d71920b16a0284612e8dcaa04c25b2716d83148115a2b7c18f25bfc4",
-      "size": 23366,
+      "sha256": "88d44819f36be1f67b0c42e0446b6fd01a1691c8bb11c474cc930ddec815ca2e",
+      "size": 23709,
       "distributions": [
         "payload"
       ]
@@ -979,8 +1099,8 @@
       "kind": "token",
       "sourcePath": "tokens/platforms/rust/bytedesk_tokens.rs",
       "deliveryPath": "tokens/platforms/rust/bytedesk_tokens.rs",
-      "sha256": "168c8d58bf9aad19a1ca965ede2876b91cdf2df3d81e6ef15cb3e46e41157558",
-      "size": 18517,
+      "sha256": "3e126bdfbfd072c208bee047cd38855f45a04832eb460cda41d9fecd14253b48",
+      "size": 18788,
       "distributions": [
         "payload"
       ]
@@ -990,8 +1110,8 @@
       "kind": "token",
       "sourcePath": "tokens/platforms/typescript/bytedesk-tokens.ts",
       "deliveryPath": "tokens/platforms/typescript/bytedesk-tokens.ts",
-      "sha256": "1e0370f1d41a5521435f25376b870d36be854eca439209ca5852719acbc629a7",
-      "size": 7802,
+      "sha256": "cb16cefcfccfb64144736890b3a5bb8a7cc41271bf34f2079a31de822411d532",
+      "size": 7912,
       "distributions": [
         "payload"
       ]
@@ -1144,6 +1264,20 @@
       ]
     },
     {
+      "id": "profile:agent-browser",
+      "slug": "agent-browser",
+      "status": "active",
+      "sourceRepository": "ByteDeskAI/bytedesk-agent-browser",
+      "sourceCommit": "5283423bb2d0e2dc0a4f82fc261a638cf98f3b45",
+      "files": [
+        "file:profiles/agent-browser/DESIGN.md",
+        "file:profiles/agent-browser/PRODUCT.md"
+      ],
+      "dependsOn": [
+        "bundle:foundation"
+      ]
+    },
+    {
       "id": "profile:agent-browser-website",
       "slug": "agent-browser-website",
       "status": "imported",
@@ -1170,6 +1304,20 @@
       ]
     },
     {
+      "id": "profile:agent-memory",
+      "slug": "agent-memory",
+      "status": "active",
+      "sourceRepository": "ByteDeskAI/bytedesk-agent-memory",
+      "sourceCommit": "5283423bb2d0e2dc0a4f82fc261a638cf98f3b45",
+      "files": [
+        "file:profiles/agent-memory/DESIGN.md",
+        "file:profiles/agent-memory/PRODUCT.md"
+      ],
+      "dependsOn": [
+        "bundle:foundation"
+      ]
+    },
+    {
       "id": "profile:agent-memory-website",
       "slug": "agent-memory-website",
       "status": "active",
@@ -1178,6 +1326,20 @@
       "files": [
         "file:profiles/agent-memory-website/DESIGN.md",
         "file:profiles/agent-memory-website/PRODUCT.md"
+      ],
+      "dependsOn": [
+        "bundle:foundation"
+      ]
+    },
+    {
+      "id": "profile:agent-orchestration",
+      "slug": "agent-orchestration",
+      "status": "active",
+      "sourceRepository": "ByteDeskAI/agent-orchestration",
+      "sourceCommit": "5283423bb2d0e2dc0a4f82fc261a638cf98f3b45",
+      "files": [
+        "file:profiles/agent-orchestration/DESIGN.md",
+        "file:profiles/agent-orchestration/PRODUCT.md"
       ],
       "dependsOn": [
         "bundle:foundation"
@@ -1241,6 +1403,20 @@
       ]
     },
     {
+      "id": "profile:mangodisk",
+      "slug": "mangodisk",
+      "status": "active",
+      "sourceRepository": "ByteDeskAI/design-system",
+      "sourceCommit": "5283423bb2d0e2dc0a4f82fc261a638cf98f3b45",
+      "files": [
+        "file:profiles/mangodisk/DESIGN.md",
+        "file:profiles/mangodisk/PRODUCT.md"
+      ],
+      "dependsOn": [
+        "bundle:foundation"
+      ]
+    },
+    {
       "id": "profile:marketplace",
       "slug": "marketplace",
       "status": "active",
@@ -1249,6 +1425,20 @@
       "files": [
         "file:profiles/marketplace/DESIGN.md",
         "file:profiles/marketplace/PRODUCT.md"
+      ],
+      "dependsOn": [
+        "bundle:foundation"
+      ]
+    },
+    {
+      "id": "profile:openseo",
+      "slug": "openseo",
+      "status": "active",
+      "sourceRepository": "ByteDeskAI/design-system",
+      "sourceCommit": "5283423bb2d0e2dc0a4f82fc261a638cf98f3b45",
+      "files": [
+        "file:profiles/openseo/DESIGN.md",
+        "file:profiles/openseo/PRODUCT.md"
       ],
       "dependsOn": [
         "bundle:foundation"
@@ -2129,9 +2319,15 @@
         "file:profiles/_template/DESIGN.md",
         "file:profiles/ade/DESIGN.md",
         "file:profiles/agent-browser-website/DESIGN.md",
+        "file:profiles/agent-browser/DESIGN.md",
+        "file:profiles/agent-browser/PRODUCT.md",
         "file:profiles/agent-mail/DESIGN.md",
         "file:profiles/agent-memory-website/DESIGN.md",
         "file:profiles/agent-memory-website/PRODUCT.md",
+        "file:profiles/agent-memory/DESIGN.md",
+        "file:profiles/agent-memory/PRODUCT.md",
+        "file:profiles/agent-orchestration/DESIGN.md",
+        "file:profiles/agent-orchestration/PRODUCT.md",
         "file:profiles/bytedesk-ai/DESIGN.md",
         "file:profiles/bytedesk-ai/PRODUCT.md",
         "file:profiles/capture-website/DESIGN.md",
@@ -2141,8 +2337,12 @@
         "file:profiles/gateway/DESIGN.md",
         "file:profiles/gateway/PRODUCT.md",
         "file:profiles/gateway/VISUALIZATIONS.md",
+        "file:profiles/mangodisk/DESIGN.md",
+        "file:profiles/mangodisk/PRODUCT.md",
         "file:profiles/marketplace/DESIGN.md",
         "file:profiles/marketplace/PRODUCT.md",
+        "file:profiles/openseo/DESIGN.md",
+        "file:profiles/openseo/PRODUCT.md",
         "file:profiles/store/DESIGN.md",
         "file:profiles/store/PRODUCT.md",
         "file:profiles/terminal/DESIGN.md",

@@ -455,6 +455,21 @@
       "$type": "color",
       "$value": "#4C7DFF",
       "$description": "Toolbox command-shelf identity. Electric cobalt; interaction still uses the shared interactive roles."
+    },
+    "agent-orchestration": {
+      "$type": "color",
+      "$value": "#4C7DFF",
+      "$description": "Conductor's Desk identity. Shares the family electric cobalt; orange remains reserved for actionable decisions."
+    },
+    "mangodisk": {
+      "$type": "color",
+      "$value": "#FF8A3D",
+      "$description": "Storage analysis identity. Warm orange identifies the product without replacing destructive or warning semantics."
+    },
+    "openseo": {
+      "$type": "color",
+      "$value": "#20B8A6",
+      "$description": "Search evidence identity. Teal remains distinct from semantic success and family interaction blue."
     }
   },
   "font": {
