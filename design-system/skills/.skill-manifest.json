@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "pluginVersion": "1.5.2",
-  "designSystemSourceSha": "3c920407eb1e1a61800a57a97808d5e588a54117",
+  "designSystemSourceSha": "1b571eba45a165ab74afebd06464a5db1712032b",
   "skills": [
     "animate",
     "animate-expo",
@@ -38,7 +38,7 @@
   "files": [
     {
       "path": ".provenance.json",
-      "sha256": "65b488835fd8bb732f4d9329adccff0ea452fef95afdea001ab118d7c2d5f5c4",
+      "sha256": "0a103d38983ef1b3b48a1a8598090fd6483f6ee9080b7802228238b2ee4b867f",
       "size": 2992
     },
     {
@@ -113,8 +113,8 @@
     },
     {
       "path": "beautiful-article/assets/scaffold-template/.npmrc",
-      "sha256": "318005a48dd48023832c89a67fcc1f03926da16d5998197d083314a9faa414bb",
-      "size": 38
+      "sha256": "3a951f66e7e0f3e2dd1832473a871357c4a507b51100636b73bcf6ff0dd78b6c",
+      "size": 37
     },
     {
       "path": "beautiful-article/assets/scaffold-template/article/Article.tsx",
@@ -138,8 +138,8 @@
     },
     {
       "path": "beautiful-article/assets/scaffold-template/index.html",
-      "sha256": "e4e1b3ba87de5ff47d1326d70dac51d4779cac82d5a4cfea3b4c946a493f1c59",
-      "size": 774
+      "sha256": "19bcaa847b022558b889c182d028bb311aec44a2ddc3f6a5e64f3f4169960244",
+      "size": 755
     },
     {
       "path": "beautiful-article/assets/scaffold-template/package.json",
@@ -458,8 +458,8 @@
     },
     {
       "path": "design-system-release/SKILL.md",
-      "sha256": "3e3a96e51db3f9f015536ed20b15c2365f47560603e5e89e77e05f864a7b9564",
-      "size": 1396
+      "sha256": "6a70b5ff314053aad3c826dff45036140b39ab74fc2e1b0bd409f45f58e5149e",
+      "size": 1394
     },
     {
       "path": "design-system-release/agents/openai.yaml",
@@ -1398,8 +1398,8 @@
     },
     {
       "path": "web-video-presentation/templates/index.html",
-      "sha256": "694339b8db79d01c3ce56cc02ca0778213327b795e41c3516e0aef8d35ca5bc1",
-      "size": 314
+      "sha256": "55b51cdbec03bd52a44505ea7ed21a454fbe845ee7b774a68b5ae3568e833c97",
+      "size": 302
     },
     {
       "path": "web-video-presentation/templates/scripts/extract-narrations.ts",

@@ -35,4 +35,6 @@ fi
 
 command -v node >/dev/null 2>&1 || exit 0
 
-node "${CLAUDE_PLUGIN_ROOT}/scripts/design-system-sync.mjs" --app "$app" --dir "$DIR" || exit 0
+if ! node "${CLAUDE_PLUGIN_ROOT}/scripts/design-system-sync.mjs" --app "$app" --dir "$DIR"; then
+  echo "design-system SessionStart sync failed; run design-system-sync manually for details" >&2
+fi

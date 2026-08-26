@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 
 const pluginRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const payloadRoot = existsSync(path.join(pluginRoot, "payload")) ? path.join(pluginRoot, "payload") : pluginRoot;
+const auditRoot = await realpath(path.resolve(process.env.BYTEDESK_DESIGN_AUDIT_ROOT ?? process.cwd()));
 const manifest = JSON.parse(await readFile(path.join(pluginRoot, "design-system.manifest.json"), "utf8"));
 const categories = ["tokens", "profiles", "assets", "rules", "skills", "agents", "bundles", "provenance"];
 const skipDirectories = new Set([".git", "node_modules", "vendor", "dist", "build", ".next", "out"]);
@@ -23,8 +24,11 @@ function isInside(root, target) {
 }
 
 async function boundedRoot(requested = ".") {
-  const resolved = await realpath(path.resolve(process.cwd(), requested));
+  const resolved = await realpath(path.resolve(auditRoot, requested));
   if (!(await stat(resolved)).isDirectory()) throw new Error("repositoryPath must be a directory");
+  if (!isInside(auditRoot, resolved)) {
+    throw new Error(`repositoryPath escapes configured audit root: ${requested}`);
+  }
   return resolved;
 }
 

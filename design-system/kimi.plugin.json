@@ -1,0 +1,15 @@
+{
+  "name": "design-system",
+  "version": "1.5.2",
+  "description": "Install and govern the ByteDesk design foundation, tokens, profiles, assets, and reviewed design workflows.",
+  "skills": "./skills",
+  "agents": "./agents",
+  "mcpServers": {
+    "design-system": {
+      "command": "node",
+      "args": ["./design-system-mcp.mjs"],
+      "cwd": "./mcp",
+      "transport": "stdio"
+    }
+  }
+}

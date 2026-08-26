@@ -1,6 +1,6 @@
 ---
 name: design-system-release
-description: Validate and publish a ByteDesk design-system revision into the versioned Claude/Codex marketplace plugin, preserving immutable source provenance, payload checksums, skill licenses, and provider validation. Use for maintainers releasing upstream changes.
+description: Validate and publish a ByteDesk design-system revision into the capability-oriented marketplace package, preserving immutable source provenance, payload checksums, skill licenses, and provider validation. Use for maintainers releasing upstream changes.
 ---
 
 # Design System Release
@@ -16,7 +16,7 @@ and inspect both repositories before mutation.
    Review generated payload, source SHA, plugin version, skill inventory,
    provenance, licenses, and both provider manifests.
 4. Run `node <marketplace>/design-system/scripts/validate-plugin.mjs
-   <marketplace>/design-system`, plus Claude and Codex plugin validation and a
+   <marketplace>/design-system`, plus all supported provider validations and a
    consumer sync/check smoke test.
 5. Commit and push source or marketplace changes only when the user has
    authorized those external mutations. Monitor required CI to completion.

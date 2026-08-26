@@ -97,6 +97,7 @@ Terminal and remote-surface layout never animates for decoration.
 | Vault | amber | identity/keys |
 | Store | green | commerce identity |
 | Workforce | violet | workforce identity |
+| Toolbox | periwinkle | application lifecycle and updates |
 | Agent Browser | cyan | browser identity |
 | Agent Memory | pink | memory identity |
 | Capture | bright blue | capture identity |

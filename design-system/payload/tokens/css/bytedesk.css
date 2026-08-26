@@ -100,6 +100,7 @@
   --bd-product-vault: #DFA700;
   --bd-product-store: #009118;
   --bd-product-workforce: #A170EB;   /* oklch(0.65 0.18 300) */
+  --bd-product-toolbox: #7C8AE8;
   --bd-product-agent-browser: #1DB8CE;
   --bd-product-agent-memory: #EA5DA9; /* oklch(0.68 0.19 350) */
   --bd-product-capture: #0A84FF;
@@ -241,6 +242,7 @@
 [data-bd-product="vault"]         { --bd-accent: var(--bd-product-vault); }
 [data-bd-product="store"]         { --bd-accent: var(--bd-product-store); }
 [data-bd-product="workforce"]     { --bd-accent: var(--bd-product-workforce); }
+[data-bd-product="toolbox"]       { --bd-accent: var(--bd-product-toolbox); }
 [data-bd-product="agent-browser"] { --bd-accent: var(--bd-product-agent-browser); }
 [data-bd-product="agent-memory"]  { --bd-accent: var(--bd-product-agent-memory); }
 [data-bd-product="capture"]       { --bd-accent: var(--bd-product-capture); }

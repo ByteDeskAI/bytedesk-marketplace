@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "pluginVersion": "1.5.2",
-  "sourceSha": "3c920407eb1e1a61800a57a97808d5e588a54117",
+  "sourceSha": "1b571eba45a165ab74afebd06464a5db1712032b",
   "files": [
     {
       "path": "DESIGN.md",
@@ -22,6 +22,11 @@
       "path": "profiles/agent-browser-website/DESIGN.md",
       "sha256": "bfb2541020a44d6cb4650c5ce947d1c72be3d4bbbd5c9d08546688e93018d20e",
       "size": 11066
+    },
+    {
+      "path": "profiles/agent-mail/DESIGN.md",
+      "sha256": "f83601dd67d7c5bf2c523b06ece7b8ee20ec441c9d2f49eb0aef4df6085e5227",
+      "size": 3080
     },
     {
       "path": "profiles/agent-memory-website/DESIGN.md",
@@ -100,8 +105,18 @@
     },
     {
       "path": "profiles/terminal/DESIGN.md",
-      "sha256": "72b811036da25a06a57467c72f1f12d6be360fddc41f42f952f81a93c20b5042",
-      "size": 42320
+      "sha256": "881c11e613891aab6219525601ac67250bdd3cdddd3428b18d0be011057ac02b",
+      "size": 42325
+    },
+    {
+      "path": "profiles/toolbox/DESIGN.md",
+      "sha256": "07fd3fd9a4b03cdf7812c96f79a941f49583dd0fdd2d1e829189e338c4adedc0",
+      "size": 8510
+    },
+    {
+      "path": "profiles/toolbox/PRODUCT.md",
+      "sha256": "fdae66efe388156b4956517b6e04d814f34e69c8c01454fcfd219b5afeadbe13",
+      "size": 2640
     },
     {
       "path": "profiles/vault/DESIGN.md",
@@ -120,18 +135,18 @@
     },
     {
       "path": "tokens/README.md",
-      "sha256": "1e59b583c12e03f385335c4dcedd9851586546c76e9c491c75e85d4d922c3cb2",
-      "size": 7391
+      "sha256": "5bba29427b3b337f8459252cc83e0086bf73ab8f0c8612e47e7eaeaa9149e744",
+      "size": 7452
     },
     {
       "path": "tokens/bytedesk.tokens.json",
-      "sha256": "0ca07fff00c12b18b5d23ba631e80cf43e967c8940b0c92159b542c6f9a6afb7",
-      "size": 19168
+      "sha256": "9cef3545f14533db2eb75b27a807dfff06855b4c7205f786d2e90890ed1de857",
+      "size": 19353
     },
     {
       "path": "tokens/css/bytedesk.css",
-      "sha256": "8682777a21824afc87c0febee76e2589631d3edabdeb159adbbe29e13d212e5a",
-      "size": 10083
+      "sha256": "634755aeaf95ebfd792540f723d5fbe9c0706d381f5ace3155420fa662133160",
+      "size": 10194
     },
     {
       "path": "tokens/platforms/README.md",
@@ -140,18 +155,18 @@
     },
     {
       "path": "tokens/platforms/go/bytedesk_tokens.go",
-      "sha256": "638edc6ffd7b9868e4fa427d0da7003164dadf7f31b8981c77324aa24a503d01",
-      "size": 15629
+      "sha256": "6072fc272aabbca81c8e42bf3ad1ac12dfa2aafe2508ec4c0f3350a1c7b71faa",
+      "size": 15727
     },
     {
       "path": "tokens/platforms/rust/bytedesk_tokens.rs",
-      "sha256": "5582190603836b688704c418d96791bf9af37fc01183c08af590215449ebe300",
-      "size": 13446
+      "sha256": "2fa41e1305558082262917888668d37c014a5952407f18c95e829ec29c32a039",
+      "size": 13527
     },
     {
       "path": "tokens/platforms/typescript/bytedesk-tokens.ts",
-      "sha256": "8da7836afe11aaf431ef4807940120005255a5fbbd4f11e09b420d6d013e0599",
-      "size": 5699
+      "sha256": "00100c361792dc3af5dcc38b90f82fc435ba1baf44660d0cba11be87e1271dc1",
+      "size": 5731
     },
     {
       "path": "tokens/tailwind/theme.css",

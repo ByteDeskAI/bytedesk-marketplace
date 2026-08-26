@@ -85,7 +85,6 @@
     },
     {
       "name": "design-system",
-      "version": "1.5.2",
       "description": "Discover, query, adopt, and govern the ByteDesk design kit with four specialist roles, 31 skills, one CLI, and an offline read-only MCP server across Claude and Codex.",
       "source": "./design-system"
     },
