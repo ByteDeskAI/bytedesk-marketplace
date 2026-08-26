@@ -32,10 +32,12 @@ deployment dashboards, …).
 
 ## Install
 
-The launcher `bin/teamcity-mcp` runs the self-contained bundle (`dist/bundle.cjs`, no
-`node_modules` needed) and **defaults to stdio**; it rebuilds automatically when sources are
-newer than the bundle. MCP hosts (Claude Code/Desktop, Codex, Gemini) spawn it with a bare
-environment, so credentials live in a user-level env file:
+The launcher `bin/teamcity-mcp` runs the committed, self-contained bundle
+(`dist/bundle.cjs`, no `node_modules` needed) and **defaults to stdio**. Installed plugins never
+rebuild publisher source at runtime; a missing bundle fails with a reinstall/build instruction.
+Developers refresh the artifact explicitly with `npm run bundle`. MCP hosts (Claude
+Code/Desktop, Codex, Gemini) spawn it with a bare environment, so credentials live in a
+user-level env file:
 
 ```
 ~/.config/teamcity-mcp/env        # override path with TEAMCITY_MCP_ENV

@@ -1,8 +1,8 @@
 #!/bin/sh
-# teamcity-mcp launcher: runs the bundled server, (re)building it when missing or stale.
+# teamcity-mcp launcher: runs the bundled installation artifact.
 set -eu
 
-ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
 BUNDLE="$ROOT/dist/bundle.cjs"
 
 # Credentials/config: MCP hosts spawn us with a bare environment, so load the
@@ -10,25 +10,15 @@ BUNDLE="$ROOT/dist/bundle.cjs"
 ENV_FILE="${TEAMCITY_MCP_ENV:-$HOME/.config/teamcity-mcp/env}"
 if [ -f "$ENV_FILE" ]; then
   set -a
+  # shellcheck source=/dev/null
   . "$ENV_FILE"
   set +a
 fi
 
-needs_build=0
-[ -f "$BUNDLE" ] || needs_build=1
-# Rebuild when any source file is newer than the bundle (covers git pull / local edits).
-if [ "$needs_build" -eq 0 ] && [ -n "$(find "$ROOT/src" -name '*.ts' -newer "$BUNDLE" -print -quit 2>/dev/null)" ]; then
-  needs_build=1
-fi
-
-if [ "$needs_build" -eq 1 ]; then
-  cd "$ROOT"
-  if [ ! -d node_modules ] || [ "$ROOT/package-lock.json" -nt "$ROOT/node_modules" ]; then
-    echo "teamcity-mcp: installing dependencies..." >&2
-    npm ci --no-audit --no-fund >&2
-  fi
-  echo "teamcity-mcp: building bundle..." >&2
-  npm run bundle >&2
+if [ ! -f "$BUNDLE" ]; then
+  echo "teamcity-mcp: shipped bundle is missing: $BUNDLE" >&2
+  echo "teamcity-mcp: reinstall the plugin or run 'npm run bundle' in a source checkout" >&2
+  exit 1
 fi
 
 # Plugin/Desktop/npx contexts expect stdio by default; service use sets

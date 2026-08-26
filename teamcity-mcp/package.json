@@ -1,6 +1,6 @@
 {
   "name": "teamcity-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "MCP server exposing the full TeamCity REST API over streamable HTTP",
   "type": "module",
   "main": "dist/src/index.js",
