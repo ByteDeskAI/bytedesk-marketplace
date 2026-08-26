@@ -10,7 +10,7 @@ const pluginRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".
 const payloadRoot = existsSync(path.join(pluginRoot, "payload")) ? path.join(pluginRoot, "payload") : pluginRoot;
 const auditRoot = await realpath(path.resolve(process.env.BYTEDESK_DESIGN_AUDIT_ROOT ?? process.cwd()));
 const manifest = JSON.parse(await readFile(path.join(pluginRoot, "design-system.manifest.json"), "utf8"));
-const categories = ["tokens", "profiles", "assets", "rules", "skills", "agents", "bundles", "provenance"];
+const categories = ["tokens", "profiles", "assets", "artifacts", "rules", "skills", "agents", "bundles", "provenance"];
 const skipDirectories = new Set([".git", "node_modules", "vendor", "dist", "build", ".next", "out"]);
 const scanExtensions = new Set([".css", ".go", ".html", ".js", ".json", ".jsx", ".md", ".mjs", ".rs", ".ts", ".tsx", ".yaml", ".yml"]);
 
@@ -267,7 +267,7 @@ async function auditRepository(args) {
 
 const readOnly = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const tools = [
-  { name: "list_design_items", title: "List design-kit items", description: "List counts or complete items for tokens, profiles, assets, rules, skills, agents, bundles, and provenance.", inputSchema: { type: "object", properties: { category: { type: "string", enum: categories } }, additionalProperties: false }, annotations: readOnly },
+  { name: "list_design_items", title: "List design-kit items", description: "List counts or complete items for tokens, profiles, assets, approved artifacts, rules, skills, agents, bundles, and provenance.", inputSchema: { type: "object", properties: { category: { type: "string", enum: categories } }, additionalProperties: false }, annotations: readOnly },
   { name: "search_design_system", title: "Search the design system", description: "Search the offline design-kit manifest, tokens, rules, profiles, assets, skills, and provenance.", inputSchema: { type: "object", properties: { query: { type: "string", minLength: 1 }, categories: { type: "array", items: { type: "string", enum: categories } }, limit: { type: "integer", minimum: 1, maximum: 100 } }, required: ["query"], additionalProperties: false }, annotations: readOnly },
   { name: "get_design_item", title: "Get a design-kit item", description: "Get one exact design item by namespaced id, name, slug, or token path.", inputSchema: { type: "object", properties: { id: { type: "string", minLength: 1 } }, required: ["id"], additionalProperties: false }, annotations: readOnly },
   { name: "explain_rule", title: "Explain a design rule", description: "Find the strongest matching design rule, identify its shared/profile/consumer authority, and cite its repository path.", inputSchema: { type: "object", properties: { query: { type: "string", minLength: 1 }, profile: { type: "string" }, repositoryPath: { type: "string" } }, required: ["query"], additionalProperties: false }, annotations: readOnly },

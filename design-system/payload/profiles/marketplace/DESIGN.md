@@ -91,15 +91,13 @@ that delays comprehension.
 
 ## Exceptions to the shared foundation
 
-- The shared foundation is dark-first; Marketplace adds a complete light theme because
-  anonymous public discovery must respect user preference across documentation-heavy
-  pages.
+- Marketplace implements the shared dark/light parity contract and respects user
+  preference across documentation-heavy pages.
 - Marketplace is less dense than operational ByteDesk consoles on anonymous routes;
   publisher and moderator routes return to the family operational density.
 
 ## Bans
 
 Marketplace does not use Store's commercial ledger contract, pricing language,
-upgrade CTAs, hero metric grids, glassmorphism, gradient text, icon soup, fake terminal
+upgrade CTAs, hero metric grids, unbounded decorative glass stacks, gradient text, icon soup, fake terminal
 chrome, provider logos without approved provenance, or ratings styled as trust proof.
-

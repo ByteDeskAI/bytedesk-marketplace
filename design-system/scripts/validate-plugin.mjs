@@ -138,7 +138,7 @@ async function validateManifests() {
   const designKit = await readJson("design-system.manifest.json", "design kit manifest");
   requireValue(designKit.schemaVersion === 1 && designKit.id === "bytedesk-design-system", "design kit schema/id is unsupported");
   requireValue(designKit.version === codex.version, "design kit version does not match provider manifests");
-  for (const category of ["providers", "runtimes", "files", "tokens", "adapters", "profiles", "assets", "templates", "skills", "agents", "mcpServers", "bundles"]) {
+  for (const category of ["providers", "runtimes", "files", "tokens", "adapters", "profiles", "assets", "artifacts", "templates", "skills", "agents", "mcpServers", "bundles"]) {
     requireValue(Array.isArray(designKit[category]), `design kit ${category} must be an array`);
   }
   requireValue(designKit.mcpServers.length === 1, "design kit must expose exactly one MCP server");

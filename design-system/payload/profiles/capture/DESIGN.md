@@ -47,7 +47,7 @@ Dark theme is default. Do not hard-code one-off palettes outside tokens.
 | Footer | Open at login switch · Preferences · Quit |
 | Accent | `#0a84ff` only on hover/selected row (≤5%); not on every button |
 | Icons | Monoline only; no emoji-like glyphs |
-| Anti-patterns | Large primary button stacks, marketing cards, glass blur chrome, purple/neon |
+| Anti-patterns | Large primary button stacks, marketing cards, unbounded glass blur beyond the family shell, purple/neon |
 
 Implementation target: tray popover panel (egui) until gpui tray lands.
 

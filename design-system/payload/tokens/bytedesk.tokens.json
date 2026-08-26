@@ -1,51 +1,51 @@
 {
   "$schema": "https://design-tokens.github.io/community-group/format/",
-  "$description": "ByteDesk canonical design tokens — the shared family foundation. Dark-first. CSS runtimes consume tokens/css/bytedesk.css; Tailwind v4 apps layer tokens/tailwind/theme.css; generated TypeScript, Rust, and Go adapters live under tokens/platforms/. Hex values are sRGB; tokens with an oklch source note carry it in $description.",
+  "$description": "ByteDesk canonical design tokens - the shared family foundation. Dark is the default and light is an equal shipping counterpart. Black Glass + Optical Layering material and governed dark-richness values are shared across products. CSS runtimes consume tokens/css/bytedesk.css; Tailwind v4 apps layer tokens/tailwind/theme.css; generated TypeScript, Rust, and Go adapters live under tokens/platforms/. Hex values are sRGB; tokens with an oklch source note carry it in $description.",
   "color": {
     "bg": {
       "base": {
         "$type": "color",
-        "$value": "#0F1017",
+        "$value": "#101316",
         "$description": "App/page background. The family ground."
       },
       "subtle": {
         "$type": "color",
-        "$value": "#1A1C25"
+        "$value": "#171A1D"
       },
       "surface": {
         "$type": "color",
-        "$value": "#23252F",
+        "$value": "#1D2125",
         "$description": "Cards, panels."
       },
       "elevated": {
         "$type": "color",
-        "$value": "#2A2C37"
+        "$value": "#24282D"
       },
       "overlay": {
         "$type": "color",
-        "$value": "#343742",
+        "$value": "#2B3036",
         "$description": "Menus, popovers, tooltips."
       }
     },
     "text": {
       "primary": {
         "$type": "color",
-        "$value": "#E6E8ED",
+        "$value": "#E6E8EB",
         "$description": "15.5:1 on bg.base"
       },
       "secondary": {
         "$type": "color",
-        "$value": "#BFC4CA",
+        "$value": "#A1A8B1",
         "$description": "10.8:1 on bg.base"
       },
       "tertiary": {
         "$type": "color",
-        "$value": "#A2A8B2",
+        "$value": "#7E8792",
         "$description": "7.9:1 on bg.base, 6.4:1 on bg.surface"
       },
       "disabled": {
         "$type": "color",
-        "$value": "#6B7280"
+        "$value": "#626A74"
       },
       "on-brand": {
         "$type": "color",
@@ -260,23 +260,23 @@
     "border": {
       "dimmest": {
         "$type": "color",
-        "$value": "#252732"
+        "$value": "#272A2C"
       },
       "dimmer": {
         "$type": "color",
-        "$value": "#31343F"
+        "$value": "#303438"
       },
       "default": {
         "$type": "color",
-        "$value": "#3A3D48"
+        "$value": "#3A3E42"
       },
       "stronger": {
         "$type": "color",
-        "$value": "#444752"
+        "$value": "#44484C"
       },
       "strongest": {
         "$type": "color",
-        "$value": "#4D505C"
+        "$value": "#4C4F52"
       }
     },
     "chart": {
@@ -339,6 +339,76 @@
       }
     }
   },
+  "theme": {
+    "$description": "Shipping dark and light semantic values. Stable color.bg/text/border aliases map to the selected theme at runtime; components never branch on raw theme colors.",
+    "dark": {
+      "canvas": { "$type": "color", "$value": "#101316" },
+      "shell": { "$type": "color", "$value": "#171A1D" },
+      "inset": { "$type": "color", "$value": "#14171A" },
+      "raised": { "$type": "color", "$value": "#1D2125" },
+      "overlay": { "$type": "color", "$value": "#24282D" },
+      "ink-primary": { "$type": "color", "$value": "#E6E8EB" },
+      "ink-secondary": { "$type": "color", "$value": "#A1A8B1" },
+      "ink-tertiary": { "$type": "color", "$value": "#7E8792" },
+      "border-subtle": { "$type": "color", "$value": "#272A2C" },
+      "border-default": { "$type": "color", "$value": "#3A3E42" },
+      "border-strong": { "$type": "color", "$value": "#4C4F52" }
+    },
+    "light": {
+      "canvas": { "$type": "color", "$value": "#ECEDEF" },
+      "shell": { "$type": "color", "$value": "#F8F9FB" },
+      "inset": { "$type": "color", "$value": "#F2F4F7" },
+      "raised": { "$type": "color", "$value": "#FFFFFF" },
+      "overlay": { "$type": "color", "$value": "#FFFFFF" },
+      "ink-primary": { "$type": "color", "$value": "#22252A" },
+      "ink-secondary": { "$type": "color", "$value": "#6B717A" },
+      "ink-tertiary": { "$type": "color", "$value": "#858C96" },
+      "border-subtle": { "$type": "color", "$value": "#E0E3E8" },
+      "border-default": { "$type": "color", "$value": "#CDD2D9" },
+      "border-strong": { "$type": "color", "$value": "#B9C0C9" }
+    }
+  },
+  "material": {
+    "$description": "Black Glass + Optical Layering primitives. Structural material only; do not apply every level to every component.",
+    "blur-shell": { "$type": "dimension", "$value": "18px" },
+    "blur-overlay": { "$type": "dimension", "$value": "24px" },
+    "shell-opacity-dark": { "$type": "number", "$value": 0.94 },
+    "shell-opacity-light": { "$type": "number", "$value": 0.97 },
+    "top-light-dark": { "$type": "color", "$value": "#FFFFFF0A" },
+    "top-light-light": { "$type": "color", "$value": "#FFFFFFCC" },
+    "ambient-blue": { "$type": "color", "$value": "#07182E66" },
+    "ambient-orange": { "$type": "color", "$value": "#EC4E0238" }
+  },
+  "depth": {
+    "$description": "Optical elevation strings map directly to CSS box-shadow and equivalent native shadow structures.",
+    "shell-dark": { "$type": "string", "$value": "inset 0 1px 0 #FFFFFF0A, 0 24px 56px #05080DB8, 0 8px 20px #07182E66" },
+    "shell-light": { "$type": "string", "$value": "inset 0 1px 0 #FFFFFFCC, 0 24px 56px #17203324, 0 8px 20px #315B9B14" },
+    "raised-dark": { "$type": "string", "$value": "inset 0 1px 0 #FFFFFF08, 0 8px 20px #05080D66" },
+    "raised-light": { "$type": "string", "$value": "inset 0 1px 0 #FFFFFFE6, 0 8px 20px #17203317" },
+    "focus-glow": { "$type": "string", "$value": "0 0 0 1px #1B84F3, 0 0 24px #1B84F34D" },
+    "attention-glow": { "$type": "string", "$value": "0 0 20px #EC4E0238" }
+  },
+  "richness": {
+    "$description": "Dark-only governed material calibration. Light mode ignores this preference.",
+    "soft": {
+      "canvas": { "$type": "color", "$value": "#1B1E22" },
+      "shell": { "$type": "color", "$value": "#22262A" },
+      "ambient-strength": { "$type": "number", "$value": 0.55 },
+      "bloom-strength": { "$type": "number", "$value": 0.55 }
+    },
+    "balanced": {
+      "canvas": { "$type": "color", "$value": "#101316" },
+      "shell": { "$type": "color", "$value": "#171A1D" },
+      "ambient-strength": { "$type": "number", "$value": 0.75 },
+      "bloom-strength": { "$type": "number", "$value": 0.75 }
+    },
+    "rich": {
+      "canvas": { "$type": "color", "$value": "#090C0F" },
+      "shell": { "$type": "color", "$value": "#121518" },
+      "ambient-strength": { "$type": "number", "$value": 1 },
+      "bloom-strength": { "$type": "number", "$value": 1 }
+    }
+  },
   "product": {
     "$description": "Per-product accent hues. Used for product identification (marks, chips, card gradients, docs), never replacing semantic colors. All >=4.5:1 on bg.base except noted.",
     "platform": {
@@ -366,11 +436,6 @@
       "$value": "#A170EB",
       "$description": "oklch(0.65 0.18 300). 5.5:1."
     },
-    "toolbox": {
-      "$type": "color",
-      "$value": "#7C8AE8",
-      "$description": "Toolbox periwinkle. 6.02:1 on bg.base, 5.38:1 on bg.subtle, and 4.83:1 on bg.surface."
-    },
     "agent-browser": {
       "$type": "color",
       "$value": "#1DB8CE",
@@ -385,6 +450,11 @@
       "$type": "color",
       "$value": "#0A84FF",
       "$description": "Matches the existing capture profile accent. 5.2:1."
+    },
+    "toolbox": {
+      "$type": "color",
+      "$value": "#4C7DFF",
+      "$description": "Toolbox command-shelf identity. Electric cobalt; interaction still uses the shared interactive roles."
     }
   },
   "font": {

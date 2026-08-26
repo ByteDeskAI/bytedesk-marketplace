@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const manifestPath = path.join(root, "design-system.manifest.json");
-const categories = ["providers", "runtimes", "tokens", "adapters", "profiles", "assets", "templates", "skills", "agents", "mcpServers", "bundles", "files"];
+const categories = ["providers", "runtimes", "tokens", "adapters", "profiles", "assets", "artifacts", "templates", "skills", "agents", "mcpServers", "bundles", "files"];
 
 function usage() {
   return [
@@ -15,7 +15,7 @@ function usage() {
     "",
     "Discovery:",
     "  list [category] [--json]   list the complete kit or one category",
-    "  inspect <id> [--json]      inspect any profile, adapter, skill, bundle, asset, or file",
+    "  inspect <id> [--json]      inspect any profile, artifact, adapter, skill, bundle, asset, or file",
     "",
     "Consumer lifecycle:",
     "  init [args]                adopt the design system",

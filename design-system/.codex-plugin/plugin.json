@@ -1,13 +1,13 @@
 {
   "name": "design-system",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "description": "Install and govern the ByteDesk design foundation, tokens, profiles, assets, and reviewed design workflows across supported agent providers.",
   "author": {
     "name": "ByteDeskAI",
     "url": "https://github.com/ByteDeskAI"
   },
   "homepage": "https://github.com/ByteDeskAI/design-system",
-  "repository": "https://github.com/ByteDeskAI/bytedesk-marketplace",
+  "repository": "https://github.com/ByteDeskAI/design-system",
   "license": "MIT",
   "keywords": [
     "design-system",

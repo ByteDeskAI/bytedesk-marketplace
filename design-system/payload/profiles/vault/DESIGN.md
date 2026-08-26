@@ -87,9 +87,10 @@ not in components. The console packs a lot of true rows onto one screen delibera
 separated by 1px rules. No nested panels inside panels for the same content block, no
 brand gradient hero, no card grid.
 
-**Elevation.** Flat by default. Depth is **tonal** (base → subtle → surface → sunken
-well), not drop shadows. At most a hairline or a very soft ambient shadow under the
-sticky app bar.
+**Elevation.** Vault uses a restrained calibration of the family Optical Layering
+ladder: tonal base → subtle → surface → sunken well inside the structural shell. Keep
+depth concentrated on the shell, sticky app bar, overlays, and active security
+decisions; ordinary rows remain flat.
 
 **Motion.** Restrained state feedback only: ~150ms on `--bd-ease-out-expo` for hover,
 focus, and disclosure. Never animate layout properties. No page-load choreography.

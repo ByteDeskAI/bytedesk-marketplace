@@ -99,15 +99,14 @@ Shared WCAG 2.2 AA foundation applies. Site-specific requirements:
 - **All eight product accents render on one surface.** Shared foundation §3 keeps
   product identity separated; the suite site is the deliberate exception, and it scopes
   every accent with `data-bd-product` rather than hand-picking colors.
-- **Light sections exist.** Dark is the canonical family theme; this site uses light
-  bands as compositional rhythm. These are section backgrounds chosen from the shared
-  ramp, **not** a light theme — the site does not fork or pre-empt the reserved
-  `[data-bd-theme="light"]` contract.
+- **Light sections and a complete light theme exist.** Section rhythm may still alternate
+  tonal bands, while the complete page implements the shared `[data-bd-theme="light"]`
+  contract with exact component and information parity.
 
 ## Bans
 
 Fake proof of any kind (logos, testimonials, metrics, "trusted by" strips). Gradient
 text as identity. Side-stripe accent borders (`border-left` > 1px as decoration).
-Excessive glassmorphism, frosted stacks, heavy blur. Purple-blue or teal gradient
+Excessive glassmorphism beyond the family structural shell, frosted stacks, heavy blur. Purple-blue or teal gradient
 themes; decorative orbs and bokeh blobs. Vague AI language without a workflow,
 artifact, or operator outcome. Imagery as wallpaper or fake proof.

@@ -25,6 +25,9 @@ recorded in the delivery root.
 
 A local exception names the inherited rule it changes and explains why. Copying inherited prose into a consumer is not an override; it is drift.
 
+The complete source -> plugin -> vendored consumer -> CI lifecycle is defined in
+[`CONNECTIVITY.md`](CONNECTIVITY.md) and ships inside the managed payload.
+
 A consumer's current implementation is not precedent by itself. Do not reverse-engineer
 a shared rule from a shipped page, screenshot, or local asset. Propose the decision here,
 place it at the narrowest owning layer, review it, and then update consumers.
@@ -54,24 +57,106 @@ marks originate here under their product directory. Consumer repositories use ca
 exports and must not become the only storage location for an identity master or approved
 variant.
 
-## 4. Accessible by default
+## 4. ByteDesk visual language
+
+**Creative north star: Black Glass + Optical Layering.** ByteDesk application shells
+feel technical, agentic, deliberate, and alive without becoming science-fiction
+decoration. The family composition is an atmospheric canvas carrying one optically
+elevated command shell. Inside that shell, tone, hairlines, inset wells, and restrained
+top-light establish hierarchy. Do not flatten large-screen products into edge-to-edge
+panel tiling, and do not put a frosted card around every field.
+
+The approved visual record lives at
+[`artifacts/family/black-glass-optical-layering/`](artifacts/family/black-glass-optical-layering/).
+Its primary dark reference governs material character. Its parity board and light study
+govern theme intent. Written rules and canonical tokens remain normative when generated
+pixels are ambiguous. A reference image never authorizes fake data or behavior.
+
+### Family DNA
+
+- **Material:** near-opaque graphite or pearl glass, a fine perimeter, subtle inner
+  top-edge light, and a broad low-opacity ambient shadow. Blur supports separation; it
+  never reduces text contrast or turns the canvas into haze.
+- **Layering:** canvas -> floating shell -> inset region -> raised/overlay surface.
+  Most content stays on the shell plane. Use the raised levels only to explain selection,
+  expansion, menus, decisions, dialogs, drag state, or other real hierarchy.
+- **Energy:** electric blue carries interaction, focus, selection, agent activity, and
+  technical energy. ByteDesk orange is a restrained identity spark for handoff,
+  attention, and rare high-value emphasis. Product accents identify products; they do
+  not replace interaction blue, family orange, or semantic status.
+- **Typography:** IBM Plex Sans remains the readable interface and prose family. IBM
+  Plex Mono is the signature technical voice for commands, versions, paths, identifiers,
+  timestamps, operational metadata, and compact machine-facing chrome. Products tune
+  the Sans/Mono ratio in their profile; they do not invent new family fonts from a
+  raster resemblance.
+- **Geometry:** an 8px rhythm, compact controls, 1px hairlines, restrained 8-16px shell
+  radii, and strong alignment. Full-screen means a responsive full-screen canvas with a
+  materially elevated shell and breathing room, not panels stretched to every edge.
+- **Motion:** short, interruptible, state-led motion with one clear focal event. Ambient
+  glow may breathe only when it represents real activity. Reduced motion removes
+  parallax, bloom animation, and spatial travel while preserving state.
+
+### Exact dark/light parity
+
+Dark and light are both shipping family themes. They are the same interface rendered
+through two semantic token sets: identical information architecture, geometry, spacing,
+component states, iconography, hierarchy, and behavior. Theme changes may alter ground,
+surface translucency, shadow, highlight, glow, and ink values only. A light mockup is
+not permission to redesign, simplify, or omit the dark interface.
+
+Use `data-bd-theme="dark|light"` on web roots and the equivalent typed native theme.
+System preference may choose the initial value; an explicit user choice persists. Every
+component story and approved page mockup demonstrates both themes before adoption.
+
+### Governed dark richness
+
+Dark products expose `data-bd-richness="soft|balanced|rich"` or the equivalent native
+setting. `balanced` is the default. Richness adjusts only dark canvas depth, glass
+opacity, ambient shadow, and bloom strength. It never changes layout, type, content,
+semantic color, focus visibility, or minimum contrast. Light ignores this preference.
+
+### Product personality
+
+Consistency is not sameness. Each product profile must declare its accent, signature
+icon metaphor, density, surface/depth calibration, motion temperament, voice, and one
+domain composition motif. The shared shell anatomy, theme parity, accessibility,
+interaction blue, restrained orange, and component semantics remain stable.
+
+Product marks embody the product's noun or function through a recognizable object or
+system metaphor: Agent Memory may use a brain, Agent Browser an application shell,
+Capture an aperture, Agent Mail a routed envelope, and Workforce a human hierarchy.
+Marks are dimensional technical objects with controlled blue energy and an optional
+orange core—not emoji, mascots, or generic monoline placeholders. Catalog approval is
+still required before a concept becomes a production identity.
+
+### Storybook and mockup gate
+
+Storybook is the shared visual-contract and accessibility harness for web-renderable
+components; it does not make React the authority for Rust, native, or server runtimes.
+Every application and companion website is mocked in HTML and its required component
+states exist in Storybook before physical adoption. Stories cover dark/light parity,
+personality and richness variants, keyboard/focus, reduced motion, responsive widths,
+and empty, loading, offline, permission, progress, destructive, partial, and failure
+states. Native adoption remains gated on explicit approval of the browser mockup.
+
+## 5. Accessible by default
 
 - Target WCAG 2.2 AA for shipped user interfaces.
 - Keyboard access, visible focus, sufficient contrast, and reduced-motion behavior are design requirements.
 - Color is never the only carrier of state.
 - Motion communicates state or hierarchy; it does not block comprehension.
 
-## 5. Operational clarity
+## 6. Operational clarity
 
 Interfaces expose the state, consequence, and next action before decoration. Machine values use stable formatting. Status meanings remain consistent inside a product. Product-specific density and visual genre belong in its profile.
 
-## 6. Asset integrity
+## 7. Asset integrity
 
 Use cataloged assets only. Preserve aspect ratio, clear space, approved color variant, and accessible labeling. Do not recolor raster marks, trace new vectors from screenshots, or add untracked logo variants in a consumer.
 
 Each asset records its source repository, source path, source commit, and SHA-256 checksum in `catalog.json`. Third-party assets require explicit license and attribution metadata before import.
 
-## 7. Approved artifacts
+## 8. Approved artifacts
 
 Only durable, approved work products belong under `artifacts/`. Every artifact folder includes a README naming its product, owner, approval state, source, and intended use. Drafts remain in product workspaces until approved.
 
@@ -85,7 +170,7 @@ every scratch iteration as canonical guidance.
 The approved guide and the applicable `DESIGN.md` files are normative. Research and
 decision records explain the reasoning; they do not silently create additional rules.
 
-## 8. Change discipline
+## 9. Change discipline
 
 Design-system changes land here first. Consumer repositories adopt an exact
 source revision through a reviewed managed-payload sync or a legacy

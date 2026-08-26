@@ -67,7 +67,8 @@ documentation.
 
 - Generic SaaS admin templates: hero metrics, identical card grids, icon soup.
 - Bootstrap-dark or default component-library dashboards.
-- Marketing gloss of any kind: gradients, glassmorphism, mascot illustrations.
+- Marketing gloss of any kind: decorative gradients, glass beyond the shared structural
+  shell, or mascot illustrations.
 
 ## Strategic principles
 

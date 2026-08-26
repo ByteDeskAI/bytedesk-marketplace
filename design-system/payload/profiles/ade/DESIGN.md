@@ -126,13 +126,13 @@ components:
 
 ByteDesk ADE is a dense, dark-first **Agent Development Environment**: a workbench that feels like a calibrated tool, not a marketing site and not a pastel SaaS dashboard. The emotional contract is quiet confidence under load — many agents, many terminals, keyboard-first flow, no spectacle. Warmth never comes from UI tokens; if it appears at all, it is marketing illustration only.
 
-The macrostructure is **Workbench**: activity rail, workspace rail, optional side panel, **auto-tiling terminal grid as the main area**, status bar. Editors and chat are secondary tiles in the same grid, never the centerpiece. Visual language is monochrome Inter with a single cyan-blue accent held to a tiny footprint. Depth is **tonal layering** (paper / paper-2 / band), not glass, aurora, or decorative shadow stacks.
+The macrostructure is **Workbench**: activity rail, workspace rail, optional side panel, **auto-tiling terminal grid as the main area**, status bar. Editors and chat are secondary tiles in the same grid, never the centerpiece. Visual language is monochrome Inter with a single cyan-blue accent held to a tiny footprint. Depth is a restrained product calibration of the family Optical Layering system: mostly tonal workbench planes inside the structural shell, never aurora or decorative shadow stacks.
 
-**Explicitly rejected:** side-stripe accent borders, gradient text, glassmorphism-as-default, emoji activity chrome, browser `prompt()` for secrets, monospaced UI labels, invented hero metrics, marketing “premium motion” (magnetic CTAs, tilt, spotlight) inside the app shell.
+**Explicitly rejected:** side-stripe accent borders, gradient text, glass on every workbench plane, emoji activity chrome, browser `prompt()` for secrets, monospaced UI labels, invented hero metrics, marketing “premium motion” (magnetic CTAs, tilt, spotlight) inside the app shell.
 
 **Key Characteristics:**
 
-- Dark-first (>85% assumed IDE use); light theme is Workforce-canonical and secondary
+- Dark-default (>85% assumed IDE use); the family light counterpart is complete and secondary
 - Terminal-grid-first; VS Code furniture frames a cmux-like session model
 - Accent ≤5% of any screen; rarity is the brand
 - Mono face only in code, terminal, diff, and numeric readouts
@@ -296,7 +296,7 @@ Depth is **tonal**, not cast-shadow. Surfaces step paper → paper-2 → paper-3
 - Tint workspace **names** with workspace color
 - Ship Accept & merge without confirmation
 - Capture API keys via browser `prompt()`
-- Introduce glass, gradient text, or left accent stripes
+- Introduce decorative glass beyond the shared structural shell, gradient text, or left accent stripes
 - Put mono on chrome labels or primary buttons
 - Treat the Tauri webview shell as product default without owner Accept
 - Invent secondary accent families for “visual interest”

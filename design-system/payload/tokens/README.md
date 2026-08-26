@@ -1,8 +1,9 @@
 # ByteDesk canonical tokens
 
-This directory is the shared **value layer** of the ByteDesk family: one dark-first
-foundation plus product identity, cross-platform density/layout values, operational
-visualization colors, and generated runtime adapters.
+This directory is the shared **value layer** of the ByteDesk family: shipping dark and
+light themes, Black Glass + Optical Layering material values, governed dark richness,
+product identity, cross-platform density/layout values, operational visualization
+colors, and generated runtime adapters.
 
 ## Published forms
 
@@ -28,11 +29,18 @@ node scripts/validate.mjs
 
 ## Family contract
 
-### Ground and surface
+### Ground, material, and surface
 
-Every product surface starts from `color.bg.base` / `--bd-bg-base`. Dark is canonical.
-Subtle, surface, elevated, and overlay form the tonal elevation ladder. Resting panels
-do not use decorative shadows.
+Every product surface starts from `color.bg.base` / `--bd-bg-base`. Dark is the default
+and light is an equal shipping counterpart. Subtle, surface, elevated, and overlay form
+the stable semantic ladder. Theme selectors remap those names; components never carry
+separate dark/light geometry.
+
+Black Glass + Optical Layering concentrates depth at the canvas/shell boundary and at
+real hierarchy changes. A shell uses `--bd-shadow-shell`, controlled material blur, and
+a fine top-light. Selected/expanded surfaces and overlays may use the raised level.
+Ordinary rows and fields remain on their parent plane. This is structural glass, not a
+frosted card around every value.
 
 ### Brand and interaction
 
@@ -97,10 +105,10 @@ Terminal and remote-surface layout never animates for decoration.
 | Vault | amber | identity/keys |
 | Store | green | commerce identity |
 | Workforce | violet | workforce identity |
-| Toolbox | periwinkle | application lifecycle and updates |
 | Agent Browser | cyan | browser identity |
 | Agent Memory | pink | memory identity |
 | Capture | bright blue | capture identity |
+| Toolbox | electric cobalt | command-shelf identity |
 
 Where a product accent equals a semantic color, identity and status remain separate:
 status still requires a word and semantic component treatment.
@@ -175,8 +183,19 @@ the canonical or profile layer.
 
 ## Themeability
 
-Dark is the only approved theme. A future light theme will override the same semantic
-names. Do not create per-product or per-platform light themes.
+Dark and light are both approved and use the same semantic names. Web consumers set
+`data-bd-theme="dark|light"`; native consumers select the equivalent typed theme. The
+system preference may choose the initial mode, but an explicit user choice persists.
+Do not create per-product or per-platform light palettes.
+
+Exact parity is mandatory: theme changes may alter color, translucency, shadow,
+highlight, and glow values only. Content, geometry, hierarchy, controls, and component
+states remain identical.
+
+Dark consumers may expose `data-bd-richness="soft|balanced|rich"`. The setting adjusts
+only dark canvas/shell depth and ambient strength. `balanced` is the default; light mode
+ignores richness. Richness never changes contrast requirements, semantic state, layout,
+or typography.
 
 Product scoping on web uses `data-bd-product`; native clients select the equivalent
 product accent in their theme object. Gateway desk tints use `data-bd-desk` or an
@@ -186,6 +205,13 @@ equivalent native desk role and apply only to chrome.
 
 See [`platforms/README.md`](platforms/README.md). Generated files carry the source JSON
 SHA-256 and are verified by `scripts/validate.mjs`.
+
+## Product personality
+
+`product.*` accents are only one part of personality. Each product profile also declares
+its icon metaphor, density, surface calibration, motion temperament, voice, and domain
+composition motif. The family material, interaction blue, restrained orange, semantic
+status, theme geometry, and accessibility remain shared.
 
 ## What this layer is not
 

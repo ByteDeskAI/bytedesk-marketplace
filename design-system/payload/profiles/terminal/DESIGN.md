@@ -112,7 +112,8 @@ the target environment.
 
 ## 3. Density rules & design tokens
 
-Dark only in v1. Sharp lines, hairline borders, zero shadows, data-dense.
+Dark-default with an exact family light counterpart. Sharp lines, hairline borders,
+minimal optical depth, and data-dense composition.
 
 ### Spacing & dimensions
 
@@ -777,7 +778,7 @@ Tests build an `AppCtx` from in-memory fakes; prod assembles in `app::run`.
 ## 11. Out-of-scope confirmations (v1)
 
 - No editor surface.
-- No light theme in v1.
+- No theme-specific content, geometry, command, or state drift.
 - No cost telemetry in v1 (TelemetrySink seam exists, NoopSink wired).
 - No cloud / pair / replay / approval-queue in v1.
 - No cross-platform builds. Linux-only.

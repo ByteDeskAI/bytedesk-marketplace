@@ -1,22 +1,102 @@
 {
   "schemaVersion": 1,
-  "pluginVersion": "1.5.2",
-  "sourceSha": "1b571eba45a165ab74afebd06464a5db1712032b",
+  "pluginVersion": "1.5.3",
+  "sourceSha": "43248f324b6fc0f5bcde9b912910ffaac455babb",
   "files": [
     {
+      "path": "CONNECTIVITY.md",
+      "sha256": "ea6cb1e1ca0e56ebc02093fa04f7a83bdb356ee0ef82e3c7e25ce53a46398b0e",
+      "size": 6960
+    },
+    {
       "path": "DESIGN.md",
-      "sha256": "2145932fb1b3cff9826902609a825c3bb1e2364e767807b4d95d9fe1a6ada868",
-      "size": 5781
+      "sha256": "4fb0335ff47d94721bd91518c6d43ac96843f5daa1f9c6e9ea72a70f996001c4",
+      "size": 11074
+    },
+    {
+      "path": "artifacts/family/black-glass-optical-layering/DECISIONS.md",
+      "sha256": "38aa41b8632e682d0d301c636f74e31e5f31c2c77b0483bfd268009c1b84f0bc",
+      "size": 2848
+    },
+    {
+      "path": "artifacts/family/black-glass-optical-layering/README.md",
+      "sha256": "a89cd0de51e0fc6327a75f3b67c60aa0628a5a286e55db462a44a62239585308",
+      "size": 4459
+    },
+    {
+      "path": "artifacts/family/black-glass-optical-layering/reference-dark-primary.png",
+      "sha256": "00d09aab56918d9cb7aa83c3823b729ddef32d44cc40d10efb6bc6e113c72573",
+      "size": 1246630
+    },
+    {
+      "path": "artifacts/family/black-glass-optical-layering/reference-dark-seed.png",
+      "sha256": "d01527aa369f8e5141dcdff8240aaa6203d306c687f54c981879ee504e2ab603",
+      "size": 1092274
+    },
+    {
+      "path": "artifacts/family/black-glass-optical-layering/reference-light-study.png",
+      "sha256": "04125dfb8c36d426955f38150e9dbd4de00c401ebcaf1767e7a17fe1c6d72b90",
+      "size": 1209331
+    },
+    {
+      "path": "artifacts/family/black-glass-optical-layering/reference-product-icons.png",
+      "sha256": "7ef540b6219f16e90d785594192ae77c5bed928b87fcb9870ba213c5b4ee77fd",
+      "size": 1716891
+    },
+    {
+      "path": "artifacts/family/black-glass-optical-layering/reference-theme-parity.png",
+      "sha256": "727926dafb4675c243be4b83ed9fbcbb979197f1e39073142af2de7e2e157482",
+      "size": 1539304
+    },
+    {
+      "path": "assets/products/agent-browser/favicon.svg",
+      "sha256": "ee4b76ddf39b4353f09a7e806273e3e9630ac89812176ab6c7a54e1b52804a72",
+      "size": 535
+    },
+    {
+      "path": "assets/products/capture/favicon.svg",
+      "sha256": "f3a06a68c4cb0e362a65b371c57ab35738818c023b7ccb1d68137bdd138509fc",
+      "size": 330
+    },
+    {
+      "path": "assets/products/omnigent/mark.png",
+      "sha256": "eb1e1a809811f7a4c3df1521add080439a1f09a09197e6aa296d08260fadf029",
+      "size": 26169
+    },
+    {
+      "path": "assets/products/omnigent/mark.svg",
+      "sha256": "ba05b826766c5deab89ddfcc4f16d09cb83fedbee554b52671e35c89c8f9d9fb",
+      "size": 13827
+    },
+    {
+      "path": "assets/products/omnigent/wordmark-reverse.svg",
+      "sha256": "244f35f49c36c82ba2c1a6d414e9d10f5624fb75e6e36a5010c7893e4bfa9d44",
+      "size": 21691
+    },
+    {
+      "path": "assets/products/omnigent/wordmark.svg",
+      "sha256": "2bb542cf4603b12d2281ed6803c3bcd8184f86cf93fc8a24615b1b1b73893b56",
+      "size": 21691
+    },
+    {
+      "path": "assets/products/workforce/icon.svg",
+      "sha256": "f403d62e99ce62bf6fce6389c353cc932ea70f95595290d062c9036ec6f2f579",
+      "size": 271
+    },
+    {
+      "path": "assets/products/workforce/login-organization-departments.png",
+      "sha256": "80486d6248bc8ae1c6a55d117af50ae79fb1170a5ab992f6b86229d55a95f16a",
+      "size": 1068657
     },
     {
       "path": "profiles/_template/DESIGN.md",
-      "sha256": "feb213d56bd292885b02bc8bbc8d85e91ece08241402f249cc681acefe1abf5e",
-      "size": 689
+      "sha256": "a961d0b38aefbc192b1921693572dd06a7bacb21121509207a74a97b326e1629",
+      "size": 1407
     },
     {
       "path": "profiles/ade/DESIGN.md",
-      "sha256": "b4f3ae5bea56eaf3da48b485154d94b91b1bc2649a5fe9a00bf7674ba73a21c2",
-      "size": 12746
+      "sha256": "d48bd2c13e551b4f24eccc2bd3ffe2212fd60c05fc767dd8508e62507c7393e7",
+      "size": 12886
     },
     {
       "path": "profiles/agent-browser-website/DESIGN.md",
@@ -40,8 +120,8 @@
     },
     {
       "path": "profiles/bytedesk-ai/DESIGN.md",
-      "sha256": "6b3bca5fbb4cf0c062a403174397b72dca2f19af647698d42f89ce162f7d67fa",
-      "size": 6443
+      "sha256": "7aa60453195aaeff402cb930f598cf9d758eaec82ff0970a69f5e933040e1614",
+      "size": 6420
     },
     {
       "path": "profiles/bytedesk-ai/PRODUCT.md",
@@ -55,8 +135,8 @@
     },
     {
       "path": "profiles/capture/DESIGN.md",
-      "sha256": "5e891a1817b0cf30ef69039f87397196018c808371f369ea4fd3dec46d02c019",
-      "size": 4340
+      "sha256": "2150f7128a1182d780dcb77833c74b92497cc311a1f6c6d59278fbb70f3102a4",
+      "size": 4367
     },
     {
       "path": "profiles/gateway/CLIENT_UI.md",
@@ -75,8 +155,8 @@
     },
     {
       "path": "profiles/gateway/PRODUCT.md",
-      "sha256": "baf9f352326be3716dbea9742e432bb5aa34f4030d4b6ce1a073cebcb6e97b95",
-      "size": 6560
+      "sha256": "00526993902f22bab8eefbfc8dd6c860c9f9b21bbfdac82ec474a1fece81de9c",
+      "size": 6630
     },
     {
       "path": "profiles/gateway/VISUALIZATIONS.md",
@@ -85,8 +165,8 @@
     },
     {
       "path": "profiles/marketplace/DESIGN.md",
-      "sha256": "037934d81512cade8e6e3824b1818a92e740f24611f433ad938bdb65f5634371",
-      "size": 5520
+      "sha256": "982c4aa1661f8c0af616a028038bffddcbacdd8fa3660b6a9512000ff5a6707e",
+      "size": 5486
     },
     {
       "path": "profiles/marketplace/PRODUCT.md",
@@ -100,28 +180,28 @@
     },
     {
       "path": "profiles/store/PRODUCT.md",
-      "sha256": "bfeb436ef7aa5611a65b711d026daa3bb7a5a7914e041ae4481821b9fe43b477",
-      "size": 3908
+      "sha256": "7f9cf24f93d999c2d73d8c192a7f25b8791bbccb6b68035250418ffb81bb8152",
+      "size": 3951
     },
     {
       "path": "profiles/terminal/DESIGN.md",
-      "sha256": "881c11e613891aab6219525601ac67250bdd3cdddd3428b18d0be011057ac02b",
-      "size": 42325
+      "sha256": "791ff7d01591c31af3a6440c4cb75b3f48d95bbc91cf39f7227bd30b1406ac02",
+      "size": 42426
     },
     {
       "path": "profiles/toolbox/DESIGN.md",
-      "sha256": "07fd3fd9a4b03cdf7812c96f79a941f49583dd0fdd2d1e829189e338c4adedc0",
-      "size": 8510
+      "sha256": "e3e1da33ab3bf090e47c129a48067b482c62cc5d583e374a6b6589d1b635226a",
+      "size": 8901
     },
     {
       "path": "profiles/toolbox/PRODUCT.md",
-      "sha256": "fdae66efe388156b4956517b6e04d814f34e69c8c01454fcfd219b5afeadbe13",
-      "size": 2640
+      "sha256": "a6654f535d9d4afecb4db039adb7c1c5da0a3a582cdf8e8cab5cadc19c7f4762",
+      "size": 2679
     },
     {
       "path": "profiles/vault/DESIGN.md",
-      "sha256": "e110937a2f49dcd18f2479c68316d45d1acbaeb9abb56ee2d37218a7eba761e9",
-      "size": 8651
+      "sha256": "1b28bff61674f9686f9bda8a64fbf0b8120e02eab0c66da2fc43aa5088f8b463",
+      "size": 8751
     },
     {
       "path": "profiles/vault/PRODUCT.md",
@@ -130,23 +210,23 @@
     },
     {
       "path": "profiles/workforce/DESIGN.md",
-      "sha256": "eb00cf4c809eea534eac2587f638296ac7b61872b9d6f42b3a140635b8d24d0b",
-      "size": 18220
+      "sha256": "b7e1ebafd74fd50c108a83dd236b5db71c86e149638dd7c4496e8987c04c0541",
+      "size": 18179
     },
     {
       "path": "tokens/README.md",
-      "sha256": "5bba29427b3b337f8459252cc83e0086bf73ab8f0c8612e47e7eaeaa9149e744",
-      "size": 7452
+      "sha256": "1421a06b3c0af3c80645a254b66dbc45404d7addc9055efa5918b00b5d3a667e",
+      "size": 8977
     },
     {
       "path": "tokens/bytedesk.tokens.json",
-      "sha256": "9cef3545f14533db2eb75b27a807dfff06855b4c7205f786d2e90890ed1de857",
-      "size": 19353
+      "sha256": "64b2337122ed0d440f659e0341834b96a68b9abc0147a1e1c23a1db1329ffc05",
+      "size": 23489
     },
     {
       "path": "tokens/css/bytedesk.css",
-      "sha256": "634755aeaf95ebfd792540f723d5fbe9c0706d381f5ace3155420fa662133160",
-      "size": 10194
+      "sha256": "e58599c4b6cba520c10f1de2e07fca789786297a8d1c25c190af0da4c8c42ea3",
+      "size": 11949
     },
     {
       "path": "tokens/platforms/README.md",
@@ -155,23 +235,23 @@
     },
     {
       "path": "tokens/platforms/go/bytedesk_tokens.go",
-      "sha256": "6072fc272aabbca81c8e42bf3ad1ac12dfa2aafe2508ec4c0f3350a1c7b71faa",
-      "size": 15727
+      "sha256": "7491b7c2d71920b16a0284612e8dcaa04c25b2716d83148115a2b7c18f25bfc4",
+      "size": 23366
     },
     {
       "path": "tokens/platforms/rust/bytedesk_tokens.rs",
-      "sha256": "2fa41e1305558082262917888668d37c014a5952407f18c95e829ec29c32a039",
-      "size": 13527
+      "sha256": "168c8d58bf9aad19a1ca965ede2876b91cdf2df3d81e6ef15cb3e46e41157558",
+      "size": 18517
     },
     {
       "path": "tokens/platforms/typescript/bytedesk-tokens.ts",
-      "sha256": "00100c361792dc3af5dcc38b90f82fc435ba1baf44660d0cba11be87e1271dc1",
-      "size": 5731
+      "sha256": "1e0370f1d41a5521435f25376b870d36be854eca439209ca5852719acbc629a7",
+      "size": 7802
     },
     {
       "path": "tokens/tailwind/theme.css",
-      "sha256": "66215db8137e559d018e4ae5fcb3e843494f3f78e7f7d029ca054e606916be2c",
-      "size": 6156
+      "sha256": "553d10e3972ad171b9dc09a7bee4d909f6d2aeca88f8d02cad4cc8e226421a27",
+      "size": 6497
     }
   ]
 }

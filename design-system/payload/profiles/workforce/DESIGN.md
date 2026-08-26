@@ -54,7 +54,11 @@ The shared family values come from `../../tokens/css/bytedesk.css` and `../../to
 
 ### Workforce runtime-theme exception
 
-Exception to `tokens/README.md` **Themeability**: Workforce may retain its existing light theme and instance and company themes. This does not create a second shared family palette. Components still consume named tokens, and `generateTheme` remains the only runtime theme generator. Tenant themes must not change the values or semantic roles of status, chart, agent-gradient, or product-accent tokens.
+Workforce implements the shared dark/light semantic contract through its existing
+`generateTheme` boundary and may retain instance and company themes as governed
+extensions. Tenant themes must not change the values or semantic roles of status,
+chart, agent-gradient, interaction, or product-accent tokens, and must preserve exact
+dark/light component geometry.
 
 ## Visual system
 

@@ -148,4 +148,12 @@
   --radius-2xl: var(--bd-radius-2xl);
 
   --ease-out-expo: var(--bd-ease-out-expo);
+
+  --blur-shell: var(--bd-material-blur-shell);
+  --blur-overlay: var(--bd-material-blur-overlay);
+  --shadow-shell: var(--bd-shadow-shell);
+  --shadow-card: var(--bd-shadow-card);
+  --shadow-elevated: var(--bd-shadow-elevated);
+  --shadow-focus-glow: var(--bd-shadow-focus-glow);
+  --shadow-attention-glow: var(--bd-shadow-attention-glow);
 }

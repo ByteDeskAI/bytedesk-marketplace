@@ -98,7 +98,8 @@ stale data as live, or add marketing decoration inside work surfaces.
 - Separate visual languages for browser, Windows, Linux, and macOS.
 - Desktop wrappers that expose privileged native APIs to arbitrary plugin WebViews.
 - Agent chat streams that hide tool execution, approval state, or errors.
-- Decorative gradients, glassmorphism, illustration, or animation over live work.
+- Decorative gradients, unbounded glass stacks, illustration, or animation over live
+  work; the shared structural Black Glass shell remains permitted.
 - Fake enterprise controls standing in for policy the server does not enforce.
 - A native rewrite that removes terminal, remote-display, editor, or plugin parity.
 

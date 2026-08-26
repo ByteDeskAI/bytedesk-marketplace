@@ -1,6 +1,6 @@
 {
   "name": "design-system",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "description": "Install and govern the ByteDesk design foundation, tokens, profiles, assets, and reviewed design workflows.",
   "author": { "name": "ByteDeskAI" },
   "homepage": "https://github.com/ByteDeskAI/design-system",
