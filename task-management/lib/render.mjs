@@ -113,7 +113,7 @@ export function sprintReport(id, p = paths()) {
     "",
   ];
   if (!tasks.length) {
-    out.push("Nothing committed yet — `tm sprint add <id>...`");
+    out.push("Nothing committed yet — `.bytedesk/task-management/bin/tm sprint add <id>...`");
     return out.join("\n");
   }
   out.push(
@@ -141,7 +141,7 @@ export function board(p = paths()) {
   const byStatus = (st) => tasks.filter((t) => t.status === st);
   const out = [`# Board — ${p.root}`, ""];
 
-  out.push(`Active epic: ${s.activeEpic || "(none — set one with `tm epic use <id>`)"}`, "");
+  out.push(`Active epic: ${s.activeEpic || "(none — set one with `.bytedesk/task-management/bin/tm epic use <id>`)"}`, "");
   if (epics.length) {
     out.push("## Epics");
     for (const e of epics) {
@@ -161,7 +161,7 @@ export function board(p = paths()) {
   if (stale.length) {
     out.push(`## stale (> ${config(p).staleMinutes}m untouched)`, ...stale.map(taskLine), "");
   }
-  if (tasks.length === 0) out.push("(no tasks yet — `tm task new \"<title>\"`)");
+  if (tasks.length === 0) out.push("(no tasks yet — `.bytedesk/task-management/bin/tm task new \"<title>\"`)");
   return out.join("\n");
 }
 
@@ -178,7 +178,7 @@ export function sessionContext(p = paths()) {
     "## task-management (.bytedesk/task-management)",
     "",
     "This project's tasks are owned by the task-management plugin, not by session-local todo state.",
-    `Active epic: ${s.activeEpic || "(none set — `tm epic use <id>` or /tm:epic before creating tasks)"}`,
+    `Active epic: ${s.activeEpic || "(none set — `.bytedesk/task-management/bin/tm epic use <id>` or /task-management:epic before creating tasks)"}`,
     "",
   ];
   if (inProgress.length) out.push("In progress (claimed):", ...inProgress.map((t) => `- ${taskLine(t)}`), "");
@@ -186,7 +186,7 @@ export function sessionContext(p = paths()) {
   if (next.length) out.push("Next unblocked:", ...next.map((t) => `- ${taskLine(t)}`), "");
   out.push(
     "",
-    "Use `tm` for task state (`tm board`, `tm start <id>`, `tm done <id>`, `tm next`). Native Claude TaskCreate/TaskUpdate, Grok todo_write, and Codex update_plan calls are mirrored into the store automatically (lib/harness Bridge).",
+    "Use `.bytedesk/task-management/bin/tm` for task state (`board`, `start <id>`, `done <id>`, `next`). Native Claude TaskCreate/TaskUpdate, Grok todo_write, and Codex update_plan calls are mirrored into the store automatically (lib/harness Bridge).",
   );
   return out.join("\n");
 }
@@ -252,9 +252,9 @@ export function subagentBrief(session, p = paths()) {
     // The failure this prevents: an agent decides the work is finished and records it, bypassing
     // the parent's judgement and the acceptance gate. Additive writes are fine and useful —
     // evidence and comments are how an agent reports back — so they are not forbidden.
-    "The parent holds the claim, so do not run `tm start`, `tm done`, `tm park` or `tm block` on these —",
-    "report what you found and let the parent record the outcome. Reads (`tm show`, `tm board`, `tm find`)",
-    "and additive notes (`tm comment`, `tm evidence`) are fine.",
+    "The parent holds the claim, so do not run `.bytedesk/task-management/bin/tm start`, `done`, `park` or `block` on these —",
+    "report what you found and let the parent record the outcome. Reads (`.bytedesk/task-management/bin/tm show`, `board`, `find`)",
+    "and additive notes (`.bytedesk/task-management/bin/tm comment`, `evidence`) are fine.",
   );
 
   const text = out.join("\n");
@@ -285,7 +285,7 @@ export function handoff(id, p = paths()) {
   if ((t.evidence || []).length) out.push("## Evidence", ...t.evidence.map((e) => `- ${e}`), "");
   if ((t.commits || []).length) out.push("## Commits / PRs", ...t.commits.map((c) => `- ${c}`), "");
   if (epic?.body?.trim()) out.push("## Epic context", epic.body.trim(), "");
-  out.push(`Resume with: tm start ${t.id}`);
+  out.push(`Resume with: .bytedesk/task-management/bin/tm start ${t.id}`);
   return out.join("\n");
 }
 

@@ -117,7 +117,7 @@ const styles = cssMap({
    *
    * Bounded so one long reason cannot push the rest of the column off the screen. The clamp is on
    * the TEXT rather than the box: a CSS line-clamp needs `-webkit-box-orient`, which ADS's cssMap
-   * allowlist rejects, and a character budget has the side benefit of matching what `tm board`
+   * allowlist rejects, and a character budget has the side benefit of matching what `.bytedesk/task-management/bin/tm board`
    * does — one rule, both surfaces. The full sentence is on hover either way.
    *
    * `overflowWrap` because a reason can contain a url or a long branch name with nothing to break
@@ -137,7 +137,7 @@ const styles = cssMap({
 const REASON_MAX = 120;
 
 /**
- * The stored reason for a stop, or null. `tm park <id> <why>` and `tm block <id> <why>` have
+ * The stored reason for a stop, or null. `.bytedesk/task-management/bin/tm park <id> <why>` and `.bytedesk/task-management/bin/tm block <id> <why>` have
  * always written one of these and no card ever read it.
  */
 function stopReason(task: Task): string | null {

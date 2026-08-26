@@ -107,16 +107,17 @@ describe("the brief", () => {
     const out = subagentBrief(SESSION, p);
     // The failure this prevents: an agent decides the work is done and records it, bypassing the
     // parent's judgement and the acceptance gate.
-    for (const verb of ["tm start", "tm done", "tm park", "tm block"]) {
-      assert.ok(out.includes(verb), `the brief must name ${verb} as off limits`);
+    assert.match(out, /\.bytedesk\/task-management\/bin\/tm start/);
+    for (const verb of ["done", "park", "block"]) {
+      assert.ok(out.includes(`\`${verb}\``), `the brief must name ${verb} as off limits`);
     }
   });
 
   it("still points at the additive writes, so reporting back has a route", () => {
     const { p } = claimed();
     const out = subagentBrief(SESSION, p);
-    assert.match(out, /tm comment/);
-    assert.match(out, /tm evidence/);
+    assert.match(out, /\.bytedesk\/task-management\/bin\/tm comment/);
+    assert.match(out, /`evidence`/);
   });
 
   it("opens with a heading of its own", () => {

@@ -15,7 +15,7 @@ Plans. Does not build. Each child ticket is a **question**, not a slice of the p
 - Tickets: `decision:interview` | `decision:research` | `decision:prototype` | `decision:unblock`
 - Implementation tickets must **not** wear `decision:*`
 
-Use MCP `tm_epic`, `tm_task_create` (with `labels`), `tm_label`, `tm_next`, `tm_claim`, `tm_evidence`, `tm_ac_accept`, `tm_task_update`. Prefer `.bytedesk/bin/tm` over a global `tm`. Never write `.scratch/`.
+Use MCP `tm_epic`, `tm_task_create` (with `labels`), `tm_label`, `tm_next`, `tm_claim`, `tm_evidence`, `tm_ac_accept`, `tm_task_update`. Prefer `.bytedesk/task-management/bin/tm`; there is no global `tm`. Never write `.scratch/`.
 
 ## Chart (no map yet)
 
@@ -39,7 +39,7 @@ Use MCP `tm_epic`, `tm_task_create` (with `labels`), `tm_label`, `tm_next`, `tm_
 ```
 
 3. `tm_label` add `decision:map` on the epic.
-4. Mint only the tickets you can phrase **now**. Template via `tm task new --template interview|research|prototype|unblock`, or `tm_task_create` + labels. Wire `blockedBy` in a **second pass**.
+4. Mint only the tickets you can phrase **now**. Template via `.bytedesk/task-management/bin/tm task new --template interview|research|prototype|unblock`, or `tm_task_create` + labels. Wire `blockedBy` in a **second pass**.
 5. Fog that is not yet a sharp question stays in **Not yet specified**.
 6. Fire `decision:research` tickets as AFK subagents in parallel (`/task-management:research`). Do not resolve interview/prototype/unblock in the charting session.
 7. Stop.

@@ -12,7 +12,7 @@ this is what actually happened, not what anyone remembers happening.
 
 ## Process
 
-1. `tm standup` (last 24h) or `tm standup 2026-07-20T00:00:00Z` for a custom window.
+1. `.bytedesk/task-management/bin/tm standup` (last 24h) or `.bytedesk/task-management/bin/tm standup 2026-07-20T00:00:00Z` for a custom window.
 2. Enrich the raw digest into a report:
    - **Closed** — tasks now `done`, with their acceptance criteria met and evidence refs.
    - **In flight** — `in_progress`, with how long they've been open (flag anything stale).

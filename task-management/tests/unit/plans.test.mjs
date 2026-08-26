@@ -107,7 +107,7 @@ describe("tm show", () => {
     const p = store();
     const e = create("epic", { title: "has a plan", plan: ".bytedesk/task-management/plans/x.md" }, "", p);
     const out = execFileSync(process.execPath, [TM, "show", e.id], {
-      env: { ...process.env, TM_ROOT: p.root, TM_NO_AUTOLINK: "1" },
+      env: { ...process.env, TM_ROOT: p.root },
       encoding: "utf8",
     });
     assert.match(out, /plan: \.bytedesk\/task-management\/plans\/x\.md/);
@@ -117,7 +117,7 @@ describe("tm show", () => {
     const p = store();
     const e = create("epic", { title: "no plan" }, "", p);
     const out = execFileSync(process.execPath, [TM, "show", e.id], {
-      env: { ...process.env, TM_ROOT: p.root, TM_NO_AUTOLINK: "1" },
+      env: { ...process.env, TM_ROOT: p.root },
       encoding: "utf8",
     });
     assert.equal(out.includes("plan:"), false);

@@ -8,7 +8,6 @@
  */
 import { config, writeConfig, logEvent } from "./store.mjs";
 import { paths } from "./paths.mjs";
-import { status as linkStatus } from "./link.mjs";
 import { ntfyConfig } from "./ntfy.mjs";
 
 export const GROUPS = [
@@ -17,7 +16,6 @@ export const GROUPS = [
   { id: "policy", label: "Policy", help: "Gates the CLI, hooks and MCP all honour. Project-scoped." },
   { id: "workflow", label: "Workflow", help: "Timing, claims, git linking, decision capture." },
   { id: "ntfy", label: "Phone push (ntfy)", help: "Reach a phone while no browser is open. Token stays in the environment." },
-  { id: "plugin", label: "Plugin", help: "How this checkout wires tm on the machine." },
 ];
 
 export const CATALOG = [
@@ -27,7 +25,7 @@ export const CATALOG = [
     type: "boolean",
     default: false,
     label: "Launch browser when the board starts",
-    help: "Opens the dashboard URL in the default browser after tm-dashboard binds. Override a run with --no-browser or TM_NO_BROWSER=1.",
+    help: "Opens the dashboard URL after .bytedesk/task-management/bin/tm-dashboard binds. Override a run with --no-browser or TM_NO_BROWSER=1.",
   },
   {
     key: "board.grouped",
@@ -174,14 +172,6 @@ export const CATALOG = [
     label: "Board URL in push actions",
   },
   {
-    key: "plugin.autolink",
-    group: "plugin",
-    type: "boolean",
-    default: true,
-    label: "Autolink tm onto PATH for this project",
-    help: "SessionStart links ~/.local/bin (or %USERPROFILE%\\.local\\bin) unless TM_NO_AUTOLINK=1. PATH linking is per-machine; this flag only skips it for sessions in this repo.",
-  },
-  {
     key: "boardId",
     group: "identity",
     type: "string",
@@ -270,7 +260,6 @@ export function settingsSnapshot(p = paths()) {
     groups: GROUPS,
     fields,
     ntfy: { token: ntfy.token ? "set" : null, active: ntfy.enabled },
-    autolink: linkStatus(),
   };
 }
 

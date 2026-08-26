@@ -12,22 +12,22 @@ Epics are the parent record for tasks, ADRs, and captured plans in
 
 ## Process
 
-1. **List what exists first** — `tm epic` (a `*` marks the active one). Don't open a
+1. **List what exists first** — `.bytedesk/task-management/bin/tm epic` (a `*` marks the active one). Don't open a
    second epic for work that belongs to an open one.
-2. **Switch** if it already exists: `tm epic use <EP-id>`.
-3. **Otherwise open one**: `tm epic new "<title>"` — this also sets it active.
+2. **Switch** if it already exists: `.bytedesk/task-management/bin/tm epic use <EP-id>`.
+3. **Otherwise open one**: `.bytedesk/task-management/bin/tm epic new "<title>"` — this also sets it active.
    Titles are outcomes ("Close the memory plan gaps"), not activities ("memory work").
 4. **Write the epic body** — open the file the CLI printed and fill in: why this exists,
    what done looks like, what is explicitly out of scope. This is what a future session
    reads first.
 5. **Break it down** — create tasks with `TaskCreate` (they file under the active epic
-   automatically) or `tm task new "<title>"`. Give each one acceptance criteria:
-   `tm ac <TM-id> "<verifiable criterion>"`. A task without criteria can't be closed
+   automatically) or `.bytedesk/task-management/bin/tm task new "<title>"`. Give each one acceptance criteria:
+   `.bytedesk/task-management/bin/tm ac <TM-id> "<verifiable criterion>"`. A task without criteria can't be closed
    while `requireAcceptance` is on.
 
 ## Notes
 
-- Closing: `tm epic done <EP-id>` clears it as active.
+- Closing: `.bytedesk/task-management/bin/tm epic done <EP-id>` clears it as active.
 - An approved plan (`ExitPlanMode`) auto-creates an epic if none is active and links
   the plan file into `.bytedesk/task-management/plans/`.
 - Related: [[board]], [[adr]], [[handoff]].

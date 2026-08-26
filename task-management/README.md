@@ -14,7 +14,8 @@ and machines, and your teammates can read it in a PR diff.
 /plugin install task-management@bytedesk
 ```
 
-Then, in any repo: `tm init` (or just let the first `/task-management:epic` do it).
+Then bootstrap the repository once with `node <installed-plugin>/bin/tm init` (or let the first
+`/task-management:epic` do it). Every command after bootstrap uses the committed project launcher.
 
 ### Installing without Claude Code
 
@@ -23,34 +24,32 @@ the dashboard. This is the path, in order, verified from a clean `HOME` with the
 of the marketplace and nothing symlinked back:
 
 ```bash
-cd your-repo && node <plugin>/bin/tm init   # store + .bytedesk/bin/tm (and tm.cmd)
-.bytedesk/bin/tm epic new "First epic"      # a board needs an epic before it takes tasks
-.bytedesk/bin/tm task new "first task"
-.bytedesk/bin/tm-dashboard                  # serves the board; prints the URL it chose
+cd your-repo && node <plugin>/bin/tm init   # store + project launchers
+.bytedesk/task-management/bin/tm epic new "First epic"      # a board needs an epic before it takes tasks
+.bytedesk/task-management/bin/tm task new "first task"
+.bytedesk/task-management/bin/tm-dashboard                  # serves the board; prints the URL it chose
 ```
 
-Codex `.codex/hooks.json` should invoke `.bytedesk/bin/tm-hook` (written by `tm init`), not a
-global `tm-hook`. Optional `tm install` still puts names on PATH for humans who want that.
+Codex `.codex/hooks.json` should invoke `.bytedesk/task-management/bin/tm-hook`, written during
+bootstrap. No global command or PATH setup is required.
 
-`tm init` records the repo as the board's identity and your git user as its owner, so a clone knows
+`.bytedesk/task-management/bin/tm init` records the repo as the board's identity and your git user as its owner, so a clone knows
 which project it belongs to and who set it up.
 
-### The `tm` command
+### The `.bytedesk/task-management/bin/tm` command
 
-`tm init` writes project-local launchers at `.bytedesk/bin/tm` and `tm.cmd` (plus hook and
-dashboard twins). SessionStart also autolinks onto `~/.local/bin` (Windows:
-`%USERPROFILE%\\.local\\bin`, as `.cmd` wrappers) unless `TM_NO_AUTOLINK=1`. The bin dir
-is created if missing:
+Bootstrap writes `tm`, `tm-hook`, and `tm-dashboard` under
+`.bytedesk/task-management/bin/`, plus `.cmd` twins for Windows. They resolve the installed plugin
+at runtime without committing a machine-specific path:
 
 ```bash
-./install.sh              # or: node bin/tm install
-./install.sh --force      # take the name from whatever has it
-./install.sh --uninstall  # remove our symlinks only
-tm where                  # store path, link state, PATH check
+.bytedesk/task-management/bin/tm where       # launcher health and resolved plugin source
+.bytedesk/task-management/bin/tm doctor      # report legacy launchers, links and config
+.bytedesk/task-management/bin/tm doctor --fix # migrate recognized legacy state
 ```
 
-The plugin works fine without any of this — the hooks call `bin/tm` by absolute path.
-The symlink is purely so *you* can type `tm board`.
+Claude hooks and MCP servers continue to use their host-provided plugin root. Repository scripts,
+Codex hooks, agents, and people use the project launchers.
 
 ## What it does
 
@@ -62,10 +61,10 @@ The symlink is purely so *you* can type `tm board`.
   tasks/TM-014-add-cursor-pagination.md      acceptance criteria, evidence, commits, deps, touches
   adrs/ADR-0007-markdown-is-the-source-of-truth.md
   plans/2026-07-25-close-the-memory-gaps.md  copied out of ~/.claude/plans
-  templates/{bug,spike,chore}.md             starters for `tm task new --template`
+  templates/{bug,spike,chore}.md             starters for `.bytedesk/task-management/bin/tm task new --template`
   evidence/TM-014-vitest.log
   events.jsonl    this host's audit log — every write goes through it (rotates at 5 MB; not committed)
-  index.json      derived cache; delete it any time, `tm reindex` rebuilds
+  index.json      derived cache; delete it any time, `.bytedesk/task-management/bin/tm reindex` rebuilds
   state.json      active epic, session claims, one-shot overrides
   config.json     gate policy
 <project>/.bytedesk/worktrees/TM-014-…/       isolated checkouts, heavy artifacts shared
@@ -104,48 +103,48 @@ this repo tracks its own work with no `TM_ROOT` and no repo-local configuration.
 | Session ends | Abandoned `in_progress` work is parked with a reason and its claim released |
 
 **Enforces** — and gets out of the way. `TM_ENFORCE=off` disables every gate,
-`tm override "<reason>"` bypasses exactly one (logged, with the reason), and the Stop gate
+`.bytedesk/task-management/bin/tm override "<reason>"` bypasses exactly one (logged, with the reason), and the Stop gate
 never blocks twice in a row on the same tasks.
 
 ## CLI
 
 ```
-tm init                              create the store in this repo
-tm epic new "<title>" | use <id>     epics gate task creation
-tm task new "<title>"                dup-guarded; files under the active epic
-tm ac <id> "<criterion>"             acceptance criteria — `tm done` refuses without them
-tm accept <id> <n>                   tick one
-tm start|done|park|block|unblock <id>
-tm reopen <id> [why]                 bring a done task back, and its epic with it
-tm goal import <doc.md|*.plan.json>  a goal doc becomes a task; a manifest becomes a whole epic
-tm dep <id> [-]<blocker>...          dependency graph; a leading - removes
-tm cap new "<title>" [--area --impact --effort --confidence --source]
-tm cap list [--status open]          the enhancement backlog, best bet first
-tm cap accept <CAP-id>               mint the task that builds it, criteria and all
-tm cap ship <CAP-id> | drop <CAP-id> shipping refuses without evidence
-tm evidence <id> <path|->            attach a log/screenshot as proof
-tm task new "<title>" --template bug   start from a template
-tm next | board | stale | standup      read the board  (add --json to any of these)
-tm find <words> [field:value]...      search; a leading - negates a filter
-tm show <id>                         one entity in full
-tm why <id>                          what is actually holding a task up
-tm graph [--epic EP-1] [--all]       the dependency graph as Mermaid
-tm time [id]                         cycle time, median/mean, oldest open
-tm log [n] | tm log <id>             the event tail, or one entity's whole history
-tm standup [iso] | handoff <id>      digest / self-contained brief for another agent
-tm export [md|csv|json]              the board out; --epic, --status, --open, --out <file>
-tm doctor [--fix]                    what is inconsistent, and repair the unambiguous half
-tm reindex | config [k v] | override "<why>" | migrate
+.bytedesk/task-management/bin/tm init                              create the store in this repo
+.bytedesk/task-management/bin/tm epic new "<title>" | use <id>     epics gate task creation
+.bytedesk/task-management/bin/tm task new "<title>"                dup-guarded; files under the active epic
+.bytedesk/task-management/bin/tm ac <id> "<criterion>"             acceptance criteria — `.bytedesk/task-management/bin/tm done` refuses without them
+.bytedesk/task-management/bin/tm accept <id> <n>                   tick one
+.bytedesk/task-management/bin/tm start|done|park|block|unblock <id>
+.bytedesk/task-management/bin/tm reopen <id> [why]                 bring a done task back, and its epic with it
+.bytedesk/task-management/bin/tm goal import <doc.md|*.plan.json>  a goal doc becomes a task; a manifest becomes a whole epic
+.bytedesk/task-management/bin/tm dep <id> [-]<blocker>...          dependency graph; a leading - removes
+.bytedesk/task-management/bin/tm cap new "<title>" [--area --impact --effort --confidence --source]
+.bytedesk/task-management/bin/tm cap list [--status open]          the enhancement backlog, best bet first
+.bytedesk/task-management/bin/tm cap accept <CAP-id>               mint the task that builds it, criteria and all
+.bytedesk/task-management/bin/tm cap ship <CAP-id> | drop <CAP-id> shipping refuses without evidence
+.bytedesk/task-management/bin/tm evidence <id> <path|->            attach a log/screenshot as proof
+.bytedesk/task-management/bin/tm task new "<title>" --template bug   start from a template
+.bytedesk/task-management/bin/tm next | board | stale | standup      read the board  (add --json to any of these)
+.bytedesk/task-management/bin/tm find <words> [field:value]...      search; a leading - negates a filter
+.bytedesk/task-management/bin/tm show <id>                         one entity in full
+.bytedesk/task-management/bin/tm why <id>                          what is actually holding a task up
+.bytedesk/task-management/bin/tm graph [--epic EP-1] [--all]       the dependency graph as Mermaid
+.bytedesk/task-management/bin/tm time [id]                         cycle time, median/mean, oldest open
+.bytedesk/task-management/bin/tm log [n] | .bytedesk/task-management/bin/tm log <id>             the event tail, or one entity's whole history
+.bytedesk/task-management/bin/tm standup [iso] | handoff <id>      digest / self-contained brief for another agent
+.bytedesk/task-management/bin/tm export [md|csv|json]              the board out; --epic, --status, --open, --out <file>
+.bytedesk/task-management/bin/tm doctor [--fix]                    what is inconsistent, and repair the unambiguous half
+.bytedesk/task-management/bin/tm reindex | config [k v] | override "<why>" | migrate
 ```
 
 ### Why is this blocked?
 
 `blockedBy` stores **direct** blockers and nothing reads it transitively, so a card saying
 `⊘ TM-002` doesn't tell you that TM-002 is waiting on TM-003, parked last week with a reason
-nobody has re-read. `tm why` walks to the bottom and reports the reason at each hop:
+nobody has re-read. `.bytedesk/task-management/bin/tm why` walks to the bottom and reports the reason at each hop:
 
 ```
-$ tm why TM-001
+$ .bytedesk/task-management/bin/tm why TM-001
 TM-001  rotate the credential
 status: blocked   startable: no
 
@@ -159,14 +158,14 @@ start here: TM-003
 ```
 
 It answers for every reason a start would be refused, not just dependencies: a claim another
-session holds, a hand-written `tm block` reason, the WIP limit, a dependency cycle, or a
+session holds, a hand-written `.bytedesk/task-management/bin/tm block` reason, the WIP limit, a dependency cycle, or a
 `blockedBy` pointing at a task that doesn't exist. `parked` is reported but **not** counted as
-blocking, because `tm start` resumes a parked task — conflating the two is how a "why" command
-starts lying. `startable: yes` means `tm start` will succeed. `roots` (in `--json`) is the work
+blocking, because `.bytedesk/task-management/bin/tm start` resumes a parked task — conflating the two is how a "why" command
+starts lying. `startable: yes` means `.bytedesk/task-management/bin/tm start` will succeed. `roots` (in `--json`) is the work
 at the bottom of the chain; a dangling reference never appears there, since it is a broken
 record rather than a task you can pick up.
 
-`tm graph` draws the same edges as Mermaid, which GitHub renders **inside the PR diff** — the
+`.bytedesk/task-management/bin/tm graph` draws the same edges as Mermaid, which GitHub renders **inside the PR diff** — the
 whole point of a markdown store is that a reviewer can read the board, and a dependency graph
 is the part that was previously unreadable. `--epic` scopes it (blockers from outside the epic
 are still drawn, because they still explain the block), `--all` includes done work, `--raw`
@@ -182,16 +181,16 @@ refuses to close a task until every **acceptance criterion** is ticked. Those ar
 requirement, and a goal doc has already written it down:
 
 ```
-$ tm goal import docs/goals/acp-pod-A1-codex-image.md
+$ .bytedesk/task-management/bin/tm goal import docs/goals/acp-pod-A1-codex-image.md
 TM-014 Bake the Codex harness into the agent-devpod image so codex runs inside the pod [EP-002]
    5 acceptance criterion/criteria from the goal's own success criteria
-   `tm done TM-014` now refuses until every one is ticked
+   `.bytedesk/task-management/bin/tm done TM-014` now refuses until every one is ticked
 ```
 
 Two shapes are read. The **doc** form is what `bytedesk-goals`' `plan_goal` writes — a `# Goal:`
 heading and a success-criteria list. The **contract** form is the 5-part block you paste into the
 `/goal` composer, where `**Stop when:**` *is* the verifiable condition and so becomes the criterion,
-and `**Validate:** \`cmd\`` is kept because that is the command whose output `tm evidence` stores.
+and `**Validate:** \`cmd\`` is kept because that is the command whose output `.bytedesk/task-management/bin/tm evidence` stores.
 The Jira key is lifted out of the heading, and the objective, constraints and read-first notes are
 kept in the body — `bytedesk-goals` **deletes** a goal doc once it is done, so the store cannot
 merely point at it.
@@ -203,7 +202,7 @@ qualifiers) and two item forms in roughly 2:1 dash-to-numbered.
 
 **530 parse; 25 are refused** — and every one of those is a README, CONTEXT, EPIC, JIRA-SCAFFOLD or
 audit note rather than a goal. Refusal is the point: a task created with an empty acceptance list
-passes `tm done` unchallenged, so a silent import would have the gate certify a goal nobody
+passes `.bytedesk/task-management/bin/tm done` unchallenged, so a silent import would have the gate certify a goal nobody
 verified. The refusal names the file and every header it looked for.
 
 Two failure modes matter here and they are not symmetrical. Zero criteria is **refused**. A
@@ -213,21 +212,21 @@ sub-bullet folds into its parent rather than becoming a peer a gate could satisf
 
 ### A whole program at once
 
-`tm goal import <manifest.plan.json>` takes a `bytedesk-goals` manifest and lands the program:
+`.bytedesk/task-management/bin/tm goal import <manifest.plan.json>` takes a `bytedesk-goals` manifest and lands the program:
 
 ```
-$ tm goal import docs/goals/agent-capability-enhancements.plan.json
+$ .bytedesk/task-management/bin/tm goal import docs/goals/agent-capability-enhancements.plan.json
 EP-003 Agent Capability Enhancements — Collaboration, Self-Learning & Memory…
    20 task(s) from 20 goal(s), 14 dependency edge(s)
-   20 carry declared touches — `tm parallel` batches on those
+   20 carry declared touches — `.bytedesk/task-management/bin/tm parallel` batches on those
    integration gate: scripts/testing/local-test.sh pr-ready
-   `tm next` and `tm parallel` now answer for this program
+   `.bytedesk/task-management/bin/tm next` and `.bytedesk/task-management/bin/tm parallel` now answer for this program
 ```
 
 Two manifest fields land somewhere that already existed and was starving. `dependsOn` becomes a
-tm dependency — it is a *land* dependency in `run-goals` (a merged PR), which is the same shape as
-tm's "blocker resolved" — so `tm next` and `tm why` answer correctly on an imported program with no
-further input. And **`touches` becomes `touches`**, the field `tm parallel` batches on: nothing wrote
+task-management dependency — it is a *land* dependency in `run-goals` (a merged PR), which is the same shape as
+the board's "blocker resolved" — so `.bytedesk/task-management/bin/tm next` and `.bytedesk/task-management/bin/tm why` answer correctly on an imported program with no
+further input. And **`touches` becomes `touches`**, the field `.bytedesk/task-management/bin/tm parallel` batches on: nothing wrote
 it until the Edit/Write hook began observing edits, and a manifest has it *declared* for 498 of the
 506 goals in `bytedesk-platform`. So parallel batching is right **before** any work starts rather
 than after a pass of it.
@@ -273,12 +272,12 @@ process. Every resource renders live at read time, so there is nothing to invali
 ### Parallel work
 
 ```
-tm parallel [--epic EP-1]            batches of unblocked, unclaimed, non-colliding tasks
-tm worktree new <id> [--base ref]    isolated checkout + branch, heavy artifacts shared
-tm worktree list | rm <id> | share <id>
-tm claim <id> [--steal] | release <id> | sweep
-tm start <id> [--steal]              refuses a task another live session holds
-tm handoff <id> --worktree           brief that provisions its own checkout
+.bytedesk/task-management/bin/tm parallel [--epic EP-1]            batches of unblocked, unclaimed, non-colliding tasks
+.bytedesk/task-management/bin/tm worktree new <id> [--base ref]    isolated checkout + branch, heavy artifacts shared
+.bytedesk/task-management/bin/tm worktree list | rm <id> | share <id>
+.bytedesk/task-management/bin/tm claim <id> [--steal] | release <id> | sweep
+.bytedesk/task-management/bin/tm start <id> [--steal]              refuses a task another live session holds
+.bytedesk/task-management/bin/tm handoff <id> --worktree           brief that provisions its own checkout
 ```
 
 Every write to an entity is serialized through one lock in the shared store, so two sessions
@@ -288,11 +287,11 @@ atomically (otherwise two sessions pick the same number and one file becomes unr
 read-append-write edits — comments, labels, links, criteria, evidence, deps — go through
 `mutate` so both appends survive.
 
-A task's `touches: []` is what `tm parallel` uses to decide which work can run at the same
+A task's `touches: []` is what `.bytedesk/task-management/bin/tm parallel` uses to decide which work can run at the same
 time — and it is **filled in by watching, not by asking**. A `PostToolUse` hook on
 `Edit`/`Write`/`MultiEdit`/`NotebookEdit` records the file that was just edited against the task
 the session is holding, so after one pass of real work the store knows what collides with what.
-`tm touches <id> [path...]` reads it, or declares paths ahead of time.
+`.bytedesk/task-management/bin/tm touches <id> [path...]` reads it, or declares paths ahead of time.
 
 It attributes to a task it is **sure** about, or to nothing at all: the branch (`tm/TM-014-…`)
 first, then the single task in progress, then the claim this session holds. Two tasks running in
@@ -300,10 +299,10 @@ one session is genuinely ambiguous and the edit is dropped — a path recorded a
 task is worse than a missing one, because it invents a collision that serializes work *and*
 hides the real collision on the task that owns the file. Paths are relative to the checkout
 (so the same file in two worktrees is the same path), the store's own files are ignored, failed
-edits say nothing, and the list is capped at 40. `tm config trackTouches false` turns it off.
+edits say nothing, and the list is capped at 40. `.bytedesk/task-management/bin/tm config trackTouches false` turns it off.
 
 > Before this, nothing wrote the field. So `touches` was empty everywhere, every task looked
-> disjoint from every other, and `tm parallel` would put two tasks that rewrite the same file in
+> disjoint from every other, and `.bytedesk/task-management/bin/tm parallel` would put two tasks that rewrite the same file in
 > one batch and tell you to run them side by side — the exact collision it exists to prevent. Claims carry session, worktree and branch, and expire — a session
 that never comes back cannot lock a task out of the board forever.
 
@@ -313,7 +312,7 @@ A new worktree gets `node_modules` **symlinked** and `.env` **copied** by defaul
 immediately and costs kilobytes instead of a reinstall. Configure with `worktreeShare`:
 `[{path, mode}]` where mode is `symlink`, `copy` or `hardlink`; `**/node_modules` matches every
 package in a monorepo. Tracked paths are never shared (a symlink over a tracked file would get
-committed), nothing already in the worktree is clobbered, and `tm worktree rm` unlinks the shares
+committed), nothing already in the worktree is clobbered, and `.bytedesk/task-management/bin/tm worktree rm` unlinks the shares
 before removing — your main checkout's `node_modules` is never at risk.
 
 **The tradeoff:** a symlinked `node_modules` is shared mutable state — `pnpm install` in one
@@ -328,7 +327,7 @@ against the installed CLIs — `codex-cli 0.146.0`, `grok 0.2.117` — not infer
 
 | | Claude Code | Codex CLI | Grok |
 |---|---|---|---|
-| `tm` CLI, store, gates | ✅ | ✅ | ✅ |
+| `.bytedesk/task-management/bin/tm` CLI, store, gates | ✅ | ✅ | ✅ |
 | MCP server (`bin/tm-mcp`) | ✅ `.mcp.json` | ✅ `codex mcp add` / `.codex-mcp.json` | ✅ `grok mcp add` |
 | Session identity | ✅ `CLAUDE_CODE_SESSION_ID` | ✅ `CODEX_THREAD_ID` | ✅ `GROK_SESSION_ID` |
 | Native task mirroring | ✅ `TaskCreate`/`TaskUpdate` | ✅ `update_plan` | ✅ `todo_write` |
@@ -336,7 +335,7 @@ against the installed CLIs — `codex-cli 0.146.0`, `grok 0.2.117` — not infer
 | Dashboard work stream | ✅ | ✅ reads `~/.codex/sessions/**/rollout-*.jsonl` | ✅ reads `~/.grok/sessions/<cwd>/<id>/chat_history.jsonl` |
 
 What ❌ costs you: without hooks, Grok gets no session-start briefing, no Stop gate and no
-automatic commit linking. The board still works — you drive it with `tm` and the MCP tools, and
+automatic commit linking. The board still works — you drive it with `.bytedesk/task-management/bin/tm` and the MCP tools, and
 claims still hold, because those read the session variable rather than a hook.
 
 One difference worth knowing about Codex, because it decides whether claims work at all: **Codex
@@ -352,12 +351,10 @@ codex mcp add task-management -- <plugin>/bin/tm-mcp
 grok  mcp add task-management -- <plugin>/bin/tm-mcp
 ```
 
-Hooks under Codex, in the order they have to happen — `tm install` first, because a
-`.codex/hooks.json` holds a bare command string with no plugin-root substitution, so the hook
-entrypoint has to be reachable by name:
+Codex has no plugin-root substitution in `.codex/hooks.json`, so its checked-in hook configuration
+uses the project-relative launcher created during bootstrap:
 
 ```bash
-tm install                                             # puts tm, tm-dashboard and tm-hook on PATH
 grep -v '^//' <plugin>/hooks/codex-hooks.example.json > .codex/hooks.json
 ```
 
@@ -380,22 +377,22 @@ Tasks carry the fields you'd expect from an issue tracker, all optional and all 
 frontmatter — a task with none of them set behaves exactly as it did before they existed:
 
 ```
-tm ac <id> "<criterion>" | ac <id> --rm <n>  add or remove one
-tm accept <id> <n> [--undo]                  tick, or put a mis-tick back
-tm edit <id> "<title>" [--body <text|->]      correct what `new` got wrong
-tm move <id> <EP-nnn|none>                   refile under another epic
-tm assign <id> <who>              tm label <id> ui -stale     (a leading - removes)
-tm priority <id> highest|high|medium|low|lowest
-tm type <id> bug|story|task|spike|chore   issue type; `parent` expresses subtask-ness
-tm estimate <id> <points>         tm comment <id> "<text>"
-tm subtask <id> <parent|none>     tm link <id> "blocks" <id>  (writes both ends)
-tm rank <id> --before|--after <id>            tm backlog
+.bytedesk/task-management/bin/tm ac <id> "<criterion>" | ac <id> --rm <n>  add or remove one
+.bytedesk/task-management/bin/tm accept <id> <n> [--undo]                  tick, or put a mis-tick back
+.bytedesk/task-management/bin/tm edit <id> "<title>" [--body <text|->]      correct what `new` got wrong
+.bytedesk/task-management/bin/tm move <id> <EP-nnn|none>                   refile under another epic
+.bytedesk/task-management/bin/tm assign <id> <who>              .bytedesk/task-management/bin/tm label <id> ui -stale     (a leading - removes)
+.bytedesk/task-management/bin/tm priority <id> highest|high|medium|low|lowest
+.bytedesk/task-management/bin/tm type <id> bug|story|task|spike|chore   issue type; `parent` expresses subtask-ness
+.bytedesk/task-management/bin/tm estimate <id> <points>         .bytedesk/task-management/bin/tm comment <id> "<text>"
+.bytedesk/task-management/bin/tm subtask <id> <parent|none>     .bytedesk/task-management/bin/tm link <id> "blocks" <id>  (writes both ends)
+.bytedesk/task-management/bin/tm rank <id> --before|--after <id>            .bytedesk/task-management/bin/tm backlog
 ```
 
 Links are mirrored automatically — `A blocks B` gives B `blocked by A`, because a one-sided
 link is invisible from the end you're usually looking at. Dependencies work the same way and are
-removable with a leading `-`, the same convention `tm label` uses. A dependency that would close a
-**cycle is refused** at the point of writing rather than reported afterwards — `tm doctor` finds
+removable with a leading `-`, the same convention `.bytedesk/task-management/bin/tm label` uses. A dependency that would close a
+**cycle is refused** at the point of writing rather than reported afterwards — `.bytedesk/task-management/bin/tm doctor` finds
 cycles and deliberately will not repair them, since which edge to cut is a judgement, so the cheap
 moment to say no is before one exists. A loop that already exists elsewhere is not blamed on the
 next caller; doctor still reports it. Subtask nesting refuses cycles.
@@ -416,9 +413,9 @@ The parent session holds TM-001 "wire the vendor SDK" (EP-001).
 Not yet met:
 - [ ] the token refresh path is covered by a test
 
-The parent holds the claim, so do not run `tm start`, `tm done`, `tm park` or `tm block` on these —
-report what you found and let the parent record the outcome. Reads (`tm show`, `tm board`, `tm find`)
-and additive notes (`tm comment`, `tm evidence`) are fine.
+The parent holds the claim, so do not run `.bytedesk/task-management/bin/tm start`, `.bytedesk/task-management/bin/tm done`, `.bytedesk/task-management/bin/tm park` or `.bytedesk/task-management/bin/tm block` on these —
+report what you found and let the parent record the outcome. Reads (`.bytedesk/task-management/bin/tm show`, `.bytedesk/task-management/bin/tm board`, `.bytedesk/task-management/bin/tm find`)
+and additive notes (`.bytedesk/task-management/bin/tm comment`, `.bytedesk/task-management/bin/tm evidence`) are fine.
 ```
 
 **Only the unticked criteria**, because a met one is settled and the agent's job is what is left.
@@ -427,7 +424,7 @@ a tax every agent pays for the case where it happens to matter. **Bounded** at 3
 each and 1200 characters, and it says how many claims it left out rather than truncating silently.
 
 It is deliberately not `handoff()`. That is a cold-start dossier for someone picking a task up with
-nothing in hand, and it ends with `Resume with: tm start <id>` — exactly wrong advice here, since
+nothing in hand, and it ends with `Resume with: .bytedesk/task-management/bin/tm start <id>` — exactly wrong advice here, since
 the parent already holds the claim and the interlock would refuse.
 
 ## Briefing a spawned agent
@@ -446,13 +443,13 @@ The parent session holds TM-018 "credential configuration through the UI" (EP-00
 Not yet met:
 - [ ] the operator can set a provider key without editing a file
 
-The parent holds the claim, so do not run `tm start`, `tm done`, `tm park` or `tm block` on these —
-report what you found and let the parent record the outcome. Reads (`tm show`, `tm board`, `tm find`)
-and additive notes (`tm comment`, `tm evidence`) are fine.
+The parent holds the claim, so do not run `.bytedesk/task-management/bin/tm start`, `.bytedesk/task-management/bin/tm done`, `.bytedesk/task-management/bin/tm park` or `.bytedesk/task-management/bin/tm block` on these —
+report what you found and let the parent record the outcome. Reads (`.bytedesk/task-management/bin/tm show`, `.bytedesk/task-management/bin/tm board`, `.bytedesk/task-management/bin/tm find`)
+and additive notes (`.bytedesk/task-management/bin/tm comment`, `.bytedesk/task-management/bin/tm evidence`) are fine.
 ```
 
-**Not the handoff dossier.** `tm handoff` is for picking a task up cold — epic body, evidence,
-commits, branch, worktree — and it ends with `Resume with: tm start <id>`, which is exactly wrong
+**Not the handoff dossier.** `.bytedesk/task-management/bin/tm handoff` is for picking a task up cold — epic body, evidence,
+commits, branch, worktree — and it ends with `Resume with: .bytedesk/task-management/bin/tm start <id>`, which is exactly wrong
 here: the parent already holds the claim, and an agent following that advice earns a refusal. A
 subagent is handed its slice in the prompt; what it lacks is orientation and a guardrail.
 
@@ -467,12 +464,12 @@ concatenated into one block — without one, the brief runs into whatever the pr
 
 ## Standup
 
-`tm standup [iso]` (default: the last 24h) answers the three questions a standup answers — what got
+`.bytedesk/task-management/bin/tm standup [iso]` (default: the last 24h) answers the three questions a standup answers — what got
 finished, what is being worked on, what is stuck — with the **status path** per item and the stop
 reason on anything blocked or parked. Work that moved no status is listed last, summarised by what
 did happen to it, because a day of comments and commits is real work.
 
-It shares its collapsing with `tm log` and with the dashboard's activity panel: a status-changing
+It shares its collapsing with `.bytedesk/task-management/bin/tm log` and with the dashboard's activity panel: a status-changing
 write reads as `→ blocked`, and a generic `update` that a specific event in the same second already
 explains is dropped. The panel gets the sentence for each event kind from the store's own catalog
 over `/api/events`, so all three surfaces describe the same event the same way.
@@ -487,7 +484,7 @@ The **Settings** modal holds them; the **profile** menu next to it shows who the
 are, which is what decides whether a change counts as your work.
 
 Writable keys are an allowlist. The gates — `enforce`, `wipLimit`, `requireAcceptance` — are not
-board preferences and stay with `tm config`: a browser tab is not the place to switch off the rules
+board preferences and stay with `.bytedesk/task-management/bin/tm config`: a browser tab is not the place to switch off the rules
 the CLI and the hooks enforce. The notification *permission* is a browser grant and cannot be
 stored for you, so the modal asks for it rather than pretending.
 
@@ -517,22 +514,22 @@ node tests/browser/drawer.mjs
 
 ## Acceptance criteria are not a one-way door
 
-`tm done` is gated on the list, so a stray tick or a typo'd criterion changes what the tool will
+`.bytedesk/task-management/bin/tm done` is gated on the list, so a stray tick or a typo'd criterion changes what the tool will
 accept. Ticking existed on all three surfaces and unticking on none — the dashboard's checkbox even
 set `isDisabled` once checked, locking the box it had just ticked — and nothing anywhere could remove
 a criterion. The only way back was editing the frontmatter by hand.
 
 ```
-tm accept <id> <n>            tick
-tm accept <id> <n> --undo     put a mis-tick back
-tm ac <id> --rm <n>           remove one that should never have been there
+.bytedesk/task-management/bin/tm accept <id> <n>            tick
+.bytedesk/task-management/bin/tm accept <id> <n> --undo     put a mis-tick back
+.bytedesk/task-management/bin/tm ac <id> --rm <n>           remove one that should never have been there
 ```
 
 The board's checkbox toggles, and each criterion has a ✕. Over MCP it is one tool: `tm_ac_accept`
 with `undo` or `remove`.
 
 Unticking **does not reopen a task that is already done**. That is a decision, not an invariant — the
-work may genuinely be finished and the criterion simply mis-ticked — and `tm doctor` already reports
+work may genuinely be finished and the criterion simply mis-ticked — and `.bytedesk/task-management/bin/tm doctor` already reports
 that state as `done-unmet` and declines to auto-repair it for the same reason. The CLI says so when
 it happens rather than acting on your behalf.
 
@@ -541,27 +538,27 @@ commit message now points at a different sentence.
 
 ## Why a card stopped
 
-`tm park <id> <why>` and `tm block <id> <why>` store the sentence you type, and both boards show it
-— on the CLI line right after the title, and on the dashboard card as its own line of prose. `tm
+`.bytedesk/task-management/bin/tm park <id> <why>` and `.bytedesk/task-management/bin/tm block <id> <why>` store the sentence you type, and both boards show it
+— on the CLI line right after the title, and on the dashboard card as its own line of prose. `.bytedesk/task-management/bin/tm
 show` prints it unabridged; the board clamps it and ends in `…`, because a board is for scanning and
-`tm show`/`tm why` are where the whole thing lives.
+`.bytedesk/task-management/bin/tm show`/`.bytedesk/task-management/bin/tm why` are where the whole thing lives.
 
-It is shown only while it applies: `tm start` on a parked task does not clear `parkedReason`, and a
+It is shown only while it applies: `.bytedesk/task-management/bin/tm start` on a parked task does not clear `parkedReason`, and a
 task that is being worked on is not waiting on anything.
 
 ## Sprints
 
 ```
-tm sprint new "Sprint 12" [--ends 2026-08-14]     create and make it active
-tm sprint add <id>...  |  rm <id>...              commit work to it, or take it back
-tm sprint [show|list|use <id>|done]
+.bytedesk/task-management/bin/tm sprint new "Sprint 12" [--ends 2026-08-14]     create and make it active
+.bytedesk/task-management/bin/tm sprint add <id>...  |  rm <id>...              commit work to it, or take it back
+.bytedesk/task-management/bin/tm sprint [show|list|use <id>|done]
 ```
 
 A sprint is its own kind — `sprints/SP-001-….md`, an id, a body — because everything one needs the
 store already does for epics and ADRs. It is **not** a second epic: an epic says what a body of work
 *is*, a sprint says what you committed to finishing this fortnight, and a task has one of each.
 
-`tm sprint` is the report `estimate` never had a reader for. Points were writable from the CLI, the
+`.bytedesk/task-management/bin/tm sprint` is the report `estimate` never had a reader for. Points were writable from the CLI, the
 dashboard and MCP and consumed by nothing — `burndown` counts cards, so a two-point card and a
 thirteen-point card move the line equally. A sprint gives them a denominator:
 
@@ -573,7 +570,7 @@ Cards with no estimate are counted **apart**, not as zero: "12 of 20 done, and f
 true, where folding the unsized into zero would report the sprint as further along than it is.
 
 Closing a sprint does not touch unfinished work — it is simply no longer committed, and says how
-much is left. `tm find sprint:SP-001` lists it.
+much is left. `.bytedesk/task-management/bin/tm find sprint:SP-001` lists it.
 
 ## Searching
 
@@ -581,10 +578,10 @@ Bare words are a case-insensitive substring over titles and bodies. `field:value
 leading `-` negates:
 
 ```
-tm find status:in_progress priority:highest
-tm find assignee:ryan -label:stale
-tm find epic:EP-002 type:bug "the half-remembered title"
-tm find -assignee:                     # the unassigned queue
+.bytedesk/task-management/bin/tm find status:in_progress priority:highest
+.bytedesk/task-management/bin/tm find assignee:ryan -label:stale
+.bytedesk/task-management/bin/tm find epic:EP-002 type:bug "the half-remembered title"
+.bytedesk/task-management/bin/tm find -assignee:                     # the unassigned queue
 ```
 
 Fields: `status`, `epic`, `assignee`, `actor`, `priority`, `type`, `label`, `kind`, `id`. Every
@@ -615,23 +612,23 @@ message or an evidence ref. Re-submitting a value that is already stored writes 
 
 `move` is not just a field write, because both epics' lifecycles depend on their children. Into a
 `done` epic, an unfinished task **reopens** it — a finished epic holding live work is the lie
-`tm reopen` already refuses to leave behind, and the auto-close will never re-close it on its own.
+`.bytedesk/task-management/bin/tm reopen` already refuses to leave behind, and the auto-close will never re-close it on its own.
 Out of an epic, the source gets the same **auto-close** check that finishing a task there would
 give it; an epic emptied entirely stays open, because zero tasks is not an achievement.
 
-All three surfaces do both now — `tm edit`/`tm move`, `tm_task_edit`, and `PATCH /api/task/:id`,
+All three surfaces do both now — `.bytedesk/task-management/bin/tm edit`/`.bytedesk/task-management/bin/tm move`, `tm_task_edit`, and `PATCH /api/task/:id`,
 which previously took title and body only. That last gap meant the board could file a task under
 the active epic and never move it out again.
 
-**`tm next` is ordered by them.** An explicit `rank` first, in rank order — a rank is only ever
+**`.bytedesk/task-management/bin/tm next` is ordered by them.** An explicit `rank` first, in rank order — a rank is only ever
 set by deliberately placing that task relative to another, which is a stronger statement than a
 label, and it is Jira's rule too. Everything unranked follows by `priority`, with an unset
 priority read as `medium`. Id breaks the remaining ties, so the order is total and the same board
 never renders two ways. The rendered line shows `!<priority>` when one is set, because a list
 whose order has no visible reason is a list you cannot trust.
 
-This is the order every caller of `next` gets: the `tm next` verb, the SessionStart context
-block, the `tm_next` MCP tool, the `@`-mentionable resource list, and `tm parallel`. The sort is
+This is the order every caller of `next` gets: the `.bytedesk/task-management/bin/tm next` verb, the SessionStart context
+block, the `tm_next` MCP tool, the `@`-mentionable resource list, and `.bytedesk/task-management/bin/tm parallel`. The sort is
 inside `nextTasks`, not at those five call sites — an order each caller has to remember to apply
 is an order some caller will not have.
 
@@ -670,11 +667,11 @@ Tasks answer "what am I doing"; capabilities answer "what is worth doing". A cap
 criteria, before anyone commits to building it.
 
 ```
-tm cap new "Jump palette cheatsheet" --area ux --impact H --effort S --confidence H
-tm cap list                       # ranked; score 1–27, high is do-this-first
-tm cap accept CAP-0001            # → TM-014, criteria carried over as its gate
-tm evidence CAP-0001 test/palette_test.go
-tm cap ship CAP-0001              # refuses without evidence
+.bytedesk/task-management/bin/tm cap new "Jump palette cheatsheet" --area ux --impact H --effort S --confidence H
+.bytedesk/task-management/bin/tm cap list                       # ranked; score 1–27, high is do-this-first
+.bytedesk/task-management/bin/tm cap accept CAP-0001            # → TM-014, criteria carried over as its gate
+.bytedesk/task-management/bin/tm evidence CAP-0001 test/palette_test.go
+.bytedesk/task-management/bin/tm cap ship CAP-0001              # refuses without evidence
 ```
 
 Accepting is the seam between the two layers: the task carries the card that justifies it, so
@@ -697,14 +694,14 @@ Ids are preserved, so every reference in a commit message or PR still resolves.
 Starts automatically while the plugin is enabled (a `plugin-active` monitor). Live SSE board,
 port in `.bytedesk/task-management/dashboard.port` — assigned once, probed free above 45000 and
 then kept, so the project opens at the same URL every time (`TM_DASHBOARD_PORT` pins one).
-Run it by hand with `bin/tm-dashboard`.
+Run it by hand with `.bytedesk/task-management/bin/tm-dashboard`.
 
 ## Getting the board out
 
 ```
-tm export                            markdown report → stdout
-tm export csv --out board.csv        spreadsheet, or a Jira CSV import
-tm export json --events              the whole store as one document
+.bytedesk/task-management/bin/tm export                            markdown report → stdout
+.bytedesk/task-management/bin/tm export csv --out board.csv        spreadsheet, or a Jira CSV import
+.bytedesk/task-management/bin/tm export json --events              the whole store as one document
 ```
 
 `--epic EP-1` · `--status blocked` · `--open` (drop done work) · `--out <file>` (default stdout, so it pipes).
@@ -723,11 +720,11 @@ the escaping is tested against a hostile title, a multi-line body, and multi-lin
 Markdown files as the source of truth is what makes the board readable and mergeable.
 It is also why it drifts: a file gets hand-edited, a merge resolves one side of a
 two-sided link, a task is deleted while three others still name it as a blocker, a
-session dies holding a claim. `tm reindex` does not help — it rebuilds the cache **from**
+session dies holding a claim. `.bytedesk/task-management/bin/tm reindex` does not help — it rebuilds the cache **from**
 the files, so it faithfully reproduces whatever is wrong with them.
 
 ```
-$ tm doctor
+$ .bytedesk/task-management/bin/tm doctor
 ## errors (2)
 ✗ TM-003    dangling-dep    blockedBy names TM-404, which does not exist  [fixable]
 ✗ TM-003    orphan-epic     epic EP-077 does not exist  [fixable]
@@ -737,7 +734,7 @@ $ tm doctor
 ! TM-001    one-sided-link  TM-001 "duplicates" TM-003, but TM-003 has no "duplicated by" back  [fixable]
 ! TM-001    missing-evidence  evidence/TM-001-proof.log is recorded but the file is gone  [fixable]
 
-5 of 5 can be repaired automatically — `tm doctor --fix`
+5 of 5 can be repaired automatically — `.bytedesk/task-management/bin/tm doctor --fix`
 ```
 
 **error** means the store is lying — a read gives a wrong answer. **warning** means it is
@@ -748,7 +745,7 @@ is reachable at all, and deciding which keeps the id changes an identity that co
 and dependencies already point at — a judgement, not a typo. (Stores written before writes
 were serialized may contain these; that is why it reports rather than guesses.)
 
-`missing-evidence` only looks at refs it can resolve on disk. `tm evidence` copies the file
+`missing-evidence` only looks at refs it can resolve on disk. `.bytedesk/task-management/bin/tm evidence` copies the file
 into the store, so its refs are store-relative and checkable; a hand edit can put anything
 probative there instead — the url of the PR, an absolute path to a log outside the repo, an
 opaque handle to a browser session. A ref with a scheme is left alone rather than reported,
@@ -768,7 +765,7 @@ Epics were second-class on the dashboard: one lozenge in the header, and no way 
 change which one was active — so the board could create tasks but not say which epic
 they land in, which is the one decision governing everything it does next. The active-epic
 selector in the toolbar does that now (`POST /api/epic { id }`, same validation and same
-event as `tm epic use`; a closed epic is refused rather than silently gating every later
+event as `.bytedesk/task-management/bin/tm epic use`; a closed epic is refused rather than silently gating every later
 create). **Create epic** opens a new one (`POST /api/epic { title, body? }`) and sets it
 active. Clicking a lane header opens the epic drawer — body, children, plan chip, close
 and reopen.
@@ -777,7 +774,7 @@ and reopen.
 progress bar and `done/total` per lane. The active epic sorts first, then open epics by id,
 then closed ones, then unfiled work — which is never dropped, because a task with no epic is
 exactly the thing you want to notice. An epic id with no epic file gets a lane marked
-`missing` rather than hiding the tasks behind the data fault (`tm doctor --fix` clears it).
+`missing` rather than hiding the tasks behind the data fault (`.bytedesk/task-management/bin/tm doctor --fix` clears it).
 
 The keyboard cursor still reads the same five columns whether or not the board is grouped:
 grouping sorts tasks lane-first, so `j` keeps walking down the screen instead of hopping
@@ -810,14 +807,15 @@ the badges show, on a roving tabindex, so `Tab` and `j`/`k` agree on where the c
 
 ## Working on the dashboard
 
-The board `bin/tm-dashboard` serves is the built bundle in `dashboard/dist/` (committed, so
+The board `.bytedesk/task-management/bin/tm-dashboard` serves is the built bundle in
+`dashboard/dist/` (committed, so
 the plugin works on a clone with no `npm install`). Editing `dashboard/src/` therefore changes
 nothing until you rebuild — which is a slow way to move a card two pixels.
 
 For live editing, run the Vite dev server **alongside** the normal board:
 
 ```bash
-bin/tm-dashboard &                       # the API, the SSE feed and the store
+.bytedesk/task-management/bin/tm-dashboard & # the API, the SSE feed and the store
 npm --prefix dashboard run dev           # http://localhost:5173 — HMR
 ```
 
@@ -845,19 +843,19 @@ The `.tsx` components stay thin so they need no test harness of their own.
 
 ## Config
 
-`tm config` prints the current policy; `tm config <key> <json>` sets one.
+`.bytedesk/task-management/bin/tm config` prints the current policy; `.bytedesk/task-management/bin/tm config <key> <json>` sets one.
 
 | Key | Default | Effect |
 |---|---|---|
 | `enforce` | `true` | master switch for every gate |
 | `requireEpic` | `true` | `TaskCreate` needs an active epic |
-| `requireAcceptance` | `true` | `tm done` needs all criteria ticked |
+| `requireAcceptance` | `true` | `.bytedesk/task-management/bin/tm done` needs all criteria ticked |
 | `wipLimit` | `3` | max concurrent `in_progress` |
 | `staleMinutes` | `90` | when `in_progress` starts being called stale |
 | `gitLink` | `true` | attach commits/PRs automatically |
 | `captureDecisions` | `"smart"` | `"smart"` records real decisions only; `true` records every question; `false` none |
 | `autoCloseEpics` | `true` | close an epic when its last child is done |
-| `trackTouches` | `true` | record edited files on the claimed task (what `tm parallel` batches on) |
+| `trackTouches` | `true` | record edited files on the claimed task (what `.bytedesk/task-management/bin/tm parallel` batches on) |
 | `claimTtlMinutes` | `240` | when a claim from a vanished session expires |
 | `parkOnSessionEnd` | `true` | park abandoned `in_progress` work when a session ends |
 | `eventMaxBytes` | `5000000` | rotate `events.jsonl` past this size |
@@ -893,15 +891,16 @@ there is no Chrome or no board running, so it never fails for being unrunnable.
   so a worktree keeps its own board.
 - Markdown files are the source of truth. `index.json` is disposable.
 - Commit `.bytedesk/task-management/` — that's the point. One file per entity keeps merges sane.
-- `tm init` writes the store's own `.gitignore` and `.gitattributes`, plus
+- `.bytedesk/task-management/bin/tm init` writes the store's own `.gitignore` and `.gitattributes`, plus
   `.bytedesk/.gitignore` for worktrees (they live next to the store, so a store-local
-  rule cannot see them). The markdown, `config.json`, `evidence/` and `.bytedesk/bin/`
+  rule cannot see them). The markdown, `config.json`, `evidence/` and
+  `.bytedesk/task-management/bin/`
   launchers are the shared record and belong in git; `index.json` (a cache),
   `state.json` (session claims), `events.jsonl` (this host's audit log), `dashboard.pid` /
   `dashboard.port` / `dashboard.*`, `port.assigned`, `state.lock*` and `.tm-tmp-*` do not.
   SessionStart after a plugin update tops the contract up
   and `git rm --cached`s any of those files git is still carrying, so an already-tracked
   `events.jsonl` leaves the index on the next session without being deleted from disk.
-- `tm doctor` reports a store with no contract and writes one, and `--fix` untracks a
+- `.bytedesk/task-management/bin/tm doctor` reports a store with no contract and writes one, and `--fix` untracks a
   per-machine file that is already in the index, since being ignored does not help once git
   is carrying it.

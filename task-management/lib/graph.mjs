@@ -114,7 +114,7 @@ export function why(id, p = paths()) {
         `claimed by ${held.actor || `session ${held.session}`}` +
         (held.worktree ? ` in ${held.worktree}` : "") +
         (held.branch ? ` on ${held.branch}` : "") +
-        " — `tm start --steal` takes it",
+        " — `.bytedesk/task-management/bin/tm start --steal` takes it",
     });
   }
   const cfg = config(p);
@@ -130,7 +130,7 @@ export function why(id, p = paths()) {
     reasons.push({
       kind: "parked",
       blocking: false,
-      text: `parked${task.parkedReason ? `: ${task.parkedReason}` : ""} — \`tm start ${id}\` resumes it`,
+      text: `parked${task.parkedReason ? `: ${task.parkedReason}` : ""} — \`.bytedesk/task-management/bin/tm start ${id}\` resumes it`,
     });
   }
   if (cycles.length) {
@@ -141,7 +141,7 @@ export function why(id, p = paths()) {
     reasons.push({
       kind: "dangling",
       blocking: true,
-      text: `blocked by ${dangling.join(", ")}, which does not exist — \`tm doctor\` clears these`,
+      text: `blocked by ${dangling.join(", ")}, which does not exist — \`.bytedesk/task-management/bin/tm doctor\` clears these`,
     });
   }
   if (task.epic) {
@@ -175,7 +175,7 @@ const MARK = { open: "○", in_progress: "◐", blocked: "⊘", parked: "⏸", d
 
 export function renderWhy(w) {
   const out = [`${w.id}  ${w.title}`, `status: ${w.status}   startable: ${w.startable ? "yes" : "no"}`, ""];
-  if (!w.reasons.length) return [...out, "nothing is holding this up — `tm start " + w.id + "`"].join("\n");
+  if (!w.reasons.length) return [...out, "nothing is holding this up — `.bytedesk/task-management/bin/tm start " + w.id + "`"].join("\n");
 
   for (const r of w.reasons) out.push(`${r.blocking ? "✗" : "·"} ${r.text}`);
 

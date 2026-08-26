@@ -392,7 +392,7 @@ export const TOOLS = [
   {
     name: "tm_ac_accept",
     description:
-      "Tick an acceptance criterion once it is verifiably true — `tm done` is gated on all of them. Pass undo:true to untick one ticked by mistake, or remove:true to delete a criterion that should never have been there (removing renumbers the ones after it).",
+      "Tick an acceptance criterion once it is verifiably true — `.bytedesk/task-management/bin/tm done` is gated on all of them. Pass undo:true to untick one ticked by mistake, or remove:true to delete a criterion that should never have been there (removing renumbers the ones after it).",
     inputSchema: {
       type: "object",
       properties: {
@@ -603,7 +603,7 @@ export const TOOLS = [
       if (action === "add" || action === "rm") {
         const sprintId = active();
         if (!sprintId && action === "add") {
-          return fail('no active sprint — `tm sprint new "<name>"` or `tm sprint use <SP-id>`');
+          return fail('no active sprint — `.bytedesk/task-management/bin/tm sprint new "<name>"` or `.bytedesk/task-management/bin/tm sprint use <SP-id>`');
         }
         const moved = [];
         for (const task of tasks) {
@@ -636,13 +636,13 @@ export const TOOLS = [
 
       if (action === "show") {
         const sprintId = id || active();
-        if (!sprintId) return fail('no active sprint — `tm sprint new "<name>"`');
+        if (!sprintId) return fail('no active sprint — `.bytedesk/task-management/bin/tm sprint new "<name>"`');
         const doc = read(sprintId, p);
         if (!doc) return fail(`not found: ${sprintId}`);
         return ok({ doc, report: sprintReport(sprintId, p) });
       }
 
-      return fail('usage: tm sprint [show|new "<name>"|use <id>|add <task>...|rm <task>...|done|list]');
+      return fail('usage: .bytedesk/task-management/bin/tm sprint [show|new "<name>"|use <id>|add <task>...|rm <task>...|done|list]');
     },
   },
   {

@@ -62,7 +62,7 @@ const MD = "text/markdown";
 function clamp(text) {
   const s = String(text ?? "");
   if (s.length <= MAX_CHARS) return s;
-  return `${s.slice(0, MAX_CHARS)}\n\n…truncated at ${MAX_CHARS} characters. Use the CLI (\`tm export\`) for the whole thing.`;
+  return `${s.slice(0, MAX_CHARS)}\n\n…truncated at ${MAX_CHARS} characters. Use the CLI (\`.bytedesk/task-management/bin/tm export\`) for the whole thing.`;
 }
 
 /**
@@ -90,7 +90,7 @@ function blockedReport(p) {
  */
 function goalsReport(p) {
   const goals = list("task", {}, p).filter((t) => t.goalDoc);
-  if (!goals.length) return "No goals imported. `tm goal import <doc.md>` turns a goal doc's success criteria into a task's acceptance criteria.";
+  if (!goals.length) return "No goals imported. `.bytedesk/task-management/bin/tm goal import <doc.md>` turns a goal doc's success criteria into a task's acceptance criteria.";
   const out = [`# Goals (${goals.length})`, ""];
   for (const t of goals) {
     const unmet = (t.acceptance || []).filter((a) => !a.done);
@@ -124,7 +124,7 @@ const STATIC = [
     // The one view with no tool behind it and a real loss when it goes: the hook injects
     // this once, compaction eats it, and nothing else renders it.
     read: (p) =>
-      sessionContext(p) || "task-management: nothing tracked yet — `tm epic new \"<title>\"` then `tm task new \"<title>\"`.",
+      sessionContext(p) || "task-management: nothing tracked yet — `.bytedesk/task-management/bin/tm epic new \"<title>\"` then `.bytedesk/task-management/bin/tm task new \"<title>\"`.",
   },
   {
     uri: `${SCHEME}graph`,

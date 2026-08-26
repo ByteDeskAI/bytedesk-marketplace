@@ -141,7 +141,7 @@ export function EpicLane({
           {lane.active ? <Lozenge appearance="inprogress">active</Lozenge> : null}
           {lane.status === "done" ? <Lozenge appearance="success">closed</Lozenge> : null}
           {lane.status === "missing" ? (
-            <Tooltip content="tasks name this epic but no epic file exists — `tm doctor --fix`">
+            <Tooltip content="tasks name this epic but no epic file exists — `.bytedesk/task-management/bin/tm doctor --fix`">
               <Lozenge appearance="removed">missing</Lozenge>
             </Tooltip>
           ) : null}

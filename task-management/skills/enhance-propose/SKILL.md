@@ -1,6 +1,6 @@
 ---
 name: enhance-propose
-description: Turn research into ranked capability cards in the task store (tm cap new), each sized by impact/effort/confidence with checkable acceptance criteria. Use during /enhance or when the user asks for enhancement ideas, a product backlog, or "what should we build next".
+description: Turn research into ranked capability cards in the task store (.bytedesk/task-management/bin/tm cap new), each sized by impact/effort/confidence with checkable acceptance criteria. Use during /enhance or when the user asks for enhancement ideas, a product backlog, or "what should we build next".
 user-invokable: false
 ---
 
@@ -9,29 +9,29 @@ user-invokable: false
 ## Inputs
 
 `.bytedesk/task-management/product-state.md`, the newest pack under
-`.bytedesk/task-management/research/`, and `tm cap list` — the backlog that already exists.
+`.bytedesk/task-management/research/`, and `.bytedesk/task-management/bin/tm cap list` — the backlog that already exists.
 
 ## Steps
 
-1. `tm cap list` and read it properly. Every open capability is a problem already claimed;
+1. `.bytedesk/task-management/bin/tm cap list` and read it properly. Every open capability is a problem already claimed;
    a near-duplicate under a new title is the most common way this backlog rots.
 2. Diff state + research against that list. Propose only genuinely new problems.
 3. Draft 5–15. Each one needs a problem worth a sentence, a concrete slice, acceptance
    criteria a command can settle, and at least one evidence seed (a path or a URL).
-4. Write each with `tm cap new`:
+4. Write each with `.bytedesk/task-management/bin/tm cap new`:
 
 ```bash
-tm cap new "Jump palette operator cheatsheet" \
+.bytedesk/task-management/bin/tm cap new "Jump palette operator cheatsheet" \
   --area ux --impact H --effort S --confidence H --source research
 ```
 
 Then fill the card body (problem / current state / proposal / acceptance criteria / non-goals)
-with `tm edit <CAP-id> --body -`, or write the sections through `tm_cap_propose`, which takes
+with `.bytedesk/task-management/bin/tm edit <CAP-id> --body -`, or write the sections through `tm_cap_propose`, which takes
 `problem`, `current`, `proposal`, `criteria[]` and `nonGoals[]` directly.
 
 5. Report the ranking to the user: id | title | impact | effort | confidence | one-line why.
    Recommend the **top 3 only**, and stop. Accepting is the user's call:
-   `tm cap accept <CAP-id>` mints the task and carries the acceptance criteria across as its gate.
+   `.bytedesk/task-management/bin/tm cap accept <CAP-id>` mints the task and carries the acceptance criteria across as its gate.
 
 ## Sizing
 

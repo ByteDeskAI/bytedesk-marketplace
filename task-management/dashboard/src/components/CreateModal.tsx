@@ -141,7 +141,7 @@ export function CreateModal({
   );
 }
 
-/** New epic. Sets it active — same as `tm epic new`. */
+/** New epic. Sets it active — same as `.bytedesk/task-management/bin/tm epic new`. */
 export function CreateEpicModal({
   onClose,
   run,

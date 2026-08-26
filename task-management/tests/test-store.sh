@@ -63,17 +63,17 @@ TRACKED="$(git -C "$HYG" ls-files -- .bytedesk/task-management/events.jsonl)"
 [[ -z "$TRACKED" ]] && ok "tm init untracks a committed events.jsonl" || no "tm init untracks a committed events.jsonl" "still tracked: $TRACKED"
 git -C "$HYG" add -f .bytedesk/task-management/events.jsonl
 git -C "$HYG" commit -qm retrack
-echo '{}' | TM_ROOT="$HYG" TM_NO_AUTOLINK=1 "$PLUGIN_ROOT/hooks/tm-hook.sh" session-start >/dev/null
+echo '{}' | TM_ROOT="$HYG" "$PLUGIN_ROOT/hooks/tm-hook.sh" session-start >/dev/null
 TRACKED2="$(git -C "$HYG" ls-files -- .bytedesk/task-management/events.jsonl)"
 [[ -z "$TRACKED2" ]] && ok "session-start untracks a committed events.jsonl" || no "session-start untracks a committed events.jsonl" "still tracked: $TRACKED2"
 git -C "$HYG" check-ignore -q .bytedesk/task-management/events.jsonl && ok "the store gitignore covers events.jsonl" || no "the store gitignore covers events.jsonl"
 touch "$HYG/.bytedesk/task-management/dashboard.pid" "$HYG/.bytedesk/task-management/dashboard.port"
-mkdir -p "$HYG/.bytedesk/worktrees/TM-001-x" "$HYG/.bytedesk/bin"
-touch "$HYG/.bytedesk/worktrees/TM-001-x/x" "$HYG/.bytedesk/bin/tm"
+mkdir -p "$HYG/.bytedesk/worktrees/TM-001-x" "$HYG/.bytedesk/task-management/bin"
+touch "$HYG/.bytedesk/worktrees/TM-001-x/x" "$HYG/.bytedesk/task-management/bin/tm"
 git -C "$HYG" check-ignore -q .bytedesk/task-management/dashboard.pid && ok "the store gitignore covers dashboard.pid" || no "the store gitignore covers dashboard.pid"
 git -C "$HYG" check-ignore -q .bytedesk/task-management/dashboard.port && ok "the store gitignore covers dashboard.port" || no "the store gitignore covers dashboard.port"
 git -C "$HYG" check-ignore -q .bytedesk/worktrees/TM-001-x/x && ok "the parent gitignore covers worktrees" || no "the parent gitignore covers worktrees"
-git -C "$HYG" check-ignore -q .bytedesk/bin/tm && no "launchers must stay committable" || ok "launchers stay committable"
+git -C "$HYG" check-ignore -q .bytedesk/task-management/bin/tm && no "launchers must stay committable" || ok "launchers stay committable"
 rm -rf "$HYG"
 
 # Gate: no epic → TaskCreate path refuses (exit 2)

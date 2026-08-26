@@ -25,7 +25,6 @@ export const fetchSettings = () =>
     groups: { id: string; label: string; help?: string }[];
     fields: Array<Record<string, unknown> & { key: string; group: string; label: string; type: string }>;
     ntfy?: { token: string | null; active: boolean };
-    autolink?: { dir: string; onPath: boolean; linked: boolean; platform?: string };
   }>("/api/settings");
 
 export const fetchEvents = () =>

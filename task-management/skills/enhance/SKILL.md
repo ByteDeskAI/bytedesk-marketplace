@@ -16,10 +16,10 @@ user names a capability to build.
 
 ## Store
 
-- `tm cap list` — the ranked backlog (this is the registry; there is no index file to hand-edit)
+- `.bytedesk/task-management/bin/tm cap list` — the ranked backlog (this is the registry; there is no index file to hand-edit)
 - `.bytedesk/task-management/product-state.md` — current product state, written by [[enhance-capture]]
 - `.bytedesk/task-management/research/<date>-<slug>.md` — research packs, written by [[enhance-research]]
-- `tm log` — the history. Capability events are `cap-accept`, `cap-ship`, `cap-drop`.
+- `.bytedesk/task-management/bin/tm log` — the history. Capability events are `cap-accept`, `cap-ship`, `cap-drop`.
 
 ## The loop
 
@@ -27,7 +27,7 @@ Run in order. Skip a step only when the user scopes it (`/enhance research only`
 
 1. **Capture** — [[enhance-capture]]: refresh `product-state.md` from repo reality. Proposals
    built on stale memory are the failure mode this step exists to prevent.
-2. **Load the backlog** — `tm cap list`. Summarize counts by status. A problem already on
+2. **Load the backlog** — `.bytedesk/task-management/bin/tm cap list`. Summarize counts by status. A problem already on
    the board must not be proposed twice.
 3. **Research** — [[enhance-research]]: internal always, external when web tools exist.
 4. **Propose** — [[enhance-propose]]: 5–15 ranked capabilities, each with acceptance criteria
@@ -41,7 +41,7 @@ Run in order. Skip a step only when the user scopes it (`/enhance research only`
 - Grounded in `product-state.md` and a research pack — not in what you remember about the repo.
 - Vertical slices over platform rewrites. A capability someone can finish in a PR or two.
 - Acceptance criteria that a test or a command can settle, because on accept they *become*
-  the task's gate and `tm done` will refuse without them.
+  the task's gate and `.bytedesk/task-management/bin/tm done` will refuse without them.
 - Score is `impact × ease × confidence` (see [[enhance-propose]]). Low-confidence ideas are
   worth proposing at `--confidence L`; they rank themselves down without being lost.
 

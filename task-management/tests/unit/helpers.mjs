@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { ensureDirs, paths } from "../../lib/paths.mjs";
 import { SESSION_ENV } from "../../lib/harness/sessions.mjs";
 import { seedGitContract } from "../../lib/store.mjs";
+import { writeLaunchers } from "../../lib/launcher.mjs";
 
 /**
  * Runs `fn` with the session environment under the test's control.
@@ -77,6 +78,7 @@ export function tempStore() {
   const p = paths(dir);
   ensureDirs(p);
   seedGitContract(p);
+  writeLaunchers(p.root);
   return p;
 }
 

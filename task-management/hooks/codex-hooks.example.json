@@ -2,9 +2,8 @@
 //
 //     grep -v '^//' hooks/codex-hooks.example.json > .codex/hooks.json
 //
-// `tm-hook` ships in the plugin's bin/ and `tm install` puts it on PATH. Run that first: a Codex
-// manifest holds a bare command string with no ${CLAUDE_PLUGIN_ROOT} to substitute, so the name
-// has to resolve on its own or nothing fires. Absolute paths work too.
+// `node <installed-plugin>/bin/tm init` writes the project launcher below. Codex runs hooks from the repository, so the
+// committed project-relative command needs no PATH entry or machine-specific absolute path.
 //
 // The payload Codex sends is Claude-Code-shaped — session_id, cwd, tool_name, tool_input,
 // tool_use_id — captured verbatim in tests/fixtures/codex-pre-tool-use.json. The one difference
@@ -17,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "tm-hook pre-task-create",
+            "command": ".bytedesk/task-management/bin/tm-hook pre-task-create",
             "timeout": 10,
             "statusMessage": "task-management: checking epic + WIP..."
           }
@@ -30,7 +29,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "tm-hook post-task",
+            "command": ".bytedesk/task-management/bin/tm-hook post-task",
             "timeout": 10
           }
         ]
@@ -40,7 +39,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "tm-hook post-plan",
+            "command": ".bytedesk/task-management/bin/tm-hook post-plan",
             "timeout": 10
           }
         ]
@@ -50,7 +49,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "tm-hook post-bash",
+            "command": ".bytedesk/task-management/bin/tm-hook post-bash",
             "timeout": 10
           }
         ]
@@ -60,7 +59,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "tm-hook post-edit",
+            "command": ".bytedesk/task-management/bin/tm-hook post-edit",
             "timeout": 5
           }
         ]
@@ -70,7 +69,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "tm-hook post-decision",
+            "command": ".bytedesk/task-management/bin/tm-hook post-decision",
             "timeout": 10
           }
         ]
@@ -81,7 +80,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "tm-hook stop",
+            "command": ".bytedesk/task-management/bin/tm-hook stop",
             "timeout": 10
           }
         ]

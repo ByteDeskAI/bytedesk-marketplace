@@ -210,7 +210,7 @@ export function refusal(source) {
     "  …or any heading containing the phrase",
     "…followed by `- ` bullets or `1.` numbered items; or a `**Stop when:**` line.",
     "",
-    "Add one, or file the task by hand with `tm task new` plus `tm ac`.",
+    "Add one, or file the task by hand with `.bytedesk/task-management/bin/tm task new` plus `.bytedesk/task-management/bin/tm ac`.",
   ].join("\n");
 }
 

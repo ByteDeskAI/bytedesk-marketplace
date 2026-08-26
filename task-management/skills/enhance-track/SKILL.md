@@ -10,17 +10,17 @@ user-invokable: false
 
 | Card says | Store status | Verb |
 |---|---|---|
-| proposed | `open` | `tm cap new` |
-| accepted / building | `in_progress` | `tm cap accept <id>` → mints the task |
-| shipped | `done` | `tm cap ship <id>` |
-| dropped | `deleted` | `tm cap drop <id> "<why>"` |
+| proposed | `open` | `.bytedesk/task-management/bin/tm cap new` |
+| accepted / building | `in_progress` | `.bytedesk/task-management/bin/tm cap accept <id>` → mints the task |
+| shipped | `done` | `.bytedesk/task-management/bin/tm cap ship <id>` |
+| dropped | `deleted` | `.bytedesk/task-management/bin/tm cap drop <id> "<why>"` |
 
 There is no separate index to keep in sync — the store is the registry.
 
 ## Accept
 
 ```bash
-tm cap accept CAP-0046      # → TM-0xx, acceptance criteria carried over as its gate
+.bytedesk/task-management/bin/tm cap accept CAP-0046      # → TM-0xx, acceptance criteria carried over as its gate
 ```
 
 The task links back to the capability, so the reason for the work survives the session that
@@ -28,12 +28,12 @@ proposed it. Only accept what the user has agreed to build.
 
 ## Ship
 
-`tm cap ship` refuses without evidence, deliberately — a capability is never shipped on
+`.bytedesk/task-management/bin/tm cap ship` refuses without evidence, deliberately — a capability is never shipped on
 assertion. Attach it first:
 
 ```bash
-tm evidence CAP-0046 test/jump_palette_test.go
-tm cap ship CAP-0046
+.bytedesk/task-management/bin/tm evidence CAP-0046 test/jump_palette_test.go
+.bytedesk/task-management/bin/tm cap ship CAP-0046
 ```
 
 Good evidence: a commit SHA, a test path, a passing deploy/cutover record, an operator
@@ -41,7 +41,7 @@ confirmation. Not good evidence: "the code looks done".
 
 ## Audit pass (post-merge)
 
-1. `tm cap list --status open` and `--status in_progress`.
+1. `.bytedesk/task-management/bin/tm cap list --status open` and `--status in_progress`.
 2. For each, check its acceptance criteria against the tree — files, tests, docs. Title
    similarity is not completion; a capability whose criteria are unmet stays open even if
    something adjacent shipped.

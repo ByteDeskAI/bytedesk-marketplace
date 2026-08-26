@@ -244,7 +244,7 @@ describe("captureDecision hook (BDM-70)", () => {
   function hookPostDecision(p, payload) {
     return spawnSync(process.execPath, [TM, "hook", "post-decision"], {
       input: JSON.stringify(payload),
-      env: { ...process.env, TM_ROOT: p.root, TM_NO_AUTOLINK: "1" },
+      env: { ...process.env, TM_ROOT: p.root },
       encoding: "utf8",
     });
   }

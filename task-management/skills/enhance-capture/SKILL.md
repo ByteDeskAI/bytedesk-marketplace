@@ -11,7 +11,7 @@ Write an accurate **current state** document. Facts from the tree only; no wishe
 ## Steps
 
 1. Read the project's own instructions first — `AGENTS.md` / `CLAUDE.md`, `README.md` (skim),
-   ADR titles (`tm find kind:adr`, plus `docs/adr/*.md` if the project keeps them there).
+   ADR titles (`.bytedesk/task-management/bin/tm find kind:adr`, plus `docs/adr/*.md` if the project keeps them there).
 2. Inventory the **surfaces** a user touches. Discover them; do not assume a stack:
    - a frontend: route/nav definitions, page and feature directories
    - a service: route registration, the handler table, public API prefixes

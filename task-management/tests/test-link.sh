@@ -1,66 +1,55 @@
 #!/usr/bin/env bash
-# PATH plumbing: `tm install`, and the SessionStart autolink that runs it for you.
-# Never touches the real ~/.local/bin — TM_BIN_DIR redirects everything.
+# Project-local launcher contract. No command is installed into a user PATH.
 set -uo pipefail
 
 PLUGIN_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TM_ROOT="$(mktemp -d)"
-TM_BIN_DIR="$(mktemp -d)"
-export TM_ROOT TM_BIN_DIR
-# The name Claude Code actually sets. The suites used to export CLAUDE_SESSION_ID, which
-# nothing sets — so every session-dependent path was exercised with a variable production
-# never had, and 9 suites stayed green while claims, gates and attribution were all inert.
+FAKE_HOME="$(mktemp -d)"
+export TM_ROOT TM_PLUGIN_ROOT="$PLUGIN_ROOT" HOME="$FAKE_HOME"
 export CLAUDE_CODE_SESSION_ID="test-session"
-export PATH="$TM_BIN_DIR:$PATH"
-unset TM_NO_AUTOLINK
-unset TM_AUTOLINK
-trap 'rm -rf "$TM_ROOT" "$TM_BIN_DIR"' EXIT
+trap 'rm -rf "$TM_ROOT" "$FAKE_HOME"' EXIT
 
-tm() { node "$PLUGIN_ROOT/bin/tm" "$@"; }
+tm_bootstrap() { node "$PLUGIN_ROOT/bin/tm" "$@"; }
 hook() { echo "${2:-\{\}}" | "$PLUGIN_ROOT/hooks/tm-hook.sh" "$1" 2>/dev/null; }
 PASS=0
 FAIL=0
 ok() { PASS=$((PASS + 1)); printf '  ok   %s\n' "$1"; }
 no() { FAIL=$((FAIL + 1)); printf '  FAIL %s\n     %s\n' "$1" "${2:-}"; }
 has() { case "$1" in *"$2"*) ok "$3" ;; *) no "$3" "expected: $2 | got: ${1:0:200}" ;; esac; }
-empty() { [[ -z "$1" ]] && ok "$2" || no "$2" "expected no output, got: ${1:0:200}"; }
 
 echo "test-link"
 
-# Autolink is on by default.
-OUT="$(hook session-start)"
-has "$OUT" "linked" "session-start links tm by default"
-[[ -e "$TM_BIN_DIR/tm" ]] && ok "tm is linked by default" || no "tm is linked by default"
-[[ -e "$TM_BIN_DIR/tm-dashboard" ]] && ok "tm-dashboard is linked by default" || no "tm-dashboard is linked by default"
-has "$("$TM_BIN_DIR/tm" help)" "task-management store" "the linked binary runs"
+tm_bootstrap init >/dev/null
+BIN="$TM_ROOT/.bytedesk/task-management/bin"
 
-# Idempotent: no second announcement, no churn.
-empty "$(hook session-start)" "session-start is silent once linked"
-has "$(tm install)" "already linked" "link is idempotent"
+for cmd in tm tm-hook tm-dashboard; do
+  [[ -x "$BIN/$cmd" ]] && ok "$cmd POSIX launcher is executable" || no "$cmd POSIX launcher is executable"
+  [[ -f "$BIN/$cmd.cmd" ]] && ok "$cmd Windows launcher exists" || no "$cmd Windows launcher exists"
+done
 
-# Opt out.
-rm -f "$TM_BIN_DIR/tm" "$TM_BIN_DIR/tm-dashboard" "$TM_BIN_DIR/tm-hook"
-empty "$(TM_NO_AUTOLINK=1 hook session-start)" "TM_NO_AUTOLINK suppresses autolink"
-[[ ! -e "$TM_BIN_DIR/tm" ]] && ok "TM_NO_AUTOLINK creates nothing" || no "TM_NO_AUTOLINK creates nothing"
-empty "$(TM_AUTOLINK=0 hook session-start)" "TM_AUTOLINK=0 suppresses autolink"
+has "$(TM_PLUGIN_ROOT="$PLUGIN_ROOT" "$BIN/tm" help)" "task-management store" "the project tm launcher runs"
 
-# Someone else owns the name → suggest, never clobber.
-echo '#!/bin/sh' > "$TM_BIN_DIR/tm"
-chmod +x "$TM_BIN_DIR/tm"
-has "$(TM_AUTOLINK=1 hook session-start)" "already owns" "a foreign tm is reported, not overwritten"
-has "$(cat "$TM_BIN_DIR/tm")" "#!/bin/sh" "the foreign tm is left intact"
-tm install >/dev/null 2>&1 && no "link refuses to clobber without --force" || ok "link refuses to clobber without --force"
-tm install --force >/dev/null && ok "link --force takes the name" || no "link --force takes the name"
-[[ -L "$TM_BIN_DIR/tm" ]] && ok "--force replaced it with our symlink" || no "--force replaced it with our symlink"
+# SessionStart repairs project launchers only after the store exists.
+rm -f "$BIN/tm-hook" "$BIN/tm-hook.cmd"
+hook session-start >/dev/null
+[[ -x "$BIN/tm-hook" && -f "$BIN/tm-hook.cmd" ]] \
+  && ok "session-start restores missing project launchers" \
+  || no "session-start restores missing project launchers"
 
-# Unlink removes only ours.
-has "$(tm uninstall)" "$TM_BIN_DIR/tm" "unlink removes our symlinks"
-[[ ! -e "$TM_BIN_DIR/tm" ]] && ok "unlink leaves the dir clean" || no "unlink leaves the dir clean"
+# Project setup never claims a global command name.
+for cmd in tm tm-hook tm-dashboard; do
+  [[ ! -e "$FAKE_HOME/.local/bin/$cmd" && ! -e "$FAKE_HOME/.local/bin/$cmd.cmd" ]] \
+    && ok "$cmd is not globally installed" \
+    || no "$cmd is not globally installed"
+done
 
-# Broken symlink from a moved checkout heals instead of erroring.
-ln -s /nonexistent/tm "$TM_BIN_DIR/tm"
-has "$(TM_AUTOLINK=1 hook session-start)" "linked" "a broken symlink is replaced"
-[[ "$(readlink "$TM_BIN_DIR/tm")" == "$PLUGIN_ROOT/bin/tm" ]] && ok "symlink points at this checkout" || no "symlink points at this checkout"
+# Removed verbs must not silently recreate the old global contract.
+tm_bootstrap install >/dev/null 2>&1 \
+  && no "the removed install verb fails" \
+  || ok "the removed install verb fails"
+tm_bootstrap uninstall >/dev/null 2>&1 \
+  && no "the removed uninstall verb fails" \
+  || ok "the removed uninstall verb fails"
 
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [[ "$FAIL" == 0 ]]

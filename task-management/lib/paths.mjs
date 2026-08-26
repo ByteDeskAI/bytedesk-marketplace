@@ -101,15 +101,19 @@ export function gitUser(dir) {
 
 let installCache;
 /**
- * This plugin's directory, but only when it is a *managed install* — the copy Claude Code
- * writes under ~/.claude/plugins and replaces wholesale on update. Null for a source
+ * This plugin's directory, but only when it is a *managed install* — the copy an agent host
+ * writes under its Claude, Codex, or Grok plugin area and replaces wholesale on update. Null for a source
  * checkout. Deliberately a path test, not a git test: the installed tree can sit inside a
  * dotfiles repo, and asking git would then claim the whole home directory as the plugin.
  */
 export function pluginInstallRoot() {
   if (installCache === undefined) {
     const dir = real(join(HERE, ".."));
-    installCache = dir.includes(`${sep}.claude${sep}plugins${sep}`) ? dir : null;
+    installCache = [
+      `${sep}.claude${sep}plugins${sep}`,
+      `${sep}.codex${sep}plugins${sep}`,
+      `${sep}.grok${sep}installed-plugins${sep}`,
+    ].some((marker) => dir.includes(marker)) ? dir : null;
   }
   return installCache;
 }
@@ -152,7 +156,7 @@ export function paths(root = resolveRoot()) {
       base: null,
       unavailable:
         "task-management refuses to create a store inside an installed copy of itself — " +
-        "/plugin update would wipe it. Run tm from your project, or set TM_ROOT to it.",
+        "/plugin update would wipe it. Run .bytedesk/task-management/bin/tm from your project, or set TM_ROOT to it.",
     };
   }
   const base = join(root, ".bytedesk", "task-management");

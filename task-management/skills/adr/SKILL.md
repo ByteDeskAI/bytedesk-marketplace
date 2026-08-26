@@ -13,10 +13,10 @@ and writes deliberate ones.
 
 ## Process
 
-1. **Check for an existing stub first**: `tm find <topic>` or look in
+1. **Check for an existing stub first**: `.bytedesk/task-management/bin/tm find <topic>` or look in
    `.bytedesk/task-management/adrs/`. Auto-captured stubs have `status: proposed` and a
    `_TODO_` consequences section. Finish the stub rather than writing a duplicate.
-2. New one: `tm adr new "<title>"` — titles state the decision
+2. New one: `.bytedesk/task-management/bin/tm adr new "<title>"` — titles state the decision
    ("Markdown files are the source of truth"), not the topic ("storage").
 3. **Fill the three sections** in the created file:
    - **Context** — the forces: what was true, what was constrained, what we knew.

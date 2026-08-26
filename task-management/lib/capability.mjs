@@ -128,7 +128,7 @@ export function ship(id, { evidence, task } = {}, p) {
   const cap = read(id, p);
   if (!cap) throw new Error(`not found: ${id}`);
   const refs = [...(cap.evidence || []), ...(evidence ? [evidence] : [])];
-  if (!refs.length) throw new Error(`${id} has no evidence — a capability is not shipped on assertion (\`tm evidence ${id} <path>\`)`);
+  if (!refs.length) throw new Error(`${id} has no evidence — a capability is not shipped on assertion (\`.bytedesk/task-management/bin/tm evidence ${id} <path>\`)`);
   const doc = update(id, { status: "done", shipped: now().slice(0, 10), ...(task ? { task } : {}) }, p);
   logEvent("cap-ship", { id, evidence: refs.length }, p);
   return doc;

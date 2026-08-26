@@ -43,7 +43,7 @@ const styles = cssMap({
  * `moved` holds `from`/`to`, `park` and `block` hold `reason` — and nothing read any of it.
  *
  * The sentence for the event kind comes from the store's own catalog, attached by `/api/events`, so
- * this panel and `tm log` describe the same event the same way instead of keeping two vocabularies.
+ * this panel and `.bytedesk/task-management/bin/tm log` describe the same event the same way instead of keeping two vocabularies.
  */
 function detail(e: StoreEvent): string {
   const bits: string[] = [];
@@ -61,7 +61,7 @@ function detail(e: StoreEvent): string {
  * What the row is called.
  *
  * `_status` means the API judged this row a status transition, so it reads as the transition —
- * `→ blocked`, exactly what `tm log` prints — rather than as "Any field on a task changes" with the
+ * `→ blocked`, exactly what `.bytedesk/task-management/bin/tm log` prints — rather than as "Any field on a task changes" with the
  * new status tacked on the end. The generic label is true and useless: the interesting thing about
  * that write is where the task went.
  */

@@ -41,7 +41,7 @@ export function laneOrder(epics, tasks, activeEpic) {
       return closed(a) - closed(b) || a.id.localeCompare(b.id);
     });
 
-  // An epic id on a task with no matching epic file: `tm doctor` calls this
+  // An epic id on a task with no matching epic file: `.bytedesk/task-management/bin/tm doctor` calls this
   // orphan-epic. Until someone fixes it, the work still has to be visible.
   const orphans = [...used].filter((id) => !known.has(id)).sort();
   for (const id of orphans) lanes.push({ id, title: "(no such epic)", status: "missing", active: false });

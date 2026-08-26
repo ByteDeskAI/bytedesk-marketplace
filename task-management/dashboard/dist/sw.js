@@ -13,10 +13,10 @@
  * Deliberately hand-written: a build-time-generated worker is ~90 lines, and a
  * framework for it would be the largest dependency in the plugin.
  */
-const VERSION = "fbfdddb67f56";
+const VERSION = "dfc534942e70";
 const SHELL = "tm-shell-" + VERSION;
 const DATA = "tm-data-" + VERSION;
-const PRECACHE = ["/","/index.html","/manifest.webmanifest","/assets/index-DSpO6Vb6.js","/assets/vendor-BfEU_3h5.js","/assets/vendor-CFGcZWAv.css","/icons/icon-192.png","/icons/icon-512.png","/icons/maskable-512.png"];
+const PRECACHE = ["/","/index.html","/manifest.webmanifest","/assets/index-D6LlaiTE.js","/assets/vendor-BfEU_3h5.js","/assets/vendor-CFGcZWAv.css","/icons/icon-192.png","/icons/icon-512.png","/icons/maskable-512.png"];
 
 /** The two reads worth keeping a copy of. Everything else is live or nothing. */
 const isBoardData = (path) => path === "/api/board" || path.startsWith("/api/events");

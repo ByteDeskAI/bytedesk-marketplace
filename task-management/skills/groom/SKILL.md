@@ -14,18 +14,18 @@ Boards rot. This is the scheduled pass that makes the store trustworthy again.
 Work through these in order, **proposing changes before making them** — grooming is
 destructive-ish and the user should see the list first.
 
-1. **Zombies** — `tm stale`. For each: is it actually done (close it), actually blocked
-   (`tm block <id> "<why>"`), or abandoned (`tm park <id> "<why>"`)? Check git log and
+1. **Zombies** — `.bytedesk/task-management/bin/tm stale`. For each: is it actually done (close it), actually blocked
+   (`.bytedesk/task-management/bin/tm block <id> "<why>"`), or abandoned (`.bytedesk/task-management/bin/tm park <id> "<why>"`)? Check git log and
    the files it names before deciding; a stale task is often finished work nobody closed.
-2. **Duplicates** — `tm task` and scan for overlapping titles. Keep the one with history
-   (evidence, commits, criteria), fold the other's body into it, and `tm park` the loser
+2. **Duplicates** — `.bytedesk/task-management/bin/tm task` and scan for overlapping titles. Keep the one with history
+   (evidence, commits, criteria), fold the other's body into it, and `.bytedesk/task-management/bin/tm park` the loser
    with a note pointing at the survivor.
-3. **False blocks** — any `blocked` task whose `blockedBy` are all `done` → `tm unblock <id>`.
+3. **False blocks** — any `blocked` task whose `blockedBy` are all `done` → `.bytedesk/task-management/bin/tm unblock <id>`.
 4. **Missing criteria** — tasks with no acceptance criteria can't be closed cleanly.
-   Add them: `tm ac <id> "<verifiable criterion>"`. One or two, verifiable, not aspirational.
+   Add them: `.bytedesk/task-management/bin/tm ac <id> "<verifiable criterion>"`. One or two, verifiable, not aspirational.
 5. **Orphans** — tasks with no epic (created before an epic was active, or via override).
    Assign them by editing the task file's `epic:` field, or park them.
-6. **Rank** — end with `tm next` and state the single best next task and why.
+6. **Rank** — end with `.bytedesk/task-management/bin/tm next` and state the single best next task and why.
 
 ## Notes
 

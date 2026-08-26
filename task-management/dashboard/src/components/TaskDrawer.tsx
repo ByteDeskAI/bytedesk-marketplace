@@ -534,7 +534,7 @@ export function TaskDrawer({
               placeholder="Give this task a title"
               onCommit={(next) => {
                 const value = next.trim();
-                // `tm edit` treats re-submitting the stored value as a no-op; do not spend a
+                // `.bytedesk/task-management/bin/tm edit` treats re-submitting the stored value as a no-op; do not spend a
                 // write to find that out.
                 if (value && value !== task.title) {
                   run(() => write.edit(task.id, { title: value }));
@@ -572,7 +572,7 @@ export function TaskDrawer({
                   {hasAnswer(detail?.body ?? "") ? null : (
                     <SectionMessage appearance="warning" title="Closing is gated on this">
                       <Text>
-                        Write the decision under ## Answer. `tm done` and the board both refuse without it.
+                        Write the decision under ## Answer. `.bytedesk/task-management/bin/tm done` and the board both refuse without it.
                       </Text>
                     </SectionMessage>
                   )}
@@ -781,7 +781,7 @@ export function TaskDrawer({
 
             <Section title="ACCEPTANCE CRITERIA">
               {/* The box toggles. It used to set isDisabled once checked, so a stray click
-                  permanently changed what `tm done` would accept and the only way back was
+                  permanently changed what `.bytedesk/task-management/bin/tm done` would accept and the only way back was
                   editing the markdown by hand — which is exactly how this got reported. */}
               {(task.acceptance ?? []).map((a, i) => (
                 <Inline

@@ -12,11 +12,6 @@ export TM_ROOT
 # never had, and 9 suites stayed green while claims, gates and attribution were all inert.
 export CLAUDE_CODE_SESSION_ID="test-session"
 unset TM_ENFORCE
-# The suite must not depend on the host's PATH. autolink() reports when something else
-# already owns `tm` in ~/.local/bin, which is true for every checkout except whichever one
-# the symlink points at — so running from a git worktree made "silent before init" fail on
-# a systemMessage that has nothing to do with the hook under test.
-export TM_NO_AUTOLINK=1
 trap 'rm -rf "$TM_ROOT"' EXIT
 
 hook() { echo "${2:-\{\}}" | "$PLUGIN_ROOT/hooks/tm-hook.sh" "$1" 2>/dev/null; }
@@ -27,6 +22,11 @@ ok() { PASS=$((PASS + 1)); printf '  ok   %s\n' "$1"; }
 no() { FAIL=$((FAIL + 1)); printf '  FAIL %s\n     %s\n' "$1" "${2:-}"; }
 has() { case "$1" in *"$2"*) ok "$3" ;; *) no "$3" "expected: $2 | got: ${1:0:200}" ;; esac; }
 empty() { [[ -z "$1" ]] && ok "$2" || no "$2" "expected no output, got: ${1:0:200}"; }
+json() {
+  local payload="$1"; shift
+  local name="${*: -1}"; local filter="${*: -2:1}"; local args=("${@:1:$#-2}")
+  echo "$payload" | jq -e "${args[@]}" "$filter" >/dev/null 2>&1 && ok "$name" || no "$name" "jq $filter failed on: ${payload:0:200}"
+}
 
 echo "test-hooks"
 
@@ -130,8 +130,9 @@ case "$CTX" in
   *"the met one"*) no "a criterion already met is left out" "found it" ;;
   *) ok "a criterion already met is left out" ;;
 esac
-has "$CTX" 'tm done' "it names the lifecycle verbs the agent must not run"
-has "$CTX" 'tm comment' "it points at the additive writes so reporting back has a route"
+has "$CTX" '.bytedesk/task-management/bin/tm start' "it names the project-scoped lifecycle command the agent must not run"
+has "$CTX" '`done`' "it names the remaining lifecycle verbs the agent must not run"
+has "$CTX" '.bytedesk/task-management/bin/tm comment' "it points at the project-scoped additive command for reporting back"
 case "$CTX" in
   *"Resume with: tm start"*) no "it is not the handoff dossier" "handoff's resume line leaked in" ;;
   *) ok "it is not the handoff dossier" ;;
@@ -188,7 +189,8 @@ case "$OUT" in
   *"the met one is not"*) no "a criterion already met is left out" "found it" ;;
   *) ok "a criterion already met is left out" ;;
 esac
-has "$OUT" 'tm done' "it tells the agent which verbs are the parent's to run"
+has "$OUT" '.bytedesk/task-management/bin/tm start' "it tells the agent which project-scoped command is the parent's to run"
+has "$OUT" '`done`' "it names the remaining verbs reserved for the parent"
 
 # A different session's fan-out must not be briefed on this session's work.
 OUT="$(hook subagent-start '{"session_id":"some-other-session","agent_id":"a2"}')"

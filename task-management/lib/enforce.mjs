@@ -54,9 +54,9 @@ export function gateTaskCreate(p = paths()) {
       allow: false,
       reason:
         "task-management: no active epic. Every task belongs to an epic so work survives this session.\n" +
-        "Pick one:  tm epic use <EP-id>   |   tm epic new \"<title>\"   |   /tm:epic\n" +
+        "Pick one:  .bytedesk/task-management/bin/tm epic use <EP-id>   |   .bytedesk/task-management/bin/tm epic new \"<title>\"   |   /task-management:epic\n" +
         `Open epics: ${epicList(p) || "(none yet)"}\n` +
-        "Bypass once: tm override \"<reason>\"   Disable: TM_ENFORCE=off",
+        "Bypass once: .bytedesk/task-management/bin/tm override \"<reason>\"   Disable: TM_ENFORCE=off",
     };
   }
 
@@ -67,8 +67,8 @@ export function gateTaskCreate(p = paths()) {
       allow: false,
       reason:
         `task-management: WIP limit reached (${wip}/${cfg.wipLimit} in progress). Finish or park one first:\n` +
-        `  tm done <id>   |   tm block <id> "<why>"   |   tm board\n` +
-        "Bypass once: tm override \"<reason>\"",
+        `  .bytedesk/task-management/bin/tm done <id>   |   .bytedesk/task-management/bin/tm block <id> "<why>"   |   .bytedesk/task-management/bin/tm board\n` +
+        "Bypass once: .bytedesk/task-management/bin/tm override \"<reason>\"",
     };
   }
   return { allow: true };
@@ -97,7 +97,7 @@ export function gateDone(id, p = paths()) {
         reason:
           `${id} has unmet acceptance criteria:\n` +
           open.map((a) => `  [ ] ${a.text}`).join("\n") +
-          `\nTick them:  tm accept ${id} <n>    Bypass once: tm override "<reason>"`,
+          `\nTick them:  .bytedesk/task-management/bin/tm accept ${id} <n>    Bypass once: .bytedesk/task-management/bin/tm override "<reason>"`,
       };
     }
   }
@@ -109,7 +109,7 @@ export function gateDone(id, p = paths()) {
       allow: false,
       reason:
         `${id} is a ${role} ticket — write the answer under ## Answer before closing.\n` +
-        `  tm edit ${id} --body -    Bypass once: tm override "<reason>"`,
+        `  .bytedesk/task-management/bin/tm edit ${id} --body -    Bypass once: .bytedesk/task-management/bin/tm override "<reason>"`,
     };
   }
   if (
@@ -122,7 +122,7 @@ export function gateDone(id, p = paths()) {
       allow: false,
       reason:
         `${id} needs evidence (${what}) before it can close.\n` +
-        `  tm evidence ${id} <path>    Bypass once: tm override "<reason>"`,
+        `  .bytedesk/task-management/bin/tm evidence ${id} <path>    Bypass once: .bytedesk/task-management/bin/tm override "<reason>"`,
     };
   }
   return { allow: true };
@@ -183,7 +183,7 @@ function gateStopLocked(p) {
     reason:
       "task-management: these tasks are still in_progress. Close them out before stopping so the next session inherits the truth:\n" +
       mine
-        .map((t) => `  ${t.id} ${t.title}\n    tm done ${t.id}  |  tm block ${t.id} "<why>"  |  tm park ${t.id}`)
+        .map((t) => `  ${t.id} ${t.title}\n    .bytedesk/task-management/bin/tm done ${t.id}  |  .bytedesk/task-management/bin/tm block ${t.id} "<why>"  |  .bytedesk/task-management/bin/tm park ${t.id}`)
         .join("\n") +
       (goals.length ? `\nThe goal you set on this work:\n${goals.join("\n")}` : "") +
       "\nIf the work really is unfinished, park it with a note — don't leave it in_progress.",

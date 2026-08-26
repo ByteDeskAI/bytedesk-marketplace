@@ -60,7 +60,7 @@ export function claimTask(id, { session = null, actor = null, worktree, branch, 
           `${id} is claimed by ${held.actor || `session ${held.session || "unknown"}`}` +
           (held.worktree ? ` in ${held.worktree}` : "") +
           (held.branch ? ` on ${held.branch}` : "") +
-          `\nTake it anyway with --steal, or pick something else with \`tm next\`.`,
+          `\nTake it anyway with --steal, or pick something else with \`.bytedesk/task-management/bin/tm next\`.`,
       };
     }
 

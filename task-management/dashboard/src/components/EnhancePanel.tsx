@@ -47,7 +47,7 @@ function dropWhy(): string | undefined {
  * Ranked enhancement backlog beside the board — never a sixth kanban column.
  *
  * Empty `capabilities/` is first-class: the operator is told to `/enhance` or
- * `tm cap new`, not shown a blank column.
+ * `.bytedesk/task-management/bin/tm cap new`, not shown a blank column.
  */
 export function EnhancePanel({
   capabilities,
@@ -71,7 +71,7 @@ export function EnhancePanel({
         </Text>
         {capabilities.length === 0 ? (
           <Text size="small" color="color.text.subtlest">
-            No capabilities yet. Run /enhance or tm cap new to propose one.
+            No capabilities yet. Run /enhance or .bytedesk/task-management/bin/tm cap new to propose one.
           </Text>
         ) : (
           capabilities.map((c) => (

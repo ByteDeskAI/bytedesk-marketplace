@@ -27,7 +27,6 @@ const DEFAULT_CONFIG = {
   claimTtlMinutes: 240,
   parkOnSessionEnd: true,
   trackTouches: true,
-  plugin: { autolink: true },
   board: {
     launchBrowser: false,
     grouped: false,
@@ -409,6 +408,37 @@ export function writeConfig(patch, p = paths()) {
 }
 
 /**
+ * Remove one legacy dotted config key without materialising defaults or disturbing siblings.
+ * Migrations use the stored JSON, not config(), because the merged view cannot distinguish a
+ * value the project committed from a default supplied by this version.
+ */
+export function removeConfigKey(key, p = paths()) {
+  const parts = String(key).split(".").filter(Boolean);
+  if (!parts.length) return false;
+  const stored = readJson(p.config, {});
+  let cur = stored;
+  for (let i = 0; i < parts.length - 1; i += 1) {
+    if (!cur?.[parts[i]] || typeof cur[parts[i]] !== "object" || Array.isArray(cur[parts[i]])) return false;
+    cur = cur[parts[i]];
+  }
+  const leaf = parts.at(-1);
+  if (!Object.prototype.hasOwnProperty.call(cur, leaf)) return false;
+  delete cur[leaf];
+  for (let i = parts.length - 2; i >= 0; i -= 1) {
+    let parent = stored;
+    for (let j = 0; j < i; j += 1) parent = parent[parts[j]];
+    const child = parent[parts[i]];
+    if (child && typeof child === "object" && !Array.isArray(child) && Object.keys(child).length === 0) {
+      delete parent[parts[i]];
+    } else {
+      break;
+    }
+  }
+  writeAtomic(p.config, `${JSON.stringify(stored, null, 2)}\n`);
+  return true;
+}
+
+/**
  * Drop a task's session claim. Any exit from `in_progress` releases — v0.1 only did
  * this on `done`, so parked and blocked tasks kept a lock nobody could see or clear.
  */
@@ -762,7 +792,7 @@ export function write(doc, p = paths()) {
   if (data.board && here && !ours.has(data.board)) {
     throw new Error(
       `${data.id} belongs to ${data.board}, but this store is ${here} — refusing to file it here.\n` +
-        `If the two are genuinely related, link them: tm link <id> relates-to ${data.board}#${data.id}`,
+        `If the two are genuinely related, link them: .bytedesk/task-management/bin/tm link <id> relates-to ${data.board}#${data.id}`,
     );
   }
   /**
@@ -1007,7 +1037,7 @@ events.jsonl merge=union
  * task-management/ never matches them. No trailing slash: a symlink named worktrees
  * would otherwise slip through the same way dashboard/node_modules once did.
  *
- * `.bytedesk/bin/` is *not* listed. Those launchers are generated but portable and
+ * `task-management/bin/` is *not* listed. Those launchers are generated but portable and
  * belong in git so a clone can run `tm` without a global install.
  */
 const BYTEDESS_GITIGNORE = `# Written by \`tm init\`. Worktrees are local checkouts, not shared board state.
@@ -1335,4 +1365,3 @@ export function removeCriterion(id, index, p = paths()) {
   logEvent("ac_removed", { id, index: Number(index), text: target.text }, p);
   return { removed: target.text, acceptance };
 }
-

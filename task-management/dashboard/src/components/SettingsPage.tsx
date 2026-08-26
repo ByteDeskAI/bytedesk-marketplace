@@ -45,7 +45,6 @@ type Snapshot = {
   groups: { id: string; label: string; help?: string }[];
   fields: Field[];
   ntfy?: { token: string | null; active: boolean };
-  autolink?: { dir: string; onPath: boolean; linked: boolean; platform?: string };
 };
 
 function FieldControl({
@@ -152,8 +151,8 @@ export function SettingsPage({
           <Lozenge appearance="new">project-scoped</Lozenge>
         </Inline>
         <Text size="small" color="color.text.subtlest">
-          These write to this repo&apos;s config.json, same as `tm config`. Identity is derived
-          from git. The ntfy token and PATH autolink opt-out stay in the environment.
+          These write to this repo&apos;s config.json, the same settings used by the project-local
+          command. Identity is derived from git. The ntfy token stays in the environment.
         </Text>
         {error ? (
           <Text size="small" color="color.text.danger">
@@ -181,11 +180,6 @@ export function SettingsPage({
                     {snap.ntfy.active ? "pushes active" : "pushes inactive"}
                   </Lozenge>
                 </Inline>
-              ) : null}
-              {g.id === "plugin" && snap?.autolink ? (
-                <Text size="small" color="color.text.subtlest">
-                  {`Machine link dir ${snap.autolink.dir} — ${snap.autolink.linked ? "linked" : "not linked"}${snap.autolink.onPath ? "" : " (not on PATH)"}. Opt out: TM_NO_AUTOLINK=1.`}
-                </Text>
               ) : null}
               {byGroup(g.id).map((f) => (
                 <Inline

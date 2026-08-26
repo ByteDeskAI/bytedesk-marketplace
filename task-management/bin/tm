@@ -9,7 +9,6 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { boardId, currentCheckout, ensureDirs, gitUser, isInitialized, legacyStore, paths } from "../lib/paths.mjs";
 import {
   kindOf,
@@ -45,8 +44,7 @@ import {
 import { consumeOverride, enforcementOff, gateDone, gateStop, gateTaskCreate, setOverride } from "../lib/enforce.mjs";
 import { board, handoff, renderHistory, renderLog, sessionContext, sprintReport, standup, subagentBrief, taskLine } from "../lib/render.mjs";
 import { FIELD_NAMES, describeQuery, matchesQuery, parseQuery } from "../lib/query.mjs";
-import { autolink, link as linkBins, status as linkStatus, unlink as unlinkBins } from "../lib/link.mjs";
-import { launcherDir, writeLaunchers } from "../lib/launcher.mjs";
+import { launcherStatus, pluginBin, writeLaunchers } from "../lib/launcher.mjs";
 import { applyShares, createWorktree, listWorktrees, removeWorktree } from "../lib/worktree.mjs";
 import { applyTemplate, listTemplates, seedTemplates } from "../lib/templates.mjs";
 import { cycleTime, human as humanMs, summary as timeSummary, timeInStatus } from "../lib/time.mjs";
@@ -114,7 +112,7 @@ function git(args, cwd = CHECKOUT) {
 
 function requireInit() {
   if (!P.root) die(P.unavailable);
-  if (!isInitialized(P)) die("task-management not initialized here. Run: tm init");
+  if (!isInitialized(P)) die("task-management not initialized here. Run the plugin bootstrap once, then use .bytedesk/task-management/bin/tm");
 }
 
 function stamp() {
@@ -313,7 +311,7 @@ const VERBS = {
       `${t.id} ${parsed.title}${t.epic ? ` [${t.epic}]` : ""}\n` +
         `   ${parsed.criteria.length} acceptance criterion/criteria from the goal's own success criteria\n` +
         (parsed.validate ? `   validate: ${parsed.validate}\n` : "") +
-        `   \`tm done ${t.id}\` now refuses until every one is ticked`,
+        `   \`.bytedesk/task-management/bin/tm done ${t.id}\` now refuses until every one is ticked`,
     );
   },
 
@@ -391,7 +389,7 @@ const VERBS = {
     if (sub === "list" || sub === undefined) {
       const rows = ranked(P, flags.status ? { status: flags.status } : {});
       emit(rows.map(({ body, file, ...r }) => r), () =>
-        rows.map((c) => capLine(c)).join("\n") || "(no capabilities — `tm cap new \"<title>\"`)",
+        rows.map((c) => capLine(c)).join("\n") || "(no capabilities — `.bytedesk/task-management/bin/tm cap new \"<title>\"`)",
       );
       return;
     }
@@ -512,7 +510,7 @@ const VERBS = {
 
     if (!sub || sub === "show") {
       const id = rest[0] || active();
-      if (!id) return out("no active sprint — `tm sprint new \"<name>\"`");
+      if (!id) return out("no active sprint — `.bytedesk/task-management/bin/tm sprint new \"<name>\"`");
       return emit(read(id, P), () => sprintReport(id, P));
     }
 
@@ -535,7 +533,7 @@ const VERBS = {
 
     if (sub === "add" || sub === "rm") {
       const id = active();
-      if (!id && sub === "add") die("no active sprint — `tm sprint new \"<name>\"` or `tm sprint use <SP-id>`");
+      if (!id && sub === "add") die("no active sprint — `.bytedesk/task-management/bin/tm sprint new \"<name>\"` or `.bytedesk/task-management/bin/tm sprint use <SP-id>`");
       const moved = [];
       for (const task of rest) {
         if (!read(task, P)) die(`not found: ${task}`);
@@ -605,7 +603,7 @@ const VERBS = {
     }
     const note =
       undo && read(id, P)?.status === "done"
-        ? "  (this task is done with a criterion now unmet — `tm doctor` will say so)"
+        ? "  (this task is done with a criterion now unmet — `.bytedesk/task-management/bin/tm doctor` will say so)"
         : "";
     out(`${id} AC ${n} ${undo ? "unmet" : "met"} (${res.met}/${res.acceptance.length})${note}`);
   },
@@ -669,7 +667,7 @@ const VERBS = {
   next() {
     requireInit();
     const rows = nextTasks(P);
-    emit(rows, () => (rows.length ? rows.map(taskLine).join("\n") : "(nothing unblocked — `tm board`)"));
+    emit(rows, () => (rows.length ? rows.map(taskLine).join("\n") : "(nothing unblocked — `.bytedesk/task-management/bin/tm board`)"));
   },
 
   board() {
@@ -1020,7 +1018,7 @@ const VERBS = {
         ? rest
         : CATALOG[rest[0] || "recommended"];
       const unknown = kinds.filter((k) => !CATALOG.events[k]);
-      if (unknown.length) die(`unknown event kind(s): ${unknown.join(", ")}\nSee \`tm ntfy\` for the full list.`);
+      if (unknown.length) die(`unknown event kind(s): ${unknown.join(", ")}\nSee \`.bytedesk/task-management/bin/tm ntfy\` for the full list.`);
       const next = new Set(stored.categories || []);
       for (const k of kinds) (sub === "on" ? next.add(k) : next.delete(k));
       writeConfig({ ntfy: { ...stored, categories: [...next] } }, P);
@@ -1040,7 +1038,7 @@ const VERBS = {
 
     if (sub === "test") {
       if (!cfg.token) die("TM_NTFY_TOKEN is not set in this environment");
-      if (!cfg.topic) die("no topic configured — `tm ntfy topic <name>`");
+      if (!cfg.topic) die("no topic configured — `.bytedesk/task-management/bin/tm ntfy topic <name>`");
       const msg = messageFor({ event: "notification", id: rest[0] || null, actor: actorLabel(actor()) }, null, cfg);
       msg.title = "task-management test";
       msg.body = `test push from ${P.root}`;
@@ -1070,7 +1068,7 @@ const VERBS = {
         }
         lines.push("");
       }
-      lines.push("tm ntfy on <kind...|recommended|writes>   tm ntfy off <kind...>   tm ntfy test");
+      lines.push(".bytedesk/task-management/bin/tm ntfy on <kind...|recommended|writes>   .bytedesk/task-management/bin/tm ntfy off <kind...>   .bytedesk/task-management/bin/tm ntfy test");
       return lines.join("\n");
     });
   },
@@ -1166,7 +1164,7 @@ const VERBS = {
               .map((b, i) =>
                 [
                   `batch ${i + 1}${b.touches.size ? `  (touches: ${[...b.touches].join(", ")})` : ""}`,
-                  ...b.tasks.map((t) => `  tm worktree new ${t.id}   # ${t.title}`),
+                  ...b.tasks.map((t) => `  .bytedesk/task-management/bin/tm worktree new ${t.id}   # ${t.title}`),
                 ].join("\n"),
               )
               .join("\n\n")
@@ -1222,32 +1220,16 @@ const VERBS = {
     }
   },
 
-  /**
-   * Put `tm` / `tm-dashboard` on PATH. Runs automatically at SessionStart when safe.
-   * (Named `install`, not `link` — `tm link <id> <ref>` attaches commits to tasks.)
-   */
-  install(...flags) {
-    const res = linkBins({ force: flags.includes("--force") });
-    if (!res.ok) die(`link: ${res.reason}`);
-    out(res.created.length ? `linked:\n${res.created.map((f) => `  ${f}`).join("\n")}` : `already linked in ${res.dir}`);
-    if (!res.onPath) out(`note: ${res.dir} is not on your PATH`);
-  },
-
-  uninstall() {
-    const removed = unlinkBins();
-    out(removed.length ? `removed:\n${removed.map((f) => `  ${f}`).join("\n")}` : "nothing to remove");
-  },
-
   where() {
-    const s = linkStatus();
-    const launchers = P.root ? launcherDir(P.root) : null;
+    const launchers = P.root ? launcherStatus(P.root) : null;
     out(JSON.stringify({
       store: P.base,
       checkout: CHECKOUT,
-      pluginBin: dirname(fileURLToPath(import.meta.url)),
+      runtimeBin: pluginBin("tm"),
+      launcherSource: process.env.TM_LAUNCHER_SOURCE || null,
+      launcherSourceKind: process.env.TM_LAUNCHER_SOURCE_KIND || null,
       launchers,
       unavailable: P.unavailable,
-      ...s,
     }, null, 2));
   },
 
@@ -1302,7 +1284,7 @@ const VERBS = {
         "  doctor [--fix]                what is inconsistent in the store; exits 1 on an error",
         "  export [md|csv|json]          the board out; --epic, --status, --open, --out <file>",
         "  reindex | override <reason> | config [key value] | context",
-        "  install [--force] | uninstall | where   PATH link (default on; TM_NO_AUTOLINK=1 to skip)",
+        "  where                         project launcher and resolved plugin runtime",
         "  ntfy [on|off <kind>|enable|disable|test|topic <t>|board <url>]   push notifications",
         "  tm-dashboard [--browser|--no-browser]   live board; --browser opens it",
         "",
@@ -1541,16 +1523,19 @@ function hook(event) {
 
   switch (event) {
     case "session-start": {
-      // PATH setup is global, so it runs even in repos with no store yet.
       let note = null;
-      try {
-        note = autolink();
-      } catch {
-        /* never let PATH plumbing break a session */
-      }
       if (!isInitialized(P)) {
-        if (note) out(JSON.stringify({ systemMessage: note }));
         process.exit(0);
+      }
+      // Existing stores adopt refreshed committed launchers on the first session after an update.
+      // An uninitialized project is deliberately left untouched merely for enabling the plugin.
+      try {
+        const written = writeLaunchers(P.root);
+        if (written.length) {
+          note = `task-management: refreshed ${written.length} project-local launcher(s) under .bytedesk/task-management/bin`;
+        }
+      } catch (err) {
+        note = `task-management: could not refresh project-local launchers: ${err.message}`;
       }
       // A plugin update that adds ignore rules is inert until something writes them
       // and drops already-tracked host files from the index. SessionStart is that
@@ -1567,7 +1552,7 @@ function hook(event) {
       // A store left behind in a worktree by v0.1 would silently look like data loss.
       const stranded = legacyStore(P.root);
       if (stranded) {
-        note = `${note ? `${note}\n` : ""}task-management: found a pre-v0.2 store at ${stranded}. Stores are now shared across worktrees — move it with \`tm migrate\`.`;
+        note = `${note ? `${note}\n` : ""}task-management: found a pre-v0.2 store at ${stranded}. Stores are now shared across worktrees — move it with \`.bytedesk/task-management/bin/tm migrate\`.`;
       }
       if (rotateEvents(P)) logEvent("events_rotated", {}, P);
       const ctx = sessionContext(P);
@@ -1645,7 +1630,7 @@ function hook(event) {
               JSON.stringify({
                 hookSpecificOutput: {
                   hookEventName: "UserPromptSubmit",
-                  additionalContext: `task-management: recorded that goal on ${held.join(", ")}. Its acceptance criteria are the store's own stop condition — \`tm show <id>\` lists what is still unmet.`,
+                  additionalContext: `task-management: recorded that goal on ${held.join(", ")}. Its acceptance criteria are the store's own stop condition — \`.bytedesk/task-management/bin/tm show <id>\` lists what is still unmet.`,
                 },
               }),
             );
@@ -1660,7 +1645,7 @@ function hook(event) {
           JSON.stringify({
             hookSpecificOutput: {
               hookEventName: "UserPromptSubmit",
-              additionalContext: `task-management: this looks like ${hit.id} "${hit.title}" (${hit.status}). Resume it with \`tm start ${hit.id}\` rather than creating a new task.`,
+              additionalContext: `task-management: this looks like ${hit.id} "${hit.title}" (${hit.status}). Resume it with \`.bytedesk/task-management/bin/tm start ${hit.id}\` rather than creating a new task.`,
             },
           }),
         );
@@ -1916,7 +1901,7 @@ function captureDecisionLegacy(input) {
 // ── dispatch ─────────────────────────────────────────────────────────────────
 
 const fn = VERBS[verb || "help"];
-if (!fn) die(`unknown verb: ${verb}\n(try: tm help)`);
+if (!fn) die(`unknown verb: ${verb}\n(try: .bytedesk/task-management/bin/tm help)`);
 try {
   await fn(...argv.slice(1));
 } catch (err) {
