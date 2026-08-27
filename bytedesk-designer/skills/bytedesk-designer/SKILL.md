@@ -23,7 +23,17 @@ they are the substrate and the spine.
 
 ```bash
 command -v codex && codex --version
+echo "Reply with exactly: OK" | timeout 60 codex exec --skip-git-repo-check -s read-only -
 ```
+
+**The second line is the one that matters.** `--version` does not start a session, so it
+does not load the MCP servers declared in `~/.codex/config.toml` — it returns cleanly on a
+machine where every real invocation hangs. A preflight built on it passes, and the arc then
+fails several minutes in, which is precisely what failing at preflight is supposed to
+prevent. Measured on a real machine: `--version` exit 0, `codex exec` timed out at 120s.
+
+Use `${CLAUDE_PLUGIN_ROOT}/scripts/codex-exec.sh` for every invocation rather than calling
+`codex exec` directly. It carries the bounded retry described below.
 
 Do this **before creating the run folder**, not after. Failing mid-arc leaves a half-built
 folder somebody has to clean up and a `state.json` that lies about where the work got to.
@@ -97,6 +107,40 @@ slice of the brief, and the authority path. Tell it what it owns and what it mus
 consistency, which direction wins, whether the family holds together, and every promotion
 decision. These need everything in one context by definition, and splitting them produces
 locally reasonable choices that don't cohere.
+
+### Retrying a fan-out
+
+Spawning fails in two different ways and they want opposite responses, so decide which one
+you have before retrying anything.
+
+**It refused to start.** An explicit error — `no space for new pane` is the one seen here.
+Naming a worker allocates it a terminal pane; when that budget is gone, *named* spawns fail
+while unnamed ones are fine. Retry unnamed, in batches of three rather than all at once. A
+run that did exactly this got six failures, then launched all six on the retry with no work
+lost, because nothing had started.
+
+**It started and returned nothing.** No error, no artifact, no answer to a status ping.
+Here a retry is the wrong instinct: you do not know whether the first worker is dead or
+merely slow, and a second worker on the same subtree will collide with it. Wait once, check
+the disk, and if it is still empty run that stage yourself.
+
+Either way the loop is **bounded at two attempts and then you do the work**. An orchestrator
+that keeps re-dispatching is an orchestrator that never finishes, and the operator cannot
+tell it apart from one that is making progress.
+
+Three rules that hold for both:
+
+- **Check the disk, not the reply.** A nested spawn is asynchronous; its result arrives
+  later and a stage that ends its turn never sees it. The artifact on disk is the only
+  honest signal.
+- **Never retry into a subtree that already has output.** Half-written work plus a second
+  worker is worse than either alone.
+- **Say which attempt produced what.** Same rule as everywhere: a fallback is fine, a
+  silent one is not, and a later review's independence depends on knowing.
+
+Before a large fan-out, prefer fewer workers over more. The fan-out is itself the thing most
+likely to exhaust the budget it needs, so six products at once is the shape that fails; six
+products in two waves of three is the shape that does not.
 
 ### Verify the fan-out actually happened
 

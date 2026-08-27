@@ -30,7 +30,17 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/claude-codex-collaboration.md` and `${CLA
 
 ```bash
 command -v codex && codex --version
+echo "Reply with exactly: OK" | timeout 60 codex exec --skip-git-repo-check -s read-only -
 ```
+
+**The second line is the one that matters.** `--version` does not start a session, so it
+does not load the MCP servers declared in `~/.codex/config.toml` — it returns cleanly on a
+machine where every real invocation hangs. A preflight built on it passes, and the arc then
+fails several minutes in, which is precisely what failing at preflight is supposed to
+prevent. Measured on a real machine: `--version` exit 0, `codex exec` timed out at 120s.
+
+Use `${CLAUDE_PLUGIN_ROOT}/scripts/codex-exec.sh` for every invocation rather than calling
+`codex exec` directly. It carries the bounded retry described below.
 
 Missing or signed out: **stop and say which**, with the fix. If it is on the machine and working but simply unreachable — a broken shim, a
 half-finished upgrade — that is the third state: repair it for this run only, say

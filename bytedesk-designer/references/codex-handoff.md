@@ -14,7 +14,17 @@ Once per session, before any stage does work:
 
 ```bash
 command -v codex && codex --version
+echo "Reply with exactly: OK" | timeout 60 codex exec --skip-git-repo-check -s read-only -
 ```
+
+**The second line is the one that matters.** `--version` does not start a session, so it
+does not load the MCP servers declared in `~/.codex/config.toml` — it returns cleanly on a
+machine where every real invocation hangs. A preflight built on it passes, and the arc then
+fails several minutes in, which is precisely what failing at preflight is supposed to
+prevent. Measured on a real machine: `--version` exit 0, `codex exec` timed out at 120s.
+
+Use `${CLAUDE_PLUGIN_ROOT}/scripts/codex-exec.sh` for every invocation rather than calling
+`codex exec` directly. It carries the bounded retry described below.
 
 Both must succeed. If `codex` is on `PATH` but unauthenticated, the first `codex exec`
 returns an auth error rather than an artifact — treat that as a preflight failure too, and
@@ -217,6 +227,39 @@ These appear in normal successful runs:
 
 What is a real failure: no `session id` line; no folder under `generated_images` in image
 mode; or a reply file containing prose where you specified a sentinel.
+
+## The retry loop
+
+Use `${CLAUDE_PLUGIN_ROOT}/scripts/codex-exec.sh <run-dir> <name> <prompt-file> [image|text]`.
+Three bounded attempts, each varying the thing most likely to be at fault, then it stops.
+
+| attempt | changes | covers |
+|---|---|---|
+| 1 direct | nothing | the normal case |
+| 2 scoped `CODEX_HOME` | a minimal config with a copy of `auth.json` | a stalled MCP config |
+| 3 after backoff | waits, then retries plain | machine saturation |
+
+Three properties make this different from *try again*, and each exists because the naive
+version is actively worse:
+
+**It checks the disk before retrying.** Codex writes an image the moment its tool returns,
+so an invocation can produce the artifact and *then* hang. A blind retry bills a second
+generation and files a duplicate. Every attempt tests for the artifact before the next
+begins.
+
+**It varies rather than repeats.** Re-running the identical command that just failed is
+superstition. Attempt 2 changes the configuration, because that is the cheapest and most
+common cause; attempt 3 changes the timing, because that is the other one.
+
+**It discloses.** `<name>.attempts.json` records every attempt, its exit code, its duration,
+and whether it produced anything. A run that succeeded on attempt 2 must say so — the
+operator's `codex exec` is still broken for everything else they do that day, and they will
+not learn that from a clean-looking artifact. Same rule as the third preflight state:
+repair is permitted, concealed repair is not.
+
+**When all three fail, stop.** Do not write the artifact yourself. Keep the prompt, name it
+unrun, and report which attempts were made — three runs did exactly this when Codex went
+unreachable mid-arc, and their run folders are still trustworthy because of it.
 
 ## When `codex exec` hangs with no output at all
 
