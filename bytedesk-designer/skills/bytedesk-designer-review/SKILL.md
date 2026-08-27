@@ -24,8 +24,7 @@ governed repository after three were looked at, and one of them violated a rule 
 generating skill itself declared. Nothing objected, because everything that could have
 objected had read the brief.
 
-Read `references/claude-codex-collaboration.md` and `references/codex-handoff.md` at the
-plugin root first.
+Read `${CLAUDE_PLUGIN_ROOT}/references/claude-codex-collaboration.md` and `${CLAUDE_PLUGIN_ROOT}/references/codex-handoff.md` first.
 
 ## Preflight
 
@@ -33,9 +32,20 @@ plugin root first.
 command -v codex && codex --version
 ```
 
-Missing or signed out: **stop and say which**, with the fix. There is no degraded mode
+Missing or signed out: **stop and say which**, with the fix. If it is on the machine and working but simply unreachable — a broken shim, a
+half-finished upgrade — that is the third state: repair it for this run only, say
+what you did, and record the version you actually invoked. See
+`${CLAUDE_PLUGIN_ROOT}/references/claude-codex-collaboration.md`. There is no degraded mode
 here — a review Claude performed alone is precisely the review this stage exists to
 replace, and reporting it as a review would be worse than not running one.
+
+One thing is not degraded mode, and it is worth being explicit because the rule above
+reads as forbidding it: **the mechanical checks in §1 need no model at all.** Run them,
+report what they found, and set `review_status: "incomplete"` in the findings with the
+blind read recorded as not performed. What you must not do is write it into the run
+folder as a completed review, or let a clean mechanical pass be read as a verdict — half
+the checks passing is not the same as the artifact being right, and the half that is
+missing is the half that catches what you cannot see.
 
 ## 1. The mechanical checks, first
 
@@ -69,7 +79,7 @@ contract, and the Codex version recorded in `state.json` is real.
 Hand Codex each artifact **without the brief, without the product name, and without any
 statement of intent**. Attaching any of those defeats the entire mechanism.
 
-The fixed question is in `references/codex-handoff.md` at the plugin root. Its shape
+The fixed question is in `${CLAUDE_PLUGIN_ROOT}/references/codex-handoff.md`. Its shape
 matters more than its wording: ask what the artifact *depicts*, ask it to enumerate
 anything that reads as a control, chart, logo, word, or number, ask what dominates, and ask
 what colours it actually sees. Four questions, answered cold.
@@ -151,6 +161,6 @@ becomes a stage people route around. Zero findings, stated confidently, is a rea
 
 ## Reference files
 
-At the plugin root: `claude-codex-collaboration.md` (why the blind critic exists),
-`codex-handoff.md` (the fixed question and attachment mechanics),
-`authority-contract.md`, `run-folder-contract.md` (the `viewed` list this stage audits).
+Shared contracts: `${CLAUDE_PLUGIN_ROOT}/references/claude-codex-collaboration.md` (why the blind critic exists),
+`${CLAUDE_PLUGIN_ROOT}/references/codex-handoff.md` (the fixed question and attachment mechanics),
+`${CLAUDE_PLUGIN_ROOT}/references/authority-contract.md`, `${CLAUDE_PLUGIN_ROOT}/references/run-folder-contract.md` (the `viewed` list this stage audits).

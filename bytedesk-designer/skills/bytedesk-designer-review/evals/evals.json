@@ -54,8 +54,9 @@
         "Checked for codex before starting the review",
         "Refused to produce a review rather than performing it alone",
         "Explained that a single-model review reintroduces the bias the stage exists to correct",
-        "Distinguished a missing binary from an unauthenticated one and gave the matching fix",
-        "Did not write a findings file implying a review had been performed"
+        "Distinguished which of the three preflight states this was - not installed, unauthenticated, or installed but unreachable - and gave the fix matching that state",
+        "Did not write a findings file implying a review had been performed",
+        "If it repaired an unreachable install rather than stopping, said so in the user-facing message, kept the repair scoped to the run rather than changing the machine, and recorded the version actually invoked"
       ],
       "files": []
     }

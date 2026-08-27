@@ -12,7 +12,9 @@
         "Confirmed every promoted artifact had actually been viewed before marking a stage complete",
         "Stated roughly how long the run would take before starting it",
         "Gave each worker an explicit scope and told it what not to touch",
-        "Named the artifacts itself rather than letting workers invent their own conventions"
+        "Named the artifacts itself rather than letting workers invent their own conventions",
+        "Verified that each dispatched worker actually produced its artifact, rather than treating an empty result as a stage with nothing to do",
+        "If any worker returned nothing, ran that stage itself and said so, rather than continuing past the gap silently"
       ],
       "files": []
     },
@@ -66,9 +68,10 @@
       "assertions": [
         "Ran preflight before creating a run folder rather than partway through the arc",
         "Refused to proceed rather than running the arc without Codex",
-        "Distinguished a missing binary from an unauthenticated one and gave the matching fix",
+        "Distinguished which of the three preflight states this was - not installed, unauthenticated, or installed but unreachable - and gave the fix matching that state",
         "Left no run folder or state file behind",
-        "Explained why the collaboration is required rather than treating it as arbitrary"
+        "Explained why the collaboration is required rather than treating it as arbitrary",
+        "If it repaired an unreachable install rather than stopping, said so in the user-facing message, kept the repair scoped to the run rather than changing the machine, and recorded the version actually invoked"
       ],
       "files": []
     }

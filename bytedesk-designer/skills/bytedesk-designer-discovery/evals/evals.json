@@ -43,7 +43,8 @@
         "Identified that the surface list is not a work-list",
         "Replaced adjectives with decisions that a later stage can act on",
         "Asked only for what could not be derived from what already existed",
-        "Did not invent an audience to fill the gap"
+        "Did not invent an audience to fill the gap",
+        "Derived the audience from the authority or the existing brief where those already stated it, rather than generating a new one"
       ],
       "files": []
     },
@@ -55,9 +56,10 @@
       "assertions": [
         "Checked for codex before starting work",
         "Refused to proceed rather than producing framings alone",
-        "Distinguished a missing binary from an unauthenticated one and gave the matching fix",
+        "Distinguished which of the three preflight states this was - not installed, unauthenticated, or installed but unreachable - and gave the fix matching that state",
         "Explained why the collaboration is required for this stage specifically",
-        "Left no run folder implying the stage had completed"
+        "Left no run folder implying the stage had completed",
+        "If it repaired an unreachable install rather than stopping, said so in the user-facing message, kept the repair scoped to the run rather than changing the machine, and recorded the version actually invoked"
       ],
       "files": []
     }

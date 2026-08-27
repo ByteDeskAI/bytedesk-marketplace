@@ -21,8 +21,7 @@ not re-declare the palette, and it does not carry a hex anywhere in its own CSS.
 that hardcodes colours is a mockup that will disagree with the product within a month, and
 nobody will notice until it's in a deck.
 
-Read `references/claude-codex-collaboration.md` and `references/codex-handoff.md` at the
-plugin root first.
+Read `${CLAUDE_PLUGIN_ROOT}/references/claude-codex-collaboration.md` and `${CLAUDE_PLUGIN_ROOT}/references/codex-handoff.md` first.
 
 ## Preflight
 
@@ -30,7 +29,10 @@ plugin root first.
 command -v codex && codex --version
 ```
 
-Missing or signed out: **stop and say which**, with the fix. Codex writes the
+Missing or signed out: **stop and say which**, with the fix. If it is on the machine and working but simply unreachable — a broken shim, a
+half-finished upgrade — that is the third state: repair it for this run only, say
+what you did, and record the version you actually invoked. See
+`${CLAUDE_PLUGIN_ROOT}/references/claude-codex-collaboration.md`. Codex writes the
 implementations; Claude renders them, looks, and re-briefs. A surface Claude wrote and
 judged alone has one opinion in it and a provenance header claiming two.
 
@@ -140,6 +142,16 @@ typo'd custom property doesn't error — it silently falls back to nothing, and 
 renders transparent or unstyled in a way that is easy to miss on a busy page and impossible
 to miss in a review.
 
+**Then check the product scope is actually on the page.** Where the authority serves a
+family from one stylesheet, the product's own accent lives in a `[data-product="…"]` block
+and the root element has to carry that attribute for it to apply. Forget it and the page
+renders in the *family* default instead — and this is the nastiest failure in this stage,
+because the page uses `var(--...)` correctly, hardcodes nothing, passes both greps above,
+and is still entirely the wrong colour. Two independent runs hit it on the same file.
+
+Check it the only way that works: render it and compare the accent you see against the
+token value you expect.
+
 If the authority ships `scripts/validate.mjs`, run it too.
 
 ## What this stage must never do
@@ -155,6 +167,6 @@ If the authority ships `scripts/validate.mjs`, run it too.
 
 ## Reference files
 
-At the plugin root: `claude-codex-collaboration.md`, `codex-handoff.md` (text mode),
-`authority-contract.md` (the product/marketing distinction), `run-folder-contract.md`
+Shared contracts: `${CLAUDE_PLUGIN_ROOT}/references/claude-codex-collaboration.md`, `${CLAUDE_PLUGIN_ROOT}/references/codex-handoff.md` (text mode),
+`${CLAUDE_PLUGIN_ROOT}/references/authority-contract.md` (the product/marketing distinction), `${CLAUDE_PLUGIN_ROOT}/references/run-folder-contract.md`
 (the vendored-tokens rule and `.source-sha`).

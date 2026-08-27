@@ -24,8 +24,7 @@ a frustrating one.
 
 So split the job at its natural seam: **generate to think, draw to deliver.**
 
-Read `references/claude-codex-collaboration.md` and `references/codex-handoff.md` at the
-plugin root first.
+Read `${CLAUDE_PLUGIN_ROOT}/references/claude-codex-collaboration.md` and `${CLAUDE_PLUGIN_ROOT}/references/codex-handoff.md` first.
 
 ## Preflight
 
@@ -33,7 +32,10 @@ plugin root first.
 command -v codex && codex --version
 ```
 
-Missing or signed out: **stop and say which**, with the fix. Concept exploration is where
+Missing or signed out: **stop and say which**, with the fix. If it is on the machine and working but simply unreachable — a broken shim, a
+half-finished upgrade — that is the third state: repair it for this run only, say
+what you did, and record the version you actually invoked. See
+`${CLAUDE_PLUGIN_ROOT}/references/claude-codex-collaboration.md`. Concept exploration is where
 generation is genuinely unbeatable — it produces ideas faster than anyone can draw them —
 and skipping it means drawing the first idea you had, which is rarely the right one.
 
@@ -141,6 +143,6 @@ quarter — and marks get re-explored more often than anything else in a brand.
 
 ## Reference files
 
-At the plugin root: `claude-codex-collaboration.md`, `codex-handoff.md` (the
-white-background prior and image retrieval), `authority-contract.md`,
-`run-folder-contract.md`.
+Shared contracts: `${CLAUDE_PLUGIN_ROOT}/references/claude-codex-collaboration.md`, `${CLAUDE_PLUGIN_ROOT}/references/codex-handoff.md` (the
+white-background prior and image retrieval), `${CLAUDE_PLUGIN_ROOT}/references/authority-contract.md`,
+`${CLAUDE_PLUGIN_ROOT}/references/run-folder-contract.md`.

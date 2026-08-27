@@ -35,6 +35,13 @@ The canonical values, DTCG-shaped:
 }
 ```
 
+Per-product accents are authored here too, under `product.<id>.accent`, and generated
+into their `[data-product]` scope rather than into `:root`:
+
+```json
+{ "product": { "quiet-ledger": { "accent": { "$type": "color", "$value": "#c9683b" } } } }
+```
+
 `$description` earns its keep on any token whose *use* is constrained. A token named
 `accent` with no description gets used as a background fill within a week.
 
@@ -104,8 +111,16 @@ every profile directory appears in the catalog. Both directions, because each ca
 different half-finished edit.
 
 **Accent parity.** For every product: the declared mode is one of the four legal values,
-and if it is `own`, the value agrees across the token JSON, the CSS custom property, the
-`[data-product]` scope, and the README table. Four places, one truth.
+and if it is `own`, the value agrees across the token JSON (`product.<id>.accent`), the
+catalog entry, the `[data-product]` scope in the CSS, and the README table. Four places,
+one truth — and the token file is the one that makes it a *source* rather than three
+hand-maintained copies agreeing by luck.
+
+That fourth arm is easy to leave out, and leaving it out is worse than not claiming it: a
+sweep of this suite found the gate documented as checking four places while checking
+three, because per-product accents never reached the token file at all. A gate documented
+wider than it checks is the dangerous kind, since people stop looking where it says it has
+looked.
 
 Print open decisions every run rather than passing silently:
 

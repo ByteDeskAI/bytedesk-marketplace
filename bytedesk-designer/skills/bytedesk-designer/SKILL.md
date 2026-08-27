@@ -15,8 +15,8 @@ The front door. It decides which stages a piece of work actually needs, runs the
 order that makes sense, and owns the two things no individual stage can own: the run folder,
 and judgement about the set as a whole.
 
-Everything it coordinates is documented elsewhere. Read `references/run-folder-contract.md`
-and `references/claude-codex-collaboration.md` at the plugin root before doing anything;
+Everything it coordinates is documented elsewhere. Read `${CLAUDE_PLUGIN_ROOT}/references/run-folder-contract.md`
+and `${CLAUDE_PLUGIN_ROOT}/references/claude-codex-collaboration.md` before doing anything;
 they are the substrate and the spine.
 
 ## Preflight, once
@@ -28,12 +28,18 @@ command -v codex && codex --version
 Do this **before creating the run folder**, not after. Failing mid-arc leaves a half-built
 folder somebody has to clean up and a `state.json` that lies about where the work got to.
 
-Missing or signed out: stop, say which, give the matching fix. Record the version in
-`state.json` when it passes.
+Missing or signed out: stop, say which, give the matching fix. If it is installed and
+working but simply unreachable — a clobbered shim, a half-finished upgrade — repair it for
+this run only, say plainly what was broken and what you pointed at, and never reach for a
+global install to fix it. Three states, not two: `${CLAUDE_PLUGIN_ROOT}/references/claude-codex-collaboration.md`.
+
+Record the version in `state.json` when it passes — the version the binary you invoked
+reports, not the one the package manifest claims. Those disagree exactly when something is
+half-upgraded, which is the case this record exists for.
 
 ## Resolve the authority, once
 
-Per `references/authority-contract.md`. Record the path and commit sha in `state.json`, and
+Per `${CLAUDE_PLUGIN_ROOT}/references/authority-contract.md`. Record the path and commit sha in `state.json`, and
 say which path was resolved and how — an operator whose run silently used the wrong repo
 finds out when the colours are wrong.
 
@@ -92,6 +98,25 @@ consistency, which direction wins, whether the family holds together, and every 
 decision. These need everything in one context by definition, and splitting them produces
 locally reasonable choices that don't cohere.
 
+### Verify the fan-out actually happened
+
+**After dispatching workers, check each one produced its artifact before treating the
+stage as done.** Not "did the worker return" — did the file appear, and is it what was
+asked for.
+
+This is not defensive padding. A fan-out of three workers once returned nothing at all:
+no artifacts, no Codex process started, no answer to a status ping. Nested delegation is
+not available in every harness, and where it is, it can be rate-limited or silently
+dropped. The failure is dangerous specifically because **a worker that produced nothing
+looks exactly like a stage with nothing to do** — an empty directory reads as "no work
+needed" and the arc continues past a hole.
+
+When a worker comes back empty, run its stage yourself, one artifact at a time, holding
+the same look-before-promoting discipline. Then say so. Falling back is fine; falling back
+silently is not, because the reason for fanning out in the first place was to keep one
+context from judging many artifacts — and once you are doing that, a later review's
+independence is gone and the operator should know it.
+
 ## Own the run folder
 
 Workers produce artifacts. The orchestrator names them, files them, and writes
@@ -139,6 +164,6 @@ have been deleted is incomplete regardless of what the JSON says.
 
 ## Reference files
 
-At the plugin root: `run-folder-contract.md` (the substrate — read first),
-`claude-codex-collaboration.md` (the loop every stage runs),
-`authority-contract.md` (resolution order), `codex-handoff.md` (mechanics).
+Shared contracts: `${CLAUDE_PLUGIN_ROOT}/references/run-folder-contract.md` (the substrate — read first),
+`${CLAUDE_PLUGIN_ROOT}/references/claude-codex-collaboration.md` (the loop every stage runs),
+`${CLAUDE_PLUGIN_ROOT}/references/authority-contract.md` (resolution order), `${CLAUDE_PLUGIN_ROOT}/references/codex-handoff.md` (mechanics).

@@ -19,8 +19,7 @@ The critique step is the whole point. Anyone can pipe a sentence into an image m
 makes this worth running is that Claude *sees* the returned PNG, judges it against the
 brief, and knows which single thing to change next.
 
-Read `references/claude-codex-collaboration.md` and `references/codex-handoff.md` at the
-plugin root before the first handoff of a session. This file assumes both.
+Read `${CLAUDE_PLUGIN_ROOT}/references/claude-codex-collaboration.md` and `${CLAUDE_PLUGIN_ROOT}/references/codex-handoff.md` before the first handoff of a session. This file assumes both.
 
 ## Preflight
 
@@ -28,7 +27,9 @@ plugin root before the first handoff of a session. This file assumes both.
 command -v codex && codex --version
 ```
 
-If Codex is missing or signed out, **stop and say which**, with the matching fix. There is
+If Codex is missing or signed out, **stop and say which**, with the matching fix. If it is
+installed and working but unreachable, repair it for this run only and say what you did —
+`${CLAUDE_PLUGIN_ROOT}/references/claude-codex-collaboration.md` has the three states. There is
 no fallback that produces an image, and a stage that quietly went ahead would file an
 artifact whose provenance header is a lie. Offer to write the art direction anyway so the
 operator can run it themselves — but do not write it into the run folder as though the
@@ -46,7 +47,7 @@ three specific things, and the third one decides whether the image should exist 
 3. **The generated-art contract** from the foundation. This is a boundary, not a
    suggestion.
 
-`references/authority-contract.md` at the plugin root covers resolution, the authority
+`${CLAUDE_PLUGIN_ROOT}/references/authority-contract.md` covers resolution, the authority
 order, and what to do when a request crosses the contract's line. The short version, since
 it is easy to get wrong and expensive to get wrong: generated raster is **exploration**. It
 carries no logos, no product copy, no fake controls, no invented metrics, no functional
@@ -157,8 +158,7 @@ rejected directions, prompt fragments that worked.
 ## When it goes wrong
 
 Model-side behaviour — the mid-tone blue prior, the white-background prior for marks,
-garbled text, log noise that isn't a failure — is in `references/codex-handoff.md` at the
-plugin root, along with what a real failure looks like. Two that belong here instead:
+garbled text, log noise that isn't a failure — is in `${CLAUDE_PLUGIN_ROOT}/references/codex-handoff.md`, along with what a real failure looks like. Two that belong here instead:
 
 - **The image ignores a colour, or lands figure and ground backwards.** Extremely common.
   State both terms explicitly with a preposition and re-run; see the figure/ground note in
@@ -174,5 +174,5 @@ plugin root, along with what a real failure looks like. Two that belong here ins
 - `references/critique.md` — the pass for judging a returned image, and revision discipline.
 - `assets/style-profile-template.md` — for taste no authority captures.
 
-At the plugin root: `claude-codex-collaboration.md`, `codex-handoff.md`,
-`authority-contract.md`, `run-folder-contract.md`.
+Shared contracts: `${CLAUDE_PLUGIN_ROOT}/references/claude-codex-collaboration.md`, `${CLAUDE_PLUGIN_ROOT}/references/codex-handoff.md`,
+`${CLAUDE_PLUGIN_ROOT}/references/authority-contract.md`, `${CLAUDE_PLUGIN_ROOT}/references/run-folder-contract.md`.

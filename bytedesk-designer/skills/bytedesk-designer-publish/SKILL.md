@@ -129,5 +129,5 @@ and ask — a missing file is information, not a reason to quietly shorten the l
 
 ## Reference files
 
-At the plugin root: `run-folder-contract.md` (what exists to publish, and the provenance
-header), `authority-contract.md` (which stylesheet to load).
+Shared contracts: `${CLAUDE_PLUGIN_ROOT}/references/run-folder-contract.md` (what exists to publish, and the provenance
+header), `${CLAUDE_PLUGIN_ROOT}/references/authority-contract.md` (which stylesheet to load).

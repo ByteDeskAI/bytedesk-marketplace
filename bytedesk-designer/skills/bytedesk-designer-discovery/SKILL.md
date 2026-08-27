@@ -19,8 +19,7 @@ The job is not to gather requirements. It is to **force decisions early, while t
 still cheap**, and to write down the reasoning so a later stage can tell an intentional
 choice from an accident.
 
-Read `references/claude-codex-collaboration.md` and `references/codex-handoff.md` at the
-plugin root first. This stage uses Codex in text mode.
+Read `${CLAUDE_PLUGIN_ROOT}/references/claude-codex-collaboration.md` and `${CLAUDE_PLUGIN_ROOT}/references/codex-handoff.md` first. This stage uses Codex in text mode.
 
 ## Preflight
 
@@ -28,7 +27,10 @@ plugin root first. This stage uses Codex in text mode.
 command -v codex && codex --version
 ```
 
-Missing or signed out: **stop and say which**, with the fix. Divergent framings are the
+Missing or signed out: **stop and say which**, with the fix. If it is on the machine and working but simply unreachable — a broken shim, a
+half-finished upgrade — that is the third state: repair it for this run only, say
+what you did, and record the version you actually invoked. See
+`${CLAUDE_PLUGIN_ROOT}/references/claude-codex-collaboration.md`. Divergent framings are the
 core of this stage, and one model producing three framings alone produces three framings
 with one opinion in them — which is the failure this stage exists to prevent.
 
@@ -62,6 +64,24 @@ The questions worth spending a turn on:
 
 Four questions maximum, and fewer if they've already answered them. This is a design
 stage, not an intake form.
+
+### Diverge on framing. Never diverge on facts you already have.
+
+This is the one place the stage can defeat itself, and a live run proved it: handed a thin
+brief *and* a design authority that already described the audience, the run generated three
+divergent framings and invented a persona — a specific person, at a specific hour, with a
+specific four-year-old spreadsheet — while the profile sitting next to it already said who
+this was for. The baseline, with no skill at all, simply read the profile and got it right.
+
+Divergence is a tool for the questions that are genuinely open. It is not a licence to
+re-answer questions the evidence has already settled, and the pull to invent is strongest
+exactly where a vivid detail would make the brief read better.
+
+So before generating anything: **list what is already known** — from the authority, from an
+existing brief, from the operator's own words — and mark those as fixed. Diverge on what
+kind of thing this is, who it centres, and what it competes with. Do not diverge on facts
+already on disk. If a framing contradicts a known fact, that is a finding about the
+authority, not a new option.
 
 ## 2. Generate framings — Codex as hands
 
@@ -171,6 +191,6 @@ say plainly which framing was chosen and what the operator should push back on.
 
 ## Reference files
 
-At the plugin root: `claude-codex-collaboration.md` (the loop),
-`codex-handoff.md` (text-mode mechanics), `authority-contract.md`,
-`run-folder-contract.md`.
+Shared contracts: `${CLAUDE_PLUGIN_ROOT}/references/claude-codex-collaboration.md` (the loop),
+`${CLAUDE_PLUGIN_ROOT}/references/codex-handoff.md` (text-mode mechanics), `${CLAUDE_PLUGIN_ROOT}/references/authority-contract.md`,
+`${CLAUDE_PLUGIN_ROOT}/references/run-folder-contract.md`.

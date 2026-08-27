@@ -20,8 +20,8 @@ copied into a deck and drifts. A repository has a commit sha, so a run six month
 be explained, and a validator, so a rule that isn't followed is a build failure rather
 than a disappointment.
 
-Read `references/authority-contract.md` at the plugin root for the shape a conforming
-authority must have, and `references/claude-codex-collaboration.md` for how Claude and
+Read `${CLAUDE_PLUGIN_ROOT}/references/authority-contract.md` for the shape a conforming
+authority must have, and `${CLAUDE_PLUGIN_ROOT}/references/claude-codex-collaboration.md` for how Claude and
 Codex divide this work. Both are prerequisites, not background.
 
 ## Preflight
@@ -31,7 +31,10 @@ command -v codex && codex --version
 ```
 
 Codex is required — it produces the candidate palettes, scales, and motif language that
-Claude then judges. If it is missing or signed out, **stop and say which**, with the fix.
+Claude then judges. If it is missing or signed out, **stop and say which**, with the fix. If it is on the machine and working but simply unreachable — a broken shim, a
+half-finished upgrade — that is the third state: repair it for this run only, say
+what you did, and record the version you actually invoked. See
+`${CLAUDE_PLUGIN_ROOT}/references/claude-codex-collaboration.md`.
 Do not build the authority alone: a palette Claude picked unaided is a palette with one
 opinion in it, and the header this skill writes would be claiming otherwise.
 
@@ -218,6 +221,6 @@ four-way consistency a human forgets and a validator never does.
 - `references/capture.md` — reverse-engineering from CSS, Tailwind, Figma exports, sites
 - `assets/` — templates for `DESIGN.md`, a profile, `catalog.json`, and `validate.mjs`
 
-At the plugin root: `references/authority-contract.md` (the contract),
-`references/claude-codex-collaboration.md` (the loop), `references/codex-handoff.md`
+Shared contracts: `${CLAUDE_PLUGIN_ROOT}/references/authority-contract.md` (the contract),
+`${CLAUDE_PLUGIN_ROOT}/references/claude-codex-collaboration.md` (the loop), `${CLAUDE_PLUGIN_ROOT}/references/codex-handoff.md`
 (the mechanics).

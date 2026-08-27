@@ -81,11 +81,34 @@ plausible that encodes a collaboration which never happened — the same class o
 promoting an image nobody looked at, and harder to detect later because the artifact looks
 finished.
 
-The two failure states need different fixes, so report them differently:
+There are **three** states, not two, and they need different responses. The third was
+found by running the arc with the CLI deliberately removed — six stages stopped, and the
+orchestrator, which had the most latitude, found the case the rule had not named:
 
-- **Not on PATH.** Name the install step and say where the suite looked.
-- **Present but unauthenticated.** Name the sign-in step, and do not describe it as
+- **Not installed.** Name the install step and say where the suite looked. Stop.
+- **Installed but unauthenticated.** Name the sign-in step, and do not describe it as
   missing — sending someone to reinstall a tool they already have wastes their afternoon.
+  Stop.
+- **Installed, working, signed in, but unreachable** — a clobbered shim, a half-finished
+  upgrade, a `PATH` that lost an entry. This is a tooling fault, not an absence, and
+  **repairing it is not substitution**: the collaboration still happens and the provenance
+  is still true.
+
+The third state is allowed, under one condition. **Repair is permitted; concealed repair
+is not.** Silent self-repair is one step from silent substitution, and the difference has
+to be visible in the artifact rather than resting on trust. So:
+
+- Say what was broken and what you pointed at, in the user-facing message, not only in a
+  comment.
+- Keep the repair scoped to the run — a shim on the run's own `PATH`, never a global
+  install. Mutating someone's toolchain is a bigger decision than the one you were asked
+  to make.
+- Record in `state.json` the version of the binary **actually invoked**, which is not
+  necessarily the version the package manifest claims. A half-finished upgrade is exactly
+  the case where those two disagree, and the invoked one is the one that made the artifact.
+
+If you cannot repair it without a global change, you are back in state one: stop and say
+what you would have run.
 
 Fail at preflight rather than mid-arc, so there is no half-built run folder to clean up.
 Where a run cannot proceed, offering the part that is still useful is good — write the

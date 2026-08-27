@@ -41,9 +41,10 @@
       "assertions": [
         "Checked for codex before starting work",
         "Refused to proceed rather than drawing the first idea unaided",
-        "Distinguished a missing binary from an unauthenticated one and gave the matching fix",
+        "Distinguished which of the three preflight states this was - not installed, unauthenticated, or installed but unreachable - and gave the fix matching that state",
         "Explained why concept generation matters for this stage specifically",
-        "Left no partial asset kit behind"
+        "Left no partial asset kit behind",
+        "If it repaired an unreachable install rather than stopping, said so in the user-facing message, kept the repair scoped to the run rather than changing the machine, and recorded the version actually invoked"
       ],
       "files": []
     }

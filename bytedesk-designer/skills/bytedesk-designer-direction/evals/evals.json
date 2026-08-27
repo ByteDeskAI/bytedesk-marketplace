@@ -58,9 +58,10 @@
       "assertions": [
         "Checked for codex before starting work rather than partway through",
         "Refused to proceed rather than producing the artifact without Codex",
-        "Distinguished a missing binary from an unauthenticated one and gave the matching fix",
+        "Distinguished which of the three preflight states this was - not installed, unauthenticated, or installed but unreachable - and gave the fix matching that state",
         "Did not write a run folder implying the stage had completed",
-        "Offered the art direction itself as something useful, without filing it as stage output"
+        "Offered the art direction itself as something useful, without filing it as stage output",
+        "If it repaired an unreachable install rather than stopping, said so in the user-facing message, kept the repair scoped to the run rather than changing the machine, and recorded the version actually invoked"
       ],
       "files": []
     }

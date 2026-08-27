@@ -54,6 +54,9 @@ for (const m of (rootBlock?.[1] ?? '').matchAll(/(--ds-[a-zA-Z0-9-]+)\s*:\s*([^;
 }
 
 for (const [path, value] of Object.entries(tokens)) {
+  // Per-product tokens are emitted into their [data-product] scope, not :root. The accent
+  // gate below checks them; checking them here too would demand they appear in both.
+  if (path.startsWith('product.')) continue;
   const name = tokenName(path);
   if (!declared.has(name)) fail('token-parity', `${name} is in the tokens but missing from the CSS`);
   else if (declared.get(name).toLowerCase() !== String(value).toLowerCase())
@@ -121,6 +124,16 @@ for (const p of catalog.products) {
 
   const value = p.accent.value?.toLowerCase();
   if (!value) { fail('accent', `${p.id} owns an accent but declares no value`); continue; }
+
+  // Place 1 of 4: the token file. Values are authored here and everything else is
+  // generated from them, so a product accent that lives only in the catalog and the
+  // stylesheet has no source of truth — it is two hand-maintained copies agreeing by
+  // luck. `product.<id>.accent` is where it belongs.
+  const tokenValue = tokens[`product.${p.id}.accent`];
+  if (!tokenValue)
+    fail('accent', `${p.id} owns an accent but the tokens declare no product.${p.id}.accent`);
+  else if (String(tokenValue).toLowerCase() !== value)
+    fail('accent', `${p.id} token accent is ${tokenValue} but the catalog says ${value}`);
 
   if (ownAccents.has(value)) notes.push(`accent: ${p.id} and ${ownAccents.get(value)} both own ${value}`);
   else ownAccents.set(value, p.id);

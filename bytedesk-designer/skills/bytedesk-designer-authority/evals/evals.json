@@ -58,9 +58,10 @@
       "assertions": [
         "Checked for codex before starting work rather than discovering the problem partway through",
         "Refused to proceed rather than producing the authority without Codex",
-        "Distinguished a missing binary from an unauthenticated one, and gave the fix matching the actual failure",
+        "Distinguished which of the three preflight states this was - not installed, unauthenticated, or installed but unreachable - and gave the fix matching that state",
         "Left no partially created repository behind",
-        "Explained why the collaboration is required rather than treating it as an arbitrary dependency"
+        "Explained why the collaboration is required rather than treating it as an arbitrary dependency",
+        "If it repaired an unreachable install rather than stopping, said so in the user-facing message, kept the repair scoped to the run rather than changing the machine, and recorded the version actually invoked"
       ],
       "files": []
     }
