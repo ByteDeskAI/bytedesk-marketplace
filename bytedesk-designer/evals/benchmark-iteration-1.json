@@ -37,6 +37,18 @@
       "tok_b": 101494
     },
     {
+      "eval": "batch-discipline",
+      "skill": "bytedesk-designer",
+      "n": 6,
+      "w": 5,
+      "b": 2,
+      "delta": 50.0,
+      "sec_w": 1670.3,
+      "sec_b": 333.0,
+      "tok_w": 214642,
+      "tok_b": 96344
+    },
+    {
       "eval": "blind-read-catches-contract-violation",
       "skill": "bytedesk-designer-review",
       "n": 7,
@@ -83,6 +95,18 @@
       "sec_b": 191.6,
       "tok_w": 105888,
       "tok_b": 88037
+    },
+    {
+      "eval": "cold-start-no-authority",
+      "skill": "bytedesk-designer",
+      "n": 6,
+      "w": 5,
+      "b": 0,
+      "delta": 83.33333333333334,
+      "sec_w": 1951.5,
+      "sec_b": 436.3,
+      "tok_w": 294845,
+      "tok_b": 84066
     },
     {
       "eval": "divergence-and-one-axis-revision",
@@ -365,6 +389,11 @@
       "b": 10,
       "n": 22
     },
+    "bytedesk-designer": {
+      "w": 21,
+      "b": 11,
+      "n": 26
+    },
     "bytedesk-designer-review": {
       "w": 22,
       "b": 10,
@@ -384,17 +413,12 @@
       "w": 22,
       "b": 12,
       "n": 24
-    },
-    "bytedesk-designer": {
-      "w": 11,
-      "b": 9,
-      "n": 14
     }
   },
   "overall": {
-    "with": 164,
-    "base": 89,
-    "n": 171
+    "with": 174,
+    "base": 91,
+    "n": 183
   },
   "non_discriminating": [
     "Declared an explicit accent mode rather than leaving it implied",
@@ -410,6 +434,9 @@
     "Considered the empty or single-item case as well as the populated one",
     "Ran a squint or thumbnail check on the value structure rather than judging colour alone",
     "Kept fabricated data obviously illustrative rather than plausible enough to be quoted",
+    "Kept the contact sheet and cross-set consistency judgement unfanned",
+    "Stated roughly how long the run would take before starting it",
+    "Named the artifacts itself rather than letting workers invent their own conventions",
     "Treated an interface element in a contract-bound piece as a violation rather than a matter of taste",
     "Assigned severities rather than presenting all findings as equal",
     "Computed contrast ratios rather than asserting that the palette is accessible",
@@ -423,6 +450,7 @@
     "Distinguished notes from things that need fixing",
     "Led with a verdict rather than a description of artifacts the user can see",
     "Did not pad the report with restatements of what each artifact contains",
+    "Announced which stages it would run and why, before starting",
     "Round 1 explored two or more genuinely different directions, not variations on a single idea",
     "Named a winner and gave a concrete reason rather than describing all of them evenly",
     "Was specific about what failed rather than softening the critique",

@@ -104,12 +104,16 @@ locally reasonable choices that don't cohere.
 stage as done.** Not "did the worker return" — did the file appear, and is it what was
 asked for.
 
-This is not defensive padding. A fan-out of three workers once returned nothing at all:
-no artifacts, no Codex process started, no answer to a status ping. Nested delegation is
-not available in every harness, and where it is, it can be rate-limited or silently
-dropped. The failure is dangerous specifically because **a worker that produced nothing
-looks exactly like a stage with nothing to do** — an empty directory reads as "no work
-needed" and the arc continues past a hole.
+This is not defensive padding. It happened three times in one afternoon: workers that
+returned no artifacts, started no Codex process, and did not answer a status ping. The
+cause, when one run finally surfaced it, was mundane — `no space for new pane`, because
+the parent session had saturated its own concurrency budget. Rate limits, sandbox
+restrictions and harnesses without nested delegation produce the same silence.
+
+The failure is dangerous specifically because **a worker that produced nothing looks
+exactly like a stage with nothing to do** — an empty directory reads as "no work needed"
+and the arc continues past a hole. Note also that a large fan-out is itself the condition
+most likely to exhaust the budget, so the bigger the batch, the more this matters.
 
 When a worker comes back empty, run its stage yourself, one artifact at a time, holding
 the same look-before-promoting discipline. Then say so. Falling back is fine; falling back

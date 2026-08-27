@@ -105,3 +105,56 @@
     stating a default, not adding a discipline. A version that discriminates would need a
     harder trap: an entry whose source moved rather than vanished, or a manifest whose
     ordering carries meaning.
+
+11. **The fan-out failure reproduced, and the fix held.**
+    The cold-start run hit it independently: *"The per-surface fan-out failed — three
+    workers produced nothing — so I built all three surfaces in one context and reconciled
+    the review there too. The blind reads are independent; my judgement about them isn't."*
+
+    That is exactly the required behaviour — notice, fall back, and disclose what the
+    fallback cost. Two independent occurrences confirm it is a real environmental limit
+    rather than a one-off, which is what justifies the rule rather than a note.
+
+    Caveat on the evidence: this run was given the limitation as a prompt hint, so it
+    demonstrates that the *disclosure* behaviour is achievable, not that the SKILL.md text
+    alone induces it. Iteration 2 should run this eval without the hint.
+
+12. **`cold-start-no-authority`: 5/6 against a baseline 0/6 — the largest single-eval gap
+    in the sweep.** The baseline, given the same empty directory, scored zero: it produced
+    a design without bootstrapping an authority, without preflight, and without the arc.
+
+    The one miss is worth reading carefully before treating it as a defect. The assertion
+    was "announced which stages it would run and why, *before starting*". The run recorded
+    the arc in its notes and stated the ~30-minute cost — but after the fact, because a
+    single-shot non-interactive harness gives an agent exactly one user-facing message, at
+    the end. **There is no "before" in that context.**
+
+    So this is an eval-design problem, not a skill problem: the skill's text is already
+    explicit ("Say which stages you're running and why, before starting"), and the
+    behaviour it asks for is unobservable in the configuration the eval runs in. Either
+    the eval needs a two-turn harness, or the assertion needs rewriting to something
+    checkable from a single message — e.g. "stated which stages ran, which were skipped,
+    and roughly what it cost".
+
+13. **Correction to finding 7: I caused the fan-out failure, at least in this sweep.**
+    The batch-discipline run got a specific error the earlier two did not surface:
+    `no space for new pane`, confirmed by retry. Five of six workers could not spawn at
+    all; the sixth ran sixteen minutes, wrote nothing, and never started a Codex process.
+
+    The cause is concurrency exhaustion — I was running twenty subagents at once to get
+    the sweep through, which left no room for the nested delegations these runs needed.
+    So "nested delegation returns nothing" is **not** established as a general property of
+    the environment. It is what happens when the parent has saturated the budget, which is
+    exactly the condition a large sweep creates and a normal run does not.
+
+    The rule added to the orchestrator stands on its own merits regardless: verify each
+    worker produced, fall back loudly, and say what the fallback cost a later review. That
+    is correct whether the cause is saturation, rate limiting, or anything else. But the
+    *diagnosis* in finding 7 was overstated, and anyone reading it should know the
+    confound. Iteration 2 must run the orchestrator evals with the rest of the sweep idle.
+
+    Worth noting what the run did with the failure: it fell back to twelve prompts,
+    generations and critiques by hand, one image at a time, wrote each product's notes
+    before opening the next, and recorded in both `state.json` and `findings.json` that the
+    independence a fan-out would have bought was gone. That is the behaviour the rule asks
+    for, produced under a genuinely degraded environment.
