@@ -81,8 +81,15 @@ statement of intent**. Attaching any of those defeats the entire mechanism.
 
 The fixed question is in `${CLAUDE_PLUGIN_ROOT}/references/codex-handoff.md`. Its shape
 matters more than its wording: ask what the artifact *depicts*, ask it to enumerate
-anything that reads as a control, chart, logo, word, or number, ask what dominates, and ask
-what colours it actually sees. Four questions, answered cold.
+anything that reads as a control, chart, logo, word, or number, ask what dominates, ask what
+colours it actually sees, and ask a fixed checklist of generation habits — eyebrow labels,
+pill shapes, glass panels, decorative gradients, metric-tile grids, empty charts, status
+dots. Five questions, answered cold.
+
+That last one is deliberately a checklist and not a judgement. "Is this well designed" gets
+you an opinion from something that has not seen the brief and cannot have one worth having.
+"Is there a small uppercase letter-spaced label above that heading" gets you a fact, and it
+is exactly the fact the stage that built the thing is worst placed to notice.
 
 One artifact per invocation. Do not batch — a critic shown three images starts comparing
 them, and comparison is not what you asked for.

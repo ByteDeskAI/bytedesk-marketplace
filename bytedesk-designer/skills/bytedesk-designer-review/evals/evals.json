@@ -34,6 +34,10 @@
         {
           "text": "Assigned severities rather than presenting all findings as equal",
           "kind": "unproven"
+        },
+        {
+          "text": "Asked the blind critic the fixed generation-habit checklist as well as the open questions, and reported its answer rather than substituting its own read",
+          "kind": "untested"
         }
       ],
       "files": []
@@ -92,6 +96,10 @@
         {
           "text": "Did not pad the report with restatements of what each artifact contains",
           "kind": "unproven"
+        },
+        {
+          "text": "Asked the blind critic the fixed generation-habit checklist as well as the open questions, and reported its answer rather than substituting its own read",
+          "kind": "untested"
         }
       ],
       "files": []

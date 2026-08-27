@@ -34,6 +34,14 @@
         {
           "text": "Produced a self-contained page with no CDN or framework dependency",
           "kind": "unproven"
+        },
+        {
+          "text": "Produced no eyebrow label - no small uppercase letter-spaced line above a heading - and no pill shapes, glass panels or decorative gradients, unless the authority asked for them",
+          "kind": "untested"
+        },
+        {
+          "text": "Named the generation habits it was avoiding, in the prompt handed to Codex, rather than only in its own reasoning",
+          "kind": "untested"
         }
       ],
       "files": []
@@ -66,6 +74,10 @@
         },
         {
           "text": "Kept fabricated data obviously illustrative rather than plausible enough to be quoted",
+          "kind": "untested"
+        },
+        {
+          "text": "Produced no eyebrow label - no small uppercase letter-spaced line above a heading - and no pill shapes, glass panels or decorative gradients, unless the authority asked for them",
           "kind": "untested"
         }
       ],

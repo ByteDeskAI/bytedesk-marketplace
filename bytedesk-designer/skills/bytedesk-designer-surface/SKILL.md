@@ -113,11 +113,70 @@ Then judge, in this order:
 4. **Does the awkward state hold?** Long strings, empty lists, negative numbers, wrapped
    headings.
 5. **Does it read as the product from the brief**, or as a generic admin template? The
-   second is Codex's default gravity and it needs naming explicitly.
+   second is Codex's default gravity, and "naming it explicitly" means the list below, not
+   a feeling. See *Named reflexes*.
 6. **Narrow and wide.** Render at a phone width too, unless the brief says desktop only.
 
 Record every screenshot in `state.json` under `viewed`. Nothing goes in `artifacts` that
 isn't in `viewed`.
+
+## Named reflexes
+
+Generated interfaces have a house style, and it is recognisable. The reliable way to avoid
+it is not to describe good design — every model already believes it is doing that — but to
+**name the specific moves it reaches for by default and forbid those by name**.
+
+Two rules govern this whole section:
+
+**The authority always wins.** If a product's design system asks for something on this list,
+it gets it. These are defaults to break, not laws. A skill that overrides someone's design
+system has stopped being useful to them.
+
+**Ban the move, not the element.** "No badges" is wrong — a badge carrying real state is
+fine. "No badge whose only job is to say Live" is the actual rule. Every entry below is a
+*decorative* use of something that has a legitimate one.
+
+### The list
+
+- **Eyebrow labels** — a small uppercase, letter-spaced line above a heading. The single
+  most common tell, and the one this suite's own surfaces hit a third of the time before it
+  was written down.
+- **Ornamental section copy** — a page header like "Operational clarity without the
+  clutter", or mini-notes explaining what the UI beneath them does.
+- **Pill everything** — `border-radius: 999px` applied past the one or two places it belongs.
+- **One radius everywhere** — the same rounded rectangle on the sidebar, the cards, the
+  buttons and the panels, so nothing reads as a different *kind* of thing.
+- **Glass panels** — `backdrop-filter` blur as the default surface treatment.
+- **Decorative gradients** — gradient as a background, a border, or a brand mark. A gradient
+  that encodes data is not this.
+- **Dramatic shadows** — blur past roughly 20px, or coloured shadows, standing in for
+  hierarchy that the layout should be carrying.
+- **Hover transforms** — `translate` or `scale` on nav items and cards.
+- **The metric-card grid as the opening move** — three or four KPI tiles across the top
+  because that is what a dashboard looks like, rather than because those are the numbers.
+- **Charts with nothing in them** — a donut with invented percentages, a sparkline that
+  fills a gap. Fabricated data is separately banned above; this is the layout habit that
+  invites it.
+- **A hero block inside an internal screen** — real product reason or not at all.
+- **Status dots via `::before`**, and nav badges that only ever say "Live".
+- **A right-hand rail** holding "Today" or "Recent activity" that the information
+  architecture never asked for.
+- **Invented product voice** — labels like "live pulse", "night shift", "operator checklist"
+  that appear nowhere in the brief.
+
+### Say them before you build
+
+Before writing the prompt, list what you would reach for on this surface if none of the
+above existed — then don't. Writing the reflex down is what makes it visible; a rule you
+have not consciously nearly-broken is a rule you will break.
+
+Put the list in the prompt too. Codex is the one producing the markup, and a ban it never
+saw is a ban that does not apply to it.
+
+*The named-reflex list is adapted from [Uncodixfy](https://github.com/cyxzdev/Uncodixfy)
+(MIT), narrowed to the entries that describe a generation habit rather than a house style.
+Its palettes and its absolute colour and typeface bans are deliberately not carried over —
+in this suite those decisions belong to the authority.*
 
 ## 5. Revise, one axis per round
 

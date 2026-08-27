@@ -161,9 +161,19 @@ You are looking at this image cold. You have not been told what it is for.
    interface control, a chart, a logo, a word, or a number.
 3. What is the single most visually dominant element?
 4. Name the two or three colours you actually see, as plain names.
+5. Do you see any of these, and where: a small uppercase letter-spaced label
+   above a heading; a fully rounded pill shape; a frosted or blurred glass
+   panel; a gradient used as a background or a border; a grid of three or four
+   metric tiles; a chart with no readable data in it; a coloured status dot.
 
-Answer only these four questions.
+Answer only these five questions.
 ```
+
+Question 5 is a fixed checklist of generation habits rather than a judgement, which is why
+it survives being asked cold: a reader who has never seen the brief can still answer *is
+there an uppercase letter-spaced label above that heading*. It is the same list the surface
+stage bans by name, asked from the other side — the stage that built the thing is the worst
+placed to notice it did.
 
 Attach the artifact with `-i`. Its answers are **evidence, not verdicts** — Claude
 reconciles them against the brief and decides.
