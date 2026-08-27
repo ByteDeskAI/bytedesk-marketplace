@@ -38,6 +38,10 @@
         {
           "text": "Either dispatched workers and reported what each produced, or said why it ran them itself instead - a run that never fanned out does not satisfy this by silence",
           "kind": "untested"
+        },
+        {
+          "text": "If it stood in for a stage after a fan-out failed, read that stage's SKILL.md and followed its checks rather than improvising the work itself",
+          "kind": "untested"
         }
       ],
       "files": []
@@ -71,6 +75,10 @@
         {
           "text": "Ran review before publishing even though the user did not ask for it",
           "kind": "discriminator"
+        },
+        {
+          "text": "If it stood in for a stage after a fan-out failed, read that stage's SKILL.md and followed its checks rather than improvising the work itself",
+          "kind": "untested"
         }
       ],
       "files": []

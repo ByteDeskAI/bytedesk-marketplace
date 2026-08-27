@@ -190,6 +190,23 @@ try {
   }
 } catch { /* no profiles dir: a flat, single-product authority */ }
 
+// --- gate: rules that no token expresses -------------------------------------
+// Three separate runs reported this independently: DESIGN.md states a 4px spacing base, a
+// 1.2 type scale and a typeface, and the token file carries colour only. Every surface then
+// re-derives spacing and type locally, and those copies drift silently — colour cannot,
+// because colour is gated. A rule stated in prose that no token expresses is a rule that
+// will be obeyed differently by every consumer.
+const design = existsSync(join(ROOT, 'DESIGN.md')) ? read(join(ROOT, 'DESIGN.md')) : '';
+const groups = new Set(Object.keys(tokens).map((k) => k.split('.')[0]));
+for (const [heading, group, what] of [
+  [/^##\s+Space/im,  'space',  'a spacing scale'],
+  [/^##\s+Type/im,   'font',   'a type scale'],
+  [/^##\s+Motion/im, 'motion', 'durations or easings'],
+]) {
+  if (heading.test(design) && !groups.has(group))
+    fail('token-coverage', `DESIGN.md declares ${what} but no ${group}.* tokens exist; every consumer will re-derive it and they will drift`);
+}
+
 // --- report -----------------------------------------------------------------
 for (const n of notes) console.log(n);
 // Print open decisions every run. One that scrolls past in green is undecided forever.

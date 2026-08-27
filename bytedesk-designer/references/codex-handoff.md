@@ -218,6 +218,40 @@ These appear in normal successful runs:
 What is a real failure: no `session id` line; no folder under `generated_images` in image
 mode; or a reply file containing prose where you specified a sentinel.
 
+## When `codex exec` hangs with no output at all
+
+Not a model failure and not an auth failure — no banner, no session id, no error, just
+nothing until you kill it. A trivial one-word prompt hangs the same way, which is the tell.
+
+**The cause is almost always the Codex config, not Codex.** `~/.codex/config.toml` can carry
+MCP server declarations, and `codex exec` starts every one of them before it runs your
+prompt. One server that is slow, unreachable, or returning 5xx stalls session startup
+indefinitely. Observed in the wild: a 43KB config with 21 MCP servers, one of them answering
+HTTP 503, hanging every invocation.
+
+Confirm it in two commands. If the first hangs and the second returns in seconds, it is the
+config:
+
+```bash
+echo "Reply with exactly: OK" | codex exec --skip-git-repo-check -s read-only -
+```
+
+```bash
+mkdir -p /tmp/codex-min && cp ~/.codex/auth.json /tmp/codex-min/
+printf 'model = "<your model>"\n' > /tmp/codex-min/config.toml
+echo "Reply with exactly: OK" | CODEX_HOME=/tmp/codex-min codex exec --skip-git-repo-check -s read-only -
+```
+
+`CODEX_HOME` is also the workaround: a scoped home with a copy of `auth.json` and a minimal
+config gives you the same binary and the same sign-in with none of the MCP startup. It
+changes nothing in the real `~/.codex`.
+
+**Say so rather than working around it silently.** A run that quietly reroutes through a
+scoped home has produced a true artifact, but the operator still has a broken `codex exec`
+for everything else they do that day, and they will not find out from the artifact. This is
+the third preflight state — installed, working, signed in, unreachable — and the same rule
+applies: repair is permitted, concealed repair is not.
+
 ## Known model behaviour worth not fighting
 
 **A mid-tone blue accent gets pulled to a saturated primary.** Verified over two rounds:

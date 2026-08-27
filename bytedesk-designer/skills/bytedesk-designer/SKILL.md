@@ -132,6 +132,18 @@ silently is not, because the reason for fanning out in the first place was to ke
 context from judging many artifacts — and once you are doing that, a later review's
 independence is gone and the operator should know it.
 
+**Read the stage's SKILL.md before standing in for it.** This is the part that gets skipped,
+and skipping it is measurable. Across the evaluation runs, surfaces built by the surface
+stage carried a generic-interface tell in **0 of 12** cases; surfaces the orchestrator built
+inline, after a fan-out failed, carried it in **8 of 12**. Same model, same authority, same
+brief. The whole difference was whether anything had read the stage's rules.
+
+A fallback is not "do the work myself instead". It is "become that stage": load its
+SKILL.md, follow its checks, produce its artifacts to its contract. An orchestrator that
+skips that is not running a degraded arc, it is running a different and worse one — and
+because the artifacts still land in the right folders with the right names, nothing looks
+wrong.
+
 ## Own the run folder
 
 Workers produce artifacts. The orchestrator names them, files them, and writes

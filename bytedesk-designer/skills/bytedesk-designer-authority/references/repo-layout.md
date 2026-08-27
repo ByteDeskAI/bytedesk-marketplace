@@ -144,6 +144,12 @@ An undecided accent that scrolls past in green is an undecided accent forever.
 accent. But two products with `mode: own` on the same hex is almost always an accident, and
 naming it costs one line.
 
+**Token coverage.** Every rule `DESIGN.md` states in prose must exist as a token. Three
+separate evaluation runs reported the same gap independently: a foundation declaring a 4px
+spacing base, a 1.2 type scale and a typeface, with a token file carrying colour only. Every
+surface then re-derived spacing and type locally — and unlike colour, which is gated, those
+copies drift in silence. A rule nothing emits is a rule each consumer obeys differently.
+
 ### Proving the gates
 
 For each gate: break the repo in exactly the way it exists to catch, run the validator,
