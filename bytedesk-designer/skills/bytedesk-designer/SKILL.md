@@ -104,13 +104,16 @@ locally reasonable choices that don't cohere.
 stage as done.** Not "did the worker return" — did the file appear, and is it what was
 asked for.
 
-This is not defensive padding. It happened three times in one afternoon: workers that
-returned no artifacts, started no Codex process, and did not answer a status ping. What is
-actually established is narrow, and worth stating narrowly rather than theorising — it
-failed while the parent session was running a large batch of its own, and a direct probe
-under normal load spawned a nested worker in six seconds with no error. So the trigger is
-load, not capability, and a big fan-out is itself the thing most likely to create that
-load. The bigger the batch, the more this matters.
+This is not defensive padding, and the cause turned out to be specific enough to work
+around rather than fear. **Giving a worker a name allocates it a terminal pane.** When that
+budget is exhausted — by long-lived sessions from other tools, not necessarily anything you
+started — every *named* spawn fails with `no space for new pane` while unnamed spawns work
+fine. A probe confirmed the plain case succeeds in six seconds.
+
+So if a fan-out fails to launch: **retry without names, in smaller batches.** A run that hit
+this dispatched six named workers, got six failures, retried unnamed in two batches of
+three, and launched all six with no work lost — the run folder was already built and no
+worker had started.
 
 Two practical consequences:
 
@@ -157,6 +160,15 @@ divergent attempts across four surfaces is twelve invocations — well over half
 State the shape before starting: how many stages, how many artifacts, roughly how long. An
 operator who knows a run is thirty minutes goes and does something else. One who doesn't
 watches it and interrupts halfway, which wastes all of it.
+
+**And say it again at the end, in wall-clock time.** This rule failed three times across two
+evaluation rounds, and the reason is structural rather than careless: in a single-turn run
+there is no "before" — the operator gets one message, after the work. A cost stated only in
+a plan they never saw is a cost never stated.
+
+So the final report carries it too, in minutes, not in stage counts or invocation counts. A
+run that says "twelve Codex invocations" has told the operator something they cannot convert
+without knowing what an invocation costs. Say the minutes.
 
 ## Resuming
 

@@ -55,9 +55,15 @@ command-line argument means fighting three layers of quote escaping, and it will
 the moment a prompt contains an apostrophe.
 
 ```bash
-codex exec --skip-git-repo-check -s read-only -C <run-dir> -o <name>-reply.txt - \
-  < prompts/<name>.txt > <name>-log.txt 2>&1
+codex exec --skip-git-repo-check -s read-only -C <run-dir> -o <run-dir>/<name>-reply.txt - \
+  < <run-dir>/prompts/<name>.txt > <run-dir>/<name>-log.txt 2>&1
 ```
+
+**Give `-o` an absolute path.** It resolves against the shell that invoked Codex, *not*
+against `-C`. A relative `-o name-reply.txt` with a `-C` elsewhere writes the reply beside
+your shell's cwd, or nowhere you look — a run hit this and lost five reply files while the
+images landed fine, so nothing appeared broken until someone went looking for the sentinel.
+The same applies to the input redirect and the log.
 
 Why each flag:
 
@@ -168,7 +174,7 @@ reconciles them against the brief and decides.
 
 ```bash
 codex exec --skip-git-repo-check -s read-only -i /path/to/reference.png \
-  -C <run-dir> -o r2-a-reply.txt - < prompts/r2-a.txt > r2-a-log.txt 2>&1
+  -C <run-dir> -o <run-dir>/r2-a-reply.txt - < <run-dir>/prompts/r2-a.txt > <run-dir>/r2-a-log.txt 2>&1
 ```
 
 Use this for "match this look", for iterating on an image the user already has, for
@@ -212,8 +218,10 @@ colour-specific prior, not a prompt failure.
 
 It is **not universal**, which is what makes it actionable: saturated and distinctly-hued
 accents (orange, cyan, pink) land close enough to read correctly in the same session. The
-failure concentrates on blues sitting between grey-blue and vivid blue — exactly where the
-model's "glowing accent on a dark ground" prior lives.
+failure concentrates on **muted, low-chroma hues** — first observed on a mid-tone blue, and
+since reproduced on a muted sage, which rules out the hue and implicates the saturation.
+Anything sitting between a grey and a vivid colour is where the model's "glowing accent on a
+dark ground" prior takes over.
 
 So: don't spend a round on it. Treat the raster as mood, never as a colour reference. If
 an accurate plate is needed, composite — take the render's luminance and drive the hue

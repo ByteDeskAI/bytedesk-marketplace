@@ -120,6 +120,36 @@ for (const p of catalog.products) {
     continue;
   }
   if (mode === 'undecided') undecided.push(p.id);
+
+  // `inherits` was the blind spot. Skipping every non-`own` product meant an entire class of
+  // accent declaration got no check at all, and it hides a failure that looks like nothing:
+  // a product inheriting from a SIBLING needs its own [data-product] scope, because :root
+  // carries the family accent, not the sibling's. Without that scope the page renders the
+  // family colour, uses var() correctly, hardcodes nothing, and passes every other gate.
+  // Inheriting from the family (no `from`) is different — :root already applies, so no scope
+  // is wanted and none is required.
+  if (mode === 'inherits') {
+    const from = p.accent.from;
+    if (!from) continue;                       // inherits the family accent; :root covers it
+    const src = catalog.products.find((q) => q.id === from);
+    if (!src) { fail('accent', `${p.id} inherits from ${from}, which is not in the catalog`); continue; }
+    if (src.accent?.mode !== 'own') {
+      fail('accent', `${p.id} inherits from ${from}, which does not own an accent (mode ${src.accent?.mode})`);
+      continue;
+    }
+    const want = src.accent.value.toLowerCase();
+    const scope = css.match(new RegExp(`\\[data-product=["']${p.id}["']\\][^{]*\\{([^}]*)\\}`));
+    if (!scope) {
+      fail('accent', `${p.id} inherits ${want} from ${from} but has no [data-product="${p.id}"] scope; it will render the family accent instead`);
+    } else {
+      const got = scope[1].match(/--ds-color-accent\s*:\s*([^;]+);/);
+      if (!got) fail('accent', `${p.id} scope declares no --ds-color-accent`);
+      else if (got[1].trim().toLowerCase() !== want)
+        fail('accent', `${p.id} inherits from ${from} (${want}) but its scope sets ${got[1].trim()}`);
+    }
+    continue;
+  }
+
   if (mode !== 'own') continue;
 
   const value = p.accent.value?.toLowerCase();

@@ -40,7 +40,7 @@
    forbids. It needs splitting: refuse-on-absent, and repair-and-disclose-on-unreachable.
 
 4. **The shipped validator's accent gate checks three places, not the four it documents.**
-   Found by the add-product run, unprompted: `repo-layout.md` and the skill both say an
+   Found by the add-product run, unprompted: `skills/bytedesk-designer-authority/references/repo-layout.md` and the skill both say an
    `own` accent must agree across the token JSON, the CSS custom property, the
    `[data-product]` scope, and the README table. `validate.mjs` checks the catalog, the
    scope and the README — the token JSON never holds per-product accents, so that arm of

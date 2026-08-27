@@ -1,0 +1,87 @@
+{
+  "rows": [
+    {
+      "eval": "append-without-dropping",
+      "skill": "bytedesk-designer-publish",
+      "n": 7,
+      "w": 5,
+      "b": 6,
+      "delta": -14.285714285714285,
+      "sec_w": 370.1,
+      "sec_b": 267.5,
+      "tok_w": 102162,
+      "tok_b": 86509
+    },
+    {
+      "eval": "batch-discipline",
+      "skill": "bytedesk-designer",
+      "n": 8,
+      "w": 8,
+      "b": 3,
+      "delta": 62.5,
+      "sec_w": 1241.3,
+      "sec_b": 400.7,
+      "tok_w": 243038,
+      "tok_b": 101894
+    },
+    {
+      "eval": "cold-start-no-authority",
+      "skill": "bytedesk-designer",
+      "n": 6,
+      "w": 5,
+      "b": 0,
+      "delta": 83.33333333333334,
+      "sec_w": 1903.6,
+      "sec_b": 137.4,
+      "tok_w": 260794,
+      "tok_b": 68818
+    },
+    {
+      "eval": "resume-with-stale-files",
+      "skill": "bytedesk-designer",
+      "n": 7,
+      "w": 6,
+      "b": 7,
+      "delta": -14.285714285714285,
+      "sec_w": 561.3,
+      "sec_b": 223.9,
+      "tok_w": 136699,
+      "tok_b": 91424
+    }
+  ],
+  "per_skill": {
+    "bytedesk-designer-publish": {
+      "w": 5,
+      "b": 6,
+      "n": 7
+    },
+    "bytedesk-designer": {
+      "w": 19,
+      "b": 10,
+      "n": 21
+    }
+  },
+  "overall": {
+    "with": 24,
+    "base": 16,
+    "n": 28
+  },
+  "non_discriminating": [
+    "Read the existing manifest before writing anything",
+    "Appended to the storybook rather than regenerating it from scratch",
+    "Noticed that a manifest entry's source path no longer resolves",
+    "Did not silently repoint that entry at a similarly-named file as though nothing had changed",
+    "Reported the rename as something needing a decision rather than resolving it by resemblance",
+    "Preserved the existing entries' status labels and brief links rather than regenerating them",
+    "Kept the contact sheet and cross-set consistency judgement unfanned",
+    "Named the artifacts itself rather than letting workers invent their own conventions",
+    "Either dispatched workers and reported what each produced, or said why it ran them itself instead - a run that never fanned out does not satisfy this by silence",
+    "Stated the approximate time cost of the arc",
+    "Read the run state before doing any work",
+    "Checked the vendored token sha against the authority's current head rather than only checking that files exist",
+    "Detected that the surface was built against a commit the authority has moved past",
+    "Treated the drifted stage as incomplete rather than trusting a passing existence check",
+    "Named which artifacts the drift invalidates rather than reporting the sha mismatch alone",
+    "Did not restart stages whose inputs were genuinely unchanged"
+  ]
+}

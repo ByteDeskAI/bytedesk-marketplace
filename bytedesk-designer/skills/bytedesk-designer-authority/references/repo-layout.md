@@ -122,6 +122,16 @@ three, because per-product accents never reached the token file at all. A gate d
 wider than it checks is the dangerous kind, since people stop looking where it says it has
 looked.
 
+**Check `inherits`, not just `own`.** It is tempting to skip every product that doesn't own
+an accent, and that was a real bug in this template until a run caught it. A product
+inheriting from a **sibling** needs its own `[data-product]` scope, because `:root` carries
+the *family* accent, not the sibling's. Without that scope the page renders the family
+colour while using `var()` correctly, hardcoding nothing, and passing every other gate —
+the same silent-wrong-colour failure the surface skill warns about, one layer up.
+
+Inheriting from the family (no `from`) is the different case: `:root` already applies, so
+no scope is wanted and none should be demanded.
+
 Print open decisions every run rather than passing silently:
 
 ```

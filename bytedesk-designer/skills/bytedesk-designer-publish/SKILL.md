@@ -25,7 +25,7 @@ anyone:
 
 1. **What does this look like?** — the surfaces, rendered live, not screenshotted.
 2. **What was it trying to be?** — the brief, beside the thing it produced.
-3. **Can I trust this?** — provenance, and whether it is approved or exploration.
+3. **Can I trust this?** — provenance, and where the artifact sits between made and agreed.
 
 A storybook that answers only the first is a screenshot gallery, and it goes stale the
 first time a token changes.
@@ -50,10 +50,24 @@ A direction piece with no brief beside it is decoration. Each entry carries:
 - one line of what it was for
 - the prompt or brief that produced it, available but not shouting
 - its provenance header
-- its status — **exploration** or **approved**, and never blank
+- its status — **exploration**, **draft**, or **approved**, and never blank
+
+### The three statuses, and the one rule that governs them
+
+- **exploration** — generated art and direction pieces. Never implementation source.
+- **draft** — built, and nobody has reviewed it. This is the status of anything this run
+  produced.
+- **approved** — a human said so, or a review stage passed it. Nothing else grants it.
+
+**A stage cannot approve its own output.** This is not pedantry about labels: publish was
+graded against a baseline that had no skill at all, and lost, because it marked two screens
+it had just built as `approved` while the baseline called them `draft`. The cause was this
+file — the vocabulary was two words, `exploration` and `approved`, and a freshly built
+surface is neither. Given no correct option, a careful run picked the wrong one.
 
 The status field is the one that matters six months out. An unlabelled generated image in a
-shared folder becomes an approved design by default, because nobody remembers it wasn't.
+shared folder becomes an approved design by default, because nobody remembers it wasn't —
+and a wrongly-labelled one is worse, because someone does remember, and is wrong.
 
 ## 3. Say which is accurate and which is feel
 
@@ -89,7 +103,9 @@ each. A storybook that needs explaining has failed at its one job.
     { "kind": "surface", "path": "surfaces/settings.html",
       "brief": "brief.md#settings", "status": "approved" },
     { "kind": "direction", "path": "direction/images/r2-a.png",
-      "prompt": "direction/prompts/r2-a.txt", "status": "exploration" }
+      "prompt": "direction/prompts/r2-a.txt", "status": "exploration" },
+    { "kind": "surface", "path": "surfaces/checkout.html",
+      "brief": "brief.md#checkout", "status": "draft" }
   ]
 }
 ```
@@ -122,7 +138,9 @@ and ask — a missing file is information, not a reason to quietly shorten the l
 ## What this stage must never do
 
 - **Never screenshot a surface into the storybook.** Iframe the real thing.
-- **Never publish an artifact with a blank status.** Exploration or approved.
+- **Never publish an artifact with a blank status**, and **never approve your own output.**
+  See the status vocabulary above. A stage that just built a thing cannot be the stage that
+  says it is approved.
 - **Never leave an absolute path in a published file.**
 - **Never restyle the storybook outside the authority.**
 - **Never publish without opening it.**

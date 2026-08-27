@@ -115,3 +115,64 @@ error**, with the pane backlog I had blamed still in place. So neither "nesting 
 unavailable" nor "orphaned panes" was the cause. What is established is only that it fails
 under heavy parent concurrency and works at normal load — which is exactly the condition a
 large sweep creates. The orchestrator was measured at its worst, and the condition was mine.
+
+---
+
+# Iteration 2 — results
+
+Eight runs: the two orchestrator evals re-run with fan-out headroom, and the two re-trapped
+evals run for the first time.
+
+| eval | iteration 1 | iteration 2 |
+|---|---|---|
+| `batch-discipline` | 6/8 vs 4/8 | **8/8 vs 3/8** |
+| `cold-start-no-authority` | 5/6 vs 0/6 | 5/6 vs 0/6 |
+| `append-without-dropping` | 5/5 vs 5/5 | 5/7 vs 6/7 |
+| `resume-with-stale-files` | 5/5 vs 5/5 | 6/7 vs 7/7 |
+
+**The orchestrator's number was being suppressed by the condition it was measured in** —
++38% in iteration 1, **+71%** across its two evals here. With headroom the with-skill run
+scored perfectly: six scoped workers, PNGs verified on disk before believing the replies,
+and the viewed-vs-artifacts gate run. The baseline never fanned out at all.
+
+## The fan-out mechanism, finally specific
+
+Naming a worker allocates it a terminal pane. When that budget is exhausted — here by
+long-lived sessions from other tools — every *named* spawn fails with `no space for new
+pane` while unnamed spawns work fine; a probe confirmed the plain case succeeds in six
+seconds. One run hit it, retried unnamed in two batches of three, and launched all six with
+no work lost. Another hit it and didn't retry. That difference is why the workaround is now
+in the skill rather than a warning.
+
+I revised this diagnosis four times. The first three — "nesting is unavailable", "my own
+concurrency", "load generally" — were guesses stated as conclusions.
+
+## Both re-trapped evals came back negative, and both were worth it
+
+Neither meant the fixture was too easy.
+
+`append-without-dropping` (**5/7 vs 6/7**) exposed a real defect **in the skill**: the run
+marked two screens it had just built as `approved`, while the baseline called them `draft`.
+The cause was this suite's own status vocabulary — two words, `exploration` and `approved`,
+and a freshly built surface is neither. Given no correct option a careful run picked the
+wrong one. Three statuses now, and the rule they carry: **a stage cannot approve its own
+output.**
+
+`resume-with-stale-files` (**6/7 vs 7/7**) exposed a defect **in the eval**: the assertion
+demanded the run re-vendor drifted tokens, while the orchestrator's own rule says a run
+surfacing blocking findings stops and reports. The run quoted that rule, declined to fix,
+and lost a point for obeying the skill. The grader named the conflict rather than letting it
+pass as a result. Assertion rewritten to accept either.
+
+That run also produced the deepest finding in either iteration. It checked whether the run's
+*record* was truthful, not just whether its files were current: the promoted image is 4096
+pixels of one colour, `notes.md` claims it holds the motif, `state.json` lists it as viewed.
+**"Those cannot all be true."** It ranked that above the colour bug and the drift, because it
+is about whether the record can be trusted. The baseline fixed both mechanical problems and
+never asked.
+
+## Running total
+
+**Nine defects fixed across the two iterations. Six were found by runs testing something
+else, and two by baselines with no skill at all** — which is the argument for running
+baselines rather than just measuring against them.

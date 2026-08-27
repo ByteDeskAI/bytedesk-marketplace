@@ -20,7 +20,7 @@
           "kind": "unproven"
         },
         {
-          "text": "Gave every entry an explicit status of exploration or approved",
+          "text": "Gave every entry an explicit status from the three-value vocabulary, and approved nothing it had just built",
           "kind": "discriminator"
         },
         {
@@ -94,8 +94,8 @@
           "kind": "untested"
         },
         {
-          "text": "Gave the newly built screens a status of their own rather than inheriting an approval nobody granted",
-          "kind": "untested"
+          "text": "Gave the newly built screens a status of draft rather than approved - a stage cannot approve its own output",
+          "kind": "discriminator"
         }
       ],
       "files": []

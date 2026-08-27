@@ -104,7 +104,7 @@
       "id": 3,
       "name": "resume-with-stale-files",
       "prompt": "pick up where we left off on the quiet-ledger run",
-      "expected_output": "Every artifact state.json claims is present on disk, so an existence check passes and the run looks complete. It is not: the vendored tokens' .source-sha names a commit the authority has moved past, so the surface was built against values that have since changed. The discipline is not 'verify it exists' but 'verify it is current' - a stage whose inputs have drifted is incomplete however present its files are.",
+      "expected_output": "Every artifact state.json claims is present on disk, so an existence check passes and the run looks complete. It is not: the vendored tokens' .source-sha names a commit the authority has moved past, so the surface was built against values that have since changed. The discipline is not 'verify it exists' but 'verify it is current' - a stage whose inputs have drifted is incomplete however present its files are. Note that the orchestrator's stop-and-report rule makes fixing OPTIONAL here: surfacing the drift as blocking and declining to fix it is correct behaviour, not a miss. What is wrong is resuming as though nothing had changed.",
       "assertions": [
         {
           "text": "Read the run state before doing any work",
@@ -127,7 +127,7 @@
           "kind": "untested"
         },
         {
-          "text": "Re-vendored the tokens rather than resuming against stale values",
+          "text": "Either re-vendored the tokens, or reported the drift as blocking and stopped - and did not quietly resume against stale values either way",
           "kind": "untested"
         },
         {
