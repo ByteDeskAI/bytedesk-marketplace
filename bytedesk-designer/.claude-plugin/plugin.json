@@ -1,0 +1,19 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "bytedesk-designer",
+  "description": "An eval-driven design suite that runs the whole arc from product idea to rendered HTML, pairing Claude's judgement with the Codex CLI's hands at every stage. Reads your own design authority rather than imposing a house style.",
+  "author": {
+    "name": "ByteDeskAI"
+  },
+  "homepage": "https://github.com/ByteDeskAI/bytedesk-designer",
+  "repository": "https://github.com/ByteDeskAI/bytedesk-designer",
+  "license": "Apache-2.0",
+  "keywords": [
+    "design",
+    "design-system",
+    "art-direction",
+    "mockups",
+    "codex",
+    "skills"
+  ]
+}

@@ -1,0 +1,71 @@
+{
+  "skill_name": "bytedesk-designer-direction",
+  "evals": [
+    {
+      "id": 0,
+      "name": "hero-with-overlay-constraint",
+      "prompt": "can you make a header image for the launch post about our new scheduling dashboard? it sits at the top of the blog and the headline goes over it in white text",
+      "expected_output": "Reads the design authority for real values rather than inventing a palette, composes a deliberate low-contrast region for the white headline, treats this as a marketing surface rather than binding it to product restraint, and runs at least one revision round driven by actually viewing the returned image. No baked-in headline text, no fabricated dashboard controls or invented metrics.",
+      "assertions": [
+        "Read the design authority for real token values instead of inventing a palette",
+        "Composed a deliberate low-contrast region for the white headline rather than discovering the problem after rendering",
+        "Treated this as a marketing surface rather than binding it to the product's restraint rules",
+        "Viewed the returned image before judging it, rather than judging from the reply text or log",
+        "Ran at least one revision round driven by what was actually seen",
+        "Did not bake headline text into the generated image",
+        "Did not fabricate dashboard controls or invented metrics",
+        "Produced an image with a real focal move rather than something that reads as a placeholder"
+      ],
+      "files": []
+    },
+    {
+      "id": 1,
+      "name": "ui-mockup-crosses-the-contract",
+      "prompt": "mock up the approvals screen for me - the one where operators see what needs their sign-off. i want to see the layout with a few rows of tasks in it",
+      "expected_output": "Recognises that a generated raster of an application screen crosses the authority's generated-art contract. Does not hand back a screenshot with fake rows and invented metrics, and does not refuse flatly either. Names the part that is out of bounds, offers the form that works, and pairs the compliant artifact with a direction piece, saying plainly which is which.",
+      "assertions": [
+        "Read the generated-art contract from the design authority before producing anything",
+        "Did NOT hand back a generated raster screenshot carrying fake controls and invented data",
+        "Did not refuse flatly, but named which specific part was out of bounds",
+        "Offered the form that works rather than only stating the restriction",
+        "Paired the compliant artifact with a direction piece rather than delivering only the dry version",
+        "Said plainly which artifact is the accurate one and which is the feel",
+        "Recorded provenance marking the output as exploration rather than production source"
+      ],
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "divergence-and-one-axis-revision",
+      "prompt": "i need some visual direction for a product called Ember - its a incident response tool. dark, urgent but not alarming. show me some options",
+      "expected_output": "Round 1 explores two or three genuinely different directions rather than variations on one. Every returned image is viewed before any is recommended. The critique is specific and names a winner with a reason. Any revision changes exactly one axis and holds the working clauses verbatim.",
+      "assertions": [
+        "Round 1 explored two or more genuinely different directions, not variations on a single idea",
+        "Viewed every returned image before recommending one",
+        "Named a winner and gave a concrete reason rather than describing all of them evenly",
+        "Was specific about what failed rather than softening the critique",
+        "Any revision round changed one axis, holding the rest of the prompt verbatim",
+        "Kept each prompt beside the image it produced, so the result is reproducible",
+        "Checked the product's rejected directions before generating, rather than regenerating a judged idea"
+      ],
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "fails-closed-without-codex",
+      "prompt": "generate a moodboard for the new landing page",
+      "expected_output": "Runs preflight, finds codex unavailable, and stops. Names whether it is absent or signed out and gives the matching fix. Does not produce the artifact by another route, and leaves no run folder implying the stage completed.",
+      "assertions": [
+        "Checked for codex before starting work rather than partway through",
+        "Refused to proceed rather than producing the artifact without Codex",
+        "Distinguished a missing binary from an unauthenticated one and gave the matching fix",
+        "Did not write a run folder implying the stage had completed",
+        "Offered the art direction itself as something useful, without filing it as stage output"
+      ],
+      "files": []
+    }
+  ],
+  "_inherited_from": {
+    "codex-image-studio": "This skill is a genericized fork. Its predecessor retired one eval, revise-existing-image, after iteration 1: it scored 5/5 in both configurations, so it measured nothing, and the baseline arguably did better engineering -- reverse-engineering a mark to a polygon and shipping an SVG master while the skill run regenerated a raster. That finding is why marks moved to a separate identity stage rather than staying in this loop. Do not reintroduce it here."
+  }
+}

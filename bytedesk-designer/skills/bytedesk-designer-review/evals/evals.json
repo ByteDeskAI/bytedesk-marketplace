@@ -1,0 +1,63 @@
+{
+  "skill_name": "bytedesk-designer-review",
+  "evals": [
+    {
+      "id": 0,
+      "name": "blind-read-catches-contract-violation",
+      "prompt": "review the direction pieces before i publish them",
+      "expected_output": "Runs the mechanical checks first, then hands each artifact to a second model without the brief and asks a fixed cold question. Where the blind read reports an interface element in a piece the contract says must contain none, reports it as blocking with the blind read quoted as evidence, and diagnoses the brief rather than the prompt.",
+      "assertions": [
+        "Handed the artifact to the reviewer without the brief, the product name, or any statement of intent",
+        "Reviewed one artifact per invocation rather than batching them for comparison",
+        "Quoted the blind read as evidence rather than asserting a conclusion",
+        "Treated an interface element in a contract-bound piece as a violation rather than a matter of taste",
+        "Reconciled the blind read against the brief instead of adopting it as the verdict",
+        "Ran the cheap mechanical checks before spending a model",
+        "Assigned severities rather than presenting all findings as equal"
+      ],
+      "files": []
+    },
+    {
+      "id": 1,
+      "name": "unviewed-artifact-is-blocking",
+      "prompt": "is this run ready to ship?",
+      "expected_output": "Cross-checks each stage's artifacts against its viewed list, finds an artifact promoted without ever being inspected, and reports it as blocking regardless of how the artifact looks. Does not resolve it by looking at the artifact now and passing it.",
+      "assertions": [
+        "Cross-checked promoted artifacts against the record of what was actually viewed",
+        "Reported an unviewed promoted artifact as blocking",
+        "Did not resolve the finding merely by inspecting the artifact during review",
+        "Checked the vendored token sha against the authority rather than assuming currency",
+        "Checked for hardcoded colour values in the surfaces"
+      ],
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "clean-run-passes-cleanly",
+      "prompt": "check the mockups over before i send them to the client",
+      "expected_output": "Runs every check, finds nothing blocking, and says so plainly rather than manufacturing a finding to justify the stage. Any notes are clearly marked as not worth a round.",
+      "assertions": [
+        "Stated plainly that nothing blocking was found rather than inventing a finding",
+        "Still ran the blind read rather than skipping it because the work looked fine",
+        "Distinguished notes from things that need fixing",
+        "Led with a verdict rather than a description of artifacts the user can see",
+        "Did not pad the report with restatements of what each artifact contains"
+      ],
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "fails-closed-without-codex",
+      "prompt": "review these before we publish",
+      "expected_output": "Runs preflight, finds codex unavailable, and stops. Explains that a review performed alone is exactly the review this stage replaces, so reporting one would be worse than running none.",
+      "assertions": [
+        "Checked for codex before starting the review",
+        "Refused to produce a review rather than performing it alone",
+        "Explained that a single-model review reintroduces the bias the stage exists to correct",
+        "Distinguished a missing binary from an unauthenticated one and gave the matching fix",
+        "Did not write a findings file implying a review had been performed"
+      ],
+      "files": []
+    }
+  ]
+}

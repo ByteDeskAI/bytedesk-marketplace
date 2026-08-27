@@ -1,8 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
   "name": "bytedesk",
-  "version": "1.39.0",
-  "description": "ByteDesk's Claude and Codex marketplace \u2014 orchestration, design systems, architecture, project management, and platform engineering plugins.",
+  "version": "1.40.0",
+  "description": "ByteDesk's Claude and Codex marketplace — orchestration, design systems, architecture, project management, and platform engineering plugins.",
   "owner": {
     "name": "ByteDesk AI",
     "url": "https://github.com/ByteDeskAI"
@@ -25,12 +25,12 @@
     },
     {
       "name": "structurizr",
-      "description": "Enterprise C4 modeling with Structurizr DSL \u2014 indexed language reference, CLI/MCP tooling, 32 skills, validation gates, pattern catalog, and cookbook recipes.",
+      "description": "Enterprise C4 modeling with Structurizr DSL — indexed language reference, CLI/MCP tooling, 32 skills, validation gates, pattern catalog, and cookbook recipes.",
       "source": "./structurizr"
     },
     {
       "name": "platform-dev",
-      "description": "ByteDesk core implementation lifecycle \u2014 TDD engineer, feature start, PR-ready, worktree operator, architect, grounding, integration branches.",
+      "description": "ByteDesk core implementation lifecycle — TDD engineer, feature start, PR-ready, worktree operator, architect, grounding, integration branches.",
       "source": "./platform-dev"
     },
     {
@@ -45,7 +45,7 @@
     },
     {
       "name": "platform-domain",
-      "description": "Bounded-context proof operators \u2014 DBA, tool actions, Office workflows, DevProjects, remote gateway.",
+      "description": "Bounded-context proof operators — DBA, tool actions, Office workflows, DevProjects, remote gateway.",
       "source": "./platform-domain"
     },
     {
@@ -55,17 +55,17 @@
     },
     {
       "name": "bytedesk-goals",
-      "description": "ByteDesk goal pipeline \u2014 goals board, run_goals, plan_goal/plan_epic, Jira/Confluence skills, named-agent dispatch.",
+      "description": "ByteDesk goal pipeline — goals board, run_goals, plan_goal/plan_epic, Jira/Confluence skills, named-agent dispatch.",
       "source": "./bytedesk-goals"
     },
     {
       "name": "omnigent-dev",
-      "description": "Omnigent cross-repo engineering \u2014 operator, architect, runtime harness, web deploy, API/SDK, agent bundles.",
+      "description": "Omnigent cross-repo engineering — operator, architect, runtime harness, web deploy, API/SDK, agent bundles.",
       "source": "./omnigent-dev"
     },
     {
       "name": "task-management",
-      "description": "Takes over Claude Code's task system \u2014 native task calls, approved plans, decisions and commits mirrored into a git-tracked markdown store at .bytedesk/task-management/. One store per project shared across git worktrees, claim-based parallel work with node_modules sharing, an MCP server, and a live dashboard.",
+      "description": "Takes over Claude Code's task system — native task calls, approved plans, decisions and commits mirrored into a git-tracked markdown store at .bytedesk/task-management/. One store per project shared across git worktrees, claim-based parallel work with node_modules sharing, an MCP server, and a live dashboard.",
       "source": "./task-management"
     },
     {
@@ -75,7 +75,7 @@
     },
     {
       "name": "knowledge-management",
-      "description": "OKF v0.2 knowledge runtime for coding agents \u2014 git-tracked markdown bundles at .bytedesk/knowledge/, km CLI, progressive-disclosure hooks, MCP search/validate, lint/doctor, soft links to task-management.",
+      "description": "OKF v0.2 knowledge runtime for coding agents — git-tracked markdown bundles at .bytedesk/knowledge/, km CLI, progressive-disclosure hooks, MCP search/validate, lint/doctor, soft links to task-management.",
       "source": "./knowledge-management"
     },
     {
@@ -92,6 +92,11 @@
       "name": "plugin-rsync",
       "description": "Rsync ByteDesk marketplace plugin source into globally installed Claude, Grok, and Codex caches. No arguments refreshes every installed bytedesk plugin; pass one name or a comma-separated list. User-scope only.",
       "source": "./plugin-rsync"
+    },
+    {
+      "name": "bytedesk-designer",
+      "description": "An eval-driven design suite — product idea to rendered HTML, Claude directing and the Codex CLI producing at every stage. Reads your own design authority for tokens, motif, and generated-art rules rather than imposing a house style.",
+      "source": "./bytedesk-designer"
     }
   ]
 }

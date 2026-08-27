@@ -1,0 +1,16 @@
+{
+  "products": [
+    {
+      "id": "quiet-ledger",
+      "name": "Quiet Ledger",
+      "profile": "profiles/quiet-ledger/DESIGN.md",
+      "accent": { "mode": "own", "value": "#e0723a" }
+    },
+    {
+      "id": "quiet-ledger-site",
+      "name": "Quiet Ledger (marketing)",
+      "profile": "profiles/quiet-ledger-site/DESIGN.md",
+      "accent": { "mode": "inherits", "from": "quiet-ledger" }
+    }
+  ]
+}

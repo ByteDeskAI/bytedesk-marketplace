@@ -9,8 +9,13 @@ state.json
 
 # This host's audit log, and the rotated generation. Session ids and one machine's
 # write stream — not a board artifact another clone can use.
+events.json
 events.jsonl
 events.*.jsonl
+
+# Generated project-local launchers. tm init rewrites them per host; they are not
+# a shared board artifact.
+bin
 
 # A port and a pid for a dashboard running here, now.
 dashboard.*

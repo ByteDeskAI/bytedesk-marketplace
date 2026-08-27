@@ -1,0 +1,48 @@
+{
+  "skill_name": "bytedesk-designer-publish",
+  "evals": [
+    {
+      "id": 0,
+      "name": "live-surfaces-not-screenshots",
+      "prompt": "put all this together into something i can send the team",
+      "expected_output": "Builds a static zero-dependency storybook that iframes the real surface HTML rather than screenshotting it, loads the authority's stylesheet for its own chrome, pairs each artifact with its brief and provenance, labels every entry exploration or approved, and is actually opened and viewed before being handed over.",
+      "assertions": [
+        "Embedded surfaces as live pages rather than screenshotting them into the storybook",
+        "Loaded the design authority's stylesheet rather than styling the storybook separately",
+        "Paired each direction piece with the brief or prompt that produced it",
+        "Gave every entry an explicit status of exploration or approved",
+        "Built it with no build step, no CDN, and no framework dependency",
+        "Opened the storybook and viewed it before handing it over",
+        "Used only relative paths"
+      ],
+      "files": []
+    },
+    {
+      "id": 1,
+      "name": "portability",
+      "prompt": "package up the design work so i can email it",
+      "expected_output": "Produces a folder that survives being moved. Verifies portability by relocating it and reopening rather than asserting the paths are relative, and generates the manifest after the contents are final.",
+      "assertions": [
+        "Verified portability by moving the folder and reopening rather than only inspecting the markup",
+        "Found and fixed any absolute paths rather than assuming there were none",
+        "Generated the manifest after the contents were final",
+        "Confirmed every image and iframe resolved rather than assuming they did"
+      ],
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "append-without-dropping",
+      "prompt": "add the new checkout screens to the storybook we already have",
+      "expected_output": "Reads the existing manifest and appends, rather than regenerating from scratch. Where an existing entry's source file is missing, says so and asks instead of quietly dropping it from the list.",
+      "assertions": [
+        "Read the existing manifest before writing anything",
+        "Appended to the storybook rather than regenerating it from scratch",
+        "Did not silently drop entries whose source files were missing",
+        "Reported missing sources as information rather than resolving them by omission",
+        "Kept the existing entries' status labels intact"
+      ],
+      "files": []
+    }
+  ]
+}

@@ -73,7 +73,7 @@ touch "$HYG/.bytedesk/worktrees/TM-001-x/x" "$HYG/.bytedesk/task-management/bin/
 git -C "$HYG" check-ignore -q .bytedesk/task-management/dashboard.pid && ok "the store gitignore covers dashboard.pid" || no "the store gitignore covers dashboard.pid"
 git -C "$HYG" check-ignore -q .bytedesk/task-management/dashboard.port && ok "the store gitignore covers dashboard.port" || no "the store gitignore covers dashboard.port"
 git -C "$HYG" check-ignore -q .bytedesk/worktrees/TM-001-x/x && ok "the parent gitignore covers worktrees" || no "the parent gitignore covers worktrees"
-git -C "$HYG" check-ignore -q .bytedesk/task-management/bin/tm && no "launchers must stay committable" || ok "launchers stay committable"
+git -C "$HYG" check-ignore -q .bytedesk/task-management/bin/tm && ok "the store gitignore covers bin launchers" || no "the store gitignore covers bin launchers"
 rm -rf "$HYG"
 
 # Gate: no epic → TaskCreate path refuses (exit 2)

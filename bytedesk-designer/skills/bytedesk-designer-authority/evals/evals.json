@@ -1,0 +1,68 @@
+{
+  "skill_name": "bytedesk-designer-authority",
+  "evals": [
+    {
+      "id": 0,
+      "name": "bootstrap-from-nothing",
+      "prompt": "im building a little app called Quiet Ledger - its for freelancers to track invoices. i dont have any design stuff yet, no colors no nothing. can you set me up with a proper design system i can point things at later",
+      "expected_output": "Establishes the ground question before anything else, generates two or three genuinely different foundations rather than one, judges them on computed contrast rather than appearance, and writes a real git repository -- tokens JSON as the single authored source, generated CSS, DESIGN.md carrying reasoning rather than duplicated hexes, and a validate.mjs whose gates have actually been run. Includes a generated-art contract the user never asked for, offered as a proposal.",
+      "assertions": [
+        "Asked whether the system is light-first or dark-first before producing any values",
+        "Produced two or more genuinely different foundations rather than a single proposal",
+        "Computed contrast ratios rather than asserting that the palette is accessible",
+        "Authored values in one place and generated the CSS adapter from it, rather than hand-writing both",
+        "Kept reasoning in DESIGN.md and values in the token file without duplicating hexes between them",
+        "Shipped a runnable validator rather than a checklist in prose",
+        "Actually ran the validator, including at least one deliberate failure to prove a gate",
+        "Included a generated-art contract without being asked, and offered it as a proposal the user can reject",
+        "Initialised a git repository and said how to point other tools at it"
+      ],
+      "files": []
+    },
+    {
+      "id": 1,
+      "name": "capture-with-drift",
+      "prompt": "we already have a design, its just spread all over our css. can you pull it into an actual system? heres the stylesheet",
+      "expected_output": "Reads the source rather than rendering it, inventories values with use counts, identifies that near-duplicate greys are drift rather than a scale, proposes collapses and records what merged, then diffs the generated CSS back against the original and accounts for every difference. Ends with the questions evidence cannot answer -- rationale, rejected directions, motif, bans -- instead of claiming completeness.",
+      "assertions": [
+        "Read values from the stylesheet source rather than from a rendering or screenshot",
+        "Reported use counts or some other evidence of which values are deliberate",
+        "Identified near-duplicate values as drift rather than preserving them as scale steps",
+        "Recorded which values were merged, so the collapse can be objected to",
+        "Diffed the generated CSS against the original stylesheet and accounted for the differences",
+        "Ended with explicit questions for the user rather than presenting the capture as complete",
+        "Did not invent rationale for decisions it had no evidence about"
+      ],
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "add-product-accent-parity",
+      "prompt": "add our new product Beacon to the design system. its going to have its own accent color, kind of a warm amber",
+      "expected_output": "Writes the profile with an explicit accent mode of own, then propagates the value to all four places that must agree -- token JSON, root custom property or product scope, the data-product scope, and the README table -- and re-runs the validator to prove parity rather than asserting it. Fills the motif field with something seen rather than an adjective.",
+      "assertions": [
+        "Declared an explicit accent mode rather than leaving it implied",
+        "Propagated the accent to every place the validator checks, not just the token file",
+        "Re-ran the validator after the change instead of asserting that it would pass",
+        "Wrote a motif describing something visually concrete rather than an adjective like modern or trustworthy",
+        "Added the product to the catalog as well as creating the profile directory",
+        "Checked whether the new accent collides with one another product already owns"
+      ],
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "fails-closed-without-codex",
+      "prompt": "set up a design system for my new app",
+      "expected_output": "Runs preflight, finds codex unavailable, and stops. Names which failure it is -- absent versus signed out -- and gives the matching fix. Does not build the authority alone and does not leave a half-created repository behind.",
+      "assertions": [
+        "Checked for codex before starting work rather than discovering the problem partway through",
+        "Refused to proceed rather than producing the authority without Codex",
+        "Distinguished a missing binary from an unauthenticated one, and gave the fix matching the actual failure",
+        "Left no partially created repository behind",
+        "Explained why the collaboration is required rather than treating it as an arbitrary dependency"
+      ],
+      "files": []
+    }
+  ]
+}

@@ -975,7 +975,9 @@ export function reindex(p = paths()) {
  *   index.json      a derived cache. The README already says "delete it any time".
  *   state.json      session claims and one-shot overrides — whose laptop, not what work.
  *   events.jsonl    this host's audit log. Session ids and one machine's write stream.
+ *   events.json     leftover misspelling / older name of that log.
  *   events.*.jsonl  the rotated generation of that log.
+ *   bin             generated project-local launchers. tm init rewrites them per host.
  *   dashboard.*     a port and a pid for a server running on one machine right now.
  *   port.assigned   this machine's standing port for the board. Per-machine, but NOT swept with
  *                   dashboard.* — losing it moves the URL of a board that drifted off its
@@ -999,8 +1001,13 @@ state.json
 
 # This host's audit log, and the rotated generation. Session ids and one machine's
 # write stream — not a board artifact another clone can use.
+events.json
 events.jsonl
 events.*.jsonl
+
+# Generated project-local launchers. tm init rewrites them per host; they are not
+# a shared board artifact.
+bin
 
 # A port and a pid for a dashboard running here, now. Named twice: the glob covers
 # dashboard.assigned-port (pre-0.5 leftover) and anything else this process writes
@@ -1037,11 +1044,11 @@ events.jsonl merge=union
  * task-management/ never matches them. No trailing slash: a symlink named worktrees
  * would otherwise slip through the same way dashboard/node_modules once did.
  *
- * `task-management/bin/` is *not* listed. Those launchers are generated but portable and
- * belong in git so a clone can run `tm` without a global install.
+ * Store `.gitignore` lists `bin` so generated launchers stay out of git. This file
+ * only ignores worktrees — a rule inside task-management/ never matches them.
  */
 const BYTEDESS_GITIGNORE = `# Written by \`tm init\`. Worktrees are local checkouts, not shared board state.
-# The store at task-management/ carries its own .gitignore for pid/port/cache.
+# The store at task-management/ carries its own .gitignore for pid/port/cache/bin.
 worktrees
 `;
 
@@ -1121,8 +1128,10 @@ export function seedGitContract(p = paths(), only = null) {
 export const NOT_FOR_GIT = [
   "index.json",
   "state.json",
+  "events.json",
   "events.jsonl",
   "events.*.jsonl",
+  "bin",
   "dashboard.*",
   "dashboard.pid",
   "dashboard.port",
@@ -1133,19 +1142,23 @@ export const NOT_FOR_GIT = [
 ];
 
 /** Basename of a store file that is per-machine, not the shared board. */
-export function isHostFile(name) {
+export function isHostFile(name, rel = "") {
   if (
     name === "index.json" ||
     name === "state.json" ||
+    name === "events.json" ||
     name === "events.jsonl" ||
     name === "port.assigned" ||
     name === "state.lock" ||
-    name === "state.lock.break"
+    name === "state.lock.break" ||
+    name === "bin"
   ) {
     return true;
   }
   if (name.startsWith("dashboard.")) return true;
   if (name.startsWith(".tm-tmp-")) return true;
+  const parts = String(rel).replace(/\\/g, "/").split("/");
+  if (parts.includes("bin")) return true;
   return /^events\.\d+\.jsonl$/.test(name);
 }
 
@@ -1164,7 +1177,7 @@ export function trackedHostFiles(p = paths()) {
     return out
       .split("\0")
       .filter(Boolean)
-      .filter((rel) => isHostFile(basename(rel)));
+      .filter((rel) => isHostFile(basename(rel), rel));
   } catch {
     return [];
   }

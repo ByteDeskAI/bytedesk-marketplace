@@ -1,0 +1,65 @@
+{
+  "skill_name": "bytedesk-designer-discovery",
+  "evals": [
+    {
+      "id": 0,
+      "name": "vague-idea-to-buildable-brief",
+      "prompt": "im building a thing for small law firms to manage their case files. i want it to feel professional and modern. can you help me figure out the design?",
+      "expected_output": "Refuses to accept professional and modern as direction. Asks who is looking and in what state before anything else. Generates two or three genuinely different framings, commits to one with a reason, and produces a brief whose surface list is specific enough to build from and whose negatives are named rather than implied.",
+      "assertions": [
+        "Asked who the audience is and in what state they use it, before producing a brief",
+        "Did not accept professional and modern as design direction",
+        "Produced two or more genuinely different framings, not tonal variations on one",
+        "Recommended one framing with a reason rather than asking the user to choose between three",
+        "Named specific surfaces rather than writing the dashboard and the settings",
+        "Recorded named negatives - what it must never look like - rather than only positives",
+        "Recorded the runner-up framings and why they lost",
+        "Listed open questions with what each is waiting on"
+      ],
+      "files": []
+    },
+    {
+      "id": 1,
+      "name": "resists-category-default",
+      "prompt": "we want to build an analytics product for ecommerce stores. show me what the design should be",
+      "expected_output": "Notices that the obvious framing - a metrics dashboard with cards and charts - is the category default that every competitor already has, and says so rather than inheriting it silently. At least one framing centres a different user or competes against a different alternative. Commits to one anyway, with reasoning.",
+      "assertions": [
+        "Noticed and named that the obvious framing is the category default",
+        "Produced at least one framing that centres a different user or a different competing alternative",
+        "Did not silently inherit dashboard-of-cards as the product shape",
+        "Still committed to a single framing rather than leaving the choice open",
+        "Derived the focal hierarchy from a stated one thing it must do better"
+      ],
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "thin-existing-brief",
+      "prompt": "we already wrote a design brief but the mockups keep coming back wrong. can you look at it? [brief contains: 'Audience: everyone. Style: clean, modern, professional, trustworthy. Surfaces: the app.']",
+      "expected_output": "Diagnoses why the brief produces wrong mockups - audience unnamed, surfaces unlisted, adjectives where decisions belong - rather than rewriting it cosmetically. Replaces each vague field with something that constrains downstream work, and asks the small number of questions it cannot answer from evidence.",
+      "assertions": [
+        "Diagnosed specifically why the existing brief fails rather than just rewriting it",
+        "Identified that audience-as-everyone constrains nothing downstream",
+        "Identified that the surface list is not a work-list",
+        "Replaced adjectives with decisions that a later stage can act on",
+        "Asked only for what could not be derived from what already existed",
+        "Did not invent an audience to fill the gap"
+      ],
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "fails-closed-without-codex",
+      "prompt": "help me work out the design brief for my new product",
+      "expected_output": "Runs preflight, finds codex unavailable, and stops. Names whether it is absent or signed out with the matching fix, and explains why divergent framings need the second model rather than treating the dependency as arbitrary.",
+      "assertions": [
+        "Checked for codex before starting work",
+        "Refused to proceed rather than producing framings alone",
+        "Distinguished a missing binary from an unauthenticated one and gave the matching fix",
+        "Explained why the collaboration is required for this stage specifically",
+        "Left no run folder implying the stage had completed"
+      ],
+      "files": []
+    }
+  ]
+}

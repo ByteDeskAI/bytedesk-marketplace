@@ -1,0 +1,76 @@
+{
+  "skill_name": "bytedesk-designer",
+  "evals": [
+    {
+      "id": 0,
+      "name": "batch-discipline",
+      "prompt": "i have six products that all need visual direction. can you do them all?",
+      "expected_output": "Dispatches one focused worker per product rather than handling six in one pass, keeps the contact sheet and cross-product consistency judgement in one place, and marks no stage complete whose promoted artifacts were never viewed. States the time cost before starting.",
+      "assertions": [
+        "Dispatched one worker per product rather than generating all six in a single pass",
+        "Kept the contact sheet and cross-set consistency judgement unfanned",
+        "Confirmed every promoted artifact had actually been viewed before marking a stage complete",
+        "Stated roughly how long the run would take before starting it",
+        "Gave each worker an explicit scope and told it what not to touch",
+        "Named the artifacts itself rather than letting workers invent their own conventions"
+      ],
+      "files": []
+    },
+    {
+      "id": 1,
+      "name": "cold-start-no-authority",
+      "prompt": "i want to build an app for tracking home renovations. can you design it for me? i dont have anything yet",
+      "expected_output": "Runs preflight before creating anything, finds no design authority, says so, and bootstraps one before the stages that read it. Announces which stages it will run and roughly what that costs. Does not invent a palette to get moving.",
+      "assertions": [
+        "Ran preflight before creating a run folder",
+        "Detected that no design authority exists rather than proceeding on invented values",
+        "Bootstrapped an authority before running the stages that read it",
+        "Announced which stages it would run and why, before starting",
+        "Stated the approximate time cost of the arc",
+        "Ran review before publishing even though the user did not ask for it"
+      ],
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "scopes-to-the-ask",
+      "prompt": "can you mock up just the login screen? we already have the design system and a brief",
+      "expected_output": "Runs the surface stage only, reusing the existing brief and authority rather than re-running discovery. Says which stages it is skipping and why.",
+      "assertions": [
+        "Ran only the stages the request needed rather than the full arc",
+        "Reused the existing brief instead of re-running discovery",
+        "Said explicitly which stages it was skipping and why",
+        "Did not re-run a stage whose inputs were already satisfied"
+      ],
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "resume-with-missing-files",
+      "prompt": "pick up where we left off on the quiet-ledger run",
+      "expected_output": "Reads state.json, reports where the run got to, and cross-checks that artifacts marked complete actually exist on disk. Treats a stage whose files are gone as incomplete regardless of what the state file claims, and continues from the first genuinely incomplete stage.",
+      "assertions": [
+        "Read the run state before doing any work",
+        "Verified that artifacts recorded as complete actually exist on disk",
+        "Treated a stage with missing files as incomplete rather than trusting the state file",
+        "Did not restart stages that were genuinely complete",
+        "Reported where the run stood before continuing it"
+      ],
+      "files": []
+    },
+    {
+      "id": 4,
+      "name": "fails-closed-without-codex",
+      "prompt": "design my new product for me, start to finish",
+      "expected_output": "Runs preflight first, finds codex unavailable, stops before creating a run folder, and gives the fix matching the actual failure. Leaves nothing behind to clean up.",
+      "assertions": [
+        "Ran preflight before creating a run folder rather than partway through the arc",
+        "Refused to proceed rather than running the arc without Codex",
+        "Distinguished a missing binary from an unauthenticated one and gave the matching fix",
+        "Left no run folder or state file behind",
+        "Explained why the collaboration is required rather than treating it as arbitrary"
+      ],
+      "files": []
+    }
+  ]
+}

@@ -453,8 +453,10 @@ describe("evidence, natives and the cache", () => {
     for (const drop of [
       "index.json",
       "state.json",
+      "events.json",
       "events.jsonl",
       "events.*.jsonl",
+      "bin",
       "dashboard.*",
       "dashboard.pid",
       "dashboard.port",
@@ -467,7 +469,7 @@ describe("evidence, natives and the cache", () => {
     }
   });
 
-  it("gitignores generated runtime files and keeps the board and launchers committable", () => {
+  it("gitignores generated runtime files and keeps the board committable", () => {
     const repo = tempRepo();
     stores.push(repo);
     const p = paths(repo);
@@ -506,12 +508,12 @@ describe("evidence, natives and the cache", () => {
       ".bytedesk/task-management/index.json",
       ".bytedesk/task-management/state.json",
       ".bytedesk/task-management/events.jsonl",
+      ".bytedesk/task-management/bin/tm",
       ".bytedesk/worktrees/TM-001-x/x",
     ]) {
       assert.equal(ignored(rel), true, `${rel} is generated and must stay out of git`);
     }
     for (const rel of [
-      ".bytedesk/task-management/bin/tm",
       ".bytedesk/task-management/tasks/keep.md",
       ".bytedesk/task-management/config.json",
     ]) {

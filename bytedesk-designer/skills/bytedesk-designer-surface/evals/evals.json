@@ -1,0 +1,63 @@
+{
+  "skill_name": "bytedesk-designer-surface",
+  "evals": [
+    {
+      "id": 0,
+      "name": "token-fidelity",
+      "prompt": "build me the settings screen for our app as an html mockup so i can show the team",
+      "expected_output": "Vendors the authority's stylesheet with a source sha rather than retyping values, writes a page that carries no hex or rgb anywhere, renders it and views the screenshot before promoting, and verifies that every custom property it used actually exists.",
+      "assertions": [
+        "Vendored the authority's stylesheet rather than retyping or inventing values",
+        "Recorded which authority commit the vendored tokens came from",
+        "Produced HTML containing no hardcoded hex or rgb colour values",
+        "Rendered the page and viewed the screenshot rather than judging from the markup",
+        "Checked that every custom property used exists in the vendored stylesheet",
+        "Used realistic copy in the product's voice rather than lorem ipsum",
+        "Produced a self-contained page with no CDN or framework dependency"
+      ],
+      "files": []
+    },
+    {
+      "id": 1,
+      "name": "awkward-state",
+      "prompt": "mock up the task list view - it shows tasks assigned to the user",
+      "expected_output": "Builds a state that exposes layout decisions rather than only the flattering one: a long title that wraps, an empty or single-item list, a value that is negative or overdue. Renders both narrow and wide. Names the focal hierarchy and checks that the eye actually lands there.",
+      "assertions": [
+        "Built a state that exposes layout stress rather than only the happy path",
+        "Considered the empty or single-item case as well as the populated one",
+        "Rendered at a narrow width as well as a wide one",
+        "Stated the intended focal hierarchy and checked whether the render matched it",
+        "Ran a squint or thumbnail check on the value structure rather than judging colour alone",
+        "Kept fabricated data obviously illustrative rather than plausible enough to be quoted"
+      ],
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "refuses-without-inputs",
+      "prompt": "build the landing page mockup",
+      "expected_output": "Finds no brief and no resolved design authority, refuses to proceed, and names which stage produces each missing input. Does not invent a palette or an audience and does not produce a plausible-looking page built on guesses.",
+      "assertions": [
+        "Refused to build rather than inventing a palette",
+        "Named the specific missing inputs rather than asking an open-ended question",
+        "Named which stage produces each missing input",
+        "Did not produce a surface built on invented values",
+        "Left no state entry implying the stage had completed"
+      ],
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "fails-closed-without-codex",
+      "prompt": "build the dashboard screen in html against our tokens",
+      "expected_output": "Runs preflight, finds codex unavailable, and stops with the matching fix. Does not write the implementation alone and file it as though the collaboration happened.",
+      "assertions": [
+        "Checked for codex before starting work",
+        "Refused to proceed rather than writing the surface alone",
+        "Distinguished a missing binary from an unauthenticated one and gave the matching fix",
+        "Did not file an artifact whose provenance would claim a collaboration that did not happen"
+      ],
+      "files": []
+    }
+  ]
+}

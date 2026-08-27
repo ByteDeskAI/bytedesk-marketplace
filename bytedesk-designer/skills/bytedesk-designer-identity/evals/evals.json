@@ -1,0 +1,51 @@
+{
+  "skill_name": "bytedesk-designer-identity",
+  "evals": [
+    {
+      "id": 0,
+      "name": "logo-mark-with-constraints",
+      "prompt": "i need a logo mark for a side project called Sable - its an ai note taking thing for research people. i want it dark and serious, definitely not another purple sparkle icon. it has to still read as a favicon",
+      "expected_output": "Explores two or three genuinely different concepts to find the idea, judging silhouette rather than colour, then redraws the winner as SVG and ships a real asset kit - vector master, PNG ladder, favicon carrying 48/32/16 drawn at size, ground variants, and a 16px proof that is actually viewed. Does not burn rounds fighting the white-background prior.",
+      "assertions": [
+        "Explored two or more genuinely different concepts, not variations on one idea",
+        "Judged silhouette and concept rather than critiquing the generated colour or background",
+        "Did not spend a revision round trying to change the generated background colour",
+        "Delivered a hand-written SVG master rather than stopping at a raster of a logo",
+        "Shipped a size ladder, a favicon, and at least one ground variant",
+        "Drew the favicon sizes individually rather than downsampling one image",
+        "Produced and actually viewed a proof of the mark at 16px",
+        "Avoided the purple sparkle cliche the user rejected by name",
+        "Named one winner with a concrete reason for choosing it"
+      ],
+      "files": []
+    },
+    {
+      "id": 1,
+      "name": "existing-mark-in-authority",
+      "prompt": "can you make us a logo for the reporting product?",
+      "expected_output": "Checks the design authority first, finds the product already has a catalogued mark, and says so rather than quietly producing a competitor to it. Offers what is actually missing - sizes, formats, ground variants - instead.",
+      "assertions": [
+        "Checked the design authority for an existing mark before generating anything",
+        "Did not produce a new mark that could be mistaken for the catalogued one",
+        "Said plainly that a mark already exists rather than silently proceeding",
+        "Offered the missing formats or variants as the useful work instead",
+        "Distinguished exploration from an identity-critical asset"
+      ],
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "fails-closed-without-codex",
+      "prompt": "design a mark for my new app",
+      "expected_output": "Runs preflight, finds codex unavailable, and stops with the matching fix. Explains that concept exploration is where generation is unbeatable, rather than treating the dependency as arbitrary.",
+      "assertions": [
+        "Checked for codex before starting work",
+        "Refused to proceed rather than drawing the first idea unaided",
+        "Distinguished a missing binary from an unauthenticated one and gave the matching fix",
+        "Explained why concept generation matters for this stage specifically",
+        "Left no partial asset kit behind"
+      ],
+      "files": []
+    }
+  ]
+}
