@@ -7,14 +7,38 @@
       "prompt": "i have six products that all need visual direction. can you do them all?",
       "expected_output": "Dispatches one focused worker per product rather than handling six in one pass, keeps the contact sheet and cross-product consistency judgement in one place, and marks no stage complete whose promoted artifacts were never viewed. States the time cost before starting.",
       "assertions": [
-        "Dispatched one worker per product rather than generating all six in a single pass",
-        "Kept the contact sheet and cross-set consistency judgement unfanned",
-        "Confirmed every promoted artifact had actually been viewed before marking a stage complete",
-        "Stated roughly how long the run would take before starting it",
-        "Gave each worker an explicit scope and told it what not to touch",
-        "Named the artifacts itself rather than letting workers invent their own conventions",
-        "Verified that each dispatched worker actually produced its artifact, rather than treating an empty result as a stage with nothing to do",
-        "If any worker returned nothing, ran that stage itself and said so, rather than continuing past the gap silently"
+        {
+          "text": "Dispatched one worker per product rather than generating all six in a single pass",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Kept the contact sheet and cross-set consistency judgement unfanned",
+          "kind": "unproven"
+        },
+        {
+          "text": "Confirmed every promoted artifact had actually been viewed before marking a stage complete",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Stated what the run cost in wall-clock time, not only in invocations or stages",
+          "kind": "untested"
+        },
+        {
+          "text": "Gave each worker an explicit scope and told it what not to touch",
+          "kind": "untested"
+        },
+        {
+          "text": "Named the artifacts itself rather than letting workers invent their own conventions",
+          "kind": "unproven"
+        },
+        {
+          "text": "Verified that each dispatched worker actually produced its artifact, rather than treating an empty result as a stage with nothing to do",
+          "kind": "untested"
+        },
+        {
+          "text": "Either dispatched workers and reported what each produced, or said why it ran them itself instead - a run that never fanned out does not satisfy this by silence",
+          "kind": "untested"
+        }
       ],
       "files": []
     },
@@ -24,12 +48,30 @@
       "prompt": "i want to build an app for tracking home renovations. can you design it for me? i dont have anything yet",
       "expected_output": "Runs preflight before creating anything, finds no design authority, says so, and bootstraps one before the stages that read it. Announces which stages it will run and roughly what that costs. Does not invent a palette to get moving.",
       "assertions": [
-        "Ran preflight before creating a run folder",
-        "Detected that no design authority exists rather than proceeding on invented values",
-        "Bootstrapped an authority before running the stages that read it",
-        "Announced which stages it would run and why, before starting",
-        "Stated the approximate time cost of the arc",
-        "Ran review before publishing even though the user did not ask for it"
+        {
+          "text": "Ran preflight before creating a run folder",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Detected that no design authority exists rather than proceeding on invented values",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Bootstrapped an authority before running the stages that read it",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Named which stages it ran, which it skipped, and why, rather than only reporting finished work",
+          "kind": "untested"
+        },
+        {
+          "text": "Stated the approximate time cost of the arc",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Ran review before publishing even though the user did not ask for it",
+          "kind": "discriminator"
+        }
       ],
       "files": []
     },
@@ -39,24 +81,59 @@
       "prompt": "can you mock up just the login screen? we already have the design system and a brief",
       "expected_output": "Runs the surface stage only, reusing the existing brief and authority rather than re-running discovery. Says which stages it is skipping and why.",
       "assertions": [
-        "Ran only the stages the request needed rather than the full arc",
-        "Reused the existing brief instead of re-running discovery",
-        "Said explicitly which stages it was skipping and why",
-        "Did not re-run a stage whose inputs were already satisfied"
+        {
+          "text": "Ran only the stages the request needed rather than the full arc",
+          "kind": "unproven"
+        },
+        {
+          "text": "Reused the existing brief instead of re-running discovery",
+          "kind": "unproven"
+        },
+        {
+          "text": "Said explicitly which stages it was skipping and why",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Did not re-run a stage whose inputs were already satisfied",
+          "kind": "unproven"
+        }
       ],
       "files": []
     },
     {
       "id": 3,
-      "name": "resume-with-missing-files",
+      "name": "resume-with-stale-files",
       "prompt": "pick up where we left off on the quiet-ledger run",
-      "expected_output": "Reads state.json, reports where the run got to, and cross-checks that artifacts marked complete actually exist on disk. Treats a stage whose files are gone as incomplete regardless of what the state file claims, and continues from the first genuinely incomplete stage.",
+      "expected_output": "Every artifact state.json claims is present on disk, so an existence check passes and the run looks complete. It is not: the vendored tokens' .source-sha names a commit the authority has moved past, so the surface was built against values that have since changed. The discipline is not 'verify it exists' but 'verify it is current' - a stage whose inputs have drifted is incomplete however present its files are.",
       "assertions": [
-        "Read the run state before doing any work",
-        "Verified that artifacts recorded as complete actually exist on disk",
-        "Treated a stage with missing files as incomplete rather than trusting the state file",
-        "Did not restart stages that were genuinely complete",
-        "Reported where the run stood before continuing it"
+        {
+          "text": "Read the run state before doing any work",
+          "kind": "unproven"
+        },
+        {
+          "text": "Checked the vendored token sha against the authority's current head rather than only checking that files exist",
+          "kind": "untested"
+        },
+        {
+          "text": "Detected that the surface was built against a commit the authority has moved past",
+          "kind": "untested"
+        },
+        {
+          "text": "Treated the drifted stage as incomplete rather than trusting a passing existence check",
+          "kind": "untested"
+        },
+        {
+          "text": "Named which artifacts the drift invalidates rather than reporting the sha mismatch alone",
+          "kind": "untested"
+        },
+        {
+          "text": "Re-vendored the tokens rather than resuming against stale values",
+          "kind": "untested"
+        },
+        {
+          "text": "Did not restart stages whose inputs were genuinely unchanged",
+          "kind": "untested"
+        }
       ],
       "files": []
     },
@@ -66,14 +143,37 @@
       "prompt": "design my new product for me, start to finish",
       "expected_output": "Runs preflight first, finds codex unavailable, stops before creating a run folder, and gives the fix matching the actual failure. Leaves nothing behind to clean up.",
       "assertions": [
-        "Ran preflight before creating a run folder rather than partway through the arc",
-        "Refused to proceed rather than running the arc without Codex",
-        "Distinguished which of the three preflight states this was - not installed, unauthenticated, or installed but unreachable - and gave the fix matching that state",
-        "Left no run folder or state file behind",
-        "Explained why the collaboration is required rather than treating it as arbitrary",
-        "If it repaired an unreachable install rather than stopping, said so in the user-facing message, kept the repair scoped to the run rather than changing the machine, and recorded the version actually invoked"
+        {
+          "text": "Ran preflight before creating a run folder rather than partway through the arc",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Refused to proceed rather than running the arc without Codex",
+          "kind": "untested"
+        },
+        {
+          "text": "Distinguished which of the three preflight states this was - not installed, unauthenticated, or installed but unreachable - and gave the fix matching that state",
+          "kind": "untested"
+        },
+        {
+          "text": "Left no run folder or state file behind",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Explained why the collaboration is required rather than treating it as arbitrary",
+          "kind": "untested"
+        },
+        {
+          "text": "If it repaired an unreachable install rather than stopping, said so in the user-facing message, kept the repair scoped to the run rather than changing the machine, and recorded the version actually invoked",
+          "kind": "untested"
+        }
       ],
       "files": []
     }
-  ]
+  ],
+  "_assertion_kinds": {
+    "discriminator": "Showed a delta between configurations in iteration 1. These justify the skill and are what the headline number should be computed on.",
+    "unproven": "Passed in BOTH configurations, once. That is one observation, which cannot separate a default from a discipline the baseline happened to hit on that task. Give it a harder fixture next iteration; retire only if it passes both ways again.",
+    "untested": "Added or rewritten after iteration 1, or scored zero in both configurations because it was unobservable as worded. Grade these first."
+  }
 }

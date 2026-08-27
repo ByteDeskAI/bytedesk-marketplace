@@ -7,14 +7,38 @@
       "prompt": "can you make a header image for the launch post about our new scheduling dashboard? it sits at the top of the blog and the headline goes over it in white text",
       "expected_output": "Reads the design authority for real values rather than inventing a palette, composes a deliberate low-contrast region for the white headline, treats this as a marketing surface rather than binding it to product restraint, and runs at least one revision round driven by actually viewing the returned image. No baked-in headline text, no fabricated dashboard controls or invented metrics.",
       "assertions": [
-        "Read the design authority for real token values instead of inventing a palette",
-        "Composed a deliberate low-contrast region for the white headline rather than discovering the problem after rendering",
-        "Treated this as a marketing surface rather than binding it to the product's restraint rules",
-        "Viewed the returned image before judging it, rather than judging from the reply text or log",
-        "Ran at least one revision round driven by what was actually seen",
-        "Did not bake headline text into the generated image",
-        "Did not fabricate dashboard controls or invented metrics",
-        "Produced an image with a real focal move rather than something that reads as a placeholder"
+        {
+          "text": "Read the design authority for real token values instead of inventing a palette",
+          "kind": "unproven"
+        },
+        {
+          "text": "Composed a deliberate low-contrast region for the white headline rather than discovering the problem after rendering",
+          "kind": "unproven"
+        },
+        {
+          "text": "Treated this as a marketing surface rather than binding it to the product's restraint rules",
+          "kind": "unproven"
+        },
+        {
+          "text": "Viewed the returned image before judging it, rather than judging from the reply text or log",
+          "kind": "unproven"
+        },
+        {
+          "text": "Ran at least one revision round driven by what was actually seen",
+          "kind": "unproven"
+        },
+        {
+          "text": "Did not bake headline text into the generated image",
+          "kind": "unproven"
+        },
+        {
+          "text": "Did not fabricate dashboard controls or invented metrics",
+          "kind": "unproven"
+        },
+        {
+          "text": "Produced an image with a real focal move rather than something that reads as a placeholder",
+          "kind": "discriminator"
+        }
       ],
       "files": []
     },
@@ -24,13 +48,34 @@
       "prompt": "mock up the approvals screen for me - the one where operators see what needs their sign-off. i want to see the layout with a few rows of tasks in it",
       "expected_output": "Recognises that a generated raster of an application screen crosses the authority's generated-art contract. Does not hand back a screenshot with fake rows and invented metrics, and does not refuse flatly either. Names the part that is out of bounds, offers the form that works, and pairs the compliant artifact with a direction piece, saying plainly which is which.",
       "assertions": [
-        "Read the generated-art contract from the design authority before producing anything",
-        "Did NOT hand back a generated raster screenshot carrying fake controls and invented data",
-        "Did not refuse flatly, but named which specific part was out of bounds",
-        "Offered the form that works rather than only stating the restriction",
-        "Paired the compliant artifact with a direction piece rather than delivering only the dry version",
-        "Said plainly which artifact is the accurate one and which is the feel",
-        "Recorded provenance marking the output as exploration rather than production source"
+        {
+          "text": "Read the generated-art contract from the design authority before producing anything",
+          "kind": "unproven"
+        },
+        {
+          "text": "Did NOT hand back a generated raster screenshot carrying fake controls and invented data",
+          "kind": "unproven"
+        },
+        {
+          "text": "Did not refuse flatly, but named which specific part was out of bounds",
+          "kind": "unproven"
+        },
+        {
+          "text": "Offered the form that works rather than only stating the restriction",
+          "kind": "unproven"
+        },
+        {
+          "text": "Paired the compliant artifact with a direction piece rather than delivering only the dry version",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Said plainly which artifact is the accurate one and which is the feel",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Recorded provenance marking the output as exploration rather than production source",
+          "kind": "unproven"
+        }
       ],
       "files": []
     },
@@ -40,13 +85,34 @@
       "prompt": "i need some visual direction for a product called Ember - its a incident response tool. dark, urgent but not alarming. show me some options",
       "expected_output": "Round 1 explores two or three genuinely different directions rather than variations on one. Every returned image is viewed before any is recommended. The critique is specific and names a winner with a reason. Any revision changes exactly one axis and holds the working clauses verbatim.",
       "assertions": [
-        "Round 1 explored two or more genuinely different directions, not variations on a single idea",
-        "Viewed every returned image before recommending one",
-        "Named a winner and gave a concrete reason rather than describing all of them evenly",
-        "Was specific about what failed rather than softening the critique",
-        "Any revision round changed one axis, holding the rest of the prompt verbatim",
-        "Kept each prompt beside the image it produced, so the result is reproducible",
-        "Checked the product's rejected directions before generating, rather than regenerating a judged idea"
+        {
+          "text": "Round 1 explored two or more genuinely different directions, not variations on a single idea",
+          "kind": "unproven"
+        },
+        {
+          "text": "Viewed every returned image before recommending one",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Named a winner and gave a concrete reason rather than describing all of them evenly",
+          "kind": "unproven"
+        },
+        {
+          "text": "Was specific about what failed rather than softening the critique",
+          "kind": "unproven"
+        },
+        {
+          "text": "Any revision round changed one axis, holding the rest of the prompt verbatim",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Kept each prompt beside the image it produced, so the result is reproducible",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Checked the product's rejected directions before generating, rather than regenerating a judged idea",
+          "kind": "unproven"
+        }
       ],
       "files": []
     },
@@ -56,17 +122,40 @@
       "prompt": "generate a moodboard for the new landing page",
       "expected_output": "Runs preflight, finds codex unavailable, and stops. Names whether it is absent or signed out and gives the matching fix. Does not produce the artifact by another route, and leaves no run folder implying the stage completed.",
       "assertions": [
-        "Checked for codex before starting work rather than partway through",
-        "Refused to proceed rather than producing the artifact without Codex",
-        "Distinguished which of the three preflight states this was - not installed, unauthenticated, or installed but unreachable - and gave the fix matching that state",
-        "Did not write a run folder implying the stage had completed",
-        "Offered the art direction itself as something useful, without filing it as stage output",
-        "If it repaired an unreachable install rather than stopping, said so in the user-facing message, kept the repair scoped to the run rather than changing the machine, and recorded the version actually invoked"
+        {
+          "text": "Checked for codex before starting work rather than partway through",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Refused to proceed rather than producing the artifact without Codex",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Distinguished which of the three preflight states this was - not installed, unauthenticated, or installed but unreachable - and gave the fix matching that state",
+          "kind": "untested"
+        },
+        {
+          "text": "Did not write a run folder implying the stage had completed",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Offered the art direction itself as something useful, without filing it as stage output",
+          "kind": "discriminator"
+        },
+        {
+          "text": "If it repaired an unreachable install rather than stopping, said so in the user-facing message, kept the repair scoped to the run rather than changing the machine, and recorded the version actually invoked",
+          "kind": "untested"
+        }
       ],
       "files": []
     }
   ],
   "_inherited_from": {
     "codex-image-studio": "This skill is a genericized fork. Its predecessor retired one eval, revise-existing-image, after iteration 1: it scored 5/5 in both configurations, so it measured nothing, and the baseline arguably did better engineering -- reverse-engineering a mark to a polygon and shipping an SVG master while the skill run regenerated a raster. That finding is why marks moved to a separate identity stage rather than staying in this loop. Do not reintroduce it here."
+  },
+  "_assertion_kinds": {
+    "discriminator": "Showed a delta between configurations in iteration 1. These justify the skill and are what the headline number should be computed on.",
+    "unproven": "Passed in BOTH configurations, once. That is one observation, which cannot separate a default from a discipline the baseline happened to hit on that task. Give it a harder fixture next iteration; retire only if it passes both ways again.",
+    "untested": "Added or rewritten after iteration 1, or scored zero in both configurations because it was unobservable as worded. Grade these first."
   }
 }

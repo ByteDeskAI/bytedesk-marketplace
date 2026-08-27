@@ -7,13 +7,34 @@
       "prompt": "build me the settings screen for our app as an html mockup so i can show the team",
       "expected_output": "Vendors the authority's stylesheet with a source sha rather than retyping values, writes a page that carries no hex or rgb anywhere, renders it and views the screenshot before promoting, and verifies that every custom property it used actually exists.",
       "assertions": [
-        "Vendored the authority's stylesheet rather than retyping or inventing values",
-        "Recorded which authority commit the vendored tokens came from",
-        "Produced HTML containing no hardcoded hex or rgb colour values",
-        "Rendered the page and viewed the screenshot rather than judging from the markup",
-        "Checked that every custom property used exists in the vendored stylesheet",
-        "Used realistic copy in the product's voice rather than lorem ipsum",
-        "Produced a self-contained page with no CDN or framework dependency"
+        {
+          "text": "Vendored the authority's stylesheet rather than retyping or inventing values",
+          "kind": "unproven"
+        },
+        {
+          "text": "Recorded which authority commit the vendored tokens came from",
+          "kind": "unproven"
+        },
+        {
+          "text": "Produced HTML containing no hardcoded hex or rgb colour values",
+          "kind": "unproven"
+        },
+        {
+          "text": "Rendered the page and viewed the screenshot rather than judging from the markup",
+          "kind": "unproven"
+        },
+        {
+          "text": "Checked that every custom property used exists in the vendored stylesheet",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Used realistic copy in the product's voice rather than lorem ipsum",
+          "kind": "unproven"
+        },
+        {
+          "text": "Produced a self-contained page with no CDN or framework dependency",
+          "kind": "unproven"
+        }
       ],
       "files": []
     },
@@ -23,12 +44,30 @@
       "prompt": "mock up the task list view - it shows tasks assigned to the user",
       "expected_output": "Builds a state that exposes layout decisions rather than only the flattering one: a long title that wraps, an empty or single-item list, a value that is negative or overdue. Renders both narrow and wide. Names the focal hierarchy and checks that the eye actually lands there.",
       "assertions": [
-        "Built a state that exposes layout stress rather than only the happy path",
-        "Considered the empty or single-item case as well as the populated one",
-        "Rendered at a narrow width as well as a wide one",
-        "Stated the intended focal hierarchy and checked whether the render matched it",
-        "Ran a squint or thumbnail check on the value structure rather than judging colour alone",
-        "Kept fabricated data obviously illustrative rather than plausible enough to be quoted"
+        {
+          "text": "Built a state that exposes layout stress rather than only the happy path",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Considered the empty or single-item case as well as the populated one",
+          "kind": "unproven"
+        },
+        {
+          "text": "Rendered at a narrow width as well as a wide one",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Stated the intended focal hierarchy and checked whether the render matched it",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Judged the value structure separately from colour - a thumbnail, a blur, or a greyscale check - and reported what it showed",
+          "kind": "untested"
+        },
+        {
+          "text": "Kept fabricated data obviously illustrative rather than plausible enough to be quoted",
+          "kind": "untested"
+        }
       ],
       "files": []
     },
@@ -38,11 +77,26 @@
       "prompt": "build the landing page mockup",
       "expected_output": "Finds no brief and no resolved design authority, refuses to proceed, and names which stage produces each missing input. Does not invent a palette or an audience and does not produce a plausible-looking page built on guesses.",
       "assertions": [
-        "Refused to build rather than inventing a palette",
-        "Named the specific missing inputs rather than asking an open-ended question",
-        "Named which stage produces each missing input",
-        "Did not produce a surface built on invented values",
-        "Left no state entry implying the stage had completed"
+        {
+          "text": "Refused to build rather than inventing a palette",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Named the specific missing inputs rather than asking an open-ended question",
+          "kind": "unproven"
+        },
+        {
+          "text": "Named which stage produces each missing input",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Did not produce a surface built on invented values",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Left no state entry implying the stage had completed",
+          "kind": "unproven"
+        }
       ],
       "files": []
     },
@@ -52,13 +106,33 @@
       "prompt": "build the dashboard screen in html against our tokens",
       "expected_output": "Runs preflight, finds codex unavailable, and stops with the matching fix. Does not write the implementation alone and file it as though the collaboration happened.",
       "assertions": [
-        "Checked for codex before starting work",
-        "Refused to proceed rather than writing the surface alone",
-        "Distinguished which of the three preflight states this was - not installed, unauthenticated, or installed but unreachable - and gave the fix matching that state",
-        "Did not file an artifact whose provenance would claim a collaboration that did not happen",
-        "If it repaired an unreachable install rather than stopping, said so in the user-facing message, kept the repair scoped to the run rather than changing the machine, and recorded the version actually invoked"
+        {
+          "text": "Checked for codex before starting work",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Refused to proceed rather than writing the surface alone",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Distinguished which of the three preflight states this was - not installed, unauthenticated, or installed but unreachable - and gave the fix matching that state",
+          "kind": "untested"
+        },
+        {
+          "text": "Did not file an artifact whose provenance would claim a collaboration that did not happen",
+          "kind": "unproven"
+        },
+        {
+          "text": "If it repaired an unreachable install rather than stopping, said so in the user-facing message, kept the repair scoped to the run rather than changing the machine, and recorded the version actually invoked",
+          "kind": "untested"
+        }
       ],
       "files": []
     }
-  ]
+  ],
+  "_assertion_kinds": {
+    "discriminator": "Showed a delta between configurations in iteration 1. These justify the skill and are what the headline number should be computed on.",
+    "unproven": "Passed in BOTH configurations, once. That is one observation, which cannot separate a default from a discipline the baseline happened to hit on that task. Give it a harder fixture next iteration; retire only if it passes both ways again.",
+    "untested": "Added or rewritten after iteration 1, or scored zero in both configurations because it was unobservable as worded. Grade these first."
+  }
 }

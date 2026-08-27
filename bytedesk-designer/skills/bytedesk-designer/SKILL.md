@@ -105,15 +105,23 @@ stage as done.** Not "did the worker return" — did the file appear, and is it 
 asked for.
 
 This is not defensive padding. It happened three times in one afternoon: workers that
-returned no artifacts, started no Codex process, and did not answer a status ping. The
-cause, when one run finally surfaced it, was mundane — `no space for new pane`, because
-the parent session had saturated its own concurrency budget. Rate limits, sandbox
-restrictions and harnesses without nested delegation produce the same silence.
+returned no artifacts, started no Codex process, and did not answer a status ping. What is
+actually established is narrow, and worth stating narrowly rather than theorising — it
+failed while the parent session was running a large batch of its own, and a direct probe
+under normal load spawned a nested worker in six seconds with no error. So the trigger is
+load, not capability, and a big fan-out is itself the thing most likely to create that
+load. The bigger the batch, the more this matters.
 
-The failure is dangerous specifically because **a worker that produced nothing looks
-exactly like a stage with nothing to do** — an empty directory reads as "no work needed"
-and the arc continues past a hole. Note also that a large fan-out is itself the condition
-most likely to exhaust the budget, so the bigger the batch, the more this matters.
+Two practical consequences:
+
+**A nested spawn is asynchronous.** It returns an identifier immediately and the result
+arrives later. A stage that dispatches workers and then finishes its own turn never sees
+them complete — from inside, that is indistinguishable from workers that did nothing. Wait
+for them, and check the disk rather than the reply.
+
+**A worker that produced nothing looks exactly like a stage with nothing to do.** An empty
+directory reads as "no work needed" and the arc walks past a hole. That is the whole reason
+this check exists.
 
 When a worker comes back empty, run its stage yourself, one artifact at a time, holding
 the same look-before-promoting discipline. Then say so. Falling back is fine; falling back

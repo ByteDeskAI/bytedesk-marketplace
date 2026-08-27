@@ -7,13 +7,34 @@
       "prompt": "put all this together into something i can send the team",
       "expected_output": "Builds a static zero-dependency storybook that iframes the real surface HTML rather than screenshotting it, loads the authority's stylesheet for its own chrome, pairs each artifact with its brief and provenance, labels every entry exploration or approved, and is actually opened and viewed before being handed over.",
       "assertions": [
-        "Embedded surfaces as live pages rather than screenshotting them into the storybook",
-        "Loaded the design authority's stylesheet rather than styling the storybook separately",
-        "Paired each direction piece with the brief or prompt that produced it",
-        "Gave every entry an explicit status of exploration or approved",
-        "Built it with no build step, no CDN, and no framework dependency",
-        "Opened the storybook and viewed it before handing it over",
-        "Used only relative paths"
+        {
+          "text": "Embedded surfaces as live pages rather than screenshotting them into the storybook",
+          "kind": "unproven"
+        },
+        {
+          "text": "Loaded the design authority's stylesheet rather than styling the storybook separately",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Paired each direction piece with the brief or prompt that produced it",
+          "kind": "unproven"
+        },
+        {
+          "text": "Gave every entry an explicit status of exploration or approved",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Built it with no build step, no CDN, and no framework dependency",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Opened the storybook and viewed it before handing it over",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Used only relative paths",
+          "kind": "discriminator"
+        }
       ],
       "files": []
     },
@@ -23,26 +44,66 @@
       "prompt": "package up the design work so i can email it",
       "expected_output": "Produces a folder that survives being moved. Verifies portability by relocating it and reopening rather than asserting the paths are relative, and generates the manifest after the contents are final.",
       "assertions": [
-        "Verified portability by moving the folder and reopening rather than only inspecting the markup",
-        "Found and fixed any absolute paths rather than assuming there were none",
-        "Generated the manifest after the contents were final",
-        "Confirmed every image and iframe resolved rather than assuming they did"
+        {
+          "text": "Verified portability by moving the folder and reopening rather than only inspecting the markup",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Found and fixed any absolute paths rather than assuming there were none",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Generated the manifest after the contents were final",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Confirmed every image and iframe resolved rather than assuming they did",
+          "kind": "unproven"
+        }
       ],
       "files": []
     },
     {
       "id": 2,
       "name": "append-without-dropping",
-      "prompt": "add the new checkout screens to the storybook we already have",
-      "expected_output": "Reads the existing manifest and appends, rather than regenerating from scratch. Where an existing entry's source file is missing, says so and asks instead of quietly dropping it from the list.",
+      "prompt": "add the new checkout screens to the storybook we already have. also we renamed one of the old surfaces, i think it was the settings one",
+      "expected_output": "Reads the existing manifest and appends. The trap is a renamed source: one entry points at a path that no longer exists while a file of the same content sits under a new name. Regenerating from the directory silently repoints it and nothing looks broken - the entry is still there, still rendering, and has quietly lost its status, its brief link and its history. The run must notice that the entry it carries forward is not the file it was written for, and say so rather than resolving it by resemblance.",
       "assertions": [
-        "Read the existing manifest before writing anything",
-        "Appended to the storybook rather than regenerating it from scratch",
-        "Did not silently drop entries whose source files were missing",
-        "Reported missing sources as information rather than resolving them by omission",
-        "Kept the existing entries' status labels intact"
+        {
+          "text": "Read the existing manifest before writing anything",
+          "kind": "unproven"
+        },
+        {
+          "text": "Appended to the storybook rather than regenerating it from scratch",
+          "kind": "unproven"
+        },
+        {
+          "text": "Noticed that a manifest entry's source path no longer resolves",
+          "kind": "untested"
+        },
+        {
+          "text": "Did not silently repoint that entry at a similarly-named file as though nothing had changed",
+          "kind": "untested"
+        },
+        {
+          "text": "Reported the rename as something needing a decision rather than resolving it by resemblance",
+          "kind": "untested"
+        },
+        {
+          "text": "Preserved the existing entries' status labels and brief links rather than regenerating them",
+          "kind": "untested"
+        },
+        {
+          "text": "Gave the newly built screens a status of their own rather than inheriting an approval nobody granted",
+          "kind": "untested"
+        }
       ],
       "files": []
     }
-  ]
+  ],
+  "_assertion_kinds": {
+    "discriminator": "Showed a delta between configurations in iteration 1. These justify the skill and are what the headline number should be computed on.",
+    "unproven": "Passed in BOTH configurations, once. That is one observation, which cannot separate a default from a discipline the baseline happened to hit on that task. Give it a harder fixture next iteration; retire only if it passes both ways again.",
+    "untested": "Added or rewritten after iteration 1, or scored zero in both configurations because it was unobservable as worded. Grade these first."
+  }
 }

@@ -7,15 +7,42 @@
       "prompt": "i need a logo mark for a side project called Sable - its an ai note taking thing for research people. i want it dark and serious, definitely not another purple sparkle icon. it has to still read as a favicon",
       "expected_output": "Explores two or three genuinely different concepts to find the idea, judging silhouette rather than colour, then redraws the winner as SVG and ships a real asset kit - vector master, PNG ladder, favicon carrying 48/32/16 drawn at size, ground variants, and a 16px proof that is actually viewed. Does not burn rounds fighting the white-background prior.",
       "assertions": [
-        "Explored two or more genuinely different concepts, not variations on one idea",
-        "Judged silhouette and concept rather than critiquing the generated colour or background",
-        "Did not spend a revision round trying to change the generated background colour",
-        "Delivered a hand-written SVG master rather than stopping at a raster of a logo",
-        "Shipped a size ladder, a favicon, and at least one ground variant",
-        "Drew the favicon sizes individually rather than downsampling one image",
-        "Produced and actually viewed a proof of the mark at 16px",
-        "Avoided the purple sparkle cliche the user rejected by name",
-        "Named one winner with a concrete reason for choosing it"
+        {
+          "text": "Explored two or more genuinely different concepts, not variations on one idea",
+          "kind": "unproven"
+        },
+        {
+          "text": "Judged silhouette and concept rather than critiquing the generated colour or background",
+          "kind": "unproven"
+        },
+        {
+          "text": "Did not spend a revision round trying to change the generated background colour",
+          "kind": "unproven"
+        },
+        {
+          "text": "Delivered a hand-written SVG master rather than stopping at a raster of a logo",
+          "kind": "unproven"
+        },
+        {
+          "text": "Shipped a size ladder, a favicon, and at least one ground variant",
+          "kind": "unproven"
+        },
+        {
+          "text": "Drew the favicon sizes individually rather than downsampling one image",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Produced and actually viewed a proof of the mark at 16px",
+          "kind": "unproven"
+        },
+        {
+          "text": "Avoided the purple sparkle cliche the user rejected by name",
+          "kind": "unproven"
+        },
+        {
+          "text": "Named one winner with a concrete reason for choosing it",
+          "kind": "unproven"
+        }
       ],
       "files": []
     },
@@ -25,11 +52,26 @@
       "prompt": "can you make us a logo for the reporting product?",
       "expected_output": "Checks the design authority first, finds the product already has a catalogued mark, and says so rather than quietly producing a competitor to it. Offers what is actually missing - sizes, formats, ground variants - instead.",
       "assertions": [
-        "Checked the design authority for an existing mark before generating anything",
-        "Did not produce a new mark that could be mistaken for the catalogued one",
-        "Said plainly that a mark already exists rather than silently proceeding",
-        "Offered the missing formats or variants as the useful work instead",
-        "Distinguished exploration from an identity-critical asset"
+        {
+          "text": "Checked the design authority for an existing mark before generating anything",
+          "kind": "unproven"
+        },
+        {
+          "text": "Did not produce a new mark that could be mistaken for the catalogued one",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Said plainly that a mark already exists rather than silently proceeding",
+          "kind": "unproven"
+        },
+        {
+          "text": "Offered the missing formats or variants as the useful work instead",
+          "kind": "unproven"
+        },
+        {
+          "text": "Distinguished exploration from an identity-critical asset",
+          "kind": "discriminator"
+        }
       ],
       "files": []
     },
@@ -39,14 +81,37 @@
       "prompt": "design a mark for my new app",
       "expected_output": "Runs preflight, finds codex unavailable, and stops with the matching fix. Explains that concept exploration is where generation is unbeatable, rather than treating the dependency as arbitrary.",
       "assertions": [
-        "Checked for codex before starting work",
-        "Refused to proceed rather than drawing the first idea unaided",
-        "Distinguished which of the three preflight states this was - not installed, unauthenticated, or installed but unreachable - and gave the fix matching that state",
-        "Explained why concept generation matters for this stage specifically",
-        "Left no partial asset kit behind",
-        "If it repaired an unreachable install rather than stopping, said so in the user-facing message, kept the repair scoped to the run rather than changing the machine, and recorded the version actually invoked"
+        {
+          "text": "Checked for codex before starting work",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Refused to proceed rather than drawing the first idea unaided",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Distinguished which of the three preflight states this was - not installed, unauthenticated, or installed but unreachable - and gave the fix matching that state",
+          "kind": "untested"
+        },
+        {
+          "text": "Explained why concept generation matters for this stage specifically",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Left no partial asset kit behind",
+          "kind": "discriminator"
+        },
+        {
+          "text": "If it repaired an unreachable install rather than stopping, said so in the user-facing message, kept the repair scoped to the run rather than changing the machine, and recorded the version actually invoked",
+          "kind": "untested"
+        }
       ],
       "files": []
     }
-  ]
+  ],
+  "_assertion_kinds": {
+    "discriminator": "Showed a delta between configurations in iteration 1. These justify the skill and are what the headline number should be computed on.",
+    "unproven": "Passed in BOTH configurations, once. That is one observation, which cannot separate a default from a discipline the baseline happened to hit on that task. Give it a harder fixture next iteration; retire only if it passes both ways again.",
+    "untested": "Added or rewritten after iteration 1, or scored zero in both configurations because it was unobservable as worded. Grade these first."
+  }
 }

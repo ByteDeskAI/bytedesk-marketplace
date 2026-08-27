@@ -161,8 +161,21 @@ If the authority ships `scripts/validate.mjs`, run it too.
 - **Never ship a surface it has not rendered and viewed.** Correct-looking markup renders
   wrong constantly.
 - **Never use lorem ipsum.** It flatters every layout it touches.
-- **Never invent data that could be mistaken for real.** Plausible fake metrics in a mockup
-  end up quoted in a meeting. Keep them obviously illustrative.
+- **Never invent data that could be mistaken for real**, and put the marker *in the
+  artifact*. This rule failed in testing — two independent runs produced entirely plausible
+  fake figures — because "keep it obviously illustrative" is an adjective with no method,
+  and because it fights the rule above it: the state has to look real or the layout isn't
+  tested.
+
+  Resolve it by separating shape from content. The **shape** stays realistic — long names,
+  negative amounts, wrapping headings, empty sections — because that is what stresses the
+  layout. The **content** must not survive being screenshotted into a deck: fictional
+  entity names, figures that are visibly round or visibly absurd at the margin, and a line
+  on the surface itself saying what it is.
+
+  The marker goes in the page, not in your message. A mockup outlives the sentence that
+  accompanied it — same reason the provenance header exists — and "I said it was fake" is
+  no defence once the image is in a slide.
 - **Never add a framework or a CDN link.** The page must open from disk in five years.
 
 ## Reference files
