@@ -9,14 +9,60 @@ anyone and specific enough to produce work that looks like *theirs*.
 
 ## Resolution order
 
+Run `${CLAUDE_PLUGIN_ROOT}/scripts/authority-doctor.sh` — do not resolve by hand. It
+implements exactly this, verifies what it finds, and reports which rule fired.
+
 1. an explicit `--authority <path>` argument
-2. a `.design-authority` file in the working directory, naming a path or a git URL
-3. a conforming repo at a conventional location (`../design-system`, `~/design-system`)
-4. nothing found → `bytedesk-designer-authority` offers to create one
+2. a `.design-authority` file, searched from the working directory upward
+3. nothing found → **stop**, and offer to connect or create one
+
+**There is no rule that looks around.** There used to be — a conforming repo at
+`../design-system` or `~/design-system` — and it was wrong twice over. It baked one
+company's directory naming into a suite meant for anyone, and it made resolution depend on
+where the terminal happened to be. Measured across one sweep: seven runs, same machine,
+same repository, two different answers. Five adopted it by convention; two refused to reach
+a repo they could see but could not legitimately resolve, and those two were right.
+
+The doctor may still *notice* plausible authorities nearby and name them. It will never use
+one. A repo found by directory name is as likely to be the wrong repo, and that failure
+does not announce itself — it surfaces weeks later as colours nobody can explain.
 
 Resolution happens once per run and the result is recorded in `state.json` with the commit
-sha. Say which path was resolved and how — an operator whose run silently used the wrong
-repo will not find out until the colours are wrong.
+sha. Say which rule resolved it and which sha, every run.
+
+## The `.design-authority` file
+
+Plain text, one setting per line, **committed to the consuming repository** — so every
+clone, every teammate and every CI job resolves identically instead of depending on a
+working directory.
+
+```
+# how this repo finds its design system
+path: ../acme-brand
+```
+
+`path` may be relative to the file or absolute. A remote may be recorded instead:
+
+```
+repo: https://github.com/acme/brand.git
+ref: v2.1.0
+```
+
+Nothing in this suite clones for you. A `repo:` with no local `path:` is reported as
+not-cloned, with the clone command — because cloning someone's design system into an
+unnamed directory on their behalf is a decision they should make.
+
+## Verifying, not assuming
+
+Resolving is not the same as conforming, and the doctor checks both. It reports:
+
+- **connected** — required pieces present, git-pinnable, its own validator passing
+- **found but not conforming** — names what is missing and what degrades as a result
+- **nothing configured** — offers to connect an existing authority or create one
+
+A resolved path whose own `validate.mjs` fails counts as **not conforming**, and that is
+deliberate. Internally inconsistent values are worse than absent ones: every stage reads
+them confidently and produces work that is wrong in a way no downstream gate can see.
 
 ## What a conforming authority provides
 

@@ -35,6 +35,22 @@ prevent. Measured on a real machine: `--version` exit 0, `codex exec` timed out 
 Use `${CLAUDE_PLUGIN_ROOT}/scripts/codex-exec.sh` for every invocation rather than calling
 `codex exec` directly. It carries the bounded retry described below.
 
+**Preflight the authority in the same breath**, unless this stage genuinely has no authority
+to read:
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/scripts/authority-doctor.sh
+```
+
+`CONNECTED` and you may proceed, recording the sha it reports. `NOT-CONFORMING` or `none`
+and you stop, exactly as for a missing Codex — a stage that guesses at values produces work
+that looks finished and is wrong.
+
+This was a real gap, not a hypothetical one: authority resolution used to happen inside each
+stage rather than at the gate, and across one sweep five runs silently adopted a repository
+that two others correctly refused. Same machine, same repository. The only variable was the
+working directory.
+
 Do this **before creating the run folder**, not after. Failing mid-arc leaves a half-built
 folder somebody has to clean up and a `state.json` that lies about where the work got to.
 

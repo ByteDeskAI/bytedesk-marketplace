@@ -50,17 +50,35 @@ opinion in it, and the header this skill writes would be claiming otherwise.
 
 ## First, find out whether one already exists
 
-Do not create a second authority next to a first. Resolve in the order given in the
-contract — `--authority`, then `.design-authority`, then `../design-system` and
-`~/design-system` — and read what you find before offering to build anything.
+Do not create a second authority next to a first. **Run the doctor** — it resolves,
+verifies, and tells you which of the three situations below you are in:
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/scripts/authority-doctor.sh
+```
+
+It never adopts a repo it merely found lying around. If it names candidates, they are
+suggestions for the operator to confirm, not inputs.
 
 Three situations, three different jobs:
 
-| What you find | What this skill does |
+| Doctor says | What this skill does |
 |---|---|
-| a conforming repo | **audit** — report what's missing or inconsistent, fix what's asked |
-| design values scattered across a codebase, a Figma export, a brand PDF, a live site | **capture** — reverse-engineer them into a repo |
-| nothing | **bootstrap** — build one from the product idea |
+| `CONNECTED` | **audit** — report what's missing or inconsistent, fix what's asked |
+| `NOT-CONFORMING` | **repair** — add what it named, then re-run the doctor |
+| `none`, and an authority exists elsewhere | **connect** — write `.design-authority`, then re-run the doctor |
+| `none`, and design values are scattered across a codebase, a Figma export, a brand PDF, a live site | **capture** — reverse-engineer them into a repo |
+| `none`, and there is nothing at all | **bootstrap** — build one from the product idea |
+
+**Connect is the cheapest and most common, and it is one line.** An operator who already
+has a design system does not need a new one; they need this repo to know where it is:
+
+```bash
+printf 'path: ../acme-brand\n' > .design-authority
+```
+
+Commit that file. It is what makes every clone, every teammate and every CI job resolve the
+same way instead of depending on which directory someone happened to be in.
 
 Say which one you're doing before you start. An operator who asked you to add a product
 and watched you scaffold a fresh repo has lost their afternoon.

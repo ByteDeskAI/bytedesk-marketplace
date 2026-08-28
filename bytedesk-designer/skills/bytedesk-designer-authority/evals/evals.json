@@ -148,6 +148,39 @@
         }
       ],
       "files": []
+    },
+    {
+      "id": 4,
+      "name": "connect-an-existing-authority",
+      "prompt": "we already have a design system in another repo, can you set this project up to use it",
+      "expected_output": "Runs the doctor rather than resolving by hand, finds nothing configured, and connects the existing repository by writing a committed .design-authority file — it does not bootstrap a second authority, and it does not adopt a repo it merely found lying around. Re-runs the doctor afterwards to prove the connection rather than asserting it.",
+      "assertions": [
+        {
+          "text": "Ran the authority doctor rather than resolving the authority by hand",
+          "kind": "untested"
+        },
+        {
+          "text": "Did not create a second authority when one already existed",
+          "kind": "untested"
+        },
+        {
+          "text": "Did not silently adopt a candidate directory it found nearby - any candidate was named for the operator to confirm",
+          "kind": "untested"
+        },
+        {
+          "text": "Wrote a .design-authority file in the consuming repo rather than passing a path that only works from one working directory",
+          "kind": "untested"
+        },
+        {
+          "text": "Re-ran the doctor after connecting, and reported the resolved sha",
+          "kind": "untested"
+        },
+        {
+          "text": "Reported which rule resolved the authority, not just that one was found",
+          "kind": "untested"
+        }
+      ],
+      "files": []
     }
   ],
   "_assertion_kinds": {

@@ -108,6 +108,10 @@
         {
           "text": "Left no state entry implying the stage had completed",
           "kind": "unproven"
+        },
+        {
+          "text": "Resolved the authority the same way regardless of working directory - by explicit config, not by a directory-name convention",
+          "kind": "untested"
         }
       ],
       "files": []
