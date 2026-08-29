@@ -33,6 +33,7 @@ var import_node_path22 = require("node:path");
 
 // src/service.mjs
 var import_promises18 = require("node:fs/promises");
+var import_node_os5 = require("node:os");
 var import_node_path21 = require("node:path");
 
 // src/policy/catalog.mjs
@@ -959,6 +960,13 @@ var import_node_path2 = require("node:path");
 var import_promises2 = require("node:timers/promises");
 var import_node_util = require("node:util");
 var execFile = (0, import_node_util.promisify)(import_node_child_process.execFile);
+function safeCwd() {
+  try {
+    return process.cwd();
+  } catch {
+    return null;
+  }
+}
 async function runFile(command, args, options = {}) {
   invariant(Array.isArray(args), "AO_INVALID_ARGUMENT", "Command arguments must be an array.");
   const result = await execFile(command, args, {
@@ -1241,6 +1249,51 @@ var RunStore = class {
   eventsPath(runId) {
     return (0, import_node_path7.join)(this.runDir(runId), "events.ndjson");
   }
+  /**
+   * Marks a run as still worth recovering.
+   *
+   * Recovery used to read and reconcile every snapshot on disk every few seconds, in every host's
+   * server, forever — and a terminal run can never need recovering again, so nearly all of that
+   * work was waste that grew with history. A zero-byte marker turns the sweep into one stat per
+   * run. The marker is a hint, never the truth: a stale one costs one snapshot read, and the
+   * sweep deletes it.
+   */
+  activeMarkerPath(runId) {
+    return (0, import_node_path7.join)(this.runDir(runId), ".active");
+  }
+  async markActive(runId) {
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(this.activeMarkerPath(runId), "", { mode: 384 }).catch(() => {
+    });
+  }
+  async clearActive(runId) {
+    const { unlink: unlink3 } = await import("node:fs/promises");
+    await unlink3(this.activeMarkerPath(runId)).catch(() => {
+    });
+  }
+  /** Run ids that still carry an active marker, plus any run predating the marker scheme. */
+  async listRecoverable() {
+    const { readdir: readdir3, stat: stat3 } = await import("node:fs/promises");
+    await this.initialize();
+    const ids = (await readdir3((0, import_node_path7.join)(this.root, "runs"))).filter((id) => RUN_ID.test(id));
+    const recoverable = [];
+    for (const id of ids) {
+      const marked = await stat3(this.activeMarkerPath(id)).then(() => true).catch(() => false);
+      if (marked) {
+        recoverable.push(id);
+        continue;
+      }
+      const migrated = await stat3((0, import_node_path7.join)(this.runDir(id), ".sweep")).then(() => true).catch(() => false);
+      if (!migrated) recoverable.push(id);
+    }
+    return recoverable;
+  }
+  /** Records that a run has been judged terminal, so later sweeps skip it without reading it. */
+  async markSwept(runId) {
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile((0, import_node_path7.join)(this.runDir(runId), ".sweep"), "", { mode: 384 }).catch(() => {
+    });
+  }
   lockPath(lockKey) {
     return (0, import_node_path7.join)(this.root, "locks", `${sha256(lockKey)}.lock`);
   }
@@ -1362,6 +1415,7 @@ var RunStore = class {
     };
     await this.appendEventUnlocked(snapshot, "run_created", { state: "queued" });
     await atomicWriteJson(this.snapshotPath(runId), snapshot);
+    await this.markActive(runId);
     return snapshot;
   }
   async get(runId) {
@@ -1413,6 +1467,10 @@ var RunStore = class {
       const next = { ...current, ...patch, state: nextState, revision: current.revision + 1, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
       await this.appendEventUnlocked(next, eventType, { from: current.state, to: nextState, patch });
       await atomicWriteJson(this.snapshotPath(runId), next);
+      if (TERMINAL_STATES.has(nextState)) {
+        await this.clearActive(runId);
+        await this.markSwept(runId);
+      }
       return next;
     });
   }
@@ -27947,7 +28005,7 @@ function abstractMethod(type, method) {
   );
 }
 var ExecutableResolverStrategy = class {
-  async findAll(_command) {
+  async findAll(_command, _options) {
     return abstractMethod(this.constructor.name, "findAll");
   }
 };
@@ -28023,8 +28081,8 @@ var LinuxExecutableResolver = class extends ExecutableResolverStrategy {
     super();
     this.runner = runner;
   }
-  async findAll(command) {
-    const { stdout } = await this.runner("/usr/bin/which", ["-a", command], { timeoutMs: 5e3 });
+  async findAll(command, { cwd } = {}) {
+    const { stdout } = await this.runner("/usr/bin/which", ["-a", command], { timeoutMs: 5e3, cwd });
     return [...new Set(stdout.split("\n").map((value) => value.trim()).filter(Boolean))];
   }
 };
@@ -28034,7 +28092,7 @@ var WindowsExecutableResolver = class extends ExecutableResolverStrategy {
     this.env = env;
     this.runner = runner;
   }
-  async findAll(command) {
+  async findAll(command, { cwd } = {}) {
     if ((0, import_node_path14.isAbsolute)(command)) {
       const resolved = await canonicalExecutable(command);
       return resolved ? [resolved] : [];
@@ -28049,7 +28107,7 @@ var WindowsExecutableResolver = class extends ExecutableResolverStrategy {
     }
     if (direct.length > 0) return direct;
     try {
-      const { stdout } = await this.runner("where.exe", [command], { timeoutMs: 5e3 });
+      const { stdout } = await this.runner("where.exe", [command], { timeoutMs: 5e3, cwd });
       return [...new Set(stdout.split(/\r?\n/).map((value) => value.trim()).filter(Boolean))];
     } catch {
       return [];
@@ -29107,12 +29165,12 @@ async function externalProviderPaths(pluginRoot, discovered, executableRoots = [
   }
   return paths;
 }
-async function discoverProviderPaths(pluginRoot, adapter, discovered, resolverRunner = runFile) {
+async function discoverProviderPaths(pluginRoot, adapter, discovered, resolverRunner = runFile, { cwd } = {}) {
   const candidates = [...discovered];
   for (const resolver of adapter.candidateResolvers ?? []) {
     invariant((0, import_node_path21.isAbsolute)(resolver.executable), "AO_PROVIDER_RESOLVER_NOT_ABSOLUTE", "Provider candidate resolvers must use an absolute executable path.");
     try {
-      const { stdout } = await resolverRunner(resolver.executable, [...resolver.args], { timeoutMs: 5e3 });
+      const { stdout } = await resolverRunner(resolver.executable, [...resolver.args], { timeoutMs: 5e3, cwd });
       candidates.push(...stdout.split("\n").map((line) => line.trim()).filter(Boolean));
     } catch {
     }
@@ -29141,17 +29199,13 @@ var OrchestrationService = class {
     await this.store.initialize();
     if (this.autoRecover && !process.env.AGENT_ORCHESTRATION_CURRENT_WORKER_RUN_ID) {
       await this.recoverInterruptedRuns();
-      this.recoveryTimer = setInterval(() => {
-        this.recoverInterruptedRuns().catch((error51) => {
-          this.lastRecoveryError = error51;
-        });
-      }, Math.max(2e3, this.recoveryGraceMs));
-      this.recoveryTimer.unref();
+      this.scheduleRecoverySweep();
     }
     return this;
   }
   async dispose() {
-    if (this.recoveryTimer) clearInterval(this.recoveryTimer);
+    this.disposed = true;
+    if (this.recoveryTimer) clearTimeout(this.recoveryTimer);
     this.recoveryTimer = null;
     if (this.sessionHost?.server) {
       await new Promise((resolveClose) => this.sessionHost.server.close(resolveClose));
@@ -29161,11 +29215,43 @@ var OrchestrationService = class {
   async terminateRecordedProcessGroup(worker) {
     return this.platformRuntime.workerSupervisor.terminate(worker);
   }
+  /**
+   * Sweeps on a timer that slows down when there is nothing to recover.
+   *
+   * Every host on a machine runs its own server against one shared state root, so a fixed fast
+   * sweep multiplies: N servers re-reading every run, forever, is how idle processes accumulate
+   * hours of CPU. Backing off to a minute when consecutive sweeps find nothing keeps recovery
+   * prompt on a live machine and nearly free on a quiet one.
+   */
+  scheduleRecoverySweep(delayMs = Math.max(2e3, this.recoveryGraceMs)) {
+    if (this.disposed) return;
+    this.recoveryTimer = setTimeout(() => {
+      this.recoverInterruptedRuns().then((recovered) => {
+        this.idleSweeps = recovered > 0 ? 0 : (this.idleSweeps ?? 0) + 1;
+      }).catch((error51) => {
+        this.lastRecoveryError = error51;
+      }).finally(() => {
+        const base = Math.max(2e3, this.recoveryGraceMs);
+        const backoff = Math.min(base * Math.max(1, this.idleSweeps ?? 0), 6e4);
+        this.scheduleRecoverySweep(backoff);
+      });
+    }, delayMs);
+    this.recoveryTimer.unref();
+  }
   async recoverInterruptedRuns() {
     const now = Date.now();
-    for (const candidate of await this.store.list()) {
+    let recovered = 0;
+    for (const runId of await this.store.listRecoverable()) {
+      const candidate = await this.store.get(runId).catch(() => null);
+      if (!candidate) continue;
+      if (TERMINAL_STATES.has(candidate.state)) {
+        await this.store.clearActive(runId);
+        await this.store.markSwept(runId);
+        continue;
+      }
       if (candidate.runId === process.env.AGENT_ORCHESTRATION_CURRENT_WORKER_RUN_ID) continue;
       if (!WORKER_STATES.has(candidate.state) || now - Date.parse(candidate.updatedAt) < this.recoveryGraceMs) continue;
+      recovered += 1;
       await this.store.withLock(`recovery:${candidate.runId}`, async () => {
         const run = await this.store.get(candidate.runId);
         if (!WORKER_STATES.has(run.state)) return;
@@ -29187,6 +29273,7 @@ var OrchestrationService = class {
         else await this.store.transition(run.runId, [run.state], nextState, patch, "worker_loss_detected");
       });
     }
+    return recovered;
   }
   capabilities() {
     return {
@@ -29246,7 +29333,7 @@ var OrchestrationService = class {
     return { consumer, plan, explanation: getRoutingExplanation(plan) };
   }
   async spawn(input) {
-    const availability = await this.providerAvailabilitySnapshot();
+    const availability = await this.providerAvailabilitySnapshot(input?.consumerCwd);
     const prepared = await this.plan({ ...input, availability, requireAvailable: true });
     invariant(prepared.plan.status === "ready", "AO_ROUTING_BLOCKED", "No eligible live provider/model route satisfies the execution policy.", getRoutingExplanation(prepared.plan));
     return this.store.withLock("scheduler", async () => {
@@ -29527,7 +29614,29 @@ var OrchestrationService = class {
     const run = await this.store.transition(input.runId, ["waiting_for_decision"], input.approved ? "succeeded" : "rejected", { decision: nextDecision }, "decision_reviewed");
     return { runId: run.runId, decision: run.decision, evidence: decision.evidence };
   }
-  async doctor() {
+  /**
+   * Resolution runs in the caller's directory, not this process's.
+   *
+   * Version managers resolve per project by walking up from the working directory: `volta which
+   * codex` answers differently in a repository that pins a version, and answers "Could not
+   * determine current directory" when the process cwd has been deleted — which is how a
+   * long-lived MCP server ends up reporting a provider it can plainly run as not installed. The
+   * executing terminal's directory is the honest place to ask, so every discovery call takes it
+   * explicitly and falls back only to a directory that still exists.
+   */
+  async resolveDiscoveryCwd(preferred) {
+    for (const candidate of [preferred, process.env.PWD, safeCwd(), (0, import_node_os5.homedir)()]) {
+      if (!candidate) continue;
+      try {
+        const stats = await (0, import_promises18.stat)(candidate);
+        if (stats.isDirectory()) return await (0, import_promises18.realpath)(candidate).catch(() => candidate);
+      } catch {
+      }
+    }
+    return null;
+  }
+  async doctor({ consumerCwd } = {}) {
+    const discoveryCwd = await this.resolveDiscoveryCwd(consumerCwd);
     const providerExecutables = Object.values(PROVIDER_ADAPTERS).map((adapter) => [adapter.providerId, adapter.executable]);
     const infrastructureExecutables = [
       ...this.platformRuntime.providerSandbox.requiredExecutables,
@@ -29541,8 +29650,8 @@ var OrchestrationService = class {
     const uniqueExecutableDescriptors = [...new Map(executableDescriptors.map((entry) => [entry.id, entry])).values()];
     const executableChecks = await Promise.all(uniqueExecutableDescriptors.map(async ({ id, command }) => {
       try {
-        const discovered = await this.platformRuntime.executableResolver.findAll(command);
-        const paths = PROVIDER_ADAPTERS[id] ? await discoverProviderPaths(this.pluginRoot, PROVIDER_ADAPTERS[id], discovered) : discovered;
+        const discovered = await this.platformRuntime.executableResolver.findAll(command, { cwd: discoveryCwd });
+        const paths = PROVIDER_ADAPTERS[id] ? await discoverProviderPaths(this.pluginRoot, PROVIDER_ADAPTERS[id], discovered, runFile, { cwd: discoveryCwd }) : discovered;
         return { id, command, ok: paths.length > 0, path: paths[0], paths };
       } catch (error51) {
         return { id, command, ok: false, error: error51.message };
@@ -29598,10 +29707,11 @@ var OrchestrationService = class {
       confidence: "transport-probe; model acceptance is revalidated during ACP session creation"
     };
   }
-  async providerAvailabilitySnapshot() {
-    if (this.availabilityCache && Date.now() - this.availabilityCache.at < 3e4) return this.availabilityCache.value;
-    const doctor = await this.doctor();
-    this.availabilityCache = { at: Date.now(), value: doctor.availability };
+  async providerAvailabilitySnapshot(consumerCwd) {
+    const key = await this.resolveDiscoveryCwd(consumerCwd) ?? "";
+    if (this.availabilityCache && this.availabilityCache.key === key && Date.now() - this.availabilityCache.at < 3e4) return this.availabilityCache.value;
+    const doctor = await this.doctor({ consumerCwd });
+    this.availabilityCache = { at: Date.now(), key, value: doctor.availability };
     return doctor.availability;
   }
 };

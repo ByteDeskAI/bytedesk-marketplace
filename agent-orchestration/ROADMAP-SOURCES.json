@@ -18,7 +18,7 @@
       ]
     },
     "src/mcp.mjs": {
-      "sha256": "98e9b814405b466c445285a3169e9d045b2e5ef8ff0c90772515c2711cc00ae2",
+      "sha256": "e9205a9ac8dcbbd71be8ff4a3f6ee53bdd870bccb7204aca756e7b0dbec5b571",
       "lineCount": 268,
       "anchors": [
         "\"orchestration_capabilities\"",
@@ -142,8 +142,8 @@
       ]
     },
     "src/service.mjs": {
-      "sha256": "bda3c62c66af3e12072b7def2b7e873855e04658bd7a74d53344e1c720fe547e",
-      "lineCount": 598,
+      "sha256": "f6dc4095a212936f8c202f0e5ff3455df6a92bad9e578b6b5788b7139396e24e",
+      "lineCount": 653,
       "anchors": [
         "async cancel(",
         "async decision(",
@@ -162,8 +162,8 @@
       ]
     },
     "src/state/store.mjs": {
-      "sha256": "abaac7400d050f6ae3c75722129df16942aabbaf5c56eac8ec996148fdecc1e5",
-      "lineCount": 335,
+      "sha256": "fc7e3ddb17bd6bc57b4f0dfd3e1dc80b2d07869ef71f46c904e4f348e3d91ee1",
+      "lineCount": 379,
       "anchors": [
         "async appendEventUnlocked(",
         "async createUnlocked(",

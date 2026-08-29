@@ -47,6 +47,48 @@ export class RunStore {
   runDir(runId) { assertRunId(runId); return join(this.root, "runs", runId); }
   snapshotPath(runId) { return join(this.runDir(runId), "snapshot.json"); }
   eventsPath(runId) { return join(this.runDir(runId), "events.ndjson"); }
+  /**
+   * Marks a run as still worth recovering.
+   *
+   * Recovery used to read and reconcile every snapshot on disk every few seconds, in every host's
+   * server, forever — and a terminal run can never need recovering again, so nearly all of that
+   * work was waste that grew with history. A zero-byte marker turns the sweep into one stat per
+   * run. The marker is a hint, never the truth: a stale one costs one snapshot read, and the
+   * sweep deletes it.
+   */
+  activeMarkerPath(runId) { return join(this.runDir(runId), ".active"); }
+
+  async markActive(runId) {
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(this.activeMarkerPath(runId), "", { mode: 0o600 }).catch(() => {});
+  }
+
+  async clearActive(runId) {
+    const { unlink } = await import("node:fs/promises");
+    await unlink(this.activeMarkerPath(runId)).catch(() => {});
+  }
+
+  /** Run ids that still carry an active marker, plus any run predating the marker scheme. */
+  async listRecoverable() {
+    const { readdir, stat } = await import("node:fs/promises");
+    await this.initialize();
+    const ids = (await readdir(join(this.root, "runs"))).filter((id) => RUN_ID.test(id));
+    const recoverable = [];
+    for (const id of ids) {
+      const marked = await stat(this.activeMarkerPath(id)).then(() => true).catch(() => false);
+      if (marked) { recoverable.push(id); continue; }
+      // Runs created before markers existed have neither marker nor proof of being terminal.
+      const migrated = await stat(join(this.runDir(id), ".sweep")).then(() => true).catch(() => false);
+      if (!migrated) recoverable.push(id);
+    }
+    return recoverable;
+  }
+
+  /** Records that a run has been judged terminal, so later sweeps skip it without reading it. */
+  async markSwept(runId) {
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(join(this.runDir(runId), ".sweep"), "", { mode: 0o600 }).catch(() => {});
+  }
   lockPath(lockKey) { return join(this.root, "locks", `${sha256(lockKey)}.lock`); }
 
   async tryBreakStaleLock(path) {
@@ -164,6 +206,7 @@ export class RunStore {
     };
     await this.appendEventUnlocked(snapshot, "run_created", { state: "queued" });
     await atomicWriteJson(this.snapshotPath(runId), snapshot);
+    await this.markActive(runId);
     return snapshot;
   }
 
@@ -222,6 +265,7 @@ export class RunStore {
       const next = { ...current, ...patch, state: nextState, revision: current.revision + 1, updatedAt: new Date().toISOString() };
       await this.appendEventUnlocked(next, eventType, { from: current.state, to: nextState, patch });
       await atomicWriteJson(this.snapshotPath(runId), next);
+      if (TERMINAL_STATES.has(nextState)) { await this.clearActive(runId); await this.markSwept(runId); }
       return next;
     });
   }

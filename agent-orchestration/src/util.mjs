@@ -8,6 +8,11 @@ import { invariant } from "./errors.mjs";
 
 const execFile = promisify(execFileCallback);
 
+/** process.cwd() throws when the directory has been deleted under a long-lived process. */
+export function safeCwd() {
+  try { return process.cwd(); } catch { return null; }
+}
+
 export async function runFile(command, args, options = {}) {
   invariant(Array.isArray(args), "AO_INVALID_ARGUMENT", "Command arguments must be an array.");
   const result = await execFile(command, args, {
