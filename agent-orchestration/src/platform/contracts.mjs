@@ -9,7 +9,7 @@ function abstractMethod(type, method) {
 
 /** Strategy contract for resolving trusted host executables. */
 export class ExecutableResolverStrategy {
-  async findAll(_command) { return abstractMethod(this.constructor.name, "findAll"); }
+  async findAll(_command, _options) { return abstractMethod(this.constructor.name, "findAll"); }
 }
 
 /** Strategy contract for owning, limiting, and terminating worker process trees. */

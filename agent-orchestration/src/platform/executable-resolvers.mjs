@@ -17,8 +17,8 @@ export class LinuxExecutableResolver extends ExecutableResolverStrategy {
     this.runner = runner;
   }
 
-  async findAll(command) {
-    const { stdout } = await this.runner("/usr/bin/which", ["-a", command], { timeoutMs: 5_000 });
+  async findAll(command, { cwd } = {}) {
+    const { stdout } = await this.runner("/usr/bin/which", ["-a", command], { timeoutMs: 5_000, cwd });
     return [...new Set(stdout.split("\n").map((value) => value.trim()).filter(Boolean))];
   }
 }
@@ -30,7 +30,7 @@ export class WindowsExecutableResolver extends ExecutableResolverStrategy {
     this.runner = runner;
   }
 
-  async findAll(command) {
+  async findAll(command, { cwd } = {}) {
     if (isAbsolute(command)) {
       const resolved = await canonicalExecutable(command);
       return resolved ? [resolved] : [];
@@ -47,7 +47,7 @@ export class WindowsExecutableResolver extends ExecutableResolverStrategy {
     }
     if (direct.length > 0) return direct;
     try {
-      const { stdout } = await this.runner("where.exe", [command], { timeoutMs: 5_000 });
+      const { stdout } = await this.runner("where.exe", [command], { timeoutMs: 5_000, cwd });
       return [...new Set(stdout.split(/\r?\n/).map((value) => value.trim()).filter(Boolean))];
     } catch { return []; }
   }

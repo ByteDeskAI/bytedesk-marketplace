@@ -1,11 +1,12 @@
-import { realpath } from "node:fs/promises";
+import { realpath, stat } from "node:fs/promises";
+import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { getRoutingExplanation, routeTask } from "./policy/index.mjs";
 import { createExecutionPlan, PROTOCOL_VERSION } from "./protocols/index.mjs";
 import { PROVIDER_ADAPTERS, PROVIDER_CATALOG, MODEL_CATALOG, getProviderDescriptor } from "./providers/index.mjs";
 import { PLUGIN_ROOT, stateRoot as resolveStateRoot, validateStateRoot } from "./config.mjs";
 import { AgentOrchestrationError, invariant } from "./errors.mjs";
-import { isPathWithin, processGroupExists, runFile } from "./util.mjs";
+import { isPathWithin, processGroupExists, runFile, safeCwd } from "./util.mjs";
 import { resolveConsumerRepository } from "./workspace/repository.mjs";
 import { RunStore, TERMINAL_STATES } from "./state/store.mjs";
 import { cleanupRun, executeRun } from "./runtime/engine.mjs";
@@ -44,12 +45,12 @@ export async function externalProviderPaths(pluginRoot, discovered, executableRo
   return paths;
 }
 
-export async function discoverProviderPaths(pluginRoot, adapter, discovered, resolverRunner = runFile) {
+export async function discoverProviderPaths(pluginRoot, adapter, discovered, resolverRunner = runFile, { cwd } = {}) {
   const candidates = [...discovered];
   for (const resolver of adapter.candidateResolvers ?? []) {
     invariant(isAbsolute(resolver.executable), "AO_PROVIDER_RESOLVER_NOT_ABSOLUTE", "Provider candidate resolvers must use an absolute executable path.");
     try {
-      const { stdout } = await resolverRunner(resolver.executable, [...resolver.args], { timeoutMs: 5_000 });
+      const { stdout } = await resolverRunner(resolver.executable, [...resolver.args], { timeoutMs: 5_000, cwd });
       candidates.push(...stdout.split("\n").map((line) => line.trim()).filter(Boolean));
     } catch {}
   }
@@ -203,7 +204,7 @@ export class OrchestrationService {
   }
 
   async spawn(input) {
-    const availability = await this.providerAvailabilitySnapshot();
+    const availability = await this.providerAvailabilitySnapshot(input?.consumerCwd);
     const prepared = await this.plan({ ...input, availability, requireAvailable: true });
     invariant(prepared.plan.status === "ready", "AO_ROUTING_BLOCKED", "No eligible live provider/model route satisfies the execution policy.", getRoutingExplanation(prepared.plan));
     return this.store.withLock("scheduler", async () => {
@@ -510,7 +511,29 @@ export class OrchestrationService {
     return { runId: run.runId, decision: run.decision, evidence: decision.evidence };
   }
 
-  async doctor() {
+  /**
+   * Resolution runs in the caller's directory, not this process's.
+   *
+   * Version managers resolve per project by walking up from the working directory: `volta which
+   * codex` answers differently in a repository that pins a version, and answers "Could not
+   * determine current directory" when the process cwd has been deleted — which is how a
+   * long-lived MCP server ends up reporting a provider it can plainly run as not installed. The
+   * executing terminal's directory is the honest place to ask, so every discovery call takes it
+   * explicitly and falls back only to a directory that still exists.
+   */
+  async resolveDiscoveryCwd(preferred) {
+    for (const candidate of [preferred, process.env.PWD, safeCwd(), homedir()]) {
+      if (!candidate) continue;
+      try {
+        const stats = await stat(candidate);
+        if (stats.isDirectory()) return await realpath(candidate).catch(() => candidate);
+      } catch {}
+    }
+    return null;
+  }
+
+  async doctor({ consumerCwd } = {}) {
+    const discoveryCwd = await this.resolveDiscoveryCwd(consumerCwd);
     const providerExecutables = Object.values(PROVIDER_ADAPTERS).map((adapter) => [adapter.providerId, adapter.executable]);
     const infrastructureExecutables = [
       ...this.platformRuntime.providerSandbox.requiredExecutables,
@@ -524,9 +547,9 @@ export class OrchestrationService {
     const uniqueExecutableDescriptors = [...new Map(executableDescriptors.map((entry) => [entry.id, entry])).values()];
     const executableChecks = await Promise.all(uniqueExecutableDescriptors.map(async ({ id, command }) => {
       try {
-        const discovered = await this.platformRuntime.executableResolver.findAll(command);
+        const discovered = await this.platformRuntime.executableResolver.findAll(command, { cwd: discoveryCwd });
         const paths = PROVIDER_ADAPTERS[id]
-          ? await discoverProviderPaths(this.pluginRoot, PROVIDER_ADAPTERS[id], discovered)
+          ? await discoverProviderPaths(this.pluginRoot, PROVIDER_ADAPTERS[id], discovered, runFile, { cwd: discoveryCwd })
           : discovered;
         return { id, command, ok: paths.length > 0, path: paths[0], paths };
       } catch (error) {
@@ -588,10 +611,13 @@ export class OrchestrationService {
     };
   }
 
-  async providerAvailabilitySnapshot() {
-    if (this.availabilityCache && Date.now() - this.availabilityCache.at < 30_000) return this.availabilityCache.value;
-    const doctor = await this.doctor();
-    this.availabilityCache = { at: Date.now(), value: doctor.availability };
+  async providerAvailabilitySnapshot(consumerCwd) {
+    // Keyed on the directory: discovery is cwd-dependent, so one cache entry cannot answer for two
+    // consumers that pin different provider versions.
+    const key = (await this.resolveDiscoveryCwd(consumerCwd)) ?? "";
+    if (this.availabilityCache && this.availabilityCache.key === key && Date.now() - this.availabilityCache.at < 30_000) return this.availabilityCache.value;
+    const doctor = await this.doctor({ consumerCwd });
+    this.availabilityCache = { at: Date.now(), key, value: doctor.availability };
     return doctor.availability;
   }
 }

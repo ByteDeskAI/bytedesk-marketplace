@@ -31015,6 +31015,7 @@ var import_node_url3 = require("node:url");
 
 // src/service.mjs
 var import_promises18 = require("node:fs/promises");
+var import_node_os5 = require("node:os");
 var import_node_path21 = require("node:path");
 
 // src/policy/catalog.mjs
@@ -31941,6 +31942,13 @@ var import_node_path2 = require("node:path");
 var import_promises2 = require("node:timers/promises");
 var import_node_util = require("node:util");
 var execFile = (0, import_node_util.promisify)(import_node_child_process.execFile);
+function safeCwd() {
+  try {
+    return process.cwd();
+  } catch {
+    return null;
+  }
+}
 async function runFile(command, args, options = {}) {
   invariant(Array.isArray(args), "AO_INVALID_ARGUMENT", "Command arguments must be an array.");
   const result2 = await execFile(command, args, {
@@ -44415,7 +44423,7 @@ function abstractMethod(type, method) {
   );
 }
 var ExecutableResolverStrategy = class {
-  async findAll(_command) {
+  async findAll(_command, _options) {
     return abstractMethod(this.constructor.name, "findAll");
   }
 };
@@ -44491,8 +44499,8 @@ var LinuxExecutableResolver = class extends ExecutableResolverStrategy {
     super();
     this.runner = runner;
   }
-  async findAll(command) {
-    const { stdout } = await this.runner("/usr/bin/which", ["-a", command], { timeoutMs: 5e3 });
+  async findAll(command, { cwd } = {}) {
+    const { stdout } = await this.runner("/usr/bin/which", ["-a", command], { timeoutMs: 5e3, cwd });
     return [...new Set(stdout.split("\n").map((value) => value.trim()).filter(Boolean))];
   }
 };
@@ -44502,7 +44510,7 @@ var WindowsExecutableResolver = class extends ExecutableResolverStrategy {
     this.env = env;
     this.runner = runner;
   }
-  async findAll(command) {
+  async findAll(command, { cwd } = {}) {
     if ((0, import_node_path14.isAbsolute)(command)) {
       const resolved = await canonicalExecutable(command);
       return resolved ? [resolved] : [];
@@ -44517,7 +44525,7 @@ var WindowsExecutableResolver = class extends ExecutableResolverStrategy {
     }
     if (direct.length > 0) return direct;
     try {
-      const { stdout } = await this.runner("where.exe", [command], { timeoutMs: 5e3 });
+      const { stdout } = await this.runner("where.exe", [command], { timeoutMs: 5e3, cwd });
       return [...new Set(stdout.split(/\r?\n/).map((value) => value.trim()).filter(Boolean))];
     } catch {
       return [];
@@ -45575,12 +45583,12 @@ async function externalProviderPaths(pluginRoot, discovered, executableRoots = [
   }
   return paths;
 }
-async function discoverProviderPaths(pluginRoot, adapter, discovered, resolverRunner = runFile) {
+async function discoverProviderPaths(pluginRoot, adapter, discovered, resolverRunner = runFile, { cwd } = {}) {
   const candidates = [...discovered];
   for (const resolver of adapter.candidateResolvers ?? []) {
     invariant((0, import_node_path21.isAbsolute)(resolver.executable), "AO_PROVIDER_RESOLVER_NOT_ABSOLUTE", "Provider candidate resolvers must use an absolute executable path.");
     try {
-      const { stdout } = await resolverRunner(resolver.executable, [...resolver.args], { timeoutMs: 5e3 });
+      const { stdout } = await resolverRunner(resolver.executable, [...resolver.args], { timeoutMs: 5e3, cwd });
       candidates.push(...stdout.split("\n").map((line) => line.trim()).filter(Boolean));
     } catch {
     }
@@ -45714,7 +45722,7 @@ var OrchestrationService = class {
     return { consumer, plan, explanation: getRoutingExplanation(plan) };
   }
   async spawn(input) {
-    const availability = await this.providerAvailabilitySnapshot();
+    const availability = await this.providerAvailabilitySnapshot(input?.consumerCwd);
     const prepared = await this.plan({ ...input, availability, requireAvailable: true });
     invariant(prepared.plan.status === "ready", "AO_ROUTING_BLOCKED", "No eligible live provider/model route satisfies the execution policy.", getRoutingExplanation(prepared.plan));
     return this.store.withLock("scheduler", async () => {
@@ -45995,7 +46003,29 @@ var OrchestrationService = class {
     const run = await this.store.transition(input.runId, ["waiting_for_decision"], input.approved ? "succeeded" : "rejected", { decision: nextDecision }, "decision_reviewed");
     return { runId: run.runId, decision: run.decision, evidence: decision.evidence };
   }
-  async doctor() {
+  /**
+   * Resolution runs in the caller's directory, not this process's.
+   *
+   * Version managers resolve per project by walking up from the working directory: `volta which
+   * codex` answers differently in a repository that pins a version, and answers "Could not
+   * determine current directory" when the process cwd has been deleted — which is how a
+   * long-lived MCP server ends up reporting a provider it can plainly run as not installed. The
+   * executing terminal's directory is the honest place to ask, so every discovery call takes it
+   * explicitly and falls back only to a directory that still exists.
+   */
+  async resolveDiscoveryCwd(preferred) {
+    for (const candidate of [preferred, process.env.PWD, safeCwd(), (0, import_node_os5.homedir)()]) {
+      if (!candidate) continue;
+      try {
+        const stats = await (0, import_promises18.stat)(candidate);
+        if (stats.isDirectory()) return await (0, import_promises18.realpath)(candidate).catch(() => candidate);
+      } catch {
+      }
+    }
+    return null;
+  }
+  async doctor({ consumerCwd: consumerCwd2 } = {}) {
+    const discoveryCwd = await this.resolveDiscoveryCwd(consumerCwd2);
     const providerExecutables = Object.values(PROVIDER_ADAPTERS).map((adapter) => [adapter.providerId, adapter.executable]);
     const infrastructureExecutables = [
       ...this.platformRuntime.providerSandbox.requiredExecutables,
@@ -46009,8 +46039,8 @@ var OrchestrationService = class {
     const uniqueExecutableDescriptors = [...new Map(executableDescriptors.map((entry) => [entry.id, entry])).values()];
     const executableChecks = await Promise.all(uniqueExecutableDescriptors.map(async ({ id, command }) => {
       try {
-        const discovered = await this.platformRuntime.executableResolver.findAll(command);
-        const paths = PROVIDER_ADAPTERS[id] ? await discoverProviderPaths(this.pluginRoot, PROVIDER_ADAPTERS[id], discovered) : discovered;
+        const discovered = await this.platformRuntime.executableResolver.findAll(command, { cwd: discoveryCwd });
+        const paths = PROVIDER_ADAPTERS[id] ? await discoverProviderPaths(this.pluginRoot, PROVIDER_ADAPTERS[id], discovered, runFile, { cwd: discoveryCwd }) : discovered;
         return { id, command, ok: paths.length > 0, path: paths[0], paths };
       } catch (error51) {
         return { id, command, ok: false, error: error51.message };
@@ -46066,10 +46096,11 @@ var OrchestrationService = class {
       confidence: "transport-probe; model acceptance is revalidated during ACP session creation"
     };
   }
-  async providerAvailabilitySnapshot() {
-    if (this.availabilityCache && Date.now() - this.availabilityCache.at < 3e4) return this.availabilityCache.value;
-    const doctor = await this.doctor();
-    this.availabilityCache = { at: Date.now(), value: doctor.availability };
+  async providerAvailabilitySnapshot(consumerCwd2) {
+    const key = await this.resolveDiscoveryCwd(consumerCwd2) ?? "";
+    if (this.availabilityCache && this.availabilityCache.key === key && Date.now() - this.availabilityCache.at < 3e4) return this.availabilityCache.value;
+    const doctor = await this.doctor({ consumerCwd: consumerCwd2 });
+    this.availabilityCache = { at: Date.now(), key, value: doctor.availability };
     return doctor.availability;
   }
 };
@@ -46274,7 +46305,7 @@ async function createServer2(options = {}) {
   register(server, service, "orchestration_capabilities", "Describe orchestration providers, intents, protocols, permissions, lifecycle, and repository isolation guarantees.", {}, capabilitiesData, function() {
     return this.capabilities();
   });
-  register(server, service, "orchestration_doctor", "Check provider readiness through bounded, sandboxed, non-prompting ACP sessions without reading or exposing credentials.", {}, doctorData, service.doctor);
+  register(server, service, "orchestration_doctor", "Check provider readiness through bounded, sandboxed, non-prompting ACP sessions without reading or exposing credentials. Pass consumerCwd so provider discovery runs where the caller runs.", { consumerCwd: consumerCwd.optional() }, doctorData, service.doctor);
   register(server, service, "orchestration_route", "Resolve a consumer repository and preview one deterministic, capability-aware provider/model route. Use orchestration_plan for multi-stage protocols.", singleRouteFields, routeData, service.route);
   register(server, service, "orchestration_plan", "Create an explainable execution plan. Architecture automatically uses the Claude-versus-Sol adversarial protocol.", { ...routingFields, permissionProfile: external_exports.enum(["read", "write"]).default("read"), expectedOutput: external_exports.string().optional(), timeoutMs: external_exports.number().int().positive().max(72e5).optional() }, planData, service.plan);
   register(server, service, "orchestration_spawn", "Start a durable provider-native orchestration run. Write runs create an isolated worktree derived from consumerCwd.", { ...routingFields, permissionProfile: external_exports.enum(["read", "write"]).default("read"), expectedOutput: external_exports.string().optional(), timeoutMs: external_exports.number().int().positive().max(72e5).optional(), maxTurns: external_exports.number().int().positive().max(200).optional(), idempotencyKey: external_exports.string().min(1).max(256).optional() }, spawnData, service.spawn);

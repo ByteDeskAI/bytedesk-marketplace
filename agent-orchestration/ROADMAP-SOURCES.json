@@ -18,7 +18,7 @@
       ]
     },
     "src/mcp.mjs": {
-      "sha256": "98e9b814405b466c445285a3169e9d045b2e5ef8ff0c90772515c2711cc00ae2",
+      "sha256": "e9205a9ac8dcbbd71be8ff4a3f6ee53bdd870bccb7204aca756e7b0dbec5b571",
       "lineCount": 268,
       "anchors": [
         "\"orchestration_capabilities\"",
@@ -142,8 +142,8 @@
       ]
     },
     "src/service.mjs": {
-      "sha256": "bda3c62c66af3e12072b7def2b7e873855e04658bd7a74d53344e1c720fe547e",
-      "lineCount": 598,
+      "sha256": "4d6ff8d771256163d6579761cbeb1660f7b7628dbdaccc33da7378da7f1321e3",
+      "lineCount": 624,
       "anchors": [
         "async cancel(",
         "async decision(",
