@@ -90,6 +90,14 @@ Four fields carry weight beyond bookkeeping:
   have caught it reported green. A hash that no longer matches means the artifact was edited
   after it was viewed, and it must be viewed again before it is promoted.
 
+  **Hash what decides the render, not only the artifact.** A surface's markup is not what
+  determines how it looks: its stylesheet, its script and its vendored tokens all do. A record
+  covering only the `.html` files closes half the hole — observed on a run where the stylesheet
+  changed by twenty-six lines, taking the landing's entire background treatment with it, while
+  that page's own hash stayed byte-identical and the record read clean. A stage whose artifacts
+  share render-affecting files records those too, as `renders_with`, and may carry a single
+  `surface_tree_sha` over the whole set so one comparison catches any of them.
+
 ## Rules
 
 **A stage refuses to run when its inputs are absent, and names the stage that produces
