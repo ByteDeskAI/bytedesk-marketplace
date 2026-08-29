@@ -69,6 +69,13 @@ Per `${CLAUDE_PLUGIN_ROOT}/references/authority-contract.md`. Record the path an
 say which path was resolved and how — an operator whose run silently used the wrong repo
 finds out when the colours are wrong.
 
+**Resolve the profile in the same pass, and record it.** Run the doctor with
+`--product <id>` and write `PROFILE` / `PROFILE-RESOLVED-BY` into `state.json.profile` and
+the provenance header, per the run-folder contract. A product's profile can live in the
+authority or in the project's own directory, and the project's wins — so the answer is not
+derivable afterwards from the run folder alone. Passing it to every worker costs one line
+and stops each of them resolving it differently.
+
 **No authority found?** That is a legitimate starting point, not an error. Say so and run
 `bytedesk-designer-authority` first. It is the one stage that can run before everything
 else because it is what everything else reads.

@@ -1,0 +1,334 @@
+Do not run any shell commands. Do not read or write any files.
+Reply with the whole file only — no preamble, no explanation, no code fences.
+
+Below is the current HTML. Make exactly the changes listed and nothing else; every other rule and element stays byte-for-byte as it is.
+
+CHANGES:
+1. Brief section (right column): the brief text is mono 12px and wraps "restrained" onto its own line; the mockup keeps all seven lines as written, so make the brief text mono 11px with line-height 19px (measured: 49 chars in 320px = 6.5px per char). Add the rule to the <style> block targeting the app selector for that element (e.g. `.inspector .grow-section .brief` or whatever class the brief text already carries); do not change the copy or its line breaks.
+2. Conversation header (left column): the app's `.agent-pane .pane-head` draws a surface background and a 1px border-bottom under "Conversation"; the mockup has no line and no fill there (only the hairline above the header at y=468). Add an override in the <style> block: `.agent-pane .pane-head { background: transparent; border-bottom: 0; }` and make sure the header's height stays so the first turn ("claude 10:41 AM") still sits centred at y=510.
+
+FROZEN (already correct — do not touch): the column grid, the Solution row, the agents and provider rows, the Projects block and the selected card, the composer and Send button, the entire centre column, and every right-column section other than the brief text's font-size.
+
+CURRENT FILE:
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1280, initial-scale=1">
+  <title>ByteDesk Designer Studio</title>
+  <link rel="stylesheet" href="./tokens/app.css">
+  <style>
+    /* Fixed canvas and exact column measurements */
+    html, body, #root { width: 1280px; height: 800px; background: var(--bd-bg-base); }
+    /* Columns: 339 / 567 / 374 including divider hairlines */
+    .shell { grid-template-columns: 339px 567px 374px; background: var(--bd-bg-base); }
+    /* Shared typography and ground */
+    .col { background: var(--bd-bg-base); font-size: 13px; }
+    /* Headers: 15px semibold */
+    h2 { font-size: 15px; line-height: 20px; }
+    /* Small labels and status copy: 12px */
+    .small { font-size: 12px; }
+    /* Status dots: 7px with 8px gap */
+    .status { gap: 8px; }
+    /* Left solution row: y0–42, text inset 23 */
+    .solution-row { height: 43px; padding: 0 20px 0 23px; gap: 8px; background: var(--bd-bg-base); }
+    /* Left agents: y43–224, row geometry */
+    .block.agents { height: 182px; padding: 4px 20px; }
+    /* Agent columns and 27px pitch */
+    .agents .agent-row { grid-template-columns: 60px 85px 67px 68px; gap: 5px; height: 27px; padding: 0 3px; font-size: 13px; }
+    /* Connect controls: 68×24 */
+    .agents .agent-row button.ghost-primary { width: 68px; height: 24px; padding: 0; border-radius: 6px; font-size: 12px; }
+    /* Provider gap and 26px pitch */
+    .agents .agent-row.provider { height: 26px; margin-top: 12px; }
+    /* Consecutive provider rows have no extra gap */
+    .agents .agent-row.provider + .agent-row.provider { margin-top: 0; }
+    /* Projects region: y225–468, 20px inset */
+    .block.projects { height: 244px; padding: 8px 18px; }
+    /* Projects header: centre y245 */
+    .projects .block-head { height: 24px; margin: 0 1px 3px; justify-content: space-between; }
+    /* Invisible-weight project action */
+    .projects .block-head button.ghost { font-size: 12px; color: var(--bd-text-tertiary); padding: 0; }
+    /* Project rows: 41px collapsed pitch */
+    .projects .project-row { height: 41px; padding: 0 10px; gap: 8px; }
+    /* Selected project card: 302×116 */
+    .projects .project.active { width: 303px; height: 116px; padding-bottom: 4px; }
+    /* Selected project title row: centre y274 */
+    .projects .project.active .project-row { height: 40px; }
+    /* Project title copy */
+    .projects .project-title { font-size: 15px; font-weight: var(--bd-font-weight-semibold); line-height: 17px; }
+    /* Project git metadata */
+    .projects .project-title .mono { font-size: 12px; font-weight: var(--bd-font-weight-regular); color: var(--bd-text-secondary); }
+    /* Selected run box: x38–306, y302–370 */
+    .projects .runs { height: 68px; margin: -2px 14px 0 18px; padding: 5px 9px; gap: 0; border: 1px solid var(--bd-border-default); border-radius: 4px; }
+    /* Run rows: 20px pitch */
+    .projects .run-row { height: 20px; padding: 0; font-size: 12px; align-items: center; }
+    /* Conversation pane: y469 onward */
+    .agent-pane { height: 331px; flex: none; }
+    /* Conversation header: centre y487 */
+    .agent-pane .pane-head { height: 37px; min-height: 37px; padding: 0 23px; background: var(--bd-bg-base); }
+    /* Conversation turns: first line y510, 38px pitch */
+    .timeline { height: 147px; flex: none; padding: 0 23px; gap: 0; overflow: hidden; }
+    /* Turn blocks: two 17px lines */
+    .timeline .msg { height: 38px; padding: 0; border: 0; background: transparent; font-size: 13px; line-height: 17px; }
+    /* Speaker names: mono 13 */
+    .timeline .msg .mono { font-size: 13px; }
+    /* Composer: textarea and send placements */
+    .composer { height: 147px; padding: 7px 20px 32px 23px; border-top: 0; background: var(--bd-bg-base); flex-direction: column; align-items: flex-end; gap: 12px; }
+    /* Composer textarea: 295×65 */
+    .composer textarea { width: 295px; height: 65px; min-height: 65px; flex: none; resize: none; font-size: 13px; }
+    /* Send button: 58×30 */
+    .composer button.primary { width: 58px; height: 30px; padding: 0; font-size: 13px; }
+    /* Centre canvas positioning context */
+    .canvas { position: relative; }
+    /* Stage: x366–880, y63–495 */
+    .stage { position: absolute; left: 26px; top: 63px; width: 514px; height: 432px; min-height: 0; margin: 0; border: 0; border-radius: 6px; background: var(--bd-bg-surface); }
+    /* Thumb strip: x368, y518 */
+    .strip { position: absolute; left: 27px; top: 518px; height: 101px; min-height: 0; padding: 0; margin: 0; gap: 8px; border: 0; overflow: hidden; }
+    /* Thumbnails: 113×80 block plus label */
+    .thumb { width: 113px; height: 101px; padding: 0; gap: 4px; border: 0; font-size: 12px; }
+    /* Flat thumbnail image substitute */
+    .thumb::before { content: ""; display: block; width: 113px; height: 80px; flex: none; border: 1px solid var(--bd-border-default); border-radius: 6px; background: var(--bd-bg-surface); }
+    /* Active thumbnail accent outline */
+    .thumb.active::before { border-color: var(--bd-accent); }
+    /* Toolbar hairline y644 and controls y682–712 */
+    .toolbar { position: absolute; left: 26px; top: 644px; width: 514px; height: 69px; padding: 37px 0 0; border-top: 1px solid var(--bd-border-default); justify-content: space-between; gap: 0; }
+    /* Toolbar controls: 30px tall */
+    .toolbar button { width: 118px; height: 30px; padding: 0; font-size: 13px; }
+    /* Right inspector ground */
+    .inspector { height: 800px; background: var(--bd-bg-base); overflow: hidden; }
+    /* Right common inset: x925–1255 */
+    .inspector section { padding-left: 18px; padding-right: 25px; background: var(--bd-bg-base); }
+    /* Right solution: y0–134 */
+    .inspector section:first-child { height: 135px; padding-top: 15px; gap: 7px; }
+    /* Right header action alignment */
+    .inspector .block-head { min-height: 22px; margin: 0; justify-content: space-between; }
+    /* Right ghost actions */
+    .inspector .block-head button.ghost { padding: 0 3px; border: 0; color: var(--bd-text-secondary); font-size: 12px; }
+    /* Git region: y135–512 */
+    .inspector section.git { height: 378px; padding-top: 12px; padding-bottom: 15px; gap: 8px; }
+    /* Branch control: 330×28 */
+    .git button.row-line { width: 330px; height: 28px; padding: 0 9px; font-family: var(--bd-font-mono); font-size: 12px; }
+    /* Changed files: 28px rows */
+    .git .changes { margin-top: 4px; margin-bottom: 2px; gap: 0; border-top: 1px solid var(--bd-border-default); border-bottom: 1px solid var(--bd-border-default); padding: 8px 0 9px; }
+    /* File row geometry */
+    .git .changes li { display: grid; grid-template-columns: 20px 1fr; align-items: center; height: 28px; font-family: var(--bd-font-mono); font-size: 12px; }
+    /* Commit textarea: 330×55 */
+    .git textarea { height: 55px; min-height: 55px; resize: none; font-family: var(--bd-font-mono); font-size: 12px; }
+    /* Git buttons: y468–496 */
+    .git .actions { justify-content: space-between; gap: 0; }
+    /* Pull and Push: 93×28 */
+    .git .actions button { width: 93px; height: 28px; padding: 0; font-size: 13px; }
+    /* Commit: 104×28 */
+    .git .actions button.primary { width: 104px; }
+    /* Project region: y513–587 */
+    .inspector section.project-section { height: 75px; padding-top: 12px; gap: 8px; }
+    /* Brief region: header y607, seven 19px lines */
+    .inspector section.grow-section { height: 213px; min-height: 213px; padding-top: 9px; gap: 4px; border-bottom: 0; overflow: hidden; }
+    /* Brief exact mono rhythm */
+    .inspector section.grow-section .mono { margin: 0; font-size: 12px; line-height: 19px; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <div id="root">
+    <main class="shell" aria-label="ByteDesk Designer Studio">
+      <aside class="col left">
+        <div class="solution-row">
+          <span class="muted">Solution</span>
+          <button class="link name"><strong>design-system</strong></button>
+          <span class="small">›</span>
+        </div>
+
+        <section class="block agents">
+          <div class="agent-row">
+            <strong>claude</strong>
+            <span class="status"><i class="dot ok"></i><span>ok</span></span>
+            <span class="mono muted">1.0.60</span>
+            <button class="ghost-primary">Connect</button>
+          </div>
+          <div class="agent-row">
+            <strong>codex</strong>
+            <span class="status"><i class="dot ok"></i><span>ok</span></span>
+            <span class="mono muted">0.37.1</span>
+            <button class="ghost-primary">Connect</button>
+          </div>
+          <div class="agent-row">
+            <strong>grok</strong>
+            <span class="status"><i class="dot ok"></i><span>ok</span></span>
+            <span class="mono muted">0.15.0</span>
+            <button class="ghost-primary">Connect</button>
+          </div>
+          <div class="agent-row">
+            <strong>kimi</strong>
+            <span class="status"><i class="dot ok"></i><span>ok</span></span>
+            <span class="mono muted">1.7.2</span>
+            <button class="ghost-primary">Connect</button>
+          </div>
+          <div class="agent-row provider">
+            <strong>git</strong>
+            <span class="status"><i class="dot ok"></i><span>ok</span></span>
+            <span class="mono muted"></span>
+            <span></span>
+          </div>
+          <div class="agent-row provider">
+            <strong>github</strong>
+            <span class="status"><i class="dot ok"></i><span>ok</span></span>
+            <span class="mono">ryanhelms</span>
+            <span></span>
+          </div>
+        </section>
+
+        <section class="block projects">
+          <div class="block-head">
+            <h2>Projects</h2>
+            <button class="ghost">+ project</button>
+          </div>
+          <ul>
+            <li class="project active">
+              <button class="link project-row">
+                <span class="caret">▾</span>
+                <span class="project-title">
+                  <strong>Marketing site</strong>
+                  <span class="mono">main · ↑2 ↓0 · 3 changed</span>
+                </span>
+                <span class="status"></span>
+              </button>
+              <div class="runs">
+                <button class="link mono run-row">
+                  <span>2026-08-28-home-hero</span>
+                  <span class="muted">2h ago</span>
+                </button>
+                <button class="link mono run-row">
+                  <span>2026-08-27-landing-nav</span>
+                  <span class="muted">1d ago</span>
+                </button>
+                <button class="link mono run-row muted">
+                  <span>+ run</span>
+                </button>
+              </div>
+            </li>
+            <li class="project">
+              <button class="link project-row">
+                <span class="caret">▸</span>
+                <span class="project-title">
+                  <strong>Design system docs</strong>
+                  <span class="mono">main · ↑0 ↓0 · clean</span>
+                </span>
+                <span class="status"></span>
+              </button>
+            </li>
+            <li class="project">
+              <button class="link project-row">
+                <span class="caret">▸</span>
+                <span class="project-title">
+                  <strong>Brand campaign</strong>
+                  <span class="mono">main · ↑1 ↓0 · 1 changed</span>
+                </span>
+                <span class="status"></span>
+              </button>
+            </li>
+          </ul>
+        </section>
+
+        <section class="agent-pane">
+          <div class="pane-head">
+            <h2>Conversation</h2>
+          </div>
+          <div class="timeline">
+            <div class="msg">
+              <p><strong class="mono">claude</strong>&nbsp;&nbsp;<span class="small muted">10:41 AM</span>
+Analyzed the brief and reviewed r2-a.</p>
+            </div>
+            <div class="msg">
+              <p><strong class="mono">codex</strong>&nbsp;&nbsp;<span class="small muted">10:42 AM</span>
+Adjusted the hero layout and copy.</p>
+            </div>
+            <div class="msg">
+              <p><strong class="mono">grok</strong>&nbsp;&nbsp;<span class="small muted">10:43 AM</span>
+Refined the glow curve and contrast.</p>
+            </div>
+            <div class="msg">
+              <p><strong class="mono">kimi</strong>&nbsp;&nbsp;<span class="small muted">10:44 AM</span>
+Round 2 looks strong. Ready to iterate.</p>
+            </div>
+          </div>
+          <form class="composer">
+            <textarea aria-label="Message agents" placeholder="Message agents…"></textarea>
+            <button class="primary" type="button">Send</button>
+          </form>
+        </section>
+      </aside>
+
+      <section class="col centre">
+        <div class="canvas">
+          <div class="stage" aria-label="Rendered design stage"></div>
+          <div class="strip">
+            <button class="thumb active"><span class="mono">r1-a</span></button>
+            <button class="thumb"><span class="mono">r2-a</span></button>
+          </div>
+          <div class="toolbar">
+            <button class="primary">Re-render</button>
+            <button>New variant</button>
+            <button>Ask agent</button>
+            <button>Blind read</button>
+          </div>
+        </div>
+      </section>
+
+      <aside class="col right">
+        <div class="inspector">
+          <section>
+            <div class="block-head">
+              <h2>Solution</h2>
+              <div class="actions">
+                <button class="ghost">resolve</button>
+                <button class="ghost">choose…</button>
+              </div>
+            </div>
+            <span class="status"><i class="dot ok"></i><span>connected</span></span>
+            <span class="mono muted">/Users/ryanhelms/work/design-system</span>
+            <span class="mono">design-system @ 9f3c1a7 · main · up to date</span>
+          </section>
+
+          <section class="git">
+            <h2>Git</h2>
+            <span class="mono">ryanhelms/marketing-site</span>
+            <button class="row-line">
+              <span>main</span>
+              <span>⌄</span>
+            </button>
+            <span class="status mono"><i class="dot busy"></i><span>3 changed · 2 ahead · 0 behind</span></span>
+            <ul class="changes">
+              <li><span>M</span><span>runs/2026-08-28-home-hero/state.json</span></li>
+              <li><span>M</span><span>runs/2026-08-28-home-hero/brief.md</span></li>
+              <li><span>A</span><span>project.json</span></li>
+            </ul>
+            <label class="muted">Commit message</label>
+            <textarea aria-label="Commit message">direction round 2</textarea>
+            <div class="actions">
+              <button>Pull</button>
+              <button class="primary">Commit</button>
+              <button>Push</button>
+            </div>
+          </section>
+
+          <section class="project-section">
+            <h2>Project</h2>
+            <span class="mono">website · active</span>
+          </section>
+
+          <section class="grow-section">
+            <h2>Brief</h2>
+            <pre class="mono">Refresh the home hero to communicate clarity,
+confidence, and motion. Lead with the value
+proposition. Use a cinematic tone with restrained
+glow and ample negative space.
+Audience: marketing leaders and founders.
+Primary CTA: See it in action.
+Secondary CTA: Explore features.</pre>
+          </section>
+        </div>
+      </aside>
+    </main>
+  </div>
+</body>
+</html>

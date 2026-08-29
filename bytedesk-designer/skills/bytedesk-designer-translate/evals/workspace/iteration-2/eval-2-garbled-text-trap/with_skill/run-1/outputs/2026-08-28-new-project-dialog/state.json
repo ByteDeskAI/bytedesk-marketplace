@@ -1,0 +1,30 @@
+{
+  "slug": "2026-08-28-new-project-dialog",
+  "product": "designer-studio",
+  "design_root": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-designer/skills/bytedesk-designer-translate/evals/workspace/iteration-2/eval-2-garbled-text-trap/with_skill/run-1/outputs/2026-08-28-new-project-dialog/..",
+  "authority": { "path": "/home/ryan/Documents/GitHub/ByteDeskAI/design-system", "sha": "9845b41", "read_at": "2026-08-28T18:57:10Z", "note": "1 uncommitted change at read time" },
+  "codex": { "version": "codex-cli 0.146.0", "verified_at": "2026-08-28T18:57:10Z" },
+  "stages": {
+    "translate": {
+      "status": "complete",
+      "mockup": "/home/ryan/Pictures/claude-design/runs/2026-08-28-designer-studio-mockups/images/r4-p4.png",
+      "logical": "1280x800",
+      "artifacts": ["surfaces/new-project.html", "translate/SPEC.md", "translate/notes.md"],
+      "rounds": 3,
+      "viewed": [
+        "translate/grid-new-project.png",
+        "translate/shots/new-project-r1.png", "translate/diff/new-project-r1/diff.png",
+        "translate/shots/new-project-r2.png", "translate/diff/new-project-r2/diff.png",
+        "translate/shots/new-project-r3.png", "translate/diff/new-project-r3/diff.png"
+      ],
+      "scores": {
+        "r1": { "layoutScore": 0.9789, "pixelDiff": 0.062, "topHotspotLum": 0.174 },
+        "r2": { "layoutScore": 0.9728, "pixelDiff": 0.0715, "topHotspotLum": 0.056 },
+        "r3": { "layoutScore": 0.974, "pixelDiff": 0.0687, "topHotspotLum": 0.056 },
+        "final": { "layoutScore": 0.974, "topHotspotLum": 0.056, "deltaSinceLastRound": 0.0012 }
+      },
+      "stop": "round 3 ceiling; top hotspot lum 0.056 on text, layoutScore delta 0.0012 < 0.005",
+      "implementation_gate": "not run — no implementation URL given"
+    }
+  }
+}

@@ -1,0 +1,100 @@
+{
+  "a": "/home/ryan/Pictures/claude-design/runs/2026-08-28-designer-studio-mockups/images/r3-s5.png",
+  "b": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-designer/skills/bytedesk-designer-translate/evals/workspace/iteration-3/eval-0-measure-then-build/with_skill/run-1/outputs/2026-08-28-studio-render-failed/translate/shots/render-failed-r1.png",
+  "size": "1280x800",
+  "pixelDiff": 0.0592,
+  "masks": [],
+  "layoutScore": 0.9908,
+  "threshold": 32,
+  "grid": "32x20",
+  "hotspots": [
+    {
+      "cell": "25,2",
+      "rect": {
+        "x": 1000,
+        "y": 80,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.003,
+      "pixDiff": 0.369
+    },
+    {
+      "cell": "1,15",
+      "rect": {
+        "x": 40,
+        "y": 600,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.009,
+      "pixDiff": 0.359
+    },
+    {
+      "cell": "1,9",
+      "rect": {
+        "x": 40,
+        "y": 360,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.048,
+      "pixDiff": 0.304
+    },
+    {
+      "cell": "2,14",
+      "rect": {
+        "x": 80,
+        "y": 560,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.025,
+      "pixDiff": 0.324
+    },
+    {
+      "cell": "2,9",
+      "rect": {
+        "x": 80,
+        "y": 360,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.039,
+      "pixDiff": 0.311
+    },
+    {
+      "cell": "1,11",
+      "rect": {
+        "x": 40,
+        "y": 440,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.008,
+      "pixDiff": 0.338
+    },
+    {
+      "cell": "25,3",
+      "rect": {
+        "x": 1000,
+        "y": 120,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.007,
+      "pixDiff": 0.337
+    },
+    {
+      "cell": "26,13",
+      "rect": {
+        "x": 1040,
+        "y": 520,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.015,
+      "pixDiff": 0.326
+    }
+  ]
+}

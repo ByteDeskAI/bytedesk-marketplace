@@ -1,0 +1,3 @@
+authority: /home/ryan/Documents/GitHub/ByteDeskAI/design-system @ 9845b41 (HEAD, read 2026-08-28)
+app-vendored tokens: app/.context/design-system/.source-sha = de482617 (this is the sheet the app loads; surfaces/tokens/bytedesk.css is a byte copy of it)
+app-global.css: byte copy of app/src/styles/global.css with only the @import path rewritten to ./bytedesk.css

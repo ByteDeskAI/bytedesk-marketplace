@@ -1,0 +1,34 @@
+{
+  "slug": "2026-08-28-new-project-dialog",
+  "product": "designer-studio",
+  "authority": { "path": "/home/ryan/Documents/GitHub/ByteDeskAI/design-system", "sha": "9845b41", "read_at": "2026-08-28T20:10:54Z", "dirty": true },
+  "codex": { "version": "codex-cli 0.146.0", "verified_at": "2026-08-28T20:10:54Z", "preflight": "codex exec round-trip OK on attempt 1" },
+  "stages": {
+    "translate": {
+      "status": "complete",
+      "state": "new-project",
+      "mockup": "/home/ryan/Pictures/claude-design/runs/2026-08-28-designer-studio-mockups/images/r4-p4.png",
+      "logical": "1280x800",
+      "artifacts": ["surfaces/new-project.html", "surfaces/tokens/bytedesk.css", "surfaces/.source-sha", "translate/SPEC.md", "translate/notes.md"],
+      "rounds": 3,
+      "prompts": ["translate/prompts/new-project-r1.txt", "translate/prompts/new-project-r2.txt", "translate/prompts/new-project-r3.txt"],
+      "viewed": [
+        "/home/ryan/Pictures/claude-design/runs/2026-08-28-designer-studio-mockups/images/r4-p4.png",
+        "/home/ryan/Pictures/claude-design/runs/2026-08-28-designer-studio-mockups/images/r4-p5.png",
+        "translate/grid-new-project.png",
+        "translate/shots/new-project-r1.png", "translate/diff/new-project-r1/diff.png",
+        "translate/shots/new-project-r2.png",
+        "translate/shots/new-project-r3.png", "translate/diff/new-project-r3/diff.png"
+      ],
+      "masks": [[326,16,37,601],[917,16,59,601],[363,16,554,95]],
+      "scores": {
+        "r1": { "layoutScore": 0.9724, "pixelDiff": 0.0652, "topHotspot": { "cell": "6,18", "lumDiff": 0.11 } },
+        "r2": { "layoutScore": 0.978, "pixelDiff": 0.0785, "topHotspot": { "cell": "6,4", "lumDiff": 0.062 } },
+        "r3": { "layoutScore": 0.9824, "pixelDiff": 0.0786, "topHotspot": { "cell": "6,4", "lumDiff": 0.042 } },
+        "final": { "layoutScore": 0.9824, "pixelDiff": 0.0786 },
+        "stop": "round 3 ceiling; layoutScore delta 0.0044 < 0.005; top non-inspector hotspot lumDiff 0.042 is text speckle, no edge; inspector cells differ by design"
+      },
+      "implementation_gate": "not run — no implementation URL given"
+    }
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "expectations": [
+    {
+      "text": "Wrote translate/SPEC.md containing at least ten numeric measurements in logical pixels before the first Codex build",
+      "passed": false,
+      "evidence": "No translate/SPEC.md. RESULT.md paragraph 1 lists a handful of measurements (14px margin, 10px gutters, columns 322/610/304, block heights 156/180/~300/125) but that is a post-hoc summary in a result file, not a spec written before the build, and totals well under ten measurements of the kind a spec carries (no type sizes with wrap checks, no row pitches, no control rects)."
+    },
+    {
+      "text": "SPEC.md records the invented-element decision explicitly \u2014 either naming what the mockup invented and must not be built, or stating that nothing structural was invented",
+      "passed": false,
+      "evidence": "No SPEC.md and no equivalent statement. RESULT.md 'Known deltas' lists rendering differences but never decides what the mockup invented; in fact the surface BUILDS the invented link underlines (<u>direct</u>, <u>300s</u>) verbatim."
+    },
+    {
+      "text": "The surface HTML loads a vendored token stylesheet and contains no hex or rgb() colour literals",
+      "passed": false,
+      "evidence": "Loads bytedesk.tokens.css (vendored) but contains two colour literals: --studio-inset: #14171A and .btn-primary color: #fff. Also pulls Google Fonts, which the token sheet already governs."
+    },
+    {
+      "text": "Codex wrote the surface (a translate/prompts/*-r1.txt hand-off exists and codex-exec.sh was used in text mode); Claude did not author the markup inline",
+      "passed": false,
+      "evidence": "No translate/prompts/*-r1.txt, no attempts.json, no codex log; RESULT.md describes the executor measuring, mapping tokens and writing the page itself. Claude authored the markup inline."
+    },
+    {
+      "text": "Rendered the surface at 1280x800 and produced translate/diff/<state>-r1/report.json with layoutScore and hotspots",
+      "passed": false,
+      "evidence": "screenshot-1280x800.png exists (1280x800), but there is no diff/report.json, no layoutScore, no hotspots. RESULT.md says 'compared against the mockup' with no artefact."
+    },
+    {
+      "text": "Every change in a patch round is justified by a recorded diff observation (a report hotspot cell or a named region of diff.png noted in notes.md) and the patch prompt lists numbered changes plus a FROZEN list",
+      "passed": false,
+      "evidence": "No patch prompts, no diff observations, no FROZEN list. RESULT.md mentions 'one iteration to tighten sidebar type' with no recorded justification. 1 round (plus one undocumented tweak)."
+    },
+    {
+      "text": "Reported layoutScore as the mockup comparison and never presented pixelDiff against the mockup PNG as the pass/fail number",
+      "passed": false,
+      "evidence": "No layoutScore or pixelDiff reported at all; no comparison number of any kind. Cannot pass an assertion about which metric was presented."
+    },
+    {
+      "text": "state.json lists every screenshot and diff image read under stages.translate.viewed",
+      "passed": false,
+      "evidence": "No state.json."
+    },
+    {
+      "text": "The final round's report.json shows layoutScore \u2265 0.95 against the mockup (structural fidelity, not just process)",
+      "passed": false,
+      "evidence": "No report.json for any round, so no layoutScore. Visual read of the screenshot vs the mockup shows real structural drift: runs list starts ~40px higher, timeline wraps the first line ('...prompt and\\ncontext.'), Retry button smaller, attempts table positioned differently, right-column brief wraps to 5 lines with different breaks, composer moved. Structurally similar but not measured."
+    },
+    {
+      "text": "No hex or rgb() colour literal anywhere in the surface HTML (HTML entities such as &#9656; are not colours)",
+      "passed": false,
+      "evidence": "Same two literals as above: '#14171A' and '#fff' (entities like &#9656; excluded from the scan)."
+    }
+  ],
+  "summary": {
+    "passed": 0,
+    "failed": 10,
+    "total": 10,
+    "pass_rate": 0.0
+  },
+  "timing": {
+    "total_tokens": 97841,
+    "duration_ms": 312591,
+    "total_duration_seconds": 312.6
+  },
+  "critique": "Baseline 0/10. The executor produced a plausible, reasonably faithful page (token-driven, correct content, right three-column shape) but none of the contract artefacts exist: no spec, no Codex hand-off, no diff/report, no state.json, no numeric comparison. The two hex literals and the built-in link underlines are exactly the failure modes the skill's spec-first / invented-element rules target. Fair note for the eval author: assertions 3/10 are the only ones the baseline could have passed by good taste alone, and it still didn't; the rest are process artefacts the skill defines, so a baseline near zero is expected and the discriminating signal is genuinely assertions 3, 9 and 10."
+}

@@ -94,6 +94,78 @@ root DESIGN.md  →  profiles/<product>/DESIGN.md  →  consumer-local overrides
 A product profile may narrow the foundation; it may not contradict a family-wide rule. If
 it appears to, that is a finding for the review stage, not a licence to pick one.
 
+## Which profile governs a run
+
+Authority order says which *values* win. This says which *file* is read — a different
+question, and one the order alone cannot answer once a product exists in a place the
+authority has never heard of.
+
+Resolve in this order and stop at the first hit:
+
+1. **The run's own project.** Walk up from the run folder to the first directory holding
+   **both** `project.json` and `DESIGN.md`. That `DESIGN.md` is the profile.
+2. **The authority.** `profiles/<product>/DESIGN.md`, where `<product>` is the `product`
+   field in the run's `state.json`. That string and the directory name are the whole join.
+3. **Nothing.** Inherit the foundation, and say so.
+
+Both files are required at layer 1 because either alone is ambiguous: a `project.json`
+belonging to some unrelated toolchain sits higher up a great many trees, and a bare
+`DESIGN.md` is what the authority root itself looks like.
+
+**The project comes first because it is the thing being designed** — and because it is the
+only side of this the suite may write to. Reversed, a new project named `gateway` would
+quietly inherit the language of a stranger's `gateway` that happens to sit in the shared
+authority, and nothing in the run would show that the substitution had occurred.
+
+**The authority is read-only.** Under a solution it is typically a clone of a repository
+the operator does not own. A run never adds a profile or a catalog entry to it; extending
+an authority is a deliberate act in the authority's own repository, through
+`bytedesk-designer-authority`.
+
+**Runs outside a project are unaffected.** A run at `~/Pictures/claude-design/runs/…` walks
+to the filesystem root, finds no project, and resolves at layer 2 exactly as before.
+
+**The catalog is not consulted.** Resolution is by directory. Catalogs are an inventory,
+they disagree about their own shape between authorities, and a product listed in neither
+the catalog nor `profiles/` is invisible to every gate anyway — so reading one here would
+add a failure mode without adding an answer.
+
+**A template is not a profile.** A `DESIGN.md` still carrying its angle-bracket placeholders
+has been created but not written; it resolves as layer 3 and reports that it did. Every
+project starts in that state. Handing `<A thing seen, not an adjective>` to a renderer as
+art direction is worse than inheriting the foundation, because it looks like a decision.
+
+`scripts/authority-doctor.sh --product <id>` reports the resolution: `PROFILE:`,
+`PROFILE-RESOLVED-BY: project | authority | inherit`, and `PROFILE-STATE:` when the file is
+still a template. A run records the answer in `state.json` and in its provenance header, per
+the run-folder contract — which profile governed the work is not recoverable afterwards
+unless the run wrote it down.
+
+## An unreachable authority is not a missing one
+
+Resolution assumes the resolved path can actually be read. Under a solution that assumption
+has a sharp edge: the authority sits at `<solution>/design-system`, a sibling of the project
+repository rather than a file inside it, so any sandbox scoped to the project alone — an
+isolated worktree for a write run, a container mount, a restricted-filesystem agent — has a
+valid `.design-authority` pointing at a path that does not exist there.
+
+That is a different condition from "nothing configured", and it must not degrade the same
+way. A missing authority means inherit. An **unreachable** one means the values exist, are
+governed, and simply could not be read — so inheriting silently produces work that looks
+authored against the system and is not. Observed once already: an agent that could not reach
+`../../design-system` substituted a stand-in stylesheet of invented tokens, disclosed the
+substitution, and produced a surface in a colour nobody chose. Both mechanical gates passed,
+because a grep for hardcoded colour sees custom properties either way and a used-versus-
+defined diff compares the stylesheet against whatever sits at the vendored path.
+
+So: **fail closed.** A stage that resolves an authority it cannot read stops and says
+`AUTHORITY: unreachable` with the path it tried. It does not fall back to the foundation, and
+it never writes its own token file. Whoever runs work in a sandbox is responsible for making
+the authority reachable inside it.
+
+The check that actually catches a substituted adapter compares the vendored file against the
+authority's own, at the authority's real path — not against itself.
+
 ## The generated-art contract
 
 This is the part most authorities don't have yet and most need. It answers a question that

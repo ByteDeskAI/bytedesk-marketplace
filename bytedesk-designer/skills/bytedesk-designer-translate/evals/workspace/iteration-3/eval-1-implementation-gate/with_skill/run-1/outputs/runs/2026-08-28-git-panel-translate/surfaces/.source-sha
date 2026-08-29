@@ -1,0 +1,4 @@
+authority: /home/ryan/Documents/GitHub/ByteDeskAI/design-system @ 9845b41fa095d78f6081bbf8764c3d3daa07db4f (1 uncommitted change; tokens/css/bytedesk.css differs from the app vendored copy only by --bd-product-agent-mail)
+app vendored tokens: app/.context/design-system/.source-sha = de482617dfd28db5a0c6afd0ffdd637767dff053
+bytedesk.css: byte copy of app/.context/design-system/tokens/css/bytedesk.css
+app.css: byte copy of app/src/styles/global.css with the @import path rewritten to ./bytedesk.css

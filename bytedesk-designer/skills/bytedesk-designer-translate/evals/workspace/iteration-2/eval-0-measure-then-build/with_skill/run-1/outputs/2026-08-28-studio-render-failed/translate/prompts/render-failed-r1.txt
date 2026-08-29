@@ -1,0 +1,87 @@
+Do not run any shell commands. Do not read or write any files.
+Reply with the artifact only — no preamble, no explanation, no code fences.
+
+Write a single self-contained HTML file for one application state of the ByteDesk Designer Studio desktop app.
+It loads the stylesheet at ./tokens/bytedesk.css (relative path, a <link> in <head>) and uses only its custom properties for every
+colour: no hex, no rgb(), no hsl(), no named colours anywhere. The <html> element carries data-bd-product="designer-studio" (no theme attribute; the sheet defaults to dark).
+Fonts: var(--bd-font-sans) for chrome and prose, var(--bd-font-mono) for run ids, versions, timeline entries, attempts table, the sentence under it, art direction bullets and critique lines.
+Fixed 1280×800 layout, body margin 0, overflow hidden, background var(--bd-bg-base); no responsive behaviour, no media queries, no JavaScript.
+Use absolute positioning or fixed-size grid so every rect lands exactly at the measured numbers. Matte throughout: no box-shadow, no gradients, no glow, no transitions.
+Status dots are 8px circles (10px for the stage status). Dot colours: var(--bd-success) ok, var(--bd-danger) failed/exhausted.
+Hairlines are 1px solid var(--bd-border-default). Panel radius 6px. Text primary var(--bd-text-primary), secondary var(--bd-text-secondary), on-accent var(--bd-text-on-brand).
+
+MEASUREMENTS (logical px — build to these, do not eyeball):
+# SPEC — Designer Studio workbench, state: render failed / attempts exhausted (r3-s5)
+
+Mockup: ~/Pictures/claude-design/runs/2026-08-28-designer-studio-mockups/images/r3-s5.png (1586×992, scale 1.2391)
+Logical size: 1280×800. All numbers below are logical px read off translate/grid-render-failed.png.
+
+## Frame
+- Window ground = --bd-bg-base. Three panels on it, each --bd-bg-surface, 1px --bd-border-default hairline, radius 6px.
+- Outer inset 12 on all sides. Panels: left x12 w320 · gap 12 · centre x344 w608 · gap 12 · right x964 w304. Panel y12 h776.
+- Ratio 320 : 608 : 304 (25 / 47.5 / 23.75 %). Matte; no shadows, no gradients, no glow.
+
+## Left column (x12–332)
+- Agents block: top pad 8; four rows pitch 36 (row centres y≈40, 76, 112, 148); bottom hairline at y171.
+  Row grid (from panel left): name x16 (sans 14px, primary); dot x105 (8px circle --bd-success) + word x117 ("ok", sans 13px secondary);
+  version x174 (mono 13px primary); Connect button right-aligned, right edge at x−12, 72×28, --bd-bg-elevated fill, hairline, radius 6, sans 13px.
+- Runs block y171–347: heading "Runs" sans 14px primary at baseline y≈192 (pad 12 top); five rows pitch 24 starting y206, row height 20;
+  run id mono 13px at x16, status word right-aligned at x−12 (mono 13px; failed = --bd-danger, ok = --bd-success);
+  selected row (first) has --bd-bg-elevated fill spanning x8–x−8, radius 4. "View all…" sans 13px secondary at y≈332. Hairline at y347.
+- Timeline y347–648: five entries; entry head line = speaker mono 12px bold primary + timestamp mono 12px secondary, 8 gap;
+  body mono 12.5px primary, line pitch 18; entry gap 14. First entry head at y≈364. Hairline at y648.
+- Composer y648–784: textarea x10–x−10, y658–773 (h115), --bd-bg-elevated fill? no — --bd-bg-surface with hairline border, radius 6;
+  placeholder "Message codex..." mono 13px secondary at 8,10. Send button inside the textarea's bottom-right: 82×32, x238–320, y737–768,
+  --bd-accent fill, --bd-text-on-brand label sans 14px, radius 4, hairline in accent.
+
+## Centre column (x344–952)
+- Stage y12–571 (h559), --bd-bg-surface (same as panel; it is the panel). Contents vertically centred (block spans y179–397, centre 288 ≈ stage centre 292):
+  - status line: 10px dot --bd-danger + "exhausted" sans 16px --bd-danger, centred, baseline y≈184.
+  - attempts table: x458–841 (w383, h91), y206–297, hairline border, radius 4, padding 10 14. Three rows pitch 22, mono 13px primary.
+    Column x (absolute): caret ▸ 475 (secondary), attempt name 492, "exit N" 601, seconds 684, "produced no" 738.
+    Row 1 only: attempt name and seconds underlined (mockup detail; keep as text-decoration underline).
+  - sentence "Codex produced nothing. Nothing was written." mono 13.5px primary centred, baseline y≈343.
+  - Retry button 76×32 centred (x611–687), y366–397, --bd-bg-elevated, hairline, radius 6, sans 14px primary.
+  Hairline at y571.
+- Strip y571–698: one thumbnail at x353, y583, 96×103: hairline in --bd-accent (2px), radius 4, empty interior --bd-bg-surface,
+  hairline separator at y658 then label "r1-a" mono 12px centred in the 28px label band. Hairline at y698.
+- Toolbar y698–784: four buttons h40, y711–751, widths 132, gap 14, starting x358: "Re-render" (--bd-accent fill, on-brand text),
+  "New variant", "Ask agent", "Blind read" (--bd-bg-elevated, hairline). Sans 15px.
+
+## Right column (x964–1268), inspector: three stacked sections separated by hairlines at y214 and y421
+- Section padding 12 left/right (text x976), 16 top. Heading sans 16px primary: "Brief" baseline y≈41, "Art direction" y≈245, "Critique" y≈453.
+- Brief body: sans 14px primary, line pitch 22, starts y≈65, wraps at panel width (5 lines).
+- Art direction: bullet list, "•" secondary, mono 13px primary, pitch 25, starts y≈271 (5 items), bullet x976, text x988.
+- Critique: mono 13px primary, pitch 23, starts y≈479 (6 lines).
+
+## Invented by the mockup — do not build
+- Nothing structural this time (no title bar, no icons). Kept as drawn: the hollow r1-a thumbnail — in this state r1-a failed to render,
+  so the app has no PNG for it; an outlined empty slot at the same luminance is the honest placeholder.
+- The underline on row 1's "direct"/"300s" is a generation artefact but at 1px it costs nothing; keep it.
+- The app's toolbar copy is "Re-render → r2-a" / "New variant → r1-b"; the approved mockup says "Re-render" / "New variant". Build the mockup copy.
+
+## Masks
+None — no stage image in this state.
+
+STATE CONTENT (exact copy, verbatim):
+Agents rows: "claude · ok · 1.3.7 · Connect", "codex · ok · 0.18.2 · Connect", "grok · ok · 1.2.0 · Connect", "kimi · ok · 1.1.5 · Connect".
+Runs: heading "Runs"; rows "run-2025-05-12-0021  failed" (selected), "run-2025-05-12-0020  ok", "run-2025-05-12-0019  ok", "run-2025-05-12-0018  failed", "run-2025-05-12-0017  ok"; then "View all..."
+Timeline entries (speaker, timestamp, body lines):
+  codex 10:14:22 — "Starting render r1-a with prompt and context." / "This may take up to 5 minutes."
+  codex 10:19:22 — "No output produced. Retrying with scoped" / "home directory."
+  codex 10:24:22 — "No output again. Retrying after backoff."
+  codex 10:36:35 — "Still no output." / "Attempts exhausted."
+  system 10:36:35 — "Render failed."
+Composer: textarea placeholder "Message codex..." ; button "Send".
+Stage: "exhausted"; attempts table rows: "direct | exit 124 | 300s | produced no", "scoped-home | exit 124 | 300s | produced no", "after-backoff | exit 1 | 12s | produced no" (caret ▸ only on the first row);
+  sentence "Codex produced nothing. Nothing was written."; button "Retry".
+Strip: one thumbnail labelled "r1-a", empty interior.
+Toolbar: "Re-render", "New variant", "Ask agent", "Blind read".
+Inspector — Brief: "Create a cinematic scene of a lone traveler standing on a rain-slick street in a neon-lit city at night. Mood is moody and reflective. Palette leans teal and magenta. Aspect ratio: 16:9."
+Art direction bullets: "Cinematic, photorealistic", "Low key lighting", "Strong reflections", "Depth and atmosphere", "Focus on silhouette and mood".
+Critique lines: "Codex produced no output.", "All attempts exhausted.", "Review brief and constraints.", "Consider simplifying the request.", "Check environment and permissions.", "Try again."
+
+DO NOT BUILD: a title bar, icons, metric tiles, charts, pills, badges row, scrollbars, hover states, or any thumbnail image.
+
+Available custom properties (use only these):
+--bd-accent --bd-accent-default --bd-accent-emphasis --bd-accent-fg --bd-accent-glow --bd-accent-muted --bd-accent-subtle --bd-bg-base --bd-bg-elevated --bd-bg-hover --bd-bg-overlay --bd-bg-subtle --bd-bg-surface --bd-blue-100 --bd-blue-200 --bd-blue-300 --bd-blue-400 --bd-blue-50 --bd-blue-500 --bd-blue-600 --bd-blue-700 --bd-blue-800 --bd-blue-900 --bd-border-default --bd-border-dimmer --bd-border-dimmest --bd-border-stronger --bd-border-strongest --bd-brand-orange --bd-brand-orange-muted --bd-breakpoint-compact-max --bd-breakpoint-standard-min --bd-breakpoint-ultrawide-min --bd-breakpoint-wide-min --bd-chart-axis --bd-chart-grid --bd-chart-plot --bd-chart-selection --bd-chart-series-1 --bd-chart-series-2 --bd-chart-series-3 --bd-chart-series-4 --bd-chart-series-5 --bd-chart-series-6 --bd-chart-series-7 --bd-chart-series-8 --bd-danger --bd-danger-bg --bd-danger-line --bd-desk --bd-desk-agentic --bd-desk-developer --bd-desk-files --bd-desk-projects --bd-desk-sessions --bd-desk-system --bd-duration-base --bd-duration-fast --bd-duration-slow --bd-ease-out-expo --bd-focus-ring --bd-font-display --bd-font-mono --bd-font-sans --bd-font-weight-bold --bd-font-weight-medium --bd-font-weight-regular --bd-font-weight-semibold --bd-glow-brand --bd-glow-interactive --bd-info --bd-info-bg --bd-info-line --bd-interactive-blue --bd-interactive-focus --bd-letter-spacing-caps --bd-letter-spacing-label --bd-letter-spacing-tight --bd-line-height-body --bd-line-height-compact --bd-line-height-tight --bd-material-ambient-blue --bd-material-ambient-orange --bd-material-blur-overlay --bd-material-blur-shell --bd-material-shell-opacity --bd-material-top-light --bd-opacity-disabled --bd-opacity-hover --bd-opacity-scrim --bd-opacity-secondary --bd-overlay-backdrop --bd-product-agent-browser --bd-product-agent-mail --bd-product-agent-memory --bd-product-agent-orchestration --bd-product-capture --bd-product-gateway --bd-product-mangodisk --bd-product-openseo --bd-product-platform --bd-product-store --bd-product-toolbox --bd-product-vault --bd-product-workforce --bd-radius-2xl --bd-radius-full --bd-radius-lg --bd-radius-md --bd-radius-sm --bd-radius-xl --bd-richness-ambient-strength --bd-richness-bloom-strength --bd-shadow-attention-glow --bd-shadow-card --bd-shadow-elevated --bd-shadow-focus-glow --bd-shadow-glow-accent --bd-shadow-shell --bd-size-chart-minimum-height --bd-size-chart-point --bd-size-control-compact --bd-size-control-default --bd-size-control-touch --bd-size-hit-target-pointer --bd-size-hit-target-touch --bd-size-icon-lg --bd-size-icon-md --bd-size-icon-sm --bd-size-icon-xl --bd-size-panel-comfortable --bd-size-panel-minimum --bd-size-panel-wide --bd-size-row-compact --bd-size-row-default --bd-size-row-touch --bd-size-shell-commandbar --bd-size-shell-inspector --bd-size-shell-rail --bd-size-shell-sidebar --bd-size-shell-statusbar --bd-size-shell-topbar --bd-size-terminal-tab --bd-space-0 --bd-space-1 --bd-space-10 --bd-space-11 --bd-space-2 --bd-space-3 --bd-space-4 --bd-space-5 --bd-space-6 --bd-space-7 --bd-space-8 --bd-space-9 --bd-space-section-x --bd-space-section-y --bd-stroke-active --bd-stroke-chart --bd-stroke-focus --bd-stroke-hairline --bd-success --bd-success-bg --bd-success-line --bd-success-muted --bd-text-body --bd-text-body-lg --bd-text-body-sm --bd-text-caption --bd-text-console --bd-text-console-sm --bd-text-disabled --bd-text-display --bd-text-h1 --bd-text-h2 --bd-text-h3 --bd-text-h4 --bd-text-on-brand --bd-text-primary --bd-text-secondary --bd-text-tertiary --bd-warning --bd-warning-bg --bd-warning-line 

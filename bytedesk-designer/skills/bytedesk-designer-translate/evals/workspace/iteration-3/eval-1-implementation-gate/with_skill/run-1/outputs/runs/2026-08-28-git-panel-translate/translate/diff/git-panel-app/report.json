@@ -1,0 +1,100 @@
+{
+  "a": "translate/shots/git-panel-r2.png",
+  "b": "translate/shots/git-panel-app.png",
+  "size": "1280x800",
+  "pixelDiff": 0.1077,
+  "masks": [],
+  "layoutScore": 0.9628,
+  "threshold": 16,
+  "grid": "32x20",
+  "hotspots": [
+    {
+      "cell": "10,17",
+      "rect": {
+        "x": 400,
+        "y": 680,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.292,
+      "pixDiff": 0.75
+    },
+    {
+      "cell": "11,17",
+      "rect": {
+        "x": 440,
+        "y": 680,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.272,
+      "pixDiff": 0.75
+    },
+    {
+      "cell": "7,2",
+      "rect": {
+        "x": 280,
+        "y": 80,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.131,
+      "pixDiff": 0.869
+    },
+    {
+      "cell": "7,19",
+      "rect": {
+        "x": 280,
+        "y": 760,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.114,
+      "pixDiff": 0.799
+    },
+    {
+      "cell": "9,19",
+      "rect": {
+        "x": 360,
+        "y": 760,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.136,
+      "pixDiff": 0.75
+    },
+    {
+      "cell": "10,19",
+      "rect": {
+        "x": 400,
+        "y": 760,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.125,
+      "pixDiff": 0.75
+    },
+    {
+      "cell": "17,17",
+      "rect": {
+        "x": 680,
+        "y": 680,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.119,
+      "pixDiff": 0.75
+    },
+    {
+      "cell": "20,17",
+      "rect": {
+        "x": 800,
+        "y": 680,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.118,
+      "pixDiff": 0.75
+    }
+  ]
+}

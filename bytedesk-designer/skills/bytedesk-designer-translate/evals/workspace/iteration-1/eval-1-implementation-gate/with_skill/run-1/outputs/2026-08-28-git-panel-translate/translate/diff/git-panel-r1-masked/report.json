@@ -1,0 +1,99 @@
+{
+  "a": "skills/bytedesk-designer-translate/evals/workspace/iteration-1/implementation-gate/with_skill/outputs/2026-08-28-git-panel-translate/translate/mockup-stage-masked.png",
+  "b": "skills/bytedesk-designer-translate/evals/workspace/iteration-1/implementation-gate/with_skill/outputs/2026-08-28-git-panel-translate/translate/shots/git-panel-r1.png",
+  "size": "1280x800",
+  "pixelDiff": 0.0714,
+  "layoutScore": 0.9922,
+  "threshold": 32,
+  "grid": "32x20",
+  "hotspots": [
+    {
+      "cell": "26,18",
+      "rect": {
+        "x": 1040,
+        "y": 720,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.052,
+      "pixDiff": 0.448
+    },
+    {
+      "cell": "24,18",
+      "rect": {
+        "x": 960,
+        "y": 720,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.026,
+      "pixDiff": 0.458
+    },
+    {
+      "cell": "23,18",
+      "rect": {
+        "x": 920,
+        "y": 720,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.02,
+      "pixDiff": 0.448
+    },
+    {
+      "cell": "27,16",
+      "rect": {
+        "x": 1080,
+        "y": 640,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.035,
+      "pixDiff": 0.423
+    },
+    {
+      "cell": "7,3",
+      "rect": {
+        "x": 280,
+        "y": 120,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.113,
+      "pixDiff": 0.342
+    },
+    {
+      "cell": "26,17",
+      "rect": {
+        "x": 1040,
+        "y": 680,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0,
+      "pixDiff": 0.45
+    },
+    {
+      "cell": "25,17",
+      "rect": {
+        "x": 1000,
+        "y": 680,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.008,
+      "pixDiff": 0.436
+    },
+    {
+      "cell": "25,18",
+      "rect": {
+        "x": 1000,
+        "y": 720,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.047,
+      "pixDiff": 0.396
+    }
+  ]
+}

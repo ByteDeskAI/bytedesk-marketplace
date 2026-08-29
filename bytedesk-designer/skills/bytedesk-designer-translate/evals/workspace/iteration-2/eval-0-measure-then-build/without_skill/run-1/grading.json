@@ -1,0 +1,61 @@
+{
+  "expectations": [
+    {
+      "text": "Wrote translate/SPEC.md containing at least ten numeric measurements in logical pixels before the first Codex build",
+      "passed": false,
+      "evidence": "No translate/SPEC.md. RESULT.md has a 'Layout facts measured' section with many CSS-px numbers, but it is a post-hoc summary written with the result, not a contract written before the build; no build hand-off exists at all."
+    },
+    {
+      "text": "SPEC.md names at least one element the mockup invented that must not be built (e.g. a title bar or hollow thumbnail slots)",
+      "passed": false,
+      "evidence": "No SPEC.md and RESULT.md names nothing the mockup invented that must not be built; it builds the hollow r1-a thumbnail and everything else as drawn without a do-not-build list."
+    },
+    {
+      "text": "The surface HTML loads a vendored token stylesheet and contains no hex or rgb() colour literals",
+      "passed": false,
+      "evidence": "failed-render.html has no <link> to a stylesheet; tokens are an inline :root subset (RESULT.md admits this) with 14 hex literals, e.g. line 11 '--bd-bg-base: #101316;', line 36 '--bd-shadow-card: inset 0 1px 0 #FFFFFF08 ...'."
+    },
+    {
+      "text": "Codex wrote the surface (a translate/prompts/*-r1.txt hand-off exists and codex-exec.sh was used in text mode); Claude did not author the markup inline",
+      "passed": false,
+      "evidence": "No translate/prompts/, no codex-exec.sh usage, no logs; RESULT.md describes Claude building the HTML directly ('built the HTML against the token layer and iterated three times')."
+    },
+    {
+      "text": "Rendered the surface at 1280x800 and produced translate/diff/<state>-r1/report.json with layoutScore and hotspots",
+      "passed": false,
+      "evidence": "screenshot-1280x800.png is a 1280x800 render and diff.png exists, but there is no report.json, no layoutScore, no hotspots \u2014 only an auto-levelled pixel diff."
+    },
+    {
+      "text": "Every change in a patch round is justified by a recorded diff observation (a report hotspot cell or a named region of diff.png noted in notes.md) and the patch prompt lists numbered changes plus a FROZEN list",
+      "passed": false,
+      "evidence": "No patch prompts exist; the three iterations are unrecorded (no numbered changes, no FROZEN list, no per-round observations)."
+    },
+    {
+      "text": "Reported layoutScore as the mockup comparison and never presented pixelDiff against the mockup PNG as the pass/fail number",
+      "passed": false,
+      "evidence": "No layoutScore is reported anywhere. To its credit it does not present pixelDiff as pass/fail either (diff.png described as 'useful only for spotting structural drift'), but the assertion requires layoutScore as the reported comparison."
+    },
+    {
+      "text": "state.json lists every screenshot and diff image read under stages.translate.viewed",
+      "passed": false,
+      "evidence": "No state.json exists."
+    },
+    {
+      "text": "The final round's report.json shows layoutScore \u2265 0.95 against the mockup (structural fidelity, not just process)",
+      "passed": false,
+      "evidence": "No report.json exists so no layoutScore can be cited. Visually (screenshot-1280x800.png vs mockup-1280x800.png) the structure is close to the mockup \u2014 three panels, table, thumbnail, toolbar \u2014 so a computed score might clear 0.95, but the assertion names the final round's report.json and nothing equivalent was produced."
+    },
+    {
+      "text": "No hex or rgb() colour literal anywhere in the surface HTML (HTML entities such as &#9656; are not colours)",
+      "passed": false,
+      "evidence": "grep finds 14 hex literals in failed-render.html (inline :root token subset, lines 11-25 and 36). These are not HTML entities."
+    }
+  ],
+  "summary": {
+    "passed": 0,
+    "failed": 10,
+    "total": 10,
+    "pass_rate": 0.0
+  },
+  "critique": "The baseline produced a visually credible surface (screenshot is structurally very close to the mockup, token names used, colours mapped rather than sampled) but none of the skill's contract: no SPEC before build, Claude authored the markup, tokens inlined as hex instead of vendored, no report.json/layoutScore, no state.json, no round records. Every assertion is contract-shaped, so 0/10 despite reasonable output quality \u2014 which is itself worth noting: the assertions measure process fidelity far more than visual fidelity, and a good-looking baseline scores zero. Eval feedback: at least one assertion should be computable on any HTML output (e.g. run the skill's diff script against the baseline screenshot and require layoutScore >= 0.95) so the eval can tell 'right answer, wrong process' from 'wrong answer'."
+}

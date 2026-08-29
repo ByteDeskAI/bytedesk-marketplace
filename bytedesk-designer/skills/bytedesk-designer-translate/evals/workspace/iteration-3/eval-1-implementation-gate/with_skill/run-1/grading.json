@@ -1,0 +1,65 @@
+{
+  "expectations": [
+    {
+      "text": "The surface links the implementation's own stylesheet (app/src/styles/global.css or a byte-identical copy), verifiable in the HTML, so a zero pixel diff is achievable",
+      "passed": true,
+      "evidence": "surfaces/git-panel.html line 7: <link rel=\"stylesheet\" href=\"./tokens/app.css\">. diff surfaces/tokens/app.css vs app/src/styles/global.css: only line 2 differs (@import \"./bytedesk.css\" vs \"../../.context/design-system/tokens/css/bytedesk.css\"); surfaces/tokens/bytedesk.css is byte-identical to app/.context/design-system/tokens/css/bytedesk.css."
+    },
+    {
+      "text": "Shot the live URL with the same viewport as the surface and produced translate/diff/<state>-app/report.json with pixelDiff",
+      "passed": true,
+      "evidence": "translate/shots/git-panel-app.png and git-panel-app-raw.png are 1280x800, same as git-panel-r1/r2.png; translate/diff/git-panel-app/report.json has pixelDiff 0.1077, threshold 16, 8 hotspot rects. Viewed the app shot: it is the live shell (Solution none, no Git section)."
+    },
+    {
+      "text": "Reported the implementation gap as pixelDiff with hotspot rects in logical pixels, and the mockup gap as layoutScore \u2014 two different numbers with two different meanings",
+      "passed": true,
+      "evidence": "RESULT.md: mockup rounds tabled as layoutScore 0.9900/0.9911 (pixelDiff labelled informational); implementation gate reported as pixelDiff 0.1077 with hotspot rects (400,680,40,40) 0.292 etc. r1/r2 report.json compare against the mockup PNG with masks + threshold 32; app report compares surface vs app shot, no masks, threshold 16."
+    },
+    {
+      "text": "Recommended changes to the implementation's CSS to match the surface, and did not alter the surface to match the implementation",
+      "passed": true,
+      "evidence": "RESULT.md 'Recommended CSS changes' block targets app selectors in global.css (.shell, .stage, .git .changes, ...) and states 'do not edit app/'. The surface's <style> overrides move it toward the mockup (r2 viewed: matches mockup layout), never toward the shell."
+    },
+    {
+      "text": "Round artefacts exist for every round (translate/prompts/*-rN.txt, shots, diff/report.json) and there are at most three mockup rounds",
+      "passed": true,
+      "evidence": "translate/prompts/git-panel-r1.txt (26784 B), git-panel-r2.txt (17237 B); shots r1/r2; diff/git-panel-r1 and -r2 report.json + diff.png; plus attempts.json, logs, replies. Two mockup rounds, stop reason stated (delta 0.0011 < 0.005)."
+    },
+    {
+      "text": "If the URL could not be put into the mockup's state, the gate is reported as inconclusive with the reason, not as drift",
+      "passed": true,
+      "evidence": "RESULT.md 'Implementation gate \u2014 INCONCLUSIVE': URL renders shell only because Tauri ipc rejects; explicitly says the 0.1077 'measures absent content, not drift, and must not be read as the gate' and gives the rerun command. Verified against the app shot."
+    }
+  ],
+  "summary": {
+    "passed": 6,
+    "failed": 0,
+    "total": 6,
+    "pass_rate": 1.0
+  },
+  "timing": {
+    "executor_duration_seconds": 620.5,
+    "total_tokens": 157529
+  },
+  "claims": [
+    {
+      "claim": "app.css is a byte copy of global.css importing the vendored bytedesk.css",
+      "type": "factual",
+      "verified": true,
+      "evidence": "diff shows only the rewritten @import path; token file identical to app vendored copy"
+    },
+    {
+      "claim": "authority bytedesk.css differs from vendored copy only by --bd-product-agent-mail",
+      "type": "factual",
+      "verified": true,
+      "evidence": "diff of authority vs vendored shows exactly that token and its selector"
+    },
+    {
+      "claim": "URL renders shell only, git-panel state unreachable",
+      "type": "factual",
+      "verified": true,
+      "evidence": "translate/shots/git-panel-app.png shows 'Solution none', no Git section"
+    }
+  ],
+  "critique": "Clean run. All six pass on verifiable artefacts. Minor: the app shot is 1280x800 while the mockup is 1586x992 \u2014 compare.mjs evidently resamples the mockup to the surface viewport; the assertion only requires app viewport == surface viewport, which holds. The 'state-independent' pixel table is measured from global.css + shell, which is honest given the state was unreachable."
+}

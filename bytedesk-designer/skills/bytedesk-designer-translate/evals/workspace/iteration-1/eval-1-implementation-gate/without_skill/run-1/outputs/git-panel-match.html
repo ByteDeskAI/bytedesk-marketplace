@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Git panel — mockup match (r5-q3)</title>
+<link rel="stylesheet" href="./app-css/tokens/css/bytedesk.css">
+<style>
+/* Surface that matches r5-q3.png at 1586×992. Only --bd-* tokens; measured geometry from the PNG. */
+:root{color-scheme:dark}
+*{box-sizing:border-box;margin:0}
+html,body{background:var(--bd-bg-base);color:var(--bd-text-primary);font:14px/1.5 var(--bd-font-sans);width:1586px;height:992px;overflow:hidden}
+.mono{font-family:var(--bd-font-mono)}
+.muted{color:var(--bd-text-secondary)}
+.frame{position:relative;width:1586px;height:992px;border:3px solid var(--bd-border-stronger);border-right-width:4px;border-bottom-width:4px;display:grid;grid-template-columns:417px 701px 461px}
+.col{position:relative;min-width:0}
+.col+.col{border-left:1px solid var(--bd-border-dimmer)}
+.rule{border-top:1px solid var(--bd-border-dimmer)}
+/* ── right column: the git panel (measured) ── */
+.right{padding:0 28px 0 24px}
+.right section{padding:18px 0 19px}
+.right section+section{border-top:1px solid var(--bd-border-dimmer)}
+.right h2{font-size:17px;font-weight:600;line-height:24px;letter-spacing:0}
+.status{display:flex;align-items:center;gap:10px;font-family:var(--bd-font-mono);font-size:14px;line-height:20px}
+.dot{width:11px;height:11px;border-radius:50%;background:var(--bd-text-tertiary);flex:none}
+.dot.ok{background:var(--bd-success)}
+.dot.warn{background:var(--bd-warning)}
+.line{font-family:var(--bd-font-mono);font-size:14px;line-height:20px}
+.git h2{margin-bottom:10px}
+.select{margin-top:10px;height:35px;border:1px solid var(--bd-border-dimmer);border-radius:var(--bd-radius-sm);background:var(--bd-bg-surface);display:flex;align-items:center;justify-content:space-between;padding:0 14px;font-family:var(--bd-font-mono);font-size:14px}
+.select svg{width:16px;height:16px;stroke:var(--bd-text-primary);fill:none;stroke-width:2}
+.git .status{margin-top:14px}
+.git .sub{margin-top:16px;border-top:1px solid var(--bd-border-dimmer);padding-top:16px}
+.changes{list-style:none;padding:0}
+.changes li{display:grid;grid-template-columns:34px 1fr;font-family:var(--bd-font-mono);font-size:14px;line-height:20px;padding:0 0 15px}
+.commit{border-top:1px solid var(--bd-border-dimmer);padding-top:15px}
+.commit label{display:block;font-size:15px;line-height:22px;color:var(--bd-text-secondary)}
+.commit textarea{display:block;width:100%;height:68px;margin-top:7px;resize:none;background:var(--bd-bg-subtle);border:1px solid var(--bd-border-dimmer);border-radius:var(--bd-radius-sm);padding:12px 14px;font:14px/20px var(--bd-font-mono);color:var(--bd-text-primary)}
+.actions{display:grid;grid-template-columns:117px 128px 114px;column-gap:21px;margin-top:13px}.actions .btn:last-child{margin-left:8px}
+.btn{height:36px;border:1px solid var(--bd-border-dimmer);border-radius:var(--bd-radius-sm);background:transparent;color:var(--bd-text-primary);font:15px var(--bd-font-sans);cursor:pointer}
+.btn.primary{background:var(--bd-brand-orange);border-color:var(--bd-brand-orange);color:var(--bd-text-on-brand)}
+.sol{padding-bottom:28px!important}.sol .status{margin-top:8px}
+.sol .line{margin-top:12px}
+.brief h2,.proj h2{margin-bottom:6px}.proj{padding:16px 0 30px!important}
+.brief p{font-family:var(--bd-font-mono);font-size:14px;line-height:23px}
+/* ── left column + centre: structural fidelity only ── */
+.left{padding:0 26px}
+.left .row{display:flex;align-items:center;height:45px;font-size:15px;border-bottom:1px solid var(--bd-border-dimmer)}
+.left .agents{display:grid;grid-template-columns:70px 70px 96px 1fr;align-items:center;row-gap:0;padding:8px 0;border-bottom:1px solid var(--bd-border-dimmer)}
+.left .agents>*{height:34px;display:flex;align-items:center;font-family:var(--bd-font-mono);font-size:14px}
+.left .agents .sans{font-family:var(--bd-font-sans);font-size:15px}
+.left .agents .btn{height:28px;justify-self:end;width:86px;font-size:14px;display:flex;align-items:center;justify-content:center}
+.left h2{font-size:17px;font-weight:600;line-height:24px;margin:12px 0 10px}
+.card{border:1px solid var(--bd-border-dimmer);border-radius:var(--bd-radius-sm);padding:10px 12px;margin-bottom:8px}
+.card.active{border-color:var(--bd-brand-orange)}
+.card b{font-size:15px}
+.card .runs{margin:10px 0 0 22px;border:1px solid var(--bd-border-dimmer);border-radius:var(--bd-radius-sm);padding:6px 10px}
+.card .runs div{display:flex;justify-content:space-between;font-family:var(--bd-font-mono);font-size:13px;line-height:24px}
+.conv div{line-height:23px}
+.conv .ts{font-family:var(--bd-font-mono);font-size:14px}
+.conv .msg{font-family:var(--bd-font-mono);font-size:14px}
+.compose{margin-top:16px;height:85px;border:1px solid var(--bd-border-dimmer);border-radius:var(--bd-radius-sm);background:var(--bd-bg-subtle);padding:12px;font-family:var(--bd-font-mono);font-size:14px;color:var(--bd-text-tertiary)}
+.send{display:flex;justify-content:flex-end;margin-top:12px}
+.send .btn{width:72px}
+.centre{padding:78px 30px 0 32px}
+.stage{height:535px;border-radius:4px;background:
+ radial-gradient(60% 40% at 30% 40%, rgba(255,255,255,.10), transparent 70%),
+ radial-gradient(50% 35% at 75% 25%, rgba(255,255,255,.08), transparent 70%),
+ linear-gradient(#1a1d20,#0b0d0f);position:relative;overflow:hidden}
+.stage:after{content:"";position:absolute;left:0;right:0;top:44%;height:2px;background:linear-gradient(90deg,#f6c39a,#ffd9b0 40%,#e8a56a);transform:rotate(11deg);transform-origin:left;filter:drop-shadow(0 0 6px #f2b077)}
+.thumbs{display:flex;gap:8px;margin-top:30px}
+.thumb{width:144px;text-align:center;font-family:var(--bd-font-mono);font-size:14px}
+.thumb i{display:block;height:100px;border:2px solid var(--bd-border-dimmer);border-radius:4px;background:linear-gradient(#1a1d20,#0b0d0f);margin-bottom:10px}
+.thumb.active i{border-color:var(--bd-brand-orange)}
+.toolbar{margin-top:32px;border-top:1px solid var(--bd-border-dimmer);padding-top:46px;display:grid;grid-template-columns:147px 148px 136px 134px;justify-content:space-between}
+.toolbar .btn{height:38px}
+</style></head><body>
+<div class="frame">
+ <div class="col left">
+  <div class="row"><span class="muted">Solution</span>&nbsp;&nbsp;<b style="font-size:17px">design-system</b>&nbsp;&nbsp;›</div>
+  <div class="agents">
+   <span class="sans">claude</span><span class="status"><i class="dot ok"></i>ok</span><span>1.0.60</span><span class="btn">Connect</span>
+   <span class="sans">codex</span><span class="status"><i class="dot ok"></i>ok</span><span>0.37.1</span><span class="btn">Connect</span>
+   <span class="sans">grok</span><span class="status"><i class="dot ok"></i>ok</span><span>0.15.0</span><span class="btn">Connect</span>
+   <span class="sans">kimi</span><span class="status"><i class="dot ok"></i>ok</span><span>1.7.2</span><span class="btn">Connect</span>
+  </div>
+  <div class="agents" style="grid-template-columns:70px 70px 1fr">
+   <span class="sans">git</span><span class="status"><i class="dot ok"></i>ok</span><span></span>
+   <span class="sans">github</span><span class="status"><i class="dot ok"></i>ok</span><span>ryanhelms</span>
+  </div>
+  <h2>Projects</h2>
+  <div class="card active"><b>⌄&nbsp; Marketing site</b><div class="mono" style="margin-left:22px">main · ↑2 ↓0 · 3 changed</div>
+   <div class="runs"><div><span>2026-08-28-home-hero</span><span class="muted">2h ago</span></div><div><span>2026-08-27-landing-nav</span><span class="muted">1d ago</span></div><div><span>+ run</span></div></div></div>
+  <div class="card" style="border-color:transparent"><b>›&nbsp; Design system docs</b><div class="mono" style="margin-left:22px">main · ↑0 ↓0 · clean</div></div>
+  <div class="card" style="border-color:transparent"><b>›&nbsp; Brand campaign</b><div class="mono" style="margin-left:22px">main · ↑1 ↓0 · 1 changed</div></div>
+  <div class="rule" style="margin:0 -26px"></div>
+  <h2>Conversation</h2>
+  <div class="conv">
+   <div><span class="ts">claude &nbsp; 10:41 AM</span></div><div class="msg">Analyzed the brief and reviewed r2-a.</div>
+   <div><span class="ts">codex &nbsp; 10:42 AM</span></div><div class="msg">Adjusted the hero layout and copy.</div>
+   <div><span class="ts">grok &nbsp; 10:43 AM</span></div><div class="msg">Refined the glow curve and contrast.</div>
+   <div><span class="ts">kimi &nbsp; 10:44 AM</span></div><div class="msg">Round 2 looks strong. Ready to iterate.</div>
+  </div>
+  <div class="compose">Message agents….</div>
+  <div class="send"><button class="btn primary">Send</button></div>
+ </div>
+ <div class="col centre">
+  <div class="stage"></div>
+  <div class="thumbs"><div class="thumb active"><i></i>r1-a</div><div class="thumb"><i></i>r2-a</div></div>
+  <div class="toolbar"><button class="btn primary">Re-render</button><button class="btn">New variant</button><button class="btn">Ask agent</button><button class="btn">Blind read</button></div>
+ </div>
+ <div class="col right">
+  <section class="sol">
+   <h2>Solution</h2>
+   <div class="status"><i class="dot ok"></i>connected</div>
+   <div class="line">/Users/ryanhelms/work/design-system</div>
+   <div class="line">design-system @ 9f3c1a7 · main · up to date</div>
+  </section>
+  <section class="git" id="git">
+   <h2>Git</h2>
+   <div class="line" id="remote">ryanhelms/marketing-site</div>
+   <div class="select" id="branch"><span>main</span><svg viewBox="0 0 16 16"><path d="M3 6l5 5 5-5"/></svg></div>
+   <div class="status" id="gitstatus"><i class="dot warn"></i>3 changed · 2 ahead · 0 behind</div>
+   <ul class="changes sub" id="changes">
+    <li><span>M</span><span>runs/2026-08-28-home-hero/state.json</span></li>
+    <li><span>M</span><span>runs/2026-08-28-home-hero/brief.md</span></li>
+    <li><span>A</span><span>project.json</span></li>
+   </ul>
+   <div class="commit">
+    <label for="msg" id="label">Commit message</label>
+    <textarea id="msg">direction round 2</textarea>
+    <div class="actions" id="actions"><button class="btn">Pull</button><button class="btn primary" id="commit">Commit</button><button class="btn">Push</button></div>
+   </div>
+  </section>
+  <section class="proj">
+   <h2>Project</h2>
+   <div class="line">website · active</div>
+  </section>
+  <section class="brief">
+   <h2>Brief</h2>
+   <p>Refresh the home hero to communicate clarity, confidence, and motion. Lead with the value proposition. Use a cinematic tone with restrained glow and ample negative space.<br>Audience: marketing leaders and founders.<br>Primary CTA: See it in action.<br>Secondary CTA: Explore features.</p>
+  </section>
+ </div>
+</div>
+<script>
+// metrics dump: rounded page-space rects of the git panel's parts
+const ids=["git","remote","branch","gitstatus","changes","label","msg","actions","commit"];
+const m={};for(const id of ids){const r=document.getElementById(id).getBoundingClientRect();m[id]=[Math.round(r.left),Math.round(r.top),Math.round(r.width),Math.round(r.height)]}
+document.body.insertAdjacentHTML("beforeend",'<pre id="metrics" style="position:absolute;left:-9999px">'+JSON.stringify(m)+'</pre>');
+</script>
+</body></html>

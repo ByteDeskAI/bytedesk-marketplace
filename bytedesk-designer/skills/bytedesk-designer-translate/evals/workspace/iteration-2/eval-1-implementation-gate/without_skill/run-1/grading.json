@@ -1,0 +1,72 @@
+{
+  "expectations": [
+    {
+      "text": "The surface links the implementation's own stylesheet (app/src/styles/global.css or a byte-identical copy), verifiable in the HTML, so a zero pixel diff is achievable",
+      "passed": false,
+      "evidence": "outputs/git-panel.html line 7 links only ./tokens.css (a copy of the design-system token file, 12316 bytes); the app's global.css rules are not loaded by the surface. app-global.css exists but is linked only from app-git-panel.html (the replica), not the surface. A tokens-only sheet cannot converge to zero pixel diff against the app."
+    },
+    {
+      "text": "Shot the live URL with the same viewport as the surface and produced translate/diff/<state>-app/report.json with pixelDiff",
+      "passed": false,
+      "evidence": "No translate/diff/<state>-app/report.json and no pixelDiff anywhere. The live URL was not shot (RESULT: 'Headless Chromium in this sandbox has no route to localhost'); the app was rebuilt with vite build and opened from file:// (app-shell-1280x800.png), and a hand-built replica (app-replica-1280x800.png) stands in for the state."
+    },
+    {
+      "text": "Reported the implementation gap as pixelDiff with hotspot rects in logical pixels, and the mockup gap as layoutScore \u2014 two different numbers with two different meanings",
+      "passed": false,
+      "evidence": "Mockup comparison is 'RMSE, surface vs resampled mockup 0.138' (raster RMSE against the generated mockup PNG) plus subjective x/10 scores; no layoutScore. Implementation comparison is getBoundingClientRect tables from a replica, no pixelDiff, no hotspot rects. Neither of the two required numbers exists."
+    },
+    {
+      "text": "Recommended changes to the implementation's CSS to match the surface, and did not alter the surface to match the implementation",
+      "passed": true,
+      "evidence": "RESULT.md 'Recommendations for app/src/styles/global.css (not applied \u2014 app is read-only here)': 8 items with concrete selectors/values (.shell grid-template-columns, .inspector section padding, .git .actions button flex:1, ...). Surface (surface-1280x800.png viewed) is built toward the mockup, not adjusted toward the app replica."
+    },
+    {
+      "text": "Round artefacts exist for every round (translate/prompts/*-rN.txt, shots, diff/report.json) and there are at most three mockup rounds",
+      "passed": false,
+      "evidence": "No round structure at all: no translate/prompts/*-rN.txt, no per-round shots, no diff/report.json. Single render surface-1280x800.png and one diff PNG."
+    },
+    {
+      "text": "If the URL could not be put into the mockup's state, the gate is reported as inconclusive with the reason, not as drift",
+      "passed": true,
+      "evidence": "RESULT.md 'What the URL could reach': 'The git panel is unreachable from the URL: Inspector.tsx:77 mounts GitPanel only when s.solution is set, and a solution only arrives through Tauri IPC.' The empty shell (app-shell-1280x800.png viewed) is not scored as drift; every 'app' number is labelled as coming from the replica. The word 'inconclusive' is not used, but the reason is stated and absent content is not presented as drift."
+    }
+  ],
+  "summary": {
+    "passed": 2,
+    "failed": 4,
+    "total": 6,
+    "pass_rate": 0.33
+  },
+  "timing": {
+    "total_tokens": 172977,
+    "duration_ms": 1369091,
+    "total_duration_seconds": 1369.1
+  },
+  "claims": [
+    {
+      "claim": "tokens.css is a verbatim copy of the vendored authority file",
+      "type": "factual",
+      "verified": true,
+      "evidence": "12316 bytes, same as with_skill's byte-identical copy"
+    },
+    {
+      "claim": "app-global.css is the unmodified app stylesheet with the import re-pointed only",
+      "type": "factual",
+      "verified": true,
+      "evidence": "diff shows one line (line 2) differs"
+    },
+    {
+      "claim": "Headless Chromium has no route to localhost in the sandbox",
+      "type": "process",
+      "verified": false,
+      "evidence": "Not verifiable from outputs; the with_skill run in the same environment did shoot http://127.0.0.1:4174 at 1280x800"
+    },
+    {
+      "claim": "RMSE 0.138 surface vs mockup",
+      "type": "factual",
+      "verified": false,
+      "evidence": "Number not reproducible from outputs (no script or report file); and RMSE against a generated raster is not a layout score"
+    }
+  ],
+  "critique": "Honest and detailed narrative, but it does not produce the skill's artefacts: the surface links a tokens-only sheet, so it can never pixel-match the app; the live URL was never shot (a replica built from app markup + app sheet stands in); the mockup gap is an RMSE against the generated raster plus subjective scores, and the implementation gap is a bounding-box table, so neither pixelDiff nor layoutScore exists; there are no rounds. It does correctly say the git-panel state is unreachable from the URL and does not call the empty shell drift. Eval feedback: the replica approach (real DOM + real sheet with substituted data) is arguably a better stand-in than an empty shell, and no assertion rewards or forbids it; consider an assertion on whether the app comparison target is the live URL or a reconstruction."
+}

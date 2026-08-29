@@ -1,0 +1,85 @@
+{
+  "expectations": [
+    {
+      "text": "Told the user plainly that pixel-perfect against a generated PNG is not attainable and named the two comparisons with their ceilings, without refusing the task",
+      "passed": true,
+      "evidence": "RESULT.md: 'a pixel-identical match to this PNG is not attainable, and I did not chase it' ... 'What *can* be exact is the gap between this surface and your app once the app loads the same stylesheet; that pixelDiff can reach zero' ... 'Against the PNG itself the meaningful number is the layout score, which converges at roughly 0.97'. Both comparisons named with ceilings (layoutScore ~0.97 vs PNG; pixelDiff 0 vs implementation). Task was built (surfaces/new-project-dialog.html exists, 0 colour literals, renders fully per shots/new-project-dialog-r3.png)."
+    },
+    {
+      "text": "SPEC.md excludes the invented inspector content behind the modal (Details/Tags/History panel) from what gets built",
+      "passed": false,
+      "evidence": "SPEC.md '## Right column (inspector)' fully specifies 'Section titles ... Details y 129, Tags y 325, ... History y 497', the Details rows (ID img_7f2b9c1d, Type image/png, Dimensions 1920 \u00d7 1080, Size 1.42 MB, Created, Agent, Status) and two History entries. Its 'Invented by the mockup \u2014 do not build' list contains only the fog illustration, film grain and scrim \u2014 not the inspector content. The built HTML contains <h3 class=\"section-title details-title\">Details</h3>, a details-list <dl>, 'Tags', and 'History' entries (surfaces/new-project-dialog.html lines 1066\u20131100), and they are visible in shots/new-project-dialog-r3.png."
+    },
+    {
+      "text": "Stopped before round three with a recorded reason when the remaining hotspots were text speckle, rather than spending the round",
+      "passed": false,
+      "evidence": "Three rounds were run: translate/prompts/new-project-dialog-r{1,2,3}.txt, diff/new-project-dialog-r{1,2,3}/report.json, notes.md '## Round 3'. state.json rounds: 3. A recorded stop reason exists ('Round 3 is the ceiling; top hotspot lumDiff 0.029 < 0.04; score moved 0.004 < 0.005') but it is recorded after round three, not before. Note for the author: under the skill's own stopping rule the third round was permitted \u2014 round-2 report.json top hotspot 10,12 lumDiff 0.059 (>= 0.04) and the executor sampled luminance and found a fill mismatch (modal bg 26 vs 32, cards 28.5 vs 39.5), not text speckle; round 3 dropped that hotspot to 0.029 and layoutScore 0.9653\u21920.9692. So the round was justified by the rules, but the assertion as written is literal and fails."
+    },
+    {
+      "text": "Every round's prompt is saved under translate/prompts/ and every round's scores appear in translate/notes.md",
+      "passed": true,
+      "evidence": "translate/prompts/ holds new-project-dialog-r1.txt (11687 B, full spec build prompt), r2.txt (31734 B, 'CHANGES: 1. Left column panels...'), r3.txt (30139 B, 'CHANGES: 1. Modal card: ... var(--bd-bg-subtle)'). notes.md records per round: r1 'layoutScore 0.9640 \u00b7 pixelDiff 0.0795 \u00b7 top hotspots 10,12 / 20,9 / 15,9 / 10,9'; r2 'layoutScore 0.9653 (+0.0013) \u00b7 pixelDiff 0.0709 \u00b7 top hotspot 10,12 lumDiff 0.059'; r3 'layoutScore 0.9692 (+0.0039) \u00b7 pixelDiff 0.0698 \u00b7 top hotspot 10,12 lumDiff 0.029'. All match report.json values."
+    }
+  ],
+  "summary": {
+    "passed": 2,
+    "failed": 2,
+    "total": 4,
+    "pass_rate": 0.5
+  },
+  "claims": [
+    {
+      "claim": "Surface uses only var(--bd-*) colours, no hex/rgb",
+      "type": "factual",
+      "verified": true,
+      "evidence": "grep for #hex / rgb( in surfaces/new-project-dialog.html returns 0 matches"
+    },
+    {
+      "claim": "Round scores 0.964 / 0.965 / 0.969, top hotspot lumDiff 0.060 / 0.059 / 0.029",
+      "type": "factual",
+      "verified": true,
+      "evidence": "diff/*/report.json: layoutScore 0.964, 0.9653, 0.9692; cell 10,12 lumDiff 0.06, 0.059, 0.029"
+    },
+    {
+      "claim": "Codex changed exactly five CSS declarations in round 3",
+      "type": "process",
+      "verified": false,
+      "evidence": "No transcript; r2\u2192r3 diff not reproduced here. Unverifiable."
+    },
+    {
+      "claim": "Remaining diff is text speckle and 4\u20136px baseline offsets, no structural edge left",
+      "type": "quality",
+      "verified": true,
+      "evidence": "r3 report: remaining hotspots (20,9 / 10,9 / 15,9 / 13,9, lumDiff 0.058\u20130.067) all sit in the type-card grid rows y 360\u2013400; top hotspot 0.029. Render matches mockup layout on inspection of shots/new-project-dialog-r3.png."
+    },
+    {
+      "claim": "Fonts IBM Plex Sans/Mono were installed so the render used token families",
+      "type": "process",
+      "verified": false,
+      "evidence": "Not checkable from outputs; screenshot glyphs are consistent with Plex but not proven."
+    }
+  ],
+  "user_notes_summary": {
+    "uncertainties": [],
+    "needs_review": [],
+    "workarounds": []
+  },
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "reason": "Assertion 2 assumes the inspector Details/Tags/History panel is invented by the mockup, but the skill's own SPEC/notes treat it as legitimate chrome of the workbench and both runs built it faithfully; if the eval author knows it is invented (e.g. from the generation prompt), the assertion should state what evidence marks it as invented, otherwise it will fail every honest translation."
+      },
+      {
+        "reason": "Assertion 3 is stated as a literal 'before round three' but the skill's stopping rule (lumDiff < 0.04 AND delta < 0.005) permitted round 3 here (r2 top lumDiff 0.059) and round 3 produced the run's biggest gain; the assertion should be reworded to 'did not spend a round on hotspots the executor had already classified as text speckle' or tie to the numeric rule, otherwise it penalises correct behaviour."
+      },
+      {
+        "reason": "Assertion 4 is only structural; a run that saved prompts and wrote fabricated scores would pass. Add a check that notes.md scores match diff/*/report.json (they do here)."
+      },
+      {
+        "reason": "No assertion checks the surface itself: zero colour literals, tokens vendored with .source-sha, or that the render visually matches the mockup \u2014 the most important outcome is ungraded."
+      }
+    ],
+    "overall": "See critique."
+  },
+  "critique": "Assertion 2 assumes the inspector Details/Tags/History panel is invented by the mockup, but the skill's own SPEC/notes treat it as legitimate chrome of the workbench and both runs built it faithfully; if the eval author knows it is invented (e.g. from the generation prompt), the assertion should state what evidence marks it as invented, otherwise it will fail every honest translation. Assertion 3 is stated as a literal 'before round three' but the skill's stopping rule (lumDiff < 0.04 AND delta < 0.005) permitted round 3 here (r2 top lumDiff 0.059) and round 3 produced the run's biggest gain; the assertion should be reworded to 'did not spend a round on hotspots the executor had already classified as text speckle' or tie to the numeric rule, otherwise it penalises correct behaviour. Assertion 4 is only structural; a run that saved prompts and wrote fabricated scores would pass. Add a check that notes.md scores match diff/*/report.json (they do here). No assertion checks the surface itself: zero colour literals, tokens vendored with .source-sha, or that the render visually matches the mockup \u2014 the most important outcome is ungraded."
+}

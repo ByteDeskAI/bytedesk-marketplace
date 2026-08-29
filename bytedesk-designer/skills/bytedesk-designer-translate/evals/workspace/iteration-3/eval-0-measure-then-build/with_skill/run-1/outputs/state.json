@@ -1,0 +1,33 @@
+{
+  "slug": "2026-08-28-studio-render-failed",
+  "product": "designer-studio",
+  "authority": {
+    "path": "/home/ryan/Documents/GitHub/ByteDeskAI/design-system",
+    "sha": "9845b41",
+    "read_at": "2026-08-28T00:00:00Z",
+    "resolved_by": "--authority argument"
+  },
+  "codex": { "version": "codex-cli 0.146.0", "verified_at": "2026-08-28T00:00:00Z" },
+  "stages": {
+    "translate": {
+      "status": "complete",
+      "mockup": "/home/ryan/Pictures/claude-design/runs/2026-08-28-designer-studio-mockups/images/r3-s5.png",
+      "logical": "1280x800",
+      "rounds": 2,
+      "artifacts": ["surfaces/render-failed.html", "translate/SPEC.md", "translate/notes.md"],
+      "viewed": [
+        "translate/grid-render-failed.png",
+        "translate/shots/render-failed-r1.png",
+        "translate/diff/render-failed-r1/diff.png",
+        "translate/shots/render-failed-r2.png",
+        "translate/diff/render-failed-r2/diff.png"
+      ],
+      "scores": {
+        "r1": { "layoutScore": 0.9908, "pixelDiff": 0.0592, "topHotspot": { "cell": "25,2", "lumDiff": 0.003 } },
+        "r2": { "layoutScore": 0.9909, "pixelDiff": 0.0574, "topHotspot": { "cell": "25,2", "lumDiff": 0.003 } },
+        "final": "translate/diff/render-failed-r2/report.json",
+        "implementationGate": "not run — no implementation URL given"
+      }
+    }
+  }
+}

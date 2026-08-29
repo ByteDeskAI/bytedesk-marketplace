@@ -1,0 +1,27 @@
+{
+  "run": "2026-08-28-render-failed",
+  "product": "designer-studio",
+  "authority": { "path": "~/Documents/GitHub/ByteDeskAI/design-system", "sha": "9845b41fa095d78f6081bbf8764c3d3daa07db4f", "vendored": "surfaces/tokens/design.css" },
+  "stages": {
+    "translate": {
+      "state": "render-failed",
+      "mockup": "~/Pictures/claude-design/runs/2026-08-28-designer-studio-mockups/images/r3-s5.png",
+      "logicalSize": "1280x800",
+      "surface": "surfaces/render-failed.html",
+      "rounds": 2,
+      "viewed": [
+        "translate/grid-render-failed.png",
+        "translate/shots/render-failed-r1.png",
+        "translate/diff/render-failed-r1/diff.png",
+        "translate/shots/render-failed-r2.png",
+        "translate/diff/render-failed-r2/diff.png"
+      ],
+      "scores": {
+        "r1": { "layoutScore": 0.9745, "pixelDiff": 0.0686 },
+        "r2": { "layoutScore": 0.9748, "pixelDiff": 0.0682 },
+        "final": { "layoutScore": 0.9748, "topHotspotLumDiff": 0.053, "topHotspotKind": "text-speckle" }
+      },
+      "implementationGate": "not run — no URL given"
+    }
+  }
+}

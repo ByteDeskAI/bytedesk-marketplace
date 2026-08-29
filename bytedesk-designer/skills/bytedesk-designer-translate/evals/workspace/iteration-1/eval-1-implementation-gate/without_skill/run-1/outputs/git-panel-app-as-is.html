@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Git panel — app as-is (global.css verbatim)</title>
+<link rel="stylesheet" href="./app-css/global.css">
+<style>
+/* Only the frame is added; every rule inside .inspector is the app's own global.css. */
+html,body{width:1586px;height:992px}
+.frame{width:1586px;height:992px;border:3px solid var(--bd-border-stronger);border-right-width:4px;border-bottom-width:4px}
+</style></head><body>
+<div class="frame"><div class="shell">
+ <section class="col left"></section>
+ <section class="col centre"></section>
+ <section class="col right"><div class="inspector">
+  <!-- Inspector's first section, as App renders it when a solution is open -->
+  <section>
+   <header class="block-head"><h2>Solution</h2><span class="grow"></span><button class="ghost">resolve</button><button class="ghost">choose…</button></header>
+   <div class="status"><i class="dot ok"></i> connected</div>
+   <div class="mono muted">/Users/ryanhelms/work/design-system</div>
+   <div class="mono muted">@ 9f3c1a7</div>
+   <div class="mono muted small">design-system @ 9f3c1a7 · main · up to date</div>
+   <details><summary>doctor output</summary><pre class="log"></pre></details>
+   <div class="mono muted small">root /Users/ryanhelms/Pictures/claude-design</div>
+  </section>
+  <!-- GitPanel.tsx output, verbatim structure, with the mockup's data -->
+  <section class="git" id="git">
+   <h2>Git <span class="muted">— Marketing site</span></h2>
+   <div class="mono small" id="remote">ryanhelms/marketing-site</div>
+   <div class="row-line" id="branch"><span class="mono">main</span><span class="mono muted small">@ 4b2c9e1</span></div>
+   <div class="status" id="gitstatus"><i class="dot busy"></i> 3 changed · 2 ahead · 0 behind</div>
+   <ul class="changes mono small" id="changes">
+    <li><span class="muted">M</span> runs/2026-08-28-home-hero/state.json</li>
+    <li><span class="muted">M</span> runs/2026-08-28-home-hero/brief.md</li>
+    <li><span class="muted">A</span> project.json</li>
+   </ul>
+   <input id="msg" placeholder="Commit message" value="direction round 2">
+   <div class="actions" id="actions"><button>Pull</button><button class="primary" id="commit">Commit</button><button>Push</button></div>
+  </section>
+  <section class="project-section"><h2>Project</h2><div class="project-name">Marketing site</div><div class="mono muted small">website · active · created 2026-08-20</div></section>
+  <section class="grow-section"><header class="block-head"><h2>Brief <span class="mono muted">2026-08-28-home-hero</span></h2><span class="grow"></span><button class="primary" disabled>Save</button></header>
+   <textarea class="editor" spellcheck="false">Refresh the home hero to communicate clarity, confidence, and motion. Lead with the value proposition. Use a cinematic tone with restrained glow and ample negative space.
+Audience: marketing leaders and founders.
+Primary CTA: See it in action.
+Secondary CTA: Explore features.</textarea></section>
+ </div></section>
+</div></div>
+<script>
+const ids=["git","remote","branch","gitstatus","changes","msg","actions","commit"];
+const m={};for(const id of ids){const r=document.getElementById(id).getBoundingClientRect();m[id]=[Math.round(r.left),Math.round(r.top),Math.round(r.width),Math.round(r.height)]}
+const cs=getComputedStyle(document.getElementById("commit"));m.commitStyle={bg:cs.backgroundColor,color:cs.color,font:cs.fontSize,pad:cs.padding};
+document.body.insertAdjacentHTML("beforeend",'<pre id="metrics" style="position:absolute;left:-9999px">'+JSON.stringify(m)+'</pre>');
+</script>
+</body></html>

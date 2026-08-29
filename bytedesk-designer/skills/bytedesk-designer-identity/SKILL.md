@@ -72,6 +72,16 @@ authority first: if the product already has a mark, this stage is for *variants,
 missing formats*, not for a new one. Say so rather than quietly producing a competitor to
 the real mark.
 
+**Which profile.** A product's profile may live in the authority *or* in the project's own
+directory, and the project's wins. `authority-doctor.sh --product <id>` reports which one
+governs this run; the three-layer rule is in `${CLAUDE_PLUGIN_ROOT}/references/authority-contract.md`
+under *Which profile governs a run*. Record the answer in the run, per the run-folder
+contract — afterwards it is not recoverable.
+
+Absence from the authority's `profiles/` is not evidence that no mark exists. A project can
+carry its own profile, and a product can have a mark the authority has never catalogued —
+so read the profile that governs this run before concluding the field is empty.
+
 Exploration is exploration whether it's raster or vector. A generated concept board is
 fine; a generated thing that could be mistaken for the actual mark is not.
 
@@ -164,8 +174,9 @@ quarter — and marks get re-explored more often than anything else in a brand.
   behaviour, not a prompting failure. Redraw or composite.
 - **Never downsample one image to make the favicon.** Draw each size.
 - **Never ship without viewing `proof.html` at 16px.**
-- **Never produce a new mark for a product whose authority already catalogues one**, unless
-  that is explicitly what was asked.
+- **Never produce a new mark for a product whose governing profile already names one**,
+  unless that is explicitly what was asked — and check the project's own profile, not only
+  the authority's.
 
 ## Reference files
 

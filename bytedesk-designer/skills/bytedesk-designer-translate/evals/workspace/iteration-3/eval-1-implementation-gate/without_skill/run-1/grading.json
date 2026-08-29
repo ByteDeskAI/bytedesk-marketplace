@@ -1,0 +1,65 @@
+{
+  "expectations": [
+    {
+      "text": "The surface links the implementation's own stylesheet (app/src/styles/global.css or a byte-identical copy), verifiable in the HTML, so a zero pixel diff is achievable",
+      "passed": false,
+      "evidence": "surface/git-panel.html links ./app-global.copy.css (differs from global.css only by @import path) BUT the imported ./bytedesk.tokens.css is the authority file, not the app's vendored one: diff vs app/.context/design-system/tokens/css/bytedesk.css shows 2 extra lines (--bd-product-agent-mail and its selector). Not an identical token file per the grading rule. The HTML also links git-panel.patch.css and an inline <style> that pins body to 464x992, so it is a right-column crop, not the screen."
+    },
+    {
+      "text": "Shot the live URL with the same viewport as the surface and produced translate/diff/<state>-app/report.json with pixelDiff",
+      "passed": false,
+      "evidence": "No translate/diff/<state>-app/report.json exists (no report.json or prompts anywhere under outputs/). The URL was shot (app-shell-1586x992.png, 1586x992) but only a 464-wide crop diff-app-shell.png and a 'mean abs pixel diff 13.2/255' prose number were produced."
+    },
+    {
+      "text": "Reported the implementation gap as pixelDiff with hotspot rects in logical pixels, and the mockup gap as layoutScore \u2014 two different numbers with two different meanings",
+      "passed": false,
+      "evidence": "RESULT.md scores the mockup with 'Mean abs pixel diff vs mockup crop' (raster RMSE-style fuzz against the mockup PNG) plus a hand 'geometry within tolerance' count; no layoutScore, no pixelDiff-with-hotspot-rects for the implementation. Wrong metric for the mockup and no structured implementation metric."
+    },
+    {
+      "text": "Recommended changes to the implementation's CSS to match the surface, and did not alter the surface to match the implementation",
+      "passed": true,
+      "evidence": "RESULT.md 'Recommendations (edits for app/src/styles/global.css, not applied)' with surface/git-panel.patch.css of token-referenced rules; surface-patched.png (viewed in side-by-side) moves toward the mockup, and surface-as-is is a separate honest rendering, not an alteration of the surface toward the app."
+    },
+    {
+      "text": "Round artefacts exist for every round (translate/prompts/*-rN.txt, shots, diff/report.json) and there are at most three mockup rounds",
+      "passed": false,
+      "evidence": "No translate/prompts/*-rN.txt, no per-round shots or diff/report.json; the run has no round structure at all (single ad-hoc surface + patch)."
+    },
+    {
+      "text": "If the URL could not be put into the mockup's state, the gate is reported as inconclusive with the reason, not as drift",
+      "passed": true,
+      "evidence": "RESULT.md 'What the URL could reach (honest state)': GitPanel never mounts (app-computed.json \"git\": false), 'the git panel could NOT be measured live from the URL', gate row marked n/a. Not presented as drift."
+    }
+  ],
+  "summary": {
+    "passed": 2,
+    "failed": 4,
+    "total": 6,
+    "pass_rate": 0.33
+  },
+  "timing": {
+    "executor_duration_seconds": 341.0,
+    "total_tokens": 105959
+  },
+  "claims": [
+    {
+      "claim": "app-global.copy.css is a verbatim copy of global.css",
+      "type": "factual",
+      "verified": true,
+      "evidence": "diff shows only the @import path rewritten"
+    },
+    {
+      "claim": "bytedesk.tokens.css are 'the authority tokens'",
+      "type": "factual",
+      "verified": true,
+      "evidence": "byte-identical to ~/Documents/GitHub/ByteDeskAI/design-system/tokens/css/bytedesk.css, not to the app's vendored copy"
+    },
+    {
+      "claim": "agent-browser screenshot came back undecodable; fell back to Playwright",
+      "type": "process",
+      "verified": false,
+      "evidence": "no transcript; unverifiable"
+    }
+  ],
+  "critique": "Substantive analysis (a good pixel table and token-aware recommendations) but none of the skill's contract: no round artefacts, no report.json, mockup scored by raster fuzz, and the surface is a 464px column crop that stacks a patch stylesheet and the authority tokens instead of the app's vendored file. The token-file mismatch is a near miss (one unused product token), failed on the strict rule."
+}

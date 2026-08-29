@@ -67,11 +67,17 @@ Before anything else, resolve the design authority and read it. Not for inspirat
 three specific things, and the third one decides whether the image should exist at all:
 
 1. **The palette and ground**, live from the token file. Never a remembered value.
-2. **The product's motif** from its profile — the image language this product uses, and
-   the directions already rejected. Regenerating an idea somebody judged last quarter is
+2. **The product's motif** from the profile that governs this run — the image language this
+   product uses, and the directions already rejected. Regenerating an idea somebody judged last quarter is
    the most avoidable failure here.
 3. **The generated-art contract** from the foundation. This is a boundary, not a
    suggestion.
+
+**Which profile.** A product's profile may live in the authority *or* in the project's own
+directory, and the project's wins. `authority-doctor.sh --product <id>` reports which one
+governs this run; the three-layer rule is in `${CLAUDE_PLUGIN_ROOT}/references/authority-contract.md`
+under *Which profile governs a run*. Record the answer in the run, per the run-folder
+contract — afterwards it is not recoverable.
 
 `${CLAUDE_PLUGIN_ROOT}/references/authority-contract.md` covers resolution, the authority
 order, and what to do when a request crosses the contract's line. The short version, since

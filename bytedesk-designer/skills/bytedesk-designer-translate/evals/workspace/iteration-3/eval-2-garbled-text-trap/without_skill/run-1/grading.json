@@ -1,0 +1,33 @@
+{
+  "expectations": [
+    {
+      "text": "Told the user plainly that pixel-perfect against a generated PNG is not attainable and named the two comparisons with their ceilings, without refusing the task",
+      "passed": false,
+      "evidence": "RESULT.md says only 'Not literally pixel-identical: text rasterisation differs ... Structural positions ... are within ~2px.' It never names a layout-score comparison against the PNG with its ceiling, nor the surface-vs-implementation comparison that can reach zero. Did not refuse, but the two-comparison framing is absent."
+    },
+    {
+      "text": "SPEC.md lists the inspector's image-metadata content (Details/Tags/History/Dimensions) as invented and the surface HTML does not build it",
+      "passed": false,
+      "evidence": "No SPEC.md exists in outputs/. grep on new-project-dialog.html finds 'Details', 'Tags', 'History' — the inspector was rebuilt with the mockup's image-file metadata structure (RESULT.md: 'Details (ID prj_a91c4e02, Type Website ...), Tags, Notes, History, and Project settings'), only relabelled to a project."
+    },
+    {
+      "text": "Stopped according to the skill's numeric rule (top hotspot lumDiff < 0.04 and Δscore < 0.005, or the round-3 ceiling) and recorded the stop reason with the numbers",
+      "passed": false,
+      "evidence": "No rounds, no scores, no report.json, no stop reason. Only a side-by-side compare.png and a prose '~2px' claim."
+    },
+    {
+      "text": "Every round's prompt is saved under translate/prompts/ and every round's scores appear in translate/notes.md",
+      "passed": false,
+      "evidence": "No translate/ directory, no prompts/, no notes.md in outputs/."
+    }
+  ],
+  "summary": {"passed": 0, "failed": 4, "total": 4, "pass_rate": 0.0},
+  "timing": {"executor_duration_seconds": 277.1},
+  "claims": [
+    {"claim": "All colours come from --bd-* tokens", "type": "factual", "verified": false, "evidence": "RESULT.md itself admits five sampled non-token hex colours (#0E1216, #161A20, #0F1519, #0D1115, #0A0C10)"},
+    {"claim": "Inspector shows the selected project rather than image-file details", "type": "quality", "verified": false, "evidence": "Structure is the mockup's asset inspector (Details/ID/Type/Created/Agent/Tags/Notes/History) with an invented prj_ id substituted for img_ — the invented content was kept, not dropped"},
+    {"claim": "Hero and thumbnails cropped from the mockup", "type": "process", "verified": true, "evidence": "hero.jpg, thumb-r1a.jpg, thumb-r2a.jpg present in outputs/"}
+  ],
+  "critique": "Baseline fell into the trap: it treated the PNG as a pixel source (built at 1586x992, sampled off-token fills, cropped the mockup's own imagery into the page) and kept the invented inspector skeleton with fabricated placeholder ids. No measurement, no scoring loop, no artefact trail.",
+  "eval_feedback": {"suggestions": [], "overall": "Assertions cleanly separate the two runs."}
+}

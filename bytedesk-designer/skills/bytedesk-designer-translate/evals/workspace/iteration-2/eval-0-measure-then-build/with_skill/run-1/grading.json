@@ -1,0 +1,61 @@
+{
+  "expectations": [
+    {
+      "text": "Wrote translate/SPEC.md containing at least ten numeric measurements in logical pixels before the first Codex build",
+      "passed": true,
+      "evidence": "translate/SPEC.md holds well over ten logical-px numbers (panel rects x12 w320 / x344 w608 / x964 w304, row pitches 36/24/18, button sizes 72x28, 82x32, 76x32, type sizes, absolute column x for the attempts table). prompts/render-failed-r1.txt embeds the SPEC under 'MEASUREMENTS (logical px \u2014 build to these)' so it existed before the r1 Codex build (r1 log: codex-cli 0.146.0, 161s)."
+    },
+    {
+      "text": "SPEC.md names at least one element the mockup invented that must not be built (e.g. a title bar or hollow thumbnail slots)",
+      "passed": false,
+      "evidence": "SPEC.md has a section 'Invented by the mockup \u2014 do not build' but it opens 'Nothing structural this time' and every item listed is KEPT: the hollow r1-a thumbnail is built as drawn, the row-1 underline is called 'a generation artefact' yet 'keep it', and toolbar copy is built from the mockup. No element is named as invented-and-not-to-be-built. The mockup genuinely has no title bar, so the assertion may be mis-fitted to this fixture, but as written it is not satisfied."
+    },
+    {
+      "text": "The surface HTML loads a vendored token stylesheet and contains no hex or rgb() colour literals",
+      "passed": true,
+      "evidence": "surfaces/render-failed.html line 6: <link rel=\"stylesheet\" href=\"./tokens/bytedesk.css\">; surfaces/.source-sha present. grep -E '#[0-9a-fA-F]{3,8}\\b|rgba?\\(' with '&#' entities dropped returns nothing (exit 1)."
+    },
+    {
+      "text": "Codex wrote the surface (a translate/prompts/*-r1.txt hand-off exists and codex-exec.sh was used in text mode); Claude did not author the markup inline",
+      "passed": true,
+      "evidence": "translate/prompts/render-failed-r1..r5.txt exist; each *.attempts.json has mode 'text', attempt 'direct', exit 0, produced true; *-log.txt show 'OpenAI Codex v0.146.0 ... sandbox: read-only'; *-reply.txt hold the returned HTML; per-round HTML r1..r4 saved. RESULT.md: 'I never wrote markup' \u2014 consistent with the artefacts; no transcript to prove absence of inline edits."
+    },
+    {
+      "text": "Rendered the surface at 1280x800 and produced translate/diff/<state>-r1/report.json with layoutScore and hotspots",
+      "passed": true,
+      "evidence": "translate/diff/render-failed-r1/report.json: size '1280x800', layoutScore 0.9648, pixelDiff 0.0705, grid 32x20, 8 hotspots with cell/rect/lumDiff/pixDiff. shots/render-failed-r1.png is 1280x800."
+    },
+    {
+      "text": "Every change in a patch round is justified by a recorded diff observation (a report hotspot cell or a named region of diff.png noted in notes.md) and the patch prompt lists numbered changes plus a FROZEN list",
+      "passed": false,
+      "evidence": "All patch prompts (r2..r5) have numbered CHANGES with '(measured: ...)' notes and a FROZEN list. But not every change traces to a recorded diff observation: r2 change 3 (inspector mono 13->11px) and change 4 (runs ids, attempts table, sentence to 12px, 'View all' to y332) are justified in notes.md only by 'mono blocks 13px vs measured 11-12px' \u2014 a re-measurement, not a hotspot cell or named diff.png region (r1 hotspots are all in the Brief cells 25-28,2-3). r5 change 3 (timeline padding-top 12->8) likewise comes from re-measuring entry heads, with no diff observation recorded."
+    },
+    {
+      "text": "Reported layoutScore as the mockup comparison and never presented pixelDiff against the mockup PNG as the pass/fail number",
+      "passed": true,
+      "evidence": "RESULT.md table reports layoutScore per round and states 'layoutScore is the surface<->mockup number ...; pixelDiff against a generated PNG is reported only for the record'. notes.md r1: 'pixelDiff 0.0705 (strict number, not the gate)'. state.json scores.final uses layoutScore."
+    },
+    {
+      "text": "state.json lists every screenshot and diff image read under stages.translate.viewed",
+      "passed": true,
+      "evidence": "state.json stages.translate.viewed lists grid-render-failed.png, shots r1-r5, and diff.png for r1, r2, r4 \u2014 matching notes.md, which cites diff reads for r1/r2/r4, calls r3 'byte-identical to r2' (no diff read), and bases r5 on report hotspots. Without a transcript the omission of diff r3/r5 cannot be independently confirmed as un-read, but the list is internally consistent."
+    },
+    {
+      "text": "The final round's report.json shows layoutScore \u2265 0.95 against the mockup (structural fidelity, not just process)",
+      "passed": true,
+      "evidence": "translate/diff/render-failed-r5/report.json: layoutScore 0.9675 (>= 0.95); shots/render-failed-r5.png viewed and matches the mockup's three-panel structure, attempts table, thumbnail and toolbar. Note: run used 5 mockup rounds, exceeding the three-round ceiling; disclosed in RESULT.md and notes.md (r3 produced zero change, r4/r5 called 'deliberate exceptions'). layoutScore was flat from r2 onward (0.9676 -> 0.9675)."
+    },
+    {
+      "text": "No hex or rgb() colour literal anywhere in the surface HTML (HTML entities such as &#9656; are not colours)",
+      "passed": true,
+      "evidence": "Same grep as above over surfaces/render-failed.html: no '#hex' or 'rgb(' literals outside HTML entities; the only colour source is tokens/bytedesk.css."
+    }
+  ],
+  "summary": {
+    "passed": 8,
+    "failed": 2,
+    "total": 10,
+    "pass_rate": 0.8
+  },
+  "critique": "Process artefacts are complete and honest: SPEC before build, Codex-only authorship with logs/attempts, per-round report.json, layoutScore as the gate, disclosed overrun to 5 rounds. Two gaps: SPEC's 'do not build' list names nothing to exclude (arguably a fixture mismatch \u2014 the mockup has no title bar \u2014 but the executor also chose to keep the hollow thumbnail the assertion cites as an example), and r2 bundled font-size changes justified by re-measurement rather than by diff observations. layoutScore plateaued at ~0.967 after r2, so r3-r5 bought clipping fixes, not score; the three-round ceiling was exceeded by two. Eval feedback: assertion 2 should be conditional on the mockup actually containing an invented element, or the fixture should be one that does; assertion 9's 0.95 bar is cleared by r1 already (0.9648 -> rounds to pass?), so it barely discriminates \u2014 consider also asserting no visible clipping/overflow, which is what the extra rounds actually fixed."
+}

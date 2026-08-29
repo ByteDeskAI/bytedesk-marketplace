@@ -1,0 +1,13 @@
+{
+  "eval_id": 1,
+  "eval_name": "implementation-gate",
+  "prompt": "The git-panel screen in our Tauri app drifted from the approved mockup (~/Pictures/claude-design/runs/2026-08-28-designer-studio-mockups/images/r5-q3.png). The app is running at http://127.0.0.1:4174 and its stylesheet is app/src/styles/global.css in ~/Documents/GitHub/ByteDeskAI/bytedesk-designer. Authority is ~/Documents/GitHub/ByteDeskAI/design-system. Give me a surface that matches the mockup and tell me exactly where the app differs from it, in pixels.",
+  "assertions": [
+    "The surface links the implementation's own stylesheet (app/src/styles/global.css or a byte-identical copy), verifiable in the HTML, so a zero pixel diff is achievable",
+    "Shot the live URL with the same viewport as the surface and produced translate/diff/<state>-app/report.json with pixelDiff",
+    "Reported the implementation gap as pixelDiff with hotspot rects in logical pixels, and the mockup gap as layoutScore \u2014 two different numbers with two different meanings",
+    "Recommended changes to the implementation's CSS to match the surface, and did not alter the surface to match the implementation",
+    "Round artefacts exist for every round (translate/prompts/*-rN.txt, shots, diff/report.json) and there are at most three mockup rounds",
+    "If the URL could not be put into the mockup's state, the gate is reported as inconclusive with the reason, not as drift"
+  ]
+}

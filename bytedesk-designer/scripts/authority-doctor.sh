@@ -9,15 +9,19 @@
 # So: no guessing. An explicit argument or a committed .design-authority file, or nothing.
 # Anything found by looking around is REPORTED as a candidate, never adopted.
 #
-# Usage: authority-doctor.sh [--authority <path>] [--start <dir>]
+# Usage: authority-doctor.sh [--authority <path>] [--start <dir>] [--product <id>]
+#
+# --product also reports which profile governs a run — the project's own, the authority's,
+# or neither. It never changes the exit code: a missing profile means inherit, never invent.
 # Exit:  0 connected · 1 found but not conforming · 2 nothing configured
 
 set -uo pipefail
-AUTH=""; START="$PWD"
+AUTH=""; START="$PWD"; PRODUCT=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --authority) AUTH="${2:-}"; shift 2 ;;
     --start)     START="${2:-$PWD}"; shift 2 ;;
+    --product)   PRODUCT="${2:-}"; shift 2 ;;
     *) echo "authority-doctor: unknown argument $1" >&2; exit 64 ;;
   esac
 done
@@ -114,6 +118,62 @@ if [ -f "$AUTH/scripts/validate.mjs" ]; then
 else info "no scripts/validate.mjs — nothing gates this authority against itself"; fi
 grep -qiE '^#+ .*generated art' "$AUTH/DESIGN.md" 2>/dev/null && ok "generated-art contract" \
   || info "no generated-art section — the suite will propose one rather than assume"
+
+# --- which profile governs this run ---------------------------------------------------
+# Reported only when there is a product to resolve for — an explicit --product, or a run
+# folder whose state.json names one. Without that this stays a plain authority check and the
+# output is unchanged. Nothing here ever sets `fail`.
+if [ -z "$PRODUCT" ] && [ -f "$START/state.json" ]; then
+  PRODUCT=$(sed -n 's/.*"product"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$START/state.json" | head -1)
+fi
+
+if [ -n "$PRODUCT" ]; then
+  PROFILE=""; PROFILE_BY="inherit"
+  # 1 — the run's own project: nearest ancestor holding BOTH project.json and DESIGN.md.
+  #     Both, because a lone project.json belongs to half the toolchains in existence, and a
+  #     lone DESIGN.md is what an authority root looks like.
+  d="$START"
+  while [ "$d" != "/" ]; do
+    if [ -f "$d/project.json" ] && [ -f "$d/DESIGN.md" ]; then
+      PROFILE="$d/DESIGN.md"; PROFILE_BY="project"; break
+    fi
+    d=$(dirname "$d")
+  done
+  # 2 — the authority's profile for this product. The id and the directory name are the whole
+  #     join; the catalog is not consulted, because catalogs disagree about their own shape.
+  if [ -z "$PROFILE" ] && [ -f "$AUTH/profiles/$PRODUCT/DESIGN.md" ]; then
+    PROFILE="$AUTH/profiles/$PRODUCT/DESIGN.md"; PROFILE_BY="authority"
+  fi
+
+  echo
+  echo "PRODUCT: $PRODUCT"
+  if [ -z "$PROFILE" ]; then
+    echo "PROFILE: none"; echo "PROFILE-RESOLVED-BY: inherit"
+    info "no profile for '$PRODUCT' — this run inherits the foundation directly"
+  elif grep -qE '<[A-Za-z][^>]* [^>]*>' "$PROFILE"; then
+    # A file created from the template but never written is not a profile. It resolves as
+    # inherit and says so: handing "<A thing seen, not an adjective>" to a renderer as art
+    # direction is worse than the foundation, because it looks like a decision.
+    echo "PROFILE: none"; echo "PROFILE-RESOLVED-BY: inherit"
+    echo "PROFILE-STATE: template $PROFILE"
+    info "the $PROFILE_BY profile is still an unfilled template — inheriting the foundation"
+    info "fill it in: $PROFILE"
+  else
+    echo "PROFILE: $PROFILE"; echo "PROFILE-RESOLVED-BY: $PROFILE_BY"
+    ok "profile: $PROFILE_BY — $PROFILE"
+  fi
+
+  # Accent scope, matched by shape rather than spelling. Authorities differ on the attribute
+  # name (data-product, data-bd-product); a literal grep for one reports "no scope" for every
+  # product that has one under the other.
+  if ls "$AUTH"/tokens/css/*.css >/dev/null 2>&1; then
+    if grep -qE "\[data-[a-z-]*product[a-z-]*=\"$PRODUCT\"\]" "$AUTH"/tokens/css/*.css; then
+      ok "accent scope for '$PRODUCT' in tokens/css"
+    else
+      info "no accent scope for '$PRODUCT' — its surfaces render the family accent, not its own"
+    fi
+  fi
+fi
 
 echo
 [ $fail -eq 0 ] && { echo "CONNECTED"; exit 0; }

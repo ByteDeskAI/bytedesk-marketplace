@@ -99,7 +99,8 @@ best state hides every layout decision that matters.
 brief's "one thing" section. If three elements compete, the surface has failed before it
 is written.
 
-**The restraint level.** The authority's profile governs the *product*; marketing surfaces
+**The restraint level.** The governing profile — the project's own if it has one, otherwise
+the authority's — governs the *product*; marketing surfaces
 inherit the palette and the type but are allowed to be striking. Decide which room you are
 in and say so — flattening both into the same austerity produces on-system work nobody
 wants to look at.
@@ -228,14 +229,30 @@ renders transparent or unstyled in a way that is easy to miss on a busy page and
 to miss in a review.
 
 **Then check the product scope is actually on the page.** Where the authority serves a
-family from one stylesheet, the product's own accent lives in a `[data-product="…"]` block
-and the root element has to carry that attribute for it to apply. Forget it and the page
-renders in the *family* default instead — and this is the nastiest failure in this stage,
-because the page uses `var(--...)` correctly, hardcodes nothing, passes both greps above,
-and is still entirely the wrong colour. Two independent runs hit it on the same file.
+family from one stylesheet, the product's own accent lives in a product-scoped block and
+the root element has to carry that attribute for it to apply. Authorities spell the
+attribute differently — `data-product`, `data-bd-product` — so look for the shape, not one
+spelling; `authority-doctor.sh --product <id>` reports whether a scope exists at all.
+Forget the attribute and the page renders in the *family* default instead — the nastiest
+failure in this stage, because the page uses `var(--...)` correctly, hardcodes nothing,
+passes both greps above, and is still entirely the wrong colour. Two independent runs hit
+it on the same file.
 
 Check it the only way that works: render it and compare the accent you see against the
 token value you expect.
+
+**When the authority has no scope for this product, that is not the same failure.** A
+project the authority has never heard of has no accent of its own to apply, so the page
+renders the family accent — correctly, and in a colour nobody chose. Do not fix it by
+inlining a hex. Name it once, in `surfaces/notes.md` and in the summary, and let the
+profile say which case it is:
+
+- profile says it **inherits** — nothing to report, this is the intended result
+- profile says **undecided** (what every unfilled profile says) — report that the accent
+  has not been chosen yet, so the operator knows the page is provisional
+- profile claims its **own** accent and the authority cannot serve one — a contradiction,
+  and a review finding. Name both sides: what the profile claims, and what the stylesheet
+  actually offers.
 
 If the authority ships `scripts/validate.mjs`, run it too.
 

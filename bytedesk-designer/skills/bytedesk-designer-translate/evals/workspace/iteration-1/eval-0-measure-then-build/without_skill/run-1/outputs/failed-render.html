@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en" data-bd-theme="dark" data-bd-richness="balanced">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Designer Studio — render failed</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<!-- Canonical family tokens, copied verbatim from design-system/tokens/css/bytedesk.css -->
+<link rel="stylesheet" href="bytedesk.tokens.css">
+<style>
+  /* Layout only. Every colour, font, radius and spacing below resolves to a --bd-* token. */
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bd-bg-base);
+    color: var(--bd-text-primary);
+    font-family: var(--bd-font-sans);
+    font-size: var(--bd-text-console);
+    line-height: var(--bd-line-height-compact);
+    -webkit-font-smoothing: antialiased;
+  }
+  .mono { font-family: var(--bd-font-mono); }
+
+  /* ---------- window ---------- */
+  .studio {
+    width: 1280px; height: 800px;
+    display: grid;
+    grid-template-columns: 320px 1fr 300px;
+    gap: var(--bd-space-4);
+    padding: var(--bd-space-5);
+  }
+  .col { display: flex; flex-direction: column; gap: var(--bd-space-4); min-height: 0; min-width: 0; }
+
+  .panel {
+    background: var(--bd-bg-surface);
+    border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+    border-radius: var(--bd-radius-lg);
+    box-shadow: inset 0 1px 0 var(--bd-material-top-light);
+    min-height: 0;
+  }
+  .panel__title {
+    margin: 0 0 var(--bd-space-4);
+    font-size: 15px;
+    font-weight: var(--bd-font-weight-medium);
+    letter-spacing: var(--bd-letter-spacing-tight);
+  }
+
+  /* ---------- buttons ---------- */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    height: var(--bd-size-control-compact);
+    padding: 0 var(--bd-space-5);
+    font: inherit; font-size: var(--bd-text-console);
+    color: var(--bd-text-primary);
+    background: var(--bd-bg-elevated);
+    border: var(--bd-stroke-hairline) solid var(--bd-border-default);
+    border-radius: var(--bd-radius-md);
+    cursor: pointer; white-space: nowrap;
+  }
+  .btn:hover { background: var(--bd-bg-hover); }
+  .btn:focus-visible { outline: none; box-shadow: var(--bd-focus-ring); }
+  .btn--brand {
+    background: var(--bd-brand-orange);
+    border-color: transparent;
+    color: var(--bd-text-on-brand);
+    font-weight: var(--bd-font-weight-medium);
+    box-shadow: var(--bd-shadow-attention-glow);
+  }
+  .btn--lg { height: var(--bd-size-control-touch); padding: 0 var(--bd-space-8); font-size: 14px; }
+
+  /* ---------- status dot + word: colour never carries state alone ---------- */
+  .st { display: inline-flex; align-items: center; gap: var(--bd-space-3); white-space: nowrap; }
+  .st .d { width: 8px; height: 8px; border-radius: var(--bd-radius-full); flex: none; }
+  .st--ok { color: var(--bd-text-primary); }   .st--ok .d { background: var(--bd-success); }
+  .st--bad { color: var(--bd-danger); }        .st--bad .d { background: var(--bd-danger); }
+
+  /* ---------- left column ---------- */
+  .left { display: flex; flex-direction: column; min-height: 0; }
+  .left .panel { display: flex; flex-direction: column; }
+
+  .agents { padding: var(--bd-space-2) var(--bd-space-5); }
+  .agent {
+    display: grid; grid-template-columns: 1fr 64px 64px auto;
+    align-items: center; gap: var(--bd-space-4);
+    height: 34px;
+  }
+  .agent .name { font-size: 14px; }
+  .agent .ver { font-family: var(--bd-font-mono); font-size: var(--bd-text-console); }
+
+  .runs { padding: var(--bd-space-4) var(--bd-space-5) var(--bd-space-3); }
+  .runs h2 { margin: 0 0 var(--bd-space-3); font-size: 14px; font-weight: var(--bd-font-weight-regular); }
+  .run {
+    display: flex; justify-content: space-between; align-items: center;
+    height: 24px; padding: 0 var(--bd-space-4); margin: 0 calc(var(--bd-space-4) * -1);
+    font-family: var(--bd-font-mono); font-size: var(--bd-text-console);
+    border-radius: var(--bd-radius-sm);
+    color: var(--bd-text-primary);
+  }
+  .run[aria-current="true"] { background: var(--bd-bg-elevated); box-shadow: inset 0 0 0 1px var(--bd-border-dimmer); }
+  .run .ok { color: var(--bd-success); }
+  .run .failed { color: var(--bd-danger); }
+  .runs .more { margin-top: var(--bd-space-2); font-size: var(--bd-text-console); color: var(--bd-text-secondary); }
+
+  .log { flex: 1; overflow: auto; padding: var(--bd-space-5); font-family: var(--bd-font-mono); font-size: var(--bd-text-console-sm); line-height: 1.55; }
+  .entry + .entry { margin-top: var(--bd-space-4); }
+  .entry .who { color: var(--bd-text-primary); font-weight: var(--bd-font-weight-medium); }
+  .entry .when { color: var(--bd-text-tertiary); margin-left: var(--bd-space-4); }
+  .entry p { margin: var(--bd-space-1) 0 0; color: var(--bd-text-secondary); white-space: pre-line; }
+
+  .composer { padding: var(--bd-space-5); }
+  .composer__box {
+    position: relative; height: 104px;
+    background: var(--bd-bg-elevated);
+    border: var(--bd-stroke-hairline) solid var(--bd-border-default);
+    border-radius: var(--bd-radius-md);
+  }
+  .composer textarea {
+    width: 100%; height: 100%; resize: none; background: transparent; border: 0; outline: 0;
+    padding: var(--bd-space-4) var(--bd-space-4);
+    font-family: var(--bd-font-mono); font-size: var(--bd-text-console); color: var(--bd-text-primary);
+  }
+  .composer textarea::placeholder { color: var(--bd-text-tertiary); }
+  .composer .send { position: absolute; right: var(--bd-space-2); bottom: var(--bd-space-2); height: 32px; padding: 0 var(--bd-space-8); font-size: 14px; }
+
+  /* ---------- centre column ---------- */
+  .stage { flex: 1; display: grid; grid-template-rows: 1fr auto auto; }
+  .preview { display: grid; place-content: center; justify-items: center; gap: var(--bd-space-6); border-bottom: var(--bd-stroke-hairline) solid var(--bd-border-dimmer); }
+  .preview .st { font-size: 16px; }
+  .attempts {
+    border: var(--bd-stroke-hairline) solid var(--bd-border-default);
+    border-radius: var(--bd-radius-sm);
+    background: var(--bd-bg-subtle);
+    padding: var(--bd-space-4) var(--bd-space-6);
+    font-family: var(--bd-font-mono); font-size: var(--bd-text-console);
+    border-collapse: separate; border-spacing: 0;
+  }
+  .attempts td { padding: var(--bd-space-1) var(--bd-space-4); }
+  .attempts td:first-child { padding-left: 0; width: 20px; color: var(--bd-text-secondary); }
+  .attempts .u { text-decoration: underline; text-underline-offset: 3px; }
+  .preview .msg { font-family: var(--bd-font-mono); font-size: var(--bd-text-console); margin: 0; }
+
+  .variants { padding: var(--bd-space-4) var(--bd-space-5); border-bottom: var(--bd-stroke-hairline) solid var(--bd-border-dimmer); }
+  .thumb {
+    width: 96px; height: 102px; display: flex; flex-direction: column;
+    border: var(--bd-stroke-active) solid var(--bd-brand-orange);
+    border-radius: var(--bd-radius-sm);
+    background: var(--bd-bg-subtle);
+  }
+  .thumb .img { flex: 1; }
+  .thumb .cap { border-top: var(--bd-stroke-hairline) solid var(--bd-border-dimmer); padding: var(--bd-space-2); text-align: center; font-family: var(--bd-font-mono); font-size: var(--bd-text-console-sm); }
+
+  .actions { display: flex; gap: var(--bd-space-5); padding: var(--bd-space-6) var(--bd-space-5); }
+  .actions .btn { flex: 1; }
+
+  /* ---------- right column ---------- */
+  .inspector .panel { padding: var(--bd-space-5); font-size: 13px; }
+  .inspector .brief { flex: 0 0 200px; }
+  .inspector .direction { flex: 0 0 208px; }
+  .inspector .critique { flex: 1; }
+  .inspector p { margin: 0; line-height: 1.7; }
+  .inspector ul { margin: 0; padding-left: var(--bd-space-5); font-family: var(--bd-font-mono); font-size: var(--bd-text-console); line-height: 2; color: var(--bd-text-primary); }
+  .inspector li::marker { color: var(--bd-text-tertiary); }
+  .critique p { font-family: var(--bd-font-mono); font-size: var(--bd-text-console); line-height: 1.85; }
+</style>
+</head>
+<body>
+<div class="studio" role="application" aria-label="Designer Studio">
+
+  <!-- ===== left: agents / runs / log / composer ===== -->
+  <aside class="col left">
+    <section class="panel agents" aria-label="Agents">
+      <div class="agent"><span class="name">claude</span><span class="st st--ok"><i class="d"></i>ok</span><span class="ver">1.3.7</span><button class="btn">Connect</button></div>
+      <div class="agent"><span class="name">codex</span><span class="st st--ok"><i class="d"></i>ok</span><span class="ver">0.18.2</span><button class="btn">Connect</button></div>
+      <div class="agent"><span class="name">grok</span><span class="st st--ok"><i class="d"></i>ok</span><span class="ver">1.2.0</span><button class="btn">Connect</button></div>
+      <div class="agent"><span class="name">kimi</span><span class="st st--ok"><i class="d"></i>ok</span><span class="ver">1.1.5</span><button class="btn">Connect</button></div>
+    </section>
+
+    <section class="panel runs" aria-label="Runs">
+      <h2>Runs</h2>
+      <div class="run" aria-current="true"><span>run-2025-05-12-0021</span><span class="failed">failed</span></div>
+      <div class="run"><span>run-2025-05-12-0020</span><span class="ok">ok</span></div>
+      <div class="run"><span>run-2025-05-12-0019</span><span class="ok">ok</span></div>
+      <div class="run"><span>run-2025-05-12-0018</span><span class="failed">failed</span></div>
+      <div class="run"><span>run-2025-05-12-0017</span><span class="ok">ok</span></div>
+      <div class="more">View all...</div>
+    </section>
+
+    <section class="panel log" aria-label="Agent log" aria-live="polite">
+      <div class="entry"><span class="who">codex</span><span class="when">10:14:22</span><p>Starting render r1-a with prompt and context.
+This may take up to 5 minutes.</p></div>
+      <div class="entry"><span class="who">codex</span><span class="when">10:19:22</span><p>No output produced. Retrying with scoped home directory.</p></div>
+      <div class="entry"><span class="who">codex</span><span class="when">10:24:22</span><p>No output again. Retrying after backoff.</p></div>
+      <div class="entry"><span class="who">codex</span><span class="when">10:36:35</span><p>Still no output.
+Attempts exhausted.</p></div>
+      <div class="entry"><span class="who">system</span><span class="when">10:36:35</span><p>Render failed.</p></div>
+    </section>
+
+    <section class="panel composer" aria-label="Message agent">
+      <div class="composer__box">
+        <textarea aria-label="Message codex" placeholder="Message codex..."></textarea>
+        <button class="btn btn--brand send">Send</button>
+      </div>
+    </section>
+  </aside>
+
+  <!-- ===== centre: preview / variants / actions ===== -->
+  <main class="col">
+    <section class="panel stage" aria-label="Render">
+      <div class="preview" role="status">
+        <span class="st st--bad"><i class="d"></i>exhausted</span>
+        <table class="attempts" aria-label="Attempts">
+          <tr><td aria-hidden="true">&#9656;</td><td class="u">direct</td><td>exit 124</td><td class="u">300s</td><td>produced no</td></tr>
+          <tr><td></td><td>scoped-home</td><td>exit 124</td><td>300s</td><td>produced no</td></tr>
+          <tr><td></td><td>after-backoff</td><td>exit 1</td><td>12s</td><td>produced no</td></tr>
+        </table>
+        <p class="msg">Codex produced nothing. Nothing was written.</p>
+        <button class="btn" style="height:32px;padding:0 var(--bd-space-8);font-size:14px">Retry</button>
+      </div>
+
+      <div class="variants" aria-label="Variants">
+        <div class="thumb" aria-current="true" aria-label="Variant r1-a, failed"><div class="img"></div><div class="cap">r1-a</div></div>
+      </div>
+
+      <div class="actions">
+        <button class="btn btn--brand btn--lg">Re-render</button>
+        <button class="btn btn--lg">New variant</button>
+        <button class="btn btn--lg">Ask agent</button>
+        <button class="btn btn--lg">Blind read</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===== right: brief / art direction / critique ===== -->
+  <aside class="col inspector">
+    <section class="panel brief" aria-labelledby="h-brief">
+      <h2 class="panel__title" id="h-brief">Brief</h2>
+      <p>Create a cinematic scene of a lone traveler standing on a rain-slick street in a neon-lit city at night. Mood is moody and reflective. Palette leans teal and magenta. Aspect ratio: 16:9.</p>
+    </section>
+    <section class="panel direction" aria-labelledby="h-dir">
+      <h2 class="panel__title" id="h-dir">Art direction</h2>
+      <ul>
+        <li>Cinematic, photorealistic</li>
+        <li>Low key lighting</li>
+        <li>Strong reflections</li>
+        <li>Depth and atmosphere</li>
+        <li>Focus on silhouette and mood</li>
+      </ul>
+    </section>
+    <section class="panel critique" aria-labelledby="h-crit">
+      <h2 class="panel__title" id="h-crit">Critique</h2>
+      <p>Codex produced no output.<br>All attempts exhausted.<br>Review brief and constraints.<br>Consider simplifying the request.<br>Check environment and permissions.<br>Try again.</p>
+    </section>
+  </aside>
+</div>
+</body>
+</html>

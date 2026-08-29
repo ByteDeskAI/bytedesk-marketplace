@@ -20,6 +20,7 @@
 
 set -uo pipefail
 RUN="${1:?run-dir}"; NAME="${2:?name}"; PROMPT="${3:?prompt-file}"; MODE="${4:-text}"; shift 4 || shift 3
+EXTRA=("$@")   # extra codex args, e.g. -i <image> for the blind critic
 [ -f "$PROMPT" ] || { echo "codex-exec: no prompt at $PROMPT" >&2; exit 2; }
 mkdir -p "$RUN"
 
@@ -29,12 +30,17 @@ ATTEMPTS_LOG="$RUN/$NAME.attempts.json"
 : > "$RUN/$NAME.attempts.tmp"
 
 # Did this attempt actually produce something, whatever the exit code said?
+# $2 is where THIS attempt's images land: codex writes them under its own CODEX_HOME, so an
+# attempt that scopes CODEX_HOME does not file them under $HOME. Checking only $HOME made
+# every scoped-home image attempt report produced:false while having generated — and been
+# billed for — the image, then fall through to the next attempt and generate it again.
 produced() {
-  local log="$1" sid
+  local log="$1" root="${2:-$IMG_ROOT}" sid
   sid=$(grep -oiE 'session id: *[0-9a-f-]+' "$log" 2>/dev/null | head -1 | grep -oE '[0-9a-f-]{8,}')
   [ -n "$sid" ] && echo "$sid" > "$RUN/$NAME.session-id"
   if [ "$MODE" = image ]; then
-    [ -n "$sid" ] && [ -d "$IMG_ROOT/$sid" ] && [ -n "$(ls -A "$IMG_ROOT/$sid" 2>/dev/null)" ]
+    [ -n "$sid" ] && [ -d "$root/$sid" ] && [ -n "$(ls -A "$root/$sid" 2>/dev/null)" ] \
+      && { echo "$root/$sid" > "$RUN/$NAME.image-dir"; true; }
   else
     [ -s "$RUN/$NAME-reply.txt" ]
   fi
@@ -43,12 +49,14 @@ produced() {
 run_attempt() {                       # $1 label, $2... env assignments
   local label="$1"; shift
   local log="$RUN/$NAME-log.txt"
+  local root="$IMG_ROOT"
+  for kv in "$@"; do case "$kv" in CODEX_HOME=*) root="${kv#CODEX_HOME=}/generated_images" ;; esac; done
   local t0=$SECONDS
   # -o must be ABSOLUTE: it resolves against the invoking shell, not -C.
   timeout "$TIMEOUT" env "$@" codex exec --skip-git-repo-check -s read-only \
-      -C "$RUN" -o "$RUN/$NAME-reply.txt" - < "$PROMPT" > "$log" 2>&1
+      -C "$RUN" -o "$RUN/$NAME-reply.txt" ${EXTRA[@]+"${EXTRA[@]}"} - < "$PROMPT" > "$log" 2>&1
   local rc=$? el=$((SECONDS - t0))
-  local ok=false; produced "$log" && ok=true
+  local ok=false; produced "$log" "$root" && ok=true
   printf '{"attempt":"%s","exit":%d,"seconds":%d,"produced":%s},' "$label" "$rc" "$el" "$ok" \
     >> "$RUN/$NAME.attempts.tmp"
   $ok

@@ -1,0 +1,70 @@
+Do not run any shell commands. Do not read or write any files.
+Reply with the artifact only — no preamble, no explanation, no code fences.
+
+Write a single self-contained HTML file for one application state of the ByteDesk Designer Studio desktop app (a three-column workbench with a "New project" modal open). It loads the stylesheet at ./tokens/bytedesk.css (relative path, a plain <link>) and uses ONLY its custom properties for every colour: no hex, no rgb(), no hsl(), no named colours anywhere in your CSS. The <html> element carries data-bd-product="designer-studio". Fonts: font-family: var(--bd-font-sans) for chrome, var(--bd-font-mono) for paths, ids, versions, timestamps, status words in the projects list, and logs. Fixed 1280×800 layout, body margin 0, overflow hidden, background var(--bd-bg-base); no responsive behaviour, no JavaScript, no external resources, no images. Use absolute or fixed positioning freely: the measurements below are exact logical-pixel positions and the render is compared against the mockup pixel by pixel, so build to the numbers — do not eyeball, do not "improve" spacing. Font sizes are deliberately small (8.5–15px); use them as written. All hairlines are 1px var(--bd-border-default). Radius 6px on every card, button, input and thumbnail. No box-shadow, no gradients, no transitions, no icons beyond simple text glyphs (▾ chevron, + plus, a small "▯"-style document glyph drawn with a bordered span).
+
+Colour roles: ground var(--bd-bg-base); panel cards var(--bd-bg-surface); buttons/controls var(--bd-bg-elevated); modal var(--bd-bg-elevated); input backgrounds var(--bd-bg-base); primary text var(--bd-text-primary); secondary var(--bd-text-secondary); accent var(--bd-accent) with text var(--bd-text-on-brand) on accent fills; status dots var(--bd-success) / var(--bd-warning) / var(--bd-danger); font weights var(--bd-font-weight-regular|medium|semibold).
+
+MEASUREMENTS (logical px):
+
+Columns: left 0–313 with a 1px hairline at x=313; centre 313–989; right 989–1280 with a 1px hairline at x=989 (draw the hairlines as borders on the columns).
+
+LEFT COLUMN
+- Solution row: height 42, hairline along its bottom. "Solution" 11.5px secondary at x=14, vertically centred; "Acme Digital Suite" 12.5px semibold primary at x=67; a ▾ chevron 10px secondary 8px after the name.
+- Four cards inset x 9–303 (width 294), bg surface, hairline border, radius 6, at y: Agents 42–216, Projects 226–316, Conversation 325–671, Composer 680–780.
+- Agents card: heading row 34 tall with "Agents" 12.5px primary at x=18 (i.e. 9px inside the card), hairline under the heading row. Then 4 rows each 34 tall with a hairline between rows (none after the last). Each row: agent name 11.5px primary at x=18; a 6px status dot at x=100 (centred vertically) and the status word 11px secondary at x=109; version in mono 10.5px secondary at x=165; a "Connect" button 63×20 whose right edge is at x=292 (bg elevated, hairline border, radius 6, 11px medium primary, text centred).
+  Rows: claude · success dot · ok · v1.12.3 / codex · warning dot · busy · v0.9.7 / grok · success dot · ok · v1.4.2 / kimi · danger dot · failed · v2.1.0
+- Projects card: heading row 34 tall, "Projects" 12.5px primary at x=18, a "+" glyph 14px secondary whose centre is x=287; hairline under the heading row. Then one selected project row: a 2px var(--bd-accent) outlined box inset 4px from the card's inner edges (x 14–298), 34 tall, radius 6, containing "Internal docs" 11.5px primary at x=18 and, right-aligned ending at x=284, "active" in mono 10.5px secondary.
+- Conversation card: heading "Conversation with claude" 12.5px primary at x=18, vertically centred at y=341, hairline at y=357 across the card. Below, all text mono 10.5px, line-height 15px, positioned by vertical centre:
+  y=368: "10:21" secondary at x=18, "You" primary at x=54
+  y=387 and y=402: "Create a dark, abstract hero image for a" / "marketing site." primary at x=18
+  y=432: "10:21" secondary at x=18, "claude" primary at x=54, and at the right a 6px success dot at x=258 with "ok" secondary ending at x=278
+  y=451: "Working on a few directions." at x=18
+  y=481: "10:23" secondary, "claude" primary, success dot + "ok" as above
+  y=500: "Here are two options." at x=18
+  y=526: a small document glyph (a 9×11 bordered span, hairline, radius 2) at x=34 then "r1-a.png" primary at x=50
+  y=551: same glyph, "r2-a.png"
+  y=582: "10:24" secondary, "You" primary
+  y=601: "Love r2-a. Make a third variant."
+  y=630: "10:25" secondary, "claude" primary, 6px warning dot at x=258 with "busy" secondary ending at x=278
+  y=649: "On it."
+  A 3px-wide scrollbar thumb, var(--bd-border-default), radius 2, at x=296, y 360–590.
+- Composer card: bg var(--bd-bg-base) with hairline border. Placeholder text "Message claude…" 11.5px secondary at x=25, vertical centre y=691. "Send" button 52×27 at x 236–288, y 732–759, bg accent, on-brand text 11.5px medium, centred.
+
+CENTRE COLUMN
+- Stage: a rect x 326–976, y 16–617, bg var(--bd-bg-subtle), hairline border, radius 6, empty.
+- Thumbnails: r1-a box x 336–457, y 638–709, bg subtle, hairline border, radius 6; r2-a box x 469–596, y 638–709, bg subtle, 2px var(--bd-accent) border, radius 6. Labels in mono 10.5px secondary, vertical centre y=723: "r1-a" starting at x=336 and "r2-a" starting at x=469.
+- Toolbar buttons, all height 26 spanning y 758–784, 11px text centred, radius 6: "Re-render" x 328–394 with bg surface, 1px var(--bd-accent) border and var(--bd-accent) text; "New variant" x 412–479, "Ask agent" x 490–553, "Blind read" x 564–631 — bg elevated, hairline border, primary text.
+
+RIGHT COLUMN — inspector showing the selected project. Content left edge x=1003 (14px column padding), right padding 14. Sections separated by a full-column-width hairline. Each section: 12px padding top and bottom, heading 12.5px primary, then rows; row pitch 21px; label 11.5px secondary at x=1003 and value at x=1090 where a label/value pair is used. Sections top to bottom:
+  1. "Solution": row "● connected" (6px success dot then 11.5px primary word); row mono 10.5px secondary "/solutions/acme-digital-suite"; row mono 10.5px secondary "@ 9f3c1a7".
+  2. "Project": "Internal docs" 13px semibold primary; then mono 10.5px secondary "website · active · created 2026-08-12".
+  3. "Brief prompts": four rows each with a 12px checkbox square (hairline border, radius 2; checked ones filled var(--bd-accent) with a "✓" 9px on-brand) then 11.5px primary text: "Lead with clarity" (unchecked), "Convey calm confidence" (checked), "Highlight core value" (unchecked), "Guide to next step" (checked).
+  4. "Deliverables": five rows, mono 10.5px primary path at x=1003 and a 6px dot right-aligned at x=1258: "surfaces/*.html" success, "identity/" success, "direction/images/" success, "storybook/" border-default (grey), "review/findings.json" border-default.
+  5. "Stages": six equal columns across x 1003–1266, each with a mono 10.5px secondary name centred and a 6px dot centred 14px below: discovery success, direction success, identity success, surface warning, review grey (border-default), publish grey.
+  6. "Brief": a box (bg base, hairline border, radius 6, padding 8) containing three mono 10.5px primary lines, line-height 17: "Internal documentation site." / "Speak to engineers first." / "Make search the front door."
+  7. "Art direction": same box style, two lines: "Calm, assured, minimal." / "Strong typography, restrained palette."
+  If the sections overrun 800px, let the column clip (overflow hidden) — do not shrink anything.
+
+MODAL
+- Backdrop covering the whole 1280×800 window: background color-mix(in srgb, var(--bd-bg-base) 45%, transparent).
+- Card x 363–917 (554 wide), y 111–631 (520 tall). bg var(--bd-bg-elevated), hairline border, radius 6, padding 18, no shadow.
+- Title "New project" 15px semibold primary, vertical centre y=135, x=381.
+- "Name" label 10.5px secondary, vertical centre y=165, x=381.
+- Input x 381–900, y 181–207 (26 tall), bg base, hairline border, radius 6, padding-left 8, value "Marketing site" 10.5px primary vertically centred.
+- Type grid, three rows. Family headings 10.5px secondary at x = the group column's left edge, vertical centres y=233 (row 1), 345 (row 2), 457 (row 3). Card rows span y 249–321, 361–433, 473–546 (72 tall; row 3 is 73).
+  Row 1: left group "Web" column x 381–667 with 3 cards each 90 wide, gap 8 (x 381–471, 479–569, 577–667); right group "Brand" column x 684–900 with 2 cards each 104 wide, gap 8 (x 684–788, 796–900).
+  Row 2: "Marketing" column x 381–667, 3 cards as row 1; "Product" column x 684–900, 2 cards as row 1.
+  Row 3: "Content" column x 381–588, 2 cards each 100 wide, gap 7 (x 381–481, 488–588); "Custom" column x 633–900 (267 wide) with a single card whose border is 1px dashed var(--bd-border-default), transparent background, and the label "Define your own" 11px secondary centred both ways.
+  Card style: bg var(--bd-bg-surface), hairline border, radius 6, padding 9px 7px, box-sizing border-box. Title 11px semibold primary, white-space nowrap, line-height 14. Description 8.5px secondary, line-height 13.5, margin-top 5, normal wrapping. The "Website" card has a 2px var(--bd-accent) border instead of the hairline, at the same outer size.
+  Cards (title / description):
+    Web: Website / Marketing sites and brochure pages · Web app / Interactive web applications · Dashboard / Data and metrics interfaces
+    Brand: Logo / identity / Logos and visual identities · Brand guide / Guidelines and brand systems
+    Marketing: Campaign / Multi-channel campaigns · Presentation / Slide decks and presentations · One-pager / Single-page marketing assets
+    Product: Mobile app / iOS and Android applications · Desktop app / Mac, Windows, and Linux apps
+    Content: Illustration set / Custom illustrations and scenes · Icon set / Icon libraries and collections
+- Footnote "3 types added by this solution" mono 10.5px secondary, x=381, vertical centre y=570.
+- Footer: "Cancel" 11.5px primary, no background, no border, text spanning x 745–779 with vertical centre y=603. "Create project" button x 801–900, y 590–616 (99×26), bg accent, on-brand 11.5px medium text centred, radius 6.
+
+Available custom properties (use only these):
+--bd-bg-base --bd-bg-subtle --bd-bg-surface --bd-bg-elevated --bd-bg-overlay --bd-bg-hover --bd-overlay-backdrop --bd-text-primary --bd-text-secondary --bd-text-tertiary --bd-text-on-brand --bd-accent --bd-success --bd-warning --bd-danger --bd-border-default --bd-border-dimmer --bd-border-stronger --bd-font-sans --bd-font-mono --bd-font-weight-regular --bd-font-weight-medium --bd-font-weight-semibold --bd-radius-md --bd-stroke-hairline --bd-stroke-active

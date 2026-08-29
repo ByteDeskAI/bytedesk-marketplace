@@ -1,0 +1,373 @@
+{
+  "metadata": {
+    "skill_name": "bytedesk-designer-translate",
+    "skill_path": "<path/to/skill>",
+    "executor_model": "<model-name>",
+    "analyzer_model": "<model-name>",
+    "timestamp": "2026-08-28T20:13:44Z",
+    "evals_run": [
+      0,
+      1,
+      2
+    ],
+    "runs_per_configuration": 3
+  },
+  "runs": [
+    {
+      "eval_id": 0,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 10,
+        "failed": 0,
+        "total": 10,
+        "time_seconds": 576.8,
+        "tokens": 0,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Wrote translate/SPEC.md containing at least ten numeric measurements in logical pixels before the first Codex build",
+          "passed": true,
+          "evidence": "translate/SPEC.md exists; header states 'All numbers below are logical px'. Dozens of measurements (panel rects x 12..332 / 342..954 / 964..1268, pitches 36/23.5/18, type sizes 10.5/12/13/15/16, control sizes 70x28, 82x30, 132x40, etc.; 13 explicit 'px'-suffixed values plus far more bare logical-px numbers). notes.md Round 0 (measure) precedes Round 1 (build); the r1 prompt embeds the SPEC verbatim under MEASUREMENTS, proving it was written first."
+        },
+        {
+          "text": "SPEC.md records the invented-element decision explicitly \u2014 either naming what the mockup invented and must not be built, or stating that nothing structural was invented",
+          "passed": true,
+          "evidence": "SPEC.md section '## Invented by the mockup \u2014 do not build' lists: underlines on 'direct' and '300s' (link-styling artefact), no hollow thumbnail slots beyond r1-a, no title bar; and marks the Connect button as real/keep. The built surface has no underlines (verified in render-failed.html and r2 shot)."
+        },
+        {
+          "text": "The surface HTML loads a vendored token stylesheet and contains no hex or rgb() colour literals",
+          "passed": true,
+          "evidence": "surfaces/render-failed.html has <link rel=\"stylesheet\" href=\"./tokens/design.css\"> (vendored copy with .source-sha beside it). Script scan after stripping entities: hex=[] rgb=[]. Only var(--bd-*) colours."
+        },
+        {
+          "text": "Codex wrote the surface (a translate/prompts/*-r1.txt hand-off exists and codex-exec.sh was used in text mode); Claude did not author the markup inline",
+          "passed": true,
+          "evidence": "translate/prompts/render-failed-r1.txt exists (full spec hand-off, 'Reply with the artifact only'). render-failed-r1.attempts.json {mode:'text', outcome:'ok', attempt 'direct' exit 0, 102s} is the format codex-exec.sh writes; r1-log.txt shows the 'OpenAI Codex v0.146.0' banner. r1-reply.txt is byte-identical to the CURRENT FILE in the r2 prompt, and r2-reply.txt is byte-identical to surfaces/render-failed.html \u2014 the surface lineage is Codex output end to end. 2 rounds total."
+        },
+        {
+          "text": "Rendered the surface at 1280x800 and produced translate/diff/<state>-r1/report.json with layoutScore and hotspots",
+          "passed": true,
+          "evidence": "translate/shots/render-failed-r1.png is 1280x800; translate/diff/render-failed-r1/report.json has size 1280x800, layoutScore 0.9908, pixelDiff 0.0592, 8 hotspots with cell/rect/lumDiff/pixDiff, a= mockup, b= r1 shot."
+        },
+        {
+          "text": "Every change in a patch round is justified by a recorded diff observation (a report hotspot cell or a named region of diff.png noted in notes.md) and the patch prompt lists numbered changes plus a FROZEN list",
+          "passed": true,
+          "evidence": "notes.md Round 1 names the observation: 'left timeline drifts 1\u20136px high down the column (header\u2192body pitch 18 vs measured 20)', tied to hotspots 1,9 (0.048) and 2,9 (0.039) which are the timeline cells at y 360. r2 prompt has CHANGES: 1. (five .message tops 342/406/470/516/580 \u2192 343/408/474/521/586) 2. (.message-header margin-bottom 2px) each with the measured justification, then 'FROZEN (already correct \u2014 do not touch): agents block, Runs list, composer and Send, the whole centre column, the whole right column, all colours, fonts and sizes.' Diff of r1 reply vs surface confirms exactly those six lines changed."
+        },
+        {
+          "text": "Reported layoutScore as the mockup comparison and never presented pixelDiff against the mockup PNG as the pass/fail number",
+          "passed": true,
+          "evidence": "RESULT.md table header: 'layoutScore is the gate, pixelDiff is informational against a generated PNG'; notes.md 'pixelDiff 0.0592 (informational only)'; state.json scores keyed on layoutScore with implementationGate 'not run \u2014 no implementation URL given'. Stopping rule is stated in lumDiff/\u0394score terms, not pixelDiff."
+        },
+        {
+          "text": "state.json lists every screenshot and diff image read under stages.translate.viewed",
+          "passed": true,
+          "evidence": "state.json stages.translate.viewed = [translate/grid-render-failed.png, shots/render-failed-r1.png, diff/render-failed-r1/diff.png, shots/render-failed-r2.png, diff/render-failed-r2/diff.png] \u2014 matches every shot/diff file on disk (2 rounds) plus the grid; notes.md says each was read."
+        },
+        {
+          "text": "The final round's report.json shows layoutScore \u2265 0.95 against the mockup (structural fidelity, not just process)",
+          "passed": true,
+          "evidence": "Final round is r2: translate/diff/render-failed-r2/report.json layoutScore 0.9909 (\u2265 0.95), a= mockup r3-s5.png. Viewed r2 shot against the mockup: three-column workbench, agent rows, selected run, timeline, composer, status row, attempts panel, Retry, thumbnail, four-button toolbar, and right inspector all land in the same places; diff.png shows only glyph-edge speckle, no displaced blocks."
+        },
+        {
+          "text": "No hex or rgb() colour literal anywhere in the surface HTML (HTML entities such as &#9656; are not colours)",
+          "passed": true,
+          "evidence": "Programmatic scan of surfaces/render-failed.html with entities stripped: no #hex, no rgb(/rgba(. The one \u25b8 is a literal glyph, not an entity."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 1,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 6,
+        "failed": 0,
+        "total": 6,
+        "time_seconds": 620.5,
+        "tokens": 157529,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "The surface links the implementation's own stylesheet (app/src/styles/global.css or a byte-identical copy), verifiable in the HTML, so a zero pixel diff is achievable",
+          "passed": true,
+          "evidence": "surfaces/git-panel.html line 7: <link rel=\"stylesheet\" href=\"./tokens/app.css\">. diff surfaces/tokens/app.css vs app/src/styles/global.css: only line 2 differs (@import \"./bytedesk.css\" vs \"../../.context/design-system/tokens/css/bytedesk.css\"); surfaces/tokens/bytedesk.css is byte-identical to app/.context/design-system/tokens/css/bytedesk.css."
+        },
+        {
+          "text": "Shot the live URL with the same viewport as the surface and produced translate/diff/<state>-app/report.json with pixelDiff",
+          "passed": true,
+          "evidence": "translate/shots/git-panel-app.png and git-panel-app-raw.png are 1280x800, same as git-panel-r1/r2.png; translate/diff/git-panel-app/report.json has pixelDiff 0.1077, threshold 16, 8 hotspot rects. Viewed the app shot: it is the live shell (Solution none, no Git section)."
+        },
+        {
+          "text": "Reported the implementation gap as pixelDiff with hotspot rects in logical pixels, and the mockup gap as layoutScore \u2014 two different numbers with two different meanings",
+          "passed": true,
+          "evidence": "RESULT.md: mockup rounds tabled as layoutScore 0.9900/0.9911 (pixelDiff labelled informational); implementation gate reported as pixelDiff 0.1077 with hotspot rects (400,680,40,40) 0.292 etc. r1/r2 report.json compare against the mockup PNG with masks + threshold 32; app report compares surface vs app shot, no masks, threshold 16."
+        },
+        {
+          "text": "Recommended changes to the implementation's CSS to match the surface, and did not alter the surface to match the implementation",
+          "passed": true,
+          "evidence": "RESULT.md 'Recommended CSS changes' block targets app selectors in global.css (.shell, .stage, .git .changes, ...) and states 'do not edit app/'. The surface's <style> overrides move it toward the mockup (r2 viewed: matches mockup layout), never toward the shell."
+        },
+        {
+          "text": "Round artefacts exist for every round (translate/prompts/*-rN.txt, shots, diff/report.json) and there are at most three mockup rounds",
+          "passed": true,
+          "evidence": "translate/prompts/git-panel-r1.txt (26784 B), git-panel-r2.txt (17237 B); shots r1/r2; diff/git-panel-r1 and -r2 report.json + diff.png; plus attempts.json, logs, replies. Two mockup rounds, stop reason stated (delta 0.0011 < 0.005)."
+        },
+        {
+          "text": "If the URL could not be put into the mockup's state, the gate is reported as inconclusive with the reason, not as drift",
+          "passed": true,
+          "evidence": "RESULT.md 'Implementation gate \u2014 INCONCLUSIVE': URL renders shell only because Tauri ipc rejects; explicitly says the 0.1077 'measures absent content, not drift, and must not be read as the gate' and gives the rerun command. Verified against the app shot."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 2,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 4,
+        "failed": 0,
+        "total": 4,
+        "time_seconds": 924.5,
+        "tokens": 154701,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Told the user plainly that pixel-perfect against a generated PNG is not attainable and named the two comparisons with their ceilings, without refusing the task",
+          "passed": true,
+          "evidence": "RESULT.md: \"'pixel perfect against the PNG' is not a number that reaches zero ... The number that gates 'this surface is the mockup' is the coarse layout score, and it landed at 0.982 (its practical ceiling on a good translation is ~0.97\u20130.98) ... The number that *can* reach zero is surface <-> implementation ... a pixelDiff under 0.01 is the bar.\" The surface was built (surfaces/new-project.html exists, 3 rounds run), so no refusal."
+        },
+        {
+          "text": "SPEC.md lists the inspector's image-metadata content (Details/Tags/History/Dimensions) as invented and the surface HTML does not build it",
+          "passed": true,
+          "evidence": "SPEC.md section 'Invented by the mockup \u2014 do not build' lists 'Right-column asset inspector (Selection r2-a.png, ID img_7f2b9c1d, Type image/png, Dimensions, Size, Created, Agent, Tags, Notes, History, Project settings)'. grep -iE 'Details|Tags|History|Dimensions|img_' surfaces/new-project.html returns nothing; the HTML inspector contains Solution / Project / Brief prompts / Deliverables / Stages / Brief / Art direction, confirmed in shots/new-project-r3.png."
+        },
+        {
+          "text": "Stopped according to the skill's numeric rule (top hotspot lumDiff < 0.04 and \u0394score < 0.005, or the round-3 ceiling) and recorded the stop reason with the numbers",
+          "passed": true,
+          "evidence": "report.json r1/r2/r3 layoutScore 0.9724 / 0.978 / 0.9824; r3 top hotspot 6,4 lumDiff 0.042. The lumDiff<0.04 branch is not met (0.042), but round 3 is the ceiling and notes.md/state.json record it: 'Round 3 is the ceiling; layoutScore moved 0.0044 (< 0.005) and the top non-inspector hotspot is 0.042 with no edge in diff.png'. No fourth round was run."
+        },
+        {
+          "text": "Every round's prompt is saved under translate/prompts/ and every round's scores appear in translate/notes.md",
+          "passed": true,
+          "evidence": "translate/prompts/new-project-r1.txt (10841 B), -r2.txt (21413 B), -r3.txt (20361 B) exist and contain the full HTML + change list. notes.md carries per-round 'Scores:' lines: r1 layoutScore 0.9724 / pixelDiff 0.0652, r2 0.978 / 0.0785, r3 0.9824 / 0.0786, matching the three report.json files."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 0,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.0,
+        "passed": 0,
+        "failed": 10,
+        "total": 10,
+        "time_seconds": 312.6,
+        "tokens": 0,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Wrote translate/SPEC.md containing at least ten numeric measurements in logical pixels before the first Codex build",
+          "passed": false,
+          "evidence": "No translate/SPEC.md. RESULT.md paragraph 1 lists a handful of measurements (14px margin, 10px gutters, columns 322/610/304, block heights 156/180/~300/125) but that is a post-hoc summary in a result file, not a spec written before the build, and totals well under ten measurements of the kind a spec carries (no type sizes with wrap checks, no row pitches, no control rects)."
+        },
+        {
+          "text": "SPEC.md records the invented-element decision explicitly \u2014 either naming what the mockup invented and must not be built, or stating that nothing structural was invented",
+          "passed": false,
+          "evidence": "No SPEC.md and no equivalent statement. RESULT.md 'Known deltas' lists rendering differences but never decides what the mockup invented; in fact the surface BUILDS the invented link underlines (<u>direct</u>, <u>300s</u>) verbatim."
+        },
+        {
+          "text": "The surface HTML loads a vendored token stylesheet and contains no hex or rgb() colour literals",
+          "passed": false,
+          "evidence": "Loads bytedesk.tokens.css (vendored) but contains two colour literals: --studio-inset: #14171A and .btn-primary color: #fff. Also pulls Google Fonts, which the token sheet already governs."
+        },
+        {
+          "text": "Codex wrote the surface (a translate/prompts/*-r1.txt hand-off exists and codex-exec.sh was used in text mode); Claude did not author the markup inline",
+          "passed": false,
+          "evidence": "No translate/prompts/*-r1.txt, no attempts.json, no codex log; RESULT.md describes the executor measuring, mapping tokens and writing the page itself. Claude authored the markup inline."
+        },
+        {
+          "text": "Rendered the surface at 1280x800 and produced translate/diff/<state>-r1/report.json with layoutScore and hotspots",
+          "passed": false,
+          "evidence": "screenshot-1280x800.png exists (1280x800), but there is no diff/report.json, no layoutScore, no hotspots. RESULT.md says 'compared against the mockup' with no artefact."
+        },
+        {
+          "text": "Every change in a patch round is justified by a recorded diff observation (a report hotspot cell or a named region of diff.png noted in notes.md) and the patch prompt lists numbered changes plus a FROZEN list",
+          "passed": false,
+          "evidence": "No patch prompts, no diff observations, no FROZEN list. RESULT.md mentions 'one iteration to tighten sidebar type' with no recorded justification. 1 round (plus one undocumented tweak)."
+        },
+        {
+          "text": "Reported layoutScore as the mockup comparison and never presented pixelDiff against the mockup PNG as the pass/fail number",
+          "passed": false,
+          "evidence": "No layoutScore or pixelDiff reported at all; no comparison number of any kind. Cannot pass an assertion about which metric was presented."
+        },
+        {
+          "text": "state.json lists every screenshot and diff image read under stages.translate.viewed",
+          "passed": false,
+          "evidence": "No state.json."
+        },
+        {
+          "text": "The final round's report.json shows layoutScore \u2265 0.95 against the mockup (structural fidelity, not just process)",
+          "passed": false,
+          "evidence": "No report.json for any round, so no layoutScore. Visual read of the screenshot vs the mockup shows real structural drift: runs list starts ~40px higher, timeline wraps the first line ('...prompt and\\ncontext.'), Retry button smaller, attempts table positioned differently, right-column brief wraps to 5 lines with different breaks, composer moved. Structurally similar but not measured."
+        },
+        {
+          "text": "No hex or rgb() colour literal anywhere in the surface HTML (HTML entities such as &#9656; are not colours)",
+          "passed": false,
+          "evidence": "Same two literals as above: '#14171A' and '#fff' (entities like &#9656; excluded from the scan)."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 1,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.33,
+        "passed": 2,
+        "failed": 4,
+        "total": 6,
+        "time_seconds": 341.0,
+        "tokens": 105959,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "The surface links the implementation's own stylesheet (app/src/styles/global.css or a byte-identical copy), verifiable in the HTML, so a zero pixel diff is achievable",
+          "passed": false,
+          "evidence": "surface/git-panel.html links ./app-global.copy.css (differs from global.css only by @import path) BUT the imported ./bytedesk.tokens.css is the authority file, not the app's vendored one: diff vs app/.context/design-system/tokens/css/bytedesk.css shows 2 extra lines (--bd-product-agent-mail and its selector). Not an identical token file per the grading rule. The HTML also links git-panel.patch.css and an inline <style> that pins body to 464x992, so it is a right-column crop, not the screen."
+        },
+        {
+          "text": "Shot the live URL with the same viewport as the surface and produced translate/diff/<state>-app/report.json with pixelDiff",
+          "passed": false,
+          "evidence": "No translate/diff/<state>-app/report.json exists (no report.json or prompts anywhere under outputs/). The URL was shot (app-shell-1586x992.png, 1586x992) but only a 464-wide crop diff-app-shell.png and a 'mean abs pixel diff 13.2/255' prose number were produced."
+        },
+        {
+          "text": "Reported the implementation gap as pixelDiff with hotspot rects in logical pixels, and the mockup gap as layoutScore \u2014 two different numbers with two different meanings",
+          "passed": false,
+          "evidence": "RESULT.md scores the mockup with 'Mean abs pixel diff vs mockup crop' (raster RMSE-style fuzz against the mockup PNG) plus a hand 'geometry within tolerance' count; no layoutScore, no pixelDiff-with-hotspot-rects for the implementation. Wrong metric for the mockup and no structured implementation metric."
+        },
+        {
+          "text": "Recommended changes to the implementation's CSS to match the surface, and did not alter the surface to match the implementation",
+          "passed": true,
+          "evidence": "RESULT.md 'Recommendations (edits for app/src/styles/global.css, not applied)' with surface/git-panel.patch.css of token-referenced rules; surface-patched.png (viewed in side-by-side) moves toward the mockup, and surface-as-is is a separate honest rendering, not an alteration of the surface toward the app."
+        },
+        {
+          "text": "Round artefacts exist for every round (translate/prompts/*-rN.txt, shots, diff/report.json) and there are at most three mockup rounds",
+          "passed": false,
+          "evidence": "No translate/prompts/*-rN.txt, no per-round shots or diff/report.json; the run has no round structure at all (single ad-hoc surface + patch)."
+        },
+        {
+          "text": "If the URL could not be put into the mockup's state, the gate is reported as inconclusive with the reason, not as drift",
+          "passed": true,
+          "evidence": "RESULT.md 'What the URL could reach (honest state)': GitPanel never mounts (app-computed.json \"git\": false), 'the git panel could NOT be measured live from the URL', gate row marked n/a. Not presented as drift."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 2,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.0,
+        "passed": 0,
+        "failed": 4,
+        "total": 4,
+        "time_seconds": 277.1,
+        "tokens": 101277,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Told the user plainly that pixel-perfect against a generated PNG is not attainable and named the two comparisons with their ceilings, without refusing the task",
+          "passed": false,
+          "evidence": "RESULT.md says only 'Not literally pixel-identical: text rasterisation differs ... Structural positions ... are within ~2px.' It never names a layout-score comparison against the PNG with its ceiling, nor the surface-vs-implementation comparison that can reach zero. Did not refuse, but the two-comparison framing is absent."
+        },
+        {
+          "text": "SPEC.md lists the inspector's image-metadata content (Details/Tags/History/Dimensions) as invented and the surface HTML does not build it",
+          "passed": false,
+          "evidence": "No SPEC.md exists in outputs/. grep on new-project-dialog.html finds 'Details', 'Tags', 'History' \u2014 the inspector was rebuilt with the mockup's image-file metadata structure (RESULT.md: 'Details (ID prj_a91c4e02, Type Website ...), Tags, Notes, History, and Project settings'), only relabelled to a project."
+        },
+        {
+          "text": "Stopped according to the skill's numeric rule (top hotspot lumDiff < 0.04 and \u0394score < 0.005, or the round-3 ceiling) and recorded the stop reason with the numbers",
+          "passed": false,
+          "evidence": "No rounds, no scores, no report.json, no stop reason. Only a side-by-side compare.png and a prose '~2px' claim."
+        },
+        {
+          "text": "Every round's prompt is saved under translate/prompts/ and every round's scores appear in translate/notes.md",
+          "passed": false,
+          "evidence": "No translate/ directory, no prompts/, no notes.md in outputs/."
+        }
+      ],
+      "notes": []
+    }
+  ],
+  "run_summary": {
+    "with_skill": {
+      "pass_rate": {
+        "mean": 1.0,
+        "stddev": 0.0,
+        "min": 1.0,
+        "max": 1.0
+      },
+      "time_seconds": {
+        "mean": 707.2667,
+        "stddev": 189.3942,
+        "min": 576.8,
+        "max": 924.5
+      },
+      "tokens": {
+        "mean": 104076.6667,
+        "stddev": 90144.128,
+        "min": 0,
+        "max": 157529
+      }
+    },
+    "without_skill": {
+      "pass_rate": {
+        "mean": 0.11,
+        "stddev": 0.1905,
+        "min": 0.0,
+        "max": 0.33
+      },
+      "time_seconds": {
+        "mean": 310.2333,
+        "stddev": 32.0157,
+        "min": 277.1,
+        "max": 341.0
+      },
+      "tokens": {
+        "mean": 69078.6667,
+        "stddev": 59869.6661,
+        "min": 0,
+        "max": 105959
+      }
+    },
+    "delta": {
+      "pass_rate": "+0.89",
+      "time_seconds": "+397.0",
+      "tokens": "+34998"
+    }
+  },
+  "notes": []
+}

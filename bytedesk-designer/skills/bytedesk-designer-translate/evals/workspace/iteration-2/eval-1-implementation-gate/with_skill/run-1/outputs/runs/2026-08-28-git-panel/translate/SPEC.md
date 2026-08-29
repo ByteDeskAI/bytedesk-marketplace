@@ -1,0 +1,67 @@
+# SPEC — git-panel layout (mockup r5-q3.png)
+
+Logical width 1280 × 800. Mockup is 1586×992 (scale 1.2391). All numbers below are logical px,
+measured on translate/grid-git-panel.png plus luminance edge scans (hairlines, button rects).
+Stylesheet: the surface loads the app's own global.css (surfaces/tokens/app-global.css) so the
+app's classes and custom properties are the vocabulary; no hex anywhere in the surface.
+
+## Columns
+| region | x range | width | share |
+|---|---|---|---|
+| left | 0–340 | 340 | 26.6% |
+| divider | 340 | 1px hairline | |
+| centre | 341–905 | 564 | 44.1% |
+| divider | 905 | 1px hairline | |
+| right | 906–1280 | 374 | 29.2% |
+App today: `grid-template-columns: 26fr 46fr 28fr` = 333 / 589 / 358. Left divider is 7px too far
+left, right divider 17px too far right. Spec: `340px 1fr 374px`.
+
+## Left column (content inset x=24, text right limit ≈318)
+- Solution row: y 0–43, hairline at 43. "Solution" muted 14px at x=24, name bold 15px at x=80, chevron › at x≈118. Row height 43.
+- Agents block: y 44–162, hairline at 162. Four rows, pitch 27, first row centre y=60 (padding-top ≈ 6).
+  Columns: name mono 13px at x=24; dot 7px at x=86; "ok" at x=98; version mono at x=176; Connect button x 249–319 (70×20, 1px border, radius 6, 12px label).
+- Providers block: y 163–223, hairline at 223. Two rows pitch 26 (git y≈179, github y≈205). Same column grid; github carries "ryanhelms" in mono at x=176; no Connect button.
+- Projects block: y 224–468, hairline at 468. Heading "Projects" semibold 15px, baseline ≈ y 250 (row centre 244).
+  - Expanded project card "Marketing site": outline 1px accent, radius 6, rect x 20–322 (w 302), y 260–376 (h 116).
+    Inside: chevron ⌄ at x=32 y=274; name semibold 14px at x=48 (centre y 274); branch line mono 12px muted "main · ↑2 ↓0 · 3 changed" at x=48 centre y 292;
+    run rows mono 12px at x=48, centre y 318 and 338, timestamp muted right-aligned ending x≈300; "+ run" at x=48 y 357.
+  - Collapsed projects: chevron › at x=30, name semibold 14px at x=48; "Design system docs" centre y 391, its branch line y 407; "Brand campaign" y 432, branch line y 449. Collapsed row pitch 41.
+- Conversation block: y 469–797. Heading "Conversation" semibold 15px centre y 487.
+  Message groups: header line (agent name mono + time muted) centres y 510 / 547 / 585 / 623 (pitch 38); body line 17px below each. Text 13px, no bubbles, no borders, no backgrounds.
+  Composer textarea x 24–318, y 658–726 (294×68), 1px border, radius 6, placeholder "Message agents….".
+  Send button: primary (accent fill), x 260–318, y 736–768 (58×32), label 14px.
+
+## Centre column (x 341–905)
+- Stage: neutral block (the fog image is NOT built — use --studio-surface flat fill, no image) rect x 366–882, y 63–500 (516×437). Inset 25 from the left divider, 23 from the right; top 63.
+- Thumbnail strip: two thumbs 115×78 with radius 6; thumb 1 x 368–483 y 519–597 (selected: 1px accent outline), thumb 2 x 490–603 (gap 7). Labels mono 13px centred under each, centre y 611. Thumb interiors flat --studio-elevated.
+- Hairline across the centre column at y 645.
+- Toolbar: four buttons, top y 682, height 31, spanning x 364–882 with ~21px gaps: "Re-render" primary x 364–483 (119), "New variant" x 505–623 (118), "Ask agent" x 644–753 (109), "Blind read" x 775–882 (107). Label 14px centred. Radius 6, 1px border on plain ones.
+
+## Right column (x 906–1280; content inset left 20 → x 926; right edge 1254)
+- Section "Solution": heading semibold 15px centre y 24; status row (green dot + "connected") centre y 52; mono muted path "/Users/ryanhelms/work/design-system" centre y 78; mono "design-system @ 9f3c1a7 · main · up to date" centre y 106. Hairline y 135.
+- Section "Git": heading centre y 158; mono "ryanhelms/marketing-site" y 184;
+  branch select rect x 926–1254, y 200–228 (328×28), 1px border, radius 6, mono "main" at x 936, chevron ⌄ right at x≈1240;
+  status row centre y 248: amber dot + "3 changed · 2 ahead · 0 behind"; hairline y 269;
+  changed files mono 13px, row centres y 290 / 318 / 346 (pitch 28), status letter at x 926 (muted), path at x 946; hairline y 367;
+  label "Commit message" muted 13px centre y 387; message field x 926–1254, y 403–458 (328×55) containing mono "direction round 2";
+  button row top y 468 height 29→30: "Pull" x 926–1018 (92), "Commit" primary x 1036–1140 (104), "Push" x 1162–1254 (92); gaps 18/22.
+  Hairline y 512.
+- Section "Project": heading centre y 536; mono muted "website · active" centre y 565. No hairline before Brief.
+- Section "Brief": heading centre y 608; prose 13px sans, line pitch 19.5, first line centre y 627, seven lines (copy below), wrapping at x 1254.
+
+## Type (cap-height ≈ 0.7 × size)
+- section headings semibold 15px; chrome 14px; secondary rows / mono 13px; branch/run lines and labels 12px. Mono only for names, versions, paths, ids, branches, logs.
+
+## Copy (verbatim)
+Left: Solution / design-system ›. Agents: claude ● ok 1.0.60 [Connect]; codex ● ok 0.37.1 [Connect]; grok ● ok 0.15.0 [Connect]; kimi ● ok 1.7.2 [Connect]. Providers: git ● ok; github ● ok ryanhelms.
+Projects: Marketing site (expanded) — main · ↑2 ↓0 · 3 changed — runs: 2026-08-28-home-hero (2h ago), 2026-08-27-landing-nav (1d ago), + run; Design system docs — main · ↑0 ↓0 · clean; Brand campaign — main · ↑1 ↓0 · 1 changed.
+Conversation: claude 10:41 AM "Analyzed the brief and reviewed r2-a."; codex 10:42 AM "Adjusted the hero layout and copy."; grok 10:43 AM "Refined the glow curve and contrast."; kimi 10:44 AM "Round 2 looks strong. Ready to iterate."; placeholder "Message agents…."; button Send.
+Centre: thumbs r1-a (selected), r2-a; toolbar Re-render / New variant / Ask agent / Blind read.
+Right: Solution ● connected, /Users/ryanhelms/work/design-system, design-system @ 9f3c1a7 · main · up to date. Git: ryanhelms/marketing-site; main ⌄; ● 3 changed · 2 ahead · 0 behind; M runs/2026-08-28-home-hero/state.json; M runs/2026-08-28-home-hero/brief.md; A project.json; Commit message — direction round 2; Pull / Commit / Push. Project: website · active. Brief: "Refresh the home hero to communicate clarity, confidence, and motion. Lead with the value proposition. Use a cinematic tone with restrained glow and ample negative space." / "Audience: marketing leaders and founders." / "Primary CTA: See it in action." / "Secondary CTA: Explore features."
+
+## Invented by the mockup — do not build
+- The 3px outer window frame/border around the whole canvas (the app fills the viewport).
+- The faint inner box drawn around the run rows inside the expanded project card.
+- The fog illustration on the stage and inside the thumbnails (masked in comparisons; flat surface fill in the surface).
+- Text grain / wobble. Real fonts render clean.
+Gaps the app has that the mockup omits (not built in the surface, listed for the app): "resolve" / "choose…" buttons in the Solution header, "root <path>" line, "doctor output" disclosure, the "@ sha" line under the path, "+ project" affordance, the status bar.

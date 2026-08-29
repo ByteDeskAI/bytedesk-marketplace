@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en" data-bd-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>Designer Studio — New project</title>
+<style>
+:root{
+  --bd-bg-base:#101316;--bd-bg-subtle:#171A1D;--bd-bg-surface:#1D2125;--bd-bg-elevated:#24282D;
+  --bd-text-primary:#E6E8EB;--bd-text-secondary:#A1A8B1;--bd-text-tertiary:#7E8792;--bd-text-disabled:#626A74;
+  --bd-brand-orange:#EC4E02;--bd-success:#2FB34A;--bd-warning:#DFA700;--bd-danger:#E52222;
+  --bd-border-dimmest:#272A2C;--bd-border-dimmer:#303438;--bd-border-default:#3A3E42;--bd-border-stronger:#44484C;
+  --bd-font-sans:"IBM Plex Sans",ui-sans-serif,system-ui,sans-serif;--bd-font-mono:"IBM Plex Mono",ui-monospace,monospace;
+  --bd-radius-sm:4px;--bd-radius-md:6px;--bd-radius-lg:8px;
+  /* mockup-measured surfaces (Black Glass shell) */
+  --shell:#0C0F13;--gap:#090C10;--panel:#0E1216;--panel-border:#22262B;--row-line:#1B1F24;
+  --dialog:#171B20;--dialog-border:#30343A;--card-border:#262A30;--input-border:#2F3338;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1586px;height:992px;overflow:hidden;background:var(--gap)}
+body{font-family:var(--bd-font-sans);font-size:13px;line-height:1.35;color:var(--bd-text-primary);-webkit-font-smoothing:antialiased;position:relative}
+.mono{font-family:var(--bd-font-mono);font-size:12.5px}
+.abs{position:absolute}
+.panel{position:absolute;background:var(--panel);border:1px solid var(--panel-border);border-radius:var(--bd-radius-md)}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:7px;vertical-align:0}
+.dot.ok{background:var(--bd-success)}.dot.busy{background:var(--bd-warning)}.dot.failed{background:var(--bd-danger)}
+.btn{display:inline-flex;align-items:center;justify-content:center;height:26px;padding:0 12px;border:1px solid var(--bd-border-dimmer);border-radius:var(--bd-radius-sm);background:#14181C;color:var(--bd-text-primary);font:500 12.5px/1 var(--bd-font-sans)}
+.btn.primary{background:var(--bd-brand-orange);border-color:var(--bd-brand-orange);color:#fff}
+.btn.accent{color:var(--bd-brand-orange);border-color:var(--bd-brand-orange)}
+.sec{color:var(--bd-text-secondary)}.ter{color:var(--bd-text-tertiary)}
+/* outer frame */
+.frame{position:absolute;inset:0;border:1px solid #1E2227;background:var(--shell)}
+/* sidebar */
+.sidebar{position:absolute;left:0;top:0;width:388px;height:992px;background:var(--shell);border-right:1px solid #1B1F24}
+.sol{position:absolute;left:18px;top:16px;font-size:15px;display:flex;align-items:center;gap:10px}
+.sol b{font-weight:600;color:var(--bd-text-primary)}
+.sol svg{margin-left:2px}
+.card-title{font-size:14px;font-weight:450;color:var(--bd-text-primary)}
+.agents{left:11px;top:52px;width:366px;height:216px}
+.agents .card-title{position:absolute;left:12px;top:14px}
+.arow{position:absolute;left:0;right:0;height:42px;border-top:1px solid var(--row-line);display:flex;align-items:center}
+.arow .n{position:absolute;left:12px;font-size:13px}
+.arow .s{position:absolute;left:111px;font-size:12px;color:var(--bd-text-secondary)}
+.arow .v{position:absolute;left:192px;font-family:var(--bd-font-mono);font-size:12px;color:var(--bd-text-secondary)}
+.arow .btn{position:absolute;right:13px;height:25px;width:78px}
+.projects{left:11px;top:277px;width:366px;height:117px}
+.projects .card-title{position:absolute;left:12px;top:14px}
+.plus{position:absolute;right:13px;top:13px}
+.projects .l1{position:absolute;left:11px;top:56px;font-size:13px;color:var(--bd-text-secondary)}
+.projects .l2{position:absolute;left:11px;top:83px;font-size:13px;color:var(--bd-text-secondary)}
+.conv{left:11px;top:403px;width:366px;height:423px;overflow:hidden}
+.conv .card-title{position:absolute;left:12px;top:13px}
+.msg{position:absolute;left:12px;right:30px}
+.msg .h{display:flex;font-size:12px;color:var(--bd-text-tertiary);gap:12px}
+.msg .h .who{color:var(--bd-text-secondary)}
+.msg .h .st{margin-left:auto;font-size:12px;color:var(--bd-text-secondary)}
+.msg .b{margin-top:6px;font-family:var(--bd-font-mono);font-size:12px;line-height:20px;color:var(--bd-text-primary)}
+.files{margin:10px 0 0 6px;border-left:1px solid #2A2E33;padding-left:10px}
+.files div{display:flex;align-items:center;gap:8px;font-family:var(--bd-font-mono);font-size:12.5px;height:30px}
+.scroll{position:absolute;left:354px;top:42px;width:3px;height:286px;background:#22262B;border-radius:2px}
+.composer{left:11px;top:836px;width:366px;height:140px}
+.composer .ta{position:absolute;left:8px;top:5px;right:8px;bottom:8px;border:1px solid var(--panel-border);border-radius:var(--bd-radius-sm);background:#0C1014}
+.composer .ph{position:absolute;left:12px;top:6px;font-size:13px;color:var(--bd-text-tertiary)}
+.composer .btn{position:absolute;right:10px;bottom:27px;height:32px;padding:0 20px;font-size:13px}
+/* canvas */
+.canvasArea{position:absolute;left:389px;top:0;width:835px;height:992px;background:var(--gap)}
+.canvas{position:absolute;left:14px;top:21px;width:806px;height:763px;border-radius:6px;border:1px solid #20242A;overflow:hidden;
+  background:#0A0C10;}
+.art{position:absolute;inset:0;background:
+  radial-gradient(55% 40% at 62% 30%, rgba(255,255,255,.13), transparent 70%),
+  radial-gradient(40% 30% at 82% 18%, rgba(255,255,255,.12), transparent 70%),
+  radial-gradient(35% 30% at 18% 32%, rgba(255,255,255,.07), transparent 70%),
+  radial-gradient(50% 40% at 40% 75%, rgba(255,255,255,.05), transparent 70%),
+  radial-gradient(30% 25% at 90% 60%, rgba(255,255,255,.06), transparent 70%),
+  linear-gradient(#0E1116,#0B0D11)}
+.art svg{position:absolute;inset:0;width:100%;height:100%}
+.scrim{position:absolute;inset:0;background:rgba(6,8,11,.42)}
+.thumb{position:absolute;top:790px;width:150px;height:88px;border-radius:3px;border:1px solid #23272C;overflow:hidden;background:#0B0D11}
+.thumb.sel{border:2px solid var(--bd-brand-orange)}
+.thumb .art{background:
+  radial-gradient(60% 55% at 55% 45%, rgba(255,255,255,.16), transparent 70%),
+  radial-gradient(40% 40% at 25% 65%, rgba(255,255,255,.10), transparent 70%),#0B0D11}
+.tlabel{position:absolute;top:889px;font-family:var(--bd-font-mono);font-size:12.5px;color:var(--bd-text-secondary)}
+.divider{position:absolute;left:0;right:0;top:919px;height:1px;background:#1B1F24}
+.toolbar{position:absolute;left:17px;top:938px;display:flex;gap:14px}
+.toolbar .btn{height:34px;padding:0 11px;font-size:13px;font-weight:400;background:transparent;border-color:#2B2F34}
+/* inspector */
+.inspector{position:absolute;left:1224px;top:0;width:362px;height:992px;background:var(--panel);border-left:1px solid #1B1F24}
+.inspector h2{position:absolute;left:19px;top:17px;font-size:14px;font-weight:500}
+.hr{position:absolute;left:19px;right:19px;height:1px;background:#1B1F24}
+.lbl{position:absolute;left:19px;font-size:13px;color:var(--bd-text-secondary)}
+.ttl{position:absolute;left:19px;font-size:14px;font-weight:500;color:var(--bd-text-primary)}
+.kv{position:absolute;left:19px;right:19px;display:grid;grid-template-columns:107px 1fr;row-gap:9px;font-size:13px}
+.kv .k{color:var(--bd-text-secondary)}.kv .v{font-family:var(--bd-font-mono);font-size:12.5px;color:var(--bd-text-primary)}
+.kv2 .v{font-family:var(--bd-font-sans);font-size:13px;color:var(--bd-text-secondary)}
+.notes{position:absolute;left:19px;right:19px;top:505px;height:80px;border:1px solid var(--panel-border);border-radius:var(--bd-radius-sm);background:#0C1014}
+.notes span{position:absolute;left:10px;top:9px;font-size:13px;color:var(--bd-text-tertiary)}
+/* dialog */
+.dialog{position:absolute;left:450px;top:136px;width:687px;height:647px;background:var(--dialog);border:1px solid var(--dialog-border);border-radius:6px;
+  box-shadow:0 24px 56px rgba(5,8,13,.72),0 8px 20px rgba(7,24,46,.4);}
+.dialog h1{position:absolute;left:20px;top:20px;font-size:17px;font-weight:500;letter-spacing:-.01em}
+.dialog .name{position:absolute;left:20px;top:61px;font-size:13px;color:var(--bd-text-secondary)}
+.input{position:absolute;left:20px;top:87px;width:645px;height:33px;border:1px solid var(--input-border);border-radius:4px;background:#171B20;padding:0 11px;display:flex;align-items:center;font-size:13.5px}
+.grp{position:absolute;font-size:13px;color:var(--bd-text-secondary)}
+.tcard{position:absolute;height:91px;border:1px solid var(--card-border);border-radius:4px;background:#171B20;padding:13px 8px 0 11px}
+.tcard.sel{border:2px solid var(--bd-brand-orange);padding:12px 7px 0 10px}
+.tcard b{display:block;font-size:13px;font-weight:500;color:var(--bd-text-primary);margin-bottom:6px;white-space:nowrap}
+.tcard span{display:block;font-size:11.2px;line-height:17px;letter-spacing:-0.01em;color:var(--bd-text-secondary)}
+.custom{position:absolute;left:334px;top:450px;width:333px;height:91px;border:1px dashed #3A3E44;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--bd-text-secondary)}
+.count{position:absolute;left:20px;top:562px;font-family:var(--bd-font-mono);font-size:12.5px;color:var(--bd-text-secondary)}
+.actions{position:absolute;right:20px;top:593px;display:flex;gap:27px;align-items:center}
+.actions .cancel{font-size:13px;color:var(--bd-text-primary)}
+.actions .btn{height:34px;padding:0 18px;font-size:13px;font-weight:500}
+</style>
+</head>
+<body>
+<div class="frame"></div>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+  <div class="sol"><span class="ter">Solution</span><b>Acme Digital Suite</b>
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#7E8792" stroke-width="1.4"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg></div>
+
+  <section class="panel agents">
+    <div class="card-title">Agents</div>
+    <div class="arow" style="top:44px"><span class="n">claude</span><span class="s"><i class="dot ok"></i>ok</span><span class="v">v1.12.3</span><span class="btn">Connect</span></div>
+    <div class="arow" style="top:86px"><span class="n">codex</span><span class="s"><i class="dot busy"></i>busy</span><span class="v">v0.9.7</span><span class="btn">Connect</span></div>
+    <div class="arow" style="top:128px"><span class="n">grok</span><span class="s"><i class="dot ok"></i>ok</span><span class="v">v1.4.2</span><span class="btn">Connect</span></div>
+    <div class="arow" style="top:170px"><span class="n">kimi</span><span class="s"><i class="dot failed"></i>failed</span><span class="v">v2.1.0</span><span class="btn">Connect</span></div>
+  </section>
+
+  <section class="panel projects">
+    <div class="card-title">Projects</div>
+    <svg class="plus" width="14" height="14" viewBox="0 0 14 14" stroke="#A1A8B1" stroke-width="1.3"><path d="M7 1v12M1 7h12"/></svg>
+    <div class="l1">No projects yet</div>
+    <div class="l2">Create your first project to get started.</div>
+  </section>
+
+  <section class="panel conv">
+    <div class="card-title">Conversation with claude</div>
+    <div class="msg" style="top:43px"><div class="h"><span>10:21</span><span class="who">You</span></div><div class="b">Create a dark, abstract hero image for a marketing site.</div></div>
+    <div class="msg" style="top:123px"><div class="h"><span>10:21</span><span class="who">claude</span><span class="st"><i class="dot ok"></i>ok</span></div><div class="b">Working on a few directions.</div></div>
+    <div class="msg" style="top:184px"><div class="h"><span>10:23</span><span class="who">claude</span><span class="st"><i class="dot ok"></i>ok</span></div><div class="b">Here are two options.</div>
+      <div class="files">
+        <div><svg width="12" height="14" viewBox="0 0 12 14" fill="none" stroke="#A1A8B1" stroke-width="1.1"><path d="M1.5 1.5h6l3 3v8h-9z"/><path d="M7.5 1.5v3h3"/></svg>r1-a.png</div>
+        <div><svg width="12" height="14" viewBox="0 0 12 14" fill="none" stroke="#A1A8B1" stroke-width="1.1"><path d="M1.5 1.5h6l3 3v8h-9z"/><path d="M7.5 1.5v3h3"/></svg>r2-a.png</div>
+      </div></div>
+    <div class="msg" style="top:308px"><div class="h"><span>10:24</span><span class="who">You</span></div><div class="b">Love r2-a. Make a third variant.</div></div>
+    <div class="msg" style="top:368px"><div class="h"><span>10:25</span><span class="who">claude</span><span class="st"><i class="dot busy"></i>busy</span></div><div class="b">On it.</div></div>
+    <div class="scroll"></div>
+  </section>
+
+  <section class="panel composer">
+    <div class="ta"><span class="ph">Message claude...</span><span class="btn primary">Send</span></div>
+  </section>
+</aside>
+
+<!-- Canvas -->
+<main class="canvasArea">
+  <div class="canvas">
+    <div class="art">
+      <svg viewBox="0 0 806 763" preserveAspectRatio="none">
+        <defs><linearGradient id="g" x1="0" x2="1"><stop offset="0" stop-color="#EC4E02" stop-opacity="0"/><stop offset=".35" stop-color="#F08A3A"/><stop offset=".85" stop-color="#FFB070"/><stop offset="1" stop-color="#EC4E02" stop-opacity="0"/></linearGradient></defs>
+        <path d="M0 300 C 120 250, 300 330, 520 290 S 720 240, 760 90 S 790 40, 806 20" fill="none" stroke="#F09A4A" stroke-width="6" opacity=".10"/><path d="M0 300 C 120 250, 300 330, 520 290 S 720 240, 760 90 S 790 40, 806 20" fill="none" stroke="url(#g)" stroke-width="1.6" opacity=".75"/>
+      </svg>
+    </div>
+    <div class="scrim"></div>
+  </div>
+
+  <div class="thumb" style="left:28px"><div class="art"><svg viewBox="0 0 150 88" preserveAspectRatio="none"><path d="M0 40 C 40 38, 60 50, 80 55 S 130 60, 150 70" fill="none" stroke="#E08A45" stroke-width="1" opacity=".8"/></svg></div></div>
+  <div class="thumb sel" style="left:192px;width:159px"><div class="art"><svg viewBox="0 0 159 88" preserveAspectRatio="none"><path d="M5 35 C 35 30, 50 55, 75 62 S 120 30, 159 25" fill="none" stroke="#F0A050" stroke-width="1.2" opacity=".9"/></svg></div></div>
+  <div class="tlabel" style="left:28px">r1-a</div>
+  <div class="tlabel" style="left:193px">r2-a</div>
+  <div class="divider"></div>
+  <div class="toolbar">
+    <span class="btn accent">Re-render</span><span class="btn">New variant</span><span class="btn">Ask agent</span><span class="btn">Blind read</span>
+  </div>
+</main>
+
+<!-- Inspector -->
+<aside class="inspector">
+  <h2>Inspector</h2>
+  <div class="hr" style="top:51px"></div>
+  <div class="lbl" style="top:69px;left:22px">Selection</div>
+  <div class="abs mono" style="left:19px;top:99px">r2-a.png</div>
+  <div class="hr" style="top:134px"></div>
+  <div class="ttl" style="top:152px">Details</div>
+  <div class="kv" style="top:184px">
+    <span class="k">ID</span><span class="v">img_7f2b9c1d</span>
+    <span class="k">Type</span><span class="v">image/png</span>
+    <span class="k">Dimensions</span><span class="v">1920 × 1080</span>
+    <span class="k">Size</span><span class="v">1.42 MB</span>
+    <span class="k">Created</span><span class="v">May 20, 2025 10:23</span>
+    <span class="k">Agent</span><span class="v">claude</span>
+    <span class="k">Status</span><span class="v"><i class="dot ok"></i>ok</span>
+  </div>
+  <div class="hr" style="top:376px"></div>
+  <div class="ttl" style="top:395px">Tags</div>
+  <div class="abs" style="left:19px;top:423px;font-size:13px;color:var(--bd-text-secondary);display:flex;align-items:center;gap:8px">
+    <svg width="13" height="13" viewBox="0 0 14 14" stroke="#A1A8B1" stroke-width="1.3"><path d="M7 1v12M1 7h12"/></svg>Add tag</div>
+  <div class="hr" style="top:459px"></div>
+  <div class="ttl" style="top:476px">Notes</div>
+  <div class="notes"><span>Add a note...</span></div>
+  <div class="hr" style="top:596px"></div>
+  <div class="ttl" style="top:609px">History</div>
+  <div class="abs sec" style="left:19px;top:642px;font-size:13px;line-height:20px">May 20, 2025 10:23<br>Created by claude</div>
+  <div class="abs sec" style="left:19px;top:698px;font-size:13px;line-height:20px">May 20, 2025 10:24<br>Selected</div>
+  <div class="hr" style="top:760px"></div>
+  <div class="ttl" style="top:772px">Project settings</div>
+  <div class="kv kv2" style="top:804px;row-gap:7px">
+    <span class="k">Name</span><span class="v">—</span>
+    <span class="k">Type</span><span class="v">—</span>
+    <span class="k">Created</span><span class="v">—</span>
+    <span class="k">Last updated</span><span class="v">—</span>
+  </div>
+</aside>
+
+<!-- Dialog -->
+<div class="dialog" role="dialog" aria-labelledby="np-title">
+  <h1 id="np-title">New project</h1>
+  <label class="name">Name</label>
+  <div class="input">Marketing site</div>
+
+  <div class="grp" style="left:20px;top:146px">Web</div>
+  <div class="grp" style="left:398px;top:146px">Brand</div>
+  <div class="tcard sel" style="left:20px;top:171px;width:119px"><b>Website</b><span>Marketing sites and brochure pages</span></div>
+  <div class="tcard" style="left:145px;top:171px;width:114px"><b>Web app</b><span>Interactive web applications</span></div>
+  <div class="tcard" style="left:266px;top:171px;width:111px"><b>Dashboard</b><span>Data and metrics interfaces</span></div>
+  <div class="tcard" style="left:398px;top:171px;width:127px"><b>Logo / identity</b><span>Logos and visual identities</span></div>
+  <div class="tcard" style="left:532px;top:171px;width:134px"><b>Brand guide</b><span>Guidelines and brand systems</span></div>
+
+  <div class="grp" style="left:20px;top:284px">Marketing</div>
+  <div class="grp" style="left:398px;top:284px">Product</div>
+  <div class="tcard" style="left:20px;top:310px;width:118px"><b>Campaign</b><span>Multi-channel campaigns</span></div>
+  <div class="tcard" style="left:145px;top:310px;width:114px"><b>Presentation</b><span>Slide decks and presentations</span></div>
+  <div class="tcard" style="left:266px;top:310px;width:111px"><b>One-pager</b><span>Single-page marketing assets</span></div>
+  <div class="tcard" style="left:398px;top:310px;width:127px"><b>Mobile app</b><span>IOS and Android applications</span></div>
+  <div class="tcard" style="left:532px;top:310px;width:134px"><b>Desktop app</b><span>Mac, Windows, and Linux apps</span></div>
+
+  <div class="grp" style="left:20px;top:423px">Content</div>
+  <div class="grp" style="left:334px;top:423px">Custom</div>
+  <div class="tcard" style="left:20px;top:450px;width:127px"><b>Illustration set</b><span>Custom illustrations and scenes</span></div>
+  <div class="tcard" style="left:154px;top:450px;width:126px"><b>Icon set</b><span>Icon libraries and collections</span></div>
+  <div class="custom">Define your own</div>
+
+  <div class="count">3 types added by this solution</div>
+  <div class="actions"><span class="cancel">Cancel</span><span class="btn primary">Create project</span></div>
+</div>
+</body>
+</html>

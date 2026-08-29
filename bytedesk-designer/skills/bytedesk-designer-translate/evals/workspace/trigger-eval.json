@@ -1,0 +1,82 @@
+[
+  {
+    "query": "ok our designer signed off on the settings-screen mockup (its in ~/Pictures/claude-design/runs/2026-08-27-settings/images/r2-b.png) — can you build the real html for it against our design system so it actually matches",
+    "should_trigger": true
+  },
+  {
+    "query": "the tauri app's git panel doesn't match the approved mockup anymore, columns are off and the buttons are the wrong size. app runs at localhost:4174. tell me exactly what drifted, in px",
+    "should_trigger": true
+  },
+  {
+    "query": "I have a figma export of the dashboard (dashboard-v3.png, 2880 wide, meant for a 1440 viewport). Turn it into a token-accurate HTML page and prove it matches, not eyeball it.",
+    "should_trigger": true
+  },
+  {
+    "query": "make this pixel perfect: ~/Downloads/hero-mock.png. design tokens are in ../design-system. I want an exact match in HTML.",
+    "should_trigger": true
+  },
+  {
+    "query": "we've got 8 codex renders of app states from yesterday's run and the react app looks nothing like them. what's the process to get the implementation pixel-identical to the mockups?",
+    "should_trigger": true
+  },
+  {
+    "query": "screenshot of a competitor's onboarding screen at ~/Desktop/onb.png — rebuild that layout as html using OUR tokens (authority at ~/Documents/GitHub/ByteDeskAI/design-system), measured, not guessed",
+    "should_trigger": true
+  },
+  {
+    "query": "the storybook surface for the pricing page was built last week; now the nextjs implementation at http://localhost:3000/pricing drifted. gate it against the surface and give me the diff rects",
+    "should_trigger": true
+  },
+  {
+    "query": "take r3-s5.png from the mockups run and translate it to a surface, then compare the surface to the app window state so we know how far off we are",
+    "should_trigger": true
+  },
+  {
+    "query": "can you generate a mockup image for the new-project dialog? dark theme, three columns, use the design system palette",
+    "should_trigger": true
+  },
+  {
+    "query": "write the settings page in react against our tokens — no mockup, just the brief: audience is ops leads, four sections, dense",
+    "should_trigger": false
+  },
+  {
+    "query": "run the blind critic on direction/images/r2-a.png and tell me if it reads as a login screen",
+    "should_trigger": false
+  },
+  {
+    "query": "my two screenshots before.png and after.png — just tell me if anything changed, a quick visual diff is fine",
+    "should_trigger": false
+  },
+  {
+    "query": "the app's colours look wrong vs the design system — audit global.css for raw hex values that should be tokens",
+    "should_trigger": false
+  },
+  {
+    "query": "build the storybook for the surfaces in runs/2026-08-27-settings and publish it with provenance",
+    "should_trigger": false
+  },
+  {
+    "query": "bootstrap a design authority repo for a new client, dark-first, one warm accent",
+    "should_trigger": false
+  },
+  {
+    "query": "i want the logo mark redrawn as svg from the codex exploration in identity/, with a favicon ladder",
+    "should_trigger": false
+  },
+  {
+    "query": "the hero image on the landing page is too busy, redo it with less fog and a single line",
+    "should_trigger": false
+  },
+  {
+    "query": "write a playwright test that screenshots /dashboard and fails if it changes more than 1% from the baseline png in tests/__snapshots__",
+    "should_trigger": false
+  },
+  {
+    "query": "here's a photo of a whiteboard sketch of the flow (IMG_2291.jpg). can you turn this rough layout into an actual html mockup with our tokens? doesn't need to be exact, just faithful to the sketch",
+    "should_trigger": true
+  },
+  {
+    "query": "our design review keeps saying 'the build doesn't look like the mockup'. set up something that catches that automatically before we ship",
+    "should_trigger": false
+  }
+]

@@ -1,0 +1,39 @@
+Split: 12 train, 8 test (holdout=0.4)
+
+============================================================
+Iteration 1/5
+Description: Turn an approved mockup image into a pixel-accurate HTML/CSS surface, and keep an implementation pixel-identical to that surface. Claude measures the mockup on a ruler grid and directs; Codex writes the markup; a screenshot-and-diff loop converges in as few rounds as possible. Use this whenever someone has a generated or drawn mockup (a codex render, a Figma export, a screenshot of another app) and wants it built for real, whenever they say the implementation 'doesn't match the mockup', 'isn't pixel perfect', or 'drifted from the design', and whenever a surface must be proven against a live URL rather than eyeballed. Requires the Codex CLI installed and signed in, and node with the Playwright CLI reachable through npx.
+============================================================
+Opening in existing browser session.
+Train: 18/36 correct, precision=100% recall=0% accuracy=50% (66.7s)
+  [FAIL] rate=0/3 expected=True: the storybook surface for the pricing page was built last we
+  [FAIL] rate=0/3 expected=True: here's a photo of a whiteboard sketch of the flow (IMG_2291.
+  [FAIL] rate=0/3 expected=True: screenshot of a competitor's onboarding screen at ~/Desktop/
+  [FAIL] rate=0/3 expected=True: we've got 8 codex renders of app states from yesterday's run
+  [FAIL] rate=0/3 expected=True: ok our designer signed off on the settings-screen mockup (it
+  [FAIL] rate=0/3 expected=True: the tauri app's git panel doesn't match the approved mockup 
+  [PASS] rate=0/3 expected=False: run the blind critic on direction/images/r2-a.png and tell m
+  [PASS] rate=0/3 expected=False: write a playwright test that screenshots /dashboard and fail
+  [PASS] rate=0/3 expected=False: the hero image on the landing page is too busy, redo it with
+  [PASS] rate=0/3 expected=False: write the settings page in react against our tokens — no moc
+  [PASS] rate=0/3 expected=False: i want the logo mark redrawn as svg from the codex explorati
+  [PASS] rate=0/3 expected=False: our design review keeps saying 'the build doesn't look like 
+Test : 12/24 correct, precision=100% recall=0% accuracy=50% (0.0s)
+  [FAIL] rate=0/3 expected=True: take r3-s5.png from the mockups run and translate it to a su
+  [FAIL] rate=0/3 expected=True: make this pixel perfect: ~/Downloads/hero-mock.png. design t
+  [FAIL] rate=0/3 expected=True: I have a figma export of the dashboard (dashboard-v3.png, 28
+  [PASS] rate=0/3 expected=False: the app's colours look wrong vs the design system — audit gl
+  [FAIL] rate=0/3 expected=True: can you generate a mockup image for the new-project dialog? 
+  [PASS] rate=0/3 expected=False: bootstrap a design authority repo for a new client, dark-fir
+  [PASS] rate=0/3 expected=False: my two screenshots before.png and after.png — just tell me i
+  [PASS] rate=0/3 expected=False: build the storybook for the surfaces in runs/2026-08-27-sett
+
+Improving description...
+Proposed (11.0s): Use when a picture of a UI must become real code, or when real code must be proven to match that picture. Trigger on any visual reference — a mockup, Figma export, whiteboard photo, competitor screenshot, codex render, or an already-built reference surface — that someone wants rebuilt as measured HTML/CSS against their design tokens, however rough or exact the ask sounds. Also trigger when a running implementation (dev server, Storybook, Tauri, localhost URL) is said to have drifted from a mockup or reference, when someone wants to know exactly what differs and by how many pixels, when they ask for diff rects or a gate against a design, or when they ask what the process is for getting a build pixel-identical to mockups. Covers one state or a batch of them. Claude measures on a ruler grid and directs, Codex writes markup, screenshot-and-diff rounds converge. Needs Codex CLI and npx Playwright.
+
+============================================================
+Iteration 2/5
+Description: Use when a picture of a UI must become real code, or when real code must be proven to match that picture. Trigger on any visual reference — a mockup, Figma export, whiteboard photo, competitor screenshot, codex render, or an already-built reference surface — that someone wants rebuilt as measured HTML/CSS against their design tokens, however rough or exact the ask sounds. Also trigger when a running implementation (dev server, Storybook, Tauri, localhost URL) is said to have drifted from a mockup or reference, when someone wants to know exactly what differs and by how many pixels, when they ask for diff rects or a gate against a design, or when they ask what the process is for getting a build pixel-identical to mockups. Covers one state or a batch of them. Claude measures on a ruler grid and directs, Codex writes markup, screenshot-and-diff rounds converge. Needs Codex CLI and npx Playwright.
+============================================================
+/home/linuxbrew/.linuxbrew/opt/python@3.14/lib/python3.14/multiprocessing/resource_tracker.py:475: UserWarning: resource_tracker: There appear to be 5 leaked semaphore objects to clean up at shutdown: {'/mp-40t5su0m', '/mp-zenbcmhc', '/mp-5xm0_87c', '/mp-2hfqjq0r', '/mp-0ilkdekt'}
+  warnings.warn(

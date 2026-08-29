@@ -1,0 +1,113 @@
+{
+  "a": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-designer/skills/bytedesk-designer-translate/evals/workspace/iteration-2/eval-1-implementation-gate/with_skill/run-1/outputs/runs/2026-08-28-git-panel/translate/mockup-git-panel.png",
+  "b": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-designer/skills/bytedesk-designer-translate/evals/workspace/iteration-2/eval-1-implementation-gate/with_skill/run-1/outputs/runs/2026-08-28-git-panel/translate/shots/git-panel-r1.png",
+  "size": "1280x800",
+  "pixelDiff": 0.0868,
+  "masks": [
+    [
+      366,
+      63,
+      516,
+      437
+    ],
+    [
+      368,
+      519,
+      235,
+      78
+    ]
+  ],
+  "layoutScore": 0.9875,
+  "threshold": 32,
+  "grid": "32x20",
+  "hotspots": [
+    {
+      "cell": "11,14",
+      "rect": {
+        "x": 440,
+        "y": 560,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.116,
+      "pixDiff": 0.725
+    },
+    {
+      "cell": "10,14",
+      "rect": {
+        "x": 400,
+        "y": 560,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.127,
+      "pixDiff": 0.675
+    },
+    {
+      "cell": "14,14",
+      "rect": {
+        "x": 560,
+        "y": 560,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.047,
+      "pixDiff": 0.517
+    },
+    {
+      "cell": "1,2",
+      "rect": {
+        "x": 40,
+        "y": 80,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.142,
+      "pixDiff": 0.372
+    },
+    {
+      "cell": "1,6",
+      "rect": {
+        "x": 40,
+        "y": 240,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.032,
+      "pixDiff": 0.422
+    },
+    {
+      "cell": "9,17",
+      "rect": {
+        "x": 360,
+        "y": 680,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.076,
+      "pixDiff": 0.348
+    },
+    {
+      "cell": "26,17",
+      "rect": {
+        "x": 1040,
+        "y": 680,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.024,
+      "pixDiff": 0.391
+    },
+    {
+      "cell": "13,14",
+      "rect": {
+        "x": 520,
+        "y": 560,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.047,
+      "pixDiff": 0.358
+    }
+  ]
+}

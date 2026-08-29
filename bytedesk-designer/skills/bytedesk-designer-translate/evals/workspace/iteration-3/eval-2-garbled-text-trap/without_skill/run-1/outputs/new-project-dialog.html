@@ -1,0 +1,555 @@
+<!doctype html>
+<html lang="en" data-bd-theme="dark" data-bd-richness="rich" data-bd-product="platform">
+<head>
+<meta charset="utf-8">
+<title>Designer Studio — New project</title>
+<style>/* vendored verbatim from design-system/tokens/css/bytedesk.css */
+/* ByteDesk canonical design tokens — CSS custom properties.
+ * Source of truth: ../bytedesk.tokens.json (values must stay in sync).
+ * Prefix: --bd-*. Consumers alias into their local token roots
+ * (e.g. Tailwind @theme maps --color-* to these). Dark is the default;
+ * [data-bd-theme="light"] renders the exact semantic counterpart.
+ */
+:root {
+  color-scheme: dark;
+
+  /* Backgrounds */
+  --bd-bg-base: #101316;
+  --bd-bg-subtle: #171A1D;
+  --bd-bg-surface: #1D2125;
+  --bd-bg-elevated: #24282D;
+  --bd-bg-overlay: #2B3036;
+
+  /* Text */
+  --bd-text-primary: #E6E8EB;
+  --bd-text-secondary: #A1A8B1;
+  --bd-text-tertiary: #7E8792;
+  --bd-text-disabled: #626A74;
+  --bd-text-on-brand: #FFE2D8; /* AA large only on brand orange */
+
+  /* Brand + interactive */
+  --bd-brand-orange: oklch(0.6375 0.2050 38.67); /* #EC4E02 */
+  --bd-brand-orange-muted: oklch(0.6496 0.1638 53.51); /* #D96D00 */
+  --bd-interactive-blue: var(--bd-blue-500);
+  --bd-interactive-focus: var(--bd-blue-700);
+
+  /* Gateway blue ramp — hue locked at 256.13. Never #000 / #fff. */
+  --bd-blue-50:  oklch(0.1800 0.0350 256.13);
+  --bd-blue-100: oklch(0.2400 0.0500 256.13);
+  --bd-blue-200: oklch(0.3200 0.0700 256.13);
+  --bd-blue-300: oklch(0.4000 0.1000 256.13);
+  --bd-blue-400: oklch(0.4800 0.1300 256.13);
+  --bd-blue-500: oklch(0.5910 0.2028 256.13); /* #0079F2 */
+  --bd-blue-600: oklch(0.6400 0.1550 256.13);
+  --bd-blue-700: oklch(0.7200 0.1200 256.13);
+  --bd-blue-800: oklch(0.8000 0.0800 256.13);
+  --bd-blue-900: oklch(0.8800 0.0400 256.13);
+
+  --bd-accent-subtle: var(--bd-blue-200);
+  --bd-accent-muted: var(--bd-blue-400);
+  --bd-accent-default: var(--bd-blue-500);
+  --bd-accent-emphasis: var(--bd-blue-600);
+  --bd-accent-fg: oklch(0.9600 0.0150 256.13);
+
+  /* Per-desk chrome tints (Gateway data-bd-desk). */
+  --bd-desk-sessions: oklch(0.3200 0.0700 256.13);
+  --bd-desk-files: oklch(0.3200 0.0700 238.13);
+  --bd-desk-projects: oklch(0.3200 0.0700 274.13);
+  --bd-desk-agentic: oklch(0.3200 0.0900 264.13);
+  --bd-desk-system: oklch(0.3200 0.0500 248.13);
+  --bd-desk-developer: oklch(0.3200 0.0700 284.13);
+  --bd-desk: var(--bd-desk-sessions);
+
+  /* Semantic */
+  --bd-success: oklch(0.5698 0.1865 143.69); /* #009118 */
+  --bd-success-muted: oklch(0.4732 0.1540 143.88);
+  --bd-success-bg: oklch(0.2400 0.0450 143.69);
+  --bd-success-line: oklch(0.4000 0.1000 143.69);
+  --bd-danger: oklch(0.5910 0.2255 27.74); /* #E52222 */
+  --bd-danger-bg: oklch(0.2400 0.0550 27.74);
+  --bd-danger-line: oklch(0.4000 0.1200 27.74);
+  --bd-warning: oklch(0.7601 0.1559 84.30); /* #DFA700 */
+  --bd-warning-bg: oklch(0.2400 0.0400 84.30);
+  --bd-warning-line: oklch(0.4200 0.0900 84.30);
+  --bd-info: oklch(0.7190 0.1201 210.37); /* #1DB8CE */
+  --bd-info-bg: oklch(0.2400 0.0350 210.37);
+  --bd-info-line: oklch(0.4000 0.0700 210.37);
+
+  /* Borders */
+  --bd-border-dimmest: #272A2C;
+  --bd-border-dimmer: #303438;
+  --bd-border-default: #3A3E42;
+  --bd-border-stronger: #44484C;
+  --bd-border-strongest: #4C4F52;
+
+  /* Charts and operational visualizations */
+  --bd-chart-series-1: var(--bd-blue-500);
+  --bd-chart-series-2: #1DB8CE;
+  --bd-chart-series-3: #A170EB;
+  --bd-chart-series-4: #EA5DA9;
+  --bd-chart-series-5: var(--bd-brand-orange);
+  --bd-chart-series-6: #009118;
+  --bd-chart-series-7: #DFA700;
+  --bd-chart-series-8: #E52222;
+  --bd-chart-grid: var(--bd-border-dimmer);
+  --bd-chart-axis: var(--bd-text-tertiary);
+  --bd-chart-plot: var(--bd-bg-subtle);
+  --bd-chart-selection: var(--bd-blue-600);
+
+  /* Derived (color-mix) */
+  --bd-bg-hover: color-mix(in srgb, var(--bd-bg-surface) 74%, var(--bd-text-primary) 8%);
+  --bd-glow-brand: color-mix(in srgb, var(--bd-brand-orange) 38%, transparent);
+  --bd-glow-interactive: color-mix(in srgb, var(--bd-interactive-blue) 32%, transparent);
+  --bd-overlay-backdrop: color-mix(in srgb, var(--bd-bg-base) 72%, transparent);
+
+  /* Product accents (identification only — never semantic) */
+  --bd-product-platform: #EC4E02;
+  --bd-product-gateway: var(--bd-blue-500);
+  --bd-product-vault: #DFA700;
+  --bd-product-store: #009118;
+  --bd-product-workforce: #A170EB;   /* oklch(0.65 0.18 300) */
+  --bd-product-agent-browser: #1DB8CE;
+  --bd-product-agent-memory: #EA5DA9; /* oklch(0.68 0.19 350) */
+  --bd-product-capture: #0A84FF;
+  --bd-product-toolbox: #4C7DFF;
+  --bd-product-agent-orchestration: #4C7DFF;
+  --bd-product-agent-mail: #4C7DFF;
+  --bd-product-mangodisk: #FF8A3D;
+  --bd-product-openseo: #20B8A6;
+
+  /* Active product accent — defaults to brand; scoped by data-bd-product */
+  --bd-accent: var(--bd-brand-orange);
+  --bd-accent-glow: color-mix(in srgb, var(--bd-accent) 32%, transparent);
+
+  /* Fonts */
+  --bd-font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --bd-font-display: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --bd-font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* Type roles shared by web and native adapters */
+  --bd-font-weight-regular: 400;
+  --bd-font-weight-medium: 500;
+  --bd-font-weight-semibold: 600;
+  --bd-font-weight-bold: 700;
+  --bd-line-height-tight: 1.2;
+  --bd-line-height-compact: 1.35;
+  --bd-line-height-body: 1.5;
+  --bd-letter-spacing-tight: -0.02em;
+  --bd-letter-spacing-label: 0.04em;
+  --bd-letter-spacing-caps: 0.08em;
+
+  /* Fluid type scale */
+  --bd-text-display: clamp(2.5rem, 2rem + 2.5vw, 5.5rem);
+  --bd-text-h1: clamp(2rem, 1.6rem + 2vw, 3.5rem);
+  --bd-text-h2: clamp(1.5rem, 1.25rem + 1.25vw, 2.5rem);
+  --bd-text-h3: clamp(1.25rem, 1.1rem + 0.75vw, 1.875rem);
+  --bd-text-h4: clamp(1.125rem, 1rem + 0.625vw, 1.5rem);
+  --bd-text-body-lg: clamp(1.0625rem, 1rem + 0.3125vw, 1.25rem);
+  --bd-text-body: clamp(0.9375rem, 0.9rem + 0.1875vw, 1.0625rem);
+  --bd-text-body-sm: clamp(0.8125rem, 0.8rem + 0.125vw, 0.875rem);
+  --bd-text-caption: clamp(0.6875rem, 0.675rem + 0.0625vw, 0.75rem);
+  --bd-text-console: 12.5px;
+  --bd-text-console-sm: 11px;
+
+  /* Fixed cross-platform spacing ladder */
+  --bd-space-0: 0px;
+  --bd-space-1: 2px;
+  --bd-space-2: 4px;
+  --bd-space-3: 6px;
+  --bd-space-4: 8px;
+  --bd-space-5: 12px;
+  --bd-space-6: 16px;
+  --bd-space-7: 20px;
+  --bd-space-8: 24px;
+  --bd-space-9: 32px;
+  --bd-space-10: 40px;
+  --bd-space-11: 48px;
+
+  /* Fluid marketing/document spacing */
+  --bd-space-section-x: clamp(1rem, 0.5rem + 2.5vw, 2rem);
+  --bd-space-section-y: clamp(3rem, 2rem + 5vw, 7rem);
+
+  /* Cross-platform control, shell, panel, and visualization sizes */
+  --bd-size-control-compact: 28px;
+  --bd-size-control-default: 32px;
+  --bd-size-control-touch: 44px;
+  --bd-size-row-compact: 28px;
+  --bd-size-row-default: 32px;
+  --bd-size-row-touch: 44px;
+  --bd-size-hit-target-pointer: 28px;
+  --bd-size-hit-target-touch: 44px;
+  --bd-size-icon-sm: 14px;
+  --bd-size-icon-md: 16px;
+  --bd-size-icon-lg: 20px;
+  --bd-size-icon-xl: 24px;
+  --bd-size-shell-topbar: 44px;
+  --bd-size-shell-rail: 48px;
+  --bd-size-shell-sidebar: 196px;
+  --bd-size-shell-inspector: 360px;
+  --bd-size-shell-statusbar: 24px;
+  --bd-size-shell-commandbar: 36px;
+  --bd-size-panel-minimum: 280px;
+  --bd-size-panel-comfortable: 360px;
+  --bd-size-panel-wide: 480px;
+  --bd-size-terminal-tab: 32px;
+  --bd-size-chart-point: 6px;
+  --bd-size-chart-minimum-height: 180px;
+
+  /* Logical layout breakpoints. Native clients apply these to content width. */
+  --bd-breakpoint-compact-max: 719px;
+  --bd-breakpoint-standard-min: 720px;
+  --bd-breakpoint-wide-min: 1200px;
+  --bd-breakpoint-ultrawide-min: 1600px;
+
+  /* Strokes and opacity */
+  --bd-stroke-hairline: 1px;
+  --bd-stroke-active: 2px;
+  --bd-stroke-focus: 2px;
+  --bd-stroke-chart: 2px;
+  --bd-opacity-disabled: 0.5;
+  --bd-opacity-secondary: 0.72;
+  --bd-opacity-scrim: 0.72;
+  --bd-opacity-hover: 0.08;
+  --bd-focus-ring: 0 0 0 var(--bd-stroke-focus) var(--bd-bg-base),
+    0 0 0 calc(var(--bd-stroke-focus) * 2)
+      color-mix(in srgb, var(--bd-interactive-focus) 70%, transparent);
+
+  /* Radii */
+  --bd-radius-sm: 0.25rem;
+  --bd-radius-md: 0.375rem;
+  --bd-radius-lg: 0.5rem;
+  --bd-radius-xl: 0.75rem;
+  --bd-radius-2xl: 1rem;
+  --bd-radius-full: 9999px;
+
+  /* Motion */
+  --bd-ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --bd-duration-fast: 150ms;
+  --bd-duration-base: 250ms;
+  --bd-duration-slow: 400ms;
+
+  /* Black Glass + Optical Layering */
+  --bd-material-blur-shell: 18px;
+  --bd-material-blur-overlay: 24px;
+  --bd-material-shell-opacity: 0.94;
+  --bd-material-top-light: #FFFFFF0A;
+  --bd-material-ambient-blue: #07182E66;
+  --bd-material-ambient-orange: #EC4E0238;
+  --bd-richness-ambient-strength: 0.75;
+  --bd-richness-bloom-strength: 0.75;
+  --bd-shadow-shell: inset 0 1px 0 #FFFFFF0A,
+    0 24px 56px #05080DB8,
+    0 8px 20px #07182E66;
+  --bd-shadow-card: inset 0 1px 0 #FFFFFF08,
+    0 8px 20px #05080D66;
+  --bd-shadow-elevated: var(--bd-shadow-card);
+  --bd-shadow-focus-glow: 0 0 0 1px #1B84F3,
+    0 0 24px #1B84F34D;
+  --bd-shadow-attention-glow: 0 0 20px #EC4E0238;
+  --bd-shadow-glow-accent: 0 0 40px var(--bd-accent-glow);
+}
+
+:root,
+[data-bd-theme="dark"] {
+  color-scheme: dark;
+}
+
+[data-bd-theme="light"] {
+  color-scheme: light;
+  --bd-bg-base: #ECEDEF;
+  --bd-bg-subtle: #F8F9FB;
+  --bd-bg-surface: #FFFFFF;
+  --bd-bg-elevated: #FFFFFF;
+  --bd-bg-overlay: #FFFFFF;
+  --bd-text-primary: #22252A;
+  --bd-text-secondary: #6B717A;
+  --bd-text-tertiary: #858C96;
+  --bd-text-disabled: #9AA1AB;
+  --bd-border-dimmest: #E0E3E8;
+  --bd-border-dimmer: #D6DAE0;
+  --bd-border-default: #CDD2D9;
+  --bd-border-stronger: #C3C9D1;
+  --bd-border-strongest: #B9C0C9;
+  --bd-material-shell-opacity: 0.97;
+  --bd-material-top-light: #FFFFFFCC;
+  --bd-material-ambient-blue: #315B9B14;
+  --bd-shadow-shell: inset 0 1px 0 #FFFFFFCC,
+    0 24px 56px #17203324,
+    0 8px 20px #315B9B14;
+  --bd-shadow-card: inset 0 1px 0 #FFFFFFE6,
+    0 8px 20px #17203317;
+  --bd-shadow-elevated: var(--bd-shadow-card);
+}
+
+[data-bd-theme="dark"][data-bd-richness="soft"] {
+  --bd-bg-base: #1B1E22;
+  --bd-bg-subtle: #22262A;
+  --bd-richness-ambient-strength: 0.55;
+  --bd-richness-bloom-strength: 0.55;
+}
+
+[data-bd-theme="dark"][data-bd-richness="balanced"],
+:root:not([data-bd-theme="light"]):not([data-bd-richness]) {
+  --bd-bg-base: #101316;
+  --bd-bg-subtle: #171A1D;
+  --bd-richness-ambient-strength: 0.75;
+  --bd-richness-bloom-strength: 0.75;
+}
+
+[data-bd-theme="dark"][data-bd-richness="rich"] {
+  --bd-bg-base: #090C0F;
+  --bd-bg-subtle: #121518;
+  --bd-richness-ambient-strength: 1;
+  --bd-richness-bloom-strength: 1;
+}
+
+/* Product scoping: any element subtree can adopt a product identity.
+ * <body data-bd-product="workforce"> or a product card wrapper. */
+[data-bd-product="platform"]      { --bd-accent: var(--bd-product-platform); }
+[data-bd-product="gateway"]       { --bd-accent: var(--bd-product-gateway); }
+
+/* Gateway desk tints: chrome only. Do not recolor the stage canvas. */
+[data-bd-desk="sessions"]   { --bd-desk: var(--bd-desk-sessions); }
+[data-bd-desk="files"]      { --bd-desk: var(--bd-desk-files); }
+[data-bd-desk="projects"]   { --bd-desk: var(--bd-desk-projects); }
+[data-bd-desk="agentic"]    { --bd-desk: var(--bd-desk-agentic); }
+[data-bd-desk="system"]     { --bd-desk: var(--bd-desk-system); }
+[data-bd-desk="developer"]  { --bd-desk: var(--bd-desk-developer); }
+[data-bd-desk="store"]      { --bd-desk: var(--bd-desk-sessions); }
+[data-bd-desk="security"]   { --bd-desk: var(--bd-desk-sessions); }
+[data-bd-product="vault"]         { --bd-accent: var(--bd-product-vault); }
+[data-bd-product="store"]         { --bd-accent: var(--bd-product-store); }
+[data-bd-product="workforce"]     { --bd-accent: var(--bd-product-workforce); }
+[data-bd-product="agent-browser"] { --bd-accent: var(--bd-product-agent-browser); }
+[data-bd-product="agent-memory"]  { --bd-accent: var(--bd-product-agent-memory); }
+[data-bd-product="capture"]       { --bd-accent: var(--bd-product-capture); }
+[data-bd-product="toolbox"]       { --bd-accent: var(--bd-product-toolbox); }
+[data-bd-product="agent-orchestration"] { --bd-accent: var(--bd-product-agent-orchestration); }
+[data-bd-product="agent-mail"]    { --bd-accent: var(--bd-product-agent-mail); }
+[data-bd-product="mangodisk"]     { --bd-accent: var(--bd-product-mangodisk); }
+[data-bd-product="openseo"]       { --bd-accent: var(--bd-product-openseo); }
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --bd-duration-fast: 0ms;
+    --bd-duration-base: 0ms;
+    --bd-duration-slow: 0ms;
+  }
+}
+</style>
+<style>
+/* Mockup-tuned surfaces. The token layer (rich richness) gives base #090C0F; the
+   mockup's panels sit a hair above it, so the three raw values below are sampled
+   from r4-p4.png rather than invented. Everything else is a --bd-* token. */
+:root{
+  --panel:#0E1216;          /* sidebar/inspector cards */
+  --dialog:#161A20;         /* modal surface */
+  --card:#0F1519;           /* type cards */
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1586px;height:992px;overflow:hidden}
+body{background:var(--bd-bg-base);color:var(--bd-text-primary);font:14px/1.35 var(--bd-font-sans);-webkit-font-smoothing:antialiased}
+.mono{font-family:var(--bd-font-mono);font-size:13px}
+.app{display:grid;grid-template-columns:386px 1fr 362px;height:100%}
+.col{border-right:1px solid var(--bd-border-dimmest)}
+
+/* ---------- sidebar ---------- */
+.side{padding:0 10px;position:relative}
+.sol{height:52px;display:flex;align-items:center;gap:10px;padding:0 8px;font-size:15px}
+.sol .lbl{color:var(--bd-text-tertiary)}
+.sol b{font-weight:600}
+.sol svg{width:14px;height:14px;stroke:var(--bd-text-secondary)}
+.panel{background:var(--panel);border:1px solid var(--bd-border-dimmest);border-radius:var(--bd-radius-md);margin-bottom:10px}
+.panel h3{font-size:15px;font-weight:500;padding:12px 12px 10px;border-bottom:1px solid var(--bd-border-dimmest);display:flex;justify-content:space-between;align-items:center}
+.panel h3 svg{width:14px;height:14px;stroke:var(--bd-text-secondary)}
+.agent{display:grid;grid-template-columns:94px 92px 78px 1fr;align-items:center;height:42px;padding:0 12px;border-bottom:1px solid var(--bd-border-dimmest)}
+.agent:last-child{border-bottom:0}
+.agent .ver{color:var(--bd-text-secondary)}
+.status{display:inline-flex;align-items:center;gap:6px;color:var(--bd-text-secondary);font-size:13px}
+.status::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--dot)}
+.ok{--dot:var(--bd-success)}.busy{--dot:var(--bd-warning)}.failed{--dot:var(--bd-danger)}
+.btn{font:inherit;font-size:13px;color:var(--bd-text-primary);background:transparent;border:1px solid var(--bd-border-default);border-radius:var(--bd-radius-sm);padding:0 12px;height:28px;cursor:pointer;justify-self:end}
+.panel p{padding:0 12px;color:var(--bd-text-secondary);font-size:13.5px}
+.empty{padding:12px 0 12px}.empty p+p{margin-top:12px}
+.conv{padding:0 12px 12px;font-size:13px}
+.panel.talk{height:425px}
+.msg{margin-top:12px;display:grid;grid-template-columns:auto 1fr auto;column-gap:14px;color:var(--bd-text-secondary)}
+.msg .body{grid-column:1/-1;margin-top:6px;font-family:var(--bd-font-mono);color:var(--bd-text-primary);font-size:13px}
+.file{display:flex;align-items:center;gap:8px;margin:10px 0 0 20px;font-family:var(--bd-font-mono);font-size:13px}
+.file svg{width:13px;height:14px;stroke:var(--bd-text-secondary)}
+.scroll{position:absolute;right:20px;top:432px;width:4px;height:296px;border-radius:2px;background:var(--bd-border-dimmer)}
+.compose{position:relative;background:var(--panel);border:1px solid var(--bd-border-dimmer);border-radius:var(--bd-radius-md);height:126px;padding:12px;color:var(--bd-text-tertiary);font-size:13.5px}
+.primary{font:inherit;font-size:14px;font-weight:500;color:#fff;background:var(--bd-brand-orange);border:0;border-radius:var(--bd-radius-sm);height:32px;padding:0 18px;cursor:pointer}
+.compose .primary{position:absolute;right:10px;bottom:10px}
+
+/* ---------- stage ---------- */
+.stage{position:relative;padding:20px 14px 0 18px;display:flex;flex-direction:column}
+.canvas{height:743px;border:1px solid var(--bd-border-dimmest);border-radius:var(--bd-radius-sm);overflow:hidden;background:#0A0C10}
+.canvas img{display:block;width:100%;height:100%}
+.strip{display:flex;gap:14px;padding:26px 0 0 13px}
+.thumb{width:150px}
+.thumb .box{height:90px;border:1px solid var(--bd-border-dimmest);border-radius:2px;overflow:hidden}
+.thumb.sel .box{border:2px solid var(--bd-brand-orange);height:90px;width:158px}
+.thumb img{display:block;width:100%;height:100%;object-fit:cover}
+.thumb .name{margin-top:8px;font-family:var(--bd-font-mono);font-size:13px;color:var(--bd-text-secondary)}
+.toolbar{margin-top:auto;border-top:1px solid var(--bd-border-dimmest);margin-left:-18px;margin-right:-14px;padding:16px 18px;display:flex;gap:10px}
+.toolbar .btn{height:32px;padding:0 13px;font-size:14px}
+.toolbar .btn.act{border-color:var(--bd-brand-orange);color:var(--bd-brand-orange)}
+
+/* ---------- inspector ---------- */
+.insp{border-right:0;padding:0 18px}
+.insp h2{font-size:15px;font-weight:500;height:52px;display:flex;align-items:center;margin-bottom:0}
+.sec{border-top:1px solid var(--bd-border-dimmest);padding:14px 0 16px}
+.sec h4{font-size:14px;font-weight:500;margin-bottom:12px}
+.kv{display:grid;grid-template-columns:106px 1fr;row-gap:10px;font-size:13.5px}
+.kv .k{color:var(--bd-text-secondary)}
+.kv .v{font-family:var(--bd-font-mono);font-size:13px}
+.add{display:flex;align-items:center;gap:8px;color:var(--bd-text-secondary);font-size:13.5px}
+.add svg{width:14px;height:14px;stroke:var(--bd-text-secondary)}
+.note{height:76px;border:1px solid var(--bd-border-dimmer);border-radius:var(--bd-radius-sm);padding:10px;color:var(--bd-text-tertiary);font-size:13px;background:#0D1115}
+.hist{font-size:13px}
+.hist div{color:var(--bd-text-secondary)}
+.hist b{display:block;font-weight:400;color:var(--bd-text-secondary)}
+.hist+.hist{margin-top:14px}
+
+/* ---------- dialog ---------- */
+.scrim{position:absolute;left:0;top:0;right:0;bottom:0;background:color-mix(in srgb,var(--bd-bg-base) 32%,transparent)}
+.dialog{position:absolute;left:64px;top:135px;width:687px;height:648px;background:var(--dialog);border:1px solid var(--bd-border-dimmer);border-radius:var(--bd-radius-md);box-shadow:var(--bd-shadow-shell);padding:20px 20px 20px}
+.dialog h1{font-size:19px;font-weight:600;margin-bottom:16px}
+.dialog label{display:block;font-size:14px;color:var(--bd-text-secondary);margin-bottom:8px}
+.dialog input{width:100%;height:32px;background:#0D1115;border:1px solid var(--bd-border-default);border-radius:var(--bd-radius-sm);color:var(--bd-text-primary);font:inherit;font-size:14px;padding:0 10px;margin-bottom:26px}
+.groups{display:grid;grid-template-columns:355px 1fr;column-gap:22px;row-gap:18px}
+.groups.last{grid-template-columns:259px 1fr;column-gap:54px;margin-top:14px}
+.group h5{font-size:14px;font-weight:400;color:var(--bd-text-secondary);margin-bottom:10px}
+.cards{display:flex;gap:10px}
+.type{flex:1;height:92px;background:var(--card);border:1px solid var(--bd-border-dimmer);border-radius:var(--bd-radius-sm);padding:10px 8px 0 9px;cursor:pointer}
+.type b{display:block;font-size:14px;font-weight:600;margin-bottom:6px}
+.type span{font-size:12px;line-height:1.4;letter-spacing:-0.01em;color:var(--bd-text-secondary)}
+.type.sel{border:2px solid var(--bd-brand-orange);padding:9px 0 0 8px;flex:0 0 118px}
+.type.sel span{letter-spacing:-0.03em}
+.group:nth-child(2n) .cards,.content .cards{gap:7px}
+.cards{gap:8px}
+.type:not(.sel) span{letter-spacing:-0.02em}
+.custom{height:92px;border:1px dashed var(--bd-border-default);border-radius:var(--bd-radius-sm);display:flex;align-items:center;justify-content:center;color:var(--bd-text-secondary);font-size:14px}
+.hint{margin-top:20px;font-family:var(--bd-font-mono);font-size:13px;color:var(--bd-text-secondary)}
+.actions{display:flex;justify-content:flex-end;gap:16px;align-items:center;margin-top:18px}
+.ghost{font:inherit;font-size:14px;color:var(--bd-text-primary);background:none;border:0;cursor:pointer;padding:0 8px}
+</style>
+</head>
+<body>
+<div class="app">
+
+<aside class="col side">
+  <div class="sol"><span class="lbl">Solution</span><b>Acme Digital Suite</b>
+    <svg viewBox="0 0 16 16" fill="none" stroke-width="1.5"><path d="M4 6l4 4 4-4"/></svg></div>
+
+  <section class="panel">
+    <h3>Agents</h3>
+    <div class="agent"><span>claude</span><span class="status ok">ok</span><span class="ver mono">v1.12.3</span><button class="btn">Connect</button></div>
+    <div class="agent"><span>codex</span><span class="status busy">busy</span><span class="ver mono">v0.9.7</span><button class="btn">Connect</button></div>
+    <div class="agent"><span>grok</span><span class="status ok">ok</span><span class="ver mono">v1.4.2</span><button class="btn">Connect</button></div>
+    <div class="agent"><span>kimi</span><span class="status failed">failed</span><span class="ver mono">v2.1.0</span><button class="btn">Connect</button></div>
+  </section>
+
+  <section class="panel">
+    <h3>Projects <svg viewBox="0 0 16 16" fill="none" stroke-width="1.5"><path d="M8 2v12M2 8h12"/></svg></h3>
+    <div class="empty"><p>No projects yet</p><p>Create your first project to get started.</p></div>
+  </section>
+
+  <section class="panel talk">
+    <h3>Conversation with claude</h3>
+    <div class="conv">
+      <div class="msg"><span>10:21</span><span>You</span><span></span>
+        <div class="body">Create a dark, abstract hero image for a marketing site.</div></div>
+      <div class="msg"><span>10:21</span><span>claude</span><span class="status ok">ok</span>
+        <div class="body">Working on a few directions.</div></div>
+      <div class="msg"><span>10:23</span><span>claude</span><span class="status ok">ok</span>
+        <div class="body">Here are two options.</div></div>
+      <div class="file"><svg viewBox="0 0 13 14" fill="none" stroke-width="1.2"><path d="M2 1h6l3 3v9H2z M8 1v3h3"/></svg>r1-a.png</div>
+      <div class="file"><svg viewBox="0 0 13 14" fill="none" stroke-width="1.2"><path d="M2 1h6l3 3v9H2z M8 1v3h3"/></svg>r2-a.png</div>
+      <div class="msg"><span>10:24</span><span>You</span><span></span>
+        <div class="body">Love r2-a. Make a third variant.</div></div>
+      <div class="msg"><span>10:25</span><span>claude</span><span class="status busy">busy</span>
+        <div class="body">On it.</div></div>
+    </div>
+  </section>
+  <div class="scroll"></div>
+
+  <div class="compose">Message claude...<button class="primary">Send</button></div>
+</aside>
+
+<main class="col stage">
+  <div class="canvas"><img src="hero.jpg" alt="r2-a render"></div>
+  <div class="strip">
+    <div class="thumb"><div class="box"><img src="thumb-r1a.jpg" alt=""></div><div class="name">r1-a</div></div>
+    <div class="thumb sel"><div class="box"><img src="thumb-r2a.jpg" alt=""></div><div class="name">r2-a</div></div>
+  </div>
+  <div class="toolbar">
+    <button class="btn act">Re-render</button><button class="btn">New variant</button><button class="btn">Ask agent</button><button class="btn">Blind read</button>
+  </div>
+
+  <div class="scrim"></div>
+  <div class="dialog" role="dialog" aria-labelledby="np">
+    <h1 id="np">New project</h1>
+    <label for="name">Name</label>
+    <input id="name" value="Marketing site">
+    <div class="groups">
+      <div class="group"><h5>Web</h5><div class="cards">
+        <div class="type sel"><b>Website</b><span>Marketing sites and brochure pages</span></div>
+        <div class="type"><b>Web app</b><span>Interactive web applications</span></div>
+        <div class="type"><b>Dashboard</b><span>Data and metrics interfaces</span></div>
+      </div></div>
+      <div class="group"><h5>Brand</h5><div class="cards">
+        <div class="type"><b>Logo / identity</b><span>Logos and visual identities</span></div>
+        <div class="type"><b>Brand guide</b><span>Guidelines and brand systems</span></div>
+      </div></div>
+      <div class="group"><h5>Marketing</h5><div class="cards">
+        <div class="type"><b>Campaign</b><span>Multi-channel campaigns</span></div>
+        <div class="type"><b>Presentation</b><span>Slide decks and presentations</span></div>
+        <div class="type"><b>One-pager</b><span>Single-page marketing assets</span></div>
+      </div></div>
+      <div class="group"><h5>Product</h5><div class="cards">
+        <div class="type"><b>Mobile app</b><span>IOS and Android applications</span></div>
+        <div class="type"><b>Desktop app</b><span>Mac, Windows, and Linux apps</span></div>
+      </div></div>
+      </div><div class="groups last"><div class="group content"><h5>Content</h5><div class="cards">
+        <div class="type"><b>Illustration set</b><span>Custom illustrations and scenes</span></div>
+        <div class="type"><b>Icon set</b><span>Icon libraries and collections</span></div>
+      </div></div>
+      <div class="group"><h5>Custom</h5><div class="custom">Define your own</div></div>
+    </div>
+    <div class="hint">3 types added by this solution</div>
+    <div class="actions"><button class="ghost">Cancel</button><button class="primary">Create project</button></div>
+  </div>
+</main>
+
+<aside class="col insp">
+  <h2>Inspector</h2>
+  <div class="sec"><h4>Selection</h4><div class="mono">Marketing site</div></div>
+  <div class="sec"><h4>Details</h4>
+    <div class="kv">
+      <span class="k">ID</span><span class="v">prj_a91c4e02</span>
+      <span class="k">Type</span><span class="v">Website</span>
+      <span class="k">Solution</span><span class="v">Acme Digital Suite</span>
+      <span class="k">Assets</span><span class="v">2</span>
+      <span class="k">Created</span><span class="v">May 20, 2025 10:23</span>
+      <span class="k">Agent</span><span class="v">claude</span>
+      <span class="k">Status</span><span class="v"><span class="status ok">draft</span></span>
+    </div></div>
+  <div class="sec"><h4>Tags</h4><div class="add"><svg viewBox="0 0 16 16" fill="none" stroke-width="1.5"><path d="M8 2v12M2 8h12"/></svg>Add tag</div></div>
+  <div class="sec"><h4>Notes</h4><div class="note">Add a note...</div></div>
+  <div class="sec"><h4>History</h4>
+    <div class="hist"><div>May 20, 2025 10:23</div><b>Created by claude</b></div>
+    <div class="hist"><div>May 20, 2025 10:24</div><b>Selected</b></div></div>
+  <div class="sec"><h4>Project settings</h4>
+    <div class="kv">
+      <span class="k">Name</span><span class="v">Marketing site</span>
+      <span class="k">Type</span><span class="v">Website</span>
+      <span class="k">Created</span><span class="v">May 20, 2025</span>
+      <span class="k">Last updated</span><span class="v">May 20, 2025 10:24</span>
+    </div></div>
+</aside>
+
+</div>
+</body>
+</html>

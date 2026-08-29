@@ -1,0 +1,11 @@
+{
+  "eval_id": 2,
+  "eval_name": "garbled-text-trap",
+  "prompt": "Can you make this mockup pixel perfect in HTML? ~/Pictures/claude-design/runs/2026-08-28-designer-studio-mockups/images/r4-p4.png \u2014 it's the new-project dialog. Design system is at ~/Documents/GitHub/ByteDeskAI/design-system. I want it to be an exact match.",
+  "assertions": [
+    "Told the user plainly that pixel-perfect against a generated PNG is not attainable and named the two comparisons with their ceilings, without refusing the task",
+    "SPEC.md excludes the invented inspector content behind the modal (Details/Tags/History panel) from what gets built",
+    "Stopped before round three with a recorded reason when the remaining hotspots were text speckle, rather than spending the round",
+    "Every round's prompt is saved under translate/prompts/ and every round's scores appear in translate/notes.md"
+  ]
+}

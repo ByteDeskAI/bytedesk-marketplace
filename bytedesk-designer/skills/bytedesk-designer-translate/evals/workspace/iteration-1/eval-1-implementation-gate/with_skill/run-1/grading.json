@@ -1,0 +1,101 @@
+{
+  "expectations": [
+    {
+      "text": "The surface imports or vendors the same stylesheet the implementation uses, so a zero pixel diff is achievable",
+      "passed": false,
+      "evidence": "surfaces/git-panel.html line 6: `<link rel=\"stylesheet\" href=\"./tokens/design.css\">` only; no import of app/src/styles/global.css. design.css is the authority's tokens/css/bytedesk.css @ 9845b41 and `diff` against the app's vendored app/.context/design-system/tokens/css/bytedesk.css shows 2 extra lines (--bd-product-agent-mail token + its [data-bd-product] rule) \u2014 not the identical sheet the app loads, and the app's layout rules (.shell, .block, h2, button \u2026) are absent. RESULT.md itself notes the drift. Surface uses zero hex/rgb literals (grep count 0), so token discipline is good, but a zero pixel diff against the app is not structurally achievable from this surface."
+    },
+    {
+      "text": "Shot the live URL with the same viewport as the surface and produced translate/diff/<state>-app/report.json with pixelDiff",
+      "passed": true,
+      "evidence": "translate/shots/git-panel-app.png is 1280x800, same as git-panel-r2.png (identify). translate/diff/git-panel-app/report.json exists with a=git-panel-r2.png, b=git-panel-app.png, size 1280x800, pixelDiff 0.1112, threshold 16, 8 hotspots. Viewed git-panel-app.png: it is the real Vite shell (Design authority / Brief / Art direction panes, no Git section) \u2014 a genuine live capture, with the empty-shell caveat honestly recorded in RESULT.md and state.json."
+    },
+    {
+      "text": "Reported the implementation gap as pixelDiff with hotspot rects in logical pixels, and the mockup gap as layoutScore \u2014 two different numbers with two different meanings",
+      "passed": true,
+      "evidence": "RESULT.md: mockup rounds reported as layoutScore 0.9797/0.9799 (0.9922/0.9924 masked) with the explicit line 'pixelDiff vs the PNG is ~0.098 and is not a gate number'; implementation gate reported as 'pixelDiff 0.1112 \u2014 FAIL (gate 0.01)' with a hotspot table of rects (x,y,w,h) in logical px, e.g. cell 10,17 \u2192 400,680,40,40 lumDiff 0.314, matching report.json. state.json separates scores.r1/r2.layoutScore from scores.implementation.pixelDiff."
+    },
+    {
+      "text": "Recommended changes to the implementation's CSS to match the surface, and did not alter the surface to match the implementation",
+      "passed": true,
+      "evidence": "RESULT.md 'Recommended CSS changes (app/src/styles/global.css \u2014 not applied; app/ is read-only for this run)' gives concrete rules (.shell grid-template-columns 339px 1fr 375px, .block padding, h2 14px, .git .changes gap 9px, etc.). notes.md round 2 patch moved .agent-row/.provider-row tops toward the mockup's measured bands (47/74/102/129), not toward the app; no surface change references the app render. Surface r2 screenshot matches mockup geometry, not the app's."
+    },
+    {
+      "text": "Did not exceed three build/patch rounds against the mockup",
+      "passed": true,
+      "evidence": "state.json stages.translate.rounds = 2; translate/prompts has git-panel-r1.txt and r2.txt only; codex attempts.json for r1 and r2 both outcome 'ok' single attempt. notes.md records STOP at r2 (\u0394 0.0002 < 0.005)."
+    }
+  ],
+  "summary": {
+    "passed": 4,
+    "failed": 1,
+    "total": 5,
+    "pass_rate": 0.8
+  },
+  "claims": [
+    {
+      "claim": "pixelDiff 0.1112 against the live URL at threshold 16",
+      "type": "factual",
+      "verified": true,
+      "evidence": "translate/diff/git-panel-app/report.json pixelDiff 0.1112, threshold 16"
+    },
+    {
+      "claim": "Browser shell mounts no solution/projects/agents/Git section, so most of the 11% is absent content",
+      "type": "quality",
+      "verified": true,
+      "evidence": "Viewed git-panel-app.png: left column shows 'not installed / not signed in', 'Open a solution to see its projects', right column has Design authority/Brief/Art direction/Critique and no Git section."
+    },
+    {
+      "claim": "Surface uses zero hex/rgb and loads authority tokens @ 9845b41",
+      "type": "factual",
+      "verified": true,
+      "evidence": "grep for hex/rgb literals in git-panel.html returns 0; surfaces/.source-sha and tokens/.source-sha both 9845b41"
+    },
+    {
+      "claim": "App's vendored token sheet is one commit behind the authority (missing --bd-product-agent-mail)",
+      "type": "factual",
+      "verified": true,
+      "evidence": "diff app/.context/design-system/tokens/css/bytedesk.css vs surfaces/tokens/design.css: 2 added lines, both agent-mail"
+    },
+    {
+      "claim": "Column dividers in the app at x=333 and x=922 via 26fr 46fr 28fr",
+      "type": "factual",
+      "verified": true,
+      "evidence": "git-panel-app.png shows hairlines at \u2248x=333 and \u2248x=922; 1280*26/100=332.8, 1280*72/100=921.6"
+    },
+    {
+      "claim": "Round-2 patch changed only six row-top lines",
+      "type": "process",
+      "verified": false,
+      "evidence": "No r1 copy of the surface is kept in outputs, so the six-line diff cannot be reproduced; only notes.md asserts it."
+    }
+  ],
+  "user_notes_summary": {
+    "uncertainties": [
+      "Implementation pixelDiff is dominated by the empty Vite shell (no Tauri backend); executor asks for a re-run inside the Tauri window before treating 0.1112 as CSS drift"
+    ],
+    "needs_review": [
+      "Vendored token sheet in app is one commit behind the authority \u2014 run design-system-sync"
+    ],
+    "workarounds": [
+      "Stage region masked (mockup-stage-masked.png) to get a layoutScore not dominated by the fog image"
+    ]
+  },
+  "critique": "Assertion 1 is the weak spot: it says 'same stylesheet' but the with_skill surface vendors the AUTHORITY token sheet, not the app's global.css, and passes token discipline while still making a zero pixel diff impossible \u2014 the assertion should name the file (app/src/styles/global.css, or a byte-identical copy) and require a checkable import line, otherwise a nearly-equivalent token sheet reads as a pass. Assertion 2 is satisfied here but cannot distinguish a meaningful live capture from an empty shell: the run honestly shot :4174 and got a page with no Git section at all, so the headline pixelDiff measures absent content, not drift. A better assertion would require the shot to contain the state under test (e.g. a `.git` section present) or an explicit 'state not reachable' verdict with the gate marked inconclusive rather than FAIL. Assertion 5 is checkable only because the skill writes state.json/prompts/attempts \u2014 it is unverifiable for a no-skill run. No assertion checks the accuracy of the per-element pixel table (e.g. divider x=333/922, Solution row 39px), which is the user's actual ask ('tell me exactly where the app differs, in pixels'); spot-checks against git-panel-app.png agree, but a fabricated table would pass every current assertion.",
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "The surface imports or vendors the same stylesheet the implementation uses, so a zero pixel diff is achievable",
+        "reason": "Passes-by-proximity risk: a vendored authority token sheet one commit ahead of the app's copy is 'almost' the same stylesheet. Require an import of global.css (or a byte-identical copy) verifiable by grep/diff."
+      },
+      {
+        "assertion": "Shot the live URL with the same viewport as the surface and produced translate/diff/<state>-app/report.json with pixelDiff",
+        "reason": "The live capture was a real shot of an empty shell; the assertion should require the target state be present in the shot or the gate be reported as inconclusive, not just that a report.json exists."
+      },
+      {
+        "reason": "No assertion checks that the reported per-element pixel deltas are correct against the app screenshot \u2014 the core user request."
+      }
+    ],
+    "overall": "Discriminating on the two-numbers point (assertion 3) and on the report artifact (2); weak on stylesheet identity (1) and silent on measurement accuracy."
+  }
+}

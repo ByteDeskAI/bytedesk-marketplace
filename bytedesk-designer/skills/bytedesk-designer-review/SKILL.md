@@ -100,6 +100,15 @@ renders as nothing.
 **Is provenance present?** Every notes file opens with the header from the run-folder
 contract, and the Codex version recorded in `state.json` is real.
 
+**Is the governing profile recorded, and was it the right one?** `state.json.profile` names
+which profile directed the work and where it was read from. Re-run
+`authority-doctor.sh --product <id>` from the run folder and compare. Two failures hide
+here and neither shows up in the artifacts: a run under a solution that silently used the
+authority's same-named profile instead of the project's, and a run directed by a profile
+that was still an unfilled template. The first produces confident work in somebody else's
+language; the second produces work with no direction at all while appearing to have some.
+`PROFILE-RESOLVED-BY: inherit` is a fine answer — it just has to be the recorded one.
+
 ## 2. The blind read — Codex as critic
 
 Hand Codex each artifact **without the brief, without the product name, and without any
@@ -185,6 +194,9 @@ becomes a stage people route around. Zero findings, stated confidently, is a rea
   product name.
 - **Never treat the blind read as the verdict.** Reconcile it.
 - **Never report a finding without evidence.**
+- **Never accept an accent the profile did not choose without saying so.** A page rendering
+  the family accent because the authority has no scope for this product is a reportable
+  state, not a defect to be patched with a hex value.
 - **Never review its own work.** If this stage was invoked in the same context that
   produced the artifacts, say so — the blind read is still valid, but Claude's
   reconciliation carries the same authorship bias the stage exists to correct, and the

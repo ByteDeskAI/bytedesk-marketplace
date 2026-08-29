@@ -1,0 +1,35 @@
+{
+  "reviews": [
+    {
+      "run_id": "eval-0-measure-then-build-with_skill-run-1",
+      "feedback": "Looks good but 1 of the formal grades failed.",
+      "timestamp": "2026-08-28T18:42:19.969Z"
+    },
+    {
+      "run_id": "eval-0-measure-then-build-without_skill-run-1",
+      "feedback": "Looks good but 7/8 of the formal grades failed.",
+      "timestamp": "2026-08-28T18:42:19.969Z"
+    },
+    {
+      "run_id": "eval-1-implementation-gate-with_skill-run-1",
+      "feedback": "Looks good but 1 forma grade failed",
+      "timestamp": "2026-08-28T18:42:19.969Z"
+    },
+    {
+      "run_id": "eval-1-implementation-gate-without_skill-run-1",
+      "feedback": "Looks good, but 3 grades failed",
+      "timestamp": "2026-08-28T18:42:19.969Z"
+    },
+    {
+      "run_id": "eval-2-garbled-text-trap-with_skill-run-1",
+      "feedback": "Looks good but 2 grades failed",
+      "timestamp": "2026-08-28T18:42:19.969Z"
+    },
+    {
+      "run_id": "eval-2-garbled-text-trap-without_skill-run-1",
+      "feedback": "Looks good but 0 grades passed",
+      "timestamp": "2026-08-28T18:42:19.969Z"
+    }
+  ],
+  "status": "complete"
+}

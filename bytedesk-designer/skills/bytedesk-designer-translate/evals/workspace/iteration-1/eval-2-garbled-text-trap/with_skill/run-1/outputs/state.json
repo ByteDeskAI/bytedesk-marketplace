@@ -1,0 +1,38 @@
+{
+  "slug": "2026-08-28-new-project-dialog",
+  "product": "designer-studio",
+  "authority": {
+    "path": "/home/ryan/Documents/GitHub/ByteDeskAI/design-system",
+    "sha": "9845b41",
+    "read_at": "2026-08-28T00:00:00Z",
+    "note": "1 uncommitted change in the authority working tree at read time"
+  },
+  "codex": { "version": "codex-cli 0.146.0", "verified_at": "2026-08-28T00:00:00Z" },
+  "stages": {
+    "translate": {
+      "status": "complete",
+      "state": "new-project-dialog",
+      "mockup": "/home/ryan/Pictures/claude-design/runs/2026-08-28-designer-studio-mockups/images/r4-p4.png",
+      "logical": "1280x800",
+      "rounds": 3,
+      "artifacts": ["surfaces/new-project-dialog.html", "translate/SPEC.md", "translate/notes.md"],
+      "viewed": [
+        "translate/grid-new-project-dialog.png",
+        "translate/shots/new-project-dialog-r1.png",
+        "translate/diff/new-project-dialog-r1/diff.png",
+        "translate/shots/new-project-dialog-r2.png",
+        "translate/shots/new-project-dialog-r3.png",
+        "translate/diff/new-project-dialog-r3/diff.png"
+      ],
+      "scores": {
+        "r1": { "layoutScore": 0.9640, "pixelDiff": 0.0795, "topHotspotLumDiff": 0.060 },
+        "r2": { "layoutScore": 0.9653, "pixelDiff": 0.0709, "topHotspotLumDiff": 0.059 },
+        "r3": { "layoutScore": 0.9692, "pixelDiff": 0.0698, "topHotspotLumDiff": 0.029 },
+        "gate": "layoutScore (surface vs mockup PNG); pixelDiff is reported but is not the gate against a generated PNG",
+        "implementation": "no URL given; pixelDiff gate not run"
+      },
+      "stop_reason": "round 3 ceiling; top hotspot lumDiff 0.029 < 0.04 and layoutScore moved 0.004 < 0.005",
+      "codex_attempts": { "r1": "direct", "r2": "direct", "r3": "direct" }
+    }
+  }
+}

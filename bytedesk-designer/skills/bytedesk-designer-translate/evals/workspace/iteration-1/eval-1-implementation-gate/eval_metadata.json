@@ -1,0 +1,12 @@
+{
+  "eval_id": 1,
+  "eval_name": "implementation-gate",
+  "prompt": "The git-panel screen in our Tauri app drifted from the approved mockup (~/Pictures/claude-design/runs/2026-08-28-designer-studio-mockups/images/r5-q3.png). The app is running at http://127.0.0.1:4174 and its stylesheet is app/src/styles/global.css in ~/Documents/GitHub/ByteDeskAI/bytedesk-designer. Authority is ~/Documents/GitHub/ByteDeskAI/design-system. Give me a surface that matches the mockup and tell me exactly where the app differs from it, in pixels.",
+  "assertions": [
+    "The surface imports or vendors the same stylesheet the implementation uses, so a zero pixel diff is achievable",
+    "Shot the live URL with the same viewport as the surface and produced translate/diff/<state>-app/report.json with pixelDiff",
+    "Reported the implementation gap as pixelDiff with hotspot rects in logical pixels, and the mockup gap as layoutScore \u2014 two different numbers with two different meanings",
+    "Recommended changes to the implementation's CSS to match the surface, and did not alter the surface to match the implementation",
+    "Did not exceed three build/patch rounds against the mockup"
+  ]
+}

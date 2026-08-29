@@ -1,0 +1,92 @@
+{
+  "expectations": [
+    {
+      "text": "Wrote translate/SPEC.md containing at least ten numeric measurements in logical pixels before the first Codex build",
+      "passed": true,
+      "evidence": "translate/SPEC.md exists (4392 bytes) with ~180 numeric literals in logical px (e.g. 'LEFT x 12–334 (w 322)', 'Agent rows ×4 … pitch 36 (rows at 40/76/111/147)', 'Send button x 239–320, y 738–767'). It states 'PNG is 1586×992, scale 1.239' and all numbers logical. Precedence over the build is proven by prompts/render-failed-r1.txt embedding SPEC's measurement blocks verbatim under 'MEASUREMENTS (logical px — build to these, do not eyeball)'."
+    },
+    {
+      "text": "SPEC.md names at least one element the mockup invented that must not be built (e.g. a title bar or hollow thumbnail slots)",
+      "passed": true,
+      "evidence": "SPEC.md section '## Mockup INVENTED — do not build' names 'The dotted underline under \"direct\" and \"300s\" in the attempts table is rendering noise' and 'no placeholder is needed'; it also explicitly records that no title bar exists in r3-s5. The underline is genuinely in the mockup (visible in mockup-render-failed.png) and was not built (surface has no text-decoration), whereas the baseline reproduced it. Weak but genuine — the fuller DO-NOT-BUILD list (title bar, empty slots, stage placeholder, icons) is only in the r1 prompt."
+    },
+    {
+      "text": "The surface HTML loads a vendored token stylesheet and contains no hex or rgb() colour literals",
+      "passed": true,
+      "evidence": "surfaces/render-failed.html line 7: <link rel=\"stylesheet\" href=\"./tokens/design.css\">; surfaces/tokens/design.css is the 332-line authority sheet with .source-sha 9845b41…. grep -E '#[0-9a-fA-F]{3,8}\\b|rgba?\\(' on the HTML returns nothing. All 16 var(--bd-*) names used resolve in the vendored sheet (checked each)."
+    },
+    {
+      "text": "Codex wrote the surface (a translate/prompts/*-r1.txt hand-off exists and codex-exec.sh was used in text mode); Claude did not author the markup inline",
+      "passed": true,
+      "evidence": "translate/prompts/render-failed-r1.txt (6830 bytes) exists; render-failed-r1-log.txt is a codex exec transcript ('OpenAI Codex v0.146.0 … model: gpt-5.6-sol … sandbox: read-only') with the prompt echoed and no image flag; render-failed-r1.attempts.json = {\"mode\":\"text\",\"outcome\":\"ok\",\"attempts\":[{\"attempt\":\"direct\",\"exit\":0,\"seconds\":87,\"produced\":true}]} — the exact format written by scripts/codex-exec.sh. render-failed-r2-reply.txt is byte-identical (cmp) to surfaces/render-failed.html, and r1→r2 differ only in the 5 patched lines, so the markup is Codex's, not Claude's."
+    },
+    {
+      "text": "Rendered the surface at 1280x800 and produced translate/diff/<state>-r1/report.json with layoutScore and hotspots",
+      "passed": true,
+      "evidence": "translate/shots/render-failed-r1.png and r2.png are 1280x800 RGB. translate/diff/render-failed-r1/report.json has size 1280x800, layoutScore 0.9745, pixelDiff 0.0686, grid 32x20 and 8 hotspots with cell/rect/lumDiff/pixDiff (e.g. cell 25,2 rect x1000 y80). r2 report likewise (layoutScore 0.9748)."
+    },
+    {
+      "text": "Any second round changed only regions named as hotspots in the previous report, and the patch prompt lists them as numbered changes with a FROZEN list",
+      "passed": false,
+      "evidence": "The r2 patch prompt is well-formed: 'CHANGES:' 1–4 numbered, then 'FROZEN (already correct — do not touch): …'. But two of the four changes are outside the r1 hotspot cells. r1 hotspots = 1,7 1,10 1,12 2,9 3,7 25,2 25,3 28,2 (40px cells). Change 1 (.stage-status, window x≈605 y≈179) is cell 15,4 and change 2 (.runs-label, x27 y187) is cell 0,4 — neither is named. notes.md admits these were read from the diff image ('\"exhausted\" 14px low; \"Runs\" label 8px low'), not the report's hotspot list. Only changes 3–4 (timeline, cells 1–2 × 9–12) sit in named hotspots."
+    },
+    {
+      "text": "Reported layoutScore as the mockup comparison and never presented pixelDiff against the mockup PNG as the pass/fail number",
+      "passed": true,
+      "evidence": "RESULT.md table header: '| round | layoutScore | pixelDiff (informational) |'; notes.md: 'layoutScore 0.9745, pixelDiff 0.0686 (not the gate)'; state.json scores.final carries layoutScore and RESULT says 'No implementation URL was given, so the pixelDiff gate was not run.' layoutScore is consistently the mockup number."
+    },
+    {
+      "text": "state.json lists every screenshot and diff image read under stages.translate.viewed",
+      "passed": true,
+      "evidence": "state.json stages.translate.viewed = [grid-render-failed.png, shots/render-failed-r1.png, diff/render-failed-r1/diff.png, shots/render-failed-r2.png, diff/render-failed-r2/diff.png] — every screenshot and diff image present on disk. Without a transcript it cannot be shown that no other image was read; passed on the evidence available."
+    }
+  ],
+  "summary": {
+    "passed": 7,
+    "failed": 1,
+    "total": 8,
+    "pass_rate": 0.88
+  },
+  "claims": [
+    {
+      "claim": "Codex first attempt, 87s / 85s",
+      "type": "process",
+      "verified": true,
+      "evidence": "attempts.json seconds 87 and 85, exit 0, produced true"
+    },
+    {
+      "claim": "Round 2 changed 3 regions, 5 lines",
+      "type": "factual",
+      "verified": true,
+      "evidence": "diff r1-reply vs r2-reply shows exactly 5 changed lines (runs-label top, timeline width, event font-size, sender font-size, stage-status top)"
+    },
+    {
+      "claim": "Fifth timeline entry now visible, no wrapping",
+      "type": "quality",
+      "verified": true,
+      "evidence": "shots/render-failed-r2.png shows 'system 10:36:35 Render failed.' above the divider and 'Starting render r1-a with prompt and context.' on one line"
+    },
+    {
+      "claim": "Remaining difference is text rendering, not structure",
+      "type": "quality",
+      "verified": true,
+      "evidence": "diff/render-failed-r1/diff.png shows glyph speckle in left/right columns; layout edges (panels, buttons, table, thumbnail) coincide"
+    },
+    {
+      "claim": "Hotspots read: 25,2 / 1,7 / … and 'exhausted' 14px low, 'Runs' 8px low",
+      "type": "process",
+      "verified": false,
+      "evidence": "The two offset findings are in cells 15,4 and 0,4, absent from the r1 hotspot list; they were read from diff.png, not the report"
+    }
+  ],
+  "user_notes_summary": {
+    "uncertainties": [
+      "Timeline entries deliberately left ~6–8px below the mockup's; run ids narrower in real Plex Mono"
+    ],
+    "needs_review": [],
+    "workarounds": [
+      "pixelDiff implementation gate not run — no URL given"
+    ]
+  },
+  "critique": "Assertion 6 ('changed only regions named as hotspots') is the most discriminating one and it caught a real gap: the r2 patch moved .stage-status (cell 15,4) and .runs-label (cell 0,4), neither of which is in the r1 top-8 hotspot list — the executor read them off diff.png instead. Consider deciding whether 'hotspots' means the report's top-8 cells or any cell visible in diff.png; as written the skill's own notes contradict the assertion. Assertion 8 cannot be verified without a transcript: the outputs show state.json lists every screenshot/diff file that exists, but not that every image *read* is listed. Assertion 2 is weak: SPEC.md says 'nothing structural is invented' and only names a dotted underline; the stronger DO-NOT-BUILD list (title bar, empty slots, stage placeholder, icons) lives in the r1 prompt, not SPEC.md — an assertion on the prompt's DO NOT BUILD block would be more discriminating. Assertion 3's hex grep needs an HTML-entity exclusion (&#9656; false-positives on '#9656'). Gaps: nothing checks the surface visually matches the mockup's structure (the baseline split the left column into four separate cards and wrapped the brief to four lines — no assertion catches that); nothing checks the codex log shows no --image flag (text mode is only asserted via attempts.json 'mode'); and nothing checks the report's 'a' is the mockup at logical size rather than the 1586x992 PNG."
+}

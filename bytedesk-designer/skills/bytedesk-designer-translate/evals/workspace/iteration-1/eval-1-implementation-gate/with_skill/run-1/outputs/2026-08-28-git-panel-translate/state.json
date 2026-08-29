@@ -1,0 +1,28 @@
+{
+  "slug": "2026-08-28-git-panel-translate",
+  "product": "designer-studio",
+  "authority": { "path": "/home/ryan/Documents/GitHub/ByteDeskAI/design-system", "sha": "9845b41", "read_at": "2026-08-28T00:00:00Z" },
+  "codex": { "version": "codex-cli 0.146.0", "verified_at": "2026-08-28T00:00:00Z" },
+  "stages": {
+    "translate": {
+      "status": "complete",
+      "state": "git-panel",
+      "mockup": "/home/ryan/Pictures/claude-design/runs/2026-08-28-designer-studio-mockups/images/r5-q3.png",
+      "logical": "1280x800",
+      "rounds": 2,
+      "artifacts": ["surfaces/git-panel.html", "translate/SPEC.md", "translate/shots/git-panel-r2.png", "translate/diff/git-panel-app/report.json"],
+      "viewed": [
+        "translate/grid-git-panel.png",
+        "translate/shots/git-panel-app-r0.png",
+        "translate/shots/git-panel-r1.png",
+        "translate/diff/git-panel-r1/diff.png",
+        "translate/diff/git-panel-app/diff.png"
+      ],
+      "scores": {
+        "r1": { "layoutScore": 0.9797, "layoutScoreStageMasked": 0.9922, "pixelDiffVsMockup": 0.0996 },
+        "r2": { "layoutScore": 0.9799, "layoutScoreStageMasked": 0.9924, "pixelDiffVsMockup": 0.0982 },
+        "implementation": { "url": "http://127.0.0.1:4174", "pixelDiff": 0.1112, "threshold": 16, "gate": 0.01, "pass": false, "caveat": "browser renders the empty shell; Git section not mounted" }
+      }
+    }
+  }
+}

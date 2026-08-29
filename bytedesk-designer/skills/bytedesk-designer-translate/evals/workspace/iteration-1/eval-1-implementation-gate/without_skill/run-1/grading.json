@@ -1,0 +1,103 @@
+{
+  "expectations": [
+    {
+      "text": "The surface imports or vendors the same stylesheet the implementation uses, so a zero pixel diff is achievable",
+      "passed": true,
+      "evidence": "git-panel-match.html line 3: `<link rel=\"stylesheet\" href=\"./app-css/tokens/css/bytedesk.css\">`; `diff` of outputs/app-css/tokens/css/bytedesk.css against app/.context/design-system/tokens/css/bytedesk.css is empty (byte-identical to the sheet the app loads via global.css's @import). global.css itself is not imported by the match surface (the separate app-as-is.html imports app-css/global.css, which differs from the app's only in the rewritten @import path). Passes under the 'identical token sheet the app loads' reading; note the layout rules of global.css are still not shared, so zero pixel diff remains a stretch (see critique)."
+    },
+    {
+      "text": "Shot the live URL with the same viewport as the surface and produced translate/diff/<state>-app/report.json with pixelDiff",
+      "passed": false,
+      "evidence": "RESULT.md: 'http://127.0.0.1:4174 renders nothing in a plain browser \u2026 the git panel is not screenshot-able from the dev URL at all.' No screenshot of the live URL exists in outputs; app-as-is.png is a headless-Chrome render of a hand-built git-panel-app-as-is.html. No translate/diff/<state>-app/report.json (or any report.json) was produced; the only JSON is match-metrics.json (DOM rects). Viewport used is 1586\u00d7992 (mockup size), not a logical app viewport."
+    },
+    {
+      "text": "Reported the implementation gap as pixelDiff with hotspot rects in logical pixels, and the mockup gap as layoutScore \u2014 two different numbers with two different meanings",
+      "passed": false,
+      "evidence": "Both comparisons are reported with the same metric: ImageMagick fuzz-% mismatched pixels ('mockup vs match (git region) 7.0% / 5.0%', 'mockup vs app as-is 16.2% / 11.9%'). No layoutScore, no pixelDiff, no hotspot rects \u2014 the app gap is expressed as a fuzz diff against the mockup raster rather than a strict pixel diff against the surface, and the mockup gap has no tolerant layout score. The geometry table gives per-element deltas in 1586-frame page px (not logical px) and is derived from DOM rects, not from a diff."
+    },
+    {
+      "text": "Recommended changes to the implementation's CSS to match the surface, and did not alter the surface to match the implementation",
+      "passed": true,
+      "evidence": "RESULT.md 'Recommendations (all in app/src/styles/global.css unless noted; nothing was edited)' with concrete .git rules (h2 17px, .branch 35px, textarea 68px, .actions 1fr 1fr 1fr gap 22px, button.primary color var(--bd-text-on-brand)). The match surface (match.png) matches the mockup's git geometry (side-by-side-git.png), not the app's; git-panel-app-as-is.html is a separate diagnostic file, not a modification of the surface."
+    },
+    {
+      "text": "Did not exceed three build/patch rounds against the mockup",
+      "passed": false,
+      "evidence": "No round record exists: no prompts, shots per round, notes, or state file. RESULT.md never mentions rounds or iteration. Cannot be verified from outputs; per grading criteria an unverifiable expectation fails."
+    }
+  ],
+  "summary": {
+    "passed": 2,
+    "failed": 3,
+    "total": 5,
+    "pass_rate": 0.4
+  },
+  "claims": [
+    {
+      "claim": ":4174 renders nothing in a plain browser because invoke throws without __TAURI_INTERNALS__",
+      "type": "factual",
+      "verified": false,
+      "evidence": "Contradicted by the with_skill run, whose git-panel-app.png shows the shell rendering (empty-state panes) at 1280x800 from the same URL; the without_skill claim that '.shell never appears' is at least not universally true. Cannot reproduce here without a browser session."
+    },
+    {
+      "claim": "app-as-is.html is styled by the app's verbatim global.css",
+      "type": "process",
+      "verified": true,
+      "evidence": "diff app/src/styles/global.css outputs/app-css/global.css differs only in the @import path line."
+    },
+    {
+      "claim": "mockup vs match git region 7.0% at fuzz 12%",
+      "type": "factual",
+      "verified": false,
+      "evidence": "diff-git-match.png exists but the count is not re-derivable without re-running compare; no script or JSON records it."
+    },
+    {
+      "claim": "match surface uses tokens only",
+      "type": "quality",
+      "verified": false,
+      "evidence": "git-panel-match.html lines 65\u201369 contain literal hex (#1a1d20, #0b0d0f, #f6c39a, #ffd9b0, #e8a56a, #f2b077) for the stage/thumb placeholders \u2014 outside the git region but not tokens-only."
+    },
+    {
+      "claim": "Commit button fg in app uses --bd-accent-fg (wrong token) vs mockup --bd-text-on-brand",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Consistent with app-as-is crop in side-by-side-git.png (Commit label reads white-blue) and with the with_skill recommendation 'button.primary { color: var(--bd-accent-fg) }' pointing at the same rule."
+    }
+  ],
+  "user_notes_summary": {
+    "uncertainties": [
+      "Executor could not screenshot the live URL and substituted a hand-assembled DOM styled by the app's CSS"
+    ],
+    "needs_review": [
+      "Match surface's stage placeholder uses hex literals",
+      "No Send button rendered in match.png bottom-left (mockup has one)"
+    ],
+    "workarounds": [
+      "Headless google-chrome at 1586\u00d7992 instead of agent-browser viewport; hand-built app-as-is.html instead of live capture"
+    ]
+  },
+  "critique": "This run shows why assertions 2 and 3 are the discriminating ones: the measuring is careful and the CSS recommendations are arguably more detailed than the with-skill run's, yet the headline numbers are fuzz-% diffs against a noisy AI raster for BOTH the surface and the app, so the user cannot tell tolerance from drift. Assertion 1 as worded lets this run pass by importing the identical token sheet even though global.css's layout rules are not shared \u2014 tighten it to name global.css. Assertion 2 conflates two things (shooting the live URL, and producing report.json); when the URL genuinely cannot render the state, the eval should say what a correct outcome looks like (an 'inconclusive' gate with the reason) instead of leaving an honest blocker indistinguishable from not trying. Assertion 5 is not gradable without a transcript or per-round artifacts. Uncovered outcomes worth an assertion: the match surface contains raw hex colours (tokens-only discipline), and the coordinate frame of the reported deltas (1586-frame page px here vs logical px) \u2014 the prompt says 'in pixels' and the two runs answered in different frames.",
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "The surface imports or vendors the same stylesheet the implementation uses, so a zero pixel diff is achievable",
+        "reason": "Passes on a token-sheet import alone; require global.css (or byte-identical copy) so shared layout rules are actually in play."
+      },
+      {
+        "assertion": "Shot the live URL with the same viewport as the surface and produced translate/diff/<state>-app/report.json with pixelDiff",
+        "reason": "Define the expected output when the live URL cannot reach the state (inconclusive gate + reason) so an honest blocker is distinguishable from skipping the step."
+      },
+      {
+        "assertion": "Did not exceed three build/patch rounds against the mockup",
+        "reason": "Needs a transcript or per-round artifacts to grade; without-skill runs have neither."
+      },
+      {
+        "reason": "Add an assertion that surface colours are tokens only \u2014 this run's stage placeholder uses six hex literals and nothing caught it."
+      },
+      {
+        "reason": "Add an assertion that deltas are in logical px at the app's viewport; this run reported in the mockup's 1586-px frame."
+      }
+    ],
+    "overall": "Assertions 2\u20133 correctly separate skill from no-skill behaviour; 1 and 5 need tightening to be reliable."
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "expectations": [
+    {
+      "text": "Told the user plainly that pixel-perfect against a generated PNG is not attainable and named the two comparisons with their ceilings, without refusing the task",
+      "passed": false,
+      "evidence": "RESULT.md says only 'it will not diff to zero against the PNG - by design', attributing this to using token colours instead of the PNG's. It does not say pixel-perfect against a generated render is unattainable as such, and names no comparison that can reach zero (no surface<->implementation pixelDiff, no layoutScore ceiling). The task was not refused."
+    },
+    {
+      "text": "SPEC.md lists the inspector's image-metadata content (Details/Tags/History/Dimensions) as invented and the surface HTML does not build it",
+      "passed": true,
+      "evidence": "No SPEC.md exists, but RESULT.md carries the equivalent written decision: 'The mockup's image-file inspector (ID / Type / Dimensions / Tags) is gone.' grep -iE 'Details|Tags|History|Dimensions|Selection|Add tag' new-project-dialog.html returns nothing; render-1x.png shows the project inspector (E-commerce platform, Brief prompts, Deliverables, Stages, Brief, Art direction). Counted per the baseline rule that an equivalent written decision satisfies the SPEC half."
+    },
+    {
+      "text": "Stopped according to the skill's numeric rule (top hotspot lumDiff < 0.04 and Δscore < 0.005, or the round-3 ceiling) and recorded the stop reason with the numbers",
+      "passed": false,
+      "evidence": "No diff reports, no layoutScore/lumDiff numbers, no rounds. Output is a single build plus side-by-side.png; no numeric stop reason recorded anywhere."
+    },
+    {
+      "text": "Every round's prompt is saved under translate/prompts/ and every round's scores appear in translate/notes.md",
+      "passed": false,
+      "evidence": "No translate/ directory, no prompts/, no notes.md. Outputs: new-project-dialog.html, render-1x.png, side-by-side.png, RESULT.md."
+    }
+  ],
+  "summary": {"passed": 1, "failed": 3, "total": 4, "pass_rate": 0.25},
+  "timing": {"executor_duration_seconds": 506.4, "total_tokens": 126261},
+  "claims": [
+    {"claim": "The mockup's image-file inspector (ID / Type / Dimensions / Tags) is gone", "type": "factual", "verified": true, "evidence": "grep on HTML empty; render confirms project inspector"},
+    {"claim": "Tokens inlined from design-system/tokens/css/bytedesk.css", "type": "process", "verified": false, "evidence": "RESULT quotes hex values (#101316, #EC4E02) matching token names; not cross-checked against the authority file"},
+    {"claim": "Populated Projects with two rows so panels agree", "type": "quality", "verified": true, "evidence": "render-1x.png shows E-commerce platform / Internal docs rows, departing from the mockup's 'No projects yet'"}
+  ],
+  "user_notes_summary": {"uncertainties": ["Projects empty state vs populated inspector - asked user which to keep"], "needs_review": [], "workarounds": ["Inlined tokens and embedded crops of mockup artwork as data URIs"]},
+  "eval_feedback": {
+    "suggestions": [
+      {"reason": "Baseline invented content (two project rows, storybook/ deliverable, a brief and art-direction text) to make the inspector coherent, contradicting the mockup's 'No projects yet'. No assertion catches invented non-mockup content beyond the image-metadata inspector."}
+    ],
+    "overall": "Assertions separate skill from baseline cleanly; consider one that penalises content the mockup does not show."
+  },
+  "critique": "Competent one-shot build with a sensible inspector decision, but no measurement loop: no scores, no rounds, no numeric stop, and the pixel-perfect caveat is framed as a colour-source choice rather than the generated-PNG limit, with no mention of which comparison can reach zero. It also added project rows and brief text the mockup does not contain."
+}

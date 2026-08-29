@@ -1,0 +1,119 @@
+{
+  "a": "/home/ryan/Pictures/claude-design/runs/2026-08-28-designer-studio-mockups/images/r4-p4.png",
+  "b": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-designer/skills/bytedesk-designer-translate/evals/workspace/iteration-3/eval-2-garbled-text-trap/with_skill/run-1/outputs/2026-08-28-new-project-dialog/translate/shots/new-project-r2.png",
+  "size": "1280x800",
+  "pixelDiff": 0.0785,
+  "masks": [
+    [
+      326,
+      16,
+      37,
+      601
+    ],
+    [
+      917,
+      16,
+      59,
+      601
+    ],
+    [
+      363,
+      16,
+      554,
+      95
+    ]
+  ],
+  "layoutScore": 0.978,
+  "threshold": 32,
+  "grid": "32x20",
+  "hotspots": [
+    {
+      "cell": "6,4",
+      "rect": {
+        "x": 240,
+        "y": 160,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.062,
+      "pixDiff": 0.389
+    },
+    {
+      "cell": "25,3",
+      "rect": {
+        "x": 1000,
+        "y": 120,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.071,
+      "pixDiff": 0.329
+    },
+    {
+      "cell": "6,3",
+      "rect": {
+        "x": 240,
+        "y": 120,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.065,
+      "pixDiff": 0.289
+    },
+    {
+      "cell": "10,9",
+      "rect": {
+        "x": 400,
+        "y": 360,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.037,
+      "pixDiff": 0.306
+    },
+    {
+      "cell": "1,10",
+      "rect": {
+        "x": 40,
+        "y": 400,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.064,
+      "pixDiff": 0.276
+    },
+    {
+      "cell": "10,12",
+      "rect": {
+        "x": 400,
+        "y": 480,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.005,
+      "pixDiff": 0.331
+    },
+    {
+      "cell": "20,9",
+      "rect": {
+        "x": 800,
+        "y": 360,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.025,
+      "pixDiff": 0.306
+    },
+    {
+      "cell": "27,15",
+      "rect": {
+        "x": 1080,
+        "y": 600,
+        "w": 40,
+        "h": 40
+      },
+      "lumDiff": 0.089,
+      "pixDiff": 0.241
+    }
+  ]
+}

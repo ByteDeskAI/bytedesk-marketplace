@@ -1,0 +1,39 @@
+{
+  "expectations": [
+    {
+      "text": "Told the user plainly that pixel-perfect against a generated PNG is not attainable and named the two comparisons with their ceilings, without refusing the task",
+      "passed": true,
+      "evidence": "RESULT.md: \"'pixel perfect against the PNG' is not a number that reaches zero ... The number that gates 'this surface is the mockup' is the coarse layout score, and it landed at 0.982 (its practical ceiling on a good translation is ~0.97–0.98) ... The number that *can* reach zero is surface <-> implementation ... a pixelDiff under 0.01 is the bar.\" The surface was built (surfaces/new-project.html exists, 3 rounds run), so no refusal."
+    },
+    {
+      "text": "SPEC.md lists the inspector's image-metadata content (Details/Tags/History/Dimensions) as invented and the surface HTML does not build it",
+      "passed": true,
+      "evidence": "SPEC.md section 'Invented by the mockup — do not build' lists 'Right-column asset inspector (Selection r2-a.png, ID img_7f2b9c1d, Type image/png, Dimensions, Size, Created, Agent, Tags, Notes, History, Project settings)'. grep -iE 'Details|Tags|History|Dimensions|img_' surfaces/new-project.html returns nothing; the HTML inspector contains Solution / Project / Brief prompts / Deliverables / Stages / Brief / Art direction, confirmed in shots/new-project-r3.png."
+    },
+    {
+      "text": "Stopped according to the skill's numeric rule (top hotspot lumDiff < 0.04 and Δscore < 0.005, or the round-3 ceiling) and recorded the stop reason with the numbers",
+      "passed": true,
+      "evidence": "report.json r1/r2/r3 layoutScore 0.9724 / 0.978 / 0.9824; r3 top hotspot 6,4 lumDiff 0.042. The lumDiff<0.04 branch is not met (0.042), but round 3 is the ceiling and notes.md/state.json record it: 'Round 3 is the ceiling; layoutScore moved 0.0044 (< 0.005) and the top non-inspector hotspot is 0.042 with no edge in diff.png'. No fourth round was run."
+    },
+    {
+      "text": "Every round's prompt is saved under translate/prompts/ and every round's scores appear in translate/notes.md",
+      "passed": true,
+      "evidence": "translate/prompts/new-project-r1.txt (10841 B), -r2.txt (21413 B), -r3.txt (20361 B) exist and contain the full HTML + change list. notes.md carries per-round 'Scores:' lines: r1 layoutScore 0.9724 / pixelDiff 0.0652, r2 0.978 / 0.0785, r3 0.9824 / 0.0786, matching the three report.json files."
+    }
+  ],
+  "summary": {"passed": 4, "failed": 0, "total": 4, "pass_rate": 1.0},
+  "timing": {"executor_duration_seconds": 924.5},
+  "claims": [
+    {"claim": "No hex anywhere, var(--bd-…) only", "type": "factual", "verified": true, "evidence": "grep -c '#[0-9a-fA-F]{6}' surfaces/new-project.html = 0"},
+    {"claim": "All three Codex invocations succeeded on attempt 1", "type": "process", "verified": true, "evidence": "translate/new-project-r{1,2,3}.attempts.json present; state.json preflight 'round-trip OK on attempt 1'"},
+    {"claim": "Round 3 changed exactly one line", "type": "process", "verified": false, "evidence": "Not verifiable without r2/r3 HTML snapshots; only the r3 prompt's single-item CHANGES list supports it"}
+  ],
+  "critique": "Solid run. The r3 top hotspot (0.042) misses the lumDiff<0.04 branch, so the stop rests on the round-3 ceiling; the executor stated that correctly rather than rounding down. Observed but uncaught by any assertion: the Stages row labels in the inspector overlap ('discoverydirectionidentity') in the r3 shot — a legibility defect on the invented-content replacement. Assertion 3 accepts 'or the round-3 ceiling', which any run that simply does three rounds satisfies; it would discriminate better if it required the numbers to be recorded per round AND forbade a round 4 without a disclosed SPEC correction.",
+  "eval_feedback": {
+    "suggestions": [
+      {"reason": "No assertion checks the rendered surface for text overlap/overflow; the r3 shot has the Stages labels colliding."},
+      {"assertion": "Stopped according to the skill's numeric rule ...", "reason": "The 'or round-3 ceiling' clause is satisfied by any 3-round run; consider also requiring that no 4th round was run without a SPEC.md correction noted."}
+    ],
+    "overall": "Assertions are discriminating for the trap (invented inspector, pixel-perfect framing); add a rendered-legibility check."
+  }
+}

@@ -83,6 +83,9 @@ divergent framings and invented a persona — a specific person, at a specific h
 specific four-year-old spreadsheet — while the profile sitting next to it already said who
 this was for. The baseline, with no skill at all, simply read the profile and got it right.
 
+Read the right one: under a solution the profile that governs a run is the project's own,
+not the authority's entry of the same name. `authority-doctor.sh --product <id>` says which.
+
 Divergence is a tool for the questions that are genuinely open. It is not a licence to
 re-answer questions the evidence has already settled, and the pull to invent is strongest
 exactly where a vivid detail would make the brief read better.

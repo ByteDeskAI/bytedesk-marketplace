@@ -148,6 +148,34 @@
         }
       ],
       "files": []
+    },
+    {
+      "name": "profile-precedence",
+      "prompt": "make some direction images for the gateway landing page — run folder is at solutions/acme/projects/gateway/runs/2026-09-02-gateway-hero, and the design system is cloned at solutions/acme/design-system",
+      "expected_output": "Resolves which profile governs this run before generating anything, and finds the project's own profile at solutions/acme/projects/gateway/DESIGN.md rather than the authority's same-named profiles/gateway/DESIGN.md. Draws the motif from the project profile, states in the notes and in state.json which profile was used and where it was read from, and does not silently blend the two.",
+      "assertions": [
+        {
+          "text": "Resolved which profile governs the run before generating, rather than assuming the authority's",
+          "kind": "untested"
+        },
+        {
+          "text": "Read the project's own DESIGN.md, not the authority's profiles/gateway/DESIGN.md of the same name",
+          "kind": "untested"
+        },
+        {
+          "text": "Said which profile it used and where it was read from",
+          "kind": "untested"
+        },
+        {
+          "text": "Took the motif from the project profile rather than blending both sources",
+          "kind": "untested"
+        },
+        {
+          "text": "Recorded the resolution in state.json.profile and in the notes provenance header",
+          "kind": "untested"
+        }
+      ],
+      "id": 4
     }
   ],
   "_inherited_from": {

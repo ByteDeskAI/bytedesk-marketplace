@@ -1,0 +1,66 @@
+{
+  "expectations": [
+    {
+      "text": "Wrote translate/SPEC.md containing at least ten numeric measurements in logical pixels before the first Codex build",
+      "passed": true,
+      "evidence": "translate/SPEC.md exists; header states 'All numbers below are logical px'. Dozens of measurements (panel rects x 12..332 / 342..954 / 964..1268, pitches 36/23.5/18, type sizes 10.5/12/13/15/16, control sizes 70x28, 82x30, 132x40, etc.; 13 explicit 'px'-suffixed values plus far more bare logical-px numbers). notes.md Round 0 (measure) precedes Round 1 (build); the r1 prompt embeds the SPEC verbatim under MEASUREMENTS, proving it was written first."
+    },
+    {
+      "text": "SPEC.md records the invented-element decision explicitly \u2014 either naming what the mockup invented and must not be built, or stating that nothing structural was invented",
+      "passed": true,
+      "evidence": "SPEC.md section '## Invented by the mockup \u2014 do not build' lists: underlines on 'direct' and '300s' (link-styling artefact), no hollow thumbnail slots beyond r1-a, no title bar; and marks the Connect button as real/keep. The built surface has no underlines (verified in render-failed.html and r2 shot)."
+    },
+    {
+      "text": "The surface HTML loads a vendored token stylesheet and contains no hex or rgb() colour literals",
+      "passed": true,
+      "evidence": "surfaces/render-failed.html has <link rel=\"stylesheet\" href=\"./tokens/design.css\"> (vendored copy with .source-sha beside it). Script scan after stripping entities: hex=[] rgb=[]. Only var(--bd-*) colours."
+    },
+    {
+      "text": "Codex wrote the surface (a translate/prompts/*-r1.txt hand-off exists and codex-exec.sh was used in text mode); Claude did not author the markup inline",
+      "passed": true,
+      "evidence": "translate/prompts/render-failed-r1.txt exists (full spec hand-off, 'Reply with the artifact only'). render-failed-r1.attempts.json {mode:'text', outcome:'ok', attempt 'direct' exit 0, 102s} is the format codex-exec.sh writes; r1-log.txt shows the 'OpenAI Codex v0.146.0' banner. r1-reply.txt is byte-identical to the CURRENT FILE in the r2 prompt, and r2-reply.txt is byte-identical to surfaces/render-failed.html \u2014 the surface lineage is Codex output end to end. 2 rounds total."
+    },
+    {
+      "text": "Rendered the surface at 1280x800 and produced translate/diff/<state>-r1/report.json with layoutScore and hotspots",
+      "passed": true,
+      "evidence": "translate/shots/render-failed-r1.png is 1280x800; translate/diff/render-failed-r1/report.json has size 1280x800, layoutScore 0.9908, pixelDiff 0.0592, 8 hotspots with cell/rect/lumDiff/pixDiff, a= mockup, b= r1 shot."
+    },
+    {
+      "text": "Every change in a patch round is justified by a recorded diff observation (a report hotspot cell or a named region of diff.png noted in notes.md) and the patch prompt lists numbered changes plus a FROZEN list",
+      "passed": true,
+      "evidence": "notes.md Round 1 names the observation: 'left timeline drifts 1\u20136px high down the column (header\u2192body pitch 18 vs measured 20)', tied to hotspots 1,9 (0.048) and 2,9 (0.039) which are the timeline cells at y 360. r2 prompt has CHANGES: 1. (five .message tops 342/406/470/516/580 \u2192 343/408/474/521/586) 2. (.message-header margin-bottom 2px) each with the measured justification, then 'FROZEN (already correct \u2014 do not touch): agents block, Runs list, composer and Send, the whole centre column, the whole right column, all colours, fonts and sizes.' Diff of r1 reply vs surface confirms exactly those six lines changed."
+    },
+    {
+      "text": "Reported layoutScore as the mockup comparison and never presented pixelDiff against the mockup PNG as the pass/fail number",
+      "passed": true,
+      "evidence": "RESULT.md table header: 'layoutScore is the gate, pixelDiff is informational against a generated PNG'; notes.md 'pixelDiff 0.0592 (informational only)'; state.json scores keyed on layoutScore with implementationGate 'not run \u2014 no implementation URL given'. Stopping rule is stated in lumDiff/\u0394score terms, not pixelDiff."
+    },
+    {
+      "text": "state.json lists every screenshot and diff image read under stages.translate.viewed",
+      "passed": true,
+      "evidence": "state.json stages.translate.viewed = [translate/grid-render-failed.png, shots/render-failed-r1.png, diff/render-failed-r1/diff.png, shots/render-failed-r2.png, diff/render-failed-r2/diff.png] \u2014 matches every shot/diff file on disk (2 rounds) plus the grid; notes.md says each was read."
+    },
+    {
+      "text": "The final round's report.json shows layoutScore \u2265 0.95 against the mockup (structural fidelity, not just process)",
+      "passed": true,
+      "evidence": "Final round is r2: translate/diff/render-failed-r2/report.json layoutScore 0.9909 (\u2265 0.95), a= mockup r3-s5.png. Viewed r2 shot against the mockup: three-column workbench, agent rows, selected run, timeline, composer, status row, attempts panel, Retry, thumbnail, four-button toolbar, and right inspector all land in the same places; diff.png shows only glyph-edge speckle, no displaced blocks."
+    },
+    {
+      "text": "No hex or rgb() colour literal anywhere in the surface HTML (HTML entities such as &#9656; are not colours)",
+      "passed": true,
+      "evidence": "Programmatic scan of surfaces/render-failed.html with entities stripped: no #hex, no rgb(/rgba(. The one \u25b8 is a literal glyph, not an entity."
+    }
+  ],
+  "summary": {
+    "passed": 10,
+    "failed": 0,
+    "total": 10,
+    "pass_rate": 1.0
+  },
+  "timing": {
+    "total_tokens": 135439,
+    "duration_ms": 576791,
+    "total_duration_seconds": 576.8
+  },
+  "critique": "Clean run: 10/10. Measure-first is genuinely evidenced (SPEC precedes and is embedded in the r1 prompt), Codex authorship is provable byte-for-byte (r1 reply == r2 CURRENT FILE, r2 reply == surface), and the patch round is minimal and justified. Two rounds; r2 moved layoutScore only 0.9908\u21920.9909, so the patch was cosmetically right but near the noise floor \u2014 the stopping rule worked. Eval critique: the layoutScore \u22650.95 bar is soft \u2014 r1 already scored 0.9908 before any patch, so the assertion cannot distinguish a one-round build from a converged one; consider asserting on the top-hotspot lumDiff or requiring that at least one named structural delta was closed. The 'ten numeric measurements' assertion is trivially satisfied by any spec; a stronger check would sample two or three SPEC rects and verify the rendered surface honours them (e.g. panel x-ranges 12..332 / 342..954 / 964..1268 are reproduced exactly in the HTML here). No assertion covers pixel-level colour discipline in the vendored sheet itself or that the surface uses only tokens the authority defines (--bd-accent etc. were not cross-checked against design.css)."
+}

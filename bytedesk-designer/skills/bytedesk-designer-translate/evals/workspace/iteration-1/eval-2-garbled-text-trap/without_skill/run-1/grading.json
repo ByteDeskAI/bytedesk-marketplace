@@ -1,0 +1,76 @@
+{
+  "expectations": [
+    {
+      "text": "Told the user plainly that pixel-perfect against a generated PNG is not attainable and named the two comparisons with their ceilings, without refusing the task",
+      "passed": false,
+      "evidence": "RESULT.md hedges rather than states: 'What is not literally pixel-identical' lists artwork and 'glyph edges differ at the sub-pixel level', and reports 'Whole-image RMSE vs the mockup is 8.0 %'. It never says plainly that pixel-perfect against a generated PNG is unattainable, and never names the two comparisons (surface\u2194PNG layout score with its ceiling vs surface\u2194implementation pixelDiff reaching zero). The task was not refused, but the required framing is absent."
+    },
+    {
+      "text": "SPEC.md excludes the invented inspector content behind the modal (Details/Tags/History panel) from what gets built",
+      "passed": false,
+      "evidence": "No SPEC.md exists anywhere in without_skill/outputs/. The HTML (new-project-dialog.html lines 179\u2013204) builds the full inspector including 'Details', 'Tags', 'History' with the ID/Type/Dimensions rows, visible in render-final.png."
+    },
+    {
+      "text": "Stopped before round three with a recorded reason when the remaining hotspots were text speckle, rather than spending the round",
+      "passed": false,
+      "evidence": "No round/hotspot loop was run. NOTES.md says 'iterated three times on the residuals (card description type size, composer offset, toolbar button widths, canvas art visibility)' \u2014 three iterations, no recorded stop reason, no hotspot classification."
+    },
+    {
+      "text": "Every round's prompt is saved under translate/prompts/ and every round's scores appear in translate/notes.md",
+      "passed": false,
+      "evidence": "No translate/ directory, no prompts/, no notes.md. Only NOTES.md with a method narrative and no per-round scores (a single final 'RMSE 8.0 %')."
+    }
+  ],
+  "summary": {
+    "passed": 0,
+    "failed": 4,
+    "total": 4,
+    "pass_rate": 0.0
+  },
+  "claims": [
+    {
+      "claim": "All copy in the mockup is legible and reproduced verbatim, including 'IOS and Android applications'",
+      "type": "factual",
+      "verified": true,
+      "evidence": "render-final.png shows 'IOS and Android applications' on the Mobile app card; with_skill run rendered 'iOS' instead \u2014 the two runs disagree on the mockup's casing, cannot settle without the PNG, but the without-skill run's claim is internally consistent."
+    },
+    {
+      "claim": "Colours come from the design-system token layer; three surface values declared as local variables",
+      "type": "process",
+      "verified": true,
+      "evidence": "NOTES.md and HTML declare --shell/--panel/--dialog hex literals (#0C0F13, #0E1216, #171B20) plus literal border #1B1F24 on line 87 \u2014 the page is NOT token-only, which the executor admits."
+    },
+    {
+      "claim": "Whole-image RMSE vs the mockup is 8.0 %, almost all in the artwork region",
+      "type": "factual",
+      "verified": false,
+      "evidence": "compare-diff-final.png exists but no numeric report; not reproduced."
+    },
+    {
+      "claim": "Layout boxes, weights, sizes and copy match",
+      "type": "quality",
+      "verified": true,
+      "evidence": "render-final.png at 1586\u00d7992 reproduces every panel, the modal grid, thumbnails and toolbar in the mockup's positions; recreated canvas art is an approximation as stated."
+    }
+  ],
+  "user_notes_summary": {
+    "uncertainties": [],
+    "needs_review": [],
+    "workarounds": []
+  },
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "reason": "Assertions 2\u20134 reference skill-specific artifacts (SPEC.md, translate/prompts/, notes.md, rounds); the without-skill baseline can only fail them structurally, so they measure skill adoption rather than outcome quality. That is fine for a with/without comparison but tells nothing about whether the baseline's HTML is good \u2014 and here it is a competent, fixed-size, mockup-faithful page."
+      },
+      {
+        "reason": "Assertion 1 is the only outcome-level assertion and it did discriminate: the baseline hedged ('not literally pixel-identical') without the two-comparison framing, while the skill run stated it plainly."
+      },
+      {
+        "reason": "No assertion checks token purity; the baseline hard-codes four hex literals and a 1586\u00d7992 fixed layout, which is exactly the drift the skill exists to prevent, and it went ungraded."
+      }
+    ],
+    "overall": "See critique."
+  },
+  "critique": "Assertions 2\u20134 reference skill-specific artifacts (SPEC.md, translate/prompts/, notes.md, rounds); the without-skill baseline can only fail them structurally, so they measure skill adoption rather than outcome quality. That is fine for a with/without comparison but tells nothing about whether the baseline's HTML is good \u2014 and here it is a competent, fixed-size, mockup-faithful page. Assertion 1 is the only outcome-level assertion and it did discriminate: the baseline hedged ('not literally pixel-identical') without the two-comparison framing, while the skill run stated it plainly. No assertion checks token purity; the baseline hard-codes four hex literals and a 1586\u00d7992 fixed layout, which is exactly the drift the skill exists to prevent, and it went ungraded."
+}

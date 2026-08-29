@@ -1,0 +1,87 @@
+{
+  "expectations": [
+    {
+      "text": "Wrote translate/SPEC.md containing at least ten numeric measurements in logical pixels before the first Codex build",
+      "passed": false,
+      "evidence": "No translate/SPEC.md or any measurement table. RESULT.md step 1 gives only ~5 numbers ('12 px outer padding, three columns ≈ 320 / 1fr / 300 with 8 px gutters') and '1fr' is not a measurement. Layout in failed-render.html is token-spaced flex/grid, not built to measured positions."
+    },
+    {
+      "text": "SPEC.md names at least one element the mockup invented that must not be built (e.g. a title bar or hollow thumbnail slots)",
+      "passed": false,
+      "evidence": "No invented-element list anywhere. The build reproduced the mockup's rendering artefacts: '.attempts .u { text-decoration: underline }' on 'direct' and '300s', and added a --bd-shadow-attention-glow on brand buttons that the mockup does not show."
+    },
+    {
+      "text": "The surface HTML loads a vendored token stylesheet and contains no hex or rgb() colour literals",
+      "passed": true,
+      "evidence": "failed-render.html line 10 loads bytedesk.tokens.css (verbatim 332-line copy of design-system/tokens/css/bytedesk.css, checked header). Colour grep finds only '&#9656;' (an HTML entity for ▸), no hex/rgb colour literals; all colours are var(--bd-*)."
+    },
+    {
+      "text": "Codex wrote the surface (a translate/prompts/*-r1.txt hand-off exists and codex-exec.sh was used in text mode); Claude did not author the markup inline",
+      "passed": false,
+      "evidence": "No translate/prompts/*-r1.txt, no codex log/reply/attempts.json. RESULT.md ('I built the HTML with layout-only CSS') and the file's authored comments show Claude wrote the markup inline. No hand-off to codex-exec.sh."
+    },
+    {
+      "text": "Rendered the surface at 1280x800 and produced translate/diff/<state>-r1/report.json with layoutScore and hotspots",
+      "passed": false,
+      "evidence": "build-1280x800.png exists at 1280x800 (Playwright chrome-headless-shell), but there is no translate/diff/<state>-r1/report.json, no layoutScore, no hotspots — comparison was by eye ('Rendered and compared')."
+    },
+    {
+      "text": "Any second round changed only regions named as hotspots in the previous report, and the patch prompt lists them as numbered changes with a FROZEN list",
+      "passed": false,
+      "evidence": "RESULT.md mentions 'Two iterations' but no hotspot report, no patch prompt, no numbered changes, no FROZEN list exist; the second pass changed line-heights and row heights without any recorded region scope."
+    },
+    {
+      "text": "Reported layoutScore as the mockup comparison and never presented pixelDiff against the mockup PNG as the pass/fail number",
+      "passed": false,
+      "evidence": "No score of any kind was reported — neither layoutScore nor pixelDiff. The assertion requires layoutScore to be reported as the mockup comparison."
+    },
+    {
+      "text": "state.json lists every screenshot and diff image read under stages.translate.viewed",
+      "passed": false,
+      "evidence": "No state.json exists."
+    }
+  ],
+  "summary": {
+    "passed": 1,
+    "failed": 7,
+    "total": 8,
+    "pass_rate": 0.12
+  },
+  "claims": [
+    {
+      "claim": "Every colour, font, radius, spacing resolves to a --bd-* token",
+      "type": "quality",
+      "verified": true,
+      "evidence": "grep finds no colour literals; a few raw px font sizes (14px, 15px) and heights (34px, 104px) are used but are not colours"
+    },
+    {
+      "claim": "Every entry the mockup shows is visible without scrolling",
+      "type": "quality",
+      "verified": true,
+      "evidence": "build-1280x800.png shows all five log entries and 'Render failed.'"
+    },
+    {
+      "claim": "Row/column spacing otherwise matches",
+      "type": "quality",
+      "verified": false,
+      "evidence": "build splits the left column into four separate bordered cards where the mockup has one panel with hairline dividers; Brief wraps to 4 lines vs 5; Retry/attempts sit ~20px higher; brand buttons carry a glow the mockup lacks"
+    },
+    {
+      "claim": "agent-browser screenshot unreadable, google-chrome headless hung; fell back to Playwright",
+      "type": "process",
+      "verified": false,
+      "evidence": "No transcript; unverifiable"
+    }
+  ],
+  "user_notes_summary": {
+    "uncertainties": [
+      "Mockup mono looks wider than IBM Plex Mono",
+      "Attempt table ~20px narrower in mockup"
+    ],
+    "needs_review": [],
+    "workarounds": [
+      "Screenshot via Playwright chrome-headless-shell instead of agent-browser"
+    ]
+  },
+  "critique": "Assertion 6 ('changed only regions named as hotspots') is the most discriminating one and it caught a real gap: the r2 patch moved .stage-status (cell 15,4) and .runs-label (cell 0,4), neither of which is in the r1 top-8 hotspot list — the executor read them off diff.png instead. Consider deciding whether 'hotspots' means the report's top-8 cells or any cell visible in diff.png; as written the skill's own notes contradict the assertion. Assertion 8 cannot be verified without a transcript: the outputs show state.json lists every screenshot/diff file that exists, but not that every image *read* is listed. Assertion 2 is weak: SPEC.md says 'nothing structural is invented' and only names a dotted underline; the stronger DO-NOT-BUILD list (title bar, empty slots, stage placeholder, icons) lives in the r1 prompt, not SPEC.md — an assertion on the prompt's DO NOT BUILD block would be more discriminating. Assertion 3's hex grep needs an HTML-entity exclusion (&#9656; false-positives on '#9656'). Gaps: nothing checks the surface visually matches the mockup's structure (the baseline split the left column into four separate cards and wrapped the brief to four lines — no assertion catches that); nothing checks the codex log shows no --image flag (text mode is only asserted via attempts.json 'mode'); and nothing checks the report's 'a' is the mockup at logical size rather than the 1586x992 PNG."
+}

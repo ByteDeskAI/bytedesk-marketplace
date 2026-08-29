@@ -1,0 +1,29 @@
+{
+  "slug": "2026-08-28-git-panel-translate",
+  "product": "bytedesk-designer",
+  "authority": { "path": "/home/ryan/Documents/GitHub/ByteDeskAI/design-system", "sha": "9845b41fa095d78f6081bbf8764c3d3daa07db4f", "read_at": "2026-08-28T00:00:00Z", "note": "surface loads the app stylesheet; app vendored tokens are at de48261" },
+  "codex": { "version": "codex-cli 0.146.0", "verified_at": "2026-08-28T00:00:00Z" },
+  "stages": {
+    "translate": {
+      "status": "complete",
+      "state": "git-panel",
+      "mockup": "/home/ryan/Pictures/claude-design/runs/2026-08-28-designer-studio-mockups/images/r5-q3.png",
+      "logical": "1280x800",
+      "rounds": 2,
+      "artifacts": ["surfaces/git-panel.html", "translate/SPEC.md", "translate/shots/git-panel-r2.png", "translate/diff/git-panel-r2/report.json"],
+      "viewed": [
+        "translate/grid-git-panel.png",
+        "translate/shots/git-panel-app-raw.png",
+        "translate/shots/git-panel-r1.png",
+        "translate/diff/git-panel-r1/diff.png",
+        "translate/shots/git-panel-r2.png",
+        "translate/diff/git-panel-app/diff.png"
+      ],
+      "scores": {
+        "r1": { "layoutScore": 0.99, "pixelDiff": 0.0868 },
+        "r2": { "layoutScore": 0.9911, "pixelDiff": 0.0848 },
+        "implementation": { "status": "inconclusive", "pixelDiff": 0.1077, "layoutScore": 0.9628, "reason": "URL renders the app shell without a Tauri backend; the git-panel state cannot be reached, so the diff measures absent content" }
+      }
+    }
+  }
+}

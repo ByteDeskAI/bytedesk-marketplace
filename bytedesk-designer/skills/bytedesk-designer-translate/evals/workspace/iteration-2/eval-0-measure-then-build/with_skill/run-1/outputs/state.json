@@ -1,0 +1,33 @@
+{
+  "slug": "2026-08-28-studio-render-failed",
+  "product": "designer-studio",
+  "authority": { "path": "/home/ryan/Documents/GitHub/ByteDeskAI/design-system", "sha": "9845b41", "read_at": "2026-08-28T18:59:34Z" },
+  "codex": { "version": "codex-cli 0.146.0", "verified_at": "2026-08-28T18:59:34Z" },
+  "stages": {
+    "translate": {
+      "status": "complete",
+      "state": "render-failed",
+      "mockup": "/home/ryan/Pictures/claude-design/runs/2026-08-28-designer-studio-mockups/images/r3-s5.png",
+      "logical": "1280x800",
+      "artifacts": ["surfaces/render-failed.html", "translate/SPEC.md", "translate/notes.md"],
+      "rounds": 5,
+      "viewed": [
+        "translate/grid-render-failed.png",
+        "translate/shots/render-failed-r1.png", "translate/diff/render-failed-r1/diff.png",
+        "translate/shots/render-failed-r2.png", "translate/diff/render-failed-r2/diff.png",
+        "translate/shots/render-failed-r3.png",
+        "translate/shots/render-failed-r4.png", "translate/diff/render-failed-r4/diff.png",
+        "translate/shots/render-failed-r5.png"
+      ],
+      "scores": {
+        "r1": { "layoutScore": 0.9648, "pixelDiff": 0.0705 },
+        "r2": { "layoutScore": 0.9676, "pixelDiff": 0.0667 },
+        "r3": { "layoutScore": 0.9676, "pixelDiff": 0.0667 },
+        "r4": { "layoutScore": 0.9675, "pixelDiff": 0.0667 },
+        "r5": { "layoutScore": 0.9675, "pixelDiff": 0.0651 },
+        "final": { "layoutScore": 0.9675, "topHotspot": { "cell": "25,3", "lumDiff": 0.057, "kind": "text speckle, Brief paragraph" } }
+      },
+      "implementation_gate": { "status": "skipped", "reason": "no implementation URL given" }
+    }
+  }
+}

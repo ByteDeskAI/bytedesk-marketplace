@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="color-scheme" content="dark">
+<title>App markup + app/src/styles/global.css in the r5-q3 state (static replica)</title>
+<link rel="stylesheet" href="./app-global.css">
+</head>
+<body>
+<!-- The DOM App.tsx / ProjectsBlock.tsx / Inspector.tsx / GitPanel.tsx render for the r5-q3 state, with the mockup's data
+     substituted for Tauri IPC results. Styled only by the unmodified app stylesheet (app-global.css = global.css with the
+     token import re-pointed). The plain-browser URL cannot reach this state (s.solution is null without a Tauri backend). -->
+<div id="root"><div class="shell">
+  <section class="col left">
+    <div class="solution-row" data-m="solution-row"><span class="muted">Solution</span><button class="link name"><strong>design-system</strong> <span class="muted">▾</span></button><span class="status small"><i class="dot ok"></i></span></div>
+    <div class="block agents" data-m="agents">
+      <div class="agent-row" data-m="agent-claude"><strong>claude</strong><span class="status"><i class="dot ok"></i> ok</span><span class="mono">1.0.60</span><button class="ghost-primary">Connect</button></div>
+      <div class="agent-row"><strong>codex</strong><span class="status"><i class="dot ok"></i> ok</span><span class="mono">0.37.1</span><button class="ghost-primary">Connect</button></div>
+      <div class="agent-row"><strong>grok</strong><span class="status"><i class="dot ok"></i> ok</span><span class="mono">0.15.0</span><button class="ghost-primary">Connect</button></div>
+      <div class="agent-row"><strong>kimi</strong><span class="status"><i class="dot ok"></i> ok</span><span class="mono">1.7.2</span><button class="ghost-primary">Connect</button></div>
+    </div>
+    <div class="block agents" data-m="providers">
+      <div class="agent-row provider" data-m="provider-git"><strong>git</strong><span class="status"><i class="dot ok"></i> ok</span><span class="mono">2.45.2</span><span></span></div>
+      <div class="agent-row provider"><strong>github</strong><span class="status"><i class="dot ok"></i> ok</span><span class="mono">ryanhelms</span><span></span></div>
+    </div>
+    <div class="block projects" data-m="projects">
+      <header class="block-head"><h2 data-m="projects-h2">Projects</h2><span class="grow"></span><button class="ghost">+ project</button></header>
+      <ul>
+        <li class="project active" data-m="project-active">
+          <button class="link project-row"><span class="caret muted">▾</span><span class="project-title"><strong>Marketing site</strong> <span class="muted">website</span><span class="mono muted small">main · ↑2 ↓0 · 3 changed</span></span><span class="grow"></span><span class="status"><i class="dot busy"></i> changes</span></button>
+          <div class="runs" data-m="runs">
+            <button class="link mono run-row"><span>2026-08-28-home-hero</span><span class="muted">direction 2/3</span></button>
+            <button class="link mono run-row"><span>2026-08-27-landing-nav</span><span class="muted">review ✓</span></button>
+            <button class="link muted">+ run</button>
+          </div>
+        </li>
+        <li class="project"><button class="link project-row"><span class="caret muted">▸</span><span class="project-title"><strong>Design system docs</strong> <span class="muted">docs</span><span class="mono muted small">main · ↑0 ↓0 · clean</span></span><span class="grow"></span><span class="status"><i class="dot ok"></i> clean</span></button></li>
+        <li class="project"><button class="link project-row"><span class="caret muted">▸</span><span class="project-title"><strong>Brand campaign</strong> <span class="muted">brand</span><span class="mono muted small">main · ↑1 ↓0 · 1 changed</span></span><span class="grow"></span><span class="status"><i class="dot busy"></i> changes</span></button></li>
+      </ul>
+    </div>
+    <section class="agent-pane" data-m="conversation">
+      <div class="pane-head"><span class="status"><i class="dot ok"></i> claude</span><span class="mono muted small">sess_9f3c</span></div>
+      <div class="timeline">
+        <div class="msg agent"><p>Analyzed the brief and reviewed r2-a.</p></div>
+        <div class="msg agent"><p>Adjusted the hero layout and copy.</p></div>
+        <div class="msg agent"><p>Refined the glow curve and contrast.</p></div>
+        <div class="msg agent"><p>Round 2 looks strong. Ready to iterate.</p></div>
+      </div>
+      <div class="composer"><textarea rows="3" data-m="composer" placeholder="Message agents…"></textarea><button class="primary" data-m="send">Send</button></div>
+    </section>
+  </section>
+  <section class="col centre">
+    <div class="canvas">
+      <div class="stage" data-m="stage"><img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1600' height='1000'%3E%3Crect width='100%25' height='100%25' fill='%230b0d10'/%3E%3C/svg%3E"></div>
+      <div class="strip" data-m="strip"><button class="thumb active" data-m="thumb-r1a"><img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='64'%3E%3Crect width='100%25' height='100%25' fill='%230b0d10'/%3E%3C/svg%3E"><span class="mono">r1-a</span></button><button class="thumb"><img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='64'%3E%3Crect width='100%25' height='100%25' fill='%230b0d10'/%3E%3C/svg%3E"><span class="mono">r2-a</span></button></div>
+      <div class="toolbar" data-m="toolbar"><button class="primary" data-m="rerender">Re-render</button><button>New variant → r2-a</button><span class="grow"></span><button>Ask agent</button><button>Blind read</button></div>
+    </div>
+  </section>
+  <section class="col right">
+    <div class="inspector">
+      <section data-m="sec-solution">
+        <header class="block-head"><h2 data-m="solution-h2">Solution</h2><span class="grow"></span><button class="ghost">resolve</button><button class="ghost">choose…</button></header>
+        <div class="status"><i class="dot ok"></i> connected</div>
+        <div class="mono muted" data-m="solution-path">/Users/ryanhelms/work/design-system</div>
+        <div class="mono muted">@ 9f3c1a7</div>
+        <div class="mono muted small">design-system @ 9f3c1a7 · main · up to date</div>
+        <details><summary>doctor output</summary></details>
+        <div class="mono muted small">root /Users/ryanhelms/work/marketing-site</div>
+      </section>
+      <section class="git" data-m="sec-git">
+        <h2 data-m="git-h2">Git <span class="muted">— Marketing site</span></h2>
+        <div class="mono small" data-m="git-remote">ryanhelms/marketing-site</div>
+        <div class="row-line" data-m="git-branch"><span class="mono">main</span><span class="mono muted small">@ 4b1d2e9</span></div>
+        <div class="status" data-m="git-status"><i class="dot busy"></i> 3 changed · 2 ahead · 0 behind</div>
+        <ul class="changes mono small" data-m="git-changes">
+          <li><span class="muted">M</span> runs/2026-08-28-home-hero/state.json</li>
+          <li><span class="muted">M</span> runs/2026-08-28-home-hero/brief.md</li>
+          <li><span class="muted">A</span> project.json</li>
+        </ul>
+        <input placeholder="Commit message" value="direction round 2" data-m="git-message">
+        <div class="actions" data-m="git-actions"><button data-m="pull">Pull</button><button class="primary" data-m="commit">Commit</button><button data-m="push">Push</button></div>
+      </section>
+      <section class="project-section" data-m="sec-project">
+        <h2 data-m="project-h2">Project</h2>
+        <div class="project-name">Marketing site</div>
+        <div class="mono muted small">website · active · created 2026-08-20</div>
+      </section>
+      <section class="grow-section" data-m="sec-brief">
+        <header class="block-head"><h2 data-m="brief-h2">Brief<span class="mono muted"> 2026-08-28-home-hero</span></h2><span class="grow"></span><button class="primary" disabled>Save</button></header>
+        <textarea class="editor" spellcheck="false">Refresh the home hero to communicate clarity, confidence, and motion. Lead with the value proposition. Use a cinematic tone with restrained glow and ample negative space.
+Audience: marketing leaders and founders.
+Primary CTA: See it in action.
+Secondary CTA: Explore features.</textarea>
+      </section>
+      <section><h2>Art direction</h2><textarea rows="4" spellcheck="false"></textarea></section>
+      <section><h2>Critique <span class="muted">— one axis per round</span></h2><textarea rows="2"></textarea></section>
+    </div>
+  </section>
+</div></div>
+</body>
+</html>

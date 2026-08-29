@@ -1,0 +1,28 @@
+{
+  "slug": "2026-08-28-git-panel",
+  "product": "bytedesk-designer",
+  "authority": { "path": "/home/ryan/Documents/GitHub/ByteDeskAI/design-system", "sha": "9845b41", "read_at": "2026-08-28T18:55:12Z",
+    "note": "surface loads the app's sheet; app-vendored tokens at .source-sha de482617 (2 lines behind HEAD, unused here)" },
+  "codex": { "version": "codex-cli 0.146.0", "verified_at": "2026-08-28T18:55:12Z" },
+  "stages": {
+    "translate": {
+      "status": "complete",
+      "state": "git-panel",
+      "mockup": "/home/ryan/Pictures/claude-design/runs/2026-08-28-designer-studio-mockups/images/r5-q3.png",
+      "logical": "1280x800",
+      "rounds": 2,
+      "artifacts": ["translate/SPEC.md", "surfaces/git-panel.html", "translate/shots/git-panel-r2.png", "translate/diff/git-panel-r2/report.json"],
+      "viewed": ["translate/grid-git-panel.png", "translate/shots/git-panel-app.png", "translate/shots/git-panel-r1.png", "translate/shots/git-panel-r2.png", "translate/diff/git-panel-r2/diff.png"],
+      "scores": {
+        "r1": { "pixelDiff": 0.0868, "layoutScore": 0.9875, "topHotspot": { "cell": "1,2", "rect": [40,80,40,40], "lumDiff": 0.142 } },
+        "r2": { "pixelDiff": 0.0840, "layoutScore": 0.9902, "topChromeHotspot": { "cell": "1,6", "rect": [40,240,40,40], "lumDiff": 0.032 } }
+      },
+      "implementation_gate": {
+        "status": "inconclusive",
+        "url": "http://127.0.0.1:4174",
+        "reason": "Vite dev build without the Tauri backend: no solution/projects load, so the git-panel state is unreachable; the shell that renders is the empty state",
+        "measured_anyway": { "pixelDiff": 0.1073, "threshold": 16, "meaning": "absent content, not drift" }
+      }
+    }
+  }
+}

@@ -144,6 +144,38 @@
         }
       ],
       "files": []
+    },
+    {
+      "name": "unscoped-accent",
+      "prompt": "build the pricing page for gateway from the brief in this run folder, using the design system at solutions/acme/design-system",
+      "expected_output": "Notices that the authority's stylesheet carries no product scope for gateway, so the page renders the family accent rather than an accent chosen for this product. Reports that in surfaces/notes.md and in the summary, checks the profile to say which case it is (inherits / undecided / claims its own), and does not paper over it by inlining a hex value or inventing a scope block.",
+      "assertions": [
+        {
+          "text": "Checked whether the authority actually carries a product scope for this product, by shape rather than one literal attribute spelling",
+          "kind": "untested"
+        },
+        {
+          "text": "Said the page renders the family accent rather than one chosen for this product",
+          "kind": "untested"
+        },
+        {
+          "text": "Did not inline a hex value to force an accent",
+          "kind": "untested"
+        },
+        {
+          "text": "Did not invent a product scope block in the vendored stylesheet",
+          "kind": "untested"
+        },
+        {
+          "text": "Named which case it is by reading the profile — inherits, undecided, or claims its own accent",
+          "kind": "untested"
+        },
+        {
+          "text": "Reported it in surfaces/notes.md and in the summary rather than only in passing",
+          "kind": "untested"
+        }
+      ],
+      "id": 4
     }
   ],
   "_assertion_kinds": {

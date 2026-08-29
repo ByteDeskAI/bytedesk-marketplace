@@ -1,0 +1,112 @@
+{
+  "skill_name": "bytedesk-designer-translate",
+  "evals": [
+    {
+      "id": 0,
+      "name": "measure-then-build",
+      "prompt": "Here's the mockup our designer approved for the failed-render state of the studio app: ~/Pictures/claude-design/runs/2026-08-28-designer-studio-mockups/images/r3-s5.png (it's a 1280x800 window). Our design authority is at ~/Documents/GitHub/ByteDeskAI/design-system. Build me the real HTML for that state so it matches the mockup.",
+      "expected_output": "Overlays a measuring grid and writes translate/SPEC.md with numeric measurements (column widths, insets, row heights, type sizes) and an explicit list of elements the mockup invented; vendors the authority's CSS with a .source-sha; has Codex write surfaces/<state>.html that loads it and contains no hex/rgb; renders at 1280x800, compares, reads the diff, patches only named hotspots, and records layoutScore per round in notes.md without ever presenting a pixelDiff against the PNG as the gate.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Wrote translate/SPEC.md containing at least ten numeric measurements in logical pixels before the first Codex build",
+          "kind": "discriminator"
+        },
+        {
+          "text": "SPEC.md records the invented-element decision explicitly \u2014 either naming what the mockup invented and must not be built, or stating that nothing structural was invented",
+          "kind": "discriminator"
+        },
+        {
+          "text": "The surface HTML loads a vendored token stylesheet and contains no hex or rgb() colour literals",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Codex wrote the surface (a translate/prompts/*-r1.txt hand-off exists and codex-exec.sh was used in text mode); Claude did not author the markup inline",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Rendered the surface at 1280x800 and produced translate/diff/<state>-r1/report.json with layoutScore and hotspots",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Every change in a patch round is justified by a recorded diff observation (a report hotspot cell or a named region of diff.png noted in notes.md) and the patch prompt lists numbered changes plus a FROZEN list",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Reported layoutScore as the mockup comparison and never presented pixelDiff against the mockup PNG as the pass/fail number",
+          "kind": "discriminator"
+        },
+        {
+          "text": "state.json lists every screenshot and diff image read under stages.translate.viewed",
+          "kind": "discriminator"
+        },
+        {
+          "text": "The final round's report.json shows layoutScore \u2265 0.95 against the mockup (structural fidelity, not just process)",
+          "kind": "discriminator"
+        },
+        {
+          "text": "No hex or rgb() colour literal anywhere in the surface HTML (HTML entities such as &#9656; are not colours)",
+          "kind": "discriminator"
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "name": "implementation-gate",
+      "prompt": "The git-panel screen in our Tauri app drifted from the approved mockup (~/Pictures/claude-design/runs/2026-08-28-designer-studio-mockups/images/r5-q3.png). The app is running at http://127.0.0.1:4174 and its stylesheet is app/src/styles/global.css in ~/Documents/GitHub/ByteDeskAI/bytedesk-designer. Authority is ~/Documents/GitHub/ByteDeskAI/design-system. Give me a surface that matches the mockup and tell me exactly where the app differs from it, in pixels.",
+      "expected_output": "Builds the surface against the app's own stylesheet so the two can be pixel-identical, shoots the live URL, compares surface vs app with the strict threshold, reports pixelDiff with hotspot rects, and recommends CSS changes to the app rather than editing the surface to match the app.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "The surface links the implementation's own stylesheet (app/src/styles/global.css or a byte-identical copy), verifiable in the HTML, so a zero pixel diff is achievable",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Shot the live URL with the same viewport as the surface and produced translate/diff/<state>-app/report.json with pixelDiff",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Reported the implementation gap as pixelDiff with hotspot rects in logical pixels, and the mockup gap as layoutScore \u2014 two different numbers with two different meanings",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Recommended changes to the implementation's CSS to match the surface, and did not alter the surface to match the implementation",
+          "kind": "unproven"
+        },
+        {
+          "text": "Round artefacts exist for every round (translate/prompts/*-rN.txt, shots, diff/report.json) and there are at most three mockup rounds",
+          "kind": "discriminator"
+        },
+        {
+          "text": "If the URL could not be put into the mockup's state, the gate is reported as inconclusive with the reason, not as drift",
+          "kind": "unproven"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "garbled-text-trap",
+      "prompt": "Can you make this mockup pixel perfect in HTML? ~/Pictures/claude-design/runs/2026-08-28-designer-studio-mockups/images/r4-p4.png \u2014 it's the new-project dialog for our design studio app (the dialog is the subject; the inspector column behind it should show the selected project like the rest of the app does, not image-file details). Design system is at ~/Documents/GitHub/ByteDeskAI/design-system. I want it to be an exact match.",
+      "expected_output": "Explains in one or two sentences that a generated PNG is not a pixel source and states which number can reach zero (surface vs implementation) and which cannot (surface vs PNG); still does the full measured translation; excludes the invented inspector panel behind the modal; stops when the remaining hotspots are text speckle rather than burning the third round; records the stop reason.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Told the user plainly that pixel-perfect against a generated PNG is not attainable and named the two comparisons with their ceilings, without refusing the task",
+          "kind": "discriminator"
+        },
+        {
+          "text": "SPEC.md lists the inspector's image-metadata content (Details/Tags/History/Dimensions) as invented and the surface HTML does not build it",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Stopped according to the skill's numeric rule (top hotspot lumDiff < 0.04 and \u0394score < 0.005, or the round-3 ceiling) and recorded the stop reason with the numbers",
+          "kind": "discriminator"
+        },
+        {
+          "text": "Every round's prompt is saved under translate/prompts/ and every round's scores appear in translate/notes.md",
+          "kind": "discriminator"
+        }
+      ]
+    }
+  ]
+}

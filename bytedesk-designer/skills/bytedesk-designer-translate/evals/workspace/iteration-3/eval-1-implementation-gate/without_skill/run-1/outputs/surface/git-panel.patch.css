@@ -1,0 +1,17 @@
+/* Recommended overrides for app/src/styles/global.css — git panel (mockup r5-q3).
+   Measured from r5-q3.png (1586x992). Authority tokens win where the mockup deviates. */
+.inspector section { padding: 20px 24px; gap: 12px; }          /* mockup: text starts 24px in; app 12px */
+.inspector h2 { font-size: 18px; line-height: 1.2; }            /* mockup cap height 13px ≈ 18px; app 13px */
+.inspector .mono, .inspector .mono.small { font-size: 14.5px; }  /* mono pitch 8.74px = 14.5px Plex Mono; app 12px */
+.inspector .status { font-family: var(--bd-font-mono); font-size: 14.5px; gap: 10px; }
+.inspector .dot { width: 11px; height: 11px; }                   /* mockup 11px; app 7px */
+.git .branch { display: flex; align-items: center; justify-content: space-between; height: 35px; padding: 0 12px; background: var(--studio-surface); border: 1px solid var(--bd-border-dimmest); border-radius: var(--studio-radius); }
+.git .changes { gap: 0; }
+.git .changes li { display: grid; grid-template-columns: 28px 1fr; line-height: 35px; }  /* row pitch 35px */
+.git .changes li .muted { color: var(--studio-text); }
+.git .commit { display: flex; flex-direction: column; gap: 10px; }
+.git .commit label { color: var(--studio-muted); font-size: 14.5px; }
+.git textarea { height: 69px; padding: 10px 12px; font-family: var(--bd-font-mono); font-size: 14.5px; resize: none; }
+.git .actions { display: grid; grid-template-columns: 117px 128px 115px; justify-content: space-between; gap: 0; }
+.git .actions button { height: 37px; font-size: 15px; }
+.git .sub { border-top: 1px solid var(--studio-border); margin: 0 -24px; padding: 20px 24px 0; }

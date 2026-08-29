@@ -1,0 +1,40 @@
+{
+  "expectations": [
+    {
+      "text": "Told the user plainly that pixel-perfect against a generated PNG is not attainable and named the two comparisons with their ceilings, without refusing the task",
+      "passed": true,
+      "evidence": "RESULT.md: 'pixel-perfect against that PNG is not attainable, and I did not chase it. The image is a Codex render ... layoutScore ... tops out around 0.97-0.98 ... never reaches 1.0. It finished at 0.974. The strict per-pixel number is meaningful only between this surface and the real app ... 0.0 is achievable.' Surface was built and delivered (surfaces/new-project.html, 0 hex literals, var(--bd-*) only)."
+    },
+    {
+      "text": "SPEC.md lists the inspector's image-metadata content (Details/Tags/History/Dimensions) as invented and the surface HTML does not build it",
+      "passed": true,
+      "evidence": "SPEC.md section 'Invented by the mockup - do not build': 'Right-column asset inspector (Selection r2-a.png, Details ID/Type/Dimensions/Size/Created/Agent/Status, Tags, Notes, History)'. grep -iE 'Details|Tags|History|Dimensions' surfaces/new-project.html returns nothing; HTML contains the project inspector instead (Inspector, No project selected, Brief prompts, Deliverables, Stages, Art direction, Project settings), confirmed in shots/new-project-r3.png."
+    },
+    {
+      "text": "Stopped according to the skill's numeric rule (top hotspot lumDiff < 0.04 and Δscore < 0.005, or the round-3 ceiling) and recorded the stop reason with the numbers",
+      "passed": true,
+      "evidence": "notes.md '## Stop': 'Round 3 is the ceiling. Top remaining hotspot lum 0.056 ... layoutScore moved 0.0012 since round 2 (< 0.005)'. state.json stop: 'round 3 ceiling; top hotspot lum 0.056 on text, layoutScore delta 0.0012 < 0.005'. Numbers match diff/new-project-r{2,3}/report.json (0.9728 -> 0.974). Stop is by the round-3 ceiling since lumDiff was not under 0.04. Caveat: r3 report's highest lumDiff hotspot is cell 20,9 at 0.072 (listed in notes), not the 0.056 the summary calls 'top' - the 0.056 is the first-ranked cell by pixDiff. Does not change the stop verdict."
+    },
+    {
+      "text": "Every round's prompt is saved under translate/prompts/ and every round's scores appear in translate/notes.md",
+      "passed": true,
+      "evidence": "translate/prompts/new-project-r1.txt (9303 B), r2.txt (26914 B), r3.txt (25378 B) exist. notes.md has per-round entries: r1 layoutScore 0.9789/pixelDiff 0.062, r2 0.9728/0.0715, r3 0.9740/0.0687 with hotspot lum values, matching report.json files."
+    }
+  ],
+  "summary": {"passed": 4, "failed": 0, "total": 4, "pass_rate": 1.0},
+  "timing": {"executor_duration_seconds": 786.5, "total_tokens": 147776},
+  "claims": [
+    {"claim": "No hex anywhere, var(--bd-...) only", "type": "factual", "verified": true, "evidence": "grep for #hex literals in surfaces/new-project.html: 0 matches"},
+    {"claim": "Top remaining hotspot lumDiff 0.056", "type": "factual", "verified": false, "evidence": "r3 report.json lists cell 20,9 with lumDiff 0.072; 0.056 (cell 6,18) is the first-listed hotspot, not the max lumDiff. notes.md does list the 0.072 cell."},
+    {"claim": "Each round succeeded on attempt 1, 135-144 s", "type": "process", "verified": false, "evidence": "No transcript; attempts.json/log files exist but timings not independently checked."},
+    {"claim": "'Marketing sites and brochure pages' still breaks to three lines", "type": "quality", "verified": true, "evidence": "Visible in shots/new-project-r3.png Website card."}
+  ],
+  "user_notes_summary": {"uncertainties": ["Type-card description size corrected 11.5 -> 9.5 px after re-measure"], "needs_review": ["No implementation URL, pixelDiff gate not run"], "workarounds": []},
+  "eval_feedback": {
+    "suggestions": [
+      {"assertion": "Stopped according to the skill's numeric rule", "reason": "The summary's 'top hotspot' is the first-listed cell, not the max lumDiff. Consider asserting the reported top lumDiff equals max(lumDiff) in the final report.json so a misread ranking cannot pass."}
+    ],
+    "overall": "Assertions are discriminating for this trap (baseline fails 3/4). Score numbers are machine-checkable against report.json, which is good."
+  },
+  "critique": "Strong run: caveat stated plainly with both comparisons and ceilings, invented inspector content named in SPEC.md and absent from HTML, three rounds with saved prompts, scores and a numeric stop. Only blemish: 'top hotspot 0.056' understates the r3 max lumDiff (0.072 on cell 20,9), though that cell is recorded in notes.md and the round-3 ceiling still governs."
+}

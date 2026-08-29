@@ -1,0 +1,183 @@
+{
+  "logs": [
+    "debug: [vite] connecting...",
+    "debug: [vite] connected.",
+    "info: %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold"
+  ],
+  "info": {
+    "html": "Solution\nnone ▾\ngit\nnot installed\n—\ngithub\nnot signed in\ngh\nProjects\n+ project\nOpen a solution to see its projects.\nno agent\n\nConnect an agent to begin\n\nSend\n\nOpen or create a run\n\nRender r1-a\nNew variant → r1-a\nAsk agent\nBlind read\nDesign authority\nresolve\nchoose…\nnone\nno .design-authority found\nroot\nBrief\n\nOpen or create a run.\n\nArt direction\nCritique — one axis per round",
+    "cols": [
+      [
+        0,
+        0,
+        412,
+        992
+      ],
+      [
+        412,
+        0,
+        730,
+        992
+      ],
+      [
+        1142,
+        0,
+        444,
+        992
+      ]
+    ],
+    "git": false,
+    "root": {
+      "fontFamily": "\"IBM Plex Sans\", ui-sans-serif, system-ui, -apple-system, sans-serif",
+      "fontSize": "16px",
+      "backgroundColor": "rgba(0, 0, 0, 0)"
+    },
+    "body": {
+      "backgroundColor": "rgb(16, 19, 22)",
+      "color": "rgb(230, 232, 235)",
+      "fontFamily": "\"IBM Plex Sans\", ui-sans-serif, system-ui, -apple-system, sans-serif",
+      "fontSize": "14px"
+    },
+    "vars": {
+      "--bd-bg-base": "#101316",
+      "--bd-bg-surface": "#1D2125",
+      "--bd-border-default": "#3A3E42",
+      "--bd-accent": "oklch(0.6375 0.2050 38.67)",
+      "--bd-font-mono": "\"IBM Plex Mono\", ui-monospace, SFMono-Regular, monospace",
+      "--studio-bg": "#101316",
+      "--studio-border": "#3A3E42",
+      "--studio-accent": "oklch(0.6375 0.2050 38.67)"
+    },
+    "sections": [
+      {
+        "rect": [
+          1143,
+          0,
+          443,
+          130
+        ],
+        "padding": "10px 12px",
+        "borderBottom": "1px solid rgb(58, 62, 66)",
+        "gap": "6px"
+      },
+      {
+        "rect": [
+          1143,
+          130,
+          443,
+          160
+        ],
+        "padding": "10px 12px",
+        "borderBottom": "1px solid rgb(58, 62, 66)",
+        "gap": "6px"
+      },
+      {
+        "rect": [
+          1143,
+          290,
+          443,
+          145
+        ],
+        "padding": "10px 12px",
+        "borderBottom": "1px solid rgb(58, 62, 66)",
+        "gap": "6px"
+      },
+      {
+        "rect": [
+          1143,
+          434,
+          443,
+          103
+        ],
+        "padding": "10px 12px",
+        "borderBottom": "1px solid rgb(58, 62, 66)",
+        "gap": "6px"
+      }
+    ],
+    "h2": [
+      {
+        "t": "Projects",
+        "rect": [
+          10,
+          125,
+          49,
+          20
+        ],
+        "fontSize": "13px",
+        "fontWeight": "600",
+        "color": "rgb(230, 232, 235)",
+        "fontFamily": "\"IBM Plex Sans\", ui-sans-serif, system-ui, -apple-system, sans-serif"
+      },
+      {
+        "t": " no agent",
+        "rect": [
+          10,
+          191,
+          65,
+          20
+        ],
+        "fontSize": "13px",
+        "fontWeight": "600",
+        "color": "rgb(230, 232, 235)",
+        "fontFamily": "\"IBM Plex Sans\", ui-sans-serif, system-ui, -apple-system, sans-serif"
+      },
+      {
+        "t": "Design authority",
+        "rect": [
+          1155,
+          16,
+          99,
+          20
+        ],
+        "fontSize": "13px",
+        "fontWeight": "600",
+        "color": "rgb(230, 232, 235)",
+        "fontFamily": "\"IBM Plex Sans\", ui-sans-serif, system-ui, -apple-system, sans-serif"
+      }
+    ],
+    "mono": {
+      "rect": [
+        336,
+        53,
+        59,
+        18
+      ],
+      "fontSize": "12px",
+      "fontFamily": "\"IBM Plex Mono\", ui-monospace, SFMono-Regular, monospace",
+      "color": "rgb(161, 168, 177)"
+    },
+    "btn": {
+      "rect": [
+        70,
+        8,
+        43,
+        23
+      ],
+      "padding": "0px",
+      "fontSize": "14px",
+      "borderRadius": "6px",
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "borderColor": "rgba(0, 0, 0, 0)",
+      "height": "23px"
+    },
+    "input": null,
+    "primary": {
+      "rect": [
+        348,
+        953,
+        54,
+        31
+      ],
+      "backgroundColor": "oklch(0.6375 0.205 38.67)",
+      "color": "oklch(0.96 0.015 256.13)",
+      "fontSize": "14px",
+      "height": "31px"
+    },
+    "dot": {
+      "width": "7px",
+      "height": "7px",
+      "backgroundColor": "oklch(0.591 0.2255 27.74)"
+    },
+    "fontsLoaded": []
+  }
+}

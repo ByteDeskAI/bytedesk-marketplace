@@ -1,0 +1,15 @@
+{
+  "eval_id": 0,
+  "eval_name": "measure-then-build",
+  "prompt": "Here's the mockup our designer approved for the failed-render state of the studio app: ~/Pictures/claude-design/runs/2026-08-28-designer-studio-mockups/images/r3-s5.png (it's a 1280x800 window). Our design authority is at ~/Documents/GitHub/ByteDeskAI/design-system. Build me the real HTML for that state so it matches the mockup.",
+  "assertions": [
+    "Wrote translate/SPEC.md containing at least ten numeric measurements in logical pixels before the first Codex build",
+    "SPEC.md names at least one element the mockup invented that must not be built (e.g. a title bar or hollow thumbnail slots)",
+    "The surface HTML loads a vendored token stylesheet and contains no hex or rgb() colour literals",
+    "Codex wrote the surface (a translate/prompts/*-r1.txt hand-off exists and codex-exec.sh was used in text mode); Claude did not author the markup inline",
+    "Rendered the surface at 1280x800 and produced translate/diff/<state>-r1/report.json with layoutScore and hotspots",
+    "Any second round changed only regions named as hotspots in the previous report, and the patch prompt lists them as numbered changes with a FROZEN list",
+    "Reported layoutScore as the mockup comparison and never presented pixelDiff against the mockup PNG as the pass/fail number",
+    "state.json lists every screenshot and diff image read under stages.translate.viewed"
+  ]
+}

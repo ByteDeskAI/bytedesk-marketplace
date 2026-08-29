@@ -1,0 +1,72 @@
+{
+  "expectations": [
+    {
+      "text": "The surface links the implementation's own stylesheet (app/src/styles/global.css or a byte-identical copy), verifiable in the HTML, so a zero pixel diff is achievable",
+      "passed": true,
+      "evidence": "surfaces/git-panel.html line 7: <link rel=\"stylesheet\" href=\"./tokens/app-global.css\">. cmp against app/src/styles/global.css differs at exactly one line (line 2: @import \"./bytedesk.css\" vs \"../../.context/design-system/tokens/css/bytedesk.css\"); every rule byte-identical otherwise, and surfaces/tokens/bytedesk.css is byte-identical (cmp) to app/.context/design-system/tokens/css/bytedesk.css. Functionally the app's own sheet; the r2 prompt confirms the app sheet's rules were winning on specificity, i.e. it is really loaded."
+    },
+    {
+      "text": "Shot the live URL with the same viewport as the surface and produced translate/diff/<state>-app/report.json with pixelDiff",
+      "passed": true,
+      "evidence": "translate/shots/git-panel-app.png is 1280x800 (file), same as r1/r2 shots. translate/diff/git-panel-app/report.json exists with pixelDiff 0.1073, threshold 16, size 1280x800, b = shots/git-panel-app.png."
+    },
+    {
+      "text": "Reported the implementation gap as pixelDiff with hotspot rects in logical pixels, and the mockup gap as layoutScore \u2014 two different numbers with two different meanings",
+      "passed": true,
+      "evidence": "App gate: pixelDiff 0.1073 with 8 hotspot rects in logical px (e.g. 440,520 40x40) in diff/git-panel-app/report.json and RESULT.md. Mockup rounds: layoutScore 0.9875 -> 0.9902 used as the score/stop condition; RESULT.md states the mockup pixelDiff 'is reported for completeness only; it is not a gate'. Two numbers, two meanings, stated explicitly."
+    },
+    {
+      "text": "Recommended changes to the implementation's CSS to match the surface, and did not alter the surface to match the implementation",
+      "passed": true,
+      "evidence": "RESULT.md 'Where the app differs' table gives 20 concrete global.css rule changes (.shell grid-template-columns, .solution-row, .agents .agent-row, .strip/.thumb, .toolbar, .git ...). The only surface edits (r2, six appended rules, verified in prompts/git-panel-r2.txt) override the app sheet to move the surface TOWARD the mockup, not toward the app. RESULT states 'Nothing under app/ or the authority was touched' (the two uncommitted app/src/*.tsx edits predate both runs by ~25 min and touch IPC error handling, not CSS)."
+    },
+    {
+      "text": "Round artefacts exist for every round (translate/prompts/*-rN.txt, shots, diff/report.json) and there are at most three mockup rounds",
+      "passed": true,
+      "evidence": "2 mockup rounds (<=3). prompts/git-panel-r1.txt, git-panel-r2.txt; shots/git-panel-r1.png, git-panel-r2.png; diff/git-panel-r1/report.json+diff.png, diff/git-panel-r2/report.json+diff.png; plus attempts.json/log/reply per round. Shots viewed: r2 render matches the mockup's structure."
+    },
+    {
+      "text": "If the URL could not be put into the mockup's state, the gate is reported as inconclusive with the reason, not as drift",
+      "passed": true,
+      "evidence": "state.json implementation_gate.status = 'inconclusive', reason 'Vite dev build without the Tauri backend: no solution/projects load, so the git-panel state is unreachable'. RESULT.md heading 'Implementation gate \u2014 INCONCLUSIVE'; the measured 0.1073 is explicitly labelled 'absent content, not drift'. shots/git-panel-app.png viewed: empty shell ('Open a solution to see its projects'), so the claim is true."
+    }
+  ],
+  "summary": {
+    "passed": 6,
+    "failed": 0,
+    "total": 6,
+    "pass_rate": 1.0
+  },
+  "timing": {
+    "total_tokens": 163783,
+    "duration_ms": 749491,
+    "total_duration_seconds": 749.5
+  },
+  "claims": [
+    {
+      "claim": "app-global.css is a byte copy of app/src/styles/global.css with only the @import rewritten",
+      "type": "factual",
+      "verified": true,
+      "evidence": "diff shows a single differing line (line 2)"
+    },
+    {
+      "claim": "No hex or rgb() in the surface",
+      "type": "factual",
+      "verified": true,
+      "evidence": "grep for #hex / rgb( in surfaces/git-panel.html returned nothing"
+    },
+    {
+      "claim": "Round 2 changed exactly six rules",
+      "type": "process",
+      "verified": true,
+      "evidence": "prompts/git-panel-r2.txt lists six numbered changes and freezes everything else"
+    },
+    {
+      "claim": "Nothing under app/ was touched",
+      "type": "process",
+      "verified": false,
+      "evidence": "app/src/App.tsx and panes/SolutionRow.tsx are modified in the working tree (mtime 14:19, ~25 min before either run started); not attributable to this run, but cannot be confirmed from outputs alone"
+    }
+  ],
+  "critique": "Strong run. The stylesheet link is the app's own sheet (one import path rewrite, tokens byte-identical to the vendored file); the app gate is honestly inconclusive with a stated reason and the number still recorded; mockup vs implementation are scored with two different metrics. Weak spots: the 'Where the app differs' table mixes shell-measured rows with rows inferred from reading global.css ('rule'), so half the 'pixel' deltas are derived, not measured; the report.json for the app gate still carries a layoutScore field (harmless, but a reader could conflate it). Eval feedback: assertion 1 should say whether an import-path rewrite counts as byte-identical (it must, or no copy outside app/ can ever pass); assertion 6 would benefit from requiring the word 'inconclusive' in a machine-readable place (state.json), which this run happened to do."
+}

@@ -1,0 +1,980 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1280, initial-scale=1">
+  <title>ByteDesk Designer Studio</title>
+  <link rel="stylesheet" href="./tokens/app-global.css">
+  <style>
+    * {
+      box-sizing: border-box;
+      box-shadow: none !important;
+    }
+
+    html,
+    body {
+      width: 1280px;
+      height: 800px;
+      margin: 0;
+      overflow: hidden;
+      background: var(--studio-bg);
+      color: var(--studio-text);
+      font-family: var(--bd-font-sans);
+      font-size: 14px;
+      font-weight: var(--bd-font-weight-regular);
+    }
+
+    button,
+    textarea {
+      margin: 0;
+      font: inherit;
+      color: var(--studio-text);
+      background: var(--studio-surface);
+      border: 1px solid var(--studio-border);
+      border-radius: 6px;
+      box-shadow: none;
+    }
+
+    button {
+      padding: 0;
+      cursor: default;
+    }
+
+    textarea {
+      resize: none;
+      outline: none;
+    }
+
+    textarea::placeholder {
+      color: var(--studio-muted);
+    }
+
+    .shell {
+      position: relative;
+      display: grid;
+      grid-template-columns: 340px 1fr 374px;
+      width: 1280px;
+      height: 800px;
+      overflow: hidden;
+      background: var(--studio-bg);
+    }
+
+    .shell::before,
+    .shell::after {
+      position: absolute;
+      top: 0;
+      z-index: 10;
+      width: 1px;
+      height: 800px;
+      content: "";
+      background: var(--studio-border);
+      pointer-events: none;
+    }
+
+    .shell::before {
+      left: 340px;
+    }
+
+    .shell::after {
+      left: 905px;
+    }
+
+    .col {
+      position: relative;
+      height: 800px;
+      min-width: 0;
+      overflow: hidden;
+      background: var(--studio-bg);
+    }
+
+    .block,
+    .inspector section {
+      position: absolute;
+      left: 0;
+      width: 100%;
+      margin: 0;
+      padding: 0;
+      border: 0;
+    }
+
+    .hairline {
+      position: absolute;
+      left: 0;
+      width: 100%;
+      height: 1px;
+      background: var(--studio-border);
+    }
+
+    .mono {
+      font-family: var(--bd-font-mono);
+    }
+
+    .muted {
+      color: var(--studio-muted);
+    }
+
+    .small {
+      font-size: 12px;
+    }
+
+    .dot {
+      display: inline-block;
+      flex: 0 0 7px;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      animation: none !important;
+    }
+
+    .dot.ok {
+      background: var(--studio-ok);
+    }
+
+    .dot.busy {
+      background: var(--studio-warn);
+    }
+
+    .primary {
+      color: var(--bd-accent-fg);
+      background: var(--studio-accent);
+      border-color: var(--studio-accent);
+    }
+
+    .left .solution {
+      top: 0;
+      height: 44px;
+    }
+
+    .solution-row {
+      position: absolute;
+      top: 0;
+      left: 24px;
+      display: flex;
+      align-items: center;
+      height: 43px;
+      white-space: nowrap;
+    }
+
+    .solution-label {
+      width: 56px;
+      color: var(--studio-muted);
+      font-size: 14px;
+    }
+
+    .solution-name {
+      font-size: 15px;
+      font-weight: var(--bd-font-weight-semibold);
+    }
+
+    .solution-chevron {
+      margin-left: 6px;
+      font-size: 16px;
+      line-height: 1;
+    }
+
+    .left .agents {
+      top: 44px;
+      height: 119px;
+    }
+
+    .agent-row,
+    .provider-row {
+      position: absolute;
+      left: 24px;
+      display: grid;
+      grid-template-columns: 62px 12px 78px 73px 70px;
+      align-items: center;
+      width: 295px;
+      height: 26px;
+      font-size: 13px;
+    }
+
+    .agent-row:nth-child(1) { top: 3px; }
+    .agent-row:nth-child(2) { top: 30px; }
+    .agent-row:nth-child(3) { top: 57px; }
+    .agent-row:nth-child(4) { top: 84px; }
+
+    .agent-name,
+    .agent-version,
+    .provider-name,
+    .provider-account {
+      font-family: var(--bd-font-mono);
+    }
+
+    .status-word {
+      color: var(--studio-muted);
+    }
+
+    .agent-version {
+      color: var(--studio-muted);
+    }
+
+    .agent-row button {
+      width: 70px;
+      height: 20px;
+      border-color: var(--studio-border);
+      font-size: 12px;
+      line-height: 18px;
+    }
+
+    .left .providers {
+      top: 163px;
+      height: 61px;
+    }
+
+    .provider-row {
+      grid-template-columns: 62px 12px 78px 143px;
+    }
+
+    .provider-row:nth-child(1) { top: 3px; }
+    .provider-row:nth-child(2) { top: 29px; }
+
+    .left .projects {
+      top: 224px;
+      height: 245px;
+    }
+
+    .block-head {
+      position: absolute;
+      left: 24px;
+      display: flex;
+      align-items: center;
+      height: 28px;
+      font-size: 15px;
+      font-weight: var(--bd-font-weight-semibold);
+    }
+
+    .projects > .block-head {
+      top: 6px;
+    }
+
+    .project {
+      position: absolute;
+      left: 20px;
+      width: 302px;
+    }
+
+    .project.expanded {
+      top: 36px;
+      height: 116px;
+      border-radius: 6px;
+      outline: 1px solid var(--studio-accent);
+      outline-offset: -1px;
+    }
+
+    .project-row {
+      position: relative;
+      width: 100%;
+    }
+
+    .expanded .project-row {
+      height: 43px;
+    }
+
+    .project-chevron {
+      position: absolute;
+      left: 12px;
+      top: 6px;
+      font-size: 15px;
+      line-height: 16px;
+    }
+
+    .project-name {
+      position: absolute;
+      left: 28px;
+      top: 5px;
+      font-size: 14px;
+      font-weight: var(--bd-font-weight-semibold);
+      line-height: 18px;
+    }
+
+    .project-branch {
+      position: absolute;
+      left: 28px;
+      top: 25px;
+      color: var(--studio-muted);
+      font-family: var(--bd-font-mono);
+      font-size: 12px;
+      line-height: 14px;
+    }
+
+    .runs {
+      position: absolute;
+      top: 48px;
+      left: 28px;
+      width: 252px;
+    }
+
+    .run-row {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 252px;
+      height: 20px;
+      font-family: var(--bd-font-mono);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .run-time {
+      color: var(--studio-muted);
+    }
+
+    .run-add {
+      height: 20px;
+      font-family: var(--bd-font-mono);
+      font-size: 12px;
+      line-height: 20px;
+    }
+
+    .project.collapsed {
+      left: 20px;
+      height: 41px;
+    }
+
+    .project.docs {
+      top: 152px;
+    }
+
+    .project.brand {
+      top: 193px;
+    }
+
+    .collapsed .project-chevron {
+      left: 10px;
+      top: 6px;
+    }
+
+    .collapsed .project-name {
+      left: 28px;
+      top: 4px;
+    }
+
+    .collapsed .project-branch {
+      left: 28px;
+      top: 23px;
+    }
+
+    .left .conversation {
+      top: 469px;
+      height: 328px;
+    }
+
+    .conversation > .block-head {
+      top: 4px;
+    }
+
+    .message {
+      position: absolute;
+      left: 24px;
+      width: 294px;
+      height: 36px;
+      font-size: 13px;
+    }
+
+    .message.m1 { top: 31px; }
+    .message.m2 { top: 68px; }
+    .message.m3 { top: 106px; }
+    .message.m4 { top: 144px; }
+
+    .message-head {
+      display: flex;
+      align-items: center;
+      height: 18px;
+    }
+
+    .message-agent {
+      font-family: var(--bd-font-mono);
+    }
+
+    .message-time {
+      margin-left: 8px;
+      color: var(--studio-muted);
+      font-size: 12px;
+    }
+
+    .message-body {
+      height: 18px;
+      line-height: 18px;
+      white-space: nowrap;
+    }
+
+    .composer {
+      position: absolute;
+      left: 24px;
+      top: 189px;
+      width: 294px;
+      height: 68px;
+      padding: 8px 10px;
+      font-size: 13px;
+      line-height: 18px;
+      background: var(--studio-surface);
+      border-color: var(--studio-border);
+    }
+
+    .conversation .actions {
+      position: absolute;
+      top: 267px;
+      right: 22px;
+    }
+
+    .conversation .actions button {
+      width: 58px;
+      height: 32px;
+      font-size: 14px;
+    }
+
+    .centre {
+      background: var(--studio-bg);
+    }
+
+    .stage {
+      position: absolute;
+      top: 63px;
+      left: 26px;
+      width: 516px;
+      height: 437px;
+      background: var(--studio-surface);
+    }
+
+    .strip {
+      position: absolute;
+      top: 519px;
+      left: 28px;
+      display: flex;
+      gap: 7px;
+      height: 98px;
+    }
+
+    .thumb-wrap {
+      width: 115px;
+      height: 98px;
+      text-align: center;
+    }
+
+    .thumb {
+      width: 115px;
+      height: 78px;
+      border-radius: 6px;
+      background: var(--studio-elevated);
+    }
+
+    .thumb.selected {
+      outline: 1px solid var(--studio-accent);
+      outline-offset: -1px;
+    }
+
+    .thumb-label {
+      height: 20px;
+      font-family: var(--bd-font-mono);
+      font-size: 13px;
+      line-height: 20px;
+    }
+
+    .centre .centre-line {
+      top: 645px;
+      left: 1px;
+      width: 565px;
+    }
+
+    .toolbar {
+      position: absolute;
+      top: 682px;
+      left: 24px;
+      display: flex;
+      align-items: center;
+      width: 518px;
+      height: 31px;
+    }
+
+    .toolbar button {
+      height: 31px;
+      border-color: var(--studio-border);
+      font-size: 14px;
+    }
+
+    .toolbar .rerender {
+      width: 119px;
+    }
+
+    .toolbar .new-variant {
+      width: 118px;
+      margin-left: 22px;
+    }
+
+    .toolbar .ask-agent {
+      width: 109px;
+      margin-left: 21px;
+    }
+
+    .toolbar .blind-read {
+      width: 107px;
+      margin-left: 22px;
+    }
+
+    .right {
+      background: var(--studio-bg);
+    }
+
+    .inspector section {
+      left: 20px;
+      width: 328px;
+    }
+
+    .section-title {
+      position: absolute;
+      left: 0;
+      display: flex;
+      align-items: center;
+      width: 328px;
+      height: 20px;
+      font-size: 15px;
+      font-weight: var(--bd-font-weight-semibold);
+    }
+
+    .right .row-line {
+      position: absolute;
+      left: 0;
+      display: flex;
+      align-items: center;
+      width: 328px;
+      height: 20px;
+    }
+
+    .right .solution {
+      top: 0;
+      height: 136px;
+    }
+
+    .right .solution .section-title {
+      top: 14px;
+    }
+
+    .solution-status {
+      top: 42px;
+      gap: 8px;
+      font-size: 13px;
+    }
+
+    .solution-path {
+      top: 68px;
+      color: var(--studio-muted);
+      font-family: var(--bd-font-mono);
+      font-size: 13px;
+    }
+
+    .solution-revision {
+      top: 96px;
+      font-family: var(--bd-font-mono);
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .right .section-line {
+      position: absolute;
+      left: -20px;
+      width: 374px;
+      height: 1px;
+      background: var(--studio-border);
+    }
+
+    .right .solution .section-line {
+      top: 135px;
+    }
+
+    .right .git {
+      top: 136px;
+      height: 377px;
+    }
+
+    .git .section-title {
+      top: 12px;
+    }
+
+    .git-repo {
+      top: 38px;
+      font-family: var(--bd-font-mono);
+      font-size: 13px;
+    }
+
+    .branch-select {
+      position: absolute;
+      top: 64px;
+      left: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 328px;
+      height: 28px;
+      padding: 0 10px;
+      background: var(--studio-surface);
+      border: 1px solid var(--studio-border);
+      border-radius: 6px;
+      font-family: var(--bd-font-mono);
+      font-size: 13px;
+    }
+
+    .git-status {
+      top: 102px;
+      gap: 8px;
+      color: var(--studio-muted);
+      font-size: 13px;
+    }
+
+    .git .status-line {
+      top: 133px;
+    }
+
+    .changes {
+      position: absolute;
+      top: 140px;
+      left: 0;
+      width: 328px;
+    }
+
+    .change-row {
+      display: grid;
+      grid-template-columns: 20px 1fr;
+      align-items: center;
+      width: 328px;
+      height: 28px;
+      font-family: var(--bd-font-mono);
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .change-code {
+      color: var(--studio-muted);
+    }
+
+    .git .changes-line {
+      top: 231px;
+    }
+
+    .commit-label {
+      top: 241px;
+      color: var(--studio-muted);
+      font-size: 13px;
+    }
+
+    .commit-message {
+      position: absolute;
+      top: 267px;
+      left: 0;
+      width: 328px;
+      height: 55px;
+      padding: 9px 10px;
+      background: var(--studio-surface);
+      border: 1px solid var(--studio-border);
+      border-radius: 6px;
+      font-family: var(--bd-font-mono);
+      font-size: 13px;
+      line-height: 18px;
+    }
+
+    .git .actions {
+      position: absolute;
+      top: 332px;
+      left: 0;
+      display: flex;
+      align-items: center;
+      width: 328px;
+      height: 30px;
+    }
+
+    .git .actions button {
+      height: 30px;
+      font-size: 14px;
+    }
+
+    .pull {
+      width: 92px;
+    }
+
+    .commit {
+      width: 104px;
+      margin-left: 18px;
+    }
+
+    .push {
+      width: 92px;
+      margin-left: 22px;
+    }
+
+    .git .git-end-line {
+      top: 376px;
+    }
+
+    .right .project-section {
+      top: 513px;
+      height: 75px;
+    }
+
+    .project-section .section-title {
+      top: 13px;
+    }
+
+    .project-state {
+      top: 42px;
+      color: var(--studio-muted);
+      font-family: var(--bd-font-mono);
+      font-size: 13px;
+    }
+
+    .right .brief {
+      top: 588px;
+      height: 212px;
+    }
+
+    .brief .section-title {
+      top: 10px;
+    }
+
+    .brief-copy {
+      position: absolute;
+      top: 29px;
+      left: 0;
+      width: 328px;
+      margin: 0;
+      font-size: 13px;
+      line-height: 19.5px;
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <aside class="col left">
+      <section class="block solution">
+        <div class="solution-row">
+          <span class="solution-label">Solution</span>
+          <span class="solution-name">design-system</span>
+          <span class="solution-chevron">›</span>
+        </div>
+        <div class="hairline" style="top:43px"></div>
+      </section>
+
+      <section class="block agents">
+        <div class="agent-row">
+          <span class="agent-name">claude</span>
+          <span class="dot ok"></span>
+          <span class="status-word">ok</span>
+          <span class="agent-version">1.0.60</span>
+          <button type="button">Connect</button>
+        </div>
+        <div class="agent-row">
+          <span class="agent-name">codex</span>
+          <span class="dot ok"></span>
+          <span class="status-word">ok</span>
+          <span class="agent-version">0.37.1</span>
+          <button type="button">Connect</button>
+        </div>
+        <div class="agent-row">
+          <span class="agent-name">grok</span>
+          <span class="dot ok"></span>
+          <span class="status-word">ok</span>
+          <span class="agent-version">0.15.0</span>
+          <button type="button">Connect</button>
+        </div>
+        <div class="agent-row">
+          <span class="agent-name">kimi</span>
+          <span class="dot ok"></span>
+          <span class="status-word">ok</span>
+          <span class="agent-version">1.7.2</span>
+          <button type="button">Connect</button>
+        </div>
+        <div class="hairline" style="top:118px"></div>
+      </section>
+
+      <section class="block providers">
+        <div class="provider-row">
+          <span class="provider-name">git</span>
+          <span class="dot ok"></span>
+          <span class="status-word">ok</span>
+          <span></span>
+        </div>
+        <div class="provider-row">
+          <span class="provider-name">github</span>
+          <span class="dot ok"></span>
+          <span class="status-word">ok</span>
+          <span class="provider-account">ryanhelms</span>
+        </div>
+        <div class="hairline" style="top:60px"></div>
+      </section>
+
+      <section class="block projects">
+        <div class="block-head">Projects</div>
+
+        <div class="project expanded">
+          <div class="project-row">
+            <span class="project-chevron">⌄</span>
+            <span class="project-name">Marketing site</span>
+            <span class="project-branch">main · ↑2 ↓0 · 3 changed</span>
+          </div>
+          <div class="runs">
+            <div class="run-row">
+              <span>2026-08-28-home-hero</span>
+              <span class="run-time">2h ago</span>
+            </div>
+            <div class="run-row">
+              <span>2026-08-27-landing-nav</span>
+              <span class="run-time">1d ago</span>
+            </div>
+            <div class="run-add">+ run</div>
+          </div>
+        </div>
+
+        <div class="project collapsed docs">
+          <div class="project-row">
+            <span class="project-chevron">›</span>
+            <span class="project-name">Design system docs</span>
+            <span class="project-branch">main · ↑0 ↓0 · clean</span>
+          </div>
+        </div>
+
+        <div class="project collapsed brand">
+          <div class="project-row">
+            <span class="project-chevron">›</span>
+            <span class="project-name">Brand campaign</span>
+            <span class="project-branch">main · ↑1 ↓0 · 1 changed</span>
+          </div>
+        </div>
+
+        <div class="hairline" style="top:244px"></div>
+      </section>
+
+      <section class="block conversation">
+        <div class="block-head">Conversation</div>
+
+        <div class="message m1">
+          <div class="message-head">
+            <span class="message-agent">claude</span>
+            <span class="message-time">10:41 AM</span>
+          </div>
+          <div class="message-body">Analyzed the brief and reviewed r2-a.</div>
+        </div>
+
+        <div class="message m2">
+          <div class="message-head">
+            <span class="message-agent">codex</span>
+            <span class="message-time">10:42 AM</span>
+          </div>
+          <div class="message-body">Adjusted the hero layout and copy.</div>
+        </div>
+
+        <div class="message m3">
+          <div class="message-head">
+            <span class="message-agent">grok</span>
+            <span class="message-time">10:43 AM</span>
+          </div>
+          <div class="message-body">Refined the glow curve and contrast.</div>
+        </div>
+
+        <div class="message m4">
+          <div class="message-head">
+            <span class="message-agent">kimi</span>
+            <span class="message-time">10:44 AM</span>
+          </div>
+          <div class="message-body">Round 2 looks strong. Ready to iterate.</div>
+        </div>
+
+        <textarea class="composer" aria-label="Message agents" placeholder="Message agents…."></textarea>
+        <div class="actions">
+          <button class="primary" type="button">Send</button>
+        </div>
+      </section>
+    </aside>
+
+    <section class="col centre">
+      <div class="stage"></div>
+
+      <div class="strip">
+        <div class="thumb-wrap">
+          <div class="thumb selected"></div>
+          <div class="thumb-label">r1-a</div>
+        </div>
+        <div class="thumb-wrap">
+          <div class="thumb"></div>
+          <div class="thumb-label">r2-a</div>
+        </div>
+      </div>
+
+      <div class="hairline centre-line"></div>
+
+      <div class="toolbar">
+        <button class="primary rerender" type="button">Re-render</button>
+        <button class="new-variant" type="button">New variant</button>
+        <button class="ask-agent" type="button">Ask agent</button>
+        <button class="blind-read" type="button">Blind read</button>
+      </div>
+    </section>
+
+    <aside class="col right inspector">
+      <section class="solution">
+        <div class="section-title">Solution</div>
+        <div class="row-line solution-status status">
+          <span class="dot ok"></span>
+          <span>connected</span>
+        </div>
+        <div class="row-line solution-path">/Users/ryanhelms/work/design-system</div>
+        <div class="row-line solution-revision">design-system @ 9f3c1a7 · main · up to date</div>
+        <div class="section-line"></div>
+      </section>
+
+      <section class="git">
+        <div class="section-title">Git</div>
+        <div class="row-line git-repo">ryanhelms/marketing-site</div>
+
+        <div class="branch-select">
+          <span>main</span>
+          <span>⌄</span>
+        </div>
+
+        <div class="row-line git-status status">
+          <span class="dot busy"></span>
+          <span>3 changed · 2 ahead · 0 behind</span>
+        </div>
+
+        <div class="section-line status-line"></div>
+
+        <div class="changes">
+          <div class="change-row">
+            <span class="change-code">M</span>
+            <span>runs/2026-08-28-home-hero/state.json</span>
+          </div>
+          <div class="change-row">
+            <span class="change-code">M</span>
+            <span>runs/2026-08-28-home-hero/brief.md</span>
+          </div>
+          <div class="change-row">
+            <span class="change-code">A</span>
+            <span>project.json</span>
+          </div>
+        </div>
+
+        <div class="section-line changes-line"></div>
+        <div class="row-line commit-label">Commit message</div>
+        <div class="commit-message">direction round 2</div>
+
+        <div class="actions">
+          <button class="pull" type="button">Pull</button>
+          <button class="primary commit" type="button">Commit</button>
+          <button class="push" type="button">Push</button>
+        </div>
+
+        <div class="section-line git-end-line"></div>
+      </section>
+
+      <section class="project-section">
+        <div class="section-title">Project</div>
+        <div class="row-line project-state">website · active</div>
+      </section>
+
+      <section class="brief">
+        <div class="section-title">Brief</div>
+        <p class="brief-copy">Refresh the home hero to communicate clarity,<br>confidence, and motion. Lead with the value<br>proposition. Use a cinematic tone with restrained<br>glow and ample negative space.<br>Audience: marketing leaders and founders.<br>Primary CTA: See it in action.<br>Secondary CTA: Explore features.</p>
+      </section>
+    </aside>
+  </main>
+</body>
+</html>

@@ -46,6 +46,10 @@ The substrate every member reads and writes.
     "read_at": "2026-08-27T14:02:11Z"
   },
   "codex": { "version": "codex-cli 0.147.0", "verified_at": "2026-08-27T14:01:58Z" },
+  "profile": {
+    "source": "project",
+    "path": "/home/me/solutions/acme/projects/quiet-ledger/DESIGN.md"
+  },
   "stages": {
     "discovery": { "status": "complete", "artifacts": ["brief.md"] },
     "direction": {
@@ -60,13 +64,18 @@ The substrate every member reads and writes.
 }
 ```
 
-Three fields carry weight beyond bookkeeping:
+Four fields carry weight beyond bookkeeping:
 
 - **`authority.sha`** — which commit of the design authority governed this run. Without it
   a run folder six months old cannot be explained, and a token that has since changed
   looks like a mistake rather than history.
 - **`codex.version`** — provenance. An artifact's header claims Codex made it; this is the
   record that it did.
+- **`profile`** — which profile governed this run, and where it was read from. `source` is
+  `project`, `authority`, or `none`; `path` is absent when it is `none`. Resolution is the
+  three-layer rule in the authority contract, and `authority-doctor.sh --product <id>`
+  reports it. Without this field a run under a solution and a run under the authority look
+  identical afterwards, though they may have been directed by different files.
 - **`viewed`** — every artifact this stage actually inspected. A stage may not list an
   artifact in `artifacts` that is absent from `viewed`. This is the look-before-promoting
   rule made checkable rather than merely stated, and it is what the review stage and the
@@ -94,6 +103,7 @@ Tool: codex exec (codex-cli 0.147.0), native image_gen
 Date: 2026-08-27
 Requested by: <name>
 Authority: <repo> @ <sha> — <profiles and token files read>
+Profile: <project|authority|inherited> — <path, or "foundation only">
 Status: exploration — not approved, not production source
 ```
 

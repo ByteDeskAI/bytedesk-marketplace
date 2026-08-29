@@ -1,0 +1,359 @@
+{
+  "metadata": {
+    "skill_name": "bytedesk-designer-translate",
+    "skill_path": "<path/to/skill>",
+    "executor_model": "<model-name>",
+    "analyzer_model": "<model-name>",
+    "timestamp": "2026-08-28T18:21:22Z",
+    "evals_run": [
+      0,
+      1,
+      2
+    ],
+    "runs_per_configuration": 3
+  },
+  "runs": [
+    {
+      "eval_id": 0,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.88,
+        "passed": 7,
+        "failed": 1,
+        "total": 8,
+        "time_seconds": 0.0,
+        "tokens": 0,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Wrote translate/SPEC.md containing at least ten numeric measurements in logical pixels before the first Codex build",
+          "passed": true,
+          "evidence": "translate/SPEC.md exists (4392 bytes) with ~180 numeric literals in logical px (e.g. 'LEFT x 12\u2013334 (w 322)', 'Agent rows \u00d74 \u2026 pitch 36 (rows at 40/76/111/147)', 'Send button x 239\u2013320, y 738\u2013767'). It states 'PNG is 1586\u00d7992, scale 1.239' and all numbers logical. Precedence over the build is proven by prompts/render-failed-r1.txt embedding SPEC's measurement blocks verbatim under 'MEASUREMENTS (logical px \u2014 build to these, do not eyeball)'."
+        },
+        {
+          "text": "SPEC.md names at least one element the mockup invented that must not be built (e.g. a title bar or hollow thumbnail slots)",
+          "passed": true,
+          "evidence": "SPEC.md section '## Mockup INVENTED \u2014 do not build' names 'The dotted underline under \"direct\" and \"300s\" in the attempts table is rendering noise' and 'no placeholder is needed'; it also explicitly records that no title bar exists in r3-s5. The underline is genuinely in the mockup (visible in mockup-render-failed.png) and was not built (surface has no text-decoration), whereas the baseline reproduced it. Weak but genuine \u2014 the fuller DO-NOT-BUILD list (title bar, empty slots, stage placeholder, icons) is only in the r1 prompt."
+        },
+        {
+          "text": "The surface HTML loads a vendored token stylesheet and contains no hex or rgb() colour literals",
+          "passed": true,
+          "evidence": "surfaces/render-failed.html line 7: <link rel=\"stylesheet\" href=\"./tokens/design.css\">; surfaces/tokens/design.css is the 332-line authority sheet with .source-sha 9845b41\u2026. grep -E '#[0-9a-fA-F]{3,8}\\b|rgba?\\(' on the HTML returns nothing. All 16 var(--bd-*) names used resolve in the vendored sheet (checked each)."
+        },
+        {
+          "text": "Codex wrote the surface (a translate/prompts/*-r1.txt hand-off exists and codex-exec.sh was used in text mode); Claude did not author the markup inline",
+          "passed": true,
+          "evidence": "translate/prompts/render-failed-r1.txt (6830 bytes) exists; render-failed-r1-log.txt is a codex exec transcript ('OpenAI Codex v0.146.0 \u2026 model: gpt-5.6-sol \u2026 sandbox: read-only') with the prompt echoed and no image flag; render-failed-r1.attempts.json = {\"mode\":\"text\",\"outcome\":\"ok\",\"attempts\":[{\"attempt\":\"direct\",\"exit\":0,\"seconds\":87,\"produced\":true}]} \u2014 the exact format written by scripts/codex-exec.sh. render-failed-r2-reply.txt is byte-identical (cmp) to surfaces/render-failed.html, and r1\u2192r2 differ only in the 5 patched lines, so the markup is Codex's, not Claude's."
+        },
+        {
+          "text": "Rendered the surface at 1280x800 and produced translate/diff/<state>-r1/report.json with layoutScore and hotspots",
+          "passed": true,
+          "evidence": "translate/shots/render-failed-r1.png and r2.png are 1280x800 RGB. translate/diff/render-failed-r1/report.json has size 1280x800, layoutScore 0.9745, pixelDiff 0.0686, grid 32x20 and 8 hotspots with cell/rect/lumDiff/pixDiff (e.g. cell 25,2 rect x1000 y80). r2 report likewise (layoutScore 0.9748)."
+        },
+        {
+          "text": "Any second round changed only regions named as hotspots in the previous report, and the patch prompt lists them as numbered changes with a FROZEN list",
+          "passed": false,
+          "evidence": "The r2 patch prompt is well-formed: 'CHANGES:' 1\u20134 numbered, then 'FROZEN (already correct \u2014 do not touch): \u2026'. But two of the four changes are outside the r1 hotspot cells. r1 hotspots = 1,7 1,10 1,12 2,9 3,7 25,2 25,3 28,2 (40px cells). Change 1 (.stage-status, window x\u2248605 y\u2248179) is cell 15,4 and change 2 (.runs-label, x27 y187) is cell 0,4 \u2014 neither is named. notes.md admits these were read from the diff image ('\"exhausted\" 14px low; \"Runs\" label 8px low'), not the report's hotspot list. Only changes 3\u20134 (timeline, cells 1\u20132 \u00d7 9\u201312) sit in named hotspots."
+        },
+        {
+          "text": "Reported layoutScore as the mockup comparison and never presented pixelDiff against the mockup PNG as the pass/fail number",
+          "passed": true,
+          "evidence": "RESULT.md table header: '| round | layoutScore | pixelDiff (informational) |'; notes.md: 'layoutScore 0.9745, pixelDiff 0.0686 (not the gate)'; state.json scores.final carries layoutScore and RESULT says 'No implementation URL was given, so the pixelDiff gate was not run.' layoutScore is consistently the mockup number."
+        },
+        {
+          "text": "state.json lists every screenshot and diff image read under stages.translate.viewed",
+          "passed": true,
+          "evidence": "state.json stages.translate.viewed = [grid-render-failed.png, shots/render-failed-r1.png, diff/render-failed-r1/diff.png, shots/render-failed-r2.png, diff/render-failed-r2/diff.png] \u2014 every screenshot and diff image present on disk. Without a transcript it cannot be shown that no other image was read; passed on the evidence available."
+        }
+      ],
+      "notes": [
+        "Timeline entries deliberately left ~6\u20138px below the mockup's; run ids narrower in real Plex Mono",
+        "pixelDiff implementation gate not run \u2014 no URL given"
+      ]
+    },
+    {
+      "eval_id": 1,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.8,
+        "passed": 4,
+        "failed": 1,
+        "total": 5,
+        "time_seconds": 0.0,
+        "tokens": 0,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "The surface imports or vendors the same stylesheet the implementation uses, so a zero pixel diff is achievable",
+          "passed": false,
+          "evidence": "surfaces/git-panel.html line 6: `<link rel=\"stylesheet\" href=\"./tokens/design.css\">` only; no import of app/src/styles/global.css. design.css is the authority's tokens/css/bytedesk.css @ 9845b41 and `diff` against the app's vendored app/.context/design-system/tokens/css/bytedesk.css shows 2 extra lines (--bd-product-agent-mail token + its [data-bd-product] rule) \u2014 not the identical sheet the app loads, and the app's layout rules (.shell, .block, h2, button \u2026) are absent. RESULT.md itself notes the drift. Surface uses zero hex/rgb literals (grep count 0), so token discipline is good, but a zero pixel diff against the app is not structurally achievable from this surface."
+        },
+        {
+          "text": "Shot the live URL with the same viewport as the surface and produced translate/diff/<state>-app/report.json with pixelDiff",
+          "passed": true,
+          "evidence": "translate/shots/git-panel-app.png is 1280x800, same as git-panel-r2.png (identify). translate/diff/git-panel-app/report.json exists with a=git-panel-r2.png, b=git-panel-app.png, size 1280x800, pixelDiff 0.1112, threshold 16, 8 hotspots. Viewed git-panel-app.png: it is the real Vite shell (Design authority / Brief / Art direction panes, no Git section) \u2014 a genuine live capture, with the empty-shell caveat honestly recorded in RESULT.md and state.json."
+        },
+        {
+          "text": "Reported the implementation gap as pixelDiff with hotspot rects in logical pixels, and the mockup gap as layoutScore \u2014 two different numbers with two different meanings",
+          "passed": true,
+          "evidence": "RESULT.md: mockup rounds reported as layoutScore 0.9797/0.9799 (0.9922/0.9924 masked) with the explicit line 'pixelDiff vs the PNG is ~0.098 and is not a gate number'; implementation gate reported as 'pixelDiff 0.1112 \u2014 FAIL (gate 0.01)' with a hotspot table of rects (x,y,w,h) in logical px, e.g. cell 10,17 \u2192 400,680,40,40 lumDiff 0.314, matching report.json. state.json separates scores.r1/r2.layoutScore from scores.implementation.pixelDiff."
+        },
+        {
+          "text": "Recommended changes to the implementation's CSS to match the surface, and did not alter the surface to match the implementation",
+          "passed": true,
+          "evidence": "RESULT.md 'Recommended CSS changes (app/src/styles/global.css \u2014 not applied; app/ is read-only for this run)' gives concrete rules (.shell grid-template-columns 339px 1fr 375px, .block padding, h2 14px, .git .changes gap 9px, etc.). notes.md round 2 patch moved .agent-row/.provider-row tops toward the mockup's measured bands (47/74/102/129), not toward the app; no surface change references the app render. Surface r2 screenshot matches mockup geometry, not the app's."
+        },
+        {
+          "text": "Did not exceed three build/patch rounds against the mockup",
+          "passed": true,
+          "evidence": "state.json stages.translate.rounds = 2; translate/prompts has git-panel-r1.txt and r2.txt only; codex attempts.json for r1 and r2 both outcome 'ok' single attempt. notes.md records STOP at r2 (\u0394 0.0002 < 0.005)."
+        }
+      ],
+      "notes": [
+        "Implementation pixelDiff is dominated by the empty Vite shell (no Tauri backend); executor asks for a re-run inside the Tauri window before treating 0.1112 as CSS drift",
+        "Vendored token sheet in app is one commit behind the authority \u2014 run design-system-sync",
+        "Stage region masked (mockup-stage-masked.png) to get a layoutScore not dominated by the fog image"
+      ]
+    },
+    {
+      "eval_id": 2,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.5,
+        "passed": 2,
+        "failed": 2,
+        "total": 4,
+        "time_seconds": 0.0,
+        "tokens": 0,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Told the user plainly that pixel-perfect against a generated PNG is not attainable and named the two comparisons with their ceilings, without refusing the task",
+          "passed": true,
+          "evidence": "RESULT.md: 'a pixel-identical match to this PNG is not attainable, and I did not chase it' ... 'What *can* be exact is the gap between this surface and your app once the app loads the same stylesheet; that pixelDiff can reach zero' ... 'Against the PNG itself the meaningful number is the layout score, which converges at roughly 0.97'. Both comparisons named with ceilings (layoutScore ~0.97 vs PNG; pixelDiff 0 vs implementation). Task was built (surfaces/new-project-dialog.html exists, 0 colour literals, renders fully per shots/new-project-dialog-r3.png)."
+        },
+        {
+          "text": "SPEC.md excludes the invented inspector content behind the modal (Details/Tags/History panel) from what gets built",
+          "passed": false,
+          "evidence": "SPEC.md '## Right column (inspector)' fully specifies 'Section titles ... Details y 129, Tags y 325, ... History y 497', the Details rows (ID img_7f2b9c1d, Type image/png, Dimensions 1920 \u00d7 1080, Size 1.42 MB, Created, Agent, Status) and two History entries. Its 'Invented by the mockup \u2014 do not build' list contains only the fog illustration, film grain and scrim \u2014 not the inspector content. The built HTML contains <h3 class=\"section-title details-title\">Details</h3>, a details-list <dl>, 'Tags', and 'History' entries (surfaces/new-project-dialog.html lines 1066\u20131100), and they are visible in shots/new-project-dialog-r3.png."
+        },
+        {
+          "text": "Stopped before round three with a recorded reason when the remaining hotspots were text speckle, rather than spending the round",
+          "passed": false,
+          "evidence": "Three rounds were run: translate/prompts/new-project-dialog-r{1,2,3}.txt, diff/new-project-dialog-r{1,2,3}/report.json, notes.md '## Round 3'. state.json rounds: 3. A recorded stop reason exists ('Round 3 is the ceiling; top hotspot lumDiff 0.029 < 0.04; score moved 0.004 < 0.005') but it is recorded after round three, not before. Note for the author: under the skill's own stopping rule the third round was permitted \u2014 round-2 report.json top hotspot 10,12 lumDiff 0.059 (>= 0.04) and the executor sampled luminance and found a fill mismatch (modal bg 26 vs 32, cards 28.5 vs 39.5), not text speckle; round 3 dropped that hotspot to 0.029 and layoutScore 0.9653\u21920.9692. So the round was justified by the rules, but the assertion as written is literal and fails."
+        },
+        {
+          "text": "Every round's prompt is saved under translate/prompts/ and every round's scores appear in translate/notes.md",
+          "passed": true,
+          "evidence": "translate/prompts/ holds new-project-dialog-r1.txt (11687 B, full spec build prompt), r2.txt (31734 B, 'CHANGES: 1. Left column panels...'), r3.txt (30139 B, 'CHANGES: 1. Modal card: ... var(--bd-bg-subtle)'). notes.md records per round: r1 'layoutScore 0.9640 \u00b7 pixelDiff 0.0795 \u00b7 top hotspots 10,12 / 20,9 / 15,9 / 10,9'; r2 'layoutScore 0.9653 (+0.0013) \u00b7 pixelDiff 0.0709 \u00b7 top hotspot 10,12 lumDiff 0.059'; r3 'layoutScore 0.9692 (+0.0039) \u00b7 pixelDiff 0.0698 \u00b7 top hotspot 10,12 lumDiff 0.029'. All match report.json values."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 0,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.12,
+        "passed": 1,
+        "failed": 7,
+        "total": 8,
+        "time_seconds": 0.0,
+        "tokens": 0,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Wrote translate/SPEC.md containing at least ten numeric measurements in logical pixels before the first Codex build",
+          "passed": false,
+          "evidence": "No translate/SPEC.md or any measurement table. RESULT.md step 1 gives only ~5 numbers ('12 px outer padding, three columns \u2248 320 / 1fr / 300 with 8 px gutters') and '1fr' is not a measurement. Layout in failed-render.html is token-spaced flex/grid, not built to measured positions."
+        },
+        {
+          "text": "SPEC.md names at least one element the mockup invented that must not be built (e.g. a title bar or hollow thumbnail slots)",
+          "passed": false,
+          "evidence": "No invented-element list anywhere. The build reproduced the mockup's rendering artefacts: '.attempts .u { text-decoration: underline }' on 'direct' and '300s', and added a --bd-shadow-attention-glow on brand buttons that the mockup does not show."
+        },
+        {
+          "text": "The surface HTML loads a vendored token stylesheet and contains no hex or rgb() colour literals",
+          "passed": true,
+          "evidence": "failed-render.html line 10 loads bytedesk.tokens.css (verbatim 332-line copy of design-system/tokens/css/bytedesk.css, checked header). Colour grep finds only '&#9656;' (an HTML entity for \u25b8), no hex/rgb colour literals; all colours are var(--bd-*)."
+        },
+        {
+          "text": "Codex wrote the surface (a translate/prompts/*-r1.txt hand-off exists and codex-exec.sh was used in text mode); Claude did not author the markup inline",
+          "passed": false,
+          "evidence": "No translate/prompts/*-r1.txt, no codex log/reply/attempts.json. RESULT.md ('I built the HTML with layout-only CSS') and the file's authored comments show Claude wrote the markup inline. No hand-off to codex-exec.sh."
+        },
+        {
+          "text": "Rendered the surface at 1280x800 and produced translate/diff/<state>-r1/report.json with layoutScore and hotspots",
+          "passed": false,
+          "evidence": "build-1280x800.png exists at 1280x800 (Playwright chrome-headless-shell), but there is no translate/diff/<state>-r1/report.json, no layoutScore, no hotspots \u2014 comparison was by eye ('Rendered and compared')."
+        },
+        {
+          "text": "Any second round changed only regions named as hotspots in the previous report, and the patch prompt lists them as numbered changes with a FROZEN list",
+          "passed": false,
+          "evidence": "RESULT.md mentions 'Two iterations' but no hotspot report, no patch prompt, no numbered changes, no FROZEN list exist; the second pass changed line-heights and row heights without any recorded region scope."
+        },
+        {
+          "text": "Reported layoutScore as the mockup comparison and never presented pixelDiff against the mockup PNG as the pass/fail number",
+          "passed": false,
+          "evidence": "No score of any kind was reported \u2014 neither layoutScore nor pixelDiff. The assertion requires layoutScore to be reported as the mockup comparison."
+        },
+        {
+          "text": "state.json lists every screenshot and diff image read under stages.translate.viewed",
+          "passed": false,
+          "evidence": "No state.json exists."
+        }
+      ],
+      "notes": [
+        "Mockup mono looks wider than IBM Plex Mono",
+        "Attempt table ~20px narrower in mockup",
+        "Screenshot via Playwright chrome-headless-shell instead of agent-browser"
+      ]
+    },
+    {
+      "eval_id": 1,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.4,
+        "passed": 2,
+        "failed": 3,
+        "total": 5,
+        "time_seconds": 0.0,
+        "tokens": 0,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "The surface imports or vendors the same stylesheet the implementation uses, so a zero pixel diff is achievable",
+          "passed": true,
+          "evidence": "git-panel-match.html line 3: `<link rel=\"stylesheet\" href=\"./app-css/tokens/css/bytedesk.css\">`; `diff` of outputs/app-css/tokens/css/bytedesk.css against app/.context/design-system/tokens/css/bytedesk.css is empty (byte-identical to the sheet the app loads via global.css's @import). global.css itself is not imported by the match surface (the separate app-as-is.html imports app-css/global.css, which differs from the app's only in the rewritten @import path). Passes under the 'identical token sheet the app loads' reading; note the layout rules of global.css are still not shared, so zero pixel diff remains a stretch (see critique)."
+        },
+        {
+          "text": "Shot the live URL with the same viewport as the surface and produced translate/diff/<state>-app/report.json with pixelDiff",
+          "passed": false,
+          "evidence": "RESULT.md: 'http://127.0.0.1:4174 renders nothing in a plain browser \u2026 the git panel is not screenshot-able from the dev URL at all.' No screenshot of the live URL exists in outputs; app-as-is.png is a headless-Chrome render of a hand-built git-panel-app-as-is.html. No translate/diff/<state>-app/report.json (or any report.json) was produced; the only JSON is match-metrics.json (DOM rects). Viewport used is 1586\u00d7992 (mockup size), not a logical app viewport."
+        },
+        {
+          "text": "Reported the implementation gap as pixelDiff with hotspot rects in logical pixels, and the mockup gap as layoutScore \u2014 two different numbers with two different meanings",
+          "passed": false,
+          "evidence": "Both comparisons are reported with the same metric: ImageMagick fuzz-% mismatched pixels ('mockup vs match (git region) 7.0% / 5.0%', 'mockup vs app as-is 16.2% / 11.9%'). No layoutScore, no pixelDiff, no hotspot rects \u2014 the app gap is expressed as a fuzz diff against the mockup raster rather than a strict pixel diff against the surface, and the mockup gap has no tolerant layout score. The geometry table gives per-element deltas in 1586-frame page px (not logical px) and is derived from DOM rects, not from a diff."
+        },
+        {
+          "text": "Recommended changes to the implementation's CSS to match the surface, and did not alter the surface to match the implementation",
+          "passed": true,
+          "evidence": "RESULT.md 'Recommendations (all in app/src/styles/global.css unless noted; nothing was edited)' with concrete .git rules (h2 17px, .branch 35px, textarea 68px, .actions 1fr 1fr 1fr gap 22px, button.primary color var(--bd-text-on-brand)). The match surface (match.png) matches the mockup's git geometry (side-by-side-git.png), not the app's; git-panel-app-as-is.html is a separate diagnostic file, not a modification of the surface."
+        },
+        {
+          "text": "Did not exceed three build/patch rounds against the mockup",
+          "passed": false,
+          "evidence": "No round record exists: no prompts, shots per round, notes, or state file. RESULT.md never mentions rounds or iteration. Cannot be verified from outputs; per grading criteria an unverifiable expectation fails."
+        }
+      ],
+      "notes": [
+        "Executor could not screenshot the live URL and substituted a hand-assembled DOM styled by the app's CSS",
+        "Match surface's stage placeholder uses hex literals",
+        "No Send button rendered in match.png bottom-left (mockup has one)",
+        "Headless google-chrome at 1586\u00d7992 instead of agent-browser viewport; hand-built app-as-is.html instead of live capture"
+      ]
+    },
+    {
+      "eval_id": 2,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.0,
+        "passed": 0,
+        "failed": 4,
+        "total": 4,
+        "time_seconds": 0.0,
+        "tokens": 0,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Told the user plainly that pixel-perfect against a generated PNG is not attainable and named the two comparisons with their ceilings, without refusing the task",
+          "passed": false,
+          "evidence": "RESULT.md hedges rather than states: 'What is not literally pixel-identical' lists artwork and 'glyph edges differ at the sub-pixel level', and reports 'Whole-image RMSE vs the mockup is 8.0 %'. It never says plainly that pixel-perfect against a generated PNG is unattainable, and never names the two comparisons (surface\u2194PNG layout score with its ceiling vs surface\u2194implementation pixelDiff reaching zero). The task was not refused, but the required framing is absent."
+        },
+        {
+          "text": "SPEC.md excludes the invented inspector content behind the modal (Details/Tags/History panel) from what gets built",
+          "passed": false,
+          "evidence": "No SPEC.md exists anywhere in without_skill/outputs/. The HTML (new-project-dialog.html lines 179\u2013204) builds the full inspector including 'Details', 'Tags', 'History' with the ID/Type/Dimensions rows, visible in render-final.png."
+        },
+        {
+          "text": "Stopped before round three with a recorded reason when the remaining hotspots were text speckle, rather than spending the round",
+          "passed": false,
+          "evidence": "No round/hotspot loop was run. NOTES.md says 'iterated three times on the residuals (card description type size, composer offset, toolbar button widths, canvas art visibility)' \u2014 three iterations, no recorded stop reason, no hotspot classification."
+        },
+        {
+          "text": "Every round's prompt is saved under translate/prompts/ and every round's scores appear in translate/notes.md",
+          "passed": false,
+          "evidence": "No translate/ directory, no prompts/, no notes.md. Only NOTES.md with a method narrative and no per-round scores (a single final 'RMSE 8.0 %')."
+        }
+      ],
+      "notes": []
+    }
+  ],
+  "run_summary": {
+    "with_skill": {
+      "pass_rate": {
+        "mean": 0.7267,
+        "stddev": 0.2003,
+        "min": 0.5,
+        "max": 0.88
+      },
+      "time_seconds": {
+        "mean": 0.0,
+        "stddev": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "tokens": {
+        "mean": 0.0,
+        "stddev": 0.0,
+        "min": 0,
+        "max": 0
+      }
+    },
+    "without_skill": {
+      "pass_rate": {
+        "mean": 0.1733,
+        "stddev": 0.2053,
+        "min": 0.0,
+        "max": 0.4
+      },
+      "time_seconds": {
+        "mean": 0.0,
+        "stddev": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "tokens": {
+        "mean": 0.0,
+        "stddev": 0.0,
+        "min": 0,
+        "max": 0
+      }
+    },
+    "delta": {
+      "pass_rate": "+0.55",
+      "time_seconds": "+0.0",
+      "tokens": "+0"
+    }
+  },
+  "notes": []
+}

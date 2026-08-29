@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en" data-bd-theme="dark" data-bd-richness="balanced">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Studio — render failed</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<!-- Vendored copy of design-system/tokens/css/bytedesk.css. Authority: ByteDeskAI/design-system. -->
+<link rel="stylesheet" href="bytedesk.tokens.css">
+<style>
+  /* Geometry measured from r3-s5.png (1586x992, scaled 1.239x from a 1280x800 window). */
+  :root {
+    --studio-gap: 10px;
+    --studio-margin: 14px;
+    --studio-inset: #14171A; /* theme.dark.inset */
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bd-bg-base);
+    color: var(--bd-text-primary);
+    font-family: var(--bd-font-mono);
+    font-size: 12.5px; /* type.console */
+    line-height: 1.5;
+    overflow: hidden;
+  }
+  .studio {
+    height: 100vh;
+    padding: var(--studio-margin);
+    display: grid;
+    grid-template-columns: 322px 1fr 304px;
+    gap: var(--studio-gap);
+  }
+  .shell {
+    background: var(--bd-bg-subtle);
+    border: 1px solid var(--bd-border-default);
+    border-radius: var(--bd-radius-lg);
+    box-shadow: var(--bd-shadow-shell);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .section { padding: 12px 14px; border-bottom: 1px solid var(--bd-border-dimmer); }
+  .section:last-child { border-bottom: 0; }
+  h2 {
+    font-family: var(--bd-font-sans);
+    font-weight: 400;
+    font-size: 16px;
+    line-height: 1.3;
+    margin-bottom: 10px;
+  }
+  .sans { font-family: var(--bd-font-sans); }
+  .muted { color: var(--bd-text-secondary); }
+  .ok { color: var(--bd-success); }
+  .failed { color: var(--bd-danger); }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: currentColor; vertical-align: middle; margin-right: 8px; }
+
+  /* Buttons */
+  .btn {
+    font-family: var(--bd-font-sans);
+    font-size: 13px;
+    line-height: 1;
+    color: var(--bd-text-primary);
+    background: var(--bd-bg-elevated);
+    border: 1px solid var(--bd-border-stronger);
+    border-radius: var(--bd-radius-sm);
+    padding: 0 12px;
+    height: 28px;
+    cursor: pointer;
+  }
+  .btn:hover { background: var(--bd-bg-overlay); }
+  .btn:focus-visible { outline: none; box-shadow: var(--bd-shadow-focus-glow); }
+  .btn-primary { background: var(--bd-brand-orange); border-color: var(--bd-brand-orange); color: #fff; }
+  .btn-primary:hover { background: var(--bd-brand-orange-muted); }
+  .btn-lg { height: 40px; font-size: 15px; padding: 0 28px; }
+
+  /* Left: agents */
+  .agents { display: grid; grid-template-columns: 1fr auto 1fr auto; row-gap: 6px; align-items: center; column-gap: 12px; }
+  .agents .name { font-family: var(--bd-font-sans); font-size: 14px; }
+  .agents .ver { text-align: right; padding-right: 4px; }
+
+  /* Left: runs */
+  .runs { padding: 8px 6px 10px; }
+  .runs h2 { padding: 0 8px; margin-bottom: 4px; }
+  .run { font-size: 11px; display: flex; justify-content: space-between; padding: 2px 8px; border-radius: var(--bd-radius-sm); }
+  .run[aria-current="true"] { background: var(--bd-bg-surface); }
+  .runs a { color: var(--bd-text-secondary); text-decoration: none; padding: 2px 8px; display: block; font-family: var(--bd-font-sans); font-size: 13px; }
+
+  /* Left: log */
+  .log { flex: 1; overflow: auto; padding: 8px 12px; font-size: 11px; /* type.console-sm */ }
+  .entry { margin-bottom: 8px; }
+  .entry .who { font-weight: 500; }
+  .entry .when { color: var(--bd-text-tertiary); font-size: 10px; margin-left: 8px; }
+  .entry p { color: var(--bd-text-secondary); white-space: pre-line; }
+
+  /* Left: composer */
+  .composer { padding: 10px 12px 12px; }
+  .composer .box {
+    position: relative;
+    height: 118px;
+    background: var(--bd-bg-surface);
+    border: 1px solid var(--bd-border-default);
+    border-radius: var(--bd-radius-md);
+  }
+  .composer textarea {
+    width: 100%; height: 100%; resize: none; background: transparent; border: 0; color: var(--bd-text-primary);
+    font: inherit; padding: 10px 12px;
+  }
+  .composer textarea::placeholder { color: var(--bd-text-tertiary); }
+  .composer textarea:focus { outline: none; }
+  .composer .send { position: absolute; right: 4px; bottom: 4px; }
+
+  /* Center */
+  .stage {
+    flex: 1;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 18px;
+    border-bottom: 1px solid var(--bd-border-dimmer);
+  }
+  .status { font-family: var(--bd-font-sans); font-size: 16px; }
+  .status .dot { width: 12px; height: 12px; }
+  .attempts {
+    background: var(--studio-inset);
+    border: 1px solid var(--bd-border-stronger);
+    border-radius: var(--bd-radius-sm);
+    padding: 12px 22px 12px 14px;
+    border-collapse: separate; border-spacing: 0;
+  }
+  .attempts td { padding: 2px 0; }
+  .attempts td + td { padding-left: 24px; }
+  .attempts .disc { width: 20px; color: var(--bd-text-secondary); padding: 0; }
+  .attempts u { text-underline-offset: 3px; }
+  .verdict { margin-top: 8px; }
+  .thumbs { padding: 10px; border-bottom: 1px solid var(--bd-border-dimmer); }
+  .thumb {
+    width: 96px; height: 102px;
+    border: 1px solid var(--bd-brand-orange);
+    border-radius: var(--bd-radius-sm);
+    display: flex; flex-direction: column;
+  }
+  .thumb .img { flex: 1; }
+  .thumb .cap { border-top: 1px solid var(--bd-brand-orange); text-align: center; padding: 4px; }
+  .actions { display: flex; gap: 12px; padding: 14px 14px 18px; }
+
+  /* Right */
+  .right .section { padding: 14px; }
+  .right .section:nth-child(2) { flex: 0 0 auto; }
+  .right .section:last-child { flex: 1; }
+  .brief { font-family: var(--bd-font-sans); font-size: 14px; line-height: 1.55; color: var(--bd-text-secondary); }
+  ul { list-style: none; padding-left: 14px; }
+  li { color: var(--bd-text-secondary); margin-bottom: 4px; font-size: 11.5px; }
+  li::before { content: "•"; color: var(--bd-text-tertiary); margin-left: -14px; margin-right: 8px; }
+  .critique p { color: var(--bd-text-secondary); margin-bottom: 4px; font-size: 11.5px; }
+</style>
+</head>
+<body>
+<div class="studio">
+
+  <aside class="shell" aria-label="Agents, runs and log">
+    <section class="section agents" aria-label="Agents">
+      <span class="name">claude</span><span class="ok"><span class="dot"></span><span class="muted">ok</span></span><span class="ver">1.3.7</span><button class="btn">Connect</button>
+      <span class="name">codex</span><span class="ok"><span class="dot"></span><span class="muted">ok</span></span><span class="ver">0.18.2</span><button class="btn">Connect</button>
+      <span class="name">grok</span><span class="ok"><span class="dot"></span><span class="muted">ok</span></span><span class="ver">1.2.0</span><button class="btn">Connect</button>
+      <span class="name">kimi</span><span class="ok"><span class="dot"></span><span class="muted">ok</span></span><span class="ver">1.1.5</span><button class="btn">Connect</button>
+    </section>
+
+    <section class="section runs">
+      <h2>Runs</h2>
+      <div class="run" aria-current="true"><span>run-2025-05-12-0021</span><span class="failed">failed</span></div>
+      <div class="run"><span>run-2025-05-12-0020</span><span class="ok">ok</span></div>
+      <div class="run"><span>run-2025-05-12-0019</span><span class="ok">ok</span></div>
+      <div class="run"><span>run-2025-05-12-0018</span><span class="failed">failed</span></div>
+      <div class="run"><span>run-2025-05-12-0017</span><span class="ok">ok</span></div>
+      <a href="#">View all...</a>
+    </section>
+
+    <section class="log" aria-label="Run log">
+      <div class="entry"><span class="who">codex</span><span class="when">10:14:22</span><p>Starting render r1-a with prompt and context.
+This may take up to 5 minutes.</p></div>
+      <div class="entry"><span class="who">codex</span><span class="when">10:19:22</span><p>No output produced. Retrying with scoped home directory.</p></div>
+      <div class="entry"><span class="who">codex</span><span class="when">10:24:22</span><p>No output again. Retrying after backoff.</p></div>
+      <div class="entry"><span class="who">codex</span><span class="when">10:36:35</span><p>Still no output.
+Attempts exhausted.</p></div>
+      <div class="entry"><span class="who">system</span><span class="when">10:36:35</span><p>Render failed.</p></div>
+    </section>
+
+    <form class="composer" onsubmit="return false">
+      <div class="box">
+        <textarea aria-label="Message codex" placeholder="Message codex..."></textarea>
+        <button class="btn btn-primary send" type="submit">Send</button>
+      </div>
+    </form>
+  </aside>
+
+  <main class="shell" aria-label="Render">
+    <div class="stage" role="status" aria-live="polite">
+      <div class="status failed"><span class="dot"></span>exhausted</div>
+      <table class="attempts">
+        <tr><td class="disc">&#9656;</td><td><u>direct</u></td><td>exit 124</td><td><u>300s</u></td><td>produced no</td></tr>
+        <tr><td class="disc"></td><td>scoped-home</td><td>exit 124</td><td>300s</td><td>produced no</td></tr>
+        <tr><td class="disc"></td><td>after-backoff</td><td>exit 1</td><td>12s</td><td>produced no</td></tr>
+      </table>
+      <p class="verdict">Codex produced nothing. Nothing was written.</p>
+      <button class="btn">Retry</button>
+    </div>
+    <div class="thumbs">
+      <div class="thumb"><div class="img"></div><div class="cap">r1-a</div></div>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary btn-lg">Re-render</button>
+      <button class="btn btn-lg">New variant</button>
+      <button class="btn btn-lg">Ask agent</button>
+      <button class="btn btn-lg">Blind read</button>
+    </div>
+  </main>
+
+  <aside class="shell right" aria-label="Brief and critique">
+    <section class="section">
+      <h2>Brief</h2>
+      <p class="brief">Create a cinematic scene of a lone traveler standing on a rain-slick street in a neon-lit city at night. Mood is moody and reflective. Palette leans teal and magenta. Aspect ratio: 16:9.</p>
+    </section>
+    <section class="section">
+      <h2>Art direction</h2>
+      <ul>
+        <li>Cinematic, photorealistic</li>
+        <li>Low key lighting</li>
+        <li>Strong reflections</li>
+        <li>Depth and atmosphere</li>
+        <li>Focus on silhouette and mood</li>
+      </ul>
+    </section>
+    <section class="section critique">
+      <h2>Critique</h2>
+      <p>Codex produced no output.</p>
+      <p>All attempts exhausted.</p>
+      <p>Review brief and constraints.</p>
+      <p>Consider simplifying the request.</p>
+      <p>Check environment and permissions.</p>
+      <p>Try again.</p>
+    </section>
+  </aside>
+
+</div>
+</body>
+</html>

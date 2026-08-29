@@ -1,0 +1,104 @@
+Reply with the artifact only — no preamble, no explanation, no code fences.
+
+Write a single self-contained HTML file for one application state of the ByteDesk Designer
+Studio desktop app. It loads the stylesheet at ./tokens/design.css (relative path) and uses
+only its custom properties for every colour: no hex, no rgb(), no hsl(), no named colours.
+Root <html> element carries data-product="designer-studio" data-bd-theme="dark".
+Fonts: var(--bd-font-sans) for chrome, var(--bd-font-mono) for paths, ids, versions, logs,
+timestamps and the attempts table. Fixed 1280×800 layout, overflow hidden on body, no
+responsive behaviour, no JavaScript. Use absolute positioning or fixed-size flex/grid so
+the measurements below are hit exactly; do not let content decide the geometry.
+
+MEASUREMENTS (logical px — build to these, do not eyeball):
+
+# Frame
+- Window ground: --bd-bg-base. Outer inset 12 on all sides; panels end at y=788.
+- Three panels, each 1px --bd-border-default hairline, radius 6, gap 8 between panels:
+  - LEFT   x 12–334  (w 322)  fill --bd-bg-surface
+  - CENTRE x 342–952 (w 610)  fill --bd-bg-base (stage stays on the ground, unlifted)
+  - RIGHT  x 960–1268 (w 308) fill --bd-bg-surface
+- Panel inner inset 16 (left/right), 12 (top).
+
+# LEFT column
+- Agent rows ×4, row height 36, row centres at y 40/76/111/147.
+  Inside the row: name at x=27 (sans 14, --bd-text-primary); status dot Ø8 at x=117 and word
+  at x=128 (sans 13, --bd-success); version at x=187 (mono 13, primary); "Connect" button
+  x 252–321 × h 26 (sans 13, --bd-bg-elevated fill, hairline --bd-border-default, radius 6).
+- Hairline divider y=165.
+- "Runs" label y=187 (sans 14, primary, x=27).
+- Run rows ×5 centred at y 215/239/262/286/309 (h 23): id mono 13 at x=27, status word
+  right-aligned to x=321 (mono 13; failed = --bd-danger, ok = --bd-success).
+  First row carries an --bd-bg-elevated fill spanning x 20–326.
+- "View all…" y=332 sans 13 --bd-text-secondary. Divider y=345.
+- Timeline y 363–630: each entry starts with a header line (sender mono 12 primary, then
+  timestamp mono 11 secondary with 12 gap) followed by 1–2 body lines mono 12.5 primary;
+  line pitch 18, entry gap 12. Divider y=645.
+- Composer textarea x 27–320, y 660–760 (h 100), fill --bd-bg-base, hairline border,
+  radius 6, placeholder "Message codex…" mono 13 secondary at inset 8.
+- Send button x 239–320, y 738–767 (81×29), fill --bd-accent, text --bd-text-on-brand sans 14,
+  radius 6, overlapping the textarea's bottom-right corner.
+
+# CENTRE column
+- Stage area y 14–698 on ground. Content stack centred on x=650:
+  - Status: dot Ø10 --bd-danger at x=605, y=179; word "exhausted" sans 16 --bd-danger to its
+    right with gap 10.
+  - Attempts disclosure panel x 462–839 (w 377), y 208–295 (h 87), hairline border, radius 6,
+    fill --bd-bg-base. Three mono 13 rows, pitch 22, first row centre y=229; a ▸ caret at
+    x=474 on the first row only. Four aligned columns at x 490 / 600 / 685 / 738.
+  - Sentence "Codex produced nothing. Nothing was written." mono 13 primary, centred, y=338.
+  - "Retry" button x 612–688 (76×31), y 366–397, --bd-bg-elevated fill, hairline, sans 14.
+- Thumbnail strip: exactly one card x 353–449 (w 96) y 583–684 (h 101), 1px --bd-accent
+  border (selected), radius 6, hollow (no image); inner hairline rule at y=658 and label
+  "r1-a" mono 12 centred in the bottom 26px band. No other slots, no empty boxes.
+- Hairline divider y=698.
+- Toolbar y 710–752 (h 42): four buttons w 132, gap 14, starting x=358:
+  "Re-render" 358–489 (--bd-accent fill, --bd-text-on-brand), "New variant" 504–636,
+  "Ask agent" 650–781, "Blind read" 796–928 (plain: --bd-bg-elevated, hairline). Sans 15.
+
+# RIGHT column (inspector)
+- Text x=976. Three stacked sections, hairline dividers at y=211 and y=420.
+- Section heading sans 16 primary weight 500: "Brief" centre y=36, "Art direction" y=240,
+  "Critique" y=447.
+- Brief body: sans 13 primary, line pitch 22, first line centre y=65, 5 lines.
+- Art direction: 5 bullets ("·" at x=976, text x=990) sans 13, pitch 25, first y=272.
+- Critique: 6 lines mono 12.5 primary, pitch 23, first y=479.
+
+# Material
+- Matte: no box-shadow, no glow, no gradients, no transitions. Radius 6 everywhere.
+- Accent only on Send, Re-render and the selected thumbnail outline. Never as a panel fill.
+
+STATE CONTENT (render failed, attempts exhausted):
+- Agent rows: claude · ok · 1.3.7 · Connect / codex · ok · 0.18.2 · Connect /
+  grok · ok · 1.2.0 · Connect / kimi · ok · 1.1.5 · Connect
+- Runs: run-2025-05-12-0021 failed (highlighted row) / run-2025-05-12-0020 ok /
+  run-2025-05-12-0019 ok / run-2025-05-12-0018 failed / run-2025-05-12-0017 ok / View all…
+- Timeline:
+  codex 10:14:22 — "Starting render r1-a with prompt and context." / "This may take up to 5 minutes."
+  codex 10:19:22 — "No output produced. Retrying with scoped" / "home directory."
+  codex 10:24:22 — "No output again. Retrying after backoff."
+  codex 10:36:35 — "Still no output." / "Attempts exhausted."
+  system 10:36:35 — "Render failed."
+- Composer placeholder "Message codex…"; button "Send".
+- Stage: dot + "exhausted"; attempts rows:
+  direct        exit 124   300s   produced no
+  scoped-home   exit 124   300s   produced no
+  after-backoff exit 1     12s    produced no
+  then "Codex produced nothing. Nothing was written." then "Retry".
+- Strip: one selected card labelled r1-a.
+- Toolbar: Re-render / New variant / Ask agent / Blind read (all enabled).
+- Inspector:
+  Brief — "Create a cinematic scene of a lone traveler" / "standing on a rain-slick street in a neon-lit" / "city at night. Mood is moody and reflective." / "Palette leans teal and magenta." / "Aspect ratio: 16:9."
+  Art direction — Cinematic, photorealistic / Low key lighting / Strong reflections / Depth and atmosphere / Focus on silhouette and mood
+  Critique — "Codex produced no output." / "All attempts exhausted." / "Review brief and constraints." / "Consider simplifying the request." / "Check environment and permissions." / "Try again."
+
+DO NOT BUILD (the mockup invented these): no title bar, no empty thumbnail slots, no stage
+image or placeholder, no icons, no underlines in the attempts table.
+
+Available custom properties (use these names exactly):
+--bd-bg-base --bd-bg-surface --bd-bg-elevated --bd-bg-hover --bd-bg-subtle
+--bd-border-default --bd-border-dimmer --bd-border-stronger
+--bd-text-primary --bd-text-secondary --bd-text-tertiary --bd-text-on-brand --bd-text-disabled
+--bd-accent --bd-accent-fg --bd-success --bd-danger --bd-warning
+--bd-font-sans --bd-font-mono --bd-font-weight-regular --bd-font-weight-medium
+--bd-radius-md (6px) --bd-stroke-hairline (1px)
+--bd-space-1 --bd-space-2 --bd-space-3 --bd-space-4 --bd-space-5 --bd-space-6
