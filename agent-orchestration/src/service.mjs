@@ -80,16 +80,14 @@ export class OrchestrationService {
     await this.store.initialize();
     if (this.autoRecover && !process.env.AGENT_ORCHESTRATION_CURRENT_WORKER_RUN_ID) {
       await this.recoverInterruptedRuns();
-      this.recoveryTimer = setInterval(() => {
-        this.recoverInterruptedRuns().catch((error) => { this.lastRecoveryError = error; });
-      }, Math.max(2_000, this.recoveryGraceMs));
-      this.recoveryTimer.unref();
+      this.scheduleRecoverySweep();
     }
     return this;
   }
 
   async dispose() {
-    if (this.recoveryTimer) clearInterval(this.recoveryTimer);
+    this.disposed = true;
+    if (this.recoveryTimer) clearTimeout(this.recoveryTimer);
     this.recoveryTimer = null;
     if (this.sessionHost?.server) {
       await new Promise((resolveClose) => this.sessionHost.server.close(resolveClose));
@@ -101,11 +99,41 @@ export class OrchestrationService {
     return this.platformRuntime.workerSupervisor.terminate(worker);
   }
 
+  /**
+   * Sweeps on a timer that slows down when there is nothing to recover.
+   *
+   * Every host on a machine runs its own server against one shared state root, so a fixed fast
+   * sweep multiplies: N servers re-reading every run, forever, is how idle processes accumulate
+   * hours of CPU. Backing off to a minute when consecutive sweeps find nothing keeps recovery
+   * prompt on a live machine and nearly free on a quiet one.
+   */
+  scheduleRecoverySweep(delayMs = Math.max(2_000, this.recoveryGraceMs)) {
+    if (this.disposed) return;
+    this.recoveryTimer = setTimeout(() => {
+      this.recoverInterruptedRuns()
+        .then((recovered) => {
+          this.idleSweeps = recovered > 0 ? 0 : (this.idleSweeps ?? 0) + 1;
+        })
+        .catch((error) => { this.lastRecoveryError = error; })
+        .finally(() => {
+          const base = Math.max(2_000, this.recoveryGraceMs);
+          const backoff = Math.min(base * Math.max(1, this.idleSweeps ?? 0), 60_000);
+          this.scheduleRecoverySweep(backoff);
+        });
+    }, delayMs);
+    this.recoveryTimer.unref();
+  }
+
   async recoverInterruptedRuns() {
     const now = Date.now();
-    for (const candidate of await this.store.list()) {
+    let recovered = 0;
+    for (const runId of await this.store.listRecoverable()) {
+      const candidate = await this.store.get(runId).catch(() => null);
+      if (!candidate) continue;
+      if (TERMINAL_STATES.has(candidate.state)) { await this.store.clearActive(runId); await this.store.markSwept(runId); continue; }
       if (candidate.runId === process.env.AGENT_ORCHESTRATION_CURRENT_WORKER_RUN_ID) continue;
       if (!WORKER_STATES.has(candidate.state) || now - Date.parse(candidate.updatedAt) < this.recoveryGraceMs) continue;
+      recovered += 1;
       await this.store.withLock(`recovery:${candidate.runId}`, async () => {
         const run = await this.store.get(candidate.runId);
         if (!WORKER_STATES.has(run.state)) return;
@@ -129,6 +157,7 @@ export class OrchestrationService {
         else await this.store.transition(run.runId, [run.state], nextState, patch, "worker_loss_detected");
       });
     }
+    return recovered;
   }
 
   capabilities() {

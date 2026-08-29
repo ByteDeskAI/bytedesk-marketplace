@@ -142,8 +142,8 @@
       ]
     },
     "src/service.mjs": {
-      "sha256": "4d6ff8d771256163d6579761cbeb1660f7b7628dbdaccc33da7378da7f1321e3",
-      "lineCount": 624,
+      "sha256": "f6dc4095a212936f8c202f0e5ff3455df6a92bad9e578b6b5788b7139396e24e",
+      "lineCount": 653,
       "anchors": [
         "async cancel(",
         "async decision(",
@@ -162,8 +162,8 @@
       ]
     },
     "src/state/store.mjs": {
-      "sha256": "abaac7400d050f6ae3c75722129df16942aabbaf5c56eac8ec996148fdecc1e5",
-      "lineCount": 335,
+      "sha256": "fc7e3ddb17bd6bc57b4f0dfd3e1dc80b2d07869ef71f46c904e4f348e3d91ee1",
+      "lineCount": 379,
       "anchors": [
         "async appendEventUnlocked(",
         "async createUnlocked(",
