@@ -81,6 +81,15 @@ Four fields carry weight beyond bookkeeping:
   rule made checkable rather than merely stated, and it is what the review stage and the
   orchestrator's evals assert against.
 
+  **Record the content, not just the name.** Each entry carries the artifact's path and a
+  hash of it at the moment it was looked at:
+  `{"artifact": "surfaces/index.html", "sha": "sha256:309ac48aafe198b3"}`. A name list says
+  a file with that name was seen once; it cannot say the file still holds what was seen. That
+  distinction is not academic — a run whose `viewed` list passed on names shipped a verdict
+  screen whose colour had been changed after the only render of it, and the check that should
+  have caught it reported green. A hash that no longer matches means the artifact was edited
+  after it was viewed, and it must be viewed again before it is promoted.
+
 ## Rules
 
 **A stage refuses to run when its inputs are absent, and names the stage that produces
