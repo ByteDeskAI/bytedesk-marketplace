@@ -22,35 +22,35 @@ export const TASK_INTENTS = Object.freeze([
 
 export const ROUTING_ALIASES = deepFreeze({
   "architecture.proposal": [
-    { endpointId: "claude.fable-5", effort: "max" },
+    { endpointId: "claude.opus-5", effort: "max" },
     { endpointId: "claude.opus-4-8", effort: "max" },
   ],
   "architecture.critique": [
     { endpointId: "openai.gpt-5.6-sol", effort: "max" },
   ],
   "design.default": [
-    { endpointId: "claude.fable-5", effort: "high" },
+    { endpointId: "claude.opus-5", effort: "high" },
     { endpointId: "claude.opus-4-8", effort: "high" },
     { endpointId: "openai.gpt-5.6-sol", effort: "high" },
   ],
   "implementation.default": [
     { endpointId: "openai.gpt-5.6-sol", effort: "high" },
-    { endpointId: "claude.fable-5", effort: "high" },
+    { endpointId: "claude.opus-5", effort: "high" },
     { endpointId: "claude.opus-4-8", effort: "high" },
   ],
   "review.default": [
     { endpointId: "openai.gpt-5.6-sol", effort: "high" },
-    { endpointId: "claude.fable-5", effort: "high" },
+    { endpointId: "claude.opus-5", effort: "high" },
     { endpointId: "claude.opus-4-8", effort: "high" },
   ],
   "research.default": [
     { endpointId: "grok-build.default", effort: null },
     { endpointId: "openai.gpt-5.6-sol", effort: "high" },
-    { endpointId: "claude.fable-5", effort: "high" },
+    { endpointId: "claude.opus-5", effort: "high" },
   ],
   "general.default": [
     { endpointId: "openai.gpt-5.6-sol", effort: "medium" },
-    { endpointId: "claude.fable-5", effort: "medium" },
+    { endpointId: "claude.opus-5", effort: "medium" },
     { endpointId: "claude.opus-4-8", effort: "medium" },
   ],
   "provider.grok-build.default": [
@@ -60,7 +60,7 @@ export const ROUTING_ALIASES = deepFreeze({
     { endpointId: "kimi.default", effort: null },
   ],
   "provider.claude.default": [
-    { endpointId: "claude.fable-5", effort: "high" },
+    { endpointId: "claude.opus-5", effort: "high" },
     { endpointId: "claude.opus-4-8", effort: "high" },
   ],
   "provider.codex.default": [

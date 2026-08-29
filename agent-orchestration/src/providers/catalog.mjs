@@ -116,6 +116,25 @@ export const PROVIDER_CATALOG = deepFreeze([
 export const MODEL_CATALOG = deepFreeze([
   {
     schemaVersion: 1,
+    endpointId: "claude.opus-5",
+    providerId: "claude",
+    modelId: "claude-opus-5",
+    supportedEfforts: ["low", "medium", "high", "xhigh", "max"],
+    defaultEffort: "high",
+    qualityClass: "frontier",
+    latencyClass: "slow",
+    costClass: "premium",
+    intentAffinity: {
+      architecture: 1,
+      design: 1,
+      implementation: 0.95,
+      review: 0.95,
+      general: 0.9,
+    },
+    provenance: "official_docs_then_runtime_probe",
+  },
+  {
+    schemaVersion: 1,
     endpointId: "claude.fable-5",
     providerId: "claude",
     modelId: "claude-fable-5",

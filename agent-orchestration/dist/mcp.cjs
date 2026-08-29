@@ -31040,35 +31040,35 @@ var TASK_INTENTS = Object.freeze([
 ]);
 var ROUTING_ALIASES = deepFreeze({
   "architecture.proposal": [
-    { endpointId: "claude.fable-5", effort: "max" },
+    { endpointId: "claude.opus-5", effort: "max" },
     { endpointId: "claude.opus-4-8", effort: "max" }
   ],
   "architecture.critique": [
     { endpointId: "openai.gpt-5.6-sol", effort: "max" }
   ],
   "design.default": [
-    { endpointId: "claude.fable-5", effort: "high" },
+    { endpointId: "claude.opus-5", effort: "high" },
     { endpointId: "claude.opus-4-8", effort: "high" },
     { endpointId: "openai.gpt-5.6-sol", effort: "high" }
   ],
   "implementation.default": [
     { endpointId: "openai.gpt-5.6-sol", effort: "high" },
-    { endpointId: "claude.fable-5", effort: "high" },
+    { endpointId: "claude.opus-5", effort: "high" },
     { endpointId: "claude.opus-4-8", effort: "high" }
   ],
   "review.default": [
     { endpointId: "openai.gpt-5.6-sol", effort: "high" },
-    { endpointId: "claude.fable-5", effort: "high" },
+    { endpointId: "claude.opus-5", effort: "high" },
     { endpointId: "claude.opus-4-8", effort: "high" }
   ],
   "research.default": [
     { endpointId: "grok-build.default", effort: null },
     { endpointId: "openai.gpt-5.6-sol", effort: "high" },
-    { endpointId: "claude.fable-5", effort: "high" }
+    { endpointId: "claude.opus-5", effort: "high" }
   ],
   "general.default": [
     { endpointId: "openai.gpt-5.6-sol", effort: "medium" },
-    { endpointId: "claude.fable-5", effort: "medium" },
+    { endpointId: "claude.opus-5", effort: "medium" },
     { endpointId: "claude.opus-4-8", effort: "medium" }
   ],
   "provider.grok-build.default": [
@@ -31078,7 +31078,7 @@ var ROUTING_ALIASES = deepFreeze({
     { endpointId: "kimi.default", effort: null }
   ],
   "provider.claude.default": [
-    { endpointId: "claude.fable-5", effort: "high" },
+    { endpointId: "claude.opus-5", effort: "high" },
     { endpointId: "claude.opus-4-8", effort: "high" }
   ],
   "provider.codex.default": [
@@ -31198,6 +31198,25 @@ var PROVIDER_CATALOG = deepFreeze2([
   }
 ]);
 var MODEL_CATALOG = deepFreeze2([
+  {
+    schemaVersion: 1,
+    endpointId: "claude.opus-5",
+    providerId: "claude",
+    modelId: "claude-opus-5",
+    supportedEfforts: ["low", "medium", "high", "xhigh", "max"],
+    defaultEffort: "high",
+    qualityClass: "frontier",
+    latencyClass: "slow",
+    costClass: "premium",
+    intentAffinity: {
+      architecture: 1,
+      design: 1,
+      implementation: 0.95,
+      review: 0.95,
+      general: 0.9
+    },
+    provenance: "official_docs_then_runtime_probe"
+  },
   {
     schemaVersion: 1,
     endpointId: "claude.fable-5",
@@ -44544,6 +44563,14 @@ async function canonicalExecutable(path3) {
     return null;
   }
 }
+async function canonicalWindowsExecutable(path3) {
+  try {
+    await (0, import_promises12.access)(path3, import_node_fs3.constants.F_OK);
+    return await (0, import_promises12.realpath)(path3);
+  } catch {
+    return null;
+  }
+}
 var LinuxExecutableResolver = class extends ExecutableResolverStrategy {
   constructor({ runner = runFile } = {}) {
     super();
@@ -44569,7 +44596,7 @@ var WindowsExecutableResolver = class extends ExecutableResolverStrategy {
     const direct = [];
     for (const directory of (this.env.PATH || "").split(import_node_path14.delimiter).filter(Boolean)) {
       for (const name of names) {
-        const resolved = await canonicalExecutable((0, import_node_path14.join)(directory, name));
+        const resolved = await canonicalWindowsExecutable((0, import_node_path14.join)(directory, name));
         if (resolved && !direct.includes(resolved)) direct.push(resolved);
       }
     }
@@ -46380,7 +46407,7 @@ function register(server, service, name, description, inputSchema, outputDataSch
 }
 async function createServer2(options = {}) {
   const service = await new OrchestrationService(options).initialize();
-  const server = new McpServer({ name: "agent-orchestration", version: "0.1.0" });
+  const server = new McpServer({ name: "agent-orchestration", version: "0.2.3" });
   register(server, service, "orchestration_capabilities", "Describe orchestration providers, intents, protocols, permissions, lifecycle, and repository isolation guarantees.", {}, capabilitiesData, function() {
     return this.capabilities();
   });

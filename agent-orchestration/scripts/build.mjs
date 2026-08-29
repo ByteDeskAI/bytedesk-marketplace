@@ -36,6 +36,25 @@ const isolateClaudeSettings = {
   },
 };
 
+/// The Claude Agent SDK ships a static model table that lags the CLI: Opus 5 is accepted by
+/// `claude --model claude-opus-5` today but is absent from every published SDK build, so a route
+/// to it would run with the wrong context window and capability metadata. Clone the newest Opus
+/// entry under the new id at bundle time. Fails loudly if the table shape changes or upstream
+/// adds the model itself, so this stops being applied the moment it stops being needed.
+const declareOpus5 = {
+  name: "declare-opus-5",
+  setup(context) {
+    context.onLoad({ filter: /claude-agent-sdk[\\/](sdk|bridge|browser-sdk)\.(mjs|js)$/ }, async ({ path }) => {
+      const source = await readFile(path, "utf8");
+      if (/id:\s*"claude-opus-5"/.test(source)) return { contents: source, loader: "js" };
+      const match = /\{\s*id:\s*"claude-opus-4-8".*?\}\s*(?=,\s*\{\s*id:|\s*\])/s.exec(source);
+      if (!match) throw new Error(`Could not find the claude-opus-4-8 model entry in ${path}.`);
+      const clone = match[0].replace(/claude-opus-4-8/g, "claude-opus-5").replace(/"Opus 4\.8"/g, '"Opus 5"');
+      return { contents: source.replace(match[0], `${clone}, ${match[0]}`), loader: "js" };
+    });
+  },
+};
+
 await Promise.all([
   build({ ...cjsApplication, entryPoints: [join(root, "src", "mcp.mjs")], outfile: join(outdir, "mcp.cjs") }),
   build({ ...cjsApplication, entryPoints: [join(root, "src", "host-launcher.mjs")], outfile: join(outdir, "host-launcher.cjs") }),
@@ -47,7 +66,7 @@ await Promise.all([
     entryPoints: [require.resolve("@agentclientprotocol/claude-agent-acp/dist/index.js")],
     outfile: join(outdir, "claude-agent-acp.mjs"),
     format: "esm",
-    plugins: [isolateClaudeSettings],
+    plugins: [isolateClaudeSettings, declareOpus5],
     banner: { js: "import { createRequire as __aoCreateRequire } from 'node:module'; const require = __aoCreateRequire(import.meta.url);" },
   }),
 ]);
