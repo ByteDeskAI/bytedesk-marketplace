@@ -154,6 +154,14 @@ month.
 is generated. Two hand-maintained copies of a palette is the drift this whole suite exists
 to prevent.
 
+**Then watch for the day it stops being generated.** An adapter earns things the token file
+cannot express — a light theme as the semantic counterpart of the dark one, richness scopes,
+per-desk tints, a `prefers-reduced-motion` block — and at that moment it becomes
+hand-maintained and its header must say so. After that, regenerating it is destructive: it
+silently deletes every one of those. Change the one property you mean to change and leave the
+file otherwise byte-identical. This is not hypothetical; it is what the ByteDesk authority's
+adapter already is.
+
 ### 5. The generated-art contract is not optional
 
 `DESIGN.md` gets a section stating what generated raster art may and may not be. The
@@ -185,8 +193,9 @@ four undocumented accents on its first real run.
 
 ### 7. Commit, and say what to do next
 
-`git init`, one commit, and a plain statement of where it is and how to point the rest of
-the suite at it (`--authority <path>`, or a `.design-authority` file in the consuming
+`git init`, one commit — for a *new* authority; extending an existing one is the two-phase
+commit described under "Adding a product" — and a plain statement of where it is and how to
+point the rest of the suite at it (`--authority <path>`, or a `.design-authority` file in the consuming
 repo).
 
 ## Capture — reverse-engineering an existing look
@@ -232,7 +241,22 @@ nobody notices for a year.
 
 If the accent is `own`, it must agree in four places — token JSON, CSS custom property,
 the per-product scope, and whatever table the README keeps. That's exactly the kind of
-four-way consistency a human forgets and a validator never does.
+four-way consistency a human forgets and a validator never does. Note what a validator
+*does* forget: checking that all four **exist** is not checking that all four **agree**, and
+a real authority was found with two product accents below the 4.5:1 its own token file
+asserts, because nothing in it computed contrast.
+
+Demoting an accent runs the same list backwards. Going from `own` to `none` is a deletion
+across those four files plus a written reason, not a field edit — and `inherits` is the
+quiet one: a product that inherits but has no `[data-bd-product]` scope passes every gate
+and renders the family accent, because `:root` wins. Three products in a real authority were
+in exactly that state.
+
+**Extending an existing authority is a two-phase commit.** If its manifest records hashes,
+they are compared against `git show HEAD:<path>` — so the order is write → commit →
+regenerate the manifest → commit again. Writing everything and validating once fails the
+checksum, size and inventory gates every single time, and the failure reads like a bug in
+the files rather than in the order.
 
 ## What this skill must never do
 
