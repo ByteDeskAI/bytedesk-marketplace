@@ -149,3 +149,24 @@ Side-stripe accent borders (`border-left` > 1px as decoration). Gradient text.
 Hero-metric SaaS tiles. Identical card grids. Third-party CDN fonts. Decorative motion
 or page-load choreography. Fake RBAC chrome or any UI implying a control the product
 does not enforce. The ADE lime/orange console accent as Vault's identity.
+
+## Generated art
+
+The family contract is [`DESIGN.md` §10](../../DESIGN.md) — read it first. It holds the
+invariants: unlifted dark ground, exactly one lit element, accent as edge-light or
+contained glow and never a fill, matte with fine grain, composition that breathes, and
+the hard limit that generated art carries no logos, copy, controls, invented metrics,
+functional icons, or rasterized UI.
+
+This section supplies the half that must not be shared.
+
+**Motif — Something sealed, with light escaping only a closed seam.**
+
+Vault's promise is that what is inside stays inside and is still reachable. A heavy matte volume, one hairline seam, warm light escaping the seam alone.
+
+**Accent:** product.vault amber, read live from `tokens/`. Never sampled from a rendered image.
+
+**Watch for:** The seam must read as closed. An opening, a gap, or a lid ajar inverts the product's entire claim.
+
+A piece that would work equally well for another ByteDesk product has failed this
+section, however good it looks.

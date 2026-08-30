@@ -47,3 +47,24 @@ motion removes connection pulses without hiding state.
 ## Exceptions to the shared foundation
 
 None.
+
+## Generated art
+
+The family contract is [`DESIGN.md` §10](../../DESIGN.md) — read it first. It holds the
+invariants: unlifted dark ground, exactly one lit element, accent as edge-light or
+contained glow and never a fill, matte with fine grain, composition that breathes, and
+the hard limit that generated art carries no logos, copy, controls, invented metrics,
+functional icons, or rasterized UI.
+
+This section supplies the half that must not be shared.
+
+**Motif — One lit aperture onto something live.**
+
+The viewport is evidence and the chrome stays quiet. A single clean opening cut into inert dark, its interior luminous, everything around it frame.
+
+**Accent:** product.agent-browser cyan, read live from `tokens/`. Never sampled from a rendered image.
+
+**Watch for:** Only one aperture. Several turn a window onto live work into a wall of screens.
+
+A piece that would work equally well for another ByteDesk product has failed this
+section, however good it looks.

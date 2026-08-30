@@ -91,3 +91,24 @@ Reference mockup: session `images/9.jpg` (A+B hybrid).
 | Settings | Hotkeys import/export, dirty nav dots, a11y live preview, Test hotkey, capture sound / dim / pin shadow |
 | Pin / Rec | Multi-tab pins, shadow slider, pause/resume HUD, click/key badges |
 | Global | Command palette (`Ctrl+K` / `palette` CLI) |
+
+## Generated art
+
+The family contract is [`DESIGN.md` §10](../../DESIGN.md) — read it first. It holds the
+invariants: unlifted dark ground, exactly one lit element, accent as edge-light or
+contained glow and never a fill, matte with fine grain, composition that breathes, and
+the hard limit that generated art carries no logos, copy, controls, invented metrics,
+functional icons, or rasterized UI.
+
+This section supplies the half that must not be shared.
+
+**Motif — One exact region lifted out of a larger field.**
+
+Capture takes a precise piece of what is on screen. An even field with one clean rectangular region raised slightly out of it, edges crisp, a narrow shadow beneath one side.
+
+**Accent:** product.capture bright blue, read live from `tokens/`. Never sampled from a rendered image.
+
+**Watch for:** The lift must be visible. A region that merely differs in tone reads as a flat card and loses the act the product performs.
+
+A piece that would work equally well for another ByteDesk product has failed this
+section, however good it looks.

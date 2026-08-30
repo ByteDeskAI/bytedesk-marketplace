@@ -62,7 +62,7 @@ type uses the `--bd-text-*` ramp with a distinct disabled tier for inert chrome.
 
 - **Gateway blue ramp** (`--bd-blue-50`…`--bd-blue-900`, hue `256.13`): identity.
   Canonical action colour is `--bd-blue-500` / `--bd-accent` =
-  `oklch(0.5910 0.2028 256.13)`. Roles: `--bd-accent-subtle|muted|default|emphasis|fg`.
+  `oklch(0.5960 0.2028 256.13)`. Roles: `--bd-accent-subtle|muted|default|emphasis|fg`.
   Full-palette: blue is primary; chrome uses the ramp; the terminal canvas stays
   `--bd-bg-base`.
 - **Per-desk tint** (`data-bd-desk` on AppShell): hue shift *inside* blue on the
@@ -168,3 +168,24 @@ Shared WCAG 2.2 AA foundation applies. Gateway-specific requirements:
   notifications, credential stores, and tray surfaces may follow platform conventions.
   Their command identifiers, labels, authorization, and resulting Gateway state remain
   consistent with the browser client.
+
+## Generated art
+
+The family contract is [`DESIGN.md` §10](../../DESIGN.md) — read it first. It holds the
+invariants: unlifted dark ground, exactly one lit element, accent as edge-light or
+contained glow and never a fill, matte with fine grain, composition that breathes, and
+the hard limit that generated art carries no logos, copy, controls, invented metrics,
+functional icons, or rasterized UI.
+
+This section supplies the half that must not be shared.
+
+**Motif — Many rooms reached from one place.**
+
+Gateway hands a developer remote workspaces. Apertures cut into deep dark at different depths, each lit from within, one nearer and brighter than the rest.
+
+**Accent:** product.gateway blue, read live from `tokens/`. Never sampled from a rendered image.
+
+**Watch for:** The lit interiors are easy to over-bloom until the frame is more light than dark. The dark is the subject; the openings are the exception.
+
+A piece that would work equally well for another ByteDesk product has failed this
+section, however good it looks.

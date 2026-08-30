@@ -7,6 +7,15 @@ central assistant journal is the visual anchor, with live run metadata arranged
 around it. It must make a complex execution inspectable without turning the page
 into a generic monitoring dashboard.
 
+## Approved visual authority
+
+The approved dark and light Conductor's Desk references live at
+[`mockups/operator-session-shell-v1/`](mockups/operator-session-shell-v1/README.md).
+Browser and Storybook implementations match their composition, material,
+hierarchy, and personality while retaining the normative behavior and
+accessibility requirements in this document. Approved mockups are references,
+never runtime image assets.
+
 ## Token source
 
 Consume `.context/design-system/tokens/` and set
@@ -58,3 +67,24 @@ connection changes rather than every streamed delta. Never encode state by color
 ## Exceptions to the shared foundation
 
 None.
+
+## Generated art
+
+The family contract is [`DESIGN.md` §10](../../DESIGN.md) — read it first. It holds the
+invariants: unlifted dark ground, exactly one lit element, accent as edge-light or
+contained glow and never a fill, matte with fine grain, composition that breathes, and
+the hard limit that generated art carries no logos, copy, controls, invented metrics,
+functional icons, or rasterized UI.
+
+This section supplies the half that must not be shared.
+
+**Motif — Many lines of work under one hand — convergence, not completion.**
+
+Orchestration is one conductor over many agents. The motif is dispatch and convergence: distinct paths meeting at, or issuing from, a single point.
+
+**Accent:** product.agent-orchestration cobalt, read live from `tokens/`. Never sampled from a rendered image.
+
+**Watch for:** **Rejected twice: any depiction of parallel tracks at differing completion.** Both rounds converged on a progress bar — markers on tracks, then light filling channels to a third, two thirds and full. That is an interface element and is banned by §10. The subject was wrong, not the wording; completion is not this product's idea.
+
+A piece that would work equally well for another ByteDesk product has failed this
+section, however good it looks.

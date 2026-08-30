@@ -31,17 +31,17 @@
       "primary": {
         "$type": "color",
         "$value": "#E6E8EB",
-        "$description": "15.5:1 on bg.base"
+        "$description": "15.2:1 on bg.base"
       },
       "secondary": {
         "$type": "color",
         "$value": "#A1A8B1",
-        "$description": "10.8:1 on bg.base"
+        "$description": "7.8:1 on bg.base"
       },
       "tertiary": {
         "$type": "color",
         "$value": "#7E8792",
-        "$description": "7.9:1 on bg.base, 6.4:1 on bg.surface"
+        "$description": "5.1:1 on bg.base, 4.4:1 on bg.surface"
       },
       "disabled": {
         "$type": "color",
@@ -57,7 +57,7 @@
       "orange": {
         "$type": "color",
         "$value": "#EC4E02",
-        "$description": "ByteDesk brand. Conversion moments, brand marks. 5.1:1 on bg.base."
+        "$description": "ByteDesk brand. Conversion moments, brand marks. 5.0:1 on bg.base."
       },
       "orange-muted": {
         "$type": "color",
@@ -67,8 +67,8 @@
     "interactive": {
       "blue": {
         "$type": "color",
-        "$value": "#0079F2",
-        "$description": "oklch(0.5910 0.2028 256.13). Links, focus, interactive affordances. 4.5:1 on bg.base. Equals blue.500."
+        "$value": "#047BF4",
+        "$description": "oklch(0.5960 0.2028 256.13). Links, focus, interactive affordances. 4.6:1 on bg.base. Equals blue.500."
       },
       "focus": {
         "$type": "color",
@@ -105,8 +105,8 @@
       },
       "500": {
         "$type": "color",
-        "$value": "#0079F2",
-        "$description": "oklch(0.5910 0.2028 256.13). Canonical Gateway blue."
+        "$value": "#047BF4",
+        "$description": "oklch(0.5960 0.2028 256.13). Canonical Gateway blue."
       },
       "600": {
         "$type": "color",
@@ -143,8 +143,8 @@
       },
       "default": {
         "$type": "color",
-        "$value": "#0079F2",
-        "$description": "oklch(0.5910 0.2028 256.13) = blue.500"
+        "$value": "#047BF4",
+        "$description": "oklch(0.5960 0.2028 256.13) = blue.500"
       },
       "emphasis": {
         "$type": "color",
@@ -193,8 +193,8 @@
     "semantic": {
       "success": {
         "$type": "color",
-        "$value": "#009118",
-        "$description": "oklch(0.5698 0.1865 143.69). 4.6:1 on bg.base"
+        "$value": "#029219",
+        "$description": "oklch(0.5718 0.1865 143.69). 4.5:1 on bg.base"
       },
       "success-muted": {
         "$type": "color",
@@ -229,7 +229,7 @@
       "warning": {
         "$type": "color",
         "$value": "#DFA700",
-        "$description": "oklch(0.7601 0.1559 84.30). 8.7:1 on bg.base."
+        "$description": "oklch(0.7601 0.1559 84.30). 8.6:1 on bg.base."
       },
       "warning-bg": {
         "$type": "color",
@@ -244,7 +244,7 @@
       "info": {
         "$type": "color",
         "$value": "#1DB8CE",
-        "$description": "oklch(0.7190 0.1201 210.37). 8.0:1 on bg.base."
+        "$description": "oklch(0.7190 0.1201 210.37). 7.8:1 on bg.base."
       },
       "info-bg": {
         "$type": "color",
@@ -283,7 +283,7 @@
       "$description": "Cross-platform categorical and structural colors for system, session, and agent visualizations. Never rely on hue alone; pair series with labels, markers, line styles, or direct values.",
       "series-1": {
         "$type": "color",
-        "$value": "#0079F2",
+        "$value": "#047BF4",
         "$description": "Gateway blue"
       },
       "series-2": {
@@ -308,7 +308,7 @@
       },
       "series-6": {
         "$type": "color",
-        "$value": "#009118",
+        "$value": "#029219",
         "$description": "Green"
       },
       "series-7": {
@@ -414,42 +414,42 @@
     "platform": {
       "$type": "color",
       "$value": "#EC4E02",
-      "$description": "Flagship carries the brand orange. 5.1:1."
+      "$description": "Flagship carries the brand orange. 5.0:1."
     },
     "gateway": {
       "$type": "color",
-      "$value": "#0079F2",
-      "$description": "4.5:1."
+      "$value": "#047BF4",
+      "$description": "4.6:1."
     },
     "vault": {
       "$type": "color",
       "$value": "#DFA700",
-      "$description": "Keys/amber. oklch(0.76 0.16 85). 8.7:1."
+      "$description": "Keys/amber. oklch(0.76 0.16 85). 8.6:1."
     },
     "store": {
       "$type": "color",
-      "$value": "#009118",
-      "$description": "Commerce/green. 4.6:1."
+      "$value": "#029219",
+      "$description": "Commerce/green. 4.5:1."
     },
     "workforce": {
       "$type": "color",
       "$value": "#A170EB",
-      "$description": "oklch(0.65 0.18 300). 5.5:1."
+      "$description": "oklch(0.65 0.18 300). 5.4:1."
     },
     "agent-browser": {
       "$type": "color",
       "$value": "#1DB8CE",
-      "$description": "oklch(0.72 0.12 210). 8.0:1."
+      "$description": "oklch(0.72 0.12 210). 7.8:1."
     },
     "agent-memory": {
       "$type": "color",
       "$value": "#EA5DA9",
-      "$description": "oklch(0.68 0.19 350). 6.0:1."
+      "$description": "oklch(0.68 0.19 350). 5.9:1."
     },
     "capture": {
       "$type": "color",
       "$value": "#0A84FF",
-      "$description": "Matches the existing capture profile accent. 5.2:1."
+      "$description": "Matches the existing capture profile accent. 5.1:1."
     },
     "toolbox": {
       "$type": "color",
@@ -460,6 +460,11 @@
       "$type": "color",
       "$value": "#4C7DFF",
       "$description": "Conductor's Desk identity. Shares the family electric cobalt; orange remains reserved for actionable decisions."
+    },
+    "agent-mail": {
+      "$type": "color",
+      "$value": "#4C7DFF",
+      "$description": "Routed Correspondence identity. Electric cobalt marks active mail and agent routing; orange remains reserved for explicit human review."
     },
     "mangodisk": {
       "$type": "color",

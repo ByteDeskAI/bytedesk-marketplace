@@ -132,3 +132,24 @@ Rust (egui today).
 
 Do not invent latency SLAs or user counts. Prefer labeled targets or countable
 product facts (CLI surface, hotkey matrix, retention days, local-first residency).
+
+## Generated art
+
+The family contract is [`DESIGN.md` §10](../../DESIGN.md) — read it first. It holds the
+invariants: unlifted dark ground, exactly one lit element, accent as edge-light or
+contained glow and never a fill, matte with fine grain, composition that breathes, and
+the hard limit that generated art carries no logos, copy, controls, invented metrics,
+functional icons, or rasterized UI.
+
+This section supplies the half that must not be shared.
+
+**Motif — A bright moment taken out of a calm field.**
+
+The marketing surface for capture: one rectangular region noticeably brighter than the field around it, as though a light were switched on inside that rectangle alone.
+
+**Accent:** product.capture bright blue, read live from `tokens/`. Never sampled from a rendered image.
+
+**Watch for:** Marketing may be more striking than the tray. It may not invent controls or show a captured screenshot.
+
+A piece that would work equally well for another ByteDesk product has failed this
+section, however good it looks.

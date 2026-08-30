@@ -317,3 +317,24 @@ Depth is **tonal**, not cast-shadow. Surfaces step paper → paper-2 → paper-3
 4. Numbered records under `docs/`
 
 When tokens change: **this file first**, then mirror exports and `ui-tauri` hex bridges.
+
+## Generated art
+
+The family contract is [`DESIGN.md` §10](../../DESIGN.md) — read it first. It holds the
+invariants: unlifted dark ground, exactly one lit element, accent as edge-light or
+contained glow and never a fill, matte with fine grain, composition that breathes, and
+the hard limit that generated art carries no logos, copy, controls, invented metrics,
+functional icons, or rasterized UI.
+
+This section supplies the half that must not be shared.
+
+**Motif — A dense instrument panel as pure structure.**
+
+ADE is a terminal-grid-first workbench. A tight rectilinear lattice of unequal cells — density and division of space carrying the whole image.
+
+**Accent:** no family accent assigned; monochrome, read live from `tokens/`. Never sampled from a rendered image.
+
+**Watch for:** Deliberately colourless. An accent here would contradict a workbench whose interest is structure.
+
+A piece that would work equally well for another ByteDesk product has failed this
+section, however good it looks.

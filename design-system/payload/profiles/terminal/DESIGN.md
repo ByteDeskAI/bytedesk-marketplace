@@ -976,3 +976,24 @@ follow-up cycle.
 - Cross-platform builds (Linux-only today).
 - `mission.switch.<id>` commands registered per mission (palette
   categorization already reserves the `MISSIONS` section).
+
+## Generated art
+
+The family contract is [`DESIGN.md` §10](../../DESIGN.md) — read it first. It holds the
+invariants: unlifted dark ground, exactly one lit element, accent as edge-light or
+contained glow and never a fill, matte with fine grain, composition that breathes, and
+the hard limit that generated art carries no logos, copy, controls, invented metrics,
+functional icons, or rasterized UI.
+
+This section supplies the half that must not be shared.
+
+**Motif — Regions, built from value alone.**
+
+The cockpit's regions are contractual and the stage stays on the base ground. A deliberate arrangement of rectangular regions in stepped graphites with hairline boundaries.
+
+**Accent:** none — no colour anywhere, read live from `tokens/`. Never sampled from a rendered image.
+
+**Watch for:** Round 1 read *stays dark* so literally it produced an empty bordered rectangle — a missing image, not a composition. Dark is the palette, not the absence of arrangement.
+
+A piece that would work equally well for another ByteDesk product has failed this
+section, however good it looks.

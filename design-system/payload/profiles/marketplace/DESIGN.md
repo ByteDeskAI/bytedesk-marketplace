@@ -101,3 +101,24 @@ that delays comprehension.
 Marketplace does not use Store's commercial ledger contract, pricing language,
 upgrade CTAs, hero metric grids, unbounded decorative glass stacks, gradient text, icon soup, fake terminal
 chrome, provider logos without approved provenance, or ratings styled as trust proof.
+
+## Generated art
+
+The family contract is [`DESIGN.md` §10](../../DESIGN.md) — read it first. It holds the
+invariants: unlifted dark ground, exactly one lit element, accent as edge-light or
+contained glow and never a fill, matte with fine grain, composition that breathes, and
+the hard limit that generated art carries no logos, copy, controls, invented metrics,
+functional icons, or rasterized UI.
+
+This section supplies the half that must not be shared.
+
+**Motif — Submissions arriving at a threshold.**
+
+The marketplace is a queue with a gate. Flat plates in procession toward one defined threshold line; exactly one has crossed it and is lit.
+
+**Accent:** brand orange (no product accent assigned), read live from `tokens/`. Never sampled from a rendered image.
+
+**Watch for:** The threshold must be a real line in the composition. Without it the plates are only a receding row and the moderation idea disappears.
+
+A piece that would work equally well for another ByteDesk product has failed this
+section, however good it looks.

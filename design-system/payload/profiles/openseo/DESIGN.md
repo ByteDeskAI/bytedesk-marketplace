@@ -44,3 +44,24 @@ value, and filters, agent activity, and evidence remain fully keyboard operable.
 ## Exceptions to the shared foundation
 
 None.
+
+## Generated art
+
+The family contract is [`DESIGN.md` §10](../../DESIGN.md) — read it first. It holds the
+invariants: unlifted dark ground, exactly one lit element, accent as edge-light or
+contained glow and never a fill, matte with fine grain, composition that breathes, and
+the hard limit that generated art carries no logos, copy, controls, invented metrics,
+functional icons, or rasterized UI.
+
+This section supplies the half that must not be shared.
+
+**Motif — Two positions compared.**
+
+OpenSEO frames evidence rather than stacking interchangeable cards. Two solid bars at different heights, the upper lit and slightly forward, the lower plainly present and unlit.
+
+**Accent:** product.openseo teal, read live from `tokens/`. Never sampled from a rendered image.
+
+**Watch for:** Round 1 rendered soft tapering wedges fading into the dark, so it read as a gradient rather than a comparison. Both terms of a comparison must be legible.
+
+A piece that would work equally well for another ByteDesk product has failed this
+section, however good it looks.

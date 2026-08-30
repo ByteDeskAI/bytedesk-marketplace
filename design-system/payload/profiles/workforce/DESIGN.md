@@ -243,3 +243,24 @@ corepack pnpm build
 Use Storybook and targeted browser suites for the routes and states affected by the selected design. Record intentional visual changes; do not hide them inside a mechanical refactor.
 
 Historical token-audit decisions and prior art remain in `ByteDeskAI/design-system` under `artifacts/workforce/design-system/`. They explain how the current token and type systems were reached; this v0.4 profile supersedes their earlier no-redesign scope.
+
+## Generated art
+
+The family contract is [`DESIGN.md` §10](../../DESIGN.md) — read it first. It holds the
+invariants: unlifted dark ground, exactly one lit element, accent as edge-light or
+contained glow and never a fill, matte with fine grain, composition that breathes, and
+the hard limit that generated art carries no logos, copy, controls, invented metrics,
+functional icons, or rasterized UI.
+
+This section supplies the half that must not be shared.
+
+**Motif — Order, with one thing waiting.**
+
+Workforce is a quiet command centre whose whole job is telling an operator which single item needs them. Calm horizontal strata, generous space, and one small lit form off centre — the item that has not been dealt with.
+
+**Accent:** product.workforce violet, read live from `tokens/`. Never sampled from a rendered image.
+
+**Watch for:** Round 1 held every value within a few steps of black: the strata vanished and the accent read as a dull speck, so the frame said *empty* rather than *waiting*. Restraint is not the absence of contrast.
+
+A piece that would work equally well for another ByteDesk product has failed this
+section, however good it looks.

@@ -70,3 +70,24 @@ node .bytedesk/design-system-check.mjs
 ## Exceptions to the shared foundation
 
 None.
+
+## Generated art
+
+The family contract is [`DESIGN.md` §10](../../DESIGN.md) — read it first. It holds the
+invariants: unlifted dark ground, exactly one lit element, accent as edge-light or
+contained glow and never a fill, matte with fine grain, composition that breathes, and
+the hard limit that generated art carries no logos, copy, controls, invented metrics,
+functional icons, or rasterized UI.
+
+This section supplies the half that must not be shared.
+
+**Motif — Containment, with room to breathe.**
+
+The site explains trust boundaries before asking for adoption, so it inherits the product's containment motif and gives it far more empty space. Marketing may breathe where the console may not.
+
+**Accent:** product.agent-memory pink, read live from `tokens/`. Never sampled from a rendered image.
+
+**Watch for:** Same idea as the product, different pacing. If it reads as dense as the workbench, the surface is wrong.
+
+A piece that would work equally well for another ByteDesk product has failed this
+section, however good it looks.

@@ -33,7 +33,7 @@
   --bd-blue-200: oklch(0.3200 0.0700 256.13);
   --bd-blue-300: oklch(0.4000 0.1000 256.13);
   --bd-blue-400: oklch(0.4800 0.1300 256.13);
-  --bd-blue-500: oklch(0.5910 0.2028 256.13); /* #0079F2 */
+  --bd-blue-500: oklch(0.5960 0.2028 256.13); /* #047BF4 */
   --bd-blue-600: oklch(0.6400 0.1550 256.13);
   --bd-blue-700: oklch(0.7200 0.1200 256.13);
   --bd-blue-800: oklch(0.8000 0.0800 256.13);
@@ -55,7 +55,7 @@
   --bd-desk: var(--bd-desk-sessions);
 
   /* Semantic */
-  --bd-success: oklch(0.5698 0.1865 143.69); /* #009118 */
+  --bd-success: oklch(0.5718 0.1865 143.69); /* #029219 */
   --bd-success-muted: oklch(0.4732 0.1540 143.88);
   --bd-success-bg: oklch(0.2400 0.0450 143.69);
   --bd-success-line: oklch(0.4000 0.1000 143.69);
@@ -82,7 +82,7 @@
   --bd-chart-series-3: #A170EB;
   --bd-chart-series-4: #EA5DA9;
   --bd-chart-series-5: var(--bd-brand-orange);
-  --bd-chart-series-6: #009118;
+  --bd-chart-series-6: #029219;
   --bd-chart-series-7: #DFA700;
   --bd-chart-series-8: #E52222;
   --bd-chart-grid: var(--bd-border-dimmer);
@@ -100,13 +100,14 @@
   --bd-product-platform: #EC4E02;
   --bd-product-gateway: var(--bd-blue-500);
   --bd-product-vault: #DFA700;
-  --bd-product-store: #009118;
+  --bd-product-store: #029219;
   --bd-product-workforce: #A170EB;   /* oklch(0.65 0.18 300) */
   --bd-product-agent-browser: #1DB8CE;
   --bd-product-agent-memory: #EA5DA9; /* oklch(0.68 0.19 350) */
   --bd-product-capture: #0A84FF;
   --bd-product-toolbox: #4C7DFF;
   --bd-product-agent-orchestration: #4C7DFF;
+  --bd-product-agent-mail: #4C7DFF;
   --bd-product-mangodisk: #FF8A3D;
   --bd-product-openseo: #20B8A6;
 
@@ -318,8 +319,17 @@
 [data-bd-product="capture"]       { --bd-accent: var(--bd-product-capture); }
 [data-bd-product="toolbox"]       { --bd-accent: var(--bd-product-toolbox); }
 [data-bd-product="agent-orchestration"] { --bd-accent: var(--bd-product-agent-orchestration); }
+[data-bd-product="agent-mail"]    { --bd-accent: var(--bd-product-agent-mail); }
 [data-bd-product="mangodisk"]     { --bd-accent: var(--bd-product-mangodisk); }
 [data-bd-product="openseo"]       { --bd-accent: var(--bd-product-openseo); }
+
+/* Sites inherit their product's identity, and inheriting is not free: without its own
+ * scope a site matches no rule here, --bd-accent stays at the :root fallback, and the page
+ * renders brand orange. catalog.json declared the inheritance; the CSS had forgotten it. */
+[data-bd-product="agent-browser-website"] { --bd-accent: var(--bd-product-agent-browser); }
+[data-bd-product="agent-memory-website"]  { --bd-accent: var(--bd-product-agent-memory); }
+[data-bd-product="capture-website"]       { --bd-accent: var(--bd-product-capture); }
+[data-bd-product="bytedesk-ai"]           { --bd-accent: var(--bd-product-platform); }
 
 @media (prefers-reduced-motion: reduce) {
   :root {

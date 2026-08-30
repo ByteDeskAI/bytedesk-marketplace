@@ -202,3 +202,24 @@ bare fingers in frame; branded power tools; construction-site props
 (off-subject); portrait orientation (×2); reads-as-derelict control room;
 subject-free minimal books; two cross-page duplicates (Saikin console → kept
 for os-control only; Debiève PCB dropped for the gold-trace macro).
+
+## Generated art
+
+The family contract is [`DESIGN.md` §10](../../DESIGN.md) — read it first. It holds the
+invariants: unlifted dark ground, exactly one lit element, accent as edge-light or
+contained glow and never a fill, matte with fine grain, composition that breathes, and
+the hard limit that generated art carries no logos, copy, controls, invented metrics,
+functional icons, or rasterized UI.
+
+This section supplies the half that must not be shared.
+
+**Motif — A precision instrument's construction drawing — on paper.**
+
+This profile calls for light paper and hairlines rather than the family dark. Fine construction lines, circles and dashed guides on warm off-white, with one short segment picked out in the accent.
+
+**Accent:** product.agent-browser cyan, read live from `tokens/`. Never sampled from a rendered image.
+
+**Watch for:** **The one deliberate exception to the dark ground.** It is profile-driven, not a mistake, and it does not license lightness anywhere else in the family.
+
+A piece that would work equally well for another ByteDesk product has failed this
+section, however good it looks.

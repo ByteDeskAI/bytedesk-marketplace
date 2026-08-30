@@ -176,3 +176,63 @@ Design-system changes land here first. Consumer repositories adopt an exact
 source revision through a reviewed managed-payload sync or a legacy
 submodule-pointer update. Breaking profile or asset changes are called out in
 `CHANGELOG.md`; silent floating updates are prohibited.
+
+## 10. Generated art
+
+Generated raster art is **exploration**. It answers what a surface should feel like while
+the implementation answers what it is. It is never implementation source.
+
+It must not contain logos or identity-critical marks, product copy, fake controls,
+invented metrics, functional icons, or rasterized application UI. Interfaces and icons are
+built in React/HTML/CSS against the `--bd-*` tokens; a generated screenshot of a screen is
+not a screen. When a request asks for the forbidden thing, name the part that is out of
+bounds and offer the form that works — a mockup built against real tokens, or the
+cataloged mark — rather than refusing flatly or quietly producing it anyway.
+
+Every generated piece ships **paired with the compliant artifact** it accompanies, and the
+pairing says plainly which is which. Correctness alone does not answer the question
+someone asks when they want to see a product; a dry token-accurate screenshot delivered by
+itself reads as a downgrade. The boundary is not a reason to deliver less craft, only a
+reason to put the craft where it is allowed to be.
+
+**Never read a colour value off generated art.** Renderers drift hue, and a teammate who
+samples a generated PNG for a token gets the wrong number. `tokens/` is the authority.
+
+### The family holds these constant
+
+A ByteDesk piece is recognisable before you know which product it belongs to:
+
+- the ground is the base dark, unlifted — no haze, no fog, no frosted wash over the field;
+- **exactly one element is lit.** Every other form stays unlit material;
+- the accent appears as an edge-light, a seam, or a contained glow — never as a fill and
+  never as the subject;
+- surfaces are matte with a fine even grain: no gloss, no bloom flooding the frame, no lens
+  flare, no rainbow;
+- the composition breathes. Empty ground is structural, not wasted;
+- no gradient is ever the subject. A soft wash reads as an unfinished render, not a
+  decision.
+
+### The product supplies the idea
+
+Everything above is shared. What must not be shared is the **motif** — the single idea the
+piece is about, drawn from what that product actually does.
+
+A piece that would work equally well for another product has failed, however handsome it
+is. Swapping the accent hex is not personalisation; the geometry itself carries the
+product. Each profile names its own motif under *Generated art*, and a piece is judged
+against that motif before anything else.
+
+Restraint scores govern the product surface, not the marketing surface. A console scoring
+decoration low is a rule about the operator's screen, not about the launch page.
+
+### Where it lives
+
+Approved and exploratory pieces alike live at
+`profiles/<product>/mockups/<direction-slug>/`, with a README recording owner, status,
+dimensions, SHA-256, the generating tool and its prompt location, and — for anything not
+approved — the words that say so. Every file is registered in the design kit manifest and
+checksum-verified by `scripts/validate.mjs`.
+
+A revision that materially changes the direction gets a new sibling version directory.
+Superseded rounds are kept with the reason they were superseded, so a later contributor
+sees what was tried rather than only what survived.

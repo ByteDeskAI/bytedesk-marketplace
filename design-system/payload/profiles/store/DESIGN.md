@@ -130,3 +130,24 @@ Shared WCAG 2.2 AA foundation applies. Store-specific requirements:
 Side-stripe accent borders. Gradient text. Glassmorphism. Hero-metric tiles. Identical
 card grids. Modal-first patterns. Generic SaaS admin chrome and icon soup. Marketing
 gloss of any kind inside the console. Em dashes in UI copy.
+
+## Generated art
+
+The family contract is [`DESIGN.md` §10](../../DESIGN.md) — read it first. It holds the
+invariants: unlifted dark ground, exactly one lit element, accent as edge-light or
+contained glow and never a fill, matte with fine grain, composition that breathes, and
+the hard limit that generated art carries no logos, copy, controls, invented metrics,
+functional icons, or rasterized UI.
+
+This section supplies the half that must not be shared.
+
+**Motif — An ordered shelf where some things are already owned.**
+
+Store is a private catalogue with entitlements. Identical blocks evenly spaced on a single shelf plane; the few that are owned carry an edge-light, the rest do not.
+
+**Accent:** product.store green, read live from `tokens/`. Never sampled from a rendered image.
+
+**Watch for:** Entitlement is the distinction. If every block is lit, the piece says nothing about the product.
+
+A piece that would work equally well for another ByteDesk product has failed this
+section, however good it looks.

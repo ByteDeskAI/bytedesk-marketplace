@@ -110,3 +110,24 @@ text as identity. Side-stripe accent borders (`border-left` > 1px as decoration)
 Excessive glassmorphism beyond the family structural shell, frosted stacks, heavy blur. Purple-blue or teal gradient
 themes; decorative orbs and bokeh blobs. Vague AI language without a workflow,
 artifact, or operator outcome. Imagery as wallpaper or fake proof.
+
+## Generated art
+
+The family contract is [`DESIGN.md` §10](../../DESIGN.md) — read it first. It holds the
+invariants: unlifted dark ground, exactly one lit element, accent as edge-light or
+contained glow and never a fill, matte with fine grain, composition that breathes, and
+the hard limit that generated art carries no logos, copy, controls, invented metrics,
+functional icons, or rasterized UI.
+
+This section supplies the half that must not be shared.
+
+**Motif — Many parts held in one system, one speaking.**
+
+The front door introduces a suite. A rank of related forms, alike in material and unalike in height, with exactly one carrying an edge-light.
+
+**Accent:** brand orange, read live from `tokens/`. Never sampled from a rendered image.
+
+**Watch for:** The forms must vary enough to read as distinct products and hold enough in common to read as one family.
+
+A piece that would work equally well for another ByteDesk product has failed this
+section, however good it looks.

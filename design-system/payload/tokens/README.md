@@ -109,9 +109,65 @@ Terminal and remote-surface layout never animates for decoration.
 | Agent Memory | pink | memory identity |
 | Capture | bright blue | capture identity |
 | Toolbox | electric cobalt | command-shelf identity |
+| Agent Orchestration | electric cobalt | orchestration identity |
+| Agent Mail | electric cobalt | dispatch identity |
+| MangoDisk | orange | storage identity |
+| OpenSEO | teal | search identity |
 
 Where a product accent equals a semantic color, identity and status remain separate:
 status still requires a word and semantic component treatment.
+
+### Adding or changing a product accent
+
+Five steps, in this order. Steps 1–3 are the value; step 4 propagates it; step 5 is the
+human contract. `scripts/validate.mjs` enforces that all of them agree.
+
+1. **`tokens/bytedesk.tokens.json`** — add the entry under `product`. This is canonical;
+   everything else is an adapter.
+2. **`tokens/css/bytedesk.css`** — add `--bd-product-<slug>` beside the others. This file
+   is a *reviewed human-readable adapter*, not generated, so it is the one that drifts.
+3. **`tokens/css/bytedesk.css`** — add the scope:
+   `[data-bd-product="<slug>"] { --bd-accent: var(--bd-product-<slug>); }`
+   Without it the custom property exists and never applies: `--bd-accent` silently falls
+   back to brand orange and the surface still looks plausible. This is the failure that
+   went unnoticed across seven profiles, and the validator now refuses it.
+4. **`node scripts/generate-platform-tokens.mjs`** — regenerates the TypeScript, Rust and
+   Go constants. `--check` is the gate; native clients read these, not the CSS.
+5. **The table above** — add the row. It is the contract a person reads.
+
+Then declare the relationship in `catalog.json` on that profile:
+
+```json
+"accent": { "mode": "own", "token": "product.<slug>" }
+```
+
+### Products without their own accent
+
+Not every profile owns a colour, and the difference between *deliberately none* and
+*nobody has decided* has to be visible or it disappears. Declare one of:
+
+| mode | meaning | requires |
+|---|---|---|
+| `own` | carries its own accent | the five steps above, all agreeing |
+| `inherits` | uses another product's identity | `from`, naming an existing product, **and its own scope** |
+| `none` | absence is the design | `reason` |
+| `undecided` | a real gap, not yet resolved | `reason` |
+
+A site inherits its product (`agent-memory-website` → `agent-memory`); the suite front
+door inherits `platform`. **Inheriting still needs step 3.** The scope is what makes the
+inheritance real:
+
+```css
+[data-bd-product="agent-memory-website"] { --bd-accent: var(--bd-product-agent-memory); }
+```
+
+Without it the site matches no `[data-bd-product]` rule, `--bd-accent` stays at the
+`:root` fallback, and the page renders brand orange — the identical failure step 3
+describes for `own`, and one that went unnoticed on four profiles because the validator
+checked `inherits` for nothing but a name. It checks the scope, and what the scope
+resolves to, now. `ade` and `terminal` are `none` — Terminal's stage carries no
+colour anywhere by design. An `undecided` profile does not fail validation, but it is
+printed on every run so an open decision cannot go quiet.
 
 ## Consumption by runtime
 

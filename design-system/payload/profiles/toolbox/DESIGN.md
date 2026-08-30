@@ -173,3 +173,24 @@ No JetBrains visual imitation, generic SaaS dashboard, edge-to-edge flat panel t
 nested glass-card grid, frosted haze, decorative gradient text, rainbow telemetry,
 unlabeled status color, fake update behavior, generic placeholder identity, or dark/light
 composition drift.
+
+## Generated art
+
+The family contract is [`DESIGN.md` §10](../../DESIGN.md) — read it first. It holds the
+invariants: unlifted dark ground, exactly one lit element, accent as edge-light or
+contained glow and never a fill, matte with fine grain, composition that breathes, and
+the hard limit that generated art carries no logos, copy, controls, invented metrics,
+functional icons, or rasterized UI.
+
+This section supplies the half that must not be shared.
+
+**Motif — A small dense instrument floating above a larger quiet field.**
+
+Toolbox is a tray-scale command shelf on an atmospheric desktop. The piece is one compact slab with a crisp perimeter, an inner top-light, and a broad ambient shadow — the shell, not the desktop.
+
+**Accent:** product.toolbox electric cobalt, read live from `tokens/`. Never sampled from a rendered image.
+
+**Watch for:** Keep the accent a contained band on one edge. A glow that spreads under the whole slab becomes the subject and breaks the family rule.
+
+A piece that would work equally well for another ByteDesk product has failed this
+section, however good it looks.

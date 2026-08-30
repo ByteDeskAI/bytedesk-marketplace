@@ -40,3 +40,24 @@ risks, and protection are textual, and destructive focus returns predictably.
 ## Exceptions to the shared foundation
 
 None.
+
+## Generated art
+
+The family contract is [`DESIGN.md` §10](../../DESIGN.md) — read it first. It holds the
+invariants: unlifted dark ground, exactly one lit element, accent as edge-light or
+contained glow and never a fill, matte with fine grain, composition that breathes, and
+the hard limit that generated art carries no logos, copy, controls, invented metrics,
+functional icons, or rasterized UI.
+
+This section supplies the half that must not be shared.
+
+**Motif — A landscape whose depth is hierarchy.**
+
+MangoDisk makes storage explorable and makes deletion feel consequential. Nested plateaus stepping up and back, each level a lighter graphite, one carrying an edge-light — the level currently selected.
+
+**Accent:** product.mangodisk orange, read live from `tokens/`. Never sampled from a rendered image.
+
+**Watch for:** Scale should read large and the material solid. Anything playful undercuts a product whose main action is destructive.
+
+A piece that would work equally well for another ByteDesk product has failed this
+section, however good it looks.
