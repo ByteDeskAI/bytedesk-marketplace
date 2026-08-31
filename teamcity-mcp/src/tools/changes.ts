@@ -48,28 +48,4 @@ export function register(server: McpServer, client: TeamCityClient, mode: McpMod
     handler(async (args) => client.get(`changes/${args.change}`, { fields: args.fields })),
   );
 
-  server.registerTool(
-    'list_vcs_roots',
-    {
-      description:
-        'List VCS roots (configured repository connections). ' +
-        'Suggested fields: "count,vcs-root(id,name,type,projectId)".',
-      inputSchema: {
-        locator: z.string().optional().describe(LOCATOR_HELP),
-        fields: z.string().optional().describe(FIELDS_HELP),
-        pageSize: z.number().optional().describe('Items per page (default 100).'),
-        maxPages: z.number().optional().describe('Max pages to fetch (default 1; hard cap 50 with all).'),
-        all: z.boolean().optional().describe('Page until no nextHref remains (bounded by maxPages).'),
-      },
-    },
-    handler(async (args) =>
-      paginate(client, 'vcs-roots', {
-        locator: args.locator,
-        fields: args.fields,
-        pageSize: args.pageSize,
-        maxPages: args.maxPages,
-        all: args.all,
-      }),
-    ),
-  );
 }

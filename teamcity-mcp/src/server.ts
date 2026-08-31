@@ -5,6 +5,10 @@ import { register as registerBuilds } from './tools/builds.js';
 import { register as registerQueue } from './tools/queue.js';
 import { register as registerBuildTypes } from './tools/buildtypes.js';
 import { register as registerProjects } from './tools/projects.js';
+import { register as registerProjectFeatures } from './tools/project-features.js';
+import { register as registerProjectCredentials } from './tools/project-credentials.js';
+import { register as registerVersionedSettings } from './tools/versioned-settings.js';
+import { register as registerVcs } from './tools/vcs.js';
 import { register as registerAgents } from './tools/agents.js';
 import { register as registerTests } from './tools/tests.js';
 import { register as registerChanges } from './tools/changes.js';
@@ -16,6 +20,10 @@ const REGISTRARS = [
   registerQueue,
   registerBuildTypes,
   registerProjects,
+  registerProjectFeatures,
+  registerProjectCredentials,
+  registerVersionedSettings,
+  registerVcs,
   registerAgents,
   registerTests,
   registerChanges,
@@ -26,7 +34,7 @@ const REGISTRARS = [
 /** Build a fresh McpServer with every tool module registered (mode-gated). */
 export function createMcpServer(client: TeamCityClient, mode: McpMode): McpServer {
   const server = new McpServer(
-    { name: 'teamcity-mcp', version: '0.1.1' },
+    { name: 'teamcity-mcp', version: '0.2.0' },
     { capabilities: { tools: {} } },
   );
   for (const register of REGISTRARS) register(server, client, mode);

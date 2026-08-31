@@ -106,6 +106,10 @@ const contentTypeParam = z
   .string()
   .optional()
   .describe('Explicit Content-Type for the body (default application/json for objects, text/plain for strings).');
+const acceptParam = z
+  .string()
+  .optional()
+  .describe('Explicit Accept response media type (defaults to text/plain for string writes and application/json otherwise).');
 
 interface RestGetArgs {
   path: string;
@@ -115,6 +119,7 @@ interface RestGetArgs {
   pageSize?: number;
   maxPages?: number;
   all?: boolean;
+  accept?: string;
 }
 
 interface RestWriteArgs {
@@ -124,6 +129,7 @@ interface RestWriteArgs {
   fields?: string;
   query?: Record<string, string | number | boolean>;
   contentType?: string;
+  accept?: string;
 }
 
 interface RestDeleteArgs {
@@ -131,6 +137,7 @@ interface RestDeleteArgs {
   locator?: string;
   fields?: string;
   query?: Record<string, string | number | boolean>;
+  accept?: string;
 }
 
 /**
@@ -166,12 +173,13 @@ export function register(server: McpServer, client: TeamCityClient, mode: McpMod
           .boolean()
           .optional()
           .describe('Keep paging until the server stops returning nextHref (bounded by maxPages, default 50).'),
+        accept: acceptParam,
       },
     },
     handler(async (args: RestGetArgs) => {
-      const { path, locator, fields, query, pageSize, maxPages, all } = args;
+      const { path, locator, fields, query, pageSize, maxPages, all, accept } = args;
       if (pageSize !== undefined || maxPages !== undefined || all !== undefined) {
-        const page = await paginate(client, path, { locator, fields, query, pageSize, maxPages, all });
+        const page = await paginate(client, path, { locator, fields, query, pageSize, maxPages, all, accept });
         return {
           count: page.count,
           truncated: page.truncated,
@@ -179,7 +187,7 @@ export function register(server: McpServer, client: TeamCityClient, mode: McpMod
           items: page.items,
         };
       }
-      return client.get(path, { locator, fields, query });
+      return client.get(path, { locator, fields, query, accept });
     }),
   );
 
@@ -196,11 +204,12 @@ export function register(server: McpServer, client: TeamCityClient, mode: McpMod
         fields: fieldsParam,
         query: queryParam,
         contentType: contentTypeParam,
+        accept: acceptParam,
       },
     },
     handler(async (args: RestWriteArgs) => {
-      const { path, body, locator, fields, query, contentType } = args;
-      return client.post(path, body, { locator, fields, query, contentType });
+      const { path, body, locator, fields, query, contentType, accept } = args;
+      return client.post(path, body, { locator, fields, query, contentType, accept });
     }),
   );
 
@@ -215,11 +224,12 @@ export function register(server: McpServer, client: TeamCityClient, mode: McpMod
         fields: fieldsParam,
         query: queryParam,
         contentType: contentTypeParam,
+        accept: acceptParam,
       },
     },
     handler(async (args: RestWriteArgs) => {
-      const { path, body, locator, fields, query, contentType } = args;
-      return client.put(path, body, { locator, fields, query, contentType });
+      const { path, body, locator, fields, query, contentType, accept } = args;
+      return client.put(path, body, { locator, fields, query, contentType, accept });
     }),
   );
 
@@ -232,11 +242,12 @@ export function register(server: McpServer, client: TeamCityClient, mode: McpMod
         locator: locatorParam,
         fields: fieldsParam,
         query: queryParam,
+        accept: acceptParam,
       },
     },
     handler(async (args: RestDeleteArgs) => {
-      const { path, locator, fields, query } = args;
-      return client.delete(path, { locator, fields, query });
+      const { path, locator, fields, query, accept } = args;
+      return client.delete(path, { locator, fields, query, accept });
     }),
   );
 }

@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.0] — 2026-08-31
+
+### Added
+- Typed project versioned-settings lifecycle, synchronization, and token tools.
+- Typed VCS-root administration, connection inspection, and build-configuration attachment.
+- Project-feature, parameter-read, SSH-key, credential-inventory, secure-token, and guarded deletion tools.
+
+### Fixed
+- Negotiate `text/plain` responses for TeamCity single-value writes and allow explicit passthrough
+  `Accept` headers.
+- Redact secret inputs from TeamCity API errors and typed tool responses.
+
 ## [0.1.1] — 2026-08-26
 
 ### Fixed

@@ -50,3 +50,34 @@ export const LOCATOR_HELP =
 export const FIELDS_HELP =
   'TeamCity partial-response syntax, e.g. "count,build(id,number,status,buildTypeId)". ' +
   'Lists return basic fields by default; always project only what you need.';
+
+/** Whether a TeamCity property/key name conventionally carries secret material. */
+export function isSensitiveName(name: string): boolean {
+  const lower = name.toLowerCase();
+  if (lower.includes('reference')) return false;
+  return (
+    lower.startsWith('secure:') ||
+    /(^|[._:-])(password|secret|token)($|[._:-])/.test(lower) ||
+    lower === 'accesstoken'
+  );
+}
+
+/** Recursively redact secret-shaped values while preserving safe names and references. */
+export function sanitizeSecrets(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sanitizeSecrets);
+  if (!value || typeof value !== 'object') return value;
+
+  const source = value as Record<string, unknown>;
+  const propertyName = typeof source.name === 'string' ? source.name : undefined;
+  const out: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(source)) {
+    if (key === 'value' && propertyName && isSensitiveName(propertyName)) {
+      out[key] = '[REDACTED]';
+    } else if (isSensitiveName(key)) {
+      out[key] = '[REDACTED]';
+    } else {
+      out[key] = sanitizeSecrets(child);
+    }
+  }
+  return out;
+}

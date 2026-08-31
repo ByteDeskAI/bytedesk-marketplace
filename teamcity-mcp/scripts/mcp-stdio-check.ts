@@ -1,18 +1,21 @@
 /**
  * Stdio transport check: spawn the bundled server, run initialize + tools/list + a live call.
- * Usage: TEAMCITY_URL=... TEAMCITY_TOKEN=... npx tsx scripts/mcp-stdio-check.ts [path-to-bundle]
+ * Usage: TEAMCITY_URL=... TEAMCITY_TOKEN=... npx tsx scripts/mcp-stdio-check.ts [bundle-or-launcher]
  */
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 
-const bin = process.argv[2] ?? 'dist/bundle.cjs';
+const target = process.argv[2] ?? 'dist/bundle.cjs';
 
 if (!process.env.TEAMCITY_URL) {
   console.error('Set TEAMCITY_URL and credentials (TEAMCITY_TOKEN or USERNAME/PASSWORD) first');
   process.exit(1);
 }
 
-const child = spawn('node', [bin, '--stdio'], { stdio: ['pipe', 'pipe', 'inherit'] });
+const isBundle = target.endsWith('.cjs') || target.endsWith('.js');
+const child = spawn(isBundle ? 'node' : target, isBundle ? [target, '--stdio'] : ['--stdio'], {
+  stdio: ['pipe', 'pipe', 'inherit'],
+});
 const rl = createInterface({ input: child.stdout });
 
 type RpcMessage = { id?: number; result?: Record<string, unknown>; error?: { message: string } };
@@ -68,6 +71,17 @@ try {
   const list = expectResult(await rpc('tools/list', {}), 'tools/list');
   const tools = (list.tools ?? []) as Array<{ name: string }>;
   console.log(`tools/list OK — ${tools.length} tools`);
+  const expectedCount = process.env.TEAMCITY_MCP_MODE === 'read' ? 37 : 71;
+  if (tools.length !== expectedCount) {
+    throw new Error(`tools/list returned ${tools.length}; expected ${expectedCount}`);
+  }
+  for (const name of [
+    'get_project_versioned_settings',
+    'list_project_features',
+    'inspect_vcs_root_connection',
+  ]) {
+    if (!tools.some((tool) => tool.name === name)) throw new Error(`missing tool: ${name}`);
+  }
 
   const call = expectResult(
     await rpc('tools/call', { name: 'get_server_info', arguments: {} }),
@@ -76,6 +90,17 @@ try {
   const content = (call.content ?? []) as Array<{ text: string }>;
   const info = JSON.parse(content[0].text);
   console.log(`get_server_info OK — TeamCity ${info.version} (build ${info.buildNumber})`);
+
+  const project = process.env.TEAMCITY_SMOKE_PROJECT ?? 'id:ByteDesk';
+  const featureCall = expectResult(
+    await rpc('tools/call', {
+      name: 'list_project_features',
+      arguments: { project },
+    }),
+    'tools/call list_project_features',
+  );
+  if (featureCall.isError) throw new Error('list_project_features returned an MCP error');
+  console.log(`list_project_features OK — ${project}`);
 
   console.log('\nStdio transport check passed');
 } finally {

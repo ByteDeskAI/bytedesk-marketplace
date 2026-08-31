@@ -64,7 +64,17 @@ describe('request', () => {
     expect(fetchMock.mock.calls[0][1].body).toBe('{"buildType":{"id":"X"}}');
     await c.put('builds/id:1/comment', 'hello');
     expect(fetchMock.mock.calls[1][1].headers['Content-Type']).toBe('text/plain');
+    expect(fetchMock.mock.calls[1][1].headers.Accept).toBe('text/plain');
     expect(fetchMock.mock.calls[1][1].body).toBe('hello');
+  });
+
+  it('honors an explicit Accept override', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    await new TeamCityClient(BASE, TOKEN).put('some/text/field', 'value', {
+      accept: 'application/json',
+    });
+    expect(fetchMock.mock.calls[0][1].headers.Accept).toBe('application/json');
   });
 
   it('throws TeamCityApiError with status on non-ok responses', async () => {
@@ -76,6 +86,26 @@ describe('request', () => {
     expect(err).toBeInstanceOf(TeamCityApiError);
     expect(err.status).toBe(401);
     expect(err.message).toContain('Incorrect username or password');
+  });
+
+  it('redacts supplied sensitive values from TeamCity errors', async () => {
+    const secret = 'literal-secret-value';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(`Rejected ${secret} and ${encodeURIComponent(secret)}`, {
+          status: 400,
+          statusText: 'Bad Request',
+        }),
+      ),
+    );
+    const err = await new TeamCityClient(BASE, TOKEN)
+      .post('projects/id:X/secure/tokens', secret, { redactValues: [secret] })
+      .catch((e) => e);
+    expect(err).toBeInstanceOf(TeamCityApiError);
+    expect(err.message).not.toContain(secret);
+    expect(err.body).not.toContain(secret);
+    expect(err.message).toContain('***');
   });
 
   it('getRootText prefixes /httpAuth for basic auth on root-relative paths', async () => {

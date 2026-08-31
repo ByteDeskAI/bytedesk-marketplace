@@ -1,8 +1,9 @@
 import { chmod, cp, mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, it } from 'vitest';
+import { createInterface } from 'node:readline';
 
 const temporaryRoots: string[] = [];
 
@@ -11,6 +12,64 @@ afterEach(async () => {
 });
 
 describe('teamcity-mcp launcher', () => {
+  it.each([
+    ['full', 71],
+    ['read', 37],
+  ] as const)('runs the committed bundle in %s mode with %d tools', async (mode, expectedCount) => {
+    const child = spawn(join(process.cwd(), 'bin', 'teamcity-mcp'), ['--stdio'], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: {
+        ...process.env,
+        TEAMCITY_URL: 'https://teamcity.invalid',
+        TEAMCITY_TOKEN: 'test-token',
+        TEAMCITY_MCP_MODE: mode,
+        TEAMCITY_MCP_ENV: join(tmpdir(), 'teamcity-mcp-missing-env'),
+      },
+    });
+    const lines = createInterface({ input: child.stdout });
+    const responses = new Map<number, (message: Record<string, unknown>) => void>();
+    lines.on('line', (line) => {
+      const message = JSON.parse(line) as Record<string, unknown>;
+      if (typeof message.id === 'number') responses.get(message.id)?.(message);
+    });
+    const rpc = (id: number, method: string, params: unknown) =>
+      new Promise<Record<string, unknown>>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`timeout waiting for ${method}`)), 5_000);
+        responses.set(id, (message) => {
+          clearTimeout(timer);
+          responses.delete(id);
+          resolve(message);
+        });
+        child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
+      });
+
+    try {
+      const initialized = await rpc(1, 'initialize', {
+        protocolVersion: '2025-06-18',
+        capabilities: {},
+        clientInfo: { name: 'launcher-test', version: '1' },
+      });
+      expect(initialized).not.toHaveProperty('error');
+      expect(initialized).toMatchObject({ result: { serverInfo: { version: '0.2.0' } } });
+      child.stdin.write(
+        `${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })}\n`,
+      );
+      const listed = await rpc(2, 'tools/list', {});
+      const tools = (listed.result as { tools: Array<{ name: string }> }).tools;
+      expect(tools).toHaveLength(expectedCount);
+      expect(tools.map((tool) => tool.name)).toEqual(
+        expect.arrayContaining([
+          'get_project_versioned_settings',
+          'list_project_features',
+          'inspect_vcs_root_connection',
+        ]),
+      );
+    } finally {
+      lines.close();
+      child.kill();
+    }
+  });
+
   it('runs the shipped bundle without rebuilding when source files are newer', async () => {
     const root = await mkdtemp(join(tmpdir(), 'teamcity-mcp-launcher-'));
     temporaryRoots.push(root);

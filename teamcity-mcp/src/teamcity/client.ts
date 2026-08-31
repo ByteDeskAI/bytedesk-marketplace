@@ -11,6 +11,8 @@ export interface RequestOptions {
   accept?: string;
   /** Content-Type for the request body. Defaults to application/json when body is an object. */
   contentType?: string;
+  /** Sensitive values to remove from TeamCity error responses. Never sent to TeamCity. */
+  redactValues?: string[];
 }
 
 export interface BinaryResult {
@@ -138,7 +140,8 @@ export class TeamCityClient {
     asText = false,
   ): Promise<unknown> {
     const url = this.restUrl(path, opts);
-    const headers = this.headers(opts.accept ?? 'application/json');
+    const defaultAccept = typeof body === 'string' ? 'text/plain' : 'application/json';
+    const headers = this.headers(opts.accept ?? defaultAccept);
     let payload: string | undefined;
     if (body !== undefined) {
       if (typeof body === 'string') {
@@ -150,7 +153,7 @@ export class TeamCityClient {
       }
     }
     const res = await fetch(url, { method, headers, body: payload });
-    if (!res.ok) throw await this.apiError(res, url);
+    if (!res.ok) throw await this.apiError(res, url, opts.redactValues);
     if (res.status === 204) return { success: true };
     const text = await res.text();
     if (asText || !text) return text;
@@ -164,10 +167,23 @@ export class TeamCityClient {
     }
   }
 
-  private async apiError(res: Response, url: string): Promise<TeamCityApiError> {
+  private async apiError(
+    res: Response,
+    url: string,
+    redactValues: string[] = [],
+  ): Promise<TeamCityApiError> {
     // Never leak credentials: URLSearchParams values can't contain the token (it travels in
     // headers), but be defensive about bodies echoing auth data.
-    const body = (await res.text().catch(() => '')).replace(/Bearer \S+/g, 'Bearer ***');
+    let body = (await res.text().catch(() => '')).replace(/Bearer \S+/g, 'Bearer ***');
+    for (const value of redactValues) {
+      if (!value) continue;
+      body = body.split(value).join('***');
+      try {
+        body = body.split(encodeURIComponent(value)).join('***');
+      } catch {
+        // Ignore values that cannot be URI encoded; the literal form was already removed.
+      }
+    }
     return new TeamCityApiError(res.status, res.statusText, body, url);
   }
 }

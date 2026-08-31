@@ -1,7 +1,7 @@
 # teamcity-mcp
 
 An MCP (Model Context Protocol) server that exposes the **full** JetBrains TeamCity REST API to AI
-agents — 43 curated tools for the common workflows plus 4 unrestricted passthrough tools covering
+agents — 67 curated tools for the common workflows plus 4 unrestricted passthrough tools covering
 every REST path (268 paths on TeamCity 2026.1; see
 [docs/api-catalog.md](docs/api-catalog.md)). Speaks **stdio** (default for plugin/Desktop installs)
 and **streamable HTTP** (for shared/remote deployments).
@@ -11,22 +11,25 @@ Why not the official JetBrains MCP plugin? It exposes only `rest_get`, a buildQu
 builds, manage the queue, create and edit projects and build configurations, parameters, agents,
 mutes, investigations, changes, users, server admin — plus paginated build logs.
 
-## Tool surface (47 tools in `full` mode)
+## Tool surface (71 tools in `full` mode, 37 in `read` mode)
 
 | Area | Tools |
 | --- | --- |
 | Builds | `list_builds`, `get_build`, `get_build_log`, `get_build_problems`, `get_test_failures`, `get_build_statistics`, `list_artifacts`, `download_artifact`, `trigger_build`, `cancel_build`, `pin_build`, `unpin_build`, `add_build_tags`, `set_build_comment` |
 | Queue | `list_queue`, `cancel_queued_build`, `move_queued_build_to_top`, `set_queue_paused` |
-| Build configs | `list_build_types`, `get_build_type`, `create_build_config`, `update_build_config`, `set_build_config_parameter` |
-| Projects | `list_projects`, `get_project`, `create_project`, `set_project_parameter` |
+| Build configs | `list_build_types`, `get_build_type`, `create_build_config`, `update_build_config`, `set_build_config_parameter`, `attach_vcs_root_to_build_config` |
+| Projects | `list_projects`, `get_project`, `create_project`, `delete_project`, `list_project_parameters`, `get_project_parameter`, `set_project_parameter` |
+| Project features | `list_project_features`, `get_project_feature`, `create_project_feature`, `delete_project_feature` |
+| Versioned settings | `get_project_versioned_settings`, `configure_project_versioned_settings`, `get_project_versioned_settings_status`, `wait_for_project_versioned_settings`, `load_project_versioned_settings`, `check_project_versioned_settings_changes`, `list_project_versioned_settings_tokens`, `set_project_versioned_settings_token` |
 | Agents | `list_agents`, `list_agent_pools`, `authorize_agent`, `enable_agent` |
 | Tests/problems | `list_mutes`, `mute_test`, `unmute`, `list_investigations`, `assign_investigation` |
-| Changes/VCS | `list_changes`, `get_change`, `list_vcs_roots` |
+| Changes/VCS | `list_changes`, `get_change`, `list_vcs_roots`, `get_vcs_root`, `create_vcs_root`, `update_vcs_root`, `delete_vcs_root`, `inspect_vcs_root_connection` |
+| Project credentials | `list_project_ssh_keys`, `create_project_secure_token`, `inspect_project_vcs_credentials` |
 | Users/server | `get_current_user`, `list_users`, `get_server_info`, `get_server_metrics` |
 | Passthrough | `teamcity_rest_get`, `teamcity_rest_post`, `teamcity_rest_put`, `teamcity_rest_delete` |
 
 The passthrough tools accept `path` (anything after `/app/rest`), `locator`, `fields`, `query`,
-`body`, `contentType`, and optional paging (`pageSize`/`maxPages`/`all`) — they reach every
+`body`, `contentType`, `accept`, and optional paging (`pageSize`/`maxPages`/`all`) — they reach every
 endpoint the curated set doesn't cover (VCS roots admin, versioned settings, cloud, audit, roles,
 deployment dashboards, …).
 
@@ -125,3 +128,9 @@ Any other streamable-HTTP client works the same way; stdio-only clients can brid
   single-field setters expect that). Collections support `count`/`start` paging and the
   `fields` projection — the list tools expose both, and `GET <collection>/$help` via
   `teamcity_rest_get` documents every locator dimension.
+- Destructive project, VCS-root, and project-feature tools require an exact resolved-ID
+  confirmation. Non-empty project deletion and in-use VCS-root deletion require an additional
+  explicit override.
+- Secret-bearing tools prefer an existing `credentialsJSON:` reference or a server-side
+  `TEAMCITY_MCP_SECRET_*` environment variable. Literal values are an explicit compatibility
+  fallback; values are redacted from tool results and TeamCity error messages.

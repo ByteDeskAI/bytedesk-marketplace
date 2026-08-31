@@ -25537,7 +25537,7 @@ var require_compile = __commonJS({
       const _sch = getCompilingSchema.call(this, sch);
       if (_sch)
         return _sch;
-      const rootId = (0, resolve_1.getFullPath)(this.opts.uriResolver, sch.root.baseId);
+      const rootId2 = (0, resolve_1.getFullPath)(this.opts.uriResolver, sch.root.baseId);
       const { es5, lines } = this.opts.code;
       const { ownProperties } = this.opts;
       const gen = new codegen_1.CodeGen(this.scope, { es5, lines, ownProperties });
@@ -25567,8 +25567,8 @@ var require_compile = __commonJS({
         ValidationError: _ValidationError,
         schema: sch.schema,
         schemaEnv: sch,
-        rootId,
-        baseId: sch.baseId || rootId,
+        rootId: rootId2,
+        baseId: sch.baseId || rootId2,
         schemaPath: codegen_1.nil,
         errSchemaPath: sch.schemaPath || (this.opts.jtd ? "" : "#"),
         errorPath: (0, codegen_1._)`""`,
@@ -41996,7 +41996,8 @@ var TeamCityClient = class _TeamCityClient {
   }
   async request(method, path, body, opts, asText = false) {
     const url = this.restUrl(path, opts);
-    const headers = this.headers(opts.accept ?? "application/json");
+    const defaultAccept = typeof body === "string" ? "text/plain" : "application/json";
+    const headers = this.headers(opts.accept ?? defaultAccept);
     let payload;
     if (body !== void 0) {
       if (typeof body === "string") {
@@ -42008,7 +42009,7 @@ var TeamCityClient = class _TeamCityClient {
       }
     }
     const res = await fetch(url, { method, headers, body: payload });
-    if (!res.ok) throw await this.apiError(res, url);
+    if (!res.ok) throw await this.apiError(res, url, opts.redactValues);
     if (res.status === 204) return { success: true };
     const text = await res.text();
     if (asText || !text) return text;
@@ -42020,8 +42021,16 @@ var TeamCityClient = class _TeamCityClient {
       return text;
     }
   }
-  async apiError(res, url) {
-    const body = (await res.text().catch(() => "")).replace(/Bearer \S+/g, "Bearer ***");
+  async apiError(res, url, redactValues = []) {
+    let body = (await res.text().catch(() => "")).replace(/Bearer \S+/g, "Bearer ***");
+    for (const value of redactValues) {
+      if (!value) continue;
+      body = body.split(value).join("***");
+      try {
+        body = body.split(encodeURIComponent(value)).join("***");
+      } catch {
+      }
+    }
     return new TeamCityApiError(res.status, res.statusText, body, url);
   }
 };
@@ -46202,6 +46211,28 @@ function handler(fn) {
 }
 var LOCATOR_HELP = 'TeamCity locator DSL: comma-separated dimension:value filters, e.g. "status:FAILURE,branch:default:any". Nest with parentheses: "buildType:(id:X)". Common build dims: id, number, buildType, project, status(SUCCESS|FAILURE|ERROR), state(queued|running|finished), running, finished, personal, pinned, tag, branch, user, revision, startDate/finishDate, defaultFilter(false to include personal/non-default), count, start, lookupLimit. Append /$help as the locator to any collection to list its dims.';
 var FIELDS_HELP = 'TeamCity partial-response syntax, e.g. "count,build(id,number,status,buildTypeId)". Lists return basic fields by default; always project only what you need.';
+function isSensitiveName(name) {
+  const lower = name.toLowerCase();
+  if (lower.includes("reference")) return false;
+  return lower.startsWith("secure:") || /(^|[._:-])(password|secret|token)($|[._:-])/.test(lower) || lower === "accesstoken";
+}
+function sanitizeSecrets(value) {
+  if (Array.isArray(value)) return value.map(sanitizeSecrets);
+  if (!value || typeof value !== "object") return value;
+  const source = value;
+  const propertyName = typeof source.name === "string" ? source.name : void 0;
+  const out = {};
+  for (const [key, child] of Object.entries(source)) {
+    if (key === "value" && propertyName && isSensitiveName(propertyName)) {
+      out[key] = "[REDACTED]";
+    } else if (isSensitiveName(key)) {
+      out[key] = "[REDACTED]";
+    } else {
+      out[key] = sanitizeSecrets(child);
+    }
+  }
+  return out;
+}
 
 // src/tools/builds.ts
 var buildArg = external_exports.string().describe('Any build locator: "12345", "id:12345", or "buildType:(id:X),number:42".');
@@ -46661,6 +46692,36 @@ function register4(server, client, mode) {
       async (args) => client.get(`projects/${args.project}`, { fields: args.fields })
     )
   );
+  server.registerTool(
+    "list_project_parameters",
+    {
+      description: "List configuration parameters defined on a project. Password values are not requested.",
+      inputSchema: {
+        project: external_exports.string().describe('Project locator, e.g. "id:X".')
+      }
+    },
+    handler(
+      async (args) => client.get(`projects/${args.project}/parameters`, {
+        fields: "count,property(name,own,inherited,type(rawValue))"
+      })
+    )
+  );
+  server.registerTool(
+    "get_project_parameter",
+    {
+      description: "Get metadata for one project configuration parameter without requesting its value.",
+      inputSchema: {
+        project: external_exports.string().describe('Project locator, e.g. "id:X".'),
+        name: external_exports.string().describe('Parameter name, e.g. "env.API_KEY".')
+      }
+    },
+    handler(async (args) => {
+      const encoded = encodeURIComponent(args.name);
+      return client.get(`projects/${args.project}/parameters/${encoded}`, {
+        fields: "name,own,inherited,type(rawValue)"
+      });
+    })
+  );
   if (mode === "full") {
     server.registerTool(
       "create_project",
@@ -46687,31 +46748,921 @@ function register4(server, client, mode) {
     server.registerTool(
       "set_project_parameter",
       {
-        description: "Set a configuration parameter on a project, optionally with a type specification (e.g. a password parameter).",
+        description: "Atomically set a project configuration parameter. Supply exactly one of value or valueFromEnv; environment names must start with TEAMCITY_MCP_SECRET_. Secret values are never returned.",
         inputSchema: {
           project: external_exports.string().describe('Project locator, e.g. "id:X".'),
           name: external_exports.string().describe('Parameter name, e.g. "env.API_KEY".'),
-          value: external_exports.string().describe("Parameter value."),
+          value: external_exports.string().optional().describe("Literal value. Mutually exclusive with valueFromEnv."),
+          valueFromEnv: external_exports.string().regex(/^TEAMCITY_MCP_SECRET_[A-Z0-9_]+$/).optional().describe(
+            "Server environment variable containing the value. Must start TEAMCITY_MCP_SECRET_."
+          ),
           typeRawValue: external_exports.string().optional().describe(`Raw parameter type, e.g. "password display='hidden'".`)
         }
       },
       handler(async (args) => {
+        const supplied = Number(args.value !== void 0) + Number(args.valueFromEnv !== void 0);
+        if (supplied !== 1) {
+          throw new Error("Supply exactly one of value or valueFromEnv.");
+        }
+        const value = args.valueFromEnv !== void 0 ? process.env[args.valueFromEnv] : args.value;
+        if (args.valueFromEnv !== void 0 && !value) {
+          throw new Error(`Environment variable ${args.valueFromEnv} is not set.`);
+        }
+        if (value === void 0) throw new Error("No project parameter value was resolved.");
         const encoded = encodeURIComponent(args.name);
-        await client.put(`projects/${args.project}/parameters/${encoded}/value`, args.value);
-        if (args.typeRawValue !== void 0) {
-          await client.put(
-            `projects/${args.project}/parameters/${encoded}/type/rawValue`,
-            args.typeRawValue
+        await client.put(
+          `projects/${args.project}/parameters/${encoded}`,
+          {
+            name: args.name,
+            value,
+            ...args.typeRawValue !== void 0 && { type: { rawValue: args.typeRawValue } }
+          },
+          { redactValues: [value] }
+        );
+        return { success: true, name: args.name };
+      })
+    );
+    server.registerTool(
+      "delete_project",
+      {
+        description: "Delete a project after resolving its ID. Refuses a non-empty project unless allowNonEmpty is true. confirmProjectId must exactly match the resolved ID.",
+        inputSchema: {
+          project: external_exports.string().describe('Project locator, e.g. "id:X".'),
+          confirmProjectId: external_exports.string().describe("Exact resolved project ID to confirm deletion."),
+          allowNonEmpty: external_exports.boolean().optional().default(false).describe("Allow deletion when the project has child projects, build types, or templates.")
+        }
+      },
+      handler(async (args) => {
+        const resolved = await client.get(`projects/${args.project}`, {
+          fields: "id,buildTypes(count),templates(count),projects(count)"
+        });
+        const id = typeof resolved.id === "string" ? resolved.id : void 0;
+        if (!id) throw new Error("TeamCity did not return a resolved project ID.");
+        if (args.confirmProjectId !== id) {
+          throw new Error(`Deletion confirmation does not match resolved project ID ${id}.`);
+        }
+        const collectionCount = (key) => {
+          const collection = resolved[key];
+          if (!collection || typeof collection !== "object") return 0;
+          const count = collection.count;
+          return typeof count === "number" ? count : 0;
+        };
+        const childCount = collectionCount("buildTypes") + collectionCount("templates") + collectionCount("projects");
+        if (childCount > 0 && !args.allowNonEmpty) {
+          throw new Error(
+            `Project ${id} is not empty (${childCount} child resources); set allowNonEmpty to true.`
           );
         }
-        return { success: true, name: args.name };
+        await client.delete(`projects/id:${id}`);
+        return { success: true, projectId: id };
       })
     );
   }
 }
 
-// src/tools/agents.ts
+// src/tools/project-features.ts
 function register5(server, client, mode) {
+  server.registerTool(
+    "list_project_features",
+    {
+      description: "List features configured on a TeamCity project.",
+      inputSchema: {
+        project: external_exports.string().describe('Project locator, e.g. "id:X".'),
+        fields: external_exports.string().optional().describe(FIELDS_HELP)
+      }
+    },
+    handler(
+      async (args) => sanitizeSecrets(
+        await client.get(`projects/${args.project}/projectFeatures`, { fields: args.fields })
+      )
+    )
+  );
+  server.registerTool(
+    "get_project_feature",
+    {
+      description: "Get one project feature by locator.",
+      inputSchema: {
+        project: external_exports.string().describe('Project locator, e.g. "id:X".'),
+        feature: external_exports.string().describe('Project feature locator, e.g. "id:PROJECT_EXT_1".'),
+        fields: external_exports.string().optional().describe(FIELDS_HELP)
+      }
+    },
+    handler(
+      async (args) => sanitizeSecrets(
+        await client.get(`projects/${args.project}/projectFeatures/${args.feature}`, {
+          fields: args.fields
+        })
+      )
+    )
+  );
+  if (mode !== "full") return;
+  server.registerTool(
+    "create_project_feature",
+    {
+      description: "Create a project feature with optional ID and string properties.",
+      inputSchema: {
+        project: external_exports.string().describe('Project locator, e.g. "id:X".'),
+        type: external_exports.string().describe("TeamCity project feature type."),
+        id: external_exports.string().optional().describe("Optional explicit feature ID."),
+        properties: external_exports.record(external_exports.string()).optional().describe("Feature property name/value map.")
+      }
+    },
+    handler(async (args) => {
+      const values = Object.entries(args.properties ?? {}).filter(([name]) => /(^secure:|password|secret|token)/i.test(name)).map(([, value]) => value);
+      return sanitizeSecrets(
+        await client.post(
+          `projects/${args.project}/projectFeatures`,
+          {
+            type: args.type,
+            ...args.id !== void 0 && { id: args.id },
+            ...args.properties !== void 0 && {
+              properties: {
+                property: Object.entries(args.properties).map(([name, value]) => ({ name, value }))
+              }
+            }
+          },
+          { redactValues: values }
+        )
+      );
+    })
+  );
+  server.registerTool(
+    "delete_project_feature",
+    {
+      description: "Delete a project feature after resolving it. confirmFeatureId must exactly match its ID.",
+      inputSchema: {
+        project: external_exports.string().describe('Project locator, e.g. "id:X".'),
+        feature: external_exports.string().describe('Project feature locator, e.g. "id:PROJECT_EXT_1".'),
+        confirmFeatureId: external_exports.string().describe("Exact resolved feature ID to confirm deletion.")
+      }
+    },
+    handler(async (args) => {
+      const resolved = await client.get(
+        `projects/${args.project}/projectFeatures/${args.feature}`,
+        { fields: "id,type" }
+      );
+      const id = typeof resolved.id === "string" ? resolved.id : void 0;
+      if (!id) throw new Error("TeamCity did not return a resolved project feature ID.");
+      if (args.confirmFeatureId !== id) {
+        throw new Error(`Deletion confirmation does not match resolved feature ID ${id}.`);
+      }
+      await client.delete(`projects/${args.project}/projectFeatures/id:${id}`);
+      return { success: true, featureId: id };
+    })
+  );
+}
+
+// src/tools/project-credentials.ts
+var secretSource = external_exports.discriminatedUnion("kind", [
+  external_exports.object({
+    kind: external_exports.literal("env"),
+    name: external_exports.string().regex(/^TEAMCITY_MCP_SECRET_[A-Z0-9_]+$/)
+  }),
+  external_exports.object({ kind: external_exports.literal("literal"), value: external_exports.string().min(1) })
+]);
+function records(value) {
+  return collectionItems(value).items.filter(
+    (item) => item !== null && typeof item === "object"
+  );
+}
+function sshKeyMetadata(value) {
+  return records(value).map((key) => ({
+    ...typeof key.name === "string" && { name: key.name },
+    ...typeof key.fingerprint === "string" && { fingerprint: key.fingerprint },
+    ...typeof key.type === "string" && { type: key.type }
+  }));
+}
+function parameterMetadata(value, scope) {
+  return records(value).map((property) => {
+    const type = property.type;
+    const rawValue = type && typeof type === "object" ? type.rawValue : void 0;
+    return {
+      name: property.name,
+      scope,
+      type: typeof rawValue === "string" ? rawValue : "configuration-parameter"
+    };
+  });
+}
+function vcsCredentialMetadata(value, scope) {
+  const roots = records(value);
+  const output = [];
+  for (const root of roots) {
+    const properties = records(root.properties);
+    for (const property of properties) {
+      const name = typeof property.name === "string" ? property.name : "";
+      const raw = typeof property.value === "string" ? property.value : "";
+      const isSecret = /password|token|secret|credential/i.test(name);
+      const reference = /^(credentialsJSON:|vault:|env\.)/.test(raw) ? raw : void 0;
+      if (!isSecret && reference === void 0) continue;
+      output.push({
+        name,
+        scope,
+        type: "vcs-root-property",
+        ...reference !== void 0 && { reference },
+        ...typeof root.id === "string" && { vcsRootId: root.id }
+      });
+    }
+  }
+  return output;
+}
+function versionedTokenMetadata(value, scope) {
+  return records(value).map((token) => ({
+    ...typeof token.name === "string" && { name: token.name },
+    scope,
+    type: "versioned-settings-token",
+    ...typeof token.description === "string" && { description: token.description }
+  }));
+}
+function register6(server, client, mode) {
+  server.registerTool(
+    "list_project_ssh_keys",
+    {
+      description: "List SSH-key metadata for a project. Private key material is never returned.",
+      inputSchema: {
+        project: external_exports.string().describe('Project locator, e.g. "id:X".')
+      }
+    },
+    handler(async (args) => {
+      const response = await client.get(`projects/${args.project}/sshKeys`);
+      const items = sshKeyMetadata(response);
+      return { count: items.length, items };
+    })
+  );
+  server.registerTool(
+    "inspect_project_vcs_credentials",
+    {
+      description: "Inspect credential metadata used by a project and, by default, its parent projects. Returns names, scopes, types, and references only; secret values are omitted.",
+      inputSchema: {
+        project: external_exports.string().describe('Project locator, e.g. "id:X".'),
+        includeParents: external_exports.boolean().optional().default(true),
+        maxParentLevels: external_exports.number().int().min(1).max(20).optional().default(20)
+      }
+    },
+    handler(async (args) => {
+      const credentials = [];
+      const unavailableSources = [];
+      const visited = /* @__PURE__ */ new Set();
+      let locator = args.project;
+      let level = 0;
+      while (level < args.maxParentLevels) {
+        const project = await client.get(`projects/${locator}`, {
+          fields: "id,parentProjectId"
+        });
+        const projectId = typeof project.id === "string" ? project.id : void 0;
+        if (!projectId || visited.has(projectId)) break;
+        visited.add(projectId);
+        const scope = `project:${projectId}`;
+        const sources = await Promise.allSettled([
+          client.get(`projects/id:${projectId}/parameters`, {
+            fields: "count,property(name,type(rawValue))"
+          }),
+          client.get(`projects/id:${projectId}/sshKeys`),
+          client.get("vcs-roots", {
+            locator: `project:(id:${projectId})`,
+            fields: "count,vcs-root(id,name,properties(property(name,value)))"
+          }),
+          client.get(`projects/id:${projectId}/versionedSettings/tokens`)
+        ]);
+        const sourceValue = (index) => sources[index]?.status === "fulfilled" ? sources[index].value : { count: 0 };
+        const sourceNames = ["parameters", "sshKeys", "vcsRoots", "versionedSettingsTokens"];
+        sources.forEach((source, index) => {
+          if (source.status === "rejected") {
+            unavailableSources.push({ scope, source: sourceNames[index] });
+          }
+        });
+        credentials.push(
+          ...parameterMetadata(sourceValue(0), scope),
+          ...sshKeyMetadata(sourceValue(1)).map((key) => ({
+            ...key,
+            scope,
+            type: "ssh-key"
+          })),
+          ...vcsCredentialMetadata(sourceValue(2), scope),
+          ...versionedTokenMetadata(sourceValue(3), scope)
+        );
+        if (!args.includeParents || typeof project.parentProjectId !== "string") break;
+        locator = `id:${project.parentProjectId}`;
+        level += 1;
+      }
+      return {
+        count: credentials.length,
+        projectsInspected: visited.size,
+        items: credentials,
+        unavailableSources
+      };
+    })
+  );
+  if (mode !== "full") return;
+  server.registerTool(
+    "create_project_secure_token",
+    {
+      description: "Store a secret in TeamCity and return its opaque credentials reference. The supplied secret is never returned.",
+      inputSchema: {
+        project: external_exports.string().describe('Project locator, e.g. "id:X".'),
+        secret: secretSource
+      }
+    },
+    handler(async (args) => {
+      const environmentName = args.secret.kind === "env" ? args.secret.name : void 0;
+      const value = args.secret.kind === "literal" ? args.secret.value : process.env[args.secret.name];
+      if (!value) {
+        throw new Error(`Environment variable ${environmentName} is not set.`);
+      }
+      const reference = await client.post(`projects/${args.project}/secure/tokens`, value, {
+        accept: "text/plain",
+        contentType: "text/plain",
+        redactValues: [value]
+      });
+      if (typeof reference !== "string" || !reference.startsWith("credentialsJSON:")) {
+        throw new Error("TeamCity did not return a credentialsJSON reference.");
+      }
+      return { reference };
+    })
+  );
+}
+
+// src/tools/versioned-settings.ts
+var secretSourceSchema = external_exports.discriminatedUnion("kind", [
+  external_exports.object({
+    kind: external_exports.literal("env"),
+    name: external_exports.string().regex(
+      /^TEAMCITY_MCP_SECRET_[A-Z0-9_]+$/,
+      "Environment variable must start with TEAMCITY_MCP_SECRET_"
+    ).describe("Server environment variable containing the secret.")
+  }),
+  external_exports.object({
+    kind: external_exports.literal("literal"),
+    value: external_exports.string().min(1).describe("Secret value. Prefer an env source to keep it out of transcripts.")
+  })
+]);
+function projectPath(project, suffix) {
+  return `projects/${project}/versionedSettings/${suffix}`;
+}
+function resolveSecret(source) {
+  if (source.kind === "literal") return source.value;
+  const value = process.env[source.name];
+  if (!value) throw new Error(`Secret environment variable ${source.name} is not set or is empty.`);
+  return value;
+}
+function sanitizeTokens(response) {
+  if (!response || typeof response !== "object") return response;
+  const record2 = response;
+  const tokens = Array.isArray(record2.versionedSettingsToken) ? record2.versionedSettingsToken.map((token) => {
+    if (!token || typeof token !== "object") return token;
+    const { value: _value, ...safe } = token;
+    return safe;
+  }) : [];
+  return {
+    ...record2,
+    versionedSettingsToken: tokens
+  };
+}
+function sanitizeStatus(response) {
+  if (!response || typeof response !== "object") return response;
+  const record2 = response;
+  if (!Array.isArray(record2.versionedSettingsError)) return response;
+  return {
+    ...record2,
+    versionedSettingsError: record2.versionedSettingsError.map((error2) => {
+      if (!error2 || typeof error2 !== "object") return error2;
+      const { stackTraceLines: _stackTraceLines, ...safe } = error2;
+      return safe;
+    })
+  };
+}
+function statusIsPending(status) {
+  if (!status || typeof status !== "object") return false;
+  const record2 = status;
+  if (Array.isArray(record2.versionedSettingsError) && record2.versionedSettingsError.length > 0) {
+    return false;
+  }
+  if (/^(error|failure|failed|warning)$/i.test(String(record2.type ?? ""))) return false;
+  const text = `${String(record2.type ?? "")} ${String(record2.message ?? "")}`.toLowerCase();
+  return /\b(pending|running|processing|in[ -]?progress|checking|loading|synchronizing)\b/.test(text);
+}
+function sleep(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+function register7(server, client, mode) {
+  server.registerTool(
+    "get_project_versioned_settings",
+    {
+      description: "Get the Versioned Settings configuration for a project.",
+      inputSchema: {
+        project: external_exports.string().describe('Project locator, e.g. "id:X".'),
+        fields: external_exports.string().optional().describe(FIELDS_HELP)
+      }
+    },
+    handler(
+      async (args) => client.get(projectPath(args.project, "config"), { fields: args.fields })
+    )
+  );
+  server.registerTool(
+    "get_project_versioned_settings_status",
+    {
+      description: "Get the result and current state of the most recent Versioned Settings update.",
+      inputSchema: {
+        project: external_exports.string().describe('Project locator, e.g. "id:X".'),
+        fields: external_exports.string().optional().describe(FIELDS_HELP)
+      }
+    },
+    handler(
+      async (args) => sanitizeStatus(
+        await client.get(projectPath(args.project, "status"), { fields: args.fields })
+      )
+    )
+  );
+  server.registerTool(
+    "wait_for_project_versioned_settings",
+    {
+      description: "Poll Versioned Settings status until TeamCity no longer reports an in-progress state or the timeout expires.",
+      inputSchema: {
+        project: external_exports.string().describe('Project locator, e.g. "id:X".'),
+        timeoutSeconds: external_exports.number().positive().max(300).optional().default(60).describe("Maximum wait in seconds (default 60, maximum 300)."),
+        intervalSeconds: external_exports.number().positive().max(10).optional().default(2).describe("Polling interval in seconds (default 2, maximum 10).")
+      }
+    },
+    handler(async (args) => {
+      const timeoutMs = args.timeoutSeconds * 1e3;
+      const intervalMs = args.intervalSeconds * 1e3;
+      const deadline = Date.now() + timeoutMs;
+      let status;
+      do {
+        status = await client.get(projectPath(args.project, "status"));
+        if (!statusIsPending(status)) {
+          return { completed: true, timedOut: false, status: sanitizeStatus(status) };
+        }
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) break;
+        await sleep(Math.min(intervalMs, remaining));
+      } while (Date.now() < deadline);
+      return { completed: false, timedOut: true, status: sanitizeStatus(status) };
+    })
+  );
+  server.registerTool(
+    "list_project_versioned_settings_tokens",
+    {
+      description: "List Versioned Settings credential-token metadata. Secret values are always omitted.",
+      inputSchema: {
+        project: external_exports.string().describe('Project locator, e.g. "id:X".'),
+        status: external_exports.string().optional().describe("Optional TeamCity token status filter.")
+      }
+    },
+    handler(
+      async (args) => sanitizeTokens(
+        await client.get(projectPath(args.project, "tokens"), {
+          query: { status: args.status }
+        })
+      )
+    )
+  );
+  if (mode !== "full") return;
+  server.registerTool(
+    "configure_project_versioned_settings",
+    {
+      description: "Configure a project's Versioned Settings. Supply at least one setting to change.",
+      inputSchema: {
+        project: external_exports.string().describe('Project locator, e.g. "id:X".'),
+        portableDsl: external_exports.boolean().optional(),
+        vcsRootId: external_exports.string().optional().describe("ID of the VCS root that stores settings."),
+        settingsPath: external_exports.string().optional().describe("Path within the VCS root."),
+        buildSettingsMode: external_exports.enum(["alwaysUseCurrent", "useFromVCS"]).optional().describe("Whether builds use current TeamCity settings or settings loaded from VCS."),
+        showSettingsChanges: external_exports.boolean().optional(),
+        synchronizationMode: external_exports.enum(["enabled", "disabled"]).optional().describe("Enable or disable synchronization with the settings VCS root."),
+        importDecision: external_exports.enum(["importFromVCS", "overrideInVCS"]).optional().describe("Initial conflict decision when both TeamCity and VCS contain settings."),
+        allowUiEditing: external_exports.boolean().optional().describe("Allow project settings edits via UI/REST."),
+        applyChangesInDependenciesAndVcsSettings: external_exports.boolean().optional(),
+        storeSecureValuesOutsideVcs: external_exports.boolean().optional(),
+        format: external_exports.enum(["kotlin", "xml"]).optional().describe("Versioned settings format."),
+        fields: external_exports.string().optional().describe(FIELDS_HELP)
+      }
+    },
+    handler(async (args) => {
+      const {
+        project,
+        fields,
+        allowUiEditing,
+        ...provided
+      } = args;
+      const config2 = {
+        ...provided,
+        ...allowUiEditing !== void 0 ? { allowUIEditing: allowUiEditing } : {}
+      };
+      for (const key of Object.keys(config2)) {
+        if (config2[key] === void 0) delete config2[key];
+      }
+      if (Object.keys(config2).length === 0) {
+        throw new Error("At least one Versioned Settings field must be supplied.");
+      }
+      return client.put(projectPath(project, "config"), config2, { fields });
+    })
+  );
+  server.registerTool(
+    "load_project_versioned_settings",
+    {
+      description: "Load settings from VCS and override the current project settings.",
+      inputSchema: {
+        project: external_exports.string().describe('Project locator, e.g. "id:X".'),
+        fields: external_exports.string().optional().describe(FIELDS_HELP)
+      }
+    },
+    handler(
+      async (args) => client.post(projectPath(args.project, "loadSettings"), void 0, { fields: args.fields })
+    )
+  );
+  server.registerTool(
+    "check_project_versioned_settings_changes",
+    {
+      description: "Schedule an immediate check for Versioned Settings changes in VCS.",
+      inputSchema: {
+        project: external_exports.string().describe('Project locator, e.g. "id:X".')
+      }
+    },
+    handler(async (args) => client.post(projectPath(args.project, "checkForChanges")))
+  );
+  server.registerTool(
+    "set_project_versioned_settings_token",
+    {
+      description: "Supply a secret for a Versioned Settings credentialsJSON token without returning its value.",
+      inputSchema: {
+        project: external_exports.string().describe('Project locator, e.g. "id:X".'),
+        name: external_exports.string().min(1).describe("Token name, usually credentialsJSON:<id>."),
+        description: external_exports.string().optional().describe("Human-readable token description."),
+        secret: secretSourceSchema
+      }
+    },
+    handler(async (args) => {
+      const value = resolveSecret(args.secret);
+      const requestOptions = {
+        redactValues: [value]
+      };
+      await client.post(projectPath(args.project, "tokens"), {
+        versionedSettingsToken: [
+          {
+            name: args.name,
+            ...args.description !== void 0 ? { description: args.description } : {},
+            value
+          }
+        ]
+      }, requestOptions);
+      return {
+        success: true,
+        token: {
+          name: args.name,
+          ...args.description !== void 0 ? { description: args.description } : {}
+        }
+      };
+    })
+  );
+}
+
+// src/tools/vcs.ts
+var textOptions = { accept: "text/plain", contentType: "text/plain" };
+var secretSource2 = external_exports.discriminatedUnion("kind", [
+  external_exports.object({
+    kind: external_exports.literal("reference"),
+    value: external_exports.string().regex(/^credentialsJSON:[A-Za-z0-9-]+$/, "Expected a credentialsJSON reference.").describe("Existing TeamCity credentialsJSON reference.")
+  }),
+  external_exports.object({
+    kind: external_exports.literal("env"),
+    name: external_exports.string().regex(/^TEAMCITY_MCP_SECRET_[A-Z0-9_]+$/).describe("Server environment variable whose name starts TEAMCITY_MCP_SECRET_.")
+  }),
+  external_exports.object({
+    kind: external_exports.literal("literal"),
+    value: external_exports.string().min(1).describe("Secret value. Prefer reference or env to avoid transcripts.")
+  })
+]);
+var authentication = external_exports.discriminatedUnion("method", [
+  external_exports.object({ method: external_exports.literal("anonymous") }),
+  external_exports.object({
+    method: external_exports.literal("password"),
+    username: external_exports.string().min(1),
+    password: secretSource2
+  }),
+  external_exports.object({ method: external_exports.literal("accessToken"), token: secretSource2 }),
+  external_exports.object({
+    method: external_exports.literal("teamcitySshKey"),
+    keyName: external_exports.string().min(1),
+    username: external_exports.string().min(1).optional()
+  })
+]);
+function sensitiveName(name) {
+  return /(^secure:|password|secret|token|credential)/i.test(name);
+}
+function sanitize(value) {
+  if (Array.isArray(value)) return value.map(sanitize);
+  if (!value || typeof value !== "object") return value;
+  const input = value;
+  const propertyIsSensitive = typeof input.name === "string" && sensitiveName(input.name);
+  return Object.fromEntries(
+    Object.entries(input).map(([key, item]) => {
+      if (propertyIsSensitive && key === "value" || sensitiveName(key) && key !== "name" && key !== "tokenId") {
+        return [key, "[REDACTED]"];
+      }
+      return [key, sanitize(item)];
+    })
+  );
+}
+function requiredEnv(name) {
+  const value = process.env[name];
+  if (!value) throw new Error(`Secret environment variable ${name} is not set or is empty.`);
+  return value;
+}
+async function credentialReference(client, project, source) {
+  if (source.kind === "reference") return source.value;
+  const secret = source.kind === "env" ? requiredEnv(source.name) : source.value;
+  const result = await client.post(`projects/${project}/secure/tokens`, secret, {
+    ...textOptions,
+    redactValues: [secret]
+  });
+  if (typeof result !== "string" || !result.startsWith("credentialsJSON:")) {
+    throw new Error("TeamCity returned no credentialsJSON reference.");
+  }
+  return result;
+}
+async function authenticationProperties(client, project, auth) {
+  switch (auth.method) {
+    case "anonymous":
+      return { authMethod: "ANONYMOUS" };
+    case "password": {
+      if (auth.password.kind !== "reference" && !project) {
+        throw new Error("The VCS root project could not be resolved for secure-token creation.");
+      }
+      return {
+        authMethod: "PASSWORD",
+        username: auth.username,
+        "secure:password": await credentialReference(client, project ?? "", auth.password)
+      };
+    }
+    case "accessToken": {
+      if (auth.token.kind !== "reference" && !project) {
+        throw new Error("The VCS root project could not be resolved for secure-token creation.");
+      }
+      return {
+        authMethod: "ACCESS_TOKEN",
+        tokenId: await credentialReference(client, project ?? "", auth.token)
+      };
+    }
+    case "teamcitySshKey":
+      return {
+        authMethod: "TEAMCITY_SSH_KEY",
+        teamcitySshKey: auth.keyName,
+        ...auth.username !== void 0 ? { username: auth.username } : {}
+      };
+  }
+}
+function propertyList(properties) {
+  return Object.entries(properties).map(([name, value]) => ({ name, value }));
+}
+function rootId(root) {
+  if (!root || typeof root !== "object") return void 0;
+  const id = root.id;
+  return typeof id === "string" ? id : void 0;
+}
+function register8(server, client, mode) {
+  server.registerTool(
+    "list_vcs_roots",
+    {
+      description: 'List configured VCS roots. Suggested fields: "count,vcs-root(id,name,type,projectId)".',
+      inputSchema: {
+        locator: external_exports.string().optional().describe(LOCATOR_HELP),
+        fields: external_exports.string().optional().describe(FIELDS_HELP),
+        pageSize: external_exports.number().int().min(1).optional().default(100),
+        maxPages: external_exports.number().int().min(1).optional(),
+        all: external_exports.boolean().optional()
+      }
+    },
+    handler(
+      async (args) => sanitize(
+        await paginate(client, "vcs-roots", {
+          locator: args.locator,
+          fields: args.fields,
+          pageSize: args.pageSize,
+          maxPages: args.maxPages,
+          all: args.all
+        })
+      )
+    )
+  );
+  server.registerTool(
+    "get_vcs_root",
+    {
+      description: "Get one VCS root definition. Secure property values are always redacted.",
+      inputSchema: {
+        vcsRoot: external_exports.string().describe('VCS root locator, e.g. "id:Project_Main".'),
+        fields: external_exports.string().optional().describe(FIELDS_HELP)
+      }
+    },
+    handler(
+      async (args) => sanitize(await client.get(`vcs-roots/${args.vcsRoot}`, { fields: args.fields }))
+    )
+  );
+  server.registerTool(
+    "inspect_vcs_root_connection",
+    {
+      description: "Inspect the instances and current/previous connection-check status for a VCS root.",
+      inputSchema: {
+        vcsRoot: external_exports.string().describe("VCS root ID (without an id: prefix)."),
+        includeRepositoryState: external_exports.boolean().optional().default(true),
+        fields: external_exports.string().optional().default(
+          "count,vcs-root-instance(id,vcsRootId,name,status,statusText,lastChecked,lastVersion)"
+        ).describe(FIELDS_HELP)
+      }
+    },
+    handler(async (args) => {
+      const response = await client.get("vcs-root-instances", {
+        locator: `vcsRoot:(id:${args.vcsRoot})`,
+        fields: args.fields
+      });
+      const items = collectionItems(response).items;
+      if (!args.includeRepositoryState) return sanitize(response);
+      const detailed = await Promise.all(
+        items.map(async (item) => {
+          if (typeof item.id !== "string" && typeof item.id !== "number") return item;
+          return client.get(`vcs-root-instances/id:${item.id}`, {
+            fields: "id,name,vcsRootId,lastVersion,lastChecked,status,statusText,repositoryState"
+          });
+        })
+      );
+      return sanitize({ count: detailed.length, items: detailed });
+    })
+  );
+  if (mode !== "full") return;
+  server.registerTool(
+    "create_vcs_root",
+    {
+      description: "Create a Git VCS root. Env/literal credentials are first stored as TeamCity secure tokens.",
+      inputSchema: {
+        project: external_exports.string().min(1).describe("Owning TeamCity project ID."),
+        id: external_exports.string().min(1).describe("New VCS root ID."),
+        name: external_exports.string().min(1).describe("Display name."),
+        url: external_exports.string().min(1).describe("Git repository URL."),
+        defaultBranch: external_exports.string().min(1).optional().default("refs/heads/main"),
+        branchSpecification: external_exports.string().optional(),
+        checkout: external_exports.object({
+          agentCleanPolicy: external_exports.string().optional(),
+          agentCleanFilesPolicy: external_exports.string().optional(),
+          submoduleCheckout: external_exports.string().optional(),
+          useAlternates: external_exports.string().optional(),
+          ignoreKnownHosts: external_exports.boolean().optional(),
+          usernameStyle: external_exports.string().optional()
+        }).optional().describe("Git checkout, cleanup, submodule, and host-key policy."),
+        authentication: authentication.optional().default({ method: "anonymous" }),
+        properties: external_exports.record(external_exports.string()).optional().describe("Additional Git VCS properties. Typed fields take precedence."),
+        fields: external_exports.string().optional().describe(FIELDS_HELP)
+      }
+    },
+    handler(async (args) => {
+      const properties = { ...args.properties ?? {} };
+      properties.url = args.url;
+      properties.branch = args.defaultBranch;
+      if (args.branchSpecification !== void 0) {
+        properties["teamcity:branchSpec"] = args.branchSpecification;
+      }
+      for (const [name, value] of Object.entries(args.checkout ?? {})) {
+        if (value !== void 0) properties[name] = String(value);
+      }
+      Object.assign(
+        properties,
+        await authenticationProperties(client, args.project, args.authentication)
+      );
+      return sanitize(
+        await client.post(
+          "vcs-roots",
+          {
+            id: args.id,
+            name: args.name,
+            vcsName: "jetbrains.git",
+            project: { id: args.project },
+            properties: { property: propertyList(properties) }
+          },
+          { fields: args.fields }
+        )
+      );
+    })
+  );
+  server.registerTool(
+    "update_vcs_root",
+    {
+      description: "Update VCS root fields and individual properties using supported text/plain endpoints.",
+      inputSchema: {
+        vcsRoot: external_exports.string().describe('VCS root locator, e.g. "id:Project_Main".'),
+        name: external_exports.string().min(1).optional(),
+        authentication: authentication.optional(),
+        setProperties: external_exports.record(external_exports.string()).optional(),
+        removeProperties: external_exports.array(external_exports.string().min(1)).optional()
+      }
+    },
+    handler(async (args) => {
+      const desiredProperties = { ...args.setProperties ?? {} };
+      if (args.authentication !== void 0) {
+        const needsProject = args.authentication.method === "password" && args.authentication.password.kind !== "reference" || args.authentication.method === "accessToken" && args.authentication.token.kind !== "reference";
+        let projectId;
+        if (needsProject) {
+          const root = await client.get(`vcs-roots/${args.vcsRoot}`, {
+            fields: "id,project(id),projectId"
+          });
+          const project = root.project;
+          projectId = project && typeof project === "object" && typeof project.id === "string" ? project.id : typeof root.projectId === "string" ? root.projectId : void 0;
+        }
+        Object.assign(
+          desiredProperties,
+          await authenticationProperties(client, projectId, args.authentication)
+        );
+      }
+      const setNames = new Set(Object.keys(desiredProperties));
+      const overlap = (args.removeProperties ?? []).find((name) => setNames.has(name));
+      if (overlap) throw new Error(`Property ${overlap} cannot be both set and removed.`);
+      const updatedFields = [];
+      const setProperties = [];
+      const removedProperties = [];
+      if (args.name !== void 0) {
+        await client.put(`vcs-roots/${args.vcsRoot}/name`, args.name, textOptions);
+        updatedFields.push("name");
+      }
+      for (const [name, value] of Object.entries(desiredProperties)) {
+        await client.put(
+          `vcs-roots/${args.vcsRoot}/properties/${encodeURIComponent(name)}`,
+          value,
+          {
+            ...textOptions,
+            ...sensitiveName(name) ? { redactValues: [value] } : {}
+          }
+        );
+        setProperties.push(name);
+      }
+      for (const name of args.removeProperties ?? []) {
+        await client.delete(
+          `vcs-roots/${args.vcsRoot}/properties/${encodeURIComponent(name)}`,
+          { accept: "text/plain" }
+        );
+        removedProperties.push(name);
+      }
+      return { success: true, updatedFields, setProperties, removedProperties };
+    })
+  );
+  server.registerTool(
+    "delete_vcs_root",
+    {
+      description: "Delete a VCS root after exact-ID confirmation. Refuses roots with instances unless forced.",
+      inputSchema: {
+        vcsRoot: external_exports.string().describe('VCS root locator, e.g. "id:Project_Main".'),
+        confirmVcsRootId: external_exports.string().describe("Exact resolved VCS root ID to confirm deletion."),
+        force: external_exports.boolean().optional().default(false)
+      }
+    },
+    handler(async (args) => {
+      const root = await client.get(`vcs-roots/${args.vcsRoot}`, { fields: "id" });
+      const resolvedId = rootId(root);
+      if (!resolvedId) throw new Error("TeamCity did not return the resolved VCS root ID.");
+      if (args.confirmVcsRootId !== resolvedId) {
+        throw new Error(`Deletion confirmation must exactly match VCS root ID ${resolvedId}.`);
+      }
+      const instances = await client.get("vcs-root-instances", {
+        locator: `vcsRoot:(id:${resolvedId})`,
+        fields: "count,vcs-root-instance(id,name,vcs-root-id)"
+      });
+      const items = collectionItems(instances).items;
+      const reportedCount = instances && typeof instances === "object" ? Number(instances.count ?? 0) : 0;
+      const activeCount = Math.max(items.length, Number.isFinite(reportedCount) ? reportedCount : 0);
+      if (activeCount > 0 && !args.force) {
+        throw new Error(
+          `VCS root ${resolvedId} has ${activeCount} active instance(s); retry with force:true to delete.`
+        );
+      }
+      await client.delete(`vcs-roots/id:${resolvedId}`);
+      return { success: true, vcsRootId: resolvedId, forced: args.force && activeCount > 0 };
+    })
+  );
+  server.registerTool(
+    "attach_vcs_root_to_build_config",
+    {
+      description: "Attach one existing VCS root to a build configuration with optional checkout rules.",
+      inputSchema: {
+        buildType: external_exports.string().describe('Build configuration locator, e.g. "id:Build_Main".'),
+        vcsRootId: external_exports.string().min(1).describe("VCS root ID."),
+        checkoutRules: external_exports.string().optional(),
+        fields: external_exports.string().optional().describe(FIELDS_HELP)
+      }
+    },
+    handler(
+      async (args) => sanitize(
+        await client.post(
+          `buildTypes/${args.buildType}/vcs-root-entries`,
+          {
+            id: args.vcsRootId,
+            "vcs-root": { id: args.vcsRootId },
+            ...args.checkoutRules !== void 0 && { "checkout-rules": args.checkoutRules }
+          },
+          { fields: args.fields }
+        )
+      )
+    )
+  );
+}
+
+// src/tools/agents.ts
+function register9(server, client, mode) {
   server.registerTool(
     "list_agents",
     {
@@ -46797,7 +47748,7 @@ function register5(server, client, mode) {
 }
 
 // src/tools/tests.ts
-function register6(server, client, mode) {
+function register10(server, client, mode) {
   server.registerTool(
     "list_mutes",
     {
@@ -46910,7 +47861,7 @@ function register6(server, client, mode) {
 }
 
 // src/tools/changes.ts
-function register7(server, client, mode) {
+function register11(server, client, mode) {
   void mode;
   server.registerTool(
     "list_changes",
@@ -46945,32 +47896,10 @@ function register7(server, client, mode) {
     },
     handler(async (args) => client.get(`changes/${args.change}`, { fields: args.fields }))
   );
-  server.registerTool(
-    "list_vcs_roots",
-    {
-      description: 'List VCS roots (configured repository connections). Suggested fields: "count,vcs-root(id,name,type,projectId)".',
-      inputSchema: {
-        locator: external_exports.string().optional().describe(LOCATOR_HELP),
-        fields: external_exports.string().optional().describe(FIELDS_HELP),
-        pageSize: external_exports.number().optional().describe("Items per page (default 100)."),
-        maxPages: external_exports.number().optional().describe("Max pages to fetch (default 1; hard cap 50 with all)."),
-        all: external_exports.boolean().optional().describe("Page until no nextHref remains (bounded by maxPages).")
-      }
-    },
-    handler(
-      async (args) => paginate(client, "vcs-roots", {
-        locator: args.locator,
-        fields: args.fields,
-        pageSize: args.pageSize,
-        maxPages: args.maxPages,
-        all: args.all
-      })
-    )
-  );
 }
 
 // src/tools/users.ts
-function register8(server, client, mode) {
+function register12(server, client, mode) {
   void mode;
   server.registerTool(
     "get_current_user",
@@ -47105,7 +48034,8 @@ var fieldsParam = external_exports.string().optional().describe('Partial-respons
 var queryParam = external_exports.record(external_exports.union([external_exports.string(), external_exports.number(), external_exports.boolean()])).optional().describe('Extra query parameters, e.g. {"start":100,"count":10}.');
 var bodyParam = external_exports.unknown().optional().describe("Request body: an object is sent as application/json, a string as text/plain.");
 var contentTypeParam = external_exports.string().optional().describe("Explicit Content-Type for the body (default application/json for objects, text/plain for strings).");
-function register9(server, client, mode) {
+var acceptParam = external_exports.string().optional().describe("Explicit Accept response media type (defaults to text/plain for string writes and application/json otherwise).");
+function register13(server, client, mode) {
   server.registerTool(
     "teamcity_rest_get",
     {
@@ -47119,13 +48049,14 @@ function register9(server, client, mode) {
           "Items per page (TeamCity count, default 100). Setting pageSize, maxPages, or all switches to paginated mode."
         ),
         maxPages: external_exports.number().int().positive().max(50).optional().describe("Max pages to fetch (default 1, hard cap 50)."),
-        all: external_exports.boolean().optional().describe("Keep paging until the server stops returning nextHref (bounded by maxPages, default 50).")
+        all: external_exports.boolean().optional().describe("Keep paging until the server stops returning nextHref (bounded by maxPages, default 50)."),
+        accept: acceptParam
       }
     },
     handler(async (args) => {
-      const { path, locator, fields, query, pageSize, maxPages, all } = args;
+      const { path, locator, fields, query, pageSize, maxPages, all, accept } = args;
       if (pageSize !== void 0 || maxPages !== void 0 || all !== void 0) {
-        const page = await paginate(client, path, { locator, fields, query, pageSize, maxPages, all });
+        const page = await paginate(client, path, { locator, fields, query, pageSize, maxPages, all, accept });
         return {
           count: page.count,
           truncated: page.truncated,
@@ -47133,7 +48064,7 @@ function register9(server, client, mode) {
           items: page.items
         };
       }
-      return client.get(path, { locator, fields, query });
+      return client.get(path, { locator, fields, query, accept });
     })
   );
   if (mode !== "full") return;
@@ -47147,12 +48078,13 @@ function register9(server, client, mode) {
         locator: locatorParam,
         fields: fieldsParam,
         query: queryParam,
-        contentType: contentTypeParam
+        contentType: contentTypeParam,
+        accept: acceptParam
       }
     },
     handler(async (args) => {
-      const { path, body, locator, fields, query, contentType: contentType3 } = args;
-      return client.post(path, body, { locator, fields, query, contentType: contentType3 });
+      const { path, body, locator, fields, query, contentType: contentType3, accept } = args;
+      return client.post(path, body, { locator, fields, query, contentType: contentType3, accept });
     })
   );
   server.registerTool(
@@ -47165,12 +48097,13 @@ function register9(server, client, mode) {
         locator: locatorParam,
         fields: fieldsParam,
         query: queryParam,
-        contentType: contentTypeParam
+        contentType: contentTypeParam,
+        accept: acceptParam
       }
     },
     handler(async (args) => {
-      const { path, body, locator, fields, query, contentType: contentType3 } = args;
-      return client.put(path, body, { locator, fields, query, contentType: contentType3 });
+      const { path, body, locator, fields, query, contentType: contentType3, accept } = args;
+      return client.put(path, body, { locator, fields, query, contentType: contentType3, accept });
     })
   );
   server.registerTool(
@@ -47181,12 +48114,13 @@ function register9(server, client, mode) {
         path: pathParam,
         locator: locatorParam,
         fields: fieldsParam,
-        query: queryParam
+        query: queryParam,
+        accept: acceptParam
       }
     },
     handler(async (args) => {
-      const { path, locator, fields, query } = args;
-      return client.delete(path, { locator, fields, query });
+      const { path, locator, fields, query, accept } = args;
+      return client.delete(path, { locator, fields, query, accept });
     })
   );
 }
@@ -47201,14 +48135,18 @@ var REGISTRARS = [
   register6,
   register7,
   register8,
-  register9
+  register9,
+  register10,
+  register11,
+  register12,
+  register13
 ];
 function createMcpServer(client, mode) {
   const server = new McpServer(
-    { name: "teamcity-mcp", version: "0.1.1" },
+    { name: "teamcity-mcp", version: "0.2.0" },
     { capabilities: { tools: {} } }
   );
-  for (const register10 of REGISTRARS) register10(server, client, mode);
+  for (const register14 of REGISTRARS) register14(server, client, mode);
   return server;
 }
 

@@ -4,11 +4,16 @@ import { register as registerBuilds } from '../src/tools/builds.js';
 import { register as registerQueue } from '../src/tools/queue.js';
 import { register as registerBuildTypes } from '../src/tools/buildtypes.js';
 import { register as registerProjects } from '../src/tools/projects.js';
+import { register as registerProjectFeatures } from '../src/tools/project-features.js';
+import { register as registerProjectCredentials } from '../src/tools/project-credentials.js';
+import { register as registerVersionedSettings } from '../src/tools/versioned-settings.js';
+import { register as registerVcs } from '../src/tools/vcs.js';
 import { register as registerAgents } from '../src/tools/agents.js';
 import { register as registerTests } from '../src/tools/tests.js';
 import { register as registerChanges } from '../src/tools/changes.js';
 import { register as registerUsers } from '../src/tools/users.js';
 import { register as registerPassthrough } from '../src/tools/passthrough.js';
+import { sanitizeSecrets } from '../src/tools/util.js';
 
 type ToolEntry = { config: { description?: string }; cb: (args: never) => Promise<unknown> };
 
@@ -54,6 +59,10 @@ const ALL_MODULES = [
   registerQueue,
   registerBuildTypes,
   registerProjects,
+  registerProjectFeatures,
+  registerProjectCredentials,
+  registerVersionedSettings,
+  registerVcs,
   registerAgents,
   registerTests,
   registerChanges,
@@ -72,12 +81,36 @@ function registeredNames(mode: McpMode): string[] {
 
 beforeEach(() => vi.restoreAllMocks());
 
+describe('secret sanitization', () => {
+  it('redacts secret property values while preserving opaque references', () => {
+    expect(
+      sanitizeSecrets({
+        properties: {
+          property: [
+            { name: 'secure:password', value: 'plaintext' },
+            { name: 'url', value: 'https://example.invalid/repo.git' },
+          ],
+        },
+        tokenReference: 'credentialsJSON:safe-reference',
+      }),
+    ).toEqual({
+      properties: {
+        property: [
+          { name: 'secure:password', value: '[REDACTED]' },
+          { name: 'url', value: 'https://example.invalid/repo.git' },
+        ],
+      },
+      tokenReference: 'credentialsJSON:safe-reference',
+    });
+  });
+});
+
 describe('tool registration by mode', () => {
   const full = registeredNames('full');
   const read = registeredNames('read');
 
   it('full mode registers the complete curated + passthrough surface', () => {
-    expect(full).toHaveLength(47);
+    expect(full).toHaveLength(71);
     for (const t of [
       'teamcity_rest_get',
       'teamcity_rest_post',
@@ -92,6 +125,10 @@ describe('tool registration by mode', () => {
       'authorize_agent',
       'create_project',
       'create_build_config',
+      'configure_project_versioned_settings',
+      'create_vcs_root',
+      'delete_project',
+      'create_project_secure_token',
     ]) {
       expect(full).toContain(t);
     }
@@ -107,6 +144,10 @@ describe('tool registration by mode', () => {
     expect(read).toContain('teamcity_rest_get');
     expect(read).toContain('list_builds');
     expect(read).toContain('get_build_log');
+    expect(read).toHaveLength(37);
+    expect(read).toContain('get_project_versioned_settings');
+    expect(read).toContain('inspect_vcs_root_connection');
+    expect(read).toContain('inspect_project_vcs_credentials');
     // symmetric check: read mode is a strict subset of full mode
     for (const t of read) expect(full).toContain(t);
   });
@@ -198,6 +239,21 @@ describe('passthrough tools', () => {
       method: 'PUT',
       path: 'buildTypes/id:X/parameters/env.FOO/value',
       body: 'bar',
+    });
+  });
+
+  it('passthrough forwards explicit Accept', async () => {
+    const server = fakeServer();
+    const client = fakeClient();
+    registerPassthrough(server as never, client as never, 'full');
+    await server.tools.get('teamcity_rest_put')!.cb({
+      path: 'vcs-roots/id:X/properties/authMethod',
+      body: 'PASSWORD',
+      accept: 'text/plain',
+    } as never);
+    expect(client.calls[0]).toMatchObject({
+      method: 'PUT',
+      opts: { accept: 'text/plain' },
     });
   });
 });
