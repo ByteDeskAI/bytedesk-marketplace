@@ -96,9 +96,13 @@ fi
 if git -C "$AUTH" rev-parse --short HEAD >/dev/null 2>&1; then
   sha=$(git -C "$AUTH" rev-parse --short HEAD)
   dirty=$(git -C "$AUTH" status --porcelain | wc -l)
+  # Machine-readable beside the human line, like AUTHORITY: and PROFILE:. A reader that has to
+  # find the sha inside prose finds it until the prose is reworded, and then silently stops.
+  echo "SHA: $sha"
   ok "git, pinnable at $sha"
   [ "$dirty" -gt 0 ] && info "note: $dirty uncommitted change(s) — runs will pin a sha that does not describe what they read"
 else
+  echo "SHA: none"
   no "not a git repository — runs cannot pin which version they read"; fail=1
 fi
 
