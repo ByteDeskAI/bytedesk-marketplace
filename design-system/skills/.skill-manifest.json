@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "pluginVersion": "1.5.3",
-  "designSystemSourceSha": "ce8774b0ebcae15198e1fa20604e9cebbb3eda5e",
+  "pluginVersion": "1.5.4",
+  "designSystemSourceSha": "dfaf002bb3a5278ef3c247c32012102c07947b69",
   "skills": [
     "animate",
     "animate-expo",
@@ -38,7 +38,7 @@
   "files": [
     {
       "path": ".provenance.json",
-      "sha256": "7c24b18bc8f779d6aae19052d38218145bbb5ce648ced7c6ce85f72d3826a591",
+      "sha256": "571d4c9d6f7b143c9079768ce5182b15abf328dabd12f8f450ed48c7e05c4ac0",
       "size": 2992
     },
     {

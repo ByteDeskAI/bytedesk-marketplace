@@ -89,9 +89,17 @@ pixels are ambiguous. A reference image never authorizes fake data or behavior.
   timestamps, operational metadata, and compact machine-facing chrome. Products tune
   the Sans/Mono ratio in their profile; they do not invent new family fonts from a
   raster resemblance.
-- **Geometry:** an 8px rhythm, compact controls, 1px hairlines, restrained 8-16px shell
-  radii, and strong alignment. Full-screen means a responsive full-screen canvas with a
-  materially elevated shell and breathing room, not panels stretched to every edge.
+- **Geometry:** an 8px rhythm, 1px hairlines, restrained 8-16px shell radii, and strong
+  alignment. Full-screen means a responsive full-screen canvas with a materially elevated
+  shell and breathing room, not panels stretched to every edge.
+- **Breathing room:** the family's resting floor is `space.6` (16px) between content and
+  any edge that contains it, and `space.5` (12px) between stacked elements. Rows, cards,
+  panels, list sections and dialogs all sit at or above that floor at rest, in every
+  product. This is a floor, not a fixed value — density stays a per-profile decision and a
+  profile may compact below it, but only inside a mode it declares and names (an inspection
+  or mission-control density), never in the state a product opens in. Both numbers are
+  token steps: move to the next step rather than to a chosen number, and let composed
+  heights fall out as arithmetic.
 - **Motion:** short, interruptible, state-led motion with one clear focal event. Ambient
   glow may breathe only when it represents real activity. Reduced motion removes
   parallax, bloom animation, and spatial travel while preserving state.

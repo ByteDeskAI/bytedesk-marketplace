@@ -11,10 +11,18 @@ home for discovering, installing, updating, and understanding ByteDesk applicati
 It feels like a precise AI-era instrument: composed at rest, luminous when work is
 active, and honest about what is live, cached, simulated, gated, or unavailable.
 
-JetBrains Toolbox informs installed-versus-available hierarchy, coordinated updates,
-and release visibility. Raycast informs invocation fluency. Neither supplies visual
-identity. The governing visual reference is the family Black Glass + Optical Layering
-record under `artifacts/family/black-glass-optical-layering/`.
+**JetBrains Toolbox is the functional reference. The ByteDesk token set is the visual
+one. Neither answers the other's question.** JetBrains Toolbox decides what is on the
+screen and what it does — the installed-above-available list, the per-row action, the
+coordinated update, release history expanding in place, tray-summoned and dismissed.
+Raycast informs invocation fluency. See [`PRODUCT.md`](PRODUCT.md) for the full split.
+
+Every visual value is the family's, taken from tokens and never from JetBrains: colour,
+type stack and scale, spacing, sizing, radius, border and elevation — which is what
+actually sets row height and list density. The Black Glass + Optical Layering record
+under `artifacts/family/black-glass-optical-layering/` governs surface treatment, and
+Toolbox's accent is `product.toolbox`. Take the functionality; take no colour, no
+dimension, no typeface, and no mark.
 
 Product direction lives in [`PRODUCT.md`](PRODUCT.md).
 
@@ -169,7 +177,9 @@ the browser mockup receives explicit human approval.
 
 ## Bans
 
-No JetBrains visual imitation, generic SaaS dashboard, edge-to-edge flat panel tiling,
+No JetBrains branding (name, logo, product marks, wordmarks), and no visual value
+sampled from or tuned to resemble JetBrains Toolbox — the functionality is the reference,
+the look is the token set's. No generic SaaS dashboard, edge-to-edge flat panel tiling,
 nested glass-card grid, frosted haze, decorative gradient text, rainbow telemetry,
 unlabeled status color, fake update behavior, generic placeholder identity, or dark/light
 composition drift.

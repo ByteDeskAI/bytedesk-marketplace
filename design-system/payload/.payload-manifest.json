@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "pluginVersion": "1.5.3",
-  "sourceSha": "ce8774b0ebcae15198e1fa20604e9cebbb3eda5e",
+  "pluginVersion": "1.5.4",
+  "sourceSha": "dfaf002bb3a5278ef3c247c32012102c07947b69",
   "files": [
     {
       "path": "CONNECTIVITY.md",
@@ -10,8 +10,8 @@
     },
     {
       "path": "DESIGN.md",
-      "sha256": "dd71e5d8eb9b6a589bcb284cb080b9e4a3f98ce66a4c74f9f436c93993c42dbb",
-      "size": 14309
+      "sha256": "88e079fd2fd13eaefe713d2f8cf82e391de56bc014beda565d010e911e0441b2",
+      "size": 14946
     },
     {
       "path": "artifacts/family/black-glass-optical-layering/DECISIONS.md",
@@ -99,29 +99,9 @@
       "size": 13894
     },
     {
-      "path": "profiles/ade/mockups/direction-v1/README.md",
-      "sha256": "553863989f2c6883a8d0102a11047d2a479cbe72a9150725ef75a8afe192a8de",
-      "size": 1674
-    },
-    {
-      "path": "profiles/ade/mockups/direction-v1/dark.png",
-      "sha256": "a901968a0bdb847791ba94fb989468759f36030dea764a1aad98c42f6ba9df9d",
-      "size": 1206055
-    },
-    {
       "path": "profiles/agent-browser-website/DESIGN.md",
       "sha256": "03f452304d08a42716375c71f0e4f4f4f35221add2cb7c8724aab2da4e39a749",
       "size": 12186
-    },
-    {
-      "path": "profiles/agent-browser-website/mockups/direction-v1/README.md",
-      "sha256": "1fbd10c64ca2c6f1eda6bb32b9224bda89707406adc912aa9f45808498c260bc",
-      "size": 1723
-    },
-    {
-      "path": "profiles/agent-browser-website/mockups/direction-v1/light.png",
-      "sha256": "7ffa2f3df7acb469dfb6438bb6475979c3f684858a733395d5f37ddf5e0a4ff3",
-      "size": 1500195
     },
     {
       "path": "profiles/agent-browser/DESIGN.md",
@@ -134,16 +114,6 @@
       "size": 790
     },
     {
-      "path": "profiles/agent-browser/mockups/direction-v1/README.md",
-      "sha256": "7be7adce7a3b5b3f4c5952ab800987405647d2e05028fef4d697ca6c6ce1e592",
-      "size": 1686
-    },
-    {
-      "path": "profiles/agent-browser/mockups/direction-v1/dark.png",
-      "sha256": "c4f9803b4bcc782cb8f39b815074e09f069bca508cf6cd1c133798c34678f649",
-      "size": 1474109
-    },
-    {
       "path": "profiles/agent-mail/DESIGN.md",
       "sha256": "9ec9c44a8e5b821d7712b824a74d7cbd838901bde89b9c6d379c645e82d49c37",
       "size": 6049
@@ -152,31 +122,6 @@
       "path": "profiles/agent-mail/PRODUCT.md",
       "sha256": "a6f6b10425609f099d67e1465c90085ed4f55988355387c83ba87bae7e383c45",
       "size": 1902
-    },
-    {
-      "path": "profiles/agent-mail/mockups/direction-v1/README.md",
-      "sha256": "7dbb9431aed2295273df2ad7638168c7d67dd8150eae9a61cf869e44a2359bbd",
-      "size": 2059
-    },
-    {
-      "path": "profiles/agent-mail/mockups/direction-v1/dark.png",
-      "sha256": "56b1be49021dd32899d75bc5419f83c46c519858034ed9cd5c69cafb6220dc21",
-      "size": 1599754
-    },
-    {
-      "path": "profiles/agent-mail/mockups/inbox-agent-review-v1/README.md",
-      "sha256": "9ca8b4bed9ef244a1739921aeea010e3baf8440afcd0e528087749b8061f0be2",
-      "size": 1745
-    },
-    {
-      "path": "profiles/agent-mail/mockups/inbox-agent-review-v1/dark.png",
-      "sha256": "f81572d833bd79a83a0bafa03d105886abd85488d9213462701a5e82129e319d",
-      "size": 1333483
-    },
-    {
-      "path": "profiles/agent-mail/mockups/inbox-agent-review-v1/light.png",
-      "sha256": "79ed2730ddb20fdc426793ac8b8071ef8846d9577e11af0fa51e1befe66f7c7d",
-      "size": 1245949
     },
     {
       "path": "profiles/agent-memory-website/DESIGN.md",
@@ -189,16 +134,6 @@
       "size": 1364
     },
     {
-      "path": "profiles/agent-memory-website/mockups/direction-v1/README.md",
-      "sha256": "f9fef62856d6675f4d548ac262fe89c95a8b730c449d80095b22c1ebd35157d1",
-      "size": 1704
-    },
-    {
-      "path": "profiles/agent-memory-website/mockups/direction-v1/dark.png",
-      "sha256": "ef21718a89c50664afda24288da375e67f20b0af2a7e5ef920cbd41b9252882c",
-      "size": 1231268
-    },
-    {
       "path": "profiles/agent-memory/DESIGN.md",
       "sha256": "fb983eb2d62d7d9ff0b508990072695c093221c700afae5df142bcbae400785e",
       "size": 3071
@@ -207,16 +142,6 @@
       "path": "profiles/agent-memory/PRODUCT.md",
       "sha256": "a7ab7c76bc72b2a7a2e3b2ed05e96f2d6457029c646c5ec1d881bc6ed09f7854",
       "size": 913
-    },
-    {
-      "path": "profiles/agent-memory/mockups/direction-v1/README.md",
-      "sha256": "b3de1daecca8962aed12aa5dbfe121fa471c1fc07f53931b1d2cd7aac328c8a9",
-      "size": 1690
-    },
-    {
-      "path": "profiles/agent-memory/mockups/direction-v1/dark.png",
-      "sha256": "fab27544f5f33a5e2173df308358fef8dfc2543f0d118bd889603604ee83364b",
-      "size": 1621967
     },
     {
       "path": "profiles/agent-orchestration/DESIGN.md",
@@ -229,31 +154,6 @@
       "size": 1361
     },
     {
-      "path": "profiles/agent-orchestration/mockups/direction-v1/README.md",
-      "sha256": "e0dfe9a04855d1c017d20b3f9a45c45b654da47cea463545e5db1a44f18d7f9f",
-      "size": 3278
-    },
-    {
-      "path": "profiles/agent-orchestration/mockups/direction-v1/dark.png",
-      "sha256": "bfc34636926366cbfdf62657d116130eeb63b576e2e39e65d378106f6fea4433",
-      "size": 1458177
-    },
-    {
-      "path": "profiles/agent-orchestration/mockups/operator-session-shell-v1/README.md",
-      "sha256": "09dcb7ab5dfb906acb937f6c2ffd1c87c0a5ea1929206633e3794fb90f21fec0",
-      "size": 1722
-    },
-    {
-      "path": "profiles/agent-orchestration/mockups/operator-session-shell-v1/dark.png",
-      "sha256": "443ac5e50478960fbd4d5d19325f143b659c2cbe380f7974ed8dbf4f2e726a97",
-      "size": 1428405
-    },
-    {
-      "path": "profiles/agent-orchestration/mockups/operator-session-shell-v1/light.png",
-      "sha256": "e9c9119682810a12ffca24fa58433672885bb51ed4ab5179bbad07be9cfc7dfc",
-      "size": 1281889
-    },
-    {
       "path": "profiles/bytedesk-ai/DESIGN.md",
       "sha256": "bd6a7a745dcd79c5bdc2cb642e92416732ee0a4997d353509f54aa3d02cb6bbd",
       "size": 7408
@@ -264,44 +164,14 @@
       "size": 4961
     },
     {
-      "path": "profiles/bytedesk-ai/mockups/direction-v1/README.md",
-      "sha256": "916bece734197f479137ef03a2c928c8249c50ca395ee8aea0906e4c17b40bcd",
-      "size": 1687
-    },
-    {
-      "path": "profiles/bytedesk-ai/mockups/direction-v1/dark.png",
-      "sha256": "d2707393c8e531c28d0f816fa7d46cf35173ed594739986415798ca9d3ce5b72",
-      "size": 1686268
-    },
-    {
       "path": "profiles/capture-website/DESIGN.md",
       "sha256": "2c55493ad95ce172e3fc9f5e1fd04da7c6df3b1b66ca5e2427e1ba3f90ad3fed",
       "size": 6856
     },
     {
-      "path": "profiles/capture-website/mockups/direction-v1/README.md",
-      "sha256": "5eca247ecf0e79d58bf546265afb4acfde34b37d5cc5e6266ce98cb7fc50574a",
-      "size": 2068
-    },
-    {
-      "path": "profiles/capture-website/mockups/direction-v1/dark.png",
-      "sha256": "d08d743e7ae8cd80a94dbe7015751eb2593e6345ebe989b8258b0772776109e9",
-      "size": 1247241
-    },
-    {
       "path": "profiles/capture/DESIGN.md",
       "sha256": "03a8ca2adbcbac24561d68eddf85e1c4b150b19fd03e1d5474f6fb3d2d929263",
       "size": 5423
-    },
-    {
-      "path": "profiles/capture/mockups/direction-v1/README.md",
-      "sha256": "210f58f23e61eff62b33b41ab3cf78300cf72162ed4f98b5ee0acbdb7b095b40",
-      "size": 1668
-    },
-    {
-      "path": "profiles/capture/mockups/direction-v1/dark.png",
-      "sha256": "e714683ffd5edd8e9e5a608e19a7f9da3dde3f69f21d6a2de2aee9d695aeced1",
-      "size": 1770182
     },
     {
       "path": "profiles/gateway/CLIENT_UI.md",
@@ -329,16 +199,6 @@
       "size": 7257
     },
     {
-      "path": "profiles/gateway/mockups/direction-v1/README.md",
-      "sha256": "bd8f28b966d6485559efa76ec5ed6483ffce8485cc05a2d131a226c6816d5320",
-      "size": 2036
-    },
-    {
-      "path": "profiles/gateway/mockups/direction-v1/dark.png",
-      "sha256": "8f25779c056d6f5c7d7401746ff1bebc88de1cbc9936c9058f8ae80274c521fa",
-      "size": 1238969
-    },
-    {
       "path": "profiles/mangodisk/DESIGN.md",
       "sha256": "0ec7408b6736363e3fe039f6dc147f91761b1ed2a8f114042ec5f05e7a62ae18",
       "size": 2872
@@ -347,16 +207,6 @@
       "path": "profiles/mangodisk/PRODUCT.md",
       "sha256": "dd7458f115562fcea641e9ac037beeb4d2b1cda281bedc63e52faa719b1063bf",
       "size": 927
-    },
-    {
-      "path": "profiles/mangodisk/mockups/direction-v1/README.md",
-      "sha256": "206cabc76bd65dbbcdc8d2d5bb0042948c136b864858006a27879bd227a9a3b8",
-      "size": 1674
-    },
-    {
-      "path": "profiles/mangodisk/mockups/direction-v1/dark.png",
-      "sha256": "cfafe78997b6e1adcc4a21b4e775c205f1a3611d388ef2292250c41ebc9a3a01",
-      "size": 1195575
     },
     {
       "path": "profiles/marketplace/DESIGN.md",
@@ -369,16 +219,6 @@
       "size": 2405
     },
     {
-      "path": "profiles/marketplace/mockups/direction-v1/README.md",
-      "sha256": "257da344c7f6f9603068feeb675d44f3f5db9aaadaf8754d12ee677b53e7f458",
-      "size": 1699
-    },
-    {
-      "path": "profiles/marketplace/mockups/direction-v1/dark.png",
-      "sha256": "5772931e0bc2331075214c529b010082cf08496ea303983e52601ff241cf89b8",
-      "size": 1393952
-    },
-    {
       "path": "profiles/openseo/DESIGN.md",
       "sha256": "5ad7ceac6391d5225c51e1362a23a7d2698fe10f6b92951ea83e2c0858c9476c",
       "size": 3034
@@ -387,16 +227,6 @@
       "path": "profiles/openseo/PRODUCT.md",
       "sha256": "0d18006c2aab8de44390f167ce787f991da0dd78091d9e5fc29cf6643c27a0af",
       "size": 858
-    },
-    {
-      "path": "profiles/openseo/mockups/direction-v1/README.md",
-      "sha256": "49cb83af350aaeba2fdc59e0a1e30947d41c8b75a8547067c24266918b9de5b6",
-      "size": 2073
-    },
-    {
-      "path": "profiles/openseo/mockups/direction-v1/dark.png",
-      "sha256": "9e00dc12456e6e6f4b33037d7904ac7cf41cbcc02da94aa292703aa51c336bab",
-      "size": 1444319
     },
     {
       "path": "profiles/store/DESIGN.md",
@@ -409,49 +239,19 @@
       "size": 3951
     },
     {
-      "path": "profiles/store/mockups/direction-v1/README.md",
-      "sha256": "b54908ad9c9bc47ea9503bd97cd3920bd6ef0e65a6ef7c2ababfa753ac6d0880",
-      "size": 1671
-    },
-    {
-      "path": "profiles/store/mockups/direction-v1/dark.png",
-      "sha256": "dac01c10d68e34e6a696d9236aa0ad55676b49b56fd28215895db45592862895",
-      "size": 1412957
-    },
-    {
       "path": "profiles/terminal/DESIGN.md",
       "sha256": "6bbe9bca503015a23eb46de8f582bf8b9eea048fc4d97e94b2c908c49b52b435",
       "size": 43515
     },
     {
-      "path": "profiles/terminal/mockups/direction-v1/README.md",
-      "sha256": "96e1010b77db4181f7ad77274088d50a0ababd297841062d0aa5dea5db63fea5",
-      "size": 2150
-    },
-    {
-      "path": "profiles/terminal/mockups/direction-v1/dark.png",
-      "sha256": "40ceddd5347c79b99b62930220a0ca127f803709712d99e383b5e54105b3b2a7",
-      "size": 1791659
-    },
-    {
       "path": "profiles/toolbox/DESIGN.md",
-      "sha256": "74c7c3094dabec8bead43a07f07819f7e5f7fcd480a93e6e96187914b659123d",
-      "size": 10011
+      "sha256": "8134419e7a0471056a2eac7a60d17698032a78b005da742114d5f447c6aa1f2a",
+      "size": 10765
     },
     {
       "path": "profiles/toolbox/PRODUCT.md",
-      "sha256": "a6654f535d9d4afecb4db039adb7c1c5da0a3a582cdf8e8cab5cadc19c7f4762",
-      "size": 2679
-    },
-    {
-      "path": "profiles/toolbox/mockups/direction-v1/README.md",
-      "sha256": "8bdcb6fbd5a759f615415e7d757e03c957cea61299cb379cf1016a3626c357ee",
-      "size": 2056
-    },
-    {
-      "path": "profiles/toolbox/mockups/direction-v1/dark.png",
-      "sha256": "eb0a6af2b6d00343b15af9ddf1607057647aea397072b315ab2686f67ea93e77",
-      "size": 1475744
+      "sha256": "8985e1036a245310c6967e002d3fb236731aaf0b1af84a4abfb91da46136865a",
+      "size": 5044
     },
     {
       "path": "profiles/vault/DESIGN.md",
@@ -464,29 +264,9 @@
       "size": 3579
     },
     {
-      "path": "profiles/vault/mockups/direction-v1/README.md",
-      "sha256": "e6f5eca2bf70bb93ae0619d21a51145c61a0c02005fedb11c71809a4074dbca2",
-      "size": 1682
-    },
-    {
-      "path": "profiles/vault/mockups/direction-v1/dark.png",
-      "sha256": "30b0d8590c3ead2646c0e96eb34be6d9ca7ebf9c06473ce7faeafb4815d97e5c",
-      "size": 1386576
-    },
-    {
       "path": "profiles/workforce/DESIGN.md",
       "sha256": "9c16aae9b67ee05f3a3ed582dfd5fc4c41dbeec942c20ed3fff93d80a0d12919",
       "size": 19342
-    },
-    {
-      "path": "profiles/workforce/mockups/direction-v1/README.md",
-      "sha256": "ef7bcbd656148b7f925fe49f48bcee4d88616362467b250c981c60d35b4e13c0",
-      "size": 2129
-    },
-    {
-      "path": "profiles/workforce/mockups/direction-v1/dark.png",
-      "sha256": "e5738dd70a59fc5bab34a4d78d28a35e8be0d9ce4ada20520bfe7b09fef7e970",
-      "size": 2053223
     },
     {
       "path": "tokens/README.md",

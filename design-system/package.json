@@ -1,6 +1,6 @@
 {
   "name": "@bytedesk/design-system",
-  "version": "1.5.3",
+  "version": "1.5.4",
   "description": "ByteDesk design authority, governed skills, specialist agents, and offline design-system MCP server.",
   "private": true,
   "type": "module"
