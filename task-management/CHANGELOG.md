@@ -3,6 +3,10 @@
 ## Unreleased
 
 ### Added
+- **Dashboard rewrite, wave 0.** The repository adopts the ByteDesk design system for the
+  dashboard (`bd-design init --app task-management`; profile authored upstream, inherits the
+  gateway accent). `docs/dashboard-api.md` is the HTTP/SSE/MCP contract and
+  `docs/dashboard-contract.md` the frontend contract that the rewrite's workers code against.
 - **Decision-map flow** (generic `/task-management:*` names). Skills `map`, `interview`, `research`, `prototype`, `spec`, `tickets`, `implement`, `route`. Store labels `decision:map` (epic), `decision:interview|research|prototype|unblock` (tickets). Templates `interview`, `research`, `prototype`, `unblock`.
 - **Label catalog.** Canonical decision + triage roles, exclusive within each group. `.bytedesk/task-management/bin/tm label --catalog`, MCP `tm_label`, `tm_task_create.labels`. Dashboard catalog picker, semantic chips, palette "Label as …", seeded saved views. Map epics chip `map` plus remaining-fog count on the lane. Decision cards chip HITL/AFK and **needs answer**. The task drawer has an Answer field; map epics split Destination / Decisions so far / fog / Out of scope.
 - **Decision done gate.** `.bytedesk/task-management/bin/tm done` / dashboard Done refuse a `decision:*` ticket until `## Answer` is written. Prototype and research also need evidence.

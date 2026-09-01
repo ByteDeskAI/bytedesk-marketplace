@@ -9,7 +9,31 @@
   "autoCloseEpics": true,
   "eventMaxBytes": 5000000,
   "claimTtlMinutes": 240,
+  "parkOnSessionEnd": true,
+  "trackTouches": true,
   "board": {
+    "launchBrowser": false,
+    "grouped": true,
+    "views": {
+      "Interview": {
+        "label": "decision:interview"
+      },
+      "Research": {
+        "label": "decision:research"
+      },
+      "Prototype": {
+        "label": "decision:prototype"
+      },
+      "Needs triage": {
+        "label": "needs-triage"
+      },
+      "Needs info": {
+        "label": "needs-info"
+      },
+      "Ready for agent": {
+        "label": "ready-for-agent"
+      }
+    },
     "categories": [
       "blocked",
       "claim",
@@ -18,10 +42,12 @@
       "assigned"
     ],
     "me": "Ryan",
-    "watching": [],
-    "grouped": true
+    "watching": []
   },
-  "activeEpic": null,
+  "activeEpic": "EP-006",
   "boardId": "bytedeskai/bytedesk-marketplace",
-  "owner": "Ryan Helms <ryan@helms.ai>"
+  "owner": "Ryan Helms <ryan@helms.ai>",
+  "ntfy": {},
+  "plugin": {},
+  "labels": {}
 }

@@ -1,20 +1,21 @@
 ---
-id: "CAP-0001"
-kind: "capability"
-status: "in_progress"
-created: "2026-08-18T15:49:50.165Z"
+id: "TM-058"
+kind: "task"
+status: "open"
+created: "2026-09-01T20:13:43.711Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "MCP worktree and typed-link verbs"
-area: "platform"
-impact: "M"
-effort: "S"
-confidence: "H"
-source: "gap-backlog"
+capability: "CAP-0001"
+acceptance: [{"text":"tm_worktree new/rm/list exist and refuse the same cases as the CLI","done":false},{"text":"tm_link writes both ends; tm_unlink leaves both ends clean","done":false},{"text":"tools/list advertises them; handleRequest tests cover the round trip","done":false}]
 evidence: []
-related: []
-updated: "2026-09-01T20:13:43.729Z"
-task: "TM-058"
+commits: []
+blockedBy: []
+blocks: []
+updated: "2026-09-01T20:13:43.718Z"
 ---
+
+Implements [[CAP-0001]].
+
 
 ## Problem / job-to-be-done
 
