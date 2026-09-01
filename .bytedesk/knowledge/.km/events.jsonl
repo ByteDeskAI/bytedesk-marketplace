@@ -4,3 +4,9 @@
 {"ts":"2026-07-31T04:45:36.983Z","kind":"concept_write","session":null,"id":"l","type":"Reference"}
 {"ts":"2026-07-31T04:51:57.770Z","kind":"hook_session_start","session":null}
 {"ts":"2026-07-31T06:41:43.785Z","kind":"hook_pre_compact","session":"019fb645-4f7a-7dc1-a69b-52611531c378"}
+{"ts":"2026-09-01T19:18:35.880Z","kind":"hook_session_start","session":"126c1a80-f656-456d-bf04-5c79ad0494c2"}
+{"ts":"2026-09-01T19:22:26.139Z","kind":"hook_session_start","session":"567ee37c-9885-4662-9437-2ded31ab545d"}
+{"ts":"2026-09-01T19:22:39.658Z","kind":"hook_session_start","session":"4823a005-84a4-4f86-ab85-29fe74728648"}
+{"ts":"2026-09-01T19:22:49.678Z","kind":"hook_session_start","session":"2dd65bff-d835-4ce5-956b-1aa2e620e753"}
+{"ts":"2026-09-01T19:40:00.613Z","kind":"concept_write","session":"126c1a80-f656-456d-bf04-5c79ad0494c2","id":"decisions/decision-2026-09-01","type":"Decision"}
+{"ts":"2026-09-01T19:40:00.630Z","kind":"hook_decision_captured","session":"126c1a80-f656-456d-bf04-5c79ad0494c2","title":"Decision 2026-09-01"}
