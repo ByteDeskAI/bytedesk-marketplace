@@ -10,7 +10,7 @@
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { NO_EPIC, laneOrder, laneProgress, laneTasks, sortForLanes } from "../../dashboard/src/lanes.mjs";
+import { NO_EPIC, laneOrder, laneProgress, laneTasks, sortForLanes } from "../../dashboard/src/lib/lanes.mjs";
 
 const epic = (id, status = "open", title = `epic ${id}`) => ({ id, title, status });
 const task = (id, e, status = "open", rank) => ({ id, epic: e, status, rank });

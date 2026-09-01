@@ -18,7 +18,7 @@ import {
   locate,
   move,
   resolve,
-} from "../../dashboard/src/keys.mjs";
+} from "../../dashboard/src/lib/keys.mjs";
 
 const ev = (key, mods = {}) => ({ key, metaKey: false, ctrlKey: false, altKey: false, ...mods });
 

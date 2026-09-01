@@ -1,0 +1,145 @@
+/*
+ * Semantic roles for the board, aliased onto the family tokens.
+ *
+ * Components consume --tm-* and never a foundation value directly: a foundation token names a
+ * colour, a role names a job, and the job is what stays stable when the family retunes a ramp.
+ * Both themes come for free — every alias resolves through --bd-* which already switches on
+ * [data-bd-theme]. Nothing here is a literal.
+ */
+:root {
+  /* surfaces, base → overlay */
+  --tm-ground: var(--bd-bg-base);
+  --tm-canvas: var(--bd-bg-subtle);
+  --tm-surface: var(--bd-bg-surface);
+  --tm-raised: var(--bd-bg-elevated);
+  --tm-overlay: var(--bd-bg-overlay);
+  --tm-hover: var(--bd-bg-hover);
+  --tm-scrim: var(--bd-overlay-backdrop);
+
+  /* ink */
+  --tm-ink: var(--bd-text-primary);
+  --tm-ink-2: var(--bd-text-secondary);
+  --tm-ink-3: var(--bd-text-tertiary);
+  --tm-ink-off: var(--bd-text-disabled);
+  --tm-ink-on-accent: var(--bd-accent-fg);
+
+  /* lines */
+  --tm-line: var(--bd-border-default);
+  --tm-line-soft: var(--bd-border-dimmer);
+  --tm-line-faint: var(--bd-border-dimmest);
+  --tm-line-strong: var(--bd-border-stronger);
+
+  /* the one action colour; the product inherits the family accent */
+  --tm-accent: var(--bd-interactive-blue);
+  --tm-accent-hover: var(--bd-accent-emphasis);
+  --tm-accent-wash: color-mix(in srgb, var(--bd-interactive-blue) 18%, transparent);
+  --tm-accent-line: var(--bd-accent-muted);
+  --tm-focus: var(--bd-focus-ring);
+  --tm-glow: var(--bd-shadow-focus-glow);
+
+  /* status: six store columns, always paired with a word */
+  --tm-status-backlog: var(--bd-text-tertiary);
+  --tm-status-backlog-bg: transparent;
+  --tm-status-backlog-line: var(--bd-border-dimmer);
+  --tm-status-open: var(--bd-text-secondary);
+  --tm-status-open-bg: transparent;
+  --tm-status-open-line: var(--bd-border-default);
+  --tm-status-in_progress: var(--bd-info);
+  --tm-status-in_progress-bg: var(--bd-info-bg);
+  --tm-status-in_progress-line: var(--bd-info-line);
+  --tm-status-blocked: var(--bd-danger);
+  --tm-status-blocked-bg: var(--bd-danger-bg);
+  --tm-status-blocked-line: var(--bd-danger-line);
+  --tm-status-parked: var(--bd-warning);
+  --tm-status-parked-bg: var(--bd-warning-bg);
+  --tm-status-parked-line: var(--bd-warning-line);
+  --tm-status-done: var(--bd-success);
+  --tm-status-done-bg: var(--bd-success-bg);
+  --tm-status-done-line: var(--bd-success-line);
+  --tm-status-deleted: var(--bd-text-disabled);
+  --tm-status-deleted-bg: transparent;
+  --tm-status-deleted-line: var(--bd-border-dimmest);
+
+  /* semantic, for everything that is not a column */
+  --tm-ok: var(--bd-success);
+  --tm-ok-bg: var(--bd-success-bg);
+  --tm-ok-line: var(--bd-success-line);
+  --tm-warn: var(--bd-warning);
+  --tm-warn-bg: var(--bd-warning-bg);
+  --tm-warn-line: var(--bd-warning-line);
+  --tm-bad: var(--bd-danger);
+  --tm-bad-bg: var(--bd-danger-bg);
+  --tm-bad-line: var(--bd-danger-line);
+  --tm-info: var(--bd-info);
+  --tm-info-bg: var(--bd-info-bg);
+  --tm-info-line: var(--bd-info-line);
+
+  /* depth: the shell edge carries it, cards barely */
+  --tm-shadow-shell: var(--bd-shadow-shell);
+  --tm-shadow-card: var(--bd-shadow-card);
+  --tm-top-light: var(--bd-material-top-light);
+
+  /* geometry */
+  --tm-radius: var(--bd-radius-md);
+  --tm-radius-lg: var(--bd-radius-lg);
+  --tm-radius-xl: var(--bd-radius-xl);
+  --tm-radius-pill: var(--bd-radius-full);
+  --tm-hairline: var(--bd-stroke-hairline);
+  --tm-control: var(--bd-size-control-compact);
+  --tm-control-lg: var(--bd-size-control-default);
+  --tm-hit: var(--bd-size-hit-target-pointer);
+  --tm-rail: var(--bd-size-shell-rail);
+  --tm-sidebar: var(--bd-size-shell-sidebar);
+  --tm-commandbar: var(--bd-size-shell-commandbar);
+  --tm-inspector: var(--bd-size-shell-inspector);
+
+  /* type */
+  --tm-font: var(--bd-font-sans);
+  --tm-mono: var(--bd-font-mono);
+  --tm-text: var(--bd-text-body-sm);
+  --tm-text-lg: var(--bd-text-body);
+  --tm-text-sm: var(--bd-text-caption);
+  --tm-text-mono: var(--bd-text-console);
+  --tm-text-mono-sm: var(--bd-text-console-sm);
+  --tm-h1: var(--bd-text-h4);
+  --tm-h2: var(--bd-text-body-lg);
+  --tm-lh: var(--bd-line-height-compact);
+  --tm-lh-body: var(--bd-line-height-body);
+  --tm-w-medium: var(--bd-font-weight-medium);
+  --tm-w-semibold: var(--bd-font-weight-semibold);
+  --tm-caps: var(--bd-letter-spacing-caps);
+
+  /* space ladder — same names as the family so a designer's numbers translate directly */
+  --tm-s1: var(--bd-space-1);
+  --tm-s2: var(--bd-space-2);
+  --tm-s3: var(--bd-space-3);
+  --tm-s4: var(--bd-space-4);
+  --tm-s5: var(--bd-space-5);
+  --tm-s6: var(--bd-space-6);
+  --tm-s7: var(--bd-space-7);
+  --tm-s8: var(--bd-space-8);
+  --tm-s9: var(--bd-space-9);
+
+  /* motion */
+  --tm-fast: var(--bd-duration-fast);
+  --tm-base: var(--bd-duration-base);
+  --tm-ease: var(--bd-ease-out-expo);
+
+  /* charts: fixed series order, never cycled; grid/axis recessive */
+  --tm-chart-1: var(--bd-chart-series-1);
+  --tm-chart-2: var(--bd-chart-series-2);
+  --tm-chart-3: var(--bd-chart-series-3);
+  --tm-chart-4: var(--bd-chart-series-4);
+  --tm-chart-grid: var(--bd-chart-grid);
+  --tm-chart-axis: var(--bd-chart-axis);
+  --tm-chart-plot: var(--bd-chart-plot);
+}
+
+/* Touch: every hit target grows to the family's touch size below the compact breakpoint. */
+@media (max-width: 719px) {
+  :root {
+    --tm-control: var(--bd-size-control-touch);
+    --tm-control-lg: var(--bd-size-control-touch);
+    --tm-hit: var(--bd-size-hit-target-touch);
+  }
+}

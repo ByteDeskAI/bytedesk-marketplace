@@ -5,7 +5,6 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
-    "jsxImportSource": "@compiled/react",
     "strict": true,
     "noEmit": true,
     "allowJs": true,

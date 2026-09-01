@@ -8,7 +8,7 @@
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { blocks, excerpt, inlines } from "../../dashboard/src/markdown.mjs";
+import { blocks, excerpt, inlines } from "../../dashboard/src/lib/markdown.mjs";
 
 const kinds = (md) => blocks(md).map((b) => b.kind);
 const text = (spans) => spans.map((s) => s.text).join("");

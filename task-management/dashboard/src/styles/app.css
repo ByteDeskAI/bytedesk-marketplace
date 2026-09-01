@@ -1,0 +1,7 @@
+/* bytedesk design-system import is prepended by bd-design init */
+@import "../../../../.context/design-system/tokens/css/bytedesk.css";
+
+@import "./tokens.css";
+@import "./base.css";
+@import "./shell.css";
+@import "./ui.css";

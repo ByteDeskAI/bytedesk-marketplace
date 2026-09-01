@@ -9,7 +9,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { CATEGORIES, notificationFor, recordSelfWrite } from "./notify.mjs";
 import * as outbox from "./outbox.mjs";
 import { loadPrefs, mergeServerPrefs, pushPrefs, savePrefs } from "./prefs.mjs";
-import type { StoreEvent } from "../types";
+import type { StoreEvent } from "../lib/types";
 
 export type Entry = {
   key: string;

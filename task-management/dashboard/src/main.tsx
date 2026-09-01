@@ -1,13 +1,11 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { setGlobalTheme } from "@atlaskit/tokens";
-import { App } from "./App";
-
-// 'auto' follows the OS light/dark preference — the board is theme-aware for free.
-void setGlobalTheme({ colorMode: "auto", light: "light", dark: "dark" });
+import "./styles/app.css";
+import "./lib/theme"; // sets data-bd-theme before first paint
+import { Shell } from "./app/Shell";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <App />
+    <Shell />
   </StrictMode>,
 );

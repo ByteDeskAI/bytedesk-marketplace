@@ -127,7 +127,7 @@ describe("the browser and the terminal ask the same questions", () => {
   it("covers every field the dashboard filters on", () => {
     // Read out of the SPA's source at test time. The two implementations are separate because the
     // SPA imports nothing from lib/, so the only thing keeping them honest is this assertion.
-    const src = readFileSync(join(HERE, "../../dashboard/src/filters.ts"), "utf8");
+    const src = readFileSync(join(HERE, "../../dashboard/src/lib/filters.ts"), "utf8");
     const block = src.slice(src.indexOf("export interface Filters"), src.indexOf("}", src.indexOf("export interface Filters")));
     const browser = [...block.matchAll(/^\s*(\w+)\s*[?:]/gm)].map((m) => m[1]).filter((k) => k !== "text");
 

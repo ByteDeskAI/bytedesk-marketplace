@@ -1,8 +1,14 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { paths } from "../lib/paths.mjs";
+
+const here = dirname(fileURLToPath(import.meta.url));
+// The token stylesheet is vendored at the REPO root (`.context/design-system/`), outside this
+// package. Vite's dev server refuses to serve files above the project root unless told.
+const repoRoot = resolve(here, "../..");
 
 /**
  * `npm run dev` serves the board with HMR and proxies the API to the running
@@ -24,12 +30,7 @@ function apiTarget() {
   }
 }
 
-/**
- * A port file outlives the board that wrote it. Without this the dev server starts
- * happily against a dead port and every request fails with a proxy error instead of
- * the message above — which sends you looking at the proxy config rather than at the
- * board you forgot to start.
- */
+/** A port file outlives the board that wrote it; a dead pid means a dead board. */
 function alive(base: string) {
   try {
     const { pid } = JSON.parse(readFileSync(join(base, "dashboard.pid"), "utf8"));
@@ -42,12 +43,10 @@ function alive(base: string) {
   }
 }
 
-// The proxy target is resolved for `dev` only. Evaluated eagerly it takes the
-// build down too, and `npm run build` must work with no board running — dist/ is
-// committed, so a failed build is a plugin that ships stale.
+// The proxy target is resolved for `dev` only: `npm run build` must work with no board
+// running — dist/ is committed, so a failed build is a plugin that ships stale.
 export default defineConfig(({ command }) => ({
-  // @atlaskit/css (cssMap) is Compiled — it needs the build-time transform.
-  plugins: [react({ jsxImportSource: "@compiled/react", babel: { plugins: ["@compiled/babel-plugin"] } })],
+  plugins: [react()],
   base: "/",
   build: {
     outDir: "dist",
@@ -55,19 +54,11 @@ export default defineConfig(({ command }) => ({
     emptyOutDir: true,
     modulePreload: { polyfill: false }, // the polyfill is an inline script; a strict CSP would drop it
     /**
-     * Dependencies in their own chunk, and the size warning turned off deliberately.
-     *
-     * This bundle is committed, so what matters is not first-paint over a network — it is served
-     * from localhost and the service worker precaches every file — but how much of it git has to
-     * store again on each release. Unsplit, one character of app code rewrote all 3.3 MB. Split,
-     * a typical change rewrites only the app chunk and the dependency chunk is reused.
-     *
-     * The warning cannot be satisfied honestly: Atlaskit alone is over the 500 kB default, and
-     * chopping a design system into arbitrary pieces to quiet a linter would trade a real
-     * property (one cacheable vendor chunk) for a cosmetic one. Naming the limit says the size is
-     * a decision rather than an oversight — and leaves the warning meaningful if it ever fires.
+     * Dependencies in their own chunk. This bundle is committed, so what matters is how much of
+     * it git has to store again per change: split, a typical edit rewrites only the app chunk.
+     * 600 kB is above react + lucide; a jump past it is news.
      */
-    chunkSizeWarningLimit: 4500,  // above today's vendor chunk, so a jump past it is news
+    chunkSizeWarningLimit: 600,
     rollupOptions: {
       output: {
         manualChunks: (id: string) => (id.includes("node_modules") ? "vendor" : undefined),
@@ -77,6 +68,7 @@ export default defineConfig(({ command }) => ({
   server:
     command === "serve"
       ? {
+          fs: { allow: [repoRoot] },
           proxy: {
             "/api": { target: apiTarget(), changeOrigin: true },
             // SSE needs the stream left alone: no buffering, no timeout.

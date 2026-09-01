@@ -3,6 +3,12 @@
 ## Unreleased
 
 ### Added
+- **Dashboard rewrite, wave 1 (frontend core).** The SPA foundation is rebuilt on the ByteDesk
+  design system: `--tm-*` semantic roles aliased to `--bd-*`, self-hosted IBM Plex, Lucide
+  icons, a history router with deep links and an inspector layer, an SSE-fed entity store with
+  optimistic writes and rollback, 27 token-only UI primitives, and an app shell (rail, command
+  bar, palette, help). `@atlaskit/*`, `@compiled/*` and `@tanstack/ai-react` are removed;
+  the vendor chunk drops from ~3.3 MB to ~49 kB gzipped.
 - **Dashboard rewrite, wave 1 (backend).** Every CLI-only verb has an HTTP route: `/api/meta`,
   `/api/graph`, `/api/standup`, `/api/time`, `/api/task/:id/{why,handoff,time,history}`,
   `/api/entity/:id/history`, `/api/stale`, `/api/find`, `/api/claims`, `/api/parallel`,
