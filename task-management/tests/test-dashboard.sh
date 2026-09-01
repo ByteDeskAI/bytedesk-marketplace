@@ -422,6 +422,69 @@ assert_contains "$(cat "$TM_ROOT/sse.txt")" "TM-003" "a write is pushed to other
 CODE="$(post /api/task/TM-001/nonsense)"
 [[ "$CODE" == 404 ]] && ok "an unknown action is refused" || no "an unknown action is refused" "got $CODE"
 
+# ── W1: the CLI's reads and writes, over HTTP ────────────────────────────────
+# Export is a computed document with a download disposition, never a file path.
+EXPORT_HEAD="$(curl -fsS -D- -o "$TM_ROOT/board.csv" "$BASE/api/export?format=csv&download=1")"
+assert_contains "$EXPORT_HEAD" "attachment" "csv export downloads"
+assert_contains "$EXPORT_HEAD" "text/csv" "csv export is served as text/csv"
+assert_contains "$(head -1 "$TM_ROOT/board.csv")" "Summary" "the csv carries Jira's header row"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/export?format=xml")"
+[[ "$CODE" == 400 ]] && ok "an unknown export format is 400" || no "an unknown export format is 400" "got $CODE"
+
+# find refuses a field that does not exist, naming the ones that do.
+FIND="$(curl -s "$BASE/api/find?q=assigne:x")"
+assert_contains "$FIND" "assignee" "an unknown find field is refused by name"
+assert_contains "$(curl -fsS "$BASE/api/find?q=status:open")" "TM-001" "find answers tm find syntax over HTTP"
+
+# Meta publishes the vocabulary; every other GET under /api reaches the pure handler.
+assert_contains "$(curl -fsS "$BASE/api/meta")" '"findFields"' "GET /api/meta publishes the find fields"
+assert_contains "$(curl -fsS "$BASE/api/skills")" '"/task-management:board"' "GET /api/skills lists the skill catalog"
+assert_contains "$(curl -fsS "$BASE/api/task/TM-001/why")" '"startable"' "GET /api/task/:id/why answers"
+assert_contains "$(curl -fsS "$BASE/api/graph")" '"mermaid"' "GET /api/graph draws"
+assert_contains "$(curl -fsS "$BASE/api/doctor")" '"findings"' "GET /api/doctor reports"
+NOPE="$(curl -s "$BASE/api/nope")"
+assert_contains "$NOPE" '"error"' "an unknown /api path is a JSON 404, not the SPA shell"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/nope")"
+[[ "$CODE" == 404 ]] && ok "an unknown /api path is 404" || no "an unknown /api path is 404" "got $CODE"
+
+# The board carries a validator so a defensive refetch is a 304.
+ETAG="$(curl -fsS -D- -o /dev/null "$BASE/api/board" | tr -d '\r' | awk -F': ' 'tolower($1)=="etag"{print $2}')"
+[[ -n "$ETAG" ]] && ok "/api/board carries an ETag" || no "/api/board carries an ETag" "no etag header"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -H "If-None-Match: $ETAG" "$BASE/api/board")"
+[[ "$CODE" == 304 ]] && ok "an unchanged board is a 304" || no "an unchanged board is a 304" "got $CODE"
+
+# doctor --fix needs confirm; without it the file is untouched.
+post /api/task '{"title":"Waits on a ghost"}' >/dev/null
+post /api/task/TM-005/dep '{"add":["TM-404"]}' >/dev/null || true
+node -e '
+const fs=require("fs");const f=process.argv[1];const t=fs.readFileSync(f,"utf8").replace(/^blockedBy: .*$/m,"blockedBy: [\"TM-404\"]");fs.writeFileSync(f,t);
+' "$(ls "$STORE"/tasks/TM-005-*.md)"
+CODE="$(post /api/doctor/fix '{}')"
+[[ "$CODE" == 400 ]] && ok "doctor fix without confirm is refused" || no "doctor fix without confirm is refused" "got $CODE"
+assert_contains "$(md TM-005)" "TM-404" "the dangling ref survives an unconfirmed fix"
+post /api/doctor/fix '{"confirm":true}' >/dev/null
+case "$(md TM-005)" in *TM-404*) no "a confirmed fix drops the dangling ref" "still present" ;; *) ok "a confirmed fix drops the dangling ref" ;; esac
+
+# Soft delete hides the card from the board and keeps the file.
+post /api/task/TM-005/delete '{"why":"noise"}' >/dev/null
+assert_contains "$(md TM-005)" 'status: "deleted"' "delete writes the status"
+case "$(curl -fsS "$BASE/api/board")" in *'"TM-005"'*) no "a deleted task leaves the board" "still served" ;; *) ok "a deleted task leaves the board" ;; esac
+post /api/task/TM-005/restore >/dev/null
+assert_contains "$(md TM-005)" 'status: "open"' "restore brings it back"
+
+# SSE: a fresh connect gets `ready`; Last-Event-ID: 0 replays the whole log with ids; idle streams ping.
+(curl -sN --max-time 2 "$BASE/events" > "$TM_ROOT/sse-ready.txt" &) ; sleep 2.5
+assert_contains "$(cat "$TM_ROOT/sse-ready.txt")" "event: ready" "a new subscriber is told it is ready"
+(curl -sN --max-time 2 -H 'Last-Event-ID: 0' "$BASE/events" > "$TM_ROOT/sse-replay.txt" &) ; sleep 2.5
+assert_contains "$(cat "$TM_ROOT/sse-replay.txt")" "event: store" "Last-Event-ID replays store frames"
+assert_contains "$(cat "$TM_ROOT/sse-replay.txt")" "id: " "replayed frames carry ids"
+assert_contains "$(cat "$TM_ROOT/sse-replay.txt")" '"event":"init"' "the replay starts from the beginning"
+LAST="$(grep '^id: ' "$TM_ROOT/sse-replay.txt" | tail -1 | cut -d' ' -f2)"
+(curl -sN --max-time 2 -H "Last-Event-ID: $LAST" "$BASE/events" > "$TM_ROOT/sse-caught-up.txt" &) ; sleep 2.5
+case "$(cat "$TM_ROOT/sse-caught-up.txt")" in *"event: store"*) no "a caught-up client gets nothing replayed" "store frames replayed" ;; *) ok "a caught-up client gets nothing replayed" ;; esac
+(curl -sN --max-time 2 -H 'Last-Event-ID: 999999999' "$BASE/events" > "$TM_ROOT/sse-resync.txt" &) ; sleep 2.5
+assert_contains "$(cat "$TM_ROOT/sse-resync.txt")" "event: resync" "an id past the log asks the client to resync"
+
 kill "$WRITE_PID" 2>/dev/null
 wait_gone "$WRITE_PID"
 

@@ -1162,3 +1162,342 @@ describe("worktrees (BDM-74)", () => {
     assert.equal(res.status, 400);
   });
 });
+
+// ── W1: every CLI-only read and write, over HTTP ─────────────────────────────
+
+import { handleAsync } from "../../lib/dashboard-api.mjs";
+import { dependencies } from "../../lib/issue.mjs";
+import { FIELD_NAMES } from "../../lib/query.mjs";
+import { COLUMNS } from "../../lib/render.mjs";
+import { claimTask } from "../../lib/claims.mjs";
+import { readTemplate } from "../../lib/templates.mjs";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+
+const get = (p, path) => handleWrite("GET", path, null, { p });
+const sessioned = (id, fn) => withSessionEnv({ CLAUDE_CODE_SESSION_ID: id }, fn);
+
+describe("why and graph", () => {
+  it("walks the chain to the parked root and names its reason", () => {
+    const p = store();
+    const e = create("epic", { title: "scoped" }, "", p);
+    const a = task(p, "the credential", { epic: e.id });
+    const b = task(p, "the secret store", { epic: e.id });
+    const c = task(p, "legal sign-off"); // outside the epic on purpose
+    dependencies(a.id, { add: [b.id] }, p);
+    dependencies(b.id, { add: [c.id] }, p);
+    update(c.id, { status: "parked", parkedReason: "waiting on counsel" }, p);
+
+    const res = get(p, `/api/task/${a.id}/why`);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.startable, false);
+    assert.ok(res.body.chain.some((x) => x.id === c.id), "the transitive blocker is in the chain");
+    assert.match(res.body.text, /waiting on counsel/);
+
+    const g = get(p, `/api/graph?epic=${e.id}`);
+    assert.equal(g.status, 200);
+    assert.ok(g.body.edges.some((x) => x.from === c.id && x.to === b.id), "an out-of-epic blocker is still drawn — it still explains the block");
+    assert.match(g.body.mermaid, /classDef parked/);
+    assert.equal(get(p, "/api/task/TM-404/why").status, 404);
+  });
+});
+
+describe("insight reads", () => {
+  it("standup, time, stale and history answer from the event log", async () => {
+    const p = store();
+    writeConfig({ staleMinutes: 0 }, p);
+    const t = task(p, "finished today");
+    const since = new Date(Date.now() - 60_000).toISOString();
+    act(p, { action: "transition", id: t.id, status: "in_progress" });
+    await new Promise((r) => setTimeout(r, 5));
+    assert.deepEqual(get(p, "/api/stale").body.tasks, [t.id], "staleMinutes 0 makes any in-progress task stale");
+    act(p, { action: "transition", id: t.id, status: "done" });
+
+    assert.match(get(p, `/api/standup?since=${since}`).body.text, new RegExp(t.id));
+    assert.equal(get(p, "/api/standup?since=yesterday").status, 400);
+    assert.equal(get(p, "/api/time").body.completed, 1);
+    const per = get(p, `/api/task/${t.id}/time`).body;
+    assert.ok(per.cycle && per.cycle.ms >= 0, "a cycle time once done");
+    assert.ok(per.timeline.some((e) => e.event === "done"));
+
+    const e = create("epic", { title: "an epic" }, "", p);
+    const h = get(p, `/api/entity/${e.id}/history`);
+    assert.equal(h.status, 200);
+    assert.ok(h.body.events.some((x) => x.event === "create" && x.label), "labelled like /api/events");
+    assert.equal(get(p, "/api/entity/XX-1/history").status, 400);
+    assert.equal(get(p, "/api/entity/EP-999/history").status, 404);
+  });
+});
+
+describe("find", () => {
+  it("takes tm find syntax and refuses a field that does not exist", () => {
+    const p = store();
+    const a = task(p, "rotate the needle", { labels: ["x"] });
+    const b = task(p, "another needle");
+    const res = get(p, "/api/find?q=status:open%20-label:x%20needle");
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body.hits.map((h) => h.id), [b.id], `not ${a.id} — it wears the negated label`);
+    const bad = get(p, "/api/find?q=assigne:ryan");
+    assert.equal(bad.status, 400, "a typo'd field must not silently match body text");
+    assert.match(bad.body.error, /assignee/);
+  });
+});
+
+describe("claims over http", () => {
+  it("claims, refuses a second session, steals on request, releases", () => {
+    const p = store();
+    const t = task(p, "contested");
+    sessioned("alpha", () => {
+      const res = act(p, { action: "claim", id: t.id });
+      assert.equal(res.status, 200);
+      assert.equal(state(p).claims[t.id].session, "alpha");
+      assert.ok(state(p).claims[t.id].worktree, "the claim carries the checkout, like tm claim");
+    });
+    sessioned("beta", () => {
+      const refused = act(p, { action: "claim", id: t.id });
+      assert.equal(refused.status, 409);
+      assert.match(refused.body.error, /claimed by/);
+      const stolen = act(p, { action: "claim", id: t.id, steal: true });
+      assert.equal(stolen.status, 200);
+      assert.equal(stolen.body.stolenFrom, "alpha");
+      assert.ok(readEvents(p).some((e) => e.event === "claim_stolen" && e.id === t.id));
+    });
+    assert.equal(get(p, "/api/claims").body.claims[t.id].session, "beta");
+    assert.equal(act(p, { action: "release", id: t.id }).body.released, true);
+    assert.equal(state(p).claims[t.id], undefined);
+  });
+
+  it("sweeps only dead claims, and only when confirmed", () => {
+    const p = store();
+    const live = task(p, "held");
+    const dead = task(p, "abandoned");
+    sessioned("alpha", () => claimTask(live.id, { session: "alpha", actor: "main", p }));
+    const gone = mkdtempSync(join(tmpdir(), "tm-gone-"));
+    claimTask(dead.id, { session: "omega", actor: "main", worktree: gone, p });
+    rmSync(gone, { recursive: true, force: true }); // a claim whose worktree vanished is expired
+    assert.equal(handleWrite("POST", "/api/claims/sweep", {}, { p }).status, 400);
+    assert.ok(state(p).claims[dead.id], "nothing swept without confirm");
+    const res = handleWrite("POST", "/api/claims/sweep", { confirm: true }, { p });
+    assert.deepEqual(res.body.released, [dead.id]);
+    assert.ok(state(p).claims[live.id], "the live claim survives");
+  });
+});
+
+describe("gateStart", () => {
+  it("enforces the WIP limit on the board too, and spends an override exactly once", () => {
+    const p = store();
+    writeConfig({ wipLimit: 1, enforce: true }, p);
+    const a = task(p, "first");
+    const b = task(p, "second");
+    const c = task(p, "third");
+    assert.equal(act(p, { action: "transition", id: a.id, status: "in_progress" }).status, 200);
+    const refused = act(p, { action: "transition", id: b.id, status: "in_progress" });
+    assert.equal(refused.status, 409);
+    assert.match(refused.body.error, /WIP limit 1 reached/);
+    assert.equal(read(b.id, p).status, "open", "a 409 must not move the card");
+    assert.equal(act(p, { action: "transition", id: a.id, status: "in_progress" }).status, 200, "resuming is not starting");
+
+    assert.equal(handleWrite("POST", "/api/override", {}, { p }).status, 400);
+    assert.equal(handleWrite("POST", "/api/override", { reason: "pairing" }, { p }).status, 200);
+    assert.equal(get(p, "/api/override").body.override.reason, "pairing");
+    assert.equal(act(p, { action: "transition", id: b.id, status: "in_progress" }).status, 200);
+    assert.equal(readEvents(p).filter((e) => e.event === "override_used").length, 1);
+    assert.equal(act(p, { action: "transition", id: c.id, status: "in_progress" }).status, 409, "the token is spent");
+  });
+});
+
+describe("doctor over http", () => {
+  it("reports, refuses an unconfirmed fix, and repairs the unambiguous half", () => {
+    const p = store();
+    const t = task(p, "waiting on a ghost", { blockedBy: ["TM-404"] });
+    const report = get(p, "/api/doctor");
+    assert.equal(report.status, 200);
+    const finding = report.body.findings.find((f) => f.code === "dangling-dep" && f.id === t.id);
+    assert.ok(finding && finding.fixable);
+    assert.equal(typeof finding.fix, "undefined", "closures do not cross HTTP");
+    assert.equal(report.body.errors >= 1, true);
+
+    assert.equal(handleWrite("POST", "/api/doctor/fix", {}, { p }).status, 400);
+    assert.match(readFileSync(read(t.id, p).file, "utf8"), /TM-404/, "untouched without confirm");
+    const fixed = handleWrite("POST", "/api/doctor/fix", { confirm: true }, { p });
+    assert.equal(fixed.status, 200);
+    assert.ok(fixed.body.applied.some((a) => a.code === "dangling-dep"));
+    assert.doesNotMatch(readFileSync(read(t.id, p).file, "utf8"), /TM-404/);
+    assert.ok(readEvents(p).some((e) => e.event === "doctor_fix"));
+    assert.equal(handleWrite("POST", "/api/reindex", {}, { p }).body.tasks, 1);
+  });
+});
+
+describe("parallel", () => {
+  it("batches disjoint touches and leaves claimed work out", () => {
+    const p = store();
+    task(p, "a", { touches: ["src/a.ts"] });
+    task(p, "b", { touches: ["src/a.ts", "src/b.ts"] });
+    task(p, "c", { touches: ["src/c.ts"] });
+    const held = task(p, "d");
+    claimTask(held.id, { session: "someone", actor: "main", p });
+    const { batches } = get(p, "/api/parallel").body;
+    assert.equal(batches.length, 2);
+    const ids = batches.flatMap((b) => b.tasks.map((t) => t.id));
+    assert.ok(!ids.includes(held.id));
+    assert.equal(ids.length, 3);
+  });
+});
+
+describe("goal import", () => {
+  const doc = "# Goal: Bake the harness into the image (BDP-9)\n\n## Success criteria\n\n- codex runs inside the pod\n- the image builds\n";
+  it("lands a pasted doc as a task whose gate is the doc's own criteria", () => {
+    const p = store();
+    const res = handleWrite("POST", "/api/goal/import", { content: doc, name: "pasted.md" }, { p });
+    assert.equal(res.status, 201, res.body.error);
+    const t = read(res.body.id, p);
+    assert.deepEqual(t.acceptance.map((a) => a.text), ["codex runs inside the pod", "the image builds"]);
+    assert.equal(t.goalDoc, "pasted.md");
+    assert.ok(readEvents(p).some((e) => e.event === "goal_imported" && e.id === t.id));
+  });
+  it("refuses a doc with no criteria, a path outside the repo, and a missing file", () => {
+    const p = store();
+    const empty = handleWrite("POST", "/api/goal/import", { content: "# Goal: nothing measurable\n", name: "x.md" }, { p });
+    assert.equal(empty.status, 409);
+    assert.match(empty.body.error, /criteria/i);
+    assert.equal(handleWrite("POST", "/api/goal/import", { path: "/etc/passwd" }, { p }).status, 400);
+    assert.equal(handleWrite("POST", "/api/goal/import", { path: "docs/goals/nope.md" }, { p }).status, 404);
+    assert.equal(handleWrite("POST", "/api/goal/import", {}, { p }).status, 400);
+  });
+  it("lands a manifest as an epic with wired dependencies and named skips", () => {
+    const p = store();
+    mkdirSync(join(p.root, "docs", "goals"), { recursive: true });
+    writeFileSync(join(p.root, "docs", "goals", "one.md"), doc);
+    writeFileSync(join(p.root, "docs", "goals", "two.md"), "# Goal: Second\n\n## Success criteria\n\n- it works\n");
+    writeFileSync(join(p.root, "docs", "goals", "bad.md"), "# Goal: no gate\n");
+    writeFileSync(
+      join(p.root, "docs", "goals", "prog.plan.json"),
+      JSON.stringify({
+        epic: { title: "Program" },
+        goals: [
+          { id: "G1", doc: "docs/goals/one.md", touches: ["a"] },
+          { id: "G2", doc: "docs/goals/two.md", dependsOn: ["G1"] },
+          { id: "G3", doc: "docs/goals/bad.md" },
+        ],
+      }),
+    );
+    const res = handleWrite("POST", "/api/goal/import", { path: "docs/goals/prog.plan.json" }, { p });
+    assert.equal(res.status, 201, res.body.error);
+    assert.equal(res.body.tasks.length, 2);
+    assert.equal(res.body.skipped.length, 1);
+    assert.equal(res.body.edges, 1);
+    assert.equal(state(p).activeEpic, res.body.epic);
+    const second = read(res.body.tasks[1], p);
+    assert.deepEqual(second.blockedBy, [res.body.tasks[0]]);
+    assert.equal(second.status, "blocked");
+  });
+});
+
+describe("entity edits", () => {
+  it("retitles an epic without renaming its file, and validates each kind's extra fields", () => {
+    const p = store();
+    const e = create("epic", { title: "typoed titel" }, "", p);
+    const before = read(e.id, p).file;
+    const res = handleWrite("PATCH", `/api/epic/${e.id}`, { title: "typoed title, fixed" }, { p });
+    assert.equal(res.status, 200);
+    assert.equal(read(e.id, p).file, before, "the id is the identity; the slug is decoration");
+    assert.equal(read(e.id, p).title, "typoed title, fixed");
+    assert.equal(handleWrite("PATCH", `/api/epic/${e.id}`, {}, { p }).status, 400);
+
+    const a = create("adr", { title: "a decision", status: "proposed", deciders: [] }, "", p);
+    assert.equal(handleWrite("PATCH", `/api/adr/${a.id}`, { deciders: ["ryan"] }, { p }).status, 200);
+    assert.deepEqual(read(a.id, p).deciders, ["ryan"]);
+    assert.equal(handleWrite("PATCH", `/api/adr/${a.id}`, { deciders: "ryan" }, { p }).status, 400);
+
+    const s = create("sprint", { title: "s1", status: "open" }, "", p);
+    assert.equal(handleWrite("PATCH", `/api/sprint/${s.id}`, { ends: "next friday" }, { p }).status, 400);
+    assert.equal(handleWrite("PATCH", `/api/sprint/${s.id}`, { ends: "2026-09-12" }, { p }).status, 200);
+    assert.equal(read(s.id, p).ends, "2026-09-12");
+
+    const c = propose({ title: "a cap", impact: "M", effort: "S", confidence: "H" }, p);
+    assert.equal(handleWrite("PATCH", `/api/capability/${c.id}`, { impact: "X" }, { p }).status, 400);
+    const ok2 = handleWrite("PATCH", `/api/capability/${c.id}`, { impact: "H" }, { p });
+    assert.equal(ok2.status, 200);
+    assert.equal(read(c.id, p).impact, "H");
+    assert.equal(typeof ok2.body.score, "number");
+  });
+});
+
+describe("delete and restore", () => {
+  it("hides the card, keeps the file, releases the claim, and comes back on restore", () => {
+    const p = store();
+    const t = task(p, "expendable");
+    sessioned("alpha", () => act(p, { action: "transition", id: t.id, status: "in_progress" }));
+    const refused = sessioned("beta", () => act(p, { action: "delete", id: t.id }));
+    assert.equal(refused.status, 409, "someone else's in-flight work is not deletable from a tab");
+    const res = sessioned("alpha", () => act(p, { action: "delete", id: t.id, why: "duplicate" }));
+    assert.equal(res.status, 200);
+    assert.ok(existsSync(read(t.id, p).file), "the file stays");
+    assert.ok(!list("task", {}, p).some((x) => x.id === t.id), "hidden from the board");
+    assert.equal(state(p).claims[t.id], undefined, "claim released");
+    assert.ok(readEvents(p).some((e) => e.event === "deleted" && e.id === t.id && e.why === "duplicate"));
+    assert.equal(get(p, `/api/task/${t.id}`).status, 200, "still readable while deleted");
+    assert.equal(act(p, { action: "restore", id: t.id }).body.status, "in_progress");
+    assert.equal(act(p, { action: "restore", id: t.id }).status, 409);
+  });
+});
+
+describe("templates write", () => {
+  it("creates, refuses a silent overwrite, patches, and rejects an unsafe name", () => {
+    const p = store();
+    const res = handleWrite("POST", "/api/templates", { name: "incident", description: "an outage", body: "## Timeline\n" }, { p });
+    assert.equal(res.status, 201, res.body.error);
+    assert.equal(readTemplate("incident", p).fields.description, "an outage");
+    assert.equal(handleWrite("POST", "/api/templates", { name: "incident", body: "x" }, { p }).status, 409);
+    assert.equal(handleWrite("PATCH", "/api/templates/incident", { body: "## Impact\n" }, { p }).status, 200);
+    assert.match(readTemplate("incident", p).body, /## Impact/);
+    assert.equal(handleWrite("POST", "/api/templates", { name: "../x", body: "" }, { p }).status, 400);
+  });
+});
+
+describe("meta and skills", () => {
+  it("publishes every vocabulary the SPA would otherwise hardcode", () => {
+    const p = store();
+    const m = get(p, "/api/meta").body;
+    assert.deepEqual(m.vocab.findFields, FIELD_NAMES);
+    assert.deepEqual(m.vocab.columns, COLUMNS);
+    assert.ok(m.plugin.version.length > 0);
+    assert.ok(m.vocab.eventCatalog.deleted, "the new kind is catalogued");
+    assert.equal(typeof m.gates.enforce, "boolean");
+    const skills = get(p, "/api/skills").body;
+    assert.ok(skills.length >= 20);
+    assert.equal(skills.find((s) => s.name === "board").userInvokable, true);
+    assert.equal(skills.find((s) => s.name === "enhance-capture").userInvokable, false);
+  });
+});
+
+describe("ntfy test", () => {
+  it("explains silence, and sends through the injected fetch when configured", async () => {
+    const p = store();
+    writeConfig({ ntfy: { topic: "tm-test" } }, p);
+    // The suite runs inside a real environment that may carry its own ntfy settings; the test
+    // owns all three so it reads its fixture rather than the machine's phone.
+    const saved = Object.fromEntries(["TM_NTFY_TOKEN", "TM_NTFY_TOPIC", "TM_NTFY_SERVER"].map((k) => [k, process.env[k]]));
+    for (const k of Object.keys(saved)) delete process.env[k];
+    try {
+      const quiet = await handleAsync("POST", "/api/ntfy/test", {}, { p });
+      assert.equal(quiet.body.sent, false);
+      assert.match(quiet.body.reason, /TM_NTFY_TOKEN/);
+      process.env.TM_NTFY_TOKEN = "tok";
+      const calls = [];
+      const fetchImpl = async (url, init) => {
+        calls.push({ url, init });
+        return { ok: true, status: 200, text: async () => "" };
+      };
+      const sent = await handleAsync("POST", "/api/ntfy/test", {}, { p, fetchImpl });
+      assert.equal(sent.body.sent, true);
+      assert.match(calls[0].url, /tm-test$/);
+      assert.match(calls[0].init.headers.Authorization, /tok/);
+    } finally {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+  });
+});

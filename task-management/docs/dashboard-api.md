@@ -24,7 +24,7 @@ and the markdown store stay authoritative regardless of caller.
   `/api/entity/:id` is the generic `kindOf`+`read` and does not replace per-kind routes.
 - **`handleWrite(method, path, payload, { p })`** (`lib/dashboard-api.mjs:108`) is pure
   request-in/response-out, returns `{ status, body }`, and unit-tests without a server.
-  `bin/tm-dashboard` is plumbing. NEW: `handleWrite` becomes `async` (for `/api/ntfy/test`);
+  `bin/tm-dashboard` is plumbing. NEW: `handleWrite` stays synchronous; `export async function handleAsync(method, path, payload, {p, fetchImpl})` wraps it and owns the one async route (`/api/ntfy/test`). `bin/tm-dashboard` calls `handleAsync` for every request;
   the server `await`s it.
 - **Single GET dispatch rule (NEW)**: `bin/tm-dashboard` routes every `GET /api/*` to
   `handleWrite("GET", …)` **except** the `SERVER_ROUTES` that need raw bodies or streams:
@@ -74,7 +74,7 @@ Legend: **R** read · **W** write · **G** gated write (409 possible) · **NEW**
 | `GET /api/task/:id/why` R NEW | — | `{ id, title, status, startable, reasons:[{kind,blocking,text}], chain:[{id,depth,status,reason}], roots:[ids], cycles:[[ids]], text }` | 200 / 404 | `graph.why` (`lib/graph.mjs:86`), `renderWhy` (`:176`) |
 | `GET /api/task/:id/handoff` R NEW | — | `{ id, text }` (markdown brief). Worktree provisioning is `POST …/worktree`, never a GET side effect | 200 | `render.handoff` (`lib/render.mjs:264`) |
 | `GET /api/task/:id/time` R NEW | — | `{ id, cycle:{startedAt,doneAt,ms,human}\|null, inStatus:{<status>:ms}, timeline:[{ts,from,to}] }` | 200 | `time.cycleTime/timeInStatus/taskTimeline` (`lib/time.mjs:78,67,43`) |
-| `GET /api/entity/:id/history` R NEW | `raw=1` | `{ id, events:[labelled rows for this id], text }` — any kind | 200 / 404 | `store.readEvents` filtered by id, `render.renderHistory` (`:456`), `collapseLog` |
+| `GET /api/entity/:id/history` R NEW (alias: `GET /api/task/:id/history`, same payload) | `raw=1` | `{ id, events:[labelled rows for this id], text }` — any kind | 200 / 404 | `store.readEvents` filtered by id, `render.renderHistory` (`:456`), `collapseLog` |
 | `POST /api/task` G | `{ title, epic?, body?, assignee?, priority?, template?, acceptance? }` | 201 `{ id, title, epic }` | 201 / 400 / 409 `gateTaskCreate` | `enforce.gateTaskCreate`, `templates.applyTemplate`, `store.create` |
 | `PATCH /api/task/:id` W | `{ title?, body?, epic? }` (`epic:null` detaches) | merged record + `{ edited:[…] , …moveTask result }` | 200 / 400 nothing to change | `store.editTask`, `store.moveTask` |
 | `POST /api/task/:id/transition` G | `{ status, reason? }` | `{ id, status, unblocked?:[ids], closedEpic? }` | 200 / 400 unknown status / 409 `gateDone`; NEW 409 `gateStart` (WIP) | `enforce.gateDone`; NEW `enforce.gateStart`; `claims.claimTask` on in_progress, `store.release` otherwise; `unblockDependents`, `autoCloseEpic` |
@@ -98,7 +98,7 @@ Legend: **R** read · **W** write · **G** gated write (409 possible) · **NEW**
 | `POST /api/task/:id/claim` G NEW | `{ steal? }` | `{ id, claim:{session,actor,worktree,branch,pid,ts}, stolenFrom? }` — claim only, **no status change** | 200 / 409 naming the holder | `claims.claimTask` (`lib/claims.mjs:34`) + stamp |
 | `POST /api/task/:id/release` W NEW | — | `{ id, released:bool }` | 200 | `claims.releaseClaim` (`:76`) |
 | `POST /api/task/:id/delete` W NEW | `{ why? }` | `{ id, status:"deleted" }` (file kept, claim released) | 200 / 409 claimed by another live session | `store.update`, `release`, `logEvent("deleted")` |
-| `POST /api/task/:id/restore` W NEW | — | `{ id, status:"open" }` | 200 | `store.update`, logs `reopened {from:"deleted"}` |
+| `POST /api/task/:id/restore` W NEW | — | `{ id, status }` — returns to `deletedFrom` (never `done`), else `open` | 200 | `store.update`, logs `reopened {from:"deleted"}` |
 | `GET /api/task/:id/touches` R NEW | — | `{ id, touches:[paths] }` | 200 | task field |
 | `POST /api/task/:id/touches` W NEW | `{ add:[paths] }` | `{ touches }` | 200 | `touches.record` |
 | `POST /api/bulk` W | `{ ids:[], op, args }` | `{ ok:[ids], failed:[{id,error}] }` — partial success | 200 / 400 | dispatches `POST /api/task/:id/<op>` per id |
@@ -161,7 +161,7 @@ Legend: **R** read · **W** write · **G** gated write (409 possible) · **NEW**
 
 | Method · Path | Query / body | Response | Codes | Source |
 |---|---|---|---|---|
-| `GET /api/graph` R NEW | `epic`, `all=1`, `subtasks=0` | `{ nodes:[{id,title,status,epic,parent?}], edges:[{from,to,type:"blocks"\|"subtask"}], activeEpic, mermaid }` | 200 | `graph.graphData` (`lib/graph.mjs:250`), `graph.mermaid` (`:220`) |
+| `GET /api/graph` R NEW | `epic`, `all=1`, `subtasks=0` | `{ nodes, edges, activeEpic, mermaid, counts:{tasks,edges} }` | 200 | `graph.graphData` (`lib/graph.mjs:250`), `graph.mermaid` (`:220`) |
 | `GET /api/standup` R NEW | `since=<iso>` (default now−24h) | `{ since, text }` (markdown) | 200 / 400 bad since | `render.standup` (`lib/render.mjs:312`) |
 | `GET /api/time` R NEW | — | `{ completed, medianMs, meanMs, median, mean, wip:[…], oldestOpen, throughput:{byDay,total,perDay} }` | 200 | `time.summary` (`lib/time.mjs:116`), `throughput` (`:96`) |
 | `GET /api/find` R NEW | `q=` (whitespace-tokenised; `field:value`, leading `-` negates, bare words = substring over title/body) | `{ query:<describeQuery>, hits:[{ id, kind, title, status, epic, labels, priority, assignee }] }` over epic/task/adr/capability/sprint | 200 / 400 unknown field, message lists `FIELD_NAMES` | `query.parseQuery/matchesQuery/describeQuery` (`lib/query.mjs`) |

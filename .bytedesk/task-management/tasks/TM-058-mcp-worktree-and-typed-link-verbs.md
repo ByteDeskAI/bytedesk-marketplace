@@ -8,10 +8,10 @@ title: "MCP worktree and typed-link verbs"
 capability: "CAP-0001"
 acceptance: [{"text":"tm_worktree new/rm/list exist and refuse the same cases as the CLI","done":false},{"text":"tm_link writes both ends; tm_unlink leaves both ends clean","done":false},{"text":"tools/list advertises them; handleRequest tests cover the round trip","done":false}]
 evidence: []
-commits: []
+commits: ["1d51696"]
 blockedBy: []
 blocks: []
-updated: "2026-09-01T20:13:43.718Z"
+updated: "2026-09-01T20:19:23.869Z"
 ---
 
 Implements [[CAP-0001]].

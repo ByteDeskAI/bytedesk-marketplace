@@ -48,6 +48,7 @@ export const CATALOG = {
     ac_removed: { group: "writes", label: "An acceptance criterion is removed", priority: "min", tags: "wastebasket" },
     moved: { group: "writes", label: "A task is refiled under another epic", priority: "min", tags: "truck" },
     done: { group: "writes", label: "A task is completed", priority: "default", tags: "white_check_mark" },
+    deleted: { group: "writes", label: "A task is deleted (the file stays, hidden from the board)", priority: "low", tags: "wastebasket" },
     assign: { group: "writes", label: "A task is assigned or unassigned", priority: "low", tags: "bust_in_silhouette" },
     labels: { group: "writes", label: "Labels change", priority: "min", tags: "label" },
     type: { group: "writes", label: "The issue type is set", priority: "min", tags: "label" },

@@ -214,3 +214,18 @@ function normalize(acceptance) {
   if (!Array.isArray(acceptance)) return undefined;
   return acceptance.map((a) => (typeof a === "string" ? { text: a, done: false } : a));
 }
+
+/**
+ * Write one template — the board's counterpart to editing `templates/<name>.md` by hand.
+ * `overwrite` is explicit: a POST that quietly replaced a teammate's starter would be a
+ * merge conflict wearing a 200.
+ */
+export function writeTemplate(name, { description, fields = {}, body = "", overwrite = false } = {}, p = paths()) {
+  const target = file(name, p);
+  if (existsSync(target) && !overwrite) throw Object.assign(new Error(`template exists: ${name} — pass overwrite`), { status: 409 });
+  const { description: _d, ...rest } = fields && typeof fields === "object" ? fields : {};
+  const data = { ...(description ? { description: String(description) } : {}), ...rest };
+  mkdirSync(p.templates, { recursive: true });
+  writeFileSync(target, serializeDoc(data, String(body ?? "")));
+  return readTemplate(name, p);
+}

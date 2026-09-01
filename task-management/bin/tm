@@ -41,25 +41,26 @@ import {
   storeBoard,
   writeState,
 } from "../lib/store.mjs";
-import { consumeOverride, enforcementOff, gateDone, gateStop, gateTaskCreate, setOverride } from "../lib/enforce.mjs";
+import { enforcementOff, gateDone, gateStart, gateStop, gateTaskCreate, setOverride } from "../lib/enforce.mjs";
 import { board, handoff, renderHistory, renderLog, sessionContext, sprintReport, standup, subagentBrief, taskLine } from "../lib/render.mjs";
 import { FIELD_NAMES, describeQuery, matchesQuery, parseQuery } from "../lib/query.mjs";
 import { launcherStatus, pluginBin, writeLaunchers } from "../lib/launcher.mjs";
-import { applyShares, createWorktree, listWorktrees, removeWorktree } from "../lib/worktree.mjs";
+import { applyShares, createWorktree, listWorktrees, provision, unprovision } from "../lib/worktree.mjs";
 import { applyTemplate, listTemplates, seedTemplates } from "../lib/templates.mjs";
 import { cycleTime, human as humanMs, summary as timeSummary, timeInStatus } from "../lib/time.mjs";
 import { upsertDecision } from "../lib/adr.mjs";
 import { accept as acceptCap, capLine, drop as dropCap, propose, ranked, score as capScore, ship as shipCap } from "../lib/capability.mjs";
 import { mirrorNative, preCreateGate } from "../lib/harness/index.mjs";
 import { claimTask, claimant, releaseClaim, staleClaims, sweepClaims } from "../lib/claims.mjs";
-import { actor, actorLabel, sessionId } from "../lib/actor.mjs";
+import { actor, actorLabel, sessionId, stamp as stampAt } from "../lib/actor.mjs";
 import { addComment, addLink, assign, backlog, dependencies, estimate, labelCatalog, labels, prioritise, rank, setType, subtasks, typeOf } from "../lib/issue.mjs";
 import { CATALOG, messageFor, ntfyConfig, send, shouldPublish } from "../lib/ntfy.mjs";
 import { graphData, mermaid, renderWhy, why } from "../lib/graph.mjs";
 import { diagnose, ignoreRule, render as renderDoctor, repairAll } from "../lib/doctor.mjs";
 import { FORMATS, exportStore } from "../lib/export.mjs";
 import { MAX_TOUCHES, observe, record } from "../lib/touches.mjs";
-import { goalBody, manifestGoalTitle, parseGoalDoc, parseManifest, refusal } from "../lib/goals.mjs";
+import { importGoalDoc, importManifest } from "../lib/goal-import.mjs";
+import { batches } from "../lib/parallel.mjs";
 import { attachEvidence } from "../lib/evidence.mjs";
 import { capturePlan as saveCapturedPlan } from "../lib/plans.mjs";
 
@@ -115,14 +116,8 @@ function requireInit() {
   if (!isInitialized(P)) die("task-management not initialized here. Run the plugin bootstrap once, then use .bytedesk/task-management/bin/tm");
 }
 
-function stamp() {
-  return {
-    actor: actorLabel(actor()),
-    session: sessionId() || undefined,
-    branch: git(["rev-parse", "--abbrev-ref", "HEAD"]) || undefined,
-    worktree: CHECKOUT,
-  };
-}
+/** One stamp for every surface — see lib/actor.mjs. The checkout is the one we stand in. */
+const stamp = () => stampAt(CHECKOUT);
 
 const words = (s) => new Set(String(s).toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 3));
 
@@ -279,34 +274,15 @@ const VERBS = {
     const path = resolve(file);
     if (!existsSync(path)) die(`no such file: ${file}`);
 
-    if (/\.json$/i.test(path)) return importManifest(path);
+    if (/\.json$/i.test(path)) return printManifestImport(path);
 
-    const parsed = parseGoalDoc(readFileSync(path, "utf8"));
-    if (!parsed.title) die(`${file} has no \`# Goal:\` heading and no \`**Objective:**\` line — cannot name the task.`);
-    // Refuse rather than import an empty acceptance list. Measured: 24 of 195 real goal docs have
-    // no parseable criteria, and a task with none passes `tm done` unchallenged.
-    if (!parsed.criteria.length) die(refusal(file), 2);
-
-    const gate = gateTaskCreate(P);
-    if (!gate.allow) die(gate.reason, 2);
-    const rel = path.startsWith(`${P.root}/`) ? path.slice(P.root.length + 1) : path;
-    const t = create(
-      "task",
-      {
-        title: parsed.title,
-        epic: epic || state(P).activeEpic || null,
-        acceptance: parsed.criteria.map((text) => ({ text, done: false })),
-        goalDoc: rel,
-        evidence: [],
-        commits: [],
-        blockedBy: [],
-        blocks: [],
-        ...stamp(),
-      },
-      goalBody(parsed, rel),
-      P,
-    );
-    logEvent("goal_imported", { id: t.id, doc: rel, criteria: parsed.criteria.length, shape: parsed.shape }, P);
+    let res;
+    try {
+      res = importGoalDoc(readFileSync(path, "utf8"), { source: path, epic, stamp: stamp() }, P);
+    } catch (e) {
+      die(e.message, e.status === 409 ? 2 : 1);
+    }
+    const { task: t, parsed } = res;
     out(
       `${t.id} ${parsed.title}${t.epic ? ` [${t.epic}]` : ""}\n` +
         `   ${parsed.criteria.length} acceptance criterion/criteria from the goal's own success criteria\n` +
@@ -399,11 +375,8 @@ const VERBS = {
   start(id) {
     requireInit();
     const t = read(id, P) || die(`not found: ${id}`);
-    const cfg = config(P);
-    const wip = list("task", { status: "in_progress" }, P);
-    if (!enforcementOff(P) && cfg.wipLimit && wip.length >= cfg.wipLimit && !wip.some((w) => w.id === id)) {
-      if (!consumeOverride(P)) die(`WIP limit ${cfg.wipLimit} reached: ${wip.map((w) => w.id).join(", ")}`, 2);
-    }
+    const gate = gateStart(id, P);
+    if (!gate.allow) die(gate.reason, 2);
     const claim = claimTask(id, {
       session: sessionId(),
       actor: actorLabel(actor()),
@@ -1140,30 +1113,15 @@ const VERBS = {
     requireInit();
     const ei = args.indexOf("--epic");
     const epic = ei === -1 ? null : args[ei + 1];
-    const candidates = nextTasks(P)
-      .filter((t) => !epic || t.epic === epic)
-      .filter((t) => !claimant(t.id, P));
-
-    const batches = [];
-    for (const task of candidates) {
-      const touches = new Set(task.touches || []);
-      const batch = batches.find((b) => !b.touches.size || !touches.size || ![...touches].some((x) => b.touches.has(x)));
-      if (batch) {
-        batch.tasks.push(task);
-        for (const x of touches) batch.touches.add(x);
-      } else {
-        batches.push({ tasks: [task], touches: new Set(touches) });
-      }
-    }
-
+    const rows = batches({ epic }, P);
     emit(
-      batches.map((b) => ({ tasks: b.tasks.map((t) => t.id), touches: [...b.touches] })),
+      rows.map((b) => ({ tasks: b.tasks.map((t) => t.id), touches: b.touches })),
       () =>
-        batches.length
-          ? batches
+        rows.length
+          ? rows
               .map((b, i) =>
                 [
-                  `batch ${i + 1}${b.touches.size ? `  (touches: ${[...b.touches].join(", ")})` : ""}`,
+                  `batch ${i + 1}${b.touches.length ? `  (touches: ${b.touches.join(", ")})` : ""}`,
                   ...b.tasks.map((t) => `  .bytedesk/task-management/bin/tm worktree new ${t.id}   # ${t.title}`),
                 ].join("\n"),
               )
@@ -1182,28 +1140,20 @@ const VERBS = {
 
     if (sub === "new") {
       const task = read(args[0], P) || die(`not found: ${args[0]}`);
-      const res = createWorktree(task, { base, share: !flags.has("--no-share"), p: P });
-      update(task.id, { worktree: res.path, branch: res.branch }, P);
-      // Through claimTask, like every other claim. The bare writeState here was an unlocked
-      // read-modify-write, and it also could not refuse: provisioning a worktree for a task
-      // another live session held took the claim silently.
-      claimTask(task.id, {
+      const res = provision(task, {
+        base,
+        share: !flags.has("--no-share"),
+        steal: flags.has("--steal"),
         session: sessionId(),
         actor: actorLabel(actor()),
-        worktree: res.path,
-        branch: res.branch,
-        steal: flags.has("--steal"),
         p: P,
       });
-      logEvent("worktree_new", { id: task.id, path: res.path, branch: res.branch, shared: res.shared.length }, P);
+      if (!res.ok) die(res.reason, 2);
       out(`${task.id} → ${res.path}\n   branch ${res.branch}${res.shared.length ? `\n   shared: ${res.shared.map((x) => x.path || x).join(", ")}` : ""}\n\ncd ${res.path}`);
     } else if (sub === "rm") {
       const task = read(args[0], P) || die(`not found: ${args[0]}`);
-      const res = removeWorktree(task, { force: flags.has("--force"), p: P });
-      if (!res.removed) die(res.reason || "refused");
-      update(task.id, { worktree: undefined, branch: undefined }, P);
-      release(task.id, P);
-      logEvent("worktree_rm", { id: task.id }, P);
+      const res = unprovision(task, { force: flags.has("--force"), p: P });
+      if (!res.ok) die(res.reason || "refused");
       out(`${task.id} worktree removed`);
     } else if (sub === "share") {
       const task = read(args[0], P) || die(`not found: ${args[0]}`);
@@ -1306,86 +1256,14 @@ const VERBS = {
  * Dependencies are resolved AFTER every task exists, because a manifest lists goals in planning
  * order and `dependsOn` freely points forward.
  */
-function importManifest(path) {
-  const m = parseManifest(readFileSync(path, "utf8"));
-  if (m.error) die(`${path}: ${m.error}`);
-  if (!m.goals.length) die(`${path}: the manifest lists no usable goals (each needs an id and a doc)`);
-
-  const rel = (f) => (f.startsWith(`${P.root}/`) ? f.slice(P.root.length + 1) : f);
-  const manifestDir = dirname(path);
-  const epicBody = [
-    m.definitionOfDone ? `**Definition of done:** ${m.definitionOfDone}` : "",
-    m.gate ? `**Integration gate:** \`${m.gate}\`` : "",
-    m.autoMergeTo ? `**Auto-merges to:** ${m.autoMergeTo}` : "",
-    m.jiraEpicKey ? `Jira: ${m.jiraEpicKey}` : "",
-    `Imported from ${rel(path)}.`,
-  ]
-    .filter(Boolean)
-    .join("\n\n");
-
-  const epic = create("epic", { title: m.epicTitle, plan: rel(path), ...stamp() }, epicBody, P);
-  writeState({ activeEpic: epic.id }, P);
-
-  const made = new Map(); // manifest goal id → tm task id
-  const skipped = [];
-  for (const g of m.goals) {
-    // A manifest doc path is relative to the repo the manifest lives in, not to the store.
-    const docPath = isAbsolute(g.doc) ? g.doc : resolve(manifestDir, g.doc.replace(/^docs\/goals\//, ""));
-    const fallback = resolve(manifestDir, g.doc);
-    const found = existsSync(docPath) ? docPath : existsSync(fallback) ? fallback : null;
-    if (!found) {
-      skipped.push({ id: g.id, why: `doc not found: ${g.doc}` });
-      continue;
-    }
-    const parsed = parseGoalDoc(readFileSync(found, "utf8"));
-    if (!parsed.criteria.length) {
-      skipped.push({ id: g.id, why: `no parseable success criteria in ${g.doc}` });
-      continue;
-    }
-    const t = create(
-      "task",
-      {
-        title: manifestGoalTitle(g, parsed),
-        epic: epic.id,
-        acceptance: parsed.criteria.map((text) => ({ text, done: false })),
-        goalDoc: rel(found),
-        goalId: g.id,
-        // The manifest declares these; nothing else ever wrote the field it feeds.
-        touches: g.touches.length ? g.touches : undefined,
-        labels: [g.mode, g.needsHumanGate ? "human-gate" : null].filter(Boolean),
-        evidence: [],
-        commits: [],
-        blockedBy: [],
-        blocks: [],
-        ...stamp(),
-      },
-      goalBody(parsed, rel(found)),
-      P,
-    );
-    made.set(g.id, t.id);
+function printManifestImport(path) {
+  let res;
+  try {
+    res = importManifest(path, { stamp: stamp() }, P);
+  } catch (e) {
+    die(e.message);
   }
-
-  // Dependencies last: a manifest lists goals in planning order and dependsOn points forward.
-  let edges = 0;
-  const danglingDeps = [];
-  for (const g of m.goals) {
-    const mine = made.get(g.id);
-    if (!mine) continue;
-    const deps = g.dependsOn.map((d) => made.get(d)).filter(Boolean);
-    const lost = g.dependsOn.filter((d) => !made.has(d));
-    if (lost.length) danglingDeps.push({ id: g.id, on: lost });
-    if (!deps.length) continue;
-    mutate(mine, (doc) => ({
-      blockedBy: [...new Set([...(doc.blockedBy || []), ...deps])],
-      status: doc.status === "open" ? "blocked" : doc.status,
-    }), P);
-    for (const d of deps) mutate(d, (doc) => ({ blocks: [...new Set([...(doc.blocks || []), mine])] }), P);
-    edges += deps.length;
-  }
-
-  logEvent("goal_imported", { id: epic.id, doc: rel(path), goals: made.size, skipped: skipped.length, edges }, P);
-
-  const touched = [...made.values()].filter((id) => (read(id, P).touches || []).length).length;
+  const { epic, manifest: m, made, skipped, edges, danglingDeps, touched } = res;
   out(
     [
       `${epic.id} ${m.epicTitle}`,
@@ -1393,7 +1271,7 @@ function importManifest(path) {
       `   ${touched} carry declared touches — \`tm parallel\` batches on those`,
       m.gate ? `   integration gate: ${m.gate}` : "",
       ...(danglingDeps.length
-        ? ["", "   dependencies on goals that were not imported:", ...danglingDeps.map((d) => `     ${made.get(d.id)} → ${d.on.join(", ")}`)]
+        ? ["", "   dependencies on goals that were not imported:", ...danglingDeps.map((d) => `     ${d.task} → ${d.on.join(", ")}`)]
         : []),
       ...(skipped.length
         ? ["", `   skipped ${skipped.length}, never imported with an empty gate:`, ...skipped.map((s) => `     ${s.id} — ${s.why}`)]

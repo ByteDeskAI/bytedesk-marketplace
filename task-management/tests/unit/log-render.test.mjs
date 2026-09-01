@@ -32,6 +32,11 @@ describe("renderLog — the tail", () => {
     assert.match(out, /10:00/);
   });
 
+  it("has a sentence for a soft delete, from the same catalog", () => {
+    const out = renderLog([at("2026-07-29T10:00:00Z", "deleted", { id: "TM-001", from: "open", why: "duplicate" })]);
+    assert.ok(out.includes(CATALOG.events.deleted.label.slice(0, 20)), out);
+  });
+
   it("uses the catalog's own sentence for each kind", () => {
     const out = renderLog([at("2026-07-29T10:00:00Z", "claim_stolen", { id: "TM-001", from: "alice" })]);
     assert.match(out, new RegExp(CATALOG.events.claim_stolen.label.slice(0, 20)));

@@ -74,6 +74,27 @@ export function gateTaskCreate(p = paths()) {
   return { allow: true };
 }
 
+// ── start gate ───────────────────────────────────────────────────────────────
+
+/**
+ * The WIP limit, for `tm start`, `tm_task_update start` and the dashboard's transition.
+ *
+ * This check lived in bin/tm and again in lib/mcp.mjs — duplicated rather than bypassed, as the
+ * comment there admitted — and nowhere at all in the dashboard, so the board could exceed the
+ * limit the terminal enforced. A task already in progress is not counted against itself: resuming
+ * is not starting.
+ */
+export function gateStart(id, p = paths()) {
+  if (enforcementOff(p)) return { allow: true };
+  const cfg = config(p);
+  const wip = list("task", { status: "in_progress" }, p);
+  if (cfg.wipLimit && wip.length >= cfg.wipLimit && !wip.some((w) => w.id === id)) {
+    if (consumeOverride(p)) return { allow: true };
+    return { allow: false, reason: `WIP limit ${cfg.wipLimit} reached: ${wip.map((w) => w.id).join(", ")}` };
+  }
+  return { allow: true };
+}
+
 function epicList(p) {
   return list("epic", {}, p)
     .filter((e) => e.status !== "done")

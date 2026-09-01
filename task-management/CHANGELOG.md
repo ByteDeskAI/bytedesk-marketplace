@@ -3,6 +3,19 @@
 ## Unreleased
 
 ### Added
+- **Dashboard rewrite, wave 1 (backend).** Every CLI-only verb has an HTTP route: `/api/meta`,
+  `/api/graph`, `/api/standup`, `/api/time`, `/api/task/:id/{why,handoff,time,history}`,
+  `/api/entity/:id/history`, `/api/stale`, `/api/find`, `/api/claims`, `/api/parallel`,
+  `/api/ntfy`, `/api/override`, `/api/doctor`, `/api/sessions`, `/api/skills`, `/api/export`;
+  writes `/api/doctor/fix` and `/api/claims/sweep` (both need `{confirm:true}`),
+  `/api/task/:id/{claim,release,delete,restore}`, `/api/override`, `/api/ntfy/test`,
+  `/api/goal/import`, `/api/reindex`, template create/update, and `PATCH` on epic/ADR/sprint/
+  capability. One `gateStart` WIP check shared by the CLI, MCP and the board (the board could
+  exceed `wipLimit` before). SSE frames carry `id:` (byte offset), `event: store|ready|resync`,
+  a 25 s heartbeat and `Last-Event-ID` replay; `/api/events?since&limit&id`; ETag on `/api/board`.
+  Lifted `lib/parallel.mjs`, `lib/goal-import.mjs`, `lib/skills.mjs`, `worktree.provision`,
+  `templates.writeTemplate`; settings catalog gains `eventMaxBytes`, `branchPrefix`,
+  `worktreeDir`, `worktreeShare`; new `deleted` event kind.
 - **Dashboard rewrite, wave 0.** The repository adopts the ByteDesk design system for the
   dashboard (`bd-design init --app task-management`; profile authored upstream, inherits the
   gateway accent). `docs/dashboard-api.md` is the HTTP/SSE/MCP contract and

@@ -28,7 +28,8 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { paths } from "./paths.mjs";
-import { config as readConfig, list, read, slug, update } from "./store.mjs";
+import { config as readConfig, list, logEvent, read, release, slug, update } from "./store.mjs";
+import { claimTask } from "./claims.mjs";
 
 const DEFAULT_SHARE = [
   { path: "node_modules", mode: "symlink" },
@@ -295,4 +296,34 @@ export function removeWorktree(task, { force = false, p = paths() } = {}) {
   git(p.root, "worktree", "remove", ...(force ? ["--force"] : []), path);
   if (read(task.id, p)) update(task.id, { worktree: null }, p);
   return { removed: true, path, unlinked: shares.map((e) => e.path) };
+}
+
+/**
+ * Provision a worktree for a task: claim, checkout, record, log — the whole verb `tm worktree new`
+ * performs, so the CLI, MCP and the dashboard cannot disagree about what "give me a checkout" does.
+ *
+ * The claim comes FIRST, against the path and branch the checkout will have. Claiming after the
+ * checkout existed meant a refusal left a worktree on disk for a task someone else holds — and the
+ * CLI never even read the refusal, so it took the claim silently. A refused claim now returns
+ * `{ ok: false, reason }` with nothing created.
+ */
+export function provision(task, { base, share = true, steal = false, session = null, actor = null, p = paths() } = {}) {
+  const path = worktreePath(task.id, task.title, p);
+  const branch = branchName(task.id, task.title, readConfig(p));
+  const claim = claimTask(task.id, { session, actor, worktree: path, branch, steal, p });
+  if (!claim.ok) return { ok: false, reason: claim.reason, holder: claim.holder };
+  const res = createWorktree(task, { base, share, p });
+  update(task.id, { worktree: res.path, branch: res.branch }, p);
+  logEvent("worktree_new", { id: task.id, path: res.path, branch: res.branch, shared: res.shared.length }, p);
+  return { ok: true, ...res, stolenFrom: claim.stolenFrom };
+}
+
+/** The inverse: remove, clear the fields, release the claim, log. Refusals pass through. */
+export function unprovision(task, { force = false, p = paths() } = {}) {
+  const res = removeWorktree(task, { force, p });
+  if (!res.removed) return { ok: false, ...res };
+  update(task.id, { worktree: undefined, branch: undefined }, p);
+  release(task.id, p);
+  logEvent("worktree_rm", { id: task.id }, p);
+  return { ok: true, ...res };
 }

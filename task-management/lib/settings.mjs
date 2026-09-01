@@ -134,6 +134,40 @@ export const CATALOG = [
     label: "Capture AskUserQuestion answers as ADRs",
   },
   {
+    key: "eventMaxBytes",
+    group: "workflow",
+    type: "integer",
+    default: 5_000_000,
+    min: 100_000,
+    max: 500_000_000,
+    label: "Rotate the event log past (bytes)",
+    help: "events.jsonl rolls to events.1.jsonl when it grows past this. One generation is kept.",
+  },
+  {
+    key: "branchPrefix",
+    group: "workflow",
+    type: "string",
+    default: "tm/",
+    label: "Worktree branch prefix",
+    help: "tm worktree new names its branch <prefix><id>-<slug>; commit linking infers the task from it.",
+  },
+  {
+    key: "worktreeDir",
+    group: "workflow",
+    type: "string",
+    default: ".bytedesk/worktrees",
+    label: "Where worktrees live",
+    help: "Relative to the repository root. Ignored via .bytedesk/.gitignore.",
+  },
+  {
+    key: "worktreeShare",
+    group: "workflow",
+    type: "json",
+    default: null,
+    label: "What a new worktree shares from the main checkout",
+    help: "[{path, mode}] with mode symlink|copy|hardlink. Empty means the default: node_modules symlinked, .env copied.",
+  },
+  {
     key: "ntfy.enabled",
     group: "ntfy",
     type: "boolean",
@@ -233,6 +267,18 @@ function coerce(field, raw) {
     if (field.min != null && n < field.min) return { error: `${field.key} must be ≥ ${field.min}` };
     if (field.max != null && n > field.max) return { error: `${field.key} must be ≤ ${field.max}` };
     return { value: n };
+  }
+  if (field.type === "json") {
+    // Arrays and objects only — a scalar here is a typo, not a structure.
+    if (typeof raw === "string") {
+      try {
+        return coerce(field, JSON.parse(raw));
+      } catch {
+        return { error: `${field.key} must be valid JSON` };
+      }
+    }
+    if (raw === null || typeof raw === "object") return { value: raw };
+    return { error: `${field.key} must be a JSON array or object` };
   }
   if (field.type === "enum") {
     const ok = field.options.some((o) => Object.is(o.value, raw) || String(o.value) === String(raw));

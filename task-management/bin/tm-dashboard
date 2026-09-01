@@ -24,13 +24,15 @@ import { fileURLToPath } from "node:url";
 import { ensureDirs, paths } from "../lib/paths.mjs";
 import { reindex } from "../lib/store.mjs";
 import { assignPort, ensurePort, liveInstance, release, takeover, writeInstance } from "../lib/singleton.mjs";
-import { boardPayload, handleWrite } from "../lib/dashboard-api.mjs";
+import { boardPayload, handleAsync } from "../lib/dashboard-api.mjs";
+import { exportStore } from "../lib/export.mjs";
+import { createHash } from "node:crypto";
 import { launchBrowserEnabled } from "../lib/settings.mjs";
 import { openUrl } from "../lib/open-url.mjs";
 import { CATALOG } from "../lib/ntfy.mjs";
 import { collapseLog } from "../lib/render.mjs";
 import { workStream } from "../lib/transcript.mjs";
-import { kindOf, read as readEntity, state } from "../lib/store.mjs";
+import { kindOf, read as readEntity, readEvents, state } from "../lib/store.mjs";
 import { attachEvidence, servableEvidencePath } from "../lib/evidence.mjs";
 
 // Degrade like `tm` does. Launched from a directory with no resolvable store —
@@ -181,23 +183,49 @@ if (assignment.source === "reassigned") {
 }
 
 // ── SSE fan-out ──────────────────────────────────────────────────────────────
+/**
+ * Every frame carries `id: <byte offset>` — the end of that line in events.jsonl — so a client
+ * that reconnects sends `Last-Event-ID` and gets exactly what it missed, without a sequence
+ * counter on disk. `event: store` is a JSONL row; `event: resync` says the log rotated or was
+ * truncated and a full refetch is the only honest answer; `event: ready` opens the stream with
+ * the offset the client should remember. A `: ping` every 25 s keeps proxies and the service
+ * worker from dropping an idle stream, which they do around the 30–60 s mark.
+ */
 const subscribers = new Set();
-const broadcast = (line) => {
-  for (const res of subscribers) res.write(`data: ${line}\n\n`);
+const frame = (event, data, id) => `${id != null ? `id: ${id}\n` : ""}event: ${event}\ndata: ${data}\n\n`;
+const broadcast = (event, data, id) => {
+  const text = frame(event, data, id);
+  for (const res of subscribers) res.write(text);
 };
 
 let offset = existsSync(P.events) ? statSync(P.events).size : 0;
+
+/** The lines in [from, to) with the offset each one ends at. */
+function slice(from, to) {
+  const fd = openSync(P.events, "r");
+  const buf = Buffer.alloc(to - from);
+  readSync(fd, buf, 0, buf.length, from);
+  closeSync(fd);
+  const out = [];
+  let at = from;
+  for (const line of buf.toString("utf8").split("\n")) {
+    at += Buffer.byteLength(line, "utf8") + 1;
+    if (line) out.push({ line, id: Math.min(at, to) });
+  }
+  return out;
+}
+
 function tail() {
   if (!existsSync(P.events)) return;
   const size = statSync(P.events).size;
-  if (size < offset) offset = 0; // truncated
+  if (size < offset) {
+    offset = 0; // truncated or rotated — nothing a client holds is addressable any more
+    broadcast("resync", JSON.stringify({ reason: "rotated", offset: size }));
+  }
   if (size === offset) return;
-  const fd = openSync(P.events, "r");
-  const buf = Buffer.alloc(size - offset);
-  readSync(fd, buf, 0, buf.length, offset);
-  closeSync(fd);
+  const rows = slice(offset, size);
   offset = size;
-  for (const line of buf.toString("utf8").split("\n").filter(Boolean)) broadcast(line);
+  for (const { line, id } of rows) broadcast("store", line, id);
 }
 try {
   watch(P.base, { persistent: true }, (_e, file) => {
@@ -206,6 +234,9 @@ try {
 } catch {
   setInterval(tail, 2000); // fs.watch unavailable — poll instead
 }
+setInterval(() => {
+  for (const res of subscribers) res.write(": ping\n\n");
+}, 25_000).unref();
 
 // ── server ───────────────────────────────────────────────────────────────────
 const json = (res, status, payload) => {
@@ -246,58 +277,42 @@ const server = createServer((req, res) => {
       } catch {
         return json(res, 400, { error: "body is not valid JSON" });
       }
-      let result;
-      try {
-        result = handleWrite(req.method, req.url || "", body, { p: P });
-      } catch (err) {
-        // A write must never take the board down with it.
-        result = { status: 500, body: { error: err.message } };
-      }
-      json(res, result.status, result.body);
+      // A write must never take the board down with it.
+      handleAsync(req.method, req.url || "", body, { p: P })
+        .then((result) => json(res, result.status, result.body))
+        .catch((err) => json(res, 500, { error: err.message }));
     });
     return;
   }
 
-  if (req.url === "/api/backlog") {
-    const result = handleWrite("GET", "/api/backlog", null, { p: P });
-    return json(res, result.status, result.body);
-  }
-  if (req.method === "GET" && (req.url || "").split("?")[0] === "/api/settings") {
-    const result = handleWrite("GET", "/api/settings", null, { p: P });
-    return json(res, result.status, result.body);
-  }
+  const path = decodeURIComponent((req.url || "/").split("?")[0]);
 
-  // One entity in full, including the markdown body the list payload strips.
-  // `/api/task/:id` stays requireTask (EP-*/ADR-*/SP-*/CAP-* is 400); other kinds have their own routes.
-  // `/api/entity/:id` is the generic kindOf+read; it does not replace per-kind routes.
-  if (req.method === "GET" && /^\/api\/(task|epic|adr|sprint|capability|entity)\/[^/?]+$/.test(req.url || "")) {
-    const result = handleWrite("GET", req.url, null, { p: P });
-    return json(res, result.status, result.body);
-  }
-
-  // Derived worktree list. Empty is []. Never serves file contents.
-  if (req.method === "GET" && (req.url || "").split("?")[0] === "/api/worktrees") {
-    const result = handleWrite("GET", req.url, null, { p: P });
-    return json(res, result.status, result.body);
-  }
-
-  // Template list + one file. Same GET-only dispatch as /api/task/:id — handleWrite
-  // is only reached from the POST/PATCH branch above, so these have to be wired here.
-  if (req.method === "GET" && (req.url === "/api/templates" || /^\/api\/templates\/[^/?]+$/.test(req.url || ""))) {
-    const result = handleWrite("GET", req.url, null, { p: P });
-    return json(res, result.status, result.body);
-  }
-
-  // Derived plans inbox + confined file GET. Not a KIND — empty plans/ is [].
-  if (req.method === "GET" && (req.url === "/api/plans" || (req.url || "").split("?")[0] === "/api/plans/file")) {
-    const result = handleWrite("GET", req.url, null, { p: P });
-    return json(res, result.status, result.body);
-  }
-
-  // Derived evidence list — kind/name/exists/previewable, no new frontmatter.
-  if (req.method === "GET" && /^\/api\/task\/[^/?]+\/evidence$/.test((req.url || "").split("?")[0])) {
-    const result = handleWrite("GET", req.url, null, { p: P });
-    return json(res, result.status, result.body);
+  // A computed document, not a file: exportStore renders the store's text. `download=1` makes
+  // the browser save it; without, it renders inline for a preview.
+  if (req.method === "GET" && path === "/api/export") {
+    const q = new URLSearchParams((req.url || "").split("?")[1] || "");
+    const format = q.get("format") || "md";
+    let text;
+    try {
+      text = exportStore(format, {
+        epic: q.get("epic") || undefined,
+        status: q.get("status") || undefined,
+        open: q.get("open") === "1" || q.get("open") === "true",
+        events: q.get("events") === "1" || q.get("events") === "true",
+        title: q.get("title") || undefined,
+      }, P);
+    } catch (err) {
+      return json(res, 400, { error: err.message });
+    }
+    const type = { md: "text/markdown; charset=utf-8", csv: "text/csv; charset=utf-8", json: "application/json" }[format];
+    const name = `${basename(P.root)}-board.${format}`;
+    res.writeHead(200, {
+      "content-type": type,
+      "cache-control": "no-store",
+      "content-disposition": `${q.get("download") === "1" ? "attachment" : "inline"}; filename="${name}"`,
+    });
+    res.end(text);
+    return;
   }
 
   // Guarded file GET. 200 only if the ref is on this task and realpath is inside p.evidence.
@@ -318,36 +333,44 @@ const server = createServer((req, res) => {
     return;
   }
 
-  if (req.url === "/api/board") {
-    return json(res, 200, boardPayload(P));
+  if (path === "/api/board") {
+    // Weak validator from the derived cache: a defensive refetch when nothing changed is a 304,
+    // not another 100 KB. index.json is rewritten on every store write, so mtime+size is enough.
+    let etag = null;
+    try {
+      const st = statSync(P.index);
+      etag = `W/"${createHash("sha1").update(`${st.mtimeMs}:${st.size}`).digest("hex").slice(0, 16)}"`;
+    } catch {
+      /* no index yet — no validator */
+    }
+    if (etag && req.headers["if-none-match"] === etag) {
+      res.writeHead(304, { etag, "cache-control": "no-cache" });
+      return res.end();
+    }
+    res.writeHead(200, { "content-type": "application/json", "cache-control": "no-cache", ...(etag ? { etag } : {}) });
+    return res.end(JSON.stringify(boardPayload(P)));
   }
   // History for the cycle-time and burndown maths. Bounded — the page only
   // needs the recent past, and the log grows forever.
-  if (req.url?.startsWith("/api/events")) {
-    const lines = existsSync(P.events) ? readFileSync(P.events, "utf8").split("\n").filter(Boolean) : [];
-    const recent = lines.slice(-2000).map((l) => {
-      try {
-        return JSON.parse(l);
-      } catch {
-        return null;
-      }
-    });
+  if (path === "/api/events") {
+    const q = new URLSearchParams((req.url || "").split("?")[1] || "");
+    const since = q.get("since") ? Date.parse(q.get("since")) : NaN;
+    const id = q.get("id");
+    const limit = Math.min(Math.max(Number(q.get("limit")) || 2000, 1), 5000);
+    // readEvents includes the rotated generation, so `since` can reach past the current file.
+    const rows = readEvents(P)
+      .filter((e) => (Number.isNaN(since) || Date.parse(e.ts) >= since) && (!id || e.id === id))
+      .slice(-limit);
     /**
      * `label` is attached here rather than in the SPA because the sentences live in the ntfy
-     * CATALOG, the SPA imports nothing from `lib/`, and a second copy of that vocabulary in
-     * TypeScript is a second thing to forget to update — a test already derives the catalog from
-     * the source that emits the events, and that guard only works if there is one catalog.
-     *
-     * `event` is left on the payload untouched: the burndown and cycle-time maths match on it, and
-     * those must not start depending on prose.
+     * CATALOG, and a second copy of that vocabulary in TypeScript is a second thing to forget to
+     * update — a test already derives the catalog from the source that emits the events, and that
+     * guard only works if there is one catalog. `event` is left untouched: the burndown and
+     * cycle-time maths match on it. `_shadowed` marks an `update` a specific event in the same
+     * second already explains, so the activity panel can skip it while every consumer that
+     * switches on `event.event` still receives every row.
      */
-    /**
-     * `_shadowed` marks an `update` that a specific event in the same second already explains, so
-     * the activity panel can skip it while burndown, startTimes and the PWA notification matcher
-     * still receive every row untouched. Marking rather than dropping is the point: that matcher
-     * switches on `event.event`.
-     */
-    const labelled = collapseLog(recent.filter(Boolean), { keep: true }).map((e) => ({
+    const labelled = collapseLog(rows, { keep: true }).map((e) => ({
       ...e,
       label: CATALOG.events[e.event]?.label || e.event,
     }));
@@ -390,20 +413,45 @@ const server = createServer((req, res) => {
     req.on("close", () => clearInterval(timer));
     return;
   }
-  if (req.url === "/events") {
+  if (path === "/events") {
     res.writeHead(200, {
       "content-type": "text/event-stream",
       "cache-control": "no-cache",
       connection: "keep-alive",
     });
-    res.write(": connected\n\n");
+    const size = existsSync(P.events) ? statSync(P.events).size : 0;
+    // Parsed as an integer and clamped to the file — never a path, never an offset into anything else.
+    const last = Number.parseInt(String(req.headers["last-event-id"] ?? ""), 10);
+    if (Number.isInteger(last) && last >= 0) {
+      if (last > size) {
+        res.write(frame("resync", JSON.stringify({ reason: "rotated", offset: size })));
+      } else if (last < size) {
+        for (const { line, id } of slice(last, size)) res.write(frame("store", line, id));
+      }
+    }
+    res.write(frame("ready", JSON.stringify({ offset: size, project: boardPayload(P).project })));
     subscribers.add(res);
     req.on("close", () => subscribers.delete(res));
     return;
   }
+  /**
+   * Every other `/api/*` read goes to the pure handler. The server used to enumerate GET paths one
+   * by one, and each new read route was a line to remember here — the comment that said so was the
+   * bug. What stays above this line is exactly what needs the raw socket: SSE, bytes, the export
+   * document, and the board's validator.
+   */
+  if (req.method === "GET" && path.startsWith("/api/")) {
+    handleAsync("GET", req.url || "", null, { p: P })
+      .then((result) => json(res, result.status, result.body))
+      .catch((err) => json(res, 500, { error: err.message }));
+    return;
+  }
+  if (req.method !== "GET" && req.method !== "HEAD" && path.startsWith("/api/")) {
+    return json(res, 405, { error: `${req.method} not allowed on ${path}` });
+  }
+
   // Hashed build assets and the PWA's icons. The resolve+prefix check is the
   // whole traversal guard — one code path, so /icons/ cannot drift from /assets/.
-  const path = decodeURIComponent((req.url || "/").split("?")[0]);
   if (path.startsWith("/assets/") || path.startsWith("/icons/")) {
     const asset = resolve(DIST, `.${normalize(path)}`);
     if (!asset.startsWith(DIST + sep) || !existsSync(asset)) {

@@ -16,7 +16,7 @@ import { paths } from "./paths.mjs";
 import { claimTask, releaseClaim } from "./claims.mjs";
 import { actor, actorLabel, sessionId } from "./actor.mjs";
 import { config, create, editTask, kindOf, list, logEvent, moveTask, nextTasks, now, read, removeCriterion, setCriterion, state, update, writeState } from "./store.mjs";
-import { consumeOverride, enforcementOff, gateDone, gateTaskCreate } from "./enforce.mjs";
+import { gateDone, gateStart, gateTaskCreate } from "./enforce.mjs";
 import { board, handoff, sprintReport, standup, taskLine } from "./render.mjs";
 import { renderWhy, why } from "./graph.mjs";
 import { listResources, readResource } from "./resources.mjs";
@@ -39,7 +39,7 @@ import { labelCatalog, labels as setLabels } from "./issue.mjs";
  */
 const PLUGIN_ROOT = fileURLToPath(new URL("..", import.meta.url));
 
-const serverVersion = () => {
+export const serverVersion = () => {
   try {
     const v = JSON.parse(readFileSync(new URL("../.claude-plugin/plugin.json", import.meta.url), "utf8")).version;
     if (v != null && String(v).length > 0) return String(v);
@@ -288,16 +288,8 @@ export const TOOLS = [
       if (!read(id, p)) return fail(`not found: ${id}`);
       switch (action) {
         case "start": {
-          // ponytail: mirrors the WIP check in bin/tm's `start`. Lives there, not in
-          // enforce.mjs, so it is duplicated rather than bypassed — fold both into a
-          // gateStart() when enforce.mjs is next opened.
-          const cfg = config(p);
-          const wip = list("task", { status: "in_progress" }, p);
-          if (!enforcementOff(p) && cfg.wipLimit && wip.length >= cfg.wipLimit && !wip.some((w) => w.id === id)) {
-            if (!consumeOverride(p)) {
-              return fail(`WIP limit ${cfg.wipLimit} reached: ${wip.map((w) => w.id).join(", ")}`);
-            }
-          }
+          const gate = gateStart(id, p);
+          if (!gate.allow) return fail(gate.reason);
           // The interlock, through the one function that implements it. This used to be a
           // bare writeState, so the path Claude actually uses silently took whatever the CLI
           // refused — and the record it wrote dropped actor/worktree/branch/pid, which is what

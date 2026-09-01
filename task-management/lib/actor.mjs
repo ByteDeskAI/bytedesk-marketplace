@@ -15,6 +15,7 @@
  * `subagent:9855e3`. Opt into that guess with TM_ACTOR_INFER=1 if your setup
  * only sets it for children; a wrong name on the board is worse than a plain one.
  */
+import { execFileSync } from "node:child_process";
 import { SESSION_ENV } from "./harness/sessions.mjs";
 
 
@@ -62,4 +63,33 @@ export function actorLabel(a = actor()) {
   if (a.thread === "teammate" && a.name) return `@${a.name}`;
   if (a.thread === "subagent") return `subagent:${(a.session || "unknown").slice(0, SHORT)}`;
   return "main";
+}
+
+function gitOut(cwd, args) {
+  try {
+    return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * The four fields every write stamps: who, which session, which branch, which checkout.
+ *
+ * One function, because bin/tm and the dashboard each carried a copy and they had drifted — the
+ * CLI recorded `HEAD` as a branch on a detached checkout, the dashboard did not. `checkout` is
+ * the directory the caller is standing in (a worktree, not the store root); the caller knows it
+ * and this module does not, so it is a parameter rather than a guess.
+ */
+export function stamp(checkout) {
+  // symbolic-ref works on an unborn HEAD (just `git init -b`); rev-parse needs a commit.
+  const branch = checkout
+    ? gitOut(checkout, ["symbolic-ref", "--short", "HEAD"]) || gitOut(checkout, ["rev-parse", "--abbrev-ref", "HEAD"])
+    : "";
+  return {
+    actor: actorLabel(actor()),
+    session: sessionId() || undefined,
+    branch: branch && branch !== "HEAD" ? branch : undefined,
+    worktree: checkout || undefined,
+  };
 }

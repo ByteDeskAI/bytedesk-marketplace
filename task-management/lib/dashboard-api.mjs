@@ -22,17 +22,43 @@
  *
  * Refusals carry the reason the CLI would have printed, so the UI can show *why*
  * rather than a dead 500: gate refusals are 409, bad input is 400, missing is 404.
+ *
+ * Insight reads — `GET /api/meta`, `/api/task/:id/{why,handoff,time,history}`, `/api/graph`,
+ * `/api/standup`, `/api/time`, `/api/stale`, `/api/entity/:id/history`, `/api/find`,
+ * `/api/claims`, `/api/parallel`, `/api/ntfy`, `/api/override`, `/api/doctor`, `/api/sessions`,
+ * `/api/skills` — are the CLI's read verbs over HTTP, each a call into the same lib function.
+ * Writes that existed only on the CLI: `POST /api/doctor/fix`, `/api/claims/sweep`,
+ * `/api/task/:id/{claim,release,delete,restore}`, `/api/override`, `/api/goal/import`,
+ * `/api/reindex`, `/api/templates` (+PATCH), and `PATCH /api/{epic,adr,sprint,capability}/:id`.
+ * `POST /api/ntfy/test` is the one async route; it lives on `handleAsync`, which otherwise
+ * delegates here, so `handleWrite` stays synchronous for its 100-odd unit tests.
  */
 import { basename } from "node:path";
-import { gateDone, gateTaskCreate } from "./enforce.mjs";
+import { enforcementOff, gateDone, gateStart, gateTaskCreate, setOverride } from "./enforce.mjs";
+import { graphData, mermaid, renderWhy, why } from "./graph.mjs";
+import { COLUMNS, LABEL, collapseLog, handoff, renderHistory, standup } from "./render.mjs";
+import { cycleTime, summary as timeSummary, taskTimeline, throughput, timeInStatus } from "./time.mjs";
+import { FIELD_NAMES, describeQuery, matchesQuery, parseQuery } from "./query.mjs";
+import { claimant, expired, releaseClaim, staleClaims, sweepClaims } from "./claims.mjs";
+import { batches } from "./parallel.mjs";
+import { CATALOG, messageFor, ntfyConfig, send, shouldPublish } from "./ntfy.mjs";
+import { diagnose, render as renderDoctor, repairAll } from "./doctor.mjs";
+import { currentHarness } from "./harness/sessions.mjs";
+import { listSkills } from "./skills.mjs";
+import { FORMATS } from "./export.mjs";
+import { serverVersion } from "./mcp.mjs";
+import { LINK_TYPES, TYPES } from "./issue.mjs";
+import { EFFORTS, LEVELS, assertLevel } from "./capability.mjs";
+import { importGoalDoc, importManifest } from "./goal-import.mjs";
 import { addComment, addLink, assign, backlog, dependencies, estimate, labelCatalog, labels, prioritise, rank, removeLink, setType, subtasks } from "./issue.mjs";
+import { isAbsolute, resolve, sep } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 import { hasAnswer } from "./decision.mjs";
 import { applySettings, settingsSnapshot } from "./settings.mjs";
-import { createWorktree, listWorktrees, removeWorktree } from "./worktree.mjs";
-import { execFileSync } from "node:child_process";
+import { listWorktrees, provision, unprovision } from "./worktree.mjs";
 import { currentCheckout, paths, projectName } from "./paths.mjs";
 import { claimTask } from "./claims.mjs";
-import { actor, actorLabel, sessionId } from "./actor.mjs";
+import { actor, actorLabel, sessionId, stamp as stampAt } from "./actor.mjs";
 import { attachEvidence, detachEvidence, listEvidence, servableEvidencePath } from "./evidence.mjs";
 import { listPlans, readPlanFile } from "./plans.mjs";
 import {
@@ -48,15 +74,20 @@ import {
   list,
   logEvent,
   read,
+  readEvents,
+  reindex,
   release,
   reopenEpic,
+  staleTasks,
   state,
   unblockDependents,
   update,
   writeState,
   storeBoard,
+  boardOwner,
+  PRIORITIES,
 } from "./store.mjs";
-import { applyTemplate, listTemplates, readTemplate } from "./templates.mjs";
+import { applyTemplate, listTemplates, readTemplate, writeTemplate } from "./templates.mjs";
 import { sprintCounts } from "./render.mjs";
 import { accept as acceptCap, drop as dropCap, propose, ranked, score as capScore, ship as shipCap } from "./capability.mjs";
 
@@ -109,6 +140,10 @@ export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
   const raw = path || "";
   const url = raw.split("?")[0];
   const query = new URLSearchParams(raw.includes("?") ? raw.slice(raw.indexOf("?") + 1) : "");
+  const insight = readRoute(method, url, query, p);
+  if (insight) return insight;
+  const written = writeRoute(method, url, payload, p);
+  if (written) return written;
   if (method === "GET" && url === "/api/backlog") return ok(backlog(p));
   if (method === "GET" && url === "/api/templates") return ok(listTemplates(p));
   // Derived inbox, not a KIND. Empty plans/ is [] — add these before the /api/task/ catch-all.
@@ -129,6 +164,8 @@ export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
       return fail(400, err.message);
     }
   }
+  if (method === "PATCH" && tpl) return putTemplate(decodeURIComponent(tpl[1]), payload, true, p);
+  if (method === "POST" && url === "/api/templates") return putTemplate(payload?.name, payload, Boolean(payload?.overwrite), p);
   if (method === "POST" && url === "/api/task") return createTask(payload, p);
   if (method === "POST" && url === "/api/bulk") return bulk(payload, p);
   if (method === "POST" && url === "/api/epic") return postEpic(payload, p);
@@ -151,6 +188,10 @@ export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
     const { epic, error } = requireEpic(decodeURIComponent(epicGet[1]), p);
     return error || ok(epic);
   }
+  if (method === "PATCH" && epicGet) {
+    const { epic, error } = requireEpic(decodeURIComponent(epicGet[1]), p);
+    return error || editEntity(epic, payload, {}, p);
+  }
 
   const epicAct = /^\/api\/epic\/([^/]+)\/([a-z]+)$/.exec(url);
   if (epicAct) {
@@ -170,6 +211,13 @@ export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
   if (method === "GET" && adrGet) {
     const { adr, error } = requireAdr(decodeURIComponent(adrGet[1]), p);
     return error || ok(adr);
+  }
+  if (method === "PATCH" && adrGet) {
+    const { adr, error } = requireAdr(decodeURIComponent(adrGet[1]), p);
+    if (error) return error;
+    // ponytail: body edits on an accepted ADR are allowed — deciders and typos are not decisions.
+    // Add a status gate here if someone rewrites an accepted Decision in place; supersede exists.
+    return editEntity(adr, payload, { deciders: (v) => (Array.isArray(v) && v.every((d) => typeof d === "string") ? v : null) }, p);
   }
 
   const adrAct = /^\/api\/adr\/([^/]+)\/([a-z]+)$/.exec(url);
@@ -191,6 +239,12 @@ export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
     const { file, ...doc } = sprint;
     return ok({ ...doc, report: reportFor(sprint.id, p) });
   }
+  if (method === "PATCH" && sprintGet) {
+    const { sprint, error } = requireSprint(decodeURIComponent(sprintGet[1]), p);
+    if (error) return error;
+    const res = editEntity(sprint, payload, { ends: (v) => (v === null || /^\d{4}-\d{2}-\d{2}$/.test(String(v)) ? v : null) }, p);
+    return res.status === 200 ? ok({ ...res.body, report: reportFor(sprint.id, p) }) : res;
+  }
 
   const sprintAct = /^\/api\/sprint\/([^/]+)\/([a-z]+)$/.exec(url);
   if (sprintAct) {
@@ -208,6 +262,22 @@ export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
   if (method === "GET" && capGet) {
     const { cap, error } = requireCapability(decodeURIComponent(capGet[1]), p);
     return error || ok({ ...cap, score: capScore(cap) });
+  }
+  if (method === "PATCH" && capGet) {
+    const { cap, error } = requireCapability(decodeURIComponent(capGet[1]), p);
+    if (error) return error;
+    const level = (field, allowed) => (v) => {
+      assertLevel(field, v, allowed); // throws the lib's own wording; caught by editEntity as 400
+      return v;
+    };
+    const res = editEntity(cap, payload, {
+      area: (v) => (typeof v === "string" ? v.trim() || null : null),
+      source: (v) => (typeof v === "string" ? v.trim() || null : null),
+      impact: level("impact", LEVELS),
+      effort: level("effort", EFFORTS),
+      confidence: level("confidence", LEVELS),
+    }, p);
+    return res.status === 200 ? ok({ ...res.body, score: capScore(res.body) }) : res;
   }
 
   const capAct = /^\/api\/capability\/([^/]+)\/([a-z]+)$/.exec(url);
@@ -230,6 +300,15 @@ export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
   const { task, error } = requireTask(id, p);
   if (error) return error;
   if (method === "GET" && action === "evidence") return ok({ evidence: listEvidence(task, p) });
+  if (method === "GET" && action === "why") {
+    const w = why(task.id, p);
+    return w ? ok({ ...w, text: renderWhy(w) }) : fail(404, `not found: ${task.id}`);
+  }
+  if (method === "GET" && action === "handoff") return ok({ id: task.id, text: handoff(task.id, p) });
+  if (method === "GET" && action === "time") {
+    return ok({ id: task.id, cycle: cycleTime(task.id, p), inStatus: timeInStatus(task.id, p), timeline: taskTimeline(task.id, p) });
+  }
+  if (method === "GET" && action === "history") return ok(history(task.id, p));
   if (method === "GET" && action === "file") {
     const ref = query.get("ref") ?? payload.ref ?? "";
     const dest = servableEvidencePath(task, ref, p);
@@ -280,6 +359,14 @@ export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
         return writeEvidence(task, payload, p);
       case "sprint":
         return setTaskSprint(task, payload, p);
+      case "claim":
+        return claimOnly(task, payload, p);
+      case "release":
+        return ok({ id: task.id, released: releaseClaim(task.id, p) });
+      case "delete":
+        return deleteTask(task, payload, p);
+      case "restore":
+        return restoreTask(task, p);
       default:
         return fail(404, `unknown action "${action}"`);
     }
@@ -291,34 +378,9 @@ export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
   }
 }
 
-/**
- * The same four fields `tm start` writes. The dashboard used to flip the status and take the
- * claim without naming who, which session, which branch or which checkout — so a card started
- * from the board looked unclaimed on the next `tm board`.
- */
-function gitOut(cwd, args) {
-  try {
-    return execFileSync("git", ["-C", cwd, ...args], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
-  } catch {
-    return "";
-  }
-}
-
+/** The same four fields `tm start` writes — see lib/actor.mjs. */
 function stamp(p) {
-  const checkout = currentCheckout(p.root) || p.root;
-  // symbolic-ref works on an unborn HEAD (just `git init -b`); rev-parse needs a commit.
-  const branch =
-    gitOut(checkout, ["symbolic-ref", "--short", "HEAD"]) ||
-    gitOut(checkout, ["rev-parse", "--abbrev-ref", "HEAD"]);
-  return {
-    actor: actorLabel(actor()),
-    session: sessionId() || undefined,
-    branch: branch && branch !== "HEAD" ? branch : undefined,
-    worktree: checkout || undefined,
-  };
+  return stampAt(currentCheckout(p.root) || p.root);
 }
 
 /** Status changes carry the same consequences the CLI applies — gate, claim, epic. */
@@ -327,6 +389,12 @@ function transition(task, status, p, reason) {
 
   if (status === "done") {
     const gate = gateDone(task.id, p);
+    if (!gate.allow) return fail(409, gate.reason);
+  }
+  // The WIP limit the terminal and MCP enforce. The board had none, so it was the one surface that
+  // could quietly exceed the policy every other surface refused.
+  if (status === "in_progress") {
+    const gate = gateStart(task.id, p);
     if (!gate.allow) return fail(409, gate.reason);
   }
 
@@ -617,14 +685,20 @@ function getEntity(id, p) {
 function taskWorktree(task, payload, p) {
   const action = payload?.action;
   if (action === "create") {
-    const res = createWorktree(task, { p });
-    return ok({ id: task.id, worktree: res.path, branch: res.branch, shared: res.shared });
+    // provision claims first, so a task another live session holds is refused with nothing on disk.
+    const res = provision(task, {
+      steal: Boolean(payload.steal),
+      session: sessionId(),
+      actor: actorLabel(actor()),
+      p,
+    });
+    if (!res.ok) return fail(409, res.reason);
+    return ok({ id: task.id, worktree: res.path, branch: res.branch, shared: res.shared, stolenFrom: res.stolenFrom ?? null });
   }
   if (action === "remove") {
-    const res = removeWorktree(task, { force: Boolean(payload.force), p });
-    if (!res.removed) return fail(409, res.reason);
-    update(task.id, { worktree: undefined, branch: undefined }, p);
-    return ok({ id: task.id, worktree: null, ...res });
+    const res = unprovision(task, { force: Boolean(payload.force), p });
+    if (!res.ok) return fail(409, res.reason);
+    return ok({ id: task.id, worktree: null, removed: true, unlinked: res.unlinked });
   }
   return fail(400, 'POST /api/task/:id/worktree needs { action: "create"|"remove" }');
 }
@@ -784,6 +858,340 @@ function bulk({ ids = [], op, args = {} }, p) {
     else failed.push({ id, error: res.body.error });
   }
   return ok({ ok: done, failed });
+}
+
+// ── insight reads ─────────────────────────────────────────────────────────────
+
+/** Findings without their `fix` closures — a function does not survive JSON, and the UI fixes via POST. */
+const plainFindings = (findings) => findings.map(({ fix, ...f }) => f);
+
+/** One entity's events, collapsed and labelled the way `/api/events` and `tm log <id>` are. */
+function history(id, p) {
+  const rows = readEvents(p).filter((e) => e && e.id === id);
+  const events = collapseLog(rows, { keep: true }).map((e) => ({ ...e, label: CATALOG.events[e.event]?.label || e.event }));
+  return { id, events, text: renderHistory(id, rows, p) };
+}
+
+/**
+ * What the SPA needs to hardcode nothing: every vocabulary the store owns, the identity of the
+ * board, and the plugin's version — so a UI built against one plugin can tell when it is talking
+ * to another.
+ */
+function meta(p) {
+  const s = state(p);
+  return {
+    plugin: { version: serverVersion(), root: resolve(new URL("..", import.meta.url).pathname) },
+    store: { root: p.root, base: p.base, boardId: storeBoard(p) || null, owner: boardOwner(p) || null, project: projectName(p) },
+    harness: currentHarness()?.id ?? null,
+    actor: actorLabel(actor()),
+    session: sessionId(),
+    vocab: {
+      columns: COLUMNS,
+      labels: LABEL,
+      priorities: PRIORITIES,
+      types: TYPES,
+      linkTypes: LINK_TYPES,
+      adrStatuses: ["proposed", "accepted", "superseded"],
+      capLevels: LEVELS,
+      capEfforts: EFFORTS,
+      findFields: FIELD_NAMES,
+      eventCatalog: CATALOG.events,
+      eventGroups: { recommended: CATALOG.recommended, writes: CATALOG.writes, noise: CATALOG.noise },
+      exportFormats: FORMATS,
+      labelCatalog: labelCatalog(p),
+    },
+    settings: settingsSnapshot(p),
+    config: config(p),
+    gates: { enforce: !enforcementOff(p), override: s.override ?? null },
+  };
+}
+
+function findRoute(query, p) {
+  let parsed;
+  try {
+    parsed = parseQuery(String(query.get("q") || "").split(/\s+/).filter(Boolean));
+  } catch (e) {
+    return fail(400, e.message); // names the fields that exist, so `assigne:` is a refusal not an empty page
+  }
+  const hits = [];
+  for (const kind of ["epic", "task", "adr", "capability", "sprint"]) {
+    for (const d of list(kind, {}, p)) {
+      if (!matchesQuery({ ...d, kind }, parsed)) continue;
+      const { body, file, ...row } = d;
+      hits.push({ ...row, kind });
+    }
+  }
+  return ok({ query: describeQuery(parsed), hits });
+}
+
+function sessionsRoute(p) {
+  const bySession = new Map();
+  for (const [id, claim] of Object.entries(state(p).claims || {})) {
+    const key = claim.session || "(no session)";
+    const row = bySession.get(key) || {
+      session: claim.session ?? null,
+      actor: claim.actor ?? null,
+      worktree: claim.worktree ?? null,
+      branch: claim.branch ?? null,
+      pid: claim.pid ?? null,
+      ts: claim.ts ?? null,
+      live: false,
+      tasks: [],
+    };
+    row.tasks.push(id);
+    if (!expired(claim, p)) row.live = true;
+    if (claim.ts && (!row.ts || claim.ts > row.ts)) row.ts = claim.ts;
+    bySession.set(key, row);
+  }
+  // ponytail: claims are the only session registry the store has. The per-task /stream already
+  // reads transcripts; a live-session scan across harness session dirs can join it here later.
+  return ok({ harness: currentHarness()?.id ?? null, mine: sessionId(), sessions: [...bySession.values()] });
+}
+
+function readRoute(method, url, query, p) {
+  if (method !== "GET") return null;
+  switch (url) {
+    case "/api/meta":
+      return ok(meta(p));
+    case "/api/graph": {
+      const opts = { epic: query.get("epic") || null, includeDone: query.get("all") === "1" || query.get("all") === "true" };
+      const drawn = mermaid({ ...opts, subtasks: query.get("subtasks") !== "0" }, p);
+      // mermaid() reports counts under `tasks`/`edges`; the data shape owns those names.
+      return ok({ ...graphData(opts, p), mermaid: drawn.mermaid, counts: { tasks: drawn.tasks, edges: drawn.edges } });
+    }
+    case "/api/standup": {
+      const since = query.get("since") || new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      if (!Number.isFinite(Date.parse(since))) return fail(400, `since must be an ISO timestamp, not "${since}"`);
+      return ok({ since, text: standup(since, p) });
+    }
+    case "/api/time":
+      return ok({ ...timeSummary(p), throughput: throughput(p) });
+    case "/api/stale":
+      return ok({ minutes: config(p).staleMinutes, tasks: staleTasks(p).map((t) => t.id) });
+    case "/api/find":
+      return findRoute(query, p);
+    case "/api/claims": {
+      const claims = state(p).claims || {};
+      return ok({
+        claims,
+        stale: staleClaims(p),
+        wipLimit: config(p).wipLimit ?? null,
+        inProgress: list("task", { status: "in_progress" }, p).length,
+      });
+    }
+    case "/api/parallel":
+      return ok({ batches: batches({ epic: query.get("epic") || null }, p) });
+    case "/api/ntfy": {
+      const { token, ...cfg } = ntfyConfig(p);
+      return ok({ config: cfg, hasToken: Boolean(token), catalog: CATALOG.events, groups: { recommended: CATALOG.recommended, writes: CATALOG.writes, noise: CATALOG.noise } });
+    }
+    case "/api/override":
+      return ok({ override: state(p).override ?? null, enforce: !enforcementOff(p) });
+    case "/api/doctor": {
+      const findings = diagnose(p);
+      return ok({
+        findings: plainFindings(findings),
+        errors: findings.filter((f) => f.level === "error").length,
+        warnings: findings.filter((f) => f.level === "warning").length,
+        fixable: findings.filter((f) => f.fixable).length,
+        text: renderDoctor(findings),
+      });
+    }
+    case "/api/sessions":
+      return sessionsRoute(p);
+    case "/api/skills":
+      return ok(listSkills());
+    default: {
+      const hist = /^\/api\/entity\/([^/]+)\/history$/.exec(url);
+      if (hist) {
+        const id = decodeURIComponent(hist[1]);
+        if (!kindOf(id)) return fail(400, `unknown prefix: ${id}`);
+        if (!read(id, p)) return fail(404, `not found: ${id}`);
+        return ok(history(id, p));
+      }
+      return null;
+    }
+  }
+}
+
+// ── writes that lived only on the CLI ─────────────────────────────────────────
+
+/** A stray click must not rewrite files: the destructive fixes need `{ confirm: true }`. */
+const confirmed = (payload) => payload && payload.confirm === true;
+
+function writeRoute(method, url, payload, p) {
+  if (method !== "POST") return null;
+  switch (url) {
+    case "/api/doctor/fix": {
+      if (!confirmed(payload)) return fail(400, "doctor --fix rewrites files: send { confirm: true }");
+      const applied = repairAll(p);
+      const after = diagnose(p);
+      return ok({ applied, findings: plainFindings(after), text: renderDoctor(after, { fixed: applied }) });
+    }
+    case "/api/claims/sweep": {
+      if (!confirmed(payload)) return fail(400, "sweep releases other sessions' claims: send { confirm: true }");
+      return ok({ released: sweepClaims(p) });
+    }
+    case "/api/override": {
+      const reason = typeof payload?.reason === "string" ? payload.reason.trim() : "";
+      if (!reason) return fail(400, "an override needs a reason — it is recorded");
+      setOverride(reason, p);
+      return ok({ override: state(p).override });
+    }
+    case "/api/reindex":
+      return ok(counts(reindex(p)));
+    case "/api/goal/import":
+      return goalImport(payload, p);
+    default:
+      return null;
+  }
+}
+
+const counts = (index) => Object.fromEntries(["epics", "tasks", "adrs", "sprints", "capabilities"].map((k) => [k, (index?.[k] || []).length]));
+
+/**
+ * `{ path }` reads a doc or manifest inside the repo — confined to p.root, because a route that
+ * reads any file on disk is a route that reads ~/.ssh. `{ content, name }` takes the doc itself,
+ * so a pasted goal never touches the filesystem at all. A manifest has to be a path: its docs are
+ * resolved relative to where it lives.
+ */
+function goalImport(payload, p) {
+  const epic = typeof payload?.epic === "string" && payload.epic ? payload.epic : null;
+  try {
+    if (typeof payload?.content === "string") {
+      const source = String(payload.name || "pasted goal").trim() || "pasted goal";
+      const { task, parsed, doc } = importGoalDoc(payload.content, { source, epic, stamp: stamp(p) }, p);
+      return { status: 201, body: { id: task.id, title: task.title, epic: task.epic ?? null, criteria: parsed.criteria.length, doc } };
+    }
+    if (typeof payload?.path !== "string" || !payload.path.trim()) return fail(400, "goal import needs { path } or { content, name }");
+    const full = isAbsolute(payload.path) ? resolve(payload.path) : resolve(p.root, payload.path);
+    if (full !== p.root && !full.startsWith(p.root + sep)) return fail(400, `path must be inside ${p.root}`);
+    if (!existsSync(full)) return fail(404, `no such file: ${payload.path}`);
+    if (/\.json$/i.test(full)) {
+      const res = importManifest(full, { stamp: stamp(p) }, p);
+      return {
+        status: 201,
+        body: {
+          epic: res.epic.id,
+          title: res.epic.title,
+          tasks: res.tasks,
+          skipped: res.skipped,
+          edges: res.edges,
+          danglingDeps: res.danglingDeps,
+          touched: res.touched,
+        },
+      };
+    }
+    const { task, parsed, doc } = importGoalDoc(readFileSync(full, "utf8"), { source: full, epic, stamp: stamp(p) }, p);
+    return { status: 201, body: { id: task.id, title: task.title, epic: task.epic ?? null, criteria: parsed.criteria.length, doc } };
+  } catch (e) {
+    return fail(e.status || 400, e.message);
+  }
+}
+
+/** Claim without starting — `tm claim`. Start remains `transition { status: "in_progress" }`. */
+function claimOnly(task, payload, p) {
+  const checkout = currentCheckout(p.root) || p.root;
+  const { branch } = stamp(p);
+  const res = claimTask(task.id, {
+    session: sessionId(),
+    actor: actorLabel(actor()),
+    worktree: checkout,
+    branch,
+    steal: Boolean(payload?.steal),
+    p,
+  });
+  if (!res.ok) return fail(409, res.reason);
+  return ok({ id: task.id, claim: state(p).claims?.[task.id] ?? null, stolenFrom: res.stolenFrom ?? null });
+}
+
+/**
+ * Soft delete: the file stays, `list()` hides it, and `restore` brings it back. A task another live
+ * session is working on is refused — deleting someone's in-flight work from a browser tab is the
+ * kind of thing the claim interlock exists to stop.
+ */
+function deleteTask(task, payload, p) {
+  if (task.status === "deleted") return fail(409, `${task.id} is already deleted`);
+  const held = claimant(task.id, p);
+  if (held && held.session && held.session !== sessionId()) {
+    return fail(409, `${task.id} is claimed by ${held.actor || `session ${held.session}`} — release it first`);
+  }
+  const why = typeof payload?.why === "string" && payload.why.trim() ? payload.why.trim() : undefined;
+  update(task.id, { status: "deleted", deletedReason: why, deletedFrom: task.status }, p);
+  release(task.id, p);
+  logEvent("deleted", { id: task.id, from: task.status, ...(why ? { why } : {}) }, p);
+  return ok({ id: task.id, status: "deleted" });
+}
+
+function restoreTask(task, p) {
+  if (task.status !== "deleted") return fail(409, `${task.id} is not deleted`);
+  const back = task.deletedFrom && STATUSES.includes(task.deletedFrom) && task.deletedFrom !== "done" ? task.deletedFrom : "open";
+  update(task.id, { status: back, deletedReason: undefined, deletedFrom: undefined }, p);
+  logEvent("reopened", { id: task.id, from: "deleted" }, p);
+  return ok({ id: task.id, status: back });
+}
+
+/**
+ * Title/body through `editTask` (kind-agnostic in practice — read, update, log `edit`), plus a
+ * per-kind allowlist of extra fields with a validator each. A validator returns the value to
+ * store, `null` to refuse, or throws the lib's own message; either refusal is 400.
+ */
+function editEntity(doc, payload, extra, p) {
+  const patch = {};
+  const changed = [];
+  try {
+    if (typeof payload?.title === "string" || typeof payload?.body === "string") {
+      changed.push(...editTask(doc.id, { title: payload.title, body: payload.body }, p).changed);
+    }
+    for (const [field, check] of Object.entries(extra)) {
+      if (!(payload && Object.prototype.hasOwnProperty.call(payload, field))) continue;
+      const value = check(payload[field]);
+      if (value === null && payload[field] !== null) return fail(400, `${field} is not valid: ${JSON.stringify(payload[field])}`);
+      patch[field] = value === null ? undefined : value;
+      changed.push(field);
+    }
+  } catch (e) {
+    return fail(400, e.message);
+  }
+  if (!changed.length) return fail(400, "nothing to change");
+  if (Object.keys(patch).length) update(doc.id, patch, p);
+  return ok({ ...read(doc.id, p), changed });
+}
+
+function putTemplate(name, payload, overwrite, p) {
+  if (!name || typeof name !== "string") return fail(400, "a template needs a name");
+  try {
+    const tpl = writeTemplate(name, {
+      description: payload?.description,
+      fields: payload?.fields,
+      body: payload?.body,
+      overwrite,
+    }, p);
+    return { status: overwrite ? 200 : 201, body: tpl };
+  } catch (err) {
+    return fail(err.status || 400, err.message);
+  }
+}
+
+// ── the one async route ──────────────────────────────────────────────────────
+
+/**
+ * `POST /api/ntfy/test` — the same push `tm ntfy test` sends, with the same explanation when it
+ * declines. Async because `send` is; everything else stays on the synchronous `handleWrite`.
+ */
+export async function handleAsync(method, path, payload = {}, { p = paths(), fetchImpl } = {}) {
+  const url = (path || "").split("?")[0];
+  if (method === "POST" && url === "/api/ntfy/test") {
+    const cfg = ntfyConfig(p);
+    if (!cfg.token) return ok({ sent: false, reason: "TM_NTFY_TOKEN is not set in this environment" });
+    if (!cfg.topic) return ok({ sent: false, reason: "no topic configured — `.bytedesk/task-management/bin/tm ntfy topic <name>`" });
+    const msg = messageFor({ event: "notification", id: payload?.id || null, actor: actorLabel(actor()) }, null, cfg);
+    msg.title = "task-management test";
+    msg.body = `test push from ${p.root}`;
+    const res = await send(msg, cfg, fetchImpl ? { fetchImpl } : {});
+    return ok({ sent: res.ok, status: res.status, error: res.error, topic: `${cfg.server}/${cfg.topic}` });
+  }
+  return handleWrite(method, path, payload, { p });
 }
 
 /** Everything the board needs in one round trip, for the initial render. */
