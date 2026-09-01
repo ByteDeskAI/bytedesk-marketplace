@@ -29,6 +29,9 @@ export function Modal({ open, onClose, title, children, footer, size }: { open: 
       aria-label={title}
       onClose={onClose}
       onCancel={(e) => { e.preventDefault(); onClose(); }}
+      // The shell listens for Escape on window and may preventDefault, which cancels the
+      // platform close; own the key here so a dialog always closes on Escape.
+      onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onClose(); } }}
       onClick={(e) => { if (e.target === ref.current) onClose(); }}
     >
       {open && (

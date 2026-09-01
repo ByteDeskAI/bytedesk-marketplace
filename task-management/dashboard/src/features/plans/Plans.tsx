@@ -1,4 +1,4 @@
-import { Inbox, Link2 } from "lucide-react";
+import { Download, Inbox, Link2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { ScreenProps } from "../../app/routes";
 import { Button } from "../../components/ui/Button";
@@ -11,6 +11,7 @@ import { fetchPlans, write } from "../../lib/api";
 import { Link } from "../../lib/router";
 import { useBoard, useEvents, useWrite } from "../../lib/store";
 import type { PlanInboxItem } from "../../lib/types";
+import { ImportGoal } from "./ImportGoal";
 import { PlanPreview } from "./PlanPreview";
 import "../../styles/plans.css";
 import "../../styles/detail.css";
@@ -22,13 +23,15 @@ export default function Plans(_: ScreenProps) {
   const [plans, setPlans] = useState<PlanInboxItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [bump, setBump] = useState(0);
   const events = useEvents();
   const tick = events.filter((e) => e.event === "plan_captured" || e.event === "epic_active" || e.event === "create").length;
   useEffect(() => {
     let live = true;
     fetchPlans().then((p) => live && setPlans(p)).catch((e: Error) => live && setError(e.message));
     return () => { live = false; };
-  }, [tick]);
+  }, [tick, bump]);
   const openEpics = (board?.epics ?? []).filter((e) => e.status !== "done");
   const current = plans?.find((p) => p.path === selected) ?? null;
   return (
@@ -37,7 +40,10 @@ export default function Plans(_: ScreenProps) {
         <div>
           <h1>Plans</h1>
         </div>
+        <span className="tm-grow" />
+        <Button size="sm" icon={<Download size={14} />} onClick={() => setImporting(true)}>Import goal…</Button>
       </div>
+      <ImportGoal open={importing} onClose={() => setImporting(false)} onDone={() => setBump((n) => n + 1)} />
       {error ? (
         <ErrorPanel title="Plans could not be listed" detail={error} />
       ) : plans === null ? (

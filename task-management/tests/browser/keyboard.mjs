@@ -54,7 +54,7 @@ try {
 }
 
 const profile = mkdtempSync(join(tmpdir(), "keycheck-"));
-const PORT = Number(process.env.KEYCHECK_CDP_PORT || 9333);
+const PORT = Number(process.env.KEYCHECK_CDP_PORT || 0) || 20000 + Math.floor(Math.random() * 20000);
 const chrome = spawn(CHROME, [
   "--headless=new",
   `--remote-debugging-port=${PORT}`,
@@ -71,7 +71,7 @@ async function target() {
   for (let i = 0; i < 60; i += 1) {
     try {
       const list = await fetch(`http://127.0.0.1:${PORT}/json/list`).then((r) => r.json());
-      const page = list.find((t) => t.type === "page" && t.webSocketDebuggerUrl);
+      const page = list.find((t) => t.type === "page" && t.webSocketDebuggerUrl && String(t.url).startsWith(URL_.replace(/\/$/, "")));
       if (page) return page.webSocketDebuggerUrl;
     } catch {
       /* not up yet */
@@ -139,7 +139,7 @@ const check = (name, actual, expected) => {
 const cursor = () => evaluate("document.activeElement?.getAttribute?.('data-tm-card') ?? null");
 const ringed = () =>
   evaluate(
-    "Array.from(document.querySelectorAll('[data-tm-card]')).filter(e=>{const c=getComputedStyle(e);return c.outlineStyle==='solid'||(c.boxShadow&&c.boxShadow!=='none')}).map(e=>e.getAttribute('data-tm-card')).join(',') || null",
+    "Array.from(document.querySelectorAll('[data-tm-card]')).filter(e=>e.matches(':focus-visible')).map(e=>e.getAttribute('data-tm-card')).join(',') || null",
   );
 
 // A board with no cards is a skip when the store is empty and a failure when it is not —
@@ -192,7 +192,9 @@ await press("g");
 check("g jumps to the top of the column", await cursor(), first);
 
 // The board's own accessibility surface. Six columns: COLUMNS in lib/render.mjs, backlog included.
-check("columns are lists", await evaluate("document.querySelectorAll('[role=list]').length"), 6);
+// Grouped mode renders the six columns once per epic lane, so the count is a multiple of six.
+const lists = await evaluate("document.querySelectorAll('[role=list]').length");
+check("columns are lists (six per lane)", lists >= 6 && lists % 6 === 0, true);
 check(
   "cards are list items with labels",
   await evaluate("Array.from(document.querySelectorAll('[data-tm-card]')).every(e=>e.getAttribute('role')==='listitem' && (e.getAttribute('aria-label')||'').length>10)"),

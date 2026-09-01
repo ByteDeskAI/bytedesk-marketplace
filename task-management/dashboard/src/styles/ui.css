@@ -224,3 +224,15 @@ button.tm-chip:hover { border-color: var(--tm-line-strong); }
 .tm-md code { padding: 0 var(--tm-s1); background: var(--tm-ground); border-radius: var(--tm-radius); }
 .tm-md pre code { padding: 0; background: none; }
 .tm-md hr { border: 0; border-top: var(--tm-hairline) solid var(--tm-line-faint); }
+
+/* Touch: the profile mandates the touch hit size below 720 for every control, not only primary
+   buttons. Chips keep their height and grow their hit area with an invisible halo instead. */
+@media (max-width: 719px) {
+  .tm-btn[data-size="sm"] { height: var(--tm-control); padding: 0 var(--tm-s4); }
+  .tm-btn[data-icon="true"][data-size="sm"] { width: var(--tm-control); }
+  button.tm-chip, .tm-chip__x { position: relative; }
+  button.tm-chip::after, .tm-chip__x::after { content: ""; position: absolute; inset: calc((var(--tm-hit) - 100%) / -2) 0; min-height: var(--tm-hit); }
+  .tm-chip__x::after { inset: calc((var(--tm-hit) - 100%) / -2); }
+  .tm-check input, .tm-toggle input { width: var(--tm-hit); height: var(--tm-hit); margin: calc((var(--tm-hit) - 18px) / -2); }
+  .tm-combo__opt, .tm-menu__item, .tm-palette__item { min-height: var(--tm-hit); }
+}

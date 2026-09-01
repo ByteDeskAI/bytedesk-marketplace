@@ -111,7 +111,7 @@ export default function Epics(_: ScreenProps) {
                 <div className="tm-epic__main">
                   <div className="tm-row">
                     <span className="tm-id">{e.id}</span>
-                    <Chip kind="status" value={e.status}>{e.status === "done" ? "closed" : label(e.status)}</Chip>
+                    <Chip kind="status" value={e.status}>{e.status === "done" ? "closed" : e.status === "open" ? "open" : label(e.status)}</Chip>
                     {e.id === active && <Chip tone="accent" dot>active</Chip>}
                     {isMap && <Chip tone="info" dot={false}><Map size={11} aria-hidden /> map{fog ? ` · fog ${fog}` : ""}</Chip>}
                     {e.plan && <Chip kind="count" title={e.plan}><FileText size={11} aria-hidden /> plan</Chip>}
@@ -128,7 +128,7 @@ export default function Epics(_: ScreenProps) {
                   </div>
                 </div>
                 <div className="tm-epic__side">
-                  <span className="tm-epic__progress"><span className="tm-caps">progress</span><span className="tm-id">{done}/{total} done</span></span>
+                  <span className="tm-epic__progress"><span className="tm-id">{done}/{total} done</span></span>
                   <Progress value={done} max={total} label={`${done} of ${total} done`} tone={total > 0 && done === total ? "ok" : undefined} />
                   <div className="tm-row" style={{ justifyContent: "flex-end" }}>
                     {e.id !== active && e.status !== "done" && <Button size="sm" variant="ghost" onClick={() => activate(e.id)} title="make active (a)">Make active</Button>}

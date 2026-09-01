@@ -199,6 +199,14 @@ export const CATALOG = [
     label: "Minimum interval between identical pushes (seconds)",
   },
   {
+    key: "ntfy.categories",
+    group: "ntfy",
+    type: "json",
+    default: null,
+    label: "Event kinds pushed",
+    help: "The kinds tm ntfy on <kind> enables; nothing is pushed until a kind is on.",
+  },
+  {
     key: "ntfy.boardUrl",
     group: "ntfy",
     type: "string",

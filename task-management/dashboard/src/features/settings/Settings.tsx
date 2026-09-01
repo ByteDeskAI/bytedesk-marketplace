@@ -13,6 +13,7 @@ import { setTheme, useTheme, type Theme } from "../../lib/theme";
 import type { NtfyInfo, SettingsField, SettingsSnapshot } from "../../lib/types";
 import { usePwaShared } from "../../pwa/usePwa";
 import { NotificationPrefs, OutboxList } from "../pwa/PwaPanel";
+import { TemplatesSection } from "./Templates";
 import type { ScreenProps } from "../../app/routes";
 import "../../styles/settings.css";
 
@@ -128,9 +129,19 @@ export default function Settings(_: ScreenProps) {
   const identity = fields.filter((f) => f.group === "identity");
   // The catalog is flat: kind → { group, label, priority }.
   const eventKinds = Object.entries((ntfy?.catalog ?? {}) as Record<string, { group?: string; label?: string }>);
+  const kindGroups = ["recommended", "writes", "noise"].map((g) => ({ g, kinds: eventKinds.filter(([, v]) => v.group === g) })).filter((x) => x.kinds.length);
+  // ntfy.categories is the list `tm ntfy on <kind>` writes; the toggles edit the same array through the catalog.
+  const catField = byKey["ntfy.categories"];
+  const categories: string[] = (("ntfy.categories" in draft ? draft["ntfy.categories"] : catField?.value) as string[] | null) ?? [];
+  const setCategories = (next: string[]) => { setDraft((d) => ({ ...d, "ntfy.categories": next })); setServerErrors(({ "ntfy.categories": _drop, ...rest }) => rest); };
+  const toggleKind = (k: string, on: boolean) => setCategories(on ? [...new Set([...categories, k])] : categories.filter((x) => x !== k));
+  const toc = [["appearance", "This browser"], ...groups.map((g) => [g.id, g.label]), ["templates", "Templates"], ["override", "Override"], ["identity-store", "Identity"]] as [string, string][];
 
   return (
     <div className="tm-screen tm-settings">
+      <nav className="tm-settings__toc" aria-label="settings sections">
+        {toc.map(([id, l]) => <a key={id} href={`#${id}`} onClick={(e) => { e.preventDefault(); document.getElementById(id)?.scrollIntoView({ block: "start" }); history.replaceState(history.state, "", `#${id}`); }}>{l}</a>)}
+      </nav>
       <div className="tm-screen__head">
         <div>
           <h1>Settings</h1>
@@ -176,7 +187,7 @@ export default function Settings(_: ScreenProps) {
               </div>
             )}
           </header>
-          {fields.filter((f) => f.group === g.id).map((f) => {
+          {fields.filter((f) => f.group === g.id && f.key !== "ntfy.categories").map((f) => {
             const v = f.key in draft ? draft[f.key] : f.value;
             const err = errors[f.key] ?? null;
             return (
@@ -192,6 +203,34 @@ export default function Settings(_: ScreenProps) {
               </div>
             );
           })}
+          {g.id === "ntfy" && catField && (
+            <div className="tm-settings__row" data-dirty={dirtyKeys.includes("ntfy.categories") || undefined}>
+              <div>
+                <strong>Event kinds pushed</strong>
+                <span className="tm-id"> ntfy.categories</span>
+                {dirtyKeys.includes("ntfy.categories") && <Chip tone="warn" dot>changed</Chip>}
+                <p className="tm-faint">What <code>tm ntfy on &lt;kind&gt;</code> switches on. Nothing is pushed until a kind is on; recommended is the set worth a phone buzz.</p>
+              </div>
+              <div className="tm-kinds">
+                {kindGroups.map(({ g: grp, kinds }) => (
+                  <fieldset key={grp} className="tm-kinds__group">
+                    <legend>
+                      <span>{grp}</span>
+                      <Button size="sm" variant="ghost" onClick={() => setCategories([...new Set([...categories, ...kinds.map(([k]) => k)])])}>all</Button>
+                      <Button size="sm" variant="ghost" onClick={() => setCategories(categories.filter((k) => !kinds.some(([x]) => x === k)))}>none</Button>
+                    </legend>
+                    {kinds.map(([k, v]) => (
+                      <label key={k} className="tm-kinds__row">
+                        <Toggle checked={categories.includes(k)} onChange={(on) => toggleKind(k, on)} aria-label={k} />
+                        <span className="tm-id">{k}</span>
+                        <span className="tm-faint">{v.label}</span>
+                      </label>
+                    ))}
+                  </fieldset>
+                ))}
+              </div>
+            </div>
+          )}
           {g.id === "ntfy" && (
             <div className="tm-settings__row">
               <div><strong>Test send</strong><p className="tm-faint">Sends one push for a chosen event kind. The answer is the server's own: sent, or the reason it declined.</p></div>
@@ -209,6 +248,8 @@ export default function Settings(_: ScreenProps) {
           )}
         </section>
       ))}
+
+      <TemplatesSection />
 
       <section className="tm-settings__group" id="override" aria-labelledby="h-override">
         <header>

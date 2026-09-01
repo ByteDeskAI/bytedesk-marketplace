@@ -52,7 +52,7 @@ export default function Doctor() {
 
   return (
     <div className="tm-screen tm-doctor">
-      <ScreenHead title="Doctor" blurb="Is the record telling the truth? An error means a read gives a wrong answer; a warning means it is untidy but correct. Fixes rewrite files and are logged as doctor_fix."
+      <ScreenHead title="Doctor" blurb="Errors make a read lie; warnings are untidy but correct."
         actions={<>
           <Button onClick={() => run(() => write.reindex(), { ok: "index.json rebuilt from the markdown" }).then(q.reload)} pending={pending}>Reindex</Button>
           {q.data && q.data.fixable > 0 && <Button variant="primary" onClick={() => setConfirm(true)}>Fix all unambiguous ({q.data.fixable})</Button>}

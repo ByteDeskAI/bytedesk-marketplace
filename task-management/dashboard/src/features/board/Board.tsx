@@ -1,4 +1,5 @@
 import { Inbox, SearchX } from "lucide-react";
+import { openKeysSheet } from "../../app/KeysSheet";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import "../../styles/board.css";
 import { Button } from "../../components/ui/Button";
@@ -52,7 +53,8 @@ export default function Board(_: ScreenProps) {
   const live = useLiveWork(events, now);
   const { run } = useWrite();
 
-  const [phoneStatus, setPhoneStatus] = useState<Status>("in_progress");
+  // The phone shows one column; open on the first that has cards rather than an empty one.
+  const [phonePick, setPhoneStatus] = useState<Status | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [creating, setCreating] = useState<"task" | "epic" | null>(null);
   const [stop, setStop] = useState<{ ids: string[]; status: Status } | null>(null);
@@ -62,6 +64,7 @@ export default function Board(_: ScreenProps) {
   const lanes = useMemo<Lane[]>(() => (grouped ? (laneOrder(board?.epics ?? [], visible, activeEpic) as Lane[]) : []), [grouped, board?.epics, visible, activeEpic]);
   // Lane-first order keeps `j` walking down the screen; ungrouped, rank then id.
   const ordered = useMemo(() => sortForLanes(visible, lanes) as Task[], [visible, lanes]);
+  const phoneStatus: Status = phonePick ?? (COLUMNS as Status[]).find((s) => ordered.some((t) => t.status === s)) ?? "in_progress";
   const byId = useMemo(() => new Map((board?.tasks ?? []).map((t) => [t.id, t])), [board?.tasks]);
   const inspectorOpen = INSPECTOR.test(path);
 
@@ -108,7 +111,7 @@ export default function Board(_: ScreenProps) {
     onWatch: toggleWatch,
     onCreate: () => setCreating("task"),
     onSearch: () => document.querySelector<HTMLInputElement>('input[type="search"]')?.focus(),
-    onHelp: () => navigate("/help"),
+    onHelp: openKeysSheet,
     onPalette: () => {}, // the shell opens it
     onEscape: () => setSelected(new Set()),
   });

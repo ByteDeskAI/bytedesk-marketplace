@@ -13,7 +13,7 @@ export function Column({ status, count, children, onDropStatus, compact }: { sta
   const digit = COLUMNS.indexOf(status) + 1;
   const accept = (e: DragEvent) => e.dataTransfer.types.includes("text/tm-id");
   return (
-    <section className="tm-col" data-tm-column={status} data-status={status} data-over={over || undefined} aria-label={`${label(status)}, ${count}`}>
+    <section className="tm-col" data-tm-column={status} data-status={status} data-over={over || undefined}>
       {!compact && (
         <header className="tm-col__head">
           <Chip kind="status" value={status}>{label(status)}</Chip>
@@ -25,6 +25,7 @@ export function Column({ status, count, children, onDropStatus, compact }: { sta
       <ul
         className="tm-col__list"
         role="list"
+        aria-label={`${label(status)}, ${count}`}
         onDragOver={(e) => {
           if (!accept(e)) return;
           e.preventDefault();
@@ -42,7 +43,6 @@ export function Column({ status, count, children, onDropStatus, compact }: { sta
       >
         {children}
       </ul>
-      {count === 0 && <div className="tm-col__empty" aria-hidden>—</div>}
     </section>
   );
 }

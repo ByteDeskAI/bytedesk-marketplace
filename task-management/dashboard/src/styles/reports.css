@@ -5,3 +5,12 @@
 .tm-reports__timeline li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tm-s2); }
 .tm-reports__form { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--tm-s4); align-items: end; }
 .tm-reports__export a.tm-btn { text-decoration: none; }
+
+/* The measure strip: one row of label/value pairs in mono, hairline-separated, never tiles. */
+.tm-measures { display: flex; flex-wrap: wrap; gap: 0; border-top: var(--tm-hairline) solid var(--tm-line-faint); border-bottom: var(--tm-hairline) solid var(--tm-line-faint); }
+.tm-measures > div { display: flex; flex-direction: column; gap: var(--tm-s1); padding: var(--tm-s3) var(--tm-s5); border-right: var(--tm-hairline) solid var(--tm-line-faint); min-width: 0; }
+.tm-measures > div:last-child { border-right: 0; }
+.tm-measures dt { font-size: var(--tm-text-sm); color: var(--tm-ink-3); }
+.tm-measures dd { font-family: var(--tm-mono); font-size: var(--tm-text-lg); color: var(--tm-ink); display: flex; align-items: baseline; gap: var(--tm-s2); }
+.tm-measures__note { font-size: var(--tm-text-mono-sm); color: var(--tm-ink-3); }
+@media (max-width: 719px) { .tm-measures > div { flex: 1 1 45%; border-right: 0; } }

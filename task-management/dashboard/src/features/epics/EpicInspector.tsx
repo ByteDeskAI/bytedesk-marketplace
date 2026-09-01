@@ -5,7 +5,7 @@ import { Bars } from "../../components/ui/Bars";
 import { Button } from "../../components/ui/Button";
 import { Chip } from "../../components/ui/Chip";
 import { ErrorPanel } from "../../components/ui/ErrorPanel";
-import { Select, TextArea } from "../../components/ui/Field";
+import { Field, Select, TextArea, TextField } from "../../components/ui/Field";
 import { InlineEdit } from "../../components/ui/InlineEdit";
 import { Inspector, Section } from "../../components/ui/Inspector";
 import { Markdown } from "../../components/ui/Markdown";
@@ -32,6 +32,7 @@ export default function EpicInspector({ params }: ScreenProps) {
   const { entity, detail, loading, error } = useEntity<Epic>(id);
   const { run, pending } = useWrite();
   const [confirmClose, setConfirmClose] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [plan, setPlan] = useState<PlanFile | null>(null);
   const [plans, setPlans] = useState<PlanInboxItem[]>([]);
   const [editing, setEditing] = useState(false);
@@ -68,7 +69,7 @@ export default function EpicInspector({ params }: ScreenProps) {
       meta={
         <>
           <span className="tm-id">{id}</span>
-          <Chip kind="status" value={epic.status}>{epic.status === "done" ? "closed" : label(epic.status)}</Chip>
+          <Chip kind="status" value={epic.status}>{epic.status === "done" ? "closed" : epic.status === "open" ? "open" : label(epic.status)}</Chip>
           {active && <Chip tone="accent" dot>active</Chip>}
           {isMap && <Chip tone="info" dot={false}><Map size={11} aria-hidden /> map</Chip>}
         </>
@@ -79,7 +80,8 @@ export default function EpicInspector({ params }: ScreenProps) {
         ) : (
           <>
             {!active && <Button size="sm" pending={pending} onClick={() => void run(() => write.activeEpic(id), { ok: `${id} is the active epic` })}>Make active</Button>}
-            <Button size="sm" variant="danger" onClick={() => setConfirmClose(true)}>Close epic</Button>
+            <Button size="sm" variant="default" onClick={() => setImporting(true)}>Import goals…</Button>
+            <Button size="sm" variant="default" onClick={() => setConfirmClose(true)}>Close epic</Button>
           </>
         )
       }
@@ -171,12 +173,50 @@ export default function EpicInspector({ params }: ScreenProps) {
         {total > 0 && <Bars rows={byStatus} label={`${id} children by status`} />}
       </Section>
 
-      <Modal open={confirmClose} onClose={() => setConfirmClose(false)} title={`Close ${id}?`} footer={<><Button variant="ghost" onClick={() => setConfirmClose(false)}>Cancel</Button><Button variant="danger" pending={pending} onClick={() => void run(() => write.closeEpic(id), { ok: `${id} closed` }).then(() => setConfirmClose(false))}>Close epic</Button></>}>
+      <Modal open={confirmClose} onClose={() => setConfirmClose(false)} title={`Close ${id}?`} footer={<><Button variant="ghost" onClick={() => setConfirmClose(false)}>Cancel</Button><Button variant="primary" pending={pending} onClick={() => void run(() => write.closeEpic(id), { ok: `${id} closed` }).then(() => setConfirmClose(false))}>Close epic</Button></>}>
         <p>
           {openKids > 0 ? `${openKids} task${openKids === 1 ? " is" : "s are"} still open under it. They stay on the board; the epic stops gating new work and clears the active pointer if it holds it.` : "Every child is done. Closing writes the closed timestamp and clears the active pointer if this epic holds it."}
         </p>
         <p className="tm-faint">The same as <code>tm epic done {id}</code>. <code>tm reopen</code> brings it back.</p>
       </Modal>
+      {importing && <GoalImportModal epic={id} onClose={() => setImporting(false)} />}
     </Inspector>
+  );
+}
+
+/**
+ * `tm goal import <doc.md|*.plan.json> --epic <id>` from the board. A path is read inside the
+ * repo; pasted text never touches the filesystem. Refusals (no parseable criteria) come back
+ * as the CLI's own 409 text, and a manifest's skipped docs are listed rather than hidden.
+ * ponytail: duplicated on the plans screen on purpose — two tiny forms beat a shared module.
+ */
+function GoalImportModal({ epic, onClose }: { epic: string; onClose: () => void }) {
+  const [path, setPath] = useState("");
+  const [content, setContent] = useState("");
+  const [name, setName] = useState("");
+  const [result, setResult] = useState<{ id?: string; epic?: string; tasks?: string[]; skipped?: { id: string; why: string }[] } | null>(null);
+  const { run, pending, error } = useWrite();
+  const submit = () =>
+    void run(() => write.goalImport(path.trim() ? { path: path.trim(), epic } : { content, name: name.trim() || "pasted-goal.md", epic }), { ok: "goal imported" }).then((r) => setResult((r as typeof result) ?? null));
+  return (
+    <Modal open onClose={onClose} title={`Import goals into ${epic}`} footer={<><Button variant="ghost" onClick={onClose}>{result ? "Done" : "Cancel"}</Button>{!result && <Button variant="primary" pending={pending} disabled={!path.trim() && !content.trim()} onClick={submit}>Import</Button>}</>}>
+      {result ? (
+        <div className="tm-stack">
+          {result.id && <p><span className="tm-id">{result.id}</span> created under <span className="tm-id">{result.epic ?? epic}</span>.</p>}
+          {result.tasks && <p>{result.tasks.length} task{result.tasks.length === 1 ? "" : "s"} landed under <span className="tm-id">{result.epic}</span>.</p>}
+          {result.skipped && result.skipped.length > 0 && (
+            <ul className="tm-stack" aria-label="skipped goals">{result.skipped.map((s) => <li key={s.id}><span className="tm-id">{s.id}</span> — {s.why}</li>)}</ul>
+          )}
+        </div>
+      ) : (
+        <div className="tm-stack">
+          <Field label="Path in this repo">{(a) => <TextField {...a} value={path} onChange={(e) => setPath(e.target.value)} placeholder="docs/goals/feature.md or program.plan.json" mono />}</Field>
+          <p className="tm-faint">or paste a goal doc — a manifest has to be a path, since its docs are files.</p>
+          <Field label="Name">{(a) => <TextField {...a} value={name} onChange={(e) => setName(e.target.value)} placeholder="pasted-goal.md" mono disabled={!!path.trim()} />}</Field>
+          <Field label="Goal doc">{(a) => <TextArea {...a} value={content} onChange={(e) => setContent(e.target.value)} rows={8} mono disabled={!!path.trim()} />}</Field>
+          {error && <ErrorPanel title="Import refused" detail={error} />}
+        </div>
+      )}
+    </Modal>
   );
 }

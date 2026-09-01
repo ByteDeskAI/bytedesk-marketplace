@@ -143,3 +143,16 @@
     --tm-hit: var(--bd-size-hit-target-touch);
   }
 }
+
+/* The family's semantic -bg roles are dark surfaces with no light counterpart; a chip on the
+   light theme would sit on a near-black plate. Derive a tint from the role colour instead. */
+[data-bd-theme="light"] {
+  --tm-ok-bg: color-mix(in oklab, var(--bd-success) 12%, transparent);
+  --tm-warn-bg: color-mix(in oklab, var(--bd-warning) 14%, transparent);
+  --tm-bad-bg: color-mix(in oklab, var(--bd-danger) 10%, transparent);
+  --tm-info-bg: color-mix(in oklab, var(--bd-info) 12%, transparent);
+  --tm-status-in_progress-bg: var(--tm-info-bg);
+  --tm-status-blocked-bg: var(--tm-bad-bg);
+  --tm-status-parked-bg: var(--tm-warn-bg);
+  --tm-status-done-bg: var(--tm-ok-bg);
+}

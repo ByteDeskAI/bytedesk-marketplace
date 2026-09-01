@@ -1,6 +1,25 @@
 /* Settings page, and the notifications/outbox panel it shares with the command bar. Tokens only. */
 /* Fills the canvas, left-aligned, up to a readable measure (review finding: no centred 480 px column). */
 .tm-settings { max-width: 1100px; position: relative; }
+/* ≥1200: the free right column carries a section list; the measure stays full width. */
+@media (min-width: 1200px) {
+  .tm-settings { max-width: none; display: grid; grid-template-columns: minmax(0, 1100px) 200px; column-gap: var(--tm-s8); }
+  .tm-settings > *:not(.tm-settings__toc) { grid-column: 1; }
+  .tm-settings__toc { grid-column: 2; grid-row: 1 / span 40; align-self: start; position: sticky; top: var(--tm-s6); }
+}
+.tm-settings__toc { display: flex; flex-direction: column; gap: var(--tm-s1); font-size: var(--tm-text-sm); }
+.tm-settings__toc a { color: var(--tm-ink-2); padding: var(--tm-s1) var(--tm-s3); border-radius: var(--tm-radius); text-decoration: none; }
+.tm-settings__toc a:hover, .tm-settings__toc a:focus-visible { color: var(--tm-ink); background: var(--tm-hover); }
+@media (max-width: 1199px) { .tm-settings__toc { display: none; } }
+.tm-kinds { display: flex; flex-direction: column; gap: var(--tm-s4); }
+.tm-kinds__group { border: var(--tm-hairline) solid var(--tm-line-faint); border-radius: var(--tm-radius); padding: var(--tm-s2) var(--tm-s3) var(--tm-s3); display: flex; flex-direction: column; gap: var(--tm-s1); min-width: 0; }
+.tm-kinds__group legend { display: flex; align-items: center; gap: var(--tm-s2); padding: 0 var(--tm-s2); font-size: var(--tm-text-sm); color: var(--tm-ink-2); text-transform: uppercase; letter-spacing: var(--tm-caps); }
+.tm-kinds__row { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: var(--tm-s3); min-height: var(--tm-hit); cursor: pointer; }
+.tm-kinds__row .tm-faint { font-size: var(--tm-text-sm); overflow-wrap: anywhere; }
+.tm-templates { display: flex; flex-direction: column; gap: var(--tm-s2); }
+.tm-templates__row { display: flex; align-items: center; gap: var(--tm-s3); padding: var(--tm-s2) var(--tm-s3); border: var(--tm-hairline) solid var(--tm-line-faint); border-radius: var(--tm-radius); min-height: var(--tm-control); }
+.tm-templates__editor .tm-stack { gap: var(--tm-s3); }
+.tm-settings__row .tm-textarea { width: 100%; }
 .tm-settings__group { display: flex; flex-direction: column; border-top: 1px solid var(--tm-line); padding-top: var(--tm-s5); gap: var(--tm-s2); scroll-margin-top: var(--tm-s5); }
 .tm-settings__group > header { display: flex; flex-direction: column; gap: var(--tm-s2); margin-bottom: var(--tm-s3); }
 .tm-settings__group > header p { color: var(--tm-ink-2); max-width: 64ch; }

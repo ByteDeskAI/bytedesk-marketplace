@@ -79,7 +79,8 @@
 .tm-screen { padding: var(--tm-s6); display: flex; flex-direction: column; gap: var(--tm-s6); min-height: 100%; }
 .tm-screen__head { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--tm-s5); flex-wrap: wrap; }
 .tm-screen__head p { color: var(--tm-ink-2); max-width: 64ch; }
-.tm-screen__actions { display: flex; align-items: center; gap: var(--tm-s3); flex-wrap: wrap; }
+.tm-screen__actions { display: flex; align-items: center; gap: var(--tm-s3); flex-wrap: wrap; max-width: 100%; }
+.tm-screen__actions > * { max-width: 100%; min-width: 0; }
 
 /* inspector: a lifted panel at the shell edge; sticky header, one scrolling body */
 .tm-inspector {
@@ -119,6 +120,7 @@
   .tm-screen { padding: var(--tm-s4); }
   .tm-commandbar { padding: 0 var(--tm-s4); }
   .tm-commandbar__project { display: none; }
+  .tm-commandbar .tm-btn[data-icon="true"] { width: var(--tm-control); height: var(--tm-control); }
 }
 
 /* toasts + live region */

@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { Tabs } from "../../components/ui/Tabs";
+import { History } from "../task/sections/History";
 import type { ScreenProps } from "../../app/routes";
 import { Button } from "../../components/ui/Button";
 import { Chip } from "../../components/ui/Chip";
@@ -13,7 +15,7 @@ import { closeInspector, Link, navigate } from "../../lib/router";
 import { useBoard, useEntity, useMeta, useWrite } from "../../lib/store";
 import type { Capability, EvidenceItem } from "../../lib/types";
 import { MarkdownEdit } from "../task/sections/MarkdownEdit";
-import { capLabel, capTone } from "./Capabilities";
+import { capLabel, capTone, scoreOf } from "./Capabilities";
 import "../../styles/capabilities.css";
 import "../../styles/detail.css";
 
@@ -25,6 +27,7 @@ export default function CapabilityInspector({ params }: ScreenProps) {
   const board = useBoard();
   const { run, pending } = useWrite();
   const [shipping, setShipping] = useState(false);
+  const [tab, setTab] = useState<"record" | "history">("record");
   const [dropping, setDropping] = useState(false);
   const close = () => closeInspector("/capabilities");
   if (error || (!entity && !loading)) return <Inspector title={id} onClose={close} id={id}><ErrorPanel title={`${id} is not on this board`} detail={error} /></Inspector>;
@@ -45,7 +48,7 @@ export default function CapabilityInspector({ params }: ScreenProps) {
         <div className="tm-row" style={{ flexWrap: "wrap", gap: "var(--tm-s2)" }}>
           <span className="tm-id" style={{ color: "var(--tm-ink)" }}>{cap.id}</span>
           <Chip kind="plain" tone={capTone(cap.status)} dot>{capLabel(cap.status)}</Chip>
-          <span className="tm-cap__score"><span className="mono">{cap.score ?? "–"}</span><span className="tm-faint"> / 27</span></span>
+          <span className="tm-cap__score"><span className="mono">{scoreOf(cap)}</span><span className="tm-faint"> / 27</span></span>
           {cap.task && <Link to={`/tasks/${cap.task}`} inspector className="tm-chip" data-kind="plain">{cap.task}</Link>}
         </div>
       }
@@ -58,6 +61,9 @@ export default function CapabilityInspector({ params }: ScreenProps) {
       }
       title={<InlineEdit value={cap.title} label={`title of ${cap.id}`} placeholder="Title" onSave={(v) => { if (v) patch({ title: v }); }} />}
     >
+      <Tabs tabs={[{ id: "record", label: "Record" }, { id: "history", label: "History" }]} value={tab} onChange={(t) => setTab(t as "record" | "history")} label="cap views" />
+      {tab === "history" && <History id={cap.id} />}
+      {tab === "record" && (<>
       {cap.droppedReason && <p className="tm-reason" data-tone="warn">dropped — {cap.droppedReason}</p>}
       {cap.shipped && <p className="tm-reason" data-tone="ok">shipped {cap.shipped.slice(0, 10)}</p>}
       <Section title="sizing">
@@ -84,6 +90,7 @@ export default function CapabilityInspector({ params }: ScreenProps) {
           <ul className="tm-links">{cap.related!.map((r) => <li key={r} className="tm-links__row"><Link to={`/tasks/${r}`} inspector className="mono">{r}</Link></li>)}</ul>
         </Section>
       )}
+      </>)}
       <ShipModal cap={cap} open={shipping} onClose={() => setShipping(false)} />
       <DropModal cap={cap} open={dropping} onClose={() => setDropping(false)} />
     </Inspector>

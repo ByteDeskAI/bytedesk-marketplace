@@ -67,7 +67,7 @@ export default function Sessions() {
   return (
     <div className="tm-screen tm-sessions">
       <ScreenHead title="Sessions" blurb={<>harness <span className="tm-id">{sessions.data?.harness ?? meta?.harness ?? "none detected"}</span> · claims expire after <span className="tm-id">{Math.round(ttl / 60_000)}m</span> without a live session</>}
-        actions={<Button variant="danger" onClick={() => setSweep(true)} disabled={!claims.data?.stale.length}>Sweep expired claims{claims.data?.stale.length ? ` (${claims.data.stale.length})` : ""}</Button>} />
+        actions={<Button variant={claims.data?.stale.length ? "danger" : "default"} onClick={() => setSweep(true)} disabled={!claims.data?.stale.length}>Sweep expired claims{claims.data?.stale.length ? ` (${claims.data.stale.length})` : ""}</Button>} />
 
       <Loaded q={claims} rows={2}>
         {(c) => (

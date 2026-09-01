@@ -3,6 +3,13 @@
 ## Unreleased
 
 ### Added
+- **Dashboard grading round 1 fixes.** Goal import from `/plans` and the epic inspector; templates
+  and per-kind ntfy toggles (`ntfy.categories` joins the settings catalog) on `/settings` with a
+  section list; `?` opens a shortcuts sheet over any screen; 44 px touch targets below 720 px;
+  light-theme chip tints; board filters fold into one `tm find` query bar with a disclosure;
+  phone board opens on the first non-empty status and the phone backlog is compact cards; reports
+  use one measure strip; standup fills the canvas; History tabs on decision and capability
+  inspectors; browser tests pick a free debug port and attach only to their own page.
 - **Dashboard rewrite, wave 2 (screens) + integration.** The board is a multi-screen app on the
   ByteDesk design system: Board, Backlog, Epics, Task inspector (why chain, history, evidence,
   worktree, work stream), Decisions, Capabilities, Plans, Graph, Activity, Standup, Sprints,

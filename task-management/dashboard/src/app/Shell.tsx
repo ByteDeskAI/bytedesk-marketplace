@@ -1,4 +1,5 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { KeysSheetModal, openKeysSheet } from "./KeysSheet";
 import { LiveRegion } from "../components/ui/LiveRegion";
 import { SkeletonRows } from "../components/ui/Skeleton";
 import { Toasts } from "../components/ui/Toast";
@@ -68,7 +69,7 @@ export function Shell() {
       if (canvas?.route.ownsKeys && !inspector) return;
       if (intent.action === "escape" && inspector) { e.preventDefault(); close(); return; }
       if (intent.action === "search") { e.preventDefault(); search.current?.focus(); return; }
-      if (intent.action === "help") { e.preventDefault(); navigate("/help"); }
+      if (intent.action === "help") { e.preventDefault(); openKeysSheet(); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -111,6 +112,7 @@ export function Shell() {
         </>
       )}
       <Palette open={palette} onClose={() => setPalette(false)} />
+      <KeysSheetModal />
       <Toasts />
       <LiveRegion />
     </div>

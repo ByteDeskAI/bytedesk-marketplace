@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { Tabs } from "../../components/ui/Tabs";
+import { History } from "../task/sections/History";
 import type { ScreenProps } from "../../app/routes";
 import { Button } from "../../components/ui/Button";
 import { Chip } from "../../components/ui/Chip";
@@ -23,6 +25,7 @@ export default function DecisionInspector({ params }: ScreenProps) {
   const board = useBoard();
   const { run, pending } = useWrite();
   const [superseding, setSuperseding] = useState(false);
+  const [tab, setTab] = useState<"record" | "history">("record");
   const close = () => closeInspector("/decisions");
   if (error || (!entity && !loading)) {
     return (
@@ -60,6 +63,9 @@ export default function DecisionInspector({ params }: ScreenProps) {
       }
       title={<InlineEdit value={adr.title} label={`title of ${adr.id}`} placeholder="Title" onSave={(v) => { if (v) void run(() => write.editAdr(adr.id, { title: v }), { optimistic: { id: adr.id, patch: { title: v } } }); }} />}
     >
+      <Tabs tabs={[{ id: "record", label: "Record" }, { id: "history", label: "History" }]} value={tab} onChange={(t) => setTab(t as "record" | "history")} label="adr views" />
+      {tab === "history" && <History id={adr.id} />}
+      {tab === "record" && (<>
       <Section title="deciders">
         <Combobox values={deciders} options={[]} creatable label={`deciders of ${adr.id}`} placeholder="add a name…" chipKind="plain" onChange={(next) => void run(() => write.editAdr(adr.id, { deciders: next }), { optimistic: { id: adr.id, patch: { deciders: next } } })} />
       </Section>
@@ -75,6 +81,7 @@ export default function DecisionInspector({ params }: ScreenProps) {
           </ul>
         </Section>
       )}
+      </>)}
       <CreateAdr open={superseding} onClose={() => setSuperseding(false)} supersedes={adr.id} />
     </Inspector>
   );

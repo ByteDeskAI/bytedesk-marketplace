@@ -5,7 +5,6 @@ import { Button } from "../../components/ui/Button";
 import { Chip } from "../../components/ui/Chip";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Field, Select } from "../../components/ui/Field";
-import { KpiRow, KpiTile } from "../../components/ui/KpiTile";
 import { Table, type Column } from "../../components/ui/Table";
 import { Toggle } from "../../components/ui/Toggle";
 import { exportUrl, fetchStale, fetchTaskTime, fetchTime } from "../../lib/api";
@@ -48,20 +47,21 @@ export default function Reports() {
 
   return (
     <div className="tm-screen tm-reports">
-      <ScreenHead title="Reports" blurb="Cycle time is first start to done, from the event log. Throughput counts tasks finished per day. Nothing here is a field anyone maintains." />
+      <ScreenHead title="Reports" blurb="Cycle time and throughput, derived from the event log." />
       <Loaded q={time} rows={3}>
         {(t) => t.completed === 0 && !t.wip.length ? (
           <EmptyState icon={<Compass size={28} />} title="Not enough history">Finish a task and the first cycle time appears here.</EmptyState>
         ) : (
           <>
-            <KpiRow>
-              <KpiTile label="completed" value={t.completed} />
-              <KpiTile label="median cycle" value={t.median ?? fmtMs(t.medianMs)} />
-              <KpiTile label="mean cycle" value={t.mean ?? fmtMs(t.meanMs)} />
-              <KpiTile label="in progress" value={t.wip.length} delta={`limit ${String(meta?.config.wipLimit ?? "—")}`} />
-              <KpiTile label="oldest open" value={t.oldestOpen ? fmtMs(t.oldestOpen.ms) : "—"} delta={t.oldestOpen ? <IdLink id={t.oldestOpen.id} /> : undefined} />
-              <KpiTile label="per day" value={t.throughput.perDay.toFixed(1)} delta={`${t.throughput.total} finished`} />
-            </KpiRow>
+            {/* One measure strip in mono — the profile bans hero metric grids. */}
+            <dl className="tm-measures" aria-label="cycle time">
+              <div><dt>completed</dt><dd>{t.completed}</dd></div>
+              <div><dt>median cycle</dt><dd>{t.median ?? fmtMs(t.medianMs)}</dd></div>
+              <div><dt>mean cycle</dt><dd>{t.mean ?? fmtMs(t.meanMs)}</dd></div>
+              <div><dt>in progress</dt><dd>{t.wip.length}<span className="tm-measures__note">of {String(meta?.config.wipLimit ?? "—")}</span></dd></div>
+              <div><dt>oldest open</dt><dd>{t.oldestOpen ? fmtMs(t.oldestOpen.ms) : "—"}{t.oldestOpen && <span className="tm-measures__note"><IdLink id={t.oldestOpen.id} /></span>}</dd></div>
+              <div><dt>per day</dt><dd>{t.throughput.perDay.toFixed(1)}<span className="tm-measures__note">{t.throughput.total} finished</span></dd></div>
+            </dl>
             <section className="tm-reports__section" aria-labelledby="tp">
               <h2 id="tp">Throughput by day</h2>
               {days.length ? <Bars rows={days} label="tasks finished per day" /> : <p className="tm-muted">no finished work yet</p>}

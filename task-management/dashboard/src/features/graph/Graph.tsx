@@ -70,7 +70,7 @@ export default function Graph() {
 
   return (
     <div className="tm-screen tm-graph">
-      <ScreenHead title="Graph" blurb="What must happen first, and why. Blockers sit left of what they block; a red outline is a cycle doctor will not cut for you."
+      <ScreenHead title="Graph" blurb="Blockers sit left of what they block; a red outline is a cycle."
         actions={<>
           <Select aria-label="epic" value={epic} onChange={(e) => setQuery({ epic: e.target.value || null, focus: null })} placeholder="every epic"
             options={(board?.epics ?? []).map((ep) => ({ value: ep.id, label: `${ep.id} ${ep.title}` }))} />

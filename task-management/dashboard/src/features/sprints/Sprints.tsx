@@ -57,7 +57,7 @@ export default function Sprints(_: ScreenProps) {
       <div className="tm-screen__head">
         <div>
           <h1>Sprints</h1>
-          <p>What you committed to finishing this fortnight. An epic says what a body of work is; a sprint says when.</p>
+          <p>What is committed for this fortnight.</p>
         </div>
         <div className="tm-screen__actions">
           <Button variant="primary" icon={<Plus size={14} />} onClick={() => setCreating(true)}>New sprint</Button>

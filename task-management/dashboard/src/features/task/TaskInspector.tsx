@@ -234,11 +234,23 @@ export default function TaskInspector({ params }: ScreenProps) {
 
               <Evidence task={task} />
 
-              {(task.touches ?? []).length > 0 && (
-                <Section title={`touches · ${task.touches!.length}`}>
-                  <ul className="tm-touches">{task.touches!.map((p) => <li key={p} className="mono tm-truncate">{p}</li>)}</ul>
-                </Section>
-              )}
+              <Section title={`touches · ${(task.touches ?? []).length}`}>
+                {(task.touches ?? []).length > 0
+                  ? <ul className="tm-touches">{task.touches!.map((p) => <li key={p} className="mono tm-truncate">{p}</li>)}</ul>
+                  : <p className="tm-faint">Files this task edits; observed from Edit/Write, or declared ahead so `tm parallel` knows what collides.</p>}
+                <TextField
+                  mono
+                  aria-label={`declare a path ${task.id} touches`}
+                  placeholder="declare a path… (Enter)"
+                  onKeyDown={(e) => {
+                    const v = e.currentTarget.value.trim();
+                    if (e.key !== "Enter" || !v) return;
+                    e.preventDefault();
+                    const el = e.currentTarget;
+                    void run(() => write.touches(task.id, [v]), { ok: `${task.id} touches ${v}` }).then((r) => r && (el.value = ""));
+                  }}
+                />
+              </Section>
 
               <Comments task={task} />
 

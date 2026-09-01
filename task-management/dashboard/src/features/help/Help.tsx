@@ -3,18 +3,14 @@ import { useEffect, useState } from "react";
 import { Button } from "../../components/ui/Button";
 import { Chip } from "../../components/ui/Chip";
 import { ErrorPanel } from "../../components/ui/ErrorPanel";
-import { Keys } from "../../components/ui/Kbd";
 import { SkeletonRows } from "../../components/ui/Skeleton";
 import { fetchSkills } from "../../lib/api";
-import { keymapByGroup, PALETTE_HINT } from "../../lib/keys.mjs";
+import { KeysGrid } from "../../app/KeysSheet";
 import { useMeta } from "../../lib/store";
 import { toast } from "../../lib/toast";
 import type { Skill } from "../../lib/types";
 import type { ScreenProps } from "../../app/routes";
 import "../../styles/help.css";
-
-type Row = { keys: string[]; label: string };
-const pretty = (k: string) => ({ ArrowDown: "↓", ArrowUp: "↑", ArrowLeft: "←", ArrowRight: "→", Enter: "⏎" })[k] ?? k;
 
 /** The verbs a person types most. The README has the whole list; this is the cheat sheet. */
 const CLI: [string, string][] = [
@@ -33,7 +29,6 @@ const CLI: [string, string][] = [
 
 export default function Help(_: ScreenProps) {
   const meta = useMeta();
-  const groups = keymapByGroup() as { group: string; rows: Row[] }[];
   const [skills, setSkills] = useState<Skill[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -54,28 +49,7 @@ export default function Help(_: ScreenProps) {
 
       <section aria-labelledby="h-keys">
         <h2 id="h-keys">Keyboard</h2>
-        <div className="tm-keys">
-          {groups.map((g) => (
-            <section key={g.group}>
-              <h3>{g.group}</h3>
-              <dl>
-                {g.rows.map((r) => (
-                  <div key={r.label} style={{ display: "contents" }}>
-                    <dt><Keys keys={r.keys.map(pretty)} /></dt>
-                    <dd>{r.label}</dd>
-                  </div>
-                ))}
-              </dl>
-            </section>
-          ))}
-          <section>
-            <h3>Everywhere</h3>
-            <dl>
-              <div style={{ display: "contents" }}><dt><Keys keys={[PALETTE_HINT]} /></dt><dd>command palette</dd></div>
-              <div style={{ display: "contents" }}><dt><Keys keys={["Esc"]} /></dt><dd>close the inspector or dialog</dd></div>
-            </dl>
-          </section>
-        </div>
+        <KeysGrid />
       </section>
 
       <section aria-labelledby="h-skills">

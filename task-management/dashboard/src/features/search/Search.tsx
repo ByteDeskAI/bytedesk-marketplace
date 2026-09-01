@@ -57,7 +57,7 @@ export default function Search() {
 
   return (
     <div className="tm-screen tm-search">
-      <ScreenHead title="Search" blurb={<>Bare words match titles and bodies. <code>field:value</code> narrows, a leading <code>-</code> negates, every filter ANDs. Not JQL, on purpose.</>} />
+      <ScreenHead title="Search" blurb={<>Words match titles and bodies; <code>field:value</code> narrows, <code>-</code> negates.</>} />
       <form className="tm-search__form" onSubmit={(e) => { e.preventDefault(); submit(); }} role="search">
         <TextField ref={input} type="search" name="q" mono value={draft} onChange={(e) => setDraft(e.target.value)} placeholder='status:open -label:stale "half remembered title"' aria-label="query" leading={<SearchIcon size={14} />} />
         <Button type="submit" variant="primary">Find</Button>

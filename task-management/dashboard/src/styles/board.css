@@ -11,8 +11,10 @@
 .tm-toolbar__epic { width: auto; min-width: 12rem; max-width: 22rem; font-family: var(--tm-mono); font-size: var(--tm-text-mono); }
 .tm-toolbar__filters > summary { list-style: none; cursor: pointer; }
 .tm-toolbar__filters > summary::-webkit-details-marker { display: none; }
-.tm-toolbar__summary { display: none; align-items: center; gap: var(--tm-s2); color: var(--tm-ink-2); font-size: var(--tm-text-sm); min-height: var(--tm-hit); }
-@media (max-width: 719px) { .tm-toolbar__summary { display: inline-flex; } .tm-toolbar__filters .tm-toolbar__select { flex: 1 1 40%; max-width: none; } }
+.tm-toolbar__summary { display: inline-flex; align-items: center; gap: var(--tm-s2); color: var(--tm-ink-2); font-size: var(--tm-text-sm); min-height: var(--tm-hit); }
+.tm-toolbar__row > .tm-input-wrap:has(> .tm-toolbar__query) { flex: 1 1 24rem; max-width: 48rem; }
+.tm-toolbar__query { width: 100%; }
+@media (max-width: 719px) { .tm-toolbar__filters .tm-toolbar__select { flex: 1 1 40%; max-width: none; } }
 .tm-toolbar__chips { display: flex; align-items: center; gap: var(--tm-s2); flex-wrap: wrap; }
 .tm-toolbar__clear { display: inline-flex; align-items: center; gap: var(--tm-s1); color: var(--tm-ink-3); font-size: var(--tm-text-sm); padding: 0 var(--tm-s2); min-height: var(--tm-hit); }
 .tm-toolbar__clear:hover { color: var(--tm-ink); }
@@ -42,7 +44,9 @@
 .tm-col__head { display: flex; align-items: center; gap: var(--tm-s3); padding: 0 var(--tm-s2); min-height: var(--tm-control); }
 .tm-col__count { font-family: var(--tm-mono); font-size: var(--tm-text-mono); color: var(--tm-ink-3); }
 .tm-col__list { display: flex; flex-direction: column; gap: var(--tm-s3); min-height: var(--tm-control-lg); }
-.tm-col__empty { color: var(--tm-ink-off); text-align: center; padding: var(--tm-s3) 0; border: var(--tm-hairline) dashed var(--tm-line-faint); border-radius: var(--tm-radius-lg); }
+/* An empty column is a quiet drop zone, not a phantom card: the dashed edge only appears while a drag is over it. */
+.tm-col__list:empty { min-height: var(--tm-control-lg); border-radius: var(--tm-radius-lg); border: var(--tm-hairline) dashed transparent; }
+.tm-col[data-over="true"] .tm-col__list:empty { border-color: var(--tm-accent-line); }
 
 /* tablet: three columns visible, scroll-snap across the six */
 @media (max-width: 1199px) {
@@ -134,7 +138,17 @@
 .tm-backlog__grip { color: var(--tm-ink-off); }
 .tm-backlog input[type="checkbox"] { accent-color: var(--tm-accent); width: 14px; height: 14px; margin: 0; }
 @media (max-width: 719px) {
-  .tm-backlog td.tm-backlog__title { min-width: 0; width: auto; }
+  /* A phone backlog is a list of compact cards, not nine labelled rows per task: id and status
+     lead, the title takes the width, and a fact that is empty is not drawn at all. */
+  .tm-backlog tr { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tm-s2) var(--tm-s3); padding: var(--tm-s3) var(--tm-s4); }
+  .tm-backlog td { display: inline-flex; align-items: center; padding: 0; border: 0; min-height: 0; grid-template-columns: none; }
+  .tm-backlog td::before { display: none; }
+  .tm-backlog td[data-label="select"] { order: -3; }
+  .tm-backlog td[data-label="id"] { order: -2; }
+  .tm-backlog td[data-label="status"] { order: -1; }
+  .tm-backlog td[data-label="rank"] { display: none; }
+  .tm-backlog td.tm-backlog__title { min-width: 0; width: auto; flex: 1 0 100%; }
+  .tm-backlog td:has(> .tm-faint:only-child) { display: none; }
   .tm-backlog__grip { display: none; }
 }
 

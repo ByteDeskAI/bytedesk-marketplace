@@ -23,3 +23,21 @@ label.tm-btn { display: inline-flex; align-items: center; cursor: pointer; }
   .tm-kv { grid-template-columns: 1fr; gap: var(--tm-s1); }
   .tm-kv dd { margin-bottom: var(--tm-s2); }
 }
+
+/* The inspector heading is focused by script on open so screen readers land on it; a visible
+   ring there makes the editable title read as a focused text input. */
+.tm-inspector__title:focus, .tm-inspector__title:focus-visible { box-shadow: none; outline: 0; }
+.tm-inspector__title .tm-inline:hover { background: var(--tm-hover); }
+/* Below 720 the profile mandates the touch hit target for every control, not only primaries. */
+@media (max-width: 719px) {
+  .tm-inspector .tm-btn, .tm-inspector .tm-btn[data-size="sm"], .tm-inspector .tm-inline, .tm-inspector .tm-select,
+  .tm-inspector .tm-check, .tm-inspector input:not([type="checkbox"]), .tm-inspector .tm-links__row, .tm-inspector .tm-tabs button {
+    min-height: var(--tm-hit); height: auto;
+  }
+  .tm-inspector .tm-btn[data-icon="true"], .tm-inspector .tm-btn[data-icon="true"][data-size="sm"] { width: var(--tm-hit); }
+  .tm-inspector .tm-chip__x { min-width: var(--tm-hit); min-height: var(--tm-hit); justify-content: center; align-items: center; margin-right: 0; }
+  .tm-inspector .tm-check input[type="checkbox"] { width: 24px; height: 24px; }
+}
+/* The inspector body is a height-bound flex column; a tab bar with overflow:auto would shrink to
+   its border. Tabs are chrome, never a scroll region. */
+.tm-inspector__body > .tm-tabs { flex: none; }

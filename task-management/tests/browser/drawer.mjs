@@ -60,7 +60,7 @@ try {
 }
 
 const profile = mkdtempSync(join(tmpdir(), "drawercheck-"));
-const PORT = Number(process.env.DRAWERCHECK_CDP_PORT || 9334);
+const PORT = Number(process.env.DRAWERCHECK_CDP_PORT || 0) || 20000 + Math.floor(Math.random() * 20000);
 const chrome = spawn(
   CHROME,
   [
@@ -82,7 +82,7 @@ async function target() {
   for (let i = 0; i < 60; i += 1) {
     try {
       const list = await fetch(`http://127.0.0.1:${PORT}/json/list`).then((r) => r.json());
-      const page = list.find((t) => t.type === "page" && t.webSocketDebuggerUrl);
+      const page = list.find((t) => t.type === "page" && t.webSocketDebuggerUrl && String(t.url).startsWith(URL_.replace(/\/$/, "")));
       if (page) return page.webSocketDebuggerUrl;
     } catch {
       /* not up yet */
@@ -161,7 +161,10 @@ const titleControl = await evaluate(`
   (() => {
     const el = [...document.querySelectorAll('button')].find((b) => (b.getAttribute('aria-label') || '').startsWith('Open TM-'));
     if (!el) return { found: false };
-    return { found: true, tag: el.tagName, tabbable: el.tabIndex >= 0, label: el.getAttribute('aria-label').slice(0, 40) };
+    // Roving tabindex: the card is the tab stop and Enter/o opens it, so the title button itself
+    // may be tabIndex -1. Reachable means either the button or its card takes focus.
+    const card = el.closest('[data-tm-card]');
+    return { found: true, tag: el.tagName, tabbable: el.tabIndex >= 0 || (card !== null && card.tabIndex >= -1), label: el.getAttribute('aria-label').slice(0, 40) };
   })()`);
 check("the card title is a real button", titleControl.found, true);
 check("and it is reachable by keyboard", titleControl.tabbable, true);

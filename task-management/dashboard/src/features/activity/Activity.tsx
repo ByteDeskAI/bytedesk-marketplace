@@ -42,8 +42,10 @@ export default function Activity() {
   const rows = useMemo<Row[]>(() => {
     const base = (fetched.data ?? []) as Row[];
     const last = base.length ? base[base.length - 1].ts : "";
-    const catalog = Object.values(meta?.vocab.eventCatalog ?? {}).reduce<Record<string, string>>((acc, g) => { for (const [k, v] of Object.entries(g)) acc[k] = v.label; return acc; }, {});
-    const fresh = live.filter((e) => e.ts > last && (!id || e.id === id)).map((e) => ({ ...e, label: e.label ?? catalog[e.event] ?? e.event }));
+    // The catalog is flat: kind → { group, label }. An uncatalogued kind reads as words, never as an identifier.
+    const catalog = Object.fromEntries(Object.entries((meta?.vocab.eventCatalog ?? {}) as Record<string, { label?: string }>).map(([k, v]) => [k, v.label ?? k]));
+    const humanise = (k: string) => k.replace(/[_-]+/g, " ");
+    const fresh = live.filter((e) => e.ts > last && (!id || e.id === id)).map((e) => ({ ...e, label: e.label ?? catalog[e.event] ?? humanise(e.event) }));
     return [...base, ...fresh]
       .filter((e) => (noise || !e._shadowed) && (!kind || e.event === kind) && (!actor || e.actor === actor) && (!session || e.session === session))
       .reverse();
@@ -75,7 +77,7 @@ export default function Activity() {
 
   return (
     <div className="tm-screen tm-activity">
-      <ScreenHead title="Activity" blurb="Every write the store recorded, newest first, keyed by task, session and actor. The feed appends live."
+      <ScreenHead title="Activity" blurb="Every write the store recorded, newest first, live."
         actions={<>
           <TextField aria-label="entity id" placeholder="id: TM-014" mono value={id} onChange={(e) => setQuery({ id: e.target.value.trim().toUpperCase() || null })} style={{ width: 140 }} />
           <Select aria-label="kind" value={kind} onChange={(e) => setQuery({ kind: e.target.value || null })} placeholder="every kind" options={options("event").map((v) => ({ value: v, label: v }))} />

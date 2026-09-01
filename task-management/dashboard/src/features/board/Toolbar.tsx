@@ -1,4 +1,4 @@
-import { Bookmark, ChevronDown, Filter, Plus, X } from "lucide-react";
+import { Bookmark, ChevronDown, Filter, Plus, Search, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "../../components/ui/Button";
 import { Chip } from "../../components/ui/Chip";
@@ -7,7 +7,7 @@ import { Menu } from "../../components/ui/Menu";
 import { Modal } from "../../components/ui/Modal";
 import { Toggle } from "../../components/ui/Toggle";
 import { write } from "../../lib/api";
-import { isActive, labelOptions, loadViews, mergeViews, options, pushViews, saveViews, type SavedViews } from "../../lib/filters";
+import { FIELD_NAMES, formatQuery, isActive, labelOptions, loadViews, mergeViews, options, parseQuery, pushViews, saveViews, type SavedViews } from "../../lib/filters";
 import { useBoard, useMeta, useWrite } from "../../lib/store";
 import { EMPTY, PRIORITIES, useIsPhone, type Filters } from "./model";
 
@@ -35,6 +35,13 @@ export function Toolbar({ filters, setFilters, grouped, setGrouped, onCreateTask
   const [views, setViews] = useState<SavedViews>(() => loadViews());
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState("");
+  // One filter language: the query box speaks tm find syntax and the pickers below only write
+  // into it. The draft follows the URL so a chip removal or a saved view shows up in the box.
+  const fields = meta?.vocab.findFields ?? FIELD_NAMES;
+  const [draft, setDraft] = useState(() => formatQuery(filters));
+  const applied = formatQuery(filters);
+  useEffect(() => setDraft(applied), [applied]);
+  const apply = () => { if (draft.trim() !== applied) setFilters(parseQuery(draft.trim(), fields)); };
   useEffect(() => {
     setViews((local) => {
       const merged = mergeViews(local, board?.settings?.views);
@@ -108,7 +115,21 @@ export function Toolbar({ filters, setFilters, grouped, setGrouped, onCreateTask
         <Button size="sm" onClick={onCreateEpic}>New epic</Button>
         <Button size="sm" variant="primary" onClick={onCreateTask}><Plus size={14} /> New task</Button>
       </div>
-      <details className="tm-toolbar__filters" open={!phone}>
+      <div className="tm-toolbar__row">
+        <TextField
+          type="search"
+          mono
+          className="tm-toolbar__query"
+          aria-label="filter query in tm find syntax"
+          placeholder={phone ? "status:open label:ui …" : "filter — status:open assignee:ryan -label:stale, or words"}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={apply}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); apply(); } if (e.key === "Escape") { e.stopPropagation(); setDraft(applied); } }}
+          leading={<Search size={13} aria-hidden />}
+        />
+      </div>
+      <details className="tm-toolbar__filters">
         <summary className="tm-toolbar__summary"><Filter size={13} aria-hidden /> filters{chips.length ? <span className="tm-id"> · {chips.length}</span> : null}</summary>
         <div className="tm-toolbar__row">
           {sel("epic", "epic", options(tasks, "epic"))}

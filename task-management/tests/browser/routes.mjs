@@ -68,7 +68,7 @@ const paths = patterns.map((p) => (p.includes(":id") ? (sample[p] ? p.replace(":
 for (const [i, p] of patterns.entries()) if (!paths[i]) console.log(`  skip  ${p} — the store has nothing to open`);
 
 const profile = mkdtempSync(join(tmpdir(), "routecheck-"));
-const PORT = Number(process.env.ROUTECHECK_CDP_PORT || 9335);
+const PORT = Number(process.env.ROUTECHECK_CDP_PORT || 0) || 20000 + Math.floor(Math.random() * 20000);
 const chrome = spawn(CHROME, [
   "--headless=new",
   `--remote-debugging-port=${PORT}`,
@@ -84,7 +84,7 @@ async function target() {
   for (let i = 0; i < 60; i += 1) {
     try {
       const list = await fetch(`http://127.0.0.1:${PORT}/json/list`).then((r) => r.json());
-      const page = list.find((t) => t.type === "page" && t.webSocketDebuggerUrl);
+      const page = list.find((t) => t.type === "page" && t.webSocketDebuggerUrl && (t.url === "about:blank" || String(t.url).startsWith(URL_.replace(/\/$/, ""))));
       if (page) return page.webSocketDebuggerUrl;
     } catch {
       /* not up yet */

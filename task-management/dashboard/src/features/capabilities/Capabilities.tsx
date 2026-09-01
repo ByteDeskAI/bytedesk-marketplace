@@ -17,6 +17,13 @@ import "../../styles/detail.css";
 
 /** Store vocabulary → what a card says. */
 export const capLabel = (s: string) => ({ open: "proposed", in_progress: "accepted", done: "shipped", deleted: "dropped" })[s] ?? s;
+/** Mirrors lib/capability.mjs score(): impact × ease × confidence, 1–27; unset levels read as M. */
+export function scoreOf(c: { score?: number; impact?: string; effort?: string; confidence?: string }): number {
+  if (typeof c.score === "number") return c.score;
+  const lvl: Record<string, number> = { L: 1, M: 2, H: 3 };
+  const ease: Record<string, number> = { S: 3, M: 2, L: 1 };
+  return (lvl[c.impact ?? ""] || 2) * (ease[c.effort ?? ""] || 2) * (lvl[c.confidence ?? ""] || 2);
+}
 export const capTone = (s: string) => ({ open: "info", in_progress: "accent", done: "ok" } as const)[s as "open" | "in_progress" | "done"];
 const LEVELS = ["H", "M", "L"];
 const EFFORTS = ["S", "M", "L"];
@@ -27,7 +34,7 @@ export default function Capabilities(_: ScreenProps) {
   const { error } = useLoading();
   const [proposing, setProposing] = useState(false);
   const [showDropped, setShowDropped] = useState(false);
-  const caps = (board?.capabilities ?? []).filter((c) => showDropped || c.status !== "deleted").slice().sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  const caps = (board?.capabilities ?? []).filter((c) => showDropped || c.status !== "deleted").slice().sort((a, b) => scoreOf(b) - scoreOf(a));
   return (
     <div className="tm-screen">
       <div className="tm-screen__head">
@@ -46,7 +53,7 @@ export default function Capabilities(_: ScreenProps) {
           Run <code>/task-management:enhance</code> to capture product state, research and propose ranked cards — or write one here.
         </EmptyState>
       ) : (
-        <ul className="tm-caps">
+        <ul className="tm-cap-grid">
           {caps.map((c) => <CapCard key={c.id} cap={c} />)}
         </ul>
       )}
@@ -64,7 +71,7 @@ function CapCard({ cap }: { cap: Capability }) {
           <Chip kind="plain" tone={capTone(cap.status)} dot>{capLabel(cap.status)}</Chip>
           {cap.area && <Chip kind="label">{cap.area}</Chip>}
           <span className="tm-grow" />
-          <span className="tm-cap__score" title="impact × ease × confidence"><span className="mono">{cap.score ?? "–"}</span><span className="tm-faint"> / 27</span></span>
+          <span className="tm-cap__score" title="impact × ease × confidence"><span className="mono">{scoreOf(cap)}</span><span className="tm-faint"> / 27</span></span>
         </div>
         <span className="tm-cap__title">{cap.title}</span>
         <div className="tm-row tm-faint" style={{ gap: "var(--tm-s3)", flexWrap: "wrap" }}>
