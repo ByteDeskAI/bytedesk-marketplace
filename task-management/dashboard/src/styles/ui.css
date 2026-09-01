@@ -236,3 +236,12 @@ button.tm-chip:hover { border-color: var(--tm-line-strong); }
   .tm-check input, .tm-toggle input { width: var(--tm-hit); height: var(--tm-hit); margin: calc((var(--tm-hit) - 18px) / -2); }
   .tm-combo__opt, .tm-menu__item, .tm-palette__item { min-height: var(--tm-hit); }
 }
+
+/* An inspector head with several actions wraps rather than pushing the close button off the
+   panel (the epic inspector grew an Import-goals action). */
+.tm-inspector__head { min-width: 0; }
+.tm-inspector__head .tm-row { flex-wrap: wrap; min-width: 0; }
+/* Long machine values (store paths, session ids) break anywhere on a phone instead of clipping. */
+@media (max-width: 719px) {
+  .tm-id, .tm-mono { overflow-wrap: anywhere; }
+}

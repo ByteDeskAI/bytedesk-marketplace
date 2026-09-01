@@ -121,6 +121,13 @@
   .tm-commandbar { padding: 0 var(--tm-s4); }
   .tm-commandbar__project { display: none; }
   .tm-commandbar .tm-btn[data-icon="true"] { width: var(--tm-control); height: var(--tm-control); }
+  /* 390 px must hold: the search shrinks to fit, the live word becomes its dot (the aria-label
+     keeps the meaning), the theme toggle lives in Settings, and the bar never widens the page. */
+  .tm-commandbar { overflow-x: clip; gap: var(--tm-s2); }
+  .tm-commandbar__search { flex: 1 1 0; min-width: 0; max-width: none; }
+  .tm-commandbar__end { gap: var(--tm-s1); flex: 0 0 auto; }
+  .tm-live__word { display: none; }
+  .tm-commandbar .tm-btn.tm-commandbar__theme { display: none; }
 }
 
 /* toasts + live region */

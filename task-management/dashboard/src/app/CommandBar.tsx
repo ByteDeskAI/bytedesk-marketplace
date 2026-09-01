@@ -66,14 +66,14 @@ export const CommandBar = forwardRef<HTMLInputElement, { pwa: Pwa; onPalette: ()
         />
       </form>
       <div className="tm-commandbar__end">
-        <span className="tm-live" data-live={live} title={live ? "live: the feed is connected" : "reconnecting to the feed"}>
-          {live ? "live" : "reconnecting"}
+        <span className="tm-live" data-live={live} role="status" aria-label={live ? "live: the feed is connected" : "reconnecting to the feed"} title={live ? "live: the feed is connected" : "reconnecting to the feed"}>
+          <span className="tm-live__word">{live ? "live" : "reconnecting"}</span>
         </span>
         {pwa.stale && <Chip tone="warn" dot>offline copy</Chip>}
         {queued > 0 && <Chip tone="info" dot>{queued} queued</Chip>}
         {refused > 0 && <Link to="/settings#outbox"><Chip tone="bad" dot>{refused} refused</Chip></Link>}
         <Button variant="ghost" size="sm" icon={<Command size={16} />} aria-label="command palette (⌘K)" title="⌘K / Ctrl-K" onClick={onPalette} />
-        <Button variant="ghost" size="sm" icon={<ThemeIcon size={16} />} aria-label={`theme: ${theme}`} title={`theme: ${theme} — click to change`} onClick={() => setTheme(cycle[theme])} />
+        <Button className="tm-commandbar__theme" variant="ghost" size="sm" icon={<ThemeIcon size={16} />} aria-label={`theme: ${theme}`} title={`theme: ${theme} — click to change`} onClick={() => setTheme(cycle[theme])} />
         <PwaPanel pwa={pwa} />
         <Menu
           label="profile"

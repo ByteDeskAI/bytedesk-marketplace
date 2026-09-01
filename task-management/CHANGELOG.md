@@ -3,6 +3,11 @@
 ## Unreleased
 
 ### Added
+- **Dashboard grading rounds 2–3 (PASS).** Phone command bar fits 390 px (search shrinks, live
+  word becomes its dot with an aria-label, theme toggle lives in Settings), inspector controls are
+  44 px on phones, inspector heads wrap instead of pushing the close button off-panel, long mono
+  values break on phones, Modal owns Escape. Final grade: coverage 5, keyboard 5, performance 5,
+  tests 5, design 4, accessibility 4, responsiveness 4; zero P0.
 - **Dashboard grading round 1 fixes.** Goal import from `/plans` and the epic inspector; templates
   and per-kind ntfy toggles (`ntfy.categories` joins the settings catalog) on `/settings` with a
   section list; `?` opens a shortcuts sheet over any screen; 44 px touch targets below 720 px;

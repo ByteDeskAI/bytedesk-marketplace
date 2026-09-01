@@ -19,6 +19,7 @@ label.tm-btn { display: inline-flex; align-items: center; cursor: pointer; }
 .tm-mdedit__btn { position: absolute; top: 0; right: 0; opacity: 0; }
 .tm-mdedit:hover .tm-mdedit__btn, .tm-mdedit:focus-within .tm-mdedit__btn { opacity: 1; }
 @media (max-width: 719px) {
+  .tm-inspector input:not([type="checkbox"]):not([type="radio"]), .tm-inspector select, .tm-inspector textarea { min-height: var(--tm-hit); }
   .tm-fields { grid-template-columns: 1fr 1fr; }
   .tm-kv { grid-template-columns: 1fr; gap: var(--tm-s1); }
   .tm-kv dd { margin-bottom: var(--tm-s2); }

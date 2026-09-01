@@ -168,10 +168,11 @@ export default function EpicInspector({ params }: ScreenProps) {
         )}
       </Section>
 
-      <Section title="progress">
+      {/* No "progress" eyebrow: the bar, the count and the number already say it. */}
+      <section className="tm-inspector__section" aria-label="progress">
         <div className="tm-row"><Progress value={done} max={total} label={`${done} of ${total} done`} tone={total > 0 && done === total ? "ok" : undefined} /><span className="tm-id">{done}/{total}</span></div>
         {total > 0 && <Bars rows={byStatus} label={`${id} children by status`} />}
-      </Section>
+      </section>
 
       <Modal open={confirmClose} onClose={() => setConfirmClose(false)} title={`Close ${id}?`} footer={<><Button variant="ghost" onClick={() => setConfirmClose(false)}>Cancel</Button><Button variant="primary" pending={pending} onClick={() => void run(() => write.closeEpic(id), { ok: `${id} closed` }).then(() => setConfirmClose(false))}>Close epic</Button></>}>
         <p>

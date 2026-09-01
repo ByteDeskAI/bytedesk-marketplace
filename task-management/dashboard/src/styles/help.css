@@ -16,3 +16,7 @@
 /* The shared .tm-keys grid packs four groups into narrow columns; give each group a real measure. */
 .tm-help .tm-keys { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--tm-s6); }
 .tm-help .tm-keys dl { grid-template-columns: max-content minmax(0, 1fr); column-gap: var(--tm-s4); }
+
+/* A command is one token: never wrap it mid-word; let the card scroll instead. */
+.tm-skill__cmd { white-space: nowrap; overflow-x: auto; display: block; max-width: 100%; }
+.tm-help .tm-row { flex-wrap: wrap; }
