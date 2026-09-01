@@ -121,7 +121,14 @@ async function press(key, { code, modifiers = 0 } = {}) {
   await sleep(140);
 }
 
-await sleep(2500);
+// The board is a lazy chunk plus a fetch: wait for cards (or an empty state) rather than a
+// fixed sleep, which raced the first render on a cold cache.
+for (let i = 0; i < 60; i++) {
+  const n = await evaluate("document.querySelectorAll('[data-tm-card], .tm-empty, [data-tm-empty]').length");
+  if (n > 0) break;
+  await sleep(250);
+}
+await sleep(400);
 const results = [];
 const check = (name, actual, expected) => {
   const pass = JSON.stringify(actual) === JSON.stringify(expected);
@@ -132,10 +139,24 @@ const check = (name, actual, expected) => {
 const cursor = () => evaluate("document.activeElement?.getAttribute?.('data-tm-card') ?? null");
 const ringed = () =>
   evaluate(
-    "Array.from(document.querySelectorAll('[data-tm-card]')).filter(e=>getComputedStyle(e).outlineStyle==='solid').map(e=>e.getAttribute('data-tm-card')).join(',') || null",
+    "Array.from(document.querySelectorAll('[data-tm-card]')).filter(e=>{const c=getComputedStyle(e);return c.outlineStyle==='solid'||(c.boxShadow&&c.boxShadow!=='none')}).map(e=>e.getAttribute('data-tm-card')).join(',') || null",
   );
 
-check("board rendered", await evaluate("document.querySelectorAll('[data-tm-card]').length > 0"), true);
+// A board with no cards is a skip when the store is empty and a failure when it is not —
+// the cursor walk below means nothing without a card, and a regression that renders none
+// on a full store is exactly what this script exists to catch.
+const cards = await evaluate("document.querySelectorAll('[data-tm-card]').length");
+if (cards === 0) {
+  const stored = await fetch(new URL("/api/board", URL_)).then((r) => r.json()).then((b) => (b.tasks || []).length).catch(() => 0);
+  chrome.kill();
+  if (stored === 0) {
+    console.log("skip: the store has no tasks, so the board has no cards to walk");
+    process.exit(0);
+  }
+  console.log(`  FAIL board rendered: the store holds ${stored} task(s) but no [data-tm-card] rendered`);
+  process.exit(1);
+}
+check("board rendered", cards > 0, true);
 check("no cursor before any key", await cursor(), null);
 
 await press("j");
@@ -170,8 +191,8 @@ check("h comes back", await cursor(), second);
 await press("g");
 check("g jumps to the top of the column", await cursor(), first);
 
-// The board's own accessibility surface.
-check("columns are lists", await evaluate("document.querySelectorAll('[role=list]').length"), 5);
+// The board's own accessibility surface. Six columns: COLUMNS in lib/render.mjs, backlog included.
+check("columns are lists", await evaluate("document.querySelectorAll('[role=list]').length"), 6);
 check(
   "cards are list items with labels",
   await evaluate("Array.from(document.querySelectorAll('[data-tm-card]')).every(e=>e.getAttribute('role')==='listitem' && (e.getAttribute('aria-label')||'').length>10)"),
@@ -214,7 +235,7 @@ check("Escape closes the palette", await evaluate("!document.querySelector('#tm-
 
 // / focuses search, and then plain letters must go INTO the field, not to the board.
 await press("/", { code: "Slash" });
-check("/ focuses the search field", await evaluate("document.activeElement.tagName"), "INPUT");
+check("/ focuses the search field", await evaluate("document.activeElement === document.querySelector('input[type=search]')"), true);
 await press("j");
 await press("j");
 check("letters typed in the field stay in the field", await evaluate("document.activeElement.value"), "jj");

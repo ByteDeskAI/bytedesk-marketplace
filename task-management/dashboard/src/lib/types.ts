@@ -366,7 +366,7 @@ export interface Worktree { path: string; branch?: string; taskId?: string; dirt
 export interface Skill { name: string; description: string; userInvokable: boolean; command: string }
 
 /** `GET /api/parallel` */
-export interface Batch { tasks: string[]; touches: string[] }
+export interface Batch { tasks: { id: string; title: string }[]; touches: string[] }
 
 /** `GET /api/entity/:id/history` */
 export interface History { id: string; events: StoreEvent[]; text: string }

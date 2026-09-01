@@ -68,7 +68,7 @@ export const fetchParallel = (epic?: string) => json<{ batches: Batch[] }>(`/api
 export const fetchNtfy = () => json<NtfyInfo>("/api/ntfy");
 export const fetchOverride = () => json<{ override: { reason: string; ts: string } | null; enforce: boolean }>("/api/override");
 export const fetchDoctor = () => json<Doctor>("/api/doctor");
-export const fetchSessions = () => json<{ harness: string | null; sessions: Session[] }>("/api/sessions");
+export const fetchSessions = () => json<{ harness: string | null; mine?: string | null; sessions: Session[] }>("/api/sessions");
 export const fetchSkills = () => json<Skill[]>("/api/skills");
 /** A URL, not a fetch: the browser downloads it. */
 export const exportUrl = (params: { format: string; epic?: string; status?: string; open?: boolean; events?: boolean; download?: boolean }) =>

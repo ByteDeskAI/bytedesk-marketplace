@@ -1,0 +1,14 @@
+/* /sessions: the WIP meter first, then claims as a table, then flat rows. */
+.tm-sessions__wip { display: flex; flex-direction: column; gap: var(--tm-s3); padding: var(--tm-s4) var(--tm-s5); background: var(--tm-surface); border: var(--tm-hairline) solid var(--tm-line-faint); border-radius: var(--tm-radius-lg); }
+.tm-sessions h2 { display: flex; align-items: center; gap: var(--tm-s3); }
+.tm-sessions__title { max-width: 28ch; display: inline-block; vertical-align: bottom; }
+.tm-sessions__rows { list-style: none; display: flex; flex-direction: column; border: var(--tm-hairline) solid var(--tm-line-faint); border-radius: var(--tm-radius-lg); background: var(--tm-surface); }
+.tm-sessions__row { display: flex; align-items: center; gap: var(--tm-s4); padding: var(--tm-s3) var(--tm-s5); border-bottom: var(--tm-hairline) solid var(--tm-line-faint); min-height: var(--bd-size-row-default); flex-wrap: wrap; }
+.tm-sessions__row:last-child { border-bottom: 0; }
+.tm-sessions__main { display: flex; flex-direction: column; gap: var(--tm-s1); flex: 1 1 240px; min-width: 0; }
+.tm-sessions__said { overflow-wrap: anywhere; }
+.tm-sessions__batches { list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--tm-s4); }
+.tm-sessions__batch { display: flex; flex-direction: column; gap: var(--tm-s3); padding: var(--tm-s4) var(--tm-s5); background: var(--tm-surface); border: var(--tm-hairline) solid var(--tm-line-faint); border-radius: var(--tm-radius-lg); }
+.tm-sessions__batch ul { list-style: none; display: flex; flex-direction: column; gap: var(--tm-s2); }
+.tm-sessions code { font-family: var(--tm-mono); font-size: var(--tm-text-mono-sm); }
+.tm-sessions .tm-row > .tm-select { width: auto; max-width: 360px; }

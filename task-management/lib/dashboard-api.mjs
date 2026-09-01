@@ -1225,7 +1225,10 @@ export function boardPayload(p = paths()) {
 
 // Ranked enhancement backlog. Empty `capabilities/` is `[]`, not omitted. Body on GET.
     // Score is derived (impact × ease × confidence); epic is never stored on the card.
-    capabilities: ranked(p)
+    // Every card, not just the open backlog: the board's capabilities screen shows shipped and
+    // dropped work too, ranked within each status.
+    capabilities: ["open", "in_progress", "done"].flatMap((status) => ranked(p, { status }))
+      .concat(list("capability", { status: "deleted", includeDeleted: true }, p))
       .filter(mine)
       .map(({ body, file, ...c }) => ({ ...c, score: capScore(c) })),
 

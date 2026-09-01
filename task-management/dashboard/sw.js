@@ -18,8 +18,14 @@ const SHELL = "tm-shell-" + VERSION;
 const DATA = "tm-data-" + VERSION;
 const PRECACHE = __PRECACHE__;
 
-/** The two reads worth keeping a copy of. Everything else is live or nothing. */
-const isBoardData = (path) => path === "/api/board" || path.startsWith("/api/events");
+/**
+ * The reads worth keeping a last-known copy of: the board itself, the log, and the
+ * screens that render from one GET. Everything else is live or nothing — writes, the
+ * SSE stream, a task's work stream, and an export (a stale export is a wrong file).
+ */
+const CACHED_READS = ["/api/board", "/api/events", "/api/meta", "/api/graph", "/api/time", "/api/claims", "/api/sessions", "/api/doctor", "/api/find", "/api/standup", "/api/skills"];
+const isBoardData = (path) => CACHED_READS.some((p) => path === p || path.startsWith(p + "?") || path.startsWith(p + "/"));
+const isLive = (path) => path === "/events" || path.endsWith("/stream") || path.startsWith("/api/export");
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(SHELL).then((c) => c.addAll(PRECACHE)).then(() => self.skipWaiting()));
@@ -41,14 +47,14 @@ self.addEventListener("fetch", (e) => {
   if (req.method !== "GET") return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
-  // The SSE stream must stay a live connection — caching it would hang the board.
-  if (url.pathname === "/events") return;
+  // The SSE streams must stay live connections — caching one would hang the board.
+  if (isLive(url.pathname)) return;
 
   if (isBoardData(url.pathname)) {
     e.respondWith(networkFirst(req));
     return;
   }
-  if (url.pathname.startsWith("/assets/") || url.pathname.startsWith("/icons/")) {
+  if (url.pathname.startsWith("/assets/") || url.pathname.startsWith("/icons/") || url.pathname.startsWith("/fonts/")) {
     e.respondWith(cacheFirst(req));
     return;
   }

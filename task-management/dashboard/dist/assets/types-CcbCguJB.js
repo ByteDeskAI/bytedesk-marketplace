@@ -1,0 +1,1 @@
+const r=["task","bug","story","spike","chore"];function i(e){return e!=null&&e.type&&r.includes(e.type)?e.type:((e==null?void 0:e.labels)??[]).map(n=>String(n).toLowerCase()).find(n=>r.includes(n)&&n!=="task")||"task"}export{i as t};

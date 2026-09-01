@@ -1,0 +1,7 @@
+/* /standup: prose that reads as a report and pastes as one. */
+.tm-standup__body { display: flex; flex-direction: column; gap: var(--tm-s4); max-width: 80ch; }
+.tm-standup__md { padding: var(--tm-s6); background: var(--tm-surface); border: var(--tm-hairline) solid var(--tm-line-faint); border-radius: var(--tm-radius-lg); }
+.tm-standup__md .tm-md h1 { font-size: var(--tm-h2); }
+.tm-standup__md .tm-md h2 { margin-top: var(--tm-s4); color: var(--tm-ink-2); font-size: var(--tm-text-sm); letter-spacing: var(--tm-caps); text-transform: uppercase; }
+.tm-standup__md .tm-md li { line-height: var(--tm-lh-body); }
+.tm-standup .tm-screen__actions .tm-input-wrap, .tm-standup .tm-screen__actions .tm-input { width: auto; }

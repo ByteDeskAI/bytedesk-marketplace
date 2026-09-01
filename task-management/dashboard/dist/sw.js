@@ -13,13 +13,19 @@
  * Deliberately hand-written: a build-time-generated worker is ~90 lines, and a
  * framework for it would be the largest dependency in the plugin.
  */
-const VERSION = "dfc534942e70";
+const VERSION = "d8d41fcf28a0";
 const SHELL = "tm-shell-" + VERSION;
 const DATA = "tm-data-" + VERSION;
-const PRECACHE = ["/","/index.html","/manifest.webmanifest","/assets/index-D6LlaiTE.js","/assets/vendor-BfEU_3h5.js","/assets/vendor-CFGcZWAv.css","/icons/icon-192.png","/icons/icon-512.png","/icons/maskable-512.png"];
+const PRECACHE = ["/","/index.html","/manifest.webmanifest","/assets/Activity-Ju_EL8Ev.js","/assets/Activity-pPaknp5j.css","/assets/Backlog-TR2Heu_l.js","/assets/Bars-Das7Ym5P.js","/assets/Board-BaMKXU0I.js","/assets/Capabilities-BizMv4P4.js","/assets/Capabilities-DwswHRFe.css","/assets/CapabilityInspector-DrVw-qYH.js","/assets/Checkbox-DbZRvnZu.js","/assets/Combobox-C6XVwyzR.js","/assets/CreateModals-or7O3o4a.js","/assets/DecisionInspector-cHjIGyHY.js","/assets/Decisions-B6BNzBGe.js","/assets/Decisions-DY4AgOjw.css","/assets/Doctor-BHy3s7fe.css","/assets/Doctor-BnEAHEsA.js","/assets/EmptyState-UeuRM5Cb.js","/assets/EpicInspector-4_nGjd12.js","/assets/Epics-CkZO6wmR.js","/assets/Graph-C3bS-yU0.css","/assets/Graph-sgSGjP_n.js","/assets/Help-DIUPDqQw.js","/assets/Help-DZxzRUow.css","/assets/InlineEdit-B0pGL2cw.js","/assets/KpiTile-B0aIFfJL.js","/assets/Markdown-D3EaqVXv.js","/assets/MarkdownEdit-UZ-CwPqZ.js","/assets/PlanPreview-O5l_vsuU.js","/assets/Plans-Bfev2dVZ.js","/assets/Plans-CY__11Qs.css","/assets/Progress-BZORtHou.js","/assets/Reports-C5Pmd-zH.css","/assets/Reports-meK1tD6S.js","/assets/Search-CFzQu0iF.js","/assets/Search-PN_LPO2n.css","/assets/Sessions-B53OA-cK.js","/assets/Sessions-CLWUoECS.css","/assets/Settings-Muz2HpUI.js","/assets/SprintInspector-BcoioVMH.js","/assets/Sprints-CwS8URDW.js","/assets/Standup-COBaK1-I.css","/assets/Standup-CvJ3omMP.js","/assets/Table-D5s_keJW.js","/assets/Tabs-dFhuTSNM.js","/assets/TaskInspector-C2lVR8fN.css","/assets/TaskInspector-C7IHiuTf.js","/assets/Toolbar-DkTNP5_X.js","/assets/detail-C2MF8KFZ.css","/assets/filters-CauvWfpR.js","/assets/index-BL4kAE7J.js","/assets/index-CUvmu5ry.css","/assets/lanes-Dbmpa1SZ.js","/assets/metrics-RCzJw4Z5.js","/assets/model-DBCuBtFp.css","/assets/model-DbSXO6aK.js","/assets/shared-CdIow3o6.js","/assets/sprints-9Lm-TYQn.css","/assets/types-CcbCguJB.js","/assets/vendor-BdezM1B8.js","/fonts/ibm-plex-mono-latin-400-normal.woff2","/fonts/ibm-plex-mono-latin-500-normal.woff2","/fonts/ibm-plex-sans-latin-400-normal.woff2","/fonts/ibm-plex-sans-latin-500-normal.woff2","/fonts/ibm-plex-sans-latin-600-normal.woff2","/icons/icon-192.png","/icons/icon-512.png","/icons/maskable-512.png"];
 
-/** The two reads worth keeping a copy of. Everything else is live or nothing. */
-const isBoardData = (path) => path === "/api/board" || path.startsWith("/api/events");
+/**
+ * The reads worth keeping a last-known copy of: the board itself, the log, and the
+ * screens that render from one GET. Everything else is live or nothing — writes, the
+ * SSE stream, a task's work stream, and an export (a stale export is a wrong file).
+ */
+const CACHED_READS = ["/api/board", "/api/events", "/api/meta", "/api/graph", "/api/time", "/api/claims", "/api/sessions", "/api/doctor", "/api/find", "/api/standup", "/api/skills"];
+const isBoardData = (path) => CACHED_READS.some((p) => path === p || path.startsWith(p + "?") || path.startsWith(p + "/"));
+const isLive = (path) => path === "/events" || path.endsWith("/stream") || path.startsWith("/api/export");
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(SHELL).then((c) => c.addAll(PRECACHE)).then(() => self.skipWaiting()));
@@ -41,14 +47,14 @@ self.addEventListener("fetch", (e) => {
   if (req.method !== "GET") return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
-  // The SSE stream must stay a live connection — caching it would hang the board.
-  if (url.pathname === "/events") return;
+  // The SSE streams must stay live connections — caching one would hang the board.
+  if (isLive(url.pathname)) return;
 
   if (isBoardData(url.pathname)) {
     e.respondWith(networkFirst(req));
     return;
   }
-  if (url.pathname.startsWith("/assets/") || url.pathname.startsWith("/icons/")) {
+  if (url.pathname.startsWith("/assets/") || url.pathname.startsWith("/icons/") || url.pathname.startsWith("/fonts/")) {
     e.respondWith(cacheFirst(req));
     return;
   }

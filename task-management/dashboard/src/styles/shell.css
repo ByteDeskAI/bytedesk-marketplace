@@ -154,3 +154,8 @@
 .tm-keys { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--tm-s6); }
 .tm-keys dl { display: grid; grid-template-columns: auto 1fr; gap: var(--tm-s2) var(--tm-s4); align-items: center; }
 .tm-keys dd { color: var(--tm-ink-2); }
+
+/* The scrim only exists on narrow widths; at desktop widths it must not take a grid cell. */
+@media (min-width: 1200px) {
+  .tm-inspector__scrim { display: none; }
+}

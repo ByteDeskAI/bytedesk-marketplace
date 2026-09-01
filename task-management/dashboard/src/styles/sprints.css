@@ -1,0 +1,13 @@
+/* Sprints: a list of cards plus one hero for the active sprint. Tokens only. */
+.tm-sprints { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--tm-s4); }
+.tm-sprint { display: flex; flex-direction: column; gap: var(--tm-s3); }
+.tm-sprint[data-done] { opacity: 0.72; }
+.tm-sprint .tm-progress { flex: 1 1 auto; }
+.tm-sprint__actions { justify-content: flex-end; }
+.tm-sprint-hero { display: flex; flex-direction: column; gap: var(--tm-s4); }
+.tm-sprint-tasks { display: flex; flex-direction: column; gap: var(--tm-s2); }
+.tm-sprint-tasks > li { padding: var(--tm-s2) 0; border-top: 1px solid var(--tm-line-faint); }
+.tm-sprint-tasks > li:first-child { border-top: 0; }
+@media (max-width: 719px) {
+  .tm-sprints { grid-template-columns: 1fr; }
+}

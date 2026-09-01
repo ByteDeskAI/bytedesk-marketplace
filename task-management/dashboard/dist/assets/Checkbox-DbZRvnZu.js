@@ -1,0 +1,1 @@
+import{j as e}from"./vendor-BdezM1B8.js";function r({checked:t,onChange:a,children:s,disabled:o,strike:n}){return e.jsxs("label",{className:"tm-check","data-done":n&&t||void 0,children:[e.jsx("input",{type:"checkbox",checked:t,disabled:o,onChange:x=>a(x.target.checked)}),s&&e.jsx("span",{children:s})]})}export{r as C};

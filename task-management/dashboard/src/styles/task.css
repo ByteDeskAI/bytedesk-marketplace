@@ -1,0 +1,50 @@
+/* task inspector: fields grid, why-chain, evidence, comments, history, work stream */
+.tm-task { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--tm-s6); min-height: 0; }
+.tm-task[data-live="true"] { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+.tm-task__main { display: flex; flex-direction: column; gap: var(--tm-s7); min-width: 0; }
+.tm-task__side { position: sticky; top: 0; min-width: 0; }
+.tm-task__meta { flex-wrap: wrap; gap: var(--tm-s2); }
+.tm-task__preview { padding-top: var(--tm-s2); }
+.tm-task__handoff { font-size: var(--tm-text-mono-sm); max-height: 60vh; overflow: auto; }
+
+.tm-ac { display: flex; flex-direction: column; gap: var(--tm-s1); }
+.tm-ac__row { display: flex; align-items: flex-start; gap: var(--tm-s2); }
+.tm-ac__row .tm-check { flex: 1 1 auto; align-items: flex-start; }
+.tm-ac__row .tm-check input { margin-top: 3px; }
+
+.tm-why { display: flex; flex-direction: column; gap: var(--tm-s3); padding: var(--tm-s3); border-radius: var(--tm-radius); background: var(--tm-canvas); border: var(--tm-hairline) solid var(--tm-line-faint); }
+.tm-why__reason { color: var(--tm-ink-2); }
+.tm-why__chain { display: flex; flex-direction: column; gap: var(--tm-s2); border-left: var(--tm-hairline) solid var(--tm-line-strong); padding-left: var(--tm-s3); }
+.tm-why__chain li { display: flex; align-items: center; gap: var(--tm-s2); min-width: 0; flex-wrap: wrap; }
+
+.tm-evidence { display: flex; flex-direction: column; gap: var(--tm-s2); }
+.tm-evidence__row { display: flex; flex-direction: column; gap: var(--tm-s2); min-width: 0; }
+.tm-evidence__row[data-missing="true"] .tm-evidence__name { color: var(--tm-ink-3); text-decoration: line-through; }
+.tm-evidence__name { text-align: left; color: var(--tm-accent); overflow-wrap: anywhere; padding: 0; }
+.tm-evidence__pre { max-height: 40vh; overflow: auto; padding: var(--tm-s3); background: var(--tm-ground); border: var(--tm-hairline) solid var(--tm-line-faint); border-radius: var(--tm-radius); font-size: var(--tm-text-mono-sm); }
+.tm-evidence__img { max-height: 50vh; width: auto; border-radius: var(--tm-radius); border: var(--tm-hairline) solid var(--tm-line-faint); }
+
+.tm-comments { display: flex; flex-direction: column; }
+.tm-comment { display: flex; flex-direction: column; gap: var(--tm-s1); padding: var(--tm-s3) 0; }
+.tm-comment + .tm-comment { border-top: var(--tm-hairline) solid var(--tm-line-faint); }
+.tm-comment p { line-height: var(--tm-lh-body); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.tm-history { display: flex; flex-direction: column; }
+.tm-history__row { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--tm-s1) var(--tm-s4); padding: var(--tm-s2) 0; border-bottom: var(--tm-hairline) solid var(--tm-line-faint); align-items: baseline; }
+.tm-history__row time { font-size: var(--tm-text-mono-sm); }
+.tm-history__row > .tm-faint { grid-column: 2; }
+.tm-history__label { color: var(--tm-ink); }
+
+.tm-stream { display: flex; flex-direction: column; gap: var(--tm-s3); min-height: 240px; max-height: calc(100vh - var(--tm-commandbar) - 160px); border: var(--tm-hairline) solid var(--tm-line-faint); border-radius: var(--tm-radius-lg); background: var(--tm-canvas); padding: var(--tm-s4); }
+.tm-stream__head { gap: var(--tm-s2); }
+.tm-stream__scroll { flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: var(--tm-s3); overscroll-behavior: contain; }
+.tm-stream__msg { display: flex; flex-direction: column; gap: var(--tm-s2); padding: var(--tm-s3); background: var(--tm-surface); border-radius: var(--tm-radius); border: var(--tm-hairline) solid var(--tm-line-faint); }
+.tm-stream__msg[data-role="user"] { border-color: var(--tm-line); }
+.tm-stream__text { font-size: var(--tm-text-mono-sm); color: var(--tm-ink-2); }
+.tm-stream__tool { display: flex; align-items: center; gap: var(--tm-s2); padding: var(--tm-s2); border-left: var(--bd-stroke-active) solid var(--tm-accent-line); background: var(--tm-ground); font-size: var(--tm-text-mono-sm); color: var(--tm-ink-2); min-width: 0; }
+pre.tm-stream__tool { display: block; max-height: 240px; overflow: auto; }
+.tm-stream__tool[data-error="true"] { border-left-color: var(--tm-bad); color: var(--tm-bad); }
+
+
+/* markdown that edits in place: the pencil sits in the corner and only shows on hover/focus */
+@media (hover: none) { .tm-mdedit__btn { opacity: 1; } }

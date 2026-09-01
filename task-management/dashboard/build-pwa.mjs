@@ -9,7 +9,7 @@
  *   node build-pwa.mjs
  */
 import { deflateSync } from "node:zlib";
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,12 +17,18 @@ import { fileURLToPath } from "node:url";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DIST = join(HERE, "dist");
 
-// Atlassian design tokens, resolved. The manifest takes one pair; index.html
-// carries the dark pair as a media-queried <meta name="theme-color">.
-const BRAND = [0x00, 0x52, 0xcc]; // color.background.brand.bold — light
-const INK = [0xff, 0xff, 0xff];
-const THEME = { light: "#0052CC", dark: "#1D2125" };
-const BACKGROUND = { light: "#FFFFFF", dark: "#161A1D" }; // elevation.surface
+// ByteDesk design tokens, read from the vendored DTCG file rather than pasted in: the
+// icons and the manifest are then a function of the design system, and `bd-design sync`
+// moves them with it. index.html carries the same pair as media-queried theme-color.
+const TOKENS = JSON.parse(
+  readFileSync(join(HERE, "..", "..", ".context", "design-system", "tokens", "bytedesk.tokens.json"), "utf8"),
+);
+const token = (path) => path.split(".").reduce((o, k) => o[k], TOKENS).$value;
+const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+const BRAND = rgb(token("color.interactive.blue")); // the family's one action colour
+const INK = rgb(token("color.text.on-brand"));
+const THEME = token("color.interactive.blue");
+const BACKGROUND = token("color.bg.base"); // the app is dark by default; light is the counterpart
 
 // ── PNG ──────────────────────────────────────────────────────────────────────
 const CRC = Int32Array.from({ length: 256 }, (_, n) => {
@@ -141,8 +147,8 @@ const manifest = {
   id: "/",
   display: "standalone",
   orientation: "any",
-  theme_color: THEME.light,
-  background_color: BACKGROUND.light,
+  theme_color: THEME,
+  background_color: BACKGROUND,
   categories: ["productivity", "developer"],
   icons: icons.map((i) => ({
     src: `/icons/${i.file}`,
@@ -155,8 +161,13 @@ writeFileSync(join(DIST, "manifest.webmanifest"), JSON.stringify(manifest));
 
 // The precache list is the build's own output — hashed names, so a stale entry
 // is impossible by construction, and the version is a digest of the list.
+// Everything Vite emitted — the lazy screen chunks included, so a route first opened
+// offline still renders — plus the self-hosted fonts, which a CSP-forbidden CDN can't serve.
 const assets = readdirSync(join(DIST, "assets")).map((f) => `/assets/${f}`);
-const precache = ["/", "/index.html", "/manifest.webmanifest", ...assets, ...icons.map((i) => `/icons/${i.file}`)];
+const fonts = existsSync(join(DIST, "fonts"))
+  ? readdirSync(join(DIST, "fonts")).filter((f) => f.endsWith(".woff2")).map((f) => `/fonts/${f}`)
+  : [];
+const precache = ["/", "/index.html", "/manifest.webmanifest", ...assets, ...fonts, ...icons.map((i) => `/icons/${i.file}`)];
 const version = createHash("sha256").update(precache.join("\n")).digest("hex").slice(0, 12);
 
 const sw = readFileSync(join(HERE, "sw.js"), "utf8")

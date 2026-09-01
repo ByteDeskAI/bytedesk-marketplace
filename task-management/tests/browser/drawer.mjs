@@ -141,7 +141,11 @@ async function press(key) {
 
 // Opened through the board's own keyboard rather than by guessing at a clickable element: `j`
 // moves the cursor to the first card, `o` opens it. Deterministic on any board with a task.
-const hasCards = await evaluate(`[...document.querySelectorAll('*')].some(e => e.childElementCount === 0 && /^TM-\\d+$/.test(e.textContent.trim()))`);
+let hasCards = false;
+for (let i = 0; i < 60 && !hasCards; i++) {
+  hasCards = await evaluate("document.querySelectorAll('[data-tm-card]').length > 0");
+  if (!hasCards) await sleep(250);
+}
 if (!hasCards) {
   console.log("skip: the board has no tasks to open");
   process.exit(0);
@@ -168,11 +172,9 @@ await sleep(900);
 
 const shape = await evaluate(`
   (() => {
-    const shell = [...document.querySelectorAll('div')].find(e => {
-      const cs = getComputedStyle(e);
-      return cs.display === 'grid' && cs.maxWidth === '620px';
-    });
-    if (!shell) return { found: false };
+    // The inspector marks itself; its body is the one scrolling region (shell.css).
+    const shell = document.querySelector('[data-tm-drawer]');
+    if (!shell || getComputedStyle(shell).display !== 'grid') return { found: false };
     const scroller = [...shell.querySelectorAll('*')].find(e => ['auto','scroll'].includes(getComputedStyle(e).overflowY));
     if (!scroller) return { found: true, scroller: false };
     const idEl = [...shell.querySelectorAll('*')].find(e => e.childElementCount === 0 && /^TM-\\d+$/.test(e.textContent.trim()));
@@ -196,7 +198,7 @@ const shape = await evaluate(`
     };
   })()`);
 
-check("the drawer shell is a grid that fills the panel", shape.found, true);
+check("the inspector ([data-tm-drawer]) is a grid that fills the panel", shape.found, true);
 check("its body is the scrolling region", shape.scroller, true);
 if (!shape.overflows) {
   console.log("  note: nothing overflowed — open a denser task to exercise this properly");

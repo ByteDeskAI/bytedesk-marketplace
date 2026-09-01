@@ -3,6 +3,13 @@
 ## Unreleased
 
 ### Added
+- **Dashboard rewrite, wave 2 (screens) + integration.** The board is a multi-screen app on the
+  ByteDesk design system: Board, Backlog, Epics, Task inspector (why chain, history, evidence,
+  worktree, work stream), Decisions, Capabilities, Plans, Graph, Activity, Standup, Sprints,
+  Sessions (claims, WIP, worktrees, parallel batches, subagents), Doctor, Search (`tm find`
+  syntax), Reports (cycle time, throughput, export), Settings (dirty state, ntfy test, override),
+  Help (shortcuts, skills catalog). Deep links, inspector-over-list routing, optimistic writes with
+  rollback, offline outbox, PWA precache on token colours. Browser tests gain `routes.mjs`.
 - **Dashboard design run.** `docs/design/2026-09-01-tm-dashboard/` holds the brief ("The
   Register": resume work from the record alone), three direction pieces, nine token-accurate HTML
   surfaces with screenshots, and the blind review (`review/findings.json`, zero blocking).
@@ -42,6 +49,7 @@
 - **Tool-call markup is refused at the store boundary.** A body containing an agent's own `<parameter …>` / `<invoke …>` fragments is rejected by `write()`, so every entry point is covered — CLI, MCP, the dashboard's `PATCH /api/task/:id`, and the harness bridge mirroring a native `TaskCreate`. Eleven records were written with their own tool calls embedded before this existed, including one whose entire body was replaced by another task's progress note; the store accepted all of it silently. The check matches the corruption's shape (a tag alone on a line, at the start of one, or trailing at the end of the body) rather than the substring, and skips fenced code so documenting the rule still saves.
 
 ### Changed
+- **Dashboard dependencies removed.** `@atlaskit/*`, `@compiled/*`, `@tanstack/ai-react`; the served bundle is ~70 kB gzipped in total.
 - Worktree `hardlink` share copies on Windows instead of calling `cp -al`.
 - **Global command installation and SessionStart autolinking are removed.** Repositories invoke the committed launchers under `.bytedesk/task-management/bin/`; `.bytedesk/task-management/bin/tm doctor --fix` removes legacy links only when they are proven to belong to this plugin.
 - **Generated runtime files stay out of git.** Store `.gitignore` now names `dashboard.pid` and `dashboard.port` explicitly (still covered by `dashboard.*`), plus `bin` (generated launchers) and `events.json` / `events.jsonl`. Bootstrap and `.bytedesk/task-management/bin/tm doctor --fix` write `.bytedesk/.gitignore` so `worktrees/` is ignored without swallowing the store. Dashboard `.gitignore` also drops Vite/tsc leftovers (`.vite`, `*.tsbuildinfo`).

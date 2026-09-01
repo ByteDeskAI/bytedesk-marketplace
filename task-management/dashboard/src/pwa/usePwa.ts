@@ -5,7 +5,7 @@
  * Everything decidable without a browser lives in notify.mjs and queue.mjs and
  * is unit-tested there. This file is only wiring.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { CATEGORIES, notificationFor, recordSelfWrite } from "./notify.mjs";
 import * as outbox from "./outbox.mjs";
 import { loadPrefs, mergeServerPrefs, pushPrefs, savePrefs } from "./prefs.mjs";
@@ -44,6 +44,25 @@ type InstallEvent = Event & {
 let selfWrites: { id: string; ts: number }[] = [];
 export function markSelfWrite(id: string | null) {
   selfWrites = recordSelfWrite(selfWrites, id, Date.now());
+}
+
+export type Pwa = ReturnType<typeof usePwa>;
+
+/**
+ * The shell mounts usePwa once; every other screen reads that instance here. A module-level
+ * mirror rather than context, because api.ts and the outbox already live at module level
+ * and a provider would only exist to carry one object one level down.
+ */
+let shared: Pwa | null = null;
+const sharedListeners = new Set<() => void>();
+export function usePwaShared(): Pwa | null {
+  return useSyncExternalStore(
+    (fn) => {
+      sharedListeners.add(fn);
+      return () => sharedListeners.delete(fn);
+    },
+    () => shared,
+  );
 }
 
 export function usePwa(events: StoreEvent[], inProgress: number) {
@@ -258,7 +277,7 @@ export function usePwa(events: StoreEvent[], inProgress: number) {
   const pendingByTask = useMemo(() => outbox.pendingByTask(), [queue]); // eslint-disable-line react-hooks/exhaustive-deps
   const watching = useMemo(() => new Set(prefs.watching), [prefs.watching]);
 
-  return {
+  const api = {
     stale,
     queue,
     pendingByTask,
@@ -301,4 +320,9 @@ export function usePwa(events: StoreEvent[], inProgress: number) {
       update({ ...prefs, installDismissed: true });
     },
   };
+  useEffect(() => {
+    shared = api;
+    for (const fn of sharedListeners) fn();
+  });
+  return api;
 }

@@ -7,13 +7,13 @@ title: "Remove the project-management plugin and the tm export pm format it targ
 epic: "EP-002"
 acceptance: [{"text":"project-management is gone from the tree and the marketplace manifest","done":true,"at":"2026-07-29T23:07:58.369Z"},{"text":"tm export pm is removed from lib/export.mjs, its tests and the docs","done":true,"at":"2026-07-29T23:07:58.412Z"},{"text":"md, csv and json exports still work; no dangling references remain","done":true,"at":"2026-07-29T23:07:58.462Z"}]
 evidence: []
-commits: ["https://github.com/ByteDeskAI/bytedesk-marketplace/pull/58"]
+commits: ["https://github.com/ByteDeskAI/bytedesk-marketplace/pull/58","3e314b5"]
 blockedBy: []
 blocks: []
 actor: "main"
 branch: "feat/task-management-plugin"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-07-29T23:07:58.499Z"
+updated: "2026-09-01T20:41:57.410Z"
 closed: "2026-07-29T23:07:58.499Z"
 ---
 

@@ -1,0 +1,5 @@
+/* /search: the query is the interface; results are a table. */
+.tm-search__form { display: flex; gap: var(--tm-s3); max-width: 760px; }
+.tm-search__form .tm-input-wrap { flex: 1; }
+.tm-search__fields, .tm-search__views { flex-wrap: wrap; }
+.tm-search code { font-family: var(--tm-mono); font-size: var(--tm-text-mono-sm); padding: 0 var(--tm-s1); background: var(--tm-ground); border-radius: var(--tm-radius); }

@@ -1,0 +1,28 @@
+/* Settings page, and the notifications/outbox panel it shares with the command bar. Tokens only. */
+/* Fills the canvas, left-aligned, up to a readable measure (review finding: no centred 480 px column). */
+.tm-settings { max-width: 1100px; position: relative; }
+.tm-settings__group { display: flex; flex-direction: column; border-top: 1px solid var(--tm-line); padding-top: var(--tm-s5); gap: var(--tm-s2); scroll-margin-top: var(--tm-s5); }
+.tm-settings__group > header { display: flex; flex-direction: column; gap: var(--tm-s2); margin-bottom: var(--tm-s3); }
+.tm-settings__group > header p { color: var(--tm-ink-2); max-width: 64ch; }
+.tm-settings__row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 360px); gap: var(--tm-s5); align-items: start; padding: var(--tm-s3) var(--tm-s3); border-radius: var(--tm-radius); }
+.tm-settings__row[data-dirty] { background: var(--tm-accent-wash); }
+.tm-settings__row p { margin-top: var(--tm-s1); }
+.tm-settings__row .tm-input, .tm-settings__row .tm-select, .tm-settings__row .tm-textarea { width: 100%; }
+.tm-settings__row .tm-toggle { justify-self: end; }
+.tm-settings__row .tm-chip { margin-left: var(--tm-s2); }
+.tm-settings__bar { position: sticky; bottom: 0; display: flex; align-items: center; gap: var(--tm-s3); padding: var(--tm-s3) var(--tm-s4); background: var(--tm-overlay); border: 1px solid var(--tm-line); border-radius: var(--tm-radius-lg); box-shadow: var(--tm-shadow-shell); }
+.tm-settings__config summary { cursor: pointer; color: var(--tm-ink-2); padding: var(--tm-s2) var(--tm-s3); }
+.tm-settings__config pre { background: var(--tm-canvas); border: 1px solid var(--tm-line-faint); border-radius: var(--tm-radius); padding: var(--tm-s4); max-height: 360px; overflow: auto; }
+
+.tm-outbox { display: flex; flex-direction: column; gap: var(--tm-s2); }
+.tm-outbox__row { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--tm-s3); padding: var(--tm-s2) var(--tm-s3); border: 1px solid var(--tm-line-faint); border-radius: var(--tm-radius); }
+.tm-outbox__row[data-status="failed"] { border-color: var(--tm-bad-line); }
+
+.tm-pwa { position: relative; }
+.tm-pwa__badge { position: absolute; top: -2px; right: -2px; min-width: 14px; height: 14px; padding: 0 3px; border-radius: var(--tm-radius-pill); background: var(--tm-accent); color: var(--tm-ink-on-accent); font: var(--tm-w-medium) 10px/14px var(--tm-mono); text-align: center; pointer-events: none; }
+.tm-pwa__panel { position: absolute; top: calc(100% + var(--tm-s2)); right: 0; width: min(380px, calc(100vw - var(--tm-s6))); z-index: 40; display: flex; flex-direction: column; gap: var(--tm-s3); padding: var(--tm-s4); background: var(--tm-overlay); border: 1px solid var(--tm-line); border-radius: var(--tm-radius-lg); box-shadow: var(--tm-shadow-shell); }
+
+@media (max-width: 719px) {
+  .tm-settings__row { grid-template-columns: 1fr; gap: var(--tm-s2); }
+  .tm-settings__row .tm-toggle { justify-self: start; }
+}

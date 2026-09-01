@@ -1,0 +1,20 @@
+/* /graph: the plate scrolls, the why-panel stays put; on a phone the SVG yields to the edge list. */
+.tm-graph__layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: var(--tm-s5); align-items: start; min-height: 0; }
+.tm-graph__plate { display: flex; flex-direction: column; gap: var(--tm-s4); min-width: 0; border-radius: var(--tm-radius-lg); outline: 0; }
+.tm-graph__plate:focus-visible { box-shadow: var(--tm-focus); }
+.tm-graph__scroll { overflow: auto; padding: var(--tm-s4); background: var(--tm-canvas); border: var(--tm-hairline) solid var(--tm-line-faint); border-radius: var(--tm-radius-lg); max-height: calc(100vh - 260px); overscroll-behavior: contain; }
+.tm-graph__scroll svg { display: block; }
+.tm-graph__edges { display: none; flex-direction: column; gap: var(--tm-s2); padding: var(--tm-s4); background: var(--tm-surface); border: var(--tm-hairline) solid var(--tm-line-faint); border-radius: var(--tm-radius-lg); }
+.tm-graph__side { position: sticky; top: 0; display: flex; flex-direction: column; gap: var(--tm-s4); padding: var(--tm-s5); background: var(--tm-surface); border: var(--tm-hairline) solid var(--tm-line-faint); border-radius: var(--tm-radius-lg); min-width: 0; }
+.tm-graph__why { gap: var(--tm-s4); }
+.tm-graph__reasons { display: flex; flex-direction: column; gap: var(--tm-s2); padding-left: var(--tm-s5); list-style: disc; }
+.tm-graph__reasons li[data-blocking="true"] { color: var(--tm-bad); }
+.tm-graph__reasons li[data-blocking="true"] .tm-caps { color: var(--tm-bad); }
+.tm-graph__chain { display: flex; flex-direction: column; gap: var(--tm-s3); list-style: none; }
+.tm-graph__chain li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tm-s2); min-width: 0; }
+.tm-graph__reason { width: 100%; font-style: italic; }
+.tm-graph__text { font-size: var(--tm-text-mono-sm); color: var(--tm-ink-2); white-space: pre-wrap; padding: var(--tm-s3); background: var(--tm-ground); border-radius: var(--tm-radius); }
+@media (max-width: 1199px) { .tm-graph__layout { grid-template-columns: 1fr; } .tm-graph__side { position: static; } }
+@media (max-width: 719px) { .tm-graph__scroll { display: none; } .tm-graph__edges { display: flex; } }
+/* head controls size to content; a native select is 100% wide by default and would push the H1 down */
+.tm-graph .tm-screen__actions .tm-select { width: auto; max-width: 320px; }

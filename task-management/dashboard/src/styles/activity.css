@@ -1,0 +1,21 @@
+/* /activity: a ledger. Time and kind in mono at the edges, the sentence in between. */
+.tm-activity__list, .tm-activity__list ol { list-style: none; display: flex; flex-direction: column; }
+.tm-activity__group { display: flex; flex-direction: column; gap: var(--tm-s2); }
+.tm-activity__group + .tm-activity__group { margin-top: var(--tm-s5); }
+.tm-activity__session { display: flex; align-items: center; gap: var(--tm-s3); padding: var(--tm-s2) 0; border-bottom: var(--tm-hairline) solid var(--tm-line-faint); }
+.tm-activity__row { display: grid; grid-template-columns: 64px 96px minmax(0, 1fr) auto; gap: var(--tm-s4); align-items: baseline; padding: var(--tm-s2) var(--tm-s3); border-radius: var(--tm-radius); min-height: var(--tm-control); }
+.tm-activity__row:hover, .tm-activity__row:focus-visible { background: var(--tm-hover); outline: 0; }
+.tm-activity__row:focus-visible { box-shadow: var(--tm-focus); }
+.tm-activity__row[data-shadowed="true"] { opacity: var(--bd-opacity-secondary); }
+.tm-activity__day { grid-column: 1 / -1; padding: var(--tm-s4) 0 var(--tm-s2); font-family: var(--tm-mono); font-size: var(--tm-text-mono-sm); color: var(--tm-ink-3); letter-spacing: var(--tm-caps); text-transform: uppercase; }
+.tm-activity__who { color: var(--tm-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tm-activity__what { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--tm-s2) var(--tm-s3); min-width: 0; }
+.tm-activity__detail { overflow-wrap: anywhere; }
+.tm-activity__kind { color: var(--tm-ink-3); font-size: var(--tm-text-mono-sm); }
+@media (max-width: 719px) {
+  .tm-activity__row { grid-template-columns: 64px minmax(0, 1fr); }
+  .tm-activity__who { grid-column: 2; }
+  .tm-activity__what { grid-column: 1 / -1; }
+  .tm-activity__kind { display: none; }
+}
+.tm-activity .tm-screen__actions .tm-select { width: auto; max-width: 220px; }

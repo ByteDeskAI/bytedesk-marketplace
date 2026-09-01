@@ -10,7 +10,7 @@
  * ponytail: a module singleton read through useSyncExternalStore, the pattern pwa/outbox.mjs
  * already uses. No query cache: the whole board is one payload under 200 kB at 500 tasks.
  */
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { fetchBoard, fetchEntity, fetchEvents, fetchMeta, subscribe, WriteError } from "./api";
 import { toast } from "./toast";
 import type { Board, Entity, Kind, Meta, StoreEvent } from "./types";
@@ -191,7 +191,14 @@ export function startStore() {
 // ── hooks ──────────────────────────────────────────────────────────────────────────────
 const sub = (fn: () => void) => store.subscribe(fn);
 export function useStore<T>(select: (s: State) => T): T {
-  return useSyncExternalStore(sub, () => select(state));
+  // getSnapshot must return the same value while nothing changed, or React loops (error 185).
+  // `state` is replaced immutably in set(), so its identity is the cache key — a selector may
+  // freely build an object or filter an array.
+  const memo = useRef<{ s: State; v: T } | null>(null);
+  return useSyncExternalStore(sub, () => {
+    if (!memo.current || memo.current.s !== state) memo.current = { s: state, v: select(state) };
+    return memo.current.v;
+  });
 }
 export const useBoard = () => useStore((s) => s.board);
 export const useMeta = () => useStore((s) => s.meta);

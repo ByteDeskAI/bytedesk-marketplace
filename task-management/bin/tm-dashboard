@@ -452,7 +452,7 @@ const server = createServer((req, res) => {
 
   // Hashed build assets and the PWA's icons. The resolve+prefix check is the
   // whole traversal guard — one code path, so /icons/ cannot drift from /assets/.
-  if (path.startsWith("/assets/") || path.startsWith("/icons/")) {
+  if (path.startsWith("/assets/") || path.startsWith("/icons/") || path.startsWith("/fonts/")) {
     const asset = resolve(DIST, `.${normalize(path)}`);
     if (!asset.startsWith(DIST + sep) || !existsSync(asset)) {
       res.writeHead(404).end("not found");

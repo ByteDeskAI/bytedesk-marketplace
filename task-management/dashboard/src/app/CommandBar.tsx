@@ -1,4 +1,5 @@
-import { Bell, Command, Moon, Search, Sun, SunMoon } from "lucide-react";
+import { Command, Moon, Search, Sun, SunMoon } from "lucide-react";
+import { PwaPanel } from "../features/pwa/PwaPanel";
 import { forwardRef, useEffect, useState } from "react";
 import { Avatar } from "../components/ui/Avatar";
 import { Button } from "../components/ui/Button";
@@ -55,6 +56,7 @@ export const CommandBar = forwardRef<HTMLInputElement, { pwa: Pwa; onPalette: ()
         <TextField
           ref={searchRef}
           type="search"
+          name="q"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="search — status:open label:ui, or words"
@@ -72,7 +74,7 @@ export const CommandBar = forwardRef<HTMLInputElement, { pwa: Pwa; onPalette: ()
         {refused > 0 && <Link to="/settings#outbox"><Chip tone="bad" dot>{refused} refused</Chip></Link>}
         <Button variant="ghost" size="sm" icon={<Command size={16} />} aria-label="command palette (⌘K)" title="⌘K / Ctrl-K" onClick={onPalette} />
         <Button variant="ghost" size="sm" icon={<ThemeIcon size={16} />} aria-label={`theme: ${theme}`} title={`theme: ${theme} — click to change`} onClick={() => setTheme(cycle[theme])} />
-        <Link to="/settings#notifications" aria-label="notifications" title="notifications"><Button variant="ghost" size="sm" icon={<Bell size={16} />} aria-label="notifications" tabIndex={-1} /></Link>
+        <PwaPanel pwa={pwa} />
         <Menu
           label="profile"
           trigger={(p) => (
