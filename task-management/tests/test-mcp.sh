@@ -134,6 +134,57 @@ assert_contains "$OUT" '"code":-32700' "unparseable line is -32700"
 assert_contains "$OUT" '"id":null' "parse errors carry a null id"
 
 
+# ── parity with the dashboard's write surface (CAP-0001) ─────────────────────
+# Every verb the board can do, an MCP-only session can do. Count first: a tool that is defined
+# but not advertised is invisible to a client.
+OUT="$(printf '{"jsonrpc":"2.0","id":2,"method":"tools/list"}\n' | mcp)"
+COUNT="$(node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).result.tools.length))' <<<"$OUT")"
+[[ "$COUNT" == 35 ]] && ok "tools/list advertises 35 tools" || no "tools/list advertises 35 tools" "got $COUNT"
+for TOOL in tm_worktree tm_link tm_graph tm_doctor tm_export tm_time tm_parallel tm_task_field tm_history tm_stale tm_goal_import; do
+  assert_contains "$OUT" "\"$TOOL\"" "tools/list advertises $TOOL"
+done
+
+# Fresh tasks, so this block does not depend on what the suite above did to TM-001.
+id_of() { node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(JSON.parse(s).result.content[0].text).id))'; }
+A="$(call tm_task_create '{"title":"Parity A"}' | mcp | id_of)"
+B="$(call tm_task_create '{"title":"Parity B"}' | mcp | id_of)"
+OUT="$(call tm_link "{\"id\":\"$A\",\"type\":\"blocks\",\"to\":\"$B\"}" | mcp)"
+assert_contains "$OUT" '\"type\": \"blocks\"' "tm_link writes the near end"
+assert_contains "$(node "$PLUGIN_ROOT/bin/tm" show "$B")" "blocked by" "the CLI sees the mirrored end"
+OUT="$(call tm_link "{\"id\":\"$A\",\"type\":\"blocks\",\"to\":\"$B\",\"remove\":true}" | mcp)"
+assert_contains "$OUT" '\"links\": []' "tm_link remove leaves the near end clean"
+OUT="$(call tm_task_field "{\"id\":\"$B\",\"dep\":{\"add\":[\"$A\"]},\"priority\":\"high\"}" | mcp)"
+assert_contains "$OUT" '\"blockedBy\": [' "tm_task_field writes a dependency"
+assert_contains "$OUT" '\"priority\": \"high\"' "tm_task_field writes a priority"
+OUT="$(call tm_graph '{}' | mcp)"
+assert_contains "$OUT" 'flowchart' "tm_graph renders mermaid"
+assert_contains "$OUT" '\"edges\": [' "tm_graph returns edges"
+OUT="$(call tm_doctor '{"fix":true}' | mcp)"
+assert_contains "$OUT" 'confirm' "tm_doctor fix without confirm is refused"
+OUT="$(call tm_doctor '{}' | mcp)"
+assert_contains "$OUT" '\"findings\": [' "tm_doctor reports findings"
+OUT="$(call tm_export '{"format":"csv"}' | mcp)"
+assert_contains "$OUT" 'Summary' "tm_export csv carries Jira's header"
+OUT="$(call tm_time '{}' | mcp)"
+assert_contains "$OUT" '\"throughput\"' "tm_time summarises the board"
+OUT="$(call tm_parallel '{}' | mcp)"
+assert_contains "$OUT" '\"batches\": [' "tm_parallel returns batches"
+OUT="$(call tm_history "{\"id\":\"$A\"}" | mcp)"
+assert_contains "$OUT" '\"label\"' "tm_history labels events"
+OUT="$(call tm_stale '{}' | mcp)"
+assert_contains "$OUT" '\"minutes\"' "tm_stale reports the threshold"
+printf '# Goal: Imported over MCP\n\n## Success criteria\n\n- it lands\n' > "$TM_ROOT/goal.md"
+OUT="$(call tm_goal_import '{"path":"goal.md"}' | mcp)"
+assert_contains "$OUT" '\"criteria\": 1' "tm_goal_import turns a doc into a gated task"
+OUT="$(call tm_goal_import '{"path":"../outside.md"}' | mcp)"
+assert_contains "$OUT" 'inside' "tm_goal_import refuses a path outside the repo"
+OUT="$(call tm_worktree '{"action":"list"}' | mcp)"
+assert_contains "$OUT" '\"worktrees\": [' "tm_worktree list reads (a bare store has none)"
+OUT="$(call tm_task_update "{\"id\":\"$B\",\"action\":\"delete\",\"reason\":\"dup\"}" | mcp)"
+assert_contains "$OUT" '\"status\": \"deleted\"' "tm_task_update delete is soft"
+OUT="$(call tm_task_update "{\"id\":\"$B\",\"action\":\"restore\"}" | mcp)"
+assert_contains "$OUT" '\"status\": \"blocked\"' "tm_task_update restore brings it back where it was (blocked by A)"
+
 # ── the server is harness-agnostic (TM-039) ──────────────────────────────────
 # Driven the way Codex and Grok drive it: their own client identity, their own session variable,
 # and no Claude Code variable anywhere. The MCP surface is the one part that needs no adapter, and

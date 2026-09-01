@@ -12,7 +12,7 @@ Throwaway code that answers **one** question. Mark it as prototype. Trivial to r
 - Logic / state model → one shareable HTML file that surfaces state after every action.
 - Look / UI → several radically different variants, switchable, human chooses.
 
-`.bytedesk/task-management/bin/tm worktree` is the isolation primitive. Capture the prototype **off main**. Attach the path/branch as `tm_evidence`.
+`.bytedesk/task-management/bin/tm worktree` (`tm_worktree` over MCP) is the isolation primitive. Capture the prototype **off main**. Attach the path/branch as `tm_evidence`.
 
 **The agent must not pick the variant.** If the user is AFK, leave the ticket open.
 

@@ -371,6 +371,17 @@ rather than parsing CLI text — `tm_board`, `tm_next`, `tm_show`, `tm_find`, `t
 `tm_task_update`, `tm_ac_add`, `tm_evidence`, `tm_handoff`, `tm_claim` and friends. The gates apply
 identically over MCP: `tm_task_create` with no active epic returns the same denial the CLI gives.
 
+Every verb the board or the CLI has, an MCP-only session has too — that is the store's contract,
+and for a while it was not true (CAP-0001). The parity tools call the function the dashboard route
+calls, with its refusal wording: `tm_worktree` (new / rm / list — provisioning claims first, so a
+task another live session holds is refused with nothing on disk), `tm_link` (both ends written,
+both ends cleaned on remove), `tm_task_field` (assignee, priority, estimate, type, rank, parent,
+dep, comment, touches — one field set per call), `tm_graph` ({nodes, edges} plus the Mermaid),
+`tm_doctor` (fix needs `confirm: true`, since it rewrites files), `tm_export` (md / csv / json,
+clamped at 64k characters), `tm_time`, `tm_parallel`, `tm_history`, `tm_stale` and
+`tm_goal_import` (a path confined to the repository, or the doc's content). `tm_task_update` also
+takes `delete` (soft; the file stays) and `restore`.
+
 ## Jira-shaped fields
 
 Tasks carry the fields you'd expect from an issue tracker, all optional and all in

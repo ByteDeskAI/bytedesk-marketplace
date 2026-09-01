@@ -1,17 +1,23 @@
 ---
 id: "TM-058"
 kind: "task"
-status: "open"
+status: "done"
 created: "2026-09-01T20:13:43.711Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "MCP worktree and typed-link verbs"
 capability: "CAP-0001"
-acceptance: [{"text":"tm_worktree new/rm/list exist and refuse the same cases as the CLI","done":false},{"text":"tm_link writes both ends; tm_unlink leaves both ends clean","done":false},{"text":"tools/list advertises them; handleRequest tests cover the round trip","done":false}]
-evidence: []
+acceptance: [{"text":"tm_worktree new/rm/list exist and refuse the same cases as the CLI","done":true,"at":"2026-09-01T20:35:41.554Z"},{"text":"tm_link writes both ends; tm_unlink leaves both ends clean","done":true,"at":"2026-09-01T20:35:41.660Z"},{"text":"tools/list advertises them; handleRequest tests cover the round trip","done":true,"at":"2026-09-01T20:35:41.787Z"}]
+evidence: [".bytedesk/task-management/evidence/TM-058-mcp.test.mjs"]
 commits: ["1d51696"]
 blockedBy: []
 blocks: []
-updated: "2026-09-01T20:19:23.869Z"
+updated: "2026-09-01T20:37:31.200Z"
+comments: [{"author":"main","ts":"2026-09-01T20:35:41.896Z","text":"W7: 11 parity tools + delete/restore landed in lib/mcp.mjs; unit + contract suites green (mcp.test 29, test-mcp.sh 70)"}]
+actor: "main"
+session: "126c1a80-f656-456d-bf04-5c79ad0494c2"
+branch: "main"
+worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
+closed: "2026-09-01T20:37:31.195Z"
 ---
 
 Implements [[CAP-0001]].

@@ -1,7 +1,7 @@
 ---
 id: "CAP-0001"
 kind: "capability"
-status: "in_progress"
+status: "done"
 created: "2026-08-18T15:49:50.165Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "MCP worktree and typed-link verbs"
@@ -12,8 +12,9 @@ confidence: "H"
 source: "gap-backlog"
 evidence: []
 related: []
-updated: "2026-09-01T20:13:43.729Z"
+updated: "2026-09-01T20:37:31.325Z"
 task: "TM-058"
+shipped: "2026-09-01"
 ---
 
 ## Problem / job-to-be-done

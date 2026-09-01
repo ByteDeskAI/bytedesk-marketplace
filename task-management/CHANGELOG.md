@@ -3,6 +3,10 @@
 ## Unreleased
 
 ### Added
+- **MCP parity (CAP-0001 shipped).** Eleven tools mirror the board's routes on the same lib
+  functions and refusal wording: `tm_worktree`, `tm_link`, `tm_graph`, `tm_doctor`,
+  `tm_export`, `tm_time`, `tm_parallel`, `tm_task_field`, `tm_history`, `tm_stale`,
+  `tm_goal_import`; `tm_task_update` gains `delete` and `restore`. 35 tools in all.
 - **Dashboard rewrite, wave 1 (frontend core).** The SPA foundation is rebuilt on the ByteDesk
   design system: `--tm-*` semantic roles aliased to `--bd-*`, self-hosted IBM Plex, Lucide
   icons, a history router with deep links and an inspector layer, an SSE-fed entity store with

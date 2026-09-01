@@ -10,20 +10,28 @@
  */
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { basename } from "node:path";
+import { basename, isAbsolute, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { paths } from "./paths.mjs";
-import { claimTask, releaseClaim } from "./claims.mjs";
-import { actor, actorLabel, sessionId } from "./actor.mjs";
-import { config, create, editTask, kindOf, list, logEvent, moveTask, nextTasks, now, read, removeCriterion, setCriterion, state, update, writeState } from "./store.mjs";
+import { currentCheckout, paths } from "./paths.mjs";
+import { claimTask, claimant, releaseClaim } from "./claims.mjs";
+import { actor, actorLabel, sessionId, stamp } from "./actor.mjs";
+import { config, create, editTask, kindOf, list, logEvent, moveTask, nextTasks, now, read, readEvents, removeCriterion, setCriterion, staleTasks, state, update, writeState } from "./store.mjs";
 import { gateDone, gateStart, gateTaskCreate } from "./enforce.mjs";
-import { board, handoff, sprintReport, standup, taskLine } from "./render.mjs";
-import { renderWhy, why } from "./graph.mjs";
-import { listResources, readResource } from "./resources.mjs";
+import { COLUMNS, board, collapseLog, handoff, renderHistory, sprintReport, standup, taskLine } from "./render.mjs";
+import { graphData, mermaid, renderWhy, why } from "./graph.mjs";
+import { MAX_CHARS, listResources, readResource } from "./resources.mjs";
 import { describeQuery, matchesQuery, parseQuery } from "./query.mjs";
 import { accept, drop, propose, ranked, score, ship } from "./capability.mjs";
 import { attachEvidence } from "./evidence.mjs";
-import { labelCatalog, labels as setLabels } from "./issue.mjs";
+import { LINK_TYPES, TYPES, addComment, addLink, assign, dependencies, estimate, labelCatalog, labels as setLabels, prioritise, rank, removeLink, setType, subtasks } from "./issue.mjs";
+import { listWorktrees, provision, unprovision } from "./worktree.mjs";
+import { diagnose, render as renderDoctor, repairAll } from "./doctor.mjs";
+import { FORMATS, exportStore } from "./export.mjs";
+import { cycleTime, summary as timeSummary, taskTimeline, throughput, timeInStatus } from "./time.mjs";
+import { batches } from "./parallel.mjs";
+import { importGoalDoc, importManifest } from "./goal-import.mjs";
+import { record as recordTouches } from "./touches.mjs";
+import { CATALOG } from "./ntfy.mjs";
 
 /**
  * MCP `serverInfo.version` must be a non-empty string on the wire.
@@ -78,6 +86,10 @@ const session = () => sessionId();
 const NEW_TASK = { acceptance: [], evidence: [], commits: [], blockedBy: [], blocks: [] };
 
 const str = (description) => ({ type: "string", description });
+/** Doctor findings carry a fix closure; JSON cannot. */
+const plain = (findings) => findings.map(({ fix, ...f }) => f);
+/** The resources' cap, for the same reason: a 5 MB export is not a tool result. */
+const clamp = (text) => (text.length <= MAX_CHARS ? text : `${text.slice(0, MAX_CHARS)}\n\n…truncated at ${MAX_CHARS} characters. Use the CLI for the whole thing.`);
 
 // ── tools ────────────────────────────────────────────────────────────────────
 
@@ -269,13 +281,13 @@ export const TOOLS = [
   {
     name: "tm_task_update",
     description:
-      "Move a task through its lifecycle: start, done, park, block, unblock. Call start before you touch code and done the moment it is verified — never leave a task in_progress at the end of a session. done is gated on met acceptance criteria; start is gated on the WIP limit.",
+      "Move a task through its lifecycle: start, done, park, block, unblock, delete (soft — the file stays, restore brings it back). Call start before you touch code and done the moment it is verified — never leave a task in_progress at the end of a session. done is gated on met acceptance criteria; start is gated on the WIP limit.",
     inputSchema: {
       type: "object",
       properties: {
         id: str("Task id, e.g. TM-001."),
-        action: { type: "string", enum: ["start", "done", "park", "block", "unblock"], description: "Lifecycle move." },
-        reason: str("Why, for park and block. Recorded on the task."),
+        action: { type: "string", enum: ["start", "done", "park", "block", "unblock", "delete", "restore"], description: "Lifecycle move." },
+        reason: str("Why, for park, block and delete. Recorded on the task."),
         steal: {
           type: "boolean",
           description:
@@ -329,6 +341,28 @@ export const TOOLS = [
         case "unblock":
           update(id, { status: "open", blockedReason: undefined }, p);
           return ok({ id, status: "open" });
+        case "delete": {
+          // Same rules as the board's delete: soft, and never someone else's in-flight work.
+          const task = read(id, p);
+          if (task.status === "deleted") return fail(`${id} is already deleted`);
+          const held = claimant(id, p);
+          if (held && held.session && held.session !== session()) {
+            return fail(`${id} is claimed by ${held.actor || `session ${held.session}`} — release it first`);
+          }
+          const why = typeof reason === "string" && reason.trim() ? reason.trim() : undefined;
+          update(id, { status: "deleted", deletedReason: why, deletedFrom: task.status }, p);
+          releaseClaim(id, p);
+          logEvent("deleted", { id, from: task.status, ...(why ? { why } : {}) }, p);
+          return ok({ id, status: "deleted" });
+        }
+        case "restore": {
+          const task = read(id, p);
+          if (task.status !== "deleted") return fail(`${id} is not deleted`);
+          const back = COLUMNS.includes(task.deletedFrom) && task.deletedFrom !== "done" ? task.deletedFrom : "open";
+          update(id, { status: back, deletedReason: undefined, deletedFrom: undefined }, p);
+          logEvent("reopened", { id, from: "deleted" }, p);
+          return ok({ id, status: back });
+        }
         default:
           return fail(`unknown action: ${action}`);
       }
@@ -694,6 +728,260 @@ export const TOOLS = [
         return ok({ id, labels: read(id, p).labels || [], catalog });
       }
       return ok({ id, labels: setLabels(id, { add: add || [], remove: remove || [], force: Boolean(force) }, p), catalog });
+    },
+  },
+  // ── parity with the dashboard's write surface (CAP-0001) ─────────────────────
+  // Every tool below calls the function `lib/dashboard-api.mjs` calls for the same verb, with the
+  // same refusal wording, so an MCP-only session can do what a browser tab can.
+  {
+    name: "tm_worktree",
+    description:
+      "Provision an isolated git worktree for a task (claims it first — refused if another live session holds it), remove one, or list them. Same behaviour and refusals as `tm worktree` and the board.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["new", "rm", "list"], description: "new provisions and claims; rm removes and releases; list reads." },
+        id: str("Task id, for new and rm."),
+        base: str("For new: the ref to branch from (default: the current HEAD)."),
+        share: { type: "boolean", description: "For new: share node_modules/.env from the main checkout (default true)." },
+        force: { type: "boolean", description: "For rm: remove even when the worktree is dirty." },
+        steal: { type: "boolean", description: "For new: take the claim another live session holds. Recorded as claim_stolen." },
+      },
+      required: ["action"],
+    },
+    run: ({ action, id, base, share, force, steal }, p) => {
+      if (action === "list") return ok({ worktrees: listWorktrees(p) });
+      if (!id) return fail(`tm_worktree ${action} needs an id`);
+      const task = read(id, p);
+      if (!task) return fail(`not found: ${id}`);
+      if (task.kind !== "task") return fail(`${id} is not a task`);
+      if (action === "new") {
+        const res = provision(task, { base, share: share !== false, steal: Boolean(steal), session: session(), actor: actorLabel(actor()), p });
+        if (!res.ok) return fail(res.reason);
+        return ok({ id, worktree: res.path, branch: res.branch, shared: res.shared, stolenFrom: res.stolenFrom ?? null });
+      }
+      if (action === "rm") {
+        const res = unprovision(task, { force: Boolean(force), p });
+        if (!res.ok) return fail(res.reason);
+        return ok({ id, worktree: null, removed: true, unlinked: res.unlinked });
+      }
+      return fail(`unknown action: ${action}`);
+    },
+  },
+  {
+    name: "tm_link",
+    description:
+      "Add or remove a typed link between two entities. Both ends are written — `A blocks B` gives B `blocked by A` — and removal cleans both. Types: blocks, blocked by, causes, caused by, duplicates, duplicated by, relates to.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: str("Entity id the link is written on."),
+        type: { type: "string", enum: Object.keys(LINK_TYPES), description: "Link type, read from `id`'s side." },
+        to: str("The other entity id."),
+        remove: { type: "boolean", description: "Remove the link instead of adding it." },
+      },
+      required: ["id", "type", "to"],
+    },
+    run: ({ id, type, to, remove }, p) => {
+      if (!read(id, p)) return fail(`not found: ${id}`);
+      const links = remove ? removeLink(id, type, to, p) : addLink(id, type, to, p);
+      return ok({ id, links });
+    },
+  },
+  {
+    name: "tm_graph",
+    description:
+      "The dependency graph as data ({nodes, edges}) and as a Mermaid flowchart. Scope with epic; done work is left out unless all is set. Blockers outside the scope are still drawn, because they still explain the block.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        epic: str("Scope to one epic, e.g. EP-002."),
+        all: { type: "boolean", description: "Include done tasks." },
+        subtasks: { type: "boolean", description: "Draw parent/subtask edges (default true)." },
+      },
+    },
+    run: ({ epic, all, subtasks }, p) => {
+      const opts = { epic: epic || null, includeDone: Boolean(all) };
+      const drawn = mermaid({ ...opts, subtasks: subtasks !== false }, p);
+      return ok({ ...graphData(opts, p), mermaid: drawn.mermaid, counts: { tasks: drawn.tasks, edges: drawn.edges } });
+    },
+  },
+  {
+    name: "tm_doctor",
+    description:
+      "Report what is inconsistent in the store — dangling deps, orphan epics, one-sided links, dead claims — and optionally repair the unambiguous half. fix rewrites files, so it also needs confirm:true, exactly like the board.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fix: { type: "boolean", description: "Apply every auto-fixable finding, repeating until the store stops changing." },
+        confirm: { type: "boolean", description: "Required with fix: this rewrites markdown files." },
+      },
+    },
+    run: ({ fix, confirm }, p) => {
+      if (fix) {
+        if (confirm !== true) return fail("doctor --fix rewrites files: send { confirm: true }");
+        const applied = repairAll(p);
+        const after = diagnose(p);
+        return ok({ applied, findings: plain(after), text: renderDoctor(after, { fixed: applied }) });
+      }
+      const findings = diagnose(p);
+      return ok({
+        findings: plain(findings),
+        errors: findings.filter((f) => f.level === "error").length,
+        warnings: findings.filter((f) => f.level === "warning").length,
+        fixable: findings.filter((f) => f.fixable).length,
+        text: renderDoctor(findings),
+      });
+    },
+  },
+  {
+    name: "tm_export",
+    description:
+      "The board out as a document: md (a report you can paste into a PR), csv (Jira's columns and status vocabulary) or json (the whole store). Filters: epic, status, open (drop done work), events (json only). Clamped at 64k characters — use the CLI for the whole thing.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        format: { type: "string", enum: FORMATS, description: "md, csv or json." },
+        epic: str("Only this epic."),
+        status: str("Only this status."),
+        open: { type: "boolean", description: "Drop done and deleted work." },
+        events: { type: "boolean", description: "json only: include the event log." },
+        title: str("md only: the report title."),
+      },
+      required: ["format"],
+    },
+    run: ({ format, epic, status, open, events, title }, p) => {
+      const text = exportStore(format, { epic, status, open: Boolean(open), events: Boolean(events), title }, p);
+      return ok({ format, text: clamp(text) });
+    },
+  },
+  {
+    name: "tm_time",
+    description:
+      "Cycle-time numbers from the event log: median/mean, work in progress with age, the oldest open task, and daily throughput. With an id: that task's cycle time, time in each status, and its status timeline.",
+    inputSchema: { type: "object", properties: { id: str("Task id. Omit for the board-wide summary.") } },
+    run: ({ id }, p) => {
+      if (!id) return ok({ ...timeSummary(p), throughput: throughput(p) });
+      if (!read(id, p)) return fail(`not found: ${id}`);
+      return ok({ id, cycle: cycleTime(id, p), inStatus: timeInStatus(id, p), timeline: taskTimeline(id, p) });
+    },
+  },
+  {
+    name: "tm_parallel",
+    description:
+      "Batches of unblocked, unclaimed tasks whose declared `touches` do not collide, so they can run side by side in separate worktrees. Same algorithm as `tm parallel`.",
+    inputSchema: { type: "object", properties: { epic: str("Scope to one epic.") } },
+    run: ({ epic }, p) => ok({ batches: batches({ epic: epic || null }, p) }),
+  },
+  {
+    name: "tm_task_field",
+    description:
+      "Set one Jira-shaped field on a task: assignee, priority, estimate, type, rank, parent (subtask-ness), dep (blockedBy add/remove), comment (append), touches (declare paths). One field set per call; an empty call is refused. Same validation and refusals as the CLI verbs.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: str("Task id."),
+        assignee: { type: ["string", "null"], description: "Who; null clears." },
+        priority: { type: "string", enum: ["highest", "high", "medium", "low", "lowest"], description: "Priority." },
+        estimate: { type: "number", description: "Story points." },
+        type: { type: "string", enum: TYPES, description: "Issue type." },
+        rank: {
+          type: "object",
+          properties: { before: str("Place before this id."), after: str("Place after this id."), to: { type: "number", description: "An explicit rank." } },
+          description: "Backlog position.",
+        },
+        parent: { type: ["string", "null"], description: "Parent task id, or null to detach." },
+        dep: {
+          type: "object",
+          properties: { add: { type: "array", items: { type: "string" } }, remove: { type: "array", items: { type: "string" } } },
+          description: "Blockers to add or remove. A cycle is refused.",
+        },
+        comment: str("A comment to append."),
+        touches: { type: "array", items: { type: "string" }, description: "Repo-relative paths this task edits (what tm_parallel batches on)." },
+      },
+      required: ["id"],
+    },
+    run: ({ id, ...fields }, p) => {
+      if (!read(id, p)) return fail(`not found: ${id}`);
+      const set = Object.keys(fields).filter((k) => fields[k] !== undefined);
+      if (!set.length) return fail("tm_task_field needs one field: assignee, priority, estimate, type, rank, parent, dep, comment or touches");
+      const out = {};
+      if ("assignee" in fields) out.assignee = assign(id, fields.assignee ?? null, p);
+      if ("priority" in fields) out.priority = prioritise(id, fields.priority, p);
+      if ("estimate" in fields) out.estimate = estimate(id, fields.estimate, p);
+      if ("type" in fields) out.type = setType(id, fields.type ?? null, p);
+      if ("rank" in fields) out.rank = rank(id, fields.rank || {}, p);
+      if ("parent" in fields) {
+        subtasks(id, { parent: fields.parent || null }, p);
+        out.parent = read(id, p).parent ?? null;
+      }
+      if ("dep" in fields) out.blockedBy = dependencies(id, { add: fields.dep?.add || [], remove: fields.dep?.remove || [] }, p);
+      if ("comment" in fields) out.comments = addComment(id, fields.comment, { author: actorLabel(actor()), p });
+      if ("touches" in fields) {
+        // An MCP agent names paths relative to the repository, not to the server's cwd.
+        const base = currentCheckout(p.root) || p.root;
+        recordTouches(id, fields.touches, p, { from: base, base });
+        out.touches = read(id, p).touches || [];
+      }
+      return ok({ id, ...out });
+    },
+  },
+  {
+    name: "tm_history",
+    description: "One entity's whole event history, collapsed and labelled the way `tm log <id>` and the board's activity panel are.",
+    inputSchema: {
+      type: "object",
+      properties: { id: str("Entity id (task, epic, ADR, sprint or capability)."), limit: { type: "number", description: "Keep only the last n events." } },
+      required: ["id"],
+    },
+    run: ({ id, limit }, p) => {
+      if (!kindOf(id)) return fail(`unknown prefix: ${id}`);
+      if (!read(id, p)) return fail(`not found: ${id}`);
+      const rows = readEvents(p).filter((e) => e && e.id === id);
+      let events = collapseLog(rows, { keep: true }).map((e) => ({ ...e, label: CATALOG.events[e.event]?.label || e.event }));
+      if (Number.isFinite(limit) && limit > 0) events = events.slice(-limit);
+      return ok({ id, events, text: renderHistory(id, rows, p) });
+    },
+  },
+  {
+    name: "tm_stale",
+    description: "Tasks that have been in_progress longer than config.staleMinutes without a write — the work someone started and walked away from.",
+    inputSchema: { type: "object", properties: {} },
+    run: (_args, p) => ok({ minutes: config(p).staleMinutes, tasks: staleTasks(p).map((t) => t.id) }),
+  },
+  {
+    name: "tm_goal_import",
+    description:
+      "Turn a goal doc into a task whose acceptance criteria are the goal's own success criteria, or a `*.plan.json` manifest into a whole epic. Refuses a doc with no parseable criteria. path is confined to the repository; content takes the doc itself.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: str("Repo-relative path to a goal .md or a .plan.json manifest."),
+        content: str("The goal doc text, instead of a path."),
+        name: str("With content: what to call the source."),
+        epic: str("File the task under this epic instead of the active one."),
+      },
+    },
+    run: ({ path, content, name, epic }, p) => {
+      const opts = { epic: epic || null, stamp: stamp(currentCheckout(p.root) || p.root) };
+      try {
+        if (typeof content === "string") {
+          const { task, parsed, doc } = importGoalDoc(content, { ...opts, source: String(name || "pasted goal").trim() || "pasted goal" }, p);
+          return ok({ id: task.id, title: task.title, epic: task.epic ?? null, criteria: parsed.criteria.length, doc });
+        }
+        if (typeof path !== "string" || !path.trim()) return fail("tm_goal_import needs { path } or { content, name }");
+        const full = isAbsolute(path) ? resolve(path) : resolve(p.root, path);
+        if (full !== p.root && !full.startsWith(p.root + sep)) return fail(`path must be inside ${p.root}`);
+        if (!existsSync(full)) return fail(`no such file: ${path}`);
+        if (/\.json$/i.test(full)) {
+          const res = importManifest(full, { stamp: opts.stamp }, p);
+          return ok({ epic: res.epic.id, title: res.epic.title, tasks: res.tasks, skipped: res.skipped, edges: res.edges, danglingDeps: res.danglingDeps, touched: res.touched });
+        }
+        const { task, parsed, doc } = importGoalDoc(readFileSync(full, "utf8"), { ...opts, source: full }, p);
+        return ok({ id: task.id, title: task.title, epic: task.epic ?? null, criteria: parsed.criteria.length, doc });
+      } catch (e) {
+        return fail(e.message);
+      }
     },
   },
 ];
