@@ -5,7 +5,7 @@
   "version": "1.5.4",
   "catalog": {
     "sourcePath": "catalog.json",
-    "sha256": "0cb54fa4fe291241992f003a7723b50eed12e0c4a0e6af13f3aeadfa9de56212",
+    "sha256": "74ef4f82d606ccf699f8a8aca5cbc6080ccdf4932165b08f8239498716e2075d",
     "schemaVersion": 1
   },
   "providers": [
@@ -604,6 +604,30 @@
       "profile": "capture"
     },
     {
+      "id": "file:profiles/designer-studio/DESIGN.md",
+      "kind": "profile",
+      "sourcePath": "profiles/designer-studio/DESIGN.md",
+      "deliveryPath": "profiles/designer-studio/DESIGN.md",
+      "sha256": "a2453d2d9c890002211f0aba35ef4dc465c237321763be9617e926b1e9c359df",
+      "size": 10389,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "designer-studio"
+    },
+    {
+      "id": "file:profiles/designer-studio/PRODUCT.md",
+      "kind": "profile",
+      "sourcePath": "profiles/designer-studio/PRODUCT.md",
+      "deliveryPath": "profiles/designer-studio/PRODUCT.md",
+      "sha256": "38797ad7f02d3479eb861e42d63cfbac23365b6e11199639a043571664e708aa",
+      "size": 3818,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "designer-studio"
+    },
+    {
       "id": "file:profiles/gateway/CLIENT_UI.md",
       "kind": "profile",
       "sourcePath": "profiles/gateway/CLIENT_UI.md",
@@ -758,6 +782,30 @@
         "payload"
       ],
       "profile": "store"
+    },
+    {
+      "id": "file:profiles/task-management/DESIGN.md",
+      "kind": "profile",
+      "sourcePath": "profiles/task-management/DESIGN.md",
+      "deliveryPath": "profiles/task-management/DESIGN.md",
+      "sha256": "0143a043cc3474f0748ab50fdd19f40b654efe9c54adb6c115857a6ecfc4af98",
+      "size": 8750,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "task-management"
+    },
+    {
+      "id": "file:profiles/task-management/PRODUCT.md",
+      "kind": "profile",
+      "sourcePath": "profiles/task-management/PRODUCT.md",
+      "deliveryPath": "profiles/task-management/PRODUCT.md",
+      "sha256": "3195557613a138311ffb6e7afef5f6f3a3059f8e1235a6f25f264db1ed5ef252",
+      "size": 2438,
+      "distributions": [
+        "payload"
+      ],
+      "profile": "task-management"
     },
     {
       "id": "file:profiles/terminal/DESIGN.md",
@@ -1078,8 +1126,8 @@
       "kind": "token",
       "sourcePath": "tokens/css/bytedesk.css",
       "deliveryPath": "tokens/css/bytedesk.css",
-      "sha256": "39396712702f28dfa15c67d47fa3c5da07964d58001ae267f7a59488c15c6237",
-      "size": 13062,
+      "sha256": "30ee40d3df39e08fde4649600c201024af42f31ed38e330043f24133aed2cf7f",
+      "size": 13229,
       "distributions": [
         "payload"
       ]
@@ -1399,6 +1447,20 @@
       ]
     },
     {
+      "id": "profile:designer-studio",
+      "slug": "designer-studio",
+      "status": "active",
+      "sourceRepository": "ByteDeskAI/design-system",
+      "sourceCommit": "24e0b374031fd6404bc46931eecce5e0249059e9",
+      "files": [
+        "file:profiles/designer-studio/DESIGN.md",
+        "file:profiles/designer-studio/PRODUCT.md"
+      ],
+      "dependsOn": [
+        "bundle:foundation"
+      ]
+    },
+    {
       "id": "profile:gateway",
       "slug": "gateway",
       "status": "active",
@@ -1466,6 +1528,20 @@
       "files": [
         "file:profiles/store/DESIGN.md",
         "file:profiles/store/PRODUCT.md"
+      ],
+      "dependsOn": [
+        "bundle:foundation"
+      ]
+    },
+    {
+      "id": "profile:task-management",
+      "slug": "task-management",
+      "status": "active",
+      "sourceRepository": "ByteDeskAI/design-system",
+      "sourceCommit": "e4cb73cb36ead1a92909492b4221bd9a37f17959",
+      "files": [
+        "file:profiles/task-management/DESIGN.md",
+        "file:profiles/task-management/PRODUCT.md"
       ],
       "dependsOn": [
         "bundle:foundation"
@@ -2346,6 +2422,8 @@
         "file:profiles/bytedesk-ai/PRODUCT.md",
         "file:profiles/capture-website/DESIGN.md",
         "file:profiles/capture/DESIGN.md",
+        "file:profiles/designer-studio/DESIGN.md",
+        "file:profiles/designer-studio/PRODUCT.md",
         "file:profiles/gateway/CLIENT_UI.md",
         "file:profiles/gateway/COMPONENTS.md",
         "file:profiles/gateway/DESIGN.md",
@@ -2359,6 +2437,8 @@
         "file:profiles/openseo/PRODUCT.md",
         "file:profiles/store/DESIGN.md",
         "file:profiles/store/PRODUCT.md",
+        "file:profiles/task-management/DESIGN.md",
+        "file:profiles/task-management/PRODUCT.md",
         "file:profiles/terminal/DESIGN.md",
         "file:profiles/toolbox/DESIGN.md",
         "file:profiles/toolbox/PRODUCT.md",

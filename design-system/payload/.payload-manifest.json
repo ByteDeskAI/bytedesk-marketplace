@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "pluginVersion": "1.5.4",
-  "sourceSha": "dfaf002bb3a5278ef3c247c32012102c07947b69",
+  "sourceSha": "f652565254021610f3cc3b34aee413ad8033e0e8",
   "files": [
     {
       "path": "CONNECTIVITY.md",
@@ -174,6 +174,16 @@
       "size": 5423
     },
     {
+      "path": "profiles/designer-studio/DESIGN.md",
+      "sha256": "a2453d2d9c890002211f0aba35ef4dc465c237321763be9617e926b1e9c359df",
+      "size": 10389
+    },
+    {
+      "path": "profiles/designer-studio/PRODUCT.md",
+      "sha256": "38797ad7f02d3479eb861e42d63cfbac23365b6e11199639a043571664e708aa",
+      "size": 3818
+    },
+    {
       "path": "profiles/gateway/CLIENT_UI.md",
       "sha256": "62f758a77bb0bc77258d34780413efd7e5b55b0a08ba5540410c1c714f12fc71",
       "size": 15329
@@ -239,6 +249,16 @@
       "size": 3951
     },
     {
+      "path": "profiles/task-management/DESIGN.md",
+      "sha256": "0143a043cc3474f0748ab50fdd19f40b654efe9c54adb6c115857a6ecfc4af98",
+      "size": 8750
+    },
+    {
+      "path": "profiles/task-management/PRODUCT.md",
+      "sha256": "3195557613a138311ffb6e7afef5f6f3a3059f8e1235a6f25f264db1ed5ef252",
+      "size": 2438
+    },
+    {
       "path": "profiles/terminal/DESIGN.md",
       "sha256": "6bbe9bca503015a23eb46de8f582bf8b9eea048fc4d97e94b2c908c49b52b435",
       "size": 43515
@@ -280,8 +300,8 @@
     },
     {
       "path": "tokens/css/bytedesk.css",
-      "sha256": "39396712702f28dfa15c67d47fa3c5da07964d58001ae267f7a59488c15c6237",
-      "size": 13062
+      "sha256": "30ee40d3df39e08fde4649600c201024af42f31ed38e330043f24133aed2cf7f",
+      "size": 13229
     },
     {
       "path": "tokens/platforms/README.md",

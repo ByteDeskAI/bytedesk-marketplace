@@ -320,6 +320,7 @@
 [data-bd-product="toolbox"]       { --bd-accent: var(--bd-product-toolbox); }
 [data-bd-product="agent-orchestration"] { --bd-accent: var(--bd-product-agent-orchestration); }
 [data-bd-product="agent-mail"]    { --bd-accent: var(--bd-product-agent-mail); }
+[data-bd-product="task-management"] { --bd-accent: var(--bd-product-gateway); }
 [data-bd-product="mangodisk"]     { --bd-accent: var(--bd-product-mangodisk); }
 [data-bd-product="openseo"]       { --bd-accent: var(--bd-product-openseo); }
 
@@ -330,6 +331,7 @@
 [data-bd-product="agent-memory-website"]  { --bd-accent: var(--bd-product-agent-memory); }
 [data-bd-product="capture-website"]       { --bd-accent: var(--bd-product-capture); }
 [data-bd-product="bytedesk-ai"]           { --bd-accent: var(--bd-product-platform); }
+[data-bd-product="designer-studio"]       { --bd-accent: var(--bd-product-platform); }
 
 @media (prefers-reduced-motion: reduce) {
   :root {
