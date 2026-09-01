@@ -12,7 +12,7 @@
   "parkOnSessionEnd": true,
   "trackTouches": true,
   "board": {
-    "launchBrowser": false,
+    "launchBrowser": true,
     "grouped": true,
     "views": {
       "Interview": {
@@ -44,7 +44,7 @@
     "me": "Ryan",
     "watching": []
   },
-  "activeEpic": "EP-006",
+  "activeEpic": null,
   "boardId": "bytedeskai/bytedesk-marketplace",
   "owner": "Ryan Helms <ryan@helms.ai>",
   "ntfy": {},
