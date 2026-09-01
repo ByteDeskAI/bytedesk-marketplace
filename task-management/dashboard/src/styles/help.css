@@ -18,5 +18,5 @@
 .tm-help .tm-keys dl { grid-template-columns: max-content minmax(0, 1fr); column-gap: var(--tm-s4); }
 
 /* A command is one token: never wrap it mid-word; let the card scroll instead. */
-.tm-skill__cmd { white-space: nowrap; overflow-x: auto; display: block; max-width: 100%; }
+.tm-skill__cmd { white-space: nowrap; overflow-x: auto; flex: 1 1 100%; min-width: 0; }
 .tm-help .tm-row { flex-wrap: wrap; }

@@ -7,7 +7,8 @@
   word becomes its dot with an aria-label, theme toggle lives in Settings), inspector controls are
   44 px on phones, inspector heads wrap instead of pushing the close button off-panel, long mono
   values break on phones, Modal owns Escape. Final grade: coverage 5, keyboard 5, performance 5,
-  tests 5, design 4, accessibility 4, responsiveness 4; zero P0.
+  tests 5, design 4, accessibility 4, responsiveness 4; zero P0. Board columns keep a 200 px
+  minimum beside a wide inspector and scroll in their own box; Help commands take their own line.
 - **Dashboard grading round 1 fixes.** Goal import from `/plans` and the epic inspector; templates
   and per-kind ntfy toggles (`ntfy.categories` joins the settings catalog) on `/settings` with a
   section list; `?` opens a shortcuts sheet over any screen; 44 px touch targets below 720 px;

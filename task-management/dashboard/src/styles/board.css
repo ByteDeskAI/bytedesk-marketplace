@@ -34,7 +34,11 @@
 /* ── columns ─────────────────────────────────────────────────────────────────── */
 .tm-board {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  /* Columns never shrink below a readable card; beside a wide inspector the board scrolls inside
+     its own box instead of breaking titles mid-word. */
+  grid-template-columns: repeat(6, minmax(200px, 1fr));
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
   gap: var(--tm-s4);
   align-items: start;
   min-height: 0;
