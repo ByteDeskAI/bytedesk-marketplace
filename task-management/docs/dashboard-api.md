@@ -285,7 +285,9 @@ staleMinutes, claimTtlMinutes, captureDecisions, ntfy.enabled, ntfy.server, ntfy
 ntfy.minIntervalSeconds, ntfy.boardUrl`; read-only: `boardId, owner`.
 
 NEW (group `workflow` unless noted): `eventMaxBytes` (integer), `branchPrefix` (string),
-`worktreeDir` (string), `worktreeShare` (json: `[{path, mode:"symlink"|"copy"|"hardlink"}]`).
+`worktreeDir` (string), `worktreeShare` (json: `[{path, mode:"symlink"|"copy"|"hardlink"}]`),
+`ntfy.categories` (json, group `ntfy`: the event kinds `tm ntfy on <kind>` opts into — the board's
+per-kind toggles write this list).
 The ntfy token stays env-only (`TM_NTFY_TOKEN`) and is never writable or returned.
 
 ## 8. Shared-gate changes the backend worker makes

@@ -480,48 +480,62 @@ finished, what is being worked on, what is stuck — with the **status path** pe
 reason on anything blocked or parked. Work that moved no status is listed last, summarised by what
 did happen to it, because a day of comments and commits is real work.
 
-It shares its collapsing with `.bytedesk/task-management/bin/tm log` and with the dashboard's activity panel: a status-changing
+It shares its collapsing with `.bytedesk/task-management/bin/tm log`, the dashboard's `/activity` screen and `/standup`: a status-changing
 write reads as `→ blocked`, and a generic `update` that a specific event in the same second already
-explains is dropped. The panel gets the sentence for each event kind from the store's own catalog
-over `/api/events`, so all three surfaces describe the same event the same way.
+explains is dropped. The screen gets the sentence for each event kind from the store's own catalog
+over `/api/meta`, so all three surfaces describe the same event the same way.
 
 ## Settings
 
-Board preferences are stored in the repo's own config, next to the tasks, so they follow the project
-rather than the browser — open the same board on another machine and your notification categories,
-your name and your layout are already set.
+Board preferences live in the repo's own `config.json`, next to the tasks, so they follow the
+project rather than the browser — open the same board on another machine and your notification
+categories, your name and your layout are already set.
 
-The **Settings** modal holds them; the **profile** menu next to it shows who the board thinks you
-are, which is what decides whether a change counts as your work.
+`/settings` renders the **settings catalog** (`GET /api/settings`) group by group — dashboard,
+policy, workflow, ntfy — with a **dirty state**: edits collect in a draft, **Save** writes them in one
+`POST /api/settings`, **Reset** drops them, and a refusal from the server is pinned to the field it
+names. Identity (`boardId`, `owner`) is shown read-only, because git derives it. Writable keys are an
+allowlist (`lib/settings.mjs`); the gates — `enforce`, `wipLimit`, `requireAcceptance` — are in that
+catalog now, so the board and `.bytedesk/task-management/bin/tm config` write the same keys the same way.
 
-Writable keys are an allowlist. The gates — `enforce`, `wipLimit`, `requireAcceptance` — are not
-board preferences and stay with `.bytedesk/task-management/bin/tm config`: a browser tab is not the place to switch off the rules
-the CLI and the hooks enforce. The notification *permission* is a browser grant and cannot be
-stored for you, so the modal asks for it rather than pretending.
+The same page carries what used to need a terminal: **templates** (list, edit, create — the
+starters `.bytedesk/task-management/bin/tm task new --template` reads), **ntfy** per-kind toggles (the list
+`.bytedesk/task-management/bin/tm ntfy on <kind>` writes, as `ntfy.categories`) with a **Test send** whose result — `sent` or the
+reason `shouldPublish` declined — is shown verbatim, the one-shot **override** (`.bytedesk/task-management/bin/tm override`) with
+its reason, a theme selector (auto / dark / light), and the browser's own notification permission,
+which is a browser grant and cannot be stored for you, so the page asks for it rather than
+pretending.
 
 `localStorage` is kept as a cache so the board renders instantly and still works offline; the repo's
 copy wins as soon as it arrives.
 
-## The task drawer
+## The task inspector
 
-Opening a card gives a drawer that is a grid — a header row that stays put and a body that scrolls.
+A card opens at `/tasks/<id>` as an **inspector** — a panel over the list you came from, so the
+URL is shareable, the back button closes it, and a deep link into an empty tab renders the board
+underneath. The panel is a grid: a header row that stays put and a body that scrolls
+(`overscroll-behavior: contain`, so a wheel that reaches the end does not move the board). On a
+phone it is the whole screen, with tabs.
 
-The header carries the identity: id, status, the thread holding it, its epic, and the title field.
-It is outside the scrolling region on purpose, because scrolling back to remember which task you are
-reading is a tax on every long one. The body is grouped into sections separated by a rule, rather
-than one column of controls.
+The header carries the identity: id, status, who holds the claim, the epic, the decision role, and
+the title as an inline edit. The body is grouped into sections, each backed by the route the CLI
+verb uses: context (markdown), the **Answer** field a `decision:*` ticket must fill before `done`,
+the workflow verbs (start, done, park/block with an inline reason field, reopen — refusals shown in
+the CLI's own words), type/priority/epic/sprint/parent, people and size, labels from the catalog,
+acceptance criteria (tick, untick, remove, add), blocked-by with the **why** chain
+(`GET /api/task/:id/why` — every hop and its reason, down to the root), links, the worktree (create,
+remove with `force`), evidence (inline preview, paste-as-log, upload, detach), touches, comments
+(append-only, like `.bytedesk/task-management/bin/tm comment`), and a **History** tab that is `.bytedesk/task-management/bin/tm log <id>` for this entity.
+A task in progress shows its **work stream** — the harness transcript, live — beside the fields.
+The actions menu copies the handoff brief, claims, releases, steals, soft-deletes (with confirm)
+and restores.
 
-`overscroll-behavior: contain` on the body stops a scroll that reaches the end from chaining to the
-board underneath — before this the drawer had no scroll at all, so a wheel over it moved the board
-and the bottom of a dense task was simply unreachable.
+Epics, sprints, decisions and capabilities open the same way at `/epics/<id>`, `/sprints/<id>`,
+`/decisions/<id>` and `/capabilities/<id>`.
 
-`tests/browser/drawer.mjs` measures all of that in a real browser at a short viewport. It is not part
-of `run-tests.sh` — it needs Chrome and a served build — so run it by hand after touching the drawer:
-
-```
-npm --prefix dashboard run build
-node tests/browser/drawer.mjs
-```
+`tests/browser/drawer.mjs` measures the layout in a real browser at a short viewport — that the
+header stays, the body scrolls, and nothing overflows. It is not part of `run-tests.sh` (it needs
+Chrome and a served build); see [Working on the dashboard](#working-on-the-dashboard).
 
 ## Acceptance criteria are not a one-way door
 
@@ -609,10 +623,11 @@ returning every task whose body contains that string is a wrong answer that look
 A token whose value starts `//` stays a search term, so a PR url does not parse as a filter on the
 field `https`.
 
-The board in the browser has always had these filters, plus saved views. The terminal and the agent
-had a substring match, which meant "what is assigned to me and still open" was answerable only on
-the one surface an agent cannot use. The two field sets are held together by a test that reads
-`dashboard/src/filters.ts` at test time, since the SPA imports nothing from `lib/`.
+The board speaks the same syntax: `/search`, the board's query bar and every `?q=` in a URL parse it
+the same way, and `/api/find` answers with `lib/query.mjs` — so a query that works in the terminal
+works on the board. The browser reads the field list from `GET /api/meta` (`vocab.findFields`) and
+keeps a static fallback in `dashboard/src/lib/filters.ts`; a test reads that file and holds it to
+`FIELDS`, so the two cannot drift.
 
 `edit` and `move` exist because every *other* field had a verb and the two you type first did not.
 A retitle **keeps the file name** — `TM-001-typoed-titel.md` gains the corrected title inside —
@@ -648,24 +663,32 @@ is an order some caller will not have.
 The board is not read-only. Every write goes through the same `lib/` functions the CLI calls,
 so the gates, the event log and the markdown files stay authoritative no matter which surface
 made the change — a transition to `done` from the dashboard runs the same acceptance gate, takes
-the same claim, fires the same dependency unblock and closes the epic the same way.
+the same claim, fires the same dependency unblock and closes the epic the same way. Starting a
+task runs the same WIP check (`gateStart`) the CLI and MCP run.
+
+The shape, in one line per family; the full table with bodies, responses and the lib function
+each route delegates to is [`docs/dashboard-api.md`](docs/dashboard-api.md):
 
 | Route | Does |
 |---|---|
-| `POST /api/task` | create (honours the active-epic gate) |
-| `PATCH /api/task/:id` | edit title/body/epic |
-| `POST /api/task/:id/transition` | status change, with claim + gate + unblock + epic auto-close |
-| `POST /api/task/:id/{assign,labels,priority,estimate,comment,link,unlink,subtask,rank,ac,accept,worktree}` | field writes |
-| `GET /api/worktrees` | `listWorktrees` — `[]` when none; never serves file contents |
-| `GET /api/entity/:id` | generic `kindOf` + `read` (404 missing, 400 unknown prefix). Does not replace per-kind routes; `GET /api/task/EP-*` stays 400 |
+| `POST /api/task` · `PATCH /api/task/:id` · `POST /api/task/:id/transition` | create (active-epic gate), edit title/body/epic, status change with claim + gate + unblock + epic auto-close |
+| `POST /api/task/:id/{assign,labels,type,priority,estimate,comment,link,unlink,subtask,dep,rank,ac,accept,evidence,sprint,worktree,touches}` | field writes — every `.bytedesk/task-management/bin/tm` verb |
+| `POST /api/task/:id/{claim,release,delete,restore}` | the claim interlock and soft delete |
 | `POST /api/bulk` | one op across many ids, partial success reported per id |
-| `POST /api/epic` | `{ id }` activate (or `{id: null}` to clear); `{ title, body? }` create and set active |
-| `GET /api/epic/:id` | full epic including body (`GET /api/task/EP-*` stays 400) |
-| `POST /api/epic/:id/{close,reopen}` | close writes `closed`; reopen uses `reopenEpic` |
-| `GET /api/board` · `GET /api/backlog` · `GET /api/events` · `GET /events` (SSE) | reads |
+| `POST /api/epic` · `PATCH /api/epic/:id` · `POST /api/epic/:id/{close,reopen,plan}` | activate/create, edit, lifecycle, plan link |
+| `POST /api/adr` · `PATCH /api/adr/:id` · `POST /api/adr/:id/{accept,supersede}` | decisions |
+| `POST /api/sprint` · `PATCH /api/sprint/:id` · `POST /api/sprint/:id/done` | sprints |
+| `POST /api/capability` · `PATCH /api/capability/:id` · `POST /api/capability/:id/{accept,ship,drop}` | the enhancement backlog |
+| `POST /api/goal/import` | `.bytedesk/task-management/bin/tm goal import` — a doc or a manifest, path confined to the repo |
+| `POST /api/doctor/fix` · `POST /api/claims/sweep` | need `{confirm:true}` — both touch other sessions' state |
+| `POST /api/override` · `POST /api/ntfy/test` · `POST /api/reindex` · `POST /api/settings` · `POST /api/templates` · `PATCH /api/templates/:name` | gates, notifications, cache, config, templates |
+| `GET /api/meta` | the store's vocabulary (columns, priorities, types, link types, event catalog, search fields), so the SPA hardcodes none of it |
+| `GET /api/task/:id/{why,handoff,time,history}` · `/api/{graph,standup,time,stale,find,claims,parallel,sessions,doctor,skills,export}` | the reads that used to be CLI-only |
 
 Refusals carry the CLI's own wording: a gate says no with **409** and the reason, bad input is
-**400**, a missing task is **404**. The UI shows that text rather than a generic failure.
+**400**, a missing task is **404**. The UI shows that text at the control and in a toast rather
+than a generic failure. `GET /api/export?format=csv&download=1` is the one route that returns a
+file; nothing serves paths outside `evidence/` and `plans/`.
 
 ## Skills
 
@@ -702,10 +725,46 @@ Ids are preserved, so every reference in a commit message or PR still resolves.
 
 ## Dashboard
 
-Starts automatically while the plugin is enabled (a `plugin-active` monitor). Live SSE board,
-port in `.bytedesk/task-management/dashboard.port` — assigned once, probed free above 45000 and
-then kept, so the project opens at the same URL every time (`TM_DASHBOARD_PORT` pins one).
-Run it by hand with `.bytedesk/task-management/bin/tm-dashboard`.
+Starts automatically while the plugin is enabled (a `plugin-active` monitor). Port in
+`.bytedesk/task-management/dashboard.port` — assigned once, probed free above 45000 and then
+kept, so the project opens at the same URL every time (`TM_DASHBOARD_PORT` pins one). Run it by
+hand with `.bytedesk/task-management/bin/tm-dashboard` (`--status`, `--restart`).
+
+It is a multi-screen app, one route per thing the plugin can do, so everything the CLI and MCP
+expose has a place on the board:
+
+| Route | Shows |
+|---|---|
+| `/board` | six status columns, or one row of columns per epic; filters in the URL in `.bytedesk/task-management/bin/tm find` syntax; saved views; drag and keyboard |
+| `/backlog` | the ranked queue `.bytedesk/task-management/bin/tm next` reads, rank by drag or `[`/`]`, sprint commit, points |
+| `/epics`, `/epics/:id` | progress, plan, decision-map sections, children, ADRs, make active / close / reopen, **import goals** |
+| `/tasks/:id` | the inspector above |
+| `/graph` | the dependency graph `.bytedesk/task-management/bin/tm graph` draws, with the **why** chain for the focused node and Mermaid to copy |
+| `/activity` | the event log with kind/actor/session filters, live |
+| `/standup` | `.bytedesk/task-management/bin/tm standup` since a time you pick, copy as markdown |
+| `/sprints`, `/sprints/:id` | points burndown, commit and uncommit, close |
+| `/capabilities`, `/capabilities/:id` | the ranked enhancement backlog: propose, accept, ship with evidence, drop with a reason |
+| `/decisions`, `/decisions/:id` | ADRs: create, accept, supersede, edit |
+| `/plans` | the plans inbox, preview, link to an epic, **import a goal doc or manifest** |
+| `/sessions` | who holds what: claims with session, worktree, branch and expiry; WIP against `wipLimit`; worktrees; **parallel batches**; subagents; sweep |
+| `/doctor` | `.bytedesk/task-management/bin/tm doctor` findings, fix the unambiguous half behind a confirm, reindex |
+| `/search` | `.bytedesk/task-management/bin/tm find` — `field:value`, `-` negates, unknown fields refused with the list that exists |
+| `/reports` | cycle time, throughput, time in status, stale work, and **export** md/csv/json |
+| `/settings`, `/help` | the catalog above; shortcuts, the skills catalog with copyable `/task-management:*` commands, the CLI cheatsheet |
+
+It is built on the **ByteDesk design system**: the family tokens are vendored at
+`.context/design-system/` by `bd-design sync`, the app consumes them through `--tm-*` roles in
+`dashboard/src/styles/tokens.css`, and no colour, radius, spacing or motion literal exists outside
+that file (`npm run design:check` greps for one). Dark is the default and light is its equal;
+status is always a dot **and** a word; ids, SHAs, paths and timestamps are in Plex Mono, self-hosted
+because the board runs offline.
+
+**Live.** One SSE feed (`/events`) carries every write from every session and the CLI. A per-entity
+event refetches that one entity; a structural one (create, done, moved, epic lifecycle) refetches
+the board; a reconnect replays from `Last-Event-ID`. Field writes are optimistic and roll back with
+the server's refusal in a toast; `done`, claims and worktrees are not, because the gate decides.
+Offline, writes queue in an outbox and replay when the network returns; the app installs as a PWA
+and shows notifications while backgrounded.
 
 ## Getting the board out
 
@@ -772,56 +831,49 @@ two tasks mirroring one native id, an `in_progress` task nobody claimed.
 
 ## Epics on the board
 
-Epics were second-class on the dashboard: one lozenge in the header, and no way to
-change which one was active — so the board could create tasks but not say which epic
-they land in, which is the one decision governing everything it does next. The active-epic
-selector in the toolbar does that now (`POST /api/epic { id }`, same validation and same
-event as `.bytedesk/task-management/bin/tm epic use`; a closed epic is refused rather than silently gating every later
-create). **Create epic** opens a new one (`POST /api/epic { title, body? }`) and sets it
-active. Clicking a lane header opens the epic drawer — body, children, plan chip, close
-and reopen.
+Epics are first-class. The active epic — the one every `.bytedesk/task-management/bin/tm task new` files under — is set from the
+board's toolbar (`POST /api/epic { id }`, same validation and same event as `.bytedesk/task-management/bin/tm epic use`; a
+closed epic is refused rather than silently gating every later create). **New epic** opens one and
+sets it active. `/epics` lists them active first, then open, then closed, with progress and the plan
+chip; `/epics/:id` is the inspector — body, children with their role and attention chips, ADRs under
+the epic, the plan, make active, close (with a confirm), reopen, and **Import goals…**, which is
+`.bytedesk/task-management/bin/tm goal import` scoped to this epic.
 
-**Group by epic** turns the five status columns into one row of columns per epic, with a
-progress bar and `done/total` per lane. The active epic sorts first, then open epics by id,
-then closed ones, then unfiled work — which is never dropped, because a task with no epic is
-exactly the thing you want to notice. An epic id with no epic file gets a lane marked
-`missing` rather than hiding the tasks behind the data fault (`.bytedesk/task-management/bin/tm doctor --fix` clears it).
+**Group by epic** turns the six status columns into one row of columns per epic, with a progress
+bar and `done/total` per lane. The active epic sorts first, then open epics by id, then closed ones,
+then unfiled work — which is never dropped, because a task with no epic is exactly the thing you
+want to notice. An epic id with no epic file gets a lane marked `missing` rather than hiding the
+tasks behind the data fault (`.bytedesk/task-management/bin/tm doctor --fix` clears it).
 
-The keyboard cursor still reads the same five columns whether or not the board is grouped:
-grouping sorts tasks lane-first, so `j` keeps walking down the screen instead of hopping
-between lanes.
-
-> The header lozenge and the burndown chart previously showed
-> `epics.find(e => e.status !== "done")` — "the first epic that isn't finished" — rather than
-> the active epic in `state.json`, which the board payload had always carried. With one epic
-> those coincide; with two, both pointed at the wrong epic.
+The keyboard cursor reads the same six columns whether or not the board is grouped: grouping sorts
+tasks lane-first, so `j` keeps walking down the screen instead of hopping between lanes.
 
 ## The board without a mouse
 
-Cards used to move by HTML5 drag and nothing else, so half the write surface was
-unreachable by keyboard and the rest was a hunt for which panel owned the control.
+`?` opens the shortcut sheet on any screen. The short version, on the board and the backlog: `j`/`k`
+walk a column, `h`/`l` cross columns (skipping empty ones), `g`/`G` jump to the ends, **`1`–`6`
+move the focused card to that column** — the number is printed in each column heading, because the
+heading is the shortcut — `[`/`]` reorder, `x` selects for the bulk bar, `w` watches, `o`/`Enter`
+opens, `c` creates, `/` focuses the query bar. The map lives in `dashboard/src/lib/keys.mjs` as
+data, and the sheet is rendered from it, so the two cannot drift.
 
-`?` lists every binding. The short version: `j`/`k` walk a column, `h`/`l` cross columns
-(skipping empty ones), `g`/`G` jump to the ends, **`1`–`5` move the focused card to that
-column** — the number is printed in each column heading, because the heading is the
-shortcut — `[`/`]` reorder within a column, `x` selects for the bulk bar, `w` watches,
-`o`/`Enter` opens, `c` creates, `/` searches.
+`⌘K` / `Ctrl-K` opens a command palette over every screen, every board action and every visible
+entity, so "set this to blocked" is something you can type rather than somewhere you have to find.
+It opens from inside a text field too.
 
-`⌘K` / `Ctrl-K` opens a command palette over every board action and every visible task,
-so "set this to blocked" is something you can type rather than somewhere you have to
-find. It opens from inside a text field too.
-
-Shortcuts go quiet while you are typing in a field or a dialog is up, and any modifier
-chord that isn't `⌘K` is left to the browser — swallowing `⌘R` would be worse than having
-no shortcuts at all. Cards are real focusable list items with `aria-label`s carrying what
-the badges show, on a roving tabindex, so `Tab` and `j`/`k` agree on where the cursor is.
+Shortcuts go quiet while you are typing in a field or a dialog is up, and any modifier chord that
+isn't `⌘K` is left to the browser — swallowing `⌘R` would be worse than having no shortcuts at all.
+Cards are real focusable list items with `aria-label`s carrying what the chips show, on a roving
+tabindex, so `Tab` and `j`/`k` agree on where the cursor is. An inspector moves focus to its heading
+when it opens and back to the card when it closes; nothing on the board asks a question through
+`window.prompt`.
 
 ## Working on the dashboard
 
 The board `.bytedesk/task-management/bin/tm-dashboard` serves is the built bundle in
-`dashboard/dist/` (committed, so
-the plugin works on a clone with no `npm install`). Editing `dashboard/src/` therefore changes
-nothing until you rebuild — which is a slow way to move a card two pixels.
+`dashboard/dist/` (committed, so the plugin works on a clone with no `npm install`). Editing
+`dashboard/src/` therefore changes nothing until you rebuild — which is a slow way to move a card
+two pixels.
 
 For live editing, run the Vite dev server **alongside** the normal board:
 
@@ -841,16 +893,30 @@ start and says so (instead of starting and failing every request), and it treats
 port file — one left behind by a board that died — the same way, by checking the recorded pid
 is alive. `npm run build` never needs a board.
 
-When you are done, rebuild so the served bundle matches the source:
+The tokens come from `.context/design-system/tokens/css/bytedesk.css`, vendored by the
+`design-system` plugin (`bd-design sync`; `node .bytedesk/design-system-check.mjs` says whether
+the vendored copy matches the plugin). Components consume the `--tm-*` roles in
+`dashboard/src/styles/tokens.css` and never a foundation value, and `npm run design:check` fails
+on any colour literal under `src/`.
+
+When you are done, rebuild so the served bundle matches the source, restart the board, and run
+the browser checks against it:
 
 ```bash
 npm --prefix dashboard run build         # tsc --noEmit && vite build && the PWA assets
-node tests/browser/keyboard.mjs          # and re-check the keyboard against the new build
+npm --prefix dashboard run design:check  # no colour literal outside tokens.css
+bin/tm-dashboard --restart --no-browser
+TM_ROOT=<repo> node tests/browser/keyboard.mjs   # the keyboard, over CDP
+TM_ROOT=<repo> node tests/browser/drawer.mjs     # the inspector's layout at a short viewport
+TM_ROOT=<repo> node tests/browser/routes.mjs     # every route at 1440 and 390: no console error, no sideways scroll, an h1
 ```
 
-`dashboard/src/*.mjs` (`keys.mjs`, `lanes.mjs`, `metrics.mjs`, `pwa/*.mjs`) are plain JavaScript
-on purpose: they hold the logic, and `node --test` can reach them without a TypeScript runner.
-The `.tsx` components stay thin so they need no test harness of their own.
+`dashboard/src/lib/*.mjs` (`keys.mjs`, `lanes.mjs`, `liveness.mjs`, `markdown.mjs`),
+`dashboard/metrics.mjs` and `dashboard/src/pwa/*.mjs` are plain JavaScript on purpose: they hold
+the logic, and `node --test` can reach them without a TypeScript runner. Screens under
+`dashboard/src/features/<screen>/` stay thin over `src/lib/store.ts` (the SSE-fed entity store),
+`src/lib/router.ts` and the primitives in `src/components/ui/`; the contract they were built
+against is [`docs/dashboard-contract.md`](docs/dashboard-contract.md).
 
 ## Config
 
@@ -885,16 +951,21 @@ Units cover `lib/` (`node --test`, Node 22 built-in); the bash suites cover hook
 git worktrees, the MCP handshake and the dashboard. Everything self-isolates in a `mktemp -d`
 store — no fixtures, no network, no Claude Code needed.
 
-One check is deliberately **outside** that suite, because it needs Chrome and a served build:
+Three checks are deliberately **outside** that suite, because they need Chrome and a served build:
 
 ```bash
-npm --prefix dashboard run build
-node tests/browser/keyboard.mjs          # real key events, real browser, over CDP
+npm --prefix dashboard run build && bin/tm-dashboard --restart --no-browser
+TM_ROOT=<repo> node tests/browser/keyboard.mjs   # real key events, real browser, over CDP
+TM_ROOT=<repo> node tests/browser/drawer.mjs     # the inspector's header stays, its body scrolls
+TM_ROOT=<repo> node tests/browser/routes.mjs     # every route, desktop and phone
 ```
 
-It drives the board's keyboard and asserts the DOM — that focus follows the cursor, that the
-ring is visible, and that typing `j` in the search field types a `j`. It skips cleanly when
-there is no Chrome or no board running, so it never fails for being unrunnable.
+`keyboard.mjs` drives the board's keyboard and asserts the DOM — that focus follows the cursor,
+that the ring is visible, and that typing `j` in the query bar types a `j`. `routes.mjs` opens
+every route in `dashboard/src/app/routes.ts` at 1440 and 390 and fails on a console error, a
+sideways scroll or a missing `h1` — the quiet failure a lazy chunk can have. All three skip cleanly
+when there is no Chrome or no board running, so they never fail for being unrunnable, and each
+attaches only to the Chrome it launched.
 
 ## Notes
 
