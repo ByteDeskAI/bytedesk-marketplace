@@ -167,10 +167,18 @@ check("the focused card is the one with the visible ring", await ringed(), first
 // Whether `j` moves or clamps depends on how many cards that column holds, and this
 // check runs against whatever board is up. Assert the actual contract — move when
 // there is somewhere to go, stay put at the end — rather than assuming a tall column.
+// Grouped mode renders the same status column once per lane and `j` walks the whole status
+// column down the screen, so depth is counted across every list of that status.
 const columnDepth = await evaluate(
   `(() => {
      const el = document.querySelector('[data-tm-card="${first}"]');
-     return el ? el.closest('[role=list]').querySelectorAll('[data-tm-card]').length : 0;
+     const col = el && el.closest('[data-tm-column]');
+     const list = el && el.closest('[role=list]');
+     if (!list) return 0;
+     const status = col && col.getAttribute('data-tm-column');
+     return status
+       ? document.querySelectorAll('[data-tm-column="' + status + '"] [data-tm-card]').length
+       : list.querySelectorAll('[data-tm-card]').length;
    })()`,
 );
 await press("j");
@@ -181,9 +189,23 @@ check(
   true,
 );
 
+// `l` moves only when a non-empty column exists to the right; from the last one it stays put.
+const hasRight = await evaluate(
+  `(() => {
+     const el = document.querySelector('[data-tm-card="${second}"]');
+     const status = el && el.closest('[data-tm-column]') && el.closest('[data-tm-column]').getAttribute('data-tm-column');
+     const order = ["backlog","open","in_progress","blocked","parked","done"];
+     const i = order.indexOf(status);
+     return i >= 0 && order.slice(i + 1).some((s) => document.querySelector('[data-tm-column="' + s + '"] [data-tm-card]'));
+   })()`,
+);
 await press("l");
 const across = await cursor();
-check("l crosses to the next non-empty column", across !== second && across !== null, true);
+check(
+  hasRight ? "l crosses to the next non-empty column" : "l stays put in the last non-empty column",
+  hasRight ? across !== second && across !== null : across === second,
+  true,
+);
 
 await press("h");
 check("h comes back", await cursor(), second);
