@@ -1,0 +1,1065 @@
+<!doctype html>
+<html lang="en" data-bd-product="task-management" data-bd-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sessions · Bytedesk Marketplace</title>
+  <link rel="stylesheet" href="tokens/bytedesk.css">
+  <style>
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      min-width: 0;
+      min-height: 100%;
+      margin: var(--bd-space-0);
+      overflow-x: hidden;
+      background: var(--bd-bg-base);
+      color: var(--bd-text-primary);
+      font-family: var(--bd-font-sans);
+      font-size: var(--bd-text-body);
+      line-height: var(--bd-line-height-body);
+    }
+
+    button,
+    input {
+      min-width: 0;
+      min-height: var(--bd-size-control-compact);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-default);
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-surface);
+      color: var(--bd-text-primary);
+      font: inherit;
+    }
+
+    button {
+      padding: var(--bd-space-1) var(--bd-space-3);
+      cursor: pointer;
+    }
+
+    button:hover,
+    input:hover {
+      background: var(--bd-bg-hover);
+    }
+
+    button:focus-visible,
+    input:focus-visible,
+    [tabindex]:focus-visible {
+      outline: var(--bd-stroke-focus) solid var(--bd-focus-ring);
+      outline-offset: var(--bd-space-1);
+    }
+
+    button:disabled {
+      color: var(--bd-text-disabled);
+      opacity: var(--bd-opacity-disabled);
+      cursor: default;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: var(--bd-space-0);
+    }
+
+    h1 {
+      font-size: var(--bd-text-h1);
+      line-height: var(--bd-line-height-tight);
+      font-weight: var(--bd-font-weight-semibold);
+    }
+
+    h2 {
+      font-size: var(--bd-text-h2);
+      line-height: var(--bd-line-height-tight);
+      font-weight: var(--bd-font-weight-semibold);
+    }
+
+    h3 {
+      font-size: var(--bd-text-h4);
+      line-height: var(--bd-line-height-tight);
+      font-weight: var(--bd-font-weight-medium);
+    }
+
+    svg {
+      display: block;
+      width: var(--bd-size-icon-sm);
+      height: var(--bd-size-icon-sm);
+      fill: none;
+      stroke: currentColor;
+      stroke-width: var(--bd-stroke-active);
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .mono,
+    code,
+    .entity,
+    time,
+    .count,
+    .path {
+      font-family: var(--bd-font-mono);
+    }
+
+    .shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template:
+        "rail command" var(--bd-size-shell-commandbar)
+        "rail canvas" minmax(0, 1fr)
+        "rail status" var(--bd-size-shell-statusbar)
+        / var(--bd-size-shell-rail) minmax(0, 1fr);
+    }
+
+    .rail {
+      grid-area: rail;
+      position: fixed;
+      inset-block: var(--bd-space-0);
+      inset-inline-start: var(--bd-space-0);
+      z-index: 4;
+      width: var(--bd-size-shell-rail);
+      padding: var(--bd-space-2) var(--bd-space-1);
+      border-inline-end: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      background: var(--bd-bg-surface);
+    }
+
+    .rail-list,
+    .mobile-nav-list,
+    .row-list,
+    .task-list {
+      margin: var(--bd-space-0);
+      padding: var(--bd-space-0);
+      list-style: none;
+    }
+
+    .rail-list {
+      display: flex;
+      min-height: 100%;
+      flex-direction: column;
+      align-items: center;
+      gap: var(--bd-space-1);
+    }
+
+    .rail-list li:nth-last-child(2) {
+      margin-block-start: auto;
+    }
+
+    .icon-button {
+      display: grid;
+      width: var(--bd-size-control-default);
+      height: var(--bd-size-control-default);
+      min-height: var(--bd-size-control-default);
+      place-items: center;
+      padding: var(--bd-space-0);
+      border-color: transparent;
+      background: transparent;
+      color: var(--bd-text-secondary);
+    }
+
+    .icon-button[aria-current="page"] {
+      border-color: var(--bd-info-line);
+      background: var(--bd-info-bg);
+      color: var(--bd-info);
+    }
+
+    .commandbar {
+      grid-area: command;
+      position: sticky;
+      inset-block-start: var(--bd-space-0);
+      z-index: 3;
+      display: flex;
+      align-items: center;
+      gap: var(--bd-space-2);
+      min-width: 0;
+      padding-inline: var(--bd-space-3);
+      border-block-end: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      background: var(--bd-bg-surface);
+    }
+
+    .project {
+      overflow: hidden;
+      flex: 0 1 auto;
+      color: var(--bd-text-primary);
+      font-weight: var(--bd-font-weight-medium);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .chip,
+    .status-chip,
+    .harness-chip {
+      display: inline-flex;
+      min-height: var(--bd-size-control-compact);
+      align-items: center;
+      gap: var(--bd-space-1);
+      padding: var(--bd-space-1) var(--bd-space-2);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-md);
+      background: var(--bd-bg-subtle);
+      color: var(--bd-text-secondary);
+      font-size: var(--bd-text-body-sm);
+      line-height: var(--bd-line-height-compact);
+      white-space: nowrap;
+    }
+
+    .status-chip {
+      border-radius: var(--bd-radius-full);
+    }
+
+    .status-live {
+      border-color: var(--bd-info-line);
+      background: var(--bd-info-bg);
+      color: var(--bd-info);
+    }
+
+    .status-idle {
+      color: var(--bd-text-tertiary);
+    }
+
+    .status-warning {
+      border-color: var(--bd-warning-line);
+      background: var(--bd-warning-bg);
+      color: var(--bd-warning);
+    }
+
+    .status-progress {
+      border-color: var(--bd-info-line);
+      background: var(--bd-info-bg);
+      color: var(--bd-info);
+    }
+
+    .status-todo {
+      color: var(--bd-text-secondary);
+    }
+
+    .search-wrap {
+      display: flex;
+      min-width: var(--bd-space-11);
+      flex: 1 1 auto;
+      align-items: center;
+      gap: var(--bd-space-1);
+    }
+
+    .search-wrap label {
+      position: absolute;
+      width: var(--bd-space-0);
+      height: var(--bd-space-0);
+      overflow: hidden;
+    }
+
+    .search-wrap input {
+      width: 100%;
+      padding-inline: var(--bd-space-3);
+      color: var(--bd-text-primary);
+    }
+
+    .search-wrap input::placeholder {
+      color: var(--bd-text-tertiary);
+    }
+
+    kbd {
+      flex: 0 0 auto;
+      padding: var(--bd-space-1) var(--bd-space-2);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-default);
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-subtle);
+      color: var(--bd-text-secondary);
+      font-family: var(--bd-font-mono);
+      font-size: var(--bd-text-caption);
+    }
+
+    .canvas {
+      grid-area: canvas;
+      min-width: 0;
+      overflow: auto;
+      padding: var(--bd-space-section-y) var(--bd-space-section-x);
+      overscroll-behavior: contain;
+    }
+
+    .page {
+      display: grid;
+      gap: var(--bd-space-7);
+      min-width: 0;
+    }
+
+    .page-heading {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: var(--bd-space-4);
+    }
+
+    .page-heading p {
+      color: var(--bd-text-secondary);
+    }
+
+    .wip-panel {
+      display: grid;
+      gap: var(--bd-space-3);
+      padding: var(--bd-space-4);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-lg);
+      background: var(--bd-bg-surface);
+    }
+
+    .wip-line {
+      display: flex;
+      align-items: center;
+      gap: var(--bd-space-3);
+    }
+
+    .wip-bar {
+      display: flex;
+      min-width: 0;
+      height: var(--bd-space-2);
+      flex: 1 1 auto;
+      gap: var(--bd-space-1);
+      overflow: hidden;
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-subtle);
+    }
+
+    .wip-segment {
+      flex: 1 1 0;
+      background: var(--bd-info);
+    }
+
+    .wip-segment.empty {
+      background: var(--bd-border-dimmer);
+    }
+
+    .stale {
+      color: var(--bd-warning);
+      font-size: var(--bd-text-body-sm);
+    }
+
+    .section {
+      display: grid;
+      gap: var(--bd-space-3);
+      min-width: 0;
+    }
+
+    .section-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--bd-space-3);
+    }
+
+    .section-count {
+      color: var(--bd-text-tertiary);
+      font-size: var(--bd-text-body-sm);
+    }
+
+    .table-wrap {
+      min-width: 0;
+      overflow: auto;
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-lg);
+      background: var(--bd-bg-surface);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: var(--bd-text-body-sm);
+    }
+
+    th,
+    td {
+      padding: var(--bd-space-2) var(--bd-space-3);
+      border-block-end: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      text-align: start;
+      vertical-align: middle;
+      white-space: nowrap;
+    }
+
+    th {
+      background: var(--bd-bg-subtle);
+      color: var(--bd-text-secondary);
+      font-weight: var(--bd-font-weight-medium);
+    }
+
+    tbody tr:last-child td {
+      border-block-end: 0;
+    }
+
+    .session-cell,
+    .transcript {
+      display: flex;
+      min-width: 0;
+      align-items: center;
+      gap: var(--bd-space-1);
+    }
+
+    .truncate {
+      display: inline-block;
+      max-width: var(--bd-size-panel-minimum);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .copy-button {
+      width: var(--bd-size-control-compact);
+      padding: var(--bd-space-0);
+      border-color: transparent;
+      background: transparent;
+      color: var(--bd-text-secondary);
+    }
+
+    .row-list {
+      display: grid;
+      gap: var(--bd-space-2);
+    }
+
+    .flat-row {
+      display: grid;
+      min-width: 0;
+      gap: var(--bd-space-3);
+      padding: var(--bd-space-3);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-md);
+      background: var(--bd-bg-surface);
+    }
+
+    .worktree-row {
+      grid-template-columns: minmax(var(--bd-size-panel-minimum), 2fr) minmax(0, 1fr) auto auto auto;
+      align-items: center;
+    }
+
+    .subagent-row {
+      grid-template-columns: auto auto minmax(0, 1fr) minmax(var(--bd-size-panel-minimum), 1fr);
+      align-items: center;
+    }
+
+    .row-main {
+      display: grid;
+      min-width: 0;
+      gap: var(--bd-space-1);
+    }
+
+    .row-main .path,
+    .row-main .mono {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .secondary {
+      color: var(--bd-text-secondary);
+      font-size: var(--bd-text-body-sm);
+    }
+
+    .said {
+      display: -webkit-box;
+      overflow: hidden;
+      color: var(--bd-text-secondary);
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+    }
+
+    .force {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--bd-space-1);
+      color: var(--bd-text-secondary);
+      font-size: var(--bd-text-body-sm);
+      white-space: nowrap;
+    }
+
+    .force input {
+      min-height: auto;
+    }
+
+    .batches {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: var(--bd-space-3);
+    }
+
+    .batch {
+      display: grid;
+      min-width: 0;
+      align-content: start;
+      gap: var(--bd-space-3);
+      padding: var(--bd-space-4);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-xl);
+      background: var(--bd-bg-surface);
+    }
+
+    .task-list {
+      display: grid;
+      gap: var(--bd-space-2);
+    }
+
+    .task-card {
+      display: grid;
+      gap: var(--bd-space-2);
+      padding: var(--bd-space-3);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-surface);
+    }
+
+    .task-top {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: var(--bd-space-2);
+    }
+
+    .task-title {
+      font-weight: var(--bd-font-weight-medium);
+    }
+
+    .task-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--bd-space-1);
+    }
+
+    .claimed-card {
+      border-inline-start: var(--bd-stroke-focus) solid var(--bd-accent);
+      box-shadow: var(--bd-shadow-focus-glow);
+    }
+
+    .command {
+      overflow: auto;
+      padding: var(--bd-space-3);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-md);
+      background: var(--bd-bg-subtle);
+      color: var(--bd-text-primary);
+      font-family: var(--bd-font-mono);
+      font-size: var(--bd-text-console-sm);
+      white-space: nowrap;
+      user-select: all;
+    }
+
+    .statusbar {
+      grid-area: status;
+      display: flex;
+      align-items: center;
+      padding-inline: var(--bd-space-3);
+      border-block-start: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      background: var(--bd-bg-surface);
+      color: var(--bd-text-tertiary);
+      font-size: var(--bd-text-caption);
+    }
+
+    .mobile-nav {
+      display: none;
+    }
+
+    .scrim {
+      position: fixed;
+      z-index: 20;
+      inset: var(--bd-space-0);
+      background: var(--bd-overlay-backdrop);
+    }
+
+    dialog[open] {
+      position: fixed;
+      z-index: 21;
+      inset: var(--bd-space-0);
+      display: grid;
+      width: min(var(--bd-size-panel-comfortable), calc(100% - var(--bd-space-8)));
+      max-height: calc(100% - var(--bd-space-8));
+      gap: var(--bd-space-5);
+      margin: auto;
+      padding: var(--bd-space-6);
+      overflow: auto;
+      overscroll-behavior: contain;
+      border: var(--bd-stroke-hairline) solid var(--bd-border-stronger);
+      border-radius: var(--bd-radius-xl);
+      background: var(--bd-bg-elevated);
+      color: var(--bd-text-primary);
+      box-shadow: var(--bd-shadow-shell);
+    }
+
+    .dialog-body {
+      display: grid;
+      gap: var(--bd-space-3);
+    }
+
+    .dialog-body p {
+      color: var(--bd-text-secondary);
+    }
+
+    .dialog-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: var(--bd-space-2);
+    }
+
+    .danger-action {
+      border-color: var(--bd-danger-line);
+      background: var(--bd-danger-bg);
+      color: var(--bd-danger);
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+      button,
+      input,
+      [tabindex] {
+        transition:
+          opacity var(--bd-duration-fast) var(--bd-ease-out-expo),
+          transform var(--bd-duration-fast) var(--bd-ease-out-expo);
+      }
+
+      .claimed-card {
+        animation: live-write var(--bd-duration-slow) var(--bd-ease-out-expo) infinite alternate;
+      }
+
+      @keyframes live-write {
+        from { opacity: var(--bd-opacity-secondary); }
+        to { opacity: 1; }
+      }
+    }
+
+    @media (max-width: 1200px) {
+      .commandbar .sprint-chip {
+        display: none;
+      }
+
+      .worktree-row {
+        grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto;
+      }
+
+      .worktree-row .force,
+      .worktree-row .row-action {
+        grid-row: 2;
+      }
+
+      .subagent-row {
+        grid-template-columns: auto auto minmax(0, 1fr);
+      }
+
+      .subagent-row .transcript {
+        grid-column: 1 / -1;
+      }
+    }
+
+    @media (max-width: 720px) {
+      button,
+      input,
+      .chip,
+      .status-chip,
+      .harness-chip {
+        min-height: var(--bd-size-hit-target-touch);
+      }
+
+      .shell {
+        min-height: 100vh;
+        grid-template:
+          "command" auto
+          "canvas" minmax(0, 1fr)
+          "status" var(--bd-size-shell-statusbar)
+          "mobile" var(--bd-size-hit-target-touch)
+          / minmax(0, 1fr);
+      }
+
+      .rail {
+        display: none;
+      }
+
+      .commandbar {
+        grid-area: command;
+        position: relative;
+        min-height: var(--bd-size-shell-commandbar);
+        flex-wrap: wrap;
+        padding: var(--bd-space-2);
+      }
+
+      .commandbar .epic-chip,
+      .commandbar kbd {
+        display: none;
+      }
+
+      .project {
+        flex: 1 1 auto;
+      }
+
+      .search-wrap {
+        flex-basis: 100%;
+      }
+
+      .canvas {
+        padding: var(--bd-space-4);
+      }
+
+      .page-heading {
+        align-items: start;
+        flex-direction: column;
+      }
+
+      .table-wrap {
+        overflow: visible;
+        border: 0;
+        background: transparent;
+      }
+
+      table,
+      thead,
+      tbody,
+      tr,
+      th,
+      td {
+        display: block;
+        width: 100%;
+      }
+
+      thead {
+        position: absolute;
+        width: var(--bd-space-0);
+        height: var(--bd-space-0);
+        overflow: hidden;
+      }
+
+      tbody {
+        display: grid;
+        gap: var(--bd-space-2);
+      }
+
+      tbody tr {
+        padding: var(--bd-space-3);
+        border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+        border-radius: var(--bd-radius-md);
+        background: var(--bd-bg-surface);
+      }
+
+      tbody tr td {
+        display: grid;
+        grid-template-columns: minmax(var(--bd-space-11), 1fr) minmax(0, 2fr);
+        align-items: center;
+        gap: var(--bd-space-2);
+        padding: var(--bd-space-2) var(--bd-space-0);
+        border-block-end: var(--bd-stroke-hairline) solid var(--bd-border-dimmest);
+        white-space: normal;
+      }
+
+      tbody tr td::before {
+        color: var(--bd-text-tertiary);
+        content: attr(data-label);
+        font-family: var(--bd-font-sans);
+        font-size: var(--bd-text-caption);
+      }
+
+      tbody tr td:last-child {
+        border-block-end: 0;
+      }
+
+      .worktree-row,
+      .subagent-row {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .worktree-row .force,
+      .worktree-row .row-action,
+      .subagent-row .transcript {
+        grid-column: auto;
+        grid-row: auto;
+      }
+
+      .batches {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .statusbar {
+        padding-inline: var(--bd-space-2);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .mobile-nav {
+        grid-area: mobile;
+        position: fixed;
+        z-index: 10;
+        inset-inline: var(--bd-space-0);
+        inset-block-end: var(--bd-space-0);
+        display: block;
+        min-height: var(--bd-size-hit-target-touch);
+        border-block-start: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+        background: var(--bd-bg-surface);
+      }
+
+      .mobile-nav-list {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      .mobile-nav button {
+        width: 100%;
+        min-height: var(--bd-size-hit-target-touch);
+        padding: var(--bd-space-1);
+        border: 0;
+        border-radius: var(--bd-space-0);
+        background: transparent;
+        color: var(--bd-text-secondary);
+        font-size: var(--bd-text-caption);
+      }
+
+      .mobile-nav button[aria-current="page"] {
+        color: var(--bd-info);
+      }
+
+      dialog[open] {
+        width: 100%;
+        height: 100%;
+        max-height: none;
+        border: 0;
+        border-radius: var(--bd-space-0);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <nav class="rail" aria-label="Primary navigation">
+      <ul class="rail-list" role="list">
+        <li><button class="icon-button" type="button" aria-label="Board"><title>Board</title><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="5" height="12"></rect><rect x="9" y="2" width="5" height="7"></rect></svg></button></li>
+        <li><button class="icon-button" type="button" aria-label="Backlog"><title>Backlog</title><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3h10M3 8h10M3 13h7"></path></svg></button></li>
+        <li><button class="icon-button" type="button" aria-label="Epics"><title>Epics</title><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8l6-6 6 6-6 6z"></path><path d="M5 8h6"></path></svg></button></li>
+        <li><button class="icon-button" type="button" aria-label="Graph"><title>Graph</title><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="3" cy="8" r="1.5"></circle><circle cx="12.5" cy="3" r="1.5"></circle><circle cx="12.5" cy="13" r="1.5"></circle><path d="M4.5 7.2l6.5-3.4M4.5 8.8l6.5 3.4"></path></svg></button></li>
+        <li><button class="icon-button" type="button" aria-label="Timeline"><title>Timeline</title><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2v12M3 4h7M3 8h10M3 12h5"></path></svg></button></li>
+        <li><button class="icon-button" type="button" aria-label="Sessions" aria-current="page"><title>Sessions</title><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="5" cy="5" r="2"></circle><circle cx="11.5" cy="6" r="1.5"></circle><path d="M2 13c.4-2.3 1.7-3.5 3.8-3.5S9.2 10.7 9.6 13M9 10c2.5-.6 4.1.4 4.7 3"></path></svg></button></li>
+        <li><button class="icon-button" type="button" aria-label="Health"><title>Health</title><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8h3l1.5-4 3 8L11 8h3"></path></svg></button></li>
+        <li><button class="icon-button" type="button" aria-label="Settings"><title>Settings</title><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.5"></circle><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4"></path></svg></button></li>
+        <li><button class="icon-button" type="button" aria-label="Help"><title>Help</title><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M6.3 6a1.8 1.8 0 1 1 2.4 1.7c-.7.3-.7.8-.7 1.3M8 12h.01"></path></svg></button></li>
+      </ul>
+    </nav>
+
+    <header class="commandbar">
+      <span class="project">Bytedesk Marketplace</span>
+      <span class="chip epic-chip mono">EP-006</span>
+      <span class="chip sprint-chip mono">SP-003 · 12/20 pts · 2 unsized</span>
+      <span class="status-chip status-live"><span aria-hidden="true">●</span> live</span>
+      <div class="search-wrap">
+        <label for="global-search">Search tasks</label>
+        <input id="global-search" type="search" placeholder="Search or type a filter — status:open label:ui">
+        <kbd>⌘K</kbd>
+      </div>
+    </header>
+
+    <main class="canvas">
+      <div class="page">
+        <div class="page-heading">
+          <div>
+            <h1>Sessions</h1>
+            <p>Resume from claim, blocker, then proof.</p>
+          </div>
+          <span class="chip mono">EP-006 · Dashboard rewrite on the ByteDesk design system</span>
+        </div>
+
+        <section class="wip-panel" aria-labelledby="wip-heading">
+          <div class="wip-line">
+            <h2 id="wip-heading" class="mono">WIP 2 / 3</h2>
+            <div class="wip-bar" role="meter" aria-label="Work in progress" aria-valuemin="0" aria-valuemax="3" aria-valuenow="2">
+              <span class="wip-segment"></span>
+              <span class="wip-segment"></span>
+              <span class="wip-segment empty"></span>
+            </div>
+          </div>
+          <p class="stale">1 task stale (idle <span class="mono">2h 14m</span>): <span class="entity">TM-053</span></p>
+        </section>
+
+        <section class="section" aria-labelledby="claims-heading">
+          <div class="section-heading">
+            <h2 id="claims-heading">Claims</h2>
+            <span class="section-count mono">3 claims · 1 expired</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Session</th>
+                  <th scope="col">Harness</th>
+                  <th scope="col">Actor</th>
+                  <th scope="col">Task</th>
+                  <th scope="col">Worktree</th>
+                  <th scope="col">Branch</th>
+                  <th scope="col">Age</th>
+                  <th scope="col">Expires</th>
+                  <th scope="col">State</th>
+                  <th scope="col">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td data-label="Session"><span class="session-cell"><span class="mono truncate">ses_7f2a91c46bd8</span><button class="copy-button" type="button" aria-label="Copy session ses_7f2a91c46bd8">⧉</button></span></td>
+                  <td data-label="Harness"><span class="harness-chip">claude</span></td>
+                  <td data-label="Actor">Mira Chen</td>
+                  <td data-label="Task"><span class="mono">TM-052</span> · Author session identity header</td>
+                  <td data-label="Worktree"><span class="mono">.worktrees/TM-052</span></td>
+                  <td data-label="Branch"><span class="mono">feat/tm-052-identity</span></td>
+                  <td data-label="Age"><span class="mono">38m</span></td>
+                  <td data-label="Expires"><span class="mono">in 3h 22m</span></td>
+                  <td data-label="State"><span class="status-chip status-live"><span aria-hidden="true">●</span> live</span></td>
+                  <td data-label="Action"><button type="button">Release</button></td>
+                </tr>
+                <tr>
+                  <td data-label="Session"><span class="session-cell"><span class="mono truncate">ses_18ca4e229f01</span><button class="copy-button" type="button" aria-label="Copy session ses_18ca4e229f01">⧉</button></span></td>
+                  <td data-label="Harness"><span class="harness-chip">codex</span></td>
+                  <td data-label="Actor">Ryan Bell</td>
+                  <td data-label="Task"><span class="mono">TM-053</span> · Stack claims table on compact screens</td>
+                  <td data-label="Worktree"><span class="mono">main checkout</span></td>
+                  <td data-label="Branch"><span class="mono">develop</span></td>
+                  <td data-label="Age"><span class="mono">2h 14m</span></td>
+                  <td data-label="Expires"><span class="mono">in 1h 46m</span></td>
+                  <td data-label="State"><span class="status-chip status-idle"><span aria-hidden="true">○</span> idle</span></td>
+                  <td data-label="Action"><button type="button">Release</button></td>
+                </tr>
+                <tr>
+                  <td data-label="Session"><span class="session-cell"><span class="mono truncate">ses_a901cd731e44</span><button class="copy-button" type="button" aria-label="Copy session ses_a901cd731e44">⧉</button></span></td>
+                  <td data-label="Harness"><span class="harness-chip">grok</span></td>
+                  <td data-label="Actor">automation</td>
+                  <td data-label="Task"><span class="mono">TM-049</span> · Validate fictional refusal fixtures</td>
+                  <td data-label="Worktree"><span class="mono">.worktrees/TM-049</span></td>
+                  <td data-label="Branch"><span class="mono">test/tm-049-gates</span></td>
+                  <td data-label="Age"><span class="mono">4h 12m</span></td>
+                  <td data-label="Expires"><span class="status-chip status-warning"><span aria-hidden="true">●</span> expired</span></td>
+                  <td data-label="State"><span class="status-chip status-idle"><span aria-hidden="true">○</span> idle</span></td>
+                  <td data-label="Action"><button class="danger-action" type="button">Sweep</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="section" aria-labelledby="worktrees-heading">
+          <div class="section-heading">
+            <h2 id="worktrees-heading">Worktrees</h2>
+            <span class="section-count mono">2 attached</span>
+          </div>
+          <ul class="row-list" role="list">
+            <li class="flat-row worktree-row" tabindex="-1">
+              <div class="row-main">
+                <span class="path">.worktrees/TM-052</span>
+                <span class="mono secondary">feat/tm-052-identity · TM-052</span>
+              </div>
+              <span class="chip">dirty · <span class="mono">3 files</span></span>
+              <button type="button">Open handoff</button>
+              <label class="force"><input type="checkbox"> force</label>
+              <button class="row-action" type="button">Remove</button>
+            </li>
+            <li class="flat-row worktree-row" tabindex="-1">
+              <div class="row-main">
+                <span class="path">.worktrees/TM-049</span>
+                <span class="mono secondary">test/tm-049-gates · TM-049</span>
+              </div>
+              <span class="chip">dirty · <span class="mono">3 files</span></span>
+              <button type="button">Open handoff</button>
+              <label class="force"><input type="checkbox"> force</label>
+              <button class="row-action" type="button">Remove</button>
+            </li>
+          </ul>
+        </section>
+
+        <section class="section" aria-labelledby="subagents-heading">
+          <div class="section-heading">
+            <h2 id="subagents-heading">Subagents</h2>
+            <span class="section-count mono">TM-052 · 2 agents</span>
+          </div>
+          <ul class="row-list" role="list">
+            <li class="flat-row subagent-row" tabindex="-1">
+              <span class="mono">agent-7b31</span>
+              <span class="chip">design</span>
+              <p class="said">said: authored the design profile</p>
+              <span class="transcript"><span class="mono truncate">.bytedesk/task-management/transcripts/TM-052/agent-7b31.md</span><button class="copy-button" type="button" aria-label="Copy transcript path for agent-7b31">⧉</button></span>
+            </li>
+            <li class="flat-row subagent-row" tabindex="-1">
+              <span class="mono">agent-c204</span>
+              <span class="chip">review</span>
+              <p class="said">said: checked token usage and compact layout</p>
+              <span class="transcript"><span class="mono truncate">.bytedesk/task-management/transcripts/TM-052/agent-c204.md</span><button class="copy-button" type="button" aria-label="Copy transcript path for agent-c204">⧉</button></span>
+            </li>
+          </ul>
+        </section>
+
+        <section class="section" aria-labelledby="batches-heading">
+          <div class="section-heading">
+            <h2 id="batches-heading">Parallel batches</h2>
+            <span class="section-count mono">3 queued tasks</span>
+          </div>
+          <div class="batches">
+            <section class="batch" aria-labelledby="batch-one-heading">
+              <h3 id="batch-one-heading">Batch 1: <span class="mono">TM-054, TM-055</span> (touches disjoint)</h3>
+              <ul class="task-list" role="list">
+                <li class="task-card claimed-card" tabindex="0">
+                  <div class="task-top">
+                    <span><span class="entity">TM-054</span> <span class="task-title">Add claim expiry guard</span></span>
+                    <span class="status-chip status-progress"><span aria-hidden="true">●</span> in progress</span>
+                  </div>
+                  <div class="task-chips">
+                    <span class="chip">▲ high</span>
+                    <span class="chip mono">3 pts</span>
+                    <span class="chip mono">ses_7f2a…</span>
+                  </div>
+                </li>
+                <li class="task-card" tabindex="-1">
+                  <div class="task-top">
+                    <span><span class="entity">TM-055</span> <span class="task-title">Render evidence path copies</span></span>
+                    <span class="status-chip status-todo"><span aria-hidden="true">●</span> todo</span>
+                  </div>
+                  <div class="task-chips">
+                    <span class="chip">◆ normal</span>
+                    <span class="chip mono">2 pts</span>
+                  </div>
+                </li>
+              </ul>
+              <code class="command">.bytedesk/task-management/bin/tm worktree new TM-054</code>
+            </section>
+
+            <section class="batch" aria-labelledby="batch-two-heading">
+              <h3 id="batch-two-heading">Batch 2: <span class="mono">TM-056</span></h3>
+              <ul class="task-list" role="list">
+                <li class="task-card" tabindex="-1">
+                  <div class="task-top">
+                    <span><span class="entity">TM-056</span> <span class="task-title">Prove mobile session recovery</span></span>
+                    <span class="status-chip status-todo"><span aria-hidden="true">●</span> todo</span>
+                  </div>
+                  <div class="task-chips">
+                    <span class="chip">▼ low</span>
+                    <span class="chip mono">unsized</span>
+                  </div>
+                </li>
+              </ul>
+              <code class="command">.bytedesk/task-management/bin/tm worktree new TM-054</code>
+            </section>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <footer class="statusbar">Illustrative mockup — fictional data — not production source</footer>
+
+    <nav class="mobile-nav" aria-label="Compact navigation">
+      <ul class="mobile-nav-list" role="list">
+        <li><button type="button">Board</button></li>
+        <li><button type="button">Backlog</button></li>
+        <li><button type="button" aria-current="page">Sessions</button></li>
+        <li><button type="button">More</button></li>
+      </ul>
+    </nav>
+  </div>
+
+  <div class="scrim" aria-hidden="true"></div>
+  <dialog open aria-labelledby="sweep-title" aria-describedby="sweep-consequence">
+    <div class="dialog-body">
+      <h2 id="sweep-title">Sweep expired claims</h2>
+      <p id="sweep-consequence">Releases 1 claim held by a session that has not written for 4h 12m. The task stays in progress.</p>
+      <span class="status-chip status-warning"><span aria-hidden="true">●</span> expired</span>
+    </div>
+    <div class="dialog-actions">
+      <button class="danger-action" type="button">Sweep</button>
+      <button type="button">Cancel</button>
+    </div>
+  </dialog>
+</body>
+</html>

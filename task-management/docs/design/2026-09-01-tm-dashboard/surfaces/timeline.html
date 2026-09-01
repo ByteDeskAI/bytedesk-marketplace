@@ -1,0 +1,1088 @@
+<!doctype html>
+<html lang="en" data-bd-product="task-management" data-bd-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Timeline · Bytedesk Marketplace</title>
+  <link rel="stylesheet" href="tokens/bytedesk.css">
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      min-height: 100%;
+      margin: var(--bd-space-0);
+      overflow-x: hidden;
+      background: var(--bd-bg-base);
+      color: var(--bd-text-primary);
+      font-family: var(--bd-font-sans);
+      font-size: var(--bd-text-body);
+      line-height: var(--bd-line-height-body);
+    }
+
+    button,
+    input,
+    select {
+      min-width: var(--bd-space-0);
+      height: var(--bd-size-control-compact);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-default);
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-surface);
+      color: var(--bd-text-primary);
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    button:hover,
+    input:hover,
+    select:hover {
+      background: var(--bd-bg-hover);
+    }
+
+    button:focus-visible,
+    input:focus-visible,
+    select:focus-visible,
+    a:focus-visible,
+    [tabindex]:focus-visible {
+      outline: var(--bd-stroke-focus) solid var(--bd-focus-ring);
+      outline-offset: var(--bd-space-1);
+    }
+
+    a {
+      color: var(--bd-accent);
+      text-decoration: none;
+    }
+
+    a:hover {
+      color: var(--bd-accent-emphasis);
+      text-decoration: underline;
+    }
+
+    .mono,
+    time,
+    .entity-link,
+    .actor,
+    .command-block,
+    .machine-chip,
+    input[type="date"] {
+      font-family: var(--bd-font-mono);
+    }
+
+    .app-shell {
+      display: grid;
+      grid-template-columns: var(--bd-size-shell-rail) minmax(0, 1fr);
+      grid-template-rows: var(--bd-size-shell-commandbar) minmax(0, 1fr) var(--bd-size-shell-statusbar);
+      width: 100%;
+      min-height: 100vh;
+      background: var(--bd-bg-base);
+    }
+
+    .rail {
+      grid-column: 1;
+      grid-row: 1 / 4;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: var(--bd-space-1);
+      width: var(--bd-size-shell-rail);
+      padding: var(--bd-space-2) var(--bd-space-1);
+      border-right: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      background: var(--bd-bg-subtle);
+    }
+
+    .rail button {
+      display: grid;
+      place-items: center;
+      width: var(--bd-size-control-compact);
+      height: var(--bd-size-control-compact);
+      padding: var(--bd-space-0);
+      border-color: var(--bd-border-dimmest);
+      background: var(--bd-bg-subtle);
+      color: var(--bd-text-tertiary);
+    }
+
+    .rail button:hover {
+      background: var(--bd-bg-hover);
+      color: var(--bd-text-primary);
+    }
+
+    .rail button[aria-current="page"] {
+      border-color: var(--bd-accent);
+      background: var(--bd-accent-subtle);
+      color: var(--bd-accent);
+    }
+
+    .rail svg {
+      width: var(--bd-size-icon-sm);
+      height: var(--bd-size-icon-sm);
+      fill: none;
+      stroke: currentColor;
+      stroke-width: var(--bd-stroke-active);
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .command-bar {
+      grid-column: 2;
+      grid-row: 1;
+      display: flex;
+      align-items: center;
+      gap: var(--bd-space-2);
+      min-width: var(--bd-space-0);
+      height: var(--bd-size-shell-commandbar);
+      padding: var(--bd-space-1) var(--bd-space-3);
+      border-bottom: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      background: var(--bd-bg-subtle);
+    }
+
+    .project-name {
+      flex: none;
+      overflow: hidden;
+      color: var(--bd-text-primary);
+      font-weight: var(--bd-font-weight-semibold);
+      line-height: var(--bd-line-height-compact);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .bar-chip,
+    .status-chip,
+    .foreign-chip,
+    .key-hint {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--bd-space-1);
+      min-height: var(--bd-size-control-compact);
+      padding: var(--bd-space-0) var(--bd-space-2);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-default);
+      background: var(--bd-bg-surface);
+      color: var(--bd-text-secondary);
+      font-size: var(--bd-text-body-sm);
+      line-height: var(--bd-line-height-compact);
+      white-space: nowrap;
+    }
+
+    .bar-chip {
+      border-radius: var(--bd-radius-sm);
+    }
+
+    .machine-chip,
+    .key-hint {
+      font-family: var(--bd-font-mono);
+    }
+
+    .search-wrap {
+      position: relative;
+      flex: 1 1 auto;
+      min-width: var(--bd-space-0);
+      max-width: var(--bd-size-panel-wide);
+      margin-left: auto;
+    }
+
+    .search-wrap label {
+      position: absolute;
+      inset-inline-start: var(--bd-space-2);
+      top: var(--bd-space-1);
+      color: var(--bd-text-tertiary);
+      font-size: var(--bd-text-caption);
+    }
+
+    .search-wrap input {
+      width: 100%;
+      padding: var(--bd-space-0) var(--bd-space-3);
+      color: var(--bd-text-primary);
+    }
+
+    .search-wrap input::placeholder {
+      color: var(--bd-text-tertiary);
+      opacity: var(--bd-opacity-secondary);
+    }
+
+    .key-hint {
+      flex: none;
+      border-radius: var(--bd-radius-sm);
+      color: var(--bd-text-tertiary);
+    }
+
+    .status-chip {
+      border-radius: var(--bd-radius-full);
+      font-weight: var(--bd-font-weight-medium);
+    }
+
+    .status-dot {
+      width: var(--bd-size-chart-point);
+      height: var(--bd-size-chart-point);
+      flex: none;
+      border-radius: var(--bd-radius-full);
+      background: currentColor;
+    }
+
+    .status-live {
+      border-color: var(--bd-accent-muted);
+      background: var(--bd-accent-subtle);
+      color: var(--bd-accent);
+    }
+
+    .status-backlog {
+      border-color: var(--bd-border-dimmer);
+      background: var(--bd-bg-subtle);
+      color: var(--bd-text-tertiary);
+    }
+
+    .status-todo {
+      border-color: var(--bd-border-default);
+      background: var(--bd-bg-subtle);
+      color: var(--bd-text-secondary);
+    }
+
+    .status-progress {
+      border-color: var(--bd-info-line);
+      background: var(--bd-info-bg);
+      color: var(--bd-info);
+    }
+
+    .status-blocked {
+      border-color: var(--bd-danger-line);
+      background: var(--bd-danger-bg);
+      color: var(--bd-danger);
+    }
+
+    .status-parked {
+      border-color: var(--bd-warning-line);
+      background: var(--bd-warning-bg);
+      color: var(--bd-warning);
+    }
+
+    .status-done {
+      border-color: var(--bd-success-line);
+      background: var(--bd-success-bg);
+      color: var(--bd-success);
+    }
+
+    main {
+      grid-column: 2;
+      grid-row: 2;
+      min-width: var(--bd-space-0);
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      background: var(--bd-bg-base);
+    }
+
+    .canvas {
+      width: 100%;
+      max-width: var(--bd-breakpoint-ultrawide-min);
+      margin: var(--bd-space-0) auto;
+      padding: var(--bd-space-section-y) var(--bd-space-section-x) var(--bd-space-8);
+    }
+
+    .page-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--bd-space-4);
+      margin-bottom: var(--bd-space-4);
+    }
+
+    h1,
+    h2,
+    h3 {
+      margin: var(--bd-space-0);
+      color: var(--bd-text-primary);
+      font-family: var(--bd-font-sans);
+    }
+
+    h1 {
+      font-size: var(--bd-text-h1);
+      font-weight: var(--bd-font-weight-semibold);
+      letter-spacing: var(--bd-letter-spacing-tight);
+      line-height: var(--bd-line-height-tight);
+    }
+
+    h2 {
+      font-size: var(--bd-text-h3);
+      font-weight: var(--bd-font-weight-semibold);
+      line-height: var(--bd-line-height-tight);
+    }
+
+    h3 {
+      font-size: var(--bd-text-body);
+      font-weight: var(--bd-font-weight-semibold);
+      line-height: var(--bd-line-height-compact);
+    }
+
+    .route-path {
+      color: var(--bd-text-tertiary);
+      font-size: var(--bd-text-body-sm);
+    }
+
+    .tabs {
+      display: flex;
+      align-items: end;
+      gap: var(--bd-space-5);
+      min-height: var(--bd-size-row-default);
+      margin-bottom: var(--bd-space-4);
+      border-bottom: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+    }
+
+    .tabs a {
+      display: inline-flex;
+      align-items: center;
+      min-height: var(--bd-size-row-default);
+      border-bottom: var(--bd-stroke-active) solid var(--bd-border-dimmest);
+      color: var(--bd-text-tertiary);
+      font-weight: var(--bd-font-weight-medium);
+    }
+
+    .tabs a[aria-current="page"] {
+      border-bottom-color: var(--bd-accent);
+      color: var(--bd-text-primary);
+    }
+
+    .filter-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) max-content minmax(0, 1fr);
+      gap: var(--bd-space-3);
+      align-items: end;
+      padding: var(--bd-space-3);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-md);
+      background: var(--bd-bg-surface);
+    }
+
+    .field {
+      display: grid;
+      gap: var(--bd-space-1);
+      min-width: var(--bd-space-0);
+    }
+
+    .field label,
+    .toggle-label {
+      color: var(--bd-text-secondary);
+      font-size: var(--bd-text-caption);
+      font-weight: var(--bd-font-weight-medium);
+    }
+
+    .field select,
+    .field input {
+      width: 100%;
+      padding: var(--bd-space-0) var(--bd-space-2);
+    }
+
+    .toggle-field {
+      display: grid;
+      gap: var(--bd-space-1);
+    }
+
+    .toggle-button {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--bd-space-2);
+      padding: var(--bd-space-0) var(--bd-space-2);
+      border-color: var(--bd-accent-muted);
+      background: var(--bd-accent-subtle);
+      color: var(--bd-accent);
+      white-space: nowrap;
+    }
+
+    .toggle-track {
+      display: inline-flex;
+      justify-content: flex-end;
+      width: var(--bd-size-icon-lg);
+      padding: var(--bd-space-1);
+      border-radius: var(--bd-radius-full);
+      background: var(--bd-accent);
+    }
+
+    .toggle-thumb {
+      width: var(--bd-space-2);
+      height: var(--bd-space-2);
+      border-radius: var(--bd-radius-full);
+      background: var(--bd-accent-fg);
+    }
+
+    .timeline {
+      margin-top: var(--bd-space-5);
+    }
+
+    .day {
+      margin-top: var(--bd-space-5);
+    }
+
+    .day:first-child {
+      margin-top: var(--bd-space-0);
+    }
+
+    .day-heading {
+      display: flex;
+      align-items: center;
+      gap: var(--bd-space-3);
+      margin-bottom: var(--bd-space-2);
+      color: var(--bd-text-secondary);
+    }
+
+    .day-heading::after {
+      content: "";
+      flex: 1;
+      height: var(--bd-stroke-hairline);
+      background: var(--bd-border-dimmer);
+    }
+
+    .event-list {
+      display: grid;
+      gap: var(--bd-space-1);
+      margin: var(--bd-space-0);
+      padding: var(--bd-space-0);
+      list-style: none;
+    }
+
+    .event-row {
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(var(--bd-size-row-touch), max-content) minmax(var(--bd-size-panel-minimum), max-content) minmax(0, 1fr) minmax(var(--bd-size-panel-minimum), max-content);
+      gap: var(--bd-space-3);
+      align-items: start;
+      min-height: var(--bd-size-row-default);
+      padding: var(--bd-space-2) var(--bd-space-3);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-surface);
+    }
+
+    .event-row:hover {
+      background: var(--bd-bg-hover);
+    }
+
+    .event-row time,
+    .entity-link,
+    .actor {
+      font-size: var(--bd-text-body-sm);
+      line-height: var(--bd-line-height-body);
+    }
+
+    .event-row time,
+    .actor {
+      color: var(--bd-text-tertiary);
+    }
+
+    .actor {
+      max-width: var(--bd-size-panel-minimum);
+      overflow-wrap: anywhere;
+      text-align: right;
+    }
+
+    .event-detail {
+      min-width: var(--bd-space-0);
+      overflow-wrap: anywhere;
+      color: var(--bd-text-primary);
+    }
+
+    .claimed {
+      border-left: var(--bd-stroke-active) solid var(--bd-accent);
+      box-shadow: var(--bd-shadow-focus-glow);
+    }
+
+    .claimed-edge {
+      position: absolute;
+      inset-block: var(--bd-space-1);
+      inset-inline-start: var(--bd-space-0);
+      width: var(--bd-stroke-active);
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-accent);
+      opacity: var(--bd-opacity-secondary);
+      pointer-events: none;
+    }
+
+    .event-inline {
+      display: inline-flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--bd-space-2);
+    }
+
+    .foreign-row {
+      opacity: var(--bd-opacity-secondary);
+    }
+
+    .foreign-chip {
+      min-height: var(--bd-size-control-compact);
+      border-radius: var(--bd-radius-sm);
+      color: var(--bd-text-tertiary);
+    }
+
+    .noise-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--bd-space-2);
+      min-height: var(--bd-size-row-default);
+      padding: var(--bd-space-2) var(--bd-space-3);
+      border: var(--bd-stroke-hairline) dashed var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-md);
+      background: var(--bd-bg-subtle);
+      color: var(--bd-text-tertiary);
+      text-align: center;
+    }
+
+    .noise-row button {
+      height: var(--bd-size-control-compact);
+      padding: var(--bd-space-0) var(--bd-space-2);
+      border-color: var(--bd-border-dimmer);
+      background: var(--bd-bg-subtle);
+      color: var(--bd-accent);
+    }
+
+    .empty-day {
+      padding: var(--bd-space-3);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmest);
+      border-radius: var(--bd-radius-lg);
+      background: var(--bd-bg-subtle);
+      color: var(--bd-text-tertiary);
+    }
+
+    .command-block {
+      display: inline;
+      padding: var(--bd-space-1) var(--bd-space-2);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-subtle);
+      color: var(--bd-text-secondary);
+      font-size: var(--bd-text-console-sm);
+      overflow-wrap: anywhere;
+      user-select: all;
+    }
+
+    .status-bar {
+      grid-column: 2;
+      grid-row: 3;
+      display: flex;
+      align-items: center;
+      min-width: var(--bd-space-0);
+      height: var(--bd-size-shell-statusbar);
+      padding: var(--bd-space-0) var(--bd-space-3);
+      border-top: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      background: var(--bd-bg-subtle);
+      color: var(--bd-text-tertiary);
+      font-size: var(--bd-text-caption);
+      white-space: nowrap;
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+      button,
+      input,
+      select,
+      a,
+      .claimed-edge {
+        transition:
+          opacity var(--bd-duration-fast) var(--bd-ease-out-expo),
+          transform var(--bd-duration-base) var(--bd-ease-out-expo);
+      }
+
+      .claimed-edge {
+        animation: live-write var(--bd-duration-slow) var(--bd-ease-out-expo) infinite alternate;
+      }
+
+      @keyframes live-write {
+        from {
+          opacity: 0.6;
+        }
+        to {
+          opacity: 1;
+        }
+      }
+    }
+
+    @media (max-width: 1200px) {
+      .command-bar .epic-chip,
+      .command-bar .sprint-chip {
+        display: none;
+      }
+
+      .filter-row {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .toggle-field,
+      .date-field {
+        grid-column: auto;
+      }
+
+      .event-row {
+        grid-template-columns: max-content max-content minmax(0, 1fr) minmax(var(--bd-size-row-touch), max-content);
+      }
+    }
+
+    @media (max-width: 720px) {
+      button,
+      input,
+      select,
+      .bar-chip,
+      .status-chip,
+      .foreign-chip,
+      .key-hint {
+        min-height: var(--bd-size-hit-target-touch);
+      }
+
+      .app-shell {
+        display: block;
+        min-height: 100vh;
+        padding-bottom: calc(var(--bd-size-hit-target-touch) + var(--bd-size-shell-statusbar));
+      }
+
+      .command-bar {
+        position: sticky;
+        top: var(--bd-space-0);
+        z-index: 2;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        width: 100%;
+        height: auto;
+        min-height: var(--bd-size-shell-commandbar);
+        padding: var(--bd-space-1) var(--bd-space-2);
+      }
+
+      .project-name {
+        font-size: var(--bd-text-body-sm);
+      }
+
+      .command-bar .live-chip,
+      .command-bar .key-hint {
+        display: none;
+      }
+
+      .search-wrap {
+        grid-column: 1 / 3;
+        width: 100%;
+        max-width: none;
+        margin-left: var(--bd-space-0);
+      }
+
+      .search-wrap input {
+        height: var(--bd-size-hit-target-touch);
+      }
+
+      main {
+        overflow: visible;
+      }
+
+      .canvas {
+        padding: var(--bd-space-4) var(--bd-space-3) var(--bd-space-7);
+      }
+
+      .page-header {
+        align-items: flex-start;
+      }
+
+      h1 {
+        font-size: var(--bd-text-h2);
+      }
+
+      .tabs {
+        gap: var(--bd-space-4);
+        overflow-x: auto;
+      }
+
+      .tabs a {
+        min-height: var(--bd-size-hit-target-touch);
+      }
+
+      .filter-row {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        padding: var(--bd-space-3);
+      }
+
+      .session-field,
+      .date-field {
+        grid-column: 1 / 3;
+      }
+
+      .toggle-field {
+        grid-column: 1 / 3;
+      }
+
+      .toggle-button {
+        justify-content: space-between;
+        width: 100%;
+      }
+
+      .event-row {
+        grid-template-columns: max-content minmax(0, 1fr);
+        gap: var(--bd-space-1) var(--bd-space-3);
+        padding: var(--bd-space-3);
+        border-radius: var(--bd-radius-md);
+      }
+
+      .event-detail {
+        grid-column: 1 / 3;
+      }
+
+      .actor {
+        grid-column: 1 / 3;
+        max-width: none;
+        text-align: left;
+      }
+
+      .noise-row {
+        align-items: flex-start;
+        flex-direction: column;
+        text-align: left;
+      }
+
+      .rail {
+        position: fixed;
+        inset-inline: var(--bd-space-0);
+        bottom: var(--bd-space-0);
+        z-index: 3;
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        width: 100%;
+        height: var(--bd-size-hit-target-touch);
+        padding: var(--bd-space-0);
+        border-top: var(--bd-stroke-hairline) solid var(--bd-border-default);
+        border-right: var(--bd-space-0);
+        background: var(--bd-bg-elevated);
+        box-shadow: var(--bd-shadow-shell);
+      }
+
+      .rail button {
+        display: none;
+        width: 100%;
+        height: var(--bd-size-hit-target-touch);
+        border: var(--bd-space-0);
+        border-radius: var(--bd-radius-sm);
+        background: var(--bd-bg-elevated);
+      }
+
+      .rail button.mobile-tab {
+        display: grid;
+        grid-template-rows: var(--bd-size-icon-sm) auto;
+        place-items: center;
+        gap: var(--bd-space-1);
+        color: var(--bd-text-secondary);
+        font-size: var(--bd-text-caption);
+      }
+
+      .rail button.mobile-tab[aria-current="page"] {
+        color: var(--bd-accent);
+      }
+
+      .rail button.mobile-tab::after {
+        content: attr(data-label);
+      }
+
+      .status-bar {
+        position: fixed;
+        inset-inline: var(--bd-space-0);
+        bottom: var(--bd-size-hit-target-touch);
+        z-index: 2;
+        width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <nav class="rail" aria-label="Primary navigation">
+      <button class="mobile-tab" type="button" aria-label="Board" title="Board" data-label="Board">
+        <svg aria-hidden="true" viewBox="0 0 16 16"><rect x="2" y="2" width="5" height="12"></rect><rect x="9" y="2" width="5" height="7"></rect></svg>
+      </button>
+      <button class="mobile-tab" type="button" aria-label="Backlog" title="Backlog" data-label="Backlog">
+        <svg aria-hidden="true" viewBox="0 0 16 16"><path d="M3 4h10M3 8h10M3 12h7"></path></svg>
+      </button>
+      <button type="button" aria-label="Epics" title="Epics">
+        <svg aria-hidden="true" viewBox="0 0 16 16"><path d="M3 3h4v4H3zM9 3h4v4H9zM6 9h4v4H6z"></path></svg>
+      </button>
+      <button type="button" aria-label="Graph" title="Graph">
+        <svg aria-hidden="true" viewBox="0 0 16 16"><circle cx="3" cy="8" r="2"></circle><circle cx="12" cy="3" r="2"></circle><circle cx="12" cy="13" r="2"></circle><path d="M5 7l5-3M5 9l5 3"></path></svg>
+      </button>
+      <button type="button" aria-label="Timeline" title="Timeline" aria-current="page">
+        <svg aria-hidden="true" viewBox="0 0 16 16"><path d="M3 2v12M3 4h5M3 8h9M3 12h7"></path><circle cx="3" cy="4" r="1"></circle><circle cx="3" cy="8" r="1"></circle><circle cx="3" cy="12" r="1"></circle></svg>
+      </button>
+      <button class="mobile-tab" type="button" aria-label="Sessions" title="Sessions" data-label="Sessions">
+        <svg aria-hidden="true" viewBox="0 0 16 16"><path d="M5 4a3 3 0 016 0c0 2-1 3-3 3S5 6 5 4zM3 14c0-3 2-5 5-5s5 2 5 5"></path></svg>
+      </button>
+      <button type="button" aria-label="Health" title="Health">
+        <svg aria-hidden="true" viewBox="0 0 16 16"><path d="M2 8h3l2-4 3 8 2-4h2"></path></svg>
+      </button>
+      <button type="button" aria-label="Settings" title="Settings">
+        <svg aria-hidden="true" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2"></circle><path d="M8 2v2M8 12v2M2 8h2M12 8h2M4 4l1 1M11 11l1 1M12 4l-1 1M5 11l-1 1"></path></svg>
+      </button>
+      <button class="mobile-tab" type="button" aria-label="Help and more" title="Help" data-label="More">
+        <svg aria-hidden="true" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"></circle><path d="M6.5 6a2 2 0 113 1.7C8.5 8.3 8 8.7 8 10M8 12h.01"></path></svg>
+      </button>
+    </nav>
+
+    <header class="command-bar">
+      <div class="project-name">Bytedesk Marketplace</div>
+      <span class="bar-chip epic-chip machine-chip">EP-006</span>
+      <span class="bar-chip sprint-chip machine-chip">SP-003 · 12/20 pts · 2 unsized</span>
+      <span class="status-chip status-live live-chip"><span class="status-dot" aria-hidden="true"></span>live</span>
+      <div class="search-wrap">
+        <label for="global-search">Search</label>
+        <input id="global-search" type="search" aria-label="Search or type a filter" placeholder="Search or type a filter — status:open label:ui">
+      </div>
+      <span class="key-hint" aria-label="Command shortcut">⌘K</span>
+    </header>
+
+    <main>
+      <div class="canvas">
+        <header class="page-header">
+          <h1>Timeline</h1>
+          <span class="route-path mono">/activity</span>
+        </header>
+
+        <nav class="tabs" aria-label="Timeline views">
+          <a href="#" aria-current="page">Activity</a>
+          <a href="#">Standup</a>
+          <a href="#">Reports</a>
+        </nav>
+
+        <section aria-label="Activity filters">
+          <div class="filter-row">
+            <div class="field">
+              <label for="kind-filter">Kind</label>
+              <select id="kind-filter">
+                <option selected>all kinds</option>
+                <option>status</option>
+                <option>claim</option>
+                <option>evidence</option>
+                <option>system</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="actor-filter">Actor</label>
+              <select id="actor-filter">
+                <option selected>all actors</option>
+                <option>ryan</option>
+                <option>claude</option>
+                <option>codex</option>
+                <option>grok</option>
+              </select>
+            </div>
+
+            <div class="field session-field">
+              <label for="session-filter">Session</label>
+              <select id="session-filter">
+                <option selected>all sessions</option>
+                <option>codex·9f21</option>
+                <option>claude·72ad</option>
+                <option>doctor·local</option>
+              </select>
+            </div>
+
+            <div class="toggle-field">
+              <span class="toggle-label" id="noise-label">Collapse noise</span>
+              <button class="toggle-button" type="button" role="switch" aria-checked="true" aria-labelledby="noise-label">
+                <span>On</span>
+                <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
+              </button>
+            </div>
+
+            <div class="field date-field">
+              <label for="activity-date">Date</label>
+              <input id="activity-date" type="date" value="2026-09-01">
+            </div>
+          </div>
+        </section>
+
+        <section class="timeline" aria-label="Chronological activity">
+          <section class="day" aria-labelledby="today-heading">
+            <div class="day-heading">
+              <h2 id="today-heading">Today</h2>
+            </div>
+            <ul class="event-list" role="list">
+              <li class="event-row" tabindex="-1">
+                <time datetime="2026-09-01T14:02:11">14:02:11</time>
+                <a class="entity-link" href="#">TM-014</a>
+                <div class="event-detail">ticked acceptance criterion <span class="mono">2</span></div>
+                <div class="actor">codex·9f21</div>
+              </li>
+
+              <li class="event-row claimed" tabindex="0">
+                <span class="claimed-edge" aria-hidden="true"></span>
+                <time datetime="2026-09-01T13:58:44">13:58:44</time>
+                <a class="entity-link" href="#">TM-014</a>
+                <div class="event-detail">
+                  <span class="event-inline">
+                    <span>claimed by codex</span>
+                    <span class="status-chip status-progress"><span class="status-dot" aria-hidden="true"></span>in progress</span>
+                  </span>
+                </div>
+                <div class="actor">codex·9f21</div>
+              </li>
+
+              <li class="event-row" tabindex="-1">
+                <time datetime="2026-09-01T13:58:40">13:58:40</time>
+                <a class="entity-link" href="#">TM-014</a>
+                <div class="event-detail">
+                  <span class="event-inline">
+                    <span>→</span>
+                    <span class="status-chip status-progress"><span class="status-dot" aria-hidden="true"></span>in progress</span>
+                  </span>
+                </div>
+                <div class="actor">tm·gate</div>
+              </li>
+
+              <li class="event-row" tabindex="-1">
+                <time datetime="2026-09-01T13:42:07">13:42:07</time>
+                <a class="entity-link" href="#">TM-019</a>
+                <div class="event-detail">attached evidence from the compact viewport verification pass after reproducing a wrapping failure in the activity row, confirming that the timestamp and entity remain above the full event sentence at <span class="mono">390×844</span> without horizontal body scroll</div>
+                <div class="actor">claude·72ad</div>
+              </li>
+
+              <li class="event-row" tabindex="-1">
+                <time datetime="2026-09-01T13:25:19">13:25:19</time>
+                <a class="entity-link" href="#">TM-019</a>
+                <div class="event-detail">commit <a class="mono" href="#">f446056</a> linked</div>
+                <div class="actor">claude·72ad</div>
+              </li>
+
+              <li class="event-row" tabindex="-1">
+                <time datetime="2026-09-01T12:47:31">12:47:31</time>
+                <a class="entity-link" href="#">TM-018</a>
+                <div class="event-detail">subagent <span class="mono">a1dbb2c0</span> finished: authored the design profile</div>
+                <div class="actor">claude·72ad</div>
+              </li>
+
+              <li class="event-row" tabindex="-1">
+                <time datetime="2026-09-01T12:18:05">12:18:05</time>
+                <a class="entity-link" href="#">TM-003</a>
+                <div class="event-detail">doctor fixed dangling-dep on <span class="mono">TM-003</span></div>
+                <div class="actor">doctor·local</div>
+              </li>
+
+              <li class="event-row foreign-row" tabindex="-1">
+                <time datetime="2026-09-01T11:54:23">11:54:23</time>
+                <a class="entity-link" href="#">EP-002</a>
+                <div class="event-detail">
+                  <span class="event-inline">
+                    <span><span class="mono">EP-002</span> (other board) linked as a dependency</span>
+                    <span class="foreign-chip">foreign</span>
+                  </span>
+                </div>
+                <div class="actor">grok·41ce</div>
+              </li>
+
+              <li class="event-row" tabindex="-1">
+                <time datetime="2026-09-01T11:29:48">11:29:48</time>
+                <a class="entity-link" href="#">TM-021</a>
+                <div class="event-detail">
+                  override used: waiting on counsel
+                  <span class="command-block">.bytedesk/task-management/bin/tm override TM-021</span>
+                </div>
+                <div class="actor">ryan·local</div>
+              </li>
+
+              <li class="noise-row" tabindex="-1">
+                <span><span class="mono">12</span> noise events hidden (notification, subagent_stop) — show</span>
+                <button type="button">Show</button>
+              </li>
+            </ul>
+          </section>
+
+          <section class="day" aria-labelledby="yesterday-heading">
+            <div class="day-heading">
+              <h2 id="yesterday-heading">Yesterday</h2>
+            </div>
+            <ul class="event-list" role="list">
+              <li class="event-row" tabindex="-1">
+                <time datetime="2026-08-31T18:46:10">18:46:10</time>
+                <a class="entity-link" href="#">TM-021</a>
+                <div class="event-detail">
+                  created “Wire refusal output into the timeline”
+                  <span class="status-chip status-todo"><span class="status-dot" aria-hidden="true"></span>todo</span>
+                </div>
+                <div class="actor">ryan·local</div>
+              </li>
+
+              <li class="event-row" tabindex="-1">
+                <time datetime="2026-08-31T18:03:52">18:03:52</time>
+                <a class="entity-link" href="#">TM-017</a>
+                <div class="event-detail">
+                  <span class="event-inline">
+                    <span>→</span>
+                    <span class="status-chip status-blocked"><span class="status-dot" aria-hidden="true"></span>blocked</span>
+                    <span>missing design-system source SHA</span>
+                  </span>
+                </div>
+                <div class="actor">codex·54b0</div>
+              </li>
+
+              <li class="event-row" tabindex="-1">
+                <time datetime="2026-08-31T17:44:06">17:44:06</time>
+                <a class="entity-link" href="#">TM-016</a>
+                <div class="event-detail">evidence linked: <span class="mono">artifacts/activity-1440.png</span></div>
+                <div class="actor">claude·a309</div>
+              </li>
+
+              <li class="event-row" tabindex="-1">
+                <time datetime="2026-08-31T16:31:27">16:31:27</time>
+                <a class="entity-link" href="#">TM-011</a>
+                <div class="event-detail">
+                  <span class="event-inline">
+                    <span>→</span>
+                    <span class="status-chip status-parked"><span class="status-dot" aria-hidden="true"></span>parked</span>
+                    <span>resume after token audit</span>
+                  </span>
+                </div>
+                <div class="actor">ryan·local</div>
+              </li>
+
+              <li class="event-row" tabindex="-1">
+                <time datetime="2026-08-31T15:20:43">15:20:43</time>
+                <a class="entity-link" href="#">TM-009</a>
+                <div class="event-detail">
+                  blocker cleared
+                  <span class="status-chip status-todo"><span class="status-dot" aria-hidden="true"></span>todo</span>
+                </div>
+                <div class="actor">tm·gate</div>
+              </li>
+
+              <li class="event-row" tabindex="-1">
+                <time datetime="2026-08-31T14:55:18">14:55:18</time>
+                <a class="entity-link" href="#">TM-014</a>
+                <div class="event-detail">priority changed to ▲ high</div>
+                <div class="actor">ryan·local</div>
+              </li>
+
+              <li class="event-row" tabindex="-1">
+                <time datetime="2026-08-31T13:11:39">13:11:39</time>
+                <a class="entity-link" href="#">ADR-0007</a>
+                <div class="event-detail">linked to <span class="mono">TM-014</span>: activity rows use the markdown event record</div>
+                <div class="actor">claude·a309</div>
+              </li>
+
+              <li class="event-row" tabindex="-1">
+                <time datetime="2026-08-31T12:04:02">12:04:02</time>
+                <a class="entity-link" href="#">TM-008</a>
+                <div class="event-detail">
+                  done refused: 2 acceptance criteria unmet (3, 4). Tick them or .
+                  <span class="command-block">.bytedesk/task-management/bin/tm done TM-008</span>
+                </div>
+                <div class="actor">tm·gate</div>
+              </li>
+            </ul>
+          </section>
+
+          <section class="day" aria-labelledby="empty-day-heading">
+            <div class="day-heading">
+              <h2 id="empty-day-heading">Sat 30 Aug — nothing moved</h2>
+            </div>
+            <div class="empty-day">Claim the next unblocked task.</div>
+          </section>
+        </section>
+      </div>
+    </main>
+
+    <footer class="status-bar">Illustrative mockup — fictional data — not production source</footer>
+  </div>
+</body>
+</html>

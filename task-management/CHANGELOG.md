@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- **Dashboard design run.** `docs/design/2026-09-01-tm-dashboard/` holds the brief ("The
+  Register": resume work from the record alone), three direction pieces, nine token-accurate HTML
+  surfaces with screenshots, and the blind review (`review/findings.json`, zero blocking).
 - **MCP parity (CAP-0001 shipped).** Eleven tools mirror the board's routes on the same lib
   functions and refusal wording: `tm_worktree`, `tm_link`, `tm_graph`, `tm_doctor`,
   `tm_export`, `tm_time`, `tm_parallel`, `tm_task_field`, `tm_history`, `tm_stale`,

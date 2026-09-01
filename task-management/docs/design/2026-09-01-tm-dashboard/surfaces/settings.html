@@ -1,0 +1,1530 @@
+<!doctype html>
+<html lang="en" data-bd-product="task-management" data-bd-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Settings · Bytedesk Marketplace</title>
+  <link rel="stylesheet" href="tokens/bytedesk.css">
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      min-height: 100%;
+      margin: var(--bd-space-0);
+      overflow-x: hidden;
+      background: var(--bd-bg-base);
+      color: var(--bd-text-primary);
+      font-family: var(--bd-font-sans);
+      font-size: var(--bd-text-body);
+      line-height: var(--bd-line-height-body);
+    }
+
+    button,
+    input,
+    select {
+      color: inherit;
+      font: inherit;
+    }
+
+    button,
+    input,
+    select,
+    a {
+      outline: none;
+    }
+
+    button:focus-visible,
+    input:focus-visible,
+    select:focus-visible,
+    [tabindex]:focus-visible {
+      outline: var(--bd-stroke-focus) solid var(--bd-focus-ring);
+      outline-offset: var(--bd-space-1);
+    }
+
+    button {
+      min-height: var(--bd-size-control-compact);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-default);
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-surface);
+      color: var(--bd-text-secondary);
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: var(--bd-bg-hover);
+      color: var(--bd-text-primary);
+    }
+
+    .machine,
+    code,
+    input[type="number"],
+    .keyboard-table td:last-child {
+      font-family: var(--bd-font-mono);
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: var(--bd-size-shell-rail) minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    .rail {
+      position: fixed;
+      inset: 0 auto 0 0;
+      z-index: 20;
+      width: var(--bd-size-shell-rail);
+      border-right: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      background: var(--bd-bg-surface);
+    }
+
+    .rail-list {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: var(--bd-space-1);
+      height: 100%;
+      margin: var(--bd-space-0);
+      padding: var(--bd-space-2) var(--bd-space-1);
+      list-style: none;
+    }
+
+    .rail-list li {
+      width: 100%;
+    }
+
+    .rail-button {
+      display: grid;
+      width: 100%;
+      min-width: var(--bd-size-control-compact);
+      place-items: center;
+      border-color: var(--bd-border-dimmest);
+      background: var(--bd-bg-surface);
+    }
+
+    .rail-button.active {
+      border-color: var(--bd-accent);
+      background: var(--bd-accent-subtle);
+      color: var(--bd-accent);
+    }
+
+    .rail-button svg,
+    .icon-button svg,
+    .lock svg {
+      width: var(--bd-size-icon-sm);
+      height: var(--bd-size-icon-sm);
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .shell {
+      grid-column: 2;
+      display: grid;
+      grid-template-rows: var(--bd-size-shell-commandbar) minmax(0, 1fr) var(--bd-size-shell-statusbar);
+      min-width: 0;
+      min-height: 100vh;
+    }
+
+    .commandbar {
+      position: sticky;
+      top: 0;
+      z-index: 15;
+      display: flex;
+      align-items: center;
+      gap: var(--bd-space-2);
+      height: var(--bd-size-shell-commandbar);
+      min-width: 0;
+      padding: var(--bd-space-1) var(--bd-space-3);
+      border-bottom: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      background: var(--bd-bg-surface);
+    }
+
+    .project-name {
+      flex: 0 0 auto;
+      overflow: hidden;
+      color: var(--bd-text-primary);
+      font-weight: var(--bd-font-weight-semibold);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: var(--bd-size-control-compact);
+      gap: var(--bd-space-1);
+      padding-inline: var(--bd-space-2);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-subtle);
+      color: var(--bd-text-secondary);
+      white-space: nowrap;
+    }
+
+    .status-chip {
+      border-radius: var(--bd-radius-full);
+    }
+
+    .status-dot {
+      width: var(--bd-space-2);
+      height: var(--bd-space-2);
+      flex: 0 0 auto;
+      border-radius: var(--bd-radius-full);
+      background: currentColor;
+    }
+
+    .status-progress,
+    .live-chip {
+      border-color: var(--bd-info-line);
+      background: var(--bd-info-bg);
+      color: var(--bd-info);
+    }
+
+    .live-chip {
+      color: var(--bd-accent);
+    }
+
+    .command-search {
+      display: flex;
+      flex: 1 1 auto;
+      align-items: center;
+      min-width: 0;
+      height: var(--bd-size-control-compact);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-default);
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-base);
+    }
+
+    .command-search label {
+      position: absolute;
+      width: var(--bd-space-0);
+      height: var(--bd-space-0);
+      overflow: hidden;
+    }
+
+    .command-search input {
+      width: 100%;
+      min-width: 0;
+      height: 100%;
+      padding-inline: var(--bd-space-2);
+      border: 0;
+      background: var(--bd-bg-base);
+      color: var(--bd-text-primary);
+    }
+
+    .command-search input::placeholder {
+      color: var(--bd-text-tertiary);
+    }
+
+    .key-hint {
+      flex: 0 0 auto;
+      padding-inline: var(--bd-space-2);
+      color: var(--bd-text-tertiary);
+      font-family: var(--bd-font-mono);
+      font-size: var(--bd-text-caption);
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: var(--bd-size-panel-minimum) minmax(0, 1fr);
+      min-width: 0;
+      min-height: 0;
+    }
+
+    .subnav {
+      min-width: 0;
+      padding: var(--bd-space-4) var(--bd-space-3);
+      border-right: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      background: var(--bd-bg-subtle);
+    }
+
+    .subnav h2 {
+      margin: var(--bd-space-0) var(--bd-space-0) var(--bd-space-3);
+      font-size: var(--bd-text-h3);
+      line-height: var(--bd-line-height-tight);
+    }
+
+    .subnav-list {
+      display: flex;
+      flex-direction: column;
+      gap: var(--bd-space-1);
+      margin: var(--bd-space-0);
+      padding: var(--bd-space-0);
+      list-style: none;
+    }
+
+    .subnav button {
+      width: 100%;
+      padding-inline: var(--bd-space-3);
+      border-color: var(--bd-border-dimmest);
+      background: var(--bd-bg-subtle);
+      text-align: left;
+    }
+
+    .subnav button[aria-current="page"] {
+      border-color: var(--bd-accent);
+      background: var(--bd-accent-subtle);
+      color: var(--bd-accent);
+      font-weight: var(--bd-font-weight-medium);
+    }
+
+    .claim-group {
+      margin-top: var(--bd-space-6);
+    }
+
+    .claim-group h3 {
+      margin: var(--bd-space-0) var(--bd-space-0) var(--bd-space-2);
+      color: var(--bd-text-secondary);
+      font-size: var(--bd-text-body);
+      font-weight: var(--bd-font-weight-medium);
+    }
+
+    .claim-list {
+      margin: var(--bd-space-0);
+      padding: var(--bd-space-0);
+      list-style: none;
+    }
+
+    .claim-card {
+      position: relative;
+      padding: var(--bd-space-3);
+      border: var(--bd-stroke-hairline) solid var(--bd-info-line);
+      border-radius: var(--bd-radius-md);
+      background: var(--bd-bg-surface);
+      box-shadow: inset 2px 0 0 var(--bd-accent), var(--bd-shadow-focus-glow);
+    }
+
+    .claim-card .card-id {
+      margin-bottom: var(--bd-space-1);
+      color: var(--bd-text-secondary);
+      font-size: var(--bd-text-caption);
+    }
+
+    .claim-card h3 {
+      margin: var(--bd-space-0) var(--bd-space-0) var(--bd-space-2);
+      color: var(--bd-text-primary);
+      font-size: var(--bd-text-body);
+      line-height: var(--bd-line-height-compact);
+    }
+
+    .claim-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--bd-space-1);
+    }
+
+    .claim-meta .chip {
+      min-height: var(--bd-size-control-compact);
+      max-width: 100%;
+      font-size: var(--bd-text-caption);
+    }
+
+    .canvas {
+      min-width: 0;
+      overflow-y: auto;
+      padding: var(--bd-space-section-y) var(--bd-space-section-x);
+      overscroll-behavior: contain;
+    }
+
+    .content {
+      width: 100%;
+      max-width: var(--bd-size-panel-wide);
+      margin-inline: auto;
+      padding-bottom: var(--bd-space-11);
+    }
+
+    .page-header {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: var(--bd-space-4);
+      margin-bottom: var(--bd-space-5);
+    }
+
+    .page-header h1 {
+      margin: var(--bd-space-0);
+      font-size: var(--bd-text-h1);
+      line-height: var(--bd-line-height-tight);
+      letter-spacing: var(--bd-letter-spacing-tight);
+    }
+
+    .route {
+      color: var(--bd-text-tertiary);
+      font-size: var(--bd-text-caption);
+    }
+
+    .section {
+      margin-bottom: var(--bd-space-6);
+    }
+
+    .section > h2 {
+      margin: var(--bd-space-0) var(--bd-space-0) var(--bd-space-3);
+      font-size: var(--bd-text-h2);
+      line-height: var(--bd-line-height-tight);
+    }
+
+    .plate {
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-lg);
+      background: var(--bd-bg-surface);
+    }
+
+    .identity {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: var(--bd-space-4);
+      padding: var(--bd-space-4);
+    }
+
+    .identity-field {
+      min-width: 0;
+    }
+
+    .identity-field label,
+    .field-label {
+      display: block;
+      margin-bottom: var(--bd-space-1);
+      color: var(--bd-text-secondary);
+      font-size: var(--bd-text-body-sm);
+      font-weight: var(--bd-font-weight-medium);
+    }
+
+    .locked-value {
+      display: flex;
+      align-items: center;
+      min-width: 0;
+      min-height: var(--bd-size-control-compact);
+      gap: var(--bd-space-2);
+      padding-inline: var(--bd-space-2);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-subtle);
+      color: var(--bd-text-secondary);
+    }
+
+    .locked-value span:last-child {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .lock {
+      display: inline-flex;
+      flex: 0 0 auto;
+      color: var(--bd-text-tertiary);
+    }
+
+    .identity-hint {
+      grid-column: 1 / -1;
+      margin: var(--bd-space-0);
+      color: var(--bd-text-tertiary);
+      font-size: var(--bd-text-body-sm);
+    }
+
+    .policy-form {
+      overflow: hidden;
+    }
+
+    .form-body {
+      padding: var(--bd-space-4);
+    }
+
+    .form-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(var(--bd-size-panel-minimum), 38%);
+      align-items: center;
+      gap: var(--bd-space-4);
+      min-height: var(--bd-size-row-default);
+      padding-block: var(--bd-space-3);
+      border-bottom: var(--bd-stroke-hairline) solid var(--bd-border-dimmest);
+    }
+
+    .form-row:last-of-type {
+      border-bottom: 0;
+    }
+
+    .field-copy {
+      min-width: 0;
+    }
+
+    .field-copy label {
+      display: block;
+      color: var(--bd-text-primary);
+      font-weight: var(--bd-font-weight-medium);
+    }
+
+    .field-copy p {
+      margin: var(--bd-space-1) var(--bd-space-0) var(--bd-space-0);
+      color: var(--bd-text-tertiary);
+      font-size: var(--bd-text-body-sm);
+    }
+
+    .field-control {
+      display: flex;
+      min-width: 0;
+      align-items: center;
+      justify-content: flex-end;
+      gap: var(--bd-space-2);
+    }
+
+    .text-input,
+    select {
+      width: 100%;
+      min-width: 0;
+      height: var(--bd-size-control-compact);
+      padding-inline: var(--bd-space-2);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-default);
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-base);
+      color: var(--bd-text-primary);
+    }
+
+    .field-stack {
+      width: 100%;
+    }
+
+    .changed-chip {
+      flex: 0 0 auto;
+      min-height: var(--bd-size-control-compact);
+      border-color: var(--bd-warning-line);
+      background: var(--bd-warning-bg);
+      color: var(--bd-warning);
+      font-size: var(--bd-text-caption);
+    }
+
+    .invalid {
+      border-color: var(--bd-danger-line);
+      background: var(--bd-danger-bg);
+      color: var(--bd-danger);
+    }
+
+    .error-text {
+      margin: var(--bd-space-1) var(--bd-space-0) var(--bd-space-0);
+      color: var(--bd-danger);
+      font-size: var(--bd-text-body-sm);
+    }
+
+    .toggle {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      gap: var(--bd-space-2);
+      cursor: pointer;
+    }
+
+    .toggle input {
+      position: absolute;
+      width: var(--bd-space-0);
+      height: var(--bd-space-0);
+      opacity: 0;
+    }
+
+    .toggle-track {
+      display: inline-flex;
+      align-items: center;
+      width: var(--bd-size-control-default);
+      height: var(--bd-size-control-compact);
+      padding: var(--bd-space-1);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-default);
+      border-radius: var(--bd-radius-full);
+      background: var(--bd-bg-subtle);
+    }
+
+    .toggle-thumb {
+      width: var(--bd-size-icon-sm);
+      height: var(--bd-size-icon-sm);
+      border-radius: var(--bd-radius-full);
+      background: var(--bd-text-tertiary);
+      transform: translateX(0);
+    }
+
+    .toggle input:checked + .toggle-track {
+      border-color: var(--bd-accent);
+      background: var(--bd-accent-muted);
+    }
+
+    .toggle input:checked + .toggle-track .toggle-thumb {
+      background: var(--bd-accent);
+      transform: translateX(var(--bd-space-3));
+    }
+
+    .toggle input:focus-visible + .toggle-track {
+      outline: var(--bd-stroke-focus) solid var(--bd-focus-ring);
+      outline-offset: var(--bd-space-1);
+    }
+
+    .gate-refusal {
+      margin: var(--bd-space-4);
+      padding: var(--bd-space-3);
+      border: var(--bd-stroke-hairline) solid var(--bd-danger-line);
+      border-radius: var(--bd-radius-md);
+      background: var(--bd-danger-bg);
+      color: var(--bd-danger);
+    }
+
+    .command-block {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--bd-space-2);
+      min-width: 0;
+      margin-top: var(--bd-space-2);
+      padding: var(--bd-space-2);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-base);
+      color: var(--bd-text-secondary);
+    }
+
+    .command-block code {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      user-select: all;
+      white-space: nowrap;
+    }
+
+    .icon-button {
+      display: inline-grid;
+      min-width: var(--bd-size-control-compact);
+      place-items: center;
+      flex: 0 0 auto;
+    }
+
+    .savebar {
+      position: sticky;
+      bottom: var(--bd-space-0);
+      z-index: 5;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--bd-space-3);
+      min-height: var(--bd-size-row-default);
+      padding: var(--bd-space-3) var(--bd-space-4);
+      border-top: var(--bd-stroke-hairline) solid var(--bd-border-stronger);
+      background: var(--bd-bg-elevated);
+      box-shadow: var(--bd-shadow-shell);
+    }
+
+    .save-actions {
+      display: flex;
+      gap: var(--bd-space-2);
+    }
+
+    .button-primary {
+      border-color: var(--bd-accent-emphasis);
+      background: var(--bd-accent);
+      color: var(--bd-accent-fg);
+      font-weight: var(--bd-font-weight-semibold);
+    }
+
+    .button-primary:hover {
+      background: var(--bd-accent-emphasis);
+      color: var(--bd-accent-fg);
+    }
+
+    .button-text {
+      padding-inline: var(--bd-space-3);
+    }
+
+    .notification-card,
+    .keyboard-sheet,
+    .skills-catalog {
+      padding: var(--bd-space-4);
+    }
+
+    .notification-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(var(--bd-size-panel-minimum), 42%);
+      align-items: center;
+      gap: var(--bd-space-4);
+      min-height: var(--bd-size-row-default);
+      padding-block: var(--bd-space-3);
+      border-bottom: var(--bd-stroke-hairline) solid var(--bd-border-dimmest);
+    }
+
+    .notification-row:last-child {
+      border-bottom: 0;
+    }
+
+    .notification-value {
+      min-width: 0;
+    }
+
+    .truncate-control {
+      display: flex;
+      min-width: 0;
+      gap: var(--bd-space-2);
+    }
+
+    .truncate-value {
+      display: block;
+      min-width: 0;
+      flex: 1 1 auto;
+      overflow: hidden;
+      padding: var(--bd-space-1) var(--bd-space-2);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-subtle);
+      color: var(--bd-text-secondary);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .result-line {
+      margin-top: var(--bd-space-2);
+      color: var(--bd-success);
+      font-size: var(--bd-text-body-sm);
+    }
+
+    .category-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--bd-space-3);
+      margin-top: var(--bd-space-2);
+    }
+
+    .checkbox {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--bd-space-2);
+      color: var(--bd-text-secondary);
+    }
+
+    .checkbox input {
+      width: var(--bd-size-icon-sm);
+      height: var(--bd-size-icon-sm);
+      accent-color: var(--bd-accent);
+    }
+
+    .permission {
+      color: var(--bd-success);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th,
+    td {
+      padding: var(--bd-space-3);
+      border-bottom: var(--bd-stroke-hairline) solid var(--bd-border-dimmest);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--bd-text-secondary);
+      font-size: var(--bd-text-body-sm);
+      font-weight: var(--bd-font-weight-semibold);
+    }
+
+    tbody tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .binding-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--bd-space-2);
+    }
+
+    kbd {
+      min-width: var(--bd-size-control-compact);
+      min-height: var(--bd-size-control-compact);
+      padding: var(--bd-space-1) var(--bd-space-2);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-default);
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-subtle);
+      color: var(--bd-text-primary);
+      font-family: var(--bd-font-mono);
+      font-size: var(--bd-text-body-sm);
+      text-align: center;
+    }
+
+    .skill-list {
+      margin: var(--bd-space-0);
+      padding: var(--bd-space-0);
+      list-style: none;
+    }
+
+    .skill-row {
+      display: grid;
+      grid-template-columns: minmax(var(--bd-size-panel-minimum), 1fr) minmax(var(--bd-size-panel-minimum), 1fr);
+      align-items: center;
+      gap: var(--bd-space-4);
+      min-height: var(--bd-size-row-default);
+      padding-block: var(--bd-space-3);
+      border-bottom: var(--bd-stroke-hairline) solid var(--bd-border-dimmest);
+    }
+
+    .skill-row:last-child {
+      border-bottom: 0;
+    }
+
+    .skill-name {
+      margin: var(--bd-space-0) var(--bd-space-0) var(--bd-space-1);
+      font-size: var(--bd-text-body);
+      font-weight: var(--bd-font-weight-semibold);
+    }
+
+    .skill-description {
+      margin: var(--bd-space-0);
+      color: var(--bd-text-tertiary);
+      font-size: var(--bd-text-body-sm);
+    }
+
+    .skill-row .command-block {
+      margin-top: var(--bd-space-0);
+    }
+
+    .statusbar {
+      position: sticky;
+      bottom: 0;
+      z-index: 14;
+      display: flex;
+      align-items: center;
+      min-width: 0;
+      height: var(--bd-size-shell-statusbar);
+      padding-inline: var(--bd-space-3);
+      border-top: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      background: var(--bd-bg-surface);
+      color: var(--bd-text-tertiary);
+      font-size: var(--bd-text-caption);
+      white-space: nowrap;
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+      button,
+      input,
+      select,
+      .toggle-thumb,
+      .status-dot {
+        transition:
+          opacity var(--bd-duration-fast) var(--bd-ease-out-expo),
+          transform var(--bd-duration-base) var(--bd-ease-out-expo);
+      }
+
+      .claim-card {
+        animation: live-write var(--bd-duration-slow) var(--bd-ease-out-expo) infinite alternate;
+      }
+
+      @keyframes live-write {
+        from {
+          box-shadow: inset 2px 0 0 var(--bd-accent), var(--bd-shadow-focus-glow);
+          opacity: var(--bd-opacity-secondary);
+        }
+        to {
+          box-shadow: inset 2px 0 0 var(--bd-accent), var(--bd-shadow-focus-glow);
+          opacity: 1;
+        }
+      }
+    }
+
+    @media (max-width: 1200px) {
+      .workspace {
+        grid-template-columns: var(--bd-size-shell-sidebar) minmax(0, 1fr);
+      }
+
+      .canvas {
+        padding: var(--bd-space-5);
+      }
+
+      .sprint-chip {
+        display: none;
+      }
+
+      .skill-row {
+        grid-template-columns: minmax(0, 1fr);
+        gap: var(--bd-space-2);
+      }
+    }
+
+    @media (max-width: 720px) {
+      body {
+        padding-bottom: var(--bd-size-shell-rail);
+      }
+
+      button,
+      input,
+      select,
+      .chip {
+        min-height: var(--bd-size-hit-target-touch);
+      }
+
+      .app {
+        display: block;
+        min-height: 100vh;
+      }
+
+      .rail {
+        position: fixed;
+        inset: auto 0 0 0;
+        width: 100%;
+        height: var(--bd-size-shell-rail);
+        border-top: var(--bd-stroke-hairline) solid var(--bd-border-stronger);
+        border-right: 0;
+      }
+
+      .rail-list {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: var(--bd-space-1);
+        padding: var(--bd-space-1);
+      }
+
+      .rail-list li {
+        display: none;
+      }
+
+      .rail-list li:nth-child(1),
+      .rail-list li:nth-child(2),
+      .rail-list li:nth-child(6),
+      .rail-list li:nth-child(9) {
+        display: block;
+      }
+
+      .rail-button {
+        height: 100%;
+      }
+
+      .rail-button::after {
+        margin-left: var(--bd-space-1);
+        font-size: var(--bd-text-caption);
+      }
+
+      .rail-list li:nth-child(1) .rail-button::after {
+        content: "Board";
+      }
+
+      .rail-list li:nth-child(2) .rail-button::after {
+        content: "Backlog";
+      }
+
+      .rail-list li:nth-child(6) .rail-button::after {
+        content: "Sessions";
+      }
+
+      .rail-list li:nth-child(9) .rail-button::after {
+        content: "More";
+      }
+
+      .shell {
+        display: grid;
+        grid-template-rows: var(--bd-size-shell-commandbar) minmax(0, 1fr) var(--bd-size-shell-statusbar);
+        min-height: calc(100vh - var(--bd-size-shell-rail));
+      }
+
+      .commandbar {
+        padding-inline: var(--bd-space-2);
+      }
+
+      .project-name,
+      .epic-chip,
+      .sprint-chip,
+      .key-hint {
+        display: none;
+      }
+
+      .live-chip {
+        flex: 0 0 auto;
+      }
+
+      .workspace {
+        display: block;
+      }
+
+      .subnav {
+        position: sticky;
+        top: var(--bd-size-shell-commandbar);
+        z-index: 10;
+        padding: var(--bd-space-2);
+        overflow-x: auto;
+        border-right: 0;
+        border-bottom: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      }
+
+      .subnav h2,
+      .claim-group {
+        display: none;
+      }
+
+      .subnav-list {
+        flex-direction: row;
+        width: max-content;
+      }
+
+      .subnav button {
+        width: auto;
+        min-height: var(--bd-size-hit-target-touch);
+        white-space: nowrap;
+      }
+
+      .canvas {
+        padding: var(--bd-space-4) var(--bd-space-3);
+      }
+
+      .page-header {
+        margin-bottom: var(--bd-space-4);
+      }
+
+      .identity,
+      .form-row,
+      .notification-row,
+      .skill-row {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .field-control {
+        justify-content: flex-start;
+      }
+
+      .form-body,
+      .notification-card,
+      .keyboard-sheet,
+      .skills-catalog {
+        padding: var(--bd-space-3);
+      }
+
+      .savebar {
+        align-items: stretch;
+        flex-direction: column;
+        padding: var(--bd-space-3);
+      }
+
+      .save-actions {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      }
+
+      .button-text {
+        min-height: var(--bd-size-hit-target-touch);
+      }
+
+      .notification-value {
+        width: 100%;
+      }
+
+      .keyboard-table,
+      .keyboard-table tbody,
+      .keyboard-table tr,
+      .keyboard-table td {
+        display: block;
+        width: 100%;
+      }
+
+      .keyboard-table thead {
+        display: none;
+      }
+
+      .keyboard-table tr {
+        padding-block: var(--bd-space-3);
+        border-bottom: var(--bd-stroke-hairline) solid var(--bd-border-dimmest);
+      }
+
+      .keyboard-table tr:last-child {
+        border-bottom: 0;
+      }
+
+      .keyboard-table td {
+        padding: var(--bd-space-1) var(--bd-space-0);
+        border-bottom: 0;
+      }
+
+      .keyboard-table td:first-child {
+        color: var(--bd-text-secondary);
+        font-family: var(--bd-font-sans);
+        font-weight: var(--bd-font-weight-semibold);
+      }
+
+      .statusbar {
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <nav class="rail" aria-label="Primary navigation">
+      <ul class="rail-list">
+        <li>
+          <button class="rail-button" type="button" aria-label="Board" title="Board">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="5" height="12"></rect><rect x="9" y="2" width="5" height="7"></rect></svg>
+          </button>
+        </li>
+        <li>
+          <button class="rail-button" type="button" aria-label="Backlog" title="Backlog">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3h10M3 8h10M3 13h7"></path></svg>
+          </button>
+        </li>
+        <li>
+          <button class="rail-button" type="button" aria-label="Epics" title="Epics">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2l6 3-6 3-6-3 6-3zM2 9l6 3 6-3M2 12l6 3 6-3"></path></svg>
+          </button>
+        </li>
+        <li>
+          <button class="rail-button" type="button" aria-label="Graph" title="Graph">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="3" cy="8" r="1.5"></circle><circle cx="12.5" cy="3" r="1.5"></circle><circle cx="12.5" cy="13" r="1.5"></circle><path d="M4.5 7.3l6.5-3.5M4.5 8.7l6.5 3.5"></path></svg>
+          </button>
+        </li>
+        <li>
+          <button class="rail-button" type="button" aria-label="Timeline" title="Timeline">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2v12M3 4h6M3 8h10M3 12h7"></path></svg>
+          </button>
+        </li>
+        <li>
+          <button class="rail-button" type="button" aria-label="Sessions" title="Sessions">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3h12v8H8l-3 3v-3H2V3z"></path><path d="M5 6h6M5 8h4"></path></svg>
+          </button>
+        </li>
+        <li>
+          <button class="rail-button" type="button" aria-label="Health" title="Health">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8h3l1.5-4 3 8L11 8h3"></path></svg>
+          </button>
+        </li>
+        <li>
+          <button class="rail-button active" type="button" aria-label="Settings" title="Settings" aria-current="page">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.5"></circle><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4"></path></svg>
+          </button>
+        </li>
+        <li>
+          <button class="rail-button" type="button" aria-label="Help" title="Help">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M6.5 6a1.7 1.7 0 1 1 2.8 1.3C8.5 8 8 8.4 8 9.5M8 12.2v.1"></path></svg>
+          </button>
+        </li>
+      </ul>
+    </nav>
+
+    <div class="shell">
+      <header class="commandbar">
+        <div class="project-name">Bytedesk Marketplace</div>
+        <span class="chip epic-chip machine">EP-006</span>
+        <span class="chip sprint-chip machine">SP-003 · 12/20 pts · 2 unsized</span>
+        <span class="chip status-chip live-chip"><span class="status-dot" aria-hidden="true"></span>live</span>
+        <div class="command-search">
+          <label for="global-search">Search</label>
+          <input id="global-search" type="search" placeholder="Search or type a filter — status:open label:ui">
+        </div>
+        <span class="key-hint">⌘K</span>
+      </header>
+
+      <div class="workspace">
+        <aside class="subnav" aria-label="Settings navigation">
+          <h2>Settings</h2>
+          <nav aria-label="Settings sections">
+            <ul class="subnav-list">
+              <li><button type="button">Dashboard</button></li>
+              <li><button type="button">Identity</button></li>
+              <li><button type="button" aria-current="page">Policy</button></li>
+              <li><button type="button">Workflow</button></li>
+              <li><button type="button">Notifications</button></li>
+              <li><button type="button">Keyboard</button></li>
+              <li><button type="button">Templates</button></li>
+              <li><button type="button">Skills</button></li>
+            </ul>
+          </nav>
+
+          <section class="claim-group" aria-labelledby="claim-heading">
+            <h3 id="claim-heading">Current claim</h3>
+            <ul class="claim-list" role="list">
+              <li class="claim-card" tabindex="0">
+                <div class="card-id machine">TM-014</div>
+                <h3>Wire policy gates into dashboard writes</h3>
+                <div class="claim-meta">
+                  <span class="chip status-chip status-progress"><span class="status-dot" aria-hidden="true"></span>in progress</span>
+                  <span class="chip machine">codex-7f3a</span>
+                </div>
+              </li>
+            </ul>
+          </section>
+        </aside>
+
+        <main class="canvas">
+          <div class="content">
+            <header class="page-header">
+              <h1>Settings</h1>
+              <span class="route machine">/settings</span>
+            </header>
+
+            <section class="section" aria-labelledby="identity-heading">
+              <h2 id="identity-heading">Identity</h2>
+              <div class="plate identity">
+                <div class="identity-field">
+                  <label>Board ID</label>
+                  <div class="locked-value machine">
+                    <span class="lock" aria-hidden="true">
+                      <svg viewBox="0 0 16 16"><rect x="3" y="7" width="10" height="7" rx="1"></rect><path d="M5 7V5a3 3 0 0 1 6 0v2"></path></svg>
+                    </span>
+                    <span>bytedeskai/bytedesk-marketplace</span>
+                  </div>
+                </div>
+                <div class="identity-field">
+                  <label>Owner</label>
+                  <div class="locked-value machine">
+                    <span class="lock" aria-hidden="true">
+                      <svg viewBox="0 0 16 16"><rect x="3" y="7" width="10" height="7" rx="1"></rect><path d="M5 7V5a3 3 0 0 1 6 0v2"></path></svg>
+                    </span>
+                    <span>Ryan Helms &lt;ryan@helms.ai&gt;</span>
+                  </div>
+                </div>
+                <p class="identity-hint">Identity is derived from git and cannot be edited here.</p>
+              </div>
+            </section>
+
+            <section class="section" aria-labelledby="policy-heading">
+              <h2 id="policy-heading">Policy</h2>
+              <form class="plate policy-form">
+                <div class="form-body">
+                  <div class="form-row">
+                    <div class="field-copy">
+                      <label for="enforce">enforce</label>
+                      <p>Run every dashboard write through the CLI gates.</p>
+                    </div>
+                    <div class="field-control">
+                      <label class="toggle">
+                        <input id="enforce" type="checkbox" checked>
+                        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                        <span>On</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div class="form-row">
+                    <div class="field-copy">
+                      <label for="require-epic">requireEpic</label>
+                      <p>Refuse work without an active epic.</p>
+                    </div>
+                    <div class="field-control">
+                      <label class="toggle">
+                        <input id="require-epic" type="checkbox" checked>
+                        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                        <span>On</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div class="form-row">
+                    <div class="field-copy">
+                      <label for="require-acceptance">requireAcceptance</label>
+                      <p>Require acceptance criteria before work starts.</p>
+                    </div>
+                    <div class="field-control">
+                      <label class="toggle">
+                        <input id="require-acceptance" type="checkbox" checked>
+                        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                        <span>On</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div class="form-row">
+                    <div class="field-copy">
+                      <label for="wip-limit">wipLimit</label>
+                      <p>Cap simultaneous in-progress tasks.</p>
+                    </div>
+                    <div class="field-control">
+                      <span class="chip changed-chip">changed</span>
+                      <input class="text-input" id="wip-limit" type="number" value="4" min="1" aria-describedby="wip-note">
+                    </div>
+                  </div>
+
+                  <div class="form-row">
+                    <div class="field-copy">
+                      <label for="stale-minutes">staleMinutes</label>
+                      <p>Flag claims with no recorded activity.</p>
+                    </div>
+                    <div class="field-control">
+                      <input class="text-input" id="stale-minutes" type="number" value="90" min="1">
+                    </div>
+                  </div>
+
+                  <div class="form-row">
+                    <div class="field-copy">
+                      <label for="claim-ttl">claimTtlMinutes</label>
+                      <p>Expire an abandoned session claim.</p>
+                    </div>
+                    <div class="field-control">
+                      <div class="field-stack">
+                        <input class="text-input invalid" id="claim-ttl" type="number" value="240" aria-invalid="true" aria-describedby="claim-error">
+                        <p class="error-text" id="claim-error">must be a positive integer</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="form-row">
+                    <div class="field-copy">
+                      <label for="capture-decisions">captureDecisions</label>
+                      <p>Record durable choices as decisions when needed.</p>
+                    </div>
+                    <div class="field-control">
+                      <select id="capture-decisions">
+                        <option selected>smart</option>
+                        <option>true</option>
+                        <option>false</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div class="form-row">
+                    <div class="field-copy">
+                      <label for="auto-close">autoCloseEpics</label>
+                      <p>Close an epic when all child work is done.</p>
+                    </div>
+                    <div class="field-control">
+                      <label class="toggle">
+                        <input id="auto-close" type="checkbox">
+                        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                        <span>Off</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="gate-refusal" role="alert">
+                  <div class="machine">save refused: claimTtlMinutes must be a positive integer.</div>
+                  <div class="command-block">
+                    <code>.bytedesk/task-management/bin/tm policy validate</code>
+                    <button class="icon-button" type="button" aria-label="Copy validation command" title="Copy command">
+                      <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="8" height="8" rx="1"></rect><path d="M3 11H2V2h9v1"></path></svg>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="savebar">
+                  <span><span class="machine">1</span> unsaved change</span>
+                  <div class="save-actions">
+                    <button class="button-text button-primary" type="submit">Save</button>
+                    <button class="button-text" type="reset">Reset</button>
+                  </div>
+                </div>
+              </form>
+            </section>
+
+            <section class="section" aria-labelledby="notifications-heading">
+              <h2 id="notifications-heading">Notifications</h2>
+              <div class="plate notification-card">
+                <div class="notification-row">
+                  <div>
+                    <span class="field-label">ntfy server</span>
+                    <span class="machine">https://ntfy.example.test</span>
+                  </div>
+                  <div class="notification-value">
+                    <label class="toggle">
+                      <input type="checkbox" checked>
+                      <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                      <span>Enabled</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div class="notification-row">
+                  <div>
+                    <span class="field-label">Topic</span>
+                    <span>Delivery target for task state changes.</span>
+                  </div>
+                  <div class="notification-value">
+                    <div class="truncate-control">
+                      <code class="truncate-value" title="bytedesk-marketplace-dashboard-policy-gates-agent-session-events-f3198d">bytedesk-marketplace-dashboard-policy-gates-agent-session-events-f3198d</code>
+                      <button class="icon-button" type="button" aria-label="Copy ntfy topic" title="Copy topic">
+                        <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="8" height="8" rx="1"></rect><path d="M3 11H2V2h9v1"></path></svg>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="notification-row">
+                  <div>
+                    <span class="field-label">Test delivery</span>
+                    <span>Send one fictional notification now.</span>
+                  </div>
+                  <div class="notification-value">
+                    <button class="button-text" type="button">Send test</button>
+                    <div class="result-line machine">sent · 200 · 2026-09-01 14:05</div>
+                  </div>
+                </div>
+
+                <div class="notification-row">
+                  <div>
+                    <span class="field-label">Browser notifications</span>
+                    <span>Permission: <span class="permission machine">granted</span></span>
+                  </div>
+                  <div class="notification-value">
+                    <div class="category-list">
+                      <label class="checkbox"><input type="checkbox" checked>Claims</label>
+                      <label class="checkbox"><input type="checkbox" checked>Blocked</label>
+                      <label class="checkbox"><input type="checkbox" checked>Done</label>
+                      <label class="checkbox"><input type="checkbox">Stale</label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="section" aria-labelledby="keyboard-heading">
+              <h2 id="keyboard-heading">Keyboard</h2>
+              <div class="plate keyboard-sheet">
+                <table class="keyboard-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Group</th>
+                      <th scope="col">Bindings</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>Navigate</td>
+                      <td>
+                        <div class="binding-list">
+                          <kbd>j</kbd><kbd>k</kbd><kbd>h</kbd><kbd>l</kbd><kbd>g</kbd><kbd>G</kbd>
+                        </div>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td>Move</td>
+                      <td>
+                        <div class="binding-list">
+                          <kbd>1–6</kbd><kbd>[</kbd><kbd>]</kbd>
+                        </div>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td>Act</td>
+                      <td>
+                        <div class="binding-list">
+                          <kbd>x</kbd><kbd>w</kbd><kbd>o</kbd><kbd>Enter</kbd><kbd>c</kbd><kbd>/</kbd>
+                        </div>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td>Global</td>
+                      <td>
+                        <div class="binding-list">
+                          <kbd>⌘K</kbd><kbd>?</kbd>
+                        </div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="section" aria-labelledby="skills-heading">
+              <h2 id="skills-heading">Skills</h2>
+              <div class="plate skills-catalog">
+                <ul class="skill-list" role="list">
+                  <li class="skill-row">
+                    <div>
+                      <h3 class="skill-name">standup</h3>
+                      <p class="skill-description">Summarize changes, claims, blockers and completed proof.</p>
+                    </div>
+                    <div class="command-block">
+                      <code>/task-management:standup</code>
+                      <button class="icon-button" type="button" aria-label="Copy standup command" title="Copy command">
+                        <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="8" height="8" rx="1"></rect><path d="M3 11H2V2h9v1"></path></svg>
+                      </button>
+                    </div>
+                  </li>
+                  <li class="skill-row">
+                    <div>
+                      <h3 class="skill-name">board</h3>
+                      <p class="skill-description">Show active work, blocked tasks and the next unblocked claim.</p>
+                    </div>
+                    <div class="command-block">
+                      <code>/task-management:board</code>
+                      <button class="icon-button" type="button" aria-label="Copy board command" title="Copy command">
+                        <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="8" height="8" rx="1"></rect><path d="M3 11H2V2h9v1"></path></svg>
+                      </button>
+                    </div>
+                  </li>
+                  <li class="skill-row">
+                    <div>
+                      <h3 class="skill-name">interview</h3>
+                      <p class="skill-description">Record unresolved decisions before implementation starts.</p>
+                    </div>
+                    <div class="command-block">
+                      <code>/task-management:interview</code>
+                      <button class="icon-button" type="button" aria-label="Copy interview command" title="Copy command">
+                        <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="8" height="8" rx="1"></rect><path d="M3 11H2V2h9v1"></path></svg>
+                      </button>
+                    </div>
+                  </li>
+                  <li class="skill-row">
+                    <div>
+                      <h3 class="skill-name">spec</h3>
+                      <p class="skill-description">Turn recorded decisions into machine-checkable acceptance criteria.</p>
+                    </div>
+                    <div class="command-block">
+                      <code>/task-management:spec</code>
+                      <button class="icon-button" type="button" aria-label="Copy spec command" title="Copy command">
+                        <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="8" height="8" rx="1"></rect><path d="M3 11H2V2h9v1"></path></svg>
+                      </button>
+                    </div>
+                  </li>
+                  <li class="skill-row">
+                    <div>
+                      <h3 class="skill-name">tickets</h3>
+                      <p class="skill-description">Split a spec into ordered tracer-bullet tasks.</p>
+                    </div>
+                    <div class="command-block">
+                      <code>/task-management:tickets</code>
+                      <button class="icon-button" type="button" aria-label="Copy tickets command" title="Copy command">
+                        <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="8" height="8" rx="1"></rect><path d="M3 11H2V2h9v1"></path></svg>
+                      </button>
+                    </div>
+                  </li>
+                  <li class="skill-row">
+                    <div>
+                      <h3 class="skill-name">implement</h3>
+                      <p class="skill-description">Claim one task, verify its gates and attach evidence.</p>
+                    </div>
+                    <div class="command-block">
+                      <code>/task-management:implement</code>
+                      <button class="icon-button" type="button" aria-label="Copy implement command" title="Copy command">
+                        <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="8" height="8" rx="1"></rect><path d="M3 11H2V2h9v1"></path></svg>
+                      </button>
+                    </div>
+                  </li>
+                  <li class="skill-row">
+                    <div>
+                      <h3 class="skill-name">handoff</h3>
+                      <p class="skill-description">Package claim state, blockers and proof for the next session.</p>
+                    </div>
+                    <div class="command-block">
+                      <code>/task-management:handoff</code>
+                      <button class="icon-button" type="button" aria-label="Copy handoff command" title="Copy command">
+                        <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="8" height="8" rx="1"></rect><path d="M3 11H2V2h9v1"></path></svg>
+                      </button>
+                    </div>
+                  </li>
+                  <li class="skill-row">
+                    <div>
+                      <h3 class="skill-name">groom</h3>
+                      <p class="skill-description">Close stale records, merge duplicates and unblock ready work.</p>
+                    </div>
+                    <div class="command-block">
+                      <code>/task-management:groom</code>
+                      <button class="icon-button" type="button" aria-label="Copy groom command" title="Copy command">
+                        <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="8" height="8" rx="1"></rect><path d="M3 11H2V2h9v1"></path></svg>
+                      </button>
+                    </div>
+                  </li>
+                </ul>
+              </div>
+            </section>
+          </div>
+        </main>
+      </div>
+
+      <footer class="statusbar">Illustrative mockup — fictional data — not production source</footer>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,1484 @@
+<!doctype html>
+<html lang="en" data-bd-product="task-management" data-bd-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TM-052 · Bytedesk Marketplace</title>
+  <link rel="stylesheet" href="tokens/bytedesk.css">
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      min-height: 100%;
+      margin: var(--bd-space-0);
+      background: var(--bd-bg-base);
+      color: var(--bd-text-primary);
+      font-family: var(--bd-font-sans);
+      font-size: var(--bd-text-body);
+      line-height: var(--bd-line-height-body);
+    }
+
+    body {
+      overflow: hidden;
+    }
+
+    button,
+    input,
+    textarea {
+      min-width: var(--bd-space-0);
+      font: inherit;
+      color: inherit;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    button,
+    input,
+    textarea,
+    [tabindex] {
+      outline: none;
+    }
+
+    button:focus-visible,
+    input:focus-visible,
+    textarea:focus-visible,
+    [tabindex]:focus-visible {
+      box-shadow: var(--bd-focus-ring);
+      outline: var(--bd-stroke-focus) solid var(--bd-interactive-focus);
+      outline-offset: var(--bd-space-1);
+    }
+
+    code,
+    .mono,
+    time,
+    .entity,
+    .machine {
+      font-family: var(--bd-font-mono);
+    }
+
+    code {
+      padding: var(--bd-space-0) var(--bd-space-1);
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-subtle);
+      color: var(--bd-text-secondary);
+    }
+
+    svg {
+      display: block;
+      width: 16px;
+      height: 16px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.5px;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: var(--bd-size-shell-rail) minmax(0, 1fr);
+      grid-template-rows: var(--bd-size-shell-commandbar) minmax(0, 1fr) var(--bd-size-shell-statusbar);
+      width: 100%;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .rail {
+      grid-column: 1;
+      grid-row: 1 / 4;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: var(--bd-space-1);
+      padding: var(--bd-space-2) var(--bd-space-1);
+      border-inline-end: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      background: var(--bd-bg-surface);
+      z-index: 4;
+    }
+
+    .rail-button {
+      display: grid;
+      place-items: center;
+      width: var(--bd-size-control-compact);
+      height: var(--bd-size-control-compact);
+      padding: var(--bd-space-0);
+      border: var(--bd-stroke-hairline) solid transparent;
+      border-radius: var(--bd-radius-sm);
+      background: transparent;
+      color: var(--bd-text-tertiary);
+    }
+
+    .rail-button:hover {
+      background: var(--bd-bg-hover);
+      color: var(--bd-text-primary);
+    }
+
+    .rail-button.active {
+      border-color: var(--bd-accent-muted);
+      background: var(--bd-accent-subtle);
+      color: var(--bd-accent);
+    }
+
+    .commandbar {
+      grid-column: 2;
+      grid-row: 1;
+      display: flex;
+      align-items: center;
+      gap: var(--bd-space-2);
+      min-width: var(--bd-space-0);
+      height: var(--bd-size-shell-commandbar);
+      padding: var(--bd-space-1) var(--bd-space-3);
+      border-block-end: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      background: var(--bd-bg-surface);
+      overflow: hidden;
+    }
+
+    .project-name {
+      flex: none;
+      font-size: var(--bd-text-body-sm);
+      font-weight: var(--bd-font-weight-semibold);
+      white-space: nowrap;
+    }
+
+    .chip,
+    .status-chip,
+    .holder-chip,
+    .type-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--bd-space-1);
+      min-height: var(--bd-size-control-compact);
+      padding: var(--bd-space-0) var(--bd-space-2);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-subtle);
+      color: var(--bd-text-secondary);
+      font-size: var(--bd-text-caption);
+      line-height: var(--bd-line-height-compact);
+      white-space: nowrap;
+    }
+
+    .status-chip {
+      border-radius: var(--bd-radius-full);
+    }
+
+    .status-backlog {
+      color: var(--bd-text-tertiary);
+    }
+
+    .status-todo {
+      color: var(--bd-text-secondary);
+    }
+
+    .status-progress {
+      border-color: var(--bd-info-line);
+      background: var(--bd-info-bg);
+      color: var(--bd-info);
+    }
+
+    .status-blocked {
+      border-color: var(--bd-danger-line);
+      background: var(--bd-danger-bg);
+      color: var(--bd-danger);
+    }
+
+    .status-parked {
+      border-color: var(--bd-warning-line);
+      background: var(--bd-warning-bg);
+      color: var(--bd-warning);
+    }
+
+    .status-done {
+      border-color: var(--bd-success-line);
+      background: var(--bd-success-bg);
+      color: var(--bd-success);
+    }
+
+    .liveness {
+      border-color: var(--bd-accent-muted);
+      background: var(--bd-accent-subtle);
+      color: var(--bd-accent);
+    }
+
+    .search-wrap {
+      display: flex;
+      align-items: center;
+      flex: 1;
+      min-width: var(--bd-space-0);
+      max-width: var(--bd-size-panel-wide);
+      margin-inline-start: auto;
+      border: var(--bd-stroke-hairline) solid var(--bd-border-default);
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-base);
+    }
+
+    .search-wrap input {
+      width: 100%;
+      height: var(--bd-size-control-compact);
+      padding: var(--bd-space-0) var(--bd-space-2);
+      border: var(--bd-space-0);
+      background: transparent;
+      color: var(--bd-text-primary);
+      font-size: var(--bd-text-body-sm);
+    }
+
+    .search-wrap input::placeholder,
+    textarea::placeholder,
+    input::placeholder {
+      color: var(--bd-text-tertiary);
+    }
+
+    .key-hint {
+      flex: none;
+      margin-inline-end: var(--bd-space-1);
+      color: var(--bd-text-tertiary);
+      font-family: var(--bd-font-mono);
+      font-size: var(--bd-text-caption);
+    }
+
+    .workspace {
+      grid-column: 2;
+      grid-row: 2;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) var(--bd-size-shell-inspector);
+      min-width: var(--bd-space-0);
+      min-height: var(--bd-space-0);
+      overflow: hidden;
+    }
+
+    .board {
+      min-width: var(--bd-space-0);
+      min-height: var(--bd-space-0);
+      padding: var(--bd-space-3);
+      background: var(--bd-bg-base);
+      overflow: hidden;
+    }
+
+    .board-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--bd-space-3);
+      margin-block-end: var(--bd-space-3);
+    }
+
+    .board-heading h1 {
+      margin: var(--bd-space-0);
+      font-size: var(--bd-text-h3);
+      line-height: var(--bd-line-height-tight);
+      font-weight: var(--bd-font-weight-semibold);
+    }
+
+    .board-heading p {
+      margin: var(--bd-space-0);
+      color: var(--bd-text-tertiary);
+      font-size: var(--bd-text-body-sm);
+    }
+
+    .board-columns {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: var(--bd-space-2);
+      min-width: var(--bd-space-0);
+      height: calc(100% - var(--bd-size-row-default));
+    }
+
+    .column {
+      min-width: var(--bd-space-0);
+      padding: var(--bd-space-2);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmest);
+      border-radius: var(--bd-radius-md);
+      background: var(--bd-bg-subtle);
+      overflow: hidden;
+    }
+
+    .column-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--bd-space-1);
+      margin-block-end: var(--bd-space-2);
+    }
+
+    .column-header h2 {
+      min-width: var(--bd-space-0);
+      margin: var(--bd-space-0);
+      overflow: hidden;
+      color: var(--bd-text-secondary);
+      font-size: var(--bd-text-body-sm);
+      font-weight: var(--bd-font-weight-semibold);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .column-count {
+      color: var(--bd-text-tertiary);
+      font-family: var(--bd-font-mono);
+      font-size: var(--bd-text-caption);
+    }
+
+    .card-list {
+      display: flex;
+      flex-direction: column;
+      gap: var(--bd-space-2);
+      margin: var(--bd-space-0);
+      padding: var(--bd-space-0);
+      list-style: none;
+    }
+
+    .task-card {
+      position: relative;
+      min-width: var(--bd-space-0);
+      padding: var(--bd-space-2);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-surface);
+      overflow: hidden;
+    }
+
+    .task-card.claimed {
+      box-shadow: var(--bd-shadow-focus-glow);
+    }
+
+    .task-card.claimed::after {
+      content: "";
+      position: absolute;
+      inset-block: var(--bd-space-0);
+      inset-inline-start: var(--bd-space-0);
+      width: 2px;
+      background: var(--bd-accent);
+      opacity: var(--bd-opacity-secondary);
+    }
+
+    .task-id {
+      color: var(--bd-text-tertiary);
+      font-family: var(--bd-font-mono);
+      font-size: var(--bd-text-caption);
+    }
+
+    .task-card h3 {
+      margin: var(--bd-space-1) var(--bd-space-0) var(--bd-space-2);
+      overflow: hidden;
+      font-size: var(--bd-text-body-sm);
+      line-height: var(--bd-line-height-compact);
+      font-weight: var(--bd-font-weight-medium);
+      text-overflow: ellipsis;
+    }
+
+    .task-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--bd-space-1);
+      align-items: center;
+    }
+
+    .task-meta .status-chip,
+    .task-meta .chip {
+      min-height: var(--bd-size-hit-target-pointer);
+      padding-inline: var(--bd-space-1);
+    }
+
+    .priority {
+      color: var(--bd-text-secondary);
+      font-size: var(--bd-text-caption);
+      white-space: nowrap;
+    }
+
+    .inspector {
+      min-width: var(--bd-space-0);
+      min-height: var(--bd-space-0);
+      border-inline-start: var(--bd-stroke-hairline) solid var(--bd-border-default);
+      background: var(--bd-bg-elevated);
+      box-shadow: var(--bd-shadow-shell);
+      overflow: hidden;
+      z-index: 3;
+    }
+
+    .inspector-scroll {
+      height: 100%;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+
+    .identity {
+      position: sticky;
+      inset-block-start: var(--bd-space-0);
+      padding: var(--bd-space-3);
+      border-block-end: var(--bd-stroke-hairline) solid var(--bd-border-default);
+      background: var(--bd-bg-elevated);
+      z-index: 2;
+    }
+
+    .back-button {
+      display: none;
+    }
+
+    .identity-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--bd-space-1);
+      align-items: center;
+    }
+
+    .identity h1 {
+      margin: var(--bd-space-3) var(--bd-space-0);
+      font-size: var(--bd-text-h2);
+      line-height: var(--bd-line-height-tight);
+      font-weight: var(--bd-font-weight-semibold);
+    }
+
+    .identity h1[contenteditable="true"] {
+      border-radius: var(--bd-radius-sm);
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--bd-space-2);
+      align-items: flex-start;
+    }
+
+    .action-unit {
+      display: flex;
+      flex-direction: column;
+      gap: var(--bd-space-1);
+      min-width: var(--bd-space-0);
+    }
+
+    .action-unit.done-unit {
+      flex-basis: 100%;
+    }
+
+    .action-button,
+    .secondary-button,
+    .icon-button {
+      min-height: var(--bd-size-control-compact);
+      padding: var(--bd-space-0) var(--bd-space-2);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-default);
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-surface);
+      color: var(--bd-text-secondary);
+      font-size: var(--bd-text-body-sm);
+      font-weight: var(--bd-font-weight-medium);
+    }
+
+    .action-button:hover,
+    .secondary-button:hover,
+    .icon-button:hover {
+      background: var(--bd-bg-hover);
+      color: var(--bd-text-primary);
+    }
+
+    .action-button.primary {
+      border-color: var(--bd-accent-emphasis);
+      background: var(--bd-accent);
+      color: var(--bd-accent-fg);
+    }
+
+    .refusal {
+      margin: var(--bd-space-0);
+      padding: var(--bd-space-2);
+      border: var(--bd-stroke-hairline) solid var(--bd-danger-line);
+      border-radius: var(--bd-radius-md);
+      background: var(--bd-danger-bg);
+      color: var(--bd-danger);
+      font-size: var(--bd-text-body-sm);
+    }
+
+    .refusal code {
+      background: var(--bd-danger-bg);
+      color: var(--bd-danger);
+    }
+
+    .park-reason {
+      width: var(--bd-size-panel-minimum);
+      height: var(--bd-size-control-compact);
+      padding: var(--bd-space-0) var(--bd-space-2);
+      border: var(--bd-stroke-hairline) solid var(--bd-warning-line);
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-base);
+      color: var(--bd-text-primary);
+      font-size: var(--bd-text-body-sm);
+    }
+
+    .section-tabs {
+      display: none;
+    }
+
+    .inspector-section {
+      padding: var(--bd-space-4);
+      border-block-end: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+    }
+
+    .inspector-section h2 {
+      margin: var(--bd-space-0) var(--bd-space-0) var(--bd-space-3);
+      font-size: var(--bd-text-h4);
+      line-height: var(--bd-line-height-tight);
+      font-weight: var(--bd-font-weight-semibold);
+    }
+
+    .inspector-section p {
+      margin: var(--bd-space-0) var(--bd-space-0) var(--bd-space-2);
+      color: var(--bd-text-secondary);
+    }
+
+    .body-list {
+      margin: var(--bd-space-2) var(--bd-space-0) var(--bd-space-0);
+      padding-inline-start: var(--bd-space-5);
+      color: var(--bd-text-secondary);
+    }
+
+    .body-list li + li {
+      margin-block-start: var(--bd-space-1);
+    }
+
+    .criteria {
+      display: flex;
+      flex-direction: column;
+      gap: var(--bd-space-2);
+      margin: var(--bd-space-0);
+      padding: var(--bd-space-0);
+      list-style: none;
+    }
+
+    .criterion {
+      display: grid;
+      grid-template-columns: var(--bd-size-control-compact) minmax(0, 1fr) auto;
+      gap: var(--bd-space-2);
+      align-items: start;
+      min-width: var(--bd-space-0);
+    }
+
+    .criterion-mark {
+      display: grid;
+      place-items: center;
+      width: var(--bd-size-control-compact);
+      height: var(--bd-size-control-compact);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-default);
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-surface);
+      color: var(--bd-text-tertiary);
+    }
+
+    .criterion-mark.met {
+      border-color: var(--bd-success-line);
+      background: var(--bd-success-bg);
+      color: var(--bd-success);
+    }
+
+    .criterion-text {
+      min-width: var(--bd-space-0);
+      color: var(--bd-text-secondary);
+    }
+
+    .criterion-time {
+      display: block;
+      margin-block-start: var(--bd-space-1);
+      color: var(--bd-text-tertiary);
+      font-size: var(--bd-text-caption);
+    }
+
+    .remove-button {
+      width: var(--bd-size-control-compact);
+      height: var(--bd-size-control-compact);
+      padding: var(--bd-space-0);
+      border: var(--bd-stroke-hairline) solid transparent;
+      border-radius: var(--bd-radius-sm);
+      background: transparent;
+      color: var(--bd-text-tertiary);
+    }
+
+    .add-row {
+      display: flex;
+      gap: var(--bd-space-2);
+      margin-block-start: var(--bd-space-3);
+    }
+
+    .field,
+    .comment-box {
+      width: 100%;
+      min-height: var(--bd-size-control-compact);
+      padding: var(--bd-space-2);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-default);
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-base);
+      color: var(--bd-text-primary);
+    }
+
+    .comment-box {
+      min-height: var(--bd-size-panel-minimum);
+      resize: vertical;
+    }
+
+    .dependency-chip {
+      border-color: var(--bd-danger-line);
+      background: var(--bd-danger-bg);
+      color: var(--bd-danger);
+    }
+
+    .why-tree {
+      margin-block-start: var(--bd-space-3);
+      padding-inline-start: var(--bd-space-3);
+      border-inline-start: var(--bd-stroke-hairline) solid var(--bd-border-stronger);
+    }
+
+    .why-node {
+      padding-block: var(--bd-space-1);
+      color: var(--bd-text-secondary);
+    }
+
+    .why-node.child {
+      margin-inline-start: var(--bd-space-4);
+      padding-inline-start: var(--bd-space-3);
+      border-inline-start: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+    }
+
+    .why-start {
+      margin-block-start: var(--bd-space-2);
+      color: var(--bd-accent);
+      font-weight: var(--bd-font-weight-semibold);
+    }
+
+    .typed-links,
+    .evidence-list,
+    .comments,
+    .history-list,
+    .stream-list {
+      display: flex;
+      flex-direction: column;
+      gap: var(--bd-space-2);
+      margin: var(--bd-space-0);
+      padding: var(--bd-space-0);
+      list-style: none;
+    }
+
+    .typed-link {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--bd-space-2);
+      padding: var(--bd-space-2);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-surface);
+      color: var(--bd-text-secondary);
+    }
+
+    .evidence-table,
+    .worktree-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .evidence-table th,
+    .evidence-table td,
+    .worktree-table th,
+    .worktree-table td {
+      padding: var(--bd-space-2);
+      border-block-end: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      text-align: start;
+      vertical-align: top;
+    }
+
+    .evidence-table th,
+    .worktree-table th {
+      width: var(--bd-size-panel-minimum);
+      color: var(--bd-text-tertiary);
+      font-size: var(--bd-text-caption);
+      font-weight: var(--bd-font-weight-medium);
+    }
+
+    .evidence-table td,
+    .worktree-table td {
+      overflow-wrap: anywhere;
+      color: var(--bd-text-secondary);
+    }
+
+    .button-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--bd-space-2);
+      margin-block-start: var(--bd-space-3);
+    }
+
+    .comment {
+      padding: var(--bd-space-3);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-md);
+      background: var(--bd-bg-surface);
+    }
+
+    .comment-meta {
+      display: flex;
+      justify-content: space-between;
+      gap: var(--bd-space-2);
+      margin-block-end: var(--bd-space-2);
+      color: var(--bd-text-tertiary);
+      font-size: var(--bd-text-caption);
+    }
+
+    .comment p {
+      margin: var(--bd-space-0);
+      overflow-wrap: anywhere;
+    }
+
+    .hint {
+      margin-block-start: var(--bd-space-2);
+      color: var(--bd-text-tertiary);
+      font-size: var(--bd-text-caption);
+    }
+
+    .history-row {
+      display: grid;
+      grid-template-columns: var(--bd-size-panel-minimum) minmax(0, 1fr);
+      gap: var(--bd-space-2);
+      align-items: center;
+      min-height: var(--bd-size-row-compact);
+      padding: var(--bd-space-1) var(--bd-space-2);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmest);
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-surface);
+      color: var(--bd-text-secondary);
+    }
+
+    .history-row time {
+      color: var(--bd-text-tertiary);
+    }
+
+    .stream-panel {
+      padding: var(--bd-space-3);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-default);
+      border-radius: var(--bd-radius-lg);
+      background: var(--bd-bg-surface);
+    }
+
+    .stream-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--bd-space-2);
+      margin-block-end: var(--bd-space-3);
+    }
+
+    .stream-head h2 {
+      margin: var(--bd-space-0);
+    }
+
+    .stream-row {
+      padding: var(--bd-space-2);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-base);
+      color: var(--bd-text-secondary);
+      overflow-wrap: anywhere;
+    }
+
+    .stream-kind {
+      display: block;
+      margin-block-end: var(--bd-space-1);
+      color: var(--bd-text-tertiary);
+      font-size: var(--bd-text-caption);
+    }
+
+    .stream-row.result {
+      font-family: var(--bd-font-mono);
+      font-size: var(--bd-text-console-sm);
+      white-space: pre-wrap;
+    }
+
+    .stream-row.error {
+      border-color: var(--bd-danger-line);
+      background: var(--bd-danger-bg);
+      color: var(--bd-danger);
+    }
+
+    .command-block {
+      display: block;
+      width: 100%;
+      margin-block-start: var(--bd-space-3);
+      padding: var(--bd-space-2);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-base);
+      color: var(--bd-text-secondary);
+      font-family: var(--bd-font-mono);
+      font-size: var(--bd-text-console-sm);
+      overflow-wrap: anywhere;
+      user-select: all;
+    }
+
+    .statusbar {
+      grid-column: 2;
+      grid-row: 3;
+      display: flex;
+      align-items: center;
+      min-width: var(--bd-space-0);
+      padding-inline: var(--bd-space-3);
+      border-block-start: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      background: var(--bd-bg-surface);
+      color: var(--bd-text-tertiary);
+      font-size: var(--bd-text-caption);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      z-index: 4;
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+      button,
+      input,
+      textarea,
+      [tabindex] {
+        transition:
+          opacity var(--bd-duration-fast) var(--bd-ease-out-expo),
+          transform var(--bd-duration-fast) var(--bd-ease-out-expo);
+      }
+
+      .task-card.claimed::after {
+        animation: live-write var(--bd-duration-slow) var(--bd-ease-out-expo) infinite alternate;
+      }
+
+      @keyframes live-write {
+        from {
+          opacity: var(--bd-opacity-secondary);
+        }
+        to {
+          opacity: 1;
+        }
+      }
+    }
+
+    @media (max-width: 1200px) {
+      .commandbar .sprint-chip {
+        display: none;
+      }
+
+      .board {
+        padding: var(--bd-space-2);
+      }
+
+      .board-columns {
+        gap: var(--bd-space-1);
+      }
+
+      .column {
+        padding: var(--bd-space-1);
+      }
+
+      .task-card {
+        padding: var(--bd-space-1);
+      }
+
+      .task-meta .priority {
+        display: none;
+      }
+    }
+
+    @media (max-width: 720px) {
+      body {
+        padding-block-end: var(--bd-size-hit-target-touch);
+      }
+
+      .app {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: var(--bd-size-shell-commandbar) minmax(0, 1fr) var(--bd-size-shell-statusbar);
+        height: calc(100vh - var(--bd-size-hit-target-touch));
+      }
+
+      .rail {
+        position: fixed;
+        inset-inline: var(--bd-space-0);
+        inset-block-end: var(--bd-space-0);
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        width: 100%;
+        height: var(--bd-size-hit-target-touch);
+        padding: var(--bd-space-0);
+        border: var(--bd-space-0);
+        border-block-start: var(--bd-stroke-hairline) solid var(--bd-border-default);
+        box-shadow: var(--bd-shadow-shell);
+      }
+
+      .rail-button {
+        width: 100%;
+        height: var(--bd-size-hit-target-touch);
+        border-radius: var(--bd-space-0);
+      }
+
+      .rail-button:nth-child(n+4) {
+        display: none;
+      }
+
+      .rail-button:nth-child(9) {
+        display: grid;
+        grid-column: 4;
+      }
+
+      .rail-button:nth-child(9)::after {
+        content: "More";
+        margin-inline-start: var(--bd-space-1);
+        font-size: var(--bd-text-caption);
+      }
+
+      .rail-button:nth-child(1)::after {
+        content: "Board";
+        margin-inline-start: var(--bd-space-1);
+        font-size: var(--bd-text-caption);
+      }
+
+      .rail-button:nth-child(2)::after {
+        content: "Backlog";
+        margin-inline-start: var(--bd-space-1);
+        font-size: var(--bd-text-caption);
+      }
+
+      .rail-button:nth-child(6) {
+        display: grid;
+        grid-column: 3;
+        grid-row: 1;
+      }
+
+      .rail-button:nth-child(6)::after {
+        content: "Sessions";
+        margin-inline-start: var(--bd-space-1);
+        font-size: var(--bd-text-caption);
+      }
+
+      .rail-button:nth-child(1),
+      .rail-button:nth-child(2),
+      .rail-button:nth-child(6),
+      .rail-button:nth-child(9) {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .commandbar {
+        grid-column: 1;
+        padding-inline: var(--bd-space-2);
+      }
+
+      .project-name {
+        max-width: var(--bd-size-panel-minimum);
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .commandbar .epic-chip,
+      .commandbar .liveness,
+      .key-hint {
+        display: none;
+      }
+
+      .search-wrap input::placeholder {
+        color: transparent;
+      }
+
+      .workspace {
+        grid-column: 1;
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .board {
+        display: none;
+      }
+
+      .inspector {
+        width: 100%;
+        border-inline-start: var(--bd-space-0);
+        box-shadow: none;
+      }
+
+      .identity {
+        padding: var(--bd-space-3);
+      }
+
+      .back-button {
+        display: inline-flex;
+        align-items: center;
+        min-height: var(--bd-size-hit-target-touch);
+        margin-block-end: var(--bd-space-2);
+        padding: var(--bd-space-0) var(--bd-space-2);
+        border: var(--bd-stroke-hairline) solid var(--bd-border-default);
+        border-radius: var(--bd-radius-sm);
+        background: var(--bd-bg-surface);
+        color: var(--bd-text-secondary);
+      }
+
+      .identity-meta .holder-chip {
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .actions {
+        align-items: stretch;
+      }
+
+      .action-button,
+      .secondary-button,
+      .icon-button,
+      .park-reason,
+      .field,
+      .criterion-mark,
+      .remove-button {
+        min-height: var(--bd-size-hit-target-touch);
+      }
+
+      .action-unit {
+        flex: 1;
+      }
+
+      .action-unit.done-unit,
+      .action-unit.park-unit {
+        flex-basis: 100%;
+      }
+
+      .park-reason {
+        width: 100%;
+      }
+
+      .section-tabs {
+        position: sticky;
+        inset-block-start: var(--bd-space-0);
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        border-block-end: var(--bd-stroke-hairline) solid var(--bd-border-default);
+        background: var(--bd-bg-elevated);
+        z-index: 1;
+      }
+
+      .section-tab {
+        min-height: var(--bd-size-hit-target-touch);
+        padding: var(--bd-space-0) var(--bd-space-1);
+        border: var(--bd-space-0);
+        border-block-end: var(--bd-stroke-active) solid transparent;
+        background: transparent;
+        color: var(--bd-text-tertiary);
+        font-size: var(--bd-text-caption);
+      }
+
+      .section-tab.active {
+        border-block-end-color: var(--bd-accent);
+        color: var(--bd-text-primary);
+      }
+
+      .inspector-section {
+        padding: var(--bd-space-3);
+      }
+
+      .evidence-table,
+      .evidence-table tbody,
+      .evidence-table tr,
+      .evidence-table th,
+      .evidence-table td,
+      .worktree-table,
+      .worktree-table tbody,
+      .worktree-table tr,
+      .worktree-table th,
+      .worktree-table td {
+        display: block;
+        width: 100%;
+      }
+
+      .evidence-table tr,
+      .worktree-table tr {
+        padding-block: var(--bd-space-2);
+        border-block-end: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      }
+
+      .evidence-table th,
+      .evidence-table td,
+      .worktree-table th,
+      .worktree-table td {
+        padding: var(--bd-space-1) var(--bd-space-0);
+        border: var(--bd-space-0);
+      }
+
+      .statusbar {
+        grid-column: 1;
+        padding-inline: var(--bd-space-2);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <nav class="rail" aria-label="Primary navigation">
+      <button class="rail-button active" type="button" aria-label="Board" title="Board">
+        <svg aria-hidden="true" viewBox="0 0 16 16"><rect x="2" y="2" width="5" height="12"></rect><rect x="9" y="2" width="5" height="7"></rect></svg>
+      </button>
+      <button class="rail-button" type="button" aria-label="Backlog" title="Backlog">
+        <svg aria-hidden="true" viewBox="0 0 16 16"><path d="M3 4h10M3 8h10M3 12h7"></path></svg>
+      </button>
+      <button class="rail-button" type="button" aria-label="Epics" title="Epics">
+        <svg aria-hidden="true" viewBox="0 0 16 16"><path d="M2 4h5l2 2h5v7H2z"></path></svg>
+      </button>
+      <button class="rail-button" type="button" aria-label="Graph" title="Graph">
+        <svg aria-hidden="true" viewBox="0 0 16 16"><circle cx="3" cy="8" r="1.5"></circle><circle cx="12.5" cy="3" r="1.5"></circle><circle cx="12.5" cy="13" r="1.5"></circle><path d="M4.5 7.2 11 3.8M4.5 8.8 11 12.2"></path></svg>
+      </button>
+      <button class="rail-button" type="button" aria-label="Timeline" title="Timeline">
+        <svg aria-hidden="true" viewBox="0 0 16 16"><path d="M3 2v12M3 4h7M3 8h10M3 12h5"></path></svg>
+      </button>
+      <button class="rail-button" type="button" aria-label="Sessions" title="Sessions">
+        <svg aria-hidden="true" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="9" rx="1"></rect><path d="m5 6 2 2-2 2M9 10h2"></path></svg>
+      </button>
+      <button class="rail-button" type="button" aria-label="Health" title="Health">
+        <svg aria-hidden="true" viewBox="0 0 16 16"><path d="M2 8h3l1.5-4 3 8 1.5-4h3"></path></svg>
+      </button>
+      <button class="rail-button" type="button" aria-label="Settings" title="Settings">
+        <svg aria-hidden="true" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.5"></circle><path d="M8 2v2M8 12v2M2 8h2M12 8h2M3.8 3.8l1.4 1.4M10.8 10.8l1.4 1.4M12.2 3.8l-1.4 1.4M5.2 10.8l-1.4 1.4"></path></svg>
+      </button>
+      <button class="rail-button" type="button" aria-label="Help" title="Help">
+        <svg aria-hidden="true" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"></circle><path d="M6.5 6a1.6 1.6 0 0 1 3 1c0 1.5-1.5 1.5-1.5 3M8 12.5h.01"></path></svg>
+      </button>
+    </nav>
+
+    <header class="commandbar">
+      <span class="project-name">Bytedesk Marketplace</span>
+      <span class="chip epic-chip mono">EP-006</span>
+      <span class="chip sprint-chip mono">SP-003 · 12/20 pts · 2 unsized</span>
+      <span class="status-chip liveness"><span aria-hidden="true">●</span> live</span>
+      <label class="search-wrap">
+        <span class="mono" hidden>Search</span>
+        <input type="search" aria-label="Search tasks" placeholder="Search or type a filter — status:open label:ui">
+        <span class="key-hint" aria-hidden="true">⌘K</span>
+      </label>
+    </header>
+
+    <main class="workspace">
+      <section class="board" aria-labelledby="board-title">
+        <div class="board-heading">
+          <div>
+            <h1 id="board-title">Board</h1>
+            <p><span class="mono">EP-006</span> Dashboard rewrite on the ByteDesk design system</p>
+          </div>
+          <span class="chip mono">12 open</span>
+        </div>
+
+        <div class="board-columns">
+          <section class="column" aria-labelledby="backlog-heading">
+            <div class="column-header">
+              <h2 id="backlog-heading">Backlog</h2>
+              <span class="column-count">4</span>
+            </div>
+            <ul class="card-list" role="list">
+              <li class="task-card" tabindex="-1">
+                <span class="task-id">TM-061</span>
+                <h3>Draft fictional queue filters</h3>
+                <div class="task-meta">
+                  <span class="status-chip status-backlog">● backlog</span>
+                  <span class="priority">▼ low</span>
+                </div>
+              </li>
+              <li class="task-card" tabindex="-1">
+                <span class="task-id">TM-063</span>
+                <h3>Map placeholder epic archive states</h3>
+                <div class="task-meta">
+                  <span class="status-chip status-backlog">● backlog</span>
+                  <span class="priority">◆ normal</span>
+                </div>
+              </li>
+            </ul>
+          </section>
+
+          <section class="column" aria-labelledby="todo-heading">
+            <div class="column-header">
+              <h2 id="todo-heading">Todo</h2>
+              <span class="column-count">3</span>
+            </div>
+            <ul class="card-list" role="list">
+              <li class="task-card" tabindex="-1">
+                <span class="task-id">TM-048</span>
+                <h3>Add keyboard route fixtures</h3>
+                <div class="task-meta">
+                  <span class="status-chip status-todo">● todo</span>
+                  <span class="priority">▲ high</span>
+                </div>
+              </li>
+              <li class="task-card" tabindex="-1">
+                <span class="task-id">TM-050</span>
+                <h3>W1 backend routes</h3>
+                <div class="task-meta">
+                  <span class="status-chip status-todo">● todo</span>
+                  <span class="priority">▲ high</span>
+                </div>
+              </li>
+            </ul>
+          </section>
+
+          <section class="column" aria-labelledby="progress-heading">
+            <div class="column-header">
+              <h2 id="progress-heading">In progress</h2>
+              <span class="column-count">3</span>
+            </div>
+            <ul class="card-list" role="list">
+              <li class="task-card claimed" tabindex="0" aria-current="true">
+                <span class="task-id">TM-052</span>
+                <h3>FE board, backlog, epics screens</h3>
+                <div class="task-meta">
+                  <span class="status-chip status-progress">● in progress</span>
+                  <span class="chip mono">codex</span>
+                </div>
+              </li>
+              <li class="task-card" tabindex="-1">
+                <span class="task-id">TM-057</span>
+                <h3>Wire fictional board preferences</h3>
+                <div class="task-meta">
+                  <span class="status-chip status-progress">● in progress</span>
+                  <span class="priority">◆ normal</span>
+                </div>
+              </li>
+            </ul>
+          </section>
+
+          <section class="column" aria-labelledby="blocked-heading">
+            <div class="column-header">
+              <h2 id="blocked-heading">Blocked</h2>
+              <span class="column-count">2</span>
+            </div>
+            <ul class="card-list" role="list">
+              <li class="task-card" tabindex="-1">
+                <span class="task-id">TM-058</span>
+                <h3>MCP worktree and typed-link verbs</h3>
+                <div class="task-meta">
+                  <span class="status-chip status-blocked">● blocked</span>
+                  <span class="priority">▲ high</span>
+                </div>
+              </li>
+              <li class="task-card" tabindex="-1">
+                <span class="task-id">TM-060</span>
+                <h3>Resolve fabricated fixture contract</h3>
+                <div class="task-meta">
+                  <span class="status-chip status-parked">● parked</span>
+                  <span class="priority">◆ normal</span>
+                </div>
+              </li>
+            </ul>
+          </section>
+        </div>
+      </section>
+
+      <aside class="inspector" aria-labelledby="task-title">
+        <div class="inspector-scroll">
+          <header class="identity">
+            <button class="back-button" type="button">‹ Board</button>
+
+            <div class="identity-meta">
+              <span class="entity">TM-052</span>
+              <span class="status-chip status-progress">● in progress</span>
+              <span class="holder-chip mono">held by codex · session 61c67728…</span>
+              <span class="chip mono">EP-006</span>
+            </div>
+
+            <h1 id="task-title" contenteditable="true" spellcheck="false">FE board, backlog, epics screens</h1>
+
+            <div class="actions" aria-label="Task actions">
+              <div class="action-unit done-unit">
+                <button class="action-button primary" type="button">Done</button>
+                <p class="refusal">done refused: 2 acceptance criteria unmet (3, 4). Tick them or <code>tm override "&lt;why&gt;"</code>.</p>
+              </div>
+              <div class="action-unit park-unit">
+                <button class="action-button" type="button">Park</button>
+                <label>
+                  <span hidden>Stop reason</span>
+                  <input class="park-reason" type="text" placeholder="why (stored on the card)">
+                </label>
+              </div>
+              <div class="action-unit">
+                <button class="action-button" type="button">Block</button>
+              </div>
+              <div class="action-unit">
+                <button class="action-button" type="button">Release claim</button>
+              </div>
+              <div class="action-unit">
+                <button class="icon-button" type="button" aria-label="More task actions" title="More task actions">…</button>
+              </div>
+            </div>
+          </header>
+
+          <nav class="section-tabs" aria-label="Inspector sections">
+            <button class="section-tab active" type="button">Details</button>
+            <button class="section-tab" type="button">Why</button>
+            <button class="section-tab" type="button">Evidence</button>
+            <button class="section-tab" type="button">Stream</button>
+          </nav>
+
+          <section class="inspector-section" aria-labelledby="body-heading">
+            <h2 id="body-heading">Body</h2>
+            <p>Build the fictional board, backlog, and epic views against the shared dashboard route contract. Keep writes behind <code>.bytedesk/task-management/bin/tm</code>.</p>
+            <p>Resume from the task record without relying on session memory.</p>
+            <ul class="body-list">
+              <li>Show claim and current status first.</li>
+              <li>Expose dependency reasons before implementation detail.</li>
+              <li>Keep proof beside each acceptance criterion.</li>
+            </ul>
+            <span class="command-block">.bytedesk/task-management/bin/tm show TM-052</span>
+          </section>
+
+          <section class="inspector-section" aria-labelledby="criteria-heading">
+            <h2 id="criteria-heading">Acceptance criteria</h2>
+            <ul class="criteria">
+              <li class="criterion">
+                <span class="criterion-mark met" aria-label="Met">✓</span>
+                <span class="criterion-text">Board route renders four operational columns.<time class="criterion-time" datetime="2026-09-01T14:02:00">2026-09-01 14:02</time></span>
+                <button class="remove-button" type="button" aria-label="Remove criterion 1">✕</button>
+              </li>
+              <li class="criterion">
+                <span class="criterion-mark met" aria-label="Met">✓</span>
+                <span class="criterion-text">Roving focus leaves one task card tabbable.<time class="criterion-time" datetime="2026-09-01T14:02:00">2026-09-01 14:02</time></span>
+                <button class="remove-button" type="button" aria-label="Remove criterion 2">✕</button>
+              </li>
+              <li class="criterion">
+                <span class="criterion-mark" aria-label="Unmet">○</span>
+                <span class="criterion-text">Backlog filters preserve the fictional query state.</span>
+                <button class="remove-button" type="button" aria-label="Remove criterion 3">✕</button>
+              </li>
+              <li class="criterion">
+                <span class="criterion-mark" aria-label="Unmet">○</span>
+                <span class="criterion-text">Epic screen passes compact viewport acceptance.</span>
+                <button class="remove-button" type="button" aria-label="Remove criterion 4">✕</button>
+              </li>
+            </ul>
+            <div class="add-row">
+              <label style="flex:1">
+                <span hidden>Add criterion</span>
+                <input class="field" type="text" placeholder="Add criterion">
+              </label>
+              <button class="secondary-button" type="button">Add</button>
+            </div>
+          </section>
+
+          <section class="inspector-section" aria-labelledby="blocked-by-heading">
+            <h2 id="blocked-by-heading">Blocked by</h2>
+            <span class="chip dependency-chip"><span aria-hidden="true">⊘</span> <span class="mono">TM-058</span> blocked</span>
+            <div class="why-tree" aria-label="Dependency reason chain">
+              <div class="why-node"><span class="mono">TM-058</span> MCP worktree and typed-link verbs — blocked</div>
+              <div class="why-node child"><span class="mono">TM-050</span> W1 backend routes — in progress, held by <span class="mono">claude · 126c1a80</span></div>
+              <div class="why-start">start here: <span class="mono">TM-050</span></div>
+            </div>
+          </section>
+
+          <section class="inspector-section" aria-labelledby="links-heading">
+            <h2 id="links-heading">Links</h2>
+            <ul class="typed-links">
+              <li class="typed-link"><span>relates to <span class="mono">TM-048</span></span></li>
+              <li class="typed-link"><span>duplicates <span class="mono">TM-031</span></span><button class="remove-button" type="button" aria-label="Remove duplicate link">✕</button></li>
+            </ul>
+          </section>
+
+          <section class="inspector-section" aria-labelledby="evidence-heading">
+            <h2 id="evidence-heading">Evidence</h2>
+            <table class="evidence-table">
+              <tbody>
+                <tr>
+                  <th scope="row">File</th>
+                  <td><span class="mono">evidence/TM-052-keyboard.log</span> · <span class="mono">2.1 KB</span> · preview</td>
+                </tr>
+                <tr>
+                  <th scope="row">URL</th>
+                  <td><span class="mono">https://github.com/…/pull/412</span> · url</td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="button-row">
+              <button class="secondary-button" type="button">Attach file</button>
+              <button class="secondary-button" type="button">Paste log</button>
+            </div>
+            <span class="command-block">.bytedesk/task-management/bin/tm evidence add TM-052 &lt;path-or-url&gt;</span>
+          </section>
+
+          <section class="inspector-section" aria-labelledby="worktree-heading">
+            <h2 id="worktree-heading">Worktree</h2>
+            <table class="worktree-table">
+              <tbody>
+                <tr>
+                  <th scope="row">Branch</th>
+                  <td class="mono">tm/TM-052-fe-board</td>
+                </tr>
+                <tr>
+                  <th scope="row">Path</th>
+                  <td class="mono">.bytedesk/worktrees/TM-052-fe-board</td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="button-row">
+              <button class="secondary-button" type="button">Open handoff</button>
+              <button class="secondary-button" type="button">Remove worktree</button>
+            </div>
+          </section>
+
+          <section class="inspector-section" aria-labelledby="comments-heading">
+            <h2 id="comments-heading">Comments</h2>
+            <ul class="comments">
+              <li class="comment">
+                <div class="comment-meta"><span class="mono">codex</span><time datetime="2026-09-01T13:44:00">2026-09-01 13:44</time></div>
+                <p>Claimed after confirming the route fixture and active epic.</p>
+              </li>
+              <li class="comment">
+                <div class="comment-meta"><span class="mono">claude</span><time datetime="2026-09-01T13:51:00">2026-09-01 13:51</time></div>
+                <p>The fictional route contract now returns columns in stable display order, but the typed-link mutation still waits on <span class="mono">TM-058</span>. Do not bypass the shared write gate. The resume path should begin at <span class="mono">TM-050</span>, confirm the backend response, then return here and rerun compact viewport acceptance before recording evidence.</p>
+              </li>
+              <li class="comment">
+                <div class="comment-meta"><span class="mono">codex</span><time datetime="2026-09-01T14:03:00">2026-09-01 14:03</time></div>
+                <p>Keyboard log attached. Criteria 3 and 4 remain open.</p>
+              </li>
+            </ul>
+            <label>
+              <span hidden>Add comment</span>
+              <textarea class="comment-box" placeholder="Add comment"></textarea>
+            </label>
+            <div class="hint">Comments are append-only, like <code>tm comment</code>.</div>
+          </section>
+
+          <section class="inspector-section" aria-labelledby="history-heading">
+            <h2 id="history-heading">History</h2>
+            <ul class="history-list">
+              <li class="history-row"><time datetime="2026-09-01T14:02:00">14:02</time><span class="mono">ac_met #2</span></li>
+              <li class="history-row"><time datetime="2026-09-01T13:41:00">13:41</time><span>claim <span class="mono">codex</span></span></li>
+              <li class="history-row"><time datetime="2026-09-01T13:40:00">13:40</time><span>→ in progress</span></li>
+              <li class="history-row"><time datetime="2026-09-01T12:10:00">12:10</time><span class="mono">dep +TM-058</span></li>
+              <li class="history-row"><time datetime="2026-09-01T09:55:00">09:55</time><span>create</span></li>
+            </ul>
+          </section>
+
+          <section class="inspector-section" aria-labelledby="stream-heading">
+            <div class="stream-panel">
+              <div class="stream-head">
+                <h2 id="stream-heading">Live work stream</h2>
+                <span class="status-chip liveness"><span class="mono">codex</span> · live</span>
+              </div>
+              <ul class="stream-list">
+                <li class="stream-row">
+                  <span class="stream-kind">text</span>
+                  Checking the column contract before wiring the compact layout.
+                </li>
+                <li class="stream-row">
+                  <span class="stream-kind">tool call</span>
+                  Edit <span class="mono">dashboard/src/features/board/Column.tsx</span>
+                </li>
+                <li class="stream-row result"><span class="stream-kind">tool result</span>+ aria-labelledby={headingId}
+- tabIndex={0}
++ tabIndex={isActive ? 0 : -1}</li>
+                <li class="stream-row error">
+                  <span class="stream-kind">error</span>
+                  <span class="mono">tsc: TS2322 Type 'string | undefined' is not assignable to type 'string'.</span>
+                </li>
+              </ul>
+            </div>
+          </section>
+        </div>
+      </aside>
+    </main>
+
+    <footer class="statusbar">Illustrative mockup — fictional data — not production source</footer>
+  </div>
+</body>
+</html>

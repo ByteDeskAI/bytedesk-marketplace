@@ -1,0 +1,783 @@
+<!doctype html>
+<html lang="en" data-bd-product="task-management" data-bd-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EP-006 · Bytedesk Marketplace</title>
+  <link rel="stylesheet" href="tokens/bytedesk.css">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: var(--bd-space-0); min-width: 0; min-height: 100%; }
+    body {
+      overflow: hidden;
+      color: var(--bd-text-primary);
+      background: var(--bd-bg-base);
+      font-family: var(--bd-font-sans);
+      font-size: var(--bd-text-body);
+      line-height: var(--bd-line-height-body);
+    }
+    button, input { font: inherit; color: inherit; }
+    button { cursor: pointer; }
+    button:disabled { cursor: default; opacity: var(--bd-opacity-disabled); }
+    button:focus-visible,
+    input:focus-visible,
+    [tabindex]:focus-visible {
+      outline: var(--bd-stroke-focus) solid var(--bd-focus-ring);
+      outline-offset: var(--bd-stroke-focus);
+    }
+    .mono, code, time, .count, .entity-id, .plan-preview {
+      font-family: var(--bd-font-mono);
+    }
+    .app {
+      display: grid;
+      grid-template-columns: var(--bd-size-shell-rail) minmax(0, 1fr) var(--bd-size-shell-inspector);
+      grid-template-rows: var(--bd-size-shell-commandbar) minmax(0, 1fr) var(--bd-size-shell-statusbar);
+      width: 100%;
+      height: 100vh;
+      overflow: hidden;
+    }
+    .rail {
+      grid-column: 1;
+      grid-row: 1 / 4;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: var(--bd-space-1);
+      padding: var(--bd-space-2) var(--bd-space-1);
+      background: var(--bd-bg-subtle);
+      border-right: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+    }
+    .rail button, .mobile-tabs button {
+      display: grid;
+      place-items: center;
+      width: var(--bd-size-control-compact);
+      height: var(--bd-size-control-compact);
+      padding: var(--bd-space-0);
+      border: var(--bd-stroke-hairline) solid transparent;
+      border-radius: var(--bd-radius-sm);
+      color: var(--bd-text-tertiary);
+      background: transparent;
+    }
+    .rail button:hover, .mobile-tabs button:hover {
+      color: var(--bd-text-primary);
+      background: var(--bd-bg-hover);
+    }
+    .rail button[aria-current="page"] {
+      color: var(--bd-accent);
+      background: var(--bd-accent-subtle);
+      border-color: var(--bd-border-default);
+    }
+    .rail svg, .mobile-tabs svg {
+      width: var(--bd-size-icon-sm);
+      height: var(--bd-size-icon-sm);
+      fill: none;
+      stroke: currentColor;
+      stroke-width: var(--bd-stroke-active);
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .commandbar {
+      grid-column: 2 / 4;
+      grid-row: 1;
+      display: flex;
+      align-items: center;
+      gap: var(--bd-space-2);
+      min-width: 0;
+      height: var(--bd-size-shell-commandbar);
+      padding: var(--bd-space-1) var(--bd-space-3);
+      background: var(--bd-bg-subtle);
+      border-bottom: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+    }
+    .project-name {
+      min-width: 0;
+      overflow: hidden;
+      color: var(--bd-text-primary);
+      font-weight: var(--bd-font-weight-semibold);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .chip, .status-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--bd-space-1);
+      min-height: var(--bd-size-control-compact);
+      padding: var(--bd-space-0) var(--bd-space-2);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-sm);
+      color: var(--bd-text-secondary);
+      background: var(--bd-bg-surface);
+      white-space: nowrap;
+    }
+    .status-chip { border-radius: var(--bd-radius-full); }
+    .status-chip.backlog { color: var(--bd-text-tertiary); }
+    .status-chip.todo, .status-chip.open { color: var(--bd-text-secondary); }
+    .status-chip.progress {
+      color: var(--bd-info);
+      background: var(--bd-info-bg);
+      border-color: var(--bd-info-line);
+    }
+    .status-chip.blocked {
+      color: var(--bd-danger);
+      background: var(--bd-danger-bg);
+      border-color: var(--bd-danger-line);
+    }
+    .status-chip.parked {
+      color: var(--bd-warning);
+      background: var(--bd-warning-bg);
+      border-color: var(--bd-warning-line);
+    }
+    .status-chip.done {
+      color: var(--bd-success);
+      background: var(--bd-success-bg);
+      border-color: var(--bd-success-line);
+    }
+    .live {
+      color: var(--bd-accent);
+      background: var(--bd-accent-subtle);
+      border-color: var(--bd-accent-muted);
+    }
+    .search-wrap {
+      display: flex;
+      align-items: center;
+      min-width: var(--bd-size-panel-minimum);
+      max-width: var(--bd-size-panel-wide);
+      height: var(--bd-size-control-compact);
+      margin-left: auto;
+      border: var(--bd-stroke-hairline) solid var(--bd-border-default);
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-base);
+    }
+    .search-wrap input {
+      min-width: 0;
+      width: 100%;
+      height: 100%;
+      padding: var(--bd-space-0) var(--bd-space-2);
+      border: 0;
+      outline: 0;
+      color: var(--bd-text-primary);
+      background: transparent;
+    }
+    .search-wrap input::placeholder { color: var(--bd-text-tertiary); }
+    .keyhint {
+      margin-right: var(--bd-space-1);
+      padding: var(--bd-space-0) var(--bd-space-1);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-sm);
+      color: var(--bd-text-tertiary);
+      background: var(--bd-bg-subtle);
+      font-family: var(--bd-font-mono);
+      font-size: var(--bd-text-caption);
+      white-space: nowrap;
+    }
+    .canvas {
+      grid-column: 2;
+      grid-row: 2;
+      min-width: 0;
+      overflow: auto;
+      padding: var(--bd-space-section-y) var(--bd-space-section-x);
+      overscroll-behavior: contain;
+    }
+    .canvas-header {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: var(--bd-space-4);
+      margin-bottom: var(--bd-space-5);
+    }
+    h1, h2, h3, p { margin-top: var(--bd-space-0); }
+    h1 {
+      margin-bottom: var(--bd-space-1);
+      font-size: var(--bd-text-h1);
+      line-height: var(--bd-line-height-tight);
+      letter-spacing: var(--bd-letter-spacing-tight);
+    }
+    h2 {
+      margin-bottom: var(--bd-space-3);
+      font-size: var(--bd-text-h3);
+      line-height: var(--bd-line-height-tight);
+    }
+    h3 {
+      margin-bottom: var(--bd-space-2);
+      font-size: var(--bd-text-h4);
+      line-height: var(--bd-line-height-tight);
+    }
+    .muted { color: var(--bd-text-secondary); }
+    .button {
+      min-height: var(--bd-size-control-compact);
+      padding: var(--bd-space-0) var(--bd-space-3);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-default);
+      border-radius: var(--bd-radius-sm);
+      color: var(--bd-text-primary);
+      background: var(--bd-bg-surface);
+    }
+    .button:hover:not(:disabled) { background: var(--bd-bg-hover); }
+    .button.danger { color: var(--bd-danger); border-color: var(--bd-danger-line); }
+    .epic-list, .task-list, .decision-list {
+      display: flex;
+      flex-direction: column;
+      gap: var(--bd-space-2);
+      margin: var(--bd-space-0);
+      padding: var(--bd-space-0);
+      list-style: none;
+    }
+    .epic-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(var(--bd-size-panel-minimum), var(--bd-size-panel-comfortable));
+      gap: var(--bd-space-5);
+      min-width: 0;
+      padding: var(--bd-space-4);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-md);
+      background: var(--bd-bg-surface);
+    }
+    .epic-row.active {
+      border-color: var(--bd-border-stronger);
+      background: var(--bd-bg-subtle);
+    }
+    .epic-main, .epic-meta { min-width: 0; }
+    .epic-title-line {
+      display: flex;
+      align-items: center;
+      gap: var(--bd-space-2);
+      min-width: 0;
+    }
+    .epic-title {
+      overflow: hidden;
+      font-weight: var(--bd-font-weight-semibold);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .epic-subline {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--bd-space-2);
+      margin-top: var(--bd-space-2);
+    }
+    .epic-empty {
+      margin-top: var(--bd-space-2);
+      color: var(--bd-text-tertiary);
+      font-size: var(--bd-text-body-sm);
+    }
+    .progress-block {
+      display: grid;
+      gap: var(--bd-space-2);
+    }
+    .progress-labels {
+      display: flex;
+      justify-content: space-between;
+      gap: var(--bd-space-3);
+      color: var(--bd-text-secondary);
+      font-size: var(--bd-text-body-sm);
+    }
+    .progress-track {
+      height: var(--bd-space-2);
+      overflow: hidden;
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-base);
+    }
+    .progress-fill { height: 100%; background: var(--bd-success); }
+    .inspector {
+      grid-column: 3;
+      grid-row: 2 / 4;
+      min-width: 0;
+      overflow: hidden;
+      background: var(--bd-bg-elevated);
+      border-left: var(--bd-stroke-hairline) solid var(--bd-border-default);
+      box-shadow: var(--bd-shadow-shell);
+    }
+    .inspector-scroll {
+      height: 100%;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+    .inspector-header {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      padding: var(--bd-space-5);
+      background: var(--bd-bg-elevated);
+      border-bottom: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+    }
+    .back-button { display: none; }
+    .identity {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--bd-space-2);
+      margin-bottom: var(--bd-space-3);
+    }
+    .inspector-header h2 {
+      margin-bottom: var(--bd-space-4);
+      font-size: var(--bd-text-h2);
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--bd-space-2);
+    }
+    .inspector-body {
+      display: flex;
+      flex-direction: column;
+      gap: var(--bd-space-6);
+      padding: var(--bd-space-5);
+    }
+    .detail-section {
+      padding-bottom: var(--bd-space-5);
+      border-bottom: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+    }
+    .detail-section:last-child { padding-bottom: var(--bd-space-0); border-bottom: 0; }
+    .detail-section p { margin-bottom: var(--bd-space-3); color: var(--bd-text-secondary); }
+    .detail-section p:last-child { margin-bottom: var(--bd-space-0); }
+    .plan-link {
+      display: inline-flex;
+      max-width: 100%;
+      margin-bottom: var(--bd-space-3);
+      overflow: hidden;
+      color: var(--bd-accent);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .plan-preview, .command-block {
+      margin: var(--bd-space-0);
+      padding: var(--bd-space-3);
+      overflow-x: auto;
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-sm);
+      color: var(--bd-text-secondary);
+      background: var(--bd-bg-base);
+      font-size: var(--bd-text-console-sm);
+      line-height: var(--bd-line-height-compact);
+      white-space: pre;
+    }
+    .task-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: var(--bd-space-3);
+      min-width: 0;
+      padding: var(--bd-space-3);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-surface);
+    }
+    .task-row.claimed {
+      box-shadow: inset 2px 0 var(--bd-accent), var(--bd-shadow-focus-glow);
+    }
+    .task-title {
+      margin-top: var(--bd-space-1);
+      color: var(--bd-text-primary);
+      font-weight: var(--bd-font-weight-medium);
+    }
+    .task-state {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: var(--bd-space-1);
+    }
+    .holder {
+      max-width: var(--bd-size-panel-minimum);
+      overflow: hidden;
+      color: var(--bd-text-tertiary);
+      font-family: var(--bd-font-mono);
+      font-size: var(--bd-text-caption);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .decision-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: var(--bd-space-3);
+      padding: var(--bd-space-3);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-md);
+      background: var(--bd-bg-surface);
+    }
+    .decision-state { color: var(--bd-text-secondary); }
+    .decision-state.accepted { color: var(--bd-success); }
+    .decision-state.proposed { color: var(--bd-warning); }
+    .chart {
+      display: grid;
+      gap: var(--bd-space-3);
+    }
+    .chart-row {
+      display: grid;
+      grid-template-columns: var(--bd-space-10) minmax(0, 1fr) var(--bd-space-6);
+      align-items: center;
+      gap: var(--bd-space-2);
+    }
+    .chart-label, .chart-count {
+      color: var(--bd-text-secondary);
+      font-family: var(--bd-font-mono);
+      font-size: var(--bd-text-caption);
+    }
+    .chart-count { text-align: right; }
+    .chart-track {
+      height: var(--bd-space-3);
+      overflow: hidden;
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-chart-grid);
+    }
+    .chart-bar { height: 100%; background: var(--bd-chart-series-1); }
+    .chart-row.todo .chart-bar { background: var(--bd-chart-series-2); }
+    .chart-row.progress .chart-bar { background: var(--bd-info); }
+    .chart-row.blocked .chart-bar { background: var(--bd-danger); }
+    .chart-row.parked .chart-bar { background: var(--bd-warning); }
+    .chart-row.done .chart-bar { background: var(--bd-success); }
+    .chart-axis {
+      display: flex;
+      justify-content: space-between;
+      margin-left: calc(var(--bd-space-10) + var(--bd-space-2));
+      margin-right: var(--bd-space-6);
+      padding-top: var(--bd-space-1);
+      border-top: var(--bd-stroke-chart) solid var(--bd-chart-axis);
+      color: var(--bd-text-tertiary);
+      font-family: var(--bd-font-mono);
+      font-size: var(--bd-text-caption);
+    }
+    .statusbar {
+      grid-column: 2;
+      grid-row: 3;
+      display: flex;
+      align-items: center;
+      min-width: 0;
+      padding: var(--bd-space-0) var(--bd-space-3);
+      overflow: hidden;
+      color: var(--bd-text-tertiary);
+      background: var(--bd-bg-subtle);
+      border-top: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      font-size: var(--bd-text-caption);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .mobile-tabs { display: none; }
+    @media (prefers-reduced-motion: no-preference) {
+      button, .epic-row, .task-row {
+        transition: opacity var(--bd-duration-fast) var(--bd-ease-out-expo);
+      }
+      .task-row.claimed {
+        animation: live-write var(--bd-duration-slow) var(--bd-ease-out-expo) infinite alternate;
+      }
+      @keyframes live-write {
+        from { opacity: 0.6; }
+        to { opacity: 1; }
+      }
+    }
+    @media (max-width: 1200px) {
+      .app {
+        grid-template-columns: var(--bd-size-shell-rail) minmax(0, 1fr) var(--bd-size-panel-wide);
+      }
+      .commandbar .sprint-chip { display: none; }
+      .epic-row { grid-template-columns: minmax(0, 1fr); gap: var(--bd-space-3); }
+    }
+    @media (max-width: 720px) {
+      body { overflow: hidden; }
+      .app {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: var(--bd-size-shell-commandbar) minmax(0, 1fr) var(--bd-size-shell-statusbar) var(--bd-size-hit-target-touch);
+      }
+      .rail { display: none; }
+      .commandbar {
+        grid-column: 1;
+        grid-row: 1;
+        padding-inline: var(--bd-space-2);
+      }
+      .commandbar .project-name,
+      .commandbar .epic-chip,
+      .commandbar .sprint-chip { display: none; }
+      .search-wrap {
+        min-width: 0;
+        max-width: none;
+        height: var(--bd-size-hit-target-touch);
+      }
+      .chip, .status-chip, .button {
+        min-height: var(--bd-size-hit-target-touch);
+      }
+      .canvas {
+        grid-column: 1;
+        grid-row: 2;
+        padding: var(--bd-space-4);
+      }
+      .canvas-header { align-items: start; }
+      .epic-row { padding: var(--bd-space-3); }
+      .inspector {
+        position: fixed;
+        inset: 0 0 var(--bd-size-hit-target-touch) 0;
+        z-index: 3;
+        width: 100%;
+        border-left: 0;
+      }
+      .inspector-header { padding: var(--bd-space-3); }
+      .back-button {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--bd-space-1);
+        margin-bottom: var(--bd-space-3);
+      }
+      .inspector-body { padding: var(--bd-space-3); }
+      .task-row { grid-template-columns: minmax(0, 1fr); }
+      .task-state { align-items: flex-start; }
+      .decision-row { grid-template-columns: minmax(0, 1fr); }
+      .statusbar {
+        position: fixed;
+        right: var(--bd-space-2);
+        bottom: var(--bd-size-hit-target-touch);
+        left: var(--bd-space-2);
+        z-index: 4;
+        height: var(--bd-size-shell-statusbar);
+        border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+        border-radius: var(--bd-radius-sm);
+        background: var(--bd-bg-elevated);
+      }
+      .mobile-tabs {
+        position: fixed;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        z-index: 5;
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        height: var(--bd-size-hit-target-touch);
+        background: var(--bd-bg-subtle);
+        border-top: var(--bd-stroke-hairline) solid var(--bd-border-default);
+      }
+      .mobile-tabs button {
+        width: 100%;
+        height: var(--bd-size-hit-target-touch);
+        border-radius: var(--bd-radius-sm);
+      }
+      .mobile-tabs span {
+        font-size: var(--bd-text-caption);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <nav class="rail" aria-label="Primary navigation">
+      <button type="button" aria-label="Board"><title>Board</title><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="7" height="16"></rect><rect x="14" y="4" width="7" height="10"></rect></svg></button>
+      <button type="button" aria-label="Backlog"><title>Backlog</title><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14M5 12h14M5 18h10"></path></svg></button>
+      <button type="button" aria-label="Epics" aria-current="page"><title>Epics</title><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h7l2 3h7v9H4z"></path><path d="M8 4h8"></path></svg></button>
+      <button type="button" aria-label="Graph"><title>Graph</title><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="2"></circle><circle cx="18" cy="6" r="2"></circle><circle cx="18" cy="18" r="2"></circle><path d="m7 11 9-4M7 13l9 4"></path></svg></button>
+      <button type="button" aria-label="Timeline"><title>Timeline</title><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h8M8 12h12M4 17h11"></path><path d="M4 5v4M20 10v4M15 15v4"></path></svg></button>
+      <button type="button" aria-label="Sessions"><title>Sessions</title><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 18a4 4 0 0 1 8 0"></path><circle cx="12" cy="8" r="3"></circle><path d="M4 20h16"></path></svg></button>
+      <button type="button" aria-label="Health"><title>Health</title><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l2-5 4 10 2-5h6"></path></svg></button>
+      <button type="button" aria-label="Settings"><title>Settings</title><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"></path></svg></button>
+      <button type="button" aria-label="Help"><title>Help</title><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M9.8 9a2.4 2.4 0 1 1 3.2 2.3c-.7.3-1 1-1 1.7M12 17h.01"></path></svg></button>
+    </nav>
+
+    <header class="commandbar">
+      <span class="project-name">Bytedesk Marketplace</span>
+      <span class="chip epic-chip mono">EP-006</span>
+      <span class="chip sprint-chip mono">SP-003 · 12/20 pts · 2 unsized</span>
+      <span class="status-chip live"><span aria-hidden="true">●</span><span>live</span></span>
+      <label class="search-wrap">
+        <span hidden>Search tasks</span>
+        <input type="search" placeholder="Search or type a filter — status:open label:ui">
+        <span class="keyhint">⌘K</span>
+      </label>
+    </header>
+
+    <main class="canvas">
+      <header class="canvas-header">
+        <div>
+          <h1>Epics</h1>
+          <span class="muted">Open an epic. Resume from its record.</span>
+        </div>
+        <button class="button" type="button">New epic</button>
+      </header>
+
+      <section aria-labelledby="epic-list-title">
+        <h2 id="epic-list-title">All epics</h2>
+        <ul class="epic-list" role="list">
+          <li class="epic-row" tabindex="-1">
+            <div class="epic-main">
+              <div class="epic-title-line"><span class="entity-id">EP-002</span><span class="epic-title">Signed plugin catalog delivery</span></div>
+              <div class="epic-subline"><span class="status-chip done"><span aria-hidden="true">●</span>done</span></div>
+            </div>
+            <div class="epic-meta progress-block">
+              <div class="progress-labels"><span>Progress</span><span class="mono">8/8 done</span></div>
+              <div class="progress-track" aria-label="8 of 8 tasks done"><div class="progress-fill" style="width:100%"></div></div>
+            </div>
+          </li>
+          <li class="epic-row" tabindex="-1">
+            <div class="epic-main">
+              <div class="epic-title-line"><span class="entity-id">EP-003</span><span class="epic-title">Provider projection contract</span></div>
+              <div class="epic-subline"><span class="status-chip done"><span aria-hidden="true">●</span>done</span></div>
+            </div>
+            <div class="epic-meta progress-block">
+              <div class="progress-labels"><span>Progress</span><span class="mono">6/6 done</span></div>
+              <div class="progress-track" aria-label="6 of 6 tasks done"><div class="progress-fill" style="width:100%"></div></div>
+            </div>
+          </li>
+          <li class="epic-row" tabindex="-1">
+            <div class="epic-main">
+              <div class="epic-title-line"><span class="entity-id">EP-005</span><span class="epic-title">Installer provenance checks</span></div>
+              <div class="epic-subline"><span class="status-chip done"><span aria-hidden="true">●</span>done</span></div>
+            </div>
+            <div class="epic-meta progress-block">
+              <div class="progress-labels"><span>Progress</span><span class="mono">5/5 done</span></div>
+              <div class="progress-track" aria-label="5 of 5 tasks done"><div class="progress-fill" style="width:100%"></div></div>
+            </div>
+          </li>
+          <li class="epic-row active" tabindex="-1" aria-current="true">
+            <div class="epic-main">
+              <div class="epic-title-line"><span class="entity-id">EP-006</span><span class="epic-title">Dashboard rewrite on the ByteDesk design system</span></div>
+              <div class="epic-subline">
+                <span class="status-chip open"><span aria-hidden="true">●</span>open</span>
+                <span class="chip">active</span>
+                <span class="chip">plan</span>
+              </div>
+            </div>
+            <div class="epic-meta progress-block">
+              <div class="progress-labels"><span>Progress</span><span class="mono">3/10 done</span></div>
+              <div class="progress-track" aria-label="3 of 10 tasks done"><div class="progress-fill" style="width:30%"></div></div>
+            </div>
+          </li>
+          <li class="epic-row" tabindex="-1">
+            <div class="epic-main">
+              <div class="epic-title-line"><span class="entity-id">EP-007</span><span class="epic-title">Policy-aware release rehearsal</span></div>
+              <div class="epic-subline">
+                <span class="status-chip open"><span aria-hidden="true">●</span>open</span>
+                <span class="chip">decision map</span>
+                <span class="chip mono">fog 2</span>
+              </div>
+              <div class="epic-empty">no tasks yet — <code>tm task new "&lt;title&gt;"</code> files under the active epic</div>
+            </div>
+            <div class="epic-meta progress-block">
+              <div class="progress-labels"><span>Progress</span><span class="mono">0/0 done</span></div>
+              <div class="progress-track" aria-label="No tasks"></div>
+            </div>
+          </li>
+        </ul>
+      </section>
+    </main>
+
+    <aside class="inspector" aria-labelledby="inspector-title">
+      <div class="inspector-scroll">
+        <header class="inspector-header">
+          <button class="button back-button" type="button" aria-label="Back to epics">← Back</button>
+          <div class="identity">
+            <span class="entity-id">EP-006</span>
+            <span class="status-chip open"><span aria-hidden="true">●</span>open</span>
+            <span class="chip">active</span>
+          </div>
+          <h2 id="inspector-title">Dashboard rewrite on the ByteDesk design system</h2>
+          <div class="actions">
+            <button class="button danger" type="button">Close epic</button>
+            <button class="button" type="button" disabled>Make active</button>
+            <button class="button" type="button">Edit</button>
+          </div>
+        </header>
+
+        <div class="inspector-body">
+          <section class="detail-section" aria-labelledby="why-title">
+            <h3 id="why-title">Why this epic</h3>
+            <p>The dashboard has the right records but hides claim state, blockers, and proof behind separate views. Rebuild the operator path so a fresh coding-agent session can resume without conversational context.</p>
+            <p>Keep markdown authoritative. Route every mutation through the same gates as <code>.bytedesk/task-management/bin/tm</code>, preserve refusal text, and make evidence visible before completion.</p>
+          </section>
+
+          <section class="detail-section" aria-labelledby="plan-title">
+            <h3 id="plan-title">Plan</h3>
+            <a class="chip plan-link mono" href="#">plans/2026-09-01-dashboard-rewrite.md</a>
+            <pre class="plan-preview">01  Inventory record fields and CLI gates
+02  Establish shell and route hierarchy
+03  Render claim and status before detail
+04  Expose blockers beside current holder
+05  Bind criteria to evidence records
+06  Verify desktop and compact layouts</pre>
+          </section>
+
+          <section class="detail-section" aria-labelledby="children-title">
+            <h3 id="children-title">Children <span class="count">10</span></h3>
+            <ul class="task-list" role="list">
+              <li class="task-row" tabindex="-1">
+                <div><span class="entity-id">TM-049</span><div class="task-title">Define epic record projection</div></div>
+                <div class="task-state"><span class="status-chip done"><span aria-hidden="true">●</span>done</span></div>
+              </li>
+              <li class="task-row" tabindex="-1">
+                <div><span class="entity-id">TM-050</span><div class="task-title">Vendor dashboard token contract</div></div>
+                <div class="task-state"><span class="status-chip done"><span aria-hidden="true">●</span>done</span></div>
+              </li>
+              <li class="task-row" tabindex="-1">
+                <div><span class="entity-id">TM-051</span><div class="task-title">Build persistent shell regions</div></div>
+                <div class="task-state"><span class="status-chip done"><span aria-hidden="true">●</span>done</span></div>
+              </li>
+              <li class="task-row claimed" tabindex="0">
+                <div><span class="entity-id">TM-052</span><div class="task-title">Render resumable epic inspector</div></div>
+                <div class="task-state">
+                  <span class="status-chip progress"><span aria-hidden="true">●</span>in progress</span>
+                  <span class="holder">codex:ses_7f2c19</span>
+                </div>
+              </li>
+              <li class="task-row" tabindex="-1">
+                <div><span class="entity-id">TM-053</span><div class="task-title">Wire mutations through CLI gate adapter</div></div>
+                <div class="task-state">
+                  <span class="status-chip progress"><span aria-hidden="true">●</span>in progress</span>
+                  <span class="holder">claude:ses_a814ee</span>
+                </div>
+              </li>
+              <li class="task-row" tabindex="-1">
+                <div><span class="entity-id">TM-054</span><div class="task-title">Show unmet acceptance criteria and attached evidence before allowing completion</div></div>
+                <div class="task-state"><span class="status-chip blocked"><span aria-hidden="true">●</span>blocked</span></div>
+              </li>
+              <li class="task-row" tabindex="-1">
+                <div><span class="entity-id">TM-055</span><div class="task-title">Add decision record controls</div></div>
+                <div class="task-state"><span class="status-chip parked"><span aria-hidden="true">●</span>parked</span></div>
+              </li>
+              <li class="task-row" tabindex="-1">
+                <div><span class="entity-id">TM-056</span><div class="task-title">Verify compact inspector flow</div></div>
+                <div class="task-state"><span class="status-chip todo"><span aria-hidden="true">●</span>todo</span></div>
+              </li>
+              <li class="task-row" tabindex="-1">
+                <div><span class="entity-id">TM-057</span><div class="task-title">Add keyboard-first task traversal</div></div>
+                <div class="task-state"><span class="status-chip todo"><span aria-hidden="true">●</span>todo</span></div>
+              </li>
+              <li class="task-row" tabindex="-1">
+                <div><span class="entity-id">TM-058</span><div class="task-title">Capture browser acceptance evidence</div></div>
+                <div class="task-state"><span class="status-chip backlog"><span aria-hidden="true">●</span>backlog</span></div>
+              </li>
+            </ul>
+          </section>
+
+          <section class="detail-section" aria-labelledby="decisions-title">
+            <h3 id="decisions-title">Decisions</h3>
+            <ul class="decision-list" role="list">
+              <li class="decision-row" tabindex="-1">
+                <div><span class="entity-id">ADR-0007</span> markdown is the source of truth — <span class="decision-state accepted">accepted</span></div>
+              </li>
+              <li class="decision-row" tabindex="-1">
+                <div><span class="entity-id">ADR-0009</span> hand-rolled router — <span class="decision-state proposed">proposed</span></div>
+                <button class="button" type="button">Accept</button>
+              </li>
+            </ul>
+          </section>
+
+          <section class="detail-section" aria-labelledby="progress-title">
+            <h3 id="progress-title">Progress</h3>
+            <div class="chart" role="img" aria-label="Children by status: backlog 1, todo 2, in progress 2, blocked 1, parked 1, done 3">
+              <div class="chart-row"><span class="chart-label">backlog</span><div class="chart-track"><div class="chart-bar" style="width:33.333%"></div></div><span class="chart-count">1</span></div>
+              <div class="chart-row todo"><span class="chart-label">todo</span><div class="chart-track"><div class="chart-bar" style="width:66.666%"></div></div><span class="chart-count">2</span></div>
+              <div class="chart-row progress"><span class="chart-label">active</span><div class="chart-track"><div class="chart-bar" style="width:66.666%"></div></div><span class="chart-count">2</span></div>
+              <div class="chart-row blocked"><span class="chart-label">blocked</span><div class="chart-track"><div class="chart-bar" style="width:33.333%"></div></div><span class="chart-count">1</span></div>
+              <div class="chart-row parked"><span class="chart-label">parked</span><div class="chart-track"><div class="chart-bar" style="width:33.333%"></div></div><span class="chart-count">1</span></div>
+              <div class="chart-row done"><span class="chart-label">done</span><div class="chart-track"><div class="chart-bar" style="width:100%"></div></div><span class="chart-count">3</span></div>
+              <div class="chart-axis"><span>0</span><span>1</span><span>2</span><span>3</span></div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </aside>
+
+    <footer class="statusbar">Illustrative mockup — fictional data — not production source</footer>
+
+    <nav class="mobile-tabs" aria-label="Compact navigation">
+      <button type="button" aria-label="Board"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="7" height="16"></rect><rect x="14" y="4" width="7" height="10"></rect></svg><span>Board</span></button>
+      <button type="button" aria-label="Backlog"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14M5 12h14M5 18h10"></path></svg><span>Backlog</span></button>
+      <button type="button" aria-label="Sessions"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 18a4 4 0 0 1 8 0"></path><circle cx="12" cy="8" r="3"></circle><path d="M4 20h16"></path></svg><span>Sessions</span></button>
+      <button type="button" aria-label="More"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"></circle><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle></svg><span>More</span></button>
+    </nav>
+  </div>
+</body>
+</html>

@@ -1,0 +1,1115 @@
+<!doctype html>
+<html lang="en" data-bd-product="task-management" data-bd-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Graph · Bytedesk Marketplace</title>
+  <link rel="stylesheet" href="tokens/bytedesk.css">
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      min-width: 0;
+      min-height: 100%;
+      margin: var(--bd-space-0);
+      color: var(--bd-text-primary);
+      background: var(--bd-bg-base);
+      font-family: var(--bd-font-sans);
+      font-size: var(--bd-text-body);
+      line-height: var(--bd-line-height-body);
+    }
+
+    body {
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    button,
+    input,
+    select {
+      min-width: 0;
+      height: var(--bd-size-control-compact);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-default);
+      border-radius: var(--bd-radius-sm);
+      color: var(--bd-text-primary);
+      background: var(--bd-bg-surface);
+      font: inherit;
+    }
+
+    button,
+    select {
+      cursor: pointer;
+    }
+
+    button {
+      padding: var(--bd-space-1) var(--bd-space-3);
+      font-weight: var(--bd-font-weight-medium);
+    }
+
+    button:hover,
+    select:hover,
+    input:hover {
+      background: var(--bd-bg-hover);
+    }
+
+    button:focus-visible,
+    input:focus-visible,
+    select:focus-visible,
+    [tabindex]:focus-visible {
+      outline: var(--bd-stroke-focus) solid var(--bd-focus-ring);
+      outline-offset: var(--bd-stroke-focus);
+    }
+
+    .mono,
+    code,
+    .entity,
+    .machine,
+    .command-search,
+    .footer-status {
+      font-family: var(--bd-font-mono);
+    }
+
+    .shell {
+      display: grid;
+      grid-template-columns: var(--bd-size-shell-rail) minmax(0, 1fr);
+      grid-template-rows: var(--bd-size-shell-commandbar) minmax(0, 1fr) var(--bd-size-shell-statusbar);
+      min-height: 100vh;
+    }
+
+    .rail {
+      position: fixed;
+      inset-block: var(--bd-space-0);
+      inset-inline-start: var(--bd-space-0);
+      z-index: 4;
+      display: flex;
+      width: var(--bd-size-shell-rail);
+      flex-direction: column;
+      align-items: center;
+      gap: var(--bd-space-1);
+      padding: var(--bd-space-2) var(--bd-space-1);
+      border-inline-end: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      background: var(--bd-bg-surface);
+    }
+
+    .rail-button {
+      display: grid;
+      width: var(--bd-size-control-compact);
+      height: var(--bd-size-control-compact);
+      padding: var(--bd-space-0);
+      place-items: center;
+      border-color: var(--bd-border-dimmest);
+      color: var(--bd-text-secondary);
+      background: var(--bd-bg-surface);
+    }
+
+    .rail-button.active {
+      border-color: var(--bd-accent);
+      color: var(--bd-accent-fg);
+      background: var(--bd-accent-subtle);
+    }
+
+    .rail-button svg,
+    .mobile-tab svg {
+      width: var(--bd-size-icon-sm);
+      height: var(--bd-size-icon-sm);
+      fill: none;
+      stroke: currentColor;
+      stroke-width: var(--bd-stroke-active);
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .command-bar {
+      position: sticky;
+      inset-block-start: var(--bd-space-0);
+      z-index: 3;
+      grid-column: 2;
+      grid-row: 1;
+      display: flex;
+      align-items: center;
+      gap: var(--bd-space-2);
+      min-width: 0;
+      padding: var(--bd-space-1) var(--bd-space-3);
+      border-block-end: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      background: var(--bd-bg-surface);
+    }
+
+    .project-name {
+      flex: 0 1 auto;
+      overflow: hidden;
+      font-weight: var(--bd-font-weight-semibold);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .command-chip,
+    .status-chip {
+      display: inline-flex;
+      flex: 0 0 auto;
+      align-items: center;
+      gap: var(--bd-space-1);
+      min-height: var(--bd-size-control-compact);
+      padding: var(--bd-space-1) var(--bd-space-2);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-default);
+      border-radius: var(--bd-radius-md);
+      color: var(--bd-text-secondary);
+      background: var(--bd-bg-subtle);
+      font-size: var(--bd-text-caption);
+      white-space: nowrap;
+    }
+
+    .status-chip {
+      border-radius: var(--bd-radius-full);
+    }
+
+    .status-chip.live {
+      border-color: var(--bd-accent-muted);
+      color: var(--bd-accent-fg);
+      background: var(--bd-accent-subtle);
+    }
+
+    .status-dot {
+      font-family: var(--bd-font-sans);
+      color: var(--bd-accent);
+    }
+
+    .search-wrap {
+      display: flex;
+      flex: 1 1 auto;
+      align-items: center;
+      gap: var(--bd-space-1);
+      min-width: var(--bd-space-10);
+      margin-inline-start: auto;
+    }
+
+    .search-wrap label {
+      position: absolute;
+      width: var(--bd-stroke-hairline);
+      height: var(--bd-stroke-hairline);
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+
+    .command-search {
+      width: 100%;
+      padding-inline: var(--bd-space-3);
+      color: var(--bd-text-primary);
+      background: var(--bd-bg-base);
+      font-size: var(--bd-text-console-sm);
+    }
+
+    .command-search::placeholder {
+      color: var(--bd-text-tertiary);
+      opacity: var(--bd-opacity-secondary);
+    }
+
+    .key-hint {
+      flex: 0 0 auto;
+      padding: var(--bd-space-1) var(--bd-space-2);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-sm);
+      color: var(--bd-text-tertiary);
+      background: var(--bd-bg-subtle);
+      font-family: var(--bd-font-mono);
+      font-size: var(--bd-text-caption);
+    }
+
+    main {
+      grid-column: 2;
+      grid-row: 2;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .graph-screen {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 360px;
+      height: 100%;
+      min-height: 0;
+    }
+
+    .canvas {
+      display: flex;
+      min-width: 0;
+      min-height: 0;
+      flex-direction: column;
+      padding: var(--bd-space-4);
+      overflow: auto;
+      overscroll-behavior: contain;
+    }
+
+    .screen-heading {
+      display: flex;
+      align-items: baseline;
+      gap: var(--bd-space-3);
+      margin-block-end: var(--bd-space-3);
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: var(--bd-space-0);
+    }
+
+    h1 {
+      font-size: var(--bd-text-h2);
+      font-weight: var(--bd-font-weight-semibold);
+      line-height: var(--bd-line-height-tight);
+    }
+
+    h2 {
+      font-size: var(--bd-text-h3);
+      font-weight: var(--bd-font-weight-semibold);
+      line-height: var(--bd-line-height-tight);
+    }
+
+    h3 {
+      font-size: var(--bd-text-h4);
+      font-weight: var(--bd-font-weight-semibold);
+      line-height: var(--bd-line-height-tight);
+    }
+
+    .route {
+      color: var(--bd-text-tertiary);
+      font-size: var(--bd-text-console-sm);
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--bd-space-2);
+      margin-block-end: var(--bd-space-3);
+      padding: var(--bd-space-2);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-md);
+      background: var(--bd-bg-surface);
+    }
+
+    .toolbar-field,
+    .toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--bd-space-2);
+      min-height: var(--bd-size-control-compact);
+      color: var(--bd-text-secondary);
+      font-size: var(--bd-text-body-sm);
+      white-space: nowrap;
+    }
+
+    .toolbar-field select {
+      padding-inline: var(--bd-space-2);
+      font-family: var(--bd-font-mono);
+    }
+
+    .toggle input {
+      width: var(--bd-size-icon-md);
+      height: var(--bd-size-icon-sm);
+      margin: var(--bd-space-0);
+      accent-color: var(--bd-accent);
+    }
+
+    .toolbar-actions {
+      display: flex;
+      gap: var(--bd-space-2);
+      margin-inline-start: auto;
+    }
+
+    .graph-plate {
+      min-width: 0;
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-lg);
+      background: var(--bd-bg-surface);
+      overflow: auto;
+    }
+
+    .graph-svg {
+      display: block;
+      width: 100%;
+      min-width: 760px;
+      height: auto;
+      min-height: 520px;
+      background: var(--bd-bg-base);
+    }
+
+    .edge {
+      fill: none;
+      stroke: var(--bd-chart-axis);
+      stroke-width: var(--bd-stroke-chart);
+    }
+
+    .edge.danger {
+      stroke: var(--bd-danger);
+    }
+
+    .edge.subtask {
+      stroke-dasharray: 7 5;
+    }
+
+    .edge-cycle {
+      fill: none;
+      stroke: var(--bd-danger);
+      stroke-width: var(--bd-stroke-active);
+    }
+
+    .node rect {
+      fill: var(--bd-bg-surface);
+      stroke: var(--bd-border-default);
+      stroke-width: var(--bd-stroke-hairline);
+      rx: var(--bd-radius-md);
+    }
+
+    .node.selected rect {
+      stroke: var(--bd-accent);
+      stroke-width: var(--bd-stroke-active);
+    }
+
+    .node.missing rect {
+      stroke: var(--bd-danger);
+      stroke-width: var(--bd-stroke-active);
+      stroke-dasharray: 6 4;
+    }
+
+    .node-id {
+      fill: var(--bd-text-primary);
+      font-family: var(--bd-font-mono);
+      font-size: var(--bd-text-console-sm);
+      font-weight: var(--bd-font-weight-semibold);
+    }
+
+    .node-title {
+      fill: var(--bd-text-secondary);
+      font-family: var(--bd-font-sans);
+      font-size: var(--bd-text-caption);
+    }
+
+    .node-status {
+      font-family: var(--bd-font-sans);
+      font-size: var(--bd-text-caption);
+      font-weight: var(--bd-font-weight-medium);
+    }
+
+    .status-backlog {
+      fill: var(--bd-text-tertiary);
+    }
+
+    .status-todo {
+      fill: var(--bd-text-secondary);
+    }
+
+    .status-progress {
+      fill: var(--bd-info);
+    }
+
+    .status-blocked {
+      fill: var(--bd-danger);
+    }
+
+    .status-parked {
+      fill: var(--bd-warning);
+    }
+
+    .status-done {
+      fill: var(--bd-success);
+    }
+
+    .cycle-label {
+      fill: var(--bd-danger);
+      font-family: var(--bd-font-mono);
+      font-size: var(--bd-text-caption);
+      font-weight: var(--bd-font-weight-semibold);
+    }
+
+    .claimed-edge {
+      fill: var(--bd-accent);
+      filter: drop-shadow(var(--bd-shadow-focus-glow));
+    }
+
+    .mobile-edge-list {
+      display: none;
+    }
+
+    .why-panel {
+      min-width: 0;
+      min-height: 0;
+      border-inline-start: var(--bd-stroke-hairline) solid var(--bd-border-default);
+      background: var(--bd-bg-surface);
+      overflow: auto;
+      overscroll-behavior: contain;
+    }
+
+    .why-header {
+      position: sticky;
+      inset-block-start: var(--bd-space-0);
+      z-index: 1;
+      padding: var(--bd-space-4);
+      border-block-end: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      background: var(--bd-bg-surface);
+    }
+
+    .why-body {
+      display: flex;
+      flex-direction: column;
+      gap: var(--bd-space-4);
+      padding: var(--bd-space-4);
+    }
+
+    .startable {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--bd-space-3);
+      padding: var(--bd-space-3);
+      border: var(--bd-stroke-hairline) solid var(--bd-danger-line);
+      border-radius: var(--bd-radius-md);
+      color: var(--bd-danger);
+      background: var(--bd-danger-bg);
+    }
+
+    .startable strong {
+      font-weight: var(--bd-font-weight-semibold);
+    }
+
+    .dependency-tree,
+    .dependency-tree ul {
+      margin: var(--bd-space-0);
+      padding: var(--bd-space-0);
+      list-style: none;
+    }
+
+    .dependency-tree {
+      display: flex;
+      flex-direction: column;
+      gap: var(--bd-space-2);
+    }
+
+    .dependency-tree ul {
+      margin-block-start: var(--bd-space-2);
+      margin-inline-start: var(--bd-space-5);
+      padding-inline-start: var(--bd-space-3);
+      border-inline-start: var(--bd-stroke-hairline) solid var(--bd-border-stronger);
+    }
+
+    .dependency-item {
+      padding: var(--bd-space-3);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-base);
+    }
+
+    .dependency-line {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--bd-space-2);
+    }
+
+    .reason {
+      margin-block-start: var(--bd-space-2);
+      color: var(--bd-text-secondary);
+      font-size: var(--bd-text-body-sm);
+    }
+
+    .inline-status {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--bd-space-1);
+      padding: var(--bd-space-1) var(--bd-space-2);
+      border-radius: var(--bd-radius-full);
+      font-size: var(--bd-text-caption);
+      font-weight: var(--bd-font-weight-medium);
+    }
+
+    .inline-status.blocked {
+      border: var(--bd-stroke-hairline) solid var(--bd-danger-line);
+      color: var(--bd-danger);
+      background: var(--bd-danger-bg);
+    }
+
+    .inline-status.progress {
+      border: var(--bd-stroke-hairline) solid var(--bd-info-line);
+      color: var(--bd-info);
+      background: var(--bd-info-bg);
+    }
+
+    .start-here {
+      padding: var(--bd-space-3);
+      border: var(--bd-stroke-hairline) solid var(--bd-info-line);
+      border-radius: var(--bd-radius-lg);
+      color: var(--bd-info);
+      background: var(--bd-info-bg);
+    }
+
+    .roots {
+      padding: var(--bd-space-3);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-sm);
+      color: var(--bd-text-secondary);
+      background: var(--bd-bg-subtle);
+      font-size: var(--bd-text-console-sm);
+      overflow-wrap: anywhere;
+    }
+
+    .command-block {
+      display: block;
+      width: 100%;
+      padding: var(--bd-space-3);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-default);
+      border-radius: var(--bd-radius-md);
+      color: var(--bd-text-primary);
+      background: var(--bd-bg-base);
+      font-family: var(--bd-font-mono);
+      font-size: var(--bd-text-console-sm);
+      overflow-wrap: anywhere;
+      user-select: all;
+    }
+
+    .footer-status {
+      grid-column: 2;
+      grid-row: 3;
+      display: flex;
+      align-items: center;
+      min-width: 0;
+      padding-inline: var(--bd-space-3);
+      border-block-start: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      color: var(--bd-text-tertiary);
+      background: var(--bd-bg-surface);
+      font-size: var(--bd-text-caption);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .mobile-tabs {
+      display: none;
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+      button,
+      input,
+      select {
+        transition:
+          opacity var(--bd-duration-fast) var(--bd-ease-out-expo),
+          transform var(--bd-duration-fast) var(--bd-ease-out-expo);
+      }
+
+      .claimed-edge {
+        animation: live-write var(--bd-duration-slow) var(--bd-ease-out-expo) infinite alternate;
+      }
+
+      @keyframes live-write {
+        from {
+          opacity: 0.6;
+        }
+
+        to {
+          opacity: 1;
+        }
+      }
+    }
+
+    @media (max-width: 1200px) {
+      .graph-screen {
+        grid-template-columns: minmax(0, 1fr) var(--bd-size-panel-minimum);
+      }
+
+      .command-chip.sprint-chip {
+        display: none;
+      }
+    }
+
+    @media (max-width: 720px) {
+      body {
+        padding-block-end: var(--bd-size-hit-target-touch);
+      }
+
+      button,
+      input,
+      select,
+      .command-chip,
+      .status-chip,
+      .toolbar-field {
+        min-height: var(--bd-size-hit-target-touch);
+        height: var(--bd-size-hit-target-touch);
+      }
+
+      .shell {
+        display: block;
+        min-height: 100vh;
+      }
+
+      .rail {
+        display: none;
+      }
+
+      .command-bar {
+        position: sticky;
+        inset-block-start: var(--bd-space-0);
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        height: auto;
+        min-height: var(--bd-size-shell-commandbar);
+        padding: var(--bd-space-2);
+      }
+
+      .project-name {
+        grid-column: 1;
+      }
+
+      .status-chip.live {
+        grid-column: 2;
+      }
+
+      .command-chip {
+        display: none;
+      }
+
+      .search-wrap {
+        grid-column: 1 / -1;
+        width: 100%;
+        margin: var(--bd-space-0);
+      }
+
+      .key-hint {
+        display: none;
+      }
+
+      main {
+        overflow: visible;
+      }
+
+      .graph-screen {
+        display: block;
+        height: auto;
+      }
+
+      .canvas {
+        padding: var(--bd-space-3);
+        overflow: visible;
+      }
+
+      .screen-heading {
+        margin-block-end: var(--bd-space-3);
+      }
+
+      .toolbar {
+        align-items: stretch;
+      }
+
+      .toolbar-field,
+      .toggle {
+        flex: 1 1 auto;
+      }
+
+      .toolbar-actions {
+        width: 100%;
+        margin-inline-start: var(--bd-space-0);
+      }
+
+      .toolbar-actions button {
+        flex: 1 1 auto;
+      }
+
+      .graph-plate {
+        display: none;
+      }
+
+      .mobile-edge-list {
+        display: block;
+        min-width: 0;
+      }
+
+      .mobile-edge-list table,
+      .mobile-edge-list thead,
+      .mobile-edge-list tbody,
+      .mobile-edge-list tr,
+      .mobile-edge-list th,
+      .mobile-edge-list td {
+        display: block;
+        width: 100%;
+      }
+
+      .mobile-edge-list table {
+        border-collapse: collapse;
+      }
+
+      .mobile-edge-list thead {
+        position: absolute;
+        width: var(--bd-stroke-hairline);
+        height: var(--bd-stroke-hairline);
+        overflow: hidden;
+        clip-path: inset(50%);
+      }
+
+      .mobile-edge-list tr {
+        margin-block-end: var(--bd-space-2);
+        padding: var(--bd-space-3);
+        border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+        border-radius: var(--bd-radius-md);
+        background: var(--bd-bg-surface);
+      }
+
+      .mobile-edge-list td {
+        padding-block: var(--bd-space-1);
+        color: var(--bd-text-secondary);
+      }
+
+      .mobile-edge-list td::before {
+        display: block;
+        color: var(--bd-text-tertiary);
+        font-size: var(--bd-text-caption);
+        content: attr(data-label);
+      }
+
+      .why-panel {
+        width: 100%;
+        border-block-start: var(--bd-stroke-hairline) solid var(--bd-border-default);
+        border-inline-start: var(--bd-space-0);
+      }
+
+      .why-header,
+      .why-body {
+        padding: var(--bd-space-3);
+      }
+
+      .footer-status {
+        display: flex;
+        min-height: var(--bd-size-shell-statusbar);
+        padding: var(--bd-space-2) var(--bd-space-3);
+        white-space: normal;
+      }
+
+      .mobile-tabs {
+        position: fixed;
+        inset-inline: var(--bd-space-0);
+        inset-block-end: var(--bd-space-0);
+        z-index: 5;
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        min-height: var(--bd-size-hit-target-touch);
+        border-block-start: var(--bd-stroke-hairline) solid var(--bd-border-default);
+        background: var(--bd-bg-surface);
+      }
+
+      .mobile-tab {
+        display: flex;
+        height: var(--bd-size-hit-target-touch);
+        min-width: 0;
+        align-items: center;
+        justify-content: center;
+        gap: var(--bd-space-1);
+        padding: var(--bd-space-1);
+        border: var(--bd-space-0);
+        border-radius: var(--bd-space-0);
+        color: var(--bd-text-secondary);
+        background: var(--bd-bg-surface);
+        font-size: var(--bd-text-caption);
+      }
+
+      .mobile-tab.active {
+        color: var(--bd-accent-fg);
+        background: var(--bd-accent-subtle);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <nav class="rail" aria-label="Primary navigation">
+      <button class="rail-button" type="button" aria-label="Board" title="Board">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="5" height="12"></rect><rect x="9" y="2" width="5" height="7"></rect></svg>
+      </button>
+      <button class="rail-button" type="button" aria-label="Backlog" title="Backlog">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4h10M3 8h10M3 12h7"></path></svg>
+      </button>
+      <button class="rail-button" type="button" aria-label="Epics" title="Epics">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3h10v10H3zM6 6h4M6 9h4"></path></svg>
+      </button>
+      <button class="rail-button active" type="button" aria-label="Graph" title="Graph" aria-current="page">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="3" cy="8" r="2"></circle><circle cx="12" cy="3" r="2"></circle><circle cx="12" cy="13" r="2"></circle><path d="M5 7l5-3M5 9l5 3"></path></svg>
+      </button>
+      <button class="rail-button" type="button" aria-label="Timeline" title="Timeline">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2v12M3 5h7M3 10h10"></path><circle cx="11" cy="5" r="1"></circle><circle cx="14" cy="10" r="1"></circle></svg>
+      </button>
+      <button class="rail-button" type="button" aria-label="Sessions" title="Sessions">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="6" cy="5" r="3"></circle><path d="M1.5 14c.5-3 2-4.5 4.5-4.5S10 11 10.5 14M11 5h4M13 3v4"></path></svg>
+      </button>
+      <button class="rail-button" type="button" aria-label="Health" title="Health">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1 8h3l2-5 3 10 2-5h4"></path></svg>
+      </button>
+      <button class="rail-button" type="button" aria-label="Settings" title="Settings">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.5"></circle><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4"></path></svg>
+      </button>
+      <button class="rail-button" type="button" aria-label="Help" title="Help">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M6.5 6a1.7 1.7 0 1 1 2.7 1.4C8.4 8 8 8.5 8 9.5M8 12h.01"></path></svg>
+      </button>
+    </nav>
+
+    <header class="command-bar">
+      <span class="project-name">Bytedesk Marketplace</span>
+      <span class="command-chip mono">EP-006</span>
+      <span class="command-chip sprint-chip mono">SP-003 · 12/20 pts · 2 unsized</span>
+      <span class="status-chip live"><span class="status-dot" aria-hidden="true">●</span> live</span>
+      <div class="search-wrap">
+        <label for="global-search">Search tasks or type a filter</label>
+        <input id="global-search" class="command-search" type="search" placeholder="Search or type a filter — status:open label:ui">
+        <span class="key-hint" aria-hidden="true">⌘K</span>
+      </div>
+    </header>
+
+    <main>
+      <section class="graph-screen" aria-labelledby="graph-title">
+        <div class="canvas">
+          <div class="screen-heading">
+            <h1 id="graph-title">Dependency graph</h1>
+            <span class="route mono">/graph</span>
+          </div>
+
+          <form class="toolbar" aria-label="Graph controls">
+            <label class="toolbar-field" for="epic-filter">
+              Epic
+              <select id="epic-filter" name="epic">
+                <option selected>EP-006</option>
+              </select>
+            </label>
+            <label class="toggle" for="include-done">
+              <input id="include-done" type="checkbox" checked>
+              Include done
+            </label>
+            <label class="toggle" for="include-subtasks">
+              <input id="include-subtasks" type="checkbox" checked>
+              Subtasks
+            </label>
+            <div class="toolbar-actions">
+              <button type="button">Copy as Mermaid</button>
+              <button type="button">Fit</button>
+            </div>
+          </form>
+
+          <div class="graph-plate" aria-label="Task dependency graph">
+            <svg class="graph-svg" viewBox="0 0 1100 520" role="img" aria-labelledby="dag-title dag-desc">
+              <title id="dag-title">EP-006 task dependency graph</title>
+              <desc id="dag-desc">Eleven tasks arranged left to right, including a blocked chain, one cycle, a missing task reference, and a dashed subtask relation.</desc>
+              <defs>
+                <marker id="arrow-normal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M0 0L10 5L0 10z" fill="var(--bd-chart-axis)"></path>
+                </marker>
+                <marker id="arrow-danger" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M0 0L10 5L0 10z" fill="var(--bd-danger)"></path>
+                </marker>
+              </defs>
+
+              <path class="edge" d="M210 87 C255 87 255 87 300 87" marker-end="url(#arrow-normal)"></path>
+              <path class="edge danger" d="M210 229 C255 229 255 229 300 229" marker-end="url(#arrow-danger)"></path>
+              <path class="edge danger" d="M490 229 C535 229 535 229 580 229" marker-end="url(#arrow-danger)"></path>
+              <path class="edge danger" d="M770 229 C815 229 815 229 860 229" marker-end="url(#arrow-danger)"></path>
+              <path class="edge" d="M490 87 C620 87 730 87 860 87" marker-end="url(#arrow-normal)"></path>
+              <path class="edge subtask" d="M210 371 C255 371 255 371 300 371" marker-end="url(#arrow-normal)"></path>
+              <path class="edge" d="M490 371 C535 371 535 371 580 371" marker-end="url(#arrow-normal)"></path>
+              <path class="edge" d="M770 371 C815 371 815 371 860 371" marker-end="url(#arrow-normal)"></path>
+              <path class="edge" d="M490 229 C535 275 535 325 580 371" marker-end="url(#arrow-normal)"></path>
+              <path class="edge danger" d="M770 87 C814 43 816 43 860 87" marker-end="url(#arrow-danger)"></path>
+
+              <path class="edge-cycle" d="M770 451 C810 491 820 491 860 451" marker-end="url(#arrow-danger)"></path>
+              <path class="edge-cycle" d="M860 411 C820 387 810 387 770 411" marker-end="url(#arrow-danger)"></path>
+              <text class="cycle-label" x="788" y="499">cycle</text>
+
+              <g class="node" transform="translate(20 47)">
+                <rect width="190" height="80"></rect>
+                <text class="node-id" x="14" y="23">TM-050</text>
+                <text class="node-title" x="14" y="43">Add MCP worktree verb</text>
+                <text class="node-status status-progress" x="14" y="65">● in progress</text>
+              </g>
+
+              <g class="node" transform="translate(20 189)">
+                <rect width="190" height="80"></rect>
+                <text class="node-id" x="14" y="23">TM-058</text>
+                <text class="node-title" x="14" y="43">Wire resume gate</text>
+                <text class="node-status status-blocked" x="14" y="65">● blocked</text>
+              </g>
+
+              <g class="node" transform="translate(20 331)">
+                <rect width="190" height="80"></rect>
+                <text class="node-id" x="14" y="23">TM-053</text>
+                <text class="node-title" x="14" y="43">Normalize task records</text>
+                <text class="node-status status-done" x="14" y="65">● done</text>
+              </g>
+
+              <g class="node" transform="translate(300 47)">
+                <rect width="190" height="80"></rect>
+                <text class="node-id" x="14" y="23">TM-054</text>
+                <text class="node-title" x="14" y="43">Validate claim ownership…</text>
+                <text class="node-status status-todo" x="14" y="65">● todo</text>
+              </g>
+
+              <g class="node selected" transform="translate(300 189)">
+                <rect width="190" height="80"></rect>
+                <rect class="claimed-edge" x="0" y="0" width="2" height="80"></rect>
+                <text class="node-id" x="14" y="23">TM-052</text>
+                <text class="node-title" x="14" y="43">Render dependency graph</text>
+                <text class="node-status status-progress" x="14" y="65">● in progress</text>
+              </g>
+
+              <g class="node" transform="translate(300 331)">
+                <rect width="190" height="80"></rect>
+                <text class="node-id" x="14" y="23">TM-055</text>
+                <text class="node-title" x="14" y="43">Expose subtask edges</text>
+                <text class="node-status status-backlog" x="14" y="65">● backlog</text>
+              </g>
+
+              <g class="node" transform="translate(580 189)">
+                <rect width="190" height="80"></rect>
+                <text class="node-id" x="14" y="23">TM-057</text>
+                <text class="node-title" x="14" y="43">Prove graph navigation…</text>
+                <text class="node-status status-todo" x="14" y="65">● todo</text>
+              </g>
+
+              <g class="node" transform="translate(580 331)">
+                <rect width="190" height="80"></rect>
+                <text class="node-id" x="14" y="23">TM-056</text>
+                <text class="node-title" x="14" y="43">Persist filter state</text>
+                <text class="node-status status-parked" x="14" y="65">● parked</text>
+              </g>
+
+              <g class="node missing" transform="translate(860 47)">
+                <rect width="190" height="80"></rect>
+                <text class="node-id" x="14" y="23">TM-404</text>
+                <text class="node-title status-blocked" x="14" y="43">(missing)</text>
+                <text class="node-status status-blocked" x="14" y="65">● blocked</text>
+              </g>
+
+              <g class="node" transform="translate(580 411)">
+                <rect width="190" height="80"></rect>
+                <text class="node-id" x="14" y="23">TM-060</text>
+                <text class="node-title" x="14" y="43">Index proof bundles</text>
+                <text class="node-status status-blocked" x="14" y="65">● blocked</text>
+              </g>
+
+              <g class="node" transform="translate(860 411)">
+                <rect width="190" height="80"></rect>
+                <text class="node-id" x="14" y="23">TM-061</text>
+                <text class="node-title" x="14" y="43">Resolve proof aliases</text>
+                <text class="node-status status-blocked" x="14" y="65">● blocked</text>
+              </g>
+            </svg>
+          </div>
+
+          <section class="mobile-edge-list" aria-labelledby="edge-list-title">
+            <h2 id="edge-list-title">Dependency edges</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">From</th>
+                  <th scope="col">Relation</th>
+                  <th scope="col">To</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td data-label="From" class="mono">TM-058</td>
+                  <td data-label="Relation">blocks</td>
+                  <td data-label="To" class="mono">TM-052</td>
+                </tr>
+                <tr>
+                  <td data-label="From" class="mono">TM-052</td>
+                  <td data-label="Relation">blocks</td>
+                  <td data-label="To" class="mono">TM-057</td>
+                </tr>
+                <tr>
+                  <td data-label="From" class="mono">TM-050</td>
+                  <td data-label="Relation">blocks</td>
+                  <td data-label="To" class="mono">TM-058</td>
+                </tr>
+                <tr>
+                  <td data-label="From" class="mono">TM-053</td>
+                  <td data-label="Relation">has subtask</td>
+                  <td data-label="To" class="mono">TM-055</td>
+                </tr>
+                <tr>
+                  <td data-label="From" class="mono">TM-054</td>
+                  <td data-label="Relation">references missing</td>
+                  <td data-label="To" class="mono">TM-404</td>
+                </tr>
+                <tr>
+                  <td data-label="From" class="mono">TM-060</td>
+                  <td data-label="Relation">cycles with</td>
+                  <td data-label="To" class="mono">TM-061</td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+        </div>
+
+        <aside class="why-panel" aria-labelledby="why-title">
+          <header class="why-header">
+            <h2 id="why-title">Why TM-052 cannot start</h2>
+          </header>
+          <div class="why-body">
+            <div class="startable">
+              <strong>startable</strong>
+              <span class="mono">no</span>
+            </div>
+
+            <ul class="dependency-tree" role="list">
+              <li class="dependency-item" tabindex="0">
+                <div class="dependency-line">
+                  <span class="entity mono">TM-058</span>
+                  <span class="inline-status blocked"><span aria-hidden="true">●</span> blocked</span>
+                </div>
+                <p class="reason">Needs the MCP worktree verb first.</p>
+                <ul role="list">
+                  <li class="dependency-item" tabindex="-1">
+                    <div class="dependency-line">
+                      <span class="entity mono">TM-050</span>
+                      <span class="inline-status progress"><span aria-hidden="true">●</span> in progress</span>
+                    </div>
+                    <p class="reason">Held by <span class="mono">claude · 126c1a80</span>.</p>
+                  </li>
+                </ul>
+              </li>
+            </ul>
+
+            <div class="start-here">
+              Start here: <strong class="mono">TM-050</strong>
+            </div>
+
+            <p class="roots mono">roots: TM-050 → TM-058 → TM-052</p>
+
+            <section aria-labelledby="resume-command-title">
+              <h3 id="resume-command-title">Resume from record</h3>
+              <code class="command-block">.bytedesk/task-management/bin/tm task show TM-050</code>
+            </section>
+          </div>
+        </aside>
+      </section>
+    </main>
+
+    <footer class="footer-status">Illustrative mockup — fictional data — not production source</footer>
+  </div>
+
+  <nav class="mobile-tabs" aria-label="Mobile navigation">
+    <button class="mobile-tab" type="button" aria-label="Board">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="5" height="12"></rect><rect x="9" y="2" width="5" height="7"></rect></svg>
+      <span>Board</span>
+    </button>
+    <button class="mobile-tab" type="button" aria-label="Backlog">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4h10M3 8h10M3 12h7"></path></svg>
+      <span>Backlog</span>
+    </button>
+    <button class="mobile-tab" type="button" aria-label="Sessions">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="6" cy="5" r="3"></circle><path d="M1.5 14c.5-3 2-4.5 4.5-4.5S10 11 10.5 14M11 5h4M13 3v4"></path></svg>
+      <span>Sessions</span>
+    </button>
+    <button class="mobile-tab active" type="button" aria-label="More" aria-current="page">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="3" cy="8" r="1"></circle><circle cx="8" cy="8" r="1"></circle><circle cx="13" cy="8" r="1"></circle></svg>
+      <span>More</span>
+    </button>
+  </nav>
+</body>
+</html>

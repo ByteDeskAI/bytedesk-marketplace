@@ -1,0 +1,914 @@
+<!doctype html>
+<html lang="en" data-bd-product="task-management" data-bd-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Health · Bytedesk Marketplace</title>
+  <link rel="stylesheet" href="tokens/bytedesk.css">
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      min-height: 100%;
+      margin: var(--bd-space-0);
+      color: var(--bd-text-primary);
+      background: var(--bd-bg-base);
+      font-family: var(--bd-font-sans);
+      font-size: var(--bd-text-body);
+      line-height: var(--bd-line-height-body);
+    }
+
+    button,
+    input,
+    select {
+      min-height: var(--bd-size-control-compact);
+      color: var(--bd-text-primary);
+      background: var(--bd-bg-surface);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-default);
+      border-radius: var(--bd-radius-sm);
+      font: inherit;
+    }
+
+    button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--bd-space-2);
+      padding: var(--bd-space-1) var(--bd-space-3);
+      cursor: pointer;
+    }
+
+    button:hover,
+    input:hover,
+    select:hover {
+      background: var(--bd-bg-hover);
+    }
+
+    button:disabled {
+      color: var(--bd-text-disabled);
+      cursor: not-allowed;
+      opacity: var(--bd-opacity-disabled);
+    }
+
+    button:focus-visible,
+    input:focus-visible,
+    select:focus-visible,
+    [tabindex]:focus-visible {
+      outline: var(--bd-stroke-focus) solid var(--bd-focus-ring);
+      outline-offset: var(--bd-space-1);
+    }
+
+    .mono,
+    code,
+    pre,
+    .entity,
+    .count,
+    .command-path,
+    .command-hint {
+      font-family: var(--bd-font-mono);
+    }
+
+    .shell {
+      min-height: 100vh;
+    }
+
+    .rail {
+      position: fixed;
+      inset-block: var(--bd-space-0);
+      inset-inline-start: var(--bd-space-0);
+      z-index: 4;
+      width: var(--bd-size-shell-rail);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: var(--bd-space-1);
+      padding: var(--bd-space-2) var(--bd-space-1);
+      background: var(--bd-bg-subtle);
+      border-inline-end: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+    }
+
+    .rail button {
+      width: var(--bd-size-control-compact);
+      padding: var(--bd-space-1);
+      color: var(--bd-text-secondary);
+      background: transparent;
+      border-color: transparent;
+    }
+
+    .rail button[aria-current="page"] {
+      color: var(--bd-accent-fg);
+      background: var(--bd-accent-subtle);
+      border-color: var(--bd-accent-muted);
+    }
+
+    .rail svg,
+    .mobile-tabs svg {
+      width: var(--bd-size-icon-sm);
+      height: var(--bd-size-icon-sm);
+      fill: none;
+      stroke: currentColor;
+      stroke-width: var(--bd-stroke-active);
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .commandbar {
+      position: fixed;
+      inset-block-start: var(--bd-space-0);
+      inset-inline: var(--bd-size-shell-rail) var(--bd-space-0);
+      z-index: 3;
+      height: var(--bd-size-shell-commandbar);
+      display: flex;
+      align-items: center;
+      gap: var(--bd-space-2);
+      padding-inline: var(--bd-space-3);
+      background: var(--bd-bg-subtle);
+      border-block-end: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+    }
+
+    .project-name {
+      flex: 0 0 auto;
+      font-weight: var(--bd-font-weight-semibold);
+      white-space: nowrap;
+    }
+
+    .compact-chip,
+    .status-chip,
+    .level-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--bd-space-1);
+      min-height: var(--bd-size-control-compact);
+      padding-inline: var(--bd-space-2);
+      white-space: nowrap;
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-sm);
+      color: var(--bd-text-secondary);
+      background: var(--bd-bg-surface);
+      font-size: var(--bd-text-body-sm);
+    }
+
+    .status-chip,
+    .level-chip {
+      border-radius: var(--bd-radius-full);
+    }
+
+    .live-chip {
+      color: var(--bd-accent);
+      border-color: var(--bd-accent-muted);
+      background: var(--bd-accent-subtle);
+    }
+
+    .live-dot {
+      color: var(--bd-accent);
+    }
+
+    .command-search {
+      position: relative;
+      min-width: var(--bd-size-panel-minimum);
+      flex: 1 1 auto;
+    }
+
+    .command-search label {
+      position: absolute;
+      overflow: hidden;
+      width: var(--bd-stroke-hairline);
+      height: var(--bd-stroke-hairline);
+      clip-path: inset(100%);
+    }
+
+    .command-search input {
+      width: 100%;
+      padding-inline: var(--bd-space-3) var(--bd-space-9);
+      background: var(--bd-bg-base);
+    }
+
+    .command-hint {
+      position: absolute;
+      inset-block-start: 50%;
+      inset-inline-end: var(--bd-space-2);
+      color: var(--bd-text-tertiary);
+      transform: translateY(-50%);
+      font-size: var(--bd-text-caption);
+    }
+
+    .workspace {
+      min-height: 100vh;
+      padding: calc(var(--bd-size-shell-commandbar) + var(--bd-space-5)) var(--bd-space-section-x) calc(var(--bd-size-shell-statusbar) + var(--bd-space-6)) calc(var(--bd-size-shell-rail) + var(--bd-space-section-x));
+    }
+
+    .page {
+      width: 100%;
+      max-width: 1100px;
+      margin-inline: var(--bd-space-0);
+    }
+
+    .page-header {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: var(--bd-space-4);
+      margin-block-end: var(--bd-space-4);
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin-block-start: var(--bd-space-0);
+    }
+
+    h1 {
+      margin-block-end: var(--bd-space-1);
+      font-size: var(--bd-text-h1);
+      line-height: var(--bd-line-height-tight);
+      font-weight: var(--bd-font-weight-semibold);
+      letter-spacing: var(--bd-letter-spacing-tight);
+    }
+
+    h2 {
+      margin-block-end: var(--bd-space-3);
+      font-size: var(--bd-text-h3);
+      line-height: var(--bd-line-height-tight);
+      font-weight: var(--bd-font-weight-semibold);
+    }
+
+    h3 {
+      margin-block-end: var(--bd-space-2);
+      font-size: var(--bd-text-h4);
+      line-height: var(--bd-line-height-tight);
+      font-weight: var(--bd-font-weight-semibold);
+    }
+
+    .route {
+      margin-block-end: var(--bd-space-0);
+      color: var(--bd-text-tertiary);
+      font-size: var(--bd-text-body-sm);
+    }
+
+    .tabs {
+      display: flex;
+      gap: var(--bd-space-1);
+      overflow-x: auto;
+      border-block-end: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+    }
+
+    .tabs button {
+      border: 0;
+      border-radius: var(--bd-radius-sm) var(--bd-radius-sm) var(--bd-space-0) var(--bd-space-0);
+      color: var(--bd-text-secondary);
+      background: transparent;
+    }
+
+    .tabs button[aria-selected="true"] {
+      color: var(--bd-accent);
+      border-block-end: var(--bd-stroke-active) solid var(--bd-accent);
+    }
+
+    .summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--bd-space-4);
+      padding-block: var(--bd-space-4);
+    }
+
+    .summary-line {
+      margin: var(--bd-space-0);
+      color: var(--bd-text-secondary);
+      font-size: var(--bd-text-body-lg);
+      font-weight: var(--bd-font-weight-medium);
+    }
+
+    .summary-actions {
+      display: flex;
+      gap: var(--bd-space-2);
+    }
+
+    .primary {
+      color: var(--bd-text-on-brand);
+      background: var(--bd-accent-emphasis);
+      border-color: var(--bd-accent);
+      font-weight: var(--bd-font-weight-semibold);
+    }
+
+    .primary:hover {
+      background: var(--bd-accent-default);
+    }
+
+    .confirmation {
+      margin-block-end: var(--bd-space-5);
+      padding: var(--bd-space-4);
+      background: var(--bd-bg-surface);
+      border: var(--bd-stroke-hairline) solid var(--bd-accent-muted);
+      border-inline-start: var(--bd-stroke-active) solid var(--bd-accent);
+      border-radius: var(--bd-radius-md);
+    }
+
+    .confirmation p {
+      margin-block-end: var(--bd-space-3);
+      color: var(--bd-text-secondary);
+    }
+
+    .confirm-controls {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--bd-space-3);
+    }
+
+    .check-label {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--bd-space-2);
+      cursor: pointer;
+    }
+
+    input[type="checkbox"] {
+      min-height: auto;
+      accent-color: var(--bd-accent);
+    }
+
+    .finding-group {
+      margin-block-end: var(--bd-space-5);
+    }
+
+    .finding-list {
+      display: flex;
+      flex-direction: column;
+      gap: var(--bd-space-2);
+      margin: var(--bd-space-0);
+      padding: var(--bd-space-0);
+      list-style: none;
+    }
+
+    .finding {
+      display: grid;
+      grid-template-columns: auto minmax(var(--bd-size-panel-minimum), 1fr) auto;
+      gap: var(--bd-space-3);
+      align-items: center;
+      padding: var(--bd-space-3);
+      background: var(--bd-bg-surface);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-sm);
+    }
+
+    .finding-main {
+      min-width: var(--bd-space-0);
+    }
+
+    .finding-identity {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: var(--bd-space-2);
+      margin-block-end: var(--bd-space-1);
+    }
+
+    .finding-code {
+      color: var(--bd-text-primary);
+      font-weight: var(--bd-font-weight-semibold);
+    }
+
+    .entity {
+      color: var(--bd-text-tertiary);
+      font-size: var(--bd-text-body-sm);
+    }
+
+    .finding-message {
+      max-width: var(--bd-size-panel-comfortable);
+      margin: var(--bd-space-0);
+      color: var(--bd-text-secondary);
+      overflow-wrap: anywhere;
+    }
+
+    .finding-meta {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: var(--bd-space-2);
+    }
+
+    .error {
+      color: var(--bd-danger);
+      background: var(--bd-danger-bg);
+      border-color: var(--bd-danger-line);
+    }
+
+    .warning {
+      color: var(--bd-warning);
+      background: var(--bd-warning-bg);
+      border-color: var(--bd-warning-line);
+    }
+
+    .fixable {
+      color: var(--bd-text-secondary);
+      background: var(--bd-bg-subtle);
+    }
+
+    .judgement {
+      max-width: var(--bd-size-panel-minimum);
+      color: var(--bd-text-tertiary);
+      font-size: var(--bd-text-caption);
+      line-height: var(--bd-line-height-compact);
+    }
+
+    .clean-note {
+      margin-block: var(--bd-space-4) var(--bd-space-6);
+      padding: var(--bd-space-3);
+      color: var(--bd-text-tertiary);
+      background: var(--bd-success-bg);
+      border: var(--bd-stroke-hairline) solid var(--bd-success-line);
+      border-radius: var(--bd-radius-sm);
+      font-size: var(--bd-text-body-sm);
+    }
+
+    .export-panel {
+      margin-block-start: var(--bd-space-6);
+      padding: var(--bd-space-4);
+      background: var(--bd-bg-surface);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-lg);
+    }
+
+    .export-controls {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--bd-size-panel-minimum)), 1fr));
+      gap: var(--bd-space-3);
+      align-items: end;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: var(--bd-space-1);
+      min-width: var(--bd-space-0);
+    }
+
+    .field label {
+      color: var(--bd-text-secondary);
+      font-size: var(--bd-text-body-sm);
+    }
+
+    .field select {
+      width: 100%;
+      padding-inline: var(--bd-space-2);
+    }
+
+    .export-check {
+      min-height: var(--bd-size-control-compact);
+      white-space: nowrap;
+    }
+
+    .preview-label {
+      margin-block: var(--bd-space-4) var(--bd-space-2);
+      color: var(--bd-text-secondary);
+      font-size: var(--bd-text-body-sm);
+      font-weight: var(--bd-font-weight-medium);
+    }
+
+    pre {
+      margin: var(--bd-space-0);
+      padding: var(--bd-space-3);
+      overflow-x: auto;
+      color: var(--bd-text-secondary);
+      background: var(--bd-bg-base);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmest);
+      border-radius: var(--bd-radius-sm);
+      font-size: var(--bd-text-console-sm);
+      line-height: var(--bd-line-height-compact);
+    }
+
+    .statusbar {
+      position: fixed;
+      inset-inline: var(--bd-size-shell-rail) var(--bd-space-0);
+      inset-block-end: var(--bd-space-0);
+      z-index: 3;
+      height: var(--bd-size-shell-statusbar);
+      display: flex;
+      align-items: center;
+      padding-inline: var(--bd-space-3);
+      color: var(--bd-text-tertiary);
+      background: var(--bd-bg-subtle);
+      border-block-start: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      font-size: var(--bd-text-caption);
+    }
+
+    .mobile-tabs {
+      display: none;
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+      button,
+      input,
+      select,
+      [tabindex] {
+        transition:
+          opacity var(--bd-duration-fast) var(--bd-ease-out-expo),
+          transform var(--bd-duration-fast) var(--bd-ease-out-expo);
+      }
+
+      .live-dot {
+        animation: live-write var(--bd-duration-slow) var(--bd-ease-out-expo) infinite alternate;
+      }
+
+      @keyframes live-write {
+        from { opacity: 0.6; }
+        to { opacity: 1; }
+      }
+    }
+
+    @media (max-width: 1200px) {
+      .export-controls {
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--bd-size-panel-minimum)), 1fr));
+      }
+
+      .export-controls .primary {
+        justify-self: start;
+      }
+    }
+
+    @media (max-width: 720px) {
+      button,
+      input,
+      select {
+        min-height: var(--bd-size-hit-target-touch);
+      }
+
+      .rail {
+        display: none;
+      }
+
+      .commandbar {
+        inset-inline-start: var(--bd-space-0);
+        gap: var(--bd-space-1);
+        padding-inline: var(--bd-space-2);
+      }
+
+      .project-name,
+      .epic-chip,
+      .sprint-chip,
+      .command-hint {
+        display: none;
+      }
+
+      .command-search {
+        min-width: var(--bd-space-0);
+      }
+
+      .command-search input {
+        padding-inline: var(--bd-space-2);
+      }
+
+      .live-chip {
+        min-height: var(--bd-size-control-compact);
+        padding-inline: var(--bd-space-2);
+      }
+
+      .workspace {
+        padding:
+          calc(var(--bd-size-shell-commandbar) + var(--bd-space-4))
+          var(--bd-space-3)
+          calc(var(--bd-size-shell-statusbar) + var(--bd-size-hit-target-touch) + var(--bd-space-5));
+      }
+
+      .page-header,
+      .summary,
+      .confirm-controls {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      .summary-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .finding {
+        grid-template-columns: 1fr;
+        align-items: start;
+      }
+
+      .finding-meta {
+        justify-content: space-between;
+        flex-wrap: wrap;
+      }
+
+      .finding-message {
+        max-width: none;
+      }
+
+      .export-controls {
+        grid-template-columns: 1fr;
+      }
+
+      .export-controls .primary {
+        width: 100%;
+      }
+
+      .statusbar {
+        inset-inline-start: var(--bd-space-0);
+        inset-block-end: var(--bd-size-hit-target-touch);
+      }
+
+      .mobile-tabs {
+        position: fixed;
+        inset-inline: var(--bd-space-0);
+        inset-block-end: var(--bd-space-0);
+        z-index: 5;
+        height: var(--bd-size-hit-target-touch);
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        background: var(--bd-bg-subtle);
+        border-block-start: var(--bd-stroke-hairline) solid var(--bd-border-default);
+      }
+
+      .mobile-tabs button {
+        min-width: var(--bd-space-0);
+        height: var(--bd-size-hit-target-touch);
+        flex-direction: column;
+        gap: var(--bd-space-0);
+        padding: var(--bd-space-1);
+        border: 0;
+        border-radius: var(--bd-space-0);
+        color: var(--bd-text-secondary);
+        background: transparent;
+        font-size: var(--bd-text-caption);
+      }
+
+      .mobile-tabs button[aria-current="page"] {
+        color: var(--bd-accent);
+        border-block-start: var(--bd-stroke-active) solid var(--bd-accent);
+      }
+
+      table,
+      thead,
+      tbody,
+      tr,
+      th,
+      td {
+        display: block;
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <nav class="rail" aria-label="Primary navigation">
+      <button type="button" aria-label="Board" title="Board">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="5" height="12"></rect><rect x="9" y="2" width="5" height="7"></rect></svg>
+      </button>
+      <button type="button" aria-label="Backlog" title="Backlog">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4h10M3 8h10M3 12h7"></path></svg>
+      </button>
+      <button type="button" aria-label="Epics" title="Epics">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2l5 3v6l-5 3-5-3V5z"></path><path d="M3 5l5 3 5-3M8 8v6"></path></svg>
+      </button>
+      <button type="button" aria-label="Graph" title="Graph">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="4" cy="4" r="2"></circle><circle cx="12" cy="5" r="2"></circle><circle cx="8" cy="12" r="2"></circle><path d="M6 4.5l4 .3M5 6l2 4M11 7l-2 3"></path></svg>
+      </button>
+      <button type="button" aria-label="Timeline" title="Timeline">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3v10M3 5h7M3 9h10M3 13h5"></path><circle cx="11" cy="5" r="1"></circle><circle cx="14" cy="9" r="1"></circle><circle cx="9" cy="13" r="1"></circle></svg>
+      </button>
+      <button type="button" aria-label="Sessions" title="Sessions">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="5" r="3"></circle><path d="M3 14c.5-3 2-4.5 5-4.5s4.5 1.5 5 4.5"></path></svg>
+      </button>
+      <button type="button" aria-label="Health" title="Health" aria-current="page">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8h3l1.5-4 3 8L11 8h3"></path></svg>
+      </button>
+      <button type="button" aria-label="Settings" title="Settings">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.5"></circle><path d="M8 2v2M8 12v2M2 8h2M12 8h2M3.8 3.8l1.4 1.4M10.8 10.8l1.4 1.4M12.2 3.8l-1.4 1.4M5.2 10.8l-1.4 1.4"></path></svg>
+      </button>
+      <button type="button" aria-label="Help" title="Help">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M6.4 6a1.8 1.8 0 1 1 2.8 1.5C8.3 8 8 8.5 8 9.5M8 12h.01"></path></svg>
+      </button>
+    </nav>
+
+    <header class="commandbar">
+      <span class="project-name">Bytedesk Marketplace</span>
+      <span class="compact-chip epic-chip mono">EP-006</span>
+      <span class="compact-chip sprint-chip mono">SP-003 · 12/20 pts · 2 unsized</span>
+      <span class="status-chip live-chip"><span class="live-dot" aria-hidden="true">●</span> live</span>
+      <div class="command-search">
+        <label for="global-search">Search tasks and filters</label>
+        <input id="global-search" type="search" placeholder="Search or type a filter — status:open label:ui">
+        <span class="command-hint" aria-hidden="true">⌘K</span>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <div class="page">
+        <header class="page-header">
+          <div>
+            <h1>Health</h1>
+            <p class="route mono">/doctor</p>
+          </div>
+        </header>
+
+        <nav class="tabs" aria-label="Health sections">
+          <button type="button" role="tab" aria-selected="true">Doctor</button>
+          <button type="button" role="tab" aria-selected="false">Export</button>
+          <button type="button" role="tab" aria-selected="false">Notifications</button>
+          <button type="button" role="tab" aria-selected="false">Override</button>
+        </nav>
+
+        <section aria-labelledby="doctor-summary">
+          <div class="summary">
+            <p class="summary-line" id="doctor-summary">
+              <span class="count">2</span> errors ·
+              <span class="count">3</span> warnings ·
+              <span class="count">5</span> fixable
+            </p>
+            <div class="summary-actions">
+              <button type="button" class="primary">Fix all unambiguous (5)</button>
+              <button type="button">Reindex</button>
+            </div>
+          </div>
+
+          <section class="confirmation" aria-labelledby="fix-confirmation">
+            <h2 id="fix-confirmation">Confirm fix all</h2>
+            <p>Rewrites <span class="mono">5</span> task files and logs <span class="mono">doctor_fix</span>. Cycles and <span class="mono">done-unmet</span> are never auto-fixed.</p>
+            <div class="confirm-controls">
+              <label class="check-label" for="understand">
+                <input id="understand" type="checkbox">
+                I understand
+              </label>
+              <button type="button" class="primary" disabled>Fix 5 findings</button>
+            </div>
+          </section>
+        </section>
+
+        <section class="finding-group" aria-labelledby="errors-heading">
+          <h2 id="errors-heading">Errors</h2>
+          <ul class="finding-list" role="list">
+            <li class="finding" tabindex="0">
+              <span class="level-chip error"><span aria-hidden="true">●</span> error</span>
+              <div class="finding-main">
+                <div class="finding-identity">
+                  <code class="finding-code">dangling-dep</code>
+                  <span class="entity">TM-014</span>
+                </div>
+                <p class="finding-message">blockedBy names TM-404, which does not exist</p>
+              </div>
+              <div class="finding-meta">
+                <span class="compact-chip fixable">fixable</span>
+                <button type="button">Fix</button>
+              </div>
+            </li>
+
+            <li class="finding" tabindex="-1">
+              <span class="level-chip error"><span aria-hidden="true">●</span> error</span>
+              <div class="finding-main">
+                <div class="finding-identity">
+                  <code class="finding-code">orphan-epic</code>
+                  <span class="entity">EP-002</span>
+                </div>
+                <p class="finding-message">epic has no matching index entry and cannot be reached from the active roadmap</p>
+              </div>
+              <div class="finding-meta">
+                <span class="compact-chip fixable">fixable</span>
+                <button type="button">Fix</button>
+              </div>
+            </li>
+          </ul>
+        </section>
+
+        <section class="finding-group" aria-labelledby="warnings-heading">
+          <h2 id="warnings-heading">Warnings</h2>
+          <ul class="finding-list" role="list">
+            <li class="finding" tabindex="-1">
+              <span class="level-chip warning"><span aria-hidden="true">●</span> warning</span>
+              <div class="finding-main">
+                <div class="finding-identity">
+                  <code class="finding-code">one-sided-dep</code>
+                  <span class="entity">TM-021</span>
+                </div>
+                <p class="finding-message">TM-021 names TM-018 in blockedBy, but TM-018 does not name TM-021 in blocks; resuming from either record would produce conflicting dependency state</p>
+              </div>
+              <div class="finding-meta">
+                <span class="compact-chip fixable">fixable</span>
+                <button type="button">Fix</button>
+              </div>
+            </li>
+
+            <li class="finding" tabindex="-1">
+              <span class="level-chip warning"><span aria-hidden="true">●</span> warning</span>
+              <div class="finding-main">
+                <div class="finding-identity">
+                  <code class="finding-code">missing-evidence</code>
+                  <span class="entity">TM-033</span>
+                </div>
+                <p class="finding-message">acceptance criterion 2 is ticked but has no evidence reference</p>
+              </div>
+              <div class="finding-meta">
+                <span class="compact-chip fixable">fixable</span>
+                <button type="button">Fix</button>
+              </div>
+            </li>
+
+            <li class="finding" tabindex="-1">
+              <span class="level-chip warning"><span aria-hidden="true">●</span> warning</span>
+              <div class="finding-main">
+                <div class="finding-identity">
+                  <code class="finding-code">done-unmet</code>
+                  <span class="entity">TM-040</span>
+                </div>
+                <p class="finding-message">done refused: 2 acceptance criteria unmet (3, 4). Tick them or .</p>
+              </div>
+              <div class="finding-meta">
+                <span class="judgement">not auto-fixable — a judgement</span>
+                <button type="button" disabled>Fix</button>
+              </div>
+            </li>
+          </ul>
+        </section>
+
+        <p class="clean-note">When the store is consistent this page says: Store is consistent — nothing to repair.</p>
+
+        <section class="export-panel" aria-labelledby="export-heading">
+          <h2 id="export-heading">Export</h2>
+          <form>
+            <div class="export-controls">
+              <div class="field">
+                <label for="format">Format</label>
+                <select id="format" name="format">
+                  <option selected>md</option>
+                  <option>csv</option>
+                  <option>json</option>
+                </select>
+              </div>
+
+              <div class="field">
+                <label for="epic-filter">Epic</label>
+                <select id="epic-filter" name="epic">
+                  <option selected>EP-006 · Dashboard rewrite</option>
+                  <option>All epics</option>
+                </select>
+              </div>
+
+              <div class="field">
+                <label for="status-filter">Status</label>
+                <select id="status-filter" name="status">
+                  <option selected>All statuses</option>
+                  <option>Backlog</option>
+                  <option>Todo</option>
+                  <option>In progress</option>
+                  <option>Blocked</option>
+                  <option>Parked</option>
+                  <option>Done</option>
+                </select>
+              </div>
+
+              <label class="check-label export-check" for="open-only">
+                <input id="open-only" type="checkbox" checked>
+                Open only
+              </label>
+
+              <label class="check-label export-check" for="include-events">
+                <input id="include-events" type="checkbox">
+                Include events
+              </label>
+
+              <button type="button" class="primary">Download</button>
+            </div>
+          </form>
+
+          <p class="preview-label">Markdown preview · first <span class="mono">6</span> lines</p>
+          <pre tabindex="-1"># EP-006 — Dashboard rewrite on the ByteDesk design system
+Status: in progress
+Sprint: SP-003
+Open tasks: 8
+Blocked tasks: 2
+Generated: 2026-09-01T14:32:08-04:00</pre>
+        </section>
+      </div>
+    </main>
+
+    <footer class="statusbar">Illustrative mockup — fictional data — not production source</footer>
+
+    <nav class="mobile-tabs" aria-label="Mobile navigation">
+      <button type="button" aria-label="Board" title="Board">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="5" height="12"></rect><rect x="9" y="2" width="5" height="7"></rect></svg>
+        <span>Board</span>
+      </button>
+      <button type="button" aria-label="Backlog" title="Backlog">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4h10M3 8h10M3 12h7"></path></svg>
+        <span>Backlog</span>
+      </button>
+      <button type="button" aria-label="Sessions" title="Sessions">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="5" r="3"></circle><path d="M3 14c.5-3 2-4.5 5-4.5s4.5 1.5 5 4.5"></path></svg>
+        <span>Sessions</span>
+      </button>
+      <button type="button" aria-label="More" title="More" aria-current="page">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="3" cy="8" r="1"></circle><circle cx="8" cy="8" r="1"></circle><circle cx="13" cy="8" r="1"></circle></svg>
+        <span>More</span>
+      </button>
+    </nav>
+  </div>
+</body>
+</html>

@@ -1,0 +1,1050 @@
+<!doctype html>
+<html lang="en" data-bd-product="task-management" data-bd-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Board · Bytedesk Marketplace</title>
+  <link rel="stylesheet" href="tokens/bytedesk.css">
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      min-height: 100%;
+      margin: var(--bd-space-0);
+      overflow: hidden;
+      background: var(--bd-bg-base);
+      color: var(--bd-text-primary);
+      font-family: var(--bd-font-sans);
+      font-size: var(--bd-text-body);
+      line-height: var(--bd-line-height-body);
+    }
+
+    button,
+    input {
+      color: inherit;
+      font: inherit;
+    }
+
+    button,
+    input,
+    [tabindex] {
+      outline: none;
+    }
+
+    button:focus-visible,
+    input:focus-visible,
+    [tabindex]:focus-visible {
+      outline: var(--bd-stroke-focus) solid var(--bd-focus-ring);
+      outline-offset: var(--bd-stroke-focus);
+    }
+
+    button {
+      min-height: var(--bd-size-control-compact);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-default);
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-surface);
+      cursor: pointer;
+    }
+
+    .mono,
+    .entity-id,
+    .count,
+    .machine-chip,
+    kbd,
+    time {
+      font-family: var(--bd-font-mono);
+    }
+
+    .app-shell {
+      display: grid;
+      grid-template-columns: var(--bd-size-shell-rail) minmax(0, 1fr);
+      grid-template-rows: var(--bd-size-shell-commandbar) minmax(0, 1fr) var(--bd-size-shell-statusbar);
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .rail {
+      grid-column: 1;
+      grid-row: 1 / 4;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: var(--bd-space-1);
+      padding: var(--bd-space-2) var(--bd-space-1);
+      border-right: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      background: var(--bd-bg-surface);
+    }
+
+    .rail-button {
+      display: grid;
+      place-items: center;
+      width: var(--bd-size-control-compact);
+      height: var(--bd-size-control-compact);
+      min-height: var(--bd-size-control-compact);
+      padding: var(--bd-space-0);
+      border-color: var(--bd-border-dimmer);
+      color: var(--bd-text-tertiary);
+      background: var(--bd-bg-surface);
+    }
+
+    .rail-button[aria-current="page"] {
+      border-color: var(--bd-accent);
+      color: var(--bd-accent);
+      background: var(--bd-accent-subtle);
+    }
+
+    .rail-button:hover {
+      color: var(--bd-text-primary);
+      background: var(--bd-bg-hover);
+    }
+
+    .rail-button svg {
+      width: var(--bd-size-icon-sm);
+      height: var(--bd-size-icon-sm);
+      fill: none;
+      stroke: currentColor;
+      stroke-width: var(--bd-stroke-active);
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .command-bar {
+      grid-column: 2;
+      grid-row: 1;
+      display: flex;
+      align-items: center;
+      gap: var(--bd-space-2);
+      min-width: 0;
+      height: var(--bd-size-shell-commandbar);
+      padding: var(--bd-space-1) var(--bd-space-3);
+      border-bottom: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      background: var(--bd-bg-surface);
+    }
+
+    .project-name {
+      flex: 0 0 auto;
+      font-size: var(--bd-text-body-sm);
+      font-weight: var(--bd-font-weight-semibold);
+      white-space: nowrap;
+    }
+
+    .command-chip,
+    .filter-chip,
+    .meta-chip,
+    .priority-chip,
+    .queued-chip,
+    .refused-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--bd-space-1);
+      min-width: 0;
+      min-height: var(--bd-size-control-compact);
+      padding: var(--bd-space-0) var(--bd-space-2);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-subtle);
+      color: var(--bd-text-secondary);
+      font-size: var(--bd-text-caption);
+      white-space: nowrap;
+    }
+
+    .command-chip {
+      font-family: var(--bd-font-mono);
+    }
+
+    .liveness {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--bd-space-1);
+      flex: 0 0 auto;
+      min-height: var(--bd-size-control-compact);
+      padding: var(--bd-space-0) var(--bd-space-2);
+      border: var(--bd-stroke-hairline) solid var(--bd-accent-muted);
+      border-radius: var(--bd-radius-sm);
+      color: var(--bd-accent);
+      background: var(--bd-accent-subtle);
+      font-size: var(--bd-text-caption);
+      font-weight: var(--bd-font-weight-medium);
+    }
+
+    .live-dot,
+    .status-dot {
+      display: inline-block;
+      flex: 0 0 auto;
+      width: var(--bd-size-chart-point);
+      height: var(--bd-size-chart-point);
+      border-radius: var(--bd-radius-full);
+      background: currentColor;
+    }
+
+    .command-search {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+
+    .command-search label,
+    .board-search label {
+      position: absolute;
+      width: var(--bd-stroke-hairline);
+      height: var(--bd-stroke-hairline);
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+
+    .command-search input,
+    .board-search input {
+      width: 100%;
+      height: var(--bd-size-control-compact);
+      min-width: 0;
+      padding: var(--bd-space-0) var(--bd-space-2);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-base);
+      color: var(--bd-text-primary);
+      font-size: var(--bd-text-body-sm);
+    }
+
+    .command-search input::placeholder {
+      color: var(--bd-text-tertiary);
+    }
+
+    kbd {
+      display: inline-grid;
+      place-items: center;
+      min-width: var(--bd-size-control-compact);
+      height: var(--bd-size-control-compact);
+      padding: var(--bd-space-0) var(--bd-space-1);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-default);
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-subtle);
+      color: var(--bd-text-secondary);
+      font-size: var(--bd-text-caption);
+      font-weight: var(--bd-font-weight-medium);
+    }
+
+    main {
+      grid-column: 2;
+      grid-row: 2;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      background: var(--bd-bg-base);
+    }
+
+    .board-screen {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      width: 100%;
+      height: 100%;
+      min-width: 0;
+    }
+
+    .filter-row {
+      display: flex;
+      align-items: center;
+      gap: var(--bd-space-2);
+      min-width: 0;
+      padding: var(--bd-space-3);
+      border-bottom: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      background: var(--bd-bg-base);
+    }
+
+    .board-search {
+      flex: 1 1 var(--bd-size-panel-minimum);
+      min-width: var(--bd-size-panel-minimum);
+    }
+
+    .board-search input {
+      font-family: var(--bd-font-mono);
+    }
+
+    .active-filters {
+      display: flex;
+      align-items: center;
+      gap: var(--bd-space-1);
+      min-width: 0;
+    }
+
+    .filter-chip {
+      padding-right: var(--bd-space-1);
+      color: var(--bd-text-secondary);
+    }
+
+    .filter-chip button {
+      display: grid;
+      place-items: center;
+      width: var(--bd-size-control-compact);
+      height: var(--bd-size-control-compact);
+      min-height: var(--bd-size-control-compact);
+      padding: var(--bd-space-0);
+      border: 0;
+      background: transparent;
+      color: var(--bd-text-tertiary);
+    }
+
+    .toggle-control {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--bd-space-2);
+      white-space: nowrap;
+      color: var(--bd-text-secondary);
+      font-size: var(--bd-text-body-sm);
+    }
+
+    .toggle-control input {
+      width: var(--bd-size-control-compact);
+      height: var(--bd-size-icon-sm);
+      margin: var(--bd-space-0);
+      accent-color: var(--bd-accent);
+    }
+
+    .filter-action {
+      flex: 0 0 auto;
+      padding: var(--bd-space-0) var(--bd-space-3);
+      color: var(--bd-text-secondary);
+    }
+
+    .filter-action.primary {
+      border-color: var(--bd-accent-emphasis);
+      background: var(--bd-accent);
+      color: var(--bd-text-on-brand);
+      font-weight: var(--bd-font-weight-semibold);
+    }
+
+    .filter-action:hover {
+      background: var(--bd-bg-hover);
+      color: var(--bd-text-primary);
+    }
+
+    .filter-action.primary:hover {
+      background: var(--bd-accent-emphasis);
+      color: var(--bd-text-on-brand);
+    }
+
+    .mobile-status-switcher {
+      display: none;
+    }
+
+    .board-scroll {
+      min-width: 0;
+      min-height: 0;
+      overflow-x: auto;
+      overflow-y: hidden;
+      overscroll-behavior-inline: contain;
+      scrollbar-color: var(--bd-border-stronger) var(--bd-bg-base);
+    }
+
+    .board-columns {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: var(--bd-space-3);
+      min-width: 100%;
+      height: 100%;
+      padding: var(--bd-space-3);
+    }
+
+    .board-column {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      min-width: 0;
+      min-height: 0;
+      scroll-snap-align: start;
+    }
+
+    .column-header {
+      display: flex;
+      align-items: center;
+      gap: var(--bd-space-2);
+      min-height: var(--bd-size-row-default);
+      padding: var(--bd-space-1) var(--bd-space-1) var(--bd-space-2);
+    }
+
+    .column-header h2 {
+      margin: var(--bd-space-0);
+      font-size: var(--bd-text-body);
+      font-weight: var(--bd-font-weight-semibold);
+    }
+
+    .column-header .count {
+      color: var(--bd-text-tertiary);
+      font-size: var(--bd-text-caption);
+    }
+
+    .column-header kbd {
+      margin-left: auto;
+    }
+
+    .status-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--bd-space-1);
+      min-height: var(--bd-size-control-compact);
+      padding: var(--bd-space-0) var(--bd-space-2);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-full);
+      font-size: var(--bd-text-caption);
+      font-weight: var(--bd-font-weight-medium);
+      white-space: nowrap;
+    }
+
+    .status-backlog {
+      color: var(--bd-text-tertiary);
+      background: var(--bd-bg-subtle);
+      border-color: var(--bd-border-dimmer);
+    }
+
+    .status-todo {
+      color: var(--bd-text-secondary);
+      background: var(--bd-bg-subtle);
+      border-color: var(--bd-border-default);
+    }
+
+    .status-progress {
+      color: var(--bd-info);
+      background: var(--bd-info-bg);
+      border-color: var(--bd-info-line);
+    }
+
+    .status-blocked {
+      color: var(--bd-danger);
+      background: var(--bd-danger-bg);
+      border-color: var(--bd-danger-line);
+    }
+
+    .status-parked {
+      color: var(--bd-warning);
+      background: var(--bd-warning-bg);
+      border-color: var(--bd-warning-line);
+    }
+
+    .status-done {
+      color: var(--bd-success);
+      background: var(--bd-success-bg);
+      border-color: var(--bd-success-line);
+    }
+
+    .card-list {
+      display: flex;
+      flex-direction: column;
+      gap: var(--bd-space-2);
+      min-height: 0;
+      margin: var(--bd-space-0);
+      padding: var(--bd-space-0);
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      list-style: none;
+    }
+
+    .task-card {
+      position: relative;
+      display: grid;
+      gap: var(--bd-space-2);
+      min-width: 0;
+      padding: var(--bd-space-3);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-md);
+      background: var(--bd-bg-surface);
+    }
+
+    .task-card:hover {
+      background: var(--bd-bg-hover);
+    }
+
+    .task-card.claimed {
+      box-shadow: inset 2px 0 var(--bd-accent), var(--bd-shadow-focus-glow);
+    }
+
+    .task-card.claimed::after {
+      position: absolute;
+      inset-block: var(--bd-space-0);
+      left: var(--bd-space-0);
+      width: 2px;
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-accent);
+      content: "";
+      pointer-events: none;
+    }
+
+    .card-identity {
+      display: flex;
+      align-items: center;
+      gap: var(--bd-space-2);
+      min-width: 0;
+    }
+
+    .entity-id {
+      color: var(--bd-text-tertiary);
+      font-size: var(--bd-text-caption);
+      font-weight: var(--bd-font-weight-medium);
+      white-space: nowrap;
+    }
+
+    .card-identity .status-chip {
+      margin-left: auto;
+      min-height: var(--bd-size-icon-lg);
+      padding-inline: var(--bd-space-2);
+    }
+
+    .task-card h3 {
+      display: -webkit-box;
+      margin: var(--bd-space-0);
+      overflow: hidden;
+      color: var(--bd-text-primary);
+      font-size: var(--bd-text-body);
+      font-weight: var(--bd-font-weight-medium);
+      line-height: var(--bd-line-height-compact);
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 1;
+    }
+
+    .task-card.long-title h3 {
+      -webkit-line-clamp: 3;
+    }
+
+    .card-chips {
+      display: flex;
+      align-items: center;
+      gap: var(--bd-space-1);
+      min-width: 0;
+      overflow: hidden;
+      white-space: nowrap;
+    }
+
+    .meta-chip,
+    .priority-chip,
+    .queued-chip,
+    .refused-chip {
+      min-height: var(--bd-size-icon-lg);
+      padding: var(--bd-space-0) var(--bd-space-2);
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .machine-chip {
+      font-size: var(--bd-text-caption);
+    }
+
+    .priority-chip {
+      color: var(--bd-text-primary);
+      font-weight: var(--bd-font-weight-medium);
+    }
+
+    .queued-chip {
+      color: var(--bd-warning);
+      border-color: var(--bd-warning-line);
+      background: var(--bd-warning-bg);
+    }
+
+    .refused-chip {
+      color: var(--bd-danger);
+      border-color: var(--bd-danger-line);
+      background: var(--bd-danger-bg);
+    }
+
+    .session-chip {
+      color: var(--bd-info);
+      border-color: var(--bd-info-line);
+      background: var(--bd-info-bg);
+    }
+
+    .dependency-chip {
+      color: var(--bd-danger);
+      border-color: var(--bd-danger-line);
+      background: var(--bd-danger-bg);
+    }
+
+    .stop-reason,
+    .refusal-text {
+      margin: var(--bd-space-0);
+      overflow: hidden;
+      color: var(--bd-text-secondary);
+      font-size: var(--bd-text-caption);
+      line-height: var(--bd-line-height-compact);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .refusal-text {
+      color: var(--bd-danger);
+      font-family: var(--bd-font-mono);
+    }
+
+    .status-bar {
+      grid-column: 2;
+      grid-row: 3;
+      display: flex;
+      align-items: center;
+      min-width: 0;
+      height: var(--bd-size-shell-statusbar);
+      padding: var(--bd-space-0) var(--bd-space-3);
+      border-top: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      background: var(--bd-bg-surface);
+      color: var(--bd-text-tertiary);
+      font-size: var(--bd-text-caption);
+      white-space: nowrap;
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+      button,
+      .task-card {
+        transition:
+          opacity var(--bd-duration-fast) var(--bd-ease-out-expo),
+          transform var(--bd-duration-fast) var(--bd-ease-out-expo);
+      }
+
+      .task-card.claimed::after,
+      .live-dot {
+        animation: live-write var(--bd-duration-slow) var(--bd-ease-out-expo) infinite alternate;
+      }
+
+      @keyframes live-write {
+        from {
+          opacity: 0.6;
+        }
+
+        to {
+          opacity: 1;
+        }
+      }
+    }
+
+    @media (max-width: 1200px) {
+      .board-columns {
+        grid-template-columns: repeat(6, calc((100vw - var(--bd-size-shell-rail) - var(--bd-space-6)) / 4));
+        min-width: max-content;
+        scroll-snap-type: x mandatory;
+      }
+
+      .active-filters .filter-chip:nth-child(3) {
+        display: none;
+      }
+
+      .toggle-control {
+        display: none;
+      }
+    }
+
+    @media (max-width: 720px) {
+      html,
+      body {
+        overflow: hidden;
+      }
+
+      button,
+      .command-search input,
+      .board-search input {
+        min-height: var(--bd-size-hit-target-touch);
+      }
+
+      .app-shell {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: var(--bd-size-shell-commandbar) minmax(0, 1fr) var(--bd-size-shell-statusbar) var(--bd-size-hit-target-touch);
+      }
+
+      .command-bar {
+        grid-column: 1;
+        grid-row: 1;
+        gap: var(--bd-space-1);
+        padding-inline: var(--bd-space-2);
+      }
+
+      .project-name,
+      .command-chip,
+      .command-bar > kbd {
+        display: none;
+      }
+
+      .command-search input {
+        height: var(--bd-size-control-compact);
+        min-height: var(--bd-size-control-compact);
+      }
+
+      main {
+        grid-column: 1;
+        grid-row: 2;
+      }
+
+      .status-bar {
+        grid-column: 1;
+        grid-row: 3;
+        padding-inline: var(--bd-space-2);
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .rail {
+        position: fixed;
+        inset-inline: var(--bd-space-0);
+        bottom: var(--bd-space-0);
+        z-index: 2;
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        width: 100%;
+        height: var(--bd-size-hit-target-touch);
+        padding: var(--bd-space-0);
+        border-top: var(--bd-stroke-hairline) solid var(--bd-border-default);
+        border-right: 0;
+      }
+
+      .rail-button {
+        width: 100%;
+        height: var(--bd-size-hit-target-touch);
+        min-height: var(--bd-size-hit-target-touch);
+        border: 0;
+        border-radius: var(--bd-radius-sm);
+      }
+
+      .rail-button:nth-child(4),
+      .rail-button:nth-child(5),
+      .rail-button:nth-child(7),
+      .rail-button:nth-child(8),
+      .rail-button:nth-child(9) {
+        display: none;
+      }
+
+      .rail-button:nth-child(6) {
+        grid-column: 3;
+      }
+
+      .rail-button:nth-child(3) {
+        grid-column: 4;
+        grid-row: 1;
+      }
+
+      .rail-button:nth-child(3) title {
+        content: "More";
+      }
+
+      .board-screen {
+        grid-template-rows: auto auto minmax(0, 1fr);
+      }
+
+      .filter-row {
+        flex-wrap: wrap;
+        gap: var(--bd-space-2);
+        padding: var(--bd-space-2);
+      }
+
+      .board-search {
+        flex-basis: 100%;
+        min-width: 0;
+      }
+
+      .active-filters,
+      .toggle-control,
+      .saved-views,
+      .new-epic {
+        display: none;
+      }
+
+      .filter-action.primary {
+        margin-left: auto;
+      }
+
+      .mobile-status-switcher {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: var(--bd-space-1);
+        padding: var(--bd-space-2);
+        overflow-x: auto;
+        border-bottom: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+        background: var(--bd-bg-base);
+      }
+
+      .mobile-status-switcher button {
+        min-width: var(--bd-size-row-touch);
+        min-height: var(--bd-size-hit-target-touch);
+        padding-inline: var(--bd-space-2);
+        color: var(--bd-text-tertiary);
+        font-size: var(--bd-text-caption);
+        white-space: nowrap;
+      }
+
+      .mobile-status-switcher button[aria-pressed="true"] {
+        border-color: var(--bd-info-line);
+        background: var(--bd-info-bg);
+        color: var(--bd-info);
+      }
+
+      .board-scroll {
+        overflow-x: hidden;
+        overflow-y: auto;
+      }
+
+      .board-columns {
+        display: block;
+        min-width: 0;
+        height: auto;
+        padding: var(--bd-space-2);
+      }
+
+      .board-column {
+        display: none;
+      }
+
+      .board-column[data-status="in-progress"] {
+        display: grid;
+        width: 100%;
+      }
+
+      .column-header kbd {
+        display: none;
+      }
+
+      .card-list {
+        overflow: visible;
+      }
+
+      .task-card {
+        border-radius: var(--bd-radius-lg);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <nav class="rail" aria-label="Primary">
+      <button class="rail-button" type="button" aria-label="Board" aria-current="page">
+        <title>Board</title>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="5" height="12"></rect><rect x="9" y="2" width="5" height="7"></rect></svg>
+      </button>
+      <button class="rail-button" type="button" aria-label="Backlog">
+        <title>Backlog</title>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4h10M3 8h10M3 12h7"></path></svg>
+      </button>
+      <button class="rail-button" type="button" aria-label="Epics">
+        <title>Epics</title>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2l6 4-6 4-6-4 6-4zM3 9l5 3 5-3M3 12l5 3 5-3"></path></svg>
+      </button>
+      <button class="rail-button" type="button" aria-label="Graph">
+        <title>Graph</title>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="3" cy="8" r="1.5"></circle><circle cx="8" cy="3" r="1.5"></circle><circle cx="13" cy="8" r="1.5"></circle><circle cx="8" cy="13" r="1.5"></circle><path d="M4 7l3-3M9 4l3 3M12 9l-3 3M7 12L4 9"></path></svg>
+      </button>
+      <button class="rail-button" type="button" aria-label="Timeline">
+        <title>Timeline</title>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h4M8 4h6M2 8h8M12 8h2M2 12h2M6 12h8"></path><circle cx="7" cy="4" r="1"></circle><circle cx="11" cy="8" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg>
+      </button>
+      <button class="rail-button" type="button" aria-label="Sessions">
+        <title>Sessions</title>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="9"></rect><path d="M5 14h6M5 6l2 2-2 2M9 10h2"></path></svg>
+      </button>
+      <button class="rail-button" type="button" aria-label="Health">
+        <title>Health</title>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8h3l2-4 2 8 2-4h3"></path></svg>
+      </button>
+      <button class="rail-button" type="button" aria-label="Settings">
+        <title>Settings</title>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.5"></circle><path d="M8 2v2M8 12v2M2 8h2M12 8h2M3.8 3.8l1.4 1.4M10.8 10.8l1.4 1.4M12.2 3.8l-1.4 1.4M5.2 10.8l-1.4 1.4"></path></svg>
+      </button>
+      <button class="rail-button" type="button" aria-label="Help">
+        <title>Help</title>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M6.5 6a1.7 1.7 0 113 1c-.8.7-1.5 1-1.5 2M8 12h.01"></path></svg>
+      </button>
+    </nav>
+
+    <header class="command-bar">
+      <span class="project-name">Bytedesk Marketplace</span>
+      <span class="command-chip">EP-006</span>
+      <span class="command-chip">SP-003 · 12/20 pts · 2 unsized</span>
+      <span class="liveness"><span class="live-dot" aria-hidden="true"></span>live</span>
+      <div class="command-search">
+        <label for="command-search">Command search</label>
+        <input id="command-search" type="search" placeholder="Search or type a filter — status:open label:ui">
+      </div>
+      <kbd>⌘K</kbd>
+    </header>
+
+    <main>
+      <section class="board-screen" aria-labelledby="board-heading">
+        <h1 id="board-heading" hidden>Task board</h1>
+
+        <div class="filter-row">
+          <div class="board-search">
+            <label for="board-filter">Board filter</label>
+            <input id="board-filter" type="search" value="status:open label:ui">
+          </div>
+
+          <div class="active-filters" aria-label="Active filters">
+            <span class="filter-chip"><span class="mono">status:open</span><button type="button" aria-label="Remove status open filter">×</button></span>
+            <span class="filter-chip"><span class="mono">label:ui</span><button type="button" aria-label="Remove UI label filter">×</button></span>
+            <span class="filter-chip"><span class="mono">epic:EP-006</span><button type="button" aria-label="Remove epic filter">×</button></span>
+          </div>
+
+          <label class="toggle-control">
+            <input type="checkbox">
+            <span>Group by epic</span>
+          </label>
+
+          <button class="filter-action saved-views" type="button">Saved views ▾</button>
+          <button class="filter-action primary" type="button">New task</button>
+          <button class="filter-action new-epic" type="button">New epic</button>
+        </div>
+
+        <nav class="mobile-status-switcher" aria-label="Board status">
+          <button type="button" aria-pressed="false">Backlog</button>
+          <button type="button" aria-pressed="false">Todo</button>
+          <button type="button" aria-pressed="true">In progress</button>
+          <button type="button" aria-pressed="false">Blocked</button>
+          <button type="button" aria-pressed="false">Parked</button>
+          <button type="button" aria-pressed="false">Done</button>
+        </nav>
+
+        <div class="board-scroll">
+          <div class="board-columns">
+            <section class="board-column" data-status="backlog" aria-labelledby="backlog-heading">
+              <header class="column-header">
+                <h2 id="backlog-heading"><span class="status-chip status-backlog"><span class="status-dot" aria-hidden="true"></span>backlog</span></h2>
+                <span class="count">3</span>
+                <kbd>1</kbd>
+              </header>
+              <ul class="card-list" role="list">
+                <li class="task-card" tabindex="-1">
+                  <div class="card-identity"><span class="entity-id">TM-049</span><span class="status-chip status-backlog"><span class="status-dot" aria-hidden="true"></span>backlog</span></div>
+                  <h3>Define stable board ordering for concurrent writers</h3>
+                  <div class="card-chips"><span class="meta-chip machine-chip">EP-006</span><span class="priority-chip">▲ high</span><span class="meta-chip machine-chip">5 pts</span></div>
+                </li>
+                <li class="task-card" tabindex="-1">
+                  <div class="card-identity"><span class="entity-id">TM-050</span><span class="status-chip status-backlog"><span class="status-dot" aria-hidden="true"></span>backlog</span></div>
+                  <h3>Replay offline writes through the CLI gate</h3>
+                  <div class="card-chips"><span class="meta-chip machine-chip">EP-006</span><span class="queued-chip">queued</span><span class="meta-chip machine-chip">3 pts</span></div>
+                </li>
+                <li class="task-card long-title" tabindex="-1">
+                  <div class="card-identity"><span class="entity-id">TM-051</span><span class="status-chip status-backlog"><span class="status-dot" aria-hidden="true"></span>backlog</span></div>
+                  <h3>Install the plugin on a clean machine and drive it, once, as a stranger, then write down every place it lied</h3>
+                  <div class="card-chips"><span class="meta-chip machine-chip">EP-006</span><span class="meta-chip machine-chip">5 pts</span></div>
+                </li>
+              </ul>
+            </section>
+
+            <section class="board-column" data-status="todo" aria-labelledby="todo-heading">
+              <header class="column-header">
+                <h2 id="todo-heading"><span class="status-chip status-todo"><span class="status-dot" aria-hidden="true"></span>todo</span></h2>
+                <span class="count">5</span>
+                <kbd>2</kbd>
+              </header>
+              <ul class="card-list" role="list">
+                <li class="task-card" tabindex="-1">
+                  <div class="card-identity"><span class="entity-id">TM-054</span><span class="status-chip status-todo"><span class="status-dot" aria-hidden="true"></span>todo</span></div>
+                  <h3>Render acceptance checks beside evidence</h3>
+                  <div class="card-chips"><span class="meta-chip machine-chip">EP-006</span><span class="priority-chip">▲ high</span><span class="meta-chip machine-chip">AC 2/4</span></div>
+                </li>
+                <li class="task-card" tabindex="-1">
+                  <div class="card-identity"><span class="entity-id">TM-055</span><span class="status-chip status-todo"><span class="status-dot" aria-hidden="true"></span>todo</span></div>
+                  <h3>Add keyboard-first card claiming</h3>
+                  <div class="card-chips"><span class="meta-chip machine-chip">EP-006</span><span class="meta-chip machine-chip">3 pts</span></div>
+                </li>
+                <li class="task-card" tabindex="-1">
+                  <div class="card-identity"><span class="entity-id">TM-056</span><span class="status-chip status-todo"><span class="status-dot" aria-hidden="true"></span>todo</span></div>
+                  <h3>Expose refusal output without paraphrasing</h3>
+                  <div class="card-chips"><span class="meta-chip machine-chip">EP-006</span><span class="meta-chip machine-chip">2 pts</span></div>
+                </li>
+                <li class="task-card" tabindex="-1">
+                  <div class="card-identity"><span class="entity-id">TM-057</span><span class="status-chip status-todo"><span class="status-dot" aria-hidden="true"></span>todo</span></div>
+                  <h3>Persist saved filters in the markdown store</h3>
+                  <div class="card-chips"><span class="meta-chip machine-chip">EP-006</span><span class="meta-chip machine-chip">3 pts</span></div>
+                </li>
+                <li class="task-card" tabindex="-1">
+                  <div class="card-identity"><span class="entity-id">TM-058</span><span class="status-chip status-todo"><span class="status-dot" aria-hidden="true"></span>todo</span></div>
+                  <h3>Add the MCP worktree verb</h3>
+                  <div class="card-chips"><span class="meta-chip machine-chip">EP-006</span><span class="meta-chip machine-chip">5 pts</span></div>
+                </li>
+              </ul>
+            </section>
+
+            <section class="board-column" data-status="in-progress" aria-labelledby="progress-heading">
+              <header class="column-header">
+                <h2 id="progress-heading"><span class="status-chip status-progress"><span class="status-dot" aria-hidden="true"></span>in progress</span></h2>
+                <span class="count">2</span>
+                <kbd>3</kbd>
+              </header>
+              <ul class="card-list" role="list">
+                <li class="task-card claimed" tabindex="0">
+                  <div class="card-identity"><span class="entity-id">TM-052</span><span class="status-chip status-progress"><span class="status-dot" aria-hidden="true"></span>in progress</span></div>
+                  <h3>FE board, backlog, epics screens</h3>
+                  <div class="card-chips"><span class="meta-chip machine-chip">EP-006</span><span class="meta-chip machine-chip session-chip">codex · 61c6…</span><span class="meta-chip machine-chip">AC 2/4</span></div>
+                </li>
+                <li class="task-card" tabindex="-1">
+                  <div class="card-identity"><span class="entity-id">TM-053</span><span class="status-chip status-progress"><span class="status-dot" aria-hidden="true"></span>in progress</span></div>
+                  <h3>Wire board mutations to the shared gate</h3>
+                  <div class="card-chips"><span class="meta-chip machine-chip">EP-006</span><span class="meta-chip">unclaimed</span><span class="meta-chip machine-chip">5 pts</span></div>
+                </li>
+              </ul>
+            </section>
+
+            <section class="board-column" data-status="blocked" aria-labelledby="blocked-heading">
+              <header class="column-header">
+                <h2 id="blocked-heading"><span class="status-chip status-blocked"><span class="status-dot" aria-hidden="true"></span>blocked</span></h2>
+                <span class="count">1</span>
+                <kbd>4</kbd>
+              </header>
+              <ul class="card-list" role="list">
+                <li class="task-card" tabindex="-1">
+                  <div class="card-identity"><span class="entity-id">TM-059</span><span class="status-chip status-blocked"><span class="status-dot" aria-hidden="true"></span>blocked</span></div>
+                  <h3>Open task worktrees from the board</h3>
+                  <div class="card-chips"><span class="meta-chip machine-chip">EP-006</span><span class="meta-chip machine-chip dependency-chip">⊘ TM-058</span></div>
+                  <p class="stop-reason">blocked: needs the MCP worktree verb first</p>
+                </li>
+              </ul>
+            </section>
+
+            <section class="board-column" data-status="parked" aria-labelledby="parked-heading">
+              <header class="column-header">
+                <h2 id="parked-heading"><span class="status-chip status-parked"><span class="status-dot" aria-hidden="true"></span>parked</span></h2>
+                <span class="count">1</span>
+                <kbd>5</kbd>
+              </header>
+              <ul class="card-list" role="list">
+                <li class="task-card" tabindex="-1">
+                  <div class="card-identity"><span class="entity-id">TM-060</span><span class="status-chip status-parked"><span class="status-dot" aria-hidden="true"></span>parked</span></div>
+                  <h3>Publish the dashboard plugin bundle</h3>
+                  <div class="card-chips"><span class="meta-chip machine-chip">EP-006</span><span class="meta-chip machine-chip">3 pts</span></div>
+                  <p class="stop-reason">waiting on counsel for the licence question before the…</p>
+                </li>
+              </ul>
+            </section>
+
+            <section class="board-column" data-status="done" aria-labelledby="done-heading">
+              <header class="column-header">
+                <h2 id="done-heading"><span class="status-chip status-done"><span class="status-dot" aria-hidden="true"></span>done</span></h2>
+                <span class="count">4</span>
+                <kbd>6</kbd>
+              </header>
+              <ul class="card-list" role="list">
+                <li class="task-card" tabindex="-1">
+                  <div class="card-identity"><span class="entity-id">TM-061</span><span class="status-chip status-done"><span class="status-dot" aria-hidden="true"></span>done</span></div>
+                  <h3>Define the dashboard token contract</h3>
+                  <div class="card-chips"><span class="meta-chip machine-chip">EP-006</span><span class="meta-chip machine-chip">AC 4/4</span></div>
+                </li>
+                <li class="task-card" tabindex="-1">
+                  <div class="card-identity"><span class="entity-id">TM-062</span><span class="status-chip status-done"><span class="status-dot" aria-hidden="true"></span>done</span></div>
+                  <h3>Record task claim ownership in markdown</h3>
+                  <div class="card-chips"><span class="meta-chip machine-chip">EP-006</span><span class="meta-chip machine-chip">3 pts</span></div>
+                </li>
+                <li class="task-card" tabindex="-1">
+                  <div class="card-identity"><span class="entity-id">TM-063</span><span class="status-chip status-done"><span class="status-dot" aria-hidden="true"></span>done</span></div>
+                  <h3>Finish the responsive board acceptance pass</h3>
+                  <div class="card-chips"><span class="meta-chip machine-chip">EP-006</span><span class="refused-chip">refused</span></div>
+                  <p class="refusal-text">done refused: 2 acceptance criteria unmet (3, 4).</p>
+                </li>
+                <li class="task-card" tabindex="-1">
+                  <div class="card-identity"><span class="entity-id">TM-064</span><span class="status-chip status-done"><span class="status-dot" aria-hidden="true"></span>done</span></div>
+                  <h3>Document the roving card focus contract</h3>
+                  <div class="card-chips"><span class="meta-chip machine-chip">EP-006</span><span class="meta-chip machine-chip">2 pts</span></div>
+                </li>
+              </ul>
+            </section>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="status-bar">Illustrative mockup — fictional data — not production source</footer>
+  </div>
+</body>
+</html>

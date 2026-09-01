@@ -1,0 +1,272 @@
+{
+  "slug": "2026-09-01-tm-dashboard",
+  "product": "task-management",
+  "design_root": "explicit ~/Pictures/claude-design (authority runs/ would pollute the upstream repo)",
+  "authority": {
+    "path": "/home/ryan/Documents/GitHub/ByteDeskAI/design-system",
+    "sha": "f652565",
+    "read_at": "2026-09-01T20:10:00Z",
+    "note": "doctor reported 3 uncommitted changes in the authority checkout (.bytedesk/knowledge files, not tokens or profiles)"
+  },
+  "codex": {
+    "version": "codex-cli 0.152.0",
+    "verified_at": "2026-09-01T20:10:00Z"
+  },
+  "profile": {
+    "source": "authority",
+    "path": "/home/ryan/Documents/GitHub/ByteDeskAI/design-system/profiles/task-management/DESIGN.md"
+  },
+  "orchestration_note": "run by one fork; nested workers unavailable in this context, so every stage was executed inline by the same context after reading its SKILL.md",
+  "stages": {
+    "discovery": {
+      "status": "complete",
+      "artifacts": [
+        "brief.md"
+      ],
+      "codex": [
+        "discovery-a-reply.txt",
+        "discovery-b-reply.txt",
+        "discovery-c-reply.txt"
+      ],
+      "chosen": "C — The Register, with A grafted"
+    },
+    "identity": {
+      "status": "skipped",
+      "reason": "no product mark; board icon is a build-time asset"
+    },
+    "direction": {
+      "status": "complete",
+      "rounds": 2,
+      "artifacts": [
+        "direction/images/r1-c.png",
+        "direction/images/r2-a.png",
+        "direction/images/r2-b.png"
+      ],
+      "viewed": [
+        {
+          "artifact": "direction/images/r1-a.png",
+          "sha": "sha256:f4ed2166dc120416"
+        },
+        {
+          "artifact": "direction/images/r1-b.png",
+          "sha": "sha256:520120eecb8edd27"
+        },
+        {
+          "artifact": "direction/images/r1-c.png",
+          "sha": "sha256:21ee2a83b3e02f63"
+        },
+        {
+          "artifact": "direction/images/r2-a.png",
+          "sha": "sha256:75716fdc317c3f1a"
+        },
+        {
+          "artifact": "direction/images/r2-b.png",
+          "sha": "sha256:95a230467124b012"
+        }
+      ],
+      "prompts": "direction/prompts/",
+      "notes": "direction/notes.md"
+    },
+    "surface": {
+      "status": "complete",
+      "rounds": {
+        "backlog": 2,
+        "health": 2,
+        "default": 1
+      },
+      "artifacts": [
+        "surfaces/board.html",
+        "surfaces/backlog.html",
+        "surfaces/task.html",
+        "surfaces/epic.html",
+        "surfaces/graph.html",
+        "surfaces/timeline.html",
+        "surfaces/sessions.html",
+        "surfaces/health.html",
+        "surfaces/settings.html"
+      ],
+      "renders_with": [
+        {
+          "artifact": "surfaces/tokens/bytedesk.css",
+          "sha": "sha256:30ee40d3df39e08f"
+        }
+      ],
+      "surface_tree_sha": "sha256:098667884179f1c0",
+      "viewed": [
+        {
+          "artifact": "surfaces/board.html",
+          "sha": "sha256:0dbb4b64e67f0acd"
+        },
+        {
+          "artifact": "review/screenshots/board-1440-dark.png",
+          "sha": "sha256:ea407febc759d189"
+        },
+        {
+          "artifact": "review/screenshots/board-1440-light.png",
+          "sha": "sha256:517523e8530d8123"
+        },
+        {
+          "artifact": "review/screenshots/board-390-dark.png",
+          "sha": "sha256:411fab45550d41e1"
+        },
+        {
+          "artifact": "surfaces/backlog.html",
+          "sha": "sha256:0751ef8646c7b717"
+        },
+        {
+          "artifact": "review/screenshots/backlog-1440-dark.png",
+          "sha": "sha256:f0f54309d062ade6"
+        },
+        {
+          "artifact": "review/screenshots/backlog-1440-light.png",
+          "sha": "sha256:b4eb214ee9c86760"
+        },
+        {
+          "artifact": "review/screenshots/backlog-390-dark.png",
+          "sha": "sha256:b49226f4191c1824"
+        },
+        {
+          "artifact": "surfaces/task.html",
+          "sha": "sha256:ba55194842d91489"
+        },
+        {
+          "artifact": "review/screenshots/task-1440-dark.png",
+          "sha": "sha256:c904f418be14930a"
+        },
+        {
+          "artifact": "review/screenshots/task-1440-light.png",
+          "sha": "sha256:4ce776bbb77729b6"
+        },
+        {
+          "artifact": "review/screenshots/task-390-dark.png",
+          "sha": "sha256:c47e15e218b32200"
+        },
+        {
+          "artifact": "surfaces/epic.html",
+          "sha": "sha256:f7ef757b374f4a6a"
+        },
+        {
+          "artifact": "review/screenshots/epic-1440-dark.png",
+          "sha": "sha256:65899c461d6440a4"
+        },
+        {
+          "artifact": "review/screenshots/epic-1440-light.png",
+          "sha": "sha256:eb483c5f9892d252"
+        },
+        {
+          "artifact": "review/screenshots/epic-390-dark.png",
+          "sha": "sha256:21ce50c23d80d7ab"
+        },
+        {
+          "artifact": "surfaces/graph.html",
+          "sha": "sha256:f158c219dd816192"
+        },
+        {
+          "artifact": "review/screenshots/graph-1440-dark.png",
+          "sha": "sha256:a5a2f0a4380ffd7d"
+        },
+        {
+          "artifact": "review/screenshots/graph-1440-light.png",
+          "sha": "sha256:c71c5cb499b2a23f"
+        },
+        {
+          "artifact": "review/screenshots/graph-390-dark.png",
+          "sha": "sha256:07b8cba0111be986"
+        },
+        {
+          "artifact": "surfaces/timeline.html",
+          "sha": "sha256:0d77adade181a8bb"
+        },
+        {
+          "artifact": "review/screenshots/timeline-1440-dark.png",
+          "sha": "sha256:882427026ce98cd0"
+        },
+        {
+          "artifact": "review/screenshots/timeline-1440-light.png",
+          "sha": "sha256:aea69812235fa493"
+        },
+        {
+          "artifact": "review/screenshots/timeline-390-dark.png",
+          "sha": "sha256:92da2ccd3e2cbe56"
+        },
+        {
+          "artifact": "surfaces/sessions.html",
+          "sha": "sha256:1588b2167f0a9cab"
+        },
+        {
+          "artifact": "review/screenshots/sessions-1440-dark.png",
+          "sha": "sha256:f139e7db6c1d6031"
+        },
+        {
+          "artifact": "review/screenshots/sessions-1440-light.png",
+          "sha": "sha256:9d69c0912c8150da"
+        },
+        {
+          "artifact": "review/screenshots/sessions-390-dark.png",
+          "sha": "sha256:2fa4df70bf262d93"
+        },
+        {
+          "artifact": "surfaces/health.html",
+          "sha": "sha256:7901f2bcf8d28b2c"
+        },
+        {
+          "artifact": "review/screenshots/health-1440-dark.png",
+          "sha": "sha256:59f9e8e20eb5a5a4"
+        },
+        {
+          "artifact": "review/screenshots/health-1440-light.png",
+          "sha": "sha256:f8bcc9f8e6591496"
+        },
+        {
+          "artifact": "review/screenshots/health-390-dark.png",
+          "sha": "sha256:234bff57daa188f2"
+        },
+        {
+          "artifact": "surfaces/settings.html",
+          "sha": "sha256:90178a3c5a9471ad"
+        },
+        {
+          "artifact": "review/screenshots/settings-1440-dark.png",
+          "sha": "sha256:31b701f75e45b668"
+        },
+        {
+          "artifact": "review/screenshots/settings-1440-light.png",
+          "sha": "sha256:92e778ce9d8699bb"
+        },
+        {
+          "artifact": "review/screenshots/settings-390-dark.png",
+          "sha": "sha256:7cde6a059adbeda7"
+        }
+      ],
+      "screenshots": "review/screenshots/ (dark+light × 1440/1024/390 for every surface; the 1440-dark, 1440-light and 390-dark renders were opened in context)",
+      "renderer": "playwright 1.58 headless (agent-browser MCP unavailable)",
+      "notes": "surfaces/notes.md"
+    },
+    "publish": {
+      "status": "skipped",
+      "reason": "not requested"
+    },
+    "review": {
+      "status": "complete",
+      "artifacts": [
+        "review/findings.json"
+      ],
+      "blind_reads": [
+        "critic-backlog-reply.txt",
+        "critic-board-reply.txt",
+        "critic-epic-reply.txt",
+        "critic-graph-reply.txt",
+        "critic-ground-reply.txt",
+        "critic-health-reply.txt",
+        "critic-hero-reply.txt",
+        "critic-og-reply.txt",
+        "critic-sessions-reply.txt",
+        "critic-settings-reply.txt",
+        "critic-task-reply.txt",
+        "critic-timeline-reply.txt"
+      ],
+      "independence": "blind reads independent; reconciliation by the producing context"
+    }
+  },
+  "completed_at": "2026-09-01T20:36:39.430Z"
+}

@@ -1,0 +1,7 @@
+Generate exactly one image with your native image generation tool.
+Do not run any shell commands. Do not read or write any files.
+
+IMAGE PROMPT:
+A matte abstract still-life texture, 16:9 landscape. A field of identical thin rectangular plates lying flat at rest on a near-black matte ground, arranged in a loose, slightly irregular grid seen from above like a board. The plates are the same dark charcoal as the ground, barely distinguishable, each edged with the faintest hairline so the grid reads. Exactly one plate is lifted a few millimetres above the field and lit along one single edge by a thin cool blue seam of light; the light does not fill the plate and does not spill into a glow over the field. Every other plate is unlit. Fine even film grain across the whole frame. Matte surfaces only. The ground is unlifted and uniform: no fog, no haze, no vignette, no frosted wash. No text, no logo, no icons, no interface elements, no numbers, no gradient backgrounds, no lens flare, no bloom, no reflections, no glossy highlights, no bevels. Viewpoint: a low oblique angle, about fifteen degrees above the plane, so the plates read as thin slabs with visible thickness receding toward the top of the frame; the lifted plate is in the near foreground, its raised near edge carrying the seam of light; the far rows dissolve into the dark ground.
+
+When the image is done, reply with exactly one line: DONE

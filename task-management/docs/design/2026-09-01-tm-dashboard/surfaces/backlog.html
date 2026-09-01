@@ -1,0 +1,984 @@
+<!doctype html>
+<html lang="en" data-bd-product="task-management" data-bd-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Backlog — Bytedesk Marketplace</title>
+  <link rel="stylesheet" href="tokens/bytedesk.css">
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      min-height: 100%;
+      margin: var(--bd-space-0);
+      overflow-x: hidden;
+      background: var(--bd-bg-base);
+      color: var(--bd-text-primary);
+      font-family: var(--bd-font-sans);
+      font-size: var(--bd-text-body);
+      line-height: var(--bd-line-height-body);
+    }
+
+    button,
+    input {
+      color: inherit;
+      font: inherit;
+    }
+
+    button,
+    input[type="checkbox"] {
+      cursor: pointer;
+    }
+
+    button:focus-visible,
+    input:focus-visible,
+    tr:focus-visible {
+      outline: var(--bd-stroke-focus) solid var(--bd-focus-ring);
+      outline-offset: var(--bd-space-1);
+    }
+
+    .mono,
+    code,
+    time,
+    .entity-id,
+    .machine-value {
+      font-family: var(--bd-font-mono);
+    }
+
+    .shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: var(--bd-size-shell-rail) minmax(0, 1fr);
+      grid-template-rows: var(--bd-size-shell-commandbar) minmax(0, 1fr) var(--bd-size-shell-statusbar);
+    }
+
+    .rail {
+      grid-column: 1;
+      grid-row: 1 / 4;
+      position: fixed;
+      inset-block: 0;
+      inset-inline-start: 0;
+      z-index: 4;
+      width: var(--bd-size-shell-rail);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: var(--bd-space-1);
+      padding: var(--bd-space-2) var(--bd-space-1);
+      border-inline-end: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      background: var(--bd-bg-surface);
+    }
+
+    .rail-button {
+      width: var(--bd-size-control-compact);
+      height: var(--bd-size-control-compact);
+      flex: 0 0 var(--bd-size-control-compact);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: var(--bd-space-0);
+      border: var(--bd-stroke-hairline) solid transparent;
+      border-radius: var(--bd-radius-sm);
+      background: transparent;
+      color: var(--bd-text-tertiary);
+    }
+
+    .rail-button:hover {
+      background: var(--bd-bg-hover);
+      color: var(--bd-text-primary);
+    }
+
+    .rail-button[aria-current="page"] {
+      border-color: var(--bd-info-line);
+      background: var(--bd-info-bg);
+      color: var(--bd-info);
+    }
+
+    .rail-button svg {
+      width: var(--bd-size-icon-sm);
+      height: var(--bd-size-icon-sm);
+      fill: none;
+      stroke: currentColor;
+      stroke-width: var(--bd-stroke-active);
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .mobile-label {
+      display: none;
+    }
+
+    .command-bar {
+      grid-column: 2;
+      grid-row: 1;
+      position: sticky;
+      inset-block-start: 0;
+      z-index: 3;
+      height: var(--bd-size-shell-commandbar);
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: var(--bd-space-2);
+      padding: var(--bd-space-1) var(--bd-space-3);
+      border-block-end: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      background: var(--bd-bg-surface);
+    }
+
+    .project-name {
+      min-width: max-content;
+      font-weight: var(--bd-font-weight-semibold);
+      white-space: nowrap;
+    }
+
+    .chip,
+    .epic-chip,
+    .sprint-chip {
+      min-height: var(--bd-size-control-compact);
+      display: inline-flex;
+      align-items: center;
+      gap: var(--bd-space-1);
+      padding-inline: var(--bd-space-2);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-default);
+      border-radius: var(--bd-radius-md);
+      background: var(--bd-bg-subtle);
+      color: var(--bd-text-secondary);
+      white-space: nowrap;
+    }
+
+    .entity-chip {
+      font-family: var(--bd-font-mono);
+    }
+
+    .live-chip {
+      border-color: var(--bd-info-line);
+      border-radius: var(--bd-radius-full);
+      background: var(--bd-info-bg);
+      color: var(--bd-info);
+      font-weight: var(--bd-font-weight-medium);
+    }
+
+    .live-dot {
+      color: var(--bd-accent);
+    }
+
+    .search-wrap {
+      min-width: var(--bd-space-10);
+      flex: 1 1 auto;
+      display: flex;
+      align-items: center;
+      gap: var(--bd-space-1);
+    }
+
+    .search-wrap label {
+      position: absolute;
+      width: var(--bd-space-1);
+      height: var(--bd-space-1);
+      overflow: hidden;
+      clip-path: inset(100%);
+      white-space: nowrap;
+    }
+
+    .search-field {
+      width: 100%;
+      height: var(--bd-size-control-compact);
+      min-width: 0;
+      padding-inline: var(--bd-space-3);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-default);
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-base);
+      color: var(--bd-text-primary);
+    }
+
+    .search-field::placeholder {
+      color: var(--bd-text-tertiary);
+    }
+
+    kbd {
+      min-width: max-content;
+      padding: var(--bd-space-1) var(--bd-space-2);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-default);
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-subtle);
+      color: var(--bd-text-secondary);
+      font-family: var(--bd-font-mono);
+      font-size: var(--bd-text-caption);
+      line-height: var(--bd-line-height-compact);
+    }
+
+    main {
+      grid-column: 2;
+      grid-row: 2;
+      min-width: 0;
+      overflow: auto;
+      background: var(--bd-bg-base);
+    }
+
+    .canvas {
+      min-width: 0;
+      padding: var(--bd-space-4);
+    }
+
+    .page-heading {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: var(--bd-space-4);
+      margin-block-end: var(--bd-space-3);
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: var(--bd-space-0);
+    }
+
+    h1 {
+      font-size: var(--bd-text-h2);
+      font-weight: var(--bd-font-weight-semibold);
+      line-height: var(--bd-line-height-tight);
+      letter-spacing: var(--bd-letter-spacing-tight);
+    }
+
+    .route {
+      color: var(--bd-text-tertiary);
+      font-size: var(--bd-text-body-sm);
+    }
+
+    .backlog-panel {
+      min-width: 0;
+      border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      border-radius: var(--bd-radius-lg);
+      background: var(--bd-bg-surface);
+      overflow: clip;
+    }
+
+    .sprint-header {
+      position: sticky;
+      inset-block-start: 0;
+      z-index: 2;
+      min-height: var(--bd-size-row-default);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--bd-space-3);
+      padding: var(--bd-space-2) var(--bd-space-3);
+      border-block-end: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      background: var(--bd-bg-surface);
+    }
+
+    .sprint-summary {
+      min-width: 0;
+      color: var(--bd-text-secondary);
+      font-family: var(--bd-font-mono);
+      font-size: var(--bd-text-body-sm);
+    }
+
+    .action-group,
+    .bulk-actions {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: var(--bd-space-2);
+    }
+
+    .action-button {
+      min-height: var(--bd-size-control-compact);
+      padding-inline: var(--bd-space-3);
+      border: var(--bd-stroke-hairline) solid var(--bd-border-default);
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-subtle);
+      color: var(--bd-text-secondary);
+      white-space: nowrap;
+    }
+
+    .action-button:hover {
+      background: var(--bd-bg-hover);
+      color: var(--bd-text-primary);
+    }
+
+    .action-button.primary {
+      border-color: var(--bd-accent);
+      background: var(--bd-accent-subtle);
+      color: var(--bd-accent-fg);
+      font-weight: var(--bd-font-weight-medium);
+    }
+
+    .action-button.danger {
+      border-color: var(--bd-danger-line);
+      color: var(--bd-danger);
+    }
+
+    .bulk-bar {
+      min-height: var(--bd-size-row-default);
+      display: flex;
+      align-items: center;
+      gap: var(--bd-space-3);
+      padding: var(--bd-space-2) var(--bd-space-3);
+      border-block-end: var(--bd-stroke-hairline) solid var(--bd-info-line);
+      background: var(--bd-info-bg);
+      color: var(--bd-info);
+    }
+
+    .selected-count {
+      font-family: var(--bd-font-mono);
+      font-weight: var(--bd-font-weight-semibold);
+      white-space: nowrap;
+    }
+
+    .bulk-actions .action-button {
+      border-color: var(--bd-info-line);
+      background: var(--bd-bg-surface);
+      color: var(--bd-text-primary);
+    }
+
+    .table-scroll {
+      min-width: 0;
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+
+    col.check {
+      width: var(--bd-size-row-default);
+    }
+
+    col.rank {
+      width: var(--bd-space-10);
+    }
+
+    col.id {
+      width: var(--bd-space-10);
+    }
+
+    col.title {
+      width: auto;
+    }
+
+    col.epic {
+      width: 8rem;
+    }
+
+    col.priority {
+      width: 7rem;
+    }
+
+    col.points {
+      width: 5rem;
+    }
+
+    col.sprint {
+      width: 8rem;
+    }
+
+    col.blocked {
+      width: 14rem;
+    }
+
+    thead {
+      background: var(--bd-bg-subtle);
+    }
+
+    th,
+    td {
+      padding: var(--bd-space-2) var(--bd-space-3);
+      border-block-end: var(--bd-stroke-hairline) solid var(--bd-border-dimmest);
+      text-align: start;
+      vertical-align: middle;
+    }
+
+    th {
+      color: var(--bd-text-tertiary);
+      font-size: var(--bd-text-caption);
+      font-weight: var(--bd-font-weight-semibold);
+      line-height: var(--bd-line-height-compact);
+    }
+
+    tbody tr {
+      position: relative;
+      background: var(--bd-bg-surface);
+    }
+
+    tbody tr:hover {
+      background: var(--bd-bg-hover);
+    }
+
+    tbody tr.selected {
+      border-inline-start: var(--bd-stroke-hairline) solid var(--bd-accent);
+      background: var(--bd-bg-hover);
+    }
+
+    tbody tr:last-child td {
+      border-block-end: 0;
+    }
+
+    td:first-child,
+    th:first-child {
+      text-align: center;
+    }
+
+    input[type="checkbox"] {
+      width: var(--bd-size-icon-sm);
+      height: var(--bd-size-icon-sm);
+      margin: var(--bd-space-0);
+      accent-color: var(--bd-accent);
+    }
+
+    .title-cell {
+      min-width: 12rem;
+      color: var(--bd-text-primary);
+      font-weight: var(--bd-font-weight-medium);
+      overflow-wrap: break-word;
+    }
+
+    .muted {
+      color: var(--bd-text-tertiary);
+    }
+
+    .priority {
+      color: var(--bd-text-secondary);
+      white-space: nowrap;
+    }
+
+    .priority.high {
+      color: var(--bd-danger);
+    }
+
+    .priority.low {
+      color: var(--bd-text-tertiary);
+    }
+
+    .unranked {
+      margin: var(--bd-space-4);
+      padding: var(--bd-space-4);
+      border: var(--bd-stroke-hairline) dashed var(--bd-border-default);
+      border-radius: var(--bd-radius-md);
+      background: var(--bd-bg-subtle);
+    }
+
+    .unranked h2 {
+      margin-block-end: var(--bd-space-1);
+      font-size: var(--bd-text-h4);
+      font-weight: var(--bd-font-weight-semibold);
+    }
+
+    .unranked p {
+      color: var(--bd-text-secondary);
+    }
+
+    code {
+      padding: var(--bd-space-1);
+      border-radius: var(--bd-radius-sm);
+      background: var(--bd-bg-base);
+      color: var(--bd-text-primary);
+      font-size: var(--bd-text-console-sm);
+    }
+
+    .status-bar {
+      grid-column: 2;
+      grid-row: 3;
+      display: flex;
+      align-items: center;
+      padding-inline: var(--bd-space-3);
+      border-block-start: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      background: var(--bd-bg-surface);
+      color: var(--bd-text-tertiary);
+      font-size: var(--bd-text-caption);
+      line-height: var(--bd-line-height-compact);
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+      .rail-button,
+      .action-button {
+        transition:
+          opacity var(--bd-duration-fast) var(--bd-ease-out-expo),
+          transform var(--bd-duration-fast) var(--bd-ease-out-expo);
+      }
+    }
+
+    @media (max-width: 1200px) {
+      .command-bar {
+        gap: var(--bd-space-1);
+      }
+
+      .sprint-chip {
+        display: none;
+      }
+
+      col.epic,
+      col.priority,
+      col.points,
+      col.sprint {
+        width: var(--bd-space-10);
+      }
+
+      col.blocked {
+        width: var(--bd-size-panel-minimum);
+      }
+    }
+
+    @media (max-width: 720px) {
+      .shell {
+        display: block;
+        min-height: 100vh;
+        padding-block-start: var(--bd-size-shell-commandbar);
+        padding-block-end: calc(var(--bd-size-hit-target-touch) + var(--bd-size-shell-statusbar));
+      }
+
+      .rail {
+        inset-block-start: auto;
+        inset-block-end: var(--bd-size-shell-statusbar);
+        inset-inline: 0;
+        width: 100%;
+        height: var(--bd-size-hit-target-touch);
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: var(--bd-space-0);
+        padding: var(--bd-space-0);
+        border-inline-end: 0;
+        border-block-start: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+      }
+
+      .rail-button {
+        width: 100%;
+        height: var(--bd-size-hit-target-touch);
+        display: none;
+        flex-direction: column;
+        gap: var(--bd-space-1);
+        border: 0;
+        border-radius: var(--bd-space-0);
+        font-size: var(--bd-text-caption);
+      }
+
+      .rail-button.mobile-tab {
+        display: inline-flex;
+      }
+
+      .mobile-label {
+        display: inline;
+      }
+
+      .command-bar {
+        position: fixed;
+        inset-block-start: 0;
+        inset-inline: 0;
+        height: var(--bd-size-shell-commandbar);
+        padding-inline: var(--bd-space-2);
+      }
+
+      .project-name,
+      .entity-chip,
+      .live-chip,
+      kbd {
+        display: none;
+      }
+
+      .search-wrap {
+        min-width: 0;
+      }
+
+      .search-field,
+      .action-button,
+      .chip,
+      .epic-chip,
+      .sprint-chip {
+        min-height: var(--bd-size-hit-target-touch);
+      }
+
+      main {
+        overflow: visible;
+      }
+
+      .canvas {
+        padding: var(--bd-space-3);
+      }
+
+      .page-heading {
+        margin-block-end: var(--bd-space-3);
+      }
+
+      .route {
+        display: none;
+      }
+
+      .sprint-header {
+        position: static;
+        align-items: flex-start;
+        flex-direction: column;
+        padding: var(--bd-space-3);
+      }
+
+      .sprint-summary {
+        white-space: normal;
+      }
+
+      .action-group {
+        width: 100%;
+      }
+
+      .action-group .action-button {
+        flex: 1 1 auto;
+      }
+
+      .bulk-bar {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .bulk-actions {
+        width: 100%;
+      }
+
+      .bulk-actions .action-button {
+        flex: 1 1 auto;
+      }
+
+      .table-scroll {
+        overflow: visible;
+      }
+
+      table,
+      thead,
+      tbody,
+      tr,
+      th,
+      td {
+        display: block;
+      }
+
+      table {
+        table-layout: auto;
+      }
+
+      colgroup,
+      thead {
+        display: none;
+      }
+
+      tbody {
+        padding: var(--bd-space-2);
+      }
+
+      tbody tr {
+        margin-block-end: var(--bd-space-2);
+        padding: var(--bd-space-2) var(--bd-space-3);
+        border: var(--bd-stroke-hairline) solid var(--bd-border-dimmer);
+        border-radius: var(--bd-radius-md);
+      }
+
+      tbody tr.selected {
+        border-inline-start: var(--bd-stroke-active) solid var(--bd-accent);
+      }
+
+      tbody tr:last-child {
+        margin-block-end: var(--bd-space-0);
+      }
+
+      td {
+        min-height: var(--bd-size-row-touch);
+        display: grid;
+        grid-template-columns: var(--bd-size-panel-minimum) minmax(0, 1fr);
+        align-items: center;
+        gap: var(--bd-space-2);
+        padding: var(--bd-space-1) var(--bd-space-0);
+        border-block-end: var(--bd-stroke-hairline) solid var(--bd-border-dimmest);
+      }
+
+      td::before {
+        content: attr(data-label);
+        color: var(--bd-text-tertiary);
+        font-size: var(--bd-text-caption);
+        font-weight: var(--bd-font-weight-semibold);
+      }
+
+      td:first-child {
+        text-align: start;
+      }
+
+      td:last-child {
+        border-block-end: 0;
+      }
+
+      .check-cell {
+        grid-template-columns: var(--bd-size-control-touch) minmax(0, 1fr);
+      }
+
+      .title-cell {
+        align-items: start;
+      }
+
+      .unranked {
+        margin: var(--bd-space-3);
+      }
+
+      .status-bar {
+        position: fixed;
+        inset-inline: 0;
+        inset-block-end: 0;
+        z-index: 5;
+        height: var(--bd-size-shell-statusbar);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <nav class="rail" aria-label="Primary navigation">
+      <button class="rail-button mobile-tab" type="button" aria-label="Board" title="Board">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="5" height="5"></rect><rect x="9" y="2" width="5" height="5"></rect><rect x="2" y="9" width="5" height="5"></rect><rect x="9" y="9" width="5" height="5"></rect></svg>
+        <span class="mobile-label">Board</span>
+      </button>
+      <button class="rail-button mobile-tab" type="button" aria-label="Backlog" title="Backlog" aria-current="page">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 3h10M4 8h10M4 13h10"></path><path d="M2 3h0M2 8h0M2 13h0"></path></svg>
+        <span class="mobile-label">Backlog</span>
+      </button>
+      <button class="rail-button" type="button" aria-label="Epics" title="Epics">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4h10v9H3z"></path><path d="M5 2h6v2M5 7h6M5 10h4"></path></svg>
+      </button>
+      <button class="rail-button" type="button" aria-label="Graph" title="Graph">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="3" cy="8" r="2"></circle><circle cx="12" cy="3" r="2"></circle><circle cx="13" cy="12" r="2"></circle><path d="M5 7l5-3M5 9l6 2"></path></svg>
+      </button>
+      <button class="rail-button" type="button" aria-label="Timeline" title="Timeline">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8h12"></path><circle cx="4" cy="8" r="2"></circle><circle cx="11" cy="8" r="2"></circle></svg>
+      </button>
+      <button class="rail-button mobile-tab" type="button" aria-label="Sessions" title="Sessions">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3h10v8H8l-3 3v-3H3z"></path><path d="M6 6h4M6 8h3"></path></svg>
+        <span class="mobile-label">Sessions</span>
+      </button>
+      <button class="rail-button" type="button" aria-label="Health" title="Health">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8h3l2-4 3 8 2-4h2"></path></svg>
+      </button>
+      <button class="rail-button" type="button" aria-label="Settings" title="Settings">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2"></circle><path d="M8 2v2M8 12v2M2 8h2M12 8h2M3.8 3.8l1.4 1.4M10.8 10.8l1.4 1.4M12.2 3.8l-1.4 1.4M5.2 10.8l-1.4 1.4"></path></svg>
+      </button>
+      <button class="rail-button mobile-tab" type="button" aria-label="Help" title="More">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M6.5 6a1.7 1.7 0 1 1 2.5 1.5C8.3 8 8 8.4 8 9M8 12h0"></path></svg>
+        <span class="mobile-label">More</span>
+      </button>
+    </nav>
+
+    <header class="command-bar">
+      <span class="project-name">Bytedesk Marketplace</span>
+      <span class="chip entity-chip">EP-006</span>
+      <span class="chip sprint-chip">SP-003 · 12/20 pts · 2 unsized</span>
+      <span class="chip live-chip"><span class="live-dot" aria-hidden="true">●</span> live</span>
+      <div class="search-wrap">
+        <label for="global-search">Search backlog</label>
+        <input id="global-search" class="search-field" type="search" placeholder="Search or type a filter — status:open label:ui">
+        <kbd>⌘K</kbd>
+      </div>
+    </header>
+
+    <main>
+      <div class="canvas">
+        <div class="page-heading">
+          <h1>Backlog</h1>
+          <span class="route mono">/backlog</span>
+        </div>
+
+        <section class="backlog-panel" aria-labelledby="backlog-table-title">
+          <div class="sprint-header">
+            <p id="backlog-table-title" class="sprint-summary">Sprint <span class="entity-id">SP-003</span> · ends <time datetime="2026-09-14">2026-09-14</time> · <span class="machine-value">12/20 pts</span> committed · <span class="machine-value">2</span> unsized</p>
+            <div class="action-group" aria-label="Sprint actions">
+              <button class="action-button primary" type="button">Commit selected</button>
+              <button class="action-button" type="button">Uncommit</button>
+              <button class="action-button danger" type="button">Close sprint</button>
+            </div>
+          </div>
+
+          <div class="bulk-bar" aria-label="Bulk actions">
+            <span class="selected-count">3 selected</span>
+            <span aria-hidden="true">—</span>
+            <div class="bulk-actions">
+              <button class="action-button" type="button">Move to ▾</button>
+              <button class="action-button" type="button">Priority ▾</button>
+              <button class="action-button" type="button">Assign</button>
+              <button class="action-button" type="button">Label</button>
+              <button class="action-button" type="button">This sprint</button>
+              <button class="action-button" type="button">Clear</button>
+            </div>
+          </div>
+
+          <div class="table-scroll">
+            <table aria-label="Ranked backlog">
+              <colgroup>
+                <col class="check">
+                <col class="rank">
+                <col class="id">
+                <col class="title">
+                <col class="epic">
+                <col class="priority">
+                <col class="points">
+                <col class="blocked">
+                <col class="sprint">
+              </colgroup>
+              <thead>
+                <tr>
+                  <th scope="col"><span class="muted">✓</span></th>
+                  <th scope="col">Rank</th>
+                  <th scope="col">Id</th>
+                  <th scope="col">Title</th>
+                  <th scope="col">Epic</th>
+                  <th scope="col">Priority</th>
+                  <th scope="col">Points</th>
+                  <th scope="col">Blocked by</th>
+                  <th scope="col">Sprint</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr tabindex="-1">
+                  <td class="check-cell" data-label="Select"><input type="checkbox" checked aria-label="Select TM-049"></td>
+                  <td class="mono" data-label="Rank">1000</td>
+                  <td class="entity-id" data-label="Id">TM-049</td>
+                  <td class="title-cell" data-label="Title">Vendor dashboard navigation tokens</td>
+                  <td data-label="Epic"><span class="epic-chip entity-id">EP-006</span></td>
+                  <td class="priority high" data-label="Priority">▲ high</td>
+                  <td class="mono" data-label="Points">3</td>
+                  <td class="mono muted" data-label="Blocked by">—</td>
+                  <td data-label="Sprint"><span class="sprint-chip entity-id">SP-003</span></td>
+                </tr>
+                <tr tabindex="-1">
+                  <td class="check-cell" data-label="Select"><input type="checkbox" aria-label="Select TM-050"></td>
+                  <td class="mono" data-label="Rank">2000</td>
+                  <td class="entity-id" data-label="Id">TM-050</td>
+                  <td class="title-cell" data-label="Title">Persist backlog filters in the route</td>
+                  <td data-label="Epic"><span class="epic-chip entity-id">EP-006</span></td>
+                  <td class="priority" data-label="Priority">◆ medium</td>
+                  <td class="mono" data-label="Points">2</td>
+                  <td class="mono muted" data-label="Blocked by">—</td>
+                  <td data-label="Sprint"><span class="sprint-chip entity-id">SP-003</span></td>
+                </tr>
+                <tr class="selected" tabindex="0" aria-selected="true">
+                  <td class="check-cell" data-label="Select"><input type="checkbox" checked aria-label="Select TM-051"></td>
+                  <td class="mono" data-label="Rank">2500</td>
+                  <td class="entity-id" data-label="Id">TM-051</td>
+                  <td class="title-cell" data-label="Title">Render gate refusals with exact CLI wording across bulk actions</td>
+                  <td data-label="Epic"><span class="epic-chip entity-id">EP-006</span></td>
+                  <td class="priority high" data-label="Priority">▲ high</td>
+                  <td class="mono" data-label="Points">5</td>
+                  <td class="mono" data-label="Blocked by">TM-044, TM-046, TM-048</td>
+                  <td data-label="Sprint"><span class="sprint-chip entity-id">SP-003</span></td>
+                </tr>
+                <tr tabindex="-1">
+                  <td class="check-cell" data-label="Select"><input type="checkbox" aria-label="Select TM-052"></td>
+                  <td class="mono" data-label="Rank">3000</td>
+                  <td class="entity-id" data-label="Id">TM-052</td>
+                  <td class="title-cell" data-label="Title">Add keyboard-safe row selection</td>
+                  <td data-label="Epic"><span class="epic-chip entity-id">EP-006</span></td>
+                  <td class="priority" data-label="Priority">◆ medium</td>
+                  <td class="mono" data-label="Points">3</td>
+                  <td class="mono muted" data-label="Blocked by">—</td>
+                  <td data-label="Sprint"><span class="sprint-chip entity-id">SP-003</span></td>
+                </tr>
+                <tr tabindex="-1">
+                  <td class="check-cell" data-label="Select"><input type="checkbox" checked aria-label="Select TM-053"></td>
+                  <td class="mono" data-label="Rank">4000</td>
+                  <td class="entity-id" data-label="Id">TM-053</td>
+                  <td class="title-cell" data-label="Title">Unify claim metadata from Claude, Codex and Grok sessions</td>
+                  <td data-label="Epic"><span class="epic-chip entity-id">EP-006</span></td>
+                  <td class="priority high" data-label="Priority">▲ high</td>
+                  <td class="mono" data-label="Points">13</td>
+                  <td class="mono" data-label="Blocked by">TM-047</td>
+                  <td class="mono muted" data-label="Sprint">—</td>
+                </tr>
+                <tr tabindex="-1">
+                  <td class="check-cell" data-label="Select"><input type="checkbox" aria-label="Select TM-054"></td>
+                  <td class="mono" data-label="Rank">5000</td>
+                  <td class="entity-id" data-label="Id">TM-054</td>
+                  <td class="title-cell" data-label="Title">Show evidence attachments beside acceptance criteria</td>
+                  <td data-label="Epic"><span class="epic-chip entity-id">EP-006</span></td>
+                  <td class="priority" data-label="Priority">◆ medium</td>
+                  <td class="mono muted" data-label="Points">—</td>
+                  <td class="mono muted" data-label="Blocked by">—</td>
+                  <td class="mono muted" data-label="Sprint">—</td>
+                </tr>
+                <tr tabindex="-1">
+                  <td class="check-cell" data-label="Select"><input type="checkbox" aria-label="Select TM-055"></td>
+                  <td class="mono" data-label="Rank">6000</td>
+                  <td class="entity-id" data-label="Id">TM-055</td>
+                  <td class="title-cell" data-label="Title">Validate sprint capacity before commit</td>
+                  <td data-label="Epic"><span class="epic-chip entity-id">EP-006</span></td>
+                  <td class="priority" data-label="Priority">◆ medium</td>
+                  <td class="mono" data-label="Points">3</td>
+                  <td class="mono" data-label="Blocked by">TM-050</td>
+                  <td class="mono muted" data-label="Sprint">—</td>
+                </tr>
+                <tr tabindex="-1">
+                  <td class="check-cell" data-label="Select"><input type="checkbox" aria-label="Select TM-056"></td>
+                  <td class="mono" data-label="Rank">7000</td>
+                  <td class="entity-id" data-label="Id">TM-056</td>
+                  <td class="title-cell" data-label="Title">Expose parked reason in task summaries</td>
+                  <td data-label="Epic"><span class="epic-chip entity-id">EP-006</span></td>
+                  <td class="priority low" data-label="Priority">▼ low</td>
+                  <td class="mono" data-label="Points">2</td>
+                  <td class="mono muted" data-label="Blocked by">—</td>
+                  <td class="mono muted" data-label="Sprint">—</td>
+                </tr>
+                <tr tabindex="-1">
+                  <td class="check-cell" data-label="Select"><input type="checkbox" aria-label="Select TM-057"></td>
+                  <td class="mono" data-label="Rank">8000</td>
+                  <td class="entity-id" data-label="Id">TM-057</td>
+                  <td class="title-cell" data-label="Title">Add branch and worktree fields to claim detail</td>
+                  <td data-label="Epic"><span class="epic-chip entity-id">EP-006</span></td>
+                  <td class="priority" data-label="Priority">◆ medium</td>
+                  <td class="mono" data-label="Points">5</td>
+                  <td class="mono muted" data-label="Blocked by">—</td>
+                  <td class="mono muted" data-label="Sprint">—</td>
+                </tr>
+                <tr tabindex="-1">
+                  <td class="check-cell" data-label="Select"><input type="checkbox" aria-label="Select TM-058"></td>
+                  <td class="mono" data-label="Rank">9000</td>
+                  <td class="entity-id" data-label="Id">TM-058</td>
+                  <td class="title-cell" data-label="Title">Audit stale session ownership</td>
+                  <td data-label="Epic"><span class="epic-chip entity-id">EP-006</span></td>
+                  <td class="priority low" data-label="Priority">▼ low</td>
+                  <td class="mono muted" data-label="Points">—</td>
+                  <td class="mono" data-label="Blocked by">TM-053</td>
+                  <td class="mono muted" data-label="Sprint">—</td>
+                </tr>
+                <tr tabindex="-1">
+                  <td class="check-cell" data-label="Select"><input type="checkbox" aria-label="Select TM-059"></td>
+                  <td class="mono" data-label="Rank">10000</td>
+                  <td class="entity-id" data-label="Id">TM-059</td>
+                  <td class="title-cell" data-label="Title">Document rank collision recovery</td>
+                  <td data-label="Epic"><span class="epic-chip entity-id">EP-006</span></td>
+                  <td class="priority low" data-label="Priority">▼ low</td>
+                  <td class="mono" data-label="Points">1</td>
+                  <td class="mono muted" data-label="Blocked by">—</td>
+                  <td class="mono muted" data-label="Sprint">—</td>
+                </tr>
+                <tr tabindex="-1">
+                  <td class="check-cell" data-label="Select"><input type="checkbox" aria-label="Select TM-060"></td>
+                  <td class="mono" data-label="Rank">11000</td>
+                  <td class="entity-id" data-label="Id">TM-060</td>
+                  <td class="title-cell" data-label="Title">Add compact labels for capability-linked tasks</td>
+                  <td data-label="Epic"><span class="epic-chip entity-id">EP-006</span></td>
+                  <td class="priority" data-label="Priority">◆ medium</td>
+                  <td class="mono" data-label="Points">3</td>
+                  <td class="mono" data-label="Blocked by">TM-054</td>
+                  <td class="mono muted" data-label="Sprint">—</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <section class="unranked" aria-labelledby="unranked-title">
+            <h2 id="unranked-title">Unranked</h2>
+            <p>Everything is ranked — <code>.bytedesk/task-management/bin/tm rank &lt;id&gt; --before &lt;id&gt;</code> places a card.</p>
+          </section>
+        </section>
+      </div>
+    </main>
+
+    <footer class="status-bar">Illustrative mockup — fictional data — not production source</footer>
+  </div>
+</body>
+</html>
