@@ -7,9 +7,9 @@ const WORKSPACE = "/home/ryan/.grok/worktrees/bytedeskai-paperclip/iso-365908";
 const STARTED = Date.parse("2026-08-22T21:52:00Z");
 
 const FIXTURE_STAGES = [
-  { id: "proposal", name: "proposal", role: "proposer", provider: "Claude", model: "claude-fable-5" },
+  { id: "proposal", name: "proposal", role: "proposer", provider: "Claude", model: "claude-fable-5-1" },
   { id: "critique", name: "critique", role: "adversary", provider: "Codex", model: "gpt-5.6-sol" },
-  { id: "revision", name: "revision", role: "reviser", provider: "Claude", model: "claude-fable-5" },
+  { id: "revision", name: "revision", role: "reviser", provider: "Claude", model: "claude-fable-5-1" },
   { id: "decision_gate", name: "decision_gate", role: "gate", provider: "broker", model: "deterministic" },
 ];
 

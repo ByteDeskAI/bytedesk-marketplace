@@ -20,6 +20,7 @@ export const CAPABILITY_IDS = Object.freeze([
   "workspace_read",
   "workspace_write",
   "image_input",
+  "image_generation",
   "web_research",
   "large_context",
 ]);
@@ -39,6 +40,7 @@ const commonAcpCapabilities = {
   workspace_read: "supported",
   workspace_write: "supported",
   image_input: "unknown",
+  image_generation: "unknown",
   web_research: "unknown",
   large_context: "supported",
 };
@@ -66,7 +68,7 @@ export const PROVIDER_CATALOG = deepFreeze([
     availability: "probe_required",
     // The bundled bridge advertises loadSession, but a real cross-process
     // resume currently fails. Keep follow-up unavailable until the live probe passes.
-    capabilities: { ...commonAcpCapabilities, persistent_session: "unknown" },
+    capabilities: { ...commonAcpCapabilities, persistent_session: "unknown", image_generation: "supported" },
   },
   {
     schemaVersion: 1,
@@ -132,6 +134,25 @@ export const MODEL_CATALOG = deepFreeze([
       general: 0.9,
     },
     provenance: "official_docs_then_runtime_probe",
+  },
+  {
+    schemaVersion: 1,
+    endpointId: "claude.fable-5-1",
+    providerId: "claude",
+    modelId: "claude-fable-5-1",
+    supportedEfforts: ["low", "medium", "high", "xhigh", "max"],
+    defaultEffort: "high",
+    qualityClass: "frontier",
+    latencyClass: "slow",
+    costClass: "premium",
+    intentAffinity: {
+      architecture: 1,
+      design: 1,
+      implementation: 1,
+      review: 0.95,
+      general: 0.9,
+    },
+    provenance: "installed_claude_2.1.258_then_runtime_probe",
   },
   {
     schemaVersion: 1,

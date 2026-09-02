@@ -23,8 +23,8 @@ test("provider catalog exposes only canonical ACPX targets and no commands", () 
 
 test("documented model IDs are isolated from runtime-only Grok and Kimi defaults", () => {
   assert.equal(
-    MODEL_CATALOG.find((model) => model.endpointId === "claude.fable-5")?.modelId,
-    "claude-fable-5",
+    MODEL_CATALOG.find((model) => model.endpointId === "claude.fable-5-1")?.modelId,
+    "claude-fable-5-1",
   );
   assert.equal(
     MODEL_CATALOG.find((model) => model.endpointId === "claude.opus-4-8")?.modelId,
@@ -44,13 +44,11 @@ test("documented model IDs are isolated from runtime-only Grok and Kimi defaults
   );
 });
 
-test("declared Claude model IDs exist in the committed bridge catalog", async () => {
+test("bundled Claude ACP bridge isolates settings and forwards exact runtime model IDs", async () => {
   const bridge = await readFile(new URL("../../dist/claude-agent-acp.mjs", import.meta.url), "utf8");
-  for (const model of MODEL_CATALOG.filter((entry) => entry.providerId === "claude")) {
-    assert.match(bridge, new RegExp(`id: ["']${model.modelId}["']`), `${model.modelId} is absent from the bundled Claude bridge`);
-  }
   assert.doesNotMatch(bridge, /settingSources:\s*\["user",\s*"project",\s*"local"\]/, "bundled Claude sessions must not load consumer or user hooks before auth revocation");
   assert.match(bridge, /settingSources:\s*\[\]/, "bundled Claude sessions must explicitly isolate settings");
+  assert.match(bridge, /setModel\(currentModel\.value\)/, "exact catalog IDs must be revalidated by the installed Claude harness");
 });
 
 test("bundled Codex bridge launches app-server without a shell", async () => {
@@ -61,12 +59,14 @@ test("bundled Codex bridge launches app-server without a shell", async () => {
 
 test("default aliases preserve the agreed architecture, design, and implementation order", () => {
   assert.deepEqual(ROUTING_ALIASES["architecture.proposal"], [
-    { endpointId: "claude.fable-5", effort: "max" },
+    { endpointId: "claude.fable-5-1", effort: "max" },
+    { endpointId: "claude.opus-5", effort: "max" },
     { endpointId: "claude.opus-4-8", effort: "max" },
   ]);
   assert.equal(ROUTING_ALIASES["architecture.critique"][0].endpointId, "openai.gpt-5.6-sol");
-  assert.equal(ROUTING_ALIASES["design.default"][0].endpointId, "claude.fable-5");
+  assert.equal(ROUTING_ALIASES["design.default"][0].endpointId, "claude.fable-5-1");
   assert.equal(ROUTING_ALIASES["implementation.default"][0].endpointId, "openai.gpt-5.6-sol");
+  assert.ok(ROUTING_ALIASES["implementation.default"].some((candidate) => candidate.endpointId === "claude.fable-5-1"));
 });
 
 test("provider capabilities and sandbox credential inputs are explicit metadata", () => {
@@ -74,6 +74,7 @@ test("provider capabilities and sandbox credential inputs are explicit metadata"
   const codex = PROVIDER_CATALOG.find((provider) => provider.providerId === "codex");
   assert.equal(claude.capabilities.persistent_session, "supported");
   assert.equal(codex.capabilities.persistent_session, "unknown");
+  assert.equal(codex.capabilities.image_generation, "supported");
   const grok = PROVIDER_CATALOG.find((provider) => provider.providerId === "grok-build");
   assert.equal(grok.capabilities.tools, "supported");
   assert.equal(grok.capabilities.workspace_read, "supported");

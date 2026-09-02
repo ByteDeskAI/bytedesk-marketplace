@@ -205,7 +205,7 @@ async function liveSession(root, { withControls = false } = {}) {
       kind: "execution_plan",
       protocolId: "architecture.adversarial.v1",
       stages: [
-        { stageId: "proposal", role: "proposer", route: { selected: { providerId: "claude", modelId: "claude-fable-5" } } },
+        { stageId: "proposal", role: "proposer", route: { selected: { providerId: "claude", modelId: "claude-fable-5-1" } } },
         { stageId: "critique", role: "adversary", route: { selected: { providerId: "codex", modelId: "gpt-5.6-sol" } } },
       ],
     },

@@ -77,8 +77,11 @@ test("MCP plan and spawn expose protocols while route remains a single-route pre
     for (const tool of [plan, spawn]) {
       assert.deepEqual(tool.inputSchema.properties.protocolId.enum, ["single.v1", "architecture.adversarial.v1"]);
       assert.deepEqual(tool.inputSchema.properties.sessionMode.enum, ["oneshot", "persistent"]);
+      assert.ok(tool.inputSchema.properties.endpointId.enum.includes("claude.fable-5-1"));
+      assert.ok(tool.inputSchema.properties.endpointId.enum.includes("openai.gpt-5.6-sol"));
       assert.equal(tool.inputSchema.required.includes("protocolId"), false);
       assert.equal(tool.inputSchema.required.includes("sessionMode"), false);
+      assert.equal(tool.inputSchema.required.includes("endpointId"), false);
     }
   } finally {
     await fx.cleanup();

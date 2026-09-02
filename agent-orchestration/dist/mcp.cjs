@@ -31040,6 +31040,7 @@ var TASK_INTENTS = Object.freeze([
 ]);
 var ROUTING_ALIASES = deepFreeze({
   "architecture.proposal": [
+    { endpointId: "claude.fable-5-1", effort: "max" },
     { endpointId: "claude.opus-5", effort: "max" },
     { endpointId: "claude.opus-4-8", effort: "max" }
   ],
@@ -31047,12 +31048,14 @@ var ROUTING_ALIASES = deepFreeze({
     { endpointId: "openai.gpt-5.6-sol", effort: "max" }
   ],
   "design.default": [
+    { endpointId: "claude.fable-5-1", effort: "high" },
     { endpointId: "claude.opus-5", effort: "high" },
     { endpointId: "claude.opus-4-8", effort: "high" },
     { endpointId: "openai.gpt-5.6-sol", effort: "high" }
   ],
   "implementation.default": [
     { endpointId: "openai.gpt-5.6-sol", effort: "high" },
+    { endpointId: "claude.fable-5-1", effort: "high" },
     { endpointId: "claude.opus-5", effort: "high" },
     { endpointId: "claude.opus-4-8", effort: "high" }
   ],
@@ -31078,6 +31081,7 @@ var ROUTING_ALIASES = deepFreeze({
     { endpointId: "kimi.default", effort: null }
   ],
   "provider.claude.default": [
+    { endpointId: "claude.fable-5-1", effort: "high" },
     { endpointId: "claude.opus-5", effort: "high" },
     { endpointId: "claude.opus-4-8", effort: "high" }
   ],
@@ -31117,6 +31121,7 @@ var CAPABILITY_IDS = Object.freeze([
   "workspace_read",
   "workspace_write",
   "image_input",
+  "image_generation",
   "web_research",
   "large_context"
 ]);
@@ -31134,6 +31139,7 @@ var commonAcpCapabilities = {
   workspace_read: "supported",
   workspace_write: "supported",
   image_input: "unknown",
+  image_generation: "unknown",
   web_research: "unknown",
   large_context: "supported"
 };
@@ -31156,7 +31162,7 @@ var PROVIDER_CATALOG = deepFreeze2([
     availability: "probe_required",
     // The bundled bridge advertises loadSession, but a real cross-process
     // resume currently fails. Keep follow-up unavailable until the live probe passes.
-    capabilities: { ...commonAcpCapabilities, persistent_session: "unknown" }
+    capabilities: { ...commonAcpCapabilities, persistent_session: "unknown", image_generation: "supported" }
   },
   {
     schemaVersion: 1,
@@ -31216,6 +31222,25 @@ var MODEL_CATALOG = deepFreeze2([
       general: 0.9
     },
     provenance: "official_docs_then_runtime_probe"
+  },
+  {
+    schemaVersion: 1,
+    endpointId: "claude.fable-5-1",
+    providerId: "claude",
+    modelId: "claude-fable-5-1",
+    supportedEfforts: ["low", "medium", "high", "xhigh", "max"],
+    defaultEffort: "high",
+    qualityClass: "frontier",
+    latencyClass: "slow",
+    costClass: "premium",
+    intentAffinity: {
+      architecture: 1,
+      design: 1,
+      implementation: 1,
+      review: 0.95,
+      general: 0.9
+    },
+    provenance: "installed_claude_2.1.258_then_runtime_probe"
   },
   {
     schemaVersion: 1,
@@ -31306,8 +31331,8 @@ var MODEL_CATALOG = deepFreeze2([
 function getProviderDescriptor(providerId) {
   return PROVIDER_CATALOG.find((provider2) => provider2.providerId === providerId) ?? null;
 }
-function getModelDescriptor(endpointId) {
-  return MODEL_CATALOG.find((model) => model.endpointId === endpointId) ?? null;
+function getModelDescriptor(endpointId2) {
+  return MODEL_CATALOG.find((model) => model.endpointId === endpointId2) ?? null;
 }
 
 // src/providers/adapters.mjs
@@ -31437,9 +31462,9 @@ function resolveAlias(intent2, context) {
     }))
   };
 }
-function availabilityStatus(context, providerId, endpointId) {
+function availabilityStatus(context, providerId, endpointId2) {
   const provider2 = context.availability?.providers?.[providerId] ?? "unknown";
-  const endpoint = context.availability?.endpoints?.[endpointId] ?? "unknown";
+  const endpoint = context.availability?.endpoints?.[endpointId2] ?? "unknown";
   return { provider: provider2, endpoint };
 }
 function capabilityState(provider2, capabilityId, context) {
@@ -44563,14 +44588,6 @@ async function canonicalExecutable(path3) {
     return null;
   }
 }
-async function canonicalWindowsExecutable(path3) {
-  try {
-    await (0, import_promises12.access)(path3, import_node_fs3.constants.F_OK);
-    return await (0, import_promises12.realpath)(path3);
-  } catch {
-    return null;
-  }
-}
 var LinuxExecutableResolver = class extends ExecutableResolverStrategy {
   constructor({ runner = runFile } = {}) {
     super();
@@ -44596,7 +44613,7 @@ var WindowsExecutableResolver = class extends ExecutableResolverStrategy {
     const direct = [];
     for (const directory of (this.env.PATH || "").split(import_node_path14.delimiter).filter(Boolean)) {
       for (const name of names) {
-        const resolved = await canonicalWindowsExecutable((0, import_node_path14.join)(directory, name));
+        const resolved = await canonicalExecutable((0, import_node_path14.join)(directory, name));
         if (resolved && !direct.includes(resolved)) direct.push(resolved);
       }
     }
@@ -45802,6 +45819,7 @@ var OrchestrationService = class {
       alias: requestedProviderAlias ?? capabilityAlias ?? void 0,
       providerAllowlist: input.allowProviders,
       providerDenylist: input.denyProviders,
+      modelAllowlist: input.endpointId ? [input.endpointId] : void 0,
       excludedProviderIds: input.intent === "review" && input.originProvider ? [input.originProvider] : void 0,
       requiredCapabilities: [...requiredCapabilities],
       effort: derivedEffort,
@@ -46215,6 +46233,7 @@ var OrchestrationService = class {
 var intent = external_exports.enum(TASK_INTENTS);
 var effort = external_exports.enum([...new Set(MODEL_CATALOG.flatMap((entry) => entry.supportedEfforts))]);
 var provider = external_exports.enum(PROVIDER_CATALOG.map((entry) => entry.providerId));
+var endpointId = external_exports.enum(MODEL_CATALOG.map((entry) => entry.endpointId));
 var protocolId = external_exports.enum(Object.keys(PROTOCOL_DEFINITIONS));
 var sessionMode = external_exports.enum(["oneshot", "persistent"]);
 var availabilityState = external_exports.enum(["available", "unavailable", "unknown"]);
@@ -46225,6 +46244,7 @@ var routingFields = {
   task: external_exports.string().min(1),
   requiredCapabilities: external_exports.array(external_exports.string()).optional(),
   provider: provider.optional().describe("Optional explicit provider. Dynamic routing is used when omitted."),
+  endpointId: endpointId.optional().describe("Optional exact endpoint from the trusted model catalog. Arbitrary model IDs are rejected."),
   originProvider: provider.optional().describe("For review tasks, exclude the originating provider family when possible."),
   effort: effort.optional(),
   optimization: external_exports.enum(["quality", "latency", "cost", "balanced", "mechanical"]).optional(),
