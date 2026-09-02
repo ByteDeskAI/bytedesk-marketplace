@@ -1,0 +1,121 @@
+@import url("./bytedesk.tokens.css");
+
+/*
+ * Goal-planner mockup roles. The imported file is an exact copy of the managed
+ * ByteDesk token adapter at design source revision recorded by this repository.
+ * Components consume only --gp-* roles; literal values stay in this token file.
+ */
+:root {
+  --gp-ground: var(--bd-bg-base);
+  --gp-canvas: var(--bd-bg-subtle);
+  --gp-surface: var(--bd-bg-surface);
+  --gp-raised: var(--bd-bg-elevated);
+  --gp-overlay: var(--bd-bg-overlay);
+  --gp-hover: var(--bd-bg-hover);
+  --gp-scrim: var(--bd-overlay-backdrop);
+
+  --gp-ink: var(--bd-text-primary);
+  --gp-ink-2: var(--bd-text-secondary);
+  --gp-ink-3: var(--bd-text-tertiary);
+  --gp-ink-off: var(--bd-text-disabled);
+  --gp-ink-on-accent: var(--bd-accent-fg);
+
+  --gp-line: var(--bd-border-default);
+  --gp-line-soft: var(--bd-border-dimmer);
+  --gp-line-faint: var(--bd-border-dimmest);
+  --gp-line-strong: var(--bd-border-stronger);
+  --gp-top-light: var(--bd-material-top-light);
+
+  --gp-accent: var(--bd-interactive-blue);
+  --gp-accent-hover: var(--bd-accent-emphasis);
+  --gp-accent-wash: color-mix(in srgb, var(--bd-interactive-blue) 14%, transparent);
+  --gp-accent-line: var(--bd-accent-muted);
+  --gp-focus: var(--bd-focus-ring);
+  --gp-glow: var(--bd-shadow-focus-glow);
+
+  --gp-ok: var(--bd-success);
+  --gp-ok-bg: var(--bd-success-bg);
+  --gp-ok-line: var(--bd-success-line);
+  --gp-warn: var(--bd-warning);
+  --gp-warn-bg: var(--bd-warning-bg);
+  --gp-warn-line: var(--bd-warning-line);
+  --gp-bad: var(--bd-danger);
+  --gp-bad-bg: var(--bd-danger-bg);
+  --gp-bad-line: var(--bd-danger-line);
+  --gp-info: var(--bd-info);
+  --gp-info-bg: var(--bd-info-bg);
+  --gp-info-line: var(--bd-info-line);
+
+  --gp-font: var(--bd-font-sans);
+  --gp-mono: var(--bd-font-mono);
+  --gp-text: var(--bd-text-body-sm);
+  --gp-text-body: var(--bd-text-body);
+  --gp-text-caption: var(--bd-text-caption);
+  --gp-text-mono: var(--bd-text-console);
+  --gp-text-mono-sm: var(--bd-text-console-sm);
+  --gp-h1: var(--bd-text-h4);
+  --gp-h2: var(--bd-text-body-lg);
+  --gp-weight-medium: var(--bd-font-weight-medium);
+  --gp-weight-semibold: var(--bd-font-weight-semibold);
+  --gp-line-height: var(--bd-line-height-compact);
+  --gp-line-height-body: var(--bd-line-height-body);
+  --gp-caps: var(--bd-letter-spacing-caps);
+
+  --gp-s0: var(--bd-space-0);
+  --gp-s1: var(--bd-space-1);
+  --gp-s2: var(--bd-space-2);
+  --gp-s3: var(--bd-space-3);
+  --gp-s4: var(--bd-space-4);
+  --gp-s5: var(--bd-space-5);
+  --gp-s6: var(--bd-space-6);
+  --gp-s7: var(--bd-space-7);
+  --gp-s8: var(--bd-space-8);
+  --gp-s9: var(--bd-space-9);
+  --gp-s10: var(--bd-space-10);
+  --gp-s11: var(--bd-space-11);
+
+  --gp-radius-sm: var(--bd-radius-sm);
+  --gp-radius: var(--bd-radius-md);
+  --gp-radius-lg: var(--bd-radius-lg);
+  --gp-radius-xl: var(--bd-radius-xl);
+  --gp-radius-shell: var(--bd-radius-2xl);
+  --gp-radius-pill: var(--bd-radius-full);
+  --gp-hairline: var(--bd-stroke-hairline);
+  --gp-active-stroke: var(--bd-stroke-active);
+
+  --gp-control: var(--bd-size-control-default);
+  --gp-control-compact: var(--bd-size-control-compact);
+  --gp-hit: var(--bd-size-hit-target-pointer);
+  --gp-rail: 60px;
+  --gp-commandbar: 44px;
+  --gp-inspector: 344px;
+  --gp-demo-bar: 44px;
+  --gp-mobile-nav: 60px;
+  --gp-shell-gutter: var(--bd-space-5);
+  --gp-dialog: 560px;
+  --gp-readable: 760px;
+
+  --gp-fast: var(--bd-duration-fast);
+  --gp-base: var(--bd-duration-base);
+  --gp-ease: var(--bd-ease-out-expo);
+  --gp-shadow-shell: var(--bd-shadow-shell);
+  --gp-shadow-card: var(--bd-shadow-card);
+  --gp-shadow-claimed: 0 0 0 var(--gp-hairline) var(--gp-accent-line),
+    0 14px 38px color-mix(in srgb, var(--gp-accent) 15%, transparent);
+}
+
+[data-bd-theme="light"] {
+  --gp-ok-bg: color-mix(in oklab, var(--bd-success) 11%, transparent);
+  --gp-warn-bg: color-mix(in oklab, var(--bd-warning) 13%, transparent);
+  --gp-bad-bg: color-mix(in oklab, var(--bd-danger) 10%, transparent);
+  --gp-info-bg: color-mix(in oklab, var(--bd-info) 11%, transparent);
+}
+
+@media (max-width: 719px) {
+  :root {
+    --gp-control: var(--bd-size-control-touch);
+    --gp-control-compact: var(--bd-size-control-touch);
+    --gp-hit: var(--bd-size-hit-target-touch);
+    --gp-shell-gutter: var(--bd-space-0);
+  }
+}

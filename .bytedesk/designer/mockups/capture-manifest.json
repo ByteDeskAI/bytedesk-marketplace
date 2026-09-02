@@ -1,0 +1,38 @@
+{
+  "capturedAt": "2026-09-02",
+  "source": "goal-planner.html",
+  "renderer": "Playwright CLI 1.58.0",
+  "browser": "Chrome for Testing 145.0.7632.6 (headless Chromium)",
+  "nativeImageGeneration": false,
+  "note": "These are review captures of the compliant HTML artifact, not generated UI and not implementation source.",
+  "captures": [
+    {
+      "file": "chosen-direction-1440-dark.png",
+      "viewport": { "width": 1440, "height": 1000 },
+      "theme": "dark",
+      "state": "proposed",
+      "sha256": "c70beea22ee8a37fecc92435d709e2b48fc6d089084b841fdd36ba171c2af032"
+    },
+    {
+      "file": "chosen-direction-1440-light.png",
+      "viewport": { "width": 1440, "height": 1000 },
+      "theme": "light",
+      "state": "proposed",
+      "sha256": "0efd61f4de3e50ca2cedea345ea15a5897909a12a0c1fd78bd019523710e1217"
+    },
+    {
+      "file": "chosen-direction-1024.png",
+      "viewport": { "width": 1024, "height": 900 },
+      "theme": "dark",
+      "state": "streaming",
+      "sha256": "6678e26b3dff361899922eb6753d0f2d7194bd717a364624e6783ed4a443951a"
+    },
+    {
+      "file": "chosen-direction-390-mobile.png",
+      "viewport": { "width": 390, "height": 844 },
+      "theme": "dark",
+      "state": "questioning",
+      "sha256": "ea3c62f142ea7276556506e7b9fcab763adeaeb6c2b5018ebbb1c277a455c312"
+    }
+  ]
+}
