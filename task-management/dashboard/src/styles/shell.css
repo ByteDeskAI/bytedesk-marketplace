@@ -9,7 +9,7 @@
   height: 100%;
   background: var(--tm-ground);
 }
-.tm-shell[data-inspector="open"] { grid-template-columns: var(--tm-rail) minmax(0, 1fr) var(--tm-inspector); }
+/* An open inspector never takes a grid column: it floats over the canvas at every width. */
 @media (min-width: 1600px) { .tm-shell { --tm-rail: var(--tm-sidebar); } }
 
 /* rail */
@@ -84,6 +84,8 @@
 
 /* inspector: a lifted panel at the shell edge; sticky header, one scrolling body */
 .tm-inspector {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 30;
+  width: min(var(--tm-inspector), 100vw);
   display: grid; grid-template-rows: auto minmax(0, 1fr);
   min-width: 0; min-height: 0;
   background: var(--tm-surface);
@@ -100,13 +102,12 @@
 .tm-inspector__body { overflow: auto; overscroll-behavior: contain; padding: var(--tm-s6); display: flex; flex-direction: column; gap: var(--tm-s7); }
 .tm-inspector__section { display: flex; flex-direction: column; gap: var(--tm-s4); }
 .tm-inspector__section + .tm-inspector__section { padding-top: var(--tm-s6); border-top: var(--tm-hairline) solid var(--tm-line-faint); }
-.tm-inspector[data-wide="true"] { }
-.tm-shell[data-inspector="open"][data-inspector-wide="true"] { grid-template-columns: var(--tm-rail) minmax(0, 1fr) minmax(var(--tm-inspector), 50%); }
+/* The task inspector is wide so the live work stream fits beside the fields; it still floats. */
+.tm-inspector[data-wide="true"] { width: min(max(var(--tm-inspector), 50vw), 960px); }
 
 /* tablet: inspector floats over the canvas */
 @media (max-width: 1199px) {
-  .tm-shell[data-inspector="open"], .tm-shell[data-inspector="open"][data-inspector-wide="true"] { grid-template-columns: var(--tm-rail) minmax(0, 1fr); }
-  .tm-inspector { position: fixed; top: 0; right: 0; bottom: 0; width: min(var(--bd-size-panel-wide), 100vw); z-index: 30; }
+  .tm-inspector, .tm-inspector[data-wide="true"] { width: min(var(--bd-size-panel-wide), 100vw); }
   .tm-shell[data-inspector="open"] .tm-canvas { pointer-events: none; }
   .tm-inspector__scrim { position: fixed; inset: 0; background: var(--tm-scrim); z-index: 29; }
 }
@@ -116,7 +117,7 @@
   .tm-rail { flex-direction: row; order: 2; border-right: 0; border-top: var(--tm-hairline) solid var(--tm-line-faint); padding: var(--tm-s2); justify-content: space-around; overflow: auto hidden; }
   .tm-rail__brand, .tm-rail__spacer, .tm-rail__item[data-nav="secondary"] { display: none; }
   .tm-rail__item { flex: 1 0 auto; height: var(--tm-control); }
-  .tm-inspector { width: 100vw; }
+  .tm-inspector, .tm-inspector[data-wide="true"] { width: 100vw; }
   .tm-screen { padding: var(--tm-s4); }
   .tm-commandbar { padding: 0 var(--tm-s4); }
   .tm-commandbar__project { display: none; }

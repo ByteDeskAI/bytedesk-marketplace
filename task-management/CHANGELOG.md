@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- **Inspectors float.** An open task, epic, sprint, decision or capability inspector overlays the
+  canvas at every width instead of taking a grid column; the board keeps its full width and
+  stays interactive on desktop, gets a scrim on tablets, and fills the screen on phones.
 - **Dashboard grading rounds 2–3 (PASS).** Phone command bar fits 390 px (search shrinks, live
   word becomes its dot with an aria-label, theme toggle lives in Settings), inspector controls are
   44 px on phones, inspector heads wrap instead of pushing the close button off-panel, long mono
