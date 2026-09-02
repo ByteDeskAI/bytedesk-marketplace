@@ -83,7 +83,13 @@ describe("gateDone on decision tickets", () => {
     const p = store();
     const t = create(
       "task",
-      { title: "where?", labels: ["decision:interview"], acceptance: [] },
+      {
+        title: "where?",
+        labels: ["decision:interview"],
+        acceptance: [{ text: "the answer is recorded", done: true }],
+        evidence: [".bytedesk/task-management/evidence/TM-001-answer.log"],
+        assignee: "@test",
+      },
       "## Question\n\nWhere?\n\n## Answer\n\nIn the store.\n",
       p,
     );
@@ -94,7 +100,12 @@ describe("gateDone on decision tickets", () => {
     const p = store();
     const proto = create(
       "task",
-      { title: "look?", labels: ["decision:prototype"], acceptance: [] },
+      {
+        title: "look?",
+        labels: ["decision:prototype"],
+        acceptance: [{ text: "the variants are compared", done: true }],
+        assignee: "@test",
+      },
       "## Answer\n\nVariant B.\n",
       p,
     );

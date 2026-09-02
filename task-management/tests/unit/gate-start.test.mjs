@@ -17,7 +17,12 @@ const store = (cfg = {}) => {
 describe("gateStart", () => {
   it("allows under the limit, refuses at it, and does not count the task against itself", () => {
     const p = store();
-    const a = create("task", { title: "a", status: "in_progress" }, "", p);
+    const a = create(
+      "task",
+      { title: "a", status: "in_progress", acceptance: [{ text: "done means", done: false }] },
+      "context\n",
+      p,
+    );
     const b = create("task", { title: "b" }, "", p);
     assert.equal(gateStart(a.id, p).allow, true, "resuming is not starting");
     const res = gateStart(b.id, p);

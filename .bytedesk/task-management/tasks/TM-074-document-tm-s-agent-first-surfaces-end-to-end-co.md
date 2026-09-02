@@ -1,20 +1,22 @@
 ---
 id: "TM-074"
 kind: "task"
-status: "open"
+status: "done"
 created: "2026-09-02T09:44:08.465Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "Document tm's agent-first surfaces end-to-end; complete skill metadata so agents can find, execute, and chain the skills"
 epic: "EP-010"
-acceptance: []
-evidence: []
+acceptance: [{"text":"docs/agent-first.md exists and documents every agent-first CLI verb (caps, dispatch, collect, agent, pool, events) with flags, outputs, and refusal semantics that match tm help / lib/","done":true,"at":"2026-09-02T10:18:34.436Z"},{"text":"CLI, the 38 MCP tools, and dashboard HTTP routes for the same verbs sit in one parity table so an agent on any surface can find the others","done":true,"at":"2026-09-02T10:18:34.445Z"},{"text":"skills/ has complete frontmatter (name, description with trigger phrases, when-to-use) for caps, dispatch, pool, collect, agent, events; SKILL.md files cross-link dispatch → pool → collect → events","done":true,"at":"2026-09-02T10:18:34.452Z"},{"text":"Backends (orchestration → fleet → tmux → manual), tm caps, and config keys (dispatch.backends, dispatch.heartbeatSeconds, agentTtlMinutes, dispatch.enabled/poolWip/pollSeconds) are documented with how a harness auto-detects","done":true,"at":"2026-09-02T10:18:34.461Z"},{"text":"README links docs/agent-first.md and contains a per-harness recipe (Claude Code, Codex, Grok, Kimi) for label ready-for-agent → pool/dispatch → collect","done":true,"at":"2026-09-02T10:18:34.470Z"}]
+evidence: [".bytedesk/task-management/evidence/TM-074-1788344314426.log"]
 commits: []
 blockedBy: []
 blocks: []
 actor: "main"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-02T09:44:25.152Z"
+updated: "2026-09-02T10:18:39.072Z"
+session: "01a06199-2a58-7962-bb20-0d244201385f"
+closed: "2026-09-02T10:18:39.069Z"
 ---
 
 Audit and document everything the plugin now exposes, then make it discoverable:

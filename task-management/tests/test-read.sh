@@ -30,8 +30,7 @@ echo "test-read"
 
 tm init >/dev/null
 tm epic new "Read surface" >/dev/null
-tm task new "First task" >/dev/null
-tm ac TM-001 "it is queryable" >/dev/null
+tm task new "First task" --body "context" --ac "it is queryable" >/dev/null
 tm start TM-001 >/dev/null
 
 # tm show
@@ -53,8 +52,8 @@ json "$(tm standup --json)" 'has("events") or type == "array"' "standup --json"
 
 # tm why / tm graph — the transitive read. TM-002 blocks TM-001, TM-003 blocks TM-002,
 # so the answer for TM-001 must name TM-003, not the neighbour the card already shows.
-tm task new "Second task" >/dev/null
-tm task new "Third task" >/dev/null
+tm task new "Second task" --body "context" --ac "it blocks" >/dev/null
+tm task new "Third task" --body "context" --ac "it blocks the blocker" >/dev/null
 tm dep TM-001 TM-002 >/dev/null
 tm dep TM-002 TM-003 >/dev/null
 WHY="$(tm why TM-001)"
@@ -96,7 +95,7 @@ tm export csv --out "$TM_ROOT/out.csv" >/dev/null
 # A reader that closes first is not an error. This needs a payload BIGGER than the 64 KB pipe
 # buffer, or the write completes before the reader is gone and the bug hides — which is exactly
 # why it never showed up on a fixture-sized store.
-tm task new "the oversized one" >/dev/null 2>&1 || TM_ALLOW_DUP=1 tm task new "the oversized one" >/dev/null
+tm task new "the oversized one" --body "context" --ac "it exports" >/dev/null 2>&1 || TM_ALLOW_DUP=1 tm task new "the oversized one" --body "context" --ac "it exports" >/dev/null
 BIGID=$(tm find "the oversized one" --json | jq -r '.[0].id')
 node -e '
 const fs = require("fs");
@@ -138,8 +137,8 @@ esac
 # Ids are read back rather than assumed. Nine tasks exist by now, so a hardcoded TM-002 would
 # name "Second task" and the assertion would pass on a task this block never touched.
 id_of() { tm find "$1" --json | jq -r '.[0].id'; }
-tm task new "aaa the low one" >/dev/null
-tm task new "zzz the urgent one" >/dev/null
+tm task new "aaa the low one" --body "context" --ac "it stays low" >/dev/null
+tm task new "zzz the urgent one" --body "context" --ac "it jumps the queue" >/dev/null
 LOW="$(id_of "aaa the low one")"
 URGENT="$(id_of "zzz the urgent one")"
 tm priority "$LOW" low >/dev/null
@@ -149,7 +148,7 @@ tm priority "$URGENT" highest >/dev/null
 json "$(tm next --json)" --arg u "$URGENT" '.[0].id == $u' "next puts the highest priority first, not the lowest id"
 has "$(tm next)" "!highest" "the rendered line shows the priority the order is based on"
 
-tm task new "placed by hand" >/dev/null
+tm task new "placed by hand" --body "context" --ac "it holds its rank" >/dev/null
 PLACED="$(id_of "placed by hand")"
 tm rank "$PLACED" --before "$URGENT" >/dev/null
 json "$(tm next --json)" --arg pl "$PLACED" '.[0].id == $pl' "an explicit rank outranks a priority label"

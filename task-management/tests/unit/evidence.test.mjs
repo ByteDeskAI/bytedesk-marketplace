@@ -26,7 +26,8 @@ function store() {
 }
 after(() => cleanup(...stores));
 
-const task = (p, title = "a task", fields = {}) => create("task", { title, acceptance: [], ...fields }, "", p);
+const task = (p, title = "a task", fields = {}) =>
+  create("task", { title, acceptance: [{ text: "done means", done: false }], ...fields }, "context\n", p);
 const get = (p, path) => handleWrite("GET", path, {}, { p });
 const post = (p, id, body) => handleWrite("POST", `/api/task/${id}/evidence`, body, { p });
 

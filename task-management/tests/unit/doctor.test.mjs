@@ -13,7 +13,7 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cleanup, git, tempRepo, tempStore } from "./helpers.mjs";
-import { create, read, seedGitContract, state, update, writeState } from "../../lib/store.mjs";
+import { create, read, seedGitContract, state, update, writeConfig, writeState } from "../../lib/store.mjs";
 import { ensureDirs, paths } from "../../lib/paths.mjs";
 import { diagnose, render, repair, repairAll } from "../../lib/doctor.mjs";
 import { launcherDir, pluginBin, writeLaunchers } from "../../lib/launcher.mjs";
@@ -48,7 +48,8 @@ describe("a clean store", () => {
   it("reports nothing", () => {
     const p = store();
     const e = create("epic", { title: "epic" }, "", p);
-    create("task", { title: "fine", epic: e.id, acceptance: [], evidence: [], blockedBy: [], blocks: [] }, "", p);
+    // "clean" now includes complete: a task with no body or criteria is itself a finding.
+    create("task", { title: "fine", epic: e.id, acceptance: [{ text: "verified", done: false }], evidence: [], blockedBy: [], blocks: [] }, "details\n", p);
 
     assert.deepEqual(diagnose(p), []);
     assert.equal(render(diagnose(p)), "no problems found");
@@ -58,7 +59,7 @@ describe("a clean store", () => {
 describe("dependency edges", () => {
   it("catches a blockedBy pointing at a task that does not exist", () => {
     const p = store();
-    const t = create("task", { title: "orphaned", blockedBy: ["TM-999"] }, "", p);
+    const t = create("task", { title: "orphaned", blockedBy: ["TM-999"], acceptance: [{ text: "verified", done: false }] }, "details\n", p);
 
     const f = find(p, "dangling-dep");
     assert.equal(f.level, "error", "a read against this graph gives a wrong answer");
@@ -70,8 +71,8 @@ describe("dependency edges", () => {
 
   it("catches half an edge and writes the other end", () => {
     const p = store();
-    const blocker = create("task", { title: "blocker", blocks: [] }, "", p);
-    const dependent = create("task", { title: "dependent", blockedBy: [blocker.id] }, "", p);
+    const blocker = create("task", { title: "blocker", blocks: [], acceptance: [{ text: "verified", done: false }] }, "details\n", p);
+    const dependent = create("task", { title: "dependent", blockedBy: [blocker.id], acceptance: [{ text: "verified", done: false }] }, "details\n", p);
 
     assert.ok(codes(p).includes("one-sided-dep"));
     assert.deepEqual(heal(p), []);
@@ -189,7 +190,7 @@ describe("links, epics and parents", () => {
 
   it("drops a link to a task that does not exist", () => {
     const p = store();
-    const a = create("task", { title: "a" }, "", p);
+    const a = create("task", { title: "a", acceptance: [{ text: "verified", done: false }] }, "details\n", p);
     update(a.id, { links: [{ type: "relates to", id: "TM-404" }] }, p);
 
     assert.equal(find(p, "dangling-link").level, "error");
@@ -277,7 +278,13 @@ describe("claims", () => {
 
   it("releases a claim on finished work", () => {
     const p = store();
-    const t = create("task", { title: "shipped" }, "", p);
+    // Complete on every requireOnDone field, so only the claim is left to report.
+    const t = create(
+      "task",
+      { title: "shipped", acceptance: [{ text: "verified", done: true }], evidence: ["https://example.com/proof.log"], actor: "test@example.com" },
+      "details\n",
+      p,
+    );
     update(t.id, { status: "done" }, p);
     writeState({ claims: { [t.id]: { session: "s", ts: new Date().toISOString() } } }, p);
 
@@ -314,7 +321,7 @@ describe("evidence, natives and the cache", () => {
   it("leaves a url alone instead of dropping the PR that proves the task", () => {
     const p = store();
     const url = "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/69";
-    const t = create("task", { title: "proven", evidence: [url] }, "", p);
+    const t = create("task", { title: "proven", evidence: [url], acceptance: [{ text: "verified", done: false }] }, "details\n", p);
 
     assert.deepEqual(codes(p), [], "nothing on disk answers to a url, so there is nothing to report");
     heal(p);
@@ -326,7 +333,7 @@ describe("evidence, natives and the cache", () => {
     // Recorded by hand against a real task in this project: an agent-browser session, which
     // is not a file anywhere and is still the only pointer at what was verified.
     const ref = "browser:019fb067-1c42-79bc-9e8c-1ab8a2b9ddf8";
-    const t = create("task", { title: "verified in a browser", evidence: [ref] }, "", p);
+    const t = create("task", { title: "verified in a browser", evidence: [ref], acceptance: [{ text: "verified", done: false }] }, "details\n", p);
 
     assert.deepEqual(codes(p), []);
     heal(p);
@@ -339,7 +346,7 @@ describe("evidence, natives and the cache", () => {
     // there on disk read as gone.
     const outside = join(p.root, "outside.log");
     writeFileSync(outside, "build output\n");
-    const t = create("task", { title: "absolute", evidence: [outside] }, "", p);
+    const t = create("task", { title: "absolute", evidence: [outside], acceptance: [{ text: "verified", done: false }] }, "details\n", p);
 
     assert.deepEqual(codes(p), [], "the file exists at the path the ref names");
     heal(p);
@@ -593,7 +600,7 @@ describe("evidence, natives and the cache", () => {
 
   it("notices index.json disagreeing with the files, and rebuilds it", () => {
     const p = store();
-    create("task", { title: "real" }, "", p);
+    create("task", { title: "real", acceptance: [{ text: "verified", done: false }] }, "details\n", p);
     writeFileSync(p.index, JSON.stringify({ generated: "x", epics: [], tasks: [], adrs: [] }));
 
     assert.ok(codes(p).includes("index-drift"));
@@ -717,7 +724,7 @@ describe("repairAll", () => {
     // Dropping the dangling blocker leaves TM-001 blocked by nothing — a different
     // finding that does not exist until the first one is fixed. A single pass would
     // print its repairs and then a fresh [fixable] warning, which reads as failure.
-    const t = create("task", { title: "waiting", blockedBy: ["TM-999"] }, "", p);
+    const t = create("task", { title: "waiting", blockedBy: ["TM-999"], acceptance: [{ text: "verified", done: false }] }, "details\n", p);
     update(t.id, { status: "blocked" }, p);
 
     const applied = repairAll(p);
@@ -781,6 +788,108 @@ describe("plans (BDM-72)", () => {
     create("epic", { title: "linked", plan: ".bytedesk/task-management/plans/ok.md" }, "", p);
     assert.equal(codes(p).includes("dangling-plan"), false);
     assert.equal(codes(p).includes("unreferenced-plan"), false);
+  });
+});
+
+describe("completeness findings (TM-079)", () => {
+  /**
+   * gateStart/gateDone refuse a task missing its required fields, but harness-mirror
+   * transitions bypass the gates by design. Doctor is the audit net under them — warning
+   * level and report-only, exactly like done-unmet: an error would flip doctor's exit code
+   * over history nobody can rewrite, and a fix would be inventing the record.
+   */
+  it("audits a done task that closed without its required fields — the harness-mirror hole", () => {
+    const p = store();
+    const t = create("task", { title: "mirror-closed" }, "", p);
+    update(t.id, { status: "done" }, p);
+
+    const f = find(p, "incomplete-done");
+    assert.ok(f, "gateDone never saw this close: a mirror bypasses it, so the audit must catch it");
+    assert.equal(f.level, "warning");
+    assert.equal(f.fixable, false, "doctor knows the fields are absent, not what belongs in them");
+    assert.equal(f.id, t.id);
+    assert.match(f.message, /done/, "the finding names the status");
+    for (const field of ["body", "acceptance", "evidence", "actor"]) {
+      assert.match(f.message, new RegExp(field), `the finding names the missing ${field}`);
+    }
+    for (const hint of ["tm edit", "tm ac", "tm evidence", "tm assign"]) {
+      assert.match(f.message, new RegExp(hint), `the finding names the remedy: ${hint}`);
+    }
+
+    heal(p);
+    assert.ok(find(p, "incomplete-done"), "nothing here is doctor's to invent, so --fix leaves it");
+  });
+
+  it("audits an open task carrying no body and no criteria", () => {
+    const p = store();
+    const t = create("task", { title: "bare" }, "", p);
+
+    const f = find(p, "incomplete-open");
+    assert.ok(f);
+    assert.equal(f.level, "warning");
+    assert.equal(f.fixable, false);
+    assert.equal(f.id, t.id);
+    assert.match(f.message, /open/, "the finding names the status");
+    assert.match(f.message, /body/);
+    assert.match(f.message, /acceptance/);
+    assert.doesNotMatch(f.message, /evidence/, "evidence and attribution are asked for at done, not at start");
+    assert.doesNotMatch(f.message, /actor/);
+  });
+
+  it("audits an in_progress task the same way", () => {
+    const p = store();
+    const t = create("task", { title: "running bare" }, "", p);
+    update(t.id, { status: "in_progress" }, p);
+
+    const f = find(p, "incomplete-open");
+    assert.ok(f);
+    assert.match(f.message, /in_progress/);
+  });
+
+  it("leaves a blocked task alone — the requirement is asked when the work actually starts", () => {
+    const p = store();
+    const t = create("task", { title: "waiting" }, "", p);
+    update(t.id, { status: "blocked", blockedReason: "waiting on counsel" }, p);
+
+    assert.equal(find(p, "incomplete-open"), undefined);
+  });
+
+  it("says nothing about a task that carries what its status requires", () => {
+    const p = store();
+    create("task", { title: "open and complete", acceptance: [{ text: "verified", done: false }] }, "details\n", p);
+    const d = create(
+      "task",
+      { title: "done and complete", acceptance: [{ text: "verified", done: true }], evidence: ["https://example.com/proof.log"], actor: "test@example.com" },
+      "details\n",
+      p,
+    );
+    update(d.id, { status: "done" }, p);
+
+    assert.deepEqual(diagnose(p), []);
+  });
+
+  it("stays quiet for a project that has turned the requirements off", () => {
+    const p = store();
+    const t = create("task", { title: "bare" }, "", p);
+    update(t.id, { status: "done" }, p);
+    assert.ok(find(p, "incomplete-done"), "on by default");
+
+    writeConfig({ requireOnStart: [], requireOnDone: [] }, p);
+    assert.equal(find(p, "incomplete-done"), undefined, "tm config requireOnDone '[]' is the project's escape hatch");
+  });
+
+  it("never reports these at error level — the exit code gates on stores that lie, not on untidy ones", () => {
+    const p = store();
+    const t = create("task", { title: "mirror-closed" }, "", p);
+    update(t.id, { status: "done" }, p);
+    create("task", { title: "bare" }, "", p);
+
+    const findings = diagnose(p);
+    assert.ok(findings.some((f) => f.code === "incomplete-done"));
+    assert.ok(findings.some((f) => f.code === "incomplete-open"));
+    // bin/tm exits 1 only when a finding is error-level, so this is the whole contract:
+    // the same warnings must never put an error into the list.
+    assert.equal(findings.some((f) => f.level === "error"), false);
   });
 });
 

@@ -1,0 +1,5 @@
+node --test tests/unit/agent-first-docs.test.mjs tests/unit/skills.test.mjs
+# tests 6
+# pass 6
+# fail 0
+Covers: README links docs/agent-first.md + four harnesses; CLI verbs/flags/refusals/config keys; all 38 MCP tools + HTTP twins; skill chain dispatch→pool→collect→events.

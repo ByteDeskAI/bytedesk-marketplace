@@ -17,7 +17,8 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { basename, isAbsolute, join } from "node:path";
 import { planFindings } from "./plans.mjs";
-import { RESOLVED, list, logEvent, missingContractRules, reindex, removeConfigKey, reopenEpic, seedGitContract, state, boardIdentity, storeBoard, trackedHostFiles, untrackHostFiles, update, writeState } from "./store.mjs";
+import { missingFields } from "./completeness.mjs";
+import { RESOLVED, config, list, logEvent, missingContractRules, reindex, removeConfigKey, reopenEpic, seedGitContract, state, boardIdentity, storeBoard, trackedHostFiles, untrackHostFiles, update, writeState } from "./store.mjs";
 import { LINK_TYPES } from "./issue.mjs";
 import { releaseClaim, staleClaims, sweepClaims } from "./claims.mjs";
 import { KINDS, paths } from "./paths.mjs";
@@ -117,6 +118,7 @@ export function diagnose(p = paths()) {
   );
   const epics = new Set(list("epic", {}, p).map((e) => e.id));
   const sprints = new Set(list("sprint", {}, p).map((s) => s.id));
+  const cfg = config(p);
   const out = [];
 
   for (const t of live) {
@@ -227,6 +229,45 @@ export function diagnose(p = paths()) {
       // Reachable through `tm override` or a hand edit. Ticking them would be forging
       // evidence; reopening might be wrong. The operator decides.
       out.push(finding("warning", "done-unmet", t.id, `done with ${open} acceptance criterion/criteria still unticked`));
+    }
+
+    /**
+     * Completeness, audited after the fact.
+     *
+     * gateStart/gateDone refuse a task that is missing its required fields, but harness-mirror
+     * transitions bypass the gates by design — a mirror must not fight the harness it reflects —
+     * and `tm override` and hand edits go around them too. The gates keep the record complete at
+     * write time; this is the net under everything that walked around them.
+     *
+     * Report-only, like done-unmet: doctor knows a field is absent, not what belongs in it.
+     * Writing a body or an evidence ref it invented would be forging the record, and reopening a
+     * closed task is a decision. A warning, never an error: these tasks are untidy, not lying,
+     * and an error level would flip doctor's exit code to 1 over history nobody can rewrite.
+     */
+    if (t.status === "done") {
+      const missing = missingFields(t, cfg.requireOnDone || [], p);
+      if (missing.length) {
+        out.push(
+          finding(
+            "warning",
+            "incomplete-done",
+            t.id,
+            `done but missing ${missing.map((m) => m.field).join(", ")} — ${missing.map((m) => m.hint).join("; ")}`,
+          ),
+        );
+      }
+    } else if (t.status === "open" || t.status === "in_progress") {
+      const missing = missingFields(t, cfg.requireOnStart || [], p);
+      if (missing.length) {
+        out.push(
+          finding(
+            "warning",
+            "incomplete-open",
+            t.id,
+            `${t.status} but missing ${missing.map((m) => m.field).join(", ")} — ${missing.map((m) => m.hint).join("; ")}`,
+          ),
+        );
+      }
     }
 
     for (const ref of t.evidence || []) {

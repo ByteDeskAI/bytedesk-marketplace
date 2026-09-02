@@ -48,9 +48,9 @@ git -C "$TM_ROOT" add . && git -C "$TM_ROOT" commit -qm init
 
 tm init >/dev/null
 tm epic new "Pool" >/dev/null
-T1="$(tm task new "Poolable work" | cut -d' ' -f1)"
+T1="$(tm task new "Poolable work" --body "context" --ac "it dispatches" | cut -d' ' -f1)"
 tm label "$T1" ready-for-agent >/dev/null
-tm task new "Not for agents" >/dev/null
+tm task new "Not for agents" --body "context" --ac "it stays put" >/dev/null
 
 # ── help registration ────────────────────────────────────────────────────────
 has "$(tm help)" "pool [once|start|stop|status]" "help lists the pool verb"

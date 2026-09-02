@@ -29,8 +29,8 @@ git init -q "$TM_ROOT" && git -C "$TM_ROOT" config user.email t@t && git -C "$TM
 echo x > "$TM_ROOT/a.txt" && git -C "$TM_ROOT" add . && git -C "$TM_ROOT" commit -qm init
 tm init >/dev/null
 tm epic new "Hooks" >/dev/null
-tm task new "Make the parser reentrant" >/dev/null
-tm task new "Something unrelated" >/dev/null
+tm task new "Make the parser reentrant" --body "context" --ac "the parser is reentrant" >/dev/null
+tm task new "Something unrelated" --body "context" --ac "it stays untouched" >/dev/null
 
 # ── PreCompact: the board must survive a context squeeze ──────────────────────
 tm start TM-001 >/dev/null
@@ -104,7 +104,7 @@ echo '{}' | env -u CLAUDE_CODE_SESSION_ID GROK_SESSION_ID=g-1 "$PLUGIN_ROOT/hook
 # attributes to nobody.
 FIXTURE="$PLUGIN_ROOT/tests/fixtures/codex-pre-tool-use.json"
 CODEX_SESSION="$(jq -r .session_id "$FIXTURE")"
-tm task new "work claimed the codex way" >/dev/null 2>&1
+tm task new "work claimed the codex way" --body "context" --ac "the claim attributes" >/dev/null 2>&1
 CODEX_TASK="$(tm find "work claimed the codex way" --json | jq -r '.[0].id')"
 # Claim it as Codex would: no CLAUDE_* variable anywhere, session named only on the JSON.
 env -u CLAUDE_CODE_SESSION_ID -u CLAUDE_SESSION_ID TM_SESSION_ID="$CODEX_SESSION" \

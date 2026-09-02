@@ -2,6 +2,20 @@
   "enforce": true,
   "requireEpic": true,
   "requireAcceptance": true,
+  "requireOnCreate": [
+    "body",
+    "acceptance"
+  ],
+  "requireOnStart": [
+    "body",
+    "acceptance"
+  ],
+  "requireOnDone": [
+    "body",
+    "acceptance",
+    "evidence",
+    "actor"
+  ],
   "wipLimit": 3,
   "staleMinutes": 90,
   "gitLink": true,
@@ -46,7 +60,7 @@
     "me": "Ryan",
     "watching": []
   },
-  "activeEpic": "EP-010",
+  "activeEpic": null,
   "boardId": "bytedeskai/bytedesk-marketplace",
   "owner": "Ryan Helms <ryan@helms.ai>",
   "ntfy": {},

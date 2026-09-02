@@ -33,7 +33,7 @@ function fakeBackend() {
 }
 
 function ready(p, title) {
-  const t = create("task", { title }, "", p);
+  const t = create("task", { title, acceptance: [{ text: "done means", done: false }] }, "context\n", p);
   update(t.id, { labels: ["ready-for-agent"] }, p);
   return t.id;
 }

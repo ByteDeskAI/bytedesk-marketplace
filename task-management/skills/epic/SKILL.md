@@ -20,10 +20,12 @@ Epics are the parent record for tasks, ADRs, and captured plans in
 4. **Write the epic body** — open the file the CLI printed and fill in: why this exists,
    what done looks like, what is explicitly out of scope. This is what a future session
    reads first.
-5. **Break it down** — create tasks with `TaskCreate` (they file under the active epic
-   automatically) or `.bytedesk/task-management/bin/tm task new "<title>"`. Give each one acceptance criteria:
-   `.bytedesk/task-management/bin/tm ac <TM-id> "<verifiable criterion>"`. A task without criteria can't be closed
-   while `requireAcceptance` is on.
+5. **Break it down** — `.bytedesk/task-management/bin/tm task new "<title>" --body "<what and why>" --ac "<verifiable
+   criterion>"` (repeat `--ac`; `--body -` reads stdin). An explicit create without both is
+   refused while `requireOnCreate` is on. `TaskCreate` mirrors file under the active epic
+   automatically and skip that gate — but done still wants criteria ticked, evidence and
+   attribution, so give mirror tasks criteria too:
+   `.bytedesk/task-management/bin/tm ac <TM-id> "<verifiable criterion>"`.
 
 ## Notes
 

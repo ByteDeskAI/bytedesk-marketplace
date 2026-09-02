@@ -32,7 +32,8 @@ after(() => cleanup(...stores));
 
 const act = (p, { action, id, ...body }) =>
   handleWrite("POST", id ? `/api/task/${id}/${action}` : "/api/task", body, { p });
-const task = (p, title = "a task", fields = {}) => create("task", { title, acceptance: [], ...fields }, "", p);
+const task = (p, title = "a task", fields = {}) =>
+  create("task", { title, acceptance: [{ text: "done means", done: false }], ...fields }, "context\n", p);
 
 describe("the active epic", () => {
   it("switches it, in the store, with the same event the CLI logs", () => {
@@ -53,11 +54,17 @@ describe("the active epic", () => {
     const p = store();
     writeConfig({ requireEpic: true }, p);
     const e = create("epic", { title: "real" }, "", p);
-    assert.equal(handleWrite("POST", "/api/task", { title: "before" }, { p }).status, 409);
+    assert.equal(
+      handleWrite("POST", "/api/task", { title: "before", body: "context", acceptance: [{ text: "done means", done: false }] }, { p }).status,
+      409,
+    );
 
     handleWrite("POST", "/api/epic", { id: e.id }, { p });
 
-    assert.equal(handleWrite("POST", "/api/task", { title: "after" }, { p }).status, 201);
+    assert.equal(
+      handleWrite("POST", "/api/task", { title: "after", body: "context", acceptance: [{ text: "done means", done: false }] }, { p }).status,
+      201,
+    );
   });
 
   it("refuses an epic that does not exist", () => {
@@ -365,7 +372,12 @@ describe("creation", () => {
     const p = store();
     const epic = create("epic", { title: "current" }, "", p);
     writeState({ activeEpic: epic.id }, p);
-    const res = handleWrite("POST", "/api/task", { title: "born on the board" }, { p });
+    const res = handleWrite(
+      "POST",
+      "/api/task",
+      { title: "born on the board", body: "context", acceptance: [{ text: "done means" }] },
+      { p },
+    );
     assert.equal(res.status, 201);
     assert.equal(read(res.body.id, p).epic, epic.id);
   });
@@ -713,7 +725,12 @@ describe("sprints on the board (BDM-71)", () => {
     const p = store();
     const s = create("sprint", { title: "Sprint 12", status: "open" }, "", p);
     writeState({ activeSprint: s.id }, p);
-    const res = handleWrite("POST", "/api/task", { title: "born on the board" }, { p });
+    const res = handleWrite(
+      "POST",
+      "/api/task",
+      { title: "born on the board", body: "context", acceptance: [{ text: "done means" }] },
+      { p },
+    );
     assert.equal(res.status, 201);
     assert.equal(read(res.body.id, p).sprint, undefined);
   });
@@ -1008,6 +1025,7 @@ describe("capabilities on the board (BDM-73)", () => {
 
     setCriterion(t.id, 1, true, p);
     setCriterion(t.id, 2, true, p);
+    update(t.id, { evidence: [".bytedesk/task-management/evidence/TM-001-cap.log"], assignee: "@cap" }, p);
     assert.equal(gateDone(t.id, p).allow, true);
   });
 
@@ -1206,7 +1224,11 @@ describe("insight reads", () => {
   it("standup, time, stale and history answer from the event log", async () => {
     const p = store();
     writeConfig({ staleMinutes: 0 }, p);
-    const t = task(p, "finished today");
+    const t = task(p, "finished today", {
+      acceptance: [{ text: "done means", done: true }],
+      evidence: [".bytedesk/task-management/evidence/TM-001-done.log"],
+      assignee: "@test",
+    });
     const since = new Date(Date.now() - 60_000).toISOString();
     act(p, { action: "transition", id: t.id, status: "in_progress" });
     await new Promise((r) => setTimeout(r, 5));

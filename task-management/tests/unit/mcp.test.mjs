@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { gateTaskCreate } from "../../lib/enforce.mjs";
 import { TOOLS, handleRequest, respondToLine } from "../../lib/mcp.mjs";
-import { create, read, state, update, writeState } from "../../lib/store.mjs";
+import { create, list, read, state, update, writeState } from "../../lib/store.mjs";
 import { tempStore } from "./helpers.mjs";
 
 delete process.env.TM_ENFORCE;
@@ -102,17 +102,40 @@ test("tm_task_create with no active epic is denied with the CLI's own words", ()
   assert.equal(out.error, expected);
 });
 
+test("tm_task_create refuses a sparse task and names what is missing", () => {
+  // The completeness half of the create gate: an explicit create must carry context and
+  // criteria. The refusal names the fields; a refused create writes nothing.
+  const p = tempStore();
+  call("tm_epic", { action: "new", title: "Test epic" }, p);
+  const out = call("tm_task_create", { title: "no context, no criteria" }, p);
+  assert.equal(out.ok, false);
+  assert.match(out.error, /body/);
+  assert.match(out.error, /acceptance/);
+  assert.match(out.error, /override/, "the escape hatch is named, as on every gate");
+  assert.equal(list("task", {}, p).length, 0, "a refused create writes nothing");
+});
+
 test("a full round trip: epic → task → acceptance → done → board", () => {
   const p = tempStore();
   assert.equal(call("tm_epic", { action: "new", title: "Test epic" }, p).id, "EP-001");
-  assert.equal(call("tm_task_create", { title: "First real task" }, p).id, "TM-001");
+  const created = call(
+    "tm_task_create",
+    { title: "First real task", body: "what and why", acceptance: ["the thing is verifiably true"] },
+    p,
+  );
+  assert.equal(created.id, "TM-001", created.error);
   assert.equal(call("tm_show", { id: "TM-001" }, p).doc.epic, "EP-001");
 
-  call("tm_ac_add", { id: "TM-001", text: "the thing is verifiably true" }, p);
   call("tm_task_update", { id: "TM-001", action: "start" }, p);
   assert.equal(call("tm_task_update", { id: "TM-001", action: "done" }, p).ok, false, "done is gated on the AC");
 
   call("tm_ac_accept", { id: "TM-001", index: 1 }, p);
+  const unproven = call("tm_task_update", { id: "TM-001", action: "done" }, p);
+  assert.equal(unproven.ok, false, "ticked criteria alone do not close a task");
+  assert.match(unproven.error, /evidence/, "done also wants proof and attribution");
+
+  call("tm_evidence", { id: "TM-001", text: "the thing is verifiably true, and here is the run" }, p);
+  call("tm_task_field", { id: "TM-001", assignee: "tester" }, p);
   assert.equal(call("tm_task_update", { id: "TM-001", action: "done" }, p).ok, true);
   assert.match(call("tm_board", {}, p).board, /1\/1 done/);
 });
@@ -125,7 +148,11 @@ test("tm_label catalog, exclusive roles, and create-time labels", () => {
   assert.ok(catalog.catalog.includes("ready-for-agent"));
 
   call("tm_epic", { action: "new", title: "Map" }, p);
-  const created = call("tm_task_create", { title: "Decide the store", labels: ["decision:interview"] }, p);
+  const created = call(
+    "tm_task_create",
+    { title: "Decide the store", body: "pick the store shape", acceptance: ["the store is named"], labels: ["decision:interview"] },
+    p,
+  );
   assert.deepEqual(created.labels, ["decision:interview"]);
 
   call("tm_label", { id: created.id, add: ["ready-for-agent"] }, p);
@@ -195,7 +222,7 @@ test("tm_sprint mirrors the CLI verbs on the same store functions", () => {
   assert.equal(listed.activeSprint, "SP-001");
 
   call("tm_epic", { action: "new", title: "wave" }, p);
-  call("tm_task_create", { title: "card" }, p);
+  call("tm_task_create", { title: "card", body: "sprint fixture", acceptance: ["the card moves"] }, p);
 
   const added = call("tm_sprint", { action: "add", tasks: ["TM-001"] }, p);
   assert.equal(added.ok, true);
@@ -248,12 +275,16 @@ import { ensureDirs, paths } from "../../lib/paths.mjs";
 import { seedGitContract } from "../../lib/store.mjs";
 import { cleanup, tempRepo } from "./helpers.mjs";
 
-/** A store with an epic and two tasks, ready for field writes. */
+/**
+ * A store with an epic and two tasks, ready for field writes.
+ * Tasks carry a body and one criterion because gateStart/gateDone require them — a
+ * bare fixture could never leave `open`, and half these tests start or close work.
+ */
 function seeded() {
   const p = tempStore();
   call("tm_epic", { action: "new", title: "Parity" }, p);
-  call("tm_task_create", { title: "first" }, p);
-  call("tm_task_create", { title: "second" }, p);
+  call("tm_task_create", { title: "first", body: "the first task", acceptance: ["first is verifiably done"] }, p);
+  call("tm_task_create", { title: "second", body: "the second task", acceptance: ["second is verifiably done"] }, p);
   return p;
 }
 
@@ -276,7 +307,7 @@ test("tm_worktree new claims and provisions, rm releases and removes, list reads
   ensureDirs(p);
   seedGitContract(p);
   call("tm_epic", { action: "new", title: "Parity" }, p);
-  const made = call("tm_task_create", { title: "isolated work" }, p);
+  const made = call("tm_task_create", { title: "isolated work", body: "worktree fixture", acceptance: ["the checkout exists"] }, p);
 
   // The claim interlock only engages for sessions with a real id (a null-session
   // claim is deliberately unowned), so this test must not depend on an ambient
@@ -363,8 +394,10 @@ test("tm_export renders each format and refuses an unknown one", () => {
 test("tm_time summarises the board and one task", () => {
   const p = seeded();
   call("tm_task_update", { id: "TM-001", action: "start" }, p);
-  call("tm_ac_add", { id: "TM-001", text: "done" }, p);
   call("tm_ac_accept", { id: "TM-001", index: 1 }, p);
+  // done wants proof and a name, not just ticked criteria.
+  call("tm_evidence", { id: "TM-001", text: "the run that proves it" }, p);
+  call("tm_task_field", { id: "TM-001", assignee: "tester" }, p);
   call("tm_task_update", { id: "TM-001", action: "done" }, p);
   const all = call("tm_time", {}, p);
   assert.equal(all.ok, true, all.error);
@@ -378,7 +411,7 @@ test("tm_time summarises the board and one task", () => {
 
 test("tm_parallel batches tasks whose touches do not collide", () => {
   const p = seeded();
-  call("tm_task_create", { title: "third" }, p);
+  call("tm_task_create", { title: "third", body: "the third task", acceptance: ["third is verifiably done"] }, p);
   update("TM-001", { touches: ["a.js"] }, p);
   update("TM-002", { touches: ["a.js"] }, p);
   update("TM-003", { touches: ["b.js"] }, p);

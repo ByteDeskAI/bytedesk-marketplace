@@ -11,6 +11,7 @@ import { acceptanceOpen, config, list, logEvent, now, read, state, withLock, wri
 import { paths } from "./paths.mjs";
 import { sessionId } from "./actor.mjs";
 import { decisionRole, hasAnswer } from "./decision.mjs";
+import { missingFields } from "./completeness.mjs";
 
 export function enforcementOff(p = paths()) {
   if (String(process.env.TM_ENFORCE || "").toLowerCase() === "off") return true;
@@ -43,7 +44,7 @@ export function consumeOverride(p = paths()) {
 
 // ── TaskCreate gate ──────────────────────────────────────────────────────────
 
-export function gateTaskCreate(p = paths()) {
+export function gateTaskCreate(p = paths(), draft = null) {
   if (enforcementOff(p)) return { allow: true };
   const cfg = config(p);
   const s = state(p);
@@ -58,6 +59,35 @@ export function gateTaskCreate(p = paths()) {
         `Open epics: ${epicList(p) || "(none yet)"}\n` +
         "Bypass once: .bytedesk/task-management/bin/tm override \"<reason>\"   Disable: TM_ENFORCE=off",
     };
+  }
+
+  /**
+   * Explicit creates carry their details from birth; harness mirrors do not.
+   *
+   * `draft` is null on exactly one path: the pre-create hook for a native tool
+   * mirror (TaskCreate / update_plan / todo_write), where the task arrives as
+   * the harness's own todo state and fleshes out as the mirror learns more —
+   * gating that on completeness would deny every native todo. An explicit
+   * create (CLI `task new`, MCP `tm_task_create`, POST /api/task) passes what
+   * it was given, and a bare title no longer gets through.
+   *
+   * Before the WIP check on purpose: this and requireEpic refuse a malformed
+   * request, WIP refuses a busy board. The request is what the caller can fix
+   * without finishing something first.
+   */
+  if (draft) {
+    const missing = missingFields(draft, cfg.requireOnCreate, p);
+    if (missing.length) {
+      if (consumeOverride(p)) return { allow: true };
+      return {
+        allow: false,
+        reason: missingRefusal(
+          "task-management: new tasks carry their details from birth — missing",
+          missing,
+          "Or supply them at creation: .bytedesk/task-management/bin/tm task new \"<title>\" --body <text|-> --ac \"<criterion>\"",
+        ),
+      };
+    }
   }
 
   const wip = list("task", { status: "in_progress" }, p).length;
@@ -92,6 +122,15 @@ export function gateStart(id, p = paths()) {
     if (consumeOverride(p)) return { allow: true };
     return { allow: false, reason: `WIP limit ${cfg.wipLimit} reached: ${wip.map((w) => w.id).join(", ")}` };
   }
+  // Starting an empty card commits a session to work nobody can reconstruct:
+  // the body is the context, the criteria are what "finished" will mean. An
+  // unknown id skips this — not-found is the caller's refusal to make.
+  const task = read(id, p);
+  const missing = task ? missingFields(task, cfg.requireOnStart, p) : [];
+  if (missing.length) {
+    if (consumeOverride(p)) return { allow: true };
+    return { allow: false, reason: missingRefusal(`${id} is missing what starting needs`, missing) };
+  }
   return { allow: true };
 }
 
@@ -100,6 +139,20 @@ function epicList(p) {
     .filter((e) => e.status !== "done")
     .map((e) => `${e.id} ${e.title}`)
     .join(", ");
+}
+
+/**
+ * One refusal shape for every completeness gate: what is missing, the exact
+ * verb that fills each gap, then the one-shot escape. The hint text comes from
+ * completeness.mjs, so the refusal names the same command a doctor finding does.
+ */
+function missingRefusal(what, missing, extra = "") {
+  return (
+    `${what}:\n` +
+    missing.map((m) => `  ${m.field} — ${m.hint}`).join("\n") +
+    (extra ? `\n${extra}` : "") +
+    `\nBypass once: .bytedesk/task-management/bin/tm override "<reason>"`
+  );
 }
 
 // ── done gate ────────────────────────────────────────────────────────────────
@@ -145,6 +198,20 @@ export function gateDone(id, p = paths()) {
         `${id} needs evidence (${what}) before it can close.\n` +
         `  .bytedesk/task-management/bin/tm evidence ${id} <path>    Bypass once: .bytedesk/task-management/bin/tm override "<reason>"`,
     };
+  }
+  /**
+   * The full record on close: context, at least one criterion, proof, a name.
+   *
+   * requireAcceptance above only sees criteria that exist — an empty list has
+   * nothing unticked, so a bare task closed clean. Every AC-gated task was one
+   * bare create (or one `tm ac <id> --rm`) from an ungated done. Evidence and
+   * actor close the other two shapes of the same lie: "it works" with nothing
+   * attached, and finished work nobody owns.
+   */
+  const missing = missingFields(task, config(p).requireOnDone, p);
+  if (missing.length) {
+    if (consumeOverride(p)) return { allow: true };
+    return { allow: false, reason: missingRefusal(`${id} is missing what closing needs`, missing) };
   }
   return { allow: true };
 }

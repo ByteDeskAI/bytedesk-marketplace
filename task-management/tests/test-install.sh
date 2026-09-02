@@ -48,7 +48,7 @@ for cmd in tm tm-dashboard tm-hook; do
 done
 
 TM="'$BIN/tm'"
-stranger "cd '$PROJECT' && $TM epic new 'First epic' && $TM task new 'first task' && $TM start TM-001" >/dev/null 2>&1
+stranger "cd '$PROJECT' && $TM epic new 'First epic' && $TM task new 'first task' --body context --ac 'it boots' && $TM start TM-001" >/dev/null 2>&1
 BOARD="$(stranger "cd '$PROJECT' && $TM board" 2>&1)"
 case "$BOARD" in *"first task"*) ok "the project launcher manages tasks" ;; *) no "the project launcher manages tasks" "${BOARD:0:200}" ;; esac
 

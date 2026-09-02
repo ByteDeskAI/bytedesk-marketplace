@@ -50,7 +50,7 @@ for i in $(seq 1 $N); do
   # stderr is KEPT, not discarded. It used to go to /dev/null, so when a create failed the suite
   # reported "expected 8, got 7" and threw away the one line that said why — which is why this took
   # so long to diagnose.
-  (TM_ALLOW_DUP=1 node "$PLUGIN_ROOT/bin/tm" task new "concurrent subject number $i" >/dev/null 2>>"$STORE/creates.err") &
+  (TM_ALLOW_DUP=1 node "$PLUGIN_ROOT/bin/tm" task new "concurrent subject number $i" --body "context" --ac "it survived the race" >/dev/null 2>>"$STORE/creates.err") &
 done
 wait
 
@@ -94,7 +94,9 @@ tm doctor >/dev/null 2>&1 && ok "doctor is clean after concurrent creates" \
   || no "doctor is clean after concurrent creates" "$(tm doctor 2>&1 | head -3)"
 
 # ── concurrent append to one task: no lost writes ────────────────────────────
-tm task new "the comment target" >/dev/null
+# Created with the gates off: the AC assertion below counts exactly the four criteria the
+# concurrent loop appends, so this fixture must stay bare (a create-time --ac would shift it).
+env TM_ENFORCE=off node "$PLUGIN_ROOT/bin/tm" task new "the comment target" >/dev/null
 TARGET=$(tm find "the comment target" --json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s)[0].id))')
 
 : > "$TM_ROOT/exits"

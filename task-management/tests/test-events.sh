@@ -27,7 +27,7 @@ echo "test-events"
 
 tm init >/dev/null
 tm epic new "Event stream" >/dev/null
-tm task new "First task" >/dev/null
+tm task new "First task" --body "context" --ac "it is queryable" >/dev/null
 
 # Snapshot: human by default, with the catalog's own sentence per event.
 OUT="$(tm events)"

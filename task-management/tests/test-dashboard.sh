@@ -62,7 +62,7 @@ echo "test-dashboard"
 
 tm init >/dev/null
 tm epic new "Dashboard epic" >/dev/null
-tm task new "Visible on the board" >/dev/null
+tm task new "Visible on the board" --body "proves the board serves the store" --ac "the board shows it" >/dev/null
 
 # ── no server yet ────────────────────────────────────────────────────────────
 assert_status 1 "--status exits 1 when nothing is running" dashq --status
@@ -220,10 +220,11 @@ body() { cat "$TM_ROOT/resp.json"; }
 md() { cat "$STORE"/tasks/"$1"-*.md 2>/dev/null; }
 events() { wc -l < "$STORE/events.jsonl"; }
 
-CODE="$(post /api/task '{"title":"Written from the board"}')"
+CODE="$(post /api/task '{"title":"Written from the board","body":"context from the board","acceptance":["the create round-trips"]}')"
 [[ "$CODE" == 201 ]] && ok "create returns 201" || no "create returns 201" "got $CODE: $(body)"
 [[ -n "$(md TM-002)" ]] && ok "create wrote the markdown file" || no "create wrote the markdown file" "no TM-002-*.md in the store"
 assert_contains "$(md TM-002)" "Written from the board" "the new task carries its title"
+assert_contains "$(md TM-002)" "the create round-trips" "a payload acceptance list is honored without a template"
 assert_contains "$(node "$PLUGIN_ROOT/bin/tm" log 100)" "TM-002" "create appended an event"
 
 # Acceptance criteria are editable from the board, or the done gate is a dead end.
@@ -240,6 +241,13 @@ assert_contains "$(md TM-002)" 'status: "open"' "a refused transition does not t
 [[ "$(events)" == "$BEFORE_EVENTS" ]] && ok "a refused transition logs nothing" || no "a refused transition logs nothing" "$BEFORE_EVENTS -> $(events)"
 
 post /api/task/TM-002/accept '{"index":1}' >/dev/null
+post /api/task/TM-002/accept '{"index":2}' >/dev/null
+# Ticked criteria alone do not close a task: done also wants evidence and attribution.
+CODE="$(post /api/task/TM-002/transition '{"status":"done"}')"
+[[ "$CODE" == 409 ]] && ok "closing without evidence and an assignee is refused" || no "closing without evidence and an assignee is refused" "got $CODE: $(body)"
+assert_contains "$(body)" "evidence" "the refusal names the missing evidence"
+post /api/task/TM-002/evidence '{"text":"verified from the board"}' >/dev/null
+post /api/task/TM-002/assign '{"assignee":"board-tester"}' >/dev/null
 CODE="$(post /api/task/TM-002/transition '{"status":"done"}')"
 [[ "$CODE" == 200 ]] && ok "closing is allowed once the criteria are met" || no "closing is allowed once the criteria are met" "got $CODE: $(body)"
 assert_contains "$(md TM-002)" 'status: "done"' "the transition changed the markdown"
@@ -330,17 +338,18 @@ post /api/epic '{"id":"EP-001"}' >/dev/null
 
 # Acceptance criteria are not a one-way door. Reported by a user who ticked one on the board and
 # could not untick it — the checkbox set isDisabled once checked, and no route unticked.
+# TM-001 carries its create-time criterion at index 1, so the two added here are 2 and 3.
 post /api/task/TM-001/ac '{"text":"the tickable one"}' >/dev/null
 post /api/task/TM-001/ac '{"text":"the removable one"}' >/dev/null
-post /api/task/TM-001/accept '{"index":1}' >/dev/null
+post /api/task/TM-001/accept '{"index":2}' >/dev/null
 assert_contains "$(md TM-001)" '"done":true' "the board ticks a criterion"
-CODE="$(post /api/task/TM-001/accept '{"index":1,"done":false}')"
+CODE="$(post /api/task/TM-001/accept '{"index":2,"done":false}')"
 [[ "$CODE" == 200 ]] && ok "the board unticks it again" || no "the board unticks it again" "got $CODE: $(body)"
 case "$(md TM-001)" in
   *'"done":true'*) no "the untick is written to the file" "still ticked" ;;
   *) ok "the untick is written to the file" ;;
 esac
-CODE="$(post /api/task/TM-001/accept '{"index":2,"remove":true}')"
+CODE="$(post /api/task/TM-001/accept '{"index":3,"remove":true}')"
 [[ "$CODE" == 200 ]] && ok "the board removes a criterion" || no "the board removes a criterion" "got $CODE: $(body)"
 case "$(md TM-001)" in
   *"the removable one"*) no "the removed criterion is gone from the file" "still there" ;;
@@ -386,7 +395,7 @@ CODE="$(post /api/settings '"nope"')"
 post /api/task/TM-001/link '{"type":"blocks","to":"TM-002"}' >/dev/null
 assert_contains "$(md TM-001)" '"blocks"' "a link is written on the near end"
 assert_contains "$(md TM-002)" '"blocked by"' "a link is mirrored onto the far end"
-post /api/task '{"title":"A child task"}' >/dev/null
+post /api/task '{"title":"A child task","body":"subtask fixture","acceptance":["the parent is recorded"]}' >/dev/null
 post /api/task/TM-003/subtask '{"parent":"TM-001"}' >/dev/null
 assert_contains "$(md TM-003)" 'parent: "TM-001"' "a subtask records its parent"
 CODE="$(post /api/task/TM-001/subtask '{"parent":"TM-001"}')"
@@ -454,7 +463,7 @@ CODE="$(curl -s -o /dev/null -w '%{http_code}' -H "If-None-Match: $ETAG" "$BASE/
 [[ "$CODE" == 304 ]] && ok "an unchanged board is a 304" || no "an unchanged board is a 304" "got $CODE"
 
 # doctor --fix needs confirm; without it the file is untouched.
-post /api/task '{"title":"Waits on a ghost"}' >/dev/null
+post /api/task '{"title":"Waits on a ghost","body":"doctor fixture","acceptance":["the dangling ref is repaired"]}' >/dev/null
 post /api/task/TM-005/dep '{"add":["TM-404"]}' >/dev/null || true
 node -e '
 const fs=require("fs");const f=process.argv[1];const t=fs.readFileSync(f,"utf8").replace(/^blockedBy: .*$/m,"blockedBy: [\"TM-404\"]");fs.writeFileSync(f,t);
@@ -471,6 +480,15 @@ assert_contains "$(md TM-005)" 'status: "deleted"' "delete writes the status"
 case "$(curl -fsS "$BASE/api/board")" in *'"TM-005"'*) no "a deleted task leaves the board" "still served" ;; *) ok "a deleted task leaves the board" ;; esac
 post /api/task/TM-005/restore >/dev/null
 assert_contains "$(md TM-005)" 'status: "open"' "restore brings it back"
+
+# The create gate refuses a task with no context and no criteria, and says what is missing.
+# Last, because nothing below numbers tasks: while the gate is unlanded this create succeeds
+# and would shift every hardcoded TM- id above.
+CODE="$(post /api/task '{"title":"Sparse create"}')"
+[[ "$CODE" == 409 ]] && ok "a create with no body or criteria is refused" || no "a create with no body or criteria is refused" "got $CODE: $(body)"
+assert_contains "$(body)" "body" "the refusal names the missing body"
+assert_contains "$(body)" "acceptance" "the refusal names the missing criteria"
+assert_contains "$(body)" "override" "the refusal names the escape hatch, as every gate does"
 
 # SSE: a fresh connect gets `ready`; Last-Event-ID: 0 replays the whole log with ids; idle streams ping.
 (curl -sN --max-time 2 "$BASE/events" > "$TM_ROOT/sse-ready.txt" &) ; sleep 2.5

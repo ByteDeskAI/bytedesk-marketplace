@@ -50,7 +50,7 @@ assert_contains "$OUT" '"inputSchema"' "tools carry a JSON Schema"
 OUT="$(call tm_task_create '{"title":"orphan task"}' | mcp)"
 assert_contains "$OUT" "no active epic" "task create is denied without an active epic"
 
-OUT="$({ call tm_epic '{"action":"new","title":"Test epic"}'; call tm_task_create '{"title":"First real task"}'; } | mcp)"
+OUT="$({ call tm_epic '{"action":"new","title":"Test epic"}'; call tm_task_create '{"title":"First real task","body":"what and why","acceptance":["the thing is verifiably true"]}'; } | mcp)"
 assert_contains "$OUT" "EP-001" "epic created over the wire"
 assert_contains "$OUT" "TM-001" "task created under the active epic"
 [[ "$(lines "$OUT")" == 2 ]] && ok "two requests, two response lines" || no "two requests, two response lines"
@@ -59,7 +59,7 @@ assert_contains "$OUT" "TM-001" "task created under the active epic"
 assert_contains "$(node "$PLUGIN_ROOT/bin/tm" board)" "TM-001" "the CLI sees what MCP wrote"
 
 # tm_why over the wire: a tool that isn't reachable from MCP is a silent gap.
-OUT="$({ call tm_task_create '{"title":"A blocking prerequisite"}'; } | mcp)"
+OUT="$({ call tm_task_create '{"title":"A blocking prerequisite","body":"TM-001 waits on this","acceptance":["the prerequisite is done"]}'; } | mcp)"
 node "$PLUGIN_ROOT/bin/tm" dep TM-001 TM-002 >/dev/null
 OUT="$(call tm_why '{"id":"TM-001"}' | mcp)"
 # The result is JSON-in-a-string inside content[0].text, so the quotes arrive escaped.
@@ -67,12 +67,15 @@ assert_contains "$OUT" 'startable' "tm_why answers over MCP"
 assert_contains "$OUT" "TM-002" "tm_why names the blocker"
 
 # Acceptance gate, over the wire.
-{ call tm_ac_add '{"id":"TM-001","text":"verifiably true"}'; } | mcp >/dev/null
 OUT="$(call tm_task_update '{"id":"TM-001","action":"done"}' | mcp)"
 assert_contains "$OUT" "unmet acceptance criteria" "done is gated on acceptance criteria"
 { call tm_ac_accept '{"id":"TM-001","index":1}'; } | mcp >/dev/null
+# Ticked criteria alone do not close a task: done also wants evidence and attribution.
 OUT="$(call tm_task_update '{"id":"TM-001","action":"done"}' | mcp)"
-assert_contains "$OUT" '\"ok\": true' "done allowed once criteria are met"
+assert_contains "$OUT" "evidence" "done is gated on evidence once criteria are ticked"
+{ call tm_evidence '{"id":"TM-001","text":"verified over the wire"}'; call tm_task_field '{"id":"TM-001","assignee":"tester"}'; } | mcp >/dev/null
+OUT="$(call tm_task_update '{"id":"TM-001","action":"done"}' | mcp)"
+assert_contains "$OUT" '\"ok\": true' "done allowed once criteria, evidence and attribution are in"
 
 # tm_task_edit — a tool that isn't reachable from MCP is a silent gap, and for a long time
 # correcting a title was reachable only from the browser.
@@ -146,8 +149,8 @@ done
 
 # Fresh tasks, so this block does not depend on what the suite above did to TM-001.
 id_of() { node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(JSON.parse(s).result.content[0].text).id))'; }
-A="$(call tm_task_create '{"title":"Parity A"}' | mcp | id_of)"
-B="$(call tm_task_create '{"title":"Parity B"}' | mcp | id_of)"
+A="$(call tm_task_create '{"title":"Parity A","body":"parity fixture","acceptance":["A works"]}' | mcp | id_of)"
+B="$(call tm_task_create '{"title":"Parity B","body":"parity fixture","acceptance":["B works"]}' | mcp | id_of)"
 OUT="$(call tm_link "{\"id\":\"$A\",\"type\":\"blocks\",\"to\":\"$B\"}" | mcp)"
 assert_contains "$OUT" '\"type\": \"blocks\"' "tm_link writes the near end"
 assert_contains "$(node "$PLUGIN_ROOT/bin/tm" show "$B")" "blocked by" "the CLI sees the mirrored end"
@@ -184,6 +187,15 @@ OUT="$(call tm_task_update "{\"id\":\"$B\",\"action\":\"delete\",\"reason\":\"du
 assert_contains "$OUT" '\"status\": \"deleted\"' "tm_task_update delete is soft"
 OUT="$(call tm_task_update "{\"id\":\"$B\",\"action\":\"restore\"}" | mcp)"
 assert_contains "$OUT" '\"status\": \"blocked\"' "tm_task_update restore brings it back where it was (blocked by A)"
+
+# The completeness gate applies to MCP exactly as to the CLI: an explicit create with no
+# context and no criteria is refused, and the refusal names what is missing. Last, because
+# nothing below numbers tasks: while the gate is unlanded this create succeeds and would
+# shift every hardcoded TM- id above.
+OUT="$(call tm_task_create '{"title":"sparse task"}' | mcp)"
+assert_contains "$OUT" "body" "a create with no body is refused, naming body"
+assert_contains "$OUT" "acceptance" "the same refusal names acceptance criteria"
+assert_contains "$OUT" "override" "the refusal names the escape hatch, as every gate does"
 
 # ── the server is harness-agnostic (TM-039) ──────────────────────────────────
 # Driven the way Codex and Grok drive it: their own client identity, their own session variable,

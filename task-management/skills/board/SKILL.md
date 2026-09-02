@@ -26,4 +26,5 @@ The store is the truth; session todo state is a mirror of it.
 ## Notes
 
 - Starting work: `.bytedesk/task-management/bin/tm start <TM-id>` (respects the WIP limit, default 3).
-- Related: [[epic]], [[standup]], [[handoff]].
+- Handing off labelled work: [[dispatch]] / [[pool]], then [[collect]].
+- Related: [[epic]], [[standup]], [[handoff]], [[events]].

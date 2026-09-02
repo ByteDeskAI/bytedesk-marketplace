@@ -38,6 +38,19 @@ assert_contains "$LIST" "score 3" "and the speculative rewrite at 3"
 tm cap new "Bad size" --impact XL >/dev/null 2>&1 && no "an invalid impact is refused" || ok "an invalid impact is refused"
 tm cap new "Bad effort" --effort H >/dev/null 2>&1 && no "effort takes S/M/L, not H" || ok "effort takes S/M/L, not H"
 
+# Accepting mints a task, so accept answers the task-create gate like `tm task new`
+# (TM-077): an active epic first, then the card must carry the criteria the task is
+# created with. Proposing stays ungated — it is not committing.
+NOEPIC="$(tm cap accept CAP-0001 2>&1)"; RC=$?
+[[ "$RC" == 2 ]] && ok "cap accept is refused without an active epic" || no "cap accept is refused without an active epic" "exit $RC"
+assert_contains "$NOEPIC" "no active epic" "the refusal is the epic gate, the same as tm task new"
+
+tm epic new "Build the wins" >/dev/null
+
+NOAC="$(tm cap accept CAP-0001 2>&1)"; RC=$?
+[[ "$RC" == 2 ]] && ok "a card without criteria is refused" || no "a card without criteria is refused" "exit $RC"
+assert_contains "$NOAC" "- [ ]" "the refusal says to add criteria lines to the card"
+
 # Accept mints the task and carries the card's acceptance criteria across as its gate.
 tm edit CAP-0001 "Cheap big win" --body "## Acceptance criteria
 

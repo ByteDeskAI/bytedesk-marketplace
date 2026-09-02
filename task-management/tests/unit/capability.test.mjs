@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { cleanup, tempStore } from "./helpers.mjs";
 import { accept, acceptanceOf, drop, propose, ranked, score, ship } from "../../lib/capability.mjs";
 import { gateDone } from "../../lib/enforce.mjs";
-import { read, setCriterion, writeConfig } from "../../lib/store.mjs";
+import { read, setCriterion, update, writeConfig } from "../../lib/store.mjs";
 
 const stores = [];
 function store() {
@@ -57,6 +57,7 @@ describe("acceptanceOf (BDM-73)", () => {
     setCriterion(task.id, 1, true, p);
     assert.equal(gateDone(task.id, p).allow, false, "one of two still open");
     setCriterion(task.id, 2, true, p);
+    update(task.id, { evidence: [".bytedesk/task-management/evidence/TM-001-cap.log"], assignee: "@cap" }, p);
     assert.equal(gateDone(task.id, p).allow, true);
   });
 });

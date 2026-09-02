@@ -33,7 +33,13 @@ after(() => cleanup(...trash));
 const TM_BIN = fileURLToPath(new URL("../../bin/tm", import.meta.url));
 const FIXTURE = fileURLToPath(new URL("./fixtures/fake-dispatch-registry.mjs", import.meta.url));
 
-/** A store rooted in a real git repo, because dispatch provisions a worktree. */
+/**
+ * A store rooted in a real git repo, because dispatch provisions a worktree.
+ *
+ * Dispatch IS a start, so gateStart's completeness policy binds on every surface:
+ * fixtures that get dispatched carry a body and one acceptance criterion, or the
+ * gate — not the behavior under test — would be what refuses.
+ */
 function repoStore(cfg = {}) {
   const root = tempRepo();
   const p = paths(root);
@@ -87,7 +93,7 @@ const injected = { TM_DISPATCH_REGISTRY: FIXTURE };
 describe("CLI tm dispatch", () => {
   it("dispatches to a fake backend: claims, starts, provisions, prints the run", () => {
     const p = repoStore();
-    const t = create("task", { title: "dispatch me" }, "the body", p);
+    const t = create("task", { title: "dispatch me", acceptance: [{ text: "the worker runs", done: false }] }, "the body", p);
 
     const r = tmCli(p, ["dispatch", t.id, "--backend", "fake", "--json"], injected);
 
@@ -103,7 +109,7 @@ describe("CLI tm dispatch", () => {
 
   it("prints the one-line summary and, for the manual backend, the commands to paste", () => {
     const p = repoStore();
-    const t = create("task", { title: "by hand" }, "", p);
+    const t = create("task", { title: "by hand", acceptance: [{ text: "the commands are pasted", done: false }] }, "manual fixture", p);
 
     const r = tmCli(p, ["dispatch", t.id, "--backend", "manual"]);
 
@@ -116,7 +122,7 @@ describe("CLI tm dispatch", () => {
 
   it("--backend bogus is refused before anything is claimed", () => {
     const p = repoStore();
-    const t = create("task", { title: "pinned" }, "", p);
+    const t = create("task", { title: "pinned", acceptance: [{ text: "a bogus backend is refused", done: false }] }, "pinned fixture", p);
 
     const r = tmCli(p, ["dispatch", t.id, "--backend", "bogus"]);
 
@@ -131,7 +137,7 @@ describe("CLI tm dispatch", () => {
 describe("the refusal wording is one string on every surface", () => {
   it("a live claim refuses CLI, MCP and HTTP with the exact same text", async () => {
     const p = repoStore();
-    const t = create("task", { title: "contended" }, "", p);
+    const t = create("task", { title: "contended", acceptance: [{ text: "the wording is identical", done: false }] }, "contended fixture", p);
     // A live claim from another session: real worktree dir, so it cannot read as expired.
     const theirs = join(p.root, "their-checkout");
     mkdirSync(theirs, { recursive: true });
@@ -157,7 +163,7 @@ describe("the refusal wording is one string on every surface", () => {
   it("the WIP gate refuses dispatch on every surface with the exact same text", async () => {
     const p = repoStore({ wipLimit: 1 });
     const busy = create("task", { title: "busy" }, "", p);
-    const queued = create("task", { title: "queued" }, "", p);
+    const queued = create("task", { title: "queued", acceptance: [{ text: "the WIP gate fires", done: false }] }, "queued fixture", p);
     update(busy.id, { status: "in_progress" }, p);
     const expected = gateStart(queued.id, p).reason;
     assert.ok(expected, "the gate genuinely refuses here");
@@ -179,7 +185,7 @@ describe("the refusal wording is one string on every surface", () => {
 describe("MCP tm_dispatch", () => {
   it("dispatches through the same core and answers with the dispatch result", async () => {
     const p = repoStore();
-    const t = create("task", { title: "over the wire" }, "", p);
+    const t = create("task", { title: "over the wire", acceptance: [{ text: "MCP dispatches it", done: false }] }, "wire fixture", p);
 
     const res = await withEnv({ ...injected, TM_SESSION_ID: "s-mcp" }, () => mcpDispatch(p, { id: t.id, backend: "fake" }));
 
@@ -199,7 +205,7 @@ describe("MCP tm_dispatch", () => {
 
   it("a re-dispatch from another session is refused while the first claim is live", async () => {
     const p = repoStore();
-    const t = create("task", { title: "taken" }, "", p);
+    const t = create("task", { title: "taken", acceptance: [{ text: "the first claim holds", done: false }] }, "taken fixture", p);
 
     const first = await withEnv({ ...injected, TM_SESSION_ID: "s-first" }, () => mcpDispatch(p, { id: t.id, backend: "fake" }));
     assert.equal(first.ok, true, first.error);
@@ -214,7 +220,7 @@ describe("MCP tm_dispatch", () => {
 describe("HTTP POST /api/task/:id/dispatch", () => {
   it("200 with the dispatch result on success", async () => {
     const p = repoStore();
-    const t = create("task", { title: "from the board" }, "", p);
+    const t = create("task", { title: "from the board", acceptance: [{ text: "HTTP dispatches it", done: false }] }, "board fixture", p);
 
     const res = await withEnv({ ...injected, TM_SESSION_ID: "s-http" }, () =>
       handleAsync("POST", `/api/task/${t.id}/dispatch`, { backend: "fake" }, { p }),

@@ -110,6 +110,8 @@ const die = (s, code = 1) => {
   process.exit(code);
 };
 
+const USAGE_TASK_NEW = 'usage: tm task new "<title>" [--body <text|->] [--ac "<criterion>"]...';
+
 /** The checkout we're standing in — which is NOT the store root when we're in a worktree. */
 const CHECKOUT = P.root ? currentCheckout() : process.cwd();
 
@@ -250,16 +252,34 @@ const VERBS = {
       const ti = rest.indexOf("--template");
       const template = ti === -1 ? null : rest[ti + 1];
       if (ti !== -1) rest.splice(ti, 2);
+      // --body <text|-> and repeatable --ac "<criterion>" carry the completeness draft the
+      // create gate checks. `-` reads stdin, the same convention as `tm edit --body -`.
+      const bi = rest.indexOf("--body");
+      let body;
+      if (bi !== -1) {
+        const given = rest[bi + 1];
+        body = given === undefined || given === "-" ? readFileSync(0, "utf8") : given;
+        rest.splice(bi, 2);
+      }
+      const acs = [];
+      for (let ai = rest.indexOf("--ac"); ai !== -1; ai = rest.indexOf("--ac")) {
+        if (rest[ai + 1] === undefined || rest[ai + 1].startsWith("--")) die(USAGE_TASK_NEW);
+        acs.push(rest[ai + 1]);
+        rest.splice(ai, 2);
+      }
       const title = rest.join(" ");
-      if (!title) die('usage: tm task new "<title>"');
-      const gate = gateTaskCreate(P);
+      if (!title) die(USAGE_TASK_NEW);
+      const base = { title, epic: state(P).activeEpic || null, acceptance: acs.map((text) => ({ text, done: false })), evidence: [], commits: [], blockedBy: [], blocks: [], ...stamp() };
+      const applied = template ? applyTemplate(template, base, P) : { fields: base, body: "" };
+      // An explicit --body wins over the template's starter body; the gate below checks
+      // what will actually be created, so a template's own body/criteria satisfy it too.
+      if (body !== undefined) applied.body = body;
+      const gate = gateTaskCreate(P, { body: applied.body, acceptance: applied.fields.acceptance });
       if (!gate.allow) die(gate.reason, 2);
       const dup = enforcementOff(P) ? null : findDuplicate(title, P);
       if (dup && !process.env.TM_ALLOW_DUP) {
         die(`possible duplicate of ${dup.id} "${dup.title}". Re-run with TM_ALLOW_DUP=1 if it really is new.`, 2);
       }
-      const base = { title, epic: state(P).activeEpic || null, acceptance: [], evidence: [], commits: [], blockedBy: [], blocks: [], ...stamp() };
-      const applied = template ? applyTemplate(template, base, P) : { fields: base, body: "" };
       const t = create("task", applied.fields, applied.body, P);
       out(`${t.id} ${title}${t.epic ? ` [${t.epic}]` : ""}${template ? ` (from ${template})` : ""}`);
     } else {
@@ -347,7 +367,8 @@ const VERBS = {
       try {
         res = acceptCap(id, P);
       } catch (e) {
-        die(e.message);
+        // Gate refusals carry status 2, the same exit `tm task new` gives them.
+        die(e.message, e.status ?? 1);
       }
       out(
         res.existing
@@ -1384,7 +1405,7 @@ const VERBS = {
         "",
         "  init                          create the store here",
         '  epic new "<title>" | use <id> | done <id> | (list)',
-        '  task new "<title>" | (list)',
+        '  task new "<title>" [--body <text|->] [--ac "<criterion>"]... | (list)',
         '  adr new "<title>"',
         '  cap new "<title>" [--area --impact --effort --confidence --source]   the enhancement backlog',
         "  cap list [--status open] | accept <CAP-id> | ship <CAP-id> [--evidence <ref>] | drop <CAP-id>",

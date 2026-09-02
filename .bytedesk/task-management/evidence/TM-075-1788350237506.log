@@ -1,0 +1,5 @@
+node --test tests/unit/use-cases-docs.test.mjs
+# tests 4
+# pass 4
+# fail 0
+Asserts: 20 numbered cases, five-section format, every tm_* is a real MCP tool, every /api path is in dashboard-api.md, agent-first verbs present, README links docs/use-cases.md.

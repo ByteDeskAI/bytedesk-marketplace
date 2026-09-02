@@ -244,16 +244,16 @@ export const TOOLS = [
   {
     name: "tm_task_create",
     description:
-      "File a task under the active epic. Use for any unit of work that outlives one message. Gated: with no active epic this is refused with instructions — open one with tm_epic first rather than working untracked.",
+      "File a task under the active epic. Use for any unit of work that outlives one message. Gated: with no active epic this is refused with instructions — open one with tm_epic first rather than working untracked. Default policy also refuses a sparse create: pass body (context — what, why, where to look) and at least one acceptance criterion now, because starting and closing the task are gated on them anyway.",
     inputSchema: {
       type: "object",
       properties: {
         title: str("Short imperative title."),
-        body: str("Optional context: what, why, where to look."),
+        body: str("Context: what, why, where to look. Required by default policy."),
         acceptance: {
           type: "array",
           items: { type: "string" },
-          description: "Acceptance criteria. Closing the task is gated on ticking these, so write them now.",
+          description: "Acceptance criteria — at least one, required by default policy. Closing the task is gated on ticking these, so write them now.",
         },
         labels: {
           type: "array",
@@ -264,7 +264,9 @@ export const TOOLS = [
       required: ["title"],
     },
     run: ({ title, body = "", acceptance = [], labels: tagList = [] }, p) => {
-      const gate = gateTaskCreate(p);
+      // The draft is what create() would write, so the completeness gate refuses a
+      // sparse task before it exists rather than letting the board fill with blanks.
+      const gate = gateTaskCreate(p, { body, acceptance });
       if (!gate.allow) return fail(gate.reason);
       const t = create(
         "task",

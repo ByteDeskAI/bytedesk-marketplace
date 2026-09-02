@@ -3,6 +3,36 @@
 ## Unreleased
 
 ### Added
+- **Required-field completeness gates (TM-080).** A task now carries its details or the
+  gates say no. New `lib/completeness.mjs` — `missingFields(task, required)` returns
+  `[{field, hint}]` with the hint naming the exact fix command (`tm edit <id> --body`,
+  `tm ac <id> "…"`, `tm evidence <id> <path|->`, `tm assign <id> <who>`) — and three config
+  field-lists, on by default and in the settings catalog: `requireOnCreate`
+  `["body","acceptance"]`, `requireOnStart` `["body","acceptance"]`, `requireOnDone`
+  `["body","acceptance","evidence","actor"]`. An explicit create (CLI `task new`, MCP
+  `tm_task_create`, `POST /api/task`) is refused without context and criteria, so
+  `task new` gains `--body <text|->` (`-` reads stdin, like `edit --body -`) and a
+  repeatable `--ac "criterion"`; harness-mirror creates (`TaskCreate`, `update_plan`,
+  `todo_write`, `TodoList`) are exempt. `gateStart` now refuses an incomplete task, which
+  binds `tm start` and `tm dispatch` on every surface; `gateDone` adds the body,
+  at-least-one-criterion-exists (closing the zero-AC hole — a task with no criteria could
+  close before), evidence, and actor-or-assignee checks on top of `requireAcceptance`.
+  Mirror-created tasks are never blocked at done; `tm doctor` audits them report-only as
+  `incomplete-done` and `incomplete-open` warnings. Everything bows to the existing escape
+  machinery: `TM_ENFORCE=off`, a one-shot `tm override "<reason>"`, or `tm config`.
+
+- **Use-case catalog (TM-075).** [`docs/use-cases.md`](docs/use-cases.md) — 20 situations
+  in one five-section format (Scenario / When to use / Usage / Natural language prompts /
+  Expected outcome), spanning classic board work and the agent-first loop. README Docs
+  table links it. Not committed as a release; left in the tree for review.
+
+- **Agent-first documentation and skills (TM-074).** [`docs/agent-first.md`](docs/agent-first.md)
+  is the three-surface map (CLI / 38 MCP tools / HTTP) for `caps`, `dispatch`, `pool`,
+  `collect`, `agent`, and `events` — flags, refusals, backend order, config keys, and
+  Claude/Codex/Grok/Kimi recipes. Skills `caps`, `dispatch`, `pool`, `collect`, `agent`,
+  `events` chain that loop so a new agent can find it from metadata without guessing a
+  flag. README links the doc from the agent-first section, the MCP inventory, and the
+  dashboard write table.
 - **Agent-first: dispatch, the pool, and the machine bus.** The board is now something an
   agent runs on, with the split of labour kept deliberate: humans decide (decision-map and
   enhance gates), agents execute `ready-for-agent`-labelled work.

@@ -16,3 +16,7 @@ For **implementation** tickets only (`ready-for-agent`, no `decision:*`).
 5. `tm_task_update` done. Never leave `in_progress` at session end.
 
 Do not implement `decision:*` tickets — those are `/interview`, `/research`, `/prototype`.
+
+A `ready-for-agent` card this session should **not** implement: [[dispatch]] (one
+shot) or [[pool]] (loop). After the worker exits: [[collect]], then [[events]].
+Probe the host with [[caps]] first.

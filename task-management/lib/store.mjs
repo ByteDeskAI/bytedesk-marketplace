@@ -18,6 +18,12 @@ const DEFAULT_CONFIG = {
   enforce: true,
   requireEpic: true,
   requireAcceptance: true,
+  // Field lists the gates check with completeness.mjs. Flat keys on purpose: a
+  // list replaces wholesale under writeConfig, which is the semantics a policy
+  // wants — `tm config requireOnDone '[]'` turns that half of a gate off.
+  requireOnCreate: ["body", "acceptance"],
+  requireOnStart: ["body", "acceptance"],
+  requireOnDone: ["body", "acceptance", "evidence", "actor"],
   wipLimit: 3,
   staleMinutes: 90,
   gitLink: true,

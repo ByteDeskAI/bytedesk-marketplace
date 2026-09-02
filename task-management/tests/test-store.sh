@@ -76,29 +76,33 @@ git -C "$HYG" check-ignore -q .bytedesk/worktrees/TM-001-x/x && ok "the parent g
 git -C "$HYG" check-ignore -q .bytedesk/task-management/bin/tm && ok "the store gitignore covers bin launchers" || no "the store gitignore covers bin launchers"
 rm -rf "$HYG"
 
-# Gate: no epic → TaskCreate path refuses (exit 2)
-assert_status 2 "task create denied without an active epic" tm task new "orphan task"
+# Gate: no epic → TaskCreate path refuses (exit 2). The flags make this a complete
+# draft, so the refusal can only be the missing epic.
+assert_status 2 "task create denied without an active epic" tm task new "orphan task" --body "context" --ac "it exists"
 
 tm epic new "Test epic" >/dev/null
 assert_contains "$(tm epic)" "EP-001" "epic created and listed"
-assert_contains "$(tm task new 'First real task')" "TM-001" "task created under the active epic"
+assert_contains "$(tm task new 'First real task' --body 'the task that proves creates work' --ac 'it is verifiably true')" "TM-001" "task created under the active epic"
 assert_contains "$(cat "$TM_ROOT"/.bytedesk/task-management/tasks/TM-001-*.md)" 'epic: "EP-001"' "task carries the epic link"
 
-# Duplicate guard
-assert_status 2 "duplicate title is refused" tm task new "First real task"
-TM_ALLOW_DUP=1 tm task new "First real task" >/dev/null && ok "TM_ALLOW_DUP bypasses the dup guard" || no "TM_ALLOW_DUP bypasses the dup guard"
+# Duplicate guard — a complete draft again, so the gate passes and the guard is what refuses.
+assert_status 2 "duplicate title is refused" tm task new "First real task" --body "context" --ac "it exists"
+TM_ALLOW_DUP=1 tm task new "First real task" --body "context" --ac "it exists" >/dev/null && ok "TM_ALLOW_DUP bypasses the dup guard" || no "TM_ALLOW_DUP bypasses the dup guard"
 
-# Acceptance criteria gate
-tm ac TM-001 "the thing is verifiably true" >/dev/null
+# Acceptance criteria gate. Done also wants the details on the card: a body (carried
+# from create), proof attached, and a name on the work — the create stamp is the actor.
+tm ac TM-001 "a second criterion added after creation" >/dev/null
 tm start TM-001 >/dev/null
 assert_status 2 "done refused while acceptance criteria are unmet" tm done TM-001
 tm accept TM-001 1 >/dev/null
+tm accept TM-001 2 >/dev/null
+echo "test output" | tm evidence TM-001 - >/dev/null
 assert_status 0 "done allowed once criteria are met" tm done TM-001
 assert_contains "$(tm board)" "1/2 done" "board counts completion"
 
 # Dependencies
-tm task new "Blocked work" >/dev/null       # TM-003
-tm task new "Blocker work" >/dev/null       # TM-004
+tm task new "Blocked work" --body "cannot start until the blocker lands" --ac "it unblocks" >/dev/null       # TM-003
+tm task new "Blocker work" --body "the thing in the way" --ac "it clears" >/dev/null       # TM-004
 tm dep TM-003 TM-004 >/dev/null
 assert_contains "$(tm board)" "blocked-by TM-004" "dependency recorded"
 case "$(tm next)" in *TM-003*) no "next hides blocked tasks" "TM-003 should not be next" ;; *) ok "next hides blocked tasks" ;; esac
@@ -158,7 +162,7 @@ tm goal import "$TM_ROOT/no-criteria.md" >/dev/null 2>&1 || true
 [[ "$(tm board --json | jq '.tasks | length')" == "$BEFORE" ]] && ok "a refused import creates nothing" || no "a refused import creates nothing"
 
 # tm type — the vocabulary, and the derivation that keeps old stores reading correctly.
-tm task new "Typed subject alpha" >/dev/null
+tm task new "Typed subject alpha" --body "a subject for the type vocabulary" --ac "it reads its type" >/dev/null
 TID=$(tm find "Typed subject alpha" --json | jq -r '.[0].id')
 assert_contains "$(tm type "$TID")" "type: task (derived)" "an untyped task reads as task, and says it was derived"
 assert_contains "$(tm type "$TID" bug)" "type: bug" "tm type sets the field"
@@ -170,8 +174,8 @@ tm label "$TID" spike >/dev/null
 assert_contains "$(tm type "$TID")" "type: spike (derived)" "a type worn as a label still reads, so existing stores need no migration"
 
 # tm dep — a leading dash removes, matching tm label. Removal did not exist before.
-tm task new "Dependency alpha subject" >/dev/null
-tm task new "Dependency bravo subject" >/dev/null
+tm task new "Dependency alpha subject" --body "the dependent half" --ac "it records its blocker" >/dev/null
+tm task new "Dependency bravo subject" --body "the blocking half" --ac "it records the dependent" >/dev/null
 DA=$(tm find "Dependency alpha subject" --json | jq -r '.[0].id')
 DB=$(tm find "Dependency bravo subject" --json | jq -r '.[0].id')
 assert_contains "$(tm dep "$DA" "$DB")" "blocked by $DB" "tm dep adds a blocker"
@@ -228,11 +232,12 @@ assert_contains "$(tm show "$SECOND")" "src/b.ts" "declared touches land on the 
 assert_contains "$(tm show "$SECOND")" "human-gate" "needsHumanGate becomes a label"
 assert_contains "$(tm why "$SECOND")" "startable: no" "tm why answers for an imported program"
 
-# tm reopen — the way back, and what it takes with it.
-tm task new "Reopen target task" >/dev/null
+# tm reopen — the way back, and what it takes with it. The close needs the full set:
+# ticked criteria, proof attached, body and actor from the create.
+tm task new "Reopen target task" --body "will close, then come back" --ac "it is closed" >/dev/null
 RID=$(tm find "Reopen target task" --json | jq -r '.[0].id')
-tm ac "$RID" "it is closed" >/dev/null; tm accept "$RID" 1 >/dev/null; tm done "$RID" >/dev/null
-tm task new "Still open on purpose" >/dev/null
+tm accept "$RID" 1 >/dev/null; echo "reopen proof" | tm evidence "$RID" - >/dev/null; tm done "$RID" >/dev/null
+tm task new "Still open on purpose" --body "stays open on purpose" --ac "never closes" >/dev/null
 OPENID=$(tm find "Still open on purpose" --json | jq -r '.[0].id')
 assert_status 2 "reopen refuses a task that is not done" node "$PLUGIN_ROOT/bin/tm" reopen "$OPENID"
 assert_contains "$(tm reopen "$RID" changed my mind)" "reopened" "reopen brings a done task back"
@@ -349,6 +354,28 @@ OWNER="$(node -e '
 rm -rf "$FRESH"
 assert_status 2 "tm config refuses to overwrite a git-derived owner" node "$PLUGIN_ROOT/bin/tm" config owner '"Someone Else"'
 
+# ── the create completeness gate (TM-077) ────────────────────────────────────
+# An explicit create carries its details or is refused: no --body/--ac, no task.
+# Self-contained at the end of the suite — by this point the store sits at the WIP
+# limit with its last epic closed, and either would refuse these creates for reasons
+# that are not the one under test.
+tm epic new "Create gate coverage" >/dev/null
+tm config wipLimit 99 >/dev/null
+NEW_OUT="$(tm task new "no details at all" 2>&1)"; NEW_RC=$?
+[[ "$NEW_RC" == 2 ]] && ok "task new without --body/--ac is refused" || no "task new without --body/--ac is refused" "exit $NEW_RC"
+assert_contains "$NEW_OUT" "body" "the refusal names the missing body"
+assert_contains "$NEW_OUT" "acceptance" "and the missing acceptance criteria"
+NEW_OUT="$(tm task new "only a body" --body "context without criteria" 2>&1)"; NEW_RC=$?
+[[ "$NEW_RC" == 2 ]] && ok "task new with --body but no --ac is refused" || no "task new with --body but no --ac is refused" "exit $NEW_RC"
+assert_contains "$NEW_OUT" "acceptance" "the refusal still names the missing criteria"
+assert_contains "$(tm task new "fully detailed task" --body "context and why" --ac "it works" --ac "it is tested")" "TM-" "task new with --body and --ac creates"
+FULLID="$(tm find "fully detailed task" --json | jq -r '.[0].id')"
+assert_contains "$(tm show "$FULLID")" "context and why" "the body lands on the task"
+assert_contains "$(tm show "$FULLID" --json | jq -r '.acceptance | length')" "2" "both criteria land"
+assert_contains "$(tm show "$FULLID" --json | jq -r '.acceptance[0].done')" "false" "criteria start unticked"
+printf 'piped body\n' | tm task new "stdin bodied task" --body - --ac "it reads stdin" >/dev/null
+PIPEID="$(tm find "stdin bodied task" --json | jq -r '.[0].id')"
+assert_contains "$(tm show "$PIPEID")" "piped body" "--body - reads the body from stdin"
 
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [[ "$FAIL" == 0 ]]

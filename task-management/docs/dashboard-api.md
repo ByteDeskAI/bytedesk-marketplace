@@ -305,6 +305,13 @@ Agent-first wave (group `agents`): `dispatch.enabled` (boolean), `dispatch.poolW
 (integer). `dispatch.backends` and `dispatch.backendCaps` stay `tm config`-only (arrays/objects,
 not catalog scalars), as do `webhooks`/`webhooksAllowRemote`.
 
+Completeness gates (group `policy`, all `json` field lists drawn from `lib/completeness.mjs` —
+`"body"`, `"acceptance"`, `"evidence"`, `"actor"`): `requireOnCreate` (default
+`["body","acceptance"]`; binds explicit CLI/MCP/HTTP creates, harness mirrors exempt),
+`requireOnStart` (default `["body","acceptance"]`; binds start and dispatch on every surface),
+`requireOnDone` (default `["body","acceptance","evidence","actor"]`; on top of
+`requireAcceptance`, so a task with no criteria at all can no longer close).
+
 ## 8. Shared-gate changes the backend worker makes
 
 - `enforce.gateStart(id, p)` → `{ allow, reason }`: the WIP check (+ override consumption) used by

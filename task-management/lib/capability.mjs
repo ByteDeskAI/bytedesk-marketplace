@@ -17,6 +17,7 @@
  */
 import { KINDS } from "./paths.mjs";
 import { create, list, logEvent, now, read, update } from "./store.mjs";
+import { gateTaskCreate } from "./enforce.mjs";
 
 /**
  * Two vocabularies, deliberately: impact and confidence are High/Medium/Low, effort is
@@ -90,11 +91,29 @@ export function propose(fields, p) {
  * The link is what keeps the two layers honest — `tm cap list` can say which proposals
  * are actually being worked, and the task carries the card that justifies it, so the
  * reason for the work survives past the session that proposed it.
+ *
+ * Minting is an explicit create, so it answers gateTaskCreate like `tm task new` does:
+ * an active epic, the WIP limit, and the completeness draft. Until recently accept
+ * skipped the gate entirely — the one creator that could mint work with no epic and
+ * no criteria. The draft's criteria are the card's own `- [ ]` lines, so a card that
+ * has none cannot become work; the refusal says where to write them.
  */
 export function accept(id, p, { create: createTask } = {}) {
   const cap = read(id, p);
   if (!cap) throw new Error(`not found: ${id}`);
   if (cap.task) return { cap, task: read(cap.task, p), existing: true };
+  const body = `Implements [[${cap.id}]].\n\n${cap.body || ""}`;
+  const acceptance = acceptanceOf(cap);
+  const gate = gateTaskCreate(p, { body, acceptance });
+  if (!gate.allow) {
+    const err = new Error(
+      acceptance.length
+        ? gate.reason
+        : `${gate.reason}\nThe minted task's criteria come from the card — add \`- [ ] <criterion>\` lines under ## Acceptance criteria in ${id} (\`.bytedesk/task-management/bin/tm edit ${id} --body -\`), then re-run \`tm cap accept ${id}\`.`,
+    );
+    err.status = 2;
+    throw err;
+  }
   const mint = createTask || create;
   const task = mint(
     "task",
@@ -102,13 +121,13 @@ export function accept(id, p, { create: createTask } = {}) {
       title: cap.title,
       status: "open",
       capability: cap.id,
-      acceptance: acceptanceOf(cap),
+      acceptance,
       evidence: [],
       commits: [],
       blockedBy: [],
       blocks: [],
     },
-    `Implements [[${cap.id}]].\n\n${cap.body || ""}`,
+    body,
     p,
   );
   const updated = update(cap.id, { status: "in_progress", task: task.id }, p);

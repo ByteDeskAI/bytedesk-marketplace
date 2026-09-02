@@ -28,4 +28,6 @@ assembles what the store knows; you fill the gaps it can't know.
 
 - Claims are per-session (`state.json`); a handoff to a parallel session should be
   followed by `.bytedesk/task-management/bin/tm start <id>` in *that* session so the claim moves.
-- Related: [[board]], [[epic]].
+- [[dispatch]] renders this brief as the worker prompt; do not tell a dispatched
+  worker to `tm start` — the dispatcher already holds the claim until collect.
+- Related: [[board]], [[epic]], [[dispatch]], [[collect]].

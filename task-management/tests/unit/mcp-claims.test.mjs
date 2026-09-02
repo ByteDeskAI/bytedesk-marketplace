@@ -47,7 +47,12 @@ function as(session, name, args, p) {
 
 function contested() {
   const p = store();
-  const t = create("task", { title: "the contested task", acceptance: [] }, "", p);
+  const t = create(
+    "task",
+    { title: "the contested task", acceptance: [{ text: "done means", done: false }] },
+    "context\n",
+    p,
+  );
   as("alice", "tm_claim", { id: t.id }, p);
   return { p, id: t.id };
 }
@@ -115,7 +120,17 @@ describe("tm_task_update start", () => {
 describe("tm_task_update done", () => {
   it("releases the claim and logs it", () => {
     const p = store();
-    const t = create("task", { title: "finish me", acceptance: [] }, "", p);
+    const t = create(
+      "task",
+      {
+        title: "finish me",
+        acceptance: [{ text: "done means", done: true }],
+        evidence: [".bytedesk/task-management/evidence/TM-001-done.log"],
+        assignee: "@alice",
+      },
+      "context\n",
+      p,
+    );
     as("alice", "tm_claim", { id: t.id }, p);
 
     assert.equal(as("alice", "tm_task_update", { id: t.id, action: "done" }, p).ok, true);

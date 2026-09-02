@@ -58,6 +58,7 @@ those for full lifecycle (start/done/block/AC); native tools are mirrored into t
 - **groom** — backlog pass: zombies, duplicates, false blocks, missing criteria.
 - **override** — bypass one gate, with the reason recorded.
 - **map** / **interview** / **research** / **prototype** / **spec** / **tickets** / **implement** / **route** — decision-map planning (generic names; not Matt Pocock's). Labels are `decision:*`.
+- **caps** / **dispatch** / **pool** / **collect** / **agent** / **events** — agent-first loop. Chain them in that order. Recipe: `docs/agent-first.md`.
 - Prefer `.bytedesk/task-management/bin/tm` (or its `.cmd` twin on Windows) or MCP `tm_*`.
   There is no global command.
 
@@ -87,3 +88,9 @@ hooks call plugin entrypoints through the host-provided plugin root and never de
 
 `TM_ENFORCE=off` disables all gates · `.bytedesk/task-management/bin/tm override "<reason>"` bypasses one ·
 `.bytedesk/task-management/bin/tm config <key> <json>` changes the policy permanently.
+
+Completeness gates keep every task fully detailed, all on by default: an explicit create
+(CLI/MCP/HTTP — harness mirrors are exempt) needs a body and acceptance criteria
+(`requireOnCreate`), starting needs the same (`requireOnStart`), and done adds evidence and
+attribution on top of ticked criteria (`requireOnDone`). Mirror-created tasks are never
+blocked at done — `doctor` reports them as `incomplete-done` / `incomplete-open` warnings.

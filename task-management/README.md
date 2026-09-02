@@ -26,7 +26,7 @@ of the marketplace and nothing symlinked back:
 ```bash
 cd your-repo && node <plugin>/bin/tm init   # store + project launchers
 .bytedesk/task-management/bin/tm epic new "First epic"      # a board needs an epic before it takes tasks
-.bytedesk/task-management/bin/tm task new "first task"
+.bytedesk/task-management/bin/tm task new "first task" --body "what and why" --ac "the check that closes it"
 .bytedesk/task-management/bin/tm-dashboard                  # serves the board; prints the URL it chose
 ```
 
@@ -107,6 +107,25 @@ this repo tracks its own work with no `TM_ROOT` and no repo-local configuration.
 **Enforces** — and gets out of the way. `TM_ENFORCE=off` disables every gate,
 `.bytedesk/task-management/bin/tm override "<reason>"` bypasses exactly one (logged, with the reason), and the Stop gate
 never blocks twice in a row on the same tasks.
+
+The completeness gates keep a task carrying its own details (`lib/completeness.mjs`; field
+lists live in config as `requireOnCreate` / `requireOnStart` / `requireOnDone`):
+
+- **Create** — an explicit create (CLI `task new`, MCP `tm_task_create`, `POST /api/task`)
+  is refused without a body and at least one acceptance criterion, so `--body` / `--ac`
+  (or the MCP/HTTP fields) are part of the incantation, not a follow-up. Harness mirrors
+  (`TaskCreate`, `update_plan`, `todo_write`, `TodoList`) are exempt — a native todo list
+  cannot carry this, so mirroring stays frictionless.
+- **Start** — `tm start` and `tm dispatch` refuse a task still missing body or criteria,
+  on every surface.
+- **Done** — beyond `requireAcceptance` (all criteria ticked), done now also requires the
+  body, **at least one criterion to exist** (a task with none could close before), attached
+  evidence, and attribution (`actor`, or `assignee` as its stand-in).
+
+Every refusal names what is missing and the exact fix command (`tm edit <id> --body`,
+`tm ac <id> "…"`, `tm evidence <id> <path|->`, `tm assign <id> <who>`). Mirror-created tasks
+that reach done without these are not blocked — `tm doctor` reports them as
+`incomplete-done` / `incomplete-open` warnings instead.
 
 ## Agent-first: dispatch and the worker pool
 
@@ -192,12 +211,40 @@ contract spelled out, because the worker may never read anything else: tick each
 once verified (`.bytedesk/task-management/bin/tm accept`), attach proof not claims (`.bytedesk/task-management/bin/tm evidence`), then close (`.bytedesk/task-management/bin/tm
 done`) or block with a reason — never walk away leaving the task in_progress.
 
+The flags, refusals, backend order, config keys, MCP/HTTP twins, and per-harness recipes
+are in [`docs/agent-first.md`](docs/agent-first.md). Skills chain as
+`caps` → `dispatch` → `pool` → `collect` → `agent` → `events`.
+
+### Recipe per harness
+
+Label `ready-for-agent` → probe `tm caps` → `tm dispatch <id>` (or `tm pool start` once
+`dispatch.enabled` is true) → worker `tm done` → `tm collect <id>`. Same loop on every
+harness; only MCP registration and hooks differ.
+
+| Harness | MCP | Then |
+|---|---|---|
+| Claude Code | already on (`.mcp.json`) | `tm_dispatch` / `tm_collect` / `tm_agents`; shell `tm caps` / `tm pool` / `tm events` |
+| Codex CLI | `codex mcp add task-management -- <plugin>/bin/tm-mcp` | same tools; hooks via `.codex/hooks.json` (project launcher) |
+| Grok | `grok mcp add task-management -- <plugin>/bin/tm-mcp` | same tools; **no hooks** — drive CLI/MCP yourself |
+| Kimi Code | `.kimi-code/mcp.json` stdio entry | same tools; `[[hooks]]` in `~/.kimi-code/config.toml` |
+
+Full install snippets: [Running under Codex CLI, Grok, and Kimi](#running-under-codex-cli-grok-and-kimi).
+
+## Docs
+
+| Doc | What |
+|---|---|
+| [`docs/use-cases.md`](docs/use-cases.md) | 20 catalogued use cases, one five-section format |
+| [`docs/agent-first.md`](docs/agent-first.md) | dispatch loop, backends, harness recipes, CLI / MCP / HTTP parity |
+| [`docs/dashboard-api.md`](docs/dashboard-api.md) | HTTP contract |
+| [`docs/dashboard-contract.md`](docs/dashboard-contract.md) | SPA contract |
+
 ## CLI
 
 ```
 .bytedesk/task-management/bin/tm init                              create the store in this repo
 .bytedesk/task-management/bin/tm epic new "<title>" | use <id>     epics gate task creation
-.bytedesk/task-management/bin/tm task new "<title>"                dup-guarded; files under the active epic
+.bytedesk/task-management/bin/tm task new "<title>" [--body <text|->] [--ac "…"]…   dup-guarded; explicit creates are gated on body + criteria
 .bytedesk/task-management/bin/tm ac <id> "<criterion>"             acceptance criteria — `.bytedesk/task-management/bin/tm done` refuses without them
 .bytedesk/task-management/bin/tm accept <id> <n>                   tick one
 .bytedesk/task-management/bin/tm start|done|park|block|unblock <id>
@@ -471,9 +518,10 @@ A harness this plugin does not recognise is reported rather than guessed at: the
 ## MCP
 
 `.mcp.json` registers a stdio server (`bin/tm-mcp`) so Claude queries the store as typed tools
-rather than parsing CLI text — `tm_board`, `tm_next`, `tm_show`, `tm_find`, `tm_why`, `tm_task_create`,
-`tm_task_update`, `tm_ac_add`, `tm_evidence`, `tm_handoff`, `tm_claim` and friends. The gates apply
-identically over MCP: `tm_task_create` with no active epic returns the same denial the CLI gives.
+rather than parsing CLI text — **38 tools**, including `tm_board`, `tm_next`, `tm_show`, `tm_find`,
+`tm_why`, `tm_task_create`, `tm_task_update`, `tm_ac_add`, `tm_evidence`, `tm_handoff`, `tm_claim`,
+`tm_dispatch`, `tm_collect` and `tm_agents`. The gates apply identically over MCP: `tm_task_create`
+with no active epic returns the same denial the CLI gives.
 
 Every verb the board or the CLI has, an MCP-only session has too — that is the store's contract,
 and for a while it was not true (CAP-0001). The parity tools call the function the dashboard route
@@ -484,7 +532,10 @@ dep, comment, touches — one field set per call), `tm_graph` ({nodes, edges} pl
 `tm_doctor` (fix needs `confirm: true`, since it rewrites files), `tm_export` (md / csv / json,
 clamped at 64k characters), `tm_time`, `tm_parallel`, `tm_history`, `tm_stale` and
 `tm_goal_import` (a path confined to the repository, or the doc's content). `tm_task_update` also
-takes `delete` (soft; the file stays) and `restore`.
+takes `delete` (soft; the file stays) and `restore`. Agent-first twins: `tm_dispatch`,
+`tm_collect`, `tm_agents`. CLI-only on purpose: `tm caps`, `tm pool`, `tm events` (HTTP covers
+caps and events; the pool is the `tm-pool` monitor). The three-surface table is
+[`docs/agent-first.md`](docs/agent-first.md).
 
 ## Jira-shaped fields
 
@@ -599,7 +650,8 @@ categories, your name and your layout are already set.
 policy, workflow, ntfy — with a **dirty state**: edits collect in a draft, **Save** writes them in one
 `POST /api/settings`, **Reset** drops them, and a refusal from the server is pinned to the field it
 names. Identity (`boardId`, `owner`) is shown read-only, because git derives it. Writable keys are an
-allowlist (`lib/settings.mjs`); the gates — `enforce`, `wipLimit`, `requireAcceptance` — are in that
+allowlist (`lib/settings.mjs`); the gates — `enforce`, `wipLimit`, `requireAcceptance`, and the
+`requireOnCreate` / `requireOnStart` / `requireOnDone` field lists — are in that
 catalog now, so the board and `.bytedesk/task-management/bin/tm config` write the same keys the same way.
 
 The same page carries what used to need a terminal: **templates** (list, edit, create — the
@@ -778,6 +830,7 @@ each route delegates to is [`docs/dashboard-api.md`](docs/dashboard-api.md):
 | `POST /api/task` · `PATCH /api/task/:id` · `POST /api/task/:id/transition` | create (active-epic gate), edit title/body/epic, status change with claim + gate + unblock + epic auto-close |
 | `POST /api/task/:id/{assign,labels,type,priority,estimate,comment,link,unlink,subtask,dep,rank,ac,accept,evidence,sprint,worktree,touches}` | field writes — every `.bytedesk/task-management/bin/tm` verb |
 | `POST /api/task/:id/{claim,release,delete,restore}` | the claim interlock and soft delete |
+| `POST /api/task/:id/dispatch` · `POST /api/task/:id/collect` · `GET /api/caps` · `GET /api/agents` | agent-first: spawn a worker, pull its result, host probe, registry ([`docs/agent-first.md`](docs/agent-first.md)) |
 | `POST /api/bulk` | one op across many ids, partial success reported per id |
 | `POST /api/epic` · `PATCH /api/epic/:id` · `POST /api/epic/:id/{close,reopen,plan}` | activate/create, edit, lifecycle, plan link |
 | `POST /api/adr` · `PATCH /api/adr/:id` · `POST /api/adr/:id/{accept,supersede}` | decisions |
@@ -1035,6 +1088,9 @@ against is [`docs/dashboard-contract.md`](docs/dashboard-contract.md).
 | `enforce` | `true` | master switch for every gate |
 | `requireEpic` | `true` | `TaskCreate` needs an active epic |
 | `requireAcceptance` | `true` | `.bytedesk/task-management/bin/tm done` needs all criteria ticked |
+| `requireOnCreate` | `["body","acceptance"]` | explicit creates (CLI/MCP/HTTP) must carry these fields; harness mirrors are exempt |
+| `requireOnStart` | `["body","acceptance"]` | `.bytedesk/task-management/bin/tm start` / `dispatch` refuse a task missing these |
+| `requireOnDone` | `["body","acceptance","evidence","actor"]` | done also needs a body, ≥1 criterion at all, evidence, and attribution (`actor` or `assignee`) |
 | `wipLimit` | `3` | max concurrent `in_progress` |
 | `staleMinutes` | `90` | when `in_progress` starts being called stale |
 | `gitLink` | `true` | attach commits/PRs automatically |

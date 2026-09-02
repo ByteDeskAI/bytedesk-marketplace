@@ -110,9 +110,8 @@ echo 'not json' | "$PLUGIN_ROOT/hooks/tm-hook.sh" post-task >/dev/null 2>&1 && o
 # `additionalContext` the hook returns into the subagent's context; both were established by
 # spawning a real agent against a probe hook, not inferred from the schema.
 tm epic new "Briefing" >/dev/null
-tm task new "the task the parent is holding" >/dev/null
+tm task new "the task the parent is holding" --body "context" --ac "the unmet one" >/dev/null
 BID=$(tm find "the task the parent is holding" --json | jq -r '.[0].id')
-tm ac "$BID" "the unmet one" >/dev/null
 tm ac "$BID" "the met one" >/dev/null
 tm accept "$BID" 2 >/dev/null
 
@@ -147,7 +146,7 @@ tm park "$BID" briefed >/dev/null
 # command never reaches UserPromptSubmit; a probe hook proved otherwise, and the payload's `prompt`
 # holds the literal text.
 tm epic new "Goal capture" >/dev/null
-tm task new "the work a goal is about" >/dev/null
+tm task new "the work a goal is about" --body "context" --ac "the goal lands" >/dev/null
 GID=$(tm find "the work a goal is about" --json | jq -r '.[0].id')
 
 # Nothing claimed: a goal has no owner to attach to, and inventing one would be worse.
@@ -170,9 +169,8 @@ tm park "$GID" "done with the goal fixture" >/dev/null
 # with the PARENT's session_id and takes additionalContext back; both were established by spawning
 # a real agent against a probe hook, not inferred from the payload schema.
 tm epic new "Briefing a subagent" >/dev/null
-tm task new "the work the parent is holding" >/dev/null
+tm task new "the work the parent is holding" --body "context" --ac "the unmet one is quoted" >/dev/null
 BID=$(tm find "the work the parent is holding" --json | jq -r '.[0].id')
-tm ac "$BID" "the unmet one is quoted" >/dev/null
 tm ac "$BID" "the met one is not" >/dev/null
 tm accept "$BID" 2 >/dev/null
 
@@ -208,7 +206,7 @@ tm park "$BID" "done with the briefing fixture" >/dev/null
 # and agent_transcript_path." session_id and transcript_path are the PARENT's, inherited from the
 # base hook payload.
 tm epic new "Subagent attribution" >/dev/null
-tm task new "Work a subagent will do" >/dev/null
+tm task new "Work a subagent will do" --body "context" --ac "the fan-out is attributed" >/dev/null
 SAID=$(tm find "Work a subagent will do" --json | jq -r '.[0].id')
 tm start "$SAID" >/dev/null
 
@@ -229,7 +227,7 @@ esac
 # CLAUDE_CODE_SESSION_ID; the plugin used to read CLAUDE_SESSION_ID alone, which nothing sets, so
 # the claim lookup resolved against null and attributed nothing no matter what the payload said.
 # Asserted with the legacy name explicitly unset, so it cannot pass by inheritance.
-tm task new "Work under the real env var only" >/dev/null
+tm task new "Work under the real env var only" --body "context" --ac "attribution works" >/dev/null
 RID=$(tm find "Work under the real env var only" --json | jq -r '.[0].id')
 env -u CLAUDE_SESSION_ID CLAUDE_CODE_SESSION_ID=real-parent node "$PLUGIN_ROOT/bin/tm" start "$RID" >/dev/null
 printf '{"session_id":"real-parent","agent_id":"agent-real","agent_transcript_path":"/tmp/a.jsonl"}' \

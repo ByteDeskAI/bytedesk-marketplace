@@ -811,17 +811,22 @@ function getTemplate(name, p) {
   }
 }
 
+/** Payload criteria arrive as strings or { text } objects; the store keeps { text, done:false }. */
+const normalizeAcceptance = (list) =>
+  (Array.isArray(list) ? list : []).map((a) =>
+    typeof a === "string" ? { text: a, done: false } : { text: String(a?.text ?? ""), done: false },
+  );
+
 function createTask({ title, epic, body, assignee, priority, template, acceptance }, p) {
   const name = String(title || "").trim();
   if (!name) return fail(400, "a task needs a title");
 
-  const gate = gateTaskCreate(p);
-  if (!gate.allow) return fail(409, gate.reason);
-
   const base = {
     title: name,
     epic: epic || state(p).activeEpic || null,
-    acceptance: template && Array.isArray(acceptance) ? acceptance : [],
+    // Honored with or without a template — the list used to be kept only when
+    // `template` was set, so a plain board create silently dropped its criteria.
+    acceptance: normalizeAcceptance(acceptance),
     evidence: [],
     commits: [],
     blockedBy: [],
@@ -844,6 +849,11 @@ function createTask({ title, epic, body, assignee, priority, template, acceptanc
       return fail(400, err.message);
     }
   }
+
+  // The gate sees the draft create() would actually write — a templated create passes
+  // on the template's own body and criteria; a sparse one is refused, naming what is missing.
+  const gate = gateTaskCreate(p, { body: taskBody, acceptance: fields.acceptance });
+  if (!gate.allow) return fail(409, gate.reason);
 
   const task = create("task", fields, taskBody, p);
   return { status: 201, body: { id: task.id, title: task.title, epic: task.epic } };
