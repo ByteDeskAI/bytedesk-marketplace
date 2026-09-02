@@ -22,6 +22,7 @@ export const TASK_INTENTS = Object.freeze([
 
 export const ROUTING_ALIASES = deepFreeze({
   "architecture.proposal": [
+    { endpointId: "claude.fable-5-1", effort: "max" },
     { endpointId: "claude.opus-5", effort: "max" },
     { endpointId: "claude.opus-4-8", effort: "max" },
   ],
@@ -29,12 +30,14 @@ export const ROUTING_ALIASES = deepFreeze({
     { endpointId: "openai.gpt-5.6-sol", effort: "max" },
   ],
   "design.default": [
+    { endpointId: "claude.fable-5-1", effort: "high" },
     { endpointId: "claude.opus-5", effort: "high" },
     { endpointId: "claude.opus-4-8", effort: "high" },
     { endpointId: "openai.gpt-5.6-sol", effort: "high" },
   ],
   "implementation.default": [
     { endpointId: "openai.gpt-5.6-sol", effort: "high" },
+    { endpointId: "claude.fable-5-1", effort: "high" },
     { endpointId: "claude.opus-5", effort: "high" },
     { endpointId: "claude.opus-4-8", effort: "high" },
   ],
@@ -60,6 +63,7 @@ export const ROUTING_ALIASES = deepFreeze({
     { endpointId: "kimi.default", effort: null },
   ],
   "provider.claude.default": [
+    { endpointId: "claude.fable-5-1", effort: "high" },
     { endpointId: "claude.opus-5", effort: "high" },
     { endpointId: "claude.opus-4-8", effort: "high" },
   ],

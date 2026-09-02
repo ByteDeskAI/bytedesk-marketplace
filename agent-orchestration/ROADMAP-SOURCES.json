@@ -18,8 +18,8 @@
       ]
     },
     "src/mcp.mjs": {
-      "sha256": "e9205a9ac8dcbbd71be8ff4a3f6ee53bdd870bccb7204aca756e7b0dbec5b571",
-      "lineCount": 268,
+      "sha256": "8cdebe32475ccf6fa598df92cece2b80769a43e61046c84ea0c7edd480a981d4",
+      "lineCount": 270,
       "anchors": [
         "\"orchestration_capabilities\"",
         "\"orchestration_decision_approve\"",
@@ -31,8 +31,8 @@
       ]
     },
     "src/policy/catalog.mjs": {
-      "sha256": "10026b57f6d7b42021c3c047a20ac8c59b4502467807396aa3701d2cf82c805a",
-      "lineCount": 83,
+      "sha256": "431bb034133892018b6401ae5642d65a9ac4dc737498ee660214aaa5b879ce85",
+      "lineCount": 87,
       "anchors": [
         "export const ROUTING_ALIASES",
         "export const ROUTING_POLICY_VERSION"
@@ -94,8 +94,8 @@
       ]
     },
     "src/providers/catalog.mjs": {
-      "sha256": "b4ad3afd05610a6b947c573cc549461b2a0715798374c4888629caaac2065005",
-      "lineCount": 211,
+      "sha256": "789dbc7d09e0b8117adbe8025da817e55fbec126f5ea5f0db5cb084b732d1289",
+      "lineCount": 251,
       "anchors": [
         "export const MODEL_CATALOG =",
         "export const PROVIDER_CATALOG =",
@@ -142,8 +142,8 @@
       ]
     },
     "src/service.mjs": {
-      "sha256": "f6dc4095a212936f8c202f0e5ff3455df6a92bad9e578b6b5788b7139396e24e",
-      "lineCount": 653,
+      "sha256": "6cab4f7fe2ead2147944664520d3471733e6947773f725be3f09228ffb09bf20",
+      "lineCount": 654,
       "anchors": [
         "async cancel(",
         "async decision(",

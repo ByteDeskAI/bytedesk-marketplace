@@ -23,7 +23,7 @@ function architectureOutputs(findings, dispositions, unresolvedFindings = []) {
 test("architecture runtime retains Fable to Opus fallback and proposal-session reuse", () => {
   const plan = createExecutionPlan({ intent: "architecture" });
   const stages = runtimeInternals.planStages(plan);
-  assert.deepEqual(stages[0].alternatives.map((candidate) => candidate.model), ["claude-fable-5", "claude-opus-4-8"]);
+  assert.deepEqual(stages[0].alternatives.map((candidate) => candidate.model), ["claude-fable-5-1", "claude-opus-5", "claude-opus-4-8"]);
   assert.equal(stages[1].alternatives[0].model, "gpt-5.6-sol");
   assert.equal(stages[0].requiresPersistentSession, true);
   assert.equal(stages[1].requiresPersistentSession, false);

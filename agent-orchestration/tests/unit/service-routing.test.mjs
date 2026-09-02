@@ -25,7 +25,7 @@ async function fixture() {
 
 const allAvailable = {
   providers: { claude: "available", codex: "available", "grok-build": "available", kimi: "available" },
-  endpoints: { "claude.fable-5": "available", "claude.opus-4-8": "available", "openai.gpt-5.6-sol": "available", "grok-build.default": "available", "kimi.default": "available" },
+  endpoints: { "claude.fable-5-1": "available", "claude.fable-5": "available", "claude.opus-5": "available", "claude.opus-4-8": "available", "openai.gpt-5.6-sol": "available", "grok-build.default": "available", "kimi.default": "available" },
 };
 
 test("provider executable discovery excludes plugin-local binaries and aliases", async () => {
@@ -94,7 +94,7 @@ test("request semantics dynamically route design, implementation, research, and 
   try {
     const design = await fx.service.route({ consumerCwd: fx.consumerCwd, intent: "design", task: "Design a UI" });
     assert.equal(design.decision.selected.providerId, "claude");
-    assert.equal(design.decision.selected.modelId, "claude-fable-5");
+    assert.equal(design.decision.selected.modelId, "claude-fable-5-1");
     assert.equal(design.decision.selected.effort, "high");
 
     const implementation = await fx.service.route({ consumerCwd: fx.consumerCwd, intent: "implementation", task: "Implement API", risk: "critical" });
@@ -149,6 +149,22 @@ test("explicit Claude and Codex provider requests resolve through catalog aliase
     const codex = await fx.service.route({ consumerCwd: fx.consumerCwd, intent: "implementation", task: "Implement", provider: "codex" });
     assert.equal(claude.decision.selected.providerId, "claude");
     assert.equal(codex.decision.selected.providerId, "codex");
+  } finally { await fx.cleanup(); }
+});
+
+test("an exact catalog endpoint can select Fable 5.1 for implementation", async () => {
+  const fx = await fixture();
+  try {
+    const { decision } = await fx.service.route({
+      consumerCwd: fx.consumerCwd,
+      intent: "implementation",
+      task: "Implement with the approved Claude model",
+      provider: "claude",
+      endpointId: "claude.fable-5-1",
+    });
+    assert.equal(decision.selected.endpointId, "claude.fable-5-1");
+    assert.equal(decision.selected.modelId, "claude-fable-5-1");
+    assert.deepEqual(decision.constraints.modelAllowlist, ["claude.fable-5-1"]);
   } finally { await fx.cleanup(); }
 });
 

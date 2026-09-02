@@ -204,6 +204,7 @@ export class OrchestrationService {
       alias: requestedProviderAlias ?? capabilityAlias ?? undefined,
       providerAllowlist: input.allowProviders,
       providerDenylist: input.denyProviders,
+      modelAllowlist: input.endpointId ? [input.endpointId] : undefined,
       excludedProviderIds: input.intent === "review" && input.originProvider ? [input.originProvider] : undefined,
       requiredCapabilities: [...requiredCapabilities],
       effort: derivedEffort,

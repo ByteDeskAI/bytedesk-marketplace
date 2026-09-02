@@ -7,7 +7,7 @@ test("design prefers Claude Fable at high effort", () => {
   const decision = routeTask("design");
   assert.equal(decision.status, "routed");
   assert.equal(decision.selected.providerId, "claude");
-  assert.equal(decision.selected.modelId, "claude-fable-5");
+  assert.equal(decision.selected.modelId, "claude-fable-5-1");
   assert.equal(decision.selected.effort, "high");
 });
 
@@ -26,7 +26,8 @@ test("Fable unavailability deterministically falls back to Opus", () => {
     availability: {
       providers: { claude: "available" },
       endpoints: {
-        "claude.fable-5": "unavailable",
+        "claude.fable-5-1": "unavailable",
+        "claude.opus-5": "unavailable",
         "claude.opus-4-8": "available",
       },
     },
@@ -35,7 +36,7 @@ test("Fable unavailability deterministically falls back to Opus", () => {
   assert.equal(decision.selected.modelId, "claude-opus-4-8");
   assert.ok(
     decision.candidates
-      .find((candidate) => candidate.endpointId === "claude.fable-5")
+      .find((candidate) => candidate.endpointId === "claude.fable-5-1")
       .rejectionCodes.includes("MODEL_UNAVAILABLE"),
   );
 });
@@ -108,7 +109,7 @@ test("routing ties are deterministic by alias rank then candidate ID", () => {
   const decision = routeTask("general", {
     frozenAliasCandidates: [
       { endpointId: "claude.opus-4-8", effort: "medium" },
-      { endpointId: "claude.fable-5", effort: "medium" },
+      { endpointId: "claude.fable-5-1", effort: "medium" },
     ],
   });
   assert.equal(decision.selected.endpointId, "claude.opus-4-8");

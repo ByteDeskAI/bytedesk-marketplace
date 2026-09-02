@@ -1,0 +1,32 @@
+{
+  "generatedAt": "2026-09-02",
+  "tool": "native Codex image_gen.imagegen built-in tool",
+  "model": "not exposed by the built-in tool",
+  "mode": "generate",
+  "outputs": [
+    {
+      "prompt": "01-claim-ledger.md",
+      "file": "../direction-01-claim-ledger.png",
+      "width": 1672,
+      "height": 941,
+      "sha256": "46613baf121d8f66552a5be63a0b7b6221f32a09537b6864ef792d5631e59124",
+      "selected": false
+    },
+    {
+      "prompt": "02-decision-rail.md",
+      "file": "../direction-02-decision-rail.png",
+      "width": 1672,
+      "height": 941,
+      "sha256": "016e96c161a35c19a096d8d84ef8f0e8d48fd1d20c840b37bdc2e25c99d173cd",
+      "selected": false
+    },
+    {
+      "prompt": "03-inspection-bay.md",
+      "file": "../direction-03-inspection-bay.png",
+      "width": 1672,
+      "height": 941,
+      "sha256": "d3422206147481e4cafdcc5be377e70b6887e79ef23661218c68f9eaae93dceb",
+      "selected": true
+    }
+  ]
+}

@@ -13,6 +13,7 @@ import { PROTOCOL_DEFINITIONS } from "./protocols/definitions.mjs";
 const intent = z.enum(TASK_INTENTS);
 const effort = z.enum([...new Set(MODEL_CATALOG.flatMap((entry) => entry.supportedEfforts))]);
 const provider = z.enum(PROVIDER_CATALOG.map((entry) => entry.providerId));
+const endpointId = z.enum(MODEL_CATALOG.map((entry) => entry.endpointId));
 const protocolId = z.enum(Object.keys(PROTOCOL_DEFINITIONS));
 const sessionMode = z.enum(["oneshot", "persistent"]);
 const availabilityState = z.enum(["available", "unavailable", "unknown"]);
@@ -23,6 +24,7 @@ const routingFields = {
   task: z.string().min(1),
   requiredCapabilities: z.array(z.string()).optional(),
   provider: provider.optional().describe("Optional explicit provider. Dynamic routing is used when omitted."),
+  endpointId: endpointId.optional().describe("Optional exact endpoint from the trusted model catalog. Arbitrary model IDs are rejected."),
   originProvider: provider.optional().describe("For review tasks, exclude the originating provider family when possible."),
   effort: effort.optional(),
   optimization: z.enum(["quality", "latency", "cost", "balanced", "mechanical"]).optional(),

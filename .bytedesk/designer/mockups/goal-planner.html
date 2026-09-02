@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en" data-bd-theme="dark" data-bd-richness="balanced" data-bd-product="task-management">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>Goal planner — ByteDesk Task Management mockup</title>
+  <link rel="stylesheet" href="./planner.tokens.css">
+  <link rel="stylesheet" href="./goal-planner.css">
+</head>
+<body>
+  <svg class="svg-defs" aria-hidden="true">
+    <symbol id="i-board" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M8 7v7M12 7v4M16 7v9"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 2 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5M3 17l9 5 9-5"/></symbol>
+    <symbol id="i-radio" viewBox="0 0 24 24"><path d="M4.9 19.1a10 10 0 0 1 0-14.2M7.8 16.2a6 6 0 0 1 0-8.4M16.2 7.8a6 6 0 0 1 0 8.4M19.1 4.9a10 10 0 0 1 0 14.2"/><circle cx="12" cy="12" r="2"/></symbol>
+    <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M4 4h16l2 8v7a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-7l2-8Z"/><path d="M2 12h5l2 3h6l2-3h5"/></symbol>
+    <symbol id="i-activity" viewBox="0 0 24 24"><path d="M3 12h4l2-8 4 16 2-8h6"/></symbol>
+    <symbol id="i-health" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="M9 12h6M12 9v6"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-4v-.08A1.7 1.7 0 0 0 9 19.36a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.63 15a1.7 1.7 0 0 0-1.55-1.03H3v-4h.08A1.7 1.7 0 0 0 4.64 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.63a1.7 1.7 0 0 0 1.03-1.55V3h4v.08A1.7 1.7 0 0 0 15 4.64a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.37 9a1.7 1.7 0 0 0 1.55 1.03H21v4h-.08A1.7 1.7 0 0 0 19.4 15Z"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></symbol>
+    <symbol id="i-attach" viewBox="0 0 24 24"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.83l8.49-8.48"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"/></symbol>
+    <symbol id="i-trace" viewBox="0 0 24 24"><path d="M6 3v12M18 9v12M6 15c0 3 3 6 6 6h6M18 9c0-3-3-6-6-6H6"/><circle cx="6" cy="3" r="1"/><circle cx="18" cy="21" r="1"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m18 6-12 12M6 6l12 12"/></symbol>
+  </svg>
+
+  <section class="prototype-bar" aria-label="Mockup controls">
+    <div class="prototype-bar__identity">
+      <strong>Goal planner prototype</strong>
+      <span>fixture states</span>
+    </div>
+    <label class="prototype-picker">
+      <span>Scenario</span>
+      <select id="scenarioSelect" aria-label="Choose mockup scenario">
+        <option value="empty">Empty</option>
+        <option value="questioning">Questioning</option>
+        <option value="attachment">Attachment upload</option>
+        <option value="agent-health">Agent selection / health</option>
+        <option value="streaming">AG-UI streaming / tool calls</option>
+        <option value="proposed">Proposed skill actions</option>
+        <option value="confirmation">Confirmation</option>
+        <option value="validation-failure">Validation failure</option>
+        <option value="import-success">Import success</option>
+        <option value="offline">Offline</option>
+        <option value="unavailable-agent">Unavailable agent</option>
+      </select>
+    </label>
+    <span class="prototype-help"><kbd>[</kbd> <kbd>]</kbd> cycle</span>
+    <button class="button button--ghost button--compact" id="themeButton" type="button">
+      <svg aria-hidden="true"><use href="#i-sun"/></svg>
+      <span id="themeLabel">Light</span>
+    </button>
+  </section>
+
+  <div class="app-shell">
+    <nav class="app-rail" aria-label="Task Management screens">
+      <a class="rail-brand" href="#" aria-label="Task Management board">
+        <svg aria-hidden="true"><use href="#i-board"/></svg>
+      </a>
+      <a class="rail-item rail-item--primary" href="#" title="Board"><svg aria-hidden="true"><use href="#i-board"/></svg><span>Board</span></a>
+      <a class="rail-item rail-item--primary" href="#" title="Backlog"><svg aria-hidden="true"><use href="#i-list"/></svg><span>Backlog</span></a>
+      <a class="rail-item rail-item--primary" href="#" title="Epics"><svg aria-hidden="true"><use href="#i-layers"/></svg><span>Epics</span></a>
+      <a class="rail-item rail-item--primary" href="#" title="Sessions"><svg aria-hidden="true"><use href="#i-radio"/></svg><span>Sessions</span><span class="rail-count" aria-label="2 in progress">2</span></a>
+      <a class="rail-item rail-item--secondary" href="#" title="Activity"><svg aria-hidden="true"><use href="#i-activity"/></svg><span>Activity</span></a>
+      <a class="rail-item rail-item--secondary is-active" href="#" title="Plans" aria-current="page"><svg aria-hidden="true"><use href="#i-inbox"/></svg><span>Plans</span></a>
+      <span class="rail-spacer"></span>
+      <a class="rail-item rail-item--secondary" href="#" title="Health"><svg aria-hidden="true"><use href="#i-health"/></svg><span>Health</span></a>
+      <a class="rail-item rail-item--secondary" href="#" title="Settings"><svg aria-hidden="true"><use href="#i-settings"/></svg><span>Settings</span></a>
+    </nav>
+
+    <div class="app-main">
+      <header class="commandbar">
+        <strong class="commandbar__project">acme-tooling</strong>
+        <span class="chip chip--accent"><span class="status-dot"></span><span class="mono">EP-024</span></span>
+        <form class="commandbar__search" role="search">
+          <svg aria-hidden="true"><use href="#i-search"/></svg>
+          <input type="search" aria-label="Search" placeholder="search — status:open label:ui, or words">
+          <kbd>/</kbd>
+        </form>
+        <div class="commandbar__end">
+          <span class="live-word"><span class="status-dot"></span>live</span>
+          <button class="icon-button trace-toggle" id="traceToggle" type="button" aria-controls="tracePanel" aria-expanded="false" title="Open agent trace">
+            <svg aria-hidden="true"><use href="#i-trace"/></svg><span>Trace</span>
+          </button>
+          <button class="avatar-button" type="button" aria-label="You: RH">RH</button>
+        </div>
+      </header>
+
+      <main class="canvas" id="mainContent">
+        <div class="screen-head">
+          <div>
+            <nav class="breadcrumbs" aria-label="Breadcrumb"><a href="#">Plans</a><span>/</span><span aria-current="page">Goal planner</span></nav>
+            <div class="title-row"><h1>Goal planner</h1><span class="chip"><span class="status-dot"></span>bounded workspace</span></div>
+            <p>Turn one repository goal into inspectable board changes. This surface cannot answer unrelated requests.</p>
+          </div>
+          <div class="screen-actions">
+            <button class="button button--ghost" type="button" id="capturedPlansButton">Captured plans</button>
+            <button class="button" type="button" id="importGoalButton">Import goal…</button>
+          </div>
+        </div>
+
+        <div class="planner-layout">
+          <section class="planner-stage" aria-labelledby="workspaceHeading">
+            <div class="workspace-head">
+              <div>
+                <span class="caps">planning workspace</span>
+                <h2 id="workspaceHeading">Operator-visible planner health</h2>
+                <p class="workspace-scope"><span class="mono">repo:/acme-tooling</span> · active epic <span class="mono">EP-024</span></p>
+              </div>
+              <span class="chip" id="workspaceStateChip"><span class="status-dot"></span>draft</span>
+            </div>
+
+            <section class="agent-strip" aria-labelledby="agentLabel">
+              <div class="field field--agent">
+                <label for="agentSelect" id="agentLabel">Planner coding agent</label>
+                <select id="agentSelect">
+                  <option value="codex">Codex · local trusted</option>
+                  <option value="kimi">Kimi Code · local trusted</option>
+                  <option value="claude-acp">Claude Code · through ACP</option>
+                  <option value="unavailable">Unavailable agent fixture</option>
+                </select>
+              </div>
+              <div class="agent-health" id="agentHealth" role="status">
+                <span class="chip chip--ok"><span class="status-dot"></span>ACP connected</span>
+                <span class="chip chip--ok"><span class="status-dot"></span>skills ready</span>
+                <span class="chip"><span class="status-dot"></span>write asks</span>
+              </div>
+              <button class="button button--ghost button--compact" id="inspectHealthButton" type="button">Inspect health</button>
+            </section>
+
+            <div class="boundary-note" role="note">
+              <strong>Scope lock</strong>
+              <span>Planning only: clarify the goal, inspect repository evidence, propose governed task-management actions, then wait for approval.</span>
+            </div>
+
+            <div id="stageState" class="state-region" aria-live="polite"></div>
+          </section>
+
+          <aside class="trace-panel" id="tracePanel" aria-labelledby="traceHeading">
+            <div class="trace-head">
+              <div>
+                <span class="caps">bridge inspector</span>
+                <h2 id="traceHeading" tabindex="-1">Agent &amp; event trace</h2>
+              </div>
+              <button class="icon-button trace-close" id="traceClose" type="button" aria-label="Close trace"><svg aria-hidden="true"><use href="#i-close"/></svg></button>
+            </div>
+
+            <section class="trace-section" aria-labelledby="routeHeading">
+              <div class="section-heading"><h3 id="routeHeading">Connection route</h3><span class="chip chip--ok"><span class="status-dot"></span>healthy</span></div>
+              <ol class="route-list">
+                <li><span>Dashboard</span><code>AG-UI · SSE</code></li>
+                <li><span>Backend bridge</span><code>policy + event map</code></li>
+                <li><span id="traceAgentName">Codex</span><code>ACP · stdio</code></li>
+              </ol>
+              <p class="fine-print">The browser never launches an agent or receives ACP credentials. The bridge owns the trusted process and the translation boundary.</p>
+            </section>
+
+            <section class="trace-section" aria-labelledby="capabilityHeading">
+              <div class="section-heading"><h3 id="capabilityHeading">Capability health</h3><button class="text-button" type="button" id="retryHealthButton">Recheck</button></div>
+              <dl class="health-list" id="healthList">
+                <div><dt>AG-UI stream</dt><dd><span class="status-text status-text--ok"><span class="status-dot"></span>connected</span></dd></div>
+                <div><dt>ACP session</dt><dd><span class="status-text status-text--ok"><span class="status-dot"></span><span class="mono">planner-17f2</span></span></dd></div>
+                <div><dt>Task skills</dt><dd><span class="status-text status-text--ok"><span class="status-dot"></span>available</span></dd></div>
+                <div><dt>Board writes</dt><dd><span class="status-text"><span class="status-dot"></span>confirm each set</span></dd></div>
+              </dl>
+            </section>
+
+            <section class="trace-section trace-section--events" aria-labelledby="eventsHeading">
+              <div class="section-heading"><h3 id="eventsHeading">Current run</h3><span class="mono faint" id="runId">run_02J7</span></div>
+              <ol class="event-list" id="eventList">
+                <li class="is-complete"><span class="event-mark"></span><div><strong>RUN_STARTED</strong><code>bridge accepted goal</code></div><time>14:31:02</time></li>
+                <li class="is-complete"><span class="event-mark"></span><div><strong>STATE_SNAPSHOT</strong><code>scope + agent health</code></div><time>14:31:02</time></li>
+                <li class="is-active"><span class="event-mark"></span><div><strong>STEP_STARTED</strong><code>clarify-goal</code></div><time>14:31:04</time></li>
+              </ol>
+            </section>
+          </aside>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <dialog class="modal" id="importDialog" aria-labelledby="importTitle">
+    <form method="dialog" class="modal-frame" id="importForm">
+      <header class="modal-head">
+        <div><span class="caps">manual path</span><h2 id="importTitle">Import a goal</h2></div>
+        <button class="icon-button" value="cancel" aria-label="Close import"><svg aria-hidden="true"><use href="#i-close"/></svg></button>
+      </header>
+      <div class="modal-body">
+        <div class="segmented" role="group" aria-label="Import source">
+          <button type="button" aria-pressed="true" data-import-mode="path">A file in the repo</button>
+          <button type="button" aria-pressed="false" data-import-mode="paste">Paste a doc</button>
+        </div>
+        <div class="field" data-import-panel="path">
+          <label for="goalPath">Path</label>
+          <input class="mono" id="goalPath" value="docs/goals/planner-health.md" autocomplete="off">
+          <p>Repo-relative. A <span class="mono">.md</span> goal becomes one task; a <span class="mono">.plan.json</span> manifest lands a whole epic with dependencies.</p>
+        </div>
+        <div class="import-paste" data-import-panel="paste" hidden>
+          <div class="field"><label for="goalName">Name</label><input class="mono" id="goalName" value="planner-health.md"></div>
+          <div class="field"><label for="goalDoc">Goal doc</label><textarea class="mono" id="goalDoc" rows="8"># Goal
+Expose planner coding-agent health before starting.
+
+## Success criteria
+- Selected ACP agent is named.
+- Missing task-management skills block planning.</textarea></div>
+        </div>
+        <div class="field">
+          <label for="goalEpic">Epic</label>
+          <select id="goalEpic"><option>active (EP-024)</option><option>EP-019 Dashboard parity</option></select>
+          <p>Defaults to the active epic, <span class="mono">EP-024</span>.</p>
+        </div>
+      </div>
+      <footer class="modal-foot"><button class="button button--ghost" value="cancel">Cancel</button><button class="button button--primary" id="importSubmit" value="default">Import</button></footer>
+    </form>
+  </dialog>
+
+  <dialog class="modal modal--confirm" id="confirmDialog" aria-labelledby="confirmTitle">
+    <form method="dialog" class="modal-frame">
+      <header class="modal-head">
+        <div><span class="caps">board write permission</span><h2 id="confirmTitle">Apply 5 proposed mutations?</h2></div>
+        <button class="icon-button" value="cancel" aria-label="Close confirmation"><svg aria-hidden="true"><use href="#i-close"/></svg></button>
+      </header>
+      <div class="modal-body">
+        <p class="consequence">This creates one epic and three tasks in the shared store, sets <span class="mono">EP-025</span> active, and records this goal document. No code or Git refs are changed.</p>
+        <dl class="confirm-facts">
+          <div><dt>Agent request</dt><dd class="mono">session/request_permission · perm_73a1</dd></div>
+          <div><dt>Permission</dt><dd>Allow this mutation set once</dd></div>
+          <div><dt>Validation</dt><dd><span class="status-text status-text--ok"><span class="status-dot"></span>client preview passed</span></dd></div>
+        </dl>
+        <label class="check-row"><input type="checkbox" id="confirmCheck"><span>I reviewed the task titles, dependencies, acceptance criteria, and active-epic change.</span></label>
+      </div>
+      <footer class="modal-foot"><button class="button button--ghost" value="cancel" id="backToReview">Back to review</button><button class="button button--primary" value="default" id="confirmApply" disabled>Allow once &amp; apply</button></footer>
+    </form>
+  </dialog>
+
+  <div class="live-region" id="liveRegion" aria-live="polite" aria-atomic="true"></div>
+  <noscript><p class="noscript">JavaScript is required to switch mockup states. The manual import form and static shell remain inspectable in source.</p></noscript>
+  <script src="./goal-planner.js"></script>
+</body>
+</html>

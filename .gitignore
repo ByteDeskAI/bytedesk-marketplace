@@ -32,8 +32,9 @@ agentdb.rvf.lock
 .playwright-mcp/
 *.png
 
-# The design-system plugin ships approved reference and product assets.
+# The design-system plugin and governed design mockups ship approved visual assets.
 !design-system/payload/**/*.png
+!.bytedesk/designer/mockups/**/*.png
 
 # design-patterns plugin — Python artifacts
 __pycache__/
