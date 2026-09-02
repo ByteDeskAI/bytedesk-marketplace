@@ -1,0 +1,22 @@
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 4104.296583
+
+── contract (bash) ───────────────────────────────────────────
+test-capability.sh    22 passed, 0 failed
+test-concurrency.sh   12 passed, 0 failed
+test-dashboard.sh     184 passed, 0 failed
+test-events.sh        12 passed, 0 failed
+test-hooks2.sh        23 passed, 0 failed
+test-hooks.sh         65 passed, 0 failed
+test-install.sh       13 passed, 0 failed
+test-link.sh          13 passed, 0 failed
+test-mcp.sh           77 passed, 0 failed
+test-pool.sh          19 passed, 0 failed
+test-read.sh          59 passed, 0 failed
+test-store.sh         116 passed, 0 failed
+test-worktree.sh      22 passed, 0 failed
+
+all green

@@ -138,6 +138,7 @@ describe("session resolution", () => {
       "CLAUDE_SESSION_ID",
       "CODEX_THREAD_ID",
       "GROK_SESSION_ID",
+      "PI_SESSION_ID",
     ]);
   });
 

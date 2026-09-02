@@ -45,6 +45,17 @@ const kimiWireIn = (sessionDir) => {
   return newestUnder(sessionDir, (f) => f === "wire.jsonl");
 };
 
+/**
+ * Pi keys sessions by cwd like Claude, but its sanitizer is NOT Claude's: strip the
+ * leading slash, turn every remaining `/`, `\` and `:` into `-`, then wrap in `--`
+ * (pi 0.82.0 dist/core/session-manager.js). Dots survive — a worktree path keeps them.
+ *   /home/ryan/repo → ~/.pi/agent/sessions/--home-ryan-repo--/
+ * The agent dir moves with PI_CODING_AGENT_DIR; like the other harnesses we resolve the
+ * default layout only.
+ */
+const piDir = (cwd, home) =>
+  join(home, ".pi", "agent", "sessions", `--${String(cwd).replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`);
+
 const newestUnder = (dir, match) => {
   if (!existsSync(dir)) return null;
   const hits = [];
@@ -149,6 +160,29 @@ export const HARNESSES = [
         return null;
       }
       return null;
+    },
+  },
+  {
+    id: "pi",
+    label: "Pi",
+    // PI_SESSION_ID is real — measured live (TM-081): pi's bash tool deletes any
+    // inherited PI_* and re-sets them for the subprocess (dist/core/tools/bash.js,
+    // exposeSessionEnvironment defaults to true), so a `tm` the agent runs through
+    // bash sees its session. The interactive shell that LAUNCHED pi carries nothing,
+    // and extensions read ctx.sessionManager.getSessionId() and pass it on the hook
+    // payload instead — the Codex path (session_id → TM_SESSION_ID).
+    sessionEnv: ["PI_SESSION_ID"],
+    format: "pi-session",
+    // ~/.pi/agent/sessions/--<cwd>--/<ISO-timestamp>_<session-uuid>.jsonl — v3 JSONL,
+    // tree-linked entries (id/parentId) under a {"type":"session"} header whose id is
+    // the session id, so the id is the tail of the filename like Codex's rollouts.
+    transcript(cwd, session, home = homedir()) {
+      const dir = piDir(cwd, home);
+      if (session) {
+        const exact = newestUnder(dir, (f) => f.endsWith(`_${session}.jsonl`));
+        if (exact) return exact;
+      }
+      return newestUnder(dir, (f) => f.endsWith(".jsonl"));
     },
   },
 ];

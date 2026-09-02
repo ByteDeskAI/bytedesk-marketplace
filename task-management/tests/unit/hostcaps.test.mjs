@@ -56,7 +56,7 @@ describe("a bare machine", () => {
       assert.equal(report.backends[name].available, false, name);
       assert.ok(report.backends[name].reason, `${name} must say why`);
     }
-    for (const name of ["claude", "codex", "grok", "kimi"]) {
+    for (const name of ["claude", "codex", "grok", "kimi", "pi"]) {
       assert.equal(report.clis[name].available, false, name);
     }
     for (const name of ["bwrap", "systemdRun", "slirp4netns"]) {
@@ -76,7 +76,7 @@ describe("a full machine", () => {
     assert.equal(report.backends.fleet.path, join(pluginRoot, "..", "fleet", "bin", "spawn-claude-feature"));
     assert.equal(report.backends.tmux.available, true);
     assert.equal(report.backends.tmux.version, "tmux 1.0");
-    for (const name of ["claude", "codex", "grok", "kimi"]) {
+    for (const name of ["claude", "codex", "grok", "kimi", "pi"]) {
       assert.deepEqual(report.clis[name], { available: true, path: `/fake/bin/${name}` });
     }
     for (const name of ["bwrap", "systemdRun", "slirp4netns"]) {

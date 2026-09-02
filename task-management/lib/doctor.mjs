@@ -321,8 +321,9 @@ export function diagnose(p = paths()) {
   /**
    * Project-local command migration.
    *
-   * Generated launchers are committed product state, so a clone must carry the six canonical
-   * files. A plugin update may make an older generated body stale; that is safe to overwrite.
+   * Generated launchers are per-machine and gitignored (the store's `bin` entry), so a
+   * clone re-bootstraps them with `tm init` rather than carrying them. A plugin update
+   * may make an older generated body stale; that is safe to overwrite.
    * A file without our marker is somebody else's and is reported without a fix.
    */
   const launchers = launcherStatus(p.root);

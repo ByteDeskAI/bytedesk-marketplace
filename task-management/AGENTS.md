@@ -8,6 +8,7 @@ Durable multi-harness task store at `.bytedesk/task-management/`.
 | Codex | `.codex-plugin/plugin.json` + hooks + `.codex-mcp.json` | `update_plan` |
 | Grok | plugin install + MCP config | `todo_write` |
 | Kimi Code | `[[hooks]]` in `~/.kimi-code/config.toml` (see `hooks/kimi-hooks.example.toml`) + MCP config | `TodoList` |
+| Pi | `hooks/pi-hooks.example.ts` extension → `~/.pi/agent/extensions/` + `mcpServers` in `~/.pi/agent/mcp.json` (via pi-mcp-adapter) | none shipped (0.82.0, measured) — MCP `tm_*` is the task surface |
 
 Every capability is also reachable through the project launcher and MCP `tm_*` tools. Prefer
 those for full lifecycle (start/done/block/AC); native tools are mirrored into the same board.

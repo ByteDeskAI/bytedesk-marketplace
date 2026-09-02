@@ -1,11 +1,11 @@
 /**
  * Portable project-local launchers.
  *
- * The committed command surface lives inside the store at
- * <repo>/.bytedesk/task-management/bin/.  Nothing is added to a user's PATH and
- * no generated file embeds a home-directory or plugin-cache path.  Instead each
- * launcher resolves the matching plugin command at run time from explicit host
- * context, the project's marketplace declaration, or an installed-plugin
+ * The command surface lives inside the store at <repo>/.bytedesk/task-management/bin/ —
+ * per-machine and gitignored, rewritten by `tm init` on each host.  Nothing is added to
+ * a user's PATH and no generated file embeds a home-directory or plugin-cache path.
+ * Instead each launcher resolves the matching plugin command at run time from explicit
+ * host context, the project's marketplace declaration, or an installed-plugin
  * registry.  Resolution is per command: a tm override can never accidentally
  * launch tm-dashboard or tm-hook.
  */

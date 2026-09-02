@@ -23,7 +23,7 @@ const DEFAULT_PLUGIN_ROOT = join(HERE, "..");
 const ORCH_BIN = join("bin", "agent-orchestration-mcp");
 const FLEET_BIN = join("bin", "spawn-claude-feature");
 
-const CLIS = ["claude", "codex", "grok", "kimi"];
+const CLIS = ["claude", "codex", "grok", "kimi", "pi"];
 /** Linux sandbox dependencies of the orchestration backend, keyed as the report names them. */
 const SANDBOX = { bwrap: "bwrap", systemdRun: "systemd-run", slirp4netns: "slirp4netns" };
 

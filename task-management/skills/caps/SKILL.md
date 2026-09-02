@@ -28,7 +28,7 @@ Order walked by dispatch when unpinned: **orchestration → fleet → tmux → m
 `manual` is always available. Override with `tm config dispatch.backends '["tmux","manual"]'`.
 
 Probes: `TM_ORCHESTRATION_BIN` / `TM_FLEET_BIN` → sibling marketplace plugin →
-`~/.claude/plugins/**`. CLIs (`claude`,`codex`,`grok`,`kimi`) and sandbox
+`~/.claude/plugins/**`. CLIs (`claude`,`codex`,`grok`,`kimi`,`pi`) and sandbox
 (`bwrap`,`systemd-run`,`slirp4netns`) are PATH lookups. `TM_HOSTCAPS_DEBUG=1` traces.
 
 Full table: `docs/agent-first.md`.

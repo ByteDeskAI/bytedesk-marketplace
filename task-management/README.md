@@ -14,14 +14,21 @@ and machines, and your teammates can read it in a PR diff.
 /plugin install task-management@bytedesk
 ```
 
-Then bootstrap the repository once with `node <installed-plugin>/bin/tm init` (or let the first
-`/task-management:epic` do it). Every command after bootstrap uses the committed project launcher.
+That is the user-scope, one-machine path. To wire another **local repository** against a sibling
+clone of this marketplace — the setup every teammate gets when they clone — the canonical guide is
+[docs/install.md](docs/install.md): marketplace registration by relative path, the git contract,
+bootstrap, per-harness wiring, updating. Its bootstrap path ran as written against a scratch repo.
+
+Either way, bootstrap the repository once with `node <plugin>/bin/tm init` (for the local setup
+`<plugin>` is the sibling checkout, `../bytedesk-marketplace/task-management`), or let the first
+`/task-management:epic` do it. Every command after bootstrap uses the project launcher the
+bootstrap wrote.
 
 ### Installing without Claude Code
 
 Everything except Claude Code's own hooks works standalone — the CLI, the store, the MCP server and
-the dashboard. This is the path, in order, verified from a clean `HOME` with the plugin copied out
-of the marketplace and nothing symlinked back:
+the dashboard. This is the short path; the full install order, including the git contract and each
+harness's wiring, is [docs/install.md](docs/install.md):
 
 ```bash
 cd your-repo && node <plugin>/bin/tm init   # store + project launchers
@@ -33,17 +40,18 @@ cd your-repo && node <plugin>/bin/tm init   # store + project launchers
 Codex `.codex/hooks.json` should invoke `.bytedesk/task-management/bin/tm-hook`, written during
 bootstrap. No global command or PATH setup is required.
 
-`.bytedesk/task-management/bin/tm init` records the repo as the board's identity and your git user as its owner, so a clone knows
+`init` records the repo as the board's identity and your git user as its owner, so a clone knows
 which project it belongs to and who set it up.
 
 ### The `.bytedesk/task-management/bin/tm` command
 
 Bootstrap writes `tm`, `tm-hook`, and `tm-dashboard` under
 `.bytedesk/task-management/bin/`, plus `.cmd` twins for Windows. They resolve the installed plugin
-at runtime without committing a machine-specific path:
+at runtime without embedding a machine-specific path — and they are regenerated per machine rather
+than committed (the store's `.gitignore` lists `bin`), so a fresh clone re-runs the bootstrap once:
 
 ```bash
-.bytedesk/task-management/bin/tm where       # launcher health and resolved plugin source
+.bytedesk/task-management/bin/tm where       # launcher health and resolved plugin source (JSON)
 .bytedesk/task-management/bin/tm doctor      # report legacy launchers, links and config
 .bytedesk/task-management/bin/tm doctor --fix # migrate recognized legacy state
 ```
@@ -228,12 +236,14 @@ harness; only MCP registration and hooks differ.
 | Grok | `grok mcp add task-management -- <plugin>/bin/tm-mcp` | same tools; **no hooks** — drive CLI/MCP yourself |
 | Kimi Code | `.kimi-code/mcp.json` stdio entry | same tools; `[[hooks]]` in `~/.kimi-code/config.toml` |
 
-Full install snippets: [Running under Codex CLI, Grok, and Kimi](#running-under-codex-cli-grok-and-kimi).
+Full install snippets: [Running under Codex CLI, Grok, Kimi, and Pi](#running-under-codex-cli-grok-kimi-and-pi);
+a fresh repo from zero: [docs/install.md](docs/install.md).
 
 ## Docs
 
 | Doc | What |
 |---|---|
+| [`docs/install.md`](docs/install.md) | add the plugin to any local repo: marketplace registration, git contract, bootstrap, harness wiring, updating |
 | [`docs/use-cases.md`](docs/use-cases.md) | 20 catalogued use cases, one five-section format |
 | [`docs/agent-first.md`](docs/agent-first.md) | dispatch loop, backends, harness recipes, CLI / MCP / HTTP parity |
 | [`docs/dashboard-api.md`](docs/dashboard-api.md) | HTTP contract |
@@ -458,20 +468,20 @@ before removing — your main checkout's `node_modules` is never at risk.
 worktree changes them all. Right default for parallel agents reading one dependency tree, wrong
 one for a task that changes dependencies. Use `mode: copy` or `--no-share` there.
 
-## Running under Codex CLI, Grok, and Kimi
+## Running under Codex CLI, Grok, Kimi, and Pi
 
 The store, the CLI and the MCP server are harness-agnostic; the parts that hook into a session are
 not, and the difference is worth knowing before you rely on it. Everything below was checked
-against the installed CLIs — `codex-cli 0.146.0`, `grok 0.2.117`, `kimi 0.39.1` — not inferred from docs.
+against the installed CLIs — `codex-cli 0.146.0`, `grok 0.2.117`, `kimi 0.39.1`, `pi 0.82.0` — not inferred from docs.
 
-| | Claude Code | Codex CLI | Grok | Kimi Code |
-|---|---|---|---|---|
-| `.bytedesk/task-management/bin/tm` CLI, store, gates | ✅ | ✅ | ✅ | ✅ |
-| MCP server (`bin/tm-mcp`) | ✅ `.mcp.json` | ✅ `codex mcp add` / `.codex-mcp.json` | ✅ `grok mcp add` | ✅ `.kimi-code/mcp.json` — see below |
-| Session identity | ✅ `CLAUDE_CODE_SESSION_ID` | ✅ `CODEX_THREAD_ID` | ✅ `GROK_SESSION_ID` | ✅ hook payload `session_id` (Kimi exports no env var) |
-| Native task mirroring | ✅ `TaskCreate`/`TaskUpdate` | ✅ `update_plan` | ✅ `todo_write` | ✅ `TodoList` |
-| Lifecycle hooks | ✅ `hooks/hooks.json` | ✅ `.codex/hooks.json` — see below | ❌ no hook surface | ✅ `[[hooks]]` in `~/.kimi-code/config.toml` — see below |
-| Dashboard work stream | ✅ | ✅ reads `~/.codex/sessions/**/rollout-*.jsonl` | ✅ reads `~/.grok/sessions/<cwd>/<id>/chat_history.jsonl` | ✅ reads `~/.kimi-code/sessions/**/wire.jsonl` (raw events; no typed parser yet) |
+| | Claude Code | Codex CLI | Grok | Kimi Code | Pi |
+|---|---|---|---|---|---|
+| `.bytedesk/task-management/bin/tm` CLI, store, gates | ✅ | ✅ | ✅ | ✅ | ✅ |
+| MCP server (`bin/tm-mcp`) | ✅ `.mcp.json` | ✅ `codex mcp add` / `.codex-mcp.json` | ✅ `grok mcp add` | ✅ `.kimi-code/mcp.json` — see below | ✅ `~/.pi/agent/mcp.json` (via the pi-mcp-adapter extension) |
+| Session identity | ✅ `CLAUDE_CODE_SESSION_ID` | ✅ `CODEX_THREAD_ID` | ✅ `GROK_SESSION_ID` | ✅ hook payload `session_id` (Kimi exports no env var) | ✅ `PI_SESSION_ID` (exported to tool subprocesses, measured live) |
+| Native task mirroring | ✅ `TaskCreate`/`TaskUpdate` | ✅ `update_plan` | ✅ `todo_write` | ✅ `TodoList` | ❌ none shipped (0.82.0, measured) — the MCP `tm_*` tools are the task surface |
+| Lifecycle hooks | ✅ `hooks/hooks.json` | ✅ `.codex/hooks.json` — see below | ❌ no hook surface | ✅ `[[hooks]]` in `~/.kimi-code/config.toml` — see below | ✅ TS extension — `hooks/pi-hooks.example.ts` (stop is advisory, not blocking) |
+| Dashboard work stream | ✅ | ✅ reads `~/.codex/sessions/**/rollout-*.jsonl` | ✅ reads `~/.grok/sessions/<cwd>/<id>/chat_history.jsonl` | ✅ reads `~/.kimi-code/sessions/**/wire.jsonl` (raw events; no typed parser yet) | ✅ reads `~/.pi/agent/sessions/--<cwd>--/*.jsonl` (raw events; no typed parser yet) |
 
 What ❌ costs you: without hooks, Grok gets no session-start briefing, no Stop gate and no
 automatic commit linking. The board still works — you drive it with `.bytedesk/task-management/bin/tm` and the MCP tools, and
@@ -501,6 +511,15 @@ Kimi reads hook rules from `[[hooks]]` entries in `~/.kimi-code/config.toml` (th
 repo-local hooks file) — append `hooks/kimi-hooks.example.toml` there. Like Codex, Kimi sets no
 session environment variable: the session id arrives on the hook payload's `session_id` and the
 hook adopts it as `TM_SESSION_ID` before anything reads it.
+
+Pi's hooks are in-process TypeScript extensions, not shell commands: copy `hooks/pi-hooks.example.ts`
+into `~/.pi/agent/extensions/` (or a project's `.pi/extensions/`). It forwards session-start,
+session-end (parks in_progress work), commit linking and edit touches; because a Pi extension
+cannot block an already-settled agent, its Stop equivalent is advisory (`ui.notify`) and the
+session-end park is the deterministic half. `PI_SESSION_ID` is exported to tool subprocesses
+(measured live on 0.82.0), so claims and attribution work from the shell inside a Pi session.
+Porting to a harness not listed here: `docs/harnesses.md` is the universal recipe and the
+adapter contract.
 
 Codex has no plugin-root substitution in `.codex/hooks.json`, so its checked-in hook configuration
 uses the project-relative launcher created during bootstrap:
@@ -1145,11 +1164,12 @@ attaches only to the Chrome it launched.
 - Commit `.bytedesk/task-management/` — that's the point. One file per entity keeps merges sane.
 - `.bytedesk/task-management/bin/tm init` writes the store's own `.gitignore` and `.gitattributes`, plus
   `.bytedesk/.gitignore` for worktrees (they live next to the store, so a store-local
-  rule cannot see them). The markdown, `config.json`, `evidence/` and
-  `.bytedesk/task-management/bin/`
-  launchers are the shared record and belong in git; `index.json` (a cache),
-  `state.json` (session claims), `events.jsonl` (this host's audit log), `dashboard.pid` /
-  `dashboard.port` / `dashboard.*`, `port.assigned`, `state.lock*` and `.tm-tmp-*` do not.
+  rule cannot see them). The markdown, `config.json`, `templates/` and `evidence/` are the
+  shared record and belong in git; `index.json` (a cache), `state.json` (session claims),
+  `agents.json`, `pool.pid`, `events.jsonl` (this host's audit log), `bin/` (the generated
+  launchers — `tm init` rewrites them per host, so a fresh clone bootstraps once),
+  `dashboard.pid` / `dashboard.port` / `dashboard.*`, `port.assigned`, `state.lock*` and
+  `.tm-tmp-*` do not.
   SessionStart after a plugin update tops the contract up
   and `git rm --cached`s any of those files git is still carrying, so an already-tracked
   `events.jsonl` leaves the index on the next session without being deleted from disk.

@@ -3,6 +3,29 @@
 ## Unreleased
 
 ### Added
+- **Pi harness integration (TM-081).** `pi` joins the harness line-up, measured against the
+  installed 0.82.0 rather than docs: the CLI appears in `tm caps`; session identity comes from
+  `PI_SESSION_ID` (verified exported to tool subprocesses); the work stream resolves
+  `~/.pi/agent/sessions/--<cwd>--/*.jsonl` (raw events, no typed parser yet — the `kimi-wire`
+  stance); and `hooks/pi-hooks.example.ts` is a Pi extension (in-process TypeScript — Pi has no
+  shell hooks) forwarding session-start/session-end, commit linking, and edit touches. Its Stop
+  equivalent is advisory (`ui.notify`), because a Pi extension cannot block an already-settled
+  agent; the session-end park stays the deterministic half. Pi ships no native task tool
+  (measured: no task-tool call in this machine's real session histogram), so its adapter is
+  deliberately inert and tasks flow through the MCP `tm_*` tools. New `docs/harnesses.md` is the
+  universal recipe: what works with zero integration, what each of the four integration points
+  (hooks / session identity / native-task mirroring / work stream) adds, and the
+  measure-then-land procedure for porting to a harness nobody has written an adapter for.
+- **Install guide for consumer repos (TM-082).** New `docs/install.md`: adding the plugin to any
+  local repository in install order — marketplace registration by relative path in
+  `.claude/settings.json`, the git contract, bootstrap (`tm init`, the store's .gitignore split,
+  `tm doctor` / `tm where` as post-install checks), per-harness wiring (Claude rides the plugin;
+  Codex `.codex/hooks.json`; Kimi `[[hooks]]` + `.kimi-code/mcp.json`; Grok MCP-only), and
+  updating (no version pins — every marketplace commit is a new version; stale-cache tells).
+  Verified end to end against a scratch repo with a clean HOME, including the fresh-clone
+  re-bootstrap. The README install block points at it, and the Notes section no longer lists the
+  generated launchers as committed — the store's .gitignore ignores `bin` and init rewrites them
+  per host.
 - **Required-field completeness gates (TM-080).** A task now carries its details or the
   gates say no. New `lib/completeness.mjs` — `missingFields(task, required)` returns
   `[{field, hint}]` with the hint naming the exact fix command (`tm edit <id> --body`,

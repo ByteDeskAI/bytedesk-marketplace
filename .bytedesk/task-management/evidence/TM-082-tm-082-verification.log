@@ -1,0 +1,316 @@
+
+### workspace: /tmp/tm-082-y6A2cW (miniature marketplace = real marketplace.json + plugin copy, no node_modules)
+AGENTS.md
+bin
+CHANGELOG.md
+dashboard
+docs
+hooks
+lib
+monitors
+README.md
+run-tests.sh
+
+### consumer repo
+
+### step 1 — .claude/settings.json, marketplace by RELATIVE path (guide section 1)
+{
+  "extraKnownMarketplaces": {
+    "bytedesk": {
+      "source": { "source": "directory", "path": "../bytedesk-marketplace" },
+      "autoUpdate": true
+    }
+  },
+  "enabledPlugins": {
+    "task-management@bytedesk": true
+  }
+}
+
+### step 2 — git contract (guide section 2): ignore only machine-local .claude paths
+.claude/plugins/
+.claude/worktrees/
+.claude/telemetry/
+.claude/settings.local.json
+
+### step 3 — bootstrap from the source bin, clean HOME (guide section 3)
+$ env -i HOME=/tmp/tm-082-y6A2cW/home PATH=/usr/local/bin:/usr/bin:/bin TERM=dumb bash -c 'cd "/tmp/tm-082-y6A2cW/consumer" && node ../bytedesk-marketplace/task-management/bin/tm init'
+initialized /tmp/tm-082-y6A2cW/consumer/.bytedesk/task-management (+ .gitignore, .gitattributes, .bytedesk/.gitignore)
+(exit 0)
+
+### what init wrote
+$ find "/tmp/tm-082-y6A2cW/consumer/.bytedesk" -maxdepth 2 | sort
+/tmp/tm-082-y6A2cW/consumer/.bytedesk
+/tmp/tm-082-y6A2cW/consumer/.bytedesk/.gitignore
+/tmp/tm-082-y6A2cW/consumer/.bytedesk/task-management
+/tmp/tm-082-y6A2cW/consumer/.bytedesk/task-management/adrs
+/tmp/tm-082-y6A2cW/consumer/.bytedesk/task-management/bin
+/tmp/tm-082-y6A2cW/consumer/.bytedesk/task-management/capabilities
+/tmp/tm-082-y6A2cW/consumer/.bytedesk/task-management/config.json
+/tmp/tm-082-y6A2cW/consumer/.bytedesk/task-management/epics
+/tmp/tm-082-y6A2cW/consumer/.bytedesk/task-management/events.jsonl
+/tmp/tm-082-y6A2cW/consumer/.bytedesk/task-management/evidence
+/tmp/tm-082-y6A2cW/consumer/.bytedesk/task-management/.gitattributes
+/tmp/tm-082-y6A2cW/consumer/.bytedesk/task-management/.gitignore
+/tmp/tm-082-y6A2cW/consumer/.bytedesk/task-management/index.json
+/tmp/tm-082-y6A2cW/consumer/.bytedesk/task-management/plans
+/tmp/tm-082-y6A2cW/consumer/.bytedesk/task-management/sprints
+/tmp/tm-082-y6A2cW/consumer/.bytedesk/task-management/state.json
+/tmp/tm-082-y6A2cW/consumer/.bytedesk/task-management/tasks
+/tmp/tm-082-y6A2cW/consumer/.bytedesk/task-management/templates
+(exit 0)
+$ cat "/tmp/tm-082-y6A2cW/consumer/.bytedesk/task-management/config.json"
+{
+  "enforce": true,
+  "requireEpic": true,
+  "requireAcceptance": true,
+  "requireOnCreate": [
+    "body",
+    "acceptance"
+  ],
+  "requireOnStart": [
+    "body",
+    "acceptance"
+  ],
+  "requireOnDone": [
+    "body",
+    "acceptance",
+    "evidence",
+    "actor"
+  ],
+  "wipLimit": 3,
+  "staleMinutes": 90,
+  "gitLink": true,
+  "captureDecisions": "smart",
+  "autoCloseEpics": true,
+  "eventMaxBytes": 5000000,
+  "claimTtlMinutes": 240,
+  "parkOnSessionEnd": true,
+  "trackTouches": true,
+  "webhooks": [],
+  "webhooksAllowRemote": false,
+  "board": {
+    "launchBrowser": false,
+    "grouped": false,
+    "views": {
+      "Interview": {
+        "label": "decision:interview"
+      },
+      "Research": {
+        "label": "decision:research"
+      },
+      "Prototype": {
+        "label": "decision:prototype"
+      },
+      "Needs triage": {
+        "label": "needs-triage"
+      },
+      "Needs info": {
+        "label": "needs-info"
+      },
+      "Ready for agent": {
+        "label": "ready-for-agent"
+      }
+    }
+  },
+  "ntfy": {},
+  "plugin": {},
+  "labels": {},
+  "dispatch": {},
+  "boardId": "acme/consumer",
+  "owner": "A Consumer <consumer@example.com>"
+}
+(exit 0)
+
+### launcher resolution — tm where, via the project launcher, clean HOME
+$ env -i HOME=/tmp/tm-082-y6A2cW/home PATH=/usr/local/bin:/usr/bin:/bin TERM=dumb bash -c 'cd "/tmp/tm-082-y6A2cW/consumer" && ./.bytedesk/task-management/bin/tm where'
+{
+  "store": "/tmp/tm-082-y6A2cW/consumer/.bytedesk/task-management",
+  "checkout": "/tmp/tm-082-y6A2cW/consumer",
+  "runtimeBin": "/tmp/tm-082-y6A2cW/bytedesk-marketplace/task-management/bin/tm",
+  "launcherSource": "/tmp/tm-082-y6A2cW/bytedesk-marketplace/task-management",
+  "launcherSourceKind": "project marketplace",
+  "launchers": {
+    "dir": "/tmp/tm-082-y6A2cW/consumer/.bytedesk/task-management/bin",
+    "entries": [
+      {
+        "name": "tm",
+        "kind": "posix",
+        "file": "/tmp/tm-082-y6A2cW/consumer/.bytedesk/task-management/bin/tm",
+        "state": "current"
+      },
+      {
+        "name": "tm",
+        "kind": "cmd",
+        "file": "/tmp/tm-082-y6A2cW/consumer/.bytedesk/task-management/bin/tm.cmd",
+        "state": "current"
+      },
+      {
+        "name": "tm-hook",
+        "kind": "posix",
+        "file": "/tmp/tm-082-y6A2cW/consumer/.bytedesk/task-management/bin/tm-hook",
+        "state": "current"
+      },
+      {
+        "name": "tm-hook",
+        "kind": "cmd",
+        "file": "/tmp/tm-082-y6A2cW/consumer/.bytedesk/task-management/bin/tm-hook.cmd",
+        "state": "current"
+      },
+      {
+        "name": "tm-dashboard",
+        "kind": "posix",
+        "file": "/tmp/tm-082-y6A2cW/consumer/.bytedesk/task-management/bin/tm-dashboard",
+        "state": "current"
+      },
+      {
+        "name": "tm-dashboard",
+        "kind": "cmd",
+        "file": "/tmp/tm-082-y6A2cW/consumer/.bytedesk/task-management/bin/tm-dashboard.cmd",
+        "state": "current"
+      }
+    ],
+    "current": true,
+    "conflicts": [],
+    "pending": []
+  }
+}
+(exit 0)
+
+### create gate is live — task new without --body/--ac must be refused (exit 2)
+$ env -i HOME=/tmp/tm-082-y6A2cW/home PATH=/usr/local/bin:/usr/bin:/bin TERM=dumb bash -c 'cd "/tmp/tm-082-y6A2cW/consumer" && ./.bytedesk/task-management/bin/tm epic new "First epic"'
+EP-001 created and set active — /tmp/tm-082-y6A2cW/consumer/.bytedesk/task-management/epics/EP-001-first-epic.md
+(exit 0)
+$ env -i HOME=/tmp/tm-082-y6A2cW/home PATH=/usr/local/bin:/usr/bin:/bin TERM=dumb bash -c 'cd "/tmp/tm-082-y6A2cW/consumer" && ./.bytedesk/task-management/bin/tm task new "bare task"'
+task-management: new tasks carry their details from birth — missing:
+  body — tm edit <id> --body
+  acceptance — tm ac <id> "…"
+Or supply them at creation: .bytedesk/task-management/bin/tm task new "<title>" --body <text|-> --ac "<criterion>"
+Bypass once: .bytedesk/task-management/bin/tm override "<reason>"
+(exit 2)
+
+### create with --body/--ac, start it, board shows it
+$ env -i HOME=/tmp/tm-082-y6A2cW/home PATH=/usr/local/bin:/usr/bin:/bin TERM=dumb bash -c 'cd "/tmp/tm-082-y6A2cW/consumer" && ./.bytedesk/task-management/bin/tm task new "first task" --body "what and why" --ac "the check that closes it"'
+TM-001 first task [EP-001]
+(exit 0)
+$ env -i HOME=/tmp/tm-082-y6A2cW/home PATH=/usr/local/bin:/usr/bin:/bin TERM=dumb bash -c 'cd "/tmp/tm-082-y6A2cW/consumer" && ./.bytedesk/task-management/bin/tm start TM-001'
+TM-001 in progress — first task
+(exit 0)
+$ env -i HOME=/tmp/tm-082-y6A2cW/home PATH=/usr/local/bin:/usr/bin:/bin TERM=dumb bash -c 'cd "/tmp/tm-082-y6A2cW/consumer" && ./.bytedesk/task-management/bin/tm board'
+# Board — /tmp/tm-082-y6A2cW/consumer
+
+Active epic: EP-001
+
+## Epics
+○ EP-001 First epic — 0/1 done
+
+## in progress (1)
+◐ TM-001 first task [EP-001] (0/1 AC)
+
+(exit 0)
+
+### post-install check — tm doctor (guide: wants no problems found)
+$ env -i HOME=/tmp/tm-082-y6A2cW/home PATH=/usr/local/bin:/usr/bin:/bin TERM=dumb bash -c 'cd "/tmp/tm-082-y6A2cW/consumer" && ./.bytedesk/task-management/bin/tm doctor'
+no problems found
+(exit 0)
+
+### git contract — git status shows committed candidates only; bin/, state.json, index.json, events.jsonl absent
+$ git -C "/tmp/tm-082-y6A2cW/consumer" status --porcelain
+?? .bytedesk/
+?? .claude/
+?? .gitignore
+(exit 0)
+$ git -C "/tmp/tm-082-y6A2cW/consumer" check-ignore -v .bytedesk/task-management/bin/tm .bytedesk/task-management/state.json .bytedesk/task-management/index.json .bytedesk/task-management/events.jsonl || true
+.bytedesk/task-management/.gitignore:25:bin	.bytedesk/task-management/bin/tm
+.bytedesk/task-management/.gitignore:8:state.json	.bytedesk/task-management/state.json
+.bytedesk/task-management/.gitignore:5:index.json	.bytedesk/task-management/index.json
+.bytedesk/task-management/.gitignore:20:events.jsonl	.bytedesk/task-management/events.jsonl
+(exit 0)
+
+### step 4 (Codex) — hooks file from the example, valid JSON, launcher target exists
+$ node -e 'JSON.parse(require("fs").readFileSync("/tmp/tm-082-y6A2cW/consumer/.codex/hooks.json","utf8")); console.log("valid JSON")'
+valid JSON
+(exit 0)
+$ grep -o '\.bytedesk/task-management/bin/tm-hook[a-z-]*' "/tmp/tm-082-y6A2cW/consumer/.codex/hooks.json" | sort -u
+.bytedesk/task-management/bin/tm-hook
+(exit 0)
+$ ls "/tmp/tm-082-y6A2cW/consumer/.bytedesk/task-management/bin/"
+tm
+tm.cmd
+tm-dashboard
+tm-dashboard.cmd
+tm-hook
+tm-hook.cmd
+(exit 0)
+
+### step 4 (Kimi) — example hook entries use the same project launcher
+$ grep '^command' "/tmp/tm-082-y6A2cW/bytedesk-marketplace/task-management/hooks/kimi-hooks.example.toml"
+command = ".bytedesk/task-management/bin/tm-hook pre-task-create"
+command = ".bytedesk/task-management/bin/tm-hook post-task"
+command = ".bytedesk/task-management/bin/tm-hook stop"
+(exit 0)
+
+### fresh clone — launchers are per-machine, bootstrap once, board readable (guide sections 3+5)
+$ git -C "/tmp/tm-082-y6A2cW/consumer" add -A && git -C "/tmp/tm-082-y6A2cW/consumer" commit -qm snapshot
+(exit 0)
+$ git clone -q "/tmp/tm-082-y6A2cW/consumer" "/tmp/tm-082-y6A2cW/consumer-clone"
+(exit 0)
+$ ls "/tmp/tm-082-y6A2cW/consumer-clone/.bytedesk/task-management/"
+config.json
+epics
+tasks
+templates
+(exit 0)
+$ ls "/tmp/tm-082-y6A2cW/consumer-clone/.bytedesk/task-management/bin" 2>&1 || true
+ls: cannot access '/tmp/tm-082-y6A2cW/consumer-clone/.bytedesk/task-management/bin': No such file or directory
+(exit 0)
+$ env -i HOME=/tmp/tm-082-y6A2cW/home PATH=/usr/local/bin:/usr/bin:/bin TERM=dumb bash -c 'cd "/tmp/tm-082-y6A2cW/consumer-clone" && node ../bytedesk-marketplace/task-management/bin/tm init'
+initialized /tmp/tm-082-y6A2cW/consumer-clone/.bytedesk/task-management
+(exit 0)
+$ env -i HOME=/tmp/tm-082-y6A2cW/home PATH=/usr/local/bin:/usr/bin:/bin TERM=dumb bash -c 'cd "/tmp/tm-082-y6A2cW/consumer-clone" && ./.bytedesk/task-management/bin/tm where' | grep -E 'launcherSourceKind|launcherSource'
+  "launcherSource": "/tmp/tm-082-y6A2cW/bytedesk-marketplace/task-management",
+  "launcherSourceKind": "project marketplace",
+(exit 0)
+$ env -i HOME=/tmp/tm-082-y6A2cW/home PATH=/usr/local/bin:/usr/bin:/bin TERM=dumb bash -c 'cd "/tmp/tm-082-y6A2cW/consumer-clone" && ./.bytedesk/task-management/bin/tm board'
+# Board — /tmp/tm-082-y6A2cW/consumer-clone
+
+Active epic: EP-001
+
+## Epics
+○ EP-001 First epic — 0/1 done
+
+## in progress (1)
+◐ TM-001 first task [EP-001] (0/1 AC)
+
+(exit 0)
+$ env -i HOME=/tmp/tm-082-y6A2cW/home PATH=/usr/local/bin:/usr/bin:/bin TERM=dumb bash -c 'cd "/tmp/tm-082-y6A2cW/consumer-clone" && ./.bytedesk/task-management/bin/tm doctor'
+## warnings (2)
+! —         board-renamed        git says this project is tm-082-y6a2cw/consumer, but the store recorded acme/consumer — entities created before the move still carry the old board. `.bytedesk/task-management/bin/tm config boardId` cannot fix it: identity is derived, not declared.
+! TM-001    unclaimed-wip        in_progress with no claim — another session could take it
+(exit 0)
+
+### guard rail — a repo whose .gitignore swallows .bytedesk/ gets the init warning
+$ env -i HOME=/tmp/tm-082-y6A2cW/home PATH=/usr/local/bin:/usr/bin:/bin TERM=dumb bash -c 'cd "/tmp/tm-082-y6A2cW/swallowed" && node ../bytedesk-marketplace/task-management/bin/tm init'
+initialized /tmp/tm-082-y6A2cW/swallowed/.bytedesk/task-management (+ .gitignore, .gitattributes, .bytedesk/.gitignore)
+! the store is ignored by git — .gitignore:1:.bytedesk/
+  narrow that rule so .bytedesk/task-management is committed; the store's own .gitignore covers the per-machine files
+(exit 0)
+
+### cleanup
+scratch workspace removed
+
+### step 4 (Kimi) — append the example to ~/.kimi-code/config.toml, literal command from the guide
+$ cat ../bytedesk-marketplace/task-management/hooks/kimi-hooks.example.toml >> ~/.kimi-code/config.toml
+(exit 0)
+$ tail -12 ~/.kimi-code/config.toml (scratch HOME)
+timeout = 10
+
+[[hooks]]
+event = "PostToolUse"
+matcher = "TodoList"
+command = ".bytedesk/task-management/bin/tm-hook post-task"
+timeout = 10
+
+[[hooks]]
+event = "Stop"
+command = ".bytedesk/task-management/bin/tm-hook stop"
+timeout = 10
