@@ -27,6 +27,10 @@ const DEFAULT_CONFIG = {
   claimTtlMinutes: 240,
   parkOnSessionEnd: true,
   trackTouches: true,
+  // The event bus: endpoints that receive every logged event as a POST of the
+  // JSONL row. Loopback-only unless webhooksAllowRemote — see lib/webhooks.mjs.
+  webhooks: [],
+  webhooksAllowRemote: false,
   board: {
     launchBrowser: false,
     grouped: false,
@@ -41,7 +45,7 @@ const DEFAULT_CONFIG = {
   },
 };
 
-const NESTED_CONFIG = ["board", "ntfy", "plugin", "labels"];
+const NESTED_CONFIG = ["board", "ntfy", "plugin", "labels", "dispatch"];
 
 export const now = () => new Date().toISOString();
 
@@ -492,25 +496,19 @@ function writeStateUnlocked(patch, p = paths()) {
 
 /** Append-only audit log. Never throws — a broken log must not break a hook. */
 export function logEvent(event, fields = {}, p = paths()) {
+  // One row, both consumers: the line on disk and the fan-out payload must be the
+  // same object, or a webhook subscriber sees a different event than the log shows.
+  const row = { ts: now(), event, session: sessionId(), actor: actorLabel(actor()), ...fields };
   try {
     ensureDirs(p);
-    appendFileSync(
-      p.events,
-      `${JSON.stringify({
-        ts: now(),
-        event,
-        session: sessionId(),
-        actor: actorLabel(actor()),
-        ...fields,
-      })}\n`,
-    );
+    appendFileSync(p.events, `${JSON.stringify(row)}\n`);
   } catch {
     /* ignore */
   }
   // Fire-and-forget push. Never awaited, never allowed to throw: a notifier must
   // not be able to fail a hook or a CLI command.
   try {
-    notifyEvent({ event, actor: actorLabel(actor()), ...fields }, p);
+    notifyEvent(row, p);
   } catch {
     /* ignore */
   }
@@ -974,6 +972,8 @@ export function reindex(p = paths()) {
  *
  *   index.json      a derived cache. The README already says "delete it any time".
  *   state.json      session claims and one-shot overrides — whose laptop, not what work.
+ *   agents.json     the agent registry — whose workers, on whose laptop.
+ *   pool.pid        the dispatcher loop's pid — one machine's running pool.
  *   events.jsonl    this host's audit log. Session ids and one machine's write stream.
  *   events.json     leftover misspelling / older name of that log.
  *   events.*.jsonl  the rotated generation of that log.
@@ -998,6 +998,13 @@ index.json
 
 # Session claims, the active epic, one-shot overrides. Whose machine, not what work.
 state.json
+
+# The agent registry — which workers this machine has running. Per-machine like
+# state.json: whose workers, on whose laptop, is not the shared record.
+agents.json
+
+# The dispatcher pool's pid — a loop running on this machine, right now.
+pool.pid
 
 # This host's audit log, and the rotated generation. Session ids and one machine's
 # write stream — not a board artifact another clone can use.
@@ -1128,6 +1135,8 @@ export function seedGitContract(p = paths(), only = null) {
 export const NOT_FOR_GIT = [
   "index.json",
   "state.json",
+  "agents.json",
+  "pool.pid",
   "events.json",
   "events.jsonl",
   "events.*.jsonl",
@@ -1146,6 +1155,8 @@ export function isHostFile(name, rel = "") {
   if (
     name === "index.json" ||
     name === "state.json" ||
+    name === "agents.json" ||
+    name === "pool.pid" ||
     name === "events.json" ||
     name === "events.jsonl" ||
     name === "port.assigned" ||

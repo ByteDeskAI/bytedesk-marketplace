@@ -31,10 +31,14 @@ export const CATALOG = {
     stop_gate_blocked: { group: "recommended", label: "A session is blocked from stopping with work still open", priority: "high", tags: "warning" },
     claim_stolen: { group: "recommended", label: "Another session took a claim", priority: "high", tags: "twisted_rightwards_arrows" },
     claims_swept: { group: "recommended", label: "A claim expired and work was abandoned", priority: "default", tags: "ghost" },
+    dispatched: { group: "recommended", label: "A task was handed to a worker backend", priority: "default", tags: "rocket" },
+    task_result: { group: "recommended", label: "A dispatched worker's result was recorded", priority: "default", tags: "inbox_tray" },
     epic_auto_closed: { group: "recommended", label: "An epic closed itself — every task done", priority: "default", tags: "tada" },
     reopened: { group: "recommended", label: "A finished task was brought back", priority: "default", tags: "leftwards_arrow_with_hook" },
     unblocked: { group: "recommended", label: "A blocker cleared and work became startable", priority: "default", tags: "arrow_forward" },
     parked_on_session_end: { group: "recommended", label: "A session ended and parked unfinished work", priority: "default", tags: "pause_button" },
+    agent_reaped: { group: "recommended", label: "A worker agent went quiet and was marked dead", priority: "default", tags: "ghost" },
+    worker_reaped: { group: "recommended", label: "A dead worker's task was parked and its claim released", priority: "default", tags: "ghost" },
 
     // writes — the whole stream, so you can see what is available
     create: { group: "writes", label: "A task, epic or ADR is created", priority: "low", tags: "new" },
@@ -95,6 +99,7 @@ export const CATALOG = {
     stop_gate_released: { group: "noise", label: "The stop gate lets a session go", priority: "min", tags: "checkered_flag" },
     doctor_fix: { group: "noise", label: "`tm doctor --fix` repaired something", priority: "min", tags: "wrench" },
     doctor_release: { group: "noise", label: "`tm doctor` released a dead claim", priority: "min", tags: "wrench" },
+    agent_registered: { group: "noise", label: "A worker agent registered itself", priority: "min", tags: "robot" },
   },
   get recommended() {
     return Object.keys(this.events).filter((k) => this.events[k].group === "recommended");

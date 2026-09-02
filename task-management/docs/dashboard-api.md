@@ -2,7 +2,8 @@
 
 The contract the rewritten dashboard (`dashboard/`) and the backend worker code against.
 Existing routes are listed as they are implemented today in `lib/dashboard-api.mjs` and
-`bin/tm-dashboard`; **NEW** rows are the routes the rewrite adds. Every mutation delegates to the
+`bin/tm-dashboard`. (The rewrite's routes all shipped; the per-row **NEW** markers they
+carried while landing are removed.) Every mutation delegates to the
 same `lib/` function the CLI calls — never to the filesystem directly — so gates, the event log
 and the markdown store stay authoritative regardless of caller.
 
@@ -24,44 +25,43 @@ and the markdown store stay authoritative regardless of caller.
   `/api/entity/:id` is the generic `kindOf`+`read` and does not replace per-kind routes.
 - **`handleWrite(method, path, payload, { p })`** (`lib/dashboard-api.mjs:108`) is pure
   request-in/response-out, returns `{ status, body }`, and unit-tests without a server.
-  `bin/tm-dashboard` is plumbing. NEW: `handleWrite` stays synchronous; `export async function handleAsync(method, path, payload, {p, fetchImpl})` wraps it and owns the one async route (`/api/ntfy/test`). `bin/tm-dashboard` calls `handleAsync` for every request;
+  `bin/tm-dashboard` is plumbing. `handleWrite` stays synchronous; `export async function handleAsync(method, path, payload, {p, fetchImpl})` wraps it and owns the async routes (`/api/ntfy/test`, `/api/task/:id/dispatch`, `/api/task/:id/collect`). `bin/tm-dashboard` calls `handleAsync` for every request;
   the server `await`s it.
-- **Single GET dispatch rule (NEW)**: `bin/tm-dashboard` routes every `GET /api/*` to
-  `handleWrite("GET", …)` **except** the `SERVER_ROUTES` that need raw bodies or streams:
+- **Single GET dispatch rule**: `bin/tm-dashboard` routes every `GET /api/*` to
+  `handleWrite("GET", …)` **except** the server routes that need raw bodies or streams:
   `/api/board`, `/api/events`, `/events`, `/api/task/:id/file`, `/api/task/:id/stream`,
-  `/api/export`. Today the server enumerates GET paths one by one (`bin/tm-dashboard:261-320`);
-  that block is replaced. Consequence: `GET /api/nope` is 404 JSON, never the SPA shell.
+  `/api/export`. Consequence: `GET /api/nope` is 404 JSON, never the SPA shell.
 - **Stamp**: writes that take a claim carry `{ actor, session, branch, worktree }` from `stamp(p)`
-  (`lib/dashboard-api.mjs:310`); NEW: `stamp` moves to `lib/actor.mjs` and `bin/tm` uses the same.
+  (`lib/actor.mjs`); `bin/tm` uses the same.
 - **Vocabulary** is never hardcoded in the SPA — read it from `GET /api/meta` (§4).
 
 ## 2. Route table
 
-Legend: **R** read · **W** write · **G** gated write (409 possible) · **NEW** added by the rewrite.
+Legend: **R** read · **W** write · **G** gated write (409 possible).
 
 ### 2.1 Board, events, streams (served in `bin/tm-dashboard`)
 
 | Method · Path | Query / body | Response | Codes | Source |
 |---|---|---|---|---|
 | `GET /api/board` R | — | `boardPayload` §3 | 200 | `lib/dashboard-api.mjs boardPayload` |
-| `GET /api/events` R | NEW `since=<iso>`, `limit=<n≤5000>` (default last 2000), `id=<entity>` | `StoreEvent[]` — each row + `label` (from `CATALOG.events`), `_shadowed`, `_status` via `collapseLog(rows,{keep:true})` | 200 | `bin/tm-dashboard`; NEW reads via `store.readEvents` (includes rotated generation) |
-| `GET /events` SSE | header `Last-Event-ID` (NEW) | see §5 | 200 | `bin/tm-dashboard` |
+| `GET /api/events` R | `since=<iso>`, `limit=<n≤5000>` (default last 2000), `id=<entity>` | `StoreEvent[]` — each row + `label` (from `CATALOG.events`), `_shadowed`, `_status` via `collapseLog(rows,{keep:true})` | 200 | `bin/tm-dashboard`; reads via `store.readEvents` (includes rotated generation) |
+| `GET /events` SSE | header `Last-Event-ID` | see §5 | 200 | `bin/tm-dashboard` |
 | `GET /api/task/:id/stream` SSE | — | `data: {messages, session, file, harness, reason}` every 2 s when changed | 200 / 404 | `lib/transcript.mjs workStream` |
 | `GET /api/task/:id/file` R | `ref=` | raw bytes, content-type by ext, `content-disposition: inline` | 200 / 404 | `evidence.servableEvidencePath` (ref must be on the task AND realpath inside `p.evidence`) |
-| `GET /api/export` R NEW | `format=md\|csv\|json` (required), `epic`, `status`, `open=1`, `events=1`, `download=1` | raw text; `text/markdown` / `text/csv` / `application/json`; `content-disposition: attachment; filename="<project>-board.<ext>"` when `download=1` | 200 / 400 unknown format | `export.exportStore` (`lib/export.mjs:196`) |
+| `GET /api/export` R | `format=md\|csv\|json` (required), `epic`, `status`, `open=1`, `events=1`, `download=1` | raw text; `text/markdown` / `text/csv` / `application/json`; `content-disposition: attachment; filename="<project>-board.<ext>"` when `download=1` | 200 / 400 unknown format | `export.exportStore` (`lib/export.mjs:196`) |
 
 ### 2.2 Meta, settings, vocab
 
 | Method · Path | Query / body | Response | Codes | Source |
 |---|---|---|---|---|
-| `GET /api/meta` R NEW | — | §4 | 200 | new `meta(p)` in dashboard-api |
+| `GET /api/meta` R | — | §4 | 200 | new `meta(p)` in dashboard-api |
 | `GET /api/settings` R | — | `{ groups:[{id,label,help}], fields:[{key,group,type,default,label,help,min?,max?,options?,readOnly?,value}], ntfy:{token:bool,active:bool} }` | 200 | `settings.settingsSnapshot` (`lib/settings.mjs:132`) |
 | `POST /api/settings` W | `{ <key>: value, … }` allowlisted by CATALOG | `{ board, applied:[keys], ignored:[keys] }` | 200 / 400 (identity key, non-object body) | `settings.applySettings` (`:157`), logs `settings` |
-| `GET /api/skills` R NEW | — | `[{ name, description, userInvokable, command:"/task-management:<name>" }]` | 200 | new `lib/skills.mjs listSkills(pluginRoot)` reading `skills/*/SKILL.md` frontmatter |
+| `GET /api/skills` R | — | `[{ name, description, userInvokable, command:"/task-management:<name>" }]` | 200 | new `lib/skills.mjs listSkills(pluginRoot)` reading `skills/*/SKILL.md` frontmatter |
 | `GET /api/templates` R | — | `[{ name, description }]` | 200 | `templates.listTemplates` |
 | `GET /api/templates/:name` R | — | `{ name, fields, body }` | 200 / 400 unsafe name / 404 | `templates.readTemplate` |
-| `POST /api/templates` W NEW | `{ name, description?, fields?, body, overwrite? }` | 201 `{ name }` | 201 / 400 unsafe name / 409 exists without `overwrite` | new `templates.writeTemplate` |
-| `PATCH /api/templates/:name` W NEW | `{ description?, fields?, body? }` | `{ name, fields, body }` | 200 / 404 | `templates.writeTemplate({overwrite:true})` |
+| `POST /api/templates` W | `{ name, description?, fields?, body, overwrite? }` | 201 `{ name }` | 201 / 400 unsafe name / 409 exists without `overwrite` | new `templates.writeTemplate` |
+| `PATCH /api/templates/:name` W | `{ description?, fields?, body? }` | `{ name, fields, body }` | 200 / 404 | `templates.writeTemplate({overwrite:true})` |
 
 ### 2.3 Tasks
 
@@ -71,13 +71,13 @@ Legend: **R** read · **W** write · **G** gated write (409 possible) · **NEW**
 | `GET /api/backlog` R | — | `Task[]` in rank order (body stripped) | 200 | `issue.backlog` |
 | `GET /api/entity/:id` R | — | any kind, full record | 200 / 400 unknown prefix / 404 | `store.kindOf`+`read` |
 | `GET /api/task/:id/evidence` R | — | `{ evidence:[{ ref, kind:"file"\|"url"\|"uri", name, exists, previewable }] }` | 200 | `evidence.listEvidence` |
-| `GET /api/task/:id/why` R NEW | — | `{ id, title, status, startable, reasons:[{kind,blocking,text}], chain:[{id,depth,status,reason}], roots:[ids], cycles:[[ids]], text }` | 200 / 404 | `graph.why` (`lib/graph.mjs:86`), `renderWhy` (`:176`) |
-| `GET /api/task/:id/handoff` R NEW | — | `{ id, text }` (markdown brief). Worktree provisioning is `POST …/worktree`, never a GET side effect | 200 | `render.handoff` (`lib/render.mjs:264`) |
-| `GET /api/task/:id/time` R NEW | — | `{ id, cycle:{startedAt,doneAt,ms,human}\|null, inStatus:{<status>:ms}, timeline:[{ts,from,to}] }` | 200 | `time.cycleTime/timeInStatus/taskTimeline` (`lib/time.mjs:78,67,43`) |
-| `GET /api/entity/:id/history` R NEW (alias: `GET /api/task/:id/history`, same payload) | `raw=1` | `{ id, events:[labelled rows for this id], text }` — any kind | 200 / 404 | `store.readEvents` filtered by id, `render.renderHistory` (`:456`), `collapseLog` |
+| `GET /api/task/:id/why` R | — | `{ id, title, status, startable, reasons:[{kind,blocking,text}], chain:[{id,depth,status,reason}], roots:[ids], cycles:[[ids]], text }` | 200 / 404 | `graph.why` (`lib/graph.mjs:86`), `renderWhy` (`:176`) |
+| `GET /api/task/:id/handoff` R | — | `{ id, text }` (markdown brief). Worktree provisioning is `POST …/worktree`, never a GET side effect | 200 | `render.handoff` (`lib/render.mjs:264`) |
+| `GET /api/task/:id/time` R | — | `{ id, cycle:{startedAt,doneAt,ms,human}\|null, inStatus:{<status>:ms}, timeline:[{ts,from,to}] }` | 200 | `time.cycleTime/timeInStatus/taskTimeline` (`lib/time.mjs:78,67,43`) |
+| `GET /api/entity/:id/history` R (alias: `GET /api/task/:id/history`, same payload) | `raw=1` | `{ id, events:[labelled rows for this id], text }` — any kind | 200 / 404 | `store.readEvents` filtered by id, `render.renderHistory` (`:456`), `collapseLog` |
 | `POST /api/task` G | `{ title, epic?, body?, assignee?, priority?, template?, acceptance? }` | 201 `{ id, title, epic }` | 201 / 400 / 409 `gateTaskCreate` | `enforce.gateTaskCreate`, `templates.applyTemplate`, `store.create` |
 | `PATCH /api/task/:id` W | `{ title?, body?, epic? }` (`epic:null` detaches) | merged record + `{ edited:[…] , …moveTask result }` | 200 / 400 nothing to change | `store.editTask`, `store.moveTask` |
-| `POST /api/task/:id/transition` G | `{ status, reason? }` | `{ id, status, unblocked?:[ids], closedEpic? }` | 200 / 400 unknown status / 409 `gateDone`; NEW 409 `gateStart` (WIP) | `enforce.gateDone`; NEW `enforce.gateStart`; `claims.claimTask` on in_progress, `store.release` otherwise; `unblockDependents`, `autoCloseEpic` |
+| `POST /api/task/:id/transition` G | `{ status, reason? }` | `{ id, status, unblocked?:[ids], closedEpic? }` | 200 / 400 unknown status / 409 `gateDone` or `gateStart` (WIP) | `enforce.gateDone`; `enforce.gateStart`; `claims.claimTask` on in_progress, `store.release` otherwise; `unblockDependents`, `autoCloseEpic` |
 | `POST /api/task/:id/edit` W | same as PATCH | same | | `edit()` |
 | `POST /api/task/:id/assign` W | `{ assignee\|null }` | `{ assignee }` | 200 | `issue.assign` |
 | `POST /api/task/:id/labels` W | `{ add:[], remove:[], force? }` | `{ labels }` | 200 / 400 (exclusive group clash without force) | `issue.labels` |
@@ -94,13 +94,15 @@ Legend: **R** read · **W** write · **G** gated write (409 possible) · **NEW**
 | `POST /api/task/:id/accept` W | `{ index (1-based), done=true, remove? }` | `{ acceptance, removed? }` | 200 / 400 bad index | `store.setCriterion` / `removeCriterion` |
 | `POST /api/task/:id/evidence` W | JSON `{ text }` \| `{ path }` \| `{ filename, buffer\|content }` \| `{ detach }` — or `multipart/form-data` (field `file`) | `{ attached, evidence }` or `{ evidence }` | 200 / 400 / 404 / 413 | `evidence.attachEvidence` / `detachEvidence` |
 | `POST /api/task/:id/sprint` W | `{ sprint\|null }` | `{ id, sprint }` | 200 / 400 / 404 no such sprint | `store.update`, logs `sprint` |
-| `POST /api/task/:id/worktree` G | `{ action:"create"\|"remove", force? }` | `{ id, worktree, branch, shared }` / `{ id, worktree:null, removed, … }` | 200 / 400 / 409 dirty without force | `worktree.createWorktree` / `removeWorktree`; NEW shared `worktree.provision` |
-| `POST /api/task/:id/claim` G NEW | `{ steal? }` | `{ id, claim:{session,actor,worktree,branch,pid,ts}, stolenFrom? }` — claim only, **no status change** | 200 / 409 naming the holder | `claims.claimTask` (`lib/claims.mjs:34`) + stamp |
-| `POST /api/task/:id/release` W NEW | — | `{ id, released:bool }` | 200 | `claims.releaseClaim` (`:76`) |
-| `POST /api/task/:id/delete` W NEW | `{ why? }` | `{ id, status:"deleted" }` (file kept, claim released) | 200 / 409 claimed by another live session | `store.update`, `release`, `logEvent("deleted")` |
-| `POST /api/task/:id/restore` W NEW | — | `{ id, status }` — returns to `deletedFrom` (never `done`), else `open` | 200 | `store.update`, logs `reopened {from:"deleted"}` |
-| `GET /api/task/:id/touches` R NEW | — | `{ id, touches:[paths] }` | 200 | task field |
-| `POST /api/task/:id/touches` W NEW | `{ add:[paths] }` | `{ touches }` | 200 | `touches.record` |
+| `POST /api/task/:id/worktree` G | `{ action:"create"\|"remove", force? }` | `{ id, worktree, branch, shared }` / `{ id, worktree:null, removed, … }` | 200 / 400 / 409 dirty without force | `worktree.createWorktree` / `removeWorktree`; shared `worktree.provision` |
+| `POST /api/task/:id/claim` G | `{ steal? }` | `{ id, claim:{session,actor,worktree,branch,pid,ts}, stolenFrom? }` — claim only, **no status change** | 200 / 409 naming the holder | `claims.claimTask` (`lib/claims.mjs:34`) + stamp |
+| `POST /api/task/:id/release` W | — | `{ id, released:bool }` | 200 | `claims.releaseClaim` (`:76`) |
+| `POST /api/task/:id/delete` W | `{ why? }` | `{ id, status:"deleted" }` (file kept, claim released) | 200 / 409 claimed by another live session | `store.update`, `release`, `logEvent("deleted")` |
+| `POST /api/task/:id/restore` W | — | `{ id, status }` — returns to `deletedFrom` (never `done`), else `open` | 200 | `store.update`, logs `reopened {from:"deleted"}` |
+| `POST /api/task/:id/dispatch` G (async, via `handleAsync`) | `{ backend?, steal? }` | `{ ok, id, backend, run, worktree, branch, detail? }` — claim + start + worktree + spawn in one call | 200 / 404 / 409 `gateStart` (WIP), claim held, or no backend available — the refusal carries the CLI's wording | `dispatch/index.mjs dispatch` (same as `tm dispatch` / `tm_dispatch`) |
+| `POST /api/task/:id/collect` W (async, via `handleAsync`) | — | `{ ok, outcome?, downgraded?, parked? }` or `{ ok, pending:true }` while the worker runs | 200 / 404 / 409 never dispatched or no collector for the backend | `dispatch/collect.mjs collect` → `recordResult` (same as `tm collect` / `tm_collect`) |
+| `GET /api/task/:id/touches` R | — | `{ id, touches:[paths] }` | 200 | task field |
+| `POST /api/task/:id/touches` W | `{ add:[paths] }` | `{ touches }` | 200 | `touches.record` |
 | `POST /api/bulk` W | `{ ids:[], op, args }` | `{ ok:[ids], failed:[{id,error}] }` — partial success | 200 / 400 | dispatches `POST /api/task/:id/<op>` per id |
 
 ### 2.4 Epics
@@ -112,7 +114,7 @@ Legend: **R** read · **W** write · **G** gated write (409 possible) · **NEW**
 | `POST /api/epic/:id/close` W | — | epic record | 200 / 409 already done | `store.update` |
 | `POST /api/epic/:id/reopen` W | — | epic record | 200 / 409 not done | `store.reopenEpic` |
 | `POST /api/epic/:id/plan` W | `{ plan: path\|null }` | epic record | 200 / 400 | `store.update` |
-| `PATCH /api/epic/:id` W NEW | `{ title?, body? }` | epic record (file name kept on retitle) | 200 / 400 | `store.editTask` (kind-agnostic; alias `editEntity`) |
+| `PATCH /api/epic/:id` W | `{ title?, body? }` | epic record (file name kept on retitle) | 200 / 400 | `store.editTask` (kind-agnostic; alias `editEntity`) |
 
 ### 2.5 ADRs
 
@@ -122,7 +124,7 @@ Legend: **R** read · **W** write · **G** gated write (409 possible) · **NEW**
 | `POST /api/adr` W | `{ title, body? }` | 201 `{ id, title, status:"proposed", epic }` | 201 / 400 | `store.create` (epic from active pointer, `deciders:[]`, `date`) |
 | `POST /api/adr/:id/accept` W | — | ADR record | 200 / 409 unless proposed | `store.update` |
 | `POST /api/adr/:id/supersede` W | `{ title, body? }` | 201 `{ id, title, status, supersedes }` (old marked superseded) | 201 / 400 / 409 already superseded | `store.create`+`update` |
-| `PATCH /api/adr/:id` W NEW | `{ title?, body?, deciders?:string[] }` | ADR record | 200 / 400 deciders not string[] | `store.editTask` + `update` |
+| `PATCH /api/adr/:id` W | `{ title?, body?, deciders?:string[] }` | ADR record | 200 / 400 deciders not string[] | `store.editTask` + `update` |
 
 ### 2.6 Sprints
 
@@ -131,7 +133,7 @@ Legend: **R** read · **W** write · **G** gated write (409 possible) · **NEW**
 | `GET /api/sprint/:id` R | — | sprint + `report:{cards,committed,done,unsized}` | 200 / 400 / 404 | `render.sprintCounts` |
 | `POST /api/sprint` W | `{ id }` activate (`null` clears) **or** `{ title, ends? }` create+activate | `{ activeSprint }` / 201 `{ id, title, activeSprint, ends }` | 200 / 201 / 400 / 404 | `store.create`, `writeState`, logs `sprint` |
 | `POST /api/sprint/:id/done` W | — | sprint + `{ unfinished:n }` | 200 / 409 already done | `store.update` |
-| `PATCH /api/sprint/:id` W NEW | `{ title?, ends?:"YYYY-MM-DD"\|null, body? }` | sprint + report | 200 / 400 bad `ends` | `store.editTask` + `update` |
+| `PATCH /api/sprint/:id` W | `{ title?, ends?:"YYYY-MM-DD"\|null, body? }` | sprint + report | 200 / 400 bad `ends` | `store.editTask` + `update` |
 
 ### 2.7 Capabilities
 
@@ -142,7 +144,7 @@ Legend: **R** read · **W** write · **G** gated write (409 possible) · **NEW**
 | `POST /api/capability/:id/accept` W | — | `{ id, task, existing, status }` (mints the task) | 200 / 400 / 404 | `capability.accept` |
 | `POST /api/capability/:id/ship` G | `{ evidence?, task? }` | `{ id, status, shipped }` | 200 / 409 "no evidence" | `capability.ship` |
 | `POST /api/capability/:id/drop` W | `{ why? }` | `{ id, status, droppedReason }` | 200 | `capability.drop` |
-| `PATCH /api/capability/:id` W NEW | `{ title?, body?, area?, impact?, effort?, confidence?, source? }` | cap + score | 200 / 400 (`assertLevel`) | `store.editTask` + `update` |
+| `PATCH /api/capability/:id` W | `{ title?, body?, area?, impact?, effort?, confidence?, source? }` | cap + score | 200 / 400 (`assertLevel`) | `store.editTask` + `update` |
 
 ### 2.8 Plans, worktrees, sessions, claims
 
@@ -151,28 +153,30 @@ Legend: **R** read · **W** write · **G** gated write (409 possible) · **NEW**
 | `GET /api/plans` R | — | `[{ path, name, linkedEpic?, exists }]` (derived readdir) | 200 | `plans.listPlans` |
 | `GET /api/plans/file` R | `ref=` | `{ ref, name, content? \| manifest? }` confined to `p.plans` unless it is an `epic.plan` | 200 / 404 | `plans.readPlanFile` |
 | `GET /api/worktrees` R | — | `[{ path, branch, taskId, dirty, ahead, exists }]` (`[]` when none; never file contents) | 200 | `worktree.listWorktrees` |
-| `GET /api/claims` R NEW | — | `{ claims:{<id>:{session,actor,worktree,branch,pid,ts}}, stale:[ids], wipLimit, inProgress }` | 200 | `store.state`, `claims.staleClaims` (`:88`) |
-| `POST /api/claims/sweep` W NEW | `{ confirm:true }` | `{ released:[ids] }` | 200 / 400 without confirm | `claims.sweepClaims` (`:95`) |
-| `GET /api/sessions` R NEW | — | `{ harness:"claude"\|"codex"\|"grok"\|null, sessions:[{ session, actor, tasks:[ids], worktree, branch, ts, live }] }` grouped from claims; `live = !expired(claim)` | 200 | `harness/sessions.currentHarness`, `claims.expired` |
-| `GET /api/parallel` R NEW | `epic` | `{ batches:[{ tasks:[ids], touches:[paths] }] }` | 200 | new `lib/parallel.mjs batches` (lifted from `bin/tm:1139-1157`) |
-| `GET /api/stale` R NEW | — | `{ minutes, tasks:[ids] }` | 200 | `store.staleTasks` (`lib/store.mjs:1311`), `config.staleMinutes` |
+| `GET /api/claims` R | — | `{ claims:{<id>:{session,actor,worktree,branch,pid,ts}}, stale:[ids], wipLimit, inProgress }` | 200 | `store.state`, `claims.staleClaims` (`:88`) |
+| `POST /api/claims/sweep` W | `{ confirm:true }` | `{ released:[ids] }` | 200 / 400 without confirm | `claims.sweepClaims` (`:95`) |
+| `GET /api/sessions` R | — | `{ harness:"claude"\|"codex"\|"grok"\|"kimi"\|null, sessions:[{ session, actor, tasks:[ids], worktree, branch, ts, live }] }` grouped from claims; `live = !expired(claim)` | 200 | `harness/sessions.currentHarness`, `claims.expired` |
+| `GET /api/caps` R | — | the `detectHostCaps()` report: `{ backends:{orchestration,fleet,tmux,manual}, clis, sandbox }` — what this host can dispatch work to (`tm caps` as JSON) | 200 | `hostcaps.detectHostCaps` |
+| `GET /api/agents` R | — | `{ agents:[{ name, harness, backend, runId, pid, session, registeredAt, heartbeatAt, status, alive }] }` — the dispatched-worker registry, liveness derived | 200 | `agents.listAgents` |
+| `GET /api/parallel` R | `epic` | `{ batches:[{ tasks:[ids], touches:[paths] }] }` | 200 | new `lib/parallel.mjs batches` (lifted from `bin/tm:1139-1157`) |
+| `GET /api/stale` R | — | `{ minutes, tasks:[ids] }` | 200 | `store.staleTasks` (`lib/store.mjs:1311`), `config.staleMinutes` |
 
 ### 2.9 Insight, search, health, gates
 
 | Method · Path | Query / body | Response | Codes | Source |
 |---|---|---|---|---|
-| `GET /api/graph` R NEW | `epic`, `all=1`, `subtasks=0` | `{ nodes, edges, activeEpic, mermaid, counts:{tasks,edges} }` | 200 | `graph.graphData` (`lib/graph.mjs:250`), `graph.mermaid` (`:220`) |
-| `GET /api/standup` R NEW | `since=<iso>` (default now−24h) | `{ since, text }` (markdown) | 200 / 400 bad since | `render.standup` (`lib/render.mjs:312`) |
-| `GET /api/time` R NEW | — | `{ completed, medianMs, meanMs, median, mean, wip:[…], oldestOpen, throughput:{byDay,total,perDay} }` | 200 | `time.summary` (`lib/time.mjs:116`), `throughput` (`:96`) |
-| `GET /api/find` R NEW | `q=` (whitespace-tokenised; `field:value`, leading `-` negates, bare words = substring over title/body) | `{ query:<describeQuery>, hits:[{ id, kind, title, status, epic, labels, priority, assignee }] }` over epic/task/adr/capability/sprint | 200 / 400 unknown field, message lists `FIELD_NAMES` | `query.parseQuery/matchesQuery/describeQuery` (`lib/query.mjs`) |
-| `GET /api/doctor` R NEW | — | `{ findings:[{ level:"error"\|"warning", code, id, message, fixable }], errors, warnings, fixable, text }` (fix closures stripped) | 200 | `doctor.diagnose` (`lib/doctor.mjs:99`), `render` (`:753`) |
-| `POST /api/doctor/fix` G NEW | `{ confirm:true }` | `{ applied:[{ code, id, did\|error }], findings:<fresh diagnose> }` | 200 / 400 without confirm | `doctor.repairAll` (`:724`), logs `doctor_fix` |
-| `POST /api/reindex` W NEW | — | `{ epics, tasks, adrs, sprints, capabilities }` counts | 200 | `store.reindex` |
-| `GET /api/override` R NEW | — | `{ override:{reason,ts}\|null, enforce:bool }` | 200 | `store.state`, `enforce.enforcementOff` |
-| `POST /api/override` W NEW | `{ reason }` | `{ override:{reason,ts} }` — one-shot token consumed by the next gate on any surface | 200 / 400 empty reason | `enforce.setOverride` (`lib/enforce.mjs:20`) |
-| `GET /api/ntfy` R NEW | — | `{ config:{enabled,server,topic,minIntervalSeconds,boardUrl,categories}, hasToken, catalog:CATALOG }` (token never returned) | 200 | `ntfy.ntfyConfig` (`lib/ntfy.mjs:119`), `CATALOG` (`:28`) |
-| `POST /api/ntfy/test` W NEW (async) | `{ event?:"stop_gate_blocked" }` | `{ sent, status?, error?, reason? }` — `reason` is `shouldPublish`'s explanation when it declines | 200 | `ntfy.shouldPublish/messageFor/send`; token env-only (`TM_NTFY_TOKEN`) |
-| `POST /api/goal/import` G NEW | `{ path }` (repo-relative or absolute `.md` / `.plan.json`, confined to `p.root`) **or** `{ content, name }` | doc: 201 `{ id, title, epic, criteria }`; manifest: 201 `{ epic, tasks:[ids], skipped:[{id,why}], edges }` | 201 / 400 path escape / 409 `goals.refusal()` text or `gateTaskCreate` | new `lib/goal-import.mjs importGoalDoc/importManifest` (lifted from `bin/tm:272-316`, `:1309-1409`) |
+| `GET /api/graph` R | `epic`, `all=1`, `subtasks=0` | `{ nodes, edges, activeEpic, mermaid, counts:{tasks,edges} }` | 200 | `graph.graphData` (`lib/graph.mjs:250`), `graph.mermaid` (`:220`) |
+| `GET /api/standup` R | `since=<iso>` (default now−24h) | `{ since, text }` (markdown) | 200 / 400 bad since | `render.standup` (`lib/render.mjs:312`) |
+| `GET /api/time` R | — | `{ completed, medianMs, meanMs, median, mean, wip:[…], oldestOpen, throughput:{byDay,total,perDay} }` | 200 | `time.summary` (`lib/time.mjs:116`), `throughput` (`:96`) |
+| `GET /api/find` R | `q=` (whitespace-tokenised; `field:value`, leading `-` negates, bare words = substring over title/body) | `{ query:<describeQuery>, hits:[{ id, kind, title, status, epic, labels, priority, assignee }] }` over epic/task/adr/capability/sprint | 200 / 400 unknown field, message lists `FIELD_NAMES` | `query.parseQuery/matchesQuery/describeQuery` (`lib/query.mjs`) |
+| `GET /api/doctor` R | — | `{ findings:[{ level:"error"\|"warning", code, id, message, fixable }], errors, warnings, fixable, text }` (fix closures stripped) | 200 | `doctor.diagnose` (`lib/doctor.mjs:99`), `render` (`:753`) |
+| `POST /api/doctor/fix` G | `{ confirm:true }` | `{ applied:[{ code, id, did\|error }], findings:<fresh diagnose> }` | 200 / 400 without confirm | `doctor.repairAll` (`:724`), logs `doctor_fix` |
+| `POST /api/reindex` W | — | `{ epics, tasks, adrs, sprints, capabilities }` counts | 200 | `store.reindex` |
+| `GET /api/override` R | — | `{ override:{reason,ts}\|null, enforce:bool }` | 200 | `store.state`, `enforce.enforcementOff` |
+| `POST /api/override` W | `{ reason }` | `{ override:{reason,ts} }` — one-shot token consumed by the next gate on any surface | 200 / 400 empty reason | `enforce.setOverride` (`lib/enforce.mjs:20`) |
+| `GET /api/ntfy` R | — | `{ config:{enabled,server,topic,minIntervalSeconds,boardUrl,categories}, hasToken, catalog:CATALOG }` (token never returned) | 200 | `ntfy.ntfyConfig` (`lib/ntfy.mjs:119`), `CATALOG` (`:28`) |
+| `POST /api/ntfy/test` W (async) | `{ event?:"stop_gate_blocked" }` | `{ sent, status?, error?, reason? }` — `reason` is `shouldPublish`'s explanation when it declines | 200 | `ntfy.shouldPublish/messageFor/send`; token env-only (`TM_NTFY_TOKEN`) |
+| `POST /api/goal/import` G | `{ path }` (repo-relative or absolute `.md` / `.plan.json`, confined to `p.root`) **or** `{ content, name }` | doc: 201 `{ id, title, epic, criteria }`; manifest: 201 `{ epic, tasks:[ids], skipped:[{id,why}], edges }` | 201 / 400 path escape / 409 `goals.refusal()` text or `gateTaskCreate` | new `lib/goal-import.mjs importGoalDoc/importManifest` (lifted from `bin/tm:272-316`, `:1309-1409`) |
 
 ## 3. `GET /api/board` payload
 
@@ -192,15 +196,15 @@ Legend: **R** read · **W** write · **G** gated write (409 possible) · **NEW**
 }
 ```
 Entities whose `board` differs from `storeBoard(p)` are filtered out (foreign entities are never drawn).
-NEW: the server sets `ETag` (index.json mtime+size); `If-None-Match` → **304**.
+The server sets `ETag` (index.json mtime+size); `If-None-Match` → **304**.
 
-## 4. `GET /api/meta` (NEW)
+## 4. `GET /api/meta`
 
 ```jsonc
 {
   "plugin":  { "version": "<serverVersion() — manifest version | install SHA | git SHA>", "root": "/…/task-management" },
   "store":   { "root": "/repo", "base": "/repo/.bytedesk/task-management", "boardId": "owner/repo", "owner": "…", "project": "Bytedesk Marketplace" },
-  "harness": "claude" | "codex" | "grok" | null,
+  "harness": "claude" | "codex" | "grok" | "kimi" | null,
   "actor":   "main",
   "session": "<id>" | null,
   "vocab": {
@@ -227,7 +231,7 @@ NEW: the server sets `ETag` (index.json mtime+size); `If-None-Match` → **304**
 
 ## 5. SSE `/events`
 
-Frames (NEW format):
+Frames:
 
 ```
 event: ready
@@ -272,10 +276,16 @@ New tools in `lib/mcp.mjs TOOLS`, each delegating to the same lib function the r
 | `tm_stale` | `{}` → `{ minutes, tasks }` |
 | `tm_goal_import` | `{ path }` → same shape as the route |
 | `tm_task_update` | gains `action: "delete" \| "restore"` |
+| `tm_dispatch` (async) | `{ id, backend?, steal?:bool }` — the same `dispatch()` as `POST /api/task/:id/dispatch` and `tm dispatch`; `gateStart` binds here exactly as on the CLI |
+| `tm_collect` (async) | `{ id }` → the collector's `{ outcome, downgraded, parked }` or `{ pending:true }` — same as `POST /api/task/:id/collect` |
+| `tm_agents` | `{ action?:"list"\|"heartbeat"\|"reap", name? }` → the worker registry; `reap` also parks the board behind dead workers |
 
 Existing tools (unchanged): `tm_board, tm_next, tm_show, tm_find, tm_why, tm_log, tm_standup, tm_epic,
 tm_task_create, tm_task_update, tm_task_edit, tm_ac_add, tm_ac_accept, tm_evidence, tm_adr_new,
 tm_cap_propose, tm_cap_list, tm_cap_accept, tm_cap_ship, tm_cap_drop, tm_sprint, tm_handoff, tm_claim, tm_label`.
+
+The server now advertises **38 tools** (24 existing + 11 parity + 3 agent-first) — verified
+against `tools/list`, not counted by hand.
 
 ## 7. Settings catalog additions (`lib/settings.mjs CATALOG`)
 
@@ -284,11 +294,16 @@ requireAcceptance, wipLimit, autoCloseEpics, gitLink, parkOnSessionEnd, trackTou
 staleMinutes, claimTtlMinutes, captureDecisions, ntfy.enabled, ntfy.server, ntfy.topic,
 ntfy.minIntervalSeconds, ntfy.boardUrl`; read-only: `boardId, owner`.
 
-NEW (group `workflow` unless noted): `eventMaxBytes` (integer), `branchPrefix` (string),
+Added since (group `workflow` unless noted): `eventMaxBytes` (integer), `branchPrefix` (string),
 `worktreeDir` (string), `worktreeShare` (json: `[{path, mode:"symlink"|"copy"|"hardlink"}]`),
 `ntfy.categories` (json, group `ntfy`: the event kinds `tm ntfy on <kind>` opts into — the board's
 per-kind toggles write this list).
 The ntfy token stays env-only (`TM_NTFY_TOKEN`) and is never writable or returned.
+
+Agent-first wave (group `agents`): `dispatch.enabled` (boolean), `dispatch.poolWip` (integer),
+`dispatch.pollSeconds` (integer), `dispatch.heartbeatSeconds` (integer), `agentTtlMinutes`
+(integer). `dispatch.backends` and `dispatch.backendCaps` stay `tm config`-only (arrays/objects,
+not catalog scalars), as do `webhooks`/`webhooksAllowRemote`.
 
 ## 8. Shared-gate changes the backend worker makes
 

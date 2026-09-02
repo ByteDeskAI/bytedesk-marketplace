@@ -139,8 +139,8 @@ assert_contains "$OUT" '"id":null' "parse errors carry a null id"
 # but not advertised is invisible to a client.
 OUT="$(printf '{"jsonrpc":"2.0","id":2,"method":"tools/list"}\n' | mcp)"
 COUNT="$(node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).result.tools.length))' <<<"$OUT")"
-[[ "$COUNT" == 35 ]] && ok "tools/list advertises 35 tools" || no "tools/list advertises 35 tools" "got $COUNT"
-for TOOL in tm_worktree tm_link tm_graph tm_doctor tm_export tm_time tm_parallel tm_task_field tm_history tm_stale tm_goal_import; do
+[[ "$COUNT" == 38 ]] && ok "tools/list advertises 38 tools" || no "tools/list advertises 38 tools" "got $COUNT"
+for TOOL in tm_dispatch tm_worktree tm_link tm_graph tm_doctor tm_export tm_time tm_parallel tm_task_field tm_history tm_stale tm_goal_import tm_agents tm_collect; do
   assert_contains "$OUT" "\"$TOOL\"" "tools/list advertises $TOOL"
 done
 

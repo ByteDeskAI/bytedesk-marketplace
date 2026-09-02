@@ -3,6 +3,74 @@
 ## Unreleased
 
 ### Added
+- **Agent-first: dispatch, the pool, and the machine bus.** The board is now something an
+  agent runs on, with the split of labour kept deliberate: humans decide (decision-map and
+  enhance gates), agents execute `ready-for-agent`-labelled work.
+- **Host capability detection and `tm caps`.** `lib/hostcaps.mjs` probes what this host can
+  dispatch work to — the agent-orchestration MCP binary (env override → sibling plugin in a
+  marketplace checkout → Claude plugin cache), fleet's `spawn-claude-feature`, tmux, the
+  harness CLIs, and the sandbox binaries the orchestration backend degrades without. Every
+  probe is individually failure-tolerant: a missing dependency is `available: false` with a
+  reason, never an exception. `tm caps [--json]` renders it; `GET /api/caps` serves it.
+- **Dispatch: one verb for the whole hand-off** (`lib/dispatch/`). `tm dispatch <id>
+  [--backend <name>] [--steal]`, MCP `tm_dispatch`, and `POST /api/task/:id/dispatch` share
+  one `dispatch()`: claim, mark in_progress (dispatch IS a start — `gateStart` binds on all
+  three surfaces), provision the worktree, render the handoff, launch a backend. Any failure
+  after the claim releases it and restores the status. Backends walk **orchestration → fleet
+  → tmux → manual** (config `dispatch.backends` overrides); every one launches argv-only with
+  `shell: false`, so a markdown prompt is never shell source. Orchestration speaks MCP as a
+  stdio client with an idempotency key (`<task>-<session>`) so a retried dispatch collapses
+  onto the same run; tmux names its session `tm-<id>` and drops the durable prompt at
+  `.tm-dispatch-prompt.md`; fleet shells out to `spawn-claude-feature` with
+  `CLAUDE_SESSION_TICKET` set so the recursion guard engages; manual is the floor that hands
+  the work to a person.
+- **The agent registry: heartbeats and a reaper** (`lib/agents.mjs`). Dispatch registers every
+  worker it spawns in `agents.json` — per-machine runtime state, added to the store's
+  gitignore contract beside `state.json`, because whose workers on whose laptop is not the
+  shared record. Liveness is derived (live pid, or a heartbeat fresher than
+  `agentTtlMinutes`, default 30; 0 disables). A dispatched claim is held by liveness: a
+  heartbeat loop re-stamps it every `dispatch.heartbeatSeconds` (default 60; 0 disables) and
+  stops itself when there is nothing left to keep alive. `tm agent list | heartbeat <name> |
+  reap`, MCP `tm_agents`, `GET /api/agents`. Reaping marks quiet agents dead **and unparks
+  the board behind them** — a dead worker's claimed tasks are parked with the reason and
+  their claims released, so a dead worker never leaves in_progress work nobody is doing.
+  Every registry call is failure-tolerant: a broken `agents.json` is a missing panel, never a
+  failed dispatch.
+- **The result protocol** (`lib/dispatch/collect.mjs`). Each backend's collector reads its own
+  completion signal — orchestration run state, tmux session liveness, fleet ticket events —
+  and normalizes it into `recordResult`, the single write path. The acceptance gate stays the
+  real gate: a collector never closes a task, a "done" report on a task that is not done
+  downgrades to failed with the status named, and failure on a task still in_progress parks
+  it with the worker's summary as the reason. Everything lands as a comment plus one
+  `task_result` event. `tm collect <id>`, MCP `tm_collect`, `POST /api/task/:id/collect`.
+- **The webhook event bus** (`lib/webhooks.mjs`, `bin/tm-webhook`). Every event that lands in
+  `events.jsonl` is POSTed — the exact JSONL row — to each URL in config `webhooks`
+  (`[{url, kinds?}]`). Loopback only (`127.0.0.1`, `localhost`, `*.local`, plain http) unless
+  the project sets `webhooksAllowRemote: true`; delivery rides a detached child because a
+  hook process exits in milliseconds. The pull side is `tm events [n] [--follow]
+  [--since <iso>] [--json]` — JSONL with a byte-offset tail that survives log rotation.
+- **The worker pool.** `tm pool once|start|stop|status
+  [--dry-run]`: scans for open, unblocked, unclaimed `ready-for-agent` tasks and dispatches
+  up to `dispatch.poolWip` (default 3) every `dispatch.pollSeconds` (default 30), collecting
+  finished workers first so a terminal result frees its slot. `dispatch.backendCaps` adds
+  per-backend ceilings on top of poolWip (e.g. `{ "tmux": 2 }`), and the interactive
+  `wipLimit` is untouched — the pool never consults it. Opt-in —
+  `dispatch.enabled` defaults to `false`; the `tm-pool` monitor runs it. The pool never
+  touches unlabelled work: the label is the human's go-ahead. The agents-group settings
+  (`dispatch.enabled`, `dispatch.poolWip`, `dispatch.pollSeconds`, `dispatch.heartbeatSeconds`,
+  `agentTtlMinutes`) are in the shared settings catalog, so the dashboard can write them.
+- **Kimi harness adapter** (`lib/harness/kimi.mjs`). Kimi Code's native `TodoList` mirrors
+  into the store exactly like Codex's `update_plan` — rows keyed by a content hash of the
+  title, so re-sending the same title updates the same task; a query-mode call (no `todos`)
+  is a read and never trips the pre-create gate. Hooks wire through `[[hooks]]` entries in
+  `~/.kimi-code/config.toml` (`hooks/kimi-hooks.example.toml`); Kimi exports no session env
+  var, so the session id reaches the store off the hook payload, the same path Codex takes.
+- **Worker-mode subagent brief and the Stop-gate exemption.** `briefFor` in `lib/render.mjs`
+  briefs a dispatched worker on its own task's completion contract, distinct from the
+  fan-out brief a parent's subagent gets; a dispatched task no longer blocks the Stop gate —
+  its liveness is the heartbeat loop and the reaper's job, not the dispatching session's.
+- **MCP: three agent-first tools** — `tm_dispatch`, `tm_collect`, `tm_agents` — taking the
+  server from 35 to **38 tools** (verified against `tools/list`).
 - **Inspectors float.** An open task, epic, sprint, decision or capability inspector overlays the
   canvas at every width instead of taking a grid column; the board keeps its full width and
   stays interactive on desktop, gets a scrim on tablets, and fills the screen on phones.
@@ -72,6 +140,18 @@
 
 ### Fixed
 - **A unit test read the ambient session id instead of its own fixture.** `dashboard-api`'s actor/session stamping test set `CLAUDE_SESSION_ID`, which `CLAUDE_CODE_SESSION_ID` outranks in the `SESSION_ENV` chain — so it passed in CI and in a bare shell and failed only when run from inside a Claude Code session. New `withSessionEnv()` test helper clears every variable in `SESSION_ENV` before setting the ones under test, deriving the list from the source of truth so adding a harness cannot reintroduce the leak.
+- **The MCP parity suite depended on the ambient session.** `mcp.test.mjs`'s worktree test only
+  exercised the claim interlock when `CLAUDE_CODE_SESSION_ID` happened to be set by whatever ran
+  the suite — harnesses like Kimi export none. The test now pins its own session ids and restores
+  the ambient one (or unsets it) afterwards, so it proves the interlock everywhere.
+- **Re-dispatching a live task failed in git and released the worker's claim.** A second
+  `tm dispatch` of an already-dispatched task re-claimed idempotently (same session), died in
+  `git worktree add` ("already exists"), and the rollback then released the LIVE worker's claim
+  and reverted the status — the board lost track of running work. `dispatch()` now refuses up
+  front when the task carries a dispatch record AND a live claim ("already dispatched … collect
+  it first, or steal it deliberately with --steal"), and its rollback only releases a claim the
+  call itself created. A harness-less dispatch also synthesizes a session (`dispatch-<id>`) so
+  the claim interlocks and the worker's `TM_SESSION_ID` is never empty.
 
 ## [0.14.0] — 2026-08-18
 

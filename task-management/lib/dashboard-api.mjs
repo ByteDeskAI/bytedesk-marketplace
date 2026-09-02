@@ -6,6 +6,7 @@
  * `POST /api/sprint/:id/done`, `POST /api/task/:id/sprint`,
  * `GET /api/capability/:id`, `POST /api/capability`, `POST /api/capability/:id/{accept,ship,drop}`,
  * `GET /api/worktrees`, `POST /api/task/:id/worktree`, `POST /api/task/:id/unlink`,
+ * `POST /api/task/:id/dispatch` (async, via handleAsync), `GET /api/caps`,
  * `GET /api/entity/:id`, `POST /api/bulk`, `GET /api/backlog`, `GET /api/templates[/:name]`.
  *
  * Evidence: `GET /api/task/:id/evidence` (derived items), `GET /api/task/:id/file?ref=`
@@ -30,8 +31,9 @@
  * Writes that existed only on the CLI: `POST /api/doctor/fix`, `/api/claims/sweep`,
  * `/api/task/:id/{claim,release,delete,restore}`, `/api/override`, `/api/goal/import`,
  * `/api/reindex`, `/api/templates` (+PATCH), and `PATCH /api/{epic,adr,sprint,capability}/:id`.
- * `POST /api/ntfy/test` is the one async route; it lives on `handleAsync`, which otherwise
- * delegates here, so `handleWrite` stays synchronous for its 100-odd unit tests.
+ * `POST /api/ntfy/test` and `POST /api/task/:id/dispatch` are the async routes; they live on
+ * `handleAsync`, which otherwise delegates here, so `handleWrite` stays synchronous for its
+ * 100-odd unit tests.
  */
 import { basename } from "node:path";
 import { enforcementOff, gateDone, gateStart, gateTaskCreate, setOverride } from "./enforce.mjs";
@@ -61,6 +63,11 @@ import { claimTask } from "./claims.mjs";
 import { actor, actorLabel, sessionId, stamp as stampAt } from "./actor.mjs";
 import { attachEvidence, detachEvidence, listEvidence, servableEvidencePath } from "./evidence.mjs";
 import { listPlans, readPlanFile } from "./plans.mjs";
+import { listAgents } from "./agents.mjs";
+import { dispatch } from "./dispatch/index.mjs";
+import { collect as collectResult } from "./dispatch/collect.mjs";
+import { envRegistry } from "./dispatch/backend.mjs";
+import { detectHostCaps } from "./hostcaps.mjs";
 import {
   autoCloseEpic,
   config,
@@ -981,6 +988,9 @@ function readRoute(method, url, query, p) {
     }
     case "/api/parallel":
       return ok({ batches: batches({ epic: query.get("epic") || null }, p) });
+    case "/api/caps":
+      // What this host can dispatch work to — `tm caps` as JSON, for the Capabilities panel.
+      return ok(detectHostCaps());
     case "/api/ntfy": {
       const { token, ...cfg } = ntfyConfig(p);
       return ok({ config: cfg, hasToken: Boolean(token), catalog: CATALOG.events, groups: { recommended: CATALOG.recommended, writes: CATALOG.writes, noise: CATALOG.noise } });
@@ -999,6 +1009,8 @@ function readRoute(method, url, query, p) {
     }
     case "/api/sessions":
       return sessionsRoute(p);
+    case "/api/agents":
+      return ok({ agents: listAgents(p) });
     case "/api/skills":
       return ok(listSkills());
     default: {
@@ -1173,7 +1185,32 @@ function putTemplate(name, payload, overwrite, p) {
   }
 }
 
-// ── the one async route ──────────────────────────────────────────────────────
+// ── the async routes ─────────────────────────────────────────────────────────
+
+/**
+ * `POST /api/task/:id/dispatch` — the same dispatch() the CLI verb and tm_dispatch
+ * call, behind the same gate, with the same refusal wording (409 here, exit 2 on
+ * the CLI, `{ ok: false, error }` over MCP). Async because spawning is; it lives
+ * here beside /api/ntfy/test so handleWrite stays synchronous.
+ */
+async function taskDispatch(task, payload, p) {
+  const gate = gateStart(task.id, p);
+  if (!gate.allow) return fail(409, gate.reason);
+  const stamped = stamp(p);
+  try {
+    const res = await dispatch(task.id, {
+      backend: typeof payload?.backend === "string" && payload.backend.trim() ? payload.backend.trim() : null,
+      session: stamped.session,
+      actor: stamped.actor,
+      steal: Boolean(payload?.steal),
+      p,
+      registry: await envRegistry(),
+    });
+    return res.ok ? ok(res) : fail(409, res.reason);
+  } catch (err) {
+    return fail(400, err.message);
+  }
+}
 
 /**
  * `POST /api/ntfy/test` — the same push `tm ntfy test` sends, with the same explanation when it
@@ -1190,6 +1227,19 @@ export async function handleAsync(method, path, payload = {}, { p = paths(), fet
     msg.body = `test push from ${p.root}`;
     const res = await send(msg, cfg, fetchImpl ? { fetchImpl } : {});
     return ok({ sent: res.ok, status: res.status, error: res.error, topic: `${cfg.server}/${cfg.topic}` });
+  }
+  const dispatchRoute = /^\/api\/task\/([^/]+)\/dispatch$/.exec(url);
+  if (method === "POST" && dispatchRoute) {
+    const { task, error } = requireTask(decodeURIComponent(dispatchRoute[1]), p);
+    if (error) return error;
+    return taskDispatch(task, payload, p);
+  }
+  const collectRoute = /^\/api\/task\/([^/]+)\/collect$/.exec(url);
+  if (method === "POST" && collectRoute) {
+    const { task, error } = requireTask(decodeURIComponent(collectRoute[1]), p);
+    if (error) return error;
+    const res = await collectResult(task.id, p);
+    return res.ok ? ok(res) : fail(409, res.reason);
   }
   return handleWrite(method, path, payload, { p });
 }

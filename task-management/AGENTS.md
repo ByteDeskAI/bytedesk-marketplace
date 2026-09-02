@@ -7,6 +7,7 @@ Durable multi-harness task store at `.bytedesk/task-management/`.
 | Claude Code | `.claude-plugin/plugin.json` + `hooks/hooks.json` + `.mcp.json` | `TaskCreate`, `TaskUpdate` |
 | Codex | `.codex-plugin/plugin.json` + hooks + `.codex-mcp.json` | `update_plan` |
 | Grok | plugin install + MCP config | `todo_write` |
+| Kimi Code | `[[hooks]]` in `~/.kimi-code/config.toml` (see `hooks/kimi-hooks.example.toml`) + MCP config | `TodoList` |
 
 Every capability is also reachable through the project launcher and MCP `tm_*` tools. Prefer
 those for full lifecycle (start/done/block/AC); native tools are mirrored into the same board.
@@ -31,6 +32,22 @@ those for full lifecycle (start/done/block/AC); native tools are mirrored into t
    `touches`); `.bytedesk/task-management/bin/tm worktree new <id>` gives you an isolated checkout with `node_modules` already
    shared, so it costs kilobytes and no reinstall.
 
+### Dispatched workers
+
+- A task labelled `ready-for-agent` is decided work, safe to hand off. `.bytedesk/task-management/bin/tm dispatch <id>`
+  claims it, starts it, provisions its worktree and launches a worker; `.bytedesk/task-management/bin/tm collect <id>`
+  records how that worker ended.
+- **A dispatched agent owns its claimed task's lifecycle.** It ticks the criteria it verified
+  (`.bytedesk/task-management/bin/tm accept`), attaches proof (`.bytedesk/task-management/bin/tm evidence`), then closes
+  (`.bytedesk/task-management/bin/tm done`) or blocks with a reason. It never leaves the task `in_progress` — a collector
+  or the reaper will park it as a failure, and that lands on the record.
+- A worker's identity is its environment: `TM_SESSION_ID` and `TM_ACTOR` name the session that
+  dispatched it. Do not override them — they are how the work attributes.
+- **The pool only picks up `ready-for-agent`-labelled tasks.** The label is the human's
+  go-ahead; the loop never dispatches unlabelled work.
+- **Humans keep the decision gates.** Interview, prototype, tickets and enhance-propose
+  outcomes are judgement calls; dispatch and the pool execute what those gates already settled.
+
 ## Skills & commands
 
 - **epic** — open or switch the active epic; the front door for new work.
@@ -54,7 +71,7 @@ terminal shows up there and vice versa — there is one source of truth, not two
 ## Reading the store
 
 `.bytedesk/task-management/bin/tm show <id>` for one entity, `--json` on any read verb (`board`, `next`, `find`, `stale`, `log`,
-`time`, `standup`, `worktree list`, `parallel`) for structured output. `.bytedesk/task-management/bin/tm log <id>` is one task's
+`time`, `standup`, `worktree list`, `parallel`, `caps`) for structured output. `.bytedesk/task-management/bin/tm log <id>` is one task's
 whole history. If MCP is available, prefer the `tm_*` tools — same gates, typed results.
 
 ## CLI

@@ -12,8 +12,8 @@
 import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { cleanup, tempStore } from "./helpers.mjs";
-import { subagentBrief } from "../../lib/render.mjs";
-import { create, state, writeState } from "../../lib/store.mjs";
+import { subagentBrief, workerBrief, briefFor } from "../../lib/render.mjs";
+import { create, mutate, state, writeState } from "../../lib/store.mjs";
 
 const stores = [];
 function store() {
@@ -169,5 +169,100 @@ describe("it stays small, because every spawned agent pays for it", () => {
   it("caps the whole thing, visibly", () => {
     const out = subagentBrief(SESSION, manyClaims(3, 5));
     assert.ok(out.length <= 1200, `brief was ${out.length} chars`);
+  });
+});
+
+describe("the dispatched worker", () => {
+  /** Claim for SESSION and stamp the task the way dispatch() (lib/dispatch/index.mjs) does. */
+  function dispatched(extra = {}) {
+    const p = store();
+    const t = create(
+      "task",
+      {
+        title: "port the renderer",
+        acceptance: [
+          { text: "the snapshot suite passes", done: false },
+          { text: "the old path is deleted", done: true },
+        ],
+        ...extra,
+      },
+      "",
+      p,
+    );
+    claim(p, t.id, SESSION);
+    mutate(t.id, () => ({ dispatched: { backend: "tmux", run: `tmux:tm-${t.id}`, session: SESSION, at: new Date().toISOString() } }), p);
+    return { p, t };
+  }
+
+  it("gets told it owns the lifecycle, with the verbs to run on ITS task", () => {
+    const { p, t } = dispatched();
+    const out = workerBrief(t.id, p);
+    assert.match(out, /you own this task's lifecycle/);
+    // The classic brief forbids exactly these verbs; the worker brief must GRANT them, named with
+    // the task id, or the worker walks away and the task strands in_progress.
+    assert.match(out, new RegExp(`tm accept ${t.id}`));
+    assert.match(out, new RegExp(`tm evidence ${t.id}`));
+    assert.match(out, new RegExp(`tm done ${t.id}`));
+    assert.match(out, new RegExp(`tm block ${t.id} "reason"`));
+    assert.match(out, /Never leave the task in_progress/);
+    assert.match(out, /touches/, "the worker should know its edits are recorded");
+  });
+
+  it("carries the unmet criteria and drops the met ones, same as the classic brief", () => {
+    const { p, t } = dispatched();
+    const out = workerBrief(t.id, p);
+    assert.match(out, /the snapshot suite passes/);
+    assert.equal(out.includes("the old path is deleted"), false);
+  });
+
+  it("mirrors the handoff's 'When you finish' contract, so both surfaces agree", () => {
+    const { p, t } = dispatched();
+    const out = workerBrief(t.id, p);
+    assert.match(out, /When you finish:/);
+    assert.match(out, /Tick each criterion only once verified/);
+    assert.match(out, /Attach proof, not claims/);
+  });
+
+  it("says nothing for a task that does not exist", () => {
+    assert.equal(workerBrief("TM-404", store()), "");
+  });
+
+  it("stays inside the same size cap", () => {
+    const { p, t } = dispatched({
+      acceptance: Array.from({ length: 12 }, (_, j) => ({ text: `criterion ${j} with some length to it`, done: false })),
+    });
+    const out = workerBrief(t.id, p);
+    assert.ok(out.length <= 1200, `brief was ${out.length} chars`);
+    assert.ok(out.split("- [ ]").length - 1 <= 5);
+  });
+});
+
+describe("briefFor — the hook cannot tell a helper from a worker, the board can", () => {
+  it("gives the worker brief when everything the session holds is dispatched", () => {
+    const p = store();
+    const t = create("task", { title: "port the renderer" }, "", p);
+    claim(p, t.id, SESSION);
+    mutate(t.id, () => ({ dispatched: { backend: "tmux", run: "tmux:x", session: SESSION, at: new Date().toISOString() } }), p);
+    const out = briefFor(SESSION, p);
+    assert.match(out, /you own this task's lifecycle/);
+    assert.equal(out.includes("do not run"), false, "a worker forbidden the lifecycle verbs strands its task");
+  });
+
+  it("gives the classic brief the moment ANY held task is ordinarily claimed", () => {
+    const p = store();
+    const d = create("task", { title: "dispatched work" }, "", p);
+    claim(p, d.id, SESSION);
+    mutate(d.id, () => ({ dispatched: { backend: "tmux", run: "tmux:x", session: SESSION, at: new Date().toISOString() } }), p);
+    const mine = create("task", { title: "the parent's own work" }, "", p);
+    claim(p, mine.id, SESSION);
+    const out = briefFor(SESSION, p);
+    // A helper reading the worker wording could conclude it may close work its parent owns.
+    assert.match(out, /do not run/);
+    assert.equal(out.includes("you own this task's lifecycle"), false);
+  });
+
+  it("is silent when the session holds nothing, whichever mode it would be", () => {
+    assert.equal(briefFor(SESSION, store()), "");
+    assert.equal(briefFor(null, store()), "");
   });
 });

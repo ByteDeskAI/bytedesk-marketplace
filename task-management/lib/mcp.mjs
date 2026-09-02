@@ -32,6 +32,10 @@ import { batches } from "./parallel.mjs";
 import { importGoalDoc, importManifest } from "./goal-import.mjs";
 import { record as recordTouches } from "./touches.mjs";
 import { CATALOG } from "./ntfy.mjs";
+import { heartbeatAgent, listAgents, reapAgents, renderAgents } from "./agents.mjs";
+import { dispatch } from "./dispatch/index.mjs";
+import { envRegistry } from "./dispatch/backend.mjs";
+import { collect } from "./dispatch/collect.mjs";
 
 /**
  * MCP `serverInfo.version` must be a non-empty string on the wire.
@@ -950,6 +954,82 @@ export const TOOLS = [
     run: (_args, p) => ok({ minutes: config(p).staleMinutes, tasks: staleTasks(p).map((t) => t.id) }),
   },
   {
+    name: "tm_agents",
+    description: "The dispatched-worker registry on this host: list agents with liveness, record a heartbeat, or reap the dead. Claims stay the interlock; this is who is alive behind them.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["list", "heartbeat", "reap"], description: "Default list." },
+        name: str("Agent name, for heartbeat."),
+      },
+    },
+    run: ({ action = "list", name }, p) => {
+      if (action === "list") {
+        const agents = listAgents(p);
+        return ok({ agents, text: renderAgents(agents) });
+      }
+      if (action === "heartbeat") {
+        if (typeof name !== "string" || !name.trim()) return fail("tm_agents heartbeat needs { name }");
+        const rec = heartbeatAgent(name, p);
+        if (!rec) return fail(`unknown agent: ${name}`);
+        return ok({ agent: rec });
+      }
+      if (action === "reap") return ok({ reaped: reapAgents(p) });
+      return fail(`unknown action: ${action}`);
+    },
+  },
+  {
+    name: "tm_dispatch",
+    description:
+      "Hand a task to a worker, end to end: claim it, mark it in progress, provision its worktree, render the handoff and launch a backend (host order: orchestration → fleet → tmux → manual, or one pinned with backend). Dispatch IS a start — the WIP gate applies, and a task another live session holds is refused unless steal is true. Same mechanics and same refusal wording as `tm dispatch`.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: str("Task id, e.g. TM-001."),
+        backend: str("Pin one backend by name (tmux, manual, …). Omit to walk the host's fallback order."),
+        steal: {
+          type: "boolean",
+          description:
+            "Take a task another live session holds. Refused without this, and recorded as claim_stolen when used — deliberate and traceable rather than silent.",
+        },
+      },
+      required: ["id"],
+    },
+    // Async: dispatch() awaits backend resolution and the spawn. callTool unwraps
+    // the promise; every other tool stays synchronous.
+    run: async ({ id, backend, steal }, p) => {
+      if (!read(id, p)) return fail(`not found: ${id}`);
+      // Dispatch IS a start: the WIP gate binds on this surface exactly as on the CLI.
+      const gate = gateStart(id, p);
+      if (!gate.allow) return fail(gate.reason);
+      const stamped = stamp(currentCheckout(p.root) || p.root);
+      const res = await dispatch(id, {
+        backend: typeof backend === "string" && backend.trim() ? backend.trim() : null,
+        session: stamped.session,
+        actor: stamped.actor,
+        steal: Boolean(steal),
+        p,
+        registry: await envRegistry(),
+      });
+      return res.ok ? ok(res) : fail(res.reason);
+    },
+  },
+  {
+    name: "tm_collect",
+    description:
+      "Pull a dispatched worker's result into the store: asks the backend's collector (orchestration run state, tmux session liveness, fleet events), records a task_result event, and parks the task with the reason on failure — never leaves a dead worker's task in_progress. Same mechanics as `tm collect <id>`.",
+    inputSchema: {
+      type: "object",
+      properties: { id: str("Task id, e.g. TM-001.") },
+      required: ["id"],
+    },
+    run: async ({ id }, p) => {
+      if (!read(id, p)) return fail(`not found: ${id}`);
+      const res = await collect(id, p);
+      return res.ok ? ok(res) : fail(res.reason);
+    },
+  },
+  {
     name: "tm_goal_import",
     description:
       "Turn a goal doc into a task whose acceptance criteria are the goal's own success criteria, or a `*.plan.json` manifest into a whole epic. Refuses a doc with no parseable criteria. path is confined to the repository; content takes the doc itself.",
@@ -993,7 +1073,14 @@ export function callTool(name, args = {}, p = paths()) {
   if (!tool) return fail(`Unknown tool name: ${name}`);
   if (!p.root) return fail(p.unavailable);
   try {
-    return tool.run(args, p);
+    const out = tool.run(args, p);
+    /**
+     * A tool's run MAY be async (tm_dispatch launches a backend; dispatch()
+     * awaits). Sync tools keep their exact old return shape so handleRequest
+     * stays synchronous for them; a thenable is unwrapped by the protocol
+     * layer below, never JSON.stringified into a pending-Promise-shaped lie.
+     */
+    return out && typeof out.then === "function" ? out.catch((err) => fail(err.message)) : out;
   } catch (err) {
     return fail(err.message);
   }
@@ -1053,12 +1140,17 @@ export function handleRequest(request, { p = paths() } = {}) {
   if (method === "tools/call") {
     const params = request.params || {};
     const result = callTool(String(params.name || ""), params.arguments || {}, p);
-    return reply(id, { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] });
+    const wrap = (r) => reply(id, { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] });
+    // An async tool answers with a promise of the response; everything else stays inline.
+    return result && typeof result.then === "function" ? result.then(wrap) : wrap(result);
   }
   return error(id, -32601, `Method not found: ${method}`);
 }
 
-/** One line of stdin → one response object, or null when nothing should be written. */
+/**
+ * One line of stdin → one response object, or null when nothing should be written.
+ * For an async tool the response is a PROMISE of the object — bin/tm-mcp resolves it.
+ */
 export function respondToLine(line, deps = {}) {
   if (!line.trim()) return null;
   let request;

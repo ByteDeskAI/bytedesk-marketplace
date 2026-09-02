@@ -76,7 +76,9 @@ is what lets claims stop two parallel sessions grabbing the same task.
 
 **Which session?** Whichever agent CLI is running: `CLAUDE_CODE_SESSION_ID` (Claude Code, in hooks
 and stdio MCP servers alike), `CLAUDE_SESSION_ID` as a wrapper override, `CODEX_THREAD_ID` (Codex
-CLI) or `GROK_SESSION_ID` (Grok). No variable set means no session — a bare shell or a CI job is
+CLI) or `GROK_SESSION_ID` (Grok). Kimi exports no session variable at all — its hook payload's
+`session_id` is adopted as `TM_SESSION_ID` instead, the same path Codex's hook payload takes. No
+variable set means no session — a bare shell or a CI job is
 not silently treated as Claude Code. Everything that distinguishes one thread from another reads
 this: the claim interlock, the Stop gate, subagent attribution, and the `session` column on
 every event. The plugin refuses to create a store inside an *installed* copy of itself, under
@@ -106,6 +108,90 @@ this repo tracks its own work with no `TM_ROOT` and no repo-local configuration.
 `.bytedesk/task-management/bin/tm override "<reason>"` bypasses exactly one (logged, with the reason), and the Stop gate
 never blocks twice in a row on the same tasks.
 
+## Agent-first: dispatch and the worker pool
+
+Everything above makes the board something an agent *reads*. This layer makes it something an
+agent *runs on* — with a deliberate split of labour: **humans decide**, through the
+decision-map pipeline (`map` → `interview` → `research` → `prototype` → `spec` → `tickets`)
+and the enhance loop's propose/accept gates, because those are judgement calls. **Agents
+execute**: a task carrying the `ready-for-agent` label is work that has already been decided
+and is safe to hand off.
+
+**`.bytedesk/task-management/bin/tm caps` says what this host can run.** Before dispatch picks a launcher it probes the host: the
+agent-orchestration MCP server (env override, sibling plugin in a marketplace checkout, then
+the Claude plugin cache), fleet's `spawn-claude-feature`, tmux, the harness CLIs, and the
+sandbox binaries the orchestration backend degrades without. It is a host-level probe, not a
+store read — it answers on a bare machine with no board initialized; `--json` gives the raw
+report. A missing dependency reads as `available: false` with a reason, never as an
+exception.
+
+**`.bytedesk/task-management/bin/tm dispatch <id>` is one verb for the whole hand-off**: claim the task, mark it
+in_progress (dispatch IS a start — the WIP gate applies exactly as it does to `.bytedesk/task-management/bin/tm start`),
+provision its worktree, render the handoff brief, and launch a backend. On any failure after
+the claim, the claim is released and the status put back — a dispatch that started nothing
+leaves the task exactly as open as it found it, or the board would show in-progress work
+nobody is doing. The backend is pinned with `--backend <name>` or walked in the fallback
+order **orchestration → fleet → tmux → manual** (config `dispatch.backends` overrides it):
+richest launcher first, paste-it-yourself last. `manual` is the floor and never unavailable —
+when no launcher exists, dispatch still succeeds at handing the work over; it hands it to
+*you*, as the commands to run. Every backend launches argv-only with `shell: false` — the
+prompt is arbitrary markdown and is never interpolated into a shell string — and the tmux
+backend also drops the durable copy at `.tm-dispatch-prompt.md` in the worktree, because an
+argv element vanishes with the process. An orchestration dispatch carries an idempotency key
+(`<task>-<session>`), so a retried dispatch collapses onto the same run instead of
+double-spawning a worker.
+
+**`.bytedesk/task-management/bin/tm pool` is dispatch on a loop.** `pool once|start|stop|status` (`--dry-run` shows what it
+would pick): the pool scans for open, unblocked, unclaimed `ready-for-agent` tasks and
+dispatches them up to `dispatch.poolWip` (default 3), every `dispatch.pollSeconds` (default
+30). It is opt-in — `dispatch.enabled` defaults to `false`, and the `tm-pool` monitor only
+runs when you turn it on. The pool never touches unlabelled work: the label is the human's
+go-ahead, and a loop that guessed at what to run would be deciding, which is the human's job.
+
+**`.bytedesk/task-management/bin/tm collect <id>` is how the result comes back.** Dispatch records `dispatched:
+{backend, run}` on the task; each backend's collector reads its own completion signal — an
+orchestration run's terminal state, a tmux session disappearing, a fleet ticket's terminal
+event — and normalizes it into one write path. The acceptance gate stays the real gate: a
+collector never closes a task (the worker closes through `.bytedesk/task-management/bin/tm done` itself), a "done" report on a
+task that is not done downgrades to failed with the status named, and a failed or blocked
+outcome on a task still in_progress **parks it with the worker's summary as the reason and
+releases the claim** — an exited worker never leaves the board claiming work nobody is doing.
+Everything lands as a comment plus one `task_result` event, so `.bytedesk/task-management/bin/tm log <id>` tells the story.
+
+**Claims are held by liveness, not wall clock.** A heartbeat loop re-stamps a dispatched
+claim every `dispatch.heartbeatSeconds` (default 60; 0 disables) and stops itself the moment
+there is nothing to keep alive — the claim is gone, or the registry says the worker is dead.
+A long-running worker holds its task for exactly as long as it is actually alive.
+
+**`.bytedesk/task-management/bin/tm agent` is the registry of who is running.** Dispatch registers every worker it spawns in
+`agents.json` — per-machine runtime state, in the gitignore contract beside `state.json`,
+because whose workers on whose laptop is not the shared record. `agent list` shows each with
+liveness *derived* (a live pid, or a heartbeat fresher than `agentTtlMinutes`, default 30),
+`agent heartbeat <name>` re-stamps one, and `agent reap` marks the quiet ones dead **and
+unparks the board behind them** — a dead worker's claimed tasks are parked with the reason
+and their claims released. Registry calls are failure-tolerant by contract: a broken
+`agents.json` is a missing dashboard panel, never a failed hand-off.
+
+**Webhooks are the machine bus.** Every event that lands in `events.jsonl` is POSTed — the
+exact JSONL row — to each URL in config `webhooks` (`[{url, kinds?}]`; `kinds` filters on the
+event name). Delivery rides `bin/tm-webhook`, spawned detached, because a hook process exits
+in milliseconds and would kill an in-flight fetch. Loopback only by default — the stream
+carries task titles and bodies, so a URL must be `127.0.0.1`, `localhost` or `*.local` unless
+the project sets `webhooksAllowRemote: true` out loud. For subscribers that would rather pull
+than be pushed, `.bytedesk/task-management/bin/tm events [--follow] [--since <iso>] [--json]` is the raw stream: JSONL, a cutoff,
+and a byte-offset tail that survives log rotation. The same mechanics ride the other two
+surfaces — MCP (`tm_dispatch`, `tm_collect`, `tm_agents`) and HTTP (`POST
+/api/task/:id/dispatch`, `POST /api/task/:id/collect`, `GET /api/caps`, `GET /api/agents`) —
+with the same refusal wording.
+
+**A spawned worker's identity arrives in its environment.** `TM_SESSION_ID` and `TM_ACTOR`
+are set to the dispatching session (and `TM_ROOT` to the repo) — the same variables every
+claim, gate and event read — so anything the worker does through tm attributes to the session
+that sent it. The handoff brief for a `ready-for-agent` task ends with the completion
+contract spelled out, because the worker may never read anything else: tick each criterion
+once verified (`.bytedesk/task-management/bin/tm accept`), attach proof not claims (`.bytedesk/task-management/bin/tm evidence`), then close (`.bytedesk/task-management/bin/tm
+done`) or block with a reason — never walk away leaving the task in_progress.
+
 ## CLI
 
 ```
@@ -134,6 +220,12 @@ never blocks twice in a row on the same tasks.
 .bytedesk/task-management/bin/tm standup [iso] | handoff <id>      digest / self-contained brief for another agent
 .bytedesk/task-management/bin/tm export [md|csv|json]              the board out; --epic, --status, --open, --out <file>
 .bytedesk/task-management/bin/tm doctor [--fix]                    what is inconsistent, and repair the unambiguous half
+.bytedesk/task-management/bin/tm caps                              what this host can dispatch work to (add --json)
+.bytedesk/task-management/bin/tm dispatch <id> [--backend <name>] [--steal]   claim, start, worktree, spawn a worker
+.bytedesk/task-management/bin/tm pool once|start|stop|status [--dry-run]      dispatch ready-for-agent work on a loop
+.bytedesk/task-management/bin/tm collect <id>                      pull a dispatched worker's result into the store
+.bytedesk/task-management/bin/tm agent [list] | agent heartbeat <name> | agent reap   the worker registry
+.bytedesk/task-management/bin/tm events [n] [--follow] [--since <iso>] [--json]       the raw event stream
 .bytedesk/task-management/bin/tm reindex | config [k v] | override "<why>" | migrate
 ```
 
@@ -319,20 +411,20 @@ before removing — your main checkout's `node_modules` is never at risk.
 worktree changes them all. Right default for parallel agents reading one dependency tree, wrong
 one for a task that changes dependencies. Use `mode: copy` or `--no-share` there.
 
-## Running under Codex CLI and Grok
+## Running under Codex CLI, Grok, and Kimi
 
 The store, the CLI and the MCP server are harness-agnostic; the parts that hook into a session are
 not, and the difference is worth knowing before you rely on it. Everything below was checked
-against the installed CLIs — `codex-cli 0.146.0`, `grok 0.2.117` — not inferred from docs.
+against the installed CLIs — `codex-cli 0.146.0`, `grok 0.2.117`, `kimi 0.39.1` — not inferred from docs.
 
-| | Claude Code | Codex CLI | Grok |
-|---|---|---|---|
-| `.bytedesk/task-management/bin/tm` CLI, store, gates | ✅ | ✅ | ✅ |
-| MCP server (`bin/tm-mcp`) | ✅ `.mcp.json` | ✅ `codex mcp add` / `.codex-mcp.json` | ✅ `grok mcp add` |
-| Session identity | ✅ `CLAUDE_CODE_SESSION_ID` | ✅ `CODEX_THREAD_ID` | ✅ `GROK_SESSION_ID` |
-| Native task mirroring | ✅ `TaskCreate`/`TaskUpdate` | ✅ `update_plan` | ✅ `todo_write` |
-| Lifecycle hooks | ✅ `hooks/hooks.json` | ✅ `.codex/hooks.json` — see below | ❌ no hook surface |
-| Dashboard work stream | ✅ | ✅ reads `~/.codex/sessions/**/rollout-*.jsonl` | ✅ reads `~/.grok/sessions/<cwd>/<id>/chat_history.jsonl` |
+| | Claude Code | Codex CLI | Grok | Kimi Code |
+|---|---|---|---|---|
+| `.bytedesk/task-management/bin/tm` CLI, store, gates | ✅ | ✅ | ✅ | ✅ |
+| MCP server (`bin/tm-mcp`) | ✅ `.mcp.json` | ✅ `codex mcp add` / `.codex-mcp.json` | ✅ `grok mcp add` | ✅ `.kimi-code/mcp.json` — see below |
+| Session identity | ✅ `CLAUDE_CODE_SESSION_ID` | ✅ `CODEX_THREAD_ID` | ✅ `GROK_SESSION_ID` | ✅ hook payload `session_id` (Kimi exports no env var) |
+| Native task mirroring | ✅ `TaskCreate`/`TaskUpdate` | ✅ `update_plan` | ✅ `todo_write` | ✅ `TodoList` |
+| Lifecycle hooks | ✅ `hooks/hooks.json` | ✅ `.codex/hooks.json` — see below | ❌ no hook surface | ✅ `[[hooks]]` in `~/.kimi-code/config.toml` — see below |
+| Dashboard work stream | ✅ | ✅ reads `~/.codex/sessions/**/rollout-*.jsonl` | ✅ reads `~/.grok/sessions/<cwd>/<id>/chat_history.jsonl` | ✅ reads `~/.kimi-code/sessions/**/wire.jsonl` (raw events; no typed parser yet) |
 
 What ❌ costs you: without hooks, Grok gets no session-start briefing, no Stop gate and no
 automatic commit linking. The board still works — you drive it with `.bytedesk/task-management/bin/tm` and the MCP tools, and
@@ -350,6 +442,18 @@ Registering the MCP server:
 codex mcp add task-management -- <plugin>/bin/tm-mcp
 grok  mcp add task-management -- <plugin>/bin/tm-mcp
 ```
+
+Kimi has no `mcp add` command; add the stdio entry to `.kimi-code/mcp.json` (project level) or
+`~/.kimi-code/mcp.json` (user level):
+
+```json
+{ "mcpServers": { "task-management": { "command": "<plugin>/bin/tm-mcp" } } }
+```
+
+Kimi reads hook rules from `[[hooks]]` entries in `~/.kimi-code/config.toml` (there is no
+repo-local hooks file) — append `hooks/kimi-hooks.example.toml` there. Like Codex, Kimi sets no
+session environment variable: the session id arrives on the hook payload's `session_id` and the
+hook adopts it as `TM_SESSION_ID` before anything reads it.
 
 Codex has no plugin-root substitution in `.codex/hooks.json`, so its checked-in hook configuration
 uses the project-relative launcher created during bootstrap:
@@ -692,7 +796,11 @@ file; nothing serves paths outside `evidence/` and `plans/`.
 
 ## Skills
 
-`/task-management:epic` · `board` · `adr` · `handoff` · `standup` · `groom` · `override` · `enhance`
+Twenty ship, in three groups:
+
+- **Lifecycle** — `/task-management:epic` · `board` · `adr` · `handoff` · `standup` · `groom` · `override`
+- **Decision-map pipeline** — `map` · `interview` · `research` · `prototype` · `spec` · `tickets` · `implement` · `route`
+- **Enhance pipeline** — `enhance` · `enhance-capture` · `enhance-research` · `enhance-propose` · `enhance-track`
 
 ## Capabilities — what to build next
 
@@ -938,6 +1046,12 @@ against is [`docs/dashboard-contract.md`](docs/dashboard-contract.md).
 | `eventMaxBytes` | `5000000` | rotate `events.jsonl` past this size |
 | `worktreeShare` | node_modules, .env | what a new worktree shares from the main checkout |
 | `worktreeDir` / `branchPrefix` | `.bytedesk/worktrees` / `tm/` | where worktrees live and how branches are named |
+| `agentTtlMinutes` | `30` | when a silent agent reads as dead (`0` disables) |
+| `webhooks` / `webhooksAllowRemote` | `[]` / `false` | POST every event row to these (loopback-only) URLs; the flag admits remote ones |
+| `dispatch.backends` | orchestration → fleet → tmux → manual | the fallback order `.bytedesk/task-management/bin/tm dispatch` walks |
+| `dispatch.heartbeatSeconds` | `60` | how often a dispatched claim is re-stamped (`0` disables) |
+| `dispatch.enabled` / `dispatch.poolWip` / `dispatch.pollSeconds` | `false` / `3` / `30` | the worker pool: opt-in switch, WIP cap, poll interval |
+| `dispatch.backendCaps` | `{}` | per-backend concurrency ceilings on top of poolWip, e.g. `{"tmux": 2}` |
 
 ## Tests
 

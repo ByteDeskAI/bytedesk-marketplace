@@ -22,6 +22,9 @@ process.stdout.on("error", (err) => {
 const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
 
 rl.on("line", (line) => {
-  const response = respondToLine(line);
-  if (response) process.stdout.write(`${JSON.stringify(response)}\n`);
+  // An async tool (tm_dispatch) answers with a promise; sync tools resolve inline.
+  // Responses may interleave, which JSON-RPC ids exist to reconcile.
+  Promise.resolve(respondToLine(line)).then((response) => {
+    if (response) process.stdout.write(`${JSON.stringify(response)}\n`);
+  });
 });

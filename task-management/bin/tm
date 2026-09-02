@@ -6,9 +6,10 @@
  *
  * Usage: tm <verb> [args]        tm help
  */
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { boardId, currentCheckout, ensureDirs, gitUser, isInitialized, legacyStore, paths } from "../lib/paths.mjs";
 import {
   kindOf,
@@ -42,7 +43,7 @@ import {
   writeState,
 } from "../lib/store.mjs";
 import { enforcementOff, gateDone, gateStart, gateStop, gateTaskCreate, setOverride } from "../lib/enforce.mjs";
-import { board, handoff, renderHistory, renderLog, sessionContext, sprintReport, standup, subagentBrief, taskLine } from "../lib/render.mjs";
+import { board, briefFor, handoff, renderHistory, renderLog, sessionContext, sprintReport, standup, taskLine } from "../lib/render.mjs";
 import { FIELD_NAMES, describeQuery, matchesQuery, parseQuery } from "../lib/query.mjs";
 import { launcherStatus, pluginBin, writeLaunchers } from "../lib/launcher.mjs";
 import { applyShares, createWorktree, listWorktrees, provision, unprovision } from "../lib/worktree.mjs";
@@ -63,6 +64,15 @@ import { importGoalDoc, importManifest } from "../lib/goal-import.mjs";
 import { batches } from "../lib/parallel.mjs";
 import { attachEvidence } from "../lib/evidence.mjs";
 import { capturePlan as saveCapturedPlan } from "../lib/plans.mjs";
+import { detectHostCaps, renderCaps } from "../lib/hostcaps.mjs";
+import { heartbeatAgent, listAgents, reapDeadWorkers, renderAgents } from "../lib/agents.mjs";
+import { dispatch as dispatchTask } from "../lib/dispatch/index.mjs";
+import { envRegistry } from "../lib/dispatch/backend.mjs";
+import { collect as collectResult } from "../lib/dispatch/collect.mjs";
+import { livePool, poolTick, poolable, runPool, stopPool } from "../lib/dispatch/pool.mjs";
+
+/** This file, as an argv element — `pool start` re-executes it detached. */
+const SELF = fileURLToPath(import.meta.url);
 
 const P = paths();
 const rawArgs = process.argv.slice(2);
@@ -654,6 +664,12 @@ const VERBS = {
     emit(rows, () => rows.map(taskLine).join("\n") || "(none)");
   },
 
+  /** What this host can dispatch work to. Host-level, not store-level: no requireInit. */
+  caps() {
+    const report = detectHostCaps();
+    emit(report, () => renderCaps(report));
+  },
+
   /** One entity, in full. The single-object read the CLI was missing. */
   show(id) {
     requireInit();
@@ -727,6 +743,32 @@ const VERBS = {
     // A human branch that was `JSON.stringify` is not a human branch. `tm log <id>` renders one
     // entity's whole history — the per-issue changelog this store did not have.
     emit(rows, () => (kindOf(arg) ? renderHistory(arg, rows, P) : renderLog(rows, P)));
+  },
+
+  /**
+   * The raw stream, for machines. `tm log` renders the tail for a person; `events`
+   * is the consumable form — JSONL with --json, a `--since <iso>` cutoff, and a
+   * `--follow` byte-offset tail that survives rotation, so a subscriber never has
+   * to poll or re-read the whole log.
+   */
+  events(...args) {
+    requireInit();
+    const si = args.indexOf("--since");
+    let since = null;
+    if (si !== -1) {
+      since = Date.parse(args[si + 1] || "");
+      if (Number.isNaN(since)) die(`bad --since timestamp: ${args[si + 1] ?? "(missing)"}`);
+    }
+    if (args.includes("--follow")) return followEvents(since);
+    const limit = Number(args.find((a) => /^\d+$/.test(a))) || 50;
+    let rows = readEvents(P);
+    if (since != null) rows = rows.filter((e) => Date.parse(e.ts) >= since);
+    rows = rows.slice(-limit);
+    if (!rows.length) return out(JSON_OUT ? "" : "(no events)");
+    // JSONL here, not the pretty array `emit` produces: the output must be the
+    // same stream --follow emits, one row per line.
+    if (JSON_OUT) out(rows.map((r) => JSON.stringify(r)).join("\n"));
+    else out(renderLog(rows, P));
   },
 
   standup(since) {
@@ -1098,11 +1140,145 @@ const VERBS = {
     out(releaseClaim(id, P) ? `${id} released` : `${id} was not claimed`);
   },
 
+  /**
+   * Hand a task to a worker, end to end: claim, start, worktree, handoff, spawn.
+   * Dispatch IS a start, so the WIP gate applies here exactly as it does to
+   * `tm start`; the claim interlock rides inside dispatch() with --steal passed
+   * through. The backend is pinned with --backend or walked in hostcaps order.
+   */
+  async dispatch(id, ...rest) {
+    requireInit();
+    if (!id || id.startsWith("--")) die("usage: tm dispatch <id> [--backend <name>] [--steal]");
+    const bi = rest.indexOf("--backend");
+    const backend =
+      bi === -1 ? null : rest[bi + 1] && !rest[bi + 1].startsWith("--") ? rest[bi + 1] : die("usage: tm dispatch <id> --backend <name>");
+    const gate = gateStart(id, P);
+    if (!gate.allow) die(gate.reason, 2);
+    const res = await dispatchTask(id, {
+      backend,
+      session: sessionId(),
+      actor: actorLabel(actor()),
+      steal: rest.includes("--steal"),
+      p: P,
+      registry: await envRegistry(),
+    });
+    if (!res.ok) die(res.reason, 2);
+    if (JSON_OUT) return out(JSON.stringify(res, null, 2));
+    out(`${res.id} dispatched to ${res.backend}${res.run ? ` as ${res.run}` : ""}`);
+    // The manual backend launches nothing: what it returns IS the hand-off.
+    if (res.backend === "manual" && res.detail?.commands) out(res.detail.commands.join("\n"));
+  },
+
+  /** Collect a dispatched worker's result into the store (park-on-failure, comment, task_result). */
+  async collect(id) {
+    requireInit();
+    if (!id || id.startsWith("--")) die("usage: tm collect <id>");
+    const res = await collectResult(id, P);
+    if (!res.ok) die(res.reason, 2);
+    if (JSON_OUT) return out(JSON.stringify(res, null, 2));
+    if (res.pending) return out(`${id} still running (${res.state || "pending"})`);
+    out(`${id} result: ${res.outcome}${res.downgraded ? " (downgraded)" : ""}${res.parked ? " — parked" : ""}`);
+  },
+
+  /**
+   * The dispatcher loop: agent-first pickup of ready-for-agent tasks.
+   *
+   * `once` (the default action) is one tick in-process; `start` backgrounds the
+   * loop as a detached child, the same idiom as tm-notify; `run` is that
+   * child's entrypoint — internal, hidden from help like `hook`; `stop` and
+   * `status` work off pool.pid. The tm-pool monitor autostarts `pool run
+   * --auto`, which is opt-in on config dispatch.enabled — these verbs are not:
+   * explicit control always works, the kill-switches (TM_ENFORCE=off,
+   * dispatch.enabled false) still apply to the tick itself.
+   */
+  async pool(action, ...rest) {
+    requireInit();
+    if (!action || action.startsWith("--")) {
+      rest = [action, ...rest].filter(Boolean);
+      action = "once";
+    }
+    if (action === "once") {
+      const res = await poolTick({ p: P, registry: await envRegistry(), dryRun: rest.includes("--dry-run") });
+      return emit(res, () => renderTick(res));
+    }
+    if (action === "start") {
+      const incumbent = livePool(P);
+      if (incumbent) die(`pool already running (pid ${incumbent.pid}, started ${incumbent.started || "?"})`, 2);
+      const child = spawn(process.execPath, [SELF, "pool", "run"], { detached: true, stdio: "ignore" });
+      child.unref();
+      return out(`pool started (pid ${child.pid}) — .bytedesk/task-management/bin/tm pool status`);
+    }
+    if (action === "run") {
+      const res = await runPool({
+        p: P,
+        auto: rest.includes("--auto"),
+        registry: await envRegistry(),
+        onTick: JSON_OUT ? (t) => out(JSON.stringify(t)) : null,
+      });
+      if (res.disabled) return out(res.reason); // exit 0 — the monitor's opt-in off-ramp
+      if (!res.ok) die(res.reason, 2);
+      return;
+    }
+    if (action === "stop") {
+      const inst = stopPool(P);
+      return out(inst ? `pool stopping (pid ${inst.pid})` : "(no pool running)");
+    }
+    if (action === "status") {
+      const inst = livePool(P);
+      const cfg = config(P);
+      const res = {
+        running: Boolean(inst),
+        pid: inst?.pid ?? null,
+        started: inst?.started ?? null,
+        enabled: cfg.dispatch?.enabled ?? null,
+        poolWip: Number(cfg.dispatch?.poolWip ?? 3),
+        workers: listAgents(P).filter((a) => a.alive && a.backend != null).length,
+        poolable: poolable(P).length,
+      };
+      return emit(res, () =>
+        inst
+          ? `pool running (pid ${inst.pid}, started ${inst.started || "?"}) — ${res.workers}/${res.poolWip} workers, ${res.poolable} ready`
+          : `(no pool running) — ${res.workers}/${res.poolWip} workers, ${res.poolable} ready`,
+      );
+    }
+    die(`unknown pool action: ${action} (once | start | stop | status [--dry-run])`);
+  },
+
   /** Drop claims whose sessions or worktrees are gone. */
   sweep() {
     requireInit();
     const freed = sweepClaims(P);
     out(freed.length ? `released stale claims: ${freed.join(", ")}` : "(no stale claims)");
+  },
+
+  /** The agent registry: which dispatched workers are alive on this host. */
+  agent(action, name) {
+    requireInit();
+    if (!action || action === "list") {
+      const rows = listAgents(P);
+      emit(rows, () => renderAgents(rows));
+      return;
+    }
+    if (action === "heartbeat") {
+      if (!name) die("usage: tm agent heartbeat <name>");
+      const rec = heartbeatAgent(name, P);
+      if (!rec) die(`unknown agent: ${name}`);
+      out(`${name} heartbeat ${rec.heartbeatAt}`);
+      return;
+    }
+    if (action === "reap") {
+      // Reaping a dead agent also unparks the board behind it: its claimed tasks
+      // are parked and their claims released, or a dead worker leaves in_progress work.
+      const { reaped, parked } = reapDeadWorkers(P);
+      emit({ reaped, parked }, () =>
+        [
+          reaped.length ? `reaped dead agents: ${reaped.join(", ")}` : "(no dead agents)",
+          ...parked.map((w) => `parked ${w.id} (agent ${w.agent} died)`),
+        ].join("\n"),
+      );
+      return;
+    }
+    die(`unknown agent action: ${action} (list | heartbeat <name> | reap)`);
   },
 
   /**
@@ -1229,12 +1405,18 @@ const VERBS = {
         "  next | board | stale | standup [iso] | handoff <id>",
         `  find <words> [field:value]...          fields: ${FIELD_NAMES.join(", ")} (a leading - negates)`,
         "  log [n] | log <id>            the event tail, or one entity's whole history",
+        "  events [n] [--follow] [--since <iso>]   the raw event stream; --json gives JSONL",
         "  why <id>                      what is actually holding a task up, to the root",
         "  graph [--epic EP-1] [--all]   the dependency graph as Mermaid",
         "  doctor [--fix]                what is inconsistent in the store; exits 1 on an error",
         "  export [md|csv|json]          the board out; --epic, --status, --open, --out <file>",
         "  reindex | override <reason> | config [key value] | context",
         "  where                         project launcher and resolved plugin runtime",
+        "  caps                          what this host can dispatch work to: agent backends, CLIs, sandbox",
+        "  dispatch <id> [--backend <name>] [--steal]   hand the task to a worker: claim, start, worktree, spawn",
+        "  agent [list] | agent heartbeat <name> | agent reap   the dispatched-worker registry",
+        "  collect <id>                  pull a dispatched worker's result into the store",
+        "  pool [once|start|stop|status] [--dry-run]   the ready-for-agent pickup loop (once is the default)",
         "  ntfy [on|off <kind>|enable|disable|test|topic <t>|board <url>]   push notifications",
         "  tm-dashboard [--browser|--no-browser]   live board; --browser opens it",
         "",
@@ -1243,6 +1425,83 @@ const VERBS = {
     );
   },
 };
+
+/**
+ * Byte-offset tail of events.jsonl — the same scheme as the dashboard's SSE feed
+ * (bin/tm-dashboard): poll the size, read [offset, size), and when the file shrinks
+ * rotation has swapped it, so start over from the top of the new file. The final
+ * chunk is held until its newline arrives, so a torn write never prints half a row.
+ * SIGINT exits 0: a tail is a reader, and Ctrl-C is its normal end, not a failure.
+ */
+function followEvents(since) {
+  const printLine = (line) => {
+    if (JSON_OUT) return out(line);
+    try {
+      out(renderEventLine(JSON.parse(line)));
+    } catch {
+      out(line); // a line we cannot parse is still the stream — pass it through
+    }
+  };
+  if (since != null) {
+    for (const e of readEvents(P)) {
+      if (Date.parse(e.ts) >= since) printLine(JSON.stringify(e));
+    }
+  }
+  // At-least-once on purpose: a row appended between the replay above and this stat
+  // prints twice rather than never.
+  let offset = existsSync(P.events) ? statSync(P.events).size : 0;
+  let partial = "";
+  const pump = () => {
+    if (!existsSync(P.events)) return; // mid-rotation — the new file appears on a later tick
+    const size = statSync(P.events).size;
+    if (size < offset) {
+      offset = 0; // rotated or truncated — nothing already printed is addressable any more
+      partial = "";
+    }
+    if (size === offset) return;
+    const fd = openSync(P.events, "r");
+    try {
+      const buf = Buffer.alloc(size - offset);
+      readSync(fd, buf, 0, buf.length, offset);
+      offset = size;
+      partial += buf.toString("utf8");
+    } finally {
+      closeSync(fd);
+    }
+    const lines = partial.split("\n");
+    partial = lines.pop();
+    for (const line of lines) if (line.trim()) printLine(line);
+  };
+  const timer = setInterval(() => {
+    try {
+      pump();
+    } catch {
+      /* a transient read error must not kill the tail */
+    }
+  }, 500);
+  process.on("SIGINT", () => {
+    clearInterval(timer);
+    process.exit(0);
+  });
+}
+
+/** One row rendered the way `tm log` renders it, minus the day header. */
+const renderEventLine = (row) => renderLog([row], P).split("\n").pop();
+
+/** Human rendering of one pool tick; --json gets the raw result instead. */
+function renderTick(res) {
+  if (res.disabled) return `pool disabled: ${res.reason}`;
+  const lines = [`pool tick — capacity ${res.capacity}`];
+  for (const c of res.collected) {
+    lines.push(`  collected ${c.id}: ${c.pending ? `still running (${c.state || "pending"})` : c.ok ? c.outcome : `failed — ${c.reason}`}`);
+  }
+  for (const d of res.dispatched) {
+    lines.push(`  dispatched ${d.id}${d.dryRun ? " (dry run)" : ` → ${d.backend}${d.run ? ` as ${d.run}` : ""}`}`);
+  }
+  for (const s of res.skipped) lines.push(`  skipped ${s.id} — ${s.reason}`);
+  if (!res.collected.length && !res.dispatched.length && !res.skipped.length) lines.push("  (nothing to do)");
+  return lines.join("\n");
+}
 
 /**
  * Import a `*.plan.json` manifest: one epic, one task per goal, the manifest's own dependency
@@ -1542,7 +1801,7 @@ function hook(event) {
      * is a cost paid by every fan-out for nothing.
      */
     case "subagent-start": {
-      const brief = subagentBrief(input.session_id || sessionId(), P);
+      const brief = briefFor(input.session_id || sessionId(), P);
       if (brief) {
         out(JSON.stringify({ hookSpecificOutput: { hookEventName: "SubagentStart", additionalContext: brief } }));
       }

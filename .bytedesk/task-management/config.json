@@ -11,6 +11,8 @@
   "claimTtlMinutes": 240,
   "parkOnSessionEnd": true,
   "trackTouches": true,
+  "webhooks": [],
+  "webhooksAllowRemote": false,
   "board": {
     "launchBrowser": true,
     "grouped": true,
@@ -44,10 +46,11 @@
     "me": "Ryan",
     "watching": []
   },
-  "activeEpic": null,
+  "activeEpic": "EP-010",
   "boardId": "bytedeskai/bytedesk-marketplace",
   "owner": "Ryan Helms <ryan@helms.ai>",
   "ntfy": {},
   "plugin": {},
-  "labels": {}
+  "labels": {},
+  "dispatch": {}
 }

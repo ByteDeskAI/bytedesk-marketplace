@@ -4,5 +4,11 @@
     "description": "Live task board for .bytedesk/task-management. HTTP + SSE, tails events.jsonl. The port is assigned once — probed free above 45000, then kept, so the project opens at the same URL every time — and written to .bytedesk/task-management/dashboard.port (TM_DASHBOARD_PORT to pin one). Runs while the plugin is enabled.",
     "command": "${CLAUDE_PLUGIN_ROOT}/bin/tm-dashboard",
     "when": "always"
+  },
+  {
+    "name": "tm-pool",
+    "description": "Agent-first pickup loop for .bytedesk/task-management: each tick collects finished dispatched workers, then dispatches ready-for-agent tasks up to dispatch.poolWip (default 3), preferring touches-disjoint sets. Opt-in: the --auto loop exits 0 immediately unless the store sets dispatch.enabled=true (`tm config dispatch '{\"enabled\":true}'`). Explicit control is `tm pool once|start|stop|status`, which works regardless.",
+    "command": "${CLAUDE_PLUGIN_ROOT}/bin/tm pool run --auto",
+    "when": "always"
   }
 ]

@@ -1,0 +1,16 @@
+{
+  "_comment": "Captured from a live Kimi Code session (TM-071) and sanitised. This is the shape Kimi sends on stdin to a PreToolUse/PostToolUse hook: base fields hook_event_name/session_id/session_title/client_type/cwd, then tool_name + tool_input for tool events (https://www.kimi.com/code/docs/en/kimi-code-cli/customization/hooks.html). The TodoList tool schema carries title + status only — no item ids — so the adapter keys rows by a content hash of the title.",
+  "hook_event_name": "PreToolUse",
+  "session_id": "session_00000000-0000-4000-8000-000000000000",
+  "session_title": "Example session",
+  "client_type": "kimi_code_cli",
+  "cwd": "/repo",
+  "tool_name": "TodoList",
+  "tool_input": {
+    "todos": [
+      { "title": "Read the existing harness adapters", "status": "done" },
+      { "title": "Implement the kimi adapter", "status": "in_progress" },
+      { "title": "Add fixture-driven tests", "status": "pending" }
+    ]
+  }
+}

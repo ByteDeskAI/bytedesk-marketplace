@@ -73,6 +73,31 @@ export function claimTask(id, { session = null, actor = null, worktree, branch, 
   });
 }
 
+/**
+ * Refresh a claim's timestamp — renewal works by moving `ts`, so `expired()`
+ * stays exactly as it is and a live worker simply never ages out.
+ *
+ * Only the current holder can keep a claim alive: a stranger's heartbeat returns
+ * null and changes nothing, or a dead worker's supervisor could pin somebody
+ * else's task forever. The null-session rule from claimTask holds here too — an
+ * unowned claim can be refreshed by anyone, and refreshing it does NOT adopt it
+ * (the record keeps `session: null`). Same-session refreshes are idempotent.
+ *
+ * Logs NOTHING. A heartbeat is a pulse; an event per pulse is the write stream
+ * that makes people switch the log off.
+ */
+export function heartbeatClaim(id, { session = null, p = paths() } = {}) {
+  return withLock(p, () => {
+    const claims = { ...state(p).claims };
+    const held = claims[id];
+    if (!held) return null;
+    if (held.session != null && held.session !== session) return null;
+    claims[id] = { ...held, ts: now() };
+    writeState({ claims }, p);
+    return claims[id];
+  });
+}
+
 export function releaseClaim(id, p = paths()) {
   return withLock(p, () => {
     const claims = { ...state(p).claims };

@@ -225,13 +225,18 @@ const BRIEF_CHARS = 1200;
  * Returns "" when the parent holds nothing. Silence is the right output: padding every spawned
  * agent with "no tasks are claimed" costs tokens on every fan-out and tells it nothing.
  */
-export function subagentBrief(session, p = paths()) {
-  if (!p.root || !session) return "";
+/** The tasks `session` currently claims, read back as task objects. */
+function heldTasks(session, p) {
   const claims = state(p).claims || {};
-  const held = Object.entries(claims)
+  return Object.entries(claims)
     .filter(([, c]) => c.session === session)
     .map(([id]) => read(id, p))
     .filter(Boolean);
+}
+
+export function subagentBrief(session, p = paths()) {
+  if (!p.root || !session) return "";
+  const held = heldTasks(session, p);
   if (!held.length) return "";
 
   const out = ["## task-management — what this session is already working on", ""];
@@ -261,6 +266,63 @@ export function subagentBrief(session, p = paths()) {
   return text.length > BRIEF_CHARS ? `${text.slice(0, BRIEF_CHARS - 1)}…` : text;
 }
 
+/**
+ * The brief for a DISPATCHED worker — the opposite lifecycle advice from `subagentBrief()`.
+ *
+ * dispatch() (lib/dispatch/index.mjs) claims the task for the worker's OWN session (TM_SESSION_ID
+ * is injected into its environment) and marks it `dispatched` before spawning it, so the "parent
+ * holds the claim" rule does not apply: there is no parent in the loop. A worker told not to run
+ * lifecycle verbs would leave its task in_progress forever — exactly the board state this plugin
+ * exists to prevent. The completion contract mirrors handoff()'s `## When you finish` so both
+ * surfaces agree, because the worker may read either and will act on the one it saw.
+ */
+export function workerBrief(id, p = paths()) {
+  const t = read(id, p);
+  if (!t) return "";
+  const out = [
+    "## task-management — you own this task's lifecycle",
+    "",
+    `Your session holds the claim on ${t.id} "${t.title}"${t.epic ? ` (${t.epic})` : ""}. There is no parent to report to — record the outcome yourself. Your edits are recorded as touches on the task.`,
+  ];
+  const unmet = acceptanceOpen(t).slice(0, BRIEF_CRITERIA);
+  if (unmet.length) out.push("Not yet met:", ...unmet.map((a) => `- [ ] ${a.text}`));
+  out.push(
+    "",
+    "When you finish:",
+    `- Tick each criterion only once verified: .bytedesk/task-management/bin/tm accept ${t.id} <n>`,
+    `- Attach proof, not claims: .bytedesk/task-management/bin/tm evidence ${t.id} <path> (test output)`,
+    `- Then close: .bytedesk/task-management/bin/tm done ${t.id}`,
+    `- Blocked instead? .bytedesk/task-management/bin/tm block ${t.id} "reason" — name what you need`,
+    "- Never leave the task in_progress: close it or block it.",
+  );
+  const text = out.join("\n");
+  return text.length > BRIEF_CHARS ? `${text.slice(0, BRIEF_CHARS - 1)}…` : text;
+}
+
+/**
+ * Which brief a SubagentStart hook should inject, decided from the board rather than the caller.
+ *
+ * The hook (bin/tm) cannot tell a same-session helper from a dispatched worker — both arrive as
+ * SubagentStart carrying a session id. The board CAN: dispatch() marks the task `dispatched` and
+ * claims it for the worker's own session, so a session whose held tasks are ALL dispatched is the
+ * worker itself, and forbidding it the lifecycle verbs would strand its task in_progress. Any mix
+ * — even one ordinarily-claimed task — falls back to the classic brief, because a helper reading
+ * it must not conclude it may close work its parent owns.
+ */
+export function briefFor(session, p = paths()) {
+  if (!p.root || !session) return "";
+  const held = heldTasks(session, p);
+  if (!held.length) return "";
+  if (!held.every((t) => t.dispatched)) return subagentBrief(session, p);
+  // One worker holding one task is the shape dispatch produces; the caps are for the pathological
+  // board somebody overrode their way into.
+  const text = held
+    .slice(0, BRIEF_TASKS)
+    .map((t) => workerBrief(t.id, p))
+    .join("\n\n");
+  return text.length > BRIEF_CHARS ? `${text.slice(0, BRIEF_CHARS - 1)}…` : text;
+}
+
 export function handoff(id, p = paths()) {
   const t = read(id, p);
   if (!t) throw new Error(`not found: ${id}`);
@@ -285,6 +347,25 @@ export function handoff(id, p = paths()) {
   if ((t.evidence || []).length) out.push("## Evidence", ...t.evidence.map((e) => `- ${e}`), "");
   if ((t.commits || []).length) out.push("## Commits / PRs", ...t.commits.map((c) => `- ${c}`), "");
   if (epic?.body?.trim()) out.push("## Epic context", epic.body.trim(), "");
+  /**
+   * A task labelled ready-for-agent is handed to a dispatched worker, and a worker
+   * that walks away without closing leaves the board claiming in-progress work
+   * nobody is doing. The completion contract is spelled out here, in the prompt
+   * itself, because the worker may never read anything else: the AC gate stays the
+   * real gate (`tm done` enforces it), proof is a file, and blocked is a first-class
+   * ending. The collector (lib/dispatch/collect.mjs) records whatever comes back.
+   */
+  if ((t.labels || []).includes("ready-for-agent")) {
+    out.push(
+      "## When you finish",
+      `- Tick each criterion only once verified: .bytedesk/task-management/bin/tm accept ${t.id} <n>`,
+      `- Attach proof, not claims: .bytedesk/task-management/bin/tm evidence ${t.id} <path> (test output)`,
+      `- Then close: .bytedesk/task-management/bin/tm done ${t.id}`,
+      `- Blocked instead? .bytedesk/task-management/bin/tm block ${t.id} "reason" — name what you need`,
+      "- Never leave the task in_progress: close it or block it.",
+      "",
+    );
+  }
   out.push(`Resume with: .bytedesk/task-management/bin/tm start ${t.id}`);
   return out.join("\n");
 }

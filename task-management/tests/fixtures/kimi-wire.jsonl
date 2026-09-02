@@ -1,0 +1,4 @@
+{"type":"metadata","protocol_version":"1.5","created_at":1788328992879}
+{"type":"runtime.set_binding","workspaceId":"wd_example_000000000000","runtimeId":"local","agentId":"main","time":1788328992884}
+{"type":"context.append_loop_event","agentId":"main","event":{"type":"tool.call","uuid":"tool_example1","turnId":"0","step":1,"stepUuid":"00000000-0000-4000-8000-000000000001","toolCallId":"tool_example1","name":"TodoList","args":{"todos":[{"title":"Read the existing harness adapters","status":"done"},{"title":"Implement the kimi adapter","status":"in_progress"},{"title":"Add fixture-driven tests","status":"pending"}]}},"time":1788328993000}
+{"type":"context.append_loop_event","agentId":"main","event":{"type":"tool.result","toolCallId":"tool_example1","ok":true},"time":1788328993100}

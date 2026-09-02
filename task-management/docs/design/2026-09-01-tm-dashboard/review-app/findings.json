@@ -1,0 +1,164 @@
+{
+  "run": "2026-09-01-tm-dashboard",
+  "stage": "review-app",
+  "subject": "the served rewrite at http://127.0.0.1:49568 (dist built from task-management/dashboard at working tree), not the surface mockups",
+  "authority_sha": "f652565",
+  "review_status": "complete",
+  "reviewer_note": "Blind Codex reads (34, codex-cli 0.152.0, one artifact per invocation, brief withheld) are independent. Reconciliation ran in a fork of the session that produced the app, so it carries authorship bias; the operator should weight the quoted blind reads over the judgements. Mechanical checks: dashboard/src has no colour literal outside styles/tokens.css and index.html theme-color; every hex in the served CSS bundle is a token-file value; vendored tokens .source-sha = f652565 = authority HEAD, byte-identical; [data-bd-product=task-management] scope present in the served CSS; <html data-bd-product=\"task-management\">. 88 screenshots captured; 48 viewed and hashed (all 1440-dark, all 390-dark, four light); the 40 unviewed light/390 captures are NOT artifacts of this stage and the contact sheet is built only from viewed images.",
+  "verdict": "fix these first — no contract violation, nothing blocking; nine should-fix findings, three of them at phone width",
+  "findings": [
+    {
+      "severity": "should-fix",
+      "kind": "responsive",
+      "artifact": "review-app/screenshots/sessions-390-dark.png",
+      "route": "/sessions", "viewport": "390x844", "theme": "dark",
+      "finding": "The worktree and epic selects overflow the 390 px viewport (the 'new worktree for…' and 'every epic' controls run past the right edge), giving the body a sideways scroll the contract forbids.",
+      "evidence": "Screenshot: the select's right border and chevron are cut off at the viewport edge; blind read lists 'sessions, claims, worktrees, parallel task batches' with no comment because the cut is off-canvas.",
+      "fix": "In features/sessions, let section heads wrap (flex-wrap) and give the selects width:100% below 720 px; add an overflow assertion to tests/browser/routes.mjs for this route."
+    },
+    {
+      "severity": "should-fix",
+      "kind": "theme-parity",
+      "artifact": "review-app/screenshots/settings-1440-light.png",
+      "route": "/settings", "viewport": "1440x900", "theme": "light",
+      "finding": "The 'blocked by the browser' chip keeps a near-black background in the light theme, so red text sits on dark navy on a light page — the danger chip uses a dark-ladder surface instead of --bd-danger-bg.",
+      "evidence": "Blind read, unprompted colour list for the light page: 'Light gray, blue, and dark navy.' The same chip on settings-1440-dark reads correctly.",
+      "fix": "Point the chip's tone=danger surface at the semantic --tm-status-*-bg alias (which resolves per theme) instead of a fixed surface token; check every Chip tone in light."
+    },
+    {
+      "severity": "should-fix",
+      "kind": "data",
+      "artifact": "review-app/screenshots/capabilities_CAP-0001-1440-dark.png",
+      "route": "/capabilities/CAP-0001", "viewport": "1440x900", "theme": "dark",
+      "finding": "The inspector header shows '– / 27' for the score while the card in the list shows '18 / 27' for the same capability: the detail fetch merges a record without the derived score.",
+      "evidence": "Screenshot: header 'CAP-0001 ● shipped – / 27 TM-058' beside list card '18 / 27'.",
+      "fix": "Compute the score client-side from impact/effort/confidence in CapabilityInspector (capability.mjs formula is impact × ease × confidence) or read it from the list row when the detail lacks it."
+    },
+    {
+      "severity": "should-fix",
+      "kind": "hierarchy",
+      "artifact": "review-app/screenshots/reports-1440-dark.png",
+      "route": "/reports", "viewport": "1440x900", "theme": "dark",
+      "finding": "The page opens with a six-tile metric grid — the profile bans hero metric grids and the brief says 'not a KPI-tile admin template'. The numbers are real, but the form is the template the product defines itself against.",
+      "evidence": "Blind read: 'the metric grid contains six tiles'; on 390: 'the metrics form a two-column grid of six tiles'.",
+      "fix": "Collapse to one measure strip (completed · median · mean · WIP/limit · oldest open · per day) in Plex Mono on a single rule, and let 'Throughput by day' be the first block."
+    },
+    {
+      "severity": "should-fix",
+      "kind": "typography",
+      "artifact": "review-app/screenshots/capabilities-1440-dark.png",
+      "route": "/capabilities", "viewport": "1440x900", "theme": "dark",
+      "finding": "Capability cards set the title and source in uppercase letter-spaced type, so the card's title reads as an eyebrow label and the card carries no sentence-case text at all.",
+      "evidence": "Blind read: 'Small uppercase letter-spaced labels: yes, inside the capability card (\"MCP WORKTREE AND TYPED-LINK VERBS\" and \"FROM GAP-BACKLOG\")'.",
+      "fix": "Title in sentence case at body-plus weight; keep uppercase only for the I/E/C sizing key; widen the card to the list measure rather than a quarter of the canvas."
+    },
+    {
+      "severity": "should-fix",
+      "kind": "interaction",
+      "artifact": "review-app/screenshots/sessions-1440-dark.png",
+      "route": "/sessions", "viewport": "1440x900", "theme": "dark+light",
+      "finding": "The disabled 'Sweep expired claims' danger button renders red text on a red-tinted fill at low opacity and is illegible in both themes.",
+      "evidence": "Screenshots sessions-1440-dark.png and sessions-1440-light.png: the label is barely distinguishable from its fill.",
+      "fix": "Disabled danger buttons drop to the secondary (ghost) treatment with --tm-ink-disabled text; only an enabled destructive action is red."
+    },
+    {
+      "severity": "should-fix",
+      "kind": "responsive",
+      "artifact": "review-app/screenshots/board-390-dark.png",
+      "route": "/board", "viewport": "390x844", "theme": "dark",
+      "finding": "On phones the status segmented control opens on 'in progress', which holds zero cards, so the first screen is a stack of epic lanes each showing an empty '—' placeholder.",
+      "evidence": "Blind read on board-390: dominant element is 'the large outlined epic cards stacked through the main content area' — no task card is visible at all.",
+      "fix": "Default the phone segment to the first non-empty column (todo here), and hide the '—' placeholder rows on phones."
+    },
+    {
+      "severity": "should-fix",
+      "kind": "responsive",
+      "artifact": "review-app/screenshots/backlog-390-dark.png",
+      "route": "/backlog", "viewport": "390x844", "theme": "dark",
+      "finding": "The stacked table prints every column as its own labelled row, including six empty ones ('priority —', 'pts —', 'blocked by —', 'sprint —'), so one task costs nine rows and two tasks fill the screen.",
+      "evidence": "Screenshot: rows select / rank / id / title / status / epic / priority / pts / blocked by / sprint per task.",
+      "fix": "Below 720 px render a compact card per task (id + title, then status/epic chips, then only the non-empty fields) instead of the generic stacked table."
+    },
+    {
+      "severity": "should-fix",
+      "kind": "layout",
+      "artifact": "review-app/screenshots/standup-1440-dark.png",
+      "route": "/standup", "viewport": "1440x900", "theme": "dark",
+      "finding": "The standup renders in a 640 px card on the left and leaves the right half of a 1440 px canvas empty; the copy-as-markdown affordance is the only thing on the right.",
+      "evidence": "Blind read: dominant element 'the large dark report card'; screenshot shows the card ending at ~700 px.",
+      "fix": "Two columns at ≥1200: finished / doing on the left, stuck / also-touched on the right, or widen the measure to the canvas."
+    },
+    {
+      "severity": "should-fix",
+      "kind": "hierarchy",
+      "artifact": "review-app/screenshots/graph-1440-dark.png",
+      "route": "/graph /activity /standup /sprints /reports /doctor /sessions /search /settings /help", "viewport": "1440x900", "theme": "dark",
+      "finding": "Every ops screen carries a one-to-three-sentence explanation under its H1 while /board, /backlog, /epics, /decisions, /plans and /capabilities carry none — the tagline pattern the surface review already flagged, now inconsistent across the app.",
+      "evidence": "Blind reads quote the taglines verbatim on activity ('Every write the store recorded…'), doctor, graph, reports; none on board/backlog/epics/decisions.",
+      "fix": "One short line at most, in --tm-ink-secondary, or move the explanation into the empty state where it already exists (graph, sessions, sprints all repeat it)."
+    },
+    {
+      "severity": "should-fix",
+      "kind": "navigation",
+      "artifact": "review-app/screenshots/settings-1440-dark.png",
+      "route": "/settings", "viewport": "1440x900", "theme": "dark",
+      "finding": "The settings page dropped the mockup's section navigation along with its 480 px canvas, so a page with six groups has no in-page way to reach Policy, Workflow or ntfy without scrolling.",
+      "evidence": "Screenshot: sections 'This browser', 'Dashboard', 'Policy' run past the fold with no anchors; the surface mockup (surfaces/settings.html) had a left section list.",
+      "fix": "A compact section list (anchors) at ≥1200 in the free right column, or Tabs on the head."
+    },
+    {
+      "severity": "note",
+      "kind": "layout",
+      "artifact": "review-app/screenshots/board-1440-dark.png",
+      "route": "/board", "viewport": "1440x900", "theme": "dark+light",
+      "finding": "Empty columns render a dashed '—' placeholder cell in every lane, five per lane here; with several closed epics the board becomes rows of dashes.",
+      "evidence": "Blind read (light): 'only a small progress bar and empty Kanban placeholders'.",
+      "fix": "Drop the placeholder cell; an empty column is already legible from its 0 count."
+    },
+    {
+      "severity": "note",
+      "kind": "typography",
+      "artifact": "review-app/screenshots/epics_EP-006-1440-dark.png",
+      "route": "/epics, /epics/:id, task inspector, decisions", "viewport": "1440x900", "theme": "dark",
+      "finding": "Uppercase letter-spaced section labels are used as the section grammar (CONTEXT, WORKFLOW, PEOPLE AND SIZE, PROGRESS, WHY THIS EPIC). The profile does not ban them and they read as structure, but 'PROGRESS' above every epic bar is redundant with the bar's own number.",
+      "evidence": "Blind reads on epics, epic inspector, task inspector, decisions, search, standup all list them.",
+      "fix": "Keep the grammar; remove the PROGRESS label on epic cards."
+    },
+    {
+      "severity": "note",
+      "kind": "a11y",
+      "artifact": "review-app/screenshots/tasks_TM-048-1440-dark.png",
+      "route": "/tasks/:id", "viewport": "1440x900", "theme": "dark",
+      "finding": "The inspector's inline-edit title shows a full focus ring on open because focus is moved programmatically; a pointer user sees an outlined text field before touching anything.",
+      "evidence": "Blind read: dominant element 'its long focused title field'.",
+      "fix": "Focus the inspector heading container with :focus-visible suppressed, or focus the close button."
+    },
+    {
+      "severity": "note",
+      "kind": "empty-state",
+      "artifact": "review-app/screenshots/graph-1440-dark.png",
+      "route": "/graph", "viewport": "1440x900", "theme": "dark",
+      "finding": "The blind read classes the empty graph as 'a chart with no readable data'. It is an empty state with copy, not a chart, but it is the only screen where the empty state is the entire canvas at 1440.",
+      "evidence": "Blind read: 'Chart with no readable data: yes, the large empty dependency-graph panel.'",
+      "fix": "Cap the empty-state panel height and show the epic list beneath it so the screen has a next action."
+    },
+    {
+      "severity": "note",
+      "kind": "navigation",
+      "artifact": "review-app/screenshots/doctor-1440-dark.png",
+      "route": "/doctor /reports /settings", "viewport": "1440x900", "theme": "dark",
+      "finding": "The brief's single Health surface (doctor · export · notifications · override) is split across /doctor, /reports and /settings in the app. Not wrong, but the brief's 'is the record telling the truth?' question now has three homes.",
+      "evidence": "surfaces/health.html tabs Doctor/Export/Notifications/Override vs routes.ts.",
+      "fix": "Keep the split; cross-link them from the doctor head ('export · notifications · override')."
+    },
+    {
+      "severity": "note",
+      "kind": "a11y",
+      "artifact": "review-app/screenshots/board-1440-dark.png",
+      "route": "/board", "viewport": "1440x900", "theme": "dark",
+      "finding": "The board has no h1 (the toolbar is the head); tests/browser/routes.mjs asserts one per route.",
+      "evidence": "W8 report: 'no route has an h1'; board screenshot has no page title.",
+      "fix": "A visually-hidden h1 'Board — <project>' in the toolbar."
+    }
+  ]
+}

@@ -11,7 +11,7 @@
  * difference, which is also what makes "the work stream is unavailable here" a sentence the board
  * can say rather than a blank panel.
  */
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -20,6 +20,30 @@ const claudeDir = (cwd, home) => join(home, ".claude", "projects", String(cwd).r
 
 /** Grok keys sessions by percent-encoded cwd: ~/.grok/sessions/%2Fhome%2F…/<session-id>/ */
 const grokDir = (cwd, home) => join(home, ".grok", "sessions", encodeURIComponent(String(cwd)));
+
+/**
+ * Kimi keys sessions by an opaque workspace id — `wd_<name>_<hash>` — that is NOT derivable
+ * from the cwd. `~/.kimi-code/workspaces.json` holds the mapping (`workspaces[id].root`),
+ * and `~/.kimi-code/session_index.jsonl` records sessionId → sessionDir as sessions are made.
+ */
+const kimiWorkspaceDir = (cwd, home) => {
+  try {
+    const { workspaces } = JSON.parse(readFileSync(join(home, ".kimi-code", "workspaces.json"), "utf8"));
+    for (const [id, w] of Object.entries(workspaces || {})) {
+      if (w?.root === String(cwd)) return join(home, ".kimi-code", "sessions", id);
+    }
+  } catch {
+    /* no workspaces file (or unreadable) means Kimi has never opened this project here */
+  }
+  return null;
+};
+
+/** A session's transcript is agents/main/wire.jsonl; subagent wires are the fallback. */
+const kimiWireIn = (sessionDir) => {
+  const main = join(sessionDir, "agents", "main", "wire.jsonl");
+  if (existsSync(main)) return main;
+  return newestUnder(sessionDir, (f) => f === "wire.jsonl");
+};
 
 const newestUnder = (dir, match) => {
   if (!existsSync(dir)) return null;
@@ -83,6 +107,48 @@ export const HARNESSES = [
       const own = session ? join(dir, session, "chat_history.jsonl") : null;
       if (own && existsSync(own)) return own;
       return newestUnder(dir, (f) => f === "chat_history.jsonl");
+    },
+  },
+  {
+    id: "kimi",
+    label: "Kimi Code",
+    // Empty on purpose. `env` inside a live Kimi session carries no session variable (measured
+    // TM-071), and the binary's only KIMI_SESSION_ID is a `${KIMI_SESSION_ID}` placeholder
+    // substituted into skill files, not a variable the CLI exports. Adding the name anyway
+    // would be CODEX_SESSION_ID again: it reads as support and silently never matches. Like
+    // Codex, the session id arrives on the hook payload (`session_id`), so it reaches the
+    // store through TM_SESSION_ID.
+    sessionEnv: [],
+    format: "kimi-wire",
+    // ~/.kimi-code/sessions/<workspace-id>/<session-id>/agents/<agent>/wire.jsonl — typed-event
+    // JSONL (tool.call / tool.result wrapped in context.append_loop_event), one wire per agent.
+    transcript(cwd, session, home = homedir()) {
+      const root = join(home, ".kimi-code", "sessions");
+      if (session && existsSync(root)) {
+        try {
+          for (const ws of readdirSync(root)) {
+            const hit = kimiWireIn(join(root, ws, session));
+            if (hit) return hit;
+          }
+        } catch {
+          /* a workspace dir that vanished mid-scan is simply not an answer */
+        }
+      }
+      const wsDir = kimiWorkspaceDir(cwd, home);
+      if (!wsDir || !existsSync(wsDir)) return null;
+      try {
+        const sessions = readdirSync(wsDir, { withFileTypes: true })
+          .filter((e) => e.isDirectory())
+          .map((e) => join(wsDir, e.name))
+          .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
+        for (const dir of sessions) {
+          const hit = kimiWireIn(dir);
+          if (hit) return hit;
+        }
+      } catch {
+        return null;
+      }
+      return null;
     },
   },
 ];

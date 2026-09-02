@@ -164,8 +164,16 @@ export function gateStop(p = paths()) {
 function gateStopLocked(p) {
   const session = sessionId();
   const s = state(p);
+  const claims = s.claims || {};
   const mine = list("task", { status: "in_progress" }, p).filter(
-    (t) => !session || !t.session || t.session === session,
+    (t) =>
+      (!session || !t.session || t.session === session) &&
+      // A task marked `dispatched` whose claim belongs to THIS session has already been handed to
+      // the pool: the collector (lib/dispatch/collect.mjs) owns the outcome from here, and its
+      // park-on-failure path is the backstop for a worker that dies mid-run. Blocking this
+      // session's stop over it would nag the worker for a hand-off that already happened.
+      // Anonymous sessions (no resolvable id) get no exemption — they cannot prove the claim.
+      !(session && t.dispatched && claims[t.id]?.session === session),
   );
   if (mine.length === 0) {
     if (s.lastStopBlock) writeState({ lastStopBlock: null }, p);

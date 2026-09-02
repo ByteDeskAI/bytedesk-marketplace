@@ -1,0 +1,28 @@
+#!/usr/bin/env node
+/**
+ * Delivers one event row to the configured webhooks and exits. Spawned detached
+ * by notify-hook so the POSTs outlive the parent — a hook process exits in
+ * milliseconds and would kill an in-flight fetch, exactly the failure tm-notify
+ * exists to prevent. Webhooks ride the same chain.
+ *
+ * fanoutWebhook awaits only dispatch; the pending fetch handles are what keep
+ * this process alive until delivery settles (the 5s timeout bounds the wait).
+ *
+ * Usage (internal): tm-webhook '<json event row>'
+ * Exits 0 whatever happens; nothing upstream should care that an endpoint was down.
+ */
+import { paths } from "../lib/paths.mjs";
+import { fanoutWebhook } from "../lib/webhooks.mjs";
+
+const raw = process.argv[2];
+if (!raw) process.exit(0);
+
+try {
+  const event = JSON.parse(raw);
+  const p = paths();
+  if (!p.root) process.exit(0);
+  fanoutWebhook(event, p);
+} catch (err) {
+  if (process.env.TM_WEBHOOKS_DEBUG) process.stderr.write(`tm-webhook: ${err.message}\n`);
+  process.exit(0);
+}

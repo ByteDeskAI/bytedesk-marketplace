@@ -1,0 +1,32 @@
+# Kimi Code reads hook rules from [[hooks]] entries in ~/.kimi-code/config.toml
+# (https://www.kimi.com/code/docs/en/kimi-code-cli/customization/hooks.html) — there is no
+# repo-local hooks file, so append these entries there, one [[hooks]] table per rule.
+#
+# Hook commands run with the session's project directory as cwd, so the committed
+# project-relative launcher works without PATH entries or absolute paths (same trick as
+# hooks/codex-hooks.example.json). `node <installed-plugin>/bin/tm init` writes it.
+#
+# The stdin payload is Claude-shaped snake_case — hook_event_name, session_id, cwd,
+# tool_name, tool_input — captured in tests/fixtures/kimi-todolist-payload.json. Kimi sets
+# NO session environment variable; the session id reaches the store off the payload
+# (session_id → TM_SESSION_ID), the same path Codex takes.
+#
+# Blocking: pre-task-create denies by printing the hookSpecificOutput permissionDecision
+# JSON, which Kimi honors; exit code 2 with a stderr reason also blocks.
+
+[[hooks]]
+event = "PreToolUse"
+matcher = "TodoList"
+command = ".bytedesk/task-management/bin/tm-hook pre-task-create"
+timeout = 10
+
+[[hooks]]
+event = "PostToolUse"
+matcher = "TodoList"
+command = ".bytedesk/task-management/bin/tm-hook post-task"
+timeout = 10
+
+[[hooks]]
+event = "Stop"
+command = ".bytedesk/task-management/bin/tm-hook stop"
+timeout = 10

@@ -13,6 +13,7 @@
 | Claude Code | `TaskCreate`, `TaskUpdate` |
 | Grok | `todo_write` |
 | Codex CLI | `update_plan` |
+| Kimi Code | `TodoList` |
 
 ## Adding a harness
 

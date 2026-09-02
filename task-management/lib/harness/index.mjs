@@ -19,6 +19,7 @@
 import * as claude from "./claude.mjs";
 import * as grok from "./grok.mjs";
 import * as codex from "./codex.mjs";
+import * as kimi from "./kimi.mjs";
 import { applyIntents } from "./apply.mjs";
 import { gateTaskCreate } from "../enforce.mjs";
 
@@ -28,6 +29,7 @@ const ADAPTERS = {
   TaskUpdate: claude,
   todo_write: grok,
   update_plan: codex,
+  TodoList: kimi,
 };
 
 export function toolNameOf(input) {
@@ -103,3 +105,4 @@ export { applyIntents } from "./apply.mjs";
 export { CLAUDE_TOOLS } from "./claude.mjs";
 export { GROK_TOOLS } from "./grok.mjs";
 export { CODEX_TOOLS } from "./codex.mjs";
+export { KIMI_TOOLS } from "./kimi.mjs";

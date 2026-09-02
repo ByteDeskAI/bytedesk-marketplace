@@ -278,6 +278,11 @@ test("tm_worktree new claims and provisions, rm releases and removes, list reads
   call("tm_epic", { action: "new", title: "Parity" }, p);
   const made = call("tm_task_create", { title: "isolated work" }, p);
 
+  // The claim interlock only engages for sessions with a real id (a null-session
+  // claim is deliberately unowned), so this test must not depend on an ambient
+  // CLAUDE_CODE_SESSION_ID — harnesses like Kimi export none.
+  const ambient = process.env.CLAUDE_CODE_SESSION_ID;
+  process.env.CLAUDE_CODE_SESSION_ID = "first-session";
   const res = call("tm_worktree", { action: "new", id: made.id, share: false }, p);
   assert.equal(res.ok, true, res.error);
   assert.ok(existsSync(res.worktree), "a real checkout exists");
@@ -303,6 +308,8 @@ test("tm_worktree new claims and provisions, rm releases and removes, list reads
   assert.equal(read(made.id, p).worktree, undefined);
   assert.equal(state(p).claims[made.id], undefined, "rm releases the claim");
   assert.equal(call("tm_worktree", { action: "new" }, p).ok, false, "new needs an id");
+  if (ambient === undefined) delete process.env.CLAUDE_CODE_SESSION_ID;
+  else process.env.CLAUDE_CODE_SESSION_ID = ambient;
 });
 
 test("tm_link writes both ends and remove leaves both clean", () => {
