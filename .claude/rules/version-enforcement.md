@@ -30,34 +30,49 @@ If the user explicitly says "bump major" / "bump minor" / "bump patch", honor th
 
 Every bump must update **all** of a plugin's version markers in a single commit. Mismatches break the reuse-or-reload check + the marketplace listing.
 
-For `fleet` specifically:
+**No plugin carries a version on the Claude side.** As of 2026-09-03 all 18 plugins have no `"version"` key in `<plugin>/.claude-plugin/plugin.json` and none in their `.claude-plugin/marketplace.json` entry — verified across the whole marketplace. That is the intended state (see *Versionless plugins* below): it lets each plugin resolve to its git commit SHA. **Never add a `version` to either of those two files.** Earlier revisions of this rule listed them as markers for `fleet` and `design-patterns`; that was stale and the tables below are corrected.
+
+The semvers that DO exist live in the other ecosystems' manifests and in build strings, because Codex, Grok, Kimi and npm consumers resolve a real version rather than a SHA.
+
+For `fleet` (all three live markers currently read `1.16.2`):
 
 | File | Field |
 |---|---|
-| `fleet/.claude-plugin/plugin.json` | `"version"` |
-| `.claude-plugin/marketplace.json` | top-level `"version"` AND `plugins[*].version` for the matching plugin |
+| `.claude-plugin/marketplace.json` | top-level `"version"` — **always**, for any plugin change |
+| `fleet/.codex-plugin/plugin.json` | `"version"` |
 | `fleet/web/package.json` | `"version"` |
-| `fleet/web/server/server.go` | `const buildVersion = "vX.Y.Z-<tag>"` — keep the trailing `-<tag>` (e.g. `-bdm44`) so it advances even when only the patch number is unchanged. |
+| `fleet/web/server/server.go` | `const buildVersion = "vX.Y.Z-<tag>"` — keep the trailing `-<tag>` (e.g. `-bdm51`) so it advances even when the patch number is unchanged. |
 | `fleet/CHANGELOG.md` | new section under `## [X.Y.Z] — <date>` with **Added / Changed / Fixed / Removed / Build** subsections as relevant. Date is today (use `currentDate` from your context). |
 
-For `design-patterns` specifically (a Python plugin — no `web/` SPA or Go server, so **four markers** plus the marketplace entry):
+For `design-patterns` (a Python plugin — no `web/` SPA or Go server; all three live markers currently read `0.9.2`):
 
 | File | Field |
 |---|---|
-| `design-patterns/.claude-plugin/plugin.json` | `"version"` |
+| `.claude-plugin/marketplace.json` | top-level `"version"` — **always**, for any plugin change |
 | `design-patterns/.codex-plugin/plugin.json` | `"version"` |
 | `design-patterns/lib/pattern_mcp_server.py` | `SERVER_INFO = {... "version": "X.Y.Z"}` |
 | `design-patterns/lib/workbench_views.py` | the `vX.Y.Z` display string |
-| `.claude-plugin/marketplace.json` | the `design-patterns` entry's `"version"` — and bump the marketplace top-level `"version"` (minor when a plugin is added) |
 | `design-patterns/CHANGELOG.md` | new section under `## [X.Y.Z] — <date>` with **Added / Changed / Fixed / Removed / Build** subsections as relevant. Date is today (use `currentDate` from your context). |
+
+Other plugins carry non-Claude semvers too — `design-system` at `1.5.4` across `.codex-plugin`, `.grok-plugin`, `kimi.plugin.json` and `package.json`; `teamcity-mcp` at `0.2.0` across `package.json`, `manifest.json`, `gemini-extension.json` and `server.ts`; `agent-orchestration` at `package.json` `0.2.0` while `src/mcp.mjs` advertises `0.2.3`; the seven `platform-*` plugins and `bytedesk-goals`/`omnigent-dev`/`structurizr` at `.codex-plugin` `0.1.1`. **Before bumping any plugin, grep for its actual markers rather than trusting this list** — these drift, and several are stale today:
+
+```bash
+grep -rnE '"version"|buildVersion|SERVER_INFO' <plugin>/ \
+  --include='*.json' --include='*.go' --include='*.py' --include='*.ts' --include='*.mjs' \
+  | grep -vE 'node_modules|/evals/|/dist/|package-lock'
+```
+
+Filter the results before believing them. Eval workspaces and run artifacts record the version of the *tool that produced them* — `bytedesk-designer` has 14 `state.json` files reading `"version": "codex-cli 0.146.0"`, none of which is a plugin marker. A marker is a version this repo is responsible for advancing; anything stamped by an external tool is data.
 
 For any other future plugin under `<plugin>/`: replicate whichever of these markers the plugin actually has — the invariant is that every version-carrying file the plugin ships, plus its `marketplace.json` entry, advance together in one commit.
 
 ### Versionless plugins
 
-Most plugins here ship **no** `version` field at all — `task-management`, `agent-orchestration`, `bytedesk-designer`, `knowledge-management`, `structurizr`, the `platform-*` set, and every other internal plugin. That is deliberate: a pinned entry version freezes the plugin at that string, so the absence lets the version resolve to the git commit SHA and every commit becomes a new version automatically. Do **not** add a `version` to a versionless plugin's `plugin.json` or its `marketplace.json` entry.
+"Versionless" here means **Claude-side only**, and it is true of every plugin in this marketplace without exception: no `version` in `<plugin>/.claude-plugin/plugin.json`, none in the `marketplace.json` entry. That is deliberate — a pinned entry version freezes the plugin at that string, so the absence lets it resolve to the git commit SHA and every commit becomes a new version automatically. Do **not** add a `version` to either file for any plugin, ever.
 
-Versionless does not mean bump-free. For these plugins the required markers are:
+Be precise about the distinction: a plugin can be Claude-side versionless and still carry a real semver for another ecosystem. `structurizr`, `bytedesk-goals`, `omnigent-dev` and the seven `platform-*` plugins all declare `0.1.1` in `.codex-plugin/plugin.json` while being versionless to Claude. Some plugins — `task-management`, `bytedesk-designer`, `agentconf`, `plugin-rsync`, `design-patterns`' Claude manifest — genuinely carry no version anywhere on the Claude path.
+
+Versionless does not mean bump-free. For a plugin with no ecosystem semver of its own, the required markers are:
 
 | File | Field |
 |---|---|
@@ -82,14 +97,16 @@ Nothing else. The top-level marketplace version is the whole gate, which is exac
 
 2. After pulling, check current versions:
    ```bash
-   grep -E '"version"|buildVersion' \
-     fleet/.claude-plugin/plugin.json \
+   # Top-level marketplace version (the always-bump field), then the plugin's own markers.
+   # NOTE: fleet/.claude-plugin/plugin.json has no version key — do not add one.
+   grep -E '^  "version"' .claude-plugin/marketplace.json
+   grep -rnE '"version"|buildVersion' \
+     fleet/.codex-plugin/plugin.json \
      fleet/web/package.json \
-     fleet/web/server/server.go \
-     .claude-plugin/marketplace.json
+     fleet/web/server/server.go
    ```
 3. Decide the bump category using the table above (compare against what's now on disk, post-pull).
-4. Update all five markers + write the CHANGELOG entry.
+4. Update every marker the grep found + write the CHANGELOG entry.
 5. Run typecheck / build / tests so the new version compiles into the binary.
 6. Commit with a message that calls out the version bump (e.g. `fleet: release vX.Y.Z — short summary`).
 7. The CHANGELOG block should reference Jira ticket keys (`BDM-N`) for traceability and group bullets under Added/Changed/Fixed/Removed/Build per Keep a Changelog.
