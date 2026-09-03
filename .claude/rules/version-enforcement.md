@@ -12,6 +12,8 @@ A bump is required for any commit that touches:
 - `fleet/web/server/dist/` (committed bundle) — even if only the build artifact changed
 - `fleet/.claude-plugin/plugin.json` itself — implies a metadata change
 
+**The marketplace top-level `version` bumps on EVERY commit that touches any `<plugin>/` directory — no exceptions.** This holds even when the plugin itself carries no version marker (see *Versionless plugins* below). It is the only thing a remote client compares; a plugin dir can change 25 times, and if `.claude-plugin/marketplace.json`'s top-level `version` never moves, `/plugin marketplace update` reports "already at the latest version" and every external install keeps serving stale code. Local installs never show this — a `directory`-source marketplace is read live off disk, so the bug is invisible on the authoring machine.
+
 A bump is **not** required for repo-only files that don't ship in the plugin: top-level `CLAUDE.md`, `.claude/rules/`, `.claude/settings.json`, root `README.md`, repo-level `.gitignore`. Use judgment — when in doubt, bump.
 
 ## Choosing the bump size
@@ -51,6 +53,19 @@ For `design-patterns` specifically (a Python plugin — no `web/` SPA or Go serv
 
 For any other future plugin under `<plugin>/`: replicate whichever of these markers the plugin actually has — the invariant is that every version-carrying file the plugin ships, plus its `marketplace.json` entry, advance together in one commit.
 
+### Versionless plugins
+
+Most plugins here ship **no** `version` field at all — `task-management`, `agent-orchestration`, `bytedesk-designer`, `knowledge-management`, `structurizr`, the `platform-*` set, and every other internal plugin. That is deliberate: a pinned entry version freezes the plugin at that string, so the absence lets the version resolve to the git commit SHA and every commit becomes a new version automatically. Do **not** add a `version` to a versionless plugin's `plugin.json` or its `marketplace.json` entry.
+
+Versionless does not mean bump-free. For these plugins the required markers are:
+
+| File | Field |
+|---|---|
+| `.claude-plugin/marketplace.json` | top-level `"version"` — **always** |
+| `<plugin>/CHANGELOG.md` | new `## [Unreleased]` / dated section, if the plugin keeps one |
+
+Nothing else. The top-level marketplace version is the whole gate, which is exactly why forgetting it is silent.
+
 ## Workflow
 
 1. **Pull latest first.** Background sessions / other branches may have already shipped a bump; using a stale version would either overwrite their work or land on an outdated baseline. Stash WIP if you have uncommitted changes.
@@ -78,7 +93,16 @@ For any other future plugin under `<plugin>/`: replicate whichever of these mark
 5. Run typecheck / build / tests so the new version compiles into the binary.
 6. Commit with a message that calls out the version bump (e.g. `fleet: release vX.Y.Z — short summary`).
 7. The CHANGELOG block should reference Jira ticket keys (`BDM-N`) for traceability and group bullets under Added/Changed/Fixed/Removed/Build per Keep a Changelog.
-8. `git push origin main` — re-pull if the push is rejected (someone else committed during steps 4–7) and re-bump if their commit also bumped.
+8. **Before pushing, verify the marketplace version actually moved.** This is the check that catches the silent failure:
+   ```bash
+   # Any plugin dir touched since the last top-level marketplace version bump?
+   # -G, not -S: a bump keeps the occurrence count identical, so -S misses it.
+   # The 2-space indent pins it to the top-level field, not a plugin entry's.
+   last=$(git log -1 --format=%H -G'^  "version"' -- .claude-plugin/marketplace.json)
+   git log --oneline "$last"..HEAD --name-only | grep -oE '^[a-z][a-z0-9-]*/' | sort -u
+   ```
+   Output must be empty. Anything listed is a plugin whose changes remote clients cannot see — bump the top-level `version` before you push.
+9. `git push origin main` — re-pull if the push is rejected (someone else committed during steps 4–7) and re-bump if their commit also bumped.
 
 ## When to skip
 
