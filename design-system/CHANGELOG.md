@@ -1,5 +1,96 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Added the `task-management` profile (`DESIGN.md`, `PRODUCT.md`) and its
+  `[data-bd-product="task-management"]` accent scope, which inherits the Gateway
+  accent, and picked up the `designer-studio` profile already upstream with its
+  platform-accent scope. Published from immutable design-system source revision
+  `f652565`.
+
+## [1.5.4] — 2026-08-31
+
+Two payload republishes carried from upstream `design-system` main.
+
+### Added
+
+- Added the family generated-art contract section to every product profile, an
+  `agent-mail` PRODUCT.md and product accent, four product accent rows in the token
+  README, and a five-step guide for adding or changing a product accent. Published
+  from immutable design-system source revision `ce8774b`.
+
+### Changed
+
+- Rewrote the Toolbox profile to state the split explicitly: JetBrains Toolbox is the
+  functional reference only, and every visual value — colour, type, spacing, sizing,
+  radius, border, elevation — comes from the ByteDesk token set, which is what sets row
+  height and list density.
+- The family gains a resting breathing-room floor of `space.6` to a containing edge and
+  `space.5` between stacked elements, written as a floor rather than a value so density
+  stays a per-profile decision. Published from immutable design-system source revision
+  `dfaf002`.
+- Moved two accents by the smallest amount that meets the contrast contract the token
+  file had always asserted, hue and chroma held: `blue.500` oklch L 0.5910 → 0.5960
+  (`#0079F2` → `#047BF4`) and `success` L 0.5698 → 0.5718 (`#009118` → `#029219`), with
+  every alias — `interactive.blue`, `accent.default`, chart series 1 and 6,
+  `product.gateway`, `product.store` — and the generated TypeScript, Rust, and Go
+  adapters following. Published from immutable design-system source revision `ce8774b`.
+
+### Fixed
+
+- Added the missing `[data-bd-product]` scope for the four sites that inherit a
+  product accent (`agent-browser-website`, `agent-memory-website`, `capture-website`,
+  `bytedesk-ai`); without it `--bd-accent` fell back to brand orange. Corrected every
+  contrast ratio in the token file to the value it actually measures — eight in the
+  product group had drifted upward, and `text.secondary` claimed 10.8:1 while measuring
+  7.77:1. Published from immutable design-system source revision `ce8774b`.
+
+### Removed
+
+- Dropped the `mockups/direction-v1` reference images and their READMEs from the
+  published payload across all profiles, shrinking the distributed payload and both
+  manifests. Published from immutable design-system source revision `dfaf002`.
+
+## [1.5.3] — 2026-08-26
+
+### Added
+
+- Published the **Black Glass + Optical Layering** family visual language as a new
+  `DESIGN.md` section — material, layering, energy, typography, geometry, and motion —
+  together with its approved visual record (`README.md`, `DECISIONS.md`) under
+  `artifacts/family/black-glass-optical-layering/`, which carries the measured material
+  contract, the reference roles, and the open light-parity asset.
+- Added `CONNECTIVITY.md` to the payload: the source → manifest → plugin → vendored
+  consumer → CI lifecycle and per-layer ownership, delivered inside the payload so both
+  sides read the same contract.
+- Light is now a shipping family theme. `data-bd-theme="dark|light"` renders the exact
+  semantic counterpart — identical architecture, geometry, and behavior, with only
+  ground, translucency, shadow, highlight, and ink values changing.
+- Added governed dark richness, `data-bd-richness="soft|balanced|rich"` (default
+  `balanced`), which adjusts canvas depth, glass opacity, ambient shadow, and bloom
+  only, and never layout, type, semantic color, focus, or minimum contrast.
+- Added the material and depth tokens the language needs — `--bd-material-blur-*`,
+  `--bd-material-shell-opacity`, `--bd-material-top-light`, `--bd-material-ambient-*`,
+  `--bd-shadow-shell`, `--bd-shadow-focus-glow`, `--bd-shadow-attention-glow`, and the
+  richness strengths — exposed them through the Tailwind theme, and regenerated the
+  TypeScript, Rust, and Go adapters.
+- Added `artifacts` as a first-class capability category in the manifest schema, in
+  `bd-design list` / `inspect`, and in the MCP server's `list_design_items`.
+- Added product identity assets: the Omnigent mark and wordmarks (including reverse),
+  Agent Browser and Capture favicons, and the Workforce icon.
+
+### Changed
+
+- Retuned the dark neutral ramp — grounds, ink, and borders — to the material contract
+  measured from the primary dark reference, and moved `product.toolbox` from `#7C8AE8`
+  to `#4C7DFF`.
+- Rewrote the Toolbox `DESIGN.md` and `PRODUCT.md` against the new family language, and
+  renumbered the shared `DESIGN.md` sections 4–9 around the inserted visual-language
+  section.
+- Published from immutable design-system source revision `43248f3`.
+
 ## [1.5.2] — 2026-08-25
 
 ### Fixed

@@ -1,7 +1,40 @@
 # Changelog
 
-## 0.2.0 - Unreleased
+## Unreleased
 
+- Add `claude.fable-5-1` (model `claude-fable-5-1`) to the trusted model catalog and put it first on
+  the `architecture.proposal`, `design.default`, `implementation.default`, and
+  `provider.claude.default` aliases, ahead of `claude.opus-5` and the `claude.opus-4-8` fallback.
+- Accept an optional exact `endpointId` on routing input, validated against the trusted catalog so
+  arbitrary model IDs are rejected; it narrows the model allowlist to that one endpoint.
+- Add an `image_generation` capability ID, advertised as supported for the Claude provider and
+  unknown elsewhere until a probe says otherwise.
+- Route Claude work to `claude.opus-5` (model `claude-opus-5`) on every default alias, with
+  `claude.opus-4-8` as the deterministic fallback. The Claude Agent SDK ships a static model table
+  that lags the CLI, so a build-time esbuild plugin clones the newest Opus entry under the new ID
+  and fails loudly if the table shape changes or upstream adds the model itself. Synced from the
+  released upstream source; the MCP server now advertises `0.2.3` instead of `0.1.0`.
+- Stop every idle server from re-reading every run forever. Each host — claude, codex, grok, kimi —
+  runs its own server against one shared state root, and each swept the full store every 5 seconds,
+  reconciling every snapshot on disk (68 runs, 154 ms a pass, ~3% of a core per server) only to
+  rediscover that almost all of them are terminal; 56 idle servers had accumulated 52 CPU-hours.
+  A zero-byte `.active` marker, written on create and cleared on any terminal transition, turns the
+  sweep into one stat per run — 154 ms becomes 3 ms — and only unfinished runs are read. The marker
+  is a hint, never the truth: a stale one costs one snapshot read and the sweep clears it, and runs
+  predating the scheme are swept once and then marked. The fixed interval becomes a
+  self-rescheduling timer that backs off toward a minute while consecutive sweeps find nothing.
+  Not addressed: nothing yet elects a single recovery owner among the servers on one machine.
+- Discover providers in the caller's directory instead of the server process's own. Discovery ran in
+  the MCP server's working directory — the plugin's directory — so a version-manager shim such as
+  volta, which answers per project by walking up from the working directory, returned the plugin's
+  own `node_modules` copy (correctly rejected by `externalProviderPaths`) while the PATH shim's
+  realpath sat outside the trusted roots: no path could resolve, and codex failed
+  `executable_not_found` on a machine that runs it daily. The same call fails with "Could not
+  determine current directory" when a long-lived server's cwd has been deleted. Discovery now takes
+  the consumer directory explicitly and falls back only to a directory that still exists (caller's
+  path, `$PWD`, a still-valid `process.cwd()`, home), the availability cache is keyed on that
+  directory because one entry cannot answer for two consumers pinning different provider versions,
+  and `orchestration_doctor` accepts `consumerCwd` like every other grounded tool.
 - Supervise the loopback session host with `systemd-run --user --scope` on Linux/WSL so the operator
   page outlives the MCP process. Native Windows stays in-process.
   `AGENT_ORCHESTRATION_SESSION_SUPERVISOR=0` forces in-process. The session-host CLI is a store-backed

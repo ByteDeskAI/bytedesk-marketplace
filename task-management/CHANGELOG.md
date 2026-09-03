@@ -186,6 +186,15 @@
 - **Tool-call markup is refused at the store boundary.** A body containing an agent's own `<parameter …>` / `<invoke …>` fragments is rejected by `write()`, so every entry point is covered — CLI, MCP, the dashboard's `PATCH /api/task/:id`, and the harness bridge mirroring a native `TaskCreate`. Eleven records were written with their own tool calls embedded before this existed, including one whose entire body was replaced by another task's progress note; the store accepted all of it silently. The check matches the corruption's shape (a tag alone on a line, at the start of one, or trailing at the end of the body) rather than the substring, and skips fenced code so documenting the rule still saves.
 
 ### Changed
+- **The README describes the rewritten dashboard** (TM-052, TM-053). The board sections are
+  rewritten around the multi-screen app: every screen and the route it lives at, the
+  inspector-over-list model (`/tasks/<id>` over the list you came from, back closes it), the live
+  entity store, the keyboard map, what the browser is allowed to write, the dev loop, and the
+  browser tests that are not part of `run-tests.sh`. The stale claims go with it — the Atlaskit
+  component library and the drawer-era five-column board — and `ntfy.categories` joins the
+  documented settings catalog, which now names the gates (`enforce`, `wipLimit`,
+  `requireAcceptance`) the board and `tm config` write the same way. `docs/dashboard-api.md`
+  follows the same rename.
 - **Dashboard dependencies removed.** `@atlaskit/*`, `@compiled/*`, `@tanstack/ai-react`; the served bundle is ~70 kB gzipped in total.
 - Worktree `hardlink` share copies on Windows instead of calling `cp -al`.
 - **Global command installation and SessionStart autolinking are removed.** Repositories invoke the committed launchers under `.bytedesk/task-management/bin/`; `.bytedesk/task-management/bin/tm doctor --fix` removes legacy links only when they are proven to belong to this plugin.
@@ -197,6 +206,13 @@
   exercised the claim interlock when `CLAUDE_CODE_SESSION_ID` happened to be set by whatever ran
   the suite — harnesses like Kimi export none. The test now pins its own session ids and restores
   the ambient one (or unsets it) afterwards, so it proves the interlock everywhere.
+- **The keyboard browser test measured the wrong column in grouped mode** (TM-057). Grouped mode
+  renders the same status column once per lane and `j` walks that whole status down the screen, so
+  counting the cards in one `[role=list]` under-measured the column and the move-or-clamp
+  assertion could read a legitimate move as a failure. `keyboard.mjs` now counts depth across
+  every `[data-tm-column]` carrying that status, and `l` asserts the contract it actually has —
+  cross to the next non-empty column when one exists to the right, stay put when the cursor is
+  already in the last one — instead of assuming there is always somewhere to go.
 - **Re-dispatching a live task failed in git and released the worker's claim.** A second
   `tm dispatch` of an already-dispatched task re-claimed idempotently (same session), died in
   `git worktree add` ("already exists"), and the rollback then released the LIVE worker's claim

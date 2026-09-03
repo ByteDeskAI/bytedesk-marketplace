@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
   "name": "bytedesk",
-  "version": "1.41.0",
+  "version": "1.41.1",
   "description": "ByteDesk's Claude and Codex marketplace — orchestration, design systems, architecture, project management, and platform engineering plugins.",
   "owner": {
     "name": "ByteDesk AI",
