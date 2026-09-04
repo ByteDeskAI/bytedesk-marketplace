@@ -21,7 +21,7 @@ const DIST = join(HERE, "dist");
 // icons and the manifest are then a function of the design system, and `bd-design sync`
 // moves them with it. index.html carries the same pair as media-queried theme-color.
 const TOKENS = JSON.parse(
-  readFileSync(join(HERE, "..", "..", ".context", "design-system", "tokens", "bytedesk.tokens.json"), "utf8"),
+  readFileSync(join(HERE, "..", "..", ".context", "design-system", "foundation", "tokens.json"), "utf8"),
 );
 const token = (path) => path.split(".").reduce((o, k) => o[k], TOKENS).$value;
 const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));

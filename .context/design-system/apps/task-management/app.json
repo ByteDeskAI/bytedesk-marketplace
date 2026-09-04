@@ -1,0 +1,32 @@
+{
+  "slug": "task-management",
+  "name": "ByteDesk Task Management",
+  "kind": "plugin-dashboard",
+  "status": "active",
+  "accent": {
+    "mode": "inherits",
+    "from": "gateway"
+  },
+  "personality": {
+    "density": "compact",
+    "motion": "calm",
+    "richness": "balanced",
+    "motif": "one claimed card among many resting ones",
+    "icon": "the claimed card, lit along one edge"
+  },
+  "source": {
+    "repository": "ByteDeskAI/design-system",
+    "path": "profiles/task-management/DESIGN.md",
+    "commit": "f652565254021610f3cc3b34aee413ad8033e0e8"
+  },
+  "consumers": [
+    "ByteDeskAI/bytedesk-marketplace"
+  ],
+  "resolvedAccent": {
+    "mode": "inherits",
+    "from": "gateway",
+    "hex": "#047BF4",
+    "light": "#255DA5",
+    "root": "gateway"
+  }
+}

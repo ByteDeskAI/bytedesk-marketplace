@@ -1,5 +1,5 @@
-/* bytedesk design-system import is prepended by bd-design init */
-@import "../../../../.context/design-system/tokens/css/bytedesk.css";
+/* ByteDesk family tokens: the @bytedesk/design-tokens package, pinned to the same release as .design-system.json */
+@import "@bytedesk/design-tokens/bytedesk.css";
 
 @import "./tokens.css";
 @import "./base.css";

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-labelledby="task-management-favicon-32-title">
+  <title id="task-management-favicon-32-title">ByteDesk Task Management</title>
+  <path fill="#E6E8EB" d="M3 25V4H10V25H12V8Q12 6 14 6H17Q19 6 19 8V25H21V8Q21 6 23 6H26Q28 6 28 8V25H29Q30 25 30 26V29Q30 30 29 30H3Q2 30 2 29V26Q2 25 3 25Z"/>
+  <path fill="#047BF4" d="M4 2H9Q10 2 10 3V4H3V3Q3 2 4 2Z"/>
+</svg>

@@ -6,11 +6,11 @@ on:
     branches: [main]
 
 jobs:
-  integrity:
+  check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: node .bytedesk/design-system-check.mjs --dir .context/design-system
+      - run: npx -y @bytedesk/design-client@1.6.3 sync --check

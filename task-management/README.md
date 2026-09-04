@@ -933,7 +933,7 @@ expose has a place on the board:
 | `/settings`, `/help` | the catalog above; shortcuts, the skills catalog with copyable `/task-management:*` commands, the CLI cheatsheet |
 
 It is built on the **ByteDesk design system**: the family tokens are vendored at
-`.context/design-system/` by `bd-design sync`, the app consumes them through `--tm-*` roles in
+`.context/design-system/` by `design-client sync`, the app consumes them through `--tm-*` roles in
 `dashboard/src/styles/tokens.css`, and no colour, radius, spacing or motion literal exists outside
 that file (`npm run design:check` greps for one). Dark is the default and light is its equal;
 status is always a dot **and** a word; ids, SHAs, paths and timestamps are in Plex Mono, self-hosted
@@ -1073,9 +1073,9 @@ start and says so (instead of starting and failing every request), and it treats
 port file — one left behind by a board that died — the same way, by checking the recorded pid
 is alive. `npm run build` never needs a board.
 
-The tokens come from `.context/design-system/tokens/css/bytedesk.css`, vendored by the
-`design-system` plugin (`bd-design sync`; `node .bytedesk/design-system-check.mjs` says whether
-the vendored copy matches the plugin). Components consume the `--tm-*` roles in
+The tokens come from the `@bytedesk/design-tokens` package (`bytedesk.css`), pinned to the
+release named in the repo-root `.design-system.json`; `npx @bytedesk/design-client sync --check`
+says whether the vendored `.context/design-system/` tree matches that pin. Components consume the `--tm-*` roles in
 `dashboard/src/styles/tokens.css` and never a foundation value, and `npm run design:check` fails
 on any colour literal under `src/`.
 

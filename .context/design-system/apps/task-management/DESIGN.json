@@ -1,0 +1,154 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-04T00:08:58Z",
+  "title": "Design System: ByteDesk Task Management",
+  "extensions": {
+    "colorMeta": {
+      "accent": {
+        "role": "primary",
+        "displayName": "ByteDesk Task Management accent",
+        "canonical": "#047BF4",
+        "mode": "inherits",
+        "inherits": "gateway"
+      },
+      "interaction-blue": {
+        "role": "primary",
+        "displayName": "Interaction blue",
+        "canonical": "#047BF4",
+        "tonalRamp": [
+          "#071221",
+          "#0E2037",
+          "#193356",
+          "#1F487C",
+          "#255DA5",
+          "#047BF4",
+          "#468CE8",
+          "#71A7EF",
+          "#9CC0F1",
+          "#C7D9F2"
+        ]
+      },
+      "brand-orange": {
+        "role": "secondary",
+        "displayName": "ByteDesk orange",
+        "canonical": "#EC4E02"
+      },
+      "canvas-dark": {
+        "role": "neutral",
+        "displayName": "Dark canvas",
+        "canonical": "#101316"
+      },
+      "canvas-light": {
+        "role": "neutral",
+        "displayName": "Light canvas",
+        "canonical": "#ECEDEF"
+      }
+    },
+    "typographyMeta": {
+      "body": {
+        "displayName": "Body",
+        "purpose": "Every interface surface. IBM Plex Sans."
+      },
+      "machine-text": {
+        "displayName": "Machine text",
+        "purpose": "Terminal emulation, log viewers, code, secret reveal. Nothing else."
+      }
+    },
+    "shadows": [
+      {
+        "name": "shell",
+        "value": "inset 0 1px 0 #FFFFFF0A, 0 24px 56px #05080DB8, 0 8px 20px #07182E66",
+        "purpose": "The one floating command shell."
+      },
+      {
+        "name": "raised",
+        "value": "inset 0 1px 0 #FFFFFF08, 0 8px 20px #05080D66",
+        "purpose": "Raised surfaces that explain real hierarchy."
+      },
+      {
+        "name": "focus-glow",
+        "value": "0 0 0 1px #1B84F3, 0 0 24px #1B84F34D",
+        "purpose": "Focus and selection."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-out-expo",
+        "value": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Default easing."
+      },
+      {
+        "name": "duration-fast",
+        "value": "150ms",
+        "purpose": "fast transitions"
+      },
+      {
+        "name": "duration-base",
+        "value": "250ms",
+        "purpose": "base transitions"
+      },
+      {
+        "name": "duration-slow",
+        "value": "400ms",
+        "purpose": "slow transitions"
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "compact-max",
+        "value": "719px"
+      },
+      {
+        "name": "standard-min",
+        "value": "720px"
+      },
+      {
+        "name": "wide-min",
+        "value": "1200px"
+      },
+      {
+        "name": "ultrawide-min",
+        "value": "1600px"
+      }
+    ],
+    "personality": {
+      "density": "compact",
+      "motion": "calm",
+      "richness": "balanced",
+      "motif": "one claimed card among many resting ones",
+      "icon": "the claimed card, lit along one edge"
+    },
+    "richness": {
+      "soft": {
+        "canvas": "#1B1E22",
+        "shell": "#22262A"
+      },
+      "balanced": {
+        "canvas": "#101316",
+        "shell": "#171A1D"
+      },
+      "rich": {
+        "canvas": "#090C0F",
+        "shell": "#121518"
+      }
+    }
+  },
+  "components": [],
+  "narrative": {
+    "northStar": "Black Glass + Optical Layering",
+    "overview": "Task Management is the dashboard of the `task-management` plugin shipped by\n`bytedesk-marketplace`: a live board over a git-tracked markdown store where Claude,\nCodex, and Grok sessions and the humans steering them plan, claim, block, prove, and\nfinish work, every verb a file the store already wrote. It is not a Jira clone and not\na KPI-tile admin template; it shows who holds what, why a card stopped, and what the next\nunblocked thing is, on any width, without a mouse. Register: product.\n\nCreative north star: \"The Claim Board.\" The composition motif is one claimed card among\nmany resting ones. Personality: compact density, calm motion, balanced richness, and the\nclaimed card as the signature icon metaphor, one plate among many lit along one edge.\nRead after the shared foundation in `foundation/DESIGN.md`; this file names only what\nTask Management adds or changes.",
+    "keyCharacteristics": [
+      "**Material:** near-opaque graphite or pearl glass, a fine perimeter, subtle inner",
+      "**Neutrals:** no neutral in the system is `#000` or `#fff`. Every neutral is tinted",
+      "**Layering:** canvas, then floating shell, then inset region, then raised or overlay",
+      "**Energy:** electric blue carries interaction, focus, selection, agent activity, and",
+      "**Typography:** IBM Plex Sans for every interface surface: chrome, labels, paths,",
+      "**Geometry:** an 8px rhythm, 1px hairlines, restrained 8 to 16px shell radii, and",
+      "**Breathing room:** the family's resting floor is `space.6` (16px) between content and",
+      "**Motion:** short, interruptible, state-led, with one clear focal event. Ambient glow"
+    ],
+    "rules": [],
+    "dos": [],
+    "donts": []
+  }
+}

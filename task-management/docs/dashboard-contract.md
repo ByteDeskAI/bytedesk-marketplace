@@ -185,9 +185,9 @@ worktree, doctor fix) are not optimistic. Rollback on `WriteError`; the toast sh
 - Colour, space, radius, type, shadow, motion come **only** from `var(--bd-*)` or the semantic
   aliases `var(--tm-*)` in `styles/tokens.css`. No hex, `rgb()`, `hsl()`, `oklch()` literals
   anywhere under `src/`. Gate: `grep -rnE '#[0-9a-fA-F]{3,8}|rgba?\(|hsla?\(|oklch\(' dashboard/src` returns nothing.
-- `build-pwa.mjs` reads its three colours from `.context/design-system/tokens/bytedesk.tokens.json`.
-- The token stylesheet is `.context/design-system/tokens/css/bytedesk.css`, imported once from
-  `styles/app.css` (the `@import` line `bd-design init` writes). Dark is `:root`; light is
+- `build-pwa.mjs` reads its three colours from `.context/design-system/foundation/tokens.json`.
+- The token stylesheet is `@bytedesk/design-tokens/bytedesk.css`, imported once from
+  `styles/app.css`. Dark is `:root`; light is
   `[data-bd-theme="light"]`.
 - Semantic aliases (`--tm-*`, defined once in `tokens.css`, both themes):
   surfaces `--tm-bg-base/-subtle/-surface/-elevated/-overlay`; text `--tm-text/-2/-3/-disabled`;

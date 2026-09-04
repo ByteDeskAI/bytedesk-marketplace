@@ -35,6 +35,7 @@ agentdb.rvf.lock
 # The design-system plugin and governed design mockups ship approved visual assets.
 !design-system/payload/**/*.png
 !.bytedesk/designer/mockups/**/*.png
+!.context/design-system/**/*.png
 
 # design-patterns plugin — Python artifacts
 __pycache__/

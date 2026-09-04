@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-labelledby="task-management-mono-title task-management-mono-desc">
+  <title id="task-management-mono-title">ByteDesk Task Management, monochrome</title>
+  <desc id="task-management-mono-desc">Three cards stand in a shared lane, with the taller card marking the claim.</desc>
+  <path fill="#E6E8EB" d="M4 2H9Q10 2 10 3V25H12V8Q12 6 14 6H17Q19 6 19 8V25H21V8Q21 6 23 6H26Q28 6 28 8V25H29Q30 25 30 26V29Q30 30 29 30H3Q2 30 2 29V26Q2 25 3 25V3Q3 2 4 2Z"/>
+</svg>
