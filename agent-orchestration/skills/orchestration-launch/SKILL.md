@@ -31,7 +31,10 @@ Resolve `AO` as `../../bin/ao-topology` relative to this skill (the installed pl
    matters (a missing skill for a designer matters; a generic fallback for a CLI the user chose on
    purpose does not).
 6. **Launch**: same command without `--dry-run`. Report exactly what it prints: run dir, session
-   name, per-agent readiness, warnings, and the attach command.
+   name, which provider each agent came up on (and what it skipped — a `fell back to` warning
+   means a usage limit or missing CLI was handled automatically), warnings, and the attach command.
+   An agent on `NO PROVIDER` means its whole chain failed; fix the CLI and run
+   `AO failover --run <run_dir> --agent <id> --to <cli:model>`.
 7. **Tell the user how to watch and steer**, in two lines: `tmux attach -t <session>` to watch
    every pane (the conductor is the main pane; `Ctrl-b` then arrow keys to move between panes,
    `Ctrl-b d` to detach), and `AO status --run <run_dir>` from any shell for the journal.

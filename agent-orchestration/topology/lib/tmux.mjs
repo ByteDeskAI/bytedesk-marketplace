@@ -88,6 +88,11 @@ export async function listPanes(session) {
     });
 }
 
+/** Kill whatever runs in the pane and give it a fresh shell in the same place. */
+export async function respawnPane(pane) {
+  await tmux(["respawn-pane", "-k", "-t", pane]);
+}
+
 export async function killSession(session) {
   await tmux(["kill-session", "-t", `=${session}`], { allowFailure: true });
 }

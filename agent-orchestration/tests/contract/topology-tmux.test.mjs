@@ -33,8 +33,8 @@ test("launch → send → wait → status → stop with fake agents in tmux", { 
     layout: "grid",
     agents: [
       { id: "conductor", role: "orchestrator", cli: "fake-agent", model: "fable", args: [fakeAgent] },
-      { id: "worker-a", role: "worker", cli: "fake-agent", model: "w1", args: [fakeAgent] },
-      { id: "worker-b", role: "designer", cli: "fake-agent", model: "w2", args: [fakeAgent], skills: ["definitely-missing-skill"] },
+      { id: "worker-a", role: "worker", candidates: ["no-such-cli-zz:foo", "fake-limit:x", "fake-agent:w1"], args: [fakeAgent] },
+      { id: "worker-b", role: "designer", candidates: "fake-agent:w2, fake-agent:w3", args: [fakeAgent], skills: ["definitely-missing-skill"] },
     ],
     workflow: [{ stage: "ping", from: "conductor", to: ["worker-a", "worker-b"] }],
   };
@@ -49,6 +49,11 @@ test("launch → send → wait → status → stop with fake agents in tmux", { 
     assert.equal(launched.agents.length, 3);
     assert.ok(launched.agents.every((agent) => agent.ready), JSON.stringify(launched, null, 2));
     assert.ok(launched.warnings.some((warning) => warning.includes("definitely-missing-skill")));
+    const workerA = launched.agents.find((agent) => agent.id === "worker-a");
+    assert.equal(workerA.provider, "fake-agent:w1");
+    assert.deepEqual(workerA.attempts.map((attempt) => attempt.label), ["no-such-cli-zz:foo", "fake-limit:x", "fake-agent:w1"]);
+    assert.match(workerA.attempts[1].outcome, /usage limit/);
+    assert.ok(launched.warnings.some((warning) => warning.includes("worker-a: fell back to fake-agent:w1")));
 
     const bootstrap = await readFile(join(runDir, "agents", "worker-b", "BOOTSTRAP.md"), "utf8");
     assert.match(bootstrap, /Role: \*\*designer\*\*/);
@@ -76,6 +81,22 @@ test("launch → send → wait → status → stop with fake agents in tmux", { 
     assert.equal(status.session_alive, true);
     assert.equal(status.pending_count, 0);
     assert.ok(status.agents.every((agent) => agent.alive));
+    assert.deepEqual(status.agents.find((agent) => agent.id === "worker-b").chain, ["fake-agent:w2", "fake-agent:w3"]);
+
+    // Mid-run failover: send a message, fail worker-b over before it is answered, expect the new
+    // provider to receive the re-delivered pointer and answer with its own model id.
+    const sent2 = JSON.parse(await ao(["send", "--run", runDir, "--from", "conductor", "--to", "worker-b", "--stage", "again", "--body", "PING again", "--no-ring"], env));
+    const failover = JSON.parse(await ao(["failover", "--run", runDir, "--agent", "worker-b", "--providers-dir", join(root, "tests", "fixtures"), "--json"], env));
+    assert.equal(failover.ok, true, JSON.stringify(failover));
+    assert.equal(failover.from, "fake-agent:w2");
+    assert.equal(failover.to, "fake-agent:w3");
+    assert.deepEqual(failover.redelivered, [sent2.id]);
+    const waited2 = JSON.parse(await ao(["wait", "--run", runDir, "--from", "worker-b", "--message", sent2.id, "--timeout", "30s", "--poll", "500ms", "--json", "--quiet"], env));
+    assert.equal(waited2.ok, true, JSON.stringify(waited2));
+    assert.match(waited2.replies[0].body, /model: w3/);
+    // Chain exhausted → clear error.
+    const exhausted = JSON.parse(await ao(["failover", "--run", runDir, "--agent", "worker-b", "--providers-dir", join(root, "tests", "fixtures"), "--json"], env).catch((error) => error.stdout));
+    assert.equal(exhausted.code, "TOPOLOGY_CHAIN_EXHAUSTED");
 
     const stopped = JSON.parse(await ao(["stop", "--run", runDir], env));
     assert.equal(stopped.killed, true);

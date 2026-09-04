@@ -6,7 +6,15 @@ import { dirname } from "node:path";
 import { createInterface } from "node:readline";
 
 const model = process.argv.includes("--model") ? process.argv[process.argv.indexOf("--model") + 1] : "fake";
-process.stdout.write(`fake-agent ${model} ready\n> `);
+// `--fail limit` imitates a CLI that refuses to serve; `--fail crash` exits immediately.
+const failMode = process.argv.includes("--fail") ? process.argv[process.argv.indexOf("--fail") + 1] : null;
+if (failMode === "limit") {
+  process.stdout.write(`fake-agent ${model}: You have reached your usage limit. Try again later.\n`);
+  setTimeout(() => process.exit(1), 60_000);
+} else if (failMode === "crash") {
+  process.exit(3);
+}
+if (!failMode) process.stdout.write(`fake-agent ${model} ready\n> `);
 
 const rl = createInterface({ input: process.stdin, terminal: false });
 rl.on("line", async (line) => {

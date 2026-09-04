@@ -39,6 +39,10 @@
   page outlives the MCP process. Native Windows stays in-process.
   `AGENT_ORCHESTRATION_SESSION_SUPERVISOR=0` forces in-process. The session-host CLI is a store-backed
   control plane (`autoRecover: false`) so cancel / follow-up / decision still work after MCP exit.
+- Topology specs support ordered provider fallback chains (`candidates: ["cli:model", ...]`)
+  for every agent, launch-time fallback past missing CLIs and usage/auth failures, mid-run
+  `ao-topology failover` with mailbox re-delivery, launch-time input menus (`inputs.<name>.options`,
+  `ao-topology inputs`), and the `logo-design` template.
 - Add the tmux topology layer: declarative orchestration specs and templates, provider adapters for
   any installed CLI (claude, codex, grok, kimi, copilot, gemini, generic), domain-free role packs,
   a file-first mailbox with a JSONL journal, the `ao-topology` CLI (launch/send/wait/reply/capture/

@@ -28,9 +28,14 @@ developing the plugin.
    implementer or a custom role that has a `roles/<name>.md`), `cli`, `model` (only if named),
    `skills` (names of SKILL.md folders the agent must read), and one or two sentences of
    `instructions` specific to this run.
-   - "Fable" and "Opus" are Claude models: `cli: claude` with `model: fable` / `model: opus`.
+   - "Fable" and "Opus" are Claude models: `claude:fable` / `claude:opus`.
+   - **Every agent gets a fallback chain**, not a single provider: `"candidates": ["claude:fable",
+     "claude:opus", "codex"]` — ordered `cli[:model]` pairs tried at launch and again on
+     `failover` when a provider hits a usage limit or auth failure. Put the user's first choice
+     first; make the last entry a different family. When the user wants to pick chains at launch,
+     expose them as inputs with a default chain string and use `"candidates": "{{inputs.<name>}}"`.
    - A model family the user wants kept separate (for an independent judge) is a separate agent
-     on a separate CLI.
+     whose chain shares no family with the workers' chains.
 3. **Extract the workflow** as ordered stages: who sends to whom, what each stage waits for, a
    contract name when the output shape matters, a timeout, and any loop (`loop_until`,
    `max_rounds`). Keep stage names to verbs or nouns the user used.
@@ -69,10 +74,10 @@ Draft (abridged):
   "inputs": { "product": { "description": "product slug", "default": "vault" } },
   "session": "brand-{{inputs.product}}-{{run_id}}",
   "agents": [
-    { "id": "conductor", "role": "orchestrator", "cli": "claude", "model": "fable", "skills": ["orchestration-conduct", "brand-brief"] },
-    { "id": "designer-codex", "role": "designer", "cli": "codex", "skills": ["brand-concept"] },
-    { "id": "designer-grok", "role": "designer", "cli": "grok", "skills": ["brand-concept"] },
-    { "id": "judge", "role": "judge", "cli": "claude", "model": "opus", "skills": ["brand-judge"] }
+    { "id": "conductor", "role": "orchestrator", "candidates": ["claude:fable", "claude:opus", "codex"], "skills": ["orchestration-conduct", "brand-brief"] },
+    { "id": "designer-codex", "role": "designer", "candidates": ["codex", "copilot", "claude:sonnet"], "skills": ["brand-concept"] },
+    { "id": "designer-grok", "role": "designer", "candidates": ["grok", "gemini", "kimi"], "skills": ["brand-concept"] },
+    { "id": "judge", "role": "judge", "candidates": ["claude:opus", "claude:fable", "kimi"], "skills": ["brand-judge"] }
   ],
   "workflow": [
     { "stage": "brief", "from": "conductor", "to": ["designer-codex", "designer-grok"], "contract": "brand.brief.v1" },

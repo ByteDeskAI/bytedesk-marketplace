@@ -32,7 +32,9 @@ for a live tmux session. The newest is usually the one the user means; confirm i
 | `wait.timeout` repeats, screen shows the agent mid-task | Slow work, not stuck | Conductor should wait again; say so |
 | Screen shows the agent asking a question | It wants clarification | Answer through the conductor (`AO send`), or `AO nudge` a one-line answer if the operator prefers |
 | Reply file exists but conductor still waiting | Wrong path or filename | Compare the inbox `reply_to` line with the outbox file name; move or rename, then the wait resolves |
-| Pane dead (`○`) | CLI crashed or exited | `AO capture` for the last lines; restart by running `bash <run_dir>/agents/<id>/launch.sh` in that pane and re-sending the bootstrap pointer |
+| Agent pane shows usage limit / rate limit / quota | Provider stopped serving | `AO failover --run <run_dir> --agent <id>` moves it to the next provider in its chain and re-delivers unanswered messages |
+| Pane dead (`○`) | CLI crashed or exited | `AO failover --run <run_dir> --agent <id> --to <current cli:model>` restarts the same provider in place; without `--to` it moves to the next one |
+| `NO PROVIDER` in status | Every provider in the chain failed | Fix the underlying CLI (login, install) and `AO failover --agent <id> --to <cli:model>`; or stop and relaunch with a longer chain |
 | Conductor idle at its prompt with a GATE file present | Waiting for the human | Tell the user where to answer: the conductor pane |
 
 ## Stop

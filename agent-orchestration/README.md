@@ -151,6 +151,10 @@ tmux attach -t brand-vault-<run_id>
 - **Spec** — one JSON document (`ao-topology schema`): agents (id, role, cli, model, skills,
   instructions), ordered workflow stages, human gates, inputs. Natural language compiles into it
   through the `orchestration-compose` skill; a saved spec is a template.
+- **Provider chains** — every agent names an ordered chain of `cli:model` candidates
+  (`"candidates": ["claude:fable", "claude:opus", "codex"]`, or an input string). Launch walks
+  the chain past missing CLIs and usage/rate/auth failures; `ao-topology failover --agent <id>`
+  moves a running agent to the next provider and re-delivers its unanswered messages.
 - **Provider adapters** — `providers/<cli>.json`: how to launch a CLI, pass a model, append a
   system prompt, auto-approve, and detect its idle prompt. Unknown `cli` ids fall back to the
   generic adapter, so any installed CLI can be an agent.

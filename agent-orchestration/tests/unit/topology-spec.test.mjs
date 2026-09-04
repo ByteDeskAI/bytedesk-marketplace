@@ -75,6 +75,34 @@ test("inputs with options are validated, support multi, and reject unknown value
   assert.throws(() => validateSpec({ ...minimal(), inputs: { scope: { options: ["a"], default: "b" } } }), /default "b" is not one of its options/);
 });
 
+test("candidates give an ordered fallback chain, from arrays, strings, or inputs", async () => {
+  const consumer = await mkdtemp(join(os.tmpdir(), "ao-topology-chain-"));
+  try {
+    const spec = validateSpec({
+      ...minimal(),
+      inputs: { judge: { default: "claude:opus, codex:gpt-5" } },
+      agents: [
+        { id: "conductor", role: "orchestrator", candidates: ["claude:fable", "claude:opus", "codex"] },
+        { id: "judge", role: "judge", candidates: "{{inputs.judge}}" },
+        { id: "worker-a", role: "worker", cli: "grok" },
+      ],
+      workflow: [],
+      gates: [],
+    });
+    assert.equal(spec.agents[0].cli, "claude");
+    assert.equal(spec.agents[0].model, "fable");
+    assert.deepEqual(spec.agents[0].candidates, [{ cli: "claude", model: "fable" }, { cli: "claude", model: "opus" }, { cli: "codex", model: undefined }]);
+    const rendered = materializeSpec(spec, { runId: "r", consumer, home: "/h", inputs: resolveInputs(spec, {}) });
+    assert.deepEqual(rendered.agents[1].candidates, [{ cli: "claude", model: "opus" }, { cli: "codex", model: "gpt-5" }]);
+    assert.equal(rendered.agents[1].cli, "claude");
+    assert.deepEqual(rendered.agents[2].candidates, [{ cli: "grok", model: undefined }]);
+    assert.throws(() => validateSpec({ ...minimal(), agents: [{ id: "conductor", role: "orchestrator", candidates: [] }] }), /candidates is empty/);
+    assert.throws(() => validateSpec({ ...minimal(), agents: [{ id: "conductor", role: "orchestrator", candidates: [":opus"] }] }), /must look like "claude:fable"/);
+  } finally {
+    await rm(consumer, { recursive: true, force: true });
+  }
+});
+
 test("materializeSpec renders placeholders, run_dir, and per-agent cwd", async () => {
   const consumer = await mkdtemp(join(os.tmpdir(), "ao-topology-consumer-"));
   try {

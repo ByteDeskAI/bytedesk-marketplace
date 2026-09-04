@@ -22,7 +22,7 @@ export function specSchemaSummary() {
       cwd: "default working directory for every agent (default '{{consumer}}')",
       run_dir: "where mailbox, journal, and artifacts live (default '{{consumer}}/.orchestration/runs/{{run_id}}')",
       layout: LAYOUTS,
-      agents: "array of { id, role, cli, model?, cwd?, skills?[], instructions?, env?{}, args?[], auto_approve? }",
+      agents: "array of { id, role, cli, model?, candidates?: ['cli:model', ...] (ordered fallback chain; replaces cli/model), cwd?, skills?[], instructions?, env?{}, args?[], auto_approve? }",
       workflow: "ordered stages: { stage, from, to[], contract?, timeout?, wait_for?[], loop_until?, max_rounds?, description? }",
       gates: "array of { after: <stage>, human: true, description? } — the conductor stops and asks the operator",
       artifacts: "{ dir: 'artifacts', promote_to?: '<path or instruction>' }",
@@ -30,6 +30,21 @@ export function specSchemaSummary() {
     roles: ROLES,
     placeholders: ["{{run_id}}", "{{name}}", "{{consumer}}", "{{run_dir}}", "{{session}}", "{{home}}", "{{inputs.<name>}}", "{{agent.id}}", "{{agent.role}}"],
   };
+}
+
+/** Parse "claude:fable, codex:gpt-5, grok" (string or array) into [{ cli, model }]. Placeholders are kept. */
+export function candidateList(value) {
+  const items = Array.isArray(value) ? value : String(value).split(",");
+  return items
+    .map((item) => (typeof item === "object" && item ? `${item.cli ?? ""}:${item.model ?? ""}` : String(item)))
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => {
+      const colon = item.indexOf(":");
+      const cli = (colon >= 0 ? item.slice(0, colon) : item).trim();
+      const model = colon >= 0 ? item.slice(colon + 1).trim() : "";
+      return { cli, model: model || undefined };
+    });
 }
 
 /** Validate a raw spec object. Returns a normalized copy; throws TopologyError with every problem listed. */
@@ -84,7 +99,20 @@ export function validateSpec(raw) {
     else ids.add(normalized.id);
     normalized.role = typeof normalized.role === "string" ? normalized.role : "worker";
     if (!ID_PATTERN.test(normalized.role)) note(`${where}.role must be a slug (built-in roles: ${ROLES.join(", ")})`);
-    if (typeof normalized.cli !== "string" || !normalized.cli.trim()) note(`${where}.cli is required (a provider adapter id such as claude, codex, grok, or generic)`);
+    // Fallback chain: `candidates` is an ordered list of "cli[:model]" (array, or one comma-separated
+    // string so an input can supply it). `cli`/`model` alone is a chain of one.
+    const rawCandidates = normalized.candidates;
+    if (rawCandidates !== undefined) {
+      if (typeof rawCandidates !== "string" && !Array.isArray(rawCandidates)) note(`${where}.candidates must be an array of "cli:model" strings or one comma-separated string`);
+      else {
+        normalized.candidates = candidateList(rawCandidates);
+        if (normalized.candidates.length === 0) note(`${where}.candidates is empty`);
+        if (normalized.candidates.some((candidate) => !candidate.cli)) note(`${where}.candidates entries must look like "claude:fable" or "codex"`);
+        if (normalized.cli === undefined && normalized.candidates[0]) normalized.cli = normalized.candidates[0].cli;
+        if (normalized.model === undefined && normalized.candidates[0]) normalized.model = normalized.candidates[0].model;
+      }
+    }
+    if (typeof normalized.cli !== "string" || !normalized.cli.trim()) note(`${where}.cli is required (a provider adapter id such as claude, codex, grok, or generic), or give candidates: ["claude:fable", "codex:gpt-5"]`);
     normalized.skills = Array.isArray(normalized.skills) ? normalized.skills.map(String) : [];
     normalized.args = Array.isArray(normalized.args) ? normalized.args.map(String) : [];
     normalized.env = normalized.env && typeof normalized.env === "object" ? normalized.env : {};
@@ -178,6 +206,12 @@ export function materializeSpec(spec, context) {
     const agentVars = { ...vars, agent: { id: agent.id, role: agent.role } };
     const withAgent = renderDeep(agent, agentVars);
     withAgent.cwd = absolutize(withAgent.cwd ?? rendered.cwd, context.consumer);
+    // Re-parse the chain after rendering: an input may have supplied "codex:gpt-5,claude:fable".
+    const chainSource = withAgent.candidates ? withAgent.candidates.map((c) => (c.model ? `${c.cli}:${c.model}` : c.cli)).join(",") : `${withAgent.cli}:${withAgent.model ?? ""}`;
+    withAgent.candidates = candidateList(chainSource).filter((c) => c.cli && c.cli !== "none");
+    if (withAgent.candidates.length === 0) withAgent.candidates = [{ cli: withAgent.cli, model: withAgent.model || undefined }];
+    withAgent.cli = withAgent.candidates[0].cli;
+    withAgent.model = withAgent.candidates[0].model;
     return withAgent;
   });
   rendered.inputs_resolved = vars.inputs;

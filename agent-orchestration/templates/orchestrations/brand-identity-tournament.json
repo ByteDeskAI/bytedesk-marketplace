@@ -1,12 +1,40 @@
 {
   "version": 1,
   "name": "brand-identity-tournament",
-  "description": "Two designers on different model families draw competing logo concepts from one brief; a judge scores them against the product's design profile; the conductor runs revision rounds and stops at a human gate before anything is promoted.",
+  "description": "Two designers on different provider chains draw competing logo concepts from one brief; a judge on a third chain scores them against the product design profile; the conductor runs revision rounds and stops at a human gate before anything is promoted. Every role has an ordered fallback chain so a usage limit on one provider never stalls the run.",
   "inputs": {
-    "product": { "description": "Product slug matching profiles/<product>/ in the design-system repo (e.g. vault, gateway, capture)", "required": true },
-    "design_system": { "description": "Absolute path to the design-system checkout", "default": "{{consumer}}" },
-    "concepts": { "description": "Concepts each designer must produce", "default": "3" },
-    "max_rounds": { "description": "Maximum revision rounds after the first judgement", "default": "2" }
+    "product": {
+      "description": "Product slug matching profiles/<product>/ in the design-system repo (e.g. vault, gateway, capture)",
+      "required": true
+    },
+    "design_system": {
+      "description": "Absolute path to the design-system checkout",
+      "default": "{{consumer}}"
+    },
+    "concepts": {
+      "description": "Concepts each designer must produce",
+      "default": "3"
+    },
+    "max_rounds": {
+      "description": "Maximum revision rounds after the first judgement",
+      "default": "2"
+    },
+    "conductor": {
+      "description": "Ordered provider chain for the conductor (cli:model pairs, comma-separated)",
+      "default": "claude:fable, claude:opus, codex"
+    },
+    "judge": {
+      "description": "Ordered provider chain for the judge; keep it on a different family from the designers when you can",
+      "default": "claude:opus, claude:fable, kimi"
+    },
+    "designer_a": {
+      "description": "Ordered provider chain for designer A",
+      "default": "codex, copilot, claude:sonnet"
+    },
+    "designer_b": {
+      "description": "Ordered provider chain for designer B",
+      "default": "grok, gemini, kimi"
+    }
   },
   "session": "brand-{{inputs.product}}-{{run_id}}",
   "cwd": "{{inputs.design_system}}",
@@ -16,42 +44,93 @@
     {
       "id": "conductor",
       "role": "orchestrator",
-      "cli": "claude",
-      "model": "fable",
-      "skills": ["orchestration-conduct", "brand-brief"],
-      "instructions": "Product under design: {{inputs.product}}. The brief you send comes from the brand-brief skill and must quote the product profile's palette roles and bans verbatim. Both designers receive the identical brief file. After the judge accepts, stop at the human gate and present the winner with the scorecard; do not promote anything into assets/ or catalog.json yourself."
+      "skills": [
+        "orchestration-conduct",
+        "brand-brief"
+      ],
+      "instructions": "Product under design: {{inputs.product}}. The brief you send comes from the brand-brief skill and must quote the product profile's palette roles and bans verbatim. Both designers receive the identical brief file. After the judge accepts, stop at the human gate and present the winner with the scorecard; do not promote anything into assets/ or catalog.json yourself.",
+      "candidates": "{{inputs.conductor}}"
     },
     {
-      "id": "designer-codex",
+      "id": "designer-a",
       "role": "designer",
-      "cli": "codex",
-      "skills": ["brand-concept"],
-      "instructions": "Produce {{inputs.concepts}} concepts per brief. Each from a different strategy (lettermark, abstract mark, pictorial mark unless the brief says otherwise)."
+      "skills": [
+        "brand-concept"
+      ],
+      "instructions": "Produce {{inputs.concepts}} concepts per brief. Each from a different strategy (lettermark, abstract mark, pictorial mark unless the brief says otherwise).",
+      "candidates": "{{inputs.designer_a}}"
     },
     {
-      "id": "designer-grok",
+      "id": "designer-b",
       "role": "designer",
-      "cli": "grok",
-      "skills": ["brand-concept"],
-      "instructions": "Produce {{inputs.concepts}} concepts per brief. Each from a different strategy (lettermark, abstract mark, pictorial mark unless the brief says otherwise)."
+      "skills": [
+        "brand-concept"
+      ],
+      "instructions": "Produce {{inputs.concepts}} concepts per brief. Each from a different strategy (lettermark, abstract mark, pictorial mark unless the brief says otherwise).",
+      "candidates": "{{inputs.designer_b}}"
     },
     {
       "id": "judge",
       "role": "judge",
-      "cli": "claude",
-      "model": "opus",
-      "skills": ["brand-judge"],
-      "instructions": "Score against the brand-judge rubric and the product profile. Disqualify any concept that violates a listed ban before scoring."
+      "skills": [
+        "brand-judge"
+      ],
+      "instructions": "Score against the brand-judge rubric and the product profile. Disqualify any concept that violates a listed ban before scoring.",
+      "candidates": "{{inputs.judge}}"
     }
   ],
   "workflow": [
-    { "stage": "brief", "from": "conductor", "to": ["designer-codex", "designer-grok"], "contract": "brand.brief.v1", "timeout": "5m", "description": "Conductor writes one brief from the product profile with the brand-brief skill and sends the same file to both designers." },
-    { "stage": "concepts", "wait_for": ["designer-codex", "designer-grok"], "contract": "brand.concepts.v1", "timeout": "30m", "description": "Designers deliver SVG concept sets with rationales into artifacts/<designer>/<message-id>/." },
-    { "stage": "judge", "from": "conductor", "to": ["judge"], "contract": "brand.scorecard.v1", "timeout": "15m", "description": "Conductor forwards the brief plus every concept path to the judge; judge returns a scorecard with one verdict." },
-    { "stage": "revise", "from": "conductor", "to": ["designer-codex", "designer-grok"], "contract": "brand.concepts.v1", "timeout": "20m", "loop_until": "judge.verdict == accept", "max_rounds": 2, "description": "Only the candidates the judge named are revised, with the numbered fixes; then back to the judge stage." }
+    {
+      "stage": "brief",
+      "from": "conductor",
+      "to": [
+        "designer-a",
+        "designer-b"
+      ],
+      "contract": "brand.brief.v1",
+      "timeout": "5m",
+      "description": "Conductor writes one brief from the product profile with the brand-brief skill and sends the same file to both designers."
+    },
+    {
+      "stage": "concepts",
+      "wait_for": [
+        "designer-a",
+        "designer-b"
+      ],
+      "contract": "brand.concepts.v1",
+      "timeout": "30m",
+      "description": "Designers deliver SVG concept sets with rationales into artifacts/<designer>/<message-id>/."
+    },
+    {
+      "stage": "judge",
+      "from": "conductor",
+      "to": [
+        "judge"
+      ],
+      "contract": "brand.scorecard.v1",
+      "timeout": "15m",
+      "description": "Conductor forwards the brief plus every concept path to the judge; judge returns a scorecard with one verdict."
+    },
+    {
+      "stage": "revise",
+      "from": "conductor",
+      "to": [
+        "designer-a",
+        "designer-b"
+      ],
+      "contract": "brand.concepts.v1",
+      "timeout": "20m",
+      "loop_until": "judge.verdict == accept",
+      "max_rounds": 2,
+      "description": "Only the candidates the judge named are revised, with the numbered fixes; then back to the judge stage."
+    }
   ],
   "gates": [
-    { "after": "judge", "human": true, "description": "Operator reviews the accepted concept and scorecard before any promotion into the canonical asset tree." }
+    {
+      "after": "judge",
+      "human": true,
+      "description": "Operator reviews the accepted concept and scorecard before any promotion into the canonical asset tree."
+    }
   ],
   "artifacts": {
     "dir": "artifacts",

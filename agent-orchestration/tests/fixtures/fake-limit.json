@@ -1,0 +1,13 @@
+{
+  "id": "fake-limit",
+  "display": "Fake agent that is out of quota (tests)",
+  "command": "node",
+  "args": [],
+  "model_args": ["--model", "{{model}}", "--fail", "limit"],
+  "system_prompt_args": [],
+  "auto_approve_args": [],
+  "ready": { "pattern": "ready\\n>", "delay_ms": 500, "timeout_ms": 10000 },
+  "submit_keys": ["Enter"],
+  "detect": null,
+  "notes": "Test-only adapter: prints a usage-limit message and never becomes ready."
+}

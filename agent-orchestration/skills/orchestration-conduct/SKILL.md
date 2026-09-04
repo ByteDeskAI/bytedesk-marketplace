@@ -28,6 +28,12 @@ them is `$AO_RUN_DIR/run.json`. Read both before the first stage.
    `AO capture --run $AO_RUN_DIR --agent <id> --lines 80`, decide whether the agent is working,
    stuck at a prompt, or waiting for approval, and either wait again (`--timeout 10m`) or
    `AO nudge --run $AO_RUN_DIR --agent <id> --text "<one short instruction>"`.
+   If the screen shows a usage limit, rate limit, login prompt, a dead pane, or the agent has
+   been silent for two waits with no file activity, **fail it over**:
+   `AO failover --run $AO_RUN_DIR --agent <id>` — it restarts the agent on the next provider in
+   its chain, re-sends the bootstrap, and re-delivers every message it has not answered. Then
+   wait again. If the chain is exhausted the command says so; report it at the next gate rather
+   than improvising a replacement.
 4. **Check replies against the contract** before anything else. A reply missing a required
    heading or a listed deliverable goes back to its author as a new message (`--stage <stage>`,
    `--round <N>`, body = what is missing). Do not repair it yourself.

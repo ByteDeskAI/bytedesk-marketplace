@@ -13,6 +13,24 @@ export const GENERIC_ADAPTER = {
   system_prompt_args: [],
   auto_approve_args: [],
   ready: { delay_ms: 3000 },
+  // Screen text that means "this candidate cannot serve": the launcher moves to the next one.
+  failure_patterns: [
+    "usage limit",
+    "rate limit",
+    "quota",
+    "too many requests",
+    "\\b429\\b",
+    "overloaded",
+    "capacity",
+    "not logged in",
+    "please log in",
+    "unauthori[sz]ed",
+    "invalid api key",
+    "authentication",
+    "command not found",
+    "no such file or directory",
+    "billing",
+  ],
   submit_keys: ["Enter"],
   bootstrap_message: "Read {{bootstrap_file}} and follow it exactly. Reply here with the single word READY when you have read it.",
   detect: null,
@@ -32,11 +50,18 @@ export function normalizeAdapter(raw, source) {
   invariant(raw && typeof raw === "object", "TOPOLOGY_ADAPTER_INVALID", `Adapter ${source} must be a JSON object.`);
   invariant(typeof raw.id === "string" && raw.id, "TOPOLOGY_ADAPTER_INVALID", `Adapter ${source} needs an "id".`);
   const adapter = { ...GENERIC_ADAPTER, ...raw, source };
-  for (const key of ["args", "model_args", "system_prompt_args", "auto_approve_args", "submit_keys"]) {
+  for (const key of ["args", "model_args", "system_prompt_args", "auto_approve_args", "submit_keys", "failure_patterns"]) {
     invariant(Array.isArray(adapter[key]), "TOPOLOGY_ADAPTER_INVALID", `Adapter ${adapter.id}: "${key}" must be an array.`);
     adapter[key] = adapter[key].map(String);
   }
   adapter.ready = { ...GENERIC_ADAPTER.ready, ...(adapter.ready ?? {}) };
+  for (const pattern of adapter.failure_patterns) {
+    try {
+      new RegExp(pattern, "i");
+    } catch (error) {
+      invariant(false, "TOPOLOGY_ADAPTER_INVALID", `Adapter ${adapter.id}: failure pattern "${pattern}" is not a valid regex (${error.message}).`);
+    }
+  }
   if (adapter.ready.pattern) {
     try {
       new RegExp(adapter.ready.pattern, "m");
@@ -81,6 +106,20 @@ export function buildArgv(adapter, agent, vars) {
   if (adapter.system_prompt_args.length > 0) argv.push(...adapter.system_prompt_args);
   if (agent.auto_approve && adapter.auto_approve_args.length > 0) argv.push(...adapter.auto_approve_args);
   return argv.map((item) => render(item, { ...vars, model: agent.model ?? "" }));
+}
+
+/** Returns the matched failure pattern if the screen text shows the candidate cannot serve. */
+export function failureOnScreen(adapter, screen) {
+  for (const pattern of adapter.failure_patterns ?? []) {
+    if (new RegExp(pattern, "i").test(screen)) return pattern;
+  }
+  return null;
+}
+
+export async function commandExists(command) {
+  const which = process.platform === "win32" ? "where" : "which";
+  const located = await run(which, [command], { allowFailure: true, timeoutMs: 5000 }).catch(() => ({ code: 1 }));
+  return located.code === 0;
 }
 
 export async function detectAdapter(adapter) {

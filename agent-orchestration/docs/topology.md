@@ -16,7 +16,7 @@ boundary.
 |---|---|---|
 | Spec | JSON, see `ao-topology schema` | One declarative document: agents, workflow, gates, inputs. Natural language compiles into it; a template is a saved one. |
 | Templates | `templates/orchestrations/*.json`, `~/.config/agent-orchestration/templates/`, `<repo>/.orchestration/templates/` | Reusable specs. Earlier locations override later ones by name. |
-| Provider adapters | `providers/*.json` plus the same user/consumer overrides | How to launch one CLI: command, model flag, system-prompt flag, auto-approve flag, idle-prompt regex, submit keys. Unknown `cli` ids fall back to `generic` with the id as the command, so any installed CLI works. |
+| Provider adapters | `providers/*.json` plus the same user/consumer overrides | How to launch one CLI: command, model flag, system-prompt flag, auto-approve flag, idle-prompt regex, failure patterns, submit keys. Unknown `cli` ids fall back to `generic` with the id as the command, so any installed CLI works. |
 | Role packs | `roles/*.md` plus overrides | The abstract, domain-free part of an agent's instructions: what an orchestrator, worker, designer, judge, reviewer, researcher, or implementer owes the run. |
 | Skills | resolved by name from the consumer repo, the user's home, and this plugin | Domain knowledge an agent must read before working (for example `brand-brief`, `brand-concept`, `brand-judge` from the design-system plugin). Nothing is copied; agents are told which SKILL.md files to read. |
 | CLI | `bin/ao-topology` → `topology/cli.mjs` | Launch, send, wait, reply, capture, nudge, status, journal, stop, doctor, templates, providers, compose, validate, runs. Dependency-free ESM; no bundle step. |
@@ -38,6 +38,26 @@ boundary.
 
 `.orchestration/runs/` belongs in the consumer's `.gitignore`. Promotion of anything into a
 canonical tree is a human step the conductor recommends in `REPORT.md`.
+
+## Provider chains and failover
+
+Anywhere a spec names a provider it names an ordered chain: `"candidates": ["claude:fable",
+"claude:opus", "codex"]` (or one comma-separated string, so an input can supply it). `cli` +
+`model` alone is a chain of one.
+
+At launch, each agent walks its chain: a candidate whose command is not on PATH is skipped; one
+that comes up but whose screen matches the adapter's `failure_patterns` (usage limit, rate
+limit, quota, login, unauthorized…) or whose pane exits is recorded as failed and the next is
+tried in a respawned pane. The first that reaches its idle prompt (or survives its fixed delay)
+gets the bootstrap pointer. `run.json` records the chain and the active index; `status` shows
+`on <provider> [chain: …]`.
+
+Mid-run, `ao-topology failover --agent <id>` repeats that walk from the next candidate (or a
+named one with `--to`), re-sends the bootstrap, and re-rings every unanswered inbox message so
+the new provider resumes from the mailbox rather than from memory. The conductor's protocol
+calls it when a wait times out and the screen shows a limit; the journal records
+`agent.candidate_failed`, `agent.failover`, and `agent.failover_complete`. Because the message
+of record is a file, a provider swap loses nothing except in-flight terminal context.
 
 ## Messaging
 

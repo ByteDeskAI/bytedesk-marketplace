@@ -1,7 +1,7 @@
 {
   "version": 1,
   "name": "logo-design",
-  "description": "One designer explores directions with an image model, you pick a direction at a gate, the designer vectors it into original SVG concepts, an independent judge scores them, and the conductor runs revision rounds. Scope, deliverables, designer CLI, and image model are chosen at launch.",
+  "description": "One designer explores directions with an image model, you pick a direction at a gate, the designer vectors it into original SVG concepts, an independent judge scores them, and the conductor runs revision rounds. Scope, deliverables, provider chains, and image model are chosen at launch.",
   "inputs": {
     "scope": {
       "description": "What the mark is for",
@@ -52,27 +52,9 @@
         }
       ]
     },
-    "designer_cli": {
-      "description": "Which CLI draws",
-      "default": "claude",
-      "options": [
-        {
-          "value": "claude",
-          "description": "Claude Code (fable) — can view its own renders and run the image skill natively"
-        },
-        {
-          "value": "codex",
-          "description": "OpenAI Codex CLI"
-        },
-        {
-          "value": "grok",
-          "description": "Grok Build CLI"
-        }
-      ]
-    },
-    "designer_model": {
-      "description": "Model flag for the designer CLI (leave empty for the CLI default; e.g. fable for claude)",
-      "default": ""
+    "designer": {
+      "description": "Ordered provider chain for the designer: cli:model pairs, comma-separated, tried in order at launch and on failover",
+      "default": "claude:fable, codex, grok"
     },
     "image_skill": {
       "description": "Skill the designer uses for mood exploration before vectoring",
@@ -107,6 +89,14 @@
     "design_system": {
       "description": "Absolute path to the design-system checkout",
       "default": "{{consumer}}"
+    },
+    "conductor": {
+      "description": "Ordered provider chain for the conductor",
+      "default": "claude:fable, claude:opus, codex"
+    },
+    "judge": {
+      "description": "Ordered provider chain for the judge (keep it independent of the designer chain)",
+      "default": "claude:opus, claude:fable, kimi"
     }
   },
   "session": "logo-{{inputs.scope}}-{{inputs.product}}-{{run_id}}",
@@ -117,35 +107,32 @@
     {
       "id": "conductor",
       "role": "orchestrator",
-      "cli": "claude",
-      "model": "fable",
       "skills": [
         "orchestration-conduct",
         "brand-brief"
       ],
-      "instructions": "Scope: {{inputs.scope}} (product: {{inputs.product}}). Deliverables requested: {{inputs.deliverables}}. Write the brief with brand-brief; for scope=family the brief covers every profile in profiles/ and asks for one construction system, for scope=master it covers DESIGN.md §3 and the family accent table instead of one profile. Stage `explore` runs only when image_skill is not `none` ({{inputs.image_skill}}); after it, stop at the `pick-direction` gate and show the operator the contact sheet the designer produced, then pass the chosen direction id into the concepts brief. After the judge accepts, stop at the final gate; only then send the `deliverables` stage, listing exactly the deliverables requested and nothing more. Never promote into assets/ or catalog.json yourself."
+      "instructions": "Scope: {{inputs.scope}} (product: {{inputs.product}}). Deliverables requested: {{inputs.deliverables}}. Write the brief with brand-brief; for scope=family the brief covers every profile in profiles/ and asks for one construction system, for scope=master it covers DESIGN.md §3 and the family accent table instead of one profile. Stage `explore` runs only when image_skill is not `none` ({{inputs.image_skill}}); after it, stop at the `pick-direction` gate and show the operator the contact sheet the designer produced, then pass the chosen direction id into the concepts brief. After the judge accepts, stop at the final gate; only then send the `deliverables` stage, listing exactly the deliverables requested and nothing more. Never promote into assets/ or catalog.json yourself.",
+      "candidates": "{{inputs.conductor}}"
     },
     {
       "id": "designer",
       "role": "designer",
-      "cli": "{{inputs.designer_cli}}",
-      "model": "{{inputs.designer_model}}",
       "skills": [
         "brand-explore",
         "brand-concept",
         "{{inputs.image_skill}}"
       ],
-      "instructions": "You explore with images first and vector second. In the explore stage, use the {{inputs.image_skill}} skill to generate {{inputs.directions}} directions × 2 images into artifacts/designer/<message-id>/directions/<n>/ and a CONTACT-SHEET.md as brand-explore describes; images are mood references only and are never deliverables. In the concepts stage, produce {{inputs.concepts}} original SVG concepts from the chosen direction per brand-concept. If the image skill is `none`, skip exploration and say so in your reply."
+      "instructions": "You explore with images first and vector second. In the explore stage, use the {{inputs.image_skill}} skill to generate {{inputs.directions}} directions × 2 images into artifacts/designer/<message-id>/directions/<n>/ and a CONTACT-SHEET.md as brand-explore describes; images are mood references only and are never deliverables. In the concepts stage, produce {{inputs.concepts}} original SVG concepts from the chosen direction per brand-concept. If the image skill is `none`, skip exploration and say so in your reply.",
+      "candidates": "{{inputs.designer}}"
     },
     {
       "id": "judge",
       "role": "judge",
-      "cli": "claude",
-      "model": "opus",
       "skills": [
         "brand-judge"
       ],
-      "instructions": "Score with the brand-judge rubric against the brief and the governing profile(s). Disqualify any concept that reproduces a generated mood image literally or violates a ban."
+      "instructions": "Score with the brand-judge rubric against the brief and the governing profile(s). Disqualify any concept that reproduces a generated mood image literally or violates a ban.",
+      "candidates": "{{inputs.judge}}"
     }
   ],
   "workflow": [

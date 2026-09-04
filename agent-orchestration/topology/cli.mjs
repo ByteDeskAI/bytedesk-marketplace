@@ -8,7 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { doctor as runDoctor, tmuxInstallPlan } from "./lib/doctor.mjs";
-import { launchRun, messagePointer } from "./lib/launch.mjs";
+import { failoverAgent, launchRun, messagePointer } from "./lib/launch.mjs";
 import { appendJournal, loadRun, pendingReplies, readJournal, recordReply, saveRun, sendMessage, waitForReplies } from "./lib/mailbox.mjs";
 import { adapterSummary, loadAdapters, providerDirs } from "./lib/providers.mjs";
 import { roleDirs, skillDirs } from "./lib/resolve.mjs";
@@ -47,6 +47,9 @@ Conduct (used by the orchestrator agent)
   wait --run <run_dir> [--from <id>[,<id>]] [--message <id>] [--timeout 20m] [--poll 3s] [--json]
   capture --run <run_dir> --agent <id> [--lines 60]
   nudge --run <run_dir> --agent <id> --text <text>
+  failover --run <run_dir> --agent <id> [--to <cli:model>]
+                                               restart the agent on the next provider in its chain and
+                                               re-deliver its unanswered messages
 
 Reply (used by every agent)
   reply --run <run_dir> --agent <id> --message <id> (--file <md> | --body <text>)
@@ -240,7 +243,10 @@ const commands = {
     out(`Launched ${materialized.name} · run ${runId}`);
     out(`  run dir: ${result.runDir}`);
     out(`  session: ${result.session}`);
-    for (const agent of result.agents) out(`  ${agent.ready ? "✓" : "?"} ${agent.id} (${agent.role}, ${agent.adapter}) pane ${agent.pane}`);
+    for (const agent of result.agents) {
+      const fallbacks = agent.attempts.slice(0, -1).map((attempt) => `${attempt.label}: ${attempt.outcome}`).join("; ");
+      out(`  ${agent.provider ? (agent.ready ? "✓" : "?") : "✗"} ${agent.id} (${agent.role}) on ${agent.provider ?? "NO PROVIDER"} pane ${agent.pane}${fallbacks ? ` — skipped ${fallbacks}` : ""}`);
+    }
     for (const warning of result.warnings) out(`  ! ${warning}`);
     out(`Attach: ${result.attach}`);
   },
@@ -322,6 +328,21 @@ const commands = {
     out({ ok: true, agent: agent.id, pane: agent.pane });
   },
 
+  async failover({ flags }) {
+    const runDir = await runDirFrom(flags);
+    invariant(flags.agent && flags.agent !== true, "TOPOLOGY_AGENT_REQUIRED", "Pass --agent <id>.");
+    const ctx = context(flags);
+    const adapters = await loadAdapters(ctx.providerDirs);
+    const result = await failoverAgent({ runDir, agentId: String(flags.agent), adapters, toLabel: flags.to && flags.to !== true ? String(flags.to) : undefined, log: (line) => process.stderr.write(`${line}\n`) });
+    if (flags.json) return out(result);
+    if (!result.ok) {
+      out(`${result.agent}: no provider came up. Attempts: ${result.attempts.map((attempt) => `${attempt.label} (${attempt.outcome})`).join("; ")}`);
+      process.exitCode = 2;
+      return;
+    }
+    out(`${result.agent}: ${result.from ?? "none"} → ${result.to}${result.ready ? "" : " (not confirmed ready)"}${result.redelivered.length ? `; re-delivered ${result.redelivered.join(", ")}` : ""}`);
+  },
+
   async status({ flags }) {
     const runDir = await runDirFrom(flags);
     const run = await loadRun(runDir);
@@ -331,12 +352,22 @@ const commands = {
     const journal = await readJournal(runDir, Number(flags.limit) > 0 ? Number(flags.limit) : 12);
     const agents = run.agents.map((agent) => {
       const pane = panes.find((item) => item.id === agent.pane);
-      return { id: agent.id, role: agent.role, adapter: agent.adapter, pane: agent.pane, alive: Boolean(pane?.alive), command: pane?.command ?? null, pending: pending.filter((item) => item.agent === agent.id).map((item) => item.id) };
+      return {
+        id: agent.id,
+        role: agent.role,
+        provider: agent.provider ?? null,
+        chain: (agent.candidates ?? []).map((candidate) => candidate.label),
+        adapter: agent.adapter,
+        pane: agent.pane,
+        alive: Boolean(pane?.alive),
+        command: pane?.command ?? null,
+        pending: pending.filter((item) => item.agent === agent.id).map((item) => item.id),
+      };
     });
     const report = { run_id: run.run_id, name: run.name, session: run.session, session_alive: alive, state: run.state, run_dir: runDir, inputs: run.inputs, agents, pending_count: pending.length, recent: journal };
     if (flags.json) return out(report);
     out(`${run.name} · run ${run.run_id} · state ${run.state} · session ${run.session} ${alive ? "(alive)" : "(gone)"}`);
-    for (const agent of agents) out(`  ${agent.alive ? "●" : "○"} ${agent.id} (${agent.role}, ${agent.adapter}) pane ${agent.pane}${agent.command ? ` running ${agent.command}` : ""}${agent.pending.length ? ` — pending: ${agent.pending.join(", ")}` : ""}`);
+    for (const agent of agents) out(`  ${agent.alive ? "●" : "○"} ${agent.id} (${agent.role}) on ${agent.provider ?? "NO PROVIDER"} [chain: ${agent.chain.join(" → ")}] pane ${agent.pane}${agent.command ? ` running ${agent.command}` : ""}${agent.pending.length ? ` — pending: ${agent.pending.join(", ")}` : ""}`);
     out("Recent journal:");
     for (const event of journal) out(`  ${event.ts ?? ""}  ${event.type}${event.id ? ` ${event.id}` : ""}${event.agent ? ` ${event.agent}` : ""}${event.from ? ` from ${event.from}` : ""}${event.to ? ` to ${[].concat(event.to).join(",")}` : ""}`);
   },
