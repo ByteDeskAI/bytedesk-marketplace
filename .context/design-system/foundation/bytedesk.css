@@ -243,9 +243,120 @@
   --bd-shadow-glow-accent: 0 0 40px var(--bd-accent-glow);
 }
 
-:root,
+/* The explicit dark stamp restates the themed set rather than only the colour scheme, so a dark
+ * subtree nested inside a light one resolves dark values instead of inheriting the light ones.
+ * :root already carries these; repeating them is what makes nesting work in both directions. */
 [data-bd-theme="dark"] {
   color-scheme: dark;
+  --bd-bg-base: #101316;
+  --bd-bg-subtle: #171A1D;
+  --bd-bg-surface: #1D2125;
+  --bd-bg-elevated: #24282D;
+  --bd-bg-overlay: #2B3036;
+  --bd-text-primary: #E6E8EB;
+  --bd-text-secondary: #A1A8B1;
+  --bd-text-tertiary: #7E8792;
+  --bd-text-disabled: #626A74;
+  --bd-text-on-interactive: #101316;
+  --bd-interactive-blue: #047BF4;
+  --bd-border-dimmest: #272A2C;
+  --bd-border-dimmer: #303438;
+  --bd-border-default: #3A3E42;
+  --bd-border-stronger: #44484C;
+  --bd-border-strongest: #4C4F52;
+  --bd-success: #029219;
+  --bd-success-bg: #0C2414;
+  --bd-success-line: #165C22;
+  --bd-success-ink: #4A9A4A;
+  --bd-danger: #E52222;
+  --bd-danger-bg: #2A1212;
+  --bd-danger-line: #7A2424;
+  --bd-danger-ink: #D6695D;
+  --bd-warning: #DFA700;
+  --bd-warning-bg: #241E0C;
+  --bd-warning-line: #6B5A14;
+  --bd-warning-ink: #B18100;
+  --bd-info: #1DB8CE;
+  --bd-info-bg: #0C2226;
+  --bd-info-line: #1A5A64;
+  --bd-info-ink: #0097AD;
+  --bd-material-shell-opacity: 0.94;
+  --bd-material-top-light: #FFFFFF0A;
+  --bd-shadow-shell: inset 0 1px 0 #FFFFFF0A, 0 24px 56px #05080DB8, 0 8px 20px #07182E66;
+  --bd-shadow-card: inset 0 1px 0 #FFFFFF08, 0 8px 20px #05080D66;
+  --bd-shadow-elevated: var(--bd-shadow-card);
+  --bd-product-agent-browser: #1DB6A5;
+  --bd-product-agent-mail: #7F95FE;
+  --bd-product-agent-memory: #FA618E;
+  --bd-product-agent-orchestration: #C1BBFF;
+  --bd-product-capture: #6AD3FF;
+  --bd-product-mangodisk: #FEAF7B;
+  --bd-product-marketplace: #D2CA06;
+  --bd-product-openseo: #19E5AD;
+  --bd-product-passport: #E26ACE;
+  --bd-product-store: #8DAE00;
+  --bd-product-toolbox: #B97BFD;
+  --bd-product-vault: #D98A0D;
+  --bd-product-workforce: #FEA3D0;
+}
+
+/* No stamp on the root means "follow the machine". An explicit stamp wins in both directions,
+ * because :not([data-bd-theme]) stops matching the moment one is present. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-bd-theme]) {
+    color-scheme: light;
+    --bd-bg-base: #ECEDEF;
+    --bd-bg-subtle: #F8F9FB;
+    --bd-bg-surface: #FBFCFE;
+    --bd-bg-elevated: #FBFCFE;
+    --bd-bg-overlay: #FDFDFF;
+    --bd-text-primary: #22252A;
+    --bd-text-secondary: #6B717A;
+    --bd-text-tertiary: #858C96;
+    --bd-text-disabled: #9AA1AB;
+    --bd-text-on-interactive: #F4F7FD;
+    --bd-interactive-blue: #255DA5;
+    --bd-border-dimmest: #E0E3E8;
+    --bd-border-dimmer: #D6DAE0;
+    --bd-border-default: #CDD2D9;
+    --bd-border-stronger: #C3C9D1;
+    --bd-border-strongest: #B9C0C9;
+    --bd-success: #0F7B1A;
+    --bd-success-bg: #E8F9E7;
+    --bd-success-line: #9BCD99;
+    --bd-success-ink: #0F7B1A;
+    --bd-danger: #B93F36;
+    --bd-danger-bg: #FFECE8;
+    --bd-danger-line: #F2A89E;
+    --bd-danger-ink: #B93F36;
+    --bd-warning: #945F00;
+    --bd-warning-bg: #FDF2DD;
+    --bd-warning-line: #D9B979;
+    --bd-warning-ink: #945F00;
+    --bd-info: #007489;
+    --bd-info-bg: #DEF9FF;
+    --bd-info-line: #73CEDE;
+    --bd-info-ink: #007489;
+    --bd-material-shell-opacity: 0.97;
+    --bd-material-top-light: #FFFFFFCC;
+    --bd-material-ambient-blue: #315B9B14;
+    --bd-shadow-shell: inset 0 1px 0 #FFFFFFCC, 0 24px 56px #17203324, 0 8px 20px #315B9B14;
+    --bd-shadow-card: inset 0 1px 0 #FFFFFFE6, 0 8px 20px #17203317;
+    --bd-shadow-elevated: var(--bd-shadow-card);
+    --bd-product-agent-browser: #0C796E;
+    --bd-product-agent-mail: #5161D0;
+    --bd-product-agent-memory: #BD3964;
+    --bd-product-agent-orchestration: #5339A8;
+    --bd-product-capture: #05556F;
+    --bd-product-mangodisk: #7B3D05;
+    --bd-product-marketplace: #535000;
+    --bd-product-openseo: #0A5841;
+    --bd-product-passport: #A9429A;
+    --bd-product-store: #5D7303;
+    --bd-product-toolbox: #854EBD;
+    --bd-product-vault: #965D02;
+    --bd-product-workforce: #901461;
+  }
 }
 
 [data-bd-theme="light"] {
@@ -303,6 +414,7 @@
   --bd-product-workforce: #901461;
 }
 
+
 [data-bd-theme="dark"][data-bd-richness="soft"] {
   --bd-bg-base: #1B1E22;
   --bd-bg-subtle: #22262A;
@@ -310,8 +422,7 @@
   --bd-richness-bloom-strength: 0.55;
 }
 
-[data-bd-theme="dark"][data-bd-richness="balanced"],
-:root:not([data-bd-theme="light"]):not([data-bd-richness]) {
+[data-bd-theme="dark"][data-bd-richness="balanced"] {
   --bd-bg-base: #101316;
   --bd-bg-subtle: #171A1D;
   --bd-richness-ambient-strength: 0.75;
