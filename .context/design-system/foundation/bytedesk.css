@@ -282,6 +282,7 @@
   --bd-info-ink: #0097AD;
   --bd-material-shell-opacity: 0.94;
   --bd-material-top-light: #FFFFFF0A;
+  --bd-material-ambient-blue: #07182E66;
   --bd-shadow-shell: inset 0 1px 0 #FFFFFF0A, 0 24px 56px #05080DB8, 0 8px 20px #07182E66;
   --bd-shadow-card: inset 0 1px 0 #FFFFFF08, 0 8px 20px #05080D66;
   --bd-shadow-elevated: var(--bd-shadow-card);
@@ -298,6 +299,11 @@
   --bd-product-toolbox: #B97BFD;
   --bd-product-vault: #D98A0D;
   --bd-product-workforce: #FEA3D0;
+  --bd-bg-hover: color-mix(in srgb, var(--bd-bg-surface) 74%, var(--bd-text-primary) 8%);
+  --bd-glow-interactive: color-mix(in srgb, var(--bd-interactive-blue) 32%, transparent);
+  --bd-overlay-backdrop: color-mix(in srgb, var(--bd-bg-base) 72%, transparent);
+  --bd-focus-ring: 0 0 0 var(--bd-stroke-focus) var(--bd-bg-base), 0 0 0 calc(var(--bd-stroke-focus) * 2) color-mix(in srgb, var(--bd-interactive-focus) 70%, transparent);
+  --bd-product-gateway: var(--bd-interactive-blue);
 }
 
 /* No stamp on the root means "follow the machine". An explicit stamp wins in both directions,
@@ -356,6 +362,11 @@
     --bd-product-toolbox: #854EBD;
     --bd-product-vault: #965D02;
     --bd-product-workforce: #901461;
+    --bd-bg-hover: color-mix(in srgb, var(--bd-bg-surface) 74%, var(--bd-text-primary) 8%);
+    --bd-glow-interactive: color-mix(in srgb, var(--bd-interactive-blue) 32%, transparent);
+    --bd-overlay-backdrop: color-mix(in srgb, var(--bd-bg-base) 72%, transparent);
+    --bd-focus-ring: 0 0 0 var(--bd-stroke-focus) var(--bd-bg-base), 0 0 0 calc(var(--bd-stroke-focus) * 2) color-mix(in srgb, var(--bd-interactive-focus) 70%, transparent);
+    --bd-product-gateway: var(--bd-interactive-blue);
   }
 }
 
@@ -412,6 +423,11 @@
   --bd-product-toolbox: #854EBD;
   --bd-product-vault: #965D02;
   --bd-product-workforce: #901461;
+  --bd-bg-hover: color-mix(in srgb, var(--bd-bg-surface) 74%, var(--bd-text-primary) 8%);
+  --bd-glow-interactive: color-mix(in srgb, var(--bd-interactive-blue) 32%, transparent);
+  --bd-overlay-backdrop: color-mix(in srgb, var(--bd-bg-base) 72%, transparent);
+  --bd-focus-ring: 0 0 0 var(--bd-stroke-focus) var(--bd-bg-base), 0 0 0 calc(var(--bd-stroke-focus) * 2) color-mix(in srgb, var(--bd-interactive-focus) 70%, transparent);
+  --bd-product-gateway: var(--bd-interactive-blue);
 }
 
 

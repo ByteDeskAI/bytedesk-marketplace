@@ -1,6 +1,6 @@
 [package]
 name = "bytedesk-design"
-version = "2.2.0"
+version = "2.2.1"
 edition = "2021"
 description = "Rust twin of @bytedesk/design-client: the catalog and brand_url / brand_local over a vendored .context/design-system tree. The version is stamped by the design-system release."
 license = "UNLICENSED"

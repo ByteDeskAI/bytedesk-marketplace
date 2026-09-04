@@ -13,4 +13,4 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npx -y @bytedesk/design-client@2.2.0 sync --check
+      - run: npx -y @bytedesk/design-client@2.2.1 sync --check
