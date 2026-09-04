@@ -46427,7 +46427,7 @@ function register(server, service, name, description, inputSchema, outputDataSch
 }
 async function createServer2(options = {}) {
   const service = await new OrchestrationService(options).initialize();
-  const server = new McpServer({ name: "agent-orchestration", version: "0.2.3" });
+  const server = new McpServer({ name: "agent-orchestration", version: "0.3.0" });
   register(server, service, "orchestration_capabilities", "Describe orchestration providers, intents, protocols, permissions, lifecycle, and repository isolation guarantees.", {}, capabilitiesData, function() {
     return this.capabilities();
   });

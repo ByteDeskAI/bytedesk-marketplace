@@ -1,6 +1,6 @@
 {
   "name": "@bytedesk/agent-orchestration",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Cross-provider agent orchestration MCP server and CLI for Claude Code, Codex, Grok Build, and Kimi.",
   "type": "module",

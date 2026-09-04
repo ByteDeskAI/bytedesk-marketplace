@@ -111,8 +111,10 @@ export function expandHome(path) {
 }
 
 export function absolutize(path, base = process.cwd()) {
+  // resolve() also normalizes separators, so a template like "{{consumer}}/.orchestration/runs"
+  // does not leave mixed / and \\ in a Windows run directory.
   const expanded = expandHome(path);
-  return isAbsolute(expanded) ? expanded : resolve(base, expanded);
+  return isAbsolute(expanded) ? resolve(expanded) : resolve(base, expanded);
 }
 
 export async function readJson(path) {
