@@ -7,7 +7,8 @@
   "main": "dist/cli.cjs",
   "bin": {
     "agent-orchestration": "bin/agent-orchestration",
-    "agent-orchestration-mcp": "bin/agent-orchestration-mcp"
+    "agent-orchestration-mcp": "bin/agent-orchestration-mcp",
+    "ao-topology": "bin/ao-topology"
   },
   "files": [
     ".claude-plugin",
@@ -26,7 +27,10 @@
     "ROADMAP-INVENTORY.json",
     "ROADMAP-SOURCES.json",
     "README.md",
-    "scripts/roadmap.mjs"
+    "scripts/roadmap.mjs",
+    "providers",
+    "roles",
+    "topology"
   ],
   "scripts": {
     "build": "node scripts/build.mjs",
@@ -41,7 +45,9 @@
     "roadmap:append-inventory": "node scripts/roadmap.mjs --append-inventory ROADMAP.md",
     "roadmap:refresh-sources": "node scripts/roadmap.mjs --refresh-sources ROADMAP.md",
     "roadmap:refresh-views": "node scripts/roadmap.mjs --refresh-views ROADMAP.md",
-    "prepack": "npm run build:check && npm test"
+    "prepack": "npm run build:check && npm test",
+    "test:topology": "node --test tests/unit/topology-*.test.mjs",
+    "test:topology:tmux": "node --test tests/contract/topology-tmux.test.mjs"
   },
   "engines": {
     "node": ">=22.13.0"

@@ -1,6 +1,6 @@
 {
   "name": "agent-orchestration",
-  "description": "Cross-provider agent orchestration for Claude Code, Codex, Grok Build, and Kimi over a durable MCP control plane.",
+  "description": "Cross-provider agent orchestration for Claude Code, Codex, Grok Build, Kimi, and any installed CLI: a durable sandboxed MCP control plane plus a tmux topology layer for visible, human-steered agent teams.",
   "author": {
     "name": "ByteDeskAI"
   },
@@ -16,7 +16,8 @@
     "codex",
     "grok",
     "kimi",
-    "mcp"
+    "mcp",
+    "tmux"
   ],
   "skills": "./skills/",
   "mcpServers": "./.codex-mcp.json",

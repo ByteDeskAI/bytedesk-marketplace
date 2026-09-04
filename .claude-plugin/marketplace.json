@@ -15,7 +15,7 @@
     },
     {
       "name": "agent-orchestration",
-      "description": "Cross-provider agent orchestration — spawn, steer, observe, cancel, and collect Claude Code, Codex, Grok Build, and Kimi agents through one durable MCP control plane.",
+      "description": "Cross-provider agent orchestration \u2014 spawn, steer, observe, cancel, and collect Claude Code, Codex, Grok Build, and Kimi agents through one durable MCP control plane, or launch any installed CLIs as a visible tmux team from a natural-language or templated orchestration spec.",
       "source": "./agent-orchestration"
     },
     {

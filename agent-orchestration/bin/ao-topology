@@ -1,0 +1,16 @@
+#!/usr/bin/env node
+// Launcher for the tmux topology CLI. The topology layer is dependency-free ESM and runs directly
+// from the installed plugin cache; no bundle step is required.
+import { spawn } from "node:child_process";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const root = dirname(dirname(fileURLToPath(import.meta.url)));
+const child = spawn(process.execPath, [join(root, "topology", "cli.mjs"), ...process.argv.slice(2)], {
+  stdio: "inherit",
+  shell: false,
+  windowsHide: true,
+  env: { ...process.env, AO_TOPOLOGY_BIN: process.env.AO_TOPOLOGY_BIN ?? join(root, "bin", "ao-topology") },
+});
+for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => child.kill(signal));
+child.once("exit", (code, signal) => (signal ? process.kill(process.pid, signal) : process.exit(code ?? 1)));

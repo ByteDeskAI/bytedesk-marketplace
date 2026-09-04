@@ -1,0 +1,15 @@
+{
+  "id": "claude",
+  "display": "Claude Code",
+  "command": "claude",
+  "args": [],
+  "model_args": ["--model", "{{model}}"],
+  "system_prompt_args": ["--append-system-prompt", "{{system_prompt}}"],
+  "auto_approve_args": ["--dangerously-skip-permissions"],
+  "ready": { "pattern": "(^|\\n)\\s*[│|]?\\s*[>❯]\\s", "delay_ms": 6000, "timeout_ms": 30000 },
+  "submit_keys": ["Enter"],
+  "bootstrap_message": "Read {{bootstrap_file}} and follow it exactly. Reply with the single word READY once you have read it and every skill it lists.",
+  "detect": ["claude", "--version"],
+  "install_hint": "npm install -g @anthropic-ai/claude-code",
+  "notes": "Models: fable, opus, sonnet, haiku, or a full model id. The system prompt is appended with --append-system-prompt; the bootstrap file carries everything else. Set auto_approve: true on the agent to add --dangerously-skip-permissions."
+}

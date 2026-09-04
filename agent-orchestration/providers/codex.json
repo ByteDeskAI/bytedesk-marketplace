@@ -1,0 +1,15 @@
+{
+  "id": "codex",
+  "display": "OpenAI Codex CLI",
+  "command": "codex",
+  "args": [],
+  "model_args": ["-m", "{{model}}"],
+  "system_prompt_args": [],
+  "auto_approve_args": ["--full-auto"],
+  "ready": { "pattern": "(^|\\n)\\s*[›>❯]\\s", "delay_ms": 6000, "timeout_ms": 30000 },
+  "submit_keys": ["Enter"],
+  "bootstrap_message": "Read {{bootstrap_file}} and follow it exactly. Reply with the single word READY once you have read it and every skill it lists.",
+  "detect": ["codex", "--version"],
+  "install_hint": "npm install -g @openai/codex",
+  "notes": "Codex has no system-prompt flag in interactive mode, so the bootstrap pointer is typed as the first message. Verify -m and --full-auto against `codex --help` for your version."
+}

@@ -1,0 +1,15 @@
+{
+  "id": "generic",
+  "display": "Generic CLI",
+  "command": null,
+  "args": [],
+  "model_args": [],
+  "system_prompt_args": [],
+  "auto_approve_args": [],
+  "ready": { "delay_ms": 4000, "timeout_ms": 20000 },
+  "submit_keys": ["Enter"],
+  "bootstrap_message": "Read {{bootstrap_file}} and follow it exactly. Reply with the single word READY once you have read it and every skill it lists.",
+  "detect": null,
+  "install_hint": "Install the CLI and make sure it is on PATH.",
+  "notes": "Fallback for any interactive CLI: `cli: <command>` in a spec launches that command and delivers every instruction as typed text. Set `command` on the agent to override the executable."
+}

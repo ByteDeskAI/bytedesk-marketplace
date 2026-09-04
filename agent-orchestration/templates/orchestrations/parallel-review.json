@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "name": "parallel-review",
+  "description": "Three reviewers on different model families review the same target independently; the conductor synthesizes agreements and disagreements and stops for the operator.",
+  "inputs": {
+    "target": { "description": "What to review: a path, a diff, a PR URL, or a document", "required": true },
+    "requirements": { "description": "Path to the requirements or spec the target must satisfy", "default": "(none — review against general quality)" }
+  },
+  "layout": "grid",
+  "agents": [
+    { "id": "conductor", "role": "orchestrator", "cli": "claude", "model": "fable", "skills": ["orchestration-conduct"], "instructions": "Review target: {{inputs.target}}. Requirements: {{inputs.requirements}}. Send the identical brief to all reviewers. Synthesize by listing findings every reviewer agreed on first, then disagreements with each side's evidence." },
+    { "id": "reviewer-claude", "role": "reviewer", "cli": "claude", "model": "opus" },
+    { "id": "reviewer-codex", "role": "reviewer", "cli": "codex" },
+    { "id": "reviewer-grok", "role": "reviewer", "cli": "grok" }
+  ],
+  "workflow": [
+    { "stage": "review", "from": "conductor", "to": ["reviewer-claude", "reviewer-codex", "reviewer-grok"], "contract": "review.findings.v1", "timeout": "20m" },
+    { "stage": "synthesize", "wait_for": ["reviewer-claude", "reviewer-codex", "reviewer-grok"], "description": "Conductor writes artifacts/REPORT.md with agreements, disagreements, and a recommendation." }
+  ],
+  "gates": [
+    { "after": "synthesize", "human": true }
+  ]
+}

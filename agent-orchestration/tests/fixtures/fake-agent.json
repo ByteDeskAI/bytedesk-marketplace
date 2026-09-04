@@ -1,0 +1,13 @@
+{
+  "id": "fake-agent",
+  "display": "Fake agent (tests)",
+  "command": "node",
+  "args": [],
+  "model_args": ["--model", "{{model}}"],
+  "system_prompt_args": [],
+  "auto_approve_args": [],
+  "ready": { "pattern": "ready\\n>", "delay_ms": 500, "timeout_ms": 10000 },
+  "submit_keys": ["Enter"],
+  "detect": null,
+  "notes": "Test-only adapter. The spec passes the fake-agent script path through the agent's args."
+}

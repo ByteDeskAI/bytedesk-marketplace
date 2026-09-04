@@ -132,6 +132,39 @@ own process directory.
 The child retains its own status, events, worker, and cancellation boundary. One-shot, unsupported,
 and writable follow-ups fail closed; spawn a new scoped run instead.
 
+
+## tmux topology layer (visible, interactive teams)
+
+The broker above runs agents headless and sandboxed. The topology layer runs them **visibly in tmux
+panes** — any installed CLI, one pane per agent, one agent conducting — for design tournaments,
+competing reviews, and research fan-outs a human watches and steers. Full design:
+[`docs/topology.md`](docs/topology.md).
+
+```sh
+bin/ao-topology doctor                                         # tmux, CLIs, search paths
+bin/ao-topology templates                                      # saved orchestrations
+bin/ao-topology launch --template brand-identity-tournament \
+  --input product=vault --consumer ~/GitHub/bytedesk-design-system
+tmux attach -t brand-vault-<run_id>
+```
+
+- **Spec** — one JSON document (`ao-topology schema`): agents (id, role, cli, model, skills,
+  instructions), ordered workflow stages, human gates, inputs. Natural language compiles into it
+  through the `orchestration-compose` skill; a saved spec is a template.
+- **Provider adapters** — `providers/<cli>.json`: how to launch a CLI, pass a model, append a
+  system prompt, auto-approve, and detect its idle prompt. Unknown `cli` ids fall back to the
+  generic adapter, so any installed CLI can be an agent.
+- **Role packs** — `roles/*.md`: domain-free contracts for orchestrator, worker, designer, judge,
+  reviewer, researcher, implementer. Domain skills (e.g. `brand-brief`, `brand-concept`,
+  `brand-judge` from the design-system plugin) are referenced by name and read by the agent.
+- **Mailbox** — messages are files in `<run>/agents/<id>/inbox`, replies in `outbox`; tmux only
+  types a one-line pointer. Every event lands in `journal.jsonl`.
+- **Skills** — `orchestration-compose`, `orchestration-launch`, `orchestration-conduct` (the
+  conductor's protocol), `orchestration-status`, `setup-agent-orchestration` (tmux per OS, CLI
+  inventory, adding a CLI as an adapter).
+
+Runs live under `<consumer>/.orchestration/runs/<run_id>/` (gitignore it). Tests:
+`npm run test:topology` (unit) and `npm run test:topology:tmux` (real tmux with fake agents).
 ## Govern the roadmap
 
 The installed package includes `ROADMAP.md`, its append-only `ROADMAP-INVENTORY.json` identity

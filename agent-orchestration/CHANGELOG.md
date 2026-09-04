@@ -39,6 +39,12 @@
   page outlives the MCP process. Native Windows stays in-process.
   `AGENT_ORCHESTRATION_SESSION_SUPERVISOR=0` forces in-process. The session-host CLI is a store-backed
   control plane (`autoRecover: false`) so cancel / follow-up / decision still work after MCP exit.
+- Add the tmux topology layer: declarative orchestration specs and templates, provider adapters for
+  any installed CLI (claude, codex, grok, kimi, copilot, gemini, generic), domain-free role packs,
+  a file-first mailbox with a JSONL journal, the `ao-topology` CLI (launch/send/wait/reply/capture/
+  nudge/status/journal/stop/doctor/compose), and the `orchestration-compose`, `orchestration-launch`,
+  `orchestration-conduct`, `orchestration-status`, and `setup-agent-orchestration` skills. Ships the
+  `brand-identity-tournament` and `parallel-review` templates and a real-tmux contract test.
 - Add a reusable cross-platform runtime built with Abstract Factory, Strategy, Facade, and Adapter
   roles. Linux keeps Bubblewrap/systemd isolation; Windows can use native AppContainer/Job Object
   isolation or a WSL2 adapter that reuses the Linux backend.

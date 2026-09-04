@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "agent-orchestration",
-  "description": "Cross-provider agent orchestration for Claude Code, Codex, Grok Build, and Kimi over a durable MCP control plane.",
+  "description": "Cross-provider agent orchestration for Claude Code, Codex, Grok Build, Kimi, and any installed CLI: a durable sandboxed MCP control plane plus a tmux topology layer for visible, human-steered agent teams.",
   "author": {
     "name": "ByteDesk AI",
     "url": "https://github.com/ByteDeskAI"
@@ -17,6 +17,7 @@
     "claude",
     "codex",
     "grok",
-    "kimi"
+    "kimi",
+    "tmux"
   ]
 }

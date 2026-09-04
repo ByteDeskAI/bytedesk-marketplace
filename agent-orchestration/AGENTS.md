@@ -20,6 +20,28 @@ commands.
 A host remains itself: a Grok session that orchestrates is still Grok. Only an MCP provider execution
 changes the external model provider. Wire hosts with `skills/install-orchestration-host`.
 
+
+## tmux topology layer
+
+`topology/`, `bin/ao-topology`, `providers/`, `roles/`, `templates/orchestrations/`, and the
+`orchestration-*` / `setup-agent-orchestration` skills form a second runtime that does **not** go
+through the MCP broker or the sandbox: it launches visible agent CLIs in tmux panes and moves
+messages as files. Invariants:
+
+1. Launch argv comes from a provider adapter plus the agent's declared `args`; spec text is never
+   shell source. The generated `launch.sh` quotes every element.
+2. The message of record is the inbox/outbox file. `send-keys` only delivers a one-line pointer.
+3. Runs live outside the plugin under `<consumer>/.orchestration/runs/<run_id>/`; the plugin never
+   stores state.
+4. Skills and role packs are referenced by path in `BOOTSTRAP.md`; nothing is copied or symlinked
+   into a consumer.
+5. Promotion into a canonical tree (assets, main branch) is a human step; the conductor recommends
+   it in `REPORT.md`.
+6. The topology CLI is dependency-free ESM executed directly (no bundle); keep it that way so an
+   installed cache runs without `node_modules`.
+
+Read `docs/topology.md` before changing the spec schema, adapter shape, or mailbox layout, and
+keep `ao-topology schema`, the skills, and that document in sync.
 ## Public MCP contract
 
 These names are compatibility contracts:

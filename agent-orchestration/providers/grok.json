@@ -1,0 +1,15 @@
+{
+  "id": "grok",
+  "display": "Grok Build CLI",
+  "command": "grok",
+  "args": [],
+  "model_args": ["--model", "{{model}}"],
+  "system_prompt_args": [],
+  "auto_approve_args": ["--always-approve"],
+  "ready": { "delay_ms": 6000, "timeout_ms": 30000 },
+  "submit_keys": ["Enter"],
+  "bootstrap_message": "Read {{bootstrap_file}} and follow it exactly. Reply with the single word READY once you have read it and every skill it lists.",
+  "detect": ["grok", "--version"],
+  "install_hint": "Install Grok Build from xAI and run `grok login`.",
+  "notes": "No known system-prompt flag; the bootstrap pointer is typed. Verify --model and --always-approve against `grok --help`, and add a ready.pattern once you know the prompt glyph."
+}

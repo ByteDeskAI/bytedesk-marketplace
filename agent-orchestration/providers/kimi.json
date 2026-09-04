@@ -1,0 +1,15 @@
+{
+  "id": "kimi",
+  "display": "Kimi Code CLI",
+  "command": "kimi",
+  "args": [],
+  "model_args": [],
+  "system_prompt_args": [],
+  "auto_approve_args": [],
+  "ready": { "delay_ms": 6000, "timeout_ms": 30000 },
+  "submit_keys": ["Enter"],
+  "bootstrap_message": "Read {{bootstrap_file}} and follow it exactly. Reply with the single word READY once you have read it and every skill it lists.",
+  "detect": ["kimi", "--version"],
+  "install_hint": "Install Kimi Code CLI (~/.kimi-code/bin/kimi).",
+  "notes": "Typed-text adapter. Add model_args and auto_approve_args after checking `kimi --help`."
+}
