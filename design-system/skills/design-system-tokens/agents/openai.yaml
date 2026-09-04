@@ -1,4 +1,0 @@
-interface:
-  display_name: "Author Design Tokens"
-  short_description: "Change canonical ByteDesk tokens safely"
-  default_prompt: "Use $design-system-tokens to make a governed change to ByteDesk design tokens."

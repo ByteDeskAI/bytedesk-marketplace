@@ -1,0 +1,24 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "design-skills",
+  "description": "Design craft skills: motion and animation, Apple platform design, awwwards-grade frontend, prototyping, article and video composition, image generation, and UI library selection. General craft, independent of any product's design system.",
+  "author": {
+    "name": "ByteDeskAI"
+  },
+  "homepage": "https://github.com/ByteDeskAI/bytedesk-marketplace",
+  "repository": "https://github.com/ByteDeskAI/bytedesk-marketplace",
+  "license": "MIT",
+  "keywords": [
+    "design",
+    "animation",
+    "frontend",
+    "prototyping"
+  ],
+  "skills": "./skills",
+  "agents": [
+    "./agents/consumer-migration-specialist.md",
+    "./agents/design-system-reviewer.md",
+    "./agents/profile-architect.md",
+    "./agents/token-accessibility-auditor.md"
+  ]
+}

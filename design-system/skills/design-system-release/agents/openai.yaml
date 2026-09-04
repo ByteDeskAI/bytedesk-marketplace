@@ -1,4 +1,0 @@
-interface:
-  display_name: "Release Design System"
-  short_description: "Publish a verified ByteDesk design release"
-  default_prompt: "Use $design-system-release to validate and publish the current ByteDesk design-system change."

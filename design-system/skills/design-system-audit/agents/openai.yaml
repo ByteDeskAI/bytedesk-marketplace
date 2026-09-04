@@ -1,4 +1,0 @@
-interface:
-  display_name: "Audit ByteDesk Design"
-  short_description: "Audit UI against ByteDesk design contracts"
-  default_prompt: "Use $design-system-audit to review this implementation against its ByteDesk design contracts."

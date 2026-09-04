@@ -1,0 +1,18 @@
+{
+  "name": "design-skills",
+  "description": "Design craft skills: motion and animation, Apple platform design, awwwards-grade frontend, prototyping, composition, and image generation. No ByteDesk design content.",
+  "author": {
+    "name": "ByteDeskAI"
+  },
+  "homepage": "https://github.com/ByteDeskAI/bytedesk-marketplace",
+  "repository": "https://github.com/ByteDeskAI/bytedesk-marketplace",
+  "license": "MIT",
+  "keywords": [
+    "design",
+    "animation",
+    "frontend",
+    "prototyping"
+  ],
+  "skills": "./skills",
+  "agents": "./agents"
+}
