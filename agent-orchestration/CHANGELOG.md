@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add the `design-studio` orchestration template: three panes bound to the design-system repo’s
+  own `design-system-studio` director/hands/judge role files, each on its own provider chain, with
+  the studio’s director driving the run and the template supplying only the terminals, fallback,
+  and mailbox transport.
 - Add `claude.fable-5-1` (model `claude-fable-5-1`) to the trusted model catalog and put it first on
   the `architecture.proposal`, `design.default`, `implementation.default`, and
   `provider.claude.default` aliases, ahead of `claude.opus-5` and the `claude.opus-4-8` fallback.

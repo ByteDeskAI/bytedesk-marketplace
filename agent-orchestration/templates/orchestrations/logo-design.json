@@ -1,7 +1,7 @@
 {
   "version": 1,
   "name": "logo-design",
-  "description": "One designer explores directions with an image model, you pick a direction at a gate, the designer vectors it into original SVG concepts, an independent judge scores them, and the conductor runs revision rounds. Scope, deliverables, provider chains, and image model are chosen at launch.",
+  "description": "One designer explores directions with an image model, you pick a direction at a gate, the designer vectors it into original SVG concepts, an independent judge scores them, and the conductor runs revision rounds. Scope, deliverables, provider chains, and image model are chosen at launch. For ByteDesk brand work prefer the design-studio template, which drives the design-system repo’s own design-system-studio roles; this one is the generic pipeline for repos without a studio.",
   "inputs": {
     "scope": {
       "description": "What the mark is for",

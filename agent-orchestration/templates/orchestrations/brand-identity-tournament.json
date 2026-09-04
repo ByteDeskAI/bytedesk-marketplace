@@ -1,7 +1,7 @@
 {
   "version": 1,
   "name": "brand-identity-tournament",
-  "description": "Two designers on different provider chains draw competing logo concepts from one brief; a judge on a third chain scores them against the product design profile; the conductor runs revision rounds and stops at a human gate before anything is promoted. Every role has an ordered fallback chain so a usage limit on one provider never stalls the run.",
+  "description": "Two designers on different provider chains draw competing logo concepts from one brief; a judge on a third chain scores them against the product design profile; the conductor runs revision rounds and stops at a human gate before anything is promoted. Every role has an ordered fallback chain so a usage limit on one provider never stalls the run. For ByteDesk brand work prefer the design-studio template, which drives the design-system repo’s own design-system-studio roles; this one is the generic pipeline for repos without a studio.",
   "inputs": {
     "product": {
       "description": "Product slug matching profiles/<product>/ in the design-system repo (e.g. vault, gateway, capture)",

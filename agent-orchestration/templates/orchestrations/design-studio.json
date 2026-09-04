@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "name": "design-studio",
+  "description": "Launch the ByteDesk design studio as three tmux panes — director, hands, judge — each on its own provider chain with the design-system-studio role file loaded. The studio's own director.md drives the run; this template only stands up the terminals, the provider fallback, and the mailbox transport.",
+  "inputs": {
+    "app": { "description": "App slug under apps/ in the design-system repo (e.g. gateway, vault, capture)", "required": true },
+    "asset": {
+      "description": "What this run produces; the studio files each type in its own standard location",
+      "default": "glyph",
+      "options": [
+        { "value": "glyph", "description": "icon.svg, icon-light.svg, icon-mono.svg -> apps/<slug>/brand/" },
+        { "value": "icon", "description": "Dimensional icon tier: icon-dark.png + icon-light.png (1024, alpha) -> apps/<slug>/brand/" },
+        { "value": "wordmark", "description": "Wordmark set -> apps/<slug>/brand/" },
+        { "value": "accent", "description": "Accent-selection round; build/palette.mjs proposes, no rendering" },
+        { "value": "brand-kit", "description": "brand.md plus proof sheet -> apps/<slug>/brand/" },
+        { "value": "hero", "description": "Hero or marketing image -> apps/<slug>/marketing/<campaign>-v<n>/" },
+        { "value": "mockup", "description": "Direction mockup -> apps/<slug>/mockups/<surface>-v<n>/" },
+        { "value": "family-mark", "description": "Family mark -> foundation/brand/" }
+      ]
+    },
+    "design_system": { "description": "Absolute path to the ByteDeskAI/design-system checkout", "default": "{{consumer}}" },
+    "director": { "description": "Provider chain for the director (the studio records Claude Fable 5.1)", "default": "claude:fable, claude:opus" },
+    "hands": { "description": "Provider chain for the hands (the studio records Codex with image_gen and a shell, Grok beside it for comps)", "default": "codex, grok, claude:fable" },
+    "judge": { "description": "Provider chain for the judge (the studio records Claude Opus 5)", "default": "claude:opus, claude:fable, kimi" }
+  },
+  "session": "studio-{{inputs.app}}-{{inputs.asset}}-{{run_id}}",
+  "cwd": "{{inputs.design_system}}",
+  "run_dir": "{{inputs.design_system}}/.orchestration/runs/{{run_id}}",
+  "layout": "main-vertical",
+  "agents": [
+    {
+      "id": "director",
+      "role": "orchestrator",
+      "candidates": "{{inputs.director}}",
+      "skills": ["design-system-studio"],
+      "instructions": "You are THE DIRECTOR. Load the design-system-studio skill and read its director.md; that file governs this run and overrides the generic orchestrator role above wherever they differ — in particular, the studio's run directory under runs/<date>-{{inputs.app}}-{{inputs.asset}}/ is where the work lives, not the mailbox. App: apps/{{inputs.app}}/. Asset: {{inputs.asset}}. Open the run exactly as director.md step 1-5 describes (refuse the run if its refusal conditions hold), then drive the loop. Use ao-topology send to put a bounded request in a pane's inbox and ao-topology wait to block on the reply, or director.md's own file-wait if you prefer; either way wait on files, never on pane text. You never render, never author a deliverable, never approve."
+    },
+    {
+      "id": "hands",
+      "role": "designer",
+      "candidates": "{{inputs.hands}}",
+      "skills": ["design-system-studio"],
+      "instructions": "You are THE HANDS. Load the design-system-studio skill and read its hands.md; that file governs and overrides the generic designer role above. You make every deliverable and write only inside the studio run directory. One artifact per invocation; save the exact prompt to rounds/prompts/ before rendering. Never brief, never approve, never choose where a file is filed. If the brief has no chain block or no criteria, write rounds/blocked.md and stop."
+    },
+    {
+      "id": "judge",
+      "role": "judge",
+      "candidates": "{{inputs.judge}}",
+      "skills": ["design-system-studio"],
+      "instructions": "You are THE JUDGE. Load the design-system-studio skill and read its judge.md; that file governs and overrides the generic judge role above. Score every round against the criteria the brief copied from the rubric, and write the decision record the director waits on. Never brief, never render, never edit an artifact."
+    }
+  ],
+  "workflow": [
+    { "stage": "studio", "from": "director", "to": ["hands", "judge"], "timeout": "60m", "description": "The studio's own loop: diverge, score, direction approval, produce, score the deliverable. Round ceilings and escalation come from the rubric, not from this template." }
+  ],
+  "gates": [
+    { "after": "studio", "human": true, "description": "The studio's two approvals — the direction, then the deliverable — plus any escalation past a round ceiling, are answered by the owner in the director pane." }
+  ],
+  "artifacts": {
+    "dir": "artifacts",
+    "promote_to": "The studio files each asset in its own standard location under apps/<slug>/brand|marketing|mockups or foundation/brand, written by the director after the judge passes it. Nothing here is promoted by this template."
+  }
+}

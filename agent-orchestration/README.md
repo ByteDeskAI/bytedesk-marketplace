@@ -151,6 +151,10 @@ tmux attach -t brand-vault-<run_id>
 - **Spec** — one JSON document (`ao-topology schema`): agents (id, role, cli, model, skills,
   instructions), ordered workflow stages, human gates, inputs. Natural language compiles into it
   through the `orchestration-compose` skill; a saved spec is a template.
+- **Templates** — `design-studio` launches the ByteDesk design system’s own studio roles
+  (director, hands, judge from `design-system-studio`) as three panes on separate provider
+  chains; `logo-design` and `brand-identity-tournament` are the generic brand pipelines for
+  repos without a studio; `parallel-review` fans one target out to independent reviewers.
 - **Provider chains** — every agent names an ordered chain of `cli:model` candidates
   (`"candidates": ["claude:fable", "claude:opus", "codex"]`, or an input string). Launch walks
   the chain past missing CLIs and usage/rate/auth failures; `ao-topology failover --agent <id>`
