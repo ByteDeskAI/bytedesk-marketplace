@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-labelledby="task-management-light-title task-management-light-desc">
+  <title id="task-management-light-title">ByteDesk Task Management, light ground</title>
+  <desc id="task-management-light-desc">Three cards stand in a shared lane; the taller claimed card carries one blue top seam.</desc>
+  <path fill="#22252A" d="M3 25V4H10V25H12V8Q12 6 14 6H17Q19 6 19 8V25H21V8Q21 6 23 6H26Q28 6 28 8V25H29Q30 25 30 26V29Q30 30 29 30H3Q2 30 2 29V26Q2 25 3 25Z"/>
+  <path fill="#255DA5" d="M4 2H9Q10 2 10 3V4H3V3Q3 2 4 2Z"/>
+</svg>

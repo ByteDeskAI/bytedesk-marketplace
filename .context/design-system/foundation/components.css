@@ -1,0 +1,43 @@
+/* ByteDesk primary action. Theme selectors resolve both semantic colours. */
+.bd-button-primary {
+  align-items: center;
+  background-color: var(--bd-interactive-blue);
+  border: var(--bd-stroke-hairline) solid transparent;
+  border-radius: var(--bd-radius-md);
+  color: var(--bd-text-on-interactive);
+  display: inline-flex;
+  font-family: var(--bd-font-sans);
+  font-size: var(--bd-text-caption);
+  font-weight: var(--bd-font-weight-medium);
+  gap: var(--bd-space-2);
+  height: var(--bd-size-control-default);
+  justify-content: center;
+  letter-spacing: var(--bd-letter-spacing-label);
+  line-height: var(--bd-line-height-compact);
+  padding-inline: var(--bd-space-6);
+  transition: transform var(--bd-duration-fast) var(--bd-ease-out-expo);
+}
+
+/* Product-level conversion or identity action; ordinary primary actions stay blue. */
+.bd-button-primary[data-bd-variant="product"] {
+  background-color: var(--bd-accent);
+  color: var(--bd-text-on-interactive);
+}
+
+.bd-button-primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.bd-button-primary:focus-visible {
+  outline: var(--bd-stroke-focus) solid var(--bd-interactive-focus);
+  outline-offset: var(--bd-space-1);
+}
+
+.bd-button-primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.bd-button-primary:disabled {
+  cursor: not-allowed;
+  opacity: var(--bd-opacity-disabled);
+}

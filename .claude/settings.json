@@ -11,7 +11,6 @@
   "enabledPlugins": {
     "task-management@bytedesk": true,
     "knowledge-management@bytedesk": true,
-    "design-system@bytedesk": true,
     "bytedesk-designer@bytedesk": true
   }
 }

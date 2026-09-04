@@ -1,14 +1,8 @@
 import { readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { paths } from "../lib/paths.mjs";
-
-const here = dirname(fileURLToPath(import.meta.url));
-// The token stylesheet is vendored at the REPO root (`.context/design-system/`), outside this
-// package. Vite's dev server refuses to serve files above the project root unless told.
-const repoRoot = resolve(here, "../..");
 
 /**
  * `npm run dev` serves the board with HMR and proxies the API to the running
@@ -68,7 +62,6 @@ export default defineConfig(({ command }) => ({
   server:
     command === "serve"
       ? {
-          fs: { allow: [repoRoot] },
           proxy: {
             "/api": { target: apiTarget(), changeOrigin: true },
             // SSE needs the stream left alone: no buffering, no timeout.

@@ -1,0 +1,130 @@
+{
+  "schemaVersion": 1,
+  "version": "1.6.3",
+  "sourceSha": "f15a5b9715e36d4b3ac79e69d6095406007519e2",
+  "app": "task-management",
+  "include": [],
+  "status": "current",
+  "files": {
+    "foundation/bytedesk.css": {
+      "sha256": "da87c3fc0e63f2382ef3c4c13915e41d535919e6149feb76590405f2897ee881",
+      "bytes": 13241
+    },
+    "foundation/components.css": {
+      "sha256": "e6b04707a8e7fc45beb4676d55e2bfd4274ef4ca3a20fd465a740fe66a227f8c",
+      "bytes": 1353
+    },
+    "foundation/tailwind/theme.css": {
+      "sha256": "ba9bed2ef2002d312fe1b68bf338f663fc10f5fb7a7b442b4b5154fe570f037a",
+      "bytes": 6556
+    },
+    "foundation/platforms/typescript/bytedesk-tokens.ts": {
+      "sha256": "58f1a23eb7868c33ef89fece8a2e0b8b7f631019ae4b0ba2b28c0b5c54c108b8",
+      "bytes": 8254
+    },
+    "foundation/platforms/rust/bytedesk_tokens.rs": {
+      "sha256": "1d5cae458455f3cd0aabda3287ad7692e7620a8ab910e75059122db4bd93a24d",
+      "bytes": 19648
+    },
+    "foundation/platforms/go/bytedesk_tokens.go": {
+      "sha256": "fb28be83ad214352442f57ab103054a6a0b2ab5cb235d50d200b73ec93d419f7",
+      "bytes": 24739
+    },
+    "foundation/tokens.json": {
+      "sha256": "f25ee7b15ffc34e5c34ae6e71b53367ed26d478dd7e9371ed672a1062caaf376",
+      "bytes": 25605
+    },
+    "foundation/DESIGN.md": {
+      "sha256": "b156947bb41cc093d09d767aea0c23016283abff63113ae52971c686fb186b40",
+      "bytes": 13221
+    },
+    "client/go/design.go": {
+      "sha256": "28c572bba1a8a635f98231bb3961fa69fa3f39c69a8595ccfb33be179d0c56e7",
+      "bytes": 6150
+    },
+    "client/go/go.mod": {
+      "sha256": "3690ff313f664c4c3f1283d7ae1c7d6ce46534d9c5afa5c4855948b79539246b",
+      "bytes": 62
+    },
+    "client/rust/Cargo.toml": {
+      "sha256": "4de584275b4899c30e1e115ab3db0fc6351fb163fb3a1090ecb5c3a7fe149dee",
+      "bytes": 383
+    },
+    "client/rust/src/lib.rs": {
+      "sha256": "40d1989a9ddb0cb364294b64d0efd53ee2fe4cd46716bb5c99ebadaecab6c52f",
+      "bytes": 6095
+    },
+    "apps/task-management/brand/icon.svg": {
+      "sha256": "80f79417fc88a1ed7747afc76fbf6faf6329b1758d9ce4db3daae62cd5a8a868",
+      "bytes": 559
+    },
+    "apps/task-management/brand/icon-light.svg": {
+      "sha256": "6a9f1aa286444bb13fed88ffff50cc0b7f103a208ff65f80ed4b05964f8f1689",
+      "bytes": 597
+    },
+    "apps/task-management/brand/icon-mono.svg": {
+      "sha256": "e75179f89519cb24cf7b0c8ec39b67da51a2396ea71cb89881ec94e5d80277a3",
+      "bytes": 535
+    },
+    "apps/task-management/brand/icon-dark.png": {
+      "sha256": "ff24e70414ee747c5c5ff66c7e6ab485a52e432a33778f1fe5ff300eedc82238",
+      "bytes": 393536
+    },
+    "apps/task-management/brand/icon-light.png": {
+      "sha256": "8d6f5c4db70fcfd3aba08b995b41b40565dc994eea6496f644a8aefce0a43a28",
+      "bytes": 594502
+    },
+    "apps/task-management/brand/favicon-16.svg": {
+      "sha256": "a8d670a8c7939e4e2f494bfffb259db73863b61a0d5c2bed7625b2e2da896a7f",
+      "bytes": 327
+    },
+    "apps/task-management/brand/favicon-16-light.svg": {
+      "sha256": "b1ddad5a8771bf1db91e6bd0bffd6876f210412dd8d1f505481e2facf90ab789",
+      "bytes": 353
+    },
+    "apps/task-management/brand/favicon-32.svg": {
+      "sha256": "2e58c2fa2a115691ba08047bcd24ab5e0b021dec958052d42268b1541c652c5e",
+      "bytes": 432
+    },
+    "apps/task-management/brand/favicon-32-light.svg": {
+      "sha256": "f16f5155e61b64191718c33989238b79ce3a3e27ca1784074fbfaee5813b46b0",
+      "bytes": 458
+    },
+    "apps/task-management/brand/favicon-48.svg": {
+      "sha256": "c3e675c4bb6e8083556c53e32fb22a2848d263c93c493008dd0db5031d10e246",
+      "bytes": 437
+    },
+    "apps/task-management/brand/favicon-48-light.svg": {
+      "sha256": "93ac823b73deac7cb6fae672e439f9737203503fdd774b2917198b4b45f12aec",
+      "bytes": 463
+    },
+    "apps/task-management/brand/favicon.ico": {
+      "sha256": "1584a163a571146ed3ea667f5fefffe4a2005fb46c9115a155d821f2aee2c728",
+      "bytes": 1219
+    },
+    "apps/task-management/brand/icon-192.png": {
+      "sha256": "1fb2fcb1fd775536d90b06e326ac5e087cfc4ae74ef98cc692545b548a99fb16",
+      "bytes": 22926
+    },
+    "apps/task-management/DESIGN.md": {
+      "sha256": "4448eb649ef9403f50480404c1f9b69f2abce7fa393513edb77fe387178bf964",
+      "bytes": 9377
+    },
+    "apps/task-management/DESIGN.json": {
+      "sha256": "6e33b7db2a31e59cd44212fb6900da5eb5f3c43da59c86bb37d7579f0fc2508b",
+      "bytes": 5123
+    },
+    "apps/task-management/app.json": {
+      "sha256": "317c64060d4a2ae4b90c963f0d7037c0b22b9345cd931110b055c63ad1af4793",
+      "bytes": 769
+    },
+    "apps/task-management/PRODUCT.md": {
+      "sha256": "2b45a13d3091f8520df270079c99efde65b5a520ab2051e2b337cc110572f56e",
+      "bytes": 2435
+    },
+    "catalog.json": {
+      "sha256": "1a662023d0ba6d02cd4c08be80ef8cb3cc4ec5b993f9aaecf9349a2573e35b5c",
+      "bytes": 85107
+    }
+  }
+}
