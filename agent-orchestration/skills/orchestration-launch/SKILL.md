@@ -16,9 +16,13 @@ Resolve `AO` as `../../bin/ao-topology` relative to this skill (the installed pl
 2. **Pick the template.** `AO templates --consumer <repo>` lists user, consumer, and plugin
    templates. If the user described a team instead of naming one, run `orchestration-compose`
    first.
-3. **Gather inputs.** `AO validate --template <name>` prints the normalized spec including
-   `inputs` with descriptions and defaults. Ask for each required input the user has not given;
-   pass them as `--input name=value`.
+3. **Gather inputs.** `AO inputs --template <name>` lists every input with its description,
+   default, and — when the template defines `options` — the allowed values with one line each.
+   Present option inputs to the user as a menu (AskUserQuestion when available; one question per
+   input, multi-select when the input says "pick one or more") and free-text inputs as a short
+   question; skip inputs whose default the user is happy with. Pass results as
+   `--input name=value` (comma-separated for multi). The CLI rejects a value outside the options,
+   so never guess one.
 4. **Decide the consumer directory** — the repository the agents work in (`--consumer`). It is
    where `.orchestration/runs/<run_id>/` is created. Make sure `.orchestration/runs/` is
    gitignored there; offer to add it if not.

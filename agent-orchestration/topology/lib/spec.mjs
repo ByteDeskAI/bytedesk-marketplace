@@ -17,7 +17,7 @@ export function specSchemaSummary() {
     fields: {
       name: "slug; becomes the template name",
       description: "one sentence shown by `ao-topology templates`",
-      inputs: "map of input name -> { description, required, default }; referenced as {{inputs.<name>}}",
+      inputs: "map of input name -> { description, required, default, options?: [value | {value, description}], multi?: bool }; referenced as {{inputs.<name>}}; options make the launcher show a menu",
       session: "tmux session name template (default '{{name}}-{{run_id}}')",
       cwd: "default working directory for every agent (default '{{consumer}}')",
       run_dir: "where mailbox, journal, and artifacts live (default '{{consumer}}/.orchestration/runs/{{run_id}}')",
@@ -60,7 +60,10 @@ export function validateSpec(raw) {
     if (!def || typeof def !== "object") {
       spec.inputs[key] = { description: "", required: true };
     } else {
-      spec.inputs[key] = { description: def.description ?? "", required: def.required !== false && def.default === undefined, default: def.default };
+      const options = Array.isArray(def.options) ? def.options.map((option) => (typeof option === "string" ? { value: option, description: "" } : { value: String(option?.value ?? ""), description: option?.description ?? "" })) : undefined;
+      if (options && options.some((option) => !option.value)) note(`inputs.${key}.options: every option needs a value`);
+      if (options && def.default !== undefined && !options.some((option) => option.value === String(def.default))) note(`inputs.${key}: default "${def.default}" is not one of its options`);
+      spec.inputs[key] = { description: def.description ?? "", required: def.required !== false && def.default === undefined, default: def.default, options, multi: def.multi === true };
     }
   }
 
@@ -137,14 +140,25 @@ export function validateSpec(raw) {
 export function resolveInputs(spec, provided = {}) {
   const inputs = {};
   const missing = [];
+  const invalid = [];
   for (const [key, def] of Object.entries(spec.inputs)) {
-    if (provided[key] !== undefined) inputs[key] = provided[key];
-    else if (def.default !== undefined) inputs[key] = def.default;
-    else if (def.required) missing.push(`${key}${def.description ? ` — ${def.description}` : ""}`);
+    const choices = def.options ? def.options.map((option) => option.value) : null;
+    const describe = () => `${key}${def.description ? ` — ${def.description}` : ""}${choices ? ` (options: ${choices.join(" | ")}${def.multi ? ", comma-separated for several" : ""})` : ""}`;
+    if (provided[key] !== undefined) {
+      const value = String(provided[key]);
+      if (choices) {
+        const values = def.multi ? value.split(",").map((item) => item.trim()).filter(Boolean) : [value];
+        const bad = values.filter((item) => !choices.includes(item));
+        if (bad.length > 0) invalid.push(`${key}="${value}" is not allowed; ${describe()}`);
+      }
+      inputs[key] = value;
+    } else if (def.default !== undefined) inputs[key] = def.default;
+    else if (def.required) missing.push(describe());
   }
   for (const key of Object.keys(provided)) {
     if (!(key in spec.inputs)) inputs[key] = provided[key];
   }
+  invariant(invalid.length === 0, "TOPOLOGY_INPUT_INVALID", `Invalid input(s):\n- ${invalid.join("\n- ")}`, { invalid });
   invariant(missing.length === 0, "TOPOLOGY_INPUT_MISSING", `Missing required input(s):\n- ${missing.join("\n- ")}\nPass them with --input <name>=<value>.`, { missing });
   return inputs;
 }

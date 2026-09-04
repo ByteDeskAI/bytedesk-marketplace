@@ -57,6 +57,24 @@ test("resolveInputs applies defaults and reports missing required inputs", () =>
   assert.deepEqual(resolveInputs(spec, { product: "vault" }), { product: "vault", rounds: "2" });
 });
 
+test("inputs with options are validated, support multi, and reject unknown values", () => {
+  const spec = validateSpec({
+    ...minimal(),
+    inputs: {
+      scope: { options: ["product", "family"], default: "product" },
+      deliverables: { options: [{ value: "mark", description: "svg" }, "lockup"], default: "mark", multi: true },
+      cli: { options: ["claude", "codex"], required: true },
+    },
+  });
+  assert.equal(spec.inputs.scope.required, false);
+  assert.deepEqual(spec.inputs.deliverables.options[0], { value: "mark", description: "svg" });
+  assert.deepEqual(resolveInputs(spec, { cli: "codex", deliverables: "mark,lockup" }), { scope: "product", deliverables: "mark,lockup", cli: "codex" });
+  assert.throws(() => resolveInputs(spec, { cli: "gemini" }), /cli="gemini" is not allowed; cli \(options: claude \| codex\)/);
+  assert.throws(() => resolveInputs(spec, { cli: "claude", deliverables: "mark,poster" }), /deliverables="mark,poster" is not allowed/);
+  assert.throws(() => resolveInputs(spec, {}), /Missing required input\(s\):\n- cli \(options: claude \| codex\)/);
+  assert.throws(() => validateSpec({ ...minimal(), inputs: { scope: { options: ["a"], default: "b" } } }), /default "b" is not one of its options/);
+});
+
 test("materializeSpec renders placeholders, run_dir, and per-agent cwd", async () => {
   const consumer = await mkdtemp(join(os.tmpdir(), "ao-topology-consumer-"));
   try {

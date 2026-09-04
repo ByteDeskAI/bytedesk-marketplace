@@ -39,7 +39,12 @@ developing the plugin.
    when the user did not say otherwise; say you added it.
 5. **Extract inputs.** Anything that changes per run (a product, a target path, a ticket) becomes
    an `inputs` entry with a description; reference it as `{{inputs.<name>}}` in instructions and
-   session name. Give defaults where sensible.
+   session name. Give defaults where sensible. When the user wants to *choose* something at
+   launch — which CLI draws, which deliverables, which scope — give the input `options`
+   (`[{ "value", "description" }]`, plus `"multi": true` when several may be picked); the
+   launcher then shows a menu and the CLI rejects anything outside it. An agent field can be
+   driven by an input (`"cli": "{{inputs.designer_cli}}"`, `"model": "{{inputs.designer_model}}"`,
+   a skill name in `skills`); the value `none` in `skills` is skipped.
 6. **Write the draft** to a temp file and validate: `AO compose --spec <file>`. The error text lists
    every problem; fix them all and re-run until it prints `"ok": true`.
 7. **Show the user** a compact table: agent → role, CLI/model, skills; then the stages in order;

@@ -170,7 +170,7 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
     const adapter = adapterFor(agent, adapters);
     if (adapter.fallback) warnings.push(`agent ${agent.id}: no adapter for cli "${agent.cli}"; using the generic adapter with command "${adapter.command}"`);
     const skills = [];
-    for (const name of agent.skills) {
+    for (const name of agent.skills.filter((item) => item && item !== "none")) {
       const resolved = await resolveSkill(name, skillSearchDirs);
       if (!resolved.path) warnings.push(`agent ${agent.id}: skill "${name}" not found in any skill directory`);
       skills.push(resolved);

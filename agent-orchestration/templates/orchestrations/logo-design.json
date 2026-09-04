@@ -1,0 +1,236 @@
+{
+  "version": 1,
+  "name": "logo-design",
+  "description": "One designer explores directions with an image model, you pick a direction at a gate, the designer vectors it into original SVG concepts, an independent judge scores them, and the conductor runs revision rounds. Scope, deliverables, designer CLI, and image model are chosen at launch.",
+  "inputs": {
+    "scope": {
+      "description": "What the mark is for",
+      "default": "product",
+      "options": [
+        {
+          "value": "product",
+          "description": "One product; give its slug in `product`"
+        },
+        {
+          "value": "family",
+          "description": "A coherent set of marks for every cataloged product profile"
+        },
+        {
+          "value": "master",
+          "description": "The organization-wide ByteDesk mark that assets/brand/ is reserved for"
+        }
+      ]
+    },
+    "product": {
+      "description": "Product slug matching profiles/<product>/ (ignored unless scope=product)",
+      "default": "bytedesk-ai"
+    },
+    "deliverables": {
+      "description": "What a finished run must hand back; pick one or more",
+      "default": "mark",
+      "multi": true,
+      "options": [
+        {
+          "value": "mark",
+          "description": "Primary mark SVG + mono + reverse, 16/32px checks"
+        },
+        {
+          "value": "lockup",
+          "description": "Horizontal wordmark lockup in the family typeface, text outlined"
+        },
+        {
+          "value": "favicon",
+          "description": "favicon.svg plus 16/32/48 PNG and .ico"
+        },
+        {
+          "value": "app-icons",
+          "description": "Squircle app icon set: 64/128/256/512/1024 PNG on the product accent"
+        },
+        {
+          "value": "social",
+          "description": "Square social avatar and 1200×630 banner with the mark"
+        }
+      ]
+    },
+    "designer_cli": {
+      "description": "Which CLI draws",
+      "default": "claude",
+      "options": [
+        {
+          "value": "claude",
+          "description": "Claude Code (fable) — can view its own renders and run the image skill natively"
+        },
+        {
+          "value": "codex",
+          "description": "OpenAI Codex CLI"
+        },
+        {
+          "value": "grok",
+          "description": "Grok Build CLI"
+        }
+      ]
+    },
+    "designer_model": {
+      "description": "Model flag for the designer CLI (leave empty for the CLI default; e.g. fable for claude)",
+      "default": ""
+    },
+    "image_skill": {
+      "description": "Skill the designer uses for mood exploration before vectoring",
+      "default": "deepinfra",
+      "options": [
+        {
+          "value": "deepinfra",
+          "description": "DeepInfra FLUX/SDXL via the deepinfra skill"
+        },
+        {
+          "value": "gpt-image-2",
+          "description": "GPT Image 2 via the reviewed gpt-image-2 skill"
+        },
+        {
+          "value": "none",
+          "description": "Skip image exploration; go straight to SVG concepts"
+        }
+      ]
+    },
+    "directions": {
+      "description": "How many visual directions to explore with the image model (each gets 2 images)",
+      "default": "4"
+    },
+    "concepts": {
+      "description": "How many SVG concepts to vector from the chosen direction",
+      "default": "3"
+    },
+    "max_rounds": {
+      "description": "Maximum revision rounds after the first judgement",
+      "default": "2"
+    },
+    "design_system": {
+      "description": "Absolute path to the design-system checkout",
+      "default": "{{consumer}}"
+    }
+  },
+  "session": "logo-{{inputs.scope}}-{{inputs.product}}-{{run_id}}",
+  "cwd": "{{inputs.design_system}}",
+  "run_dir": "{{inputs.design_system}}/.orchestration/runs/{{run_id}}",
+  "layout": "main-vertical",
+  "agents": [
+    {
+      "id": "conductor",
+      "role": "orchestrator",
+      "cli": "claude",
+      "model": "fable",
+      "skills": [
+        "orchestration-conduct",
+        "brand-brief"
+      ],
+      "instructions": "Scope: {{inputs.scope}} (product: {{inputs.product}}). Deliverables requested: {{inputs.deliverables}}. Write the brief with brand-brief; for scope=family the brief covers every profile in profiles/ and asks for one construction system, for scope=master it covers DESIGN.md §3 and the family accent table instead of one profile. Stage `explore` runs only when image_skill is not `none` ({{inputs.image_skill}}); after it, stop at the `pick-direction` gate and show the operator the contact sheet the designer produced, then pass the chosen direction id into the concepts brief. After the judge accepts, stop at the final gate; only then send the `deliverables` stage, listing exactly the deliverables requested and nothing more. Never promote into assets/ or catalog.json yourself."
+    },
+    {
+      "id": "designer",
+      "role": "designer",
+      "cli": "{{inputs.designer_cli}}",
+      "model": "{{inputs.designer_model}}",
+      "skills": [
+        "brand-explore",
+        "brand-concept",
+        "{{inputs.image_skill}}"
+      ],
+      "instructions": "You explore with images first and vector second. In the explore stage, use the {{inputs.image_skill}} skill to generate {{inputs.directions}} directions × 2 images into artifacts/designer/<message-id>/directions/<n>/ and a CONTACT-SHEET.md as brand-explore describes; images are mood references only and are never deliverables. In the concepts stage, produce {{inputs.concepts}} original SVG concepts from the chosen direction per brand-concept. If the image skill is `none`, skip exploration and say so in your reply."
+    },
+    {
+      "id": "judge",
+      "role": "judge",
+      "cli": "claude",
+      "model": "opus",
+      "skills": [
+        "brand-judge"
+      ],
+      "instructions": "Score with the brand-judge rubric against the brief and the governing profile(s). Disqualify any concept that reproduces a generated mood image literally or violates a ban."
+    }
+  ],
+  "workflow": [
+    {
+      "stage": "brief",
+      "from": "conductor",
+      "to": [
+        "designer"
+      ],
+      "contract": "brand.brief.v1",
+      "timeout": "5m",
+      "description": "Conductor writes the brief for the chosen scope with brand-brief and includes the deliverables list and the image_skill choice."
+    },
+    {
+      "stage": "explore",
+      "wait_for": [
+        "designer"
+      ],
+      "contract": "brand.directions.v1",
+      "timeout": "25m",
+      "description": "Designer generates direction images with the image skill and writes a contact sheet with one paragraph per direction. Skipped when image_skill=none."
+    },
+    {
+      "stage": "pick-direction",
+      "from": "conductor",
+      "to": [],
+      "description": "Human gate: operator chooses a direction id (or asks for more exploration)."
+    },
+    {
+      "stage": "concepts",
+      "from": "conductor",
+      "to": [
+        "designer"
+      ],
+      "contract": "brand.concepts.v1",
+      "timeout": "30m",
+      "description": "Designer vectors the chosen direction into original SVG concepts with mono and reverse variants and small-size checks."
+    },
+    {
+      "stage": "judge",
+      "from": "conductor",
+      "to": [
+        "judge"
+      ],
+      "contract": "brand.scorecard.v1",
+      "timeout": "15m",
+      "description": "Judge scores every concept and returns one verdict."
+    },
+    {
+      "stage": "revise",
+      "from": "conductor",
+      "to": [
+        "designer"
+      ],
+      "contract": "brand.concepts.v1",
+      "timeout": "20m",
+      "loop_until": "judge.verdict == accept",
+      "max_rounds": 2,
+      "description": "Only the named concept is revised with the judge's numbered fixes, then back to judge."
+    },
+    {
+      "stage": "deliverables",
+      "from": "conductor",
+      "to": [
+        "designer"
+      ],
+      "contract": "brand.deliverables.v1",
+      "timeout": "20m",
+      "description": "After the final gate: designer produces exactly the requested deliverable set from the accepted mark (lockup, favicon, app icons, social) under artifacts/designer/final/."
+    }
+  ],
+  "gates": [
+    {
+      "after": "explore",
+      "human": true,
+      "description": "Pick the direction to vector from the contact sheet."
+    },
+    {
+      "after": "judge",
+      "human": true,
+      "description": "Approve the accepted concept before deliverables are produced and before any promotion into assets/."
+    }
+  ],
+  "artifacts": {
+    "dir": "artifacts",
+    "promote_to": "Use the design-system-assets skill to import artifacts/designer/final/ into assets/products/<product>/ (or assets/brand/ for scope=master) with catalog provenance; keep directions/, every concept round, and the scorecards under artifacts/ as the decision trail DESIGN.md §7 requires."
+  }
+}

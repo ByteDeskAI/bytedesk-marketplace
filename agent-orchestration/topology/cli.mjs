@@ -29,6 +29,7 @@ Discover
   runs [--consumer <dir>]                      list runs under <consumer>/.orchestration/runs
 
 Compose
+  inputs (--template <name> | --spec <file>)    show a template's inputs, options, and defaults
   validate (--spec <file> | --template <name>) validate a spec and print the normalized form
   compose --spec <file> [--save user|consumer|<dir>] [--name <slug>]
                                                validate and save a spec as a template
@@ -64,7 +65,9 @@ function list(value) {
 
 function inputPairs(value) {
   const pairs = {};
-  for (const item of list(value)) {
+  // Not split on commas: a multi-option input is passed as `--input deliverables=mark,favicon`.
+  const items = value === undefined || value === true ? [] : [].concat(value).map(String);
+  for (const item of items) {
     const eq = item.indexOf("=");
     invariant(eq > 0, "TOPOLOGY_INPUT_INVALID", `--input expects name=value (got "${item}").`);
     pairs[item.slice(0, eq).trim()] = item.slice(eq + 1);
@@ -177,6 +180,20 @@ const commands = {
     if (flags.json) return out(runs);
     if (runs.length === 0) return out(`No runs under ${root}.`);
     for (const run of runs) out(`${run.alive ? "●" : "○"} ${run.run_id}  ${run.name}  ${run.state}  session=${run.session}\n    ${run.run_dir}`);
+  },
+
+  async inputs({ flags }) {
+    const ctx = context(flags);
+    const { spec, path } = await loadSpec({ template: flags.template, specPath: flags.spec, dirs: ctx.templateDirs });
+    const entries = Object.entries(spec.inputs).map(([name, def]) => ({ name, ...def }));
+    if (flags.json) return out({ template: spec.name, path, inputs: entries });
+    if (entries.length === 0) return out(`${spec.name} takes no inputs.`);
+    out(`Inputs for ${spec.name}:`);
+    for (const input of entries) {
+      out(`\n${input.name}${input.required ? " (required)" : ` (default: ${input.default})`}${input.multi ? " — pick one or more, comma-separated" : ""}\n  ${input.description || "(no description)"}`);
+      for (const option of input.options ?? []) out(`    • ${option.value}${option.description ? ` — ${option.description}` : ""}`);
+    }
+    out(`\nLaunch with: ${CLI_BIN} launch --template ${spec.name}${entries.map((input) => ` --input ${input.name}=<value>`).join("")}`);
   },
 
   async validate({ flags }) {
@@ -348,6 +365,11 @@ const commands = {
 };
 
 async function main() {
+  // `ao-topology ... | head` must not crash with EPIPE.
+  process.stdout.on("error", (error) => {
+    if (error.code === "EPIPE") process.exit(0);
+    throw error;
+  });
   const { flags, positional } = parseArgs(process.argv.slice(2));
   const name = positional[0] ?? (flags.help ? "help" : "help");
   const command = commands[name];
