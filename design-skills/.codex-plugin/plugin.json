@@ -1,0 +1,37 @@
+{
+  "name": "design-skills",
+  "description": "Design craft skills: motion and animation, Apple platform design, awwwards-grade frontend, prototyping, composition, and image generation. No ByteDesk design content.",
+  "author": {
+    "name": "ByteDeskAI",
+    "url": "https://github.com/ByteDeskAI"
+  },
+  "homepage": "https://github.com/ByteDeskAI/bytedesk-marketplace",
+  "repository": "https://github.com/ByteDeskAI/bytedesk-marketplace",
+  "license": "MIT",
+  "keywords": [
+    "design",
+    "animation",
+    "frontend",
+    "prototyping"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "ByteDesk Design System",
+    "shortDescription": "Governed design context and expert workflows.",
+    "longDescription": "Discover and query the complete ByteDesk design kit through one manifest, CLI, and offline read-only MCP server; route work through four governed specialist roles; adopt or migrate a repository in one command; and use thirty-one reviewed workflows.",
+    "developerName": "ByteDeskAI",
+    "category": "Design",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/ByteDeskAI/design-system",
+    "defaultPrompt": [
+      "Adopt the ByteDesk design system in this repository.",
+      "Audit this UI against its ByteDesk design profile.",
+      "Diagnose this repository's design-system integration."
+    ],
+    "brandColor": "#EC4E02"
+  }
+}

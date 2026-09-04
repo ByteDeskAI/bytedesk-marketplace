@@ -1,4 +1,0 @@
-interface:
-  display_name: "Migrate Design Delivery"
-  short_description: "Migrate legacy design-system delivery safely"
-  default_prompt: "Use $design-system-migrate to move this repository from a legacy submodule to managed delivery."

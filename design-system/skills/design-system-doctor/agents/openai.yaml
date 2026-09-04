@@ -1,4 +1,0 @@
-interface:
-  display_name: "Diagnose ByteDesk Design"
-  short_description: "Diagnose ByteDesk design-system integration"
-  default_prompt: "Use $design-system-doctor to diagnose and repair this repository design-system integration."

@@ -1,4 +1,0 @@
-interface:
-  display_name: "Import Design Assets"
-  short_description: "Import approved assets with provenance"
-  default_prompt: "Use $design-system-assets to review and import an approved ByteDesk design asset."
