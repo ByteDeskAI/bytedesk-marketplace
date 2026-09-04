@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
-  "version": "2.2.0",
-  "sourceSha": "8b9ccc3fb2d241e77292ed0a16879105b3f3d018",
+  "version": "2.2.1",
+  "sourceSha": "c050abca4c35cf3355f897af9e8d3c6e5c9eec61",
   "app": "task-management",
   "include": [],
   "status": "current",
   "files": {
     "foundation/bytedesk.css": {
-      "sha256": "ce98b84aa7bcb7151d62f9adf62d8e34721e4017869ce2137bb5fe88cd2ec484",
-      "bytes": 17759
+      "sha256": "b021a230d6eb2e7645aa05d864622bc80580f7c8f4cedea7ca562dd9b31f5b6a",
+      "bytes": 19265
     },
     "foundation/components.css": {
       "sha256": "1165f406436bb9390008408c6428a9842787cf4cfa5d632cf2f14362bf15d968",
@@ -35,7 +35,7 @@
       "bytes": 30101
     },
     "foundation/fonts.css": {
-      "sha256": "9a4c1e1598e663eb4549932e7830abfad5d9b64ed750d8705680ab489a826f17",
+      "sha256": "3268f8cb442f4a23c7d17b64bea9c4d302d6f43d3fc7e9fa91b53bf5bf2d5f38",
       "bytes": 1039
     },
     "foundation/DESIGN.md": {
@@ -51,7 +51,7 @@
       "bytes": 62
     },
     "client/rust/Cargo.toml": {
-      "sha256": "fa710b30dba4afeccecb709f5b64d9e0a5b5126d0eb21a799b08d35d520b3fe5",
+      "sha256": "a05abe7f65954fb0131d585aec59005c12088c4a03cbde071ea2824ca2028972",
       "bytes": 383
     },
     "client/rust/src/lib.rs": {
@@ -115,7 +115,7 @@
       "bytes": 9377
     },
     "apps/task-management/DESIGN.json": {
-      "sha256": "9e6174bad5de6e86fc8ba57b4b7bcfe7d25bd17d7fb1894c6698f73251880d6a",
+      "sha256": "cff9741b936563546a941cf680b4ec8f071a2517011c9712101148bd6d4616dc",
       "bytes": 5123
     },
     "apps/task-management/app.json": {
@@ -127,7 +127,7 @@
       "bytes": 2435
     },
     "catalog.json": {
-      "sha256": "34376bee3e960550578e00736bfeb1445bf0cdaa413efcaeebf651603417228e",
+      "sha256": "8c9737f7ad10fc1711c38655a0a3c6abe72abedce08084c4e8efc22058c6aa3d",
       "bytes": 85851
     }
   }
