@@ -1,7 +1,7 @@
 ---
 id: "TM-101"
 kind: "task"
-status: "blocked"
+status: "open"
 created: "2026-09-05T04:17:36.046Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "Session addressing: stable agent id plus a per-spawn discriminator"
@@ -15,7 +15,7 @@ actor: "main"
 session: "a7da6c38-57d4-464b-b856-ebdb3dd72e1b"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-05T04:18:03.759Z"
+updated: "2026-09-05T10:26:26.768Z"
 touches: ["agent-orchestration/topology/lib/launch.mjs","agent-orchestration/topology/lib/util.mjs"]
 ---
 

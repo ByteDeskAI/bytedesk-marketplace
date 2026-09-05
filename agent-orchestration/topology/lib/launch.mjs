@@ -10,7 +10,7 @@ import { adapterFor, buildArgv, commandExists, failureOnScreen, grantsDirs, memo
 import { mintSpawn, sessionName } from "./identity.mjs";
 import { loadRole, resolveSkill } from "./resolve.mjs";
 import * as tmux from "./tmux.mjs";
-import { ensureRunsIgnored, exists, fail, invariant, nowIso, render, shellQuote, sleep, writeText } from "./util.mjs";
+import { ensureRunsIgnored, exists, fail, invariant, nowIso, readJson, render, shellQuote, sleep, writeJson, writeText } from "./util.mjs";
 
 const POINTER_TEMPLATE = "[ao] Message {{id}} from {{from}} ({{stage}}): read {{inbox}} then write your complete reply to {{outbox}}";
 
@@ -246,10 +246,20 @@ async function waitReady(pane, adapter, timeoutMs, { baseline = "" } = {}) {
     return evaluateScreen(adapter, screen, { alive: await tmux.paneAlive(pane) });
   };
 
+  // A death is the one verdict worth a second query: the pure decision knows the pane is gone, but
+  // only tmux knows what status it went with, and that number is the whole diagnosis.
+  const withExitStatus = async (verdict) => {
+    if (!verdict?.failed || verdict.reason !== "pane exited") return verdict;
+    const death = await tmux.paneDeath(pane);
+    return death.status === null
+      ? verdict
+      : { ...verdict, reason: `pane exited with status ${death.status}`, exit_status: death.status };
+  };
+
   if (adapter.ready.pattern) {
     while (Date.now() - started < timeoutMs) {
       const verdict = await look();
-      if (verdict) return { ...verdict, elapsed_ms: Date.now() - started };
+      if (verdict) return { ...(await withExitStatus(verdict)), elapsed_ms: Date.now() - started };
       await sleep(500);
     }
     return { ready: false, failed: false, reason: `ready pattern not seen within ${timeoutMs}ms` };
@@ -257,7 +267,7 @@ async function waitReady(pane, adapter, timeoutMs, { baseline = "" } = {}) {
 
   // No pattern for this adapter: wait the declared delay, then decide from what the pane shows.
   await sleep(adapter.ready.delay_ms ?? 3000);
-  return { ...(await look()), elapsed_ms: Date.now() - started };
+  return { ...(await withExitStatus(await look())), elapsed_ms: Date.now() - started };
 }
 
 /**
@@ -386,7 +396,12 @@ async function startAgentInPane({ pane, agentId, candidates, startIndex = 0, run
       continue;
     }
     const { baseline, promptLines } = shell;
-    await tmux.sendText(pane, `bash ${shellQuote(item.launcher)}`);
+    // `exec`, not a plain call. Run as a child of the interactive shell, an agent that dies leaves
+    // the shell alive and the pane healthy — so the pane never dies, the pane-died hook never fires,
+    // and a CLI that exited 42 on startup is indistinguishable from one that is merely slow. Exec'd,
+    // the pane's process IS the agent: its exit is the pane's exit, `remain-on-exit` keeps the body,
+    // and `#{pane_dead_status}` is the agent's own status. Failover respawns the pane either way.
+    await tmux.sendText(pane, `exec bash ${shellQuote(item.launcher)}`);
     const timeoutMs = item.adapter.ready.timeout_ms ?? 45_000;
     const readiness = client && item.adapter.ready.tmux_pattern
       ? await waitReadySubscribed({ client, pane, adapter: item.adapter, timeoutMs, subName: `ao-${agentId}`, baseline, promptLines })
@@ -520,24 +535,32 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
   // Conductor first so it owns pane 0 / the main pane.
   const ordered = [...prepared].sort((a, b) => (a.agent.role === "orchestrator" ? -1 : b.agent.role === "orchestrator" ? 1 : 0));
   const first = ordered[0];
-  const firstPane = await tmux.newSession(spec.session, { cwd: first.agent.cwd, windowName: spec.layout === "windows" ? first.agent.id : "main" });
+  // Sized for the whole team before the first split, because a window that is resized after the
+  // panes exist redistributes rows by ratio and leaves the small ones small.
+  const geometry = tmux.windowSizeFor(ordered.length);
+  const firstPane = await tmux.newSession(spec.session, { cwd: first.agent.cwd, windowName: spec.layout === "windows" ? first.agent.id : "main", ...geometry });
   const panes = new Map([[first.agent.id, firstPane]]);
-  for (const item of ordered.slice(1)) {
-    const pane = spec.layout === "windows"
-      ? await tmux.newWindow(spec.session, item.agent.id, item.agent.cwd)
-      : await tmux.splitPane(`${spec.session}:main`, { cwd: item.agent.cwd, horizontal: false });
-    panes.set(item.agent.id, pane);
-    if (spec.layout !== "windows") await tmux.selectLayout(`${spec.session}:main`, spec.layout === "grid" ? "tiled" : "main-vertical");
+  const rest = ordered.slice(1);
+  if (spec.layout === "windows") {
+    for (const item of rest) panes.set(item.agent.id, await tmux.newWindow(spec.session, item.agent.id, item.agent.cwd));
+  } else if (rest.length > 0) {
+    const ids = await tmux.splitPanes(`${spec.session}:main`, rest.map((item) => item.agent.cwd));
+    rest.forEach((item, index) => panes.set(item.agent.id, ids[index]));
+    // The requested layout once, over the tiling the splits left behind.
+    await tmux.selectLayout(`${spec.session}:main`, spec.layout === "grid" ? "tiled" : "main-vertical");
   }
-  for (const item of ordered) {
-    const pane = panes.get(item.agent.id);
-    await tmux.setPaneTitle(pane, `${item.agent.id} · ${item.agent.role}`);
-    // remain-on-exit BEFORE anything can die, or the pane vanishes and its exit status with it.
-    await tmux.setPaneOption(pane, "remain-on-exit", "on");
-    // pipe-pane BEFORE the shell is touched. It only ever sees what is written after it attaches,
-    // so attaching it later loses precisely the part that says why an agent never came up.
-    await tmux.pipePane(pane, `cat >> ${shellQuote(join(item.dir, "pane.log"))}`);
-  }
+  // Per-pane setup, all panes at once. remain-on-exit must be set before anything can die or the
+  // pane vanishes and its exit status with it, and pipe-pane must be attached before the shell is
+  // touched — it only ever sees what is written after it attaches, so attaching it later loses
+  // precisely the part that says why an agent never came up.
+  await Promise.all(
+    ordered.map((item) =>
+      tmux.preparePane(panes.get(item.agent.id), {
+        title: `${item.agent.id} · ${item.agent.role}`,
+        log: `cat >> ${shellQuote(join(item.dir, "pane.log"))}`,
+      }),
+    ),
+  );
   // One hook for the whole session: a death pushes a record instead of a poll discovering it later.
   // `#{pane_dead_status}` is the process's real exit code, readable only because remain-on-exit was
   // set above. `show-hooks` will not list this hook even though it fires — do not go looking there.
@@ -603,6 +626,112 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
   await saveRun(spec.run_dir, run);
   await appendJournal(spec.run_dir, { type: "run.launched", state: run.state, warnings });
   return { runDir: spec.run_dir, session: spec.session, state: run.state, agents: results, warnings, attach: tmux.attachCommand(spec.session) };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Durable role-sessions.
+//
+// Everything above is run-oriented: spawn a set of agents, work, tear the session down. A role
+// bound to a project is the opposite — a named workspace you CALL rather than launch, that outlives
+// any one run and keeps its identity across a restart of whatever started it. A lead that loses its
+// identity on restart is not a lead.
+//
+// Three rules, and the third is the one that is easy to get silently wrong.
+//
+//  1. The name is derived from the agent's stable id, never from a run id. `<prefix>-<agent id>`.
+//     `.` and `:` are refused: measured on tmux 3.4, `new-session -s "a.b"` silently creates `a_b`
+//     and `has-session -t "a.b"` then fails, so a dotted name would make the reattach probe miss and
+//     quietly create a second session every time.
+//  2. Reattach beats create. The session outliving this process IS the durable state, so the first
+//     thing `openRoleSession` does is ask tmux whether it already exists.
+//  3. The record must be enough to rebuild the session. The gateway restores a tab by reattaching
+//     when the tmux session is still alive, but when it is gone it recreates from the tab RECORD's
+//     stored Command — the command the gateway assembled at create time, not whatever actually ran.
+//     So a role-session must be reconstructible from one stable command string, and that string is
+//     what we store and what we launch through. `bash <agent dir>/session.sh` is that string: it
+//     lives in the agent's own durable directory rather than a run directory, so it still exists
+//     after the run that created it is gone, and running it twice reconstructs the same workspace.
+//     Anything that launches a role-session by a different command breaks gateway restore silently.
+
+const ROLE_SESSION_NAME = /^[A-Za-z0-9_-]{1,96}$/;
+
+/**
+ * The durable session name for one agent. Stable across runs and across restarts — the discriminator
+ * that `identity.mjs` mints is for one SPAWN of an agent, which is a different question from where
+ * that agent permanently lives.
+ */
+export function roleSessionName(agentId, { prefix = "ao" } = {}) {
+  // An empty id would give every agent the same session name, which is the one failure this
+  // function exists to prevent — and `ao-` passes the charset check on its own.
+  invariant(
+    typeof agentId === "string" && /^[A-Za-z0-9_-]+$/.test(agentId),
+    "TOPOLOGY_SESSION_NAME_INVALID",
+    `A role-session needs an agent id to be named after; got ${JSON.stringify(agentId)}.`,
+  );
+  const name = `${prefix}-${agentId}`;
+  invariant(
+    ROLE_SESSION_NAME.test(name),
+    "TOPOLOGY_SESSION_NAME_INVALID",
+    `"${name}" cannot be a tmux session name. Letters, digits, "-" and "_" only, at most 96 characters; "." and ":" are refused because tmux rewrites or mis-parses them and the session then cannot be found again.`,
+  );
+  return name;
+}
+
+/** Where an agent's durable session record lives: beside the agent, not inside any run. */
+export function roleSessionPath(agentsDir, agentId) {
+  return join(agentsDir, String(agentId), "session.json");
+}
+
+/**
+ * Open the durable session for one agent: reattach if it is already running, otherwise create it.
+ * Returns { session, pane, created, reattached, record }.
+ *
+ * `agentsDir` is the repo's agent library root; the agent's own directory under it is both the
+ * session's cwd (which is what gives the agent its own memory) and where its record and launcher
+ * live, so nothing about the session depends on a run directory that will be torn down.
+ */
+export async function openRoleSession({ agentsDir, agentId, adapter, argv, env = {}, prefix = "ao", role = "worker", log = () => {} }) {
+  const session = roleSessionName(agentId, { prefix });
+  const dir = join(agentsDir, String(agentId));
+  const recordPath = roleSessionPath(agentsDir, agentId);
+
+  if (await tmux.hasSession(session)) {
+    // The live session IS the state. Reattaching is the whole point: creating a second one would
+    // give the agent two identities and lose whatever the first was in the middle of.
+    const record = (await exists(recordPath)) ? await readJson(recordPath) : null;
+    const panes = await tmux.listPanes(session);
+    log(`reattaching to ${session}`);
+    return { session, pane: panes[0]?.id ?? null, created: false, reattached: true, record };
+  }
+
+  const launcher = join(dir, "session.sh");
+  // The one command the session is ever started by — ours to run, and the gateway's to restore from.
+  const command = `bash ${shellQuote(launcher)}`;
+  await mkdir(dir, { recursive: true });
+  await writeText(launcher, launcherScript({ agent: { id: agentId, role, cwd: dir }, candidate: { cli: adapter.id }, argv, env }), 0o700);
+
+  const record = {
+    version: 1,
+    session,
+    agent_id: agentId,
+    role,
+    cwd: dir,
+    provider: adapter.id,
+    launcher,
+    command,
+    // Stated in the record because a restore path in another process reads this file, not this code.
+    restore_contract: "Recreate this session by running `command` with cwd `cwd`. It is idempotent and is the only supported entry point; starting the session any other way makes a gateway tab restore rebuild it wrong.",
+    created_at: nowIso(),
+  };
+  await writeJson(recordPath, record);
+
+  const pane = await tmux.newSession(session, { cwd: dir, windowName: agentId });
+  await tmux.setPaneOption(pane, "remain-on-exit", "on");
+  await tmux.pipePane(pane, `cat >> ${shellQuote(join(dir, "pane.log"))}`);
+  const shell = await tmux.clearAndWaitForShell(pane, `ao-role-${randomUUID().slice(0, 8)}`);
+  if (shell.ok) await tmux.sendText(pane, command);
+  log(`created ${session}`);
+  return { session, pane, created: true, reattached: false, record };
 }
 
 /**

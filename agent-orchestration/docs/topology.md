@@ -85,6 +85,36 @@ Three adapters declare a verified coordinator form (claude, codex, gemini); the 
 empty one and name their candidate flag in `notes` rather than guessing, and a coordinator whose
 adapter declares nothing produces a warning saying exactly what is and is not containing it.
 
+## Runs and role-sessions
+
+There are two ways an agent can be running, and they answer different questions.
+
+A **run** is spawned, worked and torn down. `launch` builds a team from a spec, gives every agent a
+pane, and `stop` ends it. The unit of identity is the run.
+
+A **role-session** is a named workspace you *call*. It is keyed to the agent's stable id — never to
+a run — so it outlives the process that opened it, and opening one that is already live reattaches
+to the same pane rather than starting a rival. A lead that loses its identity on restart is not a
+lead.
+
+```
+ao-topology session open "Mira Halloran"   # create, or reattach if it is already up
+ao-topology session list                   # which of this repo's agents are live
+ao-topology session close "Mira Halloran"  # end the session; the agent survives it
+```
+
+The session's cwd is the agent's own directory, which is what gives it memory of its own under
+every CLI that keys session state by working directory; the repo is granted explicitly through the
+adapter's `add_dir_args`, and a `coordinates_only` agent is granted nothing beyond its own
+directory.
+
+**The record is the restore contract.** `session.json` lives beside the agent, never inside a run
+directory that will be torn down, and it names one idempotent command. That matters because the
+gateway restores a tab by reattaching when the tmux session is still alive but **rebuilds from the
+tab record's stored `Command`** when it is gone — so a role-session started by any other command is
+silently recreated as something else. Start one through `session open`, or through the `command` in
+its record. Nothing else.
+
 A spec entry may reference a stored agent instead of restating it, with any inline field
 overriding the stored definition:
 
@@ -174,9 +204,35 @@ The only CLI-specific knowledge lives in the adapter.
 3. Write `run.json`, bootstrap files, and launchers.
 4. Create the tmux session with the conductor in the main pane; split or open windows for the
    rest (`main-vertical`, `grid`, or `windows`).
-5. In each pane run `bash launch.sh`; wait for the adapter's idle-prompt regex (or its fixed
-   delay); type the bootstrap pointer.
+5. In every pane at once, `exec bash launch.sh`; wait for readiness; type the bootstrap pointer.
+   Agents start concurrently — a serial launch cost `agents x ready-time`, so one slow CLI used to
+   delay everything behind it.
 6. Print the run dir, session, per-agent readiness, warnings, and the attach command.
+
+### Readiness, death, and why pane geometry is a correctness property
+
+Readiness is a **subscription**, not a poll. One control-mode client per session holds a
+`refresh-client -B` subscription per pane, and the tmux server pushes a line only when the
+subscribed format's value actually changes. A quiet pane costs nothing, and ten agents cost what
+three do. Death arrives the same way: a session-wide `pane-died` hook records `#{pane_dead_status}`
+— the process's real exit code, readable only because `remain-on-exit` is set on the pane before
+anything can die. `pipe-pane` attaches before the shell is touched, because it only ever sees what
+is written after it attaches, and what comes before is precisely the part that says why an agent
+never came up.
+
+The consequence to know about: **the readiness search runs over what a pane renders, line by line.**
+A ready pattern wider than the pane is wrapped across two rendered lines and can never match — the
+agent then reports not-ready and pays its full timeout, with nothing in the log explaining it. So
+the session takes ownership of its own geometry: it pins `window-size manual` on itself and sizes
+the window for the size of the team. Without that, on a shared tmux server the window inherits the
+size of whatever unrelated session's terminal the server last saw; a 220x60 request came out 93x20
+here, which left the stacked panes twelve columns wide.
+
+Two rules follow for anyone touching this layer. A ready pattern belongs in the provider JSON as
+`tmux_pattern`, declared separately from the JS `pattern` — tmux's `#{C/r:}` and JavaScript's
+`RegExp` are different languages with a misleading overlap, and `{`, `}` and `:` break the tmux one
+outright. And never set `window-size` globally: this tmux server is shared with every other session
+on the machine.
 
 ## Operating systems
 

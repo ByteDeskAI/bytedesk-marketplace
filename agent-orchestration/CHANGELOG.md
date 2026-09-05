@@ -32,6 +32,21 @@
   state by working directory two agents in one repo no longer share memory. The repo is granted
   through the adapter's own `add_dir_args`. Every shipped adapter now declares its memory scope and
   its grant mechanism, recorded from measurement.
+- **Durable role-sessions** (TM-096). `ao-topology session open|list|close` gives an agent a named
+  workspace keyed to its stable id rather than to a run — one you call, not one you launch. `open`
+  on a live session reattaches to the same pane instead of creating a rival, so the identity
+  survives the process that created it. The session record lives beside the agent, never inside a
+  run directory that will be torn down, and names one idempotent restore command: gateway tab
+  restore rebuilds from a tab record's stored `Command` when the tmux session is gone, so a
+  role-session started any other way would be silently recreated wrong.
+- **Event-driven readiness and death** (TM-099). Readiness is now a `refresh-client -B` subscription
+  on one control-mode client per session — the server pushes when a pane's content actually changes,
+  so a quiet pane costs nothing and ten agents cost what three do. Deaths arrive through a
+  `pane-died` hook carrying `#{pane_dead_status}`, the process's real exit code, instead of being
+  discovered by a later poll. `pipe-pane` attaches before the shell is touched, so the output that
+  explains why an agent never came up is no longer the part that gets lost. Agents start
+  concurrently: measured flat at 6.4s for three and 9.6s for ten against a 6.2s single-agent
+  baseline, where a serial launch costs agents x ready-time.
 
 ### Fixed
 
@@ -51,6 +66,17 @@
   external-sender check ran, and project identity was a raw string compare that a trailing slash or
   a symlink defeated.
 - **`leadQueueDepth` measured a queue nobody fills**, selecting on a role no run agent has.
+- **Every agent past the sixth failed to get a pane.** `split-window -t <window>` splits the ACTIVE
+  pane, so consecutive splits halved the same pane — 60 rows to 30 to 15 to 7 to 3 — and the seventh
+  agent died on `no space for new pane`. The splits now re-equalize as they go, in one tmux
+  invocation so the correctness is free.
+- **A shared tmux server silently broke readiness for every agent but the first.** The window took
+  its size from whatever unrelated session's client the server last had, so `-x 220 -y 60` came out
+  93x20 and the stacked panes 12 columns wide. Readiness is decided by a per-rendered-line content
+  search, so `fake-agent ready` wrapped into `fake-agent r` / `eady` and could never match: three
+  agents reported one ready and paid the full 30s timeout twice, with nothing in the log saying why.
+  The session now pins `window-size manual` on itself and sizes the window for the team, so neither
+  our own control client nor a human attaching later reflows the agents.
 
 ### Changed
 

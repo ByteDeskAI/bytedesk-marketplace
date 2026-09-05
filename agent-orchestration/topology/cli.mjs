@@ -8,9 +8,9 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { doctor as runDoctor, tmuxInstallPlan } from "./lib/doctor.mjs";
-import { failoverAgent, launchRun, messagePointer } from "./lib/launch.mjs";
+import { failoverAgent, launchRun, messagePointer, openRoleSession, roleSessionName } from "./lib/launch.mjs";
 import { appendJournal, loadRun, pendingReplies, queueDepth, readJournal, recordReply, saveRun, sendMessage, waitForReplies } from "./lib/mailbox.mjs";
-import { adapterSummary, loadAdapters, providerDirs } from "./lib/providers.mjs";
+import { adapterFor, adapterSummary, buildArgv, loadAdapters, providerDirs } from "./lib/providers.mjs";
 import { roleDirs, skillDirs } from "./lib/resolve.mjs";
 import { listTemplates, loadSpec, materializeSpec, resolveInputs, specSchemaSummary, templateDirs, validateSpec } from "./lib/spec.mjs";
 import * as tmux from "./lib/tmux.mjs";
@@ -50,6 +50,10 @@ Conduct (used by the orchestrator agent)
   agent new --role <role> [--cli <id>] [--reports-to <id>] [--name "First Last"]
   agent list [--json]                          the repo's roster, by name and title
   agent show <id|"Full Name">                  one agent
+
+  session open <id|"Full Name">                open this agent's durable session, or reattach to it
+  session list [--json]                        which of this repo's agents are live right now
+  session close <id|"Full Name">               end it; the agent and its directory survive
   delegate --task <id> --to <agent> [--for <external-agent>]
                                                open a direct channel to one of your agents
   delegations [--json]                         open delegations in this repo
@@ -313,6 +317,81 @@ const commands = {
       const mark = a.role === "lead" ? "*" : " ";
       console.log(`${mark} ${displayName(a)}${a.reports_to ? `  reports to ${a.reports_to}` : ""}  [${a.id}]`);
     }
+  },
+
+  /**
+   * Durable, project-bound sessions — the counterpart to `launch`. A run is spawned, worked and torn
+   * down; a role-session is a named workspace you CALL, keyed to the agent's stable id, that
+   * outlives this process. `open` on a live session reattaches rather than creating a second one,
+   * which is what makes the identity durable rather than merely repeatable.
+   */
+  async session({ flags, positional }) {
+    const ctx = context(flags);
+    const sub = (positional && positional[0]) || "list";
+
+    if (sub === "list") {
+      const roster = await listAgents(ctx.agentDirs);
+      const rows = [];
+      for (const agent of roster) {
+        const session = roleSessionName(agent.id);
+        rows.push({ id: agent.id, agent: displayName(agent), role: agent.role, session, live: await tmux.hasSession(session) });
+      }
+      if (flags.json) return out({ ok: true, sessions: rows });
+      console.log(`# Sessions — ${ctx.consumer}`);
+      if (rows.length === 0) console.log("  (no agents yet — ao-topology agent new --role lead)");
+      for (const row of rows) console.log(`${row.live ? "*" : " "} ${row.agent}  ${row.live ? row.session : "(not running)"}  [${row.id}]`);
+      return;
+    }
+
+    const ref = String(positional[1] || (flags.agent && flags.agent !== true ? flags.agent : "") || "");
+    invariant(ref, "TOPOLOGY_AGENT_REQUIRED", `Name the agent: ao-topology session ${sub} <id|"Full Name">.`);
+    const agent = await requireAgent(ref, ctx.agentDirs);
+
+    if (sub === "close") {
+      const session = roleSessionName(agent.id);
+      const live = await tmux.hasSession(session);
+      if (live) await tmux.killSession(session);
+      // The record and the agent directory are deliberately left behind: closing a session ends a
+      // conversation, it does not retire the agent, and `open` must rebuild the same workspace.
+      return out({ ok: true, agent: displayName(agent), session, closed: live });
+    }
+
+    invariant(sub === "open", "TOPOLOGY_SUBCOMMAND_UNKNOWN", `Unknown: session ${sub}. Use open, list, or close.`);
+    const adapters = await loadAdapters(ctx.providerDirs);
+    const adapter = adapterFor(agent, adapters);
+    const session = roleSessionName(agent.id);
+    // The session's cwd is the agent's own directory — that is what gives it memory of its own under
+    // every shipped CLI. The repo is therefore granted explicitly, exactly as `launch` does it, and
+    // a coordinator is granted nothing beyond its own directory.
+    const addDirs = agent.coordinates_only === true ? [] : [ctx.consumer];
+    const vars = {
+      session,
+      agent_id: agent.id,
+      agent_role: agent.role,
+      bootstrap_file: join(agent._dir, "prompt.md"),
+      system_prompt: `You are ${displayName(agent)} (id "${agent.id}", role: ${agent.role}), the standing ${agent.role} for ${ctx.consumer}. Read ${join(agent._dir, "prompt.md")} and follow it.`,
+    };
+    const argv = buildArgv(adapter, { ...agent, add_dirs: addDirs }, vars);
+    const result = await openRoleSession({
+      agentsDir: dirname(agent._dir),
+      agentId: agent.id,
+      adapter,
+      argv,
+      env: { AO_AGENT_ID: agent.id, AO_AGENT_ROLE: agent.role, AO_SESSION: session, AO_CONSUMER: ctx.consumer, ...agent.env },
+      role: agent.role,
+      log: flags.json ? () => {} : (line) => console.error(`  ${line}`),
+    });
+    out({
+      ok: true,
+      agent: displayName(agent),
+      id: agent.id,
+      session: result.session,
+      pane: result.pane,
+      created: result.created,
+      reattached: result.reattached,
+      cwd: result.record?.cwd ?? join(dirname(agent._dir), agent.id),
+      attach: tmux.attachCommand(result.session),
+    });
   },
 
   async delegate({ flags }) {

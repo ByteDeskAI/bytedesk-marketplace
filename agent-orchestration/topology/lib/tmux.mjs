@@ -24,9 +24,45 @@ export async function hasSession(session) {
   return result.code === 0;
 }
 
-export async function newSession(session, { cwd, windowName = "main" }) {
-  await tmux(["new-session", "-d", "-s", session, "-n", windowName, "-c", cwd, "-x", "220", "-y", "60"]);
+/**
+ * Create the detached session AND take ownership of its geometry.
+ *
+ * The geometry is not cosmetic — readiness is decided by searching what a pane RENDERS, and that
+ * search is per rendered line, so a pattern wider than the pane is split across two lines and can
+ * never match. A run whose panes come out narrow reports every agent as never-ready and pays the
+ * full timeout for each one, with nothing in the log to say why.
+ *
+ * `-x/-y` alone does not give us that geometry. tmux honours them only while `window-size` is
+ * `manual` or the session has no client, and the default `latest` then re-sizes the window to
+ * whatever client last touched it. On a SHARED tmux server that is some unrelated session's
+ * terminal — measured here: a 220x60 request came out 93x20 because another session's client was
+ * 93x20, which left the stacked panes 12 columns wide and turned "fake-agent ready" into "fake-agent
+ * r" / "eady". Our own control-mode client would do the same on its own.
+ *
+ * So: create, pin `window-size manual` on THIS session only, then resize. After that the window is
+ * ours — a client attaching later, control-mode or human, no longer reflows the agents.
+ */
+export async function newSession(session, { cwd, windowName = "main", width = 220, height = 60 }) {
+  await tmux(["new-session", "-d", "-s", session, "-n", windowName, "-c", cwd, "-x", String(width), "-y", String(height)]);
+  // Session-scoped (-t <session>), never -g: this server is shared with everyone else's sessions.
+  await tmux(["set-option", "-t", session, "window-size", "manual"], { allowFailure: true });
+  await tmux(["resize-window", "-t", `${session}:${windowName}`, "-x", String(width), "-y", String(height)], { allowFailure: true });
   return paneId(`${session}:${windowName}`);
+}
+
+/**
+ * How large the window has to be for `agents` panes to each stay legible.
+ *
+ * Width is fixed and generous: `main-vertical` gives the main pane `main-pane-width` (80 by
+ * default) and stacks the rest in one column of the remainder, so 220 leaves that column ~139
+ * columns however many agents there are. Height is what actually scales — those N-1 stacked panes
+ * share it, and a pane shorter than a CLI's startup banner scrolls the ready line out of the
+ * visible region the server searches. `MIN_PANE_ROWS` each is the floor.
+ */
+export const MIN_PANE_ROWS = 12;
+export function windowSizeFor(agents) {
+  const panes = Math.max(1, Number(agents) || 1);
+  return { width: 220, height: Math.max(60, panes * MIN_PANE_ROWS) };
 }
 
 export async function newWindow(session, windowName, cwd) {
@@ -34,9 +70,32 @@ export async function newWindow(session, windowName, cwd) {
   return paneId(`${session}:${windowName}`);
 }
 
-export async function splitPane(target, { cwd, horizontal = false }) {
-  const result = await tmux(["split-window", horizontal ? "-h" : "-v", "-t", target, "-c", cwd, "-P", "-F", "#{pane_id}"]);
-  return result.stdout.trim();
+/**
+ * Create one pane per cwd in ONE tmux invocation, returning their ids in order.
+ *
+ * The interleaved `select-layout` is correctness, not cosmetics. `split-window -t <window>` splits
+ * the ACTIVE pane, so consecutive splits keep halving the same pane — 60 rows becomes 30, 15, 7, 3
+ * — and the seventh agent fails outright with "no space for new pane". Re-tiling after each split
+ * re-equalizes, so the next one always has room. Batching makes that free: every separate tmux call
+ * is a fresh client process connecting to the server and queueing behind every other client, which
+ * is the cost this whole layer exists to avoid.
+ */
+export async function splitPanes(target, cwds) {
+  if (cwds.length === 0) return [];
+  const args = [];
+  for (const cwd of cwds) {
+    if (args.length) args.push(";");
+    args.push("split-window", "-v", "-t", target, "-c", cwd, "-P", "-F", "#{pane_id}");
+    args.push(";", "select-layout", "-t", target, "tiled");
+  }
+  const result = await tmux(args);
+  const ids = result.stdout.split("\n").map((line) => line.trim()).filter(Boolean);
+  // A short list would otherwise become `undefined` pane ids in the caller's map, and every later
+  // tmux call would target the session's active pane instead — every agent typed into one pane.
+  if (ids.length !== cwds.length) {
+    fail("TOPOLOGY_TMUX_FAILED", `tmux created ${ids.length} panes but ${cwds.length} were asked for.`, { ids });
+  }
+  return ids;
 }
 
 export async function selectLayout(target, layout) {
@@ -52,12 +111,27 @@ export async function setPaneTitle(pane, title) {
   await tmux(["select-pane", "-t", pane, "-T", title], { allowFailure: true });
 }
 
-/** Type text into a pane. Literal mode (-l) avoids tmux key-name interpretation of the message. */
+/**
+ * Type text into a pane. Literal mode (-l) avoids tmux key-name interpretation of the message.
+ *
+ * The text and its submit keys go in ONE invocation, joined by tmux's own `;` command separator.
+ * Every separate invocation is a fresh client process that connects to the server and waits its
+ * turn behind every other client, so at three sendText calls per agent the split version was the
+ * single largest source of launch latency — 60 of 134 calls for ten agents.
+ */
 export async function sendText(pane, text, submitKeys = ["Enter"]) {
-  await tmux(["send-keys", "-t", pane, "-l", "--", text]);
-  for (const key of submitKeys) {
-    await tmux(["send-keys", "-t", pane, key]);
-  }
+  const args = ["send-keys", "-t", pane, "-l", "--", text];
+  for (const key of submitKeys) args.push(";", "send-keys", "-t", pane, key);
+  await tmux(args);
+}
+
+/** Title, remain-on-exit and pipe-pane are one round trip rather than three. */
+export async function preparePane(pane, { title, log }) {
+  await tmux([
+    "select-pane", "-t", pane, "-T", title,
+    ";", "set-option", "-p", "-t", pane, "remain-on-exit", "on",
+    ";", "pipe-pane", "-o", "-t", pane, log,
+  ], { allowFailure: true });
 }
 
 export async function sendKeys(pane, keys) {
