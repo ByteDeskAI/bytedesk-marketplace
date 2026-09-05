@@ -137,7 +137,7 @@ export const OPERATIONS = {
         // below it were never reached: with no active epic, a proposal naming an existing epic
         // validated past both. Telling the gate the epic is supplied lets it skip that one rule
         // and run the rest.
-        { consume: false, haveEpic: Boolean(epic) },
+        { consume: false, haveEpic: Boolean(epic), tokenHeld: ctx.overrideSpent },
       );
       if (gate.allow && gate.override) ctx.owesOverride = true;
       return gate.allow ? null : gate.reason;
@@ -460,6 +460,9 @@ function makeContext(ops, p, stamp, onChange = () => {}) {
       return previousActiveEpic;
     },
     reserved: null,
+    // Set once the landing has spent the operator's one-shot override. Every later operation in
+    // the same approved set is covered by that one token.
+    overrideSpent: false,
     get owesOverride() {
       return owesOverride;
     },
@@ -661,10 +664,19 @@ export function applyOps(ops, { approvedDigest, session = null, stamp = {} } = {
         // proposal validated against a board that no longer exists is not validated.
         if (problem) throw err(`${op.op}: ${problem}`, 409);
         // A check that only passed on the strength of an override spends it HERE — at the write,
-        // in the lock, one token per operation. If it is gone, the board has changed since the
-        // approval and the whole set rolls back rather than landing half of it.
-        if (ctx.owesOverride && !consumeOverride(p)) {
-          throw err(`${op.op}: the one-shot override this proposal relied on is already spent — review it again`, 409);
+        // inside the lock. ONE token for the whole approved set, not one per operation.
+        //
+        // Per-operation was the obvious reading and it was wrong in a way the preview could not
+        // express: `check` no longer spends, so every operation needing the override reported
+        // valid, and then the second one failed at apply for want of a second token — a
+        // preview/apply disagreement, and the failed attempt burnt the token so the retry failed
+        // too. The override is one operator decision authorising one approved proposal, which is
+        // exactly the granularity of a landing.
+        if (ctx.owesOverride && !ctx.overrideSpent) {
+          if (!consumeOverride(p)) {
+            throw err(`${op.op}: the one-shot override this proposal relied on is already spent — review it again`, 409);
+          }
+          ctx.overrideSpent = true;
         }
         // The id is RESERVED and journalled before the record exists. Journalling after the write
         // left a window — one file write wide — in which a kill produced a record the journal

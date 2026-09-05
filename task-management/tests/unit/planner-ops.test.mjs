@@ -586,3 +586,34 @@ describe("the journal is input, not a value this process computed", () => {
     assert.equal(existsSync(victim), false, `a journal wrote to ${victim}`);
   });
 });
+
+describe("one override, one approved set", () => {
+  it("spends a single token for the whole landing, not one per operation", () => {
+    const p = store();
+    writeConfig({ requireEpic: true, wipLimit: 3 }, p);
+    const epic = create("epic", { title: "Active" }, "", p);
+    writeState({ activeEpic: epic.id }, p);
+    for (let i = 0; i < 3; i++) {
+      const t = create("task", { title: `busy ${i}`, epic: epic.id, acceptance: [{ text: "x", done: false }] }, "b", p);
+      update(t.id, { status: "in_progress" }, p);
+    }
+    setOverride("operator: one-shot bypass", p);
+
+    // Spending per operation was the obvious reading of "one-shot" and it was wrong in a way the
+    // preview could not express. `check` does not spend, so BOTH operations reported valid; the
+    // apply then spent a token for the first and failed the second for want of a second token —
+    // a preview/apply disagreement, and the failed attempt burnt the token so the retry failed
+    // too. An override is one operator decision authorising one approved proposal.
+    const ops = [1, 2].map((n) => ({ op: "task.create", args: { epic: epic.id, title: `Hotfix ${n}`, body: "b", acceptance: ["x"] } }));
+    const pre = previewOps(ops, p);
+    assert.equal(pre.ok, true);
+    assert.deepEqual(pre.operations.map((o) => o.valid), [true, true]);
+
+    const res = applyOps(pre.resolved, { approvedDigest: pre.digest, stamp: { actor: "m" } }, p);
+    assert.equal(res.created.length, 2, "the set the card showed is the set that landed");
+    assert.equal(list("task", {}, p).length, 5);
+    assert.equal(state(p).override, null, "the token is spent");
+    assert.equal(readEvents(p).filter((e) => e.event === "override_used").length, 1, "once, for the set");
+    assert.equal(readEvents(p).filter((e) => e.event === "planner_apply_rolled_back").length, 0);
+  });
+});

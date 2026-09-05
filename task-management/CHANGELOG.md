@@ -254,6 +254,12 @@
 - **Generated runtime files stay out of git.** Store `.gitignore` now names `dashboard.pid` and `dashboard.port` explicitly (still covered by `dashboard.*`), plus `bin` (generated launchers) and `events.json` / `events.jsonl`. Bootstrap and `.bytedesk/task-management/bin/tm doctor --fix` write `.bytedesk/.gitignore` so `worktrees/` is ignored without swallowing the store. Dashboard `.gitignore` also drops Vite/tsc leftovers (`.vite`, `*.tsbuildinfo`).
 
 ### Fixed
+- **One override, two operations, nothing landed (TM-086).** Introduced by the fix above and caught
+  by the round after it. `check` no longer spends the token, so every operation that needed it
+  reported valid — and the apply then spent one token PER OPERATION, so the second failed for want
+  of a second token. A preview and an apply that disagree, and the failed attempt burnt the token so
+  the retry failed too. An override is one operator decision authorising one approved proposal,
+  which is the granularity of a landing, not of an operation.
 - **Crash recovery ran without the store lock (TM-086).** `reopenIfStranded` called it unlocked, so
   the undo's unlinks could remove a record another process was between reserving and writing — a
   window the id reservation makes more likely, not less.

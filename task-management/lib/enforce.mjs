@@ -60,8 +60,11 @@ export function peekOverride(p = paths()) {
  * `override: true` on an answer that only came out `allow` because a one-shot token exists. The
  * caller that goes on to write is then the one that spends it, once, where the write happens.
  */
-export function gateTaskCreate(p = paths(), draft = null, { consume = true, haveEpic = false } = {}) {
-  const takeOverride = () => (consume ? consumeOverride(p) : peekOverride(p));
+export function gateTaskCreate(p = paths(), draft = null, { consume = true, haveEpic = false, tokenHeld = false } = {}) {
+  // `tokenHeld` says the caller has ALREADY spent an override for the piece of work this call is
+  // part of. A planner landing spends one token for the whole approved set, so the operations
+  // after the first must not be told the token is gone — they are covered by it.
+  const takeOverride = () => (tokenHeld ? "held by this landing" : consume ? consumeOverride(p) : peekOverride(p));
   if (enforcementOff(p)) return { allow: true };
   const cfg = config(p);
   const s = state(p);
