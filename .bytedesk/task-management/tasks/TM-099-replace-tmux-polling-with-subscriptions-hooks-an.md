@@ -8,14 +8,14 @@ title: "Replace tmux polling with subscriptions, hooks and pipe-pane"
 epic: "EP-014"
 acceptance: [{"text":"Readiness is driven by a refresh-client subscription rather than a capture-pane poll loop","done":true,"at":"2026-09-05T10:26:13.645Z"},{"text":"Agent death is detected by a hook rather than by polling, with the real exit code recorded","done":true,"at":"2026-09-05T10:26:14.043Z"},{"text":"Pane output is captured durably without losing what was written before capture attached","done":true,"at":"2026-09-05T10:26:14.182Z"},{"text":"Agents no longer start strictly serially","done":true,"at":"2026-09-05T10:26:14.326Z"},{"text":"Ten agents cost no more per-agent polling than three","done":true,"at":"2026-09-05T10:26:14.463Z"}]
 evidence: [".bytedesk/task-management/evidence/TM-099-two-projects.sh",".bytedesk/task-management/evidence/TM-099-topology-launch.test.mjs"]
-commits: ["8f135ad","e0ec159","2d67bc2","4482125"]
+commits: ["8f135ad","e0ec159","2d67bc2","4482125","50889c8"]
 blockedBy: ["TM-088"]
 blocks: []
 actor: "main"
 session: "4e1d7087-d606-432e-9341-3ce779b4baf8"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-05T10:26:26.589Z"
+updated: "2026-09-05T10:26:52.250Z"
 touches: ["agent-orchestration/topology/lib/launch.mjs","agent-orchestration/topology/lib/tmux.mjs"]
 parkedReason: "session ended (b0124774-6c67-41ff-9359-e1a31565e734)"
 comments: [{"author":"main","ts":"2026-09-05T10:26:23.708Z","text":"Two latent defects surfaced while measuring AC5 and are fixed here: splits halved the active pane so the 7th agent died on 'no space for new pane', and on a shared tmux server the window inherited an unrelated client's size (93x20), leaving stacked panes 12 cols wide so the per-rendered-line ready search could never match a wrapped pattern."}]

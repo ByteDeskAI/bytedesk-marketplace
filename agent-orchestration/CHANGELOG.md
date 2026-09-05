@@ -89,6 +89,12 @@
 
 ### Documentation
 
+- `docs/adr/0002-provider-credential-lifetime.md` (TM-103) — why a provider credential now stays
+  readable inside the sandbox for the length of a run, what that changed in the threat model, and
+  the five things that still bound it. The decision was taken in code and never written down; the
+  contract test guarding the old behaviour had been failing ever since, so a real regression could
+  not be told from the known one. The test now asserts the property that actually replaces
+  shred-on-bootstrap: nothing readable survives the run.
 - `docs/adr/0001-authoritative-orchestration-layer.md` — the tmux topology layer is authoritative
   for dispatched work; the MCP broker is kept as an opt-in sandboxed backend; `tm` owns the
   worktree. Written against the code, which uncovered two live defects in the existing dispatch

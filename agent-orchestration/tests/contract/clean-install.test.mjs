@@ -143,10 +143,37 @@ test("tracked install bundle starts from plugin cwd but resolves only explicit c
       const completedRun = JSON.parse(completed.content[0].text);
       assert.equal(completedRun.state, "succeeded", JSON.stringify(completedRun, null, 2));
       assert.equal(await readFile(join(completedRun.workspace.path, "fake-agent-change.txt"), "utf8"), "sandbox write succeeded\n");
-      assert.equal(await readFile(join(completedRun.workspace.path, "sandbox-result.txt"), "utf8"), "sandbox_only\nclient_callbacks_blocked\nbootstrap_home_read_only\nbootstrap_ancestors_protected\nruntime_root_protected\nbootstrap_credentials_cleared\n");
+      // `bootstrap_credentials_exposed` is deliberate, and reading it as a defect is the mistake to
+      // avoid. Subscription CLIs (Claude Max) re-read their credential file on later turns, so
+      // shredding it the moment bootstrap completes — which is what `cleared` recorded — broke
+      // authentication for every provider of that shape. The broker-owned copy therefore stays
+      // mounted for the life of the process. Do not "fix" this line back.
+      //
+      // What must still hold is asserted below, and it is the whole of the protection:
+      // the agent may read a COPY and never the host's file, it may not write it, it may not rename
+      // its way around it, and the copy does not survive the run.
+      assert.equal(await readFile(join(completedRun.workspace.path, "sandbox-result.txt"), "utf8"), "sandbox_only\nclient_callbacks_blocked\nbootstrap_home_read_only\nbootstrap_ancestors_protected\nruntime_root_protected\nbootstrap_credentials_exposed\n");
       await assert.rejects(() => access(join(completedRun.workspace.path, "client-callback-write.txt")));
       await assert.rejects(() => access(forbiddenPath));
       assert.equal(await readFile(join(fakeHome, ".grok", "auth.json"), "utf8"), "contract-secret-must-be-revoked\n");
+      // The replacement for shred-after-bootstrap: nothing readable is left behind. Teardown
+      // truncates, syncs and unlinks the broker copy and removes the control directory, so after a
+      // completed run no broker tree may still hold the secret. Without this the trade-off above
+      // would be unbounded — a token readable for one run is a decision, a token left on disk is a
+      // leak, and only this assertion tells the two apart.
+      //
+      // Scope, precisely: this catches a credential still sitting in a broker tree at this point,
+      // which is what a teardown that stopped revoking would leave. It does not isolate teardown
+      // from the startup sweep that also prunes broker trees whose pid is gone — both are supposed
+      // to run, and either one failing alone still leaves the other. The staged mount target under
+      // the run's temp dir needs no check: it is created empty and is only ever a mount point.
+      const brokerRoots = await readdir("/dev/shm", { withFileTypes: true })
+        .then((entries) => entries.filter((entry) => entry.isDirectory() && entry.name.startsWith("agent-orchestration-broker-")))
+        .catch(() => []);
+      for (const entry of brokerRoots) {
+        const leaked = await run("grep", ["-rl", "contract-secret-must-be-revoked", join("/dev/shm", entry.name)]).catch(() => null);
+        assert.equal(leaked, null, `broker tree ${entry.name} still holds the provider credential after the run`);
+      }
       const unsafeFollowup = await client.callTool({ name: "orchestration_send", arguments: { consumerCwd: consumer, runId: writeRunId, message: "continue writing" } });
       assert.equal(unsafeFollowup.isError, true);
       assert.equal(JSON.parse(unsafeFollowup.content[0].text).code, "AO_WRITE_FOLLOWUP_REQUIRES_NEW_RUN");
