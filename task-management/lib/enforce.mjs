@@ -42,15 +42,37 @@ export function consumeOverride(p = paths()) {
   });
 }
 
+/**
+ * The override reason WITHOUT spending it.
+ *
+ * For a caller that has to decide whether a write would be allowed before it is entitled to
+ * perform one — a preview, an approval card. Spending a one-shot token to answer a question
+ * nobody acted on is how the operator's single bypass disappears into a page refresh.
+ */
+export function peekOverride(p = paths()) {
+  return state(p).override?.reason ?? null;
+}
+
 // ── TaskCreate gate ──────────────────────────────────────────────────────────
 
-export function gateTaskCreate(p = paths(), draft = null) {
+/**
+ * `consume: false` asks the gate what it WOULD say without changing anything, and reports
+ * `override: true` on an answer that only came out `allow` because a one-shot token exists. The
+ * caller that goes on to write is then the one that spends it, once, where the write happens.
+ */
+export function gateTaskCreate(p = paths(), draft = null, { consume = true, haveEpic = false } = {}) {
+  const takeOverride = () => (consume ? consumeOverride(p) : peekOverride(p));
   if (enforcementOff(p)) return { allow: true };
   const cfg = config(p);
   const s = state(p);
 
-  if (cfg.requireEpic && !s.activeEpic) {
-    if (consumeOverride(p)) return { allow: true };
+  // `haveEpic` says the CALLER is supplying the epic, so the active-epic rule does not apply to it
+  // — a planner proposal that creates its own epic and files tasks under it, for instance. It
+  // skips only this rule. Suppressing the whole refusal at the call site could not do that: this
+  // check RETURNS, so the completeness and WIP gates below it never ran, and a proposal naming an
+  // existing epic sailed past both whenever no epic happened to be active.
+  if (cfg.requireEpic && !s.activeEpic && !haveEpic) {
+    if (takeOverride()) return { allow: true, override: true };
     return {
       allow: false,
       reason:
@@ -78,7 +100,7 @@ export function gateTaskCreate(p = paths(), draft = null) {
   if (draft) {
     const missing = missingFields(draft, cfg.requireOnCreate, p);
     if (missing.length) {
-      if (consumeOverride(p)) return { allow: true };
+      if (takeOverride()) return { allow: true, override: true };
       return {
         allow: false,
         reason: missingRefusal(
@@ -92,7 +114,7 @@ export function gateTaskCreate(p = paths(), draft = null) {
 
   const wip = list("task", { status: "in_progress" }, p).length;
   if (cfg.wipLimit && wip >= cfg.wipLimit) {
-    if (consumeOverride(p)) return { allow: true };
+    if (takeOverride()) return { allow: true, override: true };
     return {
       allow: false,
       reason:

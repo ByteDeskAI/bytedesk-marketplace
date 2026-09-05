@@ -51,10 +51,10 @@ import { FORMATS } from "./export.mjs";
 import { serverVersion } from "./mcp.mjs";
 import { LINK_TYPES, TYPES } from "./issue.mjs";
 import { EFFORTS, LEVELS, assertLevel } from "./capability.mjs";
-import { importGoalDoc, importManifest, planManifest, relativeToRoot } from "./goal-import.mjs";
+import { importGoalDoc, importManifest, insideRepo, planManifest, relativeToRoot } from "./goal-import.mjs";
 import { parseGoalDoc, refusal } from "./goals.mjs";
 import { appendTurn, closeSession, deleteSession, listSessions, mutateSession, newSession, readSession } from "./planner.mjs";
-import { applyOps, previewOps } from "./planner-ops.mjs";
+import { applyOps, previewOps, recoverInterruptedApply } from "./planner-ops.mjs";
 
 import { agentHealth, plannerAgents, probeAgent } from "./planner-acp.mjs";
 import { cancelRun, runState, startRun } from "./planner-run.mjs";
@@ -127,6 +127,11 @@ function reopenIfStranded(id, p) {
   if (APPLYING.has(id)) return;
   try {
     if (readSession(id, p).status !== "applying") return;
+    // A session marked "applying" that nobody is applying usually means a kill, and a kill leaves
+    // half a landing on the board. Undo that first, from the journal the landing wrote — reopening
+    // the session without it would invite the operator to approve the same set again on top of
+    // the part that already landed.
+    recoverInterruptedApply(p);
     mutateSession(id, () => ({ status: "open" }), p);
     logEvent("planner_apply_abandoned", { id }, p);
   } catch {
@@ -1067,10 +1072,9 @@ function plannerRoute(method, url, payload, p) {
           return fail(e.status || 409, e.error || e.message);
         }
         APPLYING.add(id);
+        let applied = null;
         try {
-          const res = applyOps(claimed.operations, { approvedDigest: claimed.digest, session: id, stamp: stamp(p) }, p);
-          closeSession(id, "applied", p);
-          return { status: 201, body: res };
+          applied = applyOps(claimed.operations, { approvedDigest: claimed.digest, session: id, stamp: stamp(p) }, p);
         } catch (e) {
           // The landing rolled itself back, so the operator can review and try again — put the
           // proposal back rather than stranding the session with nothing to approve.
@@ -1079,6 +1083,17 @@ function plannerRoute(method, url, payload, p) {
         } finally {
           APPLYING.delete(id);
         }
+        // Past this line the board HAS changed, and everything left is bookkeeping. It used to sit
+        // inside the try above, so a `closeSession` that failed for its own reasons was handled as
+        // though the apply had rolled back: the proposal went back on the session and the same
+        // digest created the whole set a second time. An approval is spent by the write it
+        // authorised, not by the paperwork afterwards.
+        try {
+          closeSession(id, "applied", p);
+        } catch (e) {
+          logEvent("planner_session_not_closed", { id, why: e.message }, p);
+        }
+        return { status: 201, body: applied };
       }
       return null;
     }
@@ -1229,9 +1244,14 @@ function goalPreview(payload, p) {
       return ok({ kind: "doc", title: parsed.title, criteria: parsed.criteria, shape: parsed.shape, epic: (typeof payload.epic === "string" && payload.epic) || state(p).activeEpic || null });
     }
     if (typeof payload?.path !== "string" || !payload.path.trim()) return fail(400, "goal preview needs { path } or { content, name }");
-    const full = isAbsolute(payload.path) ? resolve(payload.path) : resolve(p.root, payload.path);
-    if (full !== p.root && !full.startsWith(p.root + sep)) return fail(400, `path must be inside ${p.root}`);
-    if (!existsSync(full)) return fail(404, `no such file: ${payload.path}`);
+    const asked = isAbsolute(payload.path) ? resolve(payload.path) : resolve(p.root, payload.path);
+    if (!existsSync(asked)) return fail(404, `no such file: ${payload.path}`);
+    // Confined on the REAL path. The lexical `startsWith` this replaces passed any symlink sitting
+    // inside the repo and pointing out of it, so a goal doc anywhere the board process could read
+    // was previewed in full and copied into a task body — the same hole the manifest's own
+    // referenced-document check already closes, left open on the two paths that reach it first.
+    const full = insideRepo(asked, p);
+    if (!full) return fail(400, `path must be inside ${p.root}`);
     if (/\.json$/i.test(full)) {
       const plan = planManifest(full, p);
       return ok({
@@ -1264,9 +1284,14 @@ function goalImport(payload, p) {
       return { status: 201, body: { id: task.id, title: task.title, epic: task.epic ?? null, criteria: parsed.criteria.length, doc } };
     }
     if (typeof payload?.path !== "string" || !payload.path.trim()) return fail(400, "goal import needs { path } or { content, name }");
-    const full = isAbsolute(payload.path) ? resolve(payload.path) : resolve(p.root, payload.path);
-    if (full !== p.root && !full.startsWith(p.root + sep)) return fail(400, `path must be inside ${p.root}`);
-    if (!existsSync(full)) return fail(404, `no such file: ${payload.path}`);
+    const asked = isAbsolute(payload.path) ? resolve(payload.path) : resolve(p.root, payload.path);
+    if (!existsSync(asked)) return fail(404, `no such file: ${payload.path}`);
+    // Confined on the REAL path. The lexical `startsWith` this replaces passed any symlink sitting
+    // inside the repo and pointing out of it, so a goal doc anywhere the board process could read
+    // was previewed in full and copied into a task body — the same hole the manifest's own
+    // referenced-document check already closes, left open on the two paths that reach it first.
+    const full = insideRepo(asked, p);
+    if (!full) return fail(400, `path must be inside ${p.root}`);
     if (/\.json$/i.test(full)) {
       const res = importManifest(full, { stamp: stamp(p) }, p);
       return {

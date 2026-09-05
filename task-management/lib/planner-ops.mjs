@@ -20,11 +20,12 @@
  * because the operator is entitled to the store's own wording, not a paraphrase of it.
  */
 import { createHash } from "node:crypto";
-import { existsSync, unlinkSync } from "node:fs";
-import { gateTaskCreate } from "./enforce.mjs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { consumeOverride, gateTaskCreate } from "./enforce.mjs";
 import { dependencies } from "./issue.mjs";
 import { paths } from "./paths.mjs";
-import { create, fileFor, kindOf, logEvent, read, reindex, state, withLock, write, writeState } from "./store.mjs";
+import { create, fileFor, kindOf, list as listRecords, logEvent, read, reindex, state, withLock, write, writeState } from "./store.mjs";
 
 const err = (message, status) => Object.assign(new Error(message), { status });
 
@@ -48,6 +49,7 @@ export const OPERATIONS = {
   "epic.create": {
     summary: "Create an epic",
     creates: true,
+    kind: "epic",
     describe: (a) => `Adds a new independently reviewable epic "${str(a.title)}" to the shared task store.`,
     check(args) {
       if (!str(args.title)) return "an epic needs a title";
@@ -85,6 +87,7 @@ export const OPERATIONS = {
   "task.create": {
     summary: "Create a task",
     creates: true,
+    kind: "task",
     describe: (a) => {
       const n = list(a.acceptance).length;
       return `Creates "${str(a.title)}" with ${n} acceptance ${n === 1 ? "criterion" : "criteria"}` +
@@ -115,20 +118,38 @@ export const OPERATIONS = {
       // walk past the WIP limit and the required-field checks: the board refused, the card said
       // "validated", and the task was created anyway. A governed surface that ignores the gates
       // the ungoverned CLI obeys is not governed.
-      const gate = gateTaskCreate(ctx.p, { body: str(args.body), acceptance: list(args.acceptance).map((text) => ({ text, done: false })) });
-      if (!gate.allow) {
-        const suppliesItsOwnEpic = Boolean(epic);
-        const isNoActiveEpic = /no active epic/i.test(gate.reason || "");
-        if (!(isNoActiveEpic && suppliesItsOwnEpic)) return gate.reason;
-      }
-      return null;
+      // `consume: false`, and it is load-bearing. `check` is documented read-only, and it was not:
+      // `gateTaskCreate` SPENDS the operator's one-shot override at each of its refusal points, so
+      // merely previewing a proposal wrote board state and logged `override_used` — the one write
+      // the read-only planner profile exists to make impossible. It also broke every proposal that
+      // needed the override: the preview ate the token, the card said "validated", and the apply
+      // then refused, or rolled back mid-way. And the page re-proposes on every load, so a refresh
+      // burnt it. The token is spent at APPLY now, inside the lock, once per operation that needed
+      // it.
+      const gate = gateTaskCreate(
+        ctx.p,
+        { body: str(args.body), acceptance: list(args.acceptance).map((text) => ({ text, done: false })) },
+        // `haveEpic` rather than reading the refusal text and forgiving it. The active-epic check
+        // RETURNS, so suppressing its message at this end meant the completeness and WIP gates
+        // below it were never reached: with no active epic, a proposal naming an existing epic
+        // validated past both. Telling the gate the epic is supplied lets it skip that one rule
+        // and run the rest.
+        { consume: false, haveEpic: Boolean(epic) },
+      );
+      if (gate.allow && gate.override) ctx.owesOverride = true;
+      return gate.allow ? null : gate.reason;
     },
     apply(args, ctx) {
       const task = create(
         "task",
         {
           title: str(args.title),
-          epic: args.epic ? ctx.resolve(args.epic) : state(ctx.p).activeEpic || null,
+          // NEVER `state(ctx.p).activeEpic` as a fallback. `resolveDestinations` has already made
+          // an implicit destination explicit, using the active epic as it stood when the card was
+          // written. Reading live state here re-opened the hole that was supposed to close: with
+          // no active epic at preview the card said "with no epic", and an `epic.activate` earlier
+          // in the same approved set then sent the task somewhere the operator was never shown.
+          epic: args.epic ? ctx.resolve(args.epic) : null,
           acceptance: list(args.acceptance).map((text) => ({ text, done: false })),
           touches: list(args.touches).length ? list(args.touches) : undefined,
           labels: list(args.labels),
@@ -192,6 +213,108 @@ export const OPERATIONS = {
 };
 
 /**
+ * Where a landing in progress records what it has done so far.
+ *
+ * Lives under `planner/`, which the store already keeps out of git — this is machine-local
+ * recovery state, not board history.
+ */
+export function journalPath(p = paths()) {
+  return join(p.base, "planner", "apply-journal.json");
+}
+
+/**
+ * Undo a landing from the record of what it did: remove what it created, put back what it
+ * modified, restore the active epic.
+ *
+ * Taken out of the catch block so a landing that never REACHED its catch — a kill, a power cut —
+ * can be undone by the next process from the journal instead. The two callers must do the same
+ * thing or "all of it or none of it" is only true for the failures that happen to throw.
+ */
+function undoLanding({ created = [], touched = [], previousActiveEpic }, p) {
+  for (const id of [...created].reverse()) {
+    try {
+      const file = fileFor(id, p);
+      if (file && existsSync(file)) unlinkSync(file);
+    } catch {
+      /* best effort; the rollback event records what was meant to go */
+    }
+  }
+  // Records this proposal MODIFIED go back as they were. Removing what was created while leaving
+  // edits to what already existed is the half-undo that makes a board look fine and be wrong — a
+  // pre-existing task left blocked on an id that was just deleted.
+  for (const doc of touched) {
+    try {
+      // WITH its `file`. Stripping it made `write` derive a path from the title instead, and a
+      // task whose title had been edited since its file was named then restored to a SECOND file:
+      // two files for one id, the index counting both, and the original left carrying the edit
+      // this rollback exists to undo. A restore has to go back where it came from.
+      write(doc, p);
+    } catch {
+      /* best effort, same as above; the rollback event names what was touched */
+    }
+  }
+  try {
+    if (previousActiveEpic !== undefined) writeState({ activeEpic: previousActiveEpic }, p);
+    reindex(p);
+  } catch {
+    /* the index is a cache; `tm reindex` recovers it */
+  }
+}
+
+/**
+ * Undo a landing that never finished, from the journal it left behind.
+ *
+ * The compensation in `applyOps` runs in a `catch`, so it covers a landing that THROWS and nothing
+ * else. Kill the process after the epic is activated and the first task written and those records
+ * survived for ever: half an approved proposal on the board, no error anywhere, and a session
+ * marked "applying" that could say nothing about what had already landed. Records are written one
+ * file at a time and nothing makes that a single atomic act, so the honest fix is to write down
+ * the intent first and undo it on the next run rather than to claim a transaction the filesystem
+ * is not giving us.
+ *
+ * Called before any new landing and by the route that reopens a stranded session, so recovery
+ * happens at the next attempt rather than needing a daemon.
+ */
+export function recoverInterruptedApply(p = paths()) {
+  const file = journalPath(p);
+  if (!existsSync(file)) return null;
+  let journal = null;
+  try {
+    journal = JSON.parse(readFileSync(file, "utf8"));
+  } catch {
+    /* an unreadable journal still has to go, or every later apply trips over it */
+  }
+  try {
+    unlinkSync(file);
+  } catch {
+    /* if it cannot be removed the undo below would repeat; the log says what happened */
+  }
+  if (!journal || !Array.isArray(journal.created)) return null;
+
+  // The journal is rewritten AFTER each operation, so a kill in the window between a record being
+  // written and the journal naming it would leave one orphan behind. It is findable: the landing
+  // held the store lock, so nothing else created anything while it ran, and every record stamped
+  // at or after the moment the journal was opened belongs to it.
+  const orphans = journal.started
+    // `listRecords`, not the local `list` — that one coerces a value to an array of strings, and
+    // calling it here silently returned the kind names themselves and swept nothing.
+    ? ["epic", "task"]
+        .flatMap((kind) => listRecords(kind, {}, p))
+        .filter((row) => row.created && row.created >= journal.started)
+        .map((row) => row.id)
+        .filter((id) => !journal.created.includes(id))
+    : [];
+  undoLanding({ ...journal, created: [...journal.created, ...orphans] }, p);
+  logEvent(
+    "planner_apply_recovered",
+    { session: journal.session ?? null, digest: journal.digest ?? null, removed: journal.created.length + orphans.length, ids: [...journal.created, ...orphans] },
+    p,
+  );
+  const ids = [...journal.created, ...orphans];
+  return { removed: ids.length, ids, session: journal.session ?? null };
+}
+
+/**
  * Would blocking `task` on `on` close a dependency loop?
  *
  * Walks what each blocker is itself waiting on — through the board and through the edges this
@@ -221,7 +344,15 @@ function wouldCycle(task, on, ctx, p) {
  * board holds tasks, ADRs and sprints too.
  */
 function epicMustExist(id, ctx) {
-  if (ctx.pending.has(id)) return null;
+  if (ctx.pending.has(id)) {
+    // A ref this proposal declares, but declared by WHAT? `pending` used to be a bare set of
+    // names, so `{op:"task.create",args:{ref:"parent"}}` followed by `{op:"task.create",
+    // args:{epic:"parent"}}` previewed as valid and put "under parent." on the card. It failed in
+    // the lock once the id was minted — safe, but the operator had already approved a set the
+    // server called valid, which is the thing a preview exists to prevent.
+    const kind = ctx.pending.get(id);
+    return kind === "epic" ? null : `${id} is created by this proposal as a ${kind || "non-epic"}, not an epic`;
+  }
   if (kindOf(id) !== "epic") return `${id} is not an epic id`;
   if (!read(id, ctx.p)) return `no such epic: ${id}`;
   return null;
@@ -252,11 +383,23 @@ function makeContext(ops, p, stamp) {
   const touched = new Map(); // id -> the document as it was before this proposal changed it
   // Refs a proposal declares for itself, known before anything is created so `check` can resolve
   // a forward reference the same way `apply` will.
-  const pending = new Set(ops.map((op) => str(op.args?.ref)).filter(Boolean));
+  // ref -> the kind the operation that declares it creates. A Set lost that, so an epic reference
+  // pointing at a ref declared by `task.create` passed preview ("…under parent.") and only failed
+  // in the lock, once the id was minted — the operator had already approved a set the server had
+  // called valid.
+  const pending = new Map(
+    ops
+      .filter((op) => str(op.args?.ref))
+      .map((op) => [str(op.args.ref), OPERATIONS[str(op.op)]?.kind ?? null]),
+  );
   // Edges this proposal adds, so a cycle check at preview sees the whole picture rather than only
   // what is already on disk. Keyed by the blocked task; values may be refs, which is fine — an
   // unresolvable ref simply has no edges of its own on the board.
   const edges = new Map();
+  // Set by a `check` that only came out `allow` because the operator holds a one-shot override.
+  // `check` no longer spends it; the apply loop does, inside the lock, once per operation that
+  // needed it — so a preview costs nothing and an approved set pays exactly what it uses.
+  let owesOverride = false;
   let previousActiveEpic;
   return {
     p,
@@ -294,6 +437,12 @@ function makeContext(ops, p, stamp) {
     },
     get previousActiveEpic() {
       return previousActiveEpic;
+    },
+    get owesOverride() {
+      return owesOverride;
+    },
+    set owesOverride(v) {
+      owesOverride = Boolean(v);
     },
   };
 }
@@ -447,16 +596,43 @@ export function applyOps(ops, { approvedDigest, session = null, stamp = {} } = {
   }
 
   return withLock(p, () => {
+    // A landing that was killed rather than thrown out of leaves its journal behind; undo it
+    // before starting another, so the board is never carrying half of an older proposal.
+    recoverInterruptedApply(p);
+
     const ctx = makeContext(normalized, p, stamp);
     const created = [];
     const results = [];
+    // The intent, written BEFORE the first record. Files are written one at a time and nothing
+    // makes that atomic, so the only way "all of it or none of it" survives a kill is to leave
+    // behind enough to undo it: what has been created so far, and the originals of everything
+    // modified. Rewritten after each operation, removed when the landing settles either way.
+    const journal = () => {
+      try {
+        mkdirSync(dirname(journalPath(p)), { recursive: true });
+        writeFileSync(
+          journalPath(p),
+          `${JSON.stringify({ session, digest, started: new Date().toISOString(), created, touched: [...ctx.touched.values()], previousActiveEpic: ctx.previousActiveEpic })}\n`,
+        );
+      } catch {
+        /* a journal we cannot write is not a reason to refuse the write the operator approved */
+      }
+    };
+    journal();
     try {
       for (const op of normalized) {
         const spec = OPERATIONS[op.op];
+        ctx.owesOverride = false;
         const problem = spec.check(op.args, ctx);
         // Re-checked inside the lock: the board may have moved between preview and here, and a
         // proposal validated against a board that no longer exists is not validated.
         if (problem) throw err(`${op.op}: ${problem}`, 409);
+        // A check that only passed on the strength of an override spends it HERE — at the write,
+        // in the lock, one token per operation. If it is gone, the board has changed since the
+        // approval and the whole set rolls back rather than landing half of it.
+        if (ctx.owesOverride && !consumeOverride(p)) {
+          throw err(`${op.op}: the one-shot override this proposal relied on is already spent — review it again`, 409);
+        }
         const result = spec.apply(op.args, ctx);
         // ONLY an operation that declares `creates` registers an id here, and this is load-bearing.
         // `created` is the rollback list, so an operation that merely touches an existing record —
@@ -465,41 +641,24 @@ export function applyOps(ops, { approvedDigest, session = null, stamp = {} } = {
         // nobody proposed changing.
         if (spec.creates && result?.id) created.push(result.id);
         results.push({ op: op.op, ...result });
+        journal();
       }
       logEvent("planner_applied", { session, digest, operations: normalized.length, created }, p);
       return { digest, applied: results, created };
     } catch (cause) {
-      for (const id of created.reverse()) {
-        try {
-          const file = fileFor(id, p);
-          if (file && existsSync(file)) unlinkSync(file);
-        } catch {
-          /* best effort; the rollback event records what was meant to go */
-        }
-      }
-      // Records this proposal MODIFIED go back as they were. Removing what was created while
-      // leaving edits to what already existed is the half-undo that makes a board look fine and
-      // be wrong — a pre-existing task left blocked on an id that was just deleted.
-      for (const [id, doc] of ctx.touched) {
-        try {
-          const { file, ...data } = doc;
-          write(data, p);
-        } catch {
-          /* best effort, same as above; the rollback event names what was touched */
-        }
-      }
-      try {
-        if (ctx.previousActiveEpic !== undefined) writeState({ activeEpic: ctx.previousActiveEpic }, p);
-        reindex(p);
-      } catch {
-        /* the index is a cache; `tm reindex` recovers it */
-      }
+      undoLanding({ created, touched: [...ctx.touched.values()], previousActiveEpic: ctx.previousActiveEpic }, p);
       logEvent(
         "planner_apply_rolled_back",
         { session, digest, removed: created.length, ids: created, restored: [...ctx.touched.keys()], why: cause?.message || String(cause) },
         p,
       );
       throw cause;
+    } finally {
+      try {
+        if (existsSync(journalPath(p))) unlinkSync(journalPath(p));
+      } catch {
+        /* a journal that outlives its landing is undone by the next one, which is the safe way round */
+      }
     }
   });
 }

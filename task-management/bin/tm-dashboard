@@ -121,7 +121,7 @@ function uploadTarget(url) {
   const path = (url || "").split("?")[0];
   for (const u of UPLOADS) {
     const m = u.re.exec(path);
-    if (m) return { kind: u.kind, id: decodeURIComponent(m[1]) };
+    if (m) return { kind: u.kind, id: decodePath(m[1]) };
   }
   return null;
 }
@@ -274,15 +274,49 @@ const json = (res, status, payload) => {
   res.end(JSON.stringify(payload));
 };
 
+/**
+ * Why a write should be refused as cross-origin, or null to let it through.
+ *
+ * The old rule accepted any origin starting `http://127.0.0.1:` or `http://localhost:` — i.e.
+ * EVERY port on this machine counted as this board. Any other local dev server, and any page it
+ * serves, could POST `{"title":"Unapproved"}` to `/api/epic` and create and activate an epic; a
+ * simple `text/plain` form post needs no CORS permission because it never reads the response. And
+ * a request with no `Origin` at all skipped the check entirely, which is how that form post
+ * arrives.
+ *
+ * So: an `Origin`, when present, must be exactly this server's own. And `Sec-Fetch-Site` catches
+ * what `Origin` misses — every current browser sends it on every request, and only a browser
+ * sends it, so a value other than `same-origin`/`none` is a page somewhere else asking. A CLI
+ * client (curl, the plugin's own scripts) sends neither header and is unaffected.
+ */
+function crossOriginRefusal(req) {
+  const site = req.headers["sec-fetch-site"];
+  if (site && site !== "same-origin" && site !== "none") {
+    return "cross-origin writes are refused";
+  }
+  const origin = req.headers.origin;
+  if (origin && req.headers.host && origin !== `http://${req.headers.host}`) {
+    return "cross-origin writes are refused";
+  }
+  return null;
+}
+
+/** A path component a client controls; `%` alone throws URIError, which must not reach the server. */
+function decodePath(raw) {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return null;
+  }
+}
+
 const server = createServer((req, res) => {
   // ── writes ────────────────────────────────────────────────────────────────
   // Local-only server, but a browser page on another origin could still POST here,
   // so require a same-origin fetch and cap the body.
   if (req.method === "POST" || req.method === "PATCH") {
-    const origin = req.headers.origin;
-    if (origin && !origin.startsWith("http://127.0.0.1:") && !origin.startsWith("http://localhost:")) {
-      return json(res, 403, { error: "cross-origin writes are refused" });
-    }
+    const refusal = crossOriginRefusal(req);
+    if (refusal) return json(res, 403, { error: refusal });
     const upload = req.method === "POST" && uploadTarget(req.url)
       && String(req.headers["content-type"] || "").includes("multipart/form-data");
     if (upload) {
@@ -315,7 +349,10 @@ const server = createServer((req, res) => {
     return;
   }
 
-  const path = decodeURIComponent((req.url || "/").split("?")[0]);
+  // `GET /api/planner/%/attachment/<hash>` throws URIError out of this callback otherwise, which
+  // is the HTTP server's own error path — a malformed URL taking the board down.
+  const path = decodePath((req.url || "/").split("?")[0]);
+  if (path === null) return json(res, 400, { error: "that URL is not valid percent-encoding" });
 
   // A computed document, not a file: exportStore renders the store's text. `download=1` makes
   // the browser save it; without, it renders inline for a preview.
@@ -348,7 +385,7 @@ const server = createServer((req, res) => {
   // Guarded file GET. 200 only if the ref is on this task and realpath is inside p.evidence.
   const fileGet = (req.url || "").match(/^\/api\/task\/([^/?]+)\/file(?:\?(.*))?$/);
   if (req.method === "GET" && fileGet) {
-    const id = decodeURIComponent(fileGet[1]);
+    const id = decodePath(fileGet[1]);
     const ref = new URLSearchParams(fileGet[2] || "").get("ref") || "";
     const task = kindOf(id) === "task" ? readEntity(id, P) : null;
     const dest = task && servableEvidencePath(task, ref, P);
@@ -387,7 +424,7 @@ const server = createServer((req, res) => {
   // ignores the disposition there is no script, no plugin and no same-origin to inherit.
   const attachGet = (req.url || "").match(/^\/api\/planner\/([^/?]+)\/attachment\/([0-9a-f]{64})$/);
   if (req.method === "GET" && attachGet) {
-    const dest = attachmentPath(decodeURIComponent(attachGet[1]), attachGet[2], P);
+    const dest = attachmentPath(decodePath(attachGet[1]), attachGet[2], P);
     if (!dest) return json(res, 404, { error: "not found" });
     const ext = dest.slice(dest.lastIndexOf("."));
     res.writeHead(200, {

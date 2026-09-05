@@ -78,9 +78,13 @@ describe("planning sessions", () => {
     assert.throws(() => appendTurn(s.id, { kind: "note", text: "x".repeat(20001) }, p), (e) => e.status === 400);
   });
 
-  it("lists newest first, and refuses to touch anything that is not a session id", () => {
+  it("lists newest first, and refuses to touch anything that is not a session id", async () => {
     const p = store();
     const a = newSession({ goal: "first" }, p);
+    // `updated` has millisecond resolution and two sessions opened inside one millisecond really
+    // are equally new — the list is stable in that case but the order is not something to assert.
+    // The claim under test is "newest first", so the fixture makes one genuinely newer.
+    await new Promise((r) => setTimeout(r, 5));
     const b = newSession({ goal: "second" }, p);
     appendTurn(b.id, { kind: "note", text: "later" }, p);
     const ids = listSessions(p).map((s) => s.id);

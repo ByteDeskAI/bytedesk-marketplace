@@ -246,6 +246,50 @@
 - **Generated runtime files stay out of git.** Store `.gitignore` now names `dashboard.pid` and `dashboard.port` explicitly (still covered by `dashboard.*`), plus `bin` (generated launchers) and `events.json` / `events.jsonl`. Bootstrap and `.bytedesk/task-management/bin/tm doctor --fix` write `.bytedesk/.gitignore` so `worktrees/` is ignored without swallowing the store. Dashboard `.gitignore` also drops Vite/tsc leftovers (`.vite`, `*.tsbuildinfo`).
 
 ### Fixed
+- **An interrupted landing stayed half-applied for ever (TM-086).** `applyOps` and
+  `applyManifestPlan` both claimed "all of it or none of it", and both meant it only for a failure
+  that THROWS: kill the process after the epic was activated and the first task written and those
+  records survived, with no error anywhere and a session marked "applying" that could say nothing
+  about what had landed. Records are written one file at a time and nothing makes that atomic, so a
+  landing now writes down its intent first — what it has created, and the originals of everything it
+  modified — and the next attempt, or the route that reopens a stranded session, undoes it. The one
+  window the journal cannot name directly, between a record being written and the journal naming it,
+  is swept by timestamp: the landing holds the store lock, so nothing else created anything while it
+  ran.
+- **Any other page on localhost could write to the board (TM-086).** The same-origin check accepted
+  every `http://127.0.0.1:` and `http://localhost:` prefix — i.e. every port on the machine — and
+  skipped entirely when no `Origin` header was sent, which is exactly what a simple `text/plain`
+  form post does. Another local dev server could create and activate an epic with no CORS
+  permission at all. An `Origin` must now match this server's own, and `Sec-Fetch-Site` catches
+  what `Origin` misses.
+- **A bookkeeping failure refunded a spent approval (TM-086).** `closeSession` sat inside the
+  `try` that catches a failed landing, so a session-write error after a SUCCESSFUL apply put the
+  proposal back and let the same digest create everything a second time.
+- **Rollback could leave two files for one task (TM-086).** The restore dropped the snapshot's
+  `file`, so `write` derived a path from the title instead: a task renamed since its file was named
+  came back as a second file, the index counted both, and the original kept the edit the rollback
+  existed to undo.
+- **The confirmation dialog could switch proposals underneath the operator (TM-086).** Reviewing
+  proposal A while a run finished loaded B without withdrawing the review, so the already-enabled
+  Apply sent B's digest — arguments nobody had seen.
+- **The epic exemption skipped every later gate (TM-086).** Forgiving the "no active epic" refusal
+  at the call site could not work: that check RETURNS, so completeness and WIP were never reached,
+  and with no active epic a proposal naming an existing one validated past both. The gate is told
+  the epic is supplied and skips that one rule.
+- **A manifest could still import a dependency cycle, or two goals with one id (TM-086).** Manifest
+  edges were written with raw mutations, walking past the same refusal `task.depends` had just been
+  fixed to obey; and a duplicate goal id created two tasks while pointing both goals' dependencies
+  at the second. Both are refused while the import is still a plan.
+- **A symlink could still smuggle a goal document out of the repository (TM-086).** The manifest's
+  referenced documents were confined on their real path; the `path` a preview or import is handed
+  was checked lexically, so a link inside the repo pointing anywhere passed.
+- **A malformed URL took the dashboard down (TM-086).** `decodeURIComponent` ran outside any
+  handler, so `GET /api/planner/%/attachment/<hash>` threw `URIError` out of the request callback.
+- **The run buffer counted events, not bytes (TM-086).** An agent framing correctly could send
+  hundreds of large valid updates and hold gigabytes long before the two-thousandth arrived.
+- **Sessions listed "newest first" in an arbitrary order when timestamps tied (TM-086).** The sort
+  fell back to `readdirSync` order, so a list could reorder between two refreshes for no reason the
+  operator could see.
 - **An agent could still end the host process through one field (TM-086).** `{"error":{"message":
   {"toString":null}}}` is a value that throws `TypeError` on any string coercion, and both
   `new Error(x)` and a template literal coerce — so the throw happened inside a stdout listener,

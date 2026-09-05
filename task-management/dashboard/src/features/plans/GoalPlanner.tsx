@@ -180,6 +180,20 @@ function Session({ id }: { id: string }) {
   }, [id]);
   useEffect(load, [load]);
 
+  /**
+   * The review and the confirmation are statements about ONE proposal.
+   *
+   * `reviewed` and `confirming` used to survive the proposal being replaced. Open the confirmation
+   * for proposal A, tick the box, and let the agent's run finish: `load()` swapped in proposal B
+   * underneath the open dialog, the Apply button was still enabled, and clicking it sent B's
+   * digest — an approval for operations and arguments the operator had never seen. Changing the
+   * proposal withdraws both.
+   */
+  useEffect(() => {
+    setReviewed(false);
+    setConfirming(false);
+  }, [proposal?.digest]);
+
   useEffect(() => {
     fetchPlannerAgents().then((list) => {
       setAgents(list);

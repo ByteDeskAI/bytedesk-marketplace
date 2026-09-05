@@ -7,9 +7,12 @@
  */
 import { describe, it, after } from "node:test";
 import assert from "node:assert/strict";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { cleanup, tempStore } from "./helpers.mjs";
-import { OPERATIONS, applyOps, digestOps, previewOps } from "../../lib/planner-ops.mjs";
+import { OPERATIONS, applyOps, digestOps, previewOps , journalPath, recoverInterruptedApply } from "../../lib/planner-ops.mjs";
 import { create, list, read, readEvents, state, update, writeConfig, writeState } from "../../lib/store.mjs";
+import { setOverride } from "../../lib/enforce.mjs";
 
 const stores = [];
 after(() => cleanup(...stores));
@@ -366,5 +369,124 @@ describe("a proposal cannot land a dependency loop", () => {
     ], p);
     assert.equal(inside.ok, false);
     assert.match(inside.operations[3].refusal, /cycle/i);
+  });
+});
+
+describe("a preview costs the operator nothing", () => {
+  it("does not spend the one-shot override, and the apply spends it exactly once", () => {
+    const p = store();
+    writeConfig({ requireEpic: true, wipLimit: 1 }, p);
+    const epic = create("epic", { title: "Active" }, "", p);
+    writeState({ activeEpic: epic.id }, p);
+    const busy = create("task", { title: "In flight", epic: epic.id, acceptance: [{ text: "x", done: false }] }, "b", p);
+    update(busy.id, { status: "in_progress" }, p);
+    setOverride("operator: one-shot bypass", p);
+
+    // `gateTaskCreate` SPENDS the override at each refusal point, and `check` called it — so
+    // merely previewing wrote board state and logged `override_used` from the read-only planner
+    // profile. It also broke the proposal it was previewing: the token was gone by the time the
+    // apply re-checked, so an approved, "validated" set refused or rolled back. And the page
+    // re-proposes on every load, so a refresh burnt it.
+    const pre = previewOps([{ op: "task.create", args: { epic: epic.id, title: "Hotfix", body: "b", acceptance: ["x"] } }], p);
+    assert.equal(pre.ok, true, "the override is what makes this proposal valid");
+    assert.ok(state(p).override, "and previewing must not have spent it");
+    assert.equal(readEvents(p).filter((e) => e.event === "override_used").length, 0);
+
+    // The write is where it gets paid for.
+    const res = applyOps(pre.resolved, { approvedDigest: pre.digest, stamp: { actor: "m" } }, p);
+    assert.equal(res.created.length, 1);
+    assert.equal(list("task", {}, p).length, 2, "the approved set landed rather than rolling back");
+    assert.equal(state(p).override, null, "spent");
+    assert.equal(readEvents(p).filter((e) => e.event === "override_used").length, 1, "once, not twice");
+    assert.equal(readEvents(p).filter((e) => e.event === "planner_apply_rolled_back").length, 0);
+
+    // Previewing twice is what a page refresh does, and it must still cost nothing.
+    const again = previewOps([{ op: "task.create", args: { epic: epic.id, title: "Another", body: "b", acceptance: ["x"] } }], p);
+    assert.equal(again.ok, false, "with the token gone the board's real answer shows through");
+    assert.match(again.operations[0].refusal, /WIP limit reached/);
+  });
+
+  it("binds a destination even when there is no active epic to inherit", () => {
+    const p = store();
+    writeConfig({ requireEpic: false }, p);
+    // The earlier fix only made the destination explicit when an active epic existed AT PREVIEW.
+    // With none, apply still read live state — and an `epic.activate` inside the very same
+    // approved set moved it, so the card said "with no epic" and the write said EP-001.
+    const pre = previewOps([
+      { op: "epic.create", args: { ref: "E", title: "New program", body: "b" } },
+      { op: "epic.activate", args: { epic: "E" } },
+      { op: "task.create", args: { title: "Where does this land?", body: "b", acceptance: ["x"] } },
+    ], p);
+    assert.match(pre.operations[2].consequence, /with no epic/);
+    applyOps(pre.resolved, { approvedDigest: pre.digest, stamp: { actor: "m" } }, p);
+    assert.equal(read(list("task", {}, p)[0].id, p).epic, null, "the write says what the card said");
+  });
+
+  it("refuses an epic reference that this proposal creates as a task", () => {
+    const p = store();
+    writeConfig({ requireEpic: false }, p);
+    // `pending` was a bare set of ref names, so a ref declared by `task.create` satisfied a field
+    // that requires an epic. Preview said "…under parent."; the apply threw in the lock once the
+    // id was minted and rolled back — safe, but the operator had approved a set the server had
+    // already called valid.
+    const pre = previewOps([
+      { op: "task.create", args: { ref: "parent", title: "Parent", body: "b", acceptance: ["x"] } },
+      { op: "task.create", args: { epic: "parent", title: "Child", body: "b", acceptance: ["x"] } },
+    ], p);
+    assert.equal(pre.ok, false);
+    assert.match(pre.operations[1].refusal, /as a task, not an epic/);
+    assert.equal(list("task", {}, p).length, 0, "and nothing was written finding that out");
+  });
+});
+
+describe("a landing that is killed rather than thrown out of", () => {
+  it("leaves a journal that undoes exactly what it had done", () => {
+    const p = store();
+    writeConfig({ requireEpic: false }, p);
+    const before = create("task", { title: "Already here", acceptance: [{ text: "x", done: false }], blockedBy: [], blocks: [] }, "b", p);
+
+    // Simulate the wreckage a SIGKILL leaves: records written, active epic moved, an existing
+    // record edited, and a journal naming all of it — but no exception, so no `catch` ever ran.
+    // Before the journal, that state was permanent and silent: half an approved proposal on the
+    // board, nothing in the log, and a session stuck on "applying" that could not say what landed.
+    const epic = create("epic", { title: "Half-landed" }, "", p);
+    const task = create("task", { title: "Half-landed too", epic: epic.id, acceptance: [{ text: "x", done: false }] }, "b", p);
+    const snapshot = read(before.id, p);
+    update(before.id, { blockedBy: [task.id], status: "blocked" }, p);
+    writeState({ activeEpic: epic.id }, p);
+    mkdirSync(dirname(journalPath(p)), { recursive: true });
+    writeFileSync(journalPath(p), JSON.stringify({
+      session: "PL-abcdef012345", digest: "d", started: epic.created,
+      created: [epic.id, task.id], touched: [snapshot], previousActiveEpic: null,
+    }));
+
+    const rec = recoverInterruptedApply(p);
+    assert.equal(rec.removed, 2);
+    assert.equal(list("epic", {}, p).length, 0, "what it created is gone");
+    assert.equal(list("task", {}, p).length, 1, "and only what was already there remains");
+    assert.deepEqual(read(before.id, p).blockedBy, [], "the record it edited is back as it was");
+    assert.equal(read(before.id, p).status, "open");
+    assert.equal(state(p).activeEpic, null, "and the active epic is back");
+    assert.equal(existsSync(journalPath(p)), false, "the journal is spent");
+    assert.ok(readEvents(p).some((e) => e.event === "planner_apply_recovered"));
+
+    // Running it again is a no-op, not a second undo.
+    assert.equal(recoverInterruptedApply(p), null);
+  });
+
+  it("sweeps a record written in the gap between the write and the journal", () => {
+    const p = store();
+    writeConfig({ requireEpic: false }, p);
+    const started = new Date(Date.now() - 1000).toISOString();
+    const orphan = create("task", { title: "Written, never journalled", acceptance: [{ text: "x", done: false }] }, "b", p);
+    mkdirSync(dirname(journalPath(p)), { recursive: true });
+    // The journal is rewritten AFTER each operation, so this is the one window it cannot name
+    // directly. It is still findable: the landing held the store lock, so nothing else created
+    // anything while it ran, and every record stamped at or after the journal was opened is its.
+    writeFileSync(journalPath(p), JSON.stringify({ session: null, digest: "d", started, created: [], touched: [] }));
+
+    const rec = recoverInterruptedApply(p);
+    assert.deepEqual(rec.ids, [orphan.id]);
+    assert.equal(list("task", {}, p).length, 0);
   });
 });

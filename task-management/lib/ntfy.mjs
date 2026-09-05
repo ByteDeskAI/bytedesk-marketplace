@@ -87,6 +87,8 @@ export const CATALOG = {
     planner_run_started: { group: "writes", label: "A planning run started against a trusted coding agent", priority: "min", tags: "compass" },
     planner_run_failed: { group: "writes", label: "A planning run failed", priority: "low", tags: "warning" },
     planner_applied: { group: "writes", label: "An approved planning proposal landed on the board", priority: "default", tags: "dart" },
+    planner_session_not_closed: { group: "writes", label: "A landed proposal's session could not be closed", priority: "low", tags: "warning" },
+    planner_apply_recovered: { group: "writes", label: "A landing interrupted by a crash was undone", priority: "default", tags: "warning" },
     planner_apply_abandoned: { group: "writes", label: "A planning session left mid-apply was reopened", priority: "low", tags: "warning" },
     planner_apply_rolled_back: { group: "writes", label: "An approved proposal failed to land and undid itself; nothing changed", priority: "high", tags: "rewind" },
     planner_closed: { group: "writes", label: "A planning session ended", priority: "low", tags: "compass" },

@@ -12,9 +12,10 @@
 import { existsSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
 import { dirname, isAbsolute, resolve, sep } from "node:path";
 import { gateTaskCreate } from "./enforce.mjs";
+import { dependencies } from "./issue.mjs";
 import { goalBody, manifestGoalTitle, parseGoalDoc, parseManifest, refusal } from "./goals.mjs";
 import { paths } from "./paths.mjs";
-import { create, fileFor, logEvent, mutate, read, reindex, state, withLock, writeState } from "./store.mjs";
+import { create, fileFor, logEvent, read, reindex, state, withLock, writeState } from "./store.mjs";
 
 const err = (message, status) => Object.assign(new Error(message), { status });
 
@@ -25,7 +26,7 @@ const err = (message, status) => Object.assign(new Error(message), { status });
  * the repo and points anywhere, which is the same class of bug `servableEvidencePath` already
  * fails closed on.
  */
-function insideRepo(file, p) {
+export function insideRepo(file, p) {
   if (!p.root) return null;
   try {
     const real = realpathSync(file);
@@ -142,6 +143,15 @@ export function planManifest(path, p = paths()) {
     });
   }
 
+  // Two goals sharing an id created two tasks while the goal -> task map kept only the second, so
+  // the import reported one of them and pointed BOTH goals' dependencies at it. Refused here: an
+  // id is how a manifest refers to its own goals, and one that names two things names neither.
+  const seen = new Set();
+  const duplicates = [...new Set(goals.map((g) => g.goalId).filter((id) => (seen.has(id) ? true : (seen.add(id), false))))];
+  if (duplicates.length) {
+    throw err(`${path}: goal id${duplicates.length > 1 ? "s" : ""} ${duplicates.join(", ")} appear${duplicates.length > 1 ? "" : "s"} more than once — an id has to name one goal.`, 400);
+  }
+
   const landing = new Set(goals.map((g) => g.goalId));
   const danglingDeps = [];
   let edges = 0;
@@ -149,6 +159,27 @@ export function planManifest(path, p = paths()) {
     const lost = g.dependsOn.filter((d) => !landing.has(d));
     if (lost.length) danglingDeps.push({ id: g.goalId, on: lost });
     edges += g.dependsOn.filter((d) => landing.has(d)).length;
+  }
+
+  // A manifest can describe A -> B -> A, or A -> A. The edges used to be written with raw mutates,
+  // which walk past the refusal in `dependencies()`, so the import landed work that was blocked
+  // for ever — and `tm doctor` finds a cycle but deliberately will not repair one, because which
+  // edge to cut is a judgement. Refused while this is still a plan and nothing has been written.
+  const waits = new Map(goals.map((g) => [g.goalId, g.dependsOn.filter((d) => landing.has(d))]));
+  for (const g of goals) {
+    for (const start of waits.get(g.goalId) || []) {
+      const walked = new Set();
+      const stack = [start];
+      while (stack.length) {
+        const cur = stack.pop();
+        if (cur === g.goalId) {
+          throw err(`${path}: ${g.goalId} depending on ${start} closes a dependency cycle — nothing in it could ever start.`, 400);
+        }
+        if (walked.has(cur)) continue;
+        walked.add(cur);
+        stack.push(...(waits.get(cur) || []));
+      }
+    }
   }
 
   return { manifest: m, source: path, doc: rel(path), epic: { title: m.epicTitle, plan: rel(path), body: epicBody }, goals, skipped, edges, danglingDeps };
@@ -248,11 +279,11 @@ export function applyManifestPlan(plan, { stamp = {} } = {}, p = paths()) {
         const lost = g.dependsOn.filter((d) => !made.has(d));
         if (lost.length) danglingDeps.push({ id: g.goalId, task: mine, on: lost });
         if (!deps.length) continue;
-        mutate(mine, (doc) => ({
-          blockedBy: [...new Set([...(doc.blockedBy || []), ...deps])],
-          status: doc.status === "open" ? "blocked" : doc.status,
-        }), p);
-        for (const d of deps) mutate(d, (doc) => ({ blocks: [...new Set([...(doc.blocks || []), mine])] }), p);
+        // `dependencies()`, not raw mutates: it refuses a cycle, writes both ends of every edge,
+        // moves an open task to blocked and logs `dep`. `planManifest` has already refused a
+        // manifest that describes a loop, so this is the belt behind that brace — the same
+        // divergence that let the planner's `task.depends` land what the CLI would not.
+        dependencies(mine, { add: deps }, p);
         edges += deps.length;
       }
 

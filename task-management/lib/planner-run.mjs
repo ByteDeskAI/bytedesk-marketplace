@@ -26,6 +26,16 @@ const RUNS = new Map();
 const MAX_EVENTS = 2000;
 
 /**
+ * And a ceiling on the SIZE of the buffer, not only its length.
+ *
+ * Counting events alone bounded nothing an agent controls: it frames correctly, sends hundreds of
+ * valid updates just under the per-frame cap, and every one is retained as a RAW event — gigabytes
+ * held for a session nobody is watching, well before the two-thousandth arrives. The frame cap
+ * stops one enormous message; this stops a thousand large ones.
+ */
+const MAX_EVENT_BYTES = 8 * 1024 * 1024;
+
+/**
  * How many FINISHED runs stay in memory.
  *
  * A run is kept after it ends so a browser that reconnects still gets the trace it missed. But a
@@ -94,15 +104,28 @@ export async function startRun(sessionId, agentId, p = paths()) {
   RUNS.set(sessionId, run);
   evictFinished();
 
+  let bufferedBytes = 0;
+  const sizeOf = (event) => {
+    try {
+      return JSON.stringify(event).length;
+    } catch {
+      return 1024; // circular or otherwise unmeasurable: charge it something rather than nothing
+    }
+  };
   const emit = (event) => {
     const framed = { ...event, runId, ts: new Date().toISOString() };
+    framed.__bytes = sizeOf(framed);
+    bufferedBytes += framed.__bytes;
     run.events.push(framed);
-    // Bounded. A long run against a chatty agent must not become the reason this process runs out
-    // of memory; the oldest events are the least useful to a late watcher anyway.
-    if (run.events.length > MAX_EVENTS) run.events.splice(0, run.events.length - MAX_EVENTS);
+    // Bounded two ways. A long run against a chatty agent must not become the reason this process
+    // runs out of memory; the oldest events are the least useful to a late watcher anyway.
+    while (run.events.length > MAX_EVENTS || (bufferedBytes > MAX_EVENT_BYTES && run.events.length > 1)) {
+      bufferedBytes -= run.events.shift().__bytes || 0;
+    }
+    const { __bytes, ...sent } = framed;
     for (const watcher of run.watchers) {
       try {
-        watcher(framed);
+        watcher(sent);
       } catch {
         /* a dead socket is not the run's problem */
       }
@@ -222,7 +245,10 @@ export function promptFor(session) {
 export function subscribe(sessionId, onEvent) {
   const run = RUNS.get(sessionId);
   if (!run) return null;
-  for (const event of run.events) onEvent(event);
+  for (const event of run.events) {
+    const { __bytes, ...sent } = event;
+    onEvent(sent);
+  }
   run.watchers.add(onEvent);
   return () => run.watchers.delete(onEvent);
 }

@@ -204,7 +204,15 @@ export function listSessions(p = paths()) {
       }
     })
     .filter(Boolean)
-    .sort((a, b) => String(b.updated).localeCompare(String(a.updated)));
+    // Newest first, then deterministically. `updated` is an ISO string with millisecond
+    // resolution, so two sessions touched in the same millisecond tied — and a tie fell back to
+    // whatever order `readdirSync` happened to return, which is the filesystem's business and not
+    // stable. A list that reorders itself between two refreshes for no reason the operator can see
+    // is a bug even when the timestamps really are equal.
+    .sort((a, b) =>
+      String(b.updated).localeCompare(String(a.updated))
+      || String(b.created).localeCompare(String(a.created))
+      || String(a.id).localeCompare(String(b.id)));
 }
 
 /**
