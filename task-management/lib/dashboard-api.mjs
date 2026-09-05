@@ -53,6 +53,7 @@ import { LINK_TYPES, TYPES } from "./issue.mjs";
 import { EFFORTS, LEVELS, assertLevel } from "./capability.mjs";
 import { importGoalDoc, importManifest, planManifest, relativeToRoot } from "./goal-import.mjs";
 import { parseGoalDoc, refusal } from "./goals.mjs";
+import { appendTurn, closeSession, deleteSession, listSessions, newSession, readSession } from "./planner.mjs";
 import { addComment, addLink, assign, backlog, dependencies, estimate, labelCatalog, labels, prioritise, rank, removeLink, setType, subtasks } from "./issue.mjs";
 import { isAbsolute, resolve, sep } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
@@ -150,6 +151,10 @@ export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
   const query = new URLSearchParams(raw.includes("?") ? raw.slice(raw.indexOf("?") + 1) : "");
   const insight = readRoute(method, url, query, p);
   if (insight) return insight;
+  // Before the entity routes: `/api/planner/...` is its own namespace and must not fall through
+  // to the `/api/task/:id/:action` catch-all, which would answer "not a task id".
+  const planning = plannerRoute(method, url, payload, p);
+  if (planning) return planning;
   const written = writeRoute(method, url, payload, p);
   if (written) return written;
   if (method === "GET" && url === "/api/backlog") return ok(backlog(p));
@@ -964,6 +969,35 @@ function sessionsRoute(p) {
   // ponytail: claims are the only session registry the store has. The per-task /stream already
   // reads transcripts; a live-session scan across harness session dirs can join it here later.
   return ok({ harness: currentHarness()?.id ?? null, mine: sessionId(), sessions: [...bySession.values()] });
+}
+
+/**
+ * Planning sessions are read and written through the same handler surface as everything else, but
+ * they are NOT board entities: no id prefix in `KINDS`, no index row, no `kindOf` arm. A planning
+ * conversation is transient state until an approved write lands, and giving it an entity id would
+ * make an unfinished one look like work somebody committed to.
+ */
+function plannerRoute(method, url, payload, p) {
+  const m = /^\/api\/planner(?:\/([^/]+))?(?:\/([^/]+))?$/.exec(url);
+  if (!m) return null;
+  const [, id, action] = m;
+  try {
+    if (method === "GET") {
+      if (!id) return ok({ sessions: listSessions(p) });
+      if (action) return null;
+      return ok(readSession(id, p));
+    }
+    if (method === "POST") {
+      if (!id) return { status: 201, body: newSession(payload || {}, p) };
+      if (action === "turn") return ok(appendTurn(id, payload || {}, p));
+      if (action === "close") return ok(closeSession(id, payload?.status || "cancelled", p));
+      return null;
+    }
+    if (method === "DELETE" && id && !action) return ok(deleteSession(id, p));
+    return null;
+  } catch (e) {
+    return fail(e.status || 400, e.message);
+  }
 }
 
 function readRoute(method, url, query, p) {

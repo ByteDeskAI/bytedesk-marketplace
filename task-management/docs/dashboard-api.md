@@ -176,6 +176,12 @@ Legend: **R** read · **W** write · **G** gated write (409 possible).
 | `POST /api/override` W | `{ reason }` | `{ override:{reason,ts} }` — one-shot token consumed by the next gate on any surface | 200 / 400 empty reason | `enforce.setOverride` (`lib/enforce.mjs:20`) |
 | `GET /api/ntfy` R | — | `{ config:{enabled,server,topic,minIntervalSeconds,boardUrl,categories}, hasToken, catalog:CATALOG }` (token never returned) | 200 | `ntfy.ntfyConfig` (`lib/ntfy.mjs:119`), `CATALOG` (`:28`) |
 | `POST /api/ntfy/test` W (async) | `{ event?:"stop_gate_blocked" }` | `{ sent, status?, error?, reason? }` — `reason` is `shouldPublish`'s explanation when it declines | 200 | `ntfy.shouldPublish/messageFor/send`; token env-only (`TM_NTFY_TOKEN`) |
+| `GET /api/planner` | — | `{ sessions:[{id,created,updated,status,goal,epic,turns,attachments}] }` newest first | 200 | `lib/planner.mjs` |
+| `GET /api/planner/:id` | — | the whole session: goal, turns, attachments, proposal | 200 / 400 not a session id / 404 | `PL-` + 12 hex, checked before it becomes a path |
+| `POST /api/planner` | `{ goal, epic? }` | 201 the new session | 201 / 400 empty or over-long goal | one bounded outcome, not a document |
+| `POST /api/planner/:id/turn` | `{ role, kind, text, payload? }` | the updated session | 200 / 400 unknown kind / 409 session not open | `kind` is from a fixed set — agent prose cannot invent a slot |
+| `POST /api/planner/:id/close` | `{ status: applied\|cancelled\|rejected }` | the closed session | 200 / 400 unknown status | a closed session takes no more turns or attachments |
+| `DELETE /api/planner/:id` | — | `{ id, deleted:true }` | 200 / 404 | removes the attachments with it |
 | `POST /api/goal/preview` | same body as `/api/goal/import` | doc: `{ kind:"doc", title, criteria:[], shape, doc?, epic }`; manifest: `{ kind:"manifest", doc, epic:{title,plan}, goals:[{goalId,title,criteria,goalDoc,touches,labels,dependsOn}], skipped, edges, danglingDeps }` | 200 / 400 path escape / 404 / 409 same refusal as import | `planManifest` — the import's own first half, so a preview cannot disagree with the apply. Writes nothing. |
 | `POST /api/goal/import` G | `{ path }` (repo-relative or absolute `.md` / `.plan.json`, confined to `p.root`) **or** `{ content, name }` | doc: 201 `{ id, title, epic, criteria }`; manifest: 201 `{ epic, tasks:[ids], skipped:[{id,why}], edges }` | 201 / 400 path escape / 409 `goals.refusal()` text or `gateTaskCreate` | new `lib/goal-import.mjs importGoalDoc/importManifest` (lifted from `bin/tm:272-316`, `:1309-1409`) |
 

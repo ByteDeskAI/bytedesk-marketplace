@@ -82,6 +82,10 @@ export const CATALOG = {
     goal_imported: { group: "writes", label: "A goal doc becomes a task, its success criteria the gate", priority: "default", tags: "dart" },
     // High priority: a program that failed to land is the operator's problem now, not a footnote.
     // The import undoes itself, so the board is clean — but whatever broke it is still broken.
+    planner_opened: { group: "writes", label: "A bounded planning session was opened", priority: "min", tags: "compass" },
+    planner_attached: { group: "writes", label: "A file was attached to a planning session as untrusted context", priority: "min", tags: "paperclip" },
+    planner_closed: { group: "writes", label: "A planning session ended", priority: "low", tags: "compass" },
+    planner_deleted: { group: "writes", label: "A planning session and its attachments were removed", priority: "min", tags: "wastebasket" },
     goal_import_rolled_back: { group: "writes", label: "A program import failed and undid itself; nothing landed", priority: "high", tags: "rewind" },
     decision_captured: { group: "writes", label: "A decision is recorded as an ADR", priority: "low", tags: "memo" },
     decision_updated: { group: "writes", label: "An existing ADR is revised", priority: "min", tags: "memo" },

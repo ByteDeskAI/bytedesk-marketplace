@@ -1474,6 +1474,48 @@ describe("goal import", () => {
   });
 });
 
+describe("planning sessions", () => {
+  it("opens, converses, resumes and ends a session over HTTP", () => {
+    const p = store();
+    const made = handleWrite("POST", "/api/planner", { goal: "Make the planner resumable" }, { p });
+    assert.equal(made.status, 201);
+    const id = made.body.id;
+    assert.match(id, /^PL-[0-9a-f]{12}$/);
+
+    assert.equal(handleWrite("POST", `/api/planner/${id}/turn`, { role: "agent", kind: "question", text: "Which epic?" }, { p }).status ?? 200, 200);
+    handleWrite("POST", `/api/planner/${id}/turn`, { role: "operator", kind: "answer", text: "A new one" }, { p });
+
+    // Resume: a plain GET is enough, because the session is a file rather than server memory.
+    const got = handleWrite("GET", `/api/planner/${id}`, null, { p });
+    assert.deepEqual(got.body.turns.map((t) => t.kind), ["question", "answer"]);
+    assert.equal(handleWrite("GET", "/api/planner", null, { p }).body.sessions.length, 1);
+
+    assert.equal(handleWrite("POST", `/api/planner/${id}/close`, { status: "applied" }, { p }).body.status, "applied");
+    assert.equal(handleWrite("POST", `/api/planner/${id}/turn`, { kind: "note", text: "after" }, { p }).status, 409);
+    assert.equal(handleWrite("DELETE", `/api/planner/${id}`, null, { p }).body.deleted, true);
+    assert.equal(handleWrite("GET", `/api/planner/${id}`, null, { p }).status, 404);
+  });
+
+  it("refuses a bad session id rather than letting it reach the filesystem", () => {
+    const p = store();
+    for (const bad of ["..%2F..%2Fetc", "PL-zzzz", "TM-001"]) {
+      assert.equal(handleWrite("GET", `/api/planner/${bad}`, null, { p }).status, 400, bad);
+    }
+    assert.equal(handleWrite("POST", "/api/planner", { goal: "  " }, { p }).status, 400);
+    assert.equal(handleWrite("POST", "/api/planner", {}, { p }).status, 400);
+  });
+
+  it("keeps a planning session off the board until something is approved", () => {
+    const p = store();
+    handleWrite("POST", "/api/planner", { goal: "Nothing lands yet" }, { p });
+    // The whole reason a session is not an entity: an unfinished conversation must not appear as
+    // work anybody committed to.
+    assert.equal(list("task", {}, p).length, 0);
+    assert.equal(list("epic", {}, p).length, 0);
+    assert.equal(boardPayload(p).tasks.length, 0);
+  });
+});
+
 describe("entity edits", () => {
   it("retitles an epic without renaming its file, and validates each kind's extra fields", () => {
     const p = store();

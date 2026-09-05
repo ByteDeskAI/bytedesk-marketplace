@@ -1012,6 +1012,11 @@ agents.json
 # The dispatcher pool's pid — a loop running on this machine, right now.
 pool.pid
 
+# In-flight planning conversations, and the untrusted files attached to them. evidence/ is
+# the shared record and belongs in git; this is the opposite of that — one machine's unfinished
+# thinking, plus bytes that arrived from outside and were never reviewed by anyone.
+planner/
+
 # This host's audit log, and the rotated generation. Session ids and one machine's
 # write stream — not a board artifact another clone can use.
 events.json
