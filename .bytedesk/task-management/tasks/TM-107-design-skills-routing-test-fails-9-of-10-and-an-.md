@@ -8,14 +8,14 @@ title: "design-skills routing test fails 9 of 10, and an uncommitted change woul
 epic: "EP-015"
 acceptance: [{"text":"The routing test passes, or is removed if it no longer describes intended routing","done":true,"at":"2026-09-05T14:14:24.811Z"},{"text":"The workflow either runs it or does not, as a committed decision rather than an uncommitted edit","done":true,"at":"2026-09-05T14:14:24.937Z"}]
 evidence: [".bytedesk/task-management/evidence/TM-107-marketplace.yml",".bytedesk/task-management/evidence/TM-107-routing.test.mjs"]
-commits: ["320bf43"]
+commits: ["320bf43","fbb2d25"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "4e1d7087-d606-432e-9341-3ce779b4baf8"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-05T14:14:33.791Z"
+updated: "2026-09-05T14:18:03.717Z"
 type: "bug"
 priority: "medium"
 comments: [{"author":"main","ts":"2026-09-05T14:14:30.300Z","text":"Reconciled rather than fixed: commit b055e18 (on origin/main) restored the agent catalog and the routing selector, and both halves of this task went with it. The test now passes 10 of 10 (`node --test design-skills/agents/validation/routing.test.mjs`), and the workflow line that was an uncommitted local edit is committed at .github/workflows/marketplace.yml:31 — the Marketplace run for that merge (33968462751) is green on main, so it is a committed decision that CI actually honours."}]

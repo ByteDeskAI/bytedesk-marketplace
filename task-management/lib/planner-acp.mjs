@@ -15,7 +15,27 @@ import { fileURLToPath } from "node:url";
 import { config } from "./store.mjs";
 import { paths } from "./paths.mjs";
 
-const err = (message, status) => Object.assign(new Error(message), { status });
+const err = (message, status) => Object.assign(new Error(safeText(message)), { status });
+
+/**
+ * Agent-supplied text, made safe to put in an Error.
+ *
+ * `new Error(x)` and `${x}` both call `x.toString()`, and an agent can send
+ * `{"error":{"message":{"toString":null}}}` — a value that throws TypeError on any coercion. That
+ * throw happened inside a stdout listener, outside every promise, and took the whole dashboard
+ * process down: the same shape as the `JSON.parse("null")` crash, reached through a different
+ * field. Anything an agent sends has to survive being turned into a string.
+ */
+function safeText(value, fallback = "the planning agent sent an unreadable message") {
+  if (typeof value === "string") return value;
+  if (value == null) return fallback;
+  try {
+    const text = typeof value === "object" ? JSON.stringify(value) : String(value);
+    return typeof text === "string" && text ? text : fallback;
+  } catch {
+    return fallback;
+  }
+}
 
 /**
  * The most a single JSON-RPC frame may be before this bridge stops believing the agent is framing
@@ -195,7 +215,7 @@ export class AcpSession {
       this.pending.set(id, {
         settle: (msg) => {
           clearTimeout(timer);
-          if (msg?.error) reject(err(msg.error.message || `${method} failed`, 502));
+          if (msg?.error) reject(err(safeText(msg.error.message, `${method} failed`), 502));
           else resolve(msg?.result);
         },
         fail: (e) => {
@@ -250,7 +270,13 @@ export class AcpSession {
     if (msg.id != null && (("result" in msg) || ("error" in msg)) && this.pending.has(msg.id)) {
       const entry = this.pending.get(msg.id);
       this.pending.delete(msg.id);
-      entry.settle(msg);
+      // Fenced for the same reason the update callback is: this runs in a stdout listener, so a
+      // throw here has no promise to land in and ends the host process instead of the run.
+      try {
+        entry.settle(msg);
+      } catch (e) {
+        entry.fail(err(`this bridge could not read the agent's answer: ${safeText(e?.message)}`, 502));
+      }
       return;
     }
     // A notification from the agent. The callback translates agent-supplied data and may append to
@@ -259,7 +285,7 @@ export class AcpSession {
       try {
         this.onUpdate(msg.params?.update ?? msg.params ?? {});
       } catch (e) {
-        this.onExit({ code: null, signal: null, error: `the planning agent sent an update this bridge could not handle: ${e.message}` });
+        this.onExit({ code: null, signal: null, error: `the planning agent sent an update this bridge could not handle: ${safeText(e?.message)}` });
       }
       return;
     }

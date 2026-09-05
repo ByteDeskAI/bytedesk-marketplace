@@ -246,6 +246,12 @@
 - **Generated runtime files stay out of git.** Store `.gitignore` now names `dashboard.pid` and `dashboard.port` explicitly (still covered by `dashboard.*`), plus `bin` (generated launchers) and `events.json` / `events.jsonl`. Bootstrap and `.bytedesk/task-management/bin/tm doctor --fix` write `.bytedesk/.gitignore` so `worktrees/` is ignored without swallowing the store. Dashboard `.gitignore` also drops Vite/tsc leftovers (`.vite`, `*.tsbuildinfo`).
 
 ### Fixed
+- **An agent could still end the host process through one field (TM-086).** `{"error":{"message":
+  {"toString":null}}}` is a value that throws `TypeError` on any string coercion, and both
+  `new Error(x)` and a template literal coerce — so the throw happened inside a stdout listener,
+  outside every promise, and took the dashboard down. Same shape as the `JSON.parse("null")` crash
+  reached through a different field. Agent text is coerced safely now, and the response listener is
+  fenced like the update one already was.
 - **A proposal could land a dependency cycle the CLI refuses (TM-086).** `task.depends` wrote both
   ends of its edges with a raw `mutate`, walking straight past the cycle refusal in
   `dependencies()` — and `tm doctor` deliberately will not repair a cycle, because which edge to

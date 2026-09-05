@@ -36,6 +36,11 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
     return;
   }
 
+  // An error whose `message` throws on any string coercion. `new Error(x)` and `${x}` both call
+  // toString, so this used to end the host process from inside a stdout listener.
+  if (mode === "poison" && msg.method === "initialize") {
+    return send({ jsonrpc: "2.0", id: msg.id, error: { message: { toString: null } } });
+  }
   if (msg.method === "initialize") {
     return send({ jsonrpc: "2.0", id: msg.id, result: { protocolVersion: 1, agentCapabilities: { promptCapabilities: { image: false } } } });
   }

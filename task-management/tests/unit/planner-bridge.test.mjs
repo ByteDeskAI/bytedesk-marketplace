@@ -193,6 +193,15 @@ describe("driving a real ACP process", () => {
     assert.equal(asked.params.toolCall.toolCallId, "t2");
   });
 
+  it("survives an error whose message cannot be turned into a string", async () => {
+    // `{"error":{"message":{"toString":null}}}` throws TypeError on `new Error(x)` and on any
+    // template literal. That throw happened inside a stdout listener — no promise to land in — and
+    // ended the whole dashboard process. Same shape as the JSON.parse("null") crash, different field.
+    const session = new AcpSession(fakeAgent("poison"), { onUpdate: () => {} });
+    await assert.rejects(() => session.start({ timeoutMs: 5000 }), (e) => e.status === 502);
+    session.close();
+  });
+
   it("drops an agent that writes without ever framing a message", async () => {
     // The agent is the untrusted end of this pipe, and `readline` buffers an unterminated line
     // without any limit — so this used to be a way to make the board allocate until it died.
