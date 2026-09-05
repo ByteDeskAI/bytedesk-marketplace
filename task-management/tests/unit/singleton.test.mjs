@@ -258,13 +258,19 @@ describe("the port survives a restart", () => {
     const drifted = portFor(p.base) + 7; // something else held the natural port on first launch
     assignPort(p, drifted);
     const before = await ensurePort(p, {});
-    assert.equal(before.port, drifted);
+    // NOT `before.port === drifted`. The whole unit suite probes ports in parallel, so another
+    // test's board can be holding this exact number, and `ensurePort` is then RIGHT to move off
+    // it — that is the fallback doing its job, not a bug. Pinning the integer is what made this
+    // fail roughly one run in six. What holds either way is that the drifted assignment is what
+    // it STARTED from: kept as `port` when it was free, reported as `previous` when it was not.
+    assert.equal(before.source === "assigned" ? before.port : before.previous, drifted);
 
     rmSync(join(p.base, "dashboard.pid"), { force: true });
     rmSync(join(p.base, "dashboard.port"), { force: true });
 
     const after = await ensurePort(p, {});
-    assert.equal(after.port, drifted, "tidying the pid file must not move the board's URL");
+    assert.equal(after.port, before.port, "tidying the pid file must not move the board's URL");
+    assert.equal(after.source, "assigned", "and it came from the durable file the sweep never touched");
   });
 
   it("adopts a pre-0.5 assignment written under the old name", async () => {
@@ -273,7 +279,10 @@ describe("the port survives a restart", () => {
     writeFileSync(join(p.base, "dashboard.assigned-port"), `${drifted}\n`);
 
     const got = await ensurePort(p, {});
-    assert.equal(got.port, drifted, "an existing board must not move ports on upgrade");
+    // Same reasoning as above: what proves the legacy name was adopted is that this assignment is
+    // where it started, not that the number survived a machine it does not own.
+    assert.equal(got.source === "assigned" ? got.port : got.previous, drifted, "an existing board must not move ports on upgrade");
+    assert.notEqual(got.source, "new", "a source of \"new\" would mean the old name was never read");
   });
 
   it("falls back and records the new assignment when the port is taken", async () => {

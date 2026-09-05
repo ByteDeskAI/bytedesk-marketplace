@@ -1,0 +1,31 @@
+name: Marketplace
+
+on:
+  pull_request:
+    paths:
+      - ".claude-plugin/marketplace.json"
+      - "*/.claude-plugin/plugin.json"
+      - "*/agents/**"
+      - ".gitattributes"
+      - "scripts/validate-marketplace.mjs"
+      - ".github/workflows/marketplace.yml"
+  push:
+    branches: [main]
+    paths:
+      - ".claude-plugin/marketplace.json"
+      - "*/.claude-plugin/plugin.json"
+      - "*/agents/**"
+      - ".gitattributes"
+      - "scripts/validate-marketplace.mjs"
+      - ".github/workflows/marketplace.yml"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/validate-marketplace.mjs
+      - run: node --test design-skills/agents/validation/routing.test.mjs
