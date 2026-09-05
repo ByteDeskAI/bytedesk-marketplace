@@ -5,7 +5,7 @@ status: "open"
 created: "2026-09-05T12:44:45.147Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "design-skills routing test fails 9 of 10, and an uncommitted change would wire it into CI"
-epic: "EP-013"
+epic: "EP-015"
 acceptance: [{"text":"The routing test passes, or is removed if it no longer describes intended routing","done":false},{"text":"The workflow either runs it or does not, as a committed decision rather than an uncommitted edit","done":false}]
 evidence: []
 commits: ["320bf43"]
@@ -15,7 +15,7 @@ actor: "main"
 session: "4e1d7087-d606-432e-9341-3ce779b4baf8"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-05T12:46:40.345Z"
+updated: "2026-09-05T13:26:29.396Z"
 type: "bug"
 priority: "medium"
 ---

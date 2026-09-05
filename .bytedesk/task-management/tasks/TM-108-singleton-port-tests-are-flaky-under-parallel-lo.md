@@ -5,7 +5,7 @@ status: "open"
 created: "2026-09-05T13:17:06.397Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "singleton port tests are flaky under parallel load"
-epic: "EP-013"
+epic: "EP-015"
 acceptance: [{"text":"The singleton port tests pass 20 consecutive full-suite runs","done":false},{"text":"They assert stability rather than a specific port number","done":false}]
 evidence: []
 commits: ["0c936a6","8f01165"]
@@ -15,7 +15,7 @@ actor: "main"
 session: "4e1d7087-d606-432e-9341-3ce779b4baf8"
 branch: "chore/tm099-golden-routing"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-05T13:19:43.142Z"
+updated: "2026-09-05T13:26:29.526Z"
 type: "bug"
 priority: "low"
 ---

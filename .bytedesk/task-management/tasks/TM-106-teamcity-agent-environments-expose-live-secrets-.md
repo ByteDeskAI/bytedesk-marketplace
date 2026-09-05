@@ -5,7 +5,7 @@ status: "blocked"
 created: "2026-09-05T12:31:13.829Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "TeamCity agent environments expose live secrets through the REST API"
-epic: "EP-013"
+epic: "EP-015"
 acceptance: [{"text":"The four exposed credentials are rotated","done":false},{"text":"Secrets are no longer supplied as agent-wide environment variables","done":false},{"text":"An agent that legitimately carries design.agent.trust=credential-free exists, or the requirement is retired","done":false}]
 evidence: []
 commits: ["b2a6ad4"]
@@ -15,11 +15,12 @@ actor: "main"
 session: "4e1d7087-d606-432e-9341-3ce779b4baf8"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-05T12:31:37.453Z"
+updated: "2026-09-05T13:27:23.151Z"
 type: "bug"
 labels: ["architecture"]
 priority: "highest"
 blockedReason: "Rotation and secret-manager migration are the operator's; the finding and remediation path are recorded"
+comments: [{"author":"main","ts":"2026-09-05T13:27:23.147Z","text":"Worse than first recorded, and it raises the priority of design-system#70.\n\nTriggering a ci-validate build returns its inherited parameters, and the validation build carries the full publishing credential set: env.NPM_TOKEN, env.R2_SECRET_ACCESS_KEY, env.R2_DESIGN_SECRET_ACCESS_KEY, env.CLOUDFLARE_DESIGN_TOKEN, env.HARBOR_PASSWORD and github.token, all inherited from the project. R2_ACCOUNT_ID, R2_ENDPOINT, R2_DESIGN_ACCESS_KEY_ID and the Harbor robot username are in plaintext beside them.\n\nci-validate runs on EVERY branch (branchFilter '+:*') and on pull requests. Its single step is 'bash .teamcity/scripts/ci-validate.sh' from the checkout being tested. So anyone who can get a branch or a PR built on that server can read the npm publish token and the R2 keys for the design CDN by echoing its own environment - no exploit needed, it is just there.\n\nThis is precisely what maskPublishingCredentials() in commit 7a4987f was written to blank, and it has never executed because the settings file it lives in does not compile. The masking is inert, so the pre-7a4987f configuration is what is running.\n\nLanding design-system#70 makes the masking take effect for the first time. It does NOT fix the root cause - project-level parameters should not be inherited into a build that only validates - but it removes them from the build that anyone can trigger."}]
 ---
 
 Found while checking whether design-system's ci-validate agent-trust requirement could be satisfied (TM-105). GET /app/rest/agents?fields=agent(properties) returns each agent's full environment as plaintext to any caller with agent-view permission.

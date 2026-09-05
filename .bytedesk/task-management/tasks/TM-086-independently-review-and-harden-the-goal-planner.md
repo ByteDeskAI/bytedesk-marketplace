@@ -8,14 +8,14 @@ title: "Independently review and harden the goal planner"
 epic: "EP-013"
 acceptance: [{"text":"Codex produces an evidence-backed review covering backend, frontend, uploads, tool authorization, atomicity, accessibility, and tests.","done":false},{"text":"All high-severity findings are fixed or explicitly rejected with evidence, then re-reviewed.","done":false},{"text":"The complete task-management verification and packaging suite passes in the integration worktree.","done":false}]
 evidence: []
-commits: []
+commits: ["38194d4"]
 blockedBy: ["TM-085"]
 blocks: []
 actor: "main"
 session: "01a062eb-2024-7368-bdb3-ad3fcf853ad4"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-05T13:25:14.831Z"
+updated: "2026-09-05T13:25:28.292Z"
 labels: ["ready-for-agent"]
 touches: ["task-management/**"]
 ---

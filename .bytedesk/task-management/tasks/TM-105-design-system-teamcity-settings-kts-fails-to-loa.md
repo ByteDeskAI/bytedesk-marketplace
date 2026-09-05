@@ -5,7 +5,7 @@ status: "blocked"
 created: "2026-09-05T11:26:50.225Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "design-system TeamCity settings.kts fails to load, marking every build red"
-epic: "EP-013"
+epic: "EP-015"
 acceptance: [{"text":"The four Kotlin DSL capture errors no longer appear in the build log","done":false},{"text":"A ci-validate build whose step passes is reported as SUCCESS","done":false},{"text":"The change is reviewed by someone who owns the release/publish trust boundary","done":false}]
 evidence: []
 commits: ["0d35ce6"]
@@ -15,10 +15,10 @@ actor: "main"
 session: "4e1d7087-d606-432e-9341-3ce779b4baf8"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-05T12:31:25.675Z"
+updated: "2026-09-05T13:27:23.271Z"
 type: "bug"
 blockedReason: "Needs an administrator who owns the release/publish trust boundary; settings.kts states that gate in its own header"
-priority: "high"
+priority: "highest"
 comments: [{"author":"main","ts":"2026-09-05T12:31:25.670Z","text":"Diagnosis is now complete, and the fix is NOT safe on its own.\n\nThe four capture errors are caused by exactly one thing: maskPublishingCredentials() is a top-level function in settings.kts, and calling a script-level function from inside an object initializer captures the script instance. DesignSystemVcs is the control - it is also a top-level object, does not call the helper, and is not flagged.\n\nThe helper arrived in 7a4987f (today), which is also the commit that broke settings loading. So the settings TeamCity is actually running are the PREVIOUS ones, and everything 7a4987f intended has never taken effect: the credential masking, the removal of live R2/npm secrets from the release configs, and the agent-trust requirements.\n\nThe trap: 7a4987f also adds requirements { equals('design.agent.trust', 'credential-free') } to CiValidate. Neither authorized agent (tc-agent-1, wf-agent-amd64) carries a design.agent.trust property at all. So simply fixing the compile error would make settings load and immediately strand ci-validate on zero matching agents - trading 'red but running' for 'not running'. Provisioning the property on the existing agents would be false: tc-agent-1 has a GitHub token, a Harbor push password and an AGE key in its environment, which is the opposite of credential-free. See TM-106."}]
 ---
 
