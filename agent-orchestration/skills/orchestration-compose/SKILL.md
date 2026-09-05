@@ -57,7 +57,7 @@ developing the plugin.
    (which CLI for an unnamed designer, whether a judge should be independent of the designers'
    model family). Otherwise proceed.
 8. **Save**: `AO compose --spec <file> --save user` (default; `~/.config/agent-orchestration/templates/`)
-   or `--save consumer` (`<repo>/.orchestration/templates/`) when the template belongs to one repo.
+   or `--save consumer` (`<repo>/.bytedesk/agent-orchestration/templates/`) when the template belongs to one repo.
    Report the saved path and the launch command:
    `AO launch --template <name> --input <k>=<v> --consumer <repo>`.
 

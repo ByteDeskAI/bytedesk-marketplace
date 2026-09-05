@@ -14,7 +14,10 @@ import { adapterSummary, loadAdapters, providerDirs } from "./lib/providers.mjs"
 import { roleDirs, skillDirs } from "./lib/resolve.mjs";
 import { listTemplates, loadSpec, materializeSpec, resolveInputs, specSchemaSummary, templateDirs, validateSpec } from "./lib/spec.mjs";
 import * as tmux from "./lib/tmux.mjs";
-import { TopologyError, absolutize, exists, fail, invariant, newRunId, parseArgs, parseDuration, readJson, writeJson } from "./lib/util.mjs";
+import { TopologyError, absolutize, exists, fail, invariant, newRunId, parseArgs, parseDuration, readJson, writeJson, AO_HOME } from "./lib/util.mjs";
+import { agentDirs, agentsRoot, createAgent, findLead, listAgents, requireAgent } from "./lib/agents.mjs";
+import { displayName } from "./lib/identity.mjs";
+import { issueDelegation, listDelegations, routeMessage } from "./lib/routing.mjs";
 
 const PLUGIN_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const CLI_BIN = process.env.AO_TOPOLOGY_BIN || join(PLUGIN_ROOT, "bin", "ao-topology");
@@ -26,7 +29,7 @@ Discover
   schema                                       print the spec schema summary
   providers [--json]                           list provider adapters
   doctor [--json] [--consumer <dir>]           check tmux, CLIs, and search paths
-  runs [--consumer <dir>]                      list runs under <consumer>/.orchestration/runs
+  runs [--consumer <dir>]                      list runs under <consumer>/.bytedesk/agent-orchestration/runs
 
 Compose
   inputs (--template <name> | --spec <file>)    show a template's inputs, options, and defaults
@@ -37,12 +40,22 @@ Compose
 Launch and stop
   launch (--template <name> | --spec <file>) [--consumer <dir>] [--input k=v]... [--run-id <id>]
          [--dry-run] [--json]
+         [--allow-outside]       permit a cwd or run_dir outside the invoking repository
+         [--allow-auto-approve]  permit agents that run without their own permission prompts
   stop (--run <run_dir> | --session <name>) [--keep-files]
   status --run <run_dir> [--json]
   journal --run <run_dir> [--limit 50]
 
 Conduct (used by the orchestrator agent)
+  agent new --role <role> [--cli <id>] [--reports-to <id>] [--name "First Last"]
+  agent list [--json]                          the repo's roster, by name and title
+  agent show <id|"Full Name">                  one agent
+  delegate --task <id> --to <agent> [--for <external-agent>]
+                                               open a direct channel to one of your agents
+  delegations [--json]                         open delegations in this repo
+
   send --run <run_dir> --from <id> --to <id>[,<id>] --stage <slug> (--file <md> | --body <text>)
+       [--from-project <dir>] [--task <id>]    routed: an outsider reaches the lead unless delegated
        [--contract <name>] [--round <n>] [--subject <text>] [--no-ring]
   wait --run <run_dir> [--from <id>[,<id>]] [--message <id>] [--timeout 20m] [--poll 3s] [--json]
   capture --run <run_dir> --agent <id> [--lines 60]
@@ -94,6 +107,7 @@ function context(flags) {
     skillDirs: unique(skillDirs({ pluginRoot: PLUGIN_ROOT, consumer, home, extra: extraSkills })),
     roleDirs: unique(roleDirs({ pluginRoot: PLUGIN_ROOT, consumer, home, extra: extraRoles })),
     providerDirs: unique(providerDirs({ pluginRoot: PLUGIN_ROOT, consumer, home, extra: extraProviders })),
+    agentDirs: unique(agentDirs({ pluginRoot: PLUGIN_ROOT, consumer, home })),
   };
 }
 
@@ -171,7 +185,7 @@ const commands = {
 
   async runs({ flags }) {
     const ctx = context(flags);
-    const root = join(ctx.consumer, ".orchestration", "runs");
+    const root = join(ctx.consumer, AO_HOME, "runs");
     const entries = (await readdir(root).catch(() => [])).sort();
     const runs = [];
     for (const entry of entries) {
@@ -214,7 +228,7 @@ const commands = {
     if (!flags.save) return out({ ok: true, saved: null, spec });
     let dir;
     if (flags.save === true || flags.save === "user") dir = join(ctx.home, ".config", "agent-orchestration", "templates");
-    else if (flags.save === "consumer") dir = join(ctx.consumer, ".orchestration", "templates");
+    else if (flags.save === "consumer") dir = join(ctx.consumer, AO_HOME, "templates");
     else dir = absolutize(flags.save);
     const path = join(dir, `${spec.name}.json`);
     if ((await exists(path)) && !flags.force) fail("TOPOLOGY_TEMPLATE_EXISTS", `Template already exists: ${path}. Pass --force to overwrite.`);
@@ -227,7 +241,17 @@ const commands = {
     const { spec, path } = await loadSpec({ template: flags.template, specPath: flags.spec, dirs: ctx.templateDirs });
     const inputs = resolveInputs(spec, inputPairs(flags.input));
     const runId = flags["run-id"] && flags["run-id"] !== true ? String(flags["run-id"]) : newRunId();
-    const materialized = materializeSpec(spec, { runId, consumer: ctx.consumer, home: ctx.home, inputs });
+    // Two deliberate escape hatches, both off unless the operator asks. `--allow-outside` lets a
+    // spec resolve a cwd or run_dir outside the invoking repo; `--allow-auto-approve` lets an agent
+    // run without its own permission prompts. Neither is inferable from the spec, because the spec
+    // is the thing being trusted less.
+    const materialized = materializeSpec(spec, {
+      runId,
+      consumer: ctx.consumer,
+      home: ctx.home,
+      inputs,
+      allowOutside: Boolean(flags["allow-outside"]),
+    });
     const adapters = await loadAdapters(ctx.providerDirs);
     const result = await launchRun({
       spec: materialized,
@@ -236,6 +260,7 @@ const commands = {
       roleSearchDirs: ctx.roleDirs,
       cliBin: CLI_BIN,
       dryRun: Boolean(flags["dry-run"]),
+      allowAutoApprove: Boolean(flags["allow-auto-approve"]),
       log: (line) => process.stderr.write(`${line}\n`),
     });
     result.template = path;
@@ -251,6 +276,63 @@ const commands = {
     out(`Attach: ${result.attach}`);
   },
 
+  async agent({ flags, positional }) {
+    const ctx = context(flags);
+    const sub = (positional && positional[0]) || "list";
+    if (sub === "new") {
+      const role = flags.role && flags.role !== true ? String(flags.role) : "worker";
+      const agent = await createAgent(ctx.consumer, {
+        role,
+        cli: flags.cli && flags.cli !== true ? String(flags.cli) : undefined,
+        candidates: flags.candidates && flags.candidates !== true ? String(flags.candidates) : undefined,
+        reports_to: flags["reports-to"] && flags["reports-to"] !== true ? String(flags["reports-to"]) : null,
+        full_name: flags.name && flags.name !== true ? String(flags.name) : undefined,
+        skills: list(flags.skill),
+        mcp: list(flags.mcp),
+      }, ctx.agentDirs);
+      out({ ok: true, agent: displayName(agent), id: agent.id, role: agent.role, dir: agent._dir, reports_to: agent.reports_to });
+      return;
+    }
+    if (sub === "show") {
+      const agent = await requireAgent(String(positional[1] || ""), ctx.agentDirs);
+      out({ ok: true, agent: displayName(agent), ...agent });
+      return;
+    }
+    const roster = await listAgents(ctx.agentDirs);
+    const lead = await findLead(ctx.agentDirs);
+    if (flags.json) {
+      out({ ok: true, lead: lead ? lead.id : null, agents: roster.map((a) => ({ id: a.id, name: displayName(a), role: a.role, reports_to: a.reports_to })) });
+      return;
+    }
+    // People see names and titles. The id is shown too because this is an operator surface, but the
+    // name always leads.
+    console.log(`# Agents — ${ctx.consumer}`);
+    if (roster.length === 0) console.log("  (none yet — ao-topology agent new --role lead)");
+    for (const a of roster) {
+      const mark = a.role === "lead" ? "*" : " ";
+      console.log(`${mark} ${displayName(a)}${a.reports_to ? `  reports to ${a.reports_to}` : ""}  [${a.id}]`);
+    }
+  },
+
+  async delegate({ flags }) {
+    const ctx = context(flags);
+    const local = await requireAgent(String(flags.to && flags.to !== true ? flags.to : ""), ctx.agentDirs);
+    const lead = await findLead(ctx.agentDirs);
+    const record = await issueDelegation(ctx.consumer, {
+      task: flags.task && flags.task !== true ? String(flags.task) : null,
+      external_agent: flags.for && flags.for !== true ? String(flags.for) : null,
+      local_agent: local.id,
+      issued_by: lead ? lead.id : null,
+    });
+    out({ ok: true, token: record.token, task: record.task, to: displayName(local), for: record.external_agent, expires_at: record.expires_at });
+  },
+
+  async delegations({ flags }) {
+    const ctx = context(flags);
+    const all = await listDelegations(ctx.consumer);
+    out({ ok: true, delegations: all });
+  },
+
   async send({ flags }) {
     const runDir = await runDirFrom(flags);
     const run = await loadRun(runDir);
@@ -258,7 +340,20 @@ const commands = {
     const stage = flags.stage && flags.stage !== true ? String(flags.stage) : "message";
     invariant(/^[a-z][a-z0-9-]{0,39}$/.test(stage), "TOPOLOGY_STAGE_INVALID", "--stage must be a lowercase slug.");
     const body = await bodyFrom(flags);
-    const message = await sendMessage({ runDir, from, to: list(flags.to), stage, body, contract: flags.contract, round: flags.round, subject: flags.subject });
+    const ctx = context(flags);
+    const fromProject = flags["from-project"] && flags["from-project"] !== true ? absolutize(String(flags["from-project"])) : null;
+    const task = flags.task && flags.task !== true ? String(flags.task) : null;
+    // The receiving repo is the one the RUN belongs to, recorded in run.json at launch — never the
+    // caller's cwd. An agent sends from its own agent directory (its cwd is what scopes its memory),
+    // and the conductor may send from anywhere; a cwd-derived consumer would silently look for the
+    // wrong repo's lead and roster, and routing would then allow everything by finding no lead.
+    // An explicit --consumer still wins, for the operator who means it.
+    const routingConsumer = flags.consumer && flags.consumer !== true ? ctx.consumer : (run.consumer ?? ctx.consumer);
+    // Routing is applied here, at the mailbox, rather than trusted to whoever composed the message.
+    const route = fromProject
+      ? (args) => routeMessage({ consumer: routingConsumer, pluginRoot: PLUGIN_ROOT, home: ctx.home, ...args })
+      : null;
+    const message = await sendMessage({ runDir, from, to: list(flags.to), stage, body, contract: flags.contract, round: flags.round, subject: flags.subject, route, fromProject, task });
     const delivered = [];
     if (!flags["no-ring"]) {
       for (const delivery of message.deliveries) {
@@ -270,7 +365,16 @@ const commands = {
         delivered.push({ agent: agent.id, pane: agent.pane, rang: alive });
       }
     }
-    out({ ok: true, id: message.id, deliveries: message.deliveries, delivered, next: `${CLI_BIN} wait --run ${runDir} --from ${list(flags.to).join(",")} --message ${message.id} --timeout 20m` });
+    out({
+      ok: true,
+      id: message.id,
+      deliveries: message.deliveries,
+      delivered,
+      // A redirect is not an error, but the sender has to be told: it is waiting on an answer from
+      // an agent that never received the message.
+      redirected: message.redirects.length > 0 ? message.redirects : undefined,
+      next: `${CLI_BIN} wait --run ${runDir} --from ${list(flags.to).join(",")} --message ${message.id} --timeout 20m`,
+    });
   },
 
   async wait({ flags }) {

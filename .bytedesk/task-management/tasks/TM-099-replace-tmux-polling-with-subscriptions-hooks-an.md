@@ -1,7 +1,7 @@
 ---
 id: "TM-099"
 kind: "task"
-status: "blocked"
+status: "open"
 created: "2026-09-05T04:02:08.824Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "Replace tmux polling with subscriptions, hooks and pipe-pane"
@@ -15,7 +15,7 @@ actor: "main"
 session: "a7da6c38-57d4-464b-b856-ebdb3dd72e1b"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-05T04:08:51.521Z"
+updated: "2026-09-05T07:29:30.311Z"
 touches: ["agent-orchestration/topology/lib/launch.mjs","agent-orchestration/topology/lib/tmux.mjs"]
 ---
 

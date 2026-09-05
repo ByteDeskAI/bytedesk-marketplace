@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, realpath, rm, writeFile, chmod } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -74,6 +74,9 @@ test("Windows executable Strategy honors PATHEXT without invoking a shell", asyn
   try {
     const executable = join(root, "provider.exe");
     await writeFile(executable, "fixture");
+    // The resolver requires the execute bit. Windows ignores X_OK, so without this the fixture only
+    // resolves there and the test is dead weight on POSIX.
+    await chmod(executable, 0o755);
     const resolver = new WindowsExecutableResolver({ env: { PATH: root, PATHEXT: ".EXE" } });
     assert.deepEqual(await resolver.findAll("provider"), [await realpath(executable)]);
   } finally {

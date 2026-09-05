@@ -67,6 +67,26 @@ export async function capture(pane, lines = 60) {
   return result.code === 0 ? result.stdout : "";
 }
 
+/**
+ * Block until someone signals `channel`, or give up. A real cross-process barrier inside the tmux
+ * server: it does not depend on what a pane looks like, which matters because a narrow pane renders
+ * text one character per line and defeats any form of screen scraping.
+ */
+export async function waitForChannel(channel, timeoutMs) {
+  const result = await tmux(["wait-for", channel], { allowFailure: true, timeoutMs });
+  return result.code === 0;
+}
+
+export async function signalChannel(channel) {
+  await tmux(["wait-for", "-S", channel], { allowFailure: true });
+}
+
+/** The pane's whole scrollback. Append-only, so a prefix taken earlier stays a prefix. */
+export async function captureAll(pane) {
+  const result = await tmux(["capture-pane", "-p", "-t", pane, "-S", "-"], { allowFailure: true });
+  return result.code === 0 ? result.stdout : "";
+}
+
 export async function paneAlive(pane) {
   const result = await tmux(["display-message", "-p", "-t", pane, "#{pane_dead}"], { allowFailure: true });
   if (result.code !== 0) return false;

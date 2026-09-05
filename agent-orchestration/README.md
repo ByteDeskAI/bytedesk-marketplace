@@ -171,7 +171,7 @@ tmux attach -t brand-vault-<run_id>
   conductor's protocol), `orchestration-status`, `setup-agent-orchestration` (tmux per OS, CLI
   inventory, adding a CLI as an adapter).
 
-Runs live under `<consumer>/.orchestration/runs/<run_id>/` (gitignore it). Tests:
+Runs live under `<consumer>/.bytedesk/agent-orchestration/runs/<run_id>/`, which ignores itself. Tests:
 `npm run test:topology` (unit) and `npm run test:topology:tmux` (real tmux with fake agents).
 ## Govern the roadmap
 

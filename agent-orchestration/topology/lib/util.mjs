@@ -3,7 +3,7 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { mkdir, readFile, writeFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 
 const execFile = promisify(execFileCallback);
@@ -183,4 +183,43 @@ export function slug(value) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 48) || "run";
+}
+
+/**
+ * Per-repo resource directories for a resource kind, newest convention first.
+ * `.bytedesk/agent-orchestration/<kind>` is the current layout; `.orchestration/<kind>` is read as
+ * a fallback so a repo laid out under the old convention keeps working. Writes always use the
+ * first entry.
+ */
+export const AO_HOME = join(".bytedesk", "agent-orchestration");
+export const AO_HOME_LEGACY = ".orchestration";
+
+export function consumerResourceDirs(consumer, kind) {
+  if (!consumer) return [];
+  return [join(consumer, AO_HOME, kind), join(consumer, AO_HOME_LEGACY, kind)];
+}
+
+/**
+ * Is `candidate` inside `root`? Used to keep a spec from launching an agent outside the repo that
+ * invoked it. A spec is data — often committed data — so a path it supplies is untrusted input.
+ */
+export function isInside(root, candidate) {
+  if (!root || !candidate) return false;
+  const rel = relative(resolve(root), resolve(candidate));
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+/**
+ * Keep run artifacts out of the consumer's history. Runs live under a `.bytedesk/` tree that repos
+ * in this ecosystem deliberately commit (task-management's store is tracked), so without this every
+ * mailbox file, journal and launcher script lands in a diff. A self-ignoring runs dir is the fix
+ * that needs no edit to the consumer's own .gitignore — and so cannot be forgotten in a repo that
+ * adopts orchestration later.
+ */
+export async function ensureRunsIgnored(runDir) {
+  const runsRoot = dirname(resolve(runDir));
+  const marker = join(runsRoot, ".gitignore");
+  if (await exists(marker)) return marker;
+  await writeText(marker, "# Orchestration run artifacts: local, not history.\n*\n");
+  return marker;
 }

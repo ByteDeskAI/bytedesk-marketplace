@@ -1747,7 +1747,12 @@ async function main() {
   } catch {
     throw new Error(`Roadmap path '${requestedRoadmapPath}' does not resolve to the plugin ROADMAP.md.`);
   }
-  if (roadmapPath !== canonicalRoadmapPath) throw new Error(`Roadmap path must be canonical plugin file '${canonicalRoadmapPath}'.`);
+  // Compare the path as given as well as its realpath. Resolving alone would accept a symlink that
+  // points at the canonical file, which is a different path naming the same bytes — the guard exists
+  // to pin the address, not just the contents.
+  if (roadmapPath !== canonicalRoadmapPath || requestedRoadmapPath !== canonicalRoadmapPath) {
+    throw new Error(`Roadmap path must be canonical plugin file '${canonicalRoadmapPath}'.`);
+  }
   const source = await readFile(roadmapPath, "utf8");
   const parsed = parseRoadmap(source);
   const mutating = ["--refresh-sources", "--append-inventory", "--refresh-views"].includes(command);

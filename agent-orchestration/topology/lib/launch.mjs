@@ -2,13 +2,15 @@
 // (agent, candidate), create the tmux session, start every agent on the first candidate in its
 // fallback chain that actually comes up, and deliver each agent its bootstrap pointer.
 // `failoverAgent` re-runs the same start logic for one agent from the next candidate mid-run.
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { appendJournal, agentDir, loadRun, pendingReplies, saveRun } from "./mailbox.mjs";
-import { adapterFor, buildArgv, commandExists, failureOnScreen } from "./providers.mjs";
+import { adapterFor, buildArgv, commandExists, failureOnScreen, grantsDirs, memoryLocation } from "./providers.mjs";
+import { mintSpawn, sessionName } from "./identity.mjs";
 import { loadRole, resolveSkill } from "./resolve.mjs";
 import * as tmux from "./tmux.mjs";
-import { exists, fail, invariant, nowIso, render, shellQuote, sleep, writeText } from "./util.mjs";
+import { ensureRunsIgnored, exists, fail, invariant, nowIso, render, shellQuote, sleep, writeText } from "./util.mjs";
 
 const POINTER_TEMPLATE = "[ao] Message {{id}} from {{from}} ({{stage}}): read {{inbox}} then write your complete reply to {{outbox}}";
 
@@ -155,41 +157,135 @@ function launcherScript({ agent, candidate, argv, env }) {
   return `${lines.join("\n")}\n`;
 }
 
-async function waitReady(pane, adapter, timeoutMs) {
-  const started = Date.now();
-  const check = async () => {
-    const screen = await tmux.capture(pane, 40);
-    const failure = failureOnScreen(adapter, screen);
-    if (failure) return { ready: false, failed: true, reason: `screen matched failure pattern /${failure}/` };
-    if (!(await tmux.paneAlive(pane))) return { ready: false, failed: true, reason: "pane exited" };
-    return null;
-  };
+/**
+ * Everything about readiness that is a decision rather than an I/O call, so it can be tested
+ * without a tmux server.
+ *
+ * `screenSince` is the fix for the false positive: the pane already holds a shell prompt and the
+ * echoed launcher line when we start looking, and a ready pattern like /[>\u276f]/ matches a bare zsh
+ * or starship prompt perfectly well. Only output produced after the launcher was sent counts.
+ */
+export function screenSince(screen, baseline) {
+  const text = String(screen ?? "");
+  if (!baseline) return text;
+  // Anchor on the last occurrence rather than a prefix match: tmux trims trailing blank lines, so a
+  // snapshot taken earlier is not reliably a prefix of a later one.
+  const at = text.lastIndexOf(baseline);
+  return at === -1 ? text : text.slice(at + baseline.length);
+}
+
+/**
+ * Verdict on one look at a pane. `null` means "nothing decided yet, keep waiting"; only the
+ * ready-pattern path can return it. The fixed-delay path always decides, which is what makes
+ * ready:false reachable for the five adapters that have no pattern.
+ */
+export function evaluateScreen(adapter, screen, { alive = true } = {}) {
+  const failure = failureOnScreen(adapter, screen);
+  if (failure) return { ready: false, failed: true, reason: `screen matched failure pattern /${failure}/` };
+  if (!alive) return { ready: false, failed: true, reason: "pane exited" };
   if (adapter.ready.pattern) {
-    const pattern = new RegExp(adapter.ready.pattern, "m");
+    return new RegExp(adapter.ready.pattern, "m").test(screen) ? { ready: true, failed: false, reason: "ready pattern" } : null;
+  }
+  const delay = adapter.ready.delay_ms ?? 3000;
+  if (screen.trim().length === 0) {
+    return {
+      ready: false,
+      failed: false,
+      reason: `no output from ${adapter.id} after ${delay}ms; it may still be starting. Give this adapter a ready.pattern for a real check.`,
+    };
+  }
+  return { ready: true, failed: false, reason: "fixed delay" };
+}
+
+/**
+ * Wait until the pane's shell is actually accepting input, and return a marker that separates the
+ * shell's output from the agent's.
+ *
+ * Nothing used to wait for the shell at all: the launcher was typed the instant the pane existed,
+ * so a slow rc file (a banner, a version manager, anything that writes on startup) swallowed the
+ * keystrokes and the agent never started — while readiness polling went on to match whatever the
+ * shell had drawn. Signalling a tmux channel from the shell proves it is live and gives readiness a
+ * reliable place to start reading from.
+ */
+async function waitForShell(pane, timeoutMs = 15_000) {
+  const channel = `ao-shell-${randomUUID().slice(0, 8)}`;
+  // The shell signals the tmux server when it is ready to accept the next command. This is a real
+  // barrier rather than a guess: screen scraping cannot replace it — a narrow pane renders one
+  // character per line and no marker survives that.
+  const baselineBefore = await tmux.captureAll(pane);
+  await tmux.sendText(pane, `tmux wait-for -S ${channel}`);
+  const signalled = await tmux.waitForChannel(channel, timeoutMs);
+  if (!signalled) return { ok: false, marker: "" };
+  return { ok: true, marker: baselineBefore, channel };
+}
+
+async function waitReady(pane, adapter, timeoutMs, { baseline = "" } = {}) {
+  const started = Date.now();
+  const look = async () => {
+    const screen = screenSince(await tmux.captureAll(pane), baseline);
+    return evaluateScreen(adapter, screen, { alive: await tmux.paneAlive(pane) });
+  };
+
+  if (adapter.ready.pattern) {
     while (Date.now() - started < timeoutMs) {
-      const failed = await check();
-      if (failed) return failed;
-      if (pattern.test(await tmux.capture(pane, 40))) return { ready: true, elapsed_ms: Date.now() - started };
+      const verdict = await look();
+      if (verdict) return { ...verdict, elapsed_ms: Date.now() - started };
       await sleep(500);
     }
     return { ready: false, failed: false, reason: `ready pattern not seen within ${timeoutMs}ms` };
   }
+
+  // No pattern for this adapter: wait the declared delay, then decide from what the pane shows.
   await sleep(adapter.ready.delay_ms ?? 3000);
-  const failed = await check();
-  if (failed) return failed;
-  return { ready: true, reason: "fixed delay" };
+  return { ...(await look()), elapsed_ms: Date.now() - started };
+}
+
+/**
+ * A tmux session name for one spawn of one agent: the agent's stable id plus a per-spawn
+ * discriminator. Uniqueness scope is **live sessions on this host** — the discriminator only has to
+ * tell two concurrent spawns apart, and that is the scope tmux itself enforces, so it is checked
+ * against tmux rather than assumed from randomness.
+ */
+export async function uniqueSessionName(agentId, { has = tmux.hasSession, mint = mintSpawn, attempts = 10 } = {}) {
+  for (let i = 0; i < attempts; i += 1) {
+    const name = sessionName(agentId, mint());
+    if (!(await has(name))) return name;
+  }
+  fail("TOPOLOGY_SESSION_NAME_EXHAUSTED", `Could not mint a free session name for agent ${agentId} in ${attempts} attempts. Stop some sessions: tmux ls.`);
+}
+
+/**
+ * The secret that proves an agent is itself. It is a capability, not an identifier: whoever holds it
+ * can write that agent's outbox and satisfy its barrier, so it is minted per agent per run, exported
+ * into that one agent's launcher environment, and never shared between agents.
+ */
+export function mintAgentToken(rand = randomBytes) {
+  return rand(16).toString("hex");
+}
+
+export function tokenDigest(token) {
+  return createHash("sha256").update(String(token)).digest("hex");
 }
 
 /** Build launcher + argv for every candidate of one agent; write nothing yet. */
-function prepareCandidates({ spec, agent, adapters, bootstrapFile, dir, warnings }) {
+function prepareCandidates({ spec, agent, adapters, bootstrapFile, dir, warnings, token }) {
+  // An agent whose cwd is not the repo has its own memory (every shipped CLI keys session state by
+  // working directory) but no access to the tree it is meant to work in. The adapter declares how to
+  // grant it; if it declares nothing, say so rather than launching a blind agent.
+  const addDirs = [...new Set([...(agent.add_dirs ?? []), ...(resolve(agent.cwd) === resolve(spec.consumer) ? [] : [spec.consumer])])].filter(Boolean);
   const system_prompt = `You are agent "${agent.id}" (role: ${agent.role}) in the multi-agent orchestration "${spec.name}". Before doing anything else, read ${bootstrapFile} and follow it exactly.`;
   return agent.candidates.map((candidate, index) => {
     const adapter = adapterFor({ ...agent, cli: candidate.cli, model: candidate.model }, adapters);
     if (adapter.fallback) warnings.push(`agent ${agent.id}: no adapter for cli "${candidate.cli}"; using the generic adapter with command "${adapter.command}"`);
     const vars = { run_id: spec.run_id, run_dir: spec.run_dir, session: spec.session, agent_id: agent.id, agent_role: agent.role, bootstrap_file: bootstrapFile, system_prompt };
-    const argv = buildArgv(adapter, { ...agent, cli: candidate.cli, model: candidate.model }, vars);
-    const env = { AO_RUN_DIR: spec.run_dir, AO_AGENT_ID: agent.id, AO_AGENT_ROLE: agent.role, AO_SESSION: spec.session, AO_PROVIDER: candidateLabel(candidate), ...agent.env };
-    return { index, candidate, label: candidateLabel(candidate), adapter, argv, env, vars, launcher: join(dir, `launch-${index}.sh`) };
+    if (addDirs.length > 0 && !grantsDirs(adapter)) {
+      warnings.push(`agent ${agent.id}: ${candidateLabel(candidate)} has no add_dir_args, so it cannot be granted ${addDirs.join(", ")} — it will only see ${agent.cwd}. Add add_dir_args to its provider JSON, or give the agent cwd ${spec.consumer}.`);
+    }
+    const argv = buildArgv(adapter, { ...agent, cli: candidate.cli, model: candidate.model, add_dirs: addDirs }, vars);
+    // AO_AGENT_TOKEN goes in last, after the spec's own env: a spec is data, often committed data,
+    // and it may not name the secret that decides which agent this pane is allowed to answer as.
+    const env = { AO_RUN_DIR: spec.run_dir, AO_AGENT_ID: agent.id, AO_AGENT_ROLE: agent.role, AO_SESSION: spec.session, AO_PROVIDER: candidateLabel(candidate), ...agent.env, AO_AGENT_TOKEN: token };
+    return { index, candidate, label: candidateLabel(candidate), adapter, argv, env, vars, add_dirs: addDirs, memory: memoryLocation(adapter, { cwd: agent.cwd, home: spec.home ?? process.env.HOME ?? "" }), launcher: join(dir, `launch-${index}.sh`) };
   });
 }
 
@@ -208,8 +304,17 @@ async function startAgentInPane({ pane, agentId, candidates, startIndex = 0, run
     }
     if (respawn || index > startIndex) await tmux.respawnPane(pane);
     log(`starting ${agentId} on ${item.label} in pane ${pane}`);
+    // Prove the shell is accepting input before typing the launcher into it, and take the marker it
+    // returns as the boundary between shell output and agent output.
+    const shell = await waitForShell(pane);
+    if (!shell.ok) {
+      attempts.push({ label: item.label, outcome: "shell did not become ready" });
+      await appendJournal(runDir, { type: "agent.candidate_failed", agent: agentId, candidate: item.label, reason: "shell did not become ready" });
+      continue;
+    }
+    const baseline = shell.marker;
     await tmux.sendText(pane, `bash ${shellQuote(item.launcher)}`);
-    const readiness = await waitReady(pane, item.adapter, item.adapter.ready.timeout_ms ?? 45_000);
+    const readiness = await waitReady(pane, item.adapter, item.adapter.ready.timeout_ms ?? 45_000, { baseline });
     if (readiness.failed) {
       attempts.push({ label: item.label, outcome: readiness.reason });
       await appendJournal(runDir, { type: "agent.candidate_failed", agent: agentId, candidate: item.label, reason: readiness.reason });
@@ -228,8 +333,26 @@ async function startAgentInPane({ pane, agentId, candidates, startIndex = 0, run
 /**
  * Launch one run. Returns { runDir, session, agents:[{id, pane, provider, ready, attempts}], warnings, attach }.
  */
-export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDirs, cliBin, dryRun = false, log = () => {} }) {
+export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDirs, cliBin, dryRun = false, allowAutoApprove = false, log = () => {} }) {
   const warnings = [];
+  // Consent, not just a warning. auto_approve strips the agent's own permission prompts, which
+  // docs/topology.md names as this layer's safety boundary; a spec is data, often committed data,
+  // so removing that boundary has to be an operator's decision at the moment of launch.
+  const autoApproved = spec.agents.filter((agent) => agent.auto_approve);
+  if (autoApproved.length > 0) {
+    warnings.push(
+      `auto_approve is on for ${autoApproved.map((agent) => agent.id).join(", ")} — ${autoApproved.length === 1 ? "that agent" : "those agents"} will run without permission prompts in ${spec.cwd}. Their own prompts are normally the safety boundary.`,
+    );
+    // The gate fires on --dry-run as well. A dry run is how an operator inspects a spec, so it is
+    // exactly where the consent question belongs: finding out about it only after panes exist is
+    // finding out too late.
+    invariant(
+      allowAutoApprove,
+      "TOPOLOGY_AUTO_APPROVE_UNCONFIRMED",
+      `This spec runs ${autoApproved.length === 1 ? "an agent" : "agents"} without permission prompts (auto_approve): ${autoApproved.map((agent) => `${agent.id} (${agent.role})`).join(", ")}. Their own prompts are the safety boundary this layer relies on, and the spec removes it in ${spec.cwd}. Re-run with --allow-auto-approve if that is genuinely intended.`,
+      { agents: autoApproved.map((agent) => agent.id) },
+    );
+  }
   invariant(!(await exists(join(spec.run_dir, "run.json"))), "TOPOLOGY_RUN_EXISTS", `Run directory already exists: ${spec.run_dir}`);
   if (!dryRun && (await tmux.hasSession(spec.session))) {
     fail("TOPOLOGY_SESSION_EXISTS", `tmux session "${spec.session}" already exists. Stop it first: ao-topology stop --session ${spec.session}`);
@@ -247,8 +370,10 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
     if (role.fallback) warnings.push(`agent ${agent.id}: no role pack for "${agent.role}"; using ${role.path ? "worker" : "an inline placeholder"}`);
     const dir = agentDir(spec.run_dir, agent.id);
     const bootstrapFile = join(dir, "BOOTSTRAP.md");
-    const candidates = prepareCandidates({ spec, agent, adapters, bootstrapFile, dir, warnings });
-    prepared.push({ agent, skills, role, dir, bootstrapFile, candidates });
+    // One token per agent, not per candidate: a failover changes the provider, not who the agent is.
+    const token = mintAgentToken();
+    const candidates = prepareCandidates({ spec, agent, adapters, bootstrapFile, dir, warnings, token });
+    prepared.push({ agent, skills, role, dir, bootstrapFile, candidates, token });
   }
 
   if (dryRun) {
@@ -261,13 +386,16 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
         id: item.agent.id,
         role: item.agent.role,
         cwd: item.agent.cwd,
-        candidates: item.candidates.map((candidate) => ({ label: candidate.label, adapter: candidate.adapter.id, command: candidate.argv })),
+        candidates: item.candidates.map((candidate) => ({ label: candidate.label, adapter: candidate.adapter.id, command: candidate.argv, add_dirs: candidate.add_dirs, memory: candidate.memory })),
         skills: item.skills,
         role_pack: item.role.path,
       })),
     };
   }
 
+  // Before anything is written into the run dir: these repos deliberately commit `.bytedesk/`, so
+  // without this every mailbox file and journal line lands in the consumer's next diff.
+  await ensureRunsIgnored(spec.run_dir);
   await mkdir(join(spec.run_dir, spec.artifacts.dir), { recursive: true });
   for (const item of prepared) {
     await mkdir(join(item.dir, "inbox"), { recursive: true });
@@ -299,7 +427,14 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
       cwd: item.agent.cwd,
       pane: null,
       bootstrap: item.bootstrapFile,
-      candidates: item.candidates.map((candidate) => ({ label: candidate.label, cli: candidate.candidate.cli, model: candidate.candidate.model ?? null, adapter: candidate.adapter.id, launcher: candidate.launcher, submit_keys: candidate.adapter.submit_keys })),
+      // recordReply verifies against the digest. The plaintext is written beside it because run-local
+      // tooling has no other way to obtain an agent's own token, and it is no more exposed than the
+      // launcher script that exports it — both sit in the run dir under the same uid.
+      // ponytail: while `token` is here the check stops mistakes, not a determined local forger.
+      // Drop this field the moment nothing reads it back, and the digest alone is the record.
+      token: item.token,
+      token_sha256: tokenDigest(item.token),
+      candidates: item.candidates.map((candidate) => ({ label: candidate.label, cli: candidate.candidate.cli, model: candidate.candidate.model ?? null, adapter: candidate.adapter.id, launcher: candidate.launcher, submit_keys: candidate.adapter.submit_keys, add_dirs: candidate.add_dirs, memory: candidate.memory })),
       active: null,
       provider: null,
       adapter: null,

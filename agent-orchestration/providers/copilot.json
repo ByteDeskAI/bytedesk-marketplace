@@ -6,10 +6,16 @@
   "model_args": ["--model", "{{model}}"],
   "system_prompt_args": [],
   "auto_approve_args": ["--allow-all-tools"],
+  "add_dir_args": ["--add-dir", "{{dir}}"],
+  "memory": {
+    "scope": "cwd",
+    "path": null,
+    "note": "Verified 2026-09-05 on this machine: `copilot --help` lists `--add-dir <directory>` (repeatable), `--model`, `--allow-all-tools` and `--allow-all`. ~/.copilot/session-state holds one directory per session UUID, and each records its cwd (workspace.yaml `cwd:`, and a session.start event carrying cwd and gitRoot), so sessions are selected by cwd but the path is not derived from it — hence path: null."
+  },
   "ready": { "delay_ms": 6000, "timeout_ms": 30000 },
   "submit_keys": ["Enter"],
   "bootstrap_message": "Read {{bootstrap_file}} and follow it exactly. Reply with the single word READY once you have read it and every skill it lists.",
   "detect": ["copilot", "--version"],
   "install_hint": "npm install -g @github/copilot",
-  "notes": "Typed-text adapter. Verify flags against `copilot --help`."
+  "notes": "Typed-text adapter. --allow-all-tools is the tool half of --allow-all; add --allow-all-paths/--allow-all-urls in the agent's args if a run needs them."
 }

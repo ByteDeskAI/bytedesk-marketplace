@@ -3,13 +3,19 @@
   "display": "Grok Build CLI",
   "command": "grok",
   "args": [],
-  "model_args": ["--model", "{{model}}"],
+  "model_args": ["-m", "{{model}}"],
   "system_prompt_args": [],
   "auto_approve_args": ["--always-approve"],
+  "add_dir_args": [],
+  "memory": {
+    "scope": "cwd",
+    "path": "{{home}}/.grok/sessions",
+    "note": "Verified 2026-09-05 on this machine: `grok --help` lists `--always-approve`, `-m/--model` and `--cwd <CWD>`, and describes `-c` as continuing 'the most recent session for the current working directory'. There is NO --add-dir or equivalent, so an agent given its own cwd cannot be granted the repo — the launcher warns. ~/.grok/sessions holds one directory per percent-encoded absolute cwd, so the key is the cwd."
+  },
   "ready": { "delay_ms": 6000, "timeout_ms": 30000 },
   "submit_keys": ["Enter"],
   "bootstrap_message": "Read {{bootstrap_file}} and follow it exactly. Reply with the single word READY once you have read it and every skill it lists.",
   "detect": ["grok", "--version"],
   "install_hint": "Install Grok Build from xAI and run `grok login`.",
-  "notes": "No known system-prompt flag; the bootstrap pointer is typed. Verify --model and --always-approve against `grok --help`, and add a ready.pattern once you know the prompt glyph."
+  "notes": "No system-prompt flag and no extra-directory flag: a grok agent must run with the repo as its cwd, which means it shares memory with any other grok agent in the same repo. Add a ready.pattern once the prompt glyph is known."
 }

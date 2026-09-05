@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { pendingReplies, readJournal, recordReply, sendMessage, waitForReplies } from "../../topology/lib/mailbox.mjs";
+import { leadQueueDepth, pendingReplies, queueDepth, readJournal, recordReply, sendMessage, waitForReplies } from "../../topology/lib/mailbox.mjs";
 import { adapterFor, buildArgv, loadAdapters } from "../../topology/lib/providers.mjs";
 import { writeJson } from "../../topology/lib/util.mjs";
 
@@ -77,4 +77,29 @@ test("adapters: unknown cli falls back to generic with the id as command; argv o
   const claude = adapterFor({ cli: "claude", model: "opus", auto_approve: true, args: [], skills: [] }, adapters);
   const argv = buildArgv(claude, { cli: "claude", model: "opus", auto_approve: true, args: ["--verbose"], skills: [] }, { system_prompt: "SP", bootstrap_file: "/b" });
   assert.deepEqual(argv, ["claude", "--verbose", "--model", "opus", "--append-system-prompt", "SP", "--dangerously-skip-permissions"]);
+});
+
+test("queue depth counts what each agent still owes, and a run with no lead reports no lead queue", async () => {
+  const runDir = await fakeRun();
+  try {
+    assert.deepEqual(await leadQueueDepth(runDir), [], "a run with no lead has no lead queue to watch");
+    assert.deepEqual((await queueDepth(runDir, ["a"])).map((r) => r.depth), [0], "an idle agent reads zero, not nothing");
+
+    const first = await sendMessage({ runDir, from: "conductor", to: ["a", "b"], stage: "brief", body: "One." });
+    await sendMessage({ runDir, from: "conductor", to: ["a"], stage: "brief", body: "Two." });
+
+    const depths = await queueDepth(runDir, ["a", "b"]);
+    assert.deepEqual(depths.map((r) => [r.agent, r.depth]), [["a", 2], ["b", 1]], "deepest queue first");
+    assert.ok(depths[0].oldest_age_ms >= 0, "the message that has waited longest has an age");
+
+    await recordReply({ runDir, agentId: "a", messageId: first.id, body: "Answered one." });
+    assert.equal((await queueDepth(runDir, ["a"]))[0].depth, 1, "answering drains the queue");
+
+    // An empty reply is not an answer, so it must not drain it either.
+    const stillOwed = (await pendingReplies(runDir, ["a"]))[0];
+    await writeFile(stillOwed.outbox, "   \n", "utf8");
+    assert.equal((await queueDepth(runDir, ["a"]))[0].depth, 1, "a blank file leaves the work outstanding");
+  } finally {
+    await rm(runDir, { recursive: true, force: true });
+  }
 });

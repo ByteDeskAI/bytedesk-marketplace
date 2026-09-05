@@ -24,8 +24,9 @@ Resolve `AO` as `../../bin/ao-topology` relative to this skill (the installed pl
    `--input name=value` (comma-separated for multi). The CLI rejects a value outside the options,
    so never guess one.
 4. **Decide the consumer directory** — the repository the agents work in (`--consumer`). It is
-   where `.orchestration/runs/<run_id>/` is created. Make sure `.orchestration/runs/` is
-   gitignored there; offer to add it if not.
+   where `.bytedesk/agent-orchestration/runs/<run_id>/` is created. The runs directory ignores
+   itself — a `.gitignore` holding `*` is written into it on first use — so there is nothing to add
+   to the repository's own `.gitignore`.
 5. **Dry-run first when anything is new**: `AO launch --template <name> --input ... --consumer <repo> --dry-run`.
    Read the warnings: missing skills, missing role packs, generic-adapter fallbacks. Fix what
    matters (a missing skill for a designer matters; a generic fallback for a CLI the user chose on

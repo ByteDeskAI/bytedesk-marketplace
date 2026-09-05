@@ -15,7 +15,7 @@ boundary.
 | Piece | Path | What it is |
 |---|---|---|
 | Spec | JSON, see `ao-topology schema` | One declarative document: agents, workflow, gates, inputs. Natural language compiles into it; a template is a saved one. |
-| Templates | `templates/orchestrations/*.json`, `~/.config/agent-orchestration/templates/`, `<repo>/.orchestration/templates/` | Reusable specs. Earlier locations override later ones by name. |
+| Templates | `templates/orchestrations/*.json`, `~/.config/agent-orchestration/templates/`, `<repo>/.bytedesk/agent-orchestration/templates/` (legacy `<repo>/.orchestration/templates/` is still read) | Reusable specs. Earlier locations override later ones by name. |
 | Provider adapters | `providers/*.json` plus the same user/consumer overrides | How to launch one CLI: command, model flag, system-prompt flag, auto-approve flag, idle-prompt regex, failure patterns, submit keys. Unknown `cli` ids fall back to `generic` with the id as the command, so any installed CLI works. |
 | Role packs | `roles/*.md` plus overrides | The abstract, domain-free part of an agent's instructions: what an orchestrator, worker, designer, judge, reviewer, researcher, or implementer owes the run. |
 | Skills | resolved by name from the consumer repo, the user's home, and this plugin | Domain knowledge an agent must read before working (for example `brand-brief`, `brand-concept`, `brand-judge` from the design-system plugin). Nothing is copied; agents are told which SKILL.md files to read. |
@@ -25,7 +25,7 @@ boundary.
 ## A run on disk
 
 ```
-<consumer>/.orchestration/runs/<run_id>/
+<consumer>/.bytedesk/agent-orchestration/runs/<run_id>/
   run.json              materialized spec + pane ids + state + message sequence
   journal.jsonl         append-only events: run.created, agent.started, message.sent, message.replied, wait.*, agent.nudged, run.stopped
   artifacts/            shared deliverables; conductor/ holds briefs, decisions, GATE-*.md, REPORT.md
@@ -36,8 +36,17 @@ boundary.
     outbox/NNN-<stage>.reply.md
 ```
 
-`.orchestration/runs/` belongs in the consumer's `.gitignore`. Promotion of anything into a
-canonical tree is a human step the conductor recommends in `REPORT.md`.
+The runs directory ignores itself: a `.gitignore` containing `*` is written into
+`.bytedesk/agent-orchestration/runs/` the first time a run is created there. That matters because
+`.bytedesk/` is a tree these repositories deliberately commit — task-management's store is tracked —
+so without it every mailbox file and launcher script would land in a diff, in a repository that
+adopted orchestration after its `.gitignore` was written. Promotion of anything into a canonical
+tree is a human step the conductor recommends in `REPORT.md`.
+
+All five per-repo resource types — templates, skills, roles, providers and agents — resolve from
+`<repo>/.bytedesk/agent-orchestration/<kind>/`, with `<repo>/.orchestration/<kind>/` read as a
+fallback so a repository laid out under the old convention keeps working. Writes always use the
+new path.
 
 ## Provider chains and failover
 

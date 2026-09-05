@@ -3,12 +3,12 @@
 // agents are told which SKILL.md files to read.
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { absolutize, exists, isDirectory } from "./util.mjs";
+import { absolutize, consumerResourceDirs, exists, isDirectory } from "./util.mjs";
 
 export function skillDirs({ pluginRoot, consumer, home, extra = [] }) {
   const dirs = [...extra];
   if (consumer) {
-    dirs.push(join(consumer, ".orchestration", "skills"));
+    dirs.push(...consumerResourceDirs(consumer, "skills"));
     dirs.push(join(consumer, ".claude", "skills"));
     dirs.push(join(consumer, ".agents", "skills"));
     dirs.push(join(consumer, "plugin", "skills"));
@@ -42,7 +42,7 @@ export async function resolveSkill(name, dirs) {
 
 export function roleDirs({ pluginRoot, consumer, home, extra = [] }) {
   const dirs = [...extra];
-  if (consumer) dirs.push(join(consumer, ".orchestration", "roles"));
+  if (consumer) dirs.push(...consumerResourceDirs(consumer, "roles"));
   if (home) dirs.push(join(home, ".config", "agent-orchestration", "roles"));
   if (pluginRoot) dirs.push(join(pluginRoot, "roles"));
   return dirs;

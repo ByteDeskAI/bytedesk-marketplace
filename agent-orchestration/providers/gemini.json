@@ -6,10 +6,16 @@
   "model_args": ["-m", "{{model}}"],
   "system_prompt_args": [],
   "auto_approve_args": ["--yolo"],
+  "add_dir_args": ["--include-directories", "{{dir}}"],
+  "memory": {
+    "scope": "cwd",
+    "path": "{{home}}/.gemini/history",
+    "note": "Verified 2026-09-05 on this machine: `gemini --help` lists `--include-directories` (there is no --add-dir), `-y/--yolo`, `-m`, and `--list-sessions` described as 'sessions for the current project'. ~/.gemini/projects.json maps an absolute directory to a project name and ~/.gemini/history holds one directory per project name, so the scoping key is the cwd but the path is not derived from it."
+  },
   "ready": { "delay_ms": 6000, "timeout_ms": 30000 },
   "submit_keys": ["Enter"],
   "bootstrap_message": "Read {{bootstrap_file}} and follow it exactly. Reply with the single word READY once you have read it and every skill it lists.",
   "detect": ["gemini", "--version"],
   "install_hint": "npm install -g @google/gemini-cli",
-  "notes": "Example of adding a CLI with one JSON file. Verify flags against `gemini --help`."
+  "notes": "Grants extra directories with --include-directories rather than --add-dir. No ready.pattern yet, so readiness is the fixed delay plus an output check."
 }

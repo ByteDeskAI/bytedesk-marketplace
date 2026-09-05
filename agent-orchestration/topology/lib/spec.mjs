@@ -1,9 +1,11 @@
 // Orchestration spec: the declarative object that natural language compiles into and that a
 // template stores. Validation is deliberately strict and explains every failure so that an LLM
 // composing a spec can fix it from the error text alone.
+import { readFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { absolutize, exists, fail, invariant, readJson, renderDeep, slug } from "./util.mjs";
+import { absolutize, exists, fail, invariant, readJson, renderDeep, slug, consumerResourceDirs, isInside } from "./util.mjs";
+import { agentDirs, listAgentsSync, matchAgent } from "./agents.mjs";
 
 export const SPEC_VERSION = 1;
 export const LAYOUTS = ["main-vertical", "grid", "windows"];
@@ -20,9 +22,12 @@ export function specSchemaSummary() {
       inputs: "map of input name -> { description, required, default, options?: [value | {value, description}], multi?: bool }; referenced as {{inputs.<name>}}; options make the launcher show a menu",
       session: "tmux session name template (default '{{name}}-{{run_id}}')",
       cwd: "default working directory for every agent (default '{{consumer}}')",
-      run_dir: "where mailbox, journal, and artifacts live (default '{{consumer}}/.orchestration/runs/{{run_id}}')",
+      run_dir: "where mailbox, journal, and artifacts live (default '{{consumer}}/.bytedesk/agent-orchestration/runs/{{run_id}}')",
       layout: LAYOUTS,
-      agents: "array of { id, role, cli, model?, candidates?: ['cli:model', ...] (ordered fallback chain; replaces cli/model), cwd?, skills?[], instructions?, env?{}, args?[], auto_approve? }",
+      agents: "array of { id, role, cli, model?, candidates?: ['cli:model', ...] (ordered fallback chain; replaces cli/model), cwd?, skills?[], mcp?[], instructions?, instructions_file?, env?{}, args?[], auto_approve? }",
+      "agents[].agent": "id or full name of an agent stored in this repo's library (`ao-topology agent list`). Its stored definition supplies role, cli/candidates, skills, mcp, instructions, instructions_file, args, env and auto_approve; any field written inline on the spec entry overrides the stored one. `id` may be omitted — it is derived from the stored agent's name.",
+      "agents[].mcp": "MCP servers this agent gets, as names resolved by the provider or inline server objects",
+      "agents[].instructions_file": "path to a Markdown system prompt, read at launch and prepended to `instructions`. Relative to the stored agent's own directory when the entry names one, otherwise to the consumer repo.",
       workflow: "ordered stages: { stage, from, to[], contract?, timeout?, wait_for?[], loop_until?, max_rounds?, description? }",
       gates: "array of { after: <stage>, human: true, description? } — the conductor stops and asks the operator",
       artifacts: "{ dir: 'artifacts', promote_to?: '<path or instruction>' }",
@@ -65,7 +70,7 @@ export function validateSpec(raw) {
   spec.description = typeof spec.description === "string" ? spec.description : "";
   spec.session = typeof spec.session === "string" && spec.session ? spec.session : "{{name}}-{{run_id}}";
   spec.cwd = typeof spec.cwd === "string" && spec.cwd ? spec.cwd : "{{consumer}}";
-  spec.run_dir = typeof spec.run_dir === "string" && spec.run_dir ? spec.run_dir : "{{consumer}}/.orchestration/runs/{{run_id}}";
+  spec.run_dir = typeof spec.run_dir === "string" && spec.run_dir ? spec.run_dir : "{{consumer}}/.bytedesk/agent-orchestration/runs/{{run_id}}";
   spec.layout = spec.layout ?? "main-vertical";
   if (!LAYOUTS.includes(spec.layout)) note(`layout must be one of ${LAYOUTS.join(", ")}`);
 
@@ -94,11 +99,25 @@ export function validateSpec(raw) {
       return { id: `agent-${index}`, role: "worker", cli: "generic", skills: [] };
     }
     const normalized = { ...agent };
-    if (typeof normalized.id !== "string" || !ID_PATTERN.test(normalized.id)) note(`${where}.id must be a lowercase slug (got ${JSON.stringify(normalized.id)})`);
+    // `agent` names a stored agent in this repo's library. What it supplies cannot be checked here —
+    // validation is synchronous and dirless — so the entry is allowed to omit what the library will
+    // provide, and materializeSpec merges the stored definition in. `_inline` is the record of what
+    // the spec author actually wrote, which is what makes "inline overrides stored" decidable later.
+    if (normalized.agent !== undefined && (typeof normalized.agent !== "string" || !normalized.agent.trim())) note(`${where}.agent must be the id or full name of a stored agent`);
+    const hasRef = typeof normalized.agent === "string" && normalized.agent.trim().length > 0;
+    if (hasRef) normalized._inline = Array.isArray(agent._inline) ? agent._inline.map(String) : Object.keys(agent);
+    if (normalized.id === undefined && hasRef) {
+      // Derived from the stored agent's name at materialize time. An entry without an id cannot be
+      // named by the workflow, which is why omitting it is only allowed for a library reference.
+    } else if (typeof normalized.id !== "string" || !ID_PATTERN.test(normalized.id)) note(`${where}.id must be a lowercase slug (got ${JSON.stringify(normalized.id)})`);
     else if (ids.has(normalized.id)) note(`${where}.id "${normalized.id}" is duplicated`);
     else ids.add(normalized.id);
-    normalized.role = typeof normalized.role === "string" ? normalized.role : "worker";
-    if (!ID_PATTERN.test(normalized.role)) note(`${where}.role must be a slug (built-in roles: ${ROLES.join(", ")})`);
+    if (normalized.role === undefined && hasRef) {
+      // The stored agent's role stands.
+    } else {
+      normalized.role = typeof normalized.role === "string" ? normalized.role : "worker";
+      if (!ID_PATTERN.test(normalized.role)) note(`${where}.role must be a slug (built-in roles: ${ROLES.join(", ")})`);
+    }
     // Fallback chain: `candidates` is an ordered list of "cli[:model]" (array, or one comma-separated
     // string so an input can supply it). `cli`/`model` alone is a chain of one.
     const rawCandidates = normalized.candidates;
@@ -112,8 +131,11 @@ export function validateSpec(raw) {
         if (normalized.model === undefined && normalized.candidates[0]) normalized.model = normalized.candidates[0].model;
       }
     }
-    if (typeof normalized.cli !== "string" || !normalized.cli.trim()) note(`${where}.cli is required (a provider adapter id such as claude, codex, grok, or generic), or give candidates: ["claude:fable", "codex:gpt-5"]`);
+    if (!hasRef && (typeof normalized.cli !== "string" || !normalized.cli.trim())) note(`${where}.cli is required (a provider adapter id such as claude, codex, grok, or generic), or give candidates: ["claude:fable", "codex:gpt-5"]`);
     normalized.skills = Array.isArray(normalized.skills) ? normalized.skills.map(String) : [];
+    if (normalized.mcp !== undefined && !Array.isArray(normalized.mcp)) note(`${where}.mcp must be an array of MCP server names or server objects`);
+    normalized.mcp = Array.isArray(normalized.mcp) ? normalized.mcp : [];
+    if (normalized.instructions_file !== undefined && typeof normalized.instructions_file !== "string") note(`${where}.instructions_file must be a path to a Markdown prompt`);
     normalized.args = Array.isArray(normalized.args) ? normalized.args.map(String) : [];
     normalized.env = normalized.env && typeof normalized.env === "object" ? normalized.env : {};
     normalized.instructions = typeof normalized.instructions === "string" ? normalized.instructions : "";
@@ -123,8 +145,12 @@ export function validateSpec(raw) {
     return normalized;
   });
 
-  const orchestrators = spec.agents.filter((agent) => agent.role === "orchestrator");
-  if (orchestrators.length !== 1) note(`exactly one agent must have role "orchestrator" (found ${orchestrators.length}); it is the conductor that runs the workflow`);
+  // A library reference that does not state a role takes the stored one, which is unknown until
+  // materialization — so the conductor count is checked there instead of here.
+  if (!spec.agents.some((agent) => agent.agent && agent.role === undefined)) {
+    const problem = orchestratorProblem(spec.agents);
+    if (problem) note(problem);
+  }
 
   spec.workflow = Array.isArray(spec.workflow) ? spec.workflow : [];
   const stages = new Set();
@@ -191,27 +217,118 @@ export function resolveInputs(spec, provided = {}) {
   return inputs;
 }
 
+function orchestratorProblem(agents) {
+  const found = agents.filter((agent) => agent.role === "orchestrator").length;
+  return found === 1 ? null : `exactly one agent must have role "orchestrator" (found ${found}); it is the conductor that runs the workflow`;
+}
+
+/** Fields a stored agent contributes to a spec entry that references it. */
+const FROM_LIBRARY = ["role", "cli", "model", "candidates", "skills", "mcp", "instructions", "instructions_file", "args", "env", "auto_approve", "cwd"];
+
+/** A spec entry that omits `id` borrows the stored agent's name, uniquely within the run. */
+function derivedAgentId(stored, taken) {
+  let base = slug(stored.full_name || "");
+  if (!ID_PATTERN.test(base)) base = `agent-${slug(String(stored.id))}`;
+  let id = base;
+  for (let n = 2; taken.has(id); n += 1) id = `${base}-${n}`;
+  return id;
+}
+
+/**
+ * Replace every `{ agent: "<id|name>" }` entry with the stored definition from the repo's agent
+ * library, with anything written inline on the spec entry winning. This is where a spec stops being
+ * self-contained and starts referring to the project's roster, so an unknown reference fails loudly
+ * and prints the roster rather than launching a half-configured agent.
+ */
+function expandAgentRefs(spec, context) {
+  if (!spec.agents.some((agent) => agent.agent)) return spec;
+  const dirs = context.agentDirs?.length ? context.agentDirs : agentDirs({ consumer: context.consumer, home: context.home });
+  const roster = listAgentsSync(dirs);
+  const taken = new Set(spec.agents.map((agent) => agent.id).filter(Boolean));
+  const agents = spec.agents.map((entry, index) => {
+    if (!entry.agent) return entry;
+    const stored = matchAgent(roster, entry.agent);
+    if (!stored) {
+      const known = roster.length === 0
+        ? "(none — create one with `ao-topology agent new --role <role>`)"
+        : roster.map((agent) => `${agent.full_name || "(unnamed)"} [${agent.id}] — ${agent.role}`).join("\n- ");
+      fail(
+        "TOPOLOGY_AGENT_NOT_FOUND",
+        `agents[${index}].agent references ${JSON.stringify(entry.agent)}, which is not in this repo's agent library.\nKnown agents:\n- ${known}\nSearched:\n- ${dirs.join("\n- ")}`,
+        { ref: entry.agent, searched: dirs },
+      );
+    }
+    const inline = new Set(entry._inline || []);
+    const merged = { ...entry, _agent: stored.id, _agent_dir: stored._dir, full_name: stored.full_name, title: stored.title };
+    for (const field of FROM_LIBRARY) {
+      if (inline.has(field) || stored[field] === undefined || stored[field] === null) continue;
+      merged[field] = field === "candidates" ? candidateList(stored[field]) : stored[field];
+    }
+    // An inline cli/model states the chain for this run, so it replaces the stored one rather than
+    // being overruled by it — candidates otherwise win over cli everywhere downstream.
+    if ((inline.has("cli") || inline.has("model")) && !inline.has("candidates")) delete merged.candidates;
+    else if (merged.candidates?.length) {
+      merged.cli = merged.candidates[0].cli;
+      merged.model = merged.candidates[0].model;
+    }
+    merged.role = merged.role || "worker";
+    if (!merged.id) merged.id = derivedAgentId(stored, taken);
+    taken.add(merged.id);
+    delete merged._inline;
+    return merged;
+  });
+  const problem = orchestratorProblem(agents);
+  if (problem) fail("TOPOLOGY_SPEC_INVALID", `Spec "${spec.name}" has 1 problem(s) once its agent references are resolved:\n- ${problem}`, { problems: [problem] });
+  return { ...spec, agents };
+}
+
+/**
+ * Read a file-backed system prompt. It is resolved against the stored agent's own directory when
+ * the entry came from the library — that is where its `prompt.md` lives — and against the consumer
+ * repo otherwise. A missing file is fatal: launching with a silently empty system prompt produces
+ * an agent that looks fine and knows nothing.
+ */
+function readInstructionsFile(agent, context, vars) {
+  const path = absolutize(agent.instructions_file, agent._agent_dir || context.consumer);
+  let text;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch (error) {
+    fail(
+      "TOPOLOGY_INSTRUCTIONS_FILE_NOT_FOUND",
+      `agents.${agent.id}.instructions_file: cannot read ${path} (${error.code || error.message}). A file-backed system prompt must exist when the run is materialized.`,
+      { path },
+    );
+  }
+  return [renderDeep(text, vars), agent.instructions].map((part) => String(part || "").trim()).filter(Boolean).join("\n\n");
+}
+
 /** Render every placeholder in a validated spec for one concrete run. */
-export function materializeSpec(spec, context) {
+export function materializeSpec(rawSpec, context) {
+  const spec = expandAgentRefs(rawSpec, context);
   const base = { run_id: context.runId, name: spec.name, consumer: context.consumer, home: context.home };
   // Inputs may themselves contain placeholders (a default of "{{consumer}}"); render them first.
   const vars = { ...base, inputs: renderDeep(context.inputs ?? {}, base) };
   const session = slug(renderDeep(spec.session, vars));
   vars.session = session;
   const runDir = absolutize(renderDeep(spec.run_dir, vars), context.consumer);
+  containPath(runDir, context.consumer, "run_dir", context);
   vars.run_dir = runDir;
   const rendered = renderDeep({ ...spec, session, run_dir: runDir }, vars);
   rendered.cwd = absolutize(rendered.cwd, context.consumer);
+  containPath(rendered.cwd, context.consumer, "cwd", context);
   rendered.agents = rendered.agents.map((agent) => {
     const agentVars = { ...vars, agent: { id: agent.id, role: agent.role } };
     const withAgent = renderDeep(agent, agentVars);
     withAgent.cwd = absolutize(withAgent.cwd ?? rendered.cwd, context.consumer);
+    containPath(withAgent.cwd, context.consumer, `agents.${agent.id}.cwd`, context);
     // Re-parse the chain after rendering: an input may have supplied "codex:gpt-5,claude:fable".
     const chainSource = withAgent.candidates ? withAgent.candidates.map((c) => (c.model ? `${c.cli}:${c.model}` : c.cli)).join(",") : `${withAgent.cli}:${withAgent.model ?? ""}`;
     withAgent.candidates = candidateList(chainSource).filter((c) => c.cli && c.cli !== "none");
     if (withAgent.candidates.length === 0) withAgent.candidates = [{ cli: withAgent.cli, model: withAgent.model || undefined }];
     withAgent.cli = withAgent.candidates[0].cli;
     withAgent.model = withAgent.candidates[0].model;
+    if (withAgent.instructions_file) withAgent.instructions = readInstructionsFile(withAgent, context, agentVars);
     return withAgent;
   });
   rendered.inputs_resolved = vars.inputs;
@@ -220,10 +337,27 @@ export function materializeSpec(spec, context) {
   return rendered;
 }
 
-/** Search order for templates: explicit dirs, consumer `.orchestration/templates`, user config, plugin templates. */
+/** Search order: explicit dirs, consumer `.bytedesk/agent-orchestration/templates` (then the
+ * legacy `.orchestration/templates`), user config, plugin templates. */
+/**
+ * A spec may not launch outside the repo that invoked it. `cwd: "~"`, `cwd: "/"` and
+ * `cwd: "../../other-repo"` all used to resolve and launch there; a spec is frequently committed to
+ * a repo, so an unconstrained path is a way for a checkout to run an agent anywhere on the machine.
+ * `allowOutside` exists for the deliberate case and has to be asked for explicitly.
+ */
+export function containPath(candidate, consumer, field, context = {}) {
+  if (context.allowOutside) return candidate;
+  invariant(
+    isInside(consumer, candidate),
+    "TOPOLOGY_PATH_ESCAPES_REPO",
+    `${field} resolves to ${candidate}, which is outside this repository (${consumer}). A spec may not launch an agent outside the repo that invoked it. Pass --allow-outside if that is genuinely intended.`,
+  );
+  return candidate;
+}
+
 export function templateDirs({ pluginRoot, consumer, home, extra = [] }) {
   const dirs = [...extra];
-  if (consumer) dirs.push(join(consumer, ".orchestration", "templates"));
+  if (consumer) dirs.push(...consumerResourceDirs(consumer, "templates"));
   if (home) dirs.push(join(home, ".config", "agent-orchestration", "templates"));
   if (pluginRoot) dirs.push(join(pluginRoot, "templates", "orchestrations"));
   return dirs;

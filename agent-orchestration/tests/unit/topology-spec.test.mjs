@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import test from "node:test";
 
-import { materializeSpec, resolveInputs, validateSpec } from "../../topology/lib/spec.mjs";
+import { materializeSpec, resolveInputs, specSchemaSummary, validateSpec } from "../../topology/lib/spec.mjs";
+import { createAgent } from "../../topology/lib/agents.mjs";
+import { mintId } from "../../topology/lib/identity.mjs";
 import { parseDuration, render, shellQuote } from "../../topology/lib/util.mjs";
 
 const minimal = () => ({
@@ -118,7 +120,7 @@ test("materializeSpec renders placeholders, run_dir, and per-agent cwd", async (
     const inputs = resolveInputs(spec, { product: "vault" });
     const rendered = materializeSpec(spec, { runId: "20260904-0101-abcd", consumer, home: "/home/x", inputs });
     assert.equal(rendered.session, "brand-vault-20260904-0101-abcd");
-    assert.equal(rendered.run_dir, join(consumer, ".orchestration", "runs", "20260904-0101-abcd"));
+    assert.equal(rendered.run_dir, join(consumer, ".bytedesk", "agent-orchestration", "runs", "20260904-0101-abcd"));
     assert.equal(rendered.agents[0].instructions, "Product vault as conductor");
     assert.equal(rendered.agents[0].cwd, consumer);
     assert.equal(rendered.agents[1].cwd, join(consumer, "sub", "dir"));
@@ -136,4 +138,155 @@ test("helpers: render leaves unknown placeholders visible, durations parse, shel
   assert.throws(() => parseDuration("soon"), /Cannot parse duration/);
   assert.equal(shellQuote("plain-1.0"), "plain-1.0");
   assert.equal(shellQuote("it's here"), `'it'\\''s here'`);
+});
+
+test("a spec entry may reference a stored agent, and anything inline overrides the stored definition", async () => {
+  const consumer = await mkdtemp(join(os.tmpdir(), "ao-topology-library-"));
+  try {
+    const conductor = await createAgent(consumer, { role: "orchestrator", cli: "claude", skills: ["review"], mcp: ["filesystem"] });
+    const reviewer = await createAgent(consumer, { role: "reviewer", cli: "claude", candidates: ["claude:opus", "codex"] });
+
+    const spec = validateSpec({
+      name: "library-run",
+      agents: [
+        { agent: conductor.id },
+        { id: "second", agent: reviewer.full_name, cli: "codex", skills: [] },
+      ],
+    });
+    // The reference survives validation untouched: nothing on disk is read until materialization.
+    assert.equal(spec.agents[0].id, undefined, "an id is derived later, from the stored agent's name");
+    assert.deepEqual(spec.agents[1]._inline.sort(), ["agent", "cli", "id", "skills"]);
+
+    const rendered = materializeSpec(spec, { runId: "r", consumer, home: "/h", inputs: {} });
+    const [first, second] = rendered.agents;
+
+    assert.equal(first.id, conductor.full_name.toLowerCase().replace(" ", "-"), "an id-less entry is named after the stored agent");
+    assert.equal(first.role, "orchestrator", "the stored role stands");
+    assert.equal(first.cli, "claude");
+    assert.deepEqual(first.skills, ["review"], "stored skills are inherited");
+    assert.deepEqual(first.mcp, ["filesystem"], "the mcp field survives materialization");
+    assert.ok(first.instructions.includes(conductor.full_name), "the stored prompt.md becomes the agent's instructions");
+    assert.equal(first._agent, conductor.id, "the materialized agent still points at its library identity");
+
+    assert.equal(second.id, "second", "an explicit id wins over the derived one");
+    assert.equal(second.role, "reviewer", "the stored role is used when the entry does not state one");
+    assert.equal(second.cli, "codex", "an inline cli overrides the stored candidate chain");
+    assert.deepEqual(second.skills, [], "an inline empty list is an override, not an absence");
+  } finally {
+    await rm(consumer, { recursive: true, force: true });
+  }
+});
+
+test("an unknown agent reference fails with the roster and the search path", async () => {
+  const consumer = await mkdtemp(join(os.tmpdir(), "ao-topology-noagent-"));
+  try {
+    const known = await createAgent(consumer, { role: "orchestrator" });
+    const spec = validateSpec({ name: "ghost-run", agents: [{ agent: known.id }, { id: "b", agent: "Nobody At All" }] });
+    assert.throws(
+      () => materializeSpec(spec, { runId: "r", consumer, home: "/h", inputs: {} }),
+      (error) => {
+        assert.equal(error.code, "TOPOLOGY_AGENT_NOT_FOUND");
+        assert.match(error.message, /"Nobody At All"/);
+        assert.ok(error.message.includes(known.full_name), "the roster must be named so the author can fix the reference");
+        assert.ok(error.message.includes(join(consumer, ".bytedesk", "agent-orchestration", "agents")), "the search path must be shown");
+        return true;
+      },
+    );
+  } finally {
+    await rm(consumer, { recursive: true, force: true });
+  }
+});
+
+test("a system prompt can come from a file, and a missing one is fatal", async () => {
+  const consumer = await mkdtemp(join(os.tmpdir(), "ao-topology-prompt-"));
+  try {
+    await writeFile(join(consumer, "prompt.md"), "Ship {{inputs.thing}}, {{agent.id}}.\n", "utf8");
+    const spec = validateSpec({
+      name: "file-prompt",
+      inputs: { thing: { default: "the vault" } },
+      agents: [{ id: "conductor", role: "orchestrator", cli: "claude", instructions_file: "prompt.md", instructions: "Then stop." }],
+    });
+    const rendered = materializeSpec(spec, { runId: "r", consumer, home: "/h", inputs: resolveInputs(spec, {}) });
+    assert.equal(rendered.agents[0].instructions, "Ship the vault, conductor.\n\nThen stop.", "the file leads and inline instructions follow");
+
+    const missing = validateSpec({ ...spec, agents: [{ id: "conductor", role: "orchestrator", cli: "claude", instructions_file: "nope.md" }] });
+    assert.throws(
+      () => materializeSpec(missing, { runId: "r", consumer, home: "/h", inputs: resolveInputs(spec, {}) }),
+      (error) => error.code === "TOPOLOGY_INSTRUCTIONS_FILE_NOT_FOUND",
+    );
+  } finally {
+    await rm(consumer, { recursive: true, force: true });
+  }
+});
+
+test("mcp is part of the agent schema and is documented", () => {
+  const spec = validateSpec({ ...minimal(), agents: [{ id: "conductor", role: "orchestrator", cli: "claude", mcp: ["task-management"] }], workflow: [], gates: [] });
+  assert.deepEqual(spec.agents[0].mcp, ["task-management"]);
+  assert.deepEqual(validateSpec(minimal()).agents[0].mcp, [], "absent mcp normalizes to an empty list");
+  assert.throws(() => validateSpec({ ...minimal(), agents: [{ id: "conductor", role: "orchestrator", cli: "claude", mcp: "fs" }] }), /mcp must be an array/);
+  const summary = specSchemaSummary();
+  assert.match(summary.fields.agents, /mcp\?\[\]/);
+  assert.ok(summary.fields["agents[].mcp"], "the mcp field must be documented for spec authors");
+  assert.ok(summary.fields["agents[].agent"], "the library reference must be documented for spec authors");
+});
+
+test("a minted agent id is a valid spec agent id", () => {
+  // The invariant that binds identity to the spec: an id is minted once and then used as a spec
+  // agents[].id, a workflow reference, a tmux session name and a directory name. If the generator
+  // can emit something this validator rejects, referencing stored agents from a spec breaks on a
+  // coin toss. Many ids, because the failing shape (a leading digit) was intermittent.
+  const ids = Array.from({ length: 500 }, () => mintId());
+  const spec = validateSpec({
+    name: "minted-ids",
+    agents: [
+      { id: ids[0], role: "orchestrator", cli: "claude" },
+      { id: ids[1], role: "worker", cli: "codex" },
+    ],
+    workflow: [{ stage: "do-it", from: ids[0], to: [ids[1]] }],
+  });
+  assert.equal(spec.agents[0].id, ids[0]);
+  assert.deepEqual(spec.workflow[0].to, [ids[1]]);
+  for (const id of ids) {
+    assert.doesNotThrow(
+      () => validateSpec({ name: "minted-ids", agents: [{ id, role: "orchestrator", cli: "claude" }] }),
+      `minted id ${id} must be usable as a spec agent id`,
+    );
+  }
+});
+
+test("a spec may not launch outside the repo that invoked it", async () => {
+  const consumer = await mkdtemp(join(os.tmpdir(), "ao-topology-contain-"));
+  try {
+    // Built by joining against the temp root rather than hardcoded, so the assertions do not depend
+    // on /tmp being a real directory (it is a symlink to /private/tmp on macOS).
+    const sibling = join(consumer, "..", "other-repo");
+    const spec = (agent, rest = {}) => validateSpec({ name: "contain", agents: [{ id: "conductor", role: "orchestrator", cli: "claude", ...agent }], ...rest });
+    const run = (built, context = {}) => materializeSpec(built, { runId: "r", consumer, home: os.homedir(), inputs: {}, ...context });
+    const escapes = (built, field) =>
+      assert.throws(() => run(built), (error) => {
+        assert.equal(error.code, "TOPOLOGY_PATH_ESCAPES_REPO");
+        assert.ok(error.message.startsWith(`${field} resolves to `), `the message must name the offending field:\n${error.message}`);
+        assert.ok(error.message.includes(consumer), "the message must name the repo the path escaped");
+        return true;
+      }, `${field} must be contained`);
+
+    for (const cwd of ["/", "~", join("..", "..", "other-repo")]) escapes(spec({}, { cwd }), "cwd");
+    escapes(spec({}, { run_dir: join(sibling, "runs", "{{run_id}}") }), "run_dir");
+    escapes(spec({ cwd: sibling }), "agents.conductor.cwd");
+
+    // The escape hatch has to stay reachable: `--allow-outside` is the deliberate case, and a flag
+    // that no longer reaches containPath fails open silently.
+    for (const built of [spec({}, { cwd: "/" }), spec({}, { run_dir: join(sibling, "runs") }), spec({ cwd: sibling })]) {
+      assert.doesNotThrow(() => run(built, { allowOutside: true }), "--allow-outside must still let a deliberate escape through");
+    }
+    assert.equal(run(spec({ cwd: sibling }), { allowOutside: true }).agents[0].cwd, resolve(sibling));
+
+    // The ordinary case is untouched: no cwd means the consumer, and a relative one stays inside it.
+    const ordinary = run(spec({}));
+    assert.equal(ordinary.cwd, consumer);
+    assert.equal(ordinary.agents[0].cwd, consumer);
+    assert.equal(run(spec({ cwd: "sub/dir" })).agents[0].cwd, join(consumer, "sub", "dir"));
+  } finally {
+    await rm(consumer, { recursive: true, force: true });
+  }
 });

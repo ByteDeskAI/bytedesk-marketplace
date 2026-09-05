@@ -6,10 +6,16 @@
   "model_args": ["--model", "{{model}}"],
   "system_prompt_args": ["--append-system-prompt", "{{system_prompt}}"],
   "auto_approve_args": ["--dangerously-skip-permissions"],
+  "add_dir_args": ["--add-dir", "{{dir}}"],
+  "memory": {
+    "scope": "cwd",
+    "path": "{{home}}/.claude/projects/{{cwd_slug}}/memory",
+    "note": "Verified 2026-09-05 on this machine: `claude --help` lists `--add-dir <directories...>`, `--append-system-prompt`, `--model` and `--dangerously-skip-permissions`; ~/.claude/projects/ held 48 project directories with a memory/ subdirectory, keyed by the absolute cwd with every / and . replaced by -."
+  },
   "ready": { "pattern": "(^|\\n)\\s*[│|]?\\s*[>❯]\\s", "delay_ms": 6000, "timeout_ms": 30000 },
   "submit_keys": ["Enter"],
   "bootstrap_message": "Read {{bootstrap_file}} and follow it exactly. Reply with the single word READY once you have read it and every skill it lists.",
   "detect": ["claude", "--version"],
   "install_hint": "npm install -g @anthropic-ai/claude-code",
-  "notes": "Models: fable, opus, sonnet, haiku, or a full model id. The system prompt is appended with --append-system-prompt; the bootstrap file carries everything else. Set auto_approve: true on the agent to add --dangerously-skip-permissions."
+  "notes": "Models: fable, opus, sonnet, haiku, or a full model id. Memory is keyed by working directory, so an agent given its own cwd gets its own memory and keeps it across spawns; --add-dir grants tool access to the repo it actually works in. Set auto_approve: true on the agent to add --dangerously-skip-permissions."
 }

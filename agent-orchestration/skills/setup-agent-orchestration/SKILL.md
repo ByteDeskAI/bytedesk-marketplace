@@ -48,7 +48,8 @@ saved with `--save user` land in `templates/`; a JSON in `providers/` overrides 
 a Markdown file in `roles/` overrides or adds a role pack; `skills/` holds skills the user wants
 available to agents on every run.
 
-In each repository that will host runs, make sure `.gitignore` contains `.orchestration/runs/`.
+Runs need no `.gitignore` entry in the consumer: `.bytedesk/agent-orchestration/runs/` ignores
+itself from the first run onward.
 
 ## 5. Add a CLI as an adapter (`--add-cli <command>`)
 

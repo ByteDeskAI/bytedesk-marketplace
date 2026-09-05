@@ -11,7 +11,7 @@ Resolve `AO` as `../../bin/ao-topology` relative to this skill.
 
 ## Find the run
 
-`AO runs --consumer <repo>` lists every run under `<repo>/.orchestration/runs/` with a filled dot
+`AO runs --consumer <repo>` lists every run under `<repo>/.bytedesk/agent-orchestration/runs/` with a filled dot
 for a live tmux session. The newest is usually the one the user means; confirm if two are live.
 
 ## Read the state

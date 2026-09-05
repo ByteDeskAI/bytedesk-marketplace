@@ -6,6 +6,8 @@
   "model_args": [],
   "system_prompt_args": [],
   "auto_approve_args": [],
+  "add_dir_args": [],
+  "memory": { "scope": "none", "path": null, "note": "Unknown CLI: nothing is claimed about where it keeps state. Declare memory and add_dir_args in a provider JSON to change that." },
   "ready": { "delay_ms": 4000, "timeout_ms": 20000 },
   "submit_keys": ["Enter"],
   "bootstrap_message": "Read {{bootstrap_file}} and follow it exactly. Reply with the single word READY once you have read it and every skill it lists.",

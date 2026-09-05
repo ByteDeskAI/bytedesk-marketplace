@@ -2,7 +2,7 @@
 // file; an unknown `cli` id falls back to the generic adapter with the id used as the command.
 import { readdir } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { exists, invariant, readJson, render, run } from "./util.mjs";
+import { exists, invariant, readJson, render, run, consumerResourceDirs } from "./util.mjs";
 
 export const GENERIC_ADAPTER = {
   id: "generic",
@@ -12,6 +12,15 @@ export const GENERIC_ADAPTER = {
   model_args: [],
   system_prompt_args: [],
   auto_approve_args: [],
+  // How this CLI is granted tool access to a directory that is not its cwd. An agent runs with its
+  // own per-agent cwd (that is what gives it its own memory), so the repo it works on has to be
+  // granted explicitly. `{{dir}}` is the directory. Empty means the CLI cannot do this.
+  add_dir_args: [],
+  // Where this CLI keeps the state that makes an agent remember: `scope` is the key it files that
+  // state under, `path` a renderable location ({{home}}, {{cwd}}, {{cwd_slug}}) or null when the
+  // CLI keys internally rather than by path. Declared, not inferred, so adding a CLI stays a JSON
+  // file rather than a special case in the launcher.
+  memory: { scope: "none", path: null, note: "" },
   ready: { delay_ms: 3000 },
   // Screen text that means "this candidate cannot serve": the launcher moves to the next one.
   failure_patterns: [
@@ -38,9 +47,11 @@ export const GENERIC_ADAPTER = {
   notes: "Fallback adapter: launches the command and delivers every instruction as typed text.",
 };
 
+export const MEMORY_SCOPES = ["cwd", "home", "none"];
+
 export function providerDirs({ pluginRoot, consumer, home, extra = [] }) {
   const dirs = [...extra];
-  if (consumer) dirs.push(join(consumer, ".orchestration", "providers"));
+  if (consumer) dirs.push(...consumerResourceDirs(consumer, "providers"));
   if (home) dirs.push(join(home, ".config", "agent-orchestration", "providers"));
   if (pluginRoot) dirs.push(join(pluginRoot, "providers"));
   return dirs;
@@ -50,11 +61,22 @@ export function normalizeAdapter(raw, source) {
   invariant(raw && typeof raw === "object", "TOPOLOGY_ADAPTER_INVALID", `Adapter ${source} must be a JSON object.`);
   invariant(typeof raw.id === "string" && raw.id, "TOPOLOGY_ADAPTER_INVALID", `Adapter ${source} needs an "id".`);
   const adapter = { ...GENERIC_ADAPTER, ...raw, source };
-  for (const key of ["args", "model_args", "system_prompt_args", "auto_approve_args", "submit_keys", "failure_patterns"]) {
+  for (const key of ["args", "model_args", "system_prompt_args", "auto_approve_args", "add_dir_args", "submit_keys", "failure_patterns"]) {
     invariant(Array.isArray(adapter[key]), "TOPOLOGY_ADAPTER_INVALID", `Adapter ${adapter.id}: "${key}" must be an array.`);
     adapter[key] = adapter[key].map(String);
   }
   adapter.ready = { ...GENERIC_ADAPTER.ready, ...(adapter.ready ?? {}) };
+  adapter.memory = { ...GENERIC_ADAPTER.memory, ...(adapter.memory ?? {}) };
+  invariant(
+    MEMORY_SCOPES.includes(adapter.memory.scope),
+    "TOPOLOGY_ADAPTER_INVALID",
+    `Adapter ${adapter.id}: memory.scope must be one of ${MEMORY_SCOPES.join(", ")} (got ${JSON.stringify(adapter.memory.scope)}).`,
+  );
+  invariant(
+    adapter.memory.path === null || typeof adapter.memory.path === "string",
+    "TOPOLOGY_ADAPTER_INVALID",
+    `Adapter ${adapter.id}: memory.path must be a string template or null.`,
+  );
   for (const pattern of adapter.failure_patterns) {
     try {
       new RegExp(pattern, "i");
@@ -105,15 +127,60 @@ export function buildArgv(adapter, agent, vars) {
   if (agent.model && adapter.model_args.length > 0) argv.push(...adapter.model_args);
   if (adapter.system_prompt_args.length > 0) argv.push(...adapter.system_prompt_args);
   if (agent.auto_approve && adapter.auto_approve_args.length > 0) argv.push(...adapter.auto_approve_args);
-  return argv.map((item) => render(item, { ...vars, model: agent.model ?? "" }));
+  const rendered = argv.map((item) => render(item, { ...vars, model: agent.model ?? "" }));
+  // Extra directories are rendered per directory rather than with the shared vars: the flag repeats.
+  for (const dir of grantedDirs(adapter, agent)) {
+    rendered.push(...adapter.add_dir_args.map((item) => render(item, { ...vars, dir })));
+  }
+  return rendered;
 }
 
-/** Returns the matched failure pattern if the screen text shows the candidate cannot serve. */
+/** The directories this adapter will actually be told to grant. Empty if it has no mechanism. */
+export function grantedDirs(adapter, agent) {
+  const wanted = (agent.add_dirs ?? []).filter(Boolean);
+  if (wanted.length === 0 || (adapter.add_dir_args ?? []).length === 0) return [];
+  return [...new Set(wanted)];
+}
+
+/** True when this adapter can grant tool access to a directory outside the agent's cwd. */
+export function grantsDirs(adapter) {
+  return (adapter.add_dir_args ?? []).length > 0;
+}
+
+/**
+ * Where one agent's memory lives for this adapter, from the adapter's own declaration. The cwd is
+ * the scoping key for every CLI that keys by working directory, so two agents with two cwds get two
+ * memories and one agent keeps its memory across spawns — neither fact depends on the run.
+ */
+export function memoryLocation(adapter, { cwd, home }) {
+  const memory = adapter.memory ?? GENERIC_ADAPTER.memory;
+  const path = memory.path ? render(memory.path, { cwd, home, cwd_slug: sanitizeCwd(cwd) }) : null;
+  return { scope: memory.scope, path, note: memory.note ?? "" };
+}
+
+/** Claude Code's project key: the absolute cwd with every "/" and "." replaced by "-". */
+export function sanitizeCwd(cwd) {
+  return String(cwd ?? "").replace(/[/.]/g, "-");
+}
+
+/**
+ * Returns the matched failure pattern if the screen text shows the candidate cannot serve.
+ *
+ * Paths are dropped before matching. The launcher path, the run directory and the agent directory
+ * are all echoed into the pane, and a repo called `capacity-planning` or a run under
+ * `.../quota-work/` is not an error — it used to burn a failover slot on a perfectly healthy agent.
+ */
 export function failureOnScreen(adapter, screen) {
+  const text = withoutPaths(screen);
   for (const pattern of adapter.failure_patterns ?? []) {
-    if (new RegExp(pattern, "i").test(screen)) return pattern;
+    if (new RegExp(pattern, "i").test(text)) return pattern;
   }
   return null;
+}
+
+/** Blank out whitespace-delimited tokens that contain a "/" — paths and URLs, never failure text. */
+export function withoutPaths(screen) {
+  return String(screen ?? "").replace(/\S*\/\S*/g, " ");
 }
 
 export async function commandExists(command) {
@@ -145,8 +212,10 @@ export function adapterSummary(adapter) {
       model: adapter.model_args.length > 0,
       system_prompt: adapter.system_prompt_args.length > 0,
       auto_approve: adapter.auto_approve_args.length > 0,
+      add_dir: grantsDirs(adapter),
       ready_pattern: Boolean(adapter.ready.pattern),
     },
+    memory: adapter.memory ?? GENERIC_ADAPTER.memory,
     source: adapter.source,
     notes: adapter.notes ?? "",
     file: adapter.source === "built-in" ? null : basename(adapter.source),

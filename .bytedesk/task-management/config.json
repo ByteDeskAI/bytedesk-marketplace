@@ -16,7 +16,7 @@
     "evidence",
     "actor"
   ],
-  "wipLimit": 3,
+  "wipLimit": 8,
   "staleMinutes": 90,
   "gitLink": true,
   "captureDecisions": "smart",

@@ -5,11 +5,17 @@
   "args": [],
   "model_args": ["-m", "{{model}}"],
   "system_prompt_args": [],
-  "auto_approve_args": ["--full-auto"],
+  "auto_approve_args": ["--ask-for-approval", "never", "--sandbox", "workspace-write"],
+  "add_dir_args": ["--add-dir", "{{dir}}"],
+  "memory": {
+    "scope": "home",
+    "path": "{{home}}/.codex",
+    "note": "Verified 2026-09-05 on this machine: `codex --help` lists `--add-dir <DIR>`, `-C/--cd <DIR>`, `-m`, `-a/--ask-for-approval`, `-s/--sandbox`. `--full-auto` is REJECTED by this version (`error: unexpected argument '--full-auto' found`) and was replaced here by `--ask-for-approval never --sandbox workspace-write`. Sessions live under ~/.codex/sessions partitioned by date, not by cwd, so two agents sharing a home share this state; the cwd-scoped part is the AGENTS.md the CLI reads from its working directory."
+  },
   "ready": { "pattern": "(^|\\n)\\s*[›>❯]\\s", "delay_ms": 6000, "timeout_ms": 30000 },
   "submit_keys": ["Enter"],
   "bootstrap_message": "Read {{bootstrap_file}} and follow it exactly. Reply with the single word READY once you have read it and every skill it lists.",
   "detect": ["codex", "--version"],
   "install_hint": "npm install -g @openai/codex",
-  "notes": "Codex has no system-prompt flag in interactive mode, so the bootstrap pointer is typed as the first message. Verify -m and --full-auto against `codex --help` for your version."
+  "notes": "Codex has no system-prompt flag in interactive mode, so the bootstrap pointer is typed as the first message. Per-agent memory is only partly cwd-scoped: AGENTS.md follows the cwd, session history does not. Set CODEX_HOME per agent in the spec's env if you need the history separated too."
 }

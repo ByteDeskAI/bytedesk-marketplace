@@ -25,7 +25,7 @@
   },
   "session": "studio-{{inputs.app}}-{{inputs.asset}}-{{run_id}}",
   "cwd": "{{inputs.design_system}}",
-  "run_dir": "{{inputs.design_system}}/.orchestration/runs/{{run_id}}",
+  "run_dir": "{{inputs.design_system}}/.bytedesk/agent-orchestration/runs/{{run_id}}",
   "layout": "main-vertical",
   "agents": [
     {
