@@ -246,6 +246,17 @@
 - **Generated runtime files stay out of git.** Store `.gitignore` now names `dashboard.pid` and `dashboard.port` explicitly (still covered by `dashboard.*`), plus `bin` (generated launchers) and `events.json` / `events.jsonl`. Bootstrap and `.bytedesk/task-management/bin/tm doctor --fix` write `.bytedesk/.gitignore` so `worktrees/` is ignored without swallowing the store. Dashboard `.gitignore` also drops Vite/tsc leftovers (`.vite`, `*.tsbuildinfo`).
 
 ### Fixed
+- **A rollback that could not finish still handed the approval back (TM-086).** Every step of the
+  undo is best effort — a file that will not unlink, a record that will not write — and it said
+  nothing about a step that failed, while the route treats any throw as "nothing landed". A partial
+  undo therefore re-armed the proposal and invited the operator to create the leftovers a second
+  time. The undo now reports what it could not undo, and the route refuses to offer that proposal
+  again, naming the records to check instead.
+- **A label could be mistaken for a forward reference (TM-086).** The ref scan walked every
+  argument, so a task labelled `mfa` alongside a later operation declaring `{ref:"mfa"}` had the
+  whole proposal refused — with a message describing something the agent had not done, so it could
+  not correct itself either. Only `epic`, `task` and `on` can hold a reference, and only those are
+  scanned.
 - **An interrupted landing stayed half-applied for ever (TM-086).** `applyOps` and
   `applyManifestPlan` both claimed "all of it or none of it", and both meant it only for a failure
   that THROWS: kill the process after the epic was activated and the first task written and those

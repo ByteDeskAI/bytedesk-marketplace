@@ -1078,6 +1078,17 @@ function plannerRoute(method, url, payload, p) {
         } catch (e) {
           // The landing rolled itself back, so the operator can review and try again — put the
           // proposal back rather than stranding the session with nothing to approve.
+          //
+          // Unless the rollback could not finish. Its steps are best effort by design, and a
+          // proposal handed back after a PARTIAL undo is an invitation to create the leftovers a
+          // second time. Then the session says what actually happened instead.
+          if (e.rollbackIncomplete?.length) {
+            mutateSession(id, () => ({ proposal: null, status: "open" }), p);
+            return fail(
+              500,
+              `${e.message}\n\nThe undo could not remove ${e.rollbackIncomplete.join(", ")}, so this proposal is NOT being offered again — approving it now would duplicate what is still there. Check those records, then plan again.`,
+            );
+          }
           mutateSession(id, () => ({ proposal: claimed, status: "open" }), p);
           return fail(e.status || 409, e.message);
         } finally {

@@ -7,7 +7,7 @@
  */
 import { describe, it, after } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { cleanup, tempStore } from "./helpers.mjs";
 import { OPERATIONS, applyOps, digestOps, previewOps , journalPath, recoverInterruptedApply } from "../../lib/planner-ops.mjs";
@@ -488,5 +488,54 @@ describe("a landing that is killed rather than thrown out of", () => {
     const rec = recoverInterruptedApply(p);
     assert.deepEqual(rec.ids, [orphan.id]);
     assert.equal(list("task", {}, p).length, 0);
+  });
+});
+
+describe("an undo that cannot finish says so", () => {
+  it("marks the error, so a caller cannot hand the same approval back", () => {
+    const p = store();
+    writeConfig({ requireEpic: false }, p);
+    const existing = create("task", { title: "Already here", acceptance: [{ text: "x", done: false }], blockedBy: [], blocks: [] }, "b", p);
+    const dir = dirname(read(existing.id, p).file);
+
+    // `task.depends` args pass through `resolveDestinations` unchanged, so a getter on them
+    // survives into the apply — which is where the failure has to happen for anything to be
+    // created first.
+    const ops = [
+      { op: "task.create", args: { ref: "NEW", title: "Created then stuck", body: "b", acceptance: ["x"] } },
+      { op: "task.depends", args: { task: existing.id, on: ["NEW"] } },
+      { op: "task.depends", args: { task: existing.id, on: ["NEW"] } },
+    ];
+    Object.defineProperty(ops[2].args, "task", {
+      enumerable: true,
+      get() {
+        // Once the new record exists, make its directory unwritable and fail: the undo will not be
+        // able to unlink what this proposal created.
+        if (list("task", {}, p).length > 1) {
+          chmodSync(dir, 0o500);
+          throw new Error("disk gave out");
+        }
+        return existing.id;
+      },
+    });
+
+    let thrown = null;
+    try {
+      applyOps(ops, { approvedDigest: digestOps(ops), stamp: { actor: "m" } }, p);
+    } catch (e) {
+      thrown = e;
+    } finally {
+      chmodSync(dir, 0o700);
+    }
+    // Every step of the undo is best effort by design, and staying silent about a failed one was
+    // itself the defect: the route treats a throw as "nothing landed" and re-arms the proposal, so
+    // a partial undo invited the operator to create the leftovers a second time.
+    assert.ok(thrown, "the landing failed");
+    // Both halves of the undo are named: the record it could not remove, and the pre-existing one
+    // it could not put back — the directory is unwritable for either.
+    assert.ok(thrown.rollbackIncomplete?.length >= 1, "and it named what it could not undo");
+    assert.ok(thrown.rollbackIncomplete.includes(existing.id), "including the record left edited");
+    assert.equal(list("task", {}, p).length, 2, "the created record really is still there");
+    assert.ok(readEvents(p).some((e) => e.event === "planner_apply_rolled_back" && e.stuck?.length));
   });
 });

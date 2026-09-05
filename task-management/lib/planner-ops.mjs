@@ -32,6 +32,9 @@ const err = (message, status) => Object.assign(new Error(message), { status });
 const str = (v) => (typeof v === "string" ? v.trim() : "");
 const list = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === "string" && x.trim()) : []);
 
+/** The argument fields whose values may name something — a board id, or a ref this proposal mints. */
+const REF_BEARING = new Set(["epic", "task", "on"]);
+
 /**
  * Every operation a planner may propose.
  *
@@ -231,12 +234,18 @@ export function journalPath(p = paths()) {
  * thing or "all of it or none of it" is only true for the failures that happen to throw.
  */
 function undoLanding({ created = [], touched = [], previousActiveEpic }, p) {
+  // What the undo could NOT put back. Every step here is best effort — a file that will not
+  // unlink, a record that will not write — and silence about that was itself a defect: the route
+  // above treats a throw as "nothing landed" and hands the proposal back, so a rollback that left
+  // records behind invited the operator to apply the same set on top of them.
+  const stuck = [];
   for (const id of [...created].reverse()) {
     try {
       const file = fileFor(id, p);
       if (file && existsSync(file)) unlinkSync(file);
+      if (fileFor(id, p) && existsSync(fileFor(id, p))) stuck.push(id);
     } catch {
-      /* best effort; the rollback event records what was meant to go */
+      stuck.push(id);
     }
   }
   // Records this proposal MODIFIED go back as they were. Removing what was created while leaving
@@ -250,7 +259,7 @@ function undoLanding({ created = [], touched = [], previousActiveEpic }, p) {
       // this rollback exists to undo. A restore has to go back where it came from.
       write(doc, p);
     } catch {
-      /* best effort, same as above; the rollback event names what was touched */
+      stuck.push(doc?.id);
     }
   }
   try {
@@ -259,6 +268,7 @@ function undoLanding({ created = [], touched = [], previousActiveEpic }, p) {
   } catch {
     /* the index is a cache; `tm reindex` recovers it */
   }
+  return stuck.filter(Boolean);
 }
 
 /**
@@ -466,7 +476,13 @@ function normalizeOps(ops) {
     }
     if (ref) declared.add(ref);
     for (const [field, value] of Object.entries(op?.args ?? {})) {
-      if (field === "ref") continue;
+      // Only the fields that can HOLD a reference. The scan used to walk every argument — title,
+      // body, labels, touches, acceptance — and refuse the whole proposal when any string happened
+      // to equal a ref declared later. A task labelled "mfa" alongside a later `{ref:"mfa"}` was
+      // rejected as a forward reference, with a message describing something the agent had not
+      // done, so it could not correct itself either. These three are the only values `ctx.resolve`
+      // is ever called on.
+      if (!REF_BEARING.has(field)) continue;
       for (const used of (Array.isArray(value) ? value : [value])) {
         const u = str(used);
         // A value is a forward reference only if some later operation declares it. Anything else
@@ -646,12 +662,16 @@ export function applyOps(ops, { approvedDigest, session = null, stamp = {} } = {
       logEvent("planner_applied", { session, digest, operations: normalized.length, created }, p);
       return { digest, applied: results, created };
     } catch (cause) {
-      undoLanding({ created, touched: [...ctx.touched.values()], previousActiveEpic: ctx.previousActiveEpic }, p);
+      const stuck = undoLanding({ created, touched: [...ctx.touched.values()], previousActiveEpic: ctx.previousActiveEpic }, p);
       logEvent(
         "planner_apply_rolled_back",
-        { session, digest, removed: created.length, ids: created, restored: [...ctx.touched.keys()], why: cause?.message || String(cause) },
+        { session, digest, removed: created.length, ids: created, restored: [...ctx.touched.keys()], stuck, why: cause?.message || String(cause) },
         p,
       );
+      // The caller has to be able to tell "nothing landed" from "something landed and would not
+      // come back". Handing the proposal back after the second is how one approval becomes two
+      // sets of records.
+      if (stuck.length) cause.rollbackIncomplete = stuck;
       throw cause;
     } finally {
       try {
