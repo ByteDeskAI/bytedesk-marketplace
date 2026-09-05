@@ -10,7 +10,8 @@ import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { cleanup, tempRepo, tempStore, withSessionEnv } from "./helpers.mjs";
 import { backlog as backlogOf, boardPayload, handleWrite } from "../../lib/dashboard-api.mjs";
 import { acceptanceOf, propose } from "../../lib/capability.mjs";
@@ -1542,6 +1543,26 @@ describe("planning sessions", () => {
     assert.equal(res.status, 400);
     assert.match(res.body.error, /not a governed planning operation/);
     assert.equal(handleWrite("POST", `/api/planner/${id}/apply`, { approvedDigest: "x" }, { p }).status, 409, "and there is nothing to apply");
+  });
+
+  it("lists configured planning agents without ever naming the command", async () => {
+    const p = store();
+    assert.deepEqual(handleWrite("GET", "/api/planner/agents", null, { p }).body.agents, [], "none ship by default");
+
+    const fake = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "fake-acp-agent.mjs");
+    writeConfig({ planner: { agents: [{ id: "fake", label: "Fake ACP agent", command: process.execPath, args: [fake] }] } }, p);
+    const listed = handleWrite("GET", "/api/planner/agents", null, { p }).body.agents;
+    assert.deepEqual(listed.map((a) => a.id), ["fake"]);
+    assert.equal(listed[0].boardWrites, "confirm each set", "not read from the agent");
+    assert.ok(!JSON.stringify(listed).includes(fake), "the command line is not health information");
+    assert.ok(!JSON.stringify(listed).includes(process.execPath));
+
+    // A probe actually spawns, because a check that only reads configuration reports healthy for a
+    // command that is not installed.
+    const probed = await handleAsync("POST", "/api/planner/agents/fake/probe", {}, { p });
+    assert.equal(probed.body.connected, true);
+    assert.ok(!JSON.stringify(probed.body).includes(fake));
+    assert.equal((await handleAsync("POST", "/api/planner/agents/ghost/probe", {}, { p })).status, 404);
   });
 
   it("keeps a planning session off the board until something is approved", () => {

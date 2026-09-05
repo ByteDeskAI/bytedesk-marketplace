@@ -55,6 +55,8 @@ import { importGoalDoc, importManifest, planManifest, relativeToRoot } from "./g
 import { parseGoalDoc, refusal } from "./goals.mjs";
 import { appendTurn, closeSession, deleteSession, listSessions, mutateSession, newSession, readSession } from "./planner.mjs";
 import { applyOps, previewOps } from "./planner-ops.mjs";
+import { agentHealth, plannerAgents, probeAgent } from "./planner-acp.mjs";
+import { cancelRun, runState, startRun } from "./planner-run.mjs";
 import { addComment, addLink, assign, backlog, dependencies, estimate, labelCatalog, labels, prioritise, rank, removeLink, setType, subtasks } from "./issue.mjs";
 import { isAbsolute, resolve, sep } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
@@ -984,6 +986,9 @@ function plannerRoute(method, url, payload, p) {
   const [, id, action] = m;
   try {
     if (method === "GET") {
+      // The registry, without the command lines. A page that could read the command could read
+      // whatever secret an operator put in it, and it has no use for it.
+      if (id === "agents" && !action) return ok({ agents: plannerAgents(p).map((a) => agentHealth(a)) });
       if (!id) return ok({ sessions: listSessions(p) });
       if (action) return null;
       return ok(readSession(id, p));
@@ -1342,6 +1347,29 @@ async function taskDispatch(task, payload, p) {
  */
 export async function handleAsync(method, path, payload = {}, { p = paths(), fetchImpl } = {}) {
   const url = (path || "").split("?")[0];
+  // A health check that only reads configuration reports healthy for a command that is not
+  // installed, which is the one answer nobody wants from a preflight. So this one spawns.
+  const cancel = /^\/api\/planner\/([^/]+)\/cancel$/.exec(url);
+  if (method === "POST" && cancel) return ok(await cancelRun(decodeURIComponent(cancel[1]), p));
+
+  const run = /^\/api\/planner\/([^/]+)\/run$/.exec(url);
+  if (method === "POST" && run) {
+    try {
+      return { status: 202, body: await startRun(decodeURIComponent(run[1]), String(payload?.agent || ""), p) };
+    } catch (e) {
+      return fail(e.status || 400, e.message);
+    }
+  }
+  const runStatus = /^\/api\/planner\/([^/]+)\/run$/.exec(url);
+  if (method === "GET" && runStatus) return ok(runState(decodeURIComponent(runStatus[1])));
+
+  const probe = /^\/api\/planner\/agents\/([^/]+)\/probe$/.exec(url);
+  if (method === "POST" && probe) {
+    const wanted = decodeURIComponent(probe[1]);
+    const agent = plannerAgents(p).find((a) => a.id === wanted);
+    if (!agent) return fail(404, `no planning agent configured with id ${wanted}`);
+    return ok(await probeAgent(agent));
+  }
   if (method === "POST" && url === "/api/ntfy/test") {
     const cfg = ntfyConfig(p);
     if (!cfg.token) return ok({ sent: false, reason: "TM_NTFY_TOKEN is not set in this environment" });

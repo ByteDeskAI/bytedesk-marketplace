@@ -84,6 +84,8 @@ export const CATALOG = {
     // The import undoes itself, so the board is clean — but whatever broke it is still broken.
     planner_opened: { group: "writes", label: "A bounded planning session was opened", priority: "min", tags: "compass" },
     planner_attached: { group: "writes", label: "A file was attached to a planning session as untrusted context", priority: "min", tags: "paperclip" },
+    planner_run_started: { group: "writes", label: "A planning run started against a trusted coding agent", priority: "min", tags: "compass" },
+    planner_run_failed: { group: "writes", label: "A planning run failed", priority: "low", tags: "warning" },
     planner_applied: { group: "writes", label: "An approved planning proposal landed on the board", priority: "default", tags: "dart" },
     planner_apply_rolled_back: { group: "writes", label: "An approved proposal failed to land and undid itself; nothing changed", priority: "high", tags: "rewind" },
     planner_closed: { group: "writes", label: "A planning session ended", priority: "low", tags: "compass" },
