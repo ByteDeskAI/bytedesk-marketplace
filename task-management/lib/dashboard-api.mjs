@@ -53,7 +53,8 @@ import { LINK_TYPES, TYPES } from "./issue.mjs";
 import { EFFORTS, LEVELS, assertLevel } from "./capability.mjs";
 import { importGoalDoc, importManifest, planManifest, relativeToRoot } from "./goal-import.mjs";
 import { parseGoalDoc, refusal } from "./goals.mjs";
-import { appendTurn, closeSession, deleteSession, listSessions, newSession, readSession } from "./planner.mjs";
+import { appendTurn, closeSession, deleteSession, listSessions, mutateSession, newSession, readSession } from "./planner.mjs";
+import { applyOps, previewOps } from "./planner-ops.mjs";
 import { addComment, addLink, assign, backlog, dependencies, estimate, labelCatalog, labels, prioritise, rank, removeLink, setType, subtasks } from "./issue.mjs";
 import { isAbsolute, resolve, sep } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
@@ -991,6 +992,30 @@ function plannerRoute(method, url, payload, p) {
       if (!id) return { status: 201, body: newSession(payload || {}, p) };
       if (action === "turn") return ok(appendTurn(id, payload || {}, p));
       if (action === "close") return ok(closeSession(id, payload?.status || "cancelled", p));
+      if (action === "propose") {
+        // The proposal is recorded ON THE SESSION, and the digest that comes back is what the
+        // operator will approve. Storing it server-side is the point: the approval is checked
+        // against what the server proposed, not against whatever the browser sends back.
+        const preview = previewOps(payload?.operations, p);
+        const session = mutateSession(id, (s) => {
+          if (s.status !== "open") throw fail(409, `planning session ${id} is ${s.status}`).body;
+          return { proposal: { digest: preview.digest, operations: payload.operations, previewed: new Date().toISOString() } };
+        }, p);
+        return ok({ ...preview, session: session.id });
+      }
+      if (action === "apply") {
+        const session = readSession(id, p);
+        if (!session.proposal) return fail(409, "this planning session has no proposal to apply");
+        // Two separate checks, and both matter. The digest the CALLER approved must match what the
+        // server proposed, and `applyOps` independently recomputes it from the operations it is
+        // about to run. Neither the browser's operation list nor its digest is trusted.
+        if (payload?.approvedDigest !== session.proposal.digest) {
+          return fail(409, "the approved proposal is not the one this session is holding — review it again");
+        }
+        const res = applyOps(session.proposal.operations, { approvedDigest: session.proposal.digest, session: id, stamp: stamp(p) }, p);
+        closeSession(id, "applied", p);
+        return { status: 201, body: res };
+      }
       return null;
     }
     if (method === "DELETE" && id && !action) return ok(deleteSession(id, p));

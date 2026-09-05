@@ -1505,6 +1505,45 @@ describe("planning sessions", () => {
     assert.equal(handleWrite("POST", "/api/planner", {}, { p }).status, 400);
   });
 
+  it("proposes, holds the proposal server-side, and applies only what was approved", () => {
+    const p = store();
+    const id = handleWrite("POST", "/api/planner", { goal: "Add a preflight" }, { p }).body.id;
+    const operations = [
+      { op: "epic.create", args: { ref: "E", title: "Preflight", body: "why" } },
+      { op: "task.create", args: { ref: "T", epic: "E", title: "Probe", body: "b", acceptance: ["reports"] } },
+    ];
+    const prop = handleWrite("POST", `/api/planner/${id}/propose`, { operations }, { p });
+    assert.equal(prop.body.ok, true);
+    assert.equal(prop.body.operations.length, 2);
+    assert.match(prop.body.operations[0].consequence, /independently reviewable epic/);
+    assert.equal(list("task", {}, p).length, 0, "proposing writes nothing to the board");
+
+    // The proposal is held on the SESSION. An approval is checked against what the server
+    // proposed, never against whatever the browser hands back.
+    assert.equal(handleWrite("GET", `/api/planner/${id}`, null, { p }).body.proposal.digest, prop.body.digest);
+    assert.equal(handleWrite("POST", `/api/planner/${id}/apply`, { approvedDigest: "deadbeef" }, { p }).status, 409);
+    assert.equal(list("task", {}, p).length, 0, "a wrong digest applies nothing");
+    assert.equal(handleWrite("POST", `/api/planner/${id}/apply`, {}, { p }).status, 409);
+
+    const applied = handleWrite("POST", `/api/planner/${id}/apply`, { approvedDigest: prop.body.digest }, { p });
+    assert.equal(applied.status, 201);
+    assert.equal(applied.body.created.length, 2);
+    assert.equal(list("task", {}, p).length, 1);
+    assert.equal(read(list("task", {}, p)[0].id, p).acceptance[0].text, "reports");
+    // The conversation ends when its proposal lands.
+    assert.equal(handleWrite("GET", `/api/planner/${id}`, null, { p }).body.status, "applied");
+    assert.ok(readEvents(p).some((e) => e.event === "planner_applied"));
+  });
+
+  it("refuses to propose an operation that is not governed", () => {
+    const p = store();
+    const id = handleWrite("POST", "/api/planner", { goal: "Try something" }, { p }).body.id;
+    const res = handleWrite("POST", `/api/planner/${id}/propose`, { operations: [{ op: "task.delete", args: { id: "TM-001" } }] }, { p });
+    assert.equal(res.status, 400);
+    assert.match(res.body.error, /not a governed planning operation/);
+    assert.equal(handleWrite("POST", `/api/planner/${id}/apply`, { approvedDigest: "x" }, { p }).status, 409, "and there is nothing to apply");
+  });
+
   it("keeps a planning session off the board until something is approved", () => {
     const p = store();
     handleWrite("POST", "/api/planner", { goal: "Nothing lands yet" }, { p });
