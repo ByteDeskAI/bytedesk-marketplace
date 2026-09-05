@@ -20,7 +20,7 @@ import { mutate } from "./store.mjs";
  */
 const URI = /^[a-zA-Z][a-zA-Z0-9+.-]+:/;
 
-const PREVIEWABLE = new Set([
+export const PREVIEWABLE = new Set([
   ".log",
   ".txt",
   ".md",
@@ -33,8 +33,17 @@ const PREVIEWABLE = new Set([
   ".jpeg",
   ".gif",
   ".webp",
-  ".svg",
 ]);
+
+/**
+ * `.svg` was in that list and had to come out.
+ *
+ * SVG is a document, not an image: served inline as `image/svg+xml` it executes its own script in
+ * the dashboard's origin, and evidence is attached by whoever can reach the board with no
+ * extension allowlist and no content sniff on the way in. `<svg onload="fetch('/api/…')">` reached
+ * every board write, the dispatch route that spawns a worker, and the planner's approve-and-apply
+ * pair. It is still attachable and still downloadable — it is no longer rendered.
+ */
 
 export const isEvidenceUri = (ref) => typeof ref === "string" && URI.test(ref);
 

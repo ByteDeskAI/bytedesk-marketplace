@@ -1,7 +1,8 @@
 /** lib/goal-import — the import `tm goal import` and `/api/goal/import` share. */
 import { describe, it, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cleanup, tempStore } from "./helpers.mjs";
 import { applyManifestPlan, importGoalDoc, importManifest, planManifest } from "../../lib/goal-import.mjs";
@@ -146,6 +147,48 @@ describe("importManifest", () => {
     const after = importManifest(manifest, { stamp: { actor: "main" } }, p);
     assert.equal(after.tasks.length, 3);
     assert.equal(after.edges, 2);
+  });
+
+  it("refuses a goal doc outside the repository, including through a symlink", () => {
+    const p = store();
+    const dir = join(p.root, "docs", "goals");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "ok.md"), doc);
+
+    // The manifest's own path was confined and the docs it NAMES were not, so a manifest could
+    // read any file the board process could read and write its contents into a task body on a
+    // shared board.
+    const outside = mkdtempSync(join(tmpdir(), "outside-"));
+    stores.push(outside);
+    writeFileSync(join(outside, "secret.md"), "# Goal: Secret\n\n## Success criteria\n\n- leaked\n");
+    try {
+      symlinkSync(join(outside, "secret.md"), join(dir, "sneaky.md"));
+    } catch {
+      /* a filesystem without symlinks still runs the other two cases */
+    }
+
+    const manifest = join(dir, "p.plan.json");
+    writeFileSync(manifest, JSON.stringify({
+      epic: { title: "Program" },
+      goals: [
+        { id: "ABS", doc: join(outside, "secret.md") },
+        { id: "REL", doc: `../../../..${outside}/secret.md` },
+        { id: "LINK", doc: "docs/goals/sneaky.md" },
+        { id: "OK", doc: "docs/goals/ok.md" },
+      ],
+    }));
+
+    const plan = planManifest(manifest, p);
+    assert.deepEqual(plan.goals.map((g) => g.goalId), ["OK"], "only the in-repo doc lands");
+    for (const id of ["ABS", "REL"]) {
+      assert.match(plan.skipped.find((sk) => sk.id === id).why, /outside this repository/);
+    }
+    if (existsSync(join(dir, "sneaky.md"))) {
+      // Confinement is on the resolved real path, not the string — a symlink inside the repo that
+      // points out is the case a prefix compare passes.
+      assert.match(plan.skipped.find((sk) => sk.id === "LINK").why, /outside this repository/);
+    }
+    assert.ok(!JSON.stringify(plan).includes("leaked"), "nothing from outside reached the plan");
   });
 
   it("throws 400 on a missing or malformed manifest", () => {

@@ -82,9 +82,11 @@ export const MAX_DISPLAY_NAME = 120;
 
 export function displayName(name) {
   const leaf = String(name || "").replace(/\\/g, "/").split("/").pop() || "attachment";
-  // Control characters out. A name is shown to a person and stored in a JSON record; neither
-  // wants a NUL or an escape sequence.
-  const clean = leaf.replace(/[\u0000-\u001f\u007f]/g, "");
+  // Control characters out — and the bidirectional overrides with them. A name is shown to a
+  // PERSON who is deciding whether to trust these bytes, and U+202E and friends reorder the
+  // rendered text: `\u202Egnp.md` displays as `dm.png`, so a markdown file can present itself as an
+  // image. The extension check catches what the file IS; this stops the name lying about it.
+  const clean = leaf.replace(/[\u0000-\u001f\u007f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, "");
   if (!clean) return "attachment";
   if (clean.length <= MAX_DISPLAY_NAME) return clean;
   // Truncate the STEM and keep the extension. A plain `slice` cuts the extension off the end of a

@@ -112,8 +112,23 @@ const clamp = (text) => (text.length <= MAX_CHARS ? text : `${text.slice(0, MAX_
  */
 export const PLANNER_TOOLS = Object.freeze([
   "tm_board", "tm_next", "tm_show", "tm_find", "tm_why", "tm_graph", "tm_history",
-  "tm_log", "tm_stale", "tm_parallel", "tm_export", "tm_agents", "tm_cap_list", "tm_doctor",
+  "tm_log", "tm_stale", "tm_parallel", "tm_export", "tm_cap_list",
 ]);
+
+/**
+ * `tm_doctor` and `tm_agents` were on this list and had to come off.
+ *
+ * Both LOOK like reads and both have a mutating mode reached by an argument: `tm_doctor
+ * {fix:true, confirm:true}` rewrites task files, and `tm_agents {action:"reap"}` edits the
+ * registry. The confirmation that gates the destructive half is supplied by the CALLER — so an
+ * agent holding the tool simply confirms its own write, and no proposal, no digest and no human is
+ * involved. A read-only surface chosen by tool name rather than by what its arguments can do is
+ * not a read-only surface.
+ *
+ * The test for this list calls every permitted tool with its most destructive arguments and
+ * asserts the store is byte-identical afterwards, because comparing the list to itself would have
+ * passed the entire time these two were on it.
+ */
 
 /** The tool table this session is allowed to serve. */
 export function plannerTools(profile = process.env.TM_MCP_PROFILE) {

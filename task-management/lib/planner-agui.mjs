@@ -112,7 +112,9 @@ export function translate(update, state = {}) {
       return [event(AGUI.ACTIVITY_DELTA, { activity: "thinking" })];
 
     case "plan": {
-      const steps = Array.isArray(update.entries) ? update.entries : [];
+      // Every entry is agent-supplied and none of it is trusted to be an object. `entries: [null]`
+      // threw here, and this runs on a stdout listener, so the throw took the host process with it.
+      const steps = (Array.isArray(update.entries) ? update.entries : []).filter((s) => s && typeof s === "object");
       return [
         event(AGUI.STATE_DELTA, {
           path: "/planner/steps",

@@ -16,6 +16,7 @@ import { AcpSession, agentHealth, governedToolServer, plannerAgents, probeAgent 
 import { PLANNER_TOOLS, TOOLS, callTool, plannerTools } from "../../lib/mcp.mjs";
 import { writeConfig } from "../../lib/store.mjs";
 import { closeSession, newSession, readSession } from "../../lib/planner.mjs";
+import { create, list, read, state, update } from "../../lib/store.mjs";
 import { cancelRun, promptFor, runState, startRun, stopAllRuns, subscribe } from "../../lib/planner-run.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -364,8 +365,37 @@ describe("the governed tool surface", () => {
     // holds may mutate the board. A planner with `tm_task_create` makes every approval in this
     // product decorative — the operator approves a proposal the agent already went around.
     const mutating = TOOLS.filter((t) => !PLANNER_TOOLS.includes(t.name)).map((t) => t.name);
-    for (const write of ["tm_task_create", "tm_epic", "tm_goal_import", "tm_dispatch", "tm_evidence", "tm_ac_accept", "tm_claim"]) {
+    for (const write of ["tm_task_create", "tm_epic", "tm_goal_import", "tm_dispatch", "tm_evidence", "tm_ac_accept", "tm_claim", "tm_doctor", "tm_agents"]) {
       assert.ok(mutating.includes(write), `${write} must not be in the planner surface`);
+    }
+  });
+
+  it("leaves the store untouched when every permitted tool is called as destructively as it allows", () => {
+    // The assertion that was missing, and its absence is why `tm_doctor` and `tm_agents` sat on
+    // the list. Both LOOK like reads; both have a mutating mode reached by an argument, and the
+    // confirmation that gates it is supplied by the caller — so an agent confirms its own write.
+    // Comparing the allowlist to itself would have passed the whole time. This calls each
+    // permitted tool with its most destructive arguments and asserts nothing changed.
+    const p = store();
+    const epic = create("epic", { title: "Present" }, "", p);
+    const task = create("task", { title: "Present", epic: epic.id, acceptance: [{ text: "x", done: false }] }, "b", p);
+    update(task.id, { blockedBy: ["TM-999"] }, p); // a dangling dep, which is what `doctor --fix` rewrites
+
+    const snapshot = () => JSON.stringify({
+      tasks: list("task", {}, p).map((t) => read(t.id, p)),
+      epics: list("epic", {}, p).map((e) => read(e.id, p)),
+      state: state(p),
+    });
+    const before = snapshot();
+
+    const hostile = { fix: true, confirm: true, action: "reap", name: "anything", id: task.id, force: true, all: true };
+    for (const name of PLANNER_TOOLS) {
+      try {
+        callTool(name, hostile, p);
+      } catch {
+        // A tool that refuses hostile arguments is fine; a tool that ACTS on them is not.
+      }
+      assert.equal(snapshot(), before, `${name} changed the store when called with ${JSON.stringify(hostile)}`);
     }
   });
 

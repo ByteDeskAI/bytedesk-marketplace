@@ -23,7 +23,7 @@ import { createHash } from "node:crypto";
 import { existsSync, unlinkSync } from "node:fs";
 import { gateTaskCreate } from "./enforce.mjs";
 import { paths } from "./paths.mjs";
-import { create, fileFor, kindOf, logEvent, mutate, read, reindex, state, withLock, writeState } from "./store.mjs";
+import { create, fileFor, kindOf, logEvent, mutate, read, reindex, state, withLock, write, writeState } from "./store.mjs";
 
 const err = (message, status) => Object.assign(new Error(message), { status });
 
@@ -70,6 +70,11 @@ export const OPERATIONS = {
     },
     apply(args, ctx) {
       const id = ctx.resolve(args.epic);
+      // Last line of defence. `activeEpic` is read by every later create, on this surface and off
+      // it, so writing an unresolved ref there poisons the board rather than failing one operation.
+      if (kindOf(id) !== "epic") {
+        throw err(`epic.activate resolved "${args.epic}" to "${id}", which is not an epic id`, 409);
+      }
       ctx.rememberActiveEpic();
       writeState({ activeEpic: id }, ctx.p);
       return { id, kind: "epic", activated: true };
@@ -150,6 +155,9 @@ export const OPERATIONS = {
     apply(args, ctx) {
       const mine = ctx.resolve(args.task);
       const on = [...new Set(list(args.on).map((d) => ctx.resolve(d)).filter(Boolean))];
+      // Both sides of the edge are written, so both are snapshotted first — including any that
+      // this proposal did not create and must therefore be put back exactly as it was.
+      for (const id of [mine, ...on]) ctx.touch(id);
       mutate(mine, (doc) => ({
         blockedBy: [...new Set([...(doc.blockedBy || []), ...on])],
         status: doc.status === "open" ? "blocked" : doc.status,
@@ -195,6 +203,7 @@ export function digestOps(ops) {
 /** Shared context for check and apply: ref resolution, minted ids, the stamp. */
 function makeContext(ops, p, stamp) {
   const minted = new Map();
+  const touched = new Map(); // id -> the document as it was before this proposal changed it
   // Refs a proposal declares for itself, known before anything is created so `check` can resolve
   // a forward reference the same way `apply` will.
   const pending = new Set(ops.map((op) => str(op.args?.ref)).filter(Boolean));
@@ -215,6 +224,23 @@ function makeContext(ops, p, stamp) {
     rememberActiveEpic() {
       if (previousActiveEpic === undefined) previousActiveEpic = state(p).activeEpic ?? null;
     },
+    /**
+     * Snapshot a record this proposal is about to MODIFY but did not create.
+     *
+     * Rollback used to remove created records and stop there, so an operation that edited an
+     * existing task left that edit behind: `task.depends` writes both sides of an edge, and a
+     * later failure deleted the new task while the pre-existing one stayed blocked on an id that
+     * no longer resolved. Undoing half a transaction is worse than not having one, because the
+     * board looks fine and is wrong.
+     */
+    touch(id) {
+      if (!id || minted.has(id) || [...minted.values()].includes(id) || touched.has(id)) return;
+      const doc = read(id, p);
+      if (doc) touched.set(id, doc);
+    },
+    get touched() {
+      return touched;
+    },
     get previousActiveEpic() {
       return previousActiveEpic;
     },
@@ -224,6 +250,38 @@ function makeContext(ops, p, stamp) {
 function normalizeOps(ops) {
   if (!Array.isArray(ops) || ops.length === 0) throw err("a proposal needs at least one operation", 400);
   if (ops.length > 100) throw err("a proposal of more than 100 operations is not one reviewable decision", 400);
+  // A ref must be declared by a CREATING operation, and declared before it is used. Neither held
+  // before: `pending` was every `ref` in the proposal regardless of which operation owned it, and
+  // regardless of order — so `[epic.activate {epic:"E"}, epic.create {ref:"E"}]` passed preview,
+  // and apply wrote the literal string "E" into `activeEpic` because nothing had minted it yet.
+  // Every task created afterwards, by the planner or the CLI or the board, then inherited an epic
+  // that does not exist.
+  const declared = new Set();
+  ops.forEach((op, i) => {
+    const name = str(op?.op);
+    const ref = str(op?.args?.ref);
+    const spec = OPERATIONS[name];
+    if (ref && !spec?.creates) {
+      throw err(`operation ${i + 1}: only an operation that creates something may declare a ref.`, 400);
+    }
+    if (ref) declared.add(ref);
+    for (const [field, value] of Object.entries(op?.args ?? {})) {
+      if (field === "ref") continue;
+      for (const used of (Array.isArray(value) ? value : [value])) {
+        const u = str(used);
+        // A value is a forward reference only if some later operation declares it. Anything else
+        // is a board id and is checked by the operation's own `check`.
+        if (!u || declared.has(u)) continue;
+        const laterOwner = ops.findIndex((o, j) => j > i && str(o?.args?.ref) === u);
+        if (laterOwner !== -1) {
+          throw err(
+            `operation ${i + 1}: "${u}" is created by operation ${laterOwner + 1}, which runs after it. Order a proposal so nothing refers to something that does not exist yet.`,
+            400,
+          );
+        }
+      }
+    }
+  });
   return ops.map((op, i) => {
     const name = str(op?.op);
     if (!OPERATIONS[name]) {
@@ -342,6 +400,17 @@ export function applyOps(ops, { approvedDigest, session = null, stamp = {} } = {
           /* best effort; the rollback event records what was meant to go */
         }
       }
+      // Records this proposal MODIFIED go back as they were. Removing what was created while
+      // leaving edits to what already existed is the half-undo that makes a board look fine and
+      // be wrong — a pre-existing task left blocked on an id that was just deleted.
+      for (const [id, doc] of ctx.touched) {
+        try {
+          const { file, ...data } = doc;
+          write(data, p);
+        } catch {
+          /* best effort, same as above; the rollback event names what was touched */
+        }
+      }
       try {
         if (ctx.previousActiveEpic !== undefined) writeState({ activeEpic: ctx.previousActiveEpic }, p);
         reindex(p);
@@ -350,7 +419,7 @@ export function applyOps(ops, { approvedDigest, session = null, stamp = {} } = {
       }
       logEvent(
         "planner_apply_rolled_back",
-        { session, digest, removed: created.length, ids: created, why: cause?.message || String(cause) },
+        { session, digest, removed: created.length, ids: created, restored: [...ctx.touched.keys()], why: cause?.message || String(cause) },
         p,
       );
       throw cause;

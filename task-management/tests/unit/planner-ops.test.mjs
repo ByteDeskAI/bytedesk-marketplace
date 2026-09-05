@@ -250,3 +250,42 @@ describe("references, checked at preview rather than at apply", () => {
     assert.equal(ok.ok, true);
   });
 });
+
+describe("rollback restores what it modified, not only what it created", () => {
+  it("puts a pre-existing task back when a later operation fails", () => {
+    const p = store();
+    const existing = create("task", { title: "Pre-existing", acceptance: [{ text: "x", done: false }], blockedBy: [], blocks: [] }, "b", p);
+    const before = read(existing.id, p);
+
+    // Valid at preview; the third operation fails once the earlier writes have landed. That is the
+    // shape that mattered: `task.depends` writes BOTH sides of an edge, so a failure after it left
+    // a pre-existing task pointing at a task that had just been deleted. Removing what was created
+    // while leaving edits to what already existed is the half-undo that makes a board look fine
+    // and be wrong.
+    const ops = [
+      { op: "task.create", args: { ref: "NEW", title: "New one", body: "b", acceptance: ["x"] } },
+      { op: "task.depends", args: { task: existing.id, on: ["NEW"] } },
+      { op: "task.depends", args: { task: existing.id, on: ["NEW"] } },
+    ];
+    Object.defineProperty(ops[2].args, "task", {
+      enumerable: true,
+      get() {
+        if (list("task", {}, p).length > 1 && read(existing.id, p).blockedBy?.length) throw new Error("disk gave out");
+        return existing.id;
+      },
+    });
+
+    assert.throws(() => applyOps(ops, { approvedDigest: digestOps(ops), stamp: { actor: "m" } }, p), /disk gave out/);
+
+    assert.deepEqual(list("task", {}, p).map((t) => t.id), [existing.id], "the created task is gone");
+    const after = read(existing.id, p);
+    assert.deepEqual(after.blockedBy, [], "and the pre-existing task is not left blocked on it");
+    assert.deepEqual(after.blocks, before.blocks ?? []);
+    // Everything but the write timestamp is exactly as it was.
+    const fields = (doc) => { const { updated, file, ...rest } = doc; return rest; };
+    assert.deepEqual(fields(after), fields(before));
+
+    const rolled = readEvents(p).filter((e) => e.event === "planner_apply_rolled_back").at(-1);
+    assert.deepEqual(rolled.restored, [existing.id], "the event names what it put back, not only what it removed");
+  });
+});

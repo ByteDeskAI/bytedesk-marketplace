@@ -9,14 +9,32 @@
  * list passes `tm done` unchallenged, so a silent import would have the gate certify a goal nobody
  * verified. A manifest skips such docs and names them rather than losing the other nineteen.
  */
-import { existsSync, readFileSync, unlinkSync } from "node:fs";
-import { dirname, isAbsolute, resolve } from "node:path";
+import { existsSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
+import { dirname, isAbsolute, resolve, sep } from "node:path";
 import { gateTaskCreate } from "./enforce.mjs";
 import { goalBody, manifestGoalTitle, parseGoalDoc, parseManifest, refusal } from "./goals.mjs";
 import { paths } from "./paths.mjs";
 import { create, fileFor, logEvent, mutate, read, reindex, state, withLock, writeState } from "./store.mjs";
 
 const err = (message, status) => Object.assign(new Error(message), { status });
+
+/**
+ * The real path of `file`, or null when it resolves outside the repository.
+ *
+ * `realpathSync` rather than a prefix compare: a string check passes a symlink that lives inside
+ * the repo and points anywhere, which is the same class of bug `servableEvidencePath` already
+ * fails closed on.
+ */
+function insideRepo(file, p) {
+  if (!p.root) return null;
+  try {
+    const real = realpathSync(file);
+    const root = realpathSync(p.root);
+    return real === root || real.startsWith(root + sep) ? real : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Repo-relative when the path is inside the project, else as given. */
 export function relativeToRoot(file, p) {
@@ -91,9 +109,19 @@ export function planManifest(path, p = paths()) {
     // A manifest doc path is relative to the repo the manifest lives in, not to the store.
     const docPath = isAbsolute(g.doc) ? g.doc : resolve(manifestDir, g.doc.replace(/^docs\/goals\//, ""));
     const fallback = resolve(manifestDir, g.doc);
-    const found = existsSync(docPath) ? docPath : existsSync(fallback) ? fallback : null;
-    if (!found) {
+    const candidate = existsSync(docPath) ? docPath : existsSync(fallback) ? fallback : null;
+    if (!candidate) {
       skipped.push({ id: g.id, why: `doc not found: ${g.doc}` });
+      continue;
+    }
+    // The manifest's own path is confined to the repository, and the docs it NAMES were not — so
+    // `{"doc": "/etc/passwd.md"}`, or a relative walk out, read any file the board process could
+    // read and wrote its contents into a task body on a shared board. Confinement is on the
+    // resolved real path, not the string, so a symlink inside the repo pointing out is refused
+    // too.
+    const found = insideRepo(candidate, p);
+    if (!found) {
+      skipped.push({ id: g.id, why: `doc is outside this repository: ${g.doc}` });
       continue;
     }
     const parsed = parseGoalDoc(readFileSync(found, "utf8"));

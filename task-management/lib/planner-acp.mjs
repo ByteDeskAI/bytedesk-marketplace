@@ -202,6 +202,12 @@ export class AcpSession {
       // A partial or non-JSON line is the agent's problem, not a reason to tear down a run.
       return;
     }
+    // `JSON.parse("null")` SUCCEEDS and returns null, and `JSON.parse("42")` returns a number —
+    // so a try/catch around the parse is not the guard it looks like. Reading `.id` off either
+    // threw a TypeError from a stdout listener, outside any promise, which takes the whole
+    // dashboard process down. An agent is untrusted input; one line of its output must never be
+    // able to stop the board.
+    if (!msg || typeof msg !== "object" || Array.isArray(msg)) return;
     // A response to something we asked.
     if (msg.id != null && (("result" in msg) || ("error" in msg)) && this.pending.has(msg.id)) {
       const entry = this.pending.get(msg.id);
@@ -209,9 +215,14 @@ export class AcpSession {
       entry.settle(msg);
       return;
     }
-    // A notification from the agent.
+    // A notification from the agent. The callback translates agent-supplied data and may append to
+    // the session, so it is fenced: a throw in there is this run's problem, never the host's.
     if (msg.method === "session/update") {
-      this.onUpdate(msg.params?.update ?? msg.params ?? {});
+      try {
+        this.onUpdate(msg.params?.update ?? msg.params ?? {});
+      } catch (e) {
+        this.onExit({ code: null, signal: null, error: `the planning agent sent an update this bridge could not handle: ${e.message}` });
+      }
       return;
     }
     // A REQUEST from the agent — permission, elicitation. The caller decides; we only carry it.

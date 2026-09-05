@@ -108,7 +108,17 @@ export async function startRun(sessionId, agentId, p = paths()) {
         const text = (Array.isArray(update.content) ? update.content : [update.content])
           .filter((c) => c && typeof c.text === "string").map((c) => c.text).join("").trim();
         const kind = slotFor(run) === "clarification" ? "question" : slotFor(run) === "result" ? "result" : "evidence";
-        if (text) appendTurn(sessionId, { role: "agent", kind, text }, p).catch?.(() => {});
+        // `appendTurn` is SYNCHRONOUS, so the `.catch?.()` that used to be here caught nothing —
+        // an over-long chunk from the agent threw straight out of a stdout listener. Agent text is
+        // clipped to what a turn accepts rather than refused, because losing the tail of a
+        // question is better than losing the run.
+        if (text) {
+          try {
+            appendTurn(sessionId, { role: "agent", kind, text: text.slice(0, 20000) }, p);
+          } catch {
+            /* a turn that will not append is not a reason to end the run */
+          }
+        }
       }
     },
     onRequest: async (method, params) => {

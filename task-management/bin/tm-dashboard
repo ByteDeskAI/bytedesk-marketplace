@@ -33,7 +33,7 @@ import { CATALOG } from "../lib/ntfy.mjs";
 import { collapseLog } from "../lib/render.mjs";
 import { workStream } from "../lib/transcript.mjs";
 import { kindOf, read as readEntity, readEvents, state } from "../lib/store.mjs";
-import { attachEvidence, servableEvidencePath } from "../lib/evidence.mjs";
+import { PREVIEWABLE, attachEvidence, servableEvidencePath } from "../lib/evidence.mjs";
 import { attachToSession, attachmentPath } from "../lib/planner.mjs";
 
 // Degrade like `tm` does. Launched from a directory with no resolvable store —
@@ -353,10 +353,27 @@ const server = createServer((req, res) => {
     const dest = task && servableEvidencePath(task, ref, P);
     if (!dest) return json(res, 404, { error: "not found" });
     const ext = dest.slice(dest.lastIndexOf("."));
+    /**
+     * Evidence is attached by whoever can reach this board, and `attachEvidence` applies no
+     * extension allowlist and no content sniff — so these bytes are as untrusted as a planner
+     * attachment, and were being served far less carefully.
+     *
+     * An `.svg` served `inline` as `image/svg+xml` EXECUTES its own script in the dashboard's
+     * origin: `<svg onload="fetch('/api/planner/…')">` reached every board write, the dispatch
+     * route that spawns a worker, and the planner's propose-and-apply pair. Preview is worth
+     * having, so it is kept for the types that cannot carry script, and everything else — the
+     * ones the dashboard cannot render safely — downloads instead.
+     *
+     * The sandbox CSP goes on BOTH paths: a browser that ignores the disposition, or a type this
+     * list gets wrong later, then still finds no script, no plugin and no same-origin to inherit.
+     */
+    const inline = PREVIEWABLE.has(ext.toLowerCase());
     res.writeHead(200, {
-      "content-type": TYPES[ext] || "application/octet-stream",
+      "content-type": inline ? (TYPES[ext] || "text/plain; charset=utf-8") : "application/octet-stream",
       "cache-control": "no-store",
-      "content-disposition": `inline; filename="${basename(dest)}"`,
+      "content-disposition": `${inline ? "inline" : "attachment"}; filename="${basename(dest)}"`,
+      "content-security-policy": "sandbox; default-src 'none'",
+      "x-content-type-options": "nosniff",
     });
     res.end(readFileSync(dest));
     return;

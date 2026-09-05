@@ -157,6 +157,17 @@ describe("planning attachments", () => {
     assert.equal(displayName("a/b/c/final.md"), "final.md");
   });
 
+  it("strips the bidi overrides, so a name cannot lie about what the file is", () => {
+    // U+202E reorders the rendered text: "\u202Egnp.md" displays as "dm.png", so a markdown file
+    // presents itself as an image to the person deciding whether to trust it. The extension check
+    // catches what the file IS; this stops the name contradicting it.
+    assert.equal(displayName("\u202Egnp.md"), "gnp.md");
+    for (const ch of ["\u200e", "\u200f", "\u202a", "\u202b", "\u202c", "\u202d", "\u202e", "\u2066", "\u2067", "\u2068", "\u2069"]) {
+      const out = displayName(`a${ch}b.md`);
+      assert.equal(out, "ab.md", `${escape(ch)} must not survive`);
+    }
+  });
+
   it("stores one copy of the same bytes, however many times they arrive", () => {
     const p = store();
     const s = newSession({ goal: "Dedupe" }, p);
