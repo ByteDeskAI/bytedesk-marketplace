@@ -479,6 +479,10 @@ const commands = {
     const report = { run_id: run.run_id, name: run.name, session: run.session, session_alive: alive, state: run.state, run_dir: runDir, inputs: run.inputs, agents, pending_count: pending.length, queues, recent: journal };
     if (flags.json) return out(report);
     out(`${run.name} · run ${run.run_id} · state ${run.state} · session ${run.session} ${alive ? "(alive)" : "(gone)"}`);
+    // A malformed roster is worth saying out loud here: routing redirects against the agent
+    // library, so if the library cannot name a single lead, the queue shown below is measuring a
+    // different agent than the one messages are actually going to.
+    for (const queue of queues) if (queue.lead_error) out(`  ! roster problem: ${queue.lead_error}`);
     for (const agent of agents) out(`  ${agent.alive ? "●" : "○"} ${agent.id} (${agent.role}) on ${agent.provider ?? "NO PROVIDER"} [chain: ${agent.chain.join(" → ")}] pane ${agent.pane}${agent.command ? ` running ${agent.command}` : ""}${agent.pending.length ? ` — queue ${agent.queue.depth}${agent.queue.oldest_age_ms != null ? `, oldest ${Math.round(agent.queue.oldest_age_ms / 1000)}s` : ""}: ${agent.pending.join(", ")}` : ""}`);
     out("Recent journal:");
     for (const event of journal) out(`  ${event.ts ?? ""}  ${event.type}${event.id ? ` ${event.id}` : ""}${event.agent ? ` ${event.agent}` : ""}${event.from ? ` from ${event.from}` : ""}${event.to ? ` to ${[].concat(event.to).join(",")}` : ""}`);

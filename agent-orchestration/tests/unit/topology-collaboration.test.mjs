@@ -68,9 +68,13 @@ async function runFor(p, { flagCoordinator = false } = {}) {
   }
   await writeJson(join(runDir, "run.json"), {
     run_id: "demo",
+    // launchRun records the repo the run belongs to; the lead is resolved from that repo's library.
+    consumer: p.dir,
     sequence: 0,
     agents: [
-      { id: p.lead.id, role: "lead", token: `tok-${p.lead.id}`, ...(flagCoordinator ? { coordinates_only: true } : {}) },
+      // A live run really does record its lead as `orchestrator` — that is the spec's role, and no
+      // `lead` role pack exists. Encoding the true shape here is what keeps leadQueueDepth honest.
+      { id: p.lead.id, role: "orchestrator", token: `tok-${p.lead.id}`, ...(flagCoordinator ? { coordinates_only: true } : {}) },
       { id: p.member.id, role: "reviewer", token: `tok-${p.member.id}` },
     ],
   });
@@ -430,6 +434,9 @@ test("the lead's inbox depth is a number, and it is journalled as it grows", asy
     const route = (args) => routeMessage({ consumer: b.dir, ...args });
 
     assert.deepEqual((await leadQueueDepth(runDir)).map((r) => r.depth), [0], "an idle lead reads zero, not nothing");
+    // The guard against the bug this replaced: filtering the run on `role === "lead"` matched
+    // nothing and returned [], which every caller reads as "no congestion".
+    assert.equal((await leadQueueDepth(runDir)).length, 1, "the lead must be found even though the run calls it an orchestrator");
 
     for (const n of [1, 2, 3]) {
       await sendMessage({
@@ -439,8 +446,9 @@ test("the lead's inbox depth is a number, and it is journalled as it grows", asy
     }
 
     const [lead] = await leadQueueDepth(runDir);
-    assert.equal(lead.agent, b.lead.id);
-    assert.equal(lead.role, "lead");
+    assert.equal(lead.agent, b.lead.id, "the lead is resolved from the agent library, not from the run's role field");
+    assert.equal(lead.lead_from, "library");
+    assert.equal(lead.role, "orchestrator", "the run really does record the lead under the spec's role");
     assert.equal(lead.depth, 3, "every redirected message is sitting in the lead's inbox");
     assert.ok(lead.oldest_age_ms >= 0, "the oldest waiting message has an age");
     assert.equal(lead.messages.length, 3);

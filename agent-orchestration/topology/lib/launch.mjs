@@ -269,10 +269,18 @@ export function tokenDigest(token) {
 
 /** Build launcher + argv for every candidate of one agent; write nothing yet. */
 function prepareCandidates({ spec, agent, adapters, bootstrapFile, dir, warnings, token }) {
-  // An agent whose cwd is not the repo has its own memory (every shipped CLI keys session state by
-  // working directory) but no access to the tree it is meant to work in. The adapter declares how to
-  // grant it; if it declares nothing, say so rather than launching a blind agent.
-  const addDirs = [...new Set([...(agent.add_dirs ?? []), ...(resolve(agent.cwd) === resolve(spec.consumer) ? [] : [spec.consumer])])].filter(Boolean);
+  // A coordinator is granted nothing. It delegates rather than implements, and it is the only
+  // address an outsider may reach directly in cross-repo routing — the most exposed agent in the
+  // system should be the least capable one. Its cwd is its own agent directory, so withholding the
+  // work-tree grant leaves that directory the only writable path it has: "cannot write the repo" is
+  // then a property of what it was launched with, not a sentence in its prompt.
+  const coordinator = agent.coordinates_only === true;
+  // Any other agent whose cwd is not the repo has its own memory (every shipped CLI keys session
+  // state by working directory) but no access to the tree it is meant to work in. The adapter
+  // declares how to grant it; if it declares nothing, say so rather than launching a blind agent.
+  const addDirs = coordinator
+    ? []
+    : [...new Set([...(agent.add_dirs ?? []), ...(resolve(agent.cwd) === resolve(spec.consumer) ? [] : [spec.consumer])])].filter(Boolean);
   const system_prompt = `You are agent "${agent.id}" (role: ${agent.role}) in the multi-agent orchestration "${spec.name}". Before doing anything else, read ${bootstrapFile} and follow it exactly.`;
   return agent.candidates.map((candidate, index) => {
     const adapter = adapterFor({ ...agent, cli: candidate.cli, model: candidate.model }, adapters);
@@ -281,7 +289,10 @@ function prepareCandidates({ spec, agent, adapters, bootstrapFile, dir, warnings
     if (addDirs.length > 0 && !grantsDirs(adapter)) {
       warnings.push(`agent ${agent.id}: ${candidateLabel(candidate)} has no add_dir_args, so it cannot be granted ${addDirs.join(", ")} — it will only see ${agent.cwd}. Add add_dir_args to its provider JSON, or give the agent cwd ${spec.consumer}.`);
     }
-    const argv = buildArgv(adapter, { ...agent, cli: candidate.cli, model: candidate.model, add_dirs: addDirs }, vars);
+    if (coordinator && (adapter.coordinator_args ?? []).length === 0) {
+      warnings.push(`agent ${agent.id}: ${candidateLabel(candidate)} declares no coordinator_args, so nothing removes its write tools — it is contained only by having no directory granted beyond ${agent.cwd}. Add coordinator_args to its provider JSON.`);
+    }
+    const argv = buildArgv(adapter, { ...agent, cli: candidate.cli, model: candidate.model, coordinates_only: coordinator, add_dirs: addDirs }, vars);
     // AO_AGENT_TOKEN goes in last, after the spec's own env: a spec is data, often committed data,
     // and it may not name the secret that decides which agent this pane is allowed to answer as.
     const env = { AO_RUN_DIR: spec.run_dir, AO_AGENT_ID: agent.id, AO_AGENT_ROLE: agent.role, AO_SESSION: spec.session, AO_PROVIDER: candidateLabel(candidate), ...agent.env, AO_AGENT_TOKEN: token };
@@ -427,12 +438,9 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
       cwd: item.agent.cwd,
       pane: null,
       bootstrap: item.bootstrapFile,
-      // recordReply verifies against the digest. The plaintext is written beside it because run-local
-      // tooling has no other way to obtain an agent's own token, and it is no more exposed than the
-      // launcher script that exports it — both sit in the run dir under the same uid.
-      // ponytail: while `token` is here the check stops mistakes, not a determined local forger.
-      // Drop this field the moment nothing reads it back, and the digest alone is the record.
-      token: item.token,
+      // The digest, never the secret. A record that is enough to check a reply with, and never
+      // enough to forge one with: the run dir is readable by every agent in the run. Anything that
+      // needs the token itself reads it from that agent's own launcher, where only that pane sees it.
       token_sha256: tokenDigest(item.token),
       candidates: item.candidates.map((candidate) => ({ label: candidate.label, cli: candidate.candidate.cli, model: candidate.candidate.model ?? null, adapter: candidate.adapter.id, launcher: candidate.launcher, submit_keys: candidate.adapter.submit_keys, add_dirs: candidate.add_dirs, memory: candidate.memory })),
       active: null,

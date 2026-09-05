@@ -12,6 +12,10 @@ export const GENERIC_ADAPTER = {
   model_args: [],
   system_prompt_args: [],
   auto_approve_args: [],
+  // What this CLI is given so a coordinator cannot write. Appended after auto_approve_args, so a
+  // restriction always wins over a permission. Empty means this CLI has no equivalent — declare it
+  // empty and say so in `notes` rather than inventing a flag.
+  coordinator_args: [],
   // How this CLI is granted tool access to a directory that is not its cwd. An agent runs with its
   // own per-agent cwd (that is what gives it its own memory), so the repo it works on has to be
   // granted explicitly. `{{dir}}` is the directory. Empty means the CLI cannot do this.
@@ -61,7 +65,7 @@ export function normalizeAdapter(raw, source) {
   invariant(raw && typeof raw === "object", "TOPOLOGY_ADAPTER_INVALID", `Adapter ${source} must be a JSON object.`);
   invariant(typeof raw.id === "string" && raw.id, "TOPOLOGY_ADAPTER_INVALID", `Adapter ${source} needs an "id".`);
   const adapter = { ...GENERIC_ADAPTER, ...raw, source };
-  for (const key of ["args", "model_args", "system_prompt_args", "auto_approve_args", "add_dir_args", "submit_keys", "failure_patterns"]) {
+  for (const key of ["args", "model_args", "system_prompt_args", "auto_approve_args", "coordinator_args", "add_dir_args", "submit_keys", "failure_patterns"]) {
     invariant(Array.isArray(adapter[key]), "TOPOLOGY_ADAPTER_INVALID", `Adapter ${adapter.id}: "${key}" must be an array.`);
     adapter[key] = adapter[key].map(String);
   }
@@ -127,6 +131,9 @@ export function buildArgv(adapter, agent, vars) {
   if (agent.model && adapter.model_args.length > 0) argv.push(...adapter.model_args);
   if (adapter.system_prompt_args.length > 0) argv.push(...adapter.system_prompt_args);
   if (agent.auto_approve && adapter.auto_approve_args.length > 0) argv.push(...adapter.auto_approve_args);
+  // Last of the option groups, so where a CLI expresses both with one flag (codex's --sandbox) the
+  // coordinator's restriction is the value that survives.
+  if (agent.coordinates_only && adapter.coordinator_args.length > 0) argv.push(...adapter.coordinator_args);
   const rendered = argv.map((item) => render(item, { ...vars, model: agent.model ?? "" }));
   // Extra directories are rendered per directory rather than with the shared vars: the flag repeats.
   for (const dir of grantedDirs(adapter, agent)) {
@@ -213,6 +220,7 @@ export function adapterSummary(adapter) {
       system_prompt: adapter.system_prompt_args.length > 0,
       auto_approve: adapter.auto_approve_args.length > 0,
       add_dir: grantsDirs(adapter),
+      coordinator: (adapter.coordinator_args ?? []).length > 0,
       ready_pattern: Boolean(adapter.ready.pattern),
     },
     memory: adapter.memory ?? GENERIC_ADAPTER.memory,

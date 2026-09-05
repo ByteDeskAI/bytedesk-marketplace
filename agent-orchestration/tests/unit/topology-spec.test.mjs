@@ -338,3 +338,31 @@ test("a library agent found outside the consumer still works inside it", async (
     await rm(library, { recursive: true, force: true });
   }
 });
+
+test("coordinates_only reaches the run agent, from the library or declared inline", async () => {
+  const consumer = await mkdtemp(join(os.tmpdir(), "ao-topology-coord-"));
+  try {
+    const lead = await createAgent(consumer, { role: "lead" });
+    const worker = await createAgent(consumer, { role: "implementer" });
+    // A repo's lead appears in a run as the orchestrator — there is no lead role pack and a spec
+    // must have exactly one orchestrator — so role cannot be the discriminator downstream.
+    const spec = validateSpec({
+      name: "coordination",
+      agents: [
+        { agent: lead.id, role: "orchestrator" },
+        { agent: worker.id },
+        { id: "inline-coord", role: "reviewer", cli: "codex", coordinates_only: true },
+        { id: "inline-worker", role: "worker", cli: "codex" },
+      ],
+    });
+    const [fromLead, fromWorker, inlineCoord, inlineWorker] = materializeSpec(spec, { runId: "r", consumer, home: "/h", inputs: {} }).agents;
+
+    assert.equal(fromLead.role, "orchestrator", "the lead runs as the conductor");
+    assert.equal(fromLead.coordinates_only, true, "a library coordinator stays a coordinator on the run agent");
+    assert.equal(fromWorker.coordinates_only, false, "an implementer is not a coordinator");
+    assert.equal(inlineCoord.coordinates_only, true, "a hand-written spec may declare it without a library record");
+    assert.equal(inlineWorker.coordinates_only, false);
+  } finally {
+    await rm(consumer, { recursive: true, force: true });
+  }
+});

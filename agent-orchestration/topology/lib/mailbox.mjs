@@ -379,7 +379,15 @@ export async function queueDepth(runDir, agentIds) {
 export async function leadQueueDepth(runDir, { consumer, pluginRoot, home } = {}) {
   const run = await loadRun(runDir);
   const ids = new Set(run.agents.map((agent) => agent.id));
-  const lead = await findLead(agentDirs({ consumer: consumer ?? run.consumer, pluginRoot, home })).catch(() => null);
+  // A malformed library (two leads) must not crash a status read, but it must not vanish either —
+  // routeMessage throws on it, so a queue that quietly fell back would disagree with routing.
+  let lead = null;
+  let leadError = null;
+  try {
+    lead = await findLead(agentDirs({ consumer: consumer ?? run.consumer, pluginRoot, home }));
+  } catch (error) {
+    leadError = error.message;
+  }
   // Fall back to the run record only when the library cannot answer — a run launched outside a
   // repo that keeps an agent library still deserves a reading rather than silence.
   const leads = lead && ids.has(lead.id)
@@ -387,7 +395,11 @@ export async function leadQueueDepth(runDir, { consumer, pluginRoot, home } = {}
     : run.agents.filter((agent) => agent.role === "lead" || agent.coordinates_only === true).map((agent) => agent.id);
   if (leads.length === 0) return [];
   const readings = await queueDepth(runDir, leads);
-  return readings.map((reading) => ({ ...reading, lead_from: lead && ids.has(lead.id) ? "library" : "run" }));
+  return readings.map((reading) => ({
+    ...reading,
+    lead_from: lead && ids.has(lead.id) ? "library" : "run",
+    ...(leadError ? { lead_error: leadError } : {}),
+  }));
 }
 
 /** Measure one agent's queue and journal it, so depth over time is in the record, not inferred. */

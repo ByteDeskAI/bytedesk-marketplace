@@ -8,14 +8,14 @@ title: "ADR: which orchestration layer is authoritative, and who owns the worktr
 epic: "EP-014"
 acceptance: [{"text":"ADR records the chosen layer, the rejected alternative, and the reasoning","done":true,"at":"2026-09-05T07:29:29.798Z"},{"text":"Worktree ownership is stated: which component provisions, which reuses, and the two-worktrees-per-task duplication is resolved or explicitly accepted","done":true,"at":"2026-09-05T07:29:29.914Z"},{"text":"The fate of the four tm dispatch backends is stated (orchestration, fleet, tmux, manual)","done":true,"at":"2026-09-05T07:29:30.036Z"}]
 evidence: [".bytedesk/task-management/evidence/TM-088-0001-authoritative-orchestration-layer.md"]
-commits: ["8f135ad","d547b0e","85b7619"]
+commits: ["8f135ad","d547b0e","85b7619","dbc3508"]
 blockedBy: []
 blocks: ["TM-096","TM-098","TM-099"]
 actor: "main"
 session: "b0124774-6c67-41ff-9359-e1a31565e734"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-05T07:32:48.995Z"
+updated: "2026-09-05T07:40:10.673Z"
 type: "spike"
 closed: "2026-09-05T07:29:30.271Z"
 ---

@@ -24,7 +24,8 @@ export function specSchemaSummary() {
       cwd: "default working directory for every agent (default '{{consumer}}')",
       run_dir: "where mailbox, journal, and artifacts live (default '{{consumer}}/.bytedesk/agent-orchestration/runs/{{run_id}}')",
       layout: LAYOUTS,
-      agents: "array of { id, role, cli, model?, candidates?: ['cli:model', ...] (ordered fallback chain; replaces cli/model), cwd?, skills?[], mcp?[], instructions?, instructions_file?, env?{}, args?[], auto_approve? }",
+      agents: "array of { id, role, cli, model?, candidates?: ['cli:model', ...] (ordered fallback chain; replaces cli/model), cwd?, skills?[], mcp?[], instructions?, instructions_file?, env?{}, args?[], auto_approve?, coordinates_only? }",
+      "agents[].coordinates_only": "true for an agent that delegates and does not implement — the launcher withholds the work tree and the write tools from it. A repo's lead carries it; a spec may set it directly.",
       "agents[].agent": "id or full name of an agent stored in this repo's library (`ao-topology agent list`). Its stored definition supplies role, cli/candidates, skills, mcp, instructions, instructions_file, args, env and auto_approve; any field written inline on the spec entry overrides the stored one. `id` may be omitted — it is derived from the stored agent's name.",
       "agents[].mcp": "MCP servers this agent gets, as names resolved by the provider or inline server objects",
       "agents[].instructions_file": "path to a Markdown system prompt, read at launch and prepended to `instructions`. Relative to the stored agent's own directory when the entry names one, otherwise to the consumer repo.",
@@ -140,6 +141,11 @@ export function validateSpec(raw) {
     normalized.env = normalized.env && typeof normalized.env === "object" ? normalized.env : {};
     normalized.instructions = typeof normalized.instructions === "string" ? normalized.instructions : "";
     normalized.auto_approve = normalized.auto_approve === true;
+    // A coordinator delegates and does not implement. It travels on the agent rather than being
+    // inferred from the role, because a repo's lead appears in a run as an orchestrator — there is
+    // no lead role pack, and a spec must have exactly one orchestrator. A spec written by hand can
+    // declare it directly; a library agent brings its own.
+    normalized.coordinates_only = normalized.coordinates_only === true;
     if (normalized.model !== undefined && typeof normalized.model !== "string") note(`${where}.model must be a string`);
     if (normalized.cwd !== undefined && typeof normalized.cwd !== "string") note(`${where}.cwd must be a string`);
     return normalized;
@@ -223,7 +229,7 @@ function orchestratorProblem(agents) {
 }
 
 /** Fields a stored agent contributes to a spec entry that references it. */
-const FROM_LIBRARY = ["role", "cli", "model", "candidates", "skills", "mcp", "instructions", "instructions_file", "args", "env", "auto_approve", "cwd"];
+const FROM_LIBRARY = ["role", "cli", "model", "candidates", "skills", "mcp", "instructions", "instructions_file", "args", "env", "auto_approve", "coordinates_only", "cwd"];
 
 /** A spec entry that omits `id` borrows the stored agent's name, uniquely within the run. */
 function derivedAgentId(stored, taken) {
