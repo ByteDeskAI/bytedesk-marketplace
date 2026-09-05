@@ -1,0 +1,35 @@
+TM-086 — verification and packaging suite, on the tree at close
+
+run 2026-09-05T15:31:59Z
+
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 4842.209438
+
+── contract (bash) ───────────────────────────────────────────
+test-capability.sh    22 passed, 0 failed
+test-concurrency.sh   12 passed, 0 failed
+test-dashboard.sh     201 passed, 0 failed
+test-events.sh        12 passed, 0 failed
+test-hooks2.sh        23 passed, 0 failed
+test-hooks.sh         65 passed, 0 failed
+test-install.sh       13 passed, 0 failed
+test-link.sh          13 passed, 0 failed
+test-mcp.sh           77 passed, 0 failed
+test-pool.sh          19 passed, 0 failed
+test-read.sh          59 passed, 0 failed
+test-store.sh         116 passed, 0 failed
+test-worktree.sh      22 passed, 0 failed
+
+all green
+
+── packaging ──
+tsc --noEmit            ok
+design:check (no raw colours)  ok
+vite + pwa: ✓ built in 1.82s
+vite + pwa: pwa: 3 icons, manifest, sw.js (72 precached, c50c381c8abe)
+plugin validate:   ❯ version: No version specified. Consider adding a version following semver (e.g., "1.0.0")
+plugin validate: 
+plugin validate: ✔ Validation passed with warnings
