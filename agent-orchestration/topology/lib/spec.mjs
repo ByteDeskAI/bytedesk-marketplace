@@ -69,7 +69,7 @@ export function validateSpec(raw) {
   else spec.name = slug(spec.name);
 
   spec.description = typeof spec.description === "string" ? spec.description : "";
-  spec.session = typeof spec.session === "string" && spec.session ? spec.session : "{{name}}-{{run_id}}";
+  spec.session = typeof spec.session === "string" && spec.session ? spec.session : DEFAULT_SESSION;
   spec.cwd = typeof spec.cwd === "string" && spec.cwd ? spec.cwd : "{{consumer}}";
   spec.run_dir = typeof spec.run_dir === "string" && spec.run_dir ? spec.run_dir : "{{consumer}}/.bytedesk/agent-orchestration/runs/{{run_id}}";
   spec.layout = spec.layout ?? "main-vertical";
@@ -246,6 +246,28 @@ function derivedAgentId(stored, taken) {
  * self-contained and starts referring to the project's roster, so an unknown reference fails loudly
  * and prints the roster rather than launching a half-configured agent.
  */
+/**
+ * The session name a spec gets when it does not name one itself. A run is addressed by what ran and
+ * when — until `agentAddress` says the run is a spawn of one known agent, and then it is addressed
+ * by who.
+ */
+export const DEFAULT_SESSION = "{{name}}-{{run_id}}";
+
+/**
+ * The stable agent address this run should be named after, or `null` to stay run-addressed.
+ *
+ * A run of exactly one agent drawn from the repo's library *is* a spawn of that agent, and naming
+ * the session after it is what makes `tmux ls` answer "who is running" rather than only "what ran".
+ * Two cases deliberately return null. A team has no single answer. And an agent declared inline has
+ * no stable id to offer — an id written into a spec file is a label local to that file, not an
+ * address, and two unrelated specs both saying `id: "worker"` would collide into one name.
+ */
+export function agentAddress(rawSpec, context) {
+  const spec = expandAgentRefs(rawSpec, context);
+  if (spec.agents.length !== 1) return null;
+  return spec.agents[0]._agent || null;
+}
+
 function expandAgentRefs(spec, context) {
   if (!spec.agents.some((agent) => agent.agent)) return spec;
   const dirs = context.agentDirs?.length ? context.agentDirs : agentDirs({ consumer: context.consumer, home: context.home });
@@ -335,7 +357,9 @@ export function materializeSpec(rawSpec, context) {
   const base = { run_id: context.runId, name: spec.name, consumer: context.consumer, home: context.home };
   // Inputs may themselves contain placeholders (a default of "{{consumer}}"); render them first.
   const vars = { ...base, inputs: renderDeep(context.inputs ?? {}, base) };
-  const session = slug(renderDeep(spec.session, vars));
+  // An explicit session from the caller wins over the template: it is how `launch` hands back a name
+  // it has already probed against the live tmux server, which the template cannot do.
+  const session = context.session ? slug(context.session) : slug(renderDeep(spec.session, vars));
   vars.session = session;
   const runDir = absolutize(renderDeep(spec.run_dir, vars), context.consumer);
   containPath(runDir, context.consumer, "run_dir", context);

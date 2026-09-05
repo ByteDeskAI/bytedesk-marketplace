@@ -5,7 +5,8 @@ import os from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
 
-import { materializeSpec, resolveInputs, specSchemaSummary, validateSpec } from "../../topology/lib/spec.mjs";
+import { agentAddress, DEFAULT_SESSION, materializeSpec, resolveInputs, specSchemaSummary, validateSpec } from "../../topology/lib/spec.mjs";
+import { parseSessionName } from "../../topology/lib/identity.mjs";
 import { agentsRoot, createAgent } from "../../topology/lib/agents.mjs";
 import { mintId } from "../../topology/lib/identity.mjs";
 import { parseDuration, render, shellQuote } from "../../topology/lib/util.mjs";
@@ -362,6 +363,42 @@ test("coordinates_only reaches the run agent, from the library or declared inlin
     assert.equal(fromWorker.coordinates_only, false, "an implementer is not a coordinator");
     assert.equal(inlineCoord.coordinates_only, true, "a hand-written spec may declare it without a library record");
     assert.equal(inlineWorker.coordinates_only, false);
+  } finally {
+    await rm(consumer, { recursive: true, force: true });
+  }
+});
+
+test("a run of one library agent is addressed by that agent; anything else stays run-addressed", async () => {
+  const consumer = await mkdtemp(join(os.tmpdir(), "ao-topology-address-"));
+  try {
+    const stored = await createAgent(consumer, { role: "implementer", cli: "claude" });
+    const context = { consumer, home: "/h" };
+
+    // The whole point: `tmux ls` should answer "who is running", not only "what ran".
+    const solo = validateSpec({ name: "some-task", agents: [{ id: "worker", agent: stored.id, role: "orchestrator" }] });
+    assert.equal(agentAddress(solo, context), stored.id);
+    assert.equal(agentAddress(solo, context), stored.id, "and it is stable — the address is not minted per call");
+
+    // A team has no single answer.
+    const team = validateSpec({ name: "team", agents: [{ id: "a", agent: stored.id, role: "orchestrator" }, { id: "b", cli: "codex", role: "worker" }] });
+    assert.equal(agentAddress(team, context), null);
+
+    // An inline agent has no stable id to offer. An id written into a spec file is a label local to
+    // that file, so two unrelated specs both saying `id: "worker"` would collide into one name.
+    const inline = validateSpec({ name: "inline", agents: [{ id: "worker", cli: "claude", role: "orchestrator" }] });
+    assert.equal(agentAddress(inline, context), null);
+
+    // The default template is what makes an upgrade safe to detect; a spec that names its own
+    // session is stating a requirement, and launch must not guess over it.
+    assert.equal(solo.session, DEFAULT_SESSION);
+    assert.notEqual(validateSpec({ name: "x", session: "pinned-{{run_id}}", agents: [{ id: "w", cli: "claude", role: "orchestrator" }] }).session, DEFAULT_SESSION);
+
+    // An explicit session beats the template, which is how launch hands back a name it has already
+    // probed against the live tmux server — something the template cannot do.
+    const rendered = materializeSpec(solo, { runId: "r", consumer, home: "/h", inputs: {}, session: `${stored.id}-9f3e21a` });
+    assert.equal(rendered.session, `${stored.id}-9f3e21a`);
+    assert.deepEqual(parseSessionName(rendered.session), { agentId: stored.id, spawn: "9f3e21a" });
+    assert.equal(materializeSpec(solo, { runId: "r", consumer, home: "/h", inputs: {} }).session, "some-task-r");
   } finally {
     await rm(consumer, { recursive: true, force: true });
   }

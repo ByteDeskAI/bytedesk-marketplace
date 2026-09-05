@@ -164,10 +164,20 @@ export function launcherScript({ agent, candidate, argv, env }) {
  * `screenSince` is the fix for the false positive: the pane already holds a shell prompt and the
  * echoed launcher line when we start looking, and a ready pattern like /[>\u276f]/ matches a bare zsh
  * or starship prompt perfectly well. Only output produced after the launcher was sent counts.
+ *
+ * `baseline` is the unique marker `clearAndWaitForShell` printed into the pane, NOT a snapshot of
+ * the screen. That distinction is the whole correctness of this function: a snapshot of a
+ * freshly-cleared pane is whitespace, and whitespace matches inside the blank tail of a later
+ * capture as readily as at the point it was taken — so the slice would land past the agent's output
+ * and hand back "", and the agent would never look ready. A marker can only match where it was
+ * printed.
  */
 export function screenSince(screen, baseline) {
   const text = String(screen ?? "");
-  if (!baseline) return text;
+  // A blank anchor carries no position. Refusing to use one is what stops the silent truncation
+  // above; returning the whole screen is the safe direction, because the alternative is discarding
+  // the very output being waited for.
+  if (!baseline || !String(baseline).trim()) return text;
   // Anchor on the last occurrence rather than a prefix match: tmux trims trailing blank lines, so a
   // snapshot taken earlier is not reliably a prefix of a later one.
   const at = text.lastIndexOf(baseline);

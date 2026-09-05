@@ -189,6 +189,12 @@ export async function respawnPane(pane) {
   await tmux(["respawn-pane", "-k", "-t", pane]);
 }
 
+/** Every live session name on this tmux server. Empty when there is no server at all. */
+export async function listSessions() {
+  const result = await tmux(["list-sessions", "-F", "#{session_name}"], { allowFailure: true });
+  return result.code === 0 ? result.stdout.split("\n").map((line) => line.trim()).filter(Boolean) : [];
+}
+
 export async function killSession(session) {
   await tmux(["kill-session", "-t", `=${session}`], { allowFailure: true });
 }
@@ -356,18 +362,34 @@ export async function paneDeath(pane) {
 }
 
 /**
- * Prove the shell is accepting input AND leave the pane empty, in one round trip.
+ * Prove the shell is accepting input, leave the pane empty, and plant an anchor — one round trip.
  *
  * Clearing matters for readiness: the server-side content search has no notion of "output produced
  * after the launcher was sent", so the only way to make a match trustworthy is for the pane to hold
  * nothing but the agent. What survives is the prompt the shell redraws, which is why the caller
  * also gets the height of that prompt to discount.
+ *
+ * The printed marker is the load-bearing part, and it replaces using the cleared screen itself as
+ * the anchor. That screen is whitespace whenever the prompt has not finished redrawing — and a
+ * whitespace anchor matches inside the blank tail of a LATER capture just as happily as at the
+ * point it was taken, so `screenSince` would slice past the agent's output and return "". The agent
+ * then never looked ready and paid its whole timeout, intermittently, depending on nothing but how
+ * fast the shell redrew. A unique non-blank token cannot land in the wrong place.
+ *
+ * It also fixes `promptLines`. Counting non-blank lines of the whole capture counted SCROLLBACK too
+ * (`captureAll` is `-S -`), which is only harmless while a pane's history happens to be empty.
+ * Counting after the marker counts the prompt and nothing else, which is what the name says.
  */
 export async function clearAndWaitForShell(pane, channel, timeoutMs = 15_000) {
-  await sendText(pane, `clear; ${TMUX} wait-for -S ${channel}`);
+  const marker = `ao-baseline-${channel}`;
+  await sendText(pane, `clear; printf '%s\\n' '${marker}'; ${TMUX} wait-for -S ${channel}`);
   const signalled = await waitForChannel(channel, timeoutMs);
   if (!signalled) return { ok: false, baseline: "", promptLines: 0 };
-  const baseline = await captureAll(pane);
-  const promptLines = baseline.split("\n").filter((line) => line.trim().length > 0).length;
-  return { ok: true, baseline, promptLines };
+  const screen = await captureAll(pane);
+  // The echoed command holds the marker too, but `clear` wiped it from the visible screen and it
+  // survives only above in the history — so the LAST occurrence is the printed one, which is the
+  // boundary we want.
+  const at = screen.lastIndexOf(marker);
+  const after = at === -1 ? "" : screen.slice(at + marker.length);
+  return { ok: true, baseline: marker, promptLines: after.split("\n").filter((line) => line.trim().length > 0).length };
 }

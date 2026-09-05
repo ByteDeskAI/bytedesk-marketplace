@@ -623,3 +623,33 @@ test("splitting for a large team re-equalizes, so the seventh agent still gets a
     assert.equal(await widthOf(), size.width, "a control client must not reflow the agents");
   }
 });
+
+test("a blank anchor never truncates the screen away — the readiness flake", () => {
+  // The exact shape that made a launch intermittently time out. `clearAndWaitForShell` used to hand
+  // back a SNAPSHOT of the freshly-cleared pane as the anchor, and that snapshot is pure whitespace
+  // whenever the shell's prompt has not finished redrawing. `lastIndexOf` then found it in the blank
+  // TAIL of the later capture, sliced there, and returned "" — so the agent's ready line was thrown
+  // away and it paid its entire timeout, for no reason a log could show.
+  const blank = "\n\n\n\n\n\n\n\n\n";
+  const later = "fake-agent fable ready\n> \n\n\n\n\n\n\n\n\n\n";
+  assert.equal(screenSince(later, blank), later, "a whitespace anchor carries no position and must be ignored");
+
+  const adapter = { id: "fake", ready: { pattern: "ready\\n>" }, failure_patterns: [] };
+  assert.deepEqual(
+    evaluateScreen(adapter, screenSince(later, blank), { alive: true }),
+    { ready: true, failed: false, reason: "ready pattern" },
+  );
+  for (const anchor of ["", "   ", "\t\n ", null, undefined]) {
+    assert.equal(screenSince(later, anchor), later, `${JSON.stringify(anchor)} must not anchor`);
+  }
+
+  // A real marker still anchors, and still discards everything printed before it — which is what
+  // stops a bare shell prompt reading as a ready CLI.
+  const marker = "ao-baseline-ao-shell-1a2b3c4d";
+  const withMarker = `> old prompt\n${marker}\n> \nfake-agent fable ready\n> \n`;
+  assert.equal(screenSince(withMarker, marker), "\n> \nfake-agent fable ready\n> \n");
+  assert.ok(!screenSince(withMarker, marker).includes("old prompt"));
+  // The echoed command carries the marker too; the printed one is later, and it is the boundary.
+  const echoed = `clear; printf '%s\\n' '${marker}'\n${marker}\nagent output\n`;
+  assert.equal(screenSince(echoed, marker), "\nagent output\n");
+});

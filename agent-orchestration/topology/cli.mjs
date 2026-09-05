@@ -8,15 +8,15 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { doctor as runDoctor, tmuxInstallPlan } from "./lib/doctor.mjs";
-import { failoverAgent, launchRun, messagePointer, openRoleSession, roleSessionName } from "./lib/launch.mjs";
+import { failoverAgent, launchRun, messagePointer, openRoleSession, roleSessionName, uniqueSessionName } from "./lib/launch.mjs";
 import { appendJournal, loadRun, pendingReplies, queueDepth, readJournal, recordReply, saveRun, sendMessage, waitForReplies } from "./lib/mailbox.mjs";
 import { adapterFor, adapterSummary, buildArgv, loadAdapters, providerDirs } from "./lib/providers.mjs";
 import { roleDirs, skillDirs } from "./lib/resolve.mjs";
-import { listTemplates, loadSpec, materializeSpec, resolveInputs, specSchemaSummary, templateDirs, validateSpec } from "./lib/spec.mjs";
+import { agentAddress, DEFAULT_SESSION, listTemplates, loadSpec, materializeSpec, resolveInputs, specSchemaSummary, templateDirs, validateSpec } from "./lib/spec.mjs";
 import * as tmux from "./lib/tmux.mjs";
 import { TopologyError, absolutize, exists, fail, invariant, newRunId, parseArgs, parseDuration, readJson, writeJson, AO_HOME } from "./lib/util.mjs";
 import { agentDirs, agentsRoot, createAgent, findLead, listAgents, requireAgent } from "./lib/agents.mjs";
-import { displayName } from "./lib/identity.mjs";
+import { displayName, parseSessionName } from "./lib/identity.mjs";
 import { issueDelegation, listDelegations, routeMessage } from "./lib/routing.mjs";
 
 const PLUGIN_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -250,12 +250,21 @@ const commands = {
     // spec resolve a cwd or run_dir outside the invoking repo; `--allow-auto-approve` lets an agent
     // run without its own permission prompts. Neither is inferable from the spec, because the spec
     // is the thing being trusted less.
+    // Address the session by WHO when the run is a spawn of one known agent, and by what-and-when
+    // otherwise. Only when the spec did not name a session itself — a spec that states its own name
+    // is stating a requirement, and guessing over it would break whoever is reading that name.
+    // The discriminator's uniqueness scope is live sessions on this host, which is the scope tmux
+    // itself enforces, so `uniqueSessionName` probes rather than trusting the entropy.
+    const address = spec.session === DEFAULT_SESSION
+      ? agentAddress(spec, { consumer: ctx.consumer, home: ctx.home, agentDirs: ctx.agentDirs })
+      : null;
     const materialized = materializeSpec(spec, {
       runId,
       consumer: ctx.consumer,
       home: ctx.home,
       inputs,
       allowOutside: Boolean(flags["allow-outside"]),
+      session: address ? await uniqueSessionName(address) : undefined,
     });
     const adapters = await loadAdapters(ctx.providerDirs);
     const result = await launchRun({
@@ -331,15 +340,38 @@ const commands = {
 
     if (sub === "list") {
       const roster = await listAgents(ctx.agentDirs);
-      const rows = [];
-      for (const agent of roster) {
-        const session = roleSessionName(agent.id);
-        rows.push({ id: agent.id, agent: displayName(agent), role: agent.role, session, live: await tmux.hasSession(session) });
+      // Two kinds of session, and the difference is the point. A role-session is the agent's one
+      // durable workspace, named `ao-<id>`, and opening it again reattaches. A spawn is one run of
+      // that agent, named `<id>-<spawn>`, and there may be several at once. Stable agent, distinct
+      // spawns: `who` is the id, `which run` is the discriminator.
+      const live = await tmux.listSessions();
+      const spawnsFor = new Map();
+      for (const name of live) {
+        const parsed = parseSessionName(name);
+        if (!parsed) continue;
+        if (!spawnsFor.has(parsed.agentId)) spawnsFor.set(parsed.agentId, []);
+        spawnsFor.get(parsed.agentId).push({ session: name, spawn: parsed.spawn });
       }
-      if (flags.json) return out({ ok: true, sessions: rows });
+      const rows = roster.map((agent) => ({
+        id: agent.id,
+        agent: displayName(agent),
+        role: agent.role,
+        session: roleSessionName(agent.id),
+        live: live.includes(roleSessionName(agent.id)),
+        spawns: (spawnsFor.get(agent.id) ?? []).sort((a, b) => a.spawn.localeCompare(b.spawn)),
+      }));
+      // A spawn whose agent is not in this repo's roster still belongs to someone; saying so beats
+      // pretending it is not there, because it is holding a tmux session either way.
+      const orphans = [...spawnsFor].filter(([id]) => !roster.some((agent) => agent.id === id))
+        .flatMap(([id, spawns]) => spawns.map((entry) => ({ ...entry, agent_id: id })));
+      if (flags.json) return out({ ok: true, sessions: rows, unknown_agent_spawns: orphans });
       console.log(`# Sessions — ${ctx.consumer}`);
       if (rows.length === 0) console.log("  (no agents yet — ao-topology agent new --role lead)");
-      for (const row of rows) console.log(`${row.live ? "*" : " "} ${row.agent}  ${row.live ? row.session : "(not running)"}  [${row.id}]`);
+      for (const row of rows) {
+        console.log(`${row.live ? "*" : " "} ${row.agent}  ${row.live ? row.session : "(no role-session)"}  [${row.id}]`);
+        for (const entry of row.spawns) console.log(`    spawn ${entry.spawn}  ${entry.session}`);
+      }
+      for (const entry of orphans) console.log(`  ? ${entry.session}  (spawn of ${entry.agent_id}, not in this roster)`);
       return;
     }
 

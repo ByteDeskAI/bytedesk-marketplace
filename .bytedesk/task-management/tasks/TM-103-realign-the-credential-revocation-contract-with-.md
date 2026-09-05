@@ -8,14 +8,14 @@ title: "Realign the credential-revocation contract with subscription-CLI auth"
 epic: "EP-014"
 acceptance: [{"text":"The contract test passes and states why exposed is correct, so it is not 'fixed' back","done":true,"at":"2026-09-05T10:30:15.076Z"},{"text":"A credential left in a broker tree after a completed run fails the test","done":true,"at":"2026-09-05T10:30:15.210Z"},{"text":"The trade-off and its remaining guarantees are written down where the next reader will find them","done":true,"at":"2026-09-05T10:30:15.342Z"}]
 evidence: [".bytedesk/task-management/evidence/TM-103-0002-provider-credential-lifetime.md"]
-commits: []
+commits: ["42b90de"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "4e1d7087-d606-432e-9341-3ce779b4baf8"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-05T10:30:15.702Z"
+updated: "2026-09-05T10:30:28.695Z"
 labels: ["architecture"]
 closed: "2026-09-05T10:30:15.698Z"
 ---

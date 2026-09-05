@@ -87,10 +87,28 @@ adapter declares nothing produces a warning saying exactly what is and is not co
 
 ## Runs and role-sessions
 
-There are two ways an agent can be running, and they answer different questions.
+There are three ways an agent can be running, and they answer different questions.
 
 A **run** is spawned, worked and torn down. `launch` builds a team from a spec, gives every agent a
-pane, and `stop` ends it. The unit of identity is the run.
+pane, and `stop` ends it. The unit of identity is the run, and the session is named for what ran and
+when: `<spec name>-<run id>`.
+
+A **spawn** is a run of exactly one agent drawn from the repo's library — which is what `tm dispatch`
+produces, and the common "send this agent to do that" shape. Its session is named for *who* is
+running: the agent's stable id plus a per-spawn discriminator, `<agent id>-<9f3e21a>`. Stable agent,
+distinct spawns — so two concurrent dispatches to the same agent are separately addressable, and
+`tmux ls` answers who rather than only what. `parseSessionName` resolves the name back to both
+halves, which is how `session list` files live spawns under the agent that owns them.
+
+The discriminator is seven hex characters shaped like an abbreviated git sha. **Its uniqueness scope
+is live sessions on this host** — the scope tmux itself enforces — so `launch` probes for a free
+name rather than trusting the entropy, and gives up loudly rather than colliding.
+
+Two cases stay run-addressed on purpose. A team has no single agent to name it after. And an agent
+declared inline in a spec has no stable id to offer: an id written into a spec file is a label local
+to that file, not an address, so two unrelated specs both saying `id: "worker"` would collide into
+one session name. A spec that sets `session` itself is always honoured — that is a requirement being
+stated, and launch does not guess over it.
 
 A **role-session** is a named workspace you *call*. It is keyed to the agent's stable id — never to
 a run — so it outlives the process that opened it, and opening one that is already live reattaches

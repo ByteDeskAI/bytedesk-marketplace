@@ -39,6 +39,14 @@
   run directory that will be torn down, and names one idempotent restore command: gateway tab
   restore rebuilds from a tab record's stored `Command` when the tmux session is gone, so a
   role-session started any other way would be silently recreated wrong.
+- **Sessions addressed by who is running** (TM-101). A run of one library agent is a spawn of that
+  agent, and its tmux session is now named `<agent id>-<discriminator>` rather than
+  `<spec name>-<run id>`, so `tmux ls` answers who rather than only what. Two concurrent spawns of
+  one agent stay separately addressable; the discriminator's uniqueness scope is live sessions on
+  this host, probed rather than assumed. `parseSessionName` resolves a name back to agent and spawn,
+  and `session list` files live spawns under the agent that owns them. Teams and inline agents stay
+  run-addressed — a team has no single answer, and an id written in a spec file is a label local to
+  that file rather than an address.
 - **Event-driven readiness and death** (TM-099). Readiness is now a `refresh-client -B` subscription
   on one control-mode client per session — the server pushes when a pane's content actually changes,
   so a quiet pane costs nothing and ten agents cost what three do. Deaths arrive through a
@@ -66,6 +74,14 @@
   external-sender check ran, and project identity was a raw string compare that a trailing slash or
   a symlink defeated.
 - **`leadQueueDepth` measured a queue nobody fills**, selecting on a role no run agent has.
+- **Readiness intermittently threw away the output it was waiting for.** The anchor separating an
+  agent's output from the shell's was a SNAPSHOT of the freshly-cleared pane — which is pure
+  whitespace whenever the prompt has not finished redrawing. A whitespace anchor matches inside the
+  blank tail of a later capture just as readily as at the point it was taken, so the slice landed
+  past the ready line and returned nothing: the agent never looked ready and paid its whole timeout,
+  with the outcome depending on nothing but how fast the shell redrew. The pane now carries a
+  printed unique marker, which can only match where it was printed. The same change makes
+  `promptLines` count the prompt rather than the pane's whole scrollback.
 - **Every agent past the sixth failed to get a pane.** `split-window -t <window>` splits the ACTIVE
   pane, so consecutive splits halved the same pane — 60 rows to 30 to 15 to 7 to 3 — and the seventh
   agent died on `no space for new pane`. The splits now re-equalize as they go, in one tmux
