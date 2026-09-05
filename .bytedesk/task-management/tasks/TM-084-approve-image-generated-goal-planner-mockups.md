@@ -8,14 +8,14 @@ title: "Approve image-generated goal-planner mockups"
 epic: "EP-013"
 acceptance: [{"text":"Canonical task-management product/design authority explicitly permits bounded goal-planning chat while rejecting general chat.","done":false},{"text":"Image-generated design probes and their prompts/metadata are stored under bytedesk/designer/mockups/.","done":false},{"text":"Mockups cover 390, 1024, and 1440 widths, light/dark themes, and all loading/error/approval/success states.","done":false},{"text":"The operator approves one direction before production UI implementation begins.","done":false},{"text":"Mockups include live ACP planner-agent selection, capability/health states, and AG-UI tool/approval streaming.","done":false}]
 evidence: []
-commits: ["900a13c","f234754","ac1d130","ed282e6","408bb98","23d2825","94466fe","eefd7ae"]
+commits: ["900a13c","f234754","ac1d130","ed282e6","408bb98","23d2825","94466fe","eefd7ae","85b7619"]
 blockedBy: ["TM-083"]
 blocks: ["TM-085"]
 actor: "main"
 session: "01a062eb-2024-7368-bdb3-ad3fcf853ad4"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-05T03:57:48.587Z"
+updated: "2026-09-05T07:32:53.832Z"
 labels: ["ready-for-agent"]
 touches: ["bytedesk/designer/mockups/**","design-system/profiles/task-management/**"]
 ---

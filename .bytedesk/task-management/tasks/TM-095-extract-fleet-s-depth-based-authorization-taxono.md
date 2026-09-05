@@ -8,14 +8,14 @@ title: "Extract fleet's depth-based authorization taxonomy before the plugin is 
 epic: "EP-014"
 acceptance: [{"text":"The four authorization classes and the depth rules are recorded outside the fleet directory","done":true,"at":"2026-09-05T07:29:31.458Z"},{"text":"The record states how external inbound fits as an additional class","done":true,"at":"2026-09-05T07:29:31.602Z"},{"text":"The extracted document is referenced from the hierarchy work","done":true,"at":"2026-09-05T07:29:31.729Z"}]
 evidence: [".bytedesk/task-management/evidence/TM-095-authorization-classes.md"]
-commits: ["8f135ad"]
+commits: ["8f135ad","85b7619"]
 blockedBy: []
 blocks: ["TM-094"]
 actor: "main"
 session: "b0124774-6c67-41ff-9359-e1a31565e734"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-05T07:29:32.079Z"
+updated: "2026-09-05T07:32:49.016Z"
 closed: "2026-09-05T07:29:32.073Z"
 ---
 

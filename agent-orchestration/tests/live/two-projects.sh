@@ -244,6 +244,46 @@ grep -q "route.redirect" "$RUN_DIR/journal.jsonl" 2>/dev/null \
   && ok "the redirect is journalled, not silent" \
   || bad "the redirect is journalled, not silent"
 
+step "delegation: a token is a pointer, the receiving repo's store is the permission"
+# No task-management store in project-1 yet, so nothing here vouches for a delegation.
+assert_fails "a delegation with nothing backing it is refused at issue time" "TOPOLOGY_DELEGATION_UNBACKED" \
+  "$AO" delegate --consumer "$P1" --task TM-500 --to "$P1_IMPL" --for "$P2_RES"
+
+# Give project-1 a real (minimal) store holding TM-500, assigned to the implementer.
+mkdir -p "$P1/.bytedesk/task-management/tasks"
+cat > "$P1/.bytedesk/task-management/tasks/TM-500-review-the-adapter.md" <<MD
+---
+id: "TM-500"
+title: "Review the adapter"
+status: "open"
+assignee: "$P1_IMPL"
+---
+
+Coordinate with project-2 on the adapter.
+MD
+
+issued=$("$AO" delegate --consumer "$P1" --task TM-500 --to "$P1_IMPL" --for "$P2_RES" 2>&1)
+DTOKEN=$(printf '%s' "$issued" | json .token)
+[ -n "$DTOKEN" ] \
+  && ok "the same delegation is issued once the store backs it" \
+  || bad "the same delegation is issued once the store backs it" "$(printf '%s' "$issued" | head -c 300)"
+
+direct=$("$AO" send --run "$RUN_DIR" --from "$P2_RES" --from-project "$P2" --to "$P1_IMPL" \
+         --stage question --task TM-500 --token "$DTOKEN" \
+         --body "Following up on TM-500." --no-ring 2>&1)
+assert_contains "the delegated outsider now reaches the member directly" "$direct" '"redirected": false'
+
+# A coordinator is not a worker: that has to be refused mechanically, not described in a prompt.
+assert_fails "work cannot be delegated to a coordinates_only agent" "TOPOLOGY_COORDINATOR_NOT_A_WORKER" \
+  "$AO" delegate --consumer "$P1" --task TM-500 --to "$P1_LEAD" --for "$P2_RES"
+
+# Close the task in the store and the same token stops authorising anything, with no revocation step.
+sed -i 's/^status: "open"$/status: "done"/' "$P1/.bytedesk/task-management/tasks/TM-500-review-the-adapter.md"
+after=$("$AO" send --run "$RUN_DIR" --from "$P2_RES" --from-project "$P2" --to "$P1_IMPL" \
+        --stage question --task TM-500 --token "$DTOKEN" \
+        --body "One more thing." --no-ring 2>&1)
+assert_contains "closing the task in the store revokes the delegation" "$after" "$P1_LEAD"
+
 step "teardown"
 if [ -n "$RUN_DIR" ]; then
   "$AO" stop --run "$RUN_DIR" >/dev/null 2>&1

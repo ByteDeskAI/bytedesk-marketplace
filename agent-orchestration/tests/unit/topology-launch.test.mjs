@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import test from "node:test";
 
-import { evaluateScreen, launchRun, screenSince, uniqueSessionName } from "../../topology/lib/launch.mjs";
+import { evaluateScreen, launchRun, launcherScript, mintAgentToken, screenSince, tokenDigest, uniqueSessionName } from "../../topology/lib/launch.mjs";
 import {
   GENERIC_ADAPTER,
   MEMORY_SCOPES,
@@ -245,6 +245,51 @@ test("an agent whose cwd is not the repo is warned about when its CLI cannot be 
   assert.deepEqual(granted.add_dirs, [consumer], "the repo root is what gets granted");
   assert.ok(granted.command.includes("--add-dir"), granted.command.join(" "));
   assert.ok(granted.command.includes(consumer));
+});
+
+// ---------------------------------------------------------------- TM-093 per-agent reply tokens
+
+test("an agent token is a capability: long, random, and never repeated", () => {
+  const minted = new Set(Array.from({ length: 500 }, () => mintAgentToken()));
+  assert.equal(minted.size, 500);
+  for (const token of minted) assert.match(token, /^[0-9a-f]{32}$/, "16 random bytes, not a guessable id");
+  assert.equal(tokenDigest("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+});
+
+test("each agent's launcher exports that agent's token and no other agent's", () => {
+  const a = mintAgentToken();
+  const b = mintAgentToken();
+  const script = (token) =>
+    launcherScript({
+      agent: { id: "impl", role: "worker", cwd: "/repo" },
+      candidate: { cli: "claude" },
+      argv: ["claude"],
+      env: { AO_AGENT_ID: "impl", AO_AGENT_TOKEN: token },
+    });
+  const mine = script(a);
+  assert.match(mine, new RegExp(`export AO_AGENT_TOKEN=${a}$`, "m"), "the token reaches this pane's environment");
+  assert.ok(!mine.includes(b), "and no other agent's token is anywhere in it");
+});
+
+test("a spec cannot name the token that decides which agent a pane may answer as", async () => {
+  const consumer = process.cwd();
+  const spec = materializeSpec(
+    validateSpec({
+      name: "forgery",
+      agents: [{ id: "boss", role: "orchestrator", cli: "claude", env: { AO_AGENT_TOKEN: "chosen-by-the-spec" } }],
+    }),
+    { runId: "r1", consumer, home: consumer, inputs: {} },
+  );
+  // A spec is data, often committed data. Reached through the launcher the env map builds, the
+  // spec's value must lose to the minted one.
+  const script = launcherScript({
+    agent: spec.agents[0],
+    candidate: { cli: "claude" },
+    argv: ["claude"],
+    env: { ...spec.agents[0].env, AO_AGENT_TOKEN: "minted-at-launch" },
+  });
+  assert.match(script, /export AO_AGENT_TOKEN=minted-at-launch$/m);
+  assert.ok(!script.includes("chosen-by-the-spec"));
 });
 
 // ---------------------------------------------------------------- TM-101 session addressing

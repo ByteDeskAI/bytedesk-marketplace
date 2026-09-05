@@ -322,6 +322,9 @@ const commands = {
       task: flags.task && flags.task !== true ? String(flags.task) : null,
       external_agent: flags.for && flags.for !== true ? String(flags.for) : null,
       local_agent: local.id,
+      // The resolved agent, not just its id: the coordinates_only refusal is a fact about the
+      // agent, and without the record here it silently never fires.
+      agent: local,
       issued_by: lead ? lead.id : null,
     });
     out({ ok: true, token: record.token, task: record.task, to: displayName(local), for: record.external_agent, expires_at: record.expires_at });
