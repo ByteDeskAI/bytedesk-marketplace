@@ -2,6 +2,9 @@
 # published byte across Windows, macOS, and Linux checkouts.
 design-system/** -text
 
+# The four design-skills agent files have reviewed byte-level SHA-256 pins.
+design-skills/agents/*.md -text
+
 # Agent Orchestration commits generated JavaScript bundles and uses shell
 # launchers on Linux. Keep their bytes stable in Windows checkouts.
 agent-orchestration/** text eol=lf

@@ -1,0 +1,127 @@
+{
+  "schemaVersion": 1,
+  "discovery": {
+    "root": ".context/design-system/",
+    "required": [
+      "lock.json",
+      "catalog.json",
+      "foundation/DESIGN.md",
+      "foundation/tokens.json",
+      "foundation/bytedesk.css",
+      "apps/<slug>/DESIGN.md",
+      "apps/<slug>/app.json"
+    ],
+    "missing": "stop-and-request-sync"
+  },
+  "agents": [
+    {
+      "name": "consumer-migration-specialist",
+      "file": "consumer-migration-specialist.md",
+      "sha256": "64289e40d53fe35153181725fe03269a7301b76855ab4f882a786abf48af40c6",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Bash",
+        "Grep",
+        "Glob"
+      ],
+      "mode": "explicit-write",
+      "requiredSections": [
+        "Current delivery",
+        "Dry-run plan",
+        "Safety checks",
+        "Apply status",
+        "Review diff"
+      ],
+      "triggers": [
+        "migrate",
+        "migration",
+        "submodule",
+        "manual snapshot",
+        "managed payload",
+        "adopt"
+      ]
+    },
+    {
+      "name": "design-system-reviewer",
+      "file": "design-system-reviewer.md",
+      "sha256": "d1d9eeab0005b78c040d72dbdebe70b9826f8d7d371f52c529632a4c9b3c6171",
+      "tools": [
+        "Read",
+        "Grep",
+        "Glob"
+      ],
+      "mode": "read-only",
+      "requiredSections": [
+        "Findings",
+        "Authority",
+        "Evidence",
+        "Risk",
+        "Recommendation"
+      ],
+      "triggers": [
+        "review",
+        "audit ui",
+        "design drift",
+        "implementation",
+        "pull request",
+        "design system compliance"
+      ]
+    },
+    {
+      "name": "profile-architect",
+      "file": "profile-architect.md",
+      "sha256": "5955422a36989b3c472ef06196e0cd7b3544e1bcb33733c9528a56be4432c4f8",
+      "tools": [
+        "Read",
+        "Grep",
+        "Glob"
+      ],
+      "mode": "read-only",
+      "requiredSections": [
+        "Authority map",
+        "Profile decision",
+        "Evidence",
+        "Proposed changes",
+        "Validation"
+      ],
+      "triggers": [
+        "profile",
+        "inheritance",
+        "authority",
+        "shared rule",
+        "product identity"
+      ]
+    },
+    {
+      "name": "token-accessibility-auditor",
+      "file": "token-accessibility-auditor.md",
+      "sha256": "471f1e37cbabf23224c03509e96c13c8afd791323547219e3edeeca042fc4e44",
+      "tools": [
+        "Read",
+        "Grep",
+        "Glob"
+      ],
+      "mode": "read-only",
+      "requiredSections": [
+        "Findings",
+        "Evidence",
+        "Accessibility impact",
+        "Remediation",
+        "Verification"
+      ],
+      "triggers": [
+        "token",
+        "contrast",
+        "accessibility",
+        "wcag",
+        "focus",
+        "reduced motion"
+      ]
+    }
+  ],
+  "restoredFrom": "e28d39a^:design-system/agent-catalog.json",
+  "routing": "Whole-word trigger matches; most distinct matches wins; ties require clarification. Suggestions never dispatch or authorize writes.",
+  "providerPolicy": "Use native named-agent execution only when the caller confirms availability; otherwise read the agent file as a brief. Provider names do not prove installed capabilities."
+}
