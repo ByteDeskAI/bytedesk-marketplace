@@ -1,0 +1,25 @@
+design-system#59 — ci: create every staticDirs root, so a clean checkout can build Storybook
+
+Reproduced on a clean worktree of origin/main (no local mockups/brand present, matching CI's
+cleanCheckout):
+
+  before:
+    $ node ui/scripts/stage-static.mjs
+    staged 0 mockup surfaces, brand marks, packages/tokens and foundation/fonts into ui/.static
+    $ ls ui/.static/
+    foundation  packages          <- no `apps`
+    $ npm --prefix ui run build-storybook
+    Error: Failed to load static files, no such directory: .../ui/.static/apps
+
+  after:
+    $ ls ui/.static/
+    apps  foundation  packages
+    $ npm --prefix ui run build-storybook
+    ✓ built in 4.12s
+
+Evidence the sources are untracked, which is why this only ever failed in CI:
+    $ git ls-files 'apps/*/brand/*'   | wc -l   -> 0
+    $ git ls-files 'apps/*/mockups/*' | wc -l   -> 0
+
+TeamCity: ByteDesk_DesignSystem_CiValidate builds 205-212 all FAILURE, including build 2077 on
+branch `main`, all with the same error.
