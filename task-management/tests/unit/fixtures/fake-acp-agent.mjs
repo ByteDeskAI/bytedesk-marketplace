@@ -55,6 +55,14 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
     return;
   }
 
+  // Writes without ever sending a newline. `readline` would buffer this until the host process ran
+  // out of memory; the bridge caps the frame and drops the agent instead.
+  if (mode === "flood") {
+    const chunk = "x".repeat(1 << 20);
+    for (let i = 0; i < 8 && process.stdout.writable; i++) process.stdout.write(chunk);
+    return;
+  }
+
   if (mode === "crash") {
     update(sessionId, { sessionUpdate: "agent_message_chunk", content: [{ type: "text", text: "starting" }] });
     await sleep(30);

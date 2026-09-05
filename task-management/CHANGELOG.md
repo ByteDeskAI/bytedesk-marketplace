@@ -246,6 +246,26 @@
 - **Generated runtime files stay out of git.** Store `.gitignore` now names `dashboard.pid` and `dashboard.port` explicitly (still covered by `dashboard.*`), plus `bin` (generated launchers) and `events.json` / `events.jsonl`. Bootstrap and `.bytedesk/task-management/bin/tm doctor --fix` write `.bytedesk/.gitignore` so `worktrees/` is ignored without swallowing the store. Dashboard `.gitignore` also drops Vite/tsc leftovers (`.vite`, `*.tsbuildinfo`).
 
 ### Fixed
+- **A proposal could land a dependency cycle the CLI refuses (TM-086).** `task.depends` wrote both
+  ends of its edges with a raw `mutate`, walking straight past the cycle refusal in
+  `dependencies()` — and `tm doctor` deliberately will not repair a cycle, because which edge to
+  cut is a judgement. It now goes through the store's own writer, and the cycle is refused at
+  preview, checked against the board's edges and against the ones earlier operations in the same
+  proposal add, so an operator is never asked to approve a set the apply will refuse halfway.
+- **A crash mid-apply stranded a planning session for good (TM-086).** Claiming the proposal set
+  the session to "applying"; a crash or a restart before the apply finished left it neither open
+  nor holding anything to approve, and no request could move it again. The apply route now knows
+  which sessions this process is really applying, so an "applying" session nobody is applying is
+  reopened — one re-proposal instead of a hand-edited file.
+- **A broken agent could exhaust the board's memory (TM-086).** The ACP bridge framed the agent's
+  stdout with `readline`, which buffers an unterminated line without limit. Framing is done here
+  now, with a 4 MB ceiling: a frame past it drops the agent and fails the run with the reason.
+- **Every finished planning run stayed in memory (TM-086).** A dashboard left running kept the
+  full event trace of every run it had ever done; the twenty most recent are kept and the rest are
+  dropped, since what a reload needs — goal, turns, proposal — is on disk.
+- **A manifest import could lose the active epic on rollback (TM-086).** `activeEpicChanged` was
+  set after the `writeState` it describes, so a write that threw part-way left the flag false and
+  the compensation skipped the one thing it exists to put back.
 - **The planner honoured the board's gates only when it felt like it (TM-086).** A preview
   discarded the store's refusal whenever an epic already existed, so a proposal walked straight past
   the WIP limit and the required-field checks: the board refused, the card said "validated", and the

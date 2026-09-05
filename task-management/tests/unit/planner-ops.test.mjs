@@ -339,3 +339,32 @@ describe("the gates and the destination are the board's, not the planner's", () 
     assert.equal(read(list("task", {}, p)[0].id, p).epic, a.id);
   });
 });
+
+describe("a proposal cannot land a dependency loop", () => {
+  it("refuses a cycle at preview, across the board and within the proposal", () => {
+    const p = store();
+    writeConfig({ requireEpic: false }, p);
+    const a = create("task", { title: "A", acceptance: [{ text: "x", done: false }], blockedBy: [], blocks: [] }, "b", p);
+    const b = create("task", { title: "B", acceptance: [{ text: "x", done: false }], blockedBy: [], blocks: [] }, "b", p);
+
+    // Board edge first: B waits on A.
+    applyOps([{ op: "task.depends", args: { task: b.id, on: [a.id] } }], { approvedDigest: digestOps([{ op: "task.depends", args: { task: b.id, on: [a.id] } }]), stamp: { actor: "m" } }, p);
+
+    // Now close the loop. The store's own `dependencies()` refuses this, and `tm doctor` will not
+    // repair a cycle once one exists — so the preview has to say no, not the apply.
+    const closing = previewOps([{ op: "task.depends", args: { task: a.id, on: [b.id] } }], p);
+    assert.equal(closing.ok, false);
+    assert.match(closing.operations[0].refusal, /cycle/i);
+
+    // And a loop drawn entirely inside one proposal, between two tasks it is creating, is the same
+    // refusal — nothing about it is on the board yet.
+    const inside = previewOps([
+      { op: "task.create", args: { ref: "X", title: "X", body: "b", acceptance: ["x"] } },
+      { op: "task.create", args: { ref: "Y", title: "Y", body: "b", acceptance: ["x"] } },
+      { op: "task.depends", args: { task: "Y", on: ["X"] } },
+      { op: "task.depends", args: { task: "X", on: ["Y"] } },
+    ], p);
+    assert.equal(inside.ok, false);
+    assert.match(inside.operations[3].refusal, /cycle/i);
+  });
+});

@@ -10,13 +10,19 @@
  * nothing, and speaks no ACP. It gets AG-UI events, which is all it needs to render.
  */
 import { spawn } from "node:child_process";
-import { createInterface } from "node:readline";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "./store.mjs";
 import { paths } from "./paths.mjs";
 
 const err = (message, status) => Object.assign(new Error(message), { status });
+
+/**
+ * The most a single JSON-RPC frame may be before this bridge stops believing the agent is framing
+ * at all. Generous — a planner's proposal with long bodies is tens of kilobytes — and its purpose
+ * is a ceiling on what a broken or hostile agent can make the board allocate, not a size policy.
+ */
+const MAX_FRAME_BYTES = 4 * 1024 * 1024;
 
 /**
  * The agents this board may drive, from `config.json`:
@@ -111,8 +117,28 @@ export class AcpSession {
       this.onExit({ code: null, signal: null, error: e.message });
     });
 
-    const lines = createInterface({ input: this.child.stdout });
-    lines.on("line", (line) => this.#line(line));
+    // Framing is done here rather than by `readline`, which buffers an unterminated line without
+    // any limit — so an agent that writes without ever sending a newline grows this process's
+    // memory until it dies, and the agent is the untrusted end of this pipe. A frame that runs
+    // past the cap is not a message anyone meant to send, so the agent is dropped rather than
+    // humoured.
+    let buffered = "";
+    this.child.stdout.setEncoding("utf8");
+    this.child.stdout.on("data", (chunk) => {
+      buffered += chunk;
+      let nl;
+      while ((nl = buffered.indexOf("\n")) !== -1) {
+        const line = buffered.slice(0, nl);
+        buffered = buffered.slice(nl + 1);
+        // An over-long but properly terminated line is skipped, not fatal: the agent is still
+        // framing correctly and the next message may be fine.
+        if (line.length <= MAX_FRAME_BYTES) this.#line(line);
+      }
+      if (buffered.length > MAX_FRAME_BYTES) {
+        buffered = "";
+        this.#die(`the planning agent sent more than ${MAX_FRAME_BYTES} bytes with no message boundary`);
+      }
+    });
     // stderr is the agent's own diagnostics. Never forwarded to the browser: it is the most likely
     // place for a credential or a path to appear.
     this.child.stderr.on("data", () => {});
@@ -192,6 +218,18 @@ export class AcpSession {
       this.child?.stdin?.end();
       this.child?.kill();
     } catch { /* already gone */ }
+  }
+
+  /** End the session because the transport itself is unusable. */
+  #die(message) {
+    if (this.closed) return;
+    this.closed = true;
+    for (const [, entry] of this.pending) entry.fail(err(message, 502));
+    this.pending.clear();
+    try {
+      this.child?.kill();
+    } catch { /* already gone */ }
+    this.onExit({ code: null, signal: null, error: message });
   }
 
   #line(line) {

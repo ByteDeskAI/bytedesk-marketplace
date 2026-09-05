@@ -22,8 +22,9 @@
 import { createHash } from "node:crypto";
 import { existsSync, unlinkSync } from "node:fs";
 import { gateTaskCreate } from "./enforce.mjs";
+import { dependencies } from "./issue.mjs";
 import { paths } from "./paths.mjs";
-import { create, fileFor, kindOf, logEvent, mutate, read, reindex, state, withLock, write, writeState } from "./store.mjs";
+import { create, fileFor, kindOf, logEvent, read, reindex, state, withLock, write, writeState } from "./store.mjs";
 
 const err = (message, status) => Object.assign(new Error(message), { status });
 
@@ -163,6 +164,15 @@ export const OPERATIONS = {
         if (kindOf(id) !== "task") return `${id} is not a task id`;
         if (!read(id, ctx.p)) return `no such task: ${id}`;
       }
+      // `dependencies()` refuses an edge that closes a loop, and this operation used to write its
+      // edges with a raw `mutate` that walked straight past that refusal — so a proposal could
+      // land a cycle the CLI would not accept, and `tm doctor` deliberately will not repair one
+      // because which edge to cut is a judgement. Checked here, at preview, against the board's
+      // edges AND the ones earlier operations in this same proposal add, so the operator is never
+      // asked to approve a set that the apply is going to refuse halfway through.
+      const cycle = wouldCycle(mine, on, ctx, ctx.p);
+      if (cycle) return cycle;
+      ctx.edges.set(mine, [...(ctx.edges.get(mine) || []), ...on]);
       return null;
     },
     apply(args, ctx) {
@@ -171,15 +181,38 @@ export const OPERATIONS = {
       // Both sides of the edge are written, so both are snapshotted first — including any that
       // this proposal did not create and must therefore be put back exactly as it was.
       for (const id of [mine, ...on]) ctx.touch(id);
-      mutate(mine, (doc) => ({
-        blockedBy: [...new Set([...(doc.blockedBy || []), ...on])],
-        status: doc.status === "open" ? "blocked" : doc.status,
-      }), ctx.p);
-      for (const d of on) mutate(d, (doc) => ({ blocks: [...new Set([...(doc.blocks || []), mine])] }), ctx.p);
-      return { id: mine, kind: "task", blockedBy: on };
+      // The store's own writer, not a hand-rolled pair of mutates: it refuses a cycle, writes both
+      // ends of every edge, moves an open task to blocked, and logs `dep`. Every one of those was
+      // reimplemented here except the refusal and the log, which is exactly the sort of divergence
+      // that lets a governed surface do what the CLI will not.
+      const blockedBy = dependencies(mine, { add: on }, ctx.p);
+      return { id: mine, kind: "task", blockedBy };
     },
   },
 };
+
+/**
+ * Would blocking `task` on `on` close a dependency loop?
+ *
+ * Walks what each blocker is itself waiting on — through the board and through the edges this
+ * proposal has already declared — and reports the first path that arrives back at `task`. Same
+ * search `dependencies()` runs, extended to the operations that have not been written yet.
+ */
+function wouldCycle(task, on, ctx, p) {
+  const waitsOn = (id) => [...(read(id, p)?.blockedBy || []), ...(ctx.edges.get(id) || [])];
+  for (const start of on) {
+    const seen = new Set();
+    const stack = [start];
+    while (stack.length) {
+      const cur = stack.pop();
+      if (cur === task) return `${task} depending on ${start} would create a dependency cycle`;
+      if (seen.has(cur)) continue;
+      seen.add(cur);
+      stack.push(...waitsOn(cur));
+    }
+  }
+  return null;
+}
 
 /**
  * An epic reference resolves to an epic that exists — or to one this proposal is creating.
@@ -220,12 +253,17 @@ function makeContext(ops, p, stamp) {
   // Refs a proposal declares for itself, known before anything is created so `check` can resolve
   // a forward reference the same way `apply` will.
   const pending = new Set(ops.map((op) => str(op.args?.ref)).filter(Boolean));
+  // Edges this proposal adds, so a cycle check at preview sees the whole picture rather than only
+  // what is already on disk. Keyed by the blocked task; values may be refs, which is fine — an
+  // unresolvable ref simply has no edges of its own on the board.
+  const edges = new Map();
   let previousActiveEpic;
   return {
     p,
     stamp,
     pending,
     minted,
+    edges,
     resolve(ref) {
       const r = str(ref);
       if (!r) return null;

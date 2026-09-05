@@ -193,6 +193,18 @@ describe("driving a real ACP process", () => {
     assert.equal(asked.params.toolCall.toolCallId, "t2");
   });
 
+  it("drops an agent that writes without ever framing a message", async () => {
+    // The agent is the untrusted end of this pipe, and `readline` buffers an unterminated line
+    // without any limit — so this used to be a way to make the board allocate until it died.
+    const exits = [];
+    const session = new AcpSession(fakeAgent("flood"), { onUpdate: () => {}, onExit: (e) => exits.push(e) });
+    await session.start();
+    await session.newSession("/tmp");
+    await assert.rejects(() => session.prompt("go", { timeoutMs: 5000 }), /no message boundary/);
+    assert.ok(exits.some((e) => /no message boundary/.test(e.error || "")), "and the run is told why");
+    session.close();
+  });
+
   it("fails the run rather than hanging when the agent exits mid-prompt", async () => {
     const exits = [];
     const session = new AcpSession(fakeAgent("crash"), { onUpdate: () => {}, onExit: (e) => exits.push(e) });

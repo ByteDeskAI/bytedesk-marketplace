@@ -25,6 +25,23 @@ const RUNS = new Map();
 
 const MAX_EVENTS = 2000;
 
+/**
+ * How many FINISHED runs stay in memory.
+ *
+ * A run is kept after it ends so a browser that reconnects still gets the trace it missed. But a
+ * dashboard left running for a month plans many goals, and every one of those traces stayed here
+ * forever — up to `MAX_EVENTS` events each, for a session nobody is looking at. What a reload
+ * actually needs is on disk: the session's goal, its turns and its proposal. The trace is a
+ * convenience, so the oldest ones are dropped.
+ */
+const MAX_FINISHED_RUNS = 20;
+
+/** Drop the oldest finished runs. Live runs are never evicted, however many there are. */
+function evictFinished() {
+  const finished = [...RUNS.entries()].filter(([, run]) => !run.running);
+  for (const [id] of finished.slice(0, Math.max(0, finished.length - MAX_FINISHED_RUNS))) RUNS.delete(id);
+}
+
 export function runFor(sessionId) {
   return RUNS.get(sessionId) || null;
 }
@@ -75,6 +92,7 @@ export async function startRun(sessionId, agentId, p = paths()) {
     acp: null,
   };
   RUNS.set(sessionId, run);
+  evictFinished();
 
   const emit = (event) => {
     const framed = { ...event, runId, ts: new Date().toISOString() };

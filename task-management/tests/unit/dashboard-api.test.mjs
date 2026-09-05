@@ -16,6 +16,7 @@ import { cleanup, tempRepo, tempStore, withSessionEnv } from "./helpers.mjs";
 import { backlog as backlogOf, boardPayload, handleWrite } from "../../lib/dashboard-api.mjs";
 import { acceptanceOf, propose } from "../../lib/capability.mjs";
 import { gateDone } from "../../lib/enforce.mjs";
+import { mutateSession } from "../../lib/planner.mjs";
 import { ensureDirs, paths } from "../../lib/paths.mjs";
 import { create, list, read, readEvents, reindex, seedGitContract, setCriterion, state, update, writeConfig, writeState } from "../../lib/store.mjs";
 import { listWorktrees } from "../../lib/worktree.mjs";
@@ -1534,6 +1535,25 @@ describe("planning sessions", () => {
     // The conversation ends when its proposal lands.
     assert.equal(handleWrite("GET", `/api/planner/${id}`, null, { p }).body.status, "applied");
     assert.ok(readEvents(p).some((e) => e.event === "planner_applied"));
+  });
+
+  it("reopens a session that a crash left mid-apply, instead of stranding it forever", () => {
+    const p = store();
+    const id = handleWrite("POST", "/api/planner", { goal: "Survive a restart" }, { p }).body.id;
+
+    // Exactly the state a crash between the claim and the apply leaves behind: not open, so
+    // nothing can be proposed or answered, and holding no proposal, so nothing can be approved.
+    // Before this, no request could ever move it again.
+    mutateSession(id, () => ({ proposal: null, status: "applying" }), p);
+    assert.equal(handleWrite("GET", `/api/planner/${id}`, null, { p }).body.status, "applying");
+
+    const prop = handleWrite("POST", `/api/planner/${id}/propose`, {
+      operations: [{ op: "epic.create", args: { ref: "E", title: "Recovered", body: "why" } }],
+    }, { p });
+    assert.equal(prop.status ?? 200, 200, "the session took a proposal again");
+    assert.equal(handleWrite("GET", `/api/planner/${id}`, null, { p }).body.status, "open");
+    assert.ok(readEvents(p).some((e) => e.event === "planner_apply_abandoned"));
+    assert.equal(handleWrite("POST", `/api/planner/${id}/apply`, { approvedDigest: prop.body.digest }, { p }).status, 201);
   });
 
   it("spends an approval once — a second apply of the same digest writes nothing", () => {

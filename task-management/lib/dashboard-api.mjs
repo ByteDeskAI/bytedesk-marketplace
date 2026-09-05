@@ -55,6 +55,7 @@ import { importGoalDoc, importManifest, planManifest, relativeToRoot } from "./g
 import { parseGoalDoc, refusal } from "./goals.mjs";
 import { appendTurn, closeSession, deleteSession, listSessions, mutateSession, newSession, readSession } from "./planner.mjs";
 import { applyOps, previewOps } from "./planner-ops.mjs";
+
 import { agentHealth, plannerAgents, probeAgent } from "./planner-acp.mjs";
 import { cancelRun, runState, startRun } from "./planner-run.mjs";
 import { addComment, addLink, assign, backlog, dependencies, estimate, labelCatalog, labels, prioritise, rank, removeLink, setType, subtasks } from "./issue.mjs";
@@ -102,6 +103,36 @@ import {
 import { applyTemplate, listTemplates, readTemplate, writeTemplate } from "./templates.mjs";
 import { sprintCounts } from "./render.mjs";
 import { accept as acceptCap, drop as dropCap, propose, ranked, score as capScore, ship as shipCap } from "./capability.mjs";
+
+/**
+ * Planning sessions this process is mid-apply on.
+ *
+ * In memory deliberately, and that is what makes it a liveness signal rather than a lock: it is
+ * empty after a restart, so a session left marked "applying" by a crash is provably not being
+ * applied by anyone and can be reopened.
+ */
+const APPLYING = new Set();
+
+/**
+ * Put a session back to "open" if it is marked "applying" and nobody is applying it.
+ *
+ * Only the apply route sets that status, and it clears it a few lines later. A crash or a restart
+ * in between left a session no request could ever move again: not open, so nothing could be
+ * proposed or answered, and holding no proposal, so nothing could be approved — a dead end that
+ * only a hand-edited file could clear. `APPLYING` is empty after a restart, which is exactly what
+ * makes "applying but not by us" a safe thing to reopen. The claimed proposal is gone either way,
+ * so the cost is one re-proposal.
+ */
+function reopenIfStranded(id, p) {
+  if (APPLYING.has(id)) return;
+  try {
+    if (readSession(id, p).status !== "applying") return;
+    mutateSession(id, () => ({ status: "open" }), p);
+    logEvent("planner_apply_abandoned", { id }, p);
+  } catch {
+    /* no such session, or an unreadable one: the caller's own error is the better one to report */
+  }
+}
 
 const STATUSES = ["backlog", "open", "in_progress", "blocked", "parked", "done"];
 const ok = (body = {}) => ({ status: 200, body });
@@ -995,6 +1026,7 @@ function plannerRoute(method, url, payload, p) {
     }
     if (method === "POST") {
       if (!id) return { status: 201, body: newSession(payload || {}, p) };
+      reopenIfStranded(id, p);
       if (action === "turn") return ok(appendTurn(id, payload || {}, p));
       if (action === "close") return ok(closeSession(id, payload?.status || "cancelled", p));
       if (action === "propose") {
@@ -1034,6 +1066,7 @@ function plannerRoute(method, url, payload, p) {
         } catch (e) {
           return fail(e.status || 409, e.error || e.message);
         }
+        APPLYING.add(id);
         try {
           const res = applyOps(claimed.operations, { approvedDigest: claimed.digest, session: id, stamp: stamp(p) }, p);
           closeSession(id, "applied", p);
@@ -1043,6 +1076,8 @@ function plannerRoute(method, url, payload, p) {
           // proposal back rather than stranding the session with nothing to approve.
           mutateSession(id, () => ({ proposal: claimed, status: "open" }), p);
           return fail(e.status || 409, e.message);
+        } finally {
+          APPLYING.delete(id);
         }
       }
       return null;

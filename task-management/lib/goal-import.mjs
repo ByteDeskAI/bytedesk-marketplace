@@ -206,8 +206,12 @@ export function applyManifestPlan(plan, { stamp = {} } = {}, p = paths()) {
     try {
       const epic = create("epic", { title: plan.epic.title, plan: plan.epic.plan, ...stamp }, plan.epic.body, p);
       createdIds.push(epic.id);
-      writeState({ activeEpic: epic.id }, p);
+      // Set BEFORE the write, not after: a `writeState` that throws part-way through leaves the
+      // state file changed and the flag false, and rollback then skips the one thing it exists to
+      // put back. A flag that is optimistically true costs a redundant restore; a flag that is
+      // pessimistically false costs the board its active epic.
       activeEpicChanged = true;
+      writeState({ activeEpic: epic.id }, p);
 
       const made = new Map(); // manifest goal id → tm task id
       for (const g of plan.goals) {
