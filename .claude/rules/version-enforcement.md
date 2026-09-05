@@ -42,7 +42,7 @@ claimed the opposite, and was wrong.
 
 ## What this marketplace does
 
-All 18 plugins are **Claude-side versionless**: no `version` in
+All 19 plugins are **Claude-side versionless**: no `version` in
 `<plugin>/.claude-plugin/plugin.json`, none in their `marketplace.json` entry. Every plugin
 resolves to the marketplace repo's commit SHA, so every pushed commit is a new version and
 consumers update automatically.
@@ -57,11 +57,17 @@ Codex-side `0.1.1` are not in conflict — they are different consumers.
 ## Validation
 
 `claude plugin validate ./<plugin>` **passes** (with a warning) for a versionless plugin, and so
-does `claude plugin validate .` for the marketplace. That warning — "No version specified.
+does `claude plugin validate .` for the marketplace.
+
+**Expect 18 warnings for 19 plugins, and do not go hunting for the pinned one.** `design-system` is
+the only entry whose source is not a local directory — it is a `git-subdir` of
+`ByteDeskAI/design-system` at `plugin/` — so the local validator never reads its manifest and never
+warns about it. Its `plugin.json` is versionless too; confirm that against the remote if you need
+to, rather than inferring a pin from the missing warning. That warning — "No version specified.
 Consider adding a version following semver" — is advisory, and following it would pin the plugin.
 
 **Do not use `--strict` as a gate in this repo.** It promotes that advisory warning to an error, so
-it fails on all 18 plugins as a direct consequence of our deliberate choice. Use plain `validate`;
+it fails on every local plugin as a direct consequence of our deliberate choice. Use plain `validate`;
 treat the version warning as expected and everything else as real.
 
 ## When a version bump is required
