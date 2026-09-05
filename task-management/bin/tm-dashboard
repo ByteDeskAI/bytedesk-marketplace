@@ -34,6 +34,7 @@ import { collapseLog } from "../lib/render.mjs";
 import { workStream } from "../lib/transcript.mjs";
 import { kindOf, read as readEntity, readEvents, state } from "../lib/store.mjs";
 import { attachEvidence, servableEvidencePath } from "../lib/evidence.mjs";
+import { attachToSession, attachmentPath } from "../lib/planner.mjs";
 
 // Degrade like `tm` does. Launched from a directory with no resolvable store —
 // an installed copy of the plugin — a raw stack trace is a terrible answer.
@@ -109,9 +110,24 @@ function parseMultipart(buf, contentType) {
   }).filter(Boolean);
 }
 
+/** The two things that may be uploaded, and nothing else. */
+const UPLOADS = [
+  { kind: "evidence", re: /^\/api\/task\/([^/?]+)\/evidence$/ },
+  { kind: "planner", re: /^\/api\/planner\/([^/?]+)\/attachment$/ },
+];
+
+function uploadTarget(url) {
+  const path = (url || "").split("?")[0];
+  for (const u of UPLOADS) {
+    const m = u.re.exec(path);
+    if (m) return { kind: u.kind, id: decodeURIComponent(m[1]) };
+  }
+  return null;
+}
+
 function receiveMultipart(req, res) {
-  const idMatch = /^\/api\/task\/([^/?]+)\/evidence$/.exec((req.url || "").split("?")[0]);
-  const id = idMatch ? decodeURIComponent(idMatch[1]) : "";
+  const target = uploadTarget(req.url) || { kind: "evidence", id: "" };
+  const id = target.id;
   const chunks = [];
   let n = 0;
   let tooBig = false;
@@ -127,6 +143,19 @@ function receiveMultipart(req, res) {
   });
   req.on("end", () => {
     if (tooBig) return;
+    if (target.kind === "planner") {
+      const parts = parseMultipart(Buffer.concat(chunks), req.headers["content-type"]);
+      const file = parts.find((part) => part.filename);
+      if (!file) return json(res, 400, { error: "a planning attachment needs a file" });
+      try {
+        // Every rule lives in lib/planner.mjs: the allowlist, the magic-byte check, the size and
+        // count bounds, the content-addressed name. This layer only carries the bytes across.
+        const { attachment, session } = attachToSession(id, { filename: file.filename, buffer: file.buffer }, P);
+        return json(res, 201, { attached: attachment, attachments: session.attachments });
+      } catch (err) {
+        return json(res, err.status || 400, { error: err.message });
+      }
+    }
     if (kindOf(id) !== "task" || !readEntity(id, P)) {
       return json(res, kindOf(id) === "task" ? 404 : 400, { error: kindOf(id) === "task" ? `not found: ${id}` : `not a task id: ${id}` });
     }
@@ -253,7 +282,7 @@ const server = createServer((req, res) => {
     if (origin && !origin.startsWith("http://127.0.0.1:") && !origin.startsWith("http://localhost:")) {
       return json(res, 403, { error: "cross-origin writes are refused" });
     }
-    const upload = req.method === "POST" && /^\/api\/task\/[^/?]+\/evidence$/.test((req.url || "").split("?")[0])
+    const upload = req.method === "POST" && uploadTarget(req.url)
       && String(req.headers["content-type"] || "").includes("multipart/form-data");
     if (upload) {
       receiveMultipart(req, res);
@@ -328,6 +357,27 @@ const server = createServer((req, res) => {
       "content-type": TYPES[ext] || "application/octet-stream",
       "cache-control": "no-store",
       "content-disposition": `inline; filename="${basename(dest)}"`,
+    });
+    res.end(readFileSync(dest));
+    return;
+  }
+
+  // Guarded attachment GET. 200 only when this session lists that hash and the file is there.
+  // Two hardening rules the evidence route does not need. `Content-Disposition: attachment` on
+  // everything: these bytes came from outside, and a page that renders them inline would let an
+  // uploaded document borrow the dashboard's origin. And a `sandbox` CSP, so even if a browser
+  // ignores the disposition there is no script, no plugin and no same-origin to inherit.
+  const attachGet = (req.url || "").match(/^\/api\/planner\/([^/?]+)\/attachment\/([0-9a-f]{64})$/);
+  if (req.method === "GET" && attachGet) {
+    const dest = attachmentPath(decodeURIComponent(attachGet[1]), attachGet[2], P);
+    if (!dest) return json(res, 404, { error: "not found" });
+    const ext = dest.slice(dest.lastIndexOf("."));
+    res.writeHead(200, {
+      "content-type": TYPES[ext] || "application/octet-stream",
+      "cache-control": "no-store",
+      "content-disposition": `attachment; filename="${basename(dest)}"`,
+      "content-security-policy": "sandbox; default-src 'none'",
+      "x-content-type-options": "nosniff",
     });
     res.end(readFileSync(dest));
     return;

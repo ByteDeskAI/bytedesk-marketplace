@@ -490,6 +490,48 @@ assert_contains "$(body)" "body" "the refusal names the missing body"
 assert_contains "$(body)" "acceptance" "the refusal names the missing criteria"
 assert_contains "$(body)" "override" "the refusal names the escape hatch, as every gate does"
 
+# ── planning sessions: propose, approve, apply, and the attachment rules ─────────────────────
+CODE="$(post /api/planner '{"goal":"Add a preflight probe"}')"
+[[ "$CODE" == 201 ]] && ok "a planning session opens" || no "a planning session opens" "got $CODE: $(body)"
+PL="$(body | sed -n 's/.*"id": *"\(PL-[0-9a-f]*\)".*/\1/p')"
+[[ -n "$PL" ]] && ok "the session has an id" || no "the session has an id" "$(body)"
+
+BOARD_BEFORE="$(curl -fsS "$BASE/api/board" | grep -o '"id"' | wc -l)"
+OPS='{"operations":[{"op":"epic.create","args":{"ref":"E","title":"Preflight","body":"why"}},{"op":"task.create","args":{"ref":"T","epic":"E","title":"Probe the agent","body":"context","acceptance":["it reports"]}}]}'
+CODE="$(post "/api/planner/$PL/propose" "$OPS")"
+[[ "$CODE" == 200 ]] && ok "a proposal previews" || no "a proposal previews" "got $CODE: $(body)"
+assert_contains "$(body)" "independently reviewable epic" "the preview names the consequence, not the arguments"
+DIGEST="$(body | sed -n 's/.*"digest": *"\([0-9a-f]*\)".*/\1/p')"
+BOARD_AFTER_PREVIEW="$(curl -fsS "$BASE/api/board" | grep -o '"id"' | wc -l)"
+[[ "$BOARD_BEFORE" == "$BOARD_AFTER_PREVIEW" ]] && ok "previewing writes nothing to the board" || no "previewing writes nothing to the board" "$BOARD_BEFORE -> $BOARD_AFTER_PREVIEW"
+
+CODE="$(post "/api/planner/$PL/apply" '{"approvedDigest":"deadbeef"}')"
+[[ "$CODE" == 409 ]] && ok "applying a digest nobody approved is refused" || no "applying a digest nobody approved is refused" "got $CODE: $(body)"
+CODE="$(post "/api/planner/$PL/apply" "{\"approvedDigest\":\"$DIGEST\"}")"
+[[ "$CODE" == 201 ]] && ok "the approved proposal applies" || no "the approved proposal applies" "got $CODE: $(body)"
+assert_contains "$(curl -fsS "$BASE/api/board")" "Probe the agent" "and the task is on the board"
+assert_contains "$(curl -fsS "$BASE/api/planner/$PL")" 'applied' "the session ends when its proposal lands"
+
+# Attachments. Every rule is in lib/planner.mjs; this proves they are reachable over HTTP.
+PL2="$(post /api/planner '{"goal":"Attach things"}' >/dev/null; body | sed -n 's/.*"id": *"\(PL-[0-9a-f]*\)".*/\1/p')"
+printf '# notes\n' > "$TM_ROOT/notes.md"
+printf '#!/bin/sh\nrm -rf /\n' > "$TM_ROOT/evil.sh"
+UP="$(curl -s -o "$TM_ROOT/resp.json" -w '%{http_code}' -F "file=@$TM_ROOT/notes.md" "$BASE/api/planner/$PL2/attachment")"
+[[ "$UP" == 201 ]] && ok "an allowed attachment uploads" || no "an allowed attachment uploads" "got $UP: $(body)"
+assert_contains "$(body)" "untrusted-session-context" "and is recorded as untrusted context, not evidence"
+SHA="$(body | sed -n 's/.*"sha256": *"\([0-9a-f]*\)".*/\1/p')"
+UP="$(curl -s -o "$TM_ROOT/resp.json" -w '%{http_code}' -F "file=@$TM_ROOT/evil.sh" "$BASE/api/planner/$PL2/attachment")"
+[[ "$UP" == 400 ]] && ok "a shell script is refused" || no "a shell script is refused" "got $UP: $(body)"
+UP="$(curl -s -o "$TM_ROOT/resp.json" -w '%{http_code}' -F "file=@$TM_ROOT/evil.sh;filename=../../../../tmp/escaped.md" "$BASE/api/planner/$PL2/attachment")"
+[[ ! -f /tmp/escaped.md ]] && ok "a traversing filename writes nothing outside the session" || no "a traversing filename writes nothing outside the session" "/tmp/escaped.md exists"
+
+HEAD="$(curl -fsS -D- -o "$TM_ROOT/got.md" "$BASE/api/planner/$PL2/attachment/$SHA")"
+assert_contains "$HEAD" "content-disposition: attachment" "an attachment is never rendered inline"
+assert_contains "$HEAD" "sandbox" "and is served under a sandbox CSP, so it cannot borrow the origin"
+assert_contains "$(cat "$TM_ROOT/got.md")" "notes" "the bytes round-trip"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/planner/$PL/attachment/$SHA")"
+[[ "$CODE" == 404 ]] && ok "another session cannot read it" || no "another session cannot read it" "got $CODE"
+
 # SSE: a fresh connect gets `ready`; Last-Event-ID: 0 replays the whole log with ids; idle streams ping.
 (curl -sN --max-time 2 "$BASE/events" > "$TM_ROOT/sse-ready.txt" &) ; sleep 2.5
 assert_contains "$(cat "$TM_ROOT/sse-ready.txt")" "event: ready" "a new subscriber is told it is ready"
