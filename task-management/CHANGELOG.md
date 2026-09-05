@@ -254,6 +254,12 @@
 - **Generated runtime files stay out of git.** Store `.gitignore` now names `dashboard.pid` and `dashboard.port` explicitly (still covered by `dashboard.*`), plus `bin` (generated launchers) and `events.json` / `events.jsonl`. Bootstrap and `.bytedesk/task-management/bin/tm doctor --fix` write `.bytedesk/.gitignore` so `worktrees/` is ignored without swallowing the store. Dashboard `.gitignore` also drops Vite/tsc leftovers (`.vite`, `*.tsbuildinfo`).
 
 ### Fixed
+- **Test runs leaked their throwaway stores.** `tempStore()` and `tempRepo()` relied entirely on
+  each test file remembering `cleanup()` in an `after()` hook, so a file that forgot one leaked and
+  so did every interrupted run — a killed soak, a crash, a filtered run that never reached the hook.
+  Four days of that left 11,034 directories and 1.1 GB in the system temp dir. The helper now
+  removes what it handed out on process `exit`, which covers a normal end and an uncaught throw
+  alike; a full suite run leaks nothing, and a run that dies mid-test cleans up too.
 - **One override, two operations, nothing landed (TM-086).** Introduced by the fix above and caught
   by the round after it. `check` no longer spends the token, so every operation that needed it
   reported valid — and the apply then spent one token PER OPERATION, so the second failed for want

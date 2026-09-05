@@ -48,6 +48,7 @@ export function git(cwd, ...args) {
 /** A real git repo with one commit. Real git, because worktree logic tested against mocks is worthless. */
 export function tempRepo() {
   const dir = mkdtempSync(join(tmpdir(), "tm-test-"));
+  TEMP_DIRS.add(dir);
   execFileSync("git", ["init", "-q", dir]);
   git(dir, "config", "user.email", "test@example.com");
   git(dir, "config", "user.name", "Test");
@@ -65,7 +66,10 @@ export function addWorktree(repo, name = "wt", branch = "feat/wt") {
 }
 
 export function cleanup(...dirs) {
-  for (const d of dirs) rmSync(d, { recursive: true, force: true });
+  for (const d of dirs) {
+    rmSync(d, { recursive: true, force: true });
+    TEMP_DIRS.delete(d);
+  }
 }
 
 /** An initialized store in a throwaway dir. Returns the paths object the lib functions take. */
@@ -73,8 +77,29 @@ export function cleanup(...dirs) {
  * A store shaped like one `tm init` made, including its git contract — otherwise every doctor test
  * inherits a `no-git-contract` finding that has nothing to do with what it is testing.
  */
+/**
+ * Every throwaway directory this module has handed out, removed when the process ends.
+ *
+ * `cleanup()` in an `after()` hook covers the happy path and nothing else: a file that forgets the
+ * hook leaks, and so does every interrupted run — a killed soak, a crash, a `--test-name-pattern`
+ * that never reaches the hook. Four days of that left 11,034 directories and 1.1 GB in the system
+ * temp dir. `exit` fires on a normal end AND on an uncaught throw, which is where the leaks came
+ * from; a SIGKILL still leaks, and nothing in a test process can help that.
+ */
+const TEMP_DIRS = new Set();
+process.once("exit", () => {
+  for (const d of TEMP_DIRS) {
+    try {
+      rmSync(d, { recursive: true, force: true });
+    } catch {
+      /* best effort at exit: a directory we cannot remove is not worth a failed test run */
+    }
+  }
+});
+
 export function tempStore() {
   const dir = mkdtempSync(join(tmpdir(), "tm-store-"));
+  TEMP_DIRS.add(dir);
   const p = paths(dir);
   ensureDirs(p);
   seedGitContract(p);
