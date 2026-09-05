@@ -219,6 +219,48 @@ async function waitForShell(pane, timeoutMs = 15_000) {
   return { ok: true, marker: baselineBefore, channel };
 }
 
+/**
+ * Readiness with no polling at all. The server pushes when a subscribed format changes — at most
+ * once a second, for as many panes as we care to watch — so ten agents cost what three do, and a
+ * quiet pane costs nothing. A capture happens only when the failure trigger actually fires, because
+ * confirming a failure needs the path-stripping matcher that only exists in this process.
+ *
+ * Falls back to `waitReady` when there is no control client (no tmux, or control mode refused).
+ */
+async function waitReadySubscribed({ client, pane, adapter, timeoutMs, subName, baseline, promptLines }) {
+  const started = Date.now();
+  return new Promise((settle) => {
+    let done = false;
+    const finish = (verdict) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      client.off("subscription", onPush);
+      client.unsubscribe(subName);
+      settle({ ...verdict, elapsed_ms: Date.now() - started });
+    };
+    const timer = setTimeout(
+      () => finish({ ready: false, failed: false, reason: `ready pattern not seen within ${timeoutMs}ms` }),
+      timeoutMs,
+    );
+    const onPush = async (event) => {
+      if (done || event.name !== subName || event.pane !== pane) return;
+      const verdict = decideFromSubscription(event.value, { promptLines });
+      if (!verdict) return;
+      if (verdict.check === "failure") {
+        // The server found one of the words; this process decides whether it is actually an error.
+        const screen = screenSince(await tmux.captureAll(pane), baseline);
+        const failure = failureOnScreen(adapter, screen);
+        if (failure) finish({ ready: false, failed: true, reason: `screen matched failure pattern /${failure}/` });
+        return;
+      }
+      finish(verdict);
+    };
+    client.on("subscription", onPush);
+    client.subscribe(subName, pane, subscriptionFormat(adapter));
+  });
+}
+
 async function waitReady(pane, adapter, timeoutMs, { baseline = "" } = {}) {
   const started = Date.now();
   const look = async () => {
@@ -238,6 +280,48 @@ async function waitReady(pane, adapter, timeoutMs, { baseline = "" } = {}) {
   // No pattern for this adapter: wait the declared delay, then decide from what the pane shows.
   await sleep(adapter.ready.delay_ms ?? 3000);
   return { ...(await look()), elapsed_ms: Date.now() - started };
+}
+
+/**
+ * The tmux-side failure trigger: an ERE alternation of the adapter's failure patterns, minus any
+ * that tmux cannot parse. It is only a TRIGGER — a hit costs one capture, and the real decision is
+ * still `failureOnScreen`, which strips paths first. Doing it the other way round would put the
+ * false positive TM-091 removed straight back, because the server has no way to ignore a run path.
+ */
+export function tmuxFailureTrigger(adapter) {
+  const usable = (adapter.failure_patterns ?? []).filter((pattern) => !/[{}:]/.test(pattern));
+  return usable.length > 0 ? usable.join("|") : null;
+}
+
+/** The subscription format for one pane: ready line, failure line, deadness, real exit status. */
+export function subscriptionFormat(adapter) {
+  const ready = adapter.ready?.tmux_pattern;
+  const failure = tmuxFailureTrigger(adapter);
+  return [
+    ready ? `#{C/r:${ready}}` : "0",
+    failure ? `#{C/r:${failure}}` : "0",
+    "#{pane_dead}",
+    "#{pane_dead_status}",
+  ].join("|");
+}
+
+/**
+ * Decide from one pushed subscription value. Pure, so the whole event path is testable without a
+ * tmux server. `null` means nothing decided — and unlike a poll loop, nothing is spent waiting.
+ *
+ * `promptLines` is how many lines the shell's own prompt occupies after the pane was cleared. A
+ * content match at or below it is that prompt, which is exactly the false positive that used to
+ * make a bare zsh look like a ready CLI.
+ */
+export function decideFromSubscription(value, { promptLines = 1 } = {}) {
+  const [readyLine, failLine, dead, deadStatus] = String(value).split("|");
+  if (dead === "1") {
+    const status = deadStatus === "" || deadStatus === undefined ? null : Number(deadStatus);
+    return { ready: false, failed: true, reason: status === null ? "pane exited" : `pane exited with status ${status}`, exit_status: status };
+  }
+  if (Number(failLine) > 0) return { check: "failure" };
+  if (Number(readyLine) > promptLines) return { ready: true, failed: false, reason: "ready pattern (server-side)" };
+  return null;
 }
 
 /**

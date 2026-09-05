@@ -1,5 +1,7 @@
 // Thin tmux wrapper. Every call is argv-based; pane targets are always `session:window.pane` ids
 // recorded at launch so later commands never guess by index.
+import { spawn } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { fail, run } from "./util.mjs";
 
 const TMUX = process.env.AO_TMUX_COMMAND || "tmux";
@@ -123,4 +125,166 @@ export async function selectPane(pane) {
 
 export function attachCommand(session) {
   return `${TMUX} attach -t ${session}`;
+}
+
+
+// ---------------------------------------------------------------------------------------------
+// Event-driven surface. Everything above is a one-shot command; everything below is how this layer
+// learns that something changed without asking repeatedly.
+//
+// Measured against the tmux 3.4 server on 2026-09-05, because every one of these has a sharp edge:
+//
+//   * `#{C/r:re}` searches pane content and returns the LINE NUMBER of the first match, 0 for none.
+//     The search is per line, so `^` and `$` anchor to a line — but `\n` is not a thing you can
+//     match, `$` is unreliable because tmux pads lines, `{` and `}` break the format parser outright
+//     (`#{C/r:a{2}}` returns the literal `0}`), and `[[:space:]]` cannot be used at all because `:`
+//     is the format's own separator. `\s`, `\b` and `\w` DO work — glibc extends POSIX ERE.
+//     That is why a tmux-side pattern is declared separately from the adapter's JS regex rather
+//     than translated from it: they are different languages with a misleading overlap.
+//   * `refresh-client -B` arguments must be quoted: `#` starts a comment and a leading `%` breaks
+//     the parser. We always pass the whole subscription as one argv element.
+//   * `remain-on-exit` is a PANE option. Setting it with `set-option -t <session>` silently does
+//     nothing, the pane vanishes on exit, and `#{pane_dead_status}` is never readable.
+//   * `show-hooks` does not list `pane-died` or `pane-exited` even when they are registered and
+//     firing. Never use it to conclude a hook is missing.
+
+/** `%subscription-changed <name> <session> <window> <index> <pane> : <value>` */
+const SUBSCRIPTION_LINE = /^%subscription-changed\s+(\S+)\s+\S+\s+\S+\s+\S+\s+(%\d+)\s+:\s?(.*)$/;
+
+/**
+ * One control-mode client per session. It replaces the readiness poll loop: instead of every agent
+ * asking the server what its pane looks like twice a second, the server pushes a line when a
+ * subscribed format's value actually changes, at most once a second, for as many panes as we like.
+ * Ten agents therefore cost what three do — one client, one subscription each, and nothing at all
+ * while the panes are quiet.
+ *
+ * Emits "subscription" with { name, pane, value } and "close".
+ */
+export class ControlClient extends EventEmitter {
+  constructor(session) {
+    super();
+    this.session = session;
+    this.child = null;
+    this.buffer = "";
+    this.closed = false;
+    this.last = new Map();
+  }
+
+  /** Start the client. Resolves false if control mode is unavailable, so callers can fall back. */
+  async start(timeoutMs = 5000) {
+    return new Promise((resolveStart) => {
+      let settled = false;
+      const done = (ok) => {
+        if (settled) return;
+        settled = true;
+        resolveStart(ok);
+      };
+      try {
+        this.child = spawn(TMUX, ["-C", "attach", "-t", `=${this.session}`, "-f", "read-only,ignore-size"], {
+          stdio: ["pipe", "pipe", "pipe"],
+        });
+      } catch {
+        return done(false);
+      }
+      this.child.on("error", () => done(false));
+      this.child.on("close", () => {
+        this.closed = true;
+        this.emit("close");
+        done(false);
+      });
+      this.child.stdout.setEncoding("utf8");
+      this.child.stdout.on("data", (chunk) => {
+        this.buffer += chunk;
+        let index;
+        while ((index = this.buffer.indexOf("\n")) >= 0) {
+          const line = this.buffer.slice(0, index).replace(/\r$/, "");
+          this.buffer = this.buffer.slice(index + 1);
+          this.#line(line);
+        }
+      });
+      // The first notification proves the client is attached and parsing.
+      this.once("ready", () => done(true));
+      setTimeout(() => done(!this.closed), timeoutMs);
+    });
+  }
+
+  #line(line) {
+    if (line.startsWith("%session-changed") || line.startsWith("%begin")) this.emit("ready");
+    const match = SUBSCRIPTION_LINE.exec(line);
+    if (!match) return;
+    const [, name, pane, value] = match;
+    // tmux pushes an initial value on subscribe and then only on change; de-duplicate anyway so a
+    // handler can be written as "this happened" rather than "this might have happened again".
+    const key = `${name}\u0000${pane}`;
+    if (this.last.get(key) === value) return;
+    this.last.set(key, value);
+    this.emit("subscription", { name, pane, value });
+  }
+
+  /**
+   * Subscribe `name` to `format` evaluated for `pane`. The whole subscription is one argv element
+   * because the format contains `#` — unquoted, tmux would read the rest of the line as a comment.
+   */
+  subscribe(name, pane, format) {
+    if (!this.child || this.closed) return false;
+    return this.child.stdin.write(`refresh-client -B "${name}:${pane}:${format}"\n`);
+  }
+
+  unsubscribe(name) {
+    if (!this.child || this.closed) return false;
+    return this.child.stdin.write(`refresh-client -B "${name}"\n`);
+  }
+
+  close() {
+    this.closed = true;
+    try {
+      this.child?.stdin?.end();
+      this.child?.kill();
+    } catch {
+      /* already gone */
+    }
+  }
+}
+
+/** Pane options are per pane. `-t <session>` compiles and does nothing — see the note above. */
+export async function setPaneOption(pane, name, value) {
+  await tmux(["set-option", "-p", "-t", pane, name, value], { allowFailure: true });
+}
+
+export async function setHook(session, hook, command) {
+  await tmux(["set-hook", "-t", `=${session}`, hook, command], { allowFailure: true });
+}
+
+/**
+ * Stream everything a pane prints to a command, from now on. Attach it at pane creation: pipe-pane
+ * only sees what is written after it starts, so attaching it later loses the beginning — which is
+ * exactly the part that says why an agent failed to come up.
+ */
+export async function pipePane(pane, command) {
+  await tmux(["pipe-pane", "-o", "-t", pane, command], { allowFailure: true });
+}
+
+/** The real exit status of a dead pane. Requires `remain-on-exit on` set BEFORE it died. */
+export async function paneDeath(pane) {
+  const result = await tmux(["display-message", "-p", "-t", pane, "#{pane_dead}\t#{pane_dead_status}\t#{pane_dead_signal}"], { allowFailure: true });
+  if (result.code !== 0) return { dead: true, status: null, signal: null, gone: true };
+  const [dead, status, signal] = result.stdout.trim().split("\t");
+  return { dead: dead === "1", status: status ? Number(status) : null, signal: signal || null, gone: false };
+}
+
+/**
+ * Prove the shell is accepting input AND leave the pane empty, in one round trip.
+ *
+ * Clearing matters for readiness: the server-side content search has no notion of "output produced
+ * after the launcher was sent", so the only way to make a match trustworthy is for the pane to hold
+ * nothing but the agent. What survives is the prompt the shell redraws, which is why the caller
+ * also gets the height of that prompt to discount.
+ */
+export async function clearAndWaitForShell(pane, channel, timeoutMs = 15_000) {
+  await sendText(pane, `clear; ${TMUX} wait-for -S ${channel}`);
+  const signalled = await waitForChannel(channel, timeoutMs);
+  if (!signalled) return { ok: false, baseline: "", promptLines: 0 };
+  const baseline = await captureAll(pane);
+  const promptLines = baseline.split("\n").filter((line) => line.trim().length > 0).length;
+  return { ok: true, baseline, promptLines };
 }

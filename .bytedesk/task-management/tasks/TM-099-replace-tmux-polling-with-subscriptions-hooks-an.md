@@ -8,14 +8,14 @@ title: "Replace tmux polling with subscriptions, hooks and pipe-pane"
 epic: "EP-014"
 acceptance: [{"text":"Readiness is driven by a refresh-client subscription rather than a capture-pane poll loop","done":false},{"text":"Agent death is detected by a hook rather than by polling, with the real exit code recorded","done":false},{"text":"Pane output is captured durably without losing what was written before capture attached","done":false},{"text":"Agents no longer start strictly serially","done":false},{"text":"Ten agents cost no more per-agent polling than three","done":false}]
 evidence: []
-commits: ["8f135ad"]
+commits: ["8f135ad","e0ec159"]
 blockedBy: ["TM-088"]
 blocks: []
 actor: "main"
 session: "b0124774-6c67-41ff-9359-e1a31565e734"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-05T07:49:29.186Z"
+updated: "2026-09-05T07:54:03.431Z"
 touches: ["agent-orchestration/topology/lib/launch.mjs","agent-orchestration/topology/lib/tmux.mjs"]
 ---
 

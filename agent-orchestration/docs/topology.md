@@ -73,8 +73,17 @@ The rule about never showing the id is scoped to *human* interaction. Journals, 
 message envelopes, event payloads and agent-to-agent traffic all carry the id, deliberately.
 
 **One lead per repository**, enforced at creation rather than by convention. A lead is the repo's
-front door and may be `coordinates_only`, which is a capability fact and not an instruction: work
-cannot be delegated to one, and the refusal is mechanical.
+front door and may be `coordinates_only`, which is a capability rather than an instruction. Three
+things follow mechanically: work cannot be delegated to one; it is launched with **no directory
+granted at all**, including any a spec tried to supply, so its own agent directory is the only
+writable path it has; and its adapter's `coordinator_args` withhold its write tools.
+
+Be precise about how far that goes. For Claude, `Bash` is deliberately *not* denied — the conductor
+delegates by running `ao-topology send`/`wait`/`reply`, so denying it would break the role. The tool
+flag is defence in depth; **the containment that actually holds is the withheld directory grant**.
+Three adapters declare a verified coordinator form (claude, codex, gemini); the rest declare an
+empty one and name their candidate flag in `notes` rather than guessing, and a coordinator whose
+adapter declares nothing produces a warning saying exactly what is and is not containing it.
 
 A spec entry may reference a stored agent instead of restating it, with any inline field
 overriding the stored definition:
