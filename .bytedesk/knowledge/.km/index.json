@@ -1,12 +1,12 @@
 {
-  "generatedAt": "2026-09-05T04:08:28.167Z",
+  "generatedAt": "2026-09-05T15:10:51.620Z",
   "concepts": [
     {
       "id": "architecture/gateway-tab-ids-are-server-minted",
       "path": "/architecture/gateway-tab-ids-are-server-minted.md",
       "type": "reference",
       "title": "Gateway tab ids are server-minted",
-      "description": "A caller cannot pin a remote-gateway tab id or tmux session name over HTTP; req.Session is decoded then overwritten",
+      "description": "The gateway mints tab ids and derives session names from them; req.Session was decoded then overwritten until TM-097 made the builder honour it, and prefix-matching sessions ARE discovered at startup",
       "tags": [
         "gateway",
         "tmux",
@@ -30,6 +30,21 @@
       "stale": false
     },
     {
+      "id": "architecture/the-goal-planner-s-governed-proposal-boundary",
+      "path": "/architecture/the-goal-planner-s-governed-proposal-boundary.md",
+      "type": "Architecture",
+      "title": "The goal planner's governed-proposal boundary",
+      "description": "Why an agent cannot write to the board, and the four invariants that make that true",
+      "tags": [
+        "task-management",
+        "planner",
+        "security"
+      ],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    },
+    {
       "id": "decisions/decision-2026-09-01",
       "path": "/decisions/decision-2026-09-01.md",
       "type": "Decision",
@@ -38,6 +53,22 @@
       "tags": [
         "decision",
         "captured"
+      ],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    },
+    {
+      "id": "decisions/topology-is-the-authoritative-orchestration-layer",
+      "path": "/decisions/topology-is-the-authoritative-orchestration-layer.md",
+      "type": "Decision",
+      "title": "The tmux topology layer is the authoritative orchestration layer",
+      "description": "agent-orchestration ships two unrelated runtimes; topology wins for dispatched work and the agent hierarchy, the MCP broker is kept as an opt-in sandboxed backend, and tm owns the worktree",
+      "tags": [
+        "agent-orchestration",
+        "architecture",
+        "task-management",
+        "tmux"
       ],
       "status": "stable",
       "trust": "unverified",

@@ -1,6 +1,7 @@
 # Knowledge Update Log
 
 ## 2026-09-05
+* **Creation**: Established [The goal planner's governed-proposal boundary](/architecture/the-goal-planner-s-governed-proposal-boundary.md).
 * **Creation**: Established [Gateway tab ids are server-minted](/architecture/gateway-tab-ids-are-server-minted.md).
 
 ## 2026-09-01

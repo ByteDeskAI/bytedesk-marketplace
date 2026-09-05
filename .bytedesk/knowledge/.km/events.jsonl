@@ -34,3 +34,4 @@
 {"ts":"2026-09-05T13:57:52.198Z","kind":"hook_pre_compact","session":"4e1d7087-d606-432e-9341-3ce779b4baf8"}
 {"ts":"2026-09-05T13:59:33.848Z","kind":"hook_session_start","session":"4e1d7087-d606-432e-9341-3ce779b4baf8"}
 {"ts":"2026-09-05T14:13:31.227Z","kind":"hook_session_start","session":"5667ef56-3c07-4c83-bc19-be440be8c8c3"}
+{"ts":"2026-09-05T15:10:24.420Z","kind":"concept_write","session":"4e1d7087-d606-432e-9341-3ce779b4baf8","id":"architecture/the-goal-planner-s-governed-proposal-boundary","type":"Architecture"}
