@@ -8,14 +8,14 @@ title: "Fix readiness detection: shell-prompt false positive and unreachable rea
 epic: "EP-014"
 acceptance: [{"text":"The readiness match cannot be satisfied by the pane's pre-existing shell prompt","done":false},{"text":"The fixed-delay path can return ready:false, so the not-ready warning is reachable for all adapters","done":false},{"text":"failure_patterns no longer match on text unrelated to this launch attempt","done":false},{"text":"A test covers a pane whose shell prompt resembles the ready pattern","done":false}]
 evidence: []
-commits: []
+commits: ["8f135ad"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "a7da6c38-57d4-464b-b856-ebdb3dd72e1b"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-05T04:02:32.399Z"
+updated: "2026-09-05T04:08:51.466Z"
 touches: ["agent-orchestration/providers","agent-orchestration/topology/lib/launch.mjs"]
 ---
 

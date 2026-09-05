@@ -8,14 +8,14 @@ title: "Guard auto_approve and contain cwd in the topology layer"
 epic: "EP-014"
 acceptance: [{"text":"cwd and run_dir are checked against the consumer root; escaping paths are refused with a clear error","done":false},{"text":"A spec requesting auto_approve produces a visible warning at launch naming the agents affected","done":false},{"text":"Launching with auto_approve requires explicit operator consent rather than proceeding silently","done":false},{"text":"A test covers a spec that attempts cwd outside the repo and one that requests auto_approve","done":false}]
 evidence: []
-commits: []
+commits: ["8f135ad"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "a7da6c38-57d4-464b-b856-ebdb3dd72e1b"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-05T04:02:33.504Z"
+updated: "2026-09-05T04:08:51.460Z"
 touches: ["agent-orchestration/topology/lib/launch.mjs","agent-orchestration/topology/lib/spec.mjs"]
 labels: ["architecture"]
 ---

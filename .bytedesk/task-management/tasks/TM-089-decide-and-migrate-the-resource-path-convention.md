@@ -8,14 +8,14 @@ title: "Decide and migrate the resource path convention"
 epic: "EP-014"
 acceptance: [{"text":"Decision recorded: all five resource types move to .bytedesk/agent-orchestration/, or agents live apart with the reason stated","done":false},{"text":"If moving, a fallback read on the old path exists so an existing repo does not break silently","done":false},{"text":"design-system's gitignore entry is updated to match","done":false}]
 evidence: []
-commits: []
+commits: ["8f135ad"]
 blockedBy: []
-blocks: ["TM-092"]
+blocks: ["TM-092","TM-100"]
 actor: "main"
 session: "a7da6c38-57d4-464b-b856-ebdb3dd72e1b"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-05T04:07:02.727Z"
+updated: "2026-09-05T04:17:46.956Z"
 type: "spike"
 comments: [{"author":"main","ts":"2026-09-05T04:07:02.723Z","text":"Decision (owner, 2026-09-05): move all five resource types together — templates, skills, roles, providers and the new agents — from <repo>/.orchestration/ to <repo>/.bytedesk/agent-orchestration/, with a fallback read on the old path so an existing repo does not break silently. Rationale: splitting agents from their four siblings would leave two conventions inside one plugin permanently. Known breaking surface: design-system carries an .orchestration/runs/ gitignore entry added 2026-09-04."}]
 ---
