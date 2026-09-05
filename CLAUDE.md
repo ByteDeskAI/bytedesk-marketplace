@@ -8,9 +8,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This repo was extracted from `ByteDeskAI/bytedesk-platform` (PRs #346 / #347). Status is `v1.4.1` (see README.md); breaking changes are expected until v2.0.0 for individual plugins.
 
-- Issue tracker: Jira project **BDM** (`bytedesk.atlassian.net`)
-- Spec/docs space: Confluence space id **15171589 (BDM1)**
-- Sibling repo `bytedesk-platform` uses **BDP** for both — never mix the keys.
+- Work tracking: the local **task-management** store at `.bytedesk/task-management/` (`tm`). Epics
+  are `EP-nnn`, tasks `TM-nnn`, decisions `ADR-nnn`. See `.claude/rules/project-management.md`.
+- Durable knowledge: the local **knowledge-management** store at `.bytedesk/knowledge/` (`km`).
+- **No external tracker.** The former Jira (`BDM`) and Confluence (`BDM1`) dependency is removed;
+  `BDM-N` keys survive only in historical commits and CHANGELOG entries. Do not create new ones.
 
 ## Source-of-truth rule (load-bearing)
 
@@ -92,7 +94,7 @@ PostToolUse classifies Bash commands into kinds (`review_comment`, `review_summa
 
 ## The `design-patterns` plugin
 
-`design-patterns/` is a self-contained **Python** plugin (no build step), onboarded from `ByteDeskAI/design-pattern-references` (BDM-52). Layout:
+`design-patterns/` is a self-contained **Python** plugin (no build step), onboarded from `ByteDeskAI/design-pattern-references` (historically BDM-52). Layout:
 
 - `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, `.mcp.json`, `.codex-mcp.json` — Claude + Codex manifests and MCP server registration
 - `bin/patterns` (CLI) and `bin/patterns-mcp` (MCP stdio launcher) — plain Python; both `sys.path`-insert `lib/`
@@ -111,13 +113,13 @@ python3 design-patterns/scripts/run_evals.py           # golden eval checks
 python3 -m unittest discover -s design-patterns/tests  # unit tests
 ```
 
-Cross-session "pattern memory" — a persistent project journal the plugin reads and writes — is being added on top of this baseline (BDM-52).
+Cross-session "pattern memory" — a persistent project journal the plugin reads and writes — is being added on top of this baseline.
 
 ## Working on this repo
 
 - The CLI / launcher in `fleet/bin/` is hand-written bash. `claude-sessions` is ~1000 lines and is `source`-able by tests via a main guard — preserve that guard if you refactor.
 - Skill markdown files use YAML frontmatter with `name`, `description`, `user-invokable`, `argument-hint`, `allowed-tools`. The `description` is matched against user phrasing; rewrite carefully — phrasings like "kick off these tickets" or "fleet status" are deliberate hooks.
-- Skill names in `SKILL.md` files still use the unprefixed form (`fleet-spawn`); the slash-command form is namespaced (`/fleet:spawn`). Migration to `fleet:spawn` in the `name:` field is tracked as BDM-2.
+- Skill names in `SKILL.md` files still use the unprefixed form (`fleet-spawn`); the slash-command form is namespaced (`/fleet:spawn`). Migration to `fleet:spawn` in the `name:` field is unfinished; `fleet` is being retired as a plugin and kept as a reference only.
 - The two known limitations baked in: (1) plugins can't ship rule files, so `docs/RULES.md` is documentation-only — projects wanting it as a Claude-loaded rule must `cat` it into their own `.claude/rules/`. (2) `~/.claude-sessions/` is created by `install.sh`, not by the plugin manifest.
 
 ## Reference docs
@@ -127,4 +129,5 @@ Cross-session "pattern memory" — a persistent project journal the plugin reads
 - `fleet/docs/adr/0003-web-dashboard-architecture.md` — fleet web dashboard design.
 - `fleet/docs/research/0001-plugin-manifest-lifecycle.md` — manifest lifecycle research.
 - `fleet/docs/research/0002-claude-code-jsonl-format.md` — **transcript jsonl event catalog** (what `~/.claude/projects/<…>/<uuid>.jsonl` contains; consult before parsing). Companion rule at `.claude/rules/parsing-claude-jsonl.md` is auto-loaded into Claude Code sessions in this repo.
-- **`.claude/rules/version-enforcement.md`** — gitflow-style semver policy. Auto-loaded; read it before any commit that touches a plugin directory. **Every plugin commit must bump all of that plugin's version markers** + write a CHANGELOG entry — `fleet` has five (`plugin.json`, `marketplace.json` ×2, `package.json`, `server.go` `buildVersion`); `design-patterns` has four (`plugin.json` ×2, `pattern_mcp_server.py` `SERVER_INFO`, `workbench_views.py`) plus its `marketplace.json` entry. Major/minor/patch picked per the table in the rule, with explicit "bump major/minor" overrides.
+- **`.claude/rules/project-management.md`** — task-management is the tracker; no external tracker.
+- **`.claude/rules/version-enforcement.md`** — versioning policy. Auto-loaded; read it before any commit that touches a plugin directory. **All 18 plugins are Claude-side versionless** — no `version` in `<plugin>/.claude-plugin/plugin.json` or in the `marketplace.json` entry, which is the documented best practice and what lets every commit reach consumers via SHA resolution. Never add one. Bump only a plugin's own ecosystem semver (Codex/Grok/Kimi/npm manifests, `buildVersion`, MCP `SERVER_INFO`) and its CHANGELOG; grep for the real markers rather than trusting a list.

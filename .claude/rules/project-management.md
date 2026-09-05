@@ -1,61 +1,86 @@
----
-description: Jira is the work tracker and Confluence is the documentation knowledge store for ByteDesk Marketplace.
-alwaysApply: true
----
+# Project management rules
 
-# Project Management Rules
+## task-management is the source of truth for work tracking
 
-## Jira is the source of truth for work tracking
-All work items in the `BDM` project on `bytedesk.atlassian.net`. **Never** local task lists, todo files, or in-memory tracking. MCP tools: `mcp__plugin_atlassian_atlassian__*` — `searchJiraIssuesUsingJql`, `getJiraIssue`, `createJiraIssue`, `editJiraIssue`, `transitionJiraIssue`, `getTransitionsForJiraIssue`, `addCommentToJiraIssue`, `createIssueLink`.
+All work for this repo lives in the local store at `.bytedesk/task-management/`, driven by
+`.bytedesk/task-management/bin/tm` and the `task-management` MCP tools
+(`mcp__plugin_task-management_task-management__tm_*`). **Never** track work in local todo files,
+in-memory lists, or an external tracker.
 
-**Defaults (don't re-discover):** `cloudId = "bytedesk.atlassian.net"` (skip `getAccessibleAtlassianResources`). Project key `BDM` (name "ByteDesk Marketplace", id `10099`, software/next-gen). Confluence space id `15171589` (name "ByteDesk Marketplace", key `BDM1`). `maxResults: 10` on all JQL/CQL unless user says otherwise.
+The store is git-tracked and shared with the repo, so a clone gets the board. Machine-local parts
+(`index.json`, `state.json`, `dashboard.*`, `agents.json`) carry their own `.gitignore`.
 
-> Sibling repo `bytedesk-platform` uses **BDP** for both Jira and Confluence (project key `BDP`, Confluence space `491524`). Never mix the keys when working across repos.
+> This repo previously used Jira project `BDM` and Confluence space `BDM1`. **That dependency is
+> removed.** Historical `BDM-N` keys may still appear in old commit messages and CHANGELOG entries;
+> leave them as the historical record, and do not create new ones. The sibling repo
+> `bytedesk-platform` may still use its own external tracker — never import that convention here.
 
-## Confluence is the source of truth for documentation and knowledge
-Before making decisions that depend on project documentation, prior reviews, runbooks, architecture notes, or operational context, search Confluence first. Use Atlassian search unless the user explicitly asks for CQL, then narrow to the relevant page or space. Prefer the **ByteDesk Marketplace** Confluence space (`15171589`, key `BDM1`) first, then widen only if needed.
+## knowledge-management is the source of truth for durable knowledge
 
-Use Confluence for:
-- design notes and architecture narratives not yet codified into ADRs
-- runbooks, onboarding notes, and operational documentation
-- project context that explains why a Jira issue exists or how a workflow is supposed to behave
+Design notes, architecture narratives, runbooks and operational context live in the OKF store at
+`.bytedesk/knowledge/`, via `km` and the `knowledge-management` MCP tools. Run `km find <words>`
+before inventing knowledge.
 
-Do not treat Confluence as a substitute for Jira issue tracking or for repo-local source-of-truth code/docs. Use it as the first documentation knowledge store, then reconcile against ADRs and code.
+Use the knowledge store for what outlives a task: decisions and their rationale, architecture,
+references. Use `tm` for what is in flight. Use repo-local `docs/` and `docs/adr/` for anything that
+ships inside a plugin.
 
-## Issue types — match the live BDM project
-The active `BDM` project currently supports **Epic**, **Task**, and **Subtask** only. Do not invent retired issue types with labels or description text.
+## Identifiers
 
-| Type | Use for |
-|---|---|
-| Epic | Multi-issue initiative spanning phases or a larger stream of work |
-| Task | Default work item for implementation, bug fixes, refactors, docs, tests, infra, and reviews |
-| Subtask | Smaller child of a Task or Epic-scoped Task when the parent already represents the main unit of work |
+| Prefix | Entity | Created by |
+|---|---|---|
+| `EP-nnn` | Epic — a multi-task initiative | `tm epic new "<title>"` |
+| `TM-nnn` | Task | `tm task new "<title>"` |
+| `ADR-nnn` | Architecture decision | `tm adr new "<title>"` |
+| `CAP-nnn` | Enhancement backlog entry | `tm cap new "<title>"` |
 
-If the work would historically have been called a Feature, Story, Bug, or Request, create it as a **Task** in `BDM` and make the summary/description explicit about the intent.
+Reference these keys in branch names where practical, in commit messages, and in PR titles and
+descriptions, so delivery reconciles against the board from git history alone.
 
-## Labels (cross-cutting only)
+## Issue types and structure
 
-The marketplace repo today has a narrow surface (one plugin: `fleet`), so the platform-side label taxonomy doesn't apply directly. Use the labels you actually need:
+`tm type <id> [bug|story|task|spike|chore]` sets the type; **task** is the default and the right
+choice for most work. Subtask-ness is expressed by parentage (`tm subtask <id> <parent>`), not by a
+type. An epic groups tasks; `tm move <id> <EP-nnn|none>` reparents.
 
-- `priority:{p0,p1,p2}` — when priority is meaningful
-- `blocked`, `tech-debt`, `tdd`, `architecture` — same cross-cutting meanings as platform repo
-- `plugin:<name>` — when ticket scope is one specific plugin (e.g. `plugin:fleet`)
+Cross-cutting labels only — `tm label --catalog` lists what exists, and `tm label <id> <name>` sets
+one. Keep the set small and meaningful (`plugin:<name>`, `tech-debt`, `architecture`, `blocked`).
+Priority is a field, not a label: `tm priority <id> <level>`.
 
-Sibling-repo platform-specific labels (`service:*`, `phase:m*`) do **not** apply here.
+## Flow
 
-## Jira task flow
-1. **Retrieve work from Jira first** — before implementing, resuming, or reviewing work, query Jira for the existing item instead of relying on memory or local notes. Default query pattern: `project = BDM AND statusCategory != Done AND text ~ "<keyword>" ORDER BY updated DESC`.
-2. **Read the work item before acting** — open the Jira issue and relevant Confluence/docs/PR context so the current scope, parent/child relationships, and expected outcome are clear.
-3. **Create only when needed** — if no active Jira item matches, create a new **Epic**, **Task**, or **Subtask** in `BDM`. Use **Task** as the default type. Link to the parent Epic via `parent` when the work belongs to a larger initiative.
-4. **Move active work to In Progress before coding** — whenever you pick up or resume an item, transition it from **To Do** to **In Progress** before making code changes. Do the same for the parent Epic when child work is actively underway.
-5. **Keep Jira status aligned while the work evolves** — if scope changes, progress becomes blocked, or implementation reveals follow-up tasks, update Jira immediately: edit the issue, add a comment, create/link follow-up items, and make sure the status still reflects reality. Do not leave actively worked items in **To Do**, and do not leave finished work open.
-6. **Reference `BDM-N` everywhere delivery happens** — include the Jira key in branch names when practical, commit messages, and PR titles/descriptions so status reviews can be reconciled quickly from git history.
-7. **Transition to Done when the work is actually landed** — once the code is merged or otherwise definitively complete, move the issue to **Done** explicitly. GitHub closing syntax does **not** update Jira for us.
-8. **Reconcile status when retrieving or reviewing existing work** — when you pick up an older item, audit whether its current Jira status still matches the repository, merged PRs, and remaining scope. Correct stale statuses as part of the work, not as a separate cleanup task.
-9. **Keep epic state honest** — an Epic should usually be **In Progress** once any child is active, and should only move to **Done** when its remaining child scope is complete or intentionally descoped.
+1. **Read the board before acting** — `tm board`, `tm next`, or `tm find <words> field:value`.
+   Resume existing work rather than creating a duplicate.
+2. **Open the item and its context** — `tm show <id>` for scope, acceptance criteria, dependencies
+   and history. `tm why <id>` tells you what is actually blocking it, to the root.
+3. **Create only when nothing matches.** `tm task new` with `--ac` criteria, attached to an epic
+   when it belongs to one. The store's gates require a body and acceptance criteria at create and
+   at start, and evidence plus an actor at done — satisfy them rather than working around them.
+4. **Start before coding** — `tm start <id>` claims the task and moves it to in progress. The claim
+   is what stops two agents taking the same work; respect the WIP limit.
+5. **Keep the board honest while the work moves.** Scope changes, blockers and follow-ups go in as
+   they happen: `tm block <id> "<why>"`, `tm dep`, `tm comment`, `tm ac`. Do not leave active work
+   in todo, and do not leave finished work open.
+6. **Finish deliberately** — `tm accept <id> <n>` per criterion, `tm evidence <id> <path>`, then
+   `tm done <id>`. Epics close when their children do (`autoCloseEpics`).
+7. **Reconcile when picking up old items.** Audit whether status still matches the repo and merged
+   PRs, and correct stale state as part of the work.
 
-## Jira board
-Built-in: `https://bytedesk.atlassian.net/jira/software/projects/BDM/boards`. Default Kanban — `In Progress` column matches the "transition before coding" rule.
+## Agents and dispatch
 
-## Migration from GitHub Issues
-This repo is fresh (extracted from `ByteDeskAI/bytedesk-platform`); there are no predating GitHub Issues to migrate. If a GitHub Issue is opened against this repo by an outside contributor, triage by creating a `BDM` Task and closing the issue with a pointer comment (`Tracked as BDM-N`). Don't open new GitHub Issues for planning — Jira only. GitHub remains the source for code / PRs / releases / CI.
+`tm dispatch <id>` hands a task to a worker (claim, start, worktree, spawn); `tm collect <id>` pulls
+the result back. **The store gets the last word** — a worker reporting done on a task the store does
+not show as done is downgraded to failed with the real status named. `tm agent list` is the worker
+registry; `tm pool` is the opt-in pickup loop, off unless `dispatch.enabled` is true.
+
+## Board
+
+`tm board` in the terminal, `tm tm-dashboard` for the live board. Native Claude `TaskCreate`/
+`TaskUpdate`, Grok `todo_write` and Codex `update_plan` calls are mirrored into the store
+automatically by the harness bridge — you do not need to double-enter them.
+
+## Outside contributions
+
+GitHub remains the source for code, PRs, releases and CI. If an outside contributor opens a GitHub
+Issue, triage it by creating a `tm` task and closing the issue with a pointer comment
+(`Tracked as TM-N`). Do not open GitHub Issues for planning.

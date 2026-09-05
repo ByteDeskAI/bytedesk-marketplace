@@ -129,7 +129,7 @@ A plugin with no ecosystem semver — `task-management`, `bytedesk-designer`, `a
    `git pull --rebase origin main` if you have local commits).
 2. Grep the plugin's real markers (command above) against what is now on disk.
 3. Pick the bump size from the table.
-4. Update every marker found + write the CHANGELOG entry referencing `BDM-N` keys, grouped per
+4. Update every marker found + write the CHANGELOG entry referencing `TM-nnn` / `EP-nnn` keys, grouped per
    Keep a Changelog.
 5. Run typecheck / build / tests so the version compiles in.
 6. Commit with a message naming the bump (`<plugin>: release vX.Y.Z — summary`).
