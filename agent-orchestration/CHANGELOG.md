@@ -2,6 +2,77 @@
 
 ## Unreleased
 
+### Added — the topology layer becomes a durable team (EP-014)
+
+- **A per-repo agent library.** Agents are now a resource type like templates, skills, roles and
+  providers, stored at `<repo>/.bytedesk/agent-orchestration/agents/<id>/` and resolved through the
+  same four-tier search path. `ao-topology agent new|list|show`. A spec entry may reference a stored
+  agent instead of restating it, with any inline field overriding the stored definition.
+- **Durable identity.** An agent gets a short id minted once and never changed — the address every
+  machine surface uses — plus a generated first name, last name and role-derived title, which is
+  what people see. The two are generated independently, so a name collision can never disturb an
+  address. The never-show-the-id rule is scoped to human surfaces; journals, session names,
+  envelopes and spec agent ids carry it deliberately.
+- **One lead per repository**, enforced at creation. A lead may be `coordinates_only`, which is a
+  capability rather than an instruction: it is launched with no directory granted beyond its own and
+  with its write tools removed by its adapter's `coordinator_args`. The lead is the only address an
+  outsider may reach directly, so it is the most exposed agent and should be the least capable.
+- **Cross-repo routing, enforced at the mailbox.** An unvouched contact from another repository is
+  redirected to that repository's lead, with the original addressee preserved as `intended_for`, a
+  `route.redirect` journal event, an explanation in the delivered message and an acknowledgement to
+  the sender. A `via` chain (`send --via`) plus a hop limit stops re-forwarding and lead-to-lead
+  loops.
+- **Delegation tokens that cannot be forged by the sender.** A token is a pointer; the permission is
+  the `tm` claim it names, held in the *receiving* repo's own task-management store and re-read on
+  every use. Closing the task revokes the delegation with no revocation step.
+- **Outbox authentication.** Each agent's launcher exports a token minted for it alone, and the run
+  record stores only its digest — enough to check with, never enough to forge with. `reply --agent`
+  is no longer a claim taken on trust, and an empty reply file no longer satisfies a barrier.
+- **Per-agent memory.** Library agents run from their own directory, so on a CLI that keys session
+  state by working directory two agents in one repo no longer share memory. The repo is granted
+  through the adapter's own `add_dir_args`. Every shipped adapter now declares its memory scope and
+  its grant mechanism, recorded from measurement.
+
+### Fixed
+
+- **`bin/ao-topology` was not executable.** It was the only file in `bin/` without the bit, so every
+  consumer invoking it got `Permission denied`.
+- **`codex.json` shipped `--full-auto`**, which the installed Codex rejects outright. Replaced with
+  the approval and sandbox flags that version actually has.
+- **Readiness could never fail, and could pass on a shell prompt.** Nothing waited for the shell, so
+  a slow rc file swallowed the launcher keystrokes while polling matched what the shell had drawn; a
+  `tmux wait-for` nonce is now a real barrier, and the snapshot taken at that moment separates shell
+  output from agent output. The fixed-delay path can now report not-ready, and failure patterns no
+  longer fire on a word that appears only inside a path.
+- **Three guards that were wired but could never fire**: `--allow-outside` was checked and never
+  set; `issueDelegation`'s `coordinates_only` refusal never received the agent record; and the hop
+  limit could not be reached because `send` accepted no `via` chain.
+- **Routing failed open twice** — an unresolvable recipient was delivered as addressed before the
+  external-sender check ran, and project identity was a raw string compare that a trailing slash or
+  a symlink defeated.
+- **`leadQueueDepth` measured a queue nobody fills**, selecting on a role no run agent has.
+
+### Changed
+
+- **Resource paths moved** to `<repo>/.bytedesk/agent-orchestration/<kind>/`, with the legacy
+  `<repo>/.orchestration/<kind>/` read as a fallback. The runs directory now ignores itself, so no
+  consumer has to edit its own `.gitignore`.
+- **A spec may not launch outside the repository that invoked it**, and `auto_approve` requires
+  explicit consent (`--allow-outside`, `--allow-auto-approve`).
+- `status` reports per-agent inbox depth and the age of the oldest waiting message.
+
+### Documentation
+
+- `docs/adr/0001-authoritative-orchestration-layer.md` — the tmux topology layer is authoritative
+  for dispatched work; the MCP broker is kept as an opt-in sandboxed backend; `tm` owns the
+  worktree. Written against the code, which uncovered two live defects in the existing dispatch
+  backend.
+- `docs/authorization-classes.md` — fleet's depth-based taxonomy salvaged before that plugin
+  retires, plus external inbound as a fifth class. Read it as a specification: fleet implemented
+  enforcement for one of its four classes.
+- `tests/live/two-projects.sh` — the acceptance harness. Two real repositories, exercised through
+  the CLI as a consumer would.
+
 - Add the `design-studio` orchestration template: three panes bound to the design-system repo’s
   own `design-system-studio` director/hands/judge role files, each on its own provider chain, with
   the studio’s director driving the run and the template supplying only the terminals, fallback,
