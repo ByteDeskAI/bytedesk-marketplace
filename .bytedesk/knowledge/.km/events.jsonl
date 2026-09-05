@@ -10,3 +10,15 @@
 {"ts":"2026-09-01T19:22:49.678Z","kind":"hook_session_start","session":"2dd65bff-d835-4ce5-956b-1aa2e620e753"}
 {"ts":"2026-09-01T19:40:00.613Z","kind":"concept_write","session":"126c1a80-f656-456d-bf04-5c79ad0494c2","id":"decisions/decision-2026-09-01","type":"Decision"}
 {"ts":"2026-09-01T19:40:00.630Z","kind":"hook_decision_captured","session":"126c1a80-f656-456d-bf04-5c79ad0494c2","title":"Decision 2026-09-01"}
+{"ts":"2026-09-03T16:19:48.728Z","kind":"hook_session_start","session":"a7da6c38-57d4-464b-b856-ebdb3dd72e1b"}
+{"ts":"2026-09-03T17:14:38.307Z","kind":"hook_session_start","session":"96685803-1ea4-4221-99c4-2e4de7144107"}
+{"ts":"2026-09-03T17:14:52.524Z","kind":"hook_session_start","session":"8f94ccf2-d3e2-492d-bb80-b9e3d38b970b"}
+{"ts":"2026-09-03T17:15:03.202Z","kind":"hook_session_start","session":"21d19124-b5cc-4161-a9a7-8ee47b797844"}
+{"ts":"2026-09-03T17:15:15.806Z","kind":"hook_session_start","session":"1a1ad700-3664-458f-94a7-62105d230d4a"}
+{"ts":"2026-09-03T17:15:25.639Z","kind":"hook_session_start","session":"64e71490-202b-44bc-b380-0effc8f47673"}
+{"ts":"2026-09-03T17:44:19.148Z","kind":"hook_session_start","session":"4c5337ea-5056-49f4-a8ae-2c20d6908756"}
+{"ts":"2026-09-04T18:37:02.659Z","kind":"hook_session_start","session":"ed29b4a7-edee-488b-910c-284fe9fca82e"}
+{"ts":"2026-09-04T18:37:16.073Z","kind":"hook_session_start","session":"bbf9c086-3d50-416e-b619-e81dc5dbcc1c"}
+{"ts":"2026-09-04T18:37:34.452Z","kind":"hook_session_start","session":"d6b7a86d-010c-4ab3-bc30-adcfadd466cd"}
+{"ts":"2026-09-04T18:37:49.401Z","kind":"hook_session_start","session":"db6210d9-9120-4c90-807c-25b7401c0025"}
+{"ts":"2026-09-05T04:08:13.198Z","kind":"concept_write","session":"a7da6c38-57d4-464b-b856-ebdb3dd72e1b","id":"architecture/gateway-tab-ids-are-server-minted","type":"reference"}

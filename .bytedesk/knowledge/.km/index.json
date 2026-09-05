@@ -1,6 +1,21 @@
 {
-  "generatedAt": "2026-09-01T19:40:00.622Z",
+  "generatedAt": "2026-09-05T04:08:28.167Z",
   "concepts": [
+    {
+      "id": "architecture/gateway-tab-ids-are-server-minted",
+      "path": "/architecture/gateway-tab-ids-are-server-minted.md",
+      "type": "reference",
+      "title": "Gateway tab ids are server-minted",
+      "description": "A caller cannot pin a remote-gateway tab id or tmux session name over HTTP; req.Session is decoded then overwritten",
+      "tags": [
+        "gateway",
+        "tmux",
+        "agent-orchestration"
+      ],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    },
     {
       "id": "architecture/task-management-architecture",
       "path": "/architecture/task-management-architecture.md",

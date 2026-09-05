@@ -8,14 +8,14 @@ title: "FE board, backlog, epics screens"
 epic: "EP-006"
 acceptance: [{"text":"typecheck passes and tests/browser/keyboard.mjs passes against the build","done":true,"at":"2026-09-01T21:30:25.010Z"},{"text":"data-tm-card and roving tabindex preserved","done":true,"at":"2026-09-01T21:29:07.745Z"}]
 evidence: []
-commits: ["14c5325"]
+commits: ["14c5325","ac1d130"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "126c1a80-f656-456d-bf04-5c79ad0494c2"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-01T21:30:25.124Z"
+updated: "2026-09-03T17:19:19.909Z"
 closed: "2026-09-01T21:30:25.120Z"
 ---
 

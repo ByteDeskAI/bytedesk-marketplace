@@ -1,0 +1,16 @@
+SPIKE RESULT (2026-09-05): the caller CANNOT pin a gateway tab id.
+
+Evidence — src/launch_request_builder.go:205-206:
+    id := b.newTabID(kind)
+    session := b.deps.TmuxSession + "-" + id
+
+terminalTabRequest (src/main.go:462-471) carries Kind, CWD, Session, Options, Isolate, WorktreeName — there is NO ID field, and decodeTerminalTabRequest (src/terminal_runtime_tabs.go:506) adds none. The id is server-minted unconditionally and the tmux session name is derived from it.
+
+TRAP: req.Session exists on the request and is decoded, but the builder overwrites it at line 206. It is honoured only on the read-back paths (terminal_runtime_tabs.go:304, 367, 949). A caller supplying session in the POST body gets silently ignored.
+
+OPTIONS, cheapest first:
+1. Honour a caller-supplied req.Session in the builder when present, validated against the TmuxSession prefix. The field, the plumbing to startTTYDTab and ensureTmuxSession's has-session reuse (terminal_runtime_tabs.go:724) all already exist — this is roughly a three-line change and it turns the existing reuse path into a working adopt path. Recommended.
+2. Add a dedicated adopt endpoint taking an existing session name + kind + cwd and writing a tab record around it. More surface, clearer contract.
+3. Invert: let the gateway create the tab, read back its id -> session name, and have the topology layer attach to that session instead of creating its own. No gateway change at all, but the orchestrator no longer owns session creation.
+
+NOT viable: the NewTabID dependency-injection seam (launch_request_builder.go:69-71) is in-process only and not reachable over HTTP.

@@ -1,5 +1,8 @@
 # Knowledge Update Log
 
+## 2026-09-05
+* **Creation**: Established [Gateway tab ids are server-minted](/architecture/gateway-tab-ids-are-server-minted.md).
+
 ## 2026-09-01
 * **Creation**: Established [Decision 2026-09-01](/decisions/decision-2026-09-01.md).
 

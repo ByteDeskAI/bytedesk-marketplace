@@ -10,6 +10,7 @@ okf_version: "0.2"
 
 ## architecture
 
+* [Gateway tab ids are server-minted](/architecture/gateway-tab-ids-are-server-minted.md) - A caller cannot pin a remote-gateway tab id or tmux session name over HTTP; req.Session is decoded then overwritten
 * [Task-management architecture](/architecture/task-management-architecture.md) - Markdown store, hooks, MCP, claims — work tracking twin of knowledge-management
 
 ## decisions
