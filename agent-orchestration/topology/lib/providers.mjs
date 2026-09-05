@@ -88,6 +88,16 @@ export function normalizeAdapter(raw, source) {
       invariant(false, "TOPOLOGY_ADAPTER_INVALID", `Adapter ${adapter.id}: failure pattern "${pattern}" is not a valid regex (${error.message}).`);
     }
   }
+  // A tmux-side pattern is evaluated by the tmux server, not by this process, and its format parser
+  // treats these three characters as structure. Catch it at load rather than letting the format
+  // silently return a literal and readiness never fire.
+  if (adapter.ready.tmux_pattern) {
+    invariant(
+      !/[{}:]/.test(adapter.ready.tmux_pattern),
+      "TOPOLOGY_ADAPTER_INVALID",
+      `Adapter ${adapter.id}: ready.tmux_pattern may not contain "{", "}" or ":" — tmux's format parser consumes them. Got ${JSON.stringify(adapter.ready.tmux_pattern)}.`,
+    );
+  }
   if (adapter.ready.pattern) {
     try {
       new RegExp(adapter.ready.pattern, "m");

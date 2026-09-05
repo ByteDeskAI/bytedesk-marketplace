@@ -198,28 +198,6 @@ export function evaluateScreen(adapter, screen, { alive = true } = {}) {
 }
 
 /**
- * Wait until the pane's shell is actually accepting input, and return a marker that separates the
- * shell's output from the agent's.
- *
- * Nothing used to wait for the shell at all: the launcher was typed the instant the pane existed,
- * so a slow rc file (a banner, a version manager, anything that writes on startup) swallowed the
- * keystrokes and the agent never started — while readiness polling went on to match whatever the
- * shell had drawn. Signalling a tmux channel from the shell proves it is live and gives readiness a
- * reliable place to start reading from.
- */
-async function waitForShell(pane, timeoutMs = 15_000) {
-  const channel = `ao-shell-${randomUUID().slice(0, 8)}`;
-  // The shell signals the tmux server when it is ready to accept the next command. This is a real
-  // barrier rather than a guess: screen scraping cannot replace it — a narrow pane renders one
-  // character per line and no marker survives that.
-  const baselineBefore = await tmux.captureAll(pane);
-  await tmux.sendText(pane, `tmux wait-for -S ${channel}`);
-  const signalled = await tmux.waitForChannel(channel, timeoutMs);
-  if (!signalled) return { ok: false, marker: "" };
-  return { ok: true, marker: baselineBefore, channel };
-}
-
-/**
  * Readiness with no polling at all. The server pushes when a subscribed format changes — at most
  * once a second, for as many panes as we care to watch — so ten agents cost what three do, and a
  * quiet pane costs nothing. A capture happens only when the failure trigger actually fires, because
@@ -388,7 +366,7 @@ function prepareCandidates({ spec, agent, adapters, bootstrapFile, dir, warnings
  * Start one agent in its pane, walking the candidate chain from `startIndex`. Returns
  * { ok, index, label, adapter, ready, attempts:[{label, outcome}] }.
  */
-async function startAgentInPane({ pane, agentId, candidates, startIndex = 0, runDir, log = () => {}, respawn = false }) {
+async function startAgentInPane({ pane, agentId, candidates, startIndex = 0, runDir, log = () => {}, respawn = false, client = null }) {
   const attempts = [];
   for (let index = startIndex; index < candidates.length; index += 1) {
     const item = candidates[index];
@@ -399,20 +377,23 @@ async function startAgentInPane({ pane, agentId, candidates, startIndex = 0, run
     }
     if (respawn || index > startIndex) await tmux.respawnPane(pane);
     log(`starting ${agentId} on ${item.label} in pane ${pane}`);
-    // Prove the shell is accepting input before typing the launcher into it, and take the marker it
-    // returns as the boundary between shell output and agent output.
-    const shell = await waitForShell(pane);
+    // Prove the shell is accepting input before typing the launcher into it, and leave the pane
+    // empty in the same round trip so that anything found in it afterwards is the agent's.
+    const shell = await tmux.clearAndWaitForShell(pane, `ao-shell-${randomUUID().slice(0, 8)}`);
     if (!shell.ok) {
       attempts.push({ label: item.label, outcome: "shell did not become ready" });
       await appendJournal(runDir, { type: "agent.candidate_failed", agent: agentId, candidate: item.label, reason: "shell did not become ready" });
       continue;
     }
-    const baseline = shell.marker;
+    const { baseline, promptLines } = shell;
     await tmux.sendText(pane, `bash ${shellQuote(item.launcher)}`);
-    const readiness = await waitReady(pane, item.adapter, item.adapter.ready.timeout_ms ?? 45_000, { baseline });
+    const timeoutMs = item.adapter.ready.timeout_ms ?? 45_000;
+    const readiness = client && item.adapter.ready.tmux_pattern
+      ? await waitReadySubscribed({ client, pane, adapter: item.adapter, timeoutMs, subName: `ao-${agentId}`, baseline, promptLines })
+      : await waitReady(pane, item.adapter, timeoutMs, { baseline });
     if (readiness.failed) {
       attempts.push({ label: item.label, outcome: readiness.reason });
-      await appendJournal(runDir, { type: "agent.candidate_failed", agent: agentId, candidate: item.label, reason: readiness.reason });
+      await appendJournal(runDir, { type: "agent.candidate_failed", agent: agentId, candidate: item.label, reason: readiness.reason, exit_status: readiness.exit_status ?? null });
       continue;
     }
     const pointer = render(item.adapter.bootstrap_message, item.vars);
@@ -549,29 +530,69 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
     if (spec.layout !== "windows") await tmux.selectLayout(`${spec.session}:main`, spec.layout === "grid" ? "tiled" : "main-vertical");
   }
   for (const item of ordered) {
-    await tmux.setPaneTitle(panes.get(item.agent.id), `${item.agent.id} · ${item.agent.role}`);
+    const pane = panes.get(item.agent.id);
+    await tmux.setPaneTitle(pane, `${item.agent.id} · ${item.agent.role}`);
+    // remain-on-exit BEFORE anything can die, or the pane vanishes and its exit status with it.
+    await tmux.setPaneOption(pane, "remain-on-exit", "on");
+    // pipe-pane BEFORE the shell is touched. It only ever sees what is written after it attaches,
+    // so attaching it later loses precisely the part that says why an agent never came up.
+    await tmux.pipePane(pane, `cat >> ${shellQuote(join(item.dir, "pane.log"))}`);
   }
+  // One hook for the whole session: a death pushes a record instead of a poll discovering it later.
+  // `#{pane_dead_status}` is the process's real exit code, readable only because remain-on-exit was
+  // set above. `show-hooks` will not list this hook even though it fires — do not go looking there.
+  const deathLog = join(spec.run_dir, "deaths.jsonl");
+  await tmux.setHook(
+    spec.session,
+    "pane-died",
+    `run-shell -b "printf '{\\"pane\\":\\"%s\\",\\"status\\":\\"%s\\",\\"at\\":\\"%s\\"}\\n' '#{hook_pane}' '#{pane_dead_status}' \"$(date -Is)\" >> ${deathLog}"`,
+  );
   for (const agent of run.agents) agent.pane = panes.get(agent.id);
   await saveRun(spec.run_dir, run);
 
-  const results = [];
-  for (const item of ordered) {
-    const pane = panes.get(item.agent.id);
-    const started = await startAgentInPane({ pane, agentId: item.agent.id, candidates: item.candidates, runDir: spec.run_dir, log });
-    const entry = run.agents.find((agent) => agent.id === item.agent.id);
-    if (started.ok) {
-      entry.active = started.index;
-      entry.provider = started.label;
-      entry.adapter = started.adapter.id;
-      entry.submit_keys = started.adapter.submit_keys;
-      if (!started.ready) warnings.push(`agent ${item.agent.id}: ${started.label} did not look ready (${started.attempts.at(-1).outcome}); bootstrap pointer was sent anyway`);
-      if (started.index > 0) warnings.push(`agent ${item.agent.id}: fell back to ${started.label} after ${started.attempts.slice(0, -1).map((attempt) => `${attempt.label} (${attempt.outcome})`).join(", ")}`);
-    } else {
-      warnings.push(`agent ${item.agent.id}: every provider in its chain failed — ${started.attempts.map((attempt) => `${attempt.label}: ${attempt.outcome}`).join("; ")}`);
-    }
-    await saveRun(spec.run_dir, run);
-    results.push({ id: item.agent.id, role: item.agent.role, pane, provider: started.label, adapter: started.adapter?.id ?? null, ready: started.ready, attempts: started.attempts });
+  // One control-mode client for the session: the readiness signal for every pane, pushed by the
+  // server. If control mode is unavailable the starts fall back to the capture loop.
+  const client = new tmux.ControlClient(spec.session);
+  const subscribed = await client.start().catch(() => false);
+  if (!subscribed) {
+    client.close();
+    warnings.push("tmux control mode did not attach; readiness fell back to polling each pane.");
   }
+
+  // Agents start together. They occupy separate panes and share nothing but the tmux server, so
+  // serial starts only ever bought worst-case `agents x timeout_ms` — a chain of five slow CLIs used
+  // to take five timeouts to report what it now reports in one.
+  const started = await Promise.all(
+    ordered.map((item) =>
+      startAgentInPane({
+        pane: panes.get(item.agent.id),
+        agentId: item.agent.id,
+        candidates: item.candidates,
+        runDir: spec.run_dir,
+        log,
+        client: subscribed ? client : null,
+      }).then((outcome) => ({ item, outcome })),
+    ),
+  );
+  client.close();
+
+  const results = [];
+  for (const { item, outcome } of started) {
+    const pane = panes.get(item.agent.id);
+    const entry = run.agents.find((agent) => agent.id === item.agent.id);
+    if (outcome.ok) {
+      entry.active = outcome.index;
+      entry.provider = outcome.label;
+      entry.adapter = outcome.adapter.id;
+      entry.submit_keys = outcome.adapter.submit_keys;
+      if (!outcome.ready) warnings.push(`agent ${item.agent.id}: ${outcome.label} did not look ready (${outcome.attempts.at(-1).outcome}); bootstrap pointer was sent anyway`);
+      if (outcome.index > 0) warnings.push(`agent ${item.agent.id}: fell back to ${outcome.label} after ${outcome.attempts.slice(0, -1).map((attempt) => `${attempt.label} (${attempt.outcome})`).join(", ")}`);
+    } else {
+      warnings.push(`agent ${item.agent.id}: every provider in its chain failed — ${outcome.attempts.map((attempt) => `${attempt.label}: ${attempt.outcome}`).join("; ")}`);
+    }
+    results.push({ id: item.agent.id, role: item.agent.role, pane, provider: outcome.label, adapter: outcome.adapter?.id ?? null, ready: outcome.ready, attempts: outcome.attempts });
+  }
+  await saveRun(spec.run_dir, run);
   if (spec.layout !== "windows") await tmux.selectPane(panes.get(first.agent.id));
 
   run.state = results.every((result) => result.provider) ? "running" : "degraded";

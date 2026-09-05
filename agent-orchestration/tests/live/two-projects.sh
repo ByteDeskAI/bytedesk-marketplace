@@ -17,9 +17,27 @@ HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PLUGIN=$(cd "$HERE/../.." && pwd)
 AO="$PLUGIN/bin/ao-topology"
 
-ROOT=${1:-$(mktemp -d -t ao-two-projects-XXXXXX)}
+# A root passed on the command line belongs to the caller and is never removed. One we made
+# ourselves is scratch, and a harness that leaves a directory behind on every run is a harness
+# nobody runs twice.
+if [ $# -ge 1 ]; then
+  ROOT=$1
+  OWN_ROOT=""
+else
+  ROOT=$(mktemp -d -t ao-two-projects-XXXXXX)
+  OWN_ROOT=$ROOT
+fi
 P1="$ROOT/project-1"
 P2="$ROOT/project-2"
+
+cleanup() {
+  # Kill the session first: removing the run directory out from under a live pane leaves the pane
+  # alive with nowhere to write.
+  [ -n "${SESSION:-}" ] && tmux kill-session -t "$SESSION" 2>/dev/null
+  [ -n "$OWN_ROOT" ] && rm -rf "$OWN_ROOT"
+  return 0
+}
+trap cleanup EXIT INT TERM
 
 pass=0
 fail=0
@@ -377,5 +395,15 @@ fi
 
 step "summary"
 printf '\n%s passed, %s failed\n' "$pass" "$fail"
-[ "$fail" -eq 0 ] || exit 1
-printf 'root: %s\n' "$ROOT"
+[ "$fail" -eq 0 ] || {
+  # Keep the evidence when something failed — that is exactly when the run directory is worth
+  # reading. Say where it is, since the caller was expecting it to be cleaned up.
+  [ -n "$OWN_ROOT" ] && { OWN_ROOT=""; printf 'kept for inspection: %s\n' "$ROOT"; }
+  exit 1
+}
+# Do not print a scratch path that is about to be deleted — it reads as somewhere to go and look.
+if [ -n "$OWN_ROOT" ]; then
+  printf 'scratch repositories removed\n'
+else
+  printf 'root: %s\n' "$ROOT"
+fi

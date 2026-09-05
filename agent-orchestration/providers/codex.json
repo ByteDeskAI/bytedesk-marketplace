@@ -30,7 +30,8 @@
   "ready": {
     "pattern": "(^|\\n)\\s*[›>❯]\\s",
     "delay_ms": 6000,
-    "timeout_ms": 30000
+    "timeout_ms": 30000,
+    "tmux_pattern": "^\\s*[›>❯]"
   },
   "submit_keys": [
     "Enter"
@@ -41,5 +42,5 @@
     "--version"
   ],
   "install_hint": "npm install -g @openai/codex",
-  "notes": "Codex has no system-prompt flag in interactive mode, so the bootstrap pointer is typed as the first message. Per-agent memory is only partly cwd-scoped: AGENTS.md follows the cwd, session history does not. Set CODEX_HOME per agent in the spec's env if you need the history separated too. Coordinator form verified 2026-09-05: `codex --help` lists `-s/--sandbox <SANDBOX_MODE>` with possible value `read-only`. It is appended after auto_approve_args, so if an agent is both auto_approve and coordinates_only the read-only sandbox is the --sandbox value that survives."
+  "notes": "Codex has no system-prompt flag in interactive mode, so the bootstrap pointer is typed as the first message. Per-agent memory is only partly cwd-scoped: AGENTS.md follows the cwd, session history does not. Set CODEX_HOME per agent in the spec's env if you need the history separated too. Coordinator form verified 2026-09-05: `codex --help` lists `-s/--sandbox <SANDBOX_MODE>` with possible value `read-only`. It is appended after auto_approve_args, so if an agent is both auto_approve and coordinates_only the read-only sandbox is the --sandbox value that survives. tmux_pattern is the server-side form used by the refresh-client subscription, measured 2026-09-05 against tmux 3.4 (a codex `› ` prompt matched). Same restrictions as every tmux-side pattern: per-line search, no `\\n`, no braces, no `:`, no trailing `\\s`."
 }

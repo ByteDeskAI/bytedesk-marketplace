@@ -30,7 +30,8 @@
   "ready": {
     "pattern": "(^|\\n)\\s*[│|]?\\s*[>❯]\\s",
     "delay_ms": 6000,
-    "timeout_ms": 30000
+    "timeout_ms": 30000,
+    "tmux_pattern": "^\\s*[│|]?\\s*[>❯]"
   },
   "submit_keys": [
     "Enter"
@@ -41,5 +42,5 @@
     "--version"
   ],
   "install_hint": "npm install -g @anthropic-ai/claude-code",
-  "notes": "Models: fable, opus, sonnet, haiku, or a full model id. Memory is keyed by working directory, so an agent given its own cwd gets its own memory and keeps it across spawns; --add-dir grants tool access to the repo it actually works in. Set auto_approve: true on the agent to add --dangerously-skip-permissions. Coordinator form verified 2026-09-05: `claude --help` lists `--disallowedTools, --disallowed-tools <tools...>` — 'Comma or space-separated list of tool names to deny'. Bash is deliberately NOT denied: the conductor delegates by running ao-topology send/wait/reply, so denying it would break the role. The containment that actually holds for a coordinator is therefore the withheld --add-dir, not this flag."
+  "notes": "Models: fable, opus, sonnet, haiku, or a full model id. Memory is keyed by working directory, so an agent given its own cwd gets its own memory and keeps it across spawns; --add-dir grants tool access to the repo it actually works in. Set auto_approve: true on the agent to add --dangerously-skip-permissions. Coordinator form verified 2026-09-05: `claude --help` lists `--disallowedTools, --disallowed-tools <tools...>` — 'Comma or space-separated list of tool names to deny'. Bash is deliberately NOT denied: the conductor delegates by running ao-topology send/wait/reply, so denying it would break the role. The containment that actually holds for a coordinator is therefore the withheld --add-dir, not this flag. tmux_pattern is the server-side form used by the refresh-client subscription, measured 2026-09-05 against tmux 3.4 on a real Claude input box (`│ > ` matched at its line). It is NOT a translation of `pattern`: tmux searches per line, so `\\n` cannot appear; `{`/`}` break the format parser; `:` is the format separator so `[[:space:]]` is unusable; and a trailing `\\s` never matches because tmux strips trailing padding. `\\s` itself works (glibc extends POSIX ERE)."
 }
