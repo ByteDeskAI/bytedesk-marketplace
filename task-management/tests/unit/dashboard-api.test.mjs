@@ -9,7 +9,7 @@
 import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { cleanup, tempRepo, tempStore, withSessionEnv } from "./helpers.mjs";
@@ -1534,6 +1534,44 @@ describe("planning sessions", () => {
     // The conversation ends when its proposal lands.
     assert.equal(handleWrite("GET", `/api/planner/${id}`, null, { p }).body.status, "applied");
     assert.ok(readEvents(p).some((e) => e.event === "planner_applied"));
+  });
+
+  it("spends an approval once — a second apply of the same digest writes nothing", () => {
+    const p = store();
+    const id = handleWrite("POST", "/api/planner", { goal: "Approve once" }, { p }).body.id;
+    const operations = [{ op: "epic.create", args: { ref: "E", title: "Approved once", body: "why" } }];
+    const prop = handleWrite("POST", `/api/planner/${id}/propose`, { operations }, { p });
+
+    assert.equal(handleWrite("POST", `/api/planner/${id}/apply`, { approvedDigest: prop.body.digest }, { p }).status, 201);
+    // The failure this closes: an approval authorises ONE write, and reading the proposal then
+    // applying it in two steps let it authorise as many as the caller asked for. A double-click on
+    // the confirmation created the whole set twice, because the second request found the same
+    // proposal and the same digest still sitting on the session.
+    const again = handleWrite("POST", `/api/planner/${id}/apply`, { approvedDigest: prop.body.digest }, { p });
+    assert.equal(again.status, 409);
+    assert.equal(list("epic", {}, p).filter((e) => e.title === "Approved once").length, 1, "one approval, one epic");
+  });
+
+  it("puts the proposal back when a landing fails, rather than stranding the session", () => {
+    const p = store();
+    const id = handleWrite("POST", "/api/planner", { goal: "Fails to land" }, { p }).body.id;
+    // Valid at preview, refused at apply: the epic it names is removed in between, so the landing
+    // fails inside the lock rather than at validation.
+    const epic = create("epic", { title: "Vanishes" }, "", p);
+    const operations = [{ op: "task.create", args: { epic: epic.id, title: "Orphan", body: "b", acceptance: ["x"] } }];
+    const prop = handleWrite("POST", `/api/planner/${id}/propose`, { operations }, { p });
+    assert.equal(prop.body.ok, true);
+
+    unlinkSync(read(epic.id, p).file);
+    reindex(p);
+    const failed = handleWrite("POST", `/api/planner/${id}/apply`, { approvedDigest: prop.body.digest }, { p });
+    assert.equal(failed.status, 409);
+    assert.equal(list("task", {}, p).length, 0, "nothing landed");
+
+    // The operator can still see and retry what they approved.
+    const after = handleWrite("GET", `/api/planner/${id}`, null, { p }).body;
+    assert.equal(after.status, "open");
+    assert.equal(after.proposal.digest, prop.body.digest);
   });
 
   it("refuses to propose an operation that is not governed", () => {

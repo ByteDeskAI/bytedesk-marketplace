@@ -1009,17 +1009,38 @@ function plannerRoute(method, url, payload, p) {
         return ok({ ...preview, session: session.id });
       }
       if (action === "apply") {
-        const session = readSession(id, p);
-        if (!session.proposal) return fail(409, "this planning session has no proposal to apply");
-        // Two separate checks, and both matter. The digest the CALLER approved must match what the
-        // server proposed, and `applyOps` independently recomputes it from the operations it is
-        // about to run. Neither the browser's operation list nor its digest is trusted.
-        if (payload?.approvedDigest !== session.proposal.digest) {
-          return fail(409, "the approved proposal is not the one this session is holding — review it again");
+        // CLAIM the proposal, then apply it. An approval authorises one write, and reading the
+        // proposal and then applying it in two steps made it authorise as many as the caller cared
+        // to ask for: a double-click on the confirmation created the whole set twice, because the
+        // second request found the same proposal and the same digest still sitting there. Taking
+        // the proposal off the session under the store lock is what makes it single-use.
+        let claimed = null;
+        try {
+          mutateSession(id, (session) => {
+            if (session.status !== "open") throw fail(409, `planning session ${id} is ${session.status}`).body;
+            if (!session.proposal) throw fail(409, "this planning session has no proposal to apply").body;
+            // The digest the CALLER approved must match what the server proposed. `applyOps` then
+            // recomputes it independently from the operations it is about to run, so neither the
+            // browser's operation list nor its digest is trusted.
+            if (payload?.approvedDigest !== session.proposal.digest) {
+              throw fail(409, "the approved proposal is not the one this session is holding — review it again").body;
+            }
+            claimed = session.proposal;
+            return { proposal: null, status: "applying" };
+          }, p);
+        } catch (e) {
+          return fail(e.status || 409, e.error || e.message);
         }
-        const res = applyOps(session.proposal.operations, { approvedDigest: session.proposal.digest, session: id, stamp: stamp(p) }, p);
-        closeSession(id, "applied", p);
-        return { status: 201, body: res };
+        try {
+          const res = applyOps(claimed.operations, { approvedDigest: claimed.digest, session: id, stamp: stamp(p) }, p);
+          closeSession(id, "applied", p);
+          return { status: 201, body: res };
+        } catch (e) {
+          // The landing rolled itself back, so the operator can review and try again — put the
+          // proposal back rather than stranding the session with nothing to approve.
+          mutateSession(id, () => ({ proposal: claimed, status: "open" }), p);
+          return fail(e.status || 409, e.message);
+        }
       }
       return null;
     }
