@@ -317,6 +317,13 @@ depth=$("$AO" status --run "$RUN_DIR" --json 2>&1 | node -e '
   && ok "the redirected message shows up as queue depth on the lead" \
   || bad "the redirected message shows up as queue depth on the lead" "depth=$depth"
 
+# The via chain is what stops a message being re-forwarded around a ring of leads forever. It only
+# works if a forwarding sender actually passes the chain on, so the CLI has to carry it.
+long_via="a,b,c,d,e"
+assert_fails "a message that has already taken too many hops is refused" "TOPOLOGY_HOP_LIMIT" \
+  "$AO" send --run "$RUN_DIR" --from "$P2_RES" --from-project "$P2" --to "$P1_LEAD" \
+       --stage question --via "$long_via" --body "Round and round." --no-ring
+
 step "delegation: a token is a pointer, the receiving repo's store is the permission"
 # No task-management store in project-1 yet, so nothing here vouches for a delegation.
 assert_fails "a delegation with nothing backing it is refused at issue time" "TOPOLOGY_DELEGATION_UNBACKED" \

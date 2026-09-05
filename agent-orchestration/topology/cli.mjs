@@ -56,6 +56,7 @@ Conduct (used by the orchestrator agent)
 
   send --run <run_dir> --from <id> --to <id>[,<id>] --stage <slug> (--file <md> | --body <text>)
        [--from-project <dir>] [--task <id>]    routed: an outsider reaches the lead unless delegated
+       [--via <id>[,<id>]]                     hops already taken; forwarding must pass the chain on
        [--contract <name>] [--round <n>] [--subject <text>] [--no-ring]
   wait --run <run_dir> [--from <id>[,<id>]] [--message <id>] [--timeout 20m] [--poll 3s] [--json]
   capture --run <run_dir> --agent <id> [--lines 60]
@@ -356,7 +357,11 @@ const commands = {
     const route = fromProject
       ? (args) => routeMessage({ consumer: routingConsumer, pluginRoot: PLUGIN_ROOT, home: ctx.home, ...args })
       : null;
-    const message = await sendMessage({ runDir, from, to: list(flags.to), stage, body, contract: flags.contract, round: flags.round, subject: flags.subject, route, fromProject, task });
+    // The via chain travels with the message and is what stops re-forwarding and lead-to-lead
+    // ping-pong. Without a way to pass it, a forwarding agent starts every hop from an empty chain
+    // and the hop limit can never be reached — the guard would be wired and still never fire.
+    const via = list(flags.via);
+    const message = await sendMessage({ runDir, from, to: list(flags.to), stage, body, contract: flags.contract, round: flags.round, subject: flags.subject, route, fromProject, task, via });
     const delivered = [];
     if (!flags["no-ring"]) {
       for (const delivery of message.deliveries) {

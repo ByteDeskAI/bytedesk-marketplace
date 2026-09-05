@@ -8,14 +8,14 @@ title: "Agent hierarchy: team lead, reports_to, and delegation tokens"
 epic: "EP-014"
 acceptance: [{"text":"An agent definition can declare role: lead, coordinates_only and reports_to","done":true,"at":"2026-09-05T07:48:45.584Z"},{"text":"Exactly one lead per repo is enforced, with a clear error when a second is declared","done":true,"at":"2026-09-05T07:48:45.722Z"},{"text":"coordinates_only removes write capability rather than only instructing against it","done":true,"at":"2026-09-05T07:48:45.855Z"},{"text":"A delegation token references a tm claim and is validated against the receiving repo's own store","done":true,"at":"2026-09-05T07:48:45.995Z"},{"text":"The via chain prevents re-forwarding and lead-to-lead loops, with a hop limit","done":true,"at":"2026-09-05T07:48:46.136Z"},{"text":"Lead inbox queue depth is observable","done":true,"at":"2026-09-05T07:48:46.252Z"}]
 evidence: [".bytedesk/task-management/evidence/TM-094-two-projects.sh"]
-commits: ["8f135ad","25c5664","2bfa611"]
+commits: ["8f135ad","25c5664","2bfa611","2594850"]
 blockedBy: ["TM-092","TM-095"]
 blocks: ["TM-093"]
 actor: "main"
 session: "a7da6c38-57d4-464b-b856-ebdb3dd72e1b"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-05T07:48:46.528Z"
+updated: "2026-09-05T07:48:56.964Z"
 touches: ["agent-orchestration/topology/lib/mailbox.mjs","agent-orchestration/topology/lib/spec.mjs"]
 comments: [{"author":"main","ts":"2026-09-05T04:17:47.832Z","text":"Identity lands underneath this: the routing predicate and delegation tokens key on the agent's static id (TM-100), while every human-facing surface shows full name and title. A lead is therefore a titled identity — 'Marcus Vale, Engineering Lead' — not a bare slug."},{"author":"main","ts":"2026-09-05T07:48:45.465Z","text":"All six AC met, verified live against two real repos. role: lead, coordinates_only and reports_to are on the agent record; a second lead in one repo is refused at creation. AC3 is now structural rather than aspirational: a coordinator is granted NO directory beyond its own agent dir (the work-tree --add-dir is withheld) and its write tools are removed by a coordinator_args key its provider JSON declares, so a new CLI states its own form instead of the launcher hardcoding a Claude flag; an adapter declaring none produces a warning naming what is and is not containing the agent. This matters because the lead is the only address an outsider may reach directly, which makes it the most exposed agent in the system, and it should therefore be the least capable. A delegation token references a tm claim and is validated against the RECEIVING repo's own store on every use, so closing the task revokes it with no revocation step — proved live. The via chain and MAX_HOPS are wired into routeMessage and sendMessage rather than merely written. Lead inbox depth is in ao-topology status, resolved from the agent library rather than the run's role, because a repo's lead appears in a run as an orchestrator."}]
 closed: "2026-09-05T07:48:46.523Z"
