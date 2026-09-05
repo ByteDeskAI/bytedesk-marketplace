@@ -150,3 +150,18 @@
   .gp-intake__row { flex-direction: column; align-items: stretch; }
   .gp-actions { flex-direction: column-reverse; align-items: stretch; }
 }
+
+/*
+ * The answer form appears only while a question is open. There is no composer otherwise, which is
+ * the bounded design rather than a missing control: input is tied to a specific elicitation, so the
+ * surface cannot drift into a general prompt box.
+ */
+.gp-answer {
+  display: flex; flex-direction: column; gap: var(--tm-s3);
+  margin-top: var(--tm-s4);
+  padding: var(--tm-s4);
+  border: var(--tm-hairline) solid var(--tm-accent-line);
+  border-radius: var(--tm-radius-lg);
+  background: var(--tm-accent-wash);
+}
+.gp-answer h3 { font-size: var(--tm-text); font-weight: var(--tm-w-medium); }

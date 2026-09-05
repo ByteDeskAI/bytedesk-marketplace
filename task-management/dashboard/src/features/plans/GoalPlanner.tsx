@@ -158,6 +158,7 @@ function Session({ id }: { id: string }) {
   const [reviewed, setReviewed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [live, setLive] = useState("");
+  const [answer, setAnswer] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
 
   const load = useCallback(() => {
@@ -214,6 +215,28 @@ function Session({ id }: { id: string }) {
     }
   };
 
+  /**
+   * Answer the open question. This is the ONLY way to put text into a session after the goal, and
+   * that is the bounded design rather than a missing feature: input is tied to a specific
+   * elicitation, so the surface cannot drift into a general prompt box. When nothing is being
+   * asked, there is nothing to type into.
+   */
+  const reply = async () => {
+    if (!session || !answer.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const next = await planner.turn(session.id, { role: "operator", kind: "answer", text: answer.trim() });
+      setSession(next);
+      setAnswer("");
+      say("Answer recorded.");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const end = async (status: "cancelled" | "rejected") => {
     if (!session) return;
     await planner.close(session.id, status).catch((e: Error) => setError(e.message));
@@ -225,6 +248,14 @@ function Session({ id }: { id: string }) {
 
   const openSession = session.status === "open";
   const writes = proposal?.operations.length ?? 0;
+  // The last question that nothing has answered yet. A question already followed by an answer is
+  // settled, so no input is offered for it.
+  const lastQuestion = [...session.turns].reverse().find((t) => t.kind === "question");
+  const lastAnswer = [...session.turns].reverse().find((t) => t.kind === "answer");
+  const openQuestion =
+    openSession && lastQuestion && (!lastAnswer || session.turns.indexOf(lastQuestion) > session.turns.indexOf(lastAnswer))
+      ? lastQuestion
+      : null;
 
   return (
     <div className="tm-screen">
@@ -269,6 +300,32 @@ function Session({ id }: { id: string }) {
             ))}
           </ol>
         )}
+        {openQuestion ? (
+          <form
+            className="gp-answer"
+            onSubmit={(e) => { e.preventDefault(); reply(); }}
+            aria-labelledby="gp-answer-h"
+          >
+            <h3 id="gp-answer-h">Answer this decision</h3>
+            <p className="gp-hint">{openQuestion.text}</p>
+            <Field label="Your answer">
+              {(props) => (
+                <TextArea
+                  {...props}
+                  rows={2}
+                  value={answer}
+                  maxLength={20000}
+                  onChange={(e) => setAnswer(e.currentTarget.value)}
+                />
+              )}
+            </Field>
+            <div className="gp-actions">
+              <Button type="submit" disabled={!answer.trim() || busy}>
+                {busy ? "Recording…" : "Record answer"}
+              </Button>
+            </div>
+          </form>
+        ) : null}
       </section>
 
       <section aria-labelledby="gp-attach-h">
@@ -341,6 +398,7 @@ function Session({ id }: { id: string }) {
             <div className="gp-actions">
               <Button variant="ghost" onClick={() => end("rejected")}>Reject</Button>
               <Button
+                data-gp="approve"
                 disabled={!proposal.ok}
                 onClick={() => { setReviewed(false); setConfirming(true); }}
               >
@@ -366,7 +424,7 @@ function Session({ id }: { id: string }) {
         footer={
           <>
             <Button variant="ghost" onClick={() => setConfirming(false)}>Back to review</Button>
-            <Button disabled={!reviewed || busy} icon={<Check size={14} />} onClick={apply}>
+            <Button data-gp="apply" disabled={!reviewed || busy} icon={<Check size={14} />} onClick={apply}>
               {busy ? "Applying…" : "Approve once & apply"}
             </Button>
           </>
@@ -390,7 +448,7 @@ function Session({ id }: { id: string }) {
         </Checkbox>
       </Modal>
 
-      <p className="tm-sr-only" role="status" aria-live="polite">{live}</p>
+      <p className="sr-only" role="status" aria-live="polite">{live}</p>
     </div>
   );
 }
