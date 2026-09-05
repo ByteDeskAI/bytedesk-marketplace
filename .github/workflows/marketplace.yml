@@ -5,6 +5,7 @@ on:
     paths:
       - ".claude-plugin/marketplace.json"
       - "*/.claude-plugin/plugin.json"
+      - "*/agents/**"
       - "scripts/validate-marketplace.mjs"
       - ".github/workflows/marketplace.yml"
   push:
@@ -12,6 +13,7 @@ on:
     paths:
       - ".claude-plugin/marketplace.json"
       - "*/.claude-plugin/plugin.json"
+      - "*/agents/**"
       - "scripts/validate-marketplace.mjs"
       - ".github/workflows/marketplace.yml"
 
