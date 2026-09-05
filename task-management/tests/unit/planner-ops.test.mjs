@@ -9,7 +9,7 @@ import { describe, it, after } from "node:test";
 import assert from "node:assert/strict";
 import { cleanup, tempStore } from "./helpers.mjs";
 import { OPERATIONS, applyOps, digestOps, previewOps } from "../../lib/planner-ops.mjs";
-import { create, list, read, readEvents, state, writeConfig } from "../../lib/store.mjs";
+import { create, list, read, readEvents, state, update, writeConfig, writeState } from "../../lib/store.mjs";
 
 const stores = [];
 after(() => cleanup(...stores));
@@ -287,5 +287,55 @@ describe("rollback restores what it modified, not only what it created", () => {
 
     const rolled = readEvents(p).filter((e) => e.event === "planner_apply_rolled_back").at(-1);
     assert.deepEqual(rolled.restored, [existing.id], "the event names what it put back, not only what it removed");
+  });
+});
+
+describe("the gates and the destination are the board's, not the planner's", () => {
+  it("honours every store refusal except the one about needing an active epic", () => {
+    const p = store();
+    const epic = create("epic", { title: "Active" }, "", p);
+    writeState({ activeEpic: epic.id }, p);
+    writeConfig({ requireEpic: true, wipLimit: 1 }, p);
+    const busy = create("task", { title: "In flight", epic: epic.id, acceptance: [{ text: "x", done: false }] }, "b", p);
+    update(busy.id, { status: "in_progress" }, p);
+
+    // The refusal used to be discarded whenever an epic existed, so the planner walked past the
+    // WIP limit and the required-field checks: the board refused, the card said "validated", and
+    // the task was created anyway. A governed surface that ignores the gates the CLI obeys is not
+    // governed.
+    const pre = previewOps([{ op: "task.create", args: { epic: epic.id, title: "Extra", body: "b", acceptance: ["x"] } }], p);
+    assert.equal(pre.ok, false);
+    assert.match(pre.operations[0].refusal, /WIP limit reached/);
+    assert.throws(() => applyOps(pre.resolved, { approvedDigest: pre.digest }, p), (e) => e.status === 409);
+    assert.equal(list("task", {}, p).length, 1, "and nothing was created");
+
+    // A proposal that creates its own epic is not the situation the active-epic rule is about.
+    const fresh = store();
+    writeConfig({ requireEpic: true }, fresh);
+    const own = previewOps([
+      { op: "epic.create", args: { ref: "E", title: "New program", body: "b" } },
+      { op: "task.create", args: { epic: "E", title: "Under it", body: "b", acceptance: ["x"] } },
+    ], fresh);
+    assert.equal(own.ok, true);
+  });
+
+  it("binds the destination it showed, so a moving active epic cannot redirect an approval", () => {
+    const p = store();
+    writeConfig({ requireEpic: false }, p);
+    const a = create("epic", { title: "Epic A" }, "", p);
+    const b = create("epic", { title: "Epic B" }, "", p);
+    writeState({ activeEpic: a.id }, p);
+
+    const pre = previewOps([{ op: "task.create", args: { title: "Where does this land?", body: "b", acceptance: ["x"] } }], p);
+    // The card has to NAME the destination, or the operator is approving a placement they were
+    // never shown.
+    assert.match(pre.operations[0].consequence, new RegExp(`under ${a.id}`));
+    assert.equal(pre.resolved[0].args.epic, a.id, "the implicit destination is made explicit before digesting");
+
+    // Move it. Nothing about the approved proposal has changed, so it must still land where the
+    // card said — previously it followed the active epic and landed elsewhere.
+    writeState({ activeEpic: b.id }, p);
+    applyOps(pre.resolved, { approvedDigest: pre.digest, stamp: { actor: "m" } }, p);
+    assert.equal(read(list("task", {}, p)[0].id, p).epic, a.id);
   });
 });

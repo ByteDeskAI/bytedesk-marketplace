@@ -40,3 +40,6 @@ dashboard.port
 # Added by `tm doctor --fix` — rules this store predates.
 agents.json
 pool.pid
+
+# Added by `tm doctor --fix` — rules this store predates.
+planner/

@@ -31,3 +31,5 @@
 {"ts":"2026-09-05T07:20:04.676Z","kind":"hook_session_start","session":"edc9d8f6-32ba-4a57-a9c4-1d5fc3270be8"}
 {"ts":"2026-09-05T07:26:51.507Z","kind":"hook_session_start","session":"2997459a-c81d-48ed-8dbc-37aafa073035"}
 {"ts":"2026-09-05T08:33:38.233Z","kind":"hook_session_start","session":"4e1d7087-d606-432e-9341-3ce779b4baf8"}
+{"ts":"2026-09-05T13:57:52.198Z","kind":"hook_pre_compact","session":"4e1d7087-d606-432e-9341-3ce779b4baf8"}
+{"ts":"2026-09-05T13:59:33.848Z","kind":"hook_session_start","session":"4e1d7087-d606-432e-9341-3ce779b4baf8"}

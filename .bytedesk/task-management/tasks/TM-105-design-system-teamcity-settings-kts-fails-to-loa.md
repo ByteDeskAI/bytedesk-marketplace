@@ -8,14 +8,14 @@ title: "design-system TeamCity settings.kts fails to load, marking every build r
 epic: "EP-015"
 acceptance: [{"text":"The four Kotlin DSL capture errors no longer appear in the build log","done":false},{"text":"A ci-validate build whose step passes is reported as SUCCESS","done":false},{"text":"The change is reviewed by someone who owns the release/publish trust boundary","done":false}]
 evidence: []
-commits: ["0d35ce6"]
+commits: ["0d35ce6","c39d768"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "4e1d7087-d606-432e-9341-3ce779b4baf8"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-05T13:27:23.271Z"
+updated: "2026-09-05T13:30:13.080Z"
 type: "bug"
 blockedReason: "Needs an administrator who owns the release/publish trust boundary; settings.kts states that gate in its own header"
 priority: "highest"

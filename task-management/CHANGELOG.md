@@ -3,6 +3,23 @@
 ## Unreleased
 
 ### Added
+- **The goal planner (EP-013).** A conversational surface at `/planner` where an operator states a
+  goal in prose and an agent proposes board operations, which land only when the operator approves
+  them. The agent talks ACP over stdio (`lib/planner-acp.mjs`); its stream is translated to typed
+  AG-UI events (`lib/planner-agui.mjs`) so the dashboard renders turns, tool calls and permission
+  requests without parsing prose. Sessions, turns and content-addressed attachments live in
+  `lib/planner.mjs`; uploads are allowlisted by extension AND sniffed by magic bytes, stored under
+  their sha256, and served with `Content-Disposition: attachment`, `X-Content-Type-Options: nosniff`
+  and a sandboxing CSP.
+
+  The proposal itself is the governed part (`lib/planner-ops.mjs`). An agent can only ask for four
+  operations — `epic.create`, `epic.activate`, `task.create`, `task.depends` — and it asks by
+  calling one MCP tool, `tm_plan_propose`, from a narrowed tool table that exposes the board's reads
+  and nothing that writes. A proposal is previewed through the same store gates the CLI obeys, shown
+  as plain English consequences with the store's verbatim refusal where it refuses, digested, and
+  applied only against that digest under a single reentrant store lock, rolling back every record it
+  touched if any operation fails. Approving twice replays nothing.
+
 - **The `topology` dispatch backend (TM-098, EP-014).** `lib/dispatch/topology.mjs` launches a
   one-agent orchestration through the sibling agent-orchestration plugin's tmux layer:
   `ao-topology launch --spec <spec> --consumer <tm's worktree> --json`. It reuses the checkout
@@ -229,6 +246,15 @@
 - **Generated runtime files stay out of git.** Store `.gitignore` now names `dashboard.pid` and `dashboard.port` explicitly (still covered by `dashboard.*`), plus `bin` (generated launchers) and `events.json` / `events.jsonl`. Bootstrap and `.bytedesk/task-management/bin/tm doctor --fix` write `.bytedesk/.gitignore` so `worktrees/` is ignored without swallowing the store. Dashboard `.gitignore` also drops Vite/tsc leftovers (`.vite`, `*.tsbuildinfo`).
 
 ### Fixed
+- **The planner honoured the board's gates only when it felt like it (TM-086).** A preview
+  discarded the store's refusal whenever an epic already existed, so a proposal walked straight past
+  the WIP limit and the required-field checks: the board refused, the card said "validated", and the
+  tasks were created anyway. Every refusal is now honoured; the one exception is "no active epic",
+  which is not a refusal when the proposal creates the epic it is asking about.
+- **An approved proposal could land somewhere the operator never saw (TM-086).** A `task.create`
+  with no explicit epic resolved its destination during apply, so switching the active epic between
+  preview and approval redirected the work. The destination is now resolved before the digest is
+  taken, named on the card, and bound by the approval.
 - **`tm collect` could never see an orchestration run it dispatched (TM-098).** Dispatch spawns
   with `consumerCwd = <tm worktree>`, so the run records that checkout's `repositoryKey`
   (`sha256(commonGitDir\0checkoutRoot)`); collect asked with the repo root, a different hash,

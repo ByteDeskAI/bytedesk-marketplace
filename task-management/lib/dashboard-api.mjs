@@ -1004,7 +1004,10 @@ function plannerRoute(method, url, payload, p) {
         const preview = previewOps(payload?.operations, p);
         const session = mutateSession(id, (s) => {
           if (s.status !== "open") throw fail(409, `planning session ${id} is ${s.status}`).body;
-          return { proposal: { digest: preview.digest, operations: payload.operations, previewed: new Date().toISOString() } };
+          // `preview.resolved`, not what the caller sent: implicit destinations are filled in
+          // there, and storing the raw operations would leave the digest covering one shape while
+          // the stored operations said another.
+          return { proposal: { digest: preview.digest, operations: preview.resolved, previewed: new Date().toISOString() } };
         }, p);
         return ok({ ...preview, session: session.id });
       }

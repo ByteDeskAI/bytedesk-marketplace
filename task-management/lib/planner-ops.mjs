@@ -87,7 +87,7 @@ export const OPERATIONS = {
     describe: (a) => {
       const n = list(a.acceptance).length;
       return `Creates "${str(a.title)}" with ${n} acceptance ${n === 1 ? "criterion" : "criteria"}` +
-        `${a.epic ? ` under ${a.epic}` : ""}. It is gated on ${n === 1 ? "it" : "them"} and cannot be closed without ${n === 1 ? "it" : "them"}.`;
+        `${a.epic ? ` under ${a.epic}` : " with no epic"}. It is gated on ${n === 1 ? "it" : "them"} and cannot be closed without ${n === 1 ? "it" : "them"}.`;
     },
     check(args, ctx) {
       if (!str(args.title)) return "a task needs a title";
@@ -105,8 +105,21 @@ export const OPERATIONS = {
       const epicProblem = epic ? epicMustExist(epic, ctx) : null;
       if (epicProblem) return epicProblem;
       // The board's own create gate, with the real draft, so its wording is what the operator sees.
+      //
+      // Every refusal it gives is honoured EXCEPT the one that says there is no active epic, and
+      // only when this proposal supplies an epic itself — a proposal that creates its own epic and
+      // files tasks under it is not the situation that rule is about.
+      //
+      // It used to discard the refusal whenever an epic existed, which quietly let the planner
+      // walk past the WIP limit and the required-field checks: the board refused, the card said
+      // "validated", and the task was created anyway. A governed surface that ignores the gates
+      // the ungoverned CLI obeys is not governed.
       const gate = gateTaskCreate(ctx.p, { body: str(args.body), acceptance: list(args.acceptance).map((text) => ({ text, done: false })) });
-      if (!gate.allow && !epic && !state(ctx.p).activeEpic) return gate.reason;
+      if (!gate.allow) {
+        const suppliesItsOwnEpic = Boolean(epic);
+        const isNoActiveEpic = /no active epic/i.test(gate.reason || "");
+        if (!(isNoActiveEpic && suppliesItsOwnEpic)) return gate.reason;
+      }
       return null;
     },
     apply(args, ctx) {
@@ -309,8 +322,27 @@ function normalizeOps(ops) {
  * problem. `ok` is the answer to "may this be applied", and it is false if any single operation is
  * invalid: a proposal is one reviewable decision and lands whole or not at all.
  */
+/**
+ * Make every implicit destination explicit, before the proposal is digested or described.
+ *
+ * `task.create` with no `epic` used to mean "wherever the active epic points WHEN THIS IS
+ * APPLIED" — so approving a task under EP-001 and landing it under EP-002 required nothing more
+ * than the active epic moving in between, and the digest did not change because the destination
+ * was never in the operations. Resolving it here puts it inside what is digested, named on the
+ * card, and applied.
+ */
+function resolveDestinations(ops, p) {
+  const active = state(p).activeEpic || null;
+  return ops.map((op) => {
+    if (op.op !== "task.create") return op;
+    // Already explicit, or there is nothing to be explicit about.
+    if (str(op.args.epic) || !active) return op;
+    return { ...op, args: { ...op.args, epic: active } };
+  });
+}
+
 export function previewOps(ops, p = paths()) {
-  const normalized = normalizeOps(ops);
+  const normalized = resolveDestinations(normalizeOps(ops), p);
   const ctx = makeContext(normalized, p, {});
   const operations = normalized.map((op, index) => {
     const spec = OPERATIONS[op.op];
@@ -336,6 +368,10 @@ export function previewOps(ops, p = paths()) {
     digest: digestOps(normalized),
     ok: operations.every((o) => o.valid),
     operations,
+    // What was actually judged, with implicit destinations filled in. A caller that stores a
+    // proposal must store THIS, not what it was handed — otherwise the digest covers one thing
+    // and the operations say another.
+    resolved: normalized,
   };
 }
 
@@ -353,7 +389,10 @@ export function previewOps(ops, p = paths()) {
  * appended since — so a failure appends `planner_apply_rolled_back` naming what it removed.
  */
 export function applyOps(ops, { approvedDigest, session = null, stamp = {} } = {}, p = paths()) {
-  const normalized = normalizeOps(ops);
+  // Resolved the same way the preview did. A proposal stored from `preview.resolved` already has
+  // its destinations explicit, so this is a no-op for it — and a caller that passes raw operations
+  // still gets a digest computed over the same shape rather than a mismatch.
+  const normalized = resolveDestinations(normalizeOps(ops), p);
   const digest = digestOps(normalized);
   if (!approvedDigest) throw err("applying a proposal needs the digest the operator approved", 400);
   if (approvedDigest !== digest) {

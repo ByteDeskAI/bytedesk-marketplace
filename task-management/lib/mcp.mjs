@@ -173,7 +173,8 @@ export const TOOLS = [
         const preview = previewOps(operations, p);
         mutateSession(session, (s) => {
           if (s.status !== "open") throw new Error(`planning session ${session} is ${s.status}`);
-          return { proposal: { digest: preview.digest, operations, previewed: new Date().toISOString() } };
+          // What the preview resolved, so the stored proposal and its digest describe one thing.
+          return { proposal: { digest: preview.digest, operations: preview.resolved, previewed: new Date().toISOString() } };
         }, p);
         appendTurn(session, {
           role: "agent",
