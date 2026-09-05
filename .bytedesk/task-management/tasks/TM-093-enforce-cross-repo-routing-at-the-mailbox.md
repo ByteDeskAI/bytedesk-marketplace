@@ -8,14 +8,14 @@ title: "Enforce cross-repo routing at the mailbox"
 epic: "EP-014"
 acceptance: [{"text":"recordReply verifies the writing agent's identity rather than trusting --agent","done":false},{"text":"The routing predicate redirects a disallowed direct contact to the receiving repo's lead","done":false},{"text":"A redirect emits a journal event and is acknowledged to the sender with the original addressee preserved","done":false},{"text":"A wait barrier is satisfied by a reply to the message regardless of which agent answered","done":false},{"text":"An empty reply file no longer satisfies a barrier","done":false}]
 evidence: []
-commits: ["8f135ad"]
+commits: ["8f135ad","2bfa611"]
 blockedBy: ["TM-094"]
 blocks: []
 actor: "main"
 session: "a7da6c38-57d4-464b-b856-ebdb3dd72e1b"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-05T04:08:51.511Z"
+updated: "2026-09-05T07:34:48.260Z"
 touches: ["agent-orchestration/topology/lib/mailbox.mjs"]
 ---
 

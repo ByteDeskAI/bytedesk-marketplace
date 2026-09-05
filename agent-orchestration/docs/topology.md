@@ -17,6 +17,7 @@ boundary.
 | Spec | JSON, see `ao-topology schema` | One declarative document: agents, workflow, gates, inputs. Natural language compiles into it; a template is a saved one. |
 | Templates | `templates/orchestrations/*.json`, `~/.config/agent-orchestration/templates/`, `<repo>/.bytedesk/agent-orchestration/templates/` (legacy `<repo>/.orchestration/templates/` is still read) | Reusable specs. Earlier locations override later ones by name. |
 | Provider adapters | `providers/*.json` plus the same user/consumer overrides | How to launch one CLI: command, model flag, system-prompt flag, auto-approve flag, idle-prompt regex, failure patterns, submit keys. Unknown `cli` ids fall back to `generic` with the id as the command, so any installed CLI works. |
+| Agents | `.bytedesk/agent-orchestration/agents/<id>/` in the consumer, plus the same user/plugin overrides | A durable per-repo roster. Each agent has a stable minted id, a generated name and title, a role, a provider chain, skills, MCP servers and an optional file-backed system prompt. A spec may reference one instead of restating it. |
 | Role packs | `roles/*.md` plus overrides | The abstract, domain-free part of an agent's instructions: what an orchestrator, worker, designer, judge, reviewer, researcher, or implementer owes the run. |
 | Skills | resolved by name from the consumer repo, the user's home, and this plugin | Domain knowledge an agent must read before working (for example `brand-brief`, `brand-concept`, `brand-judge` from the design-system plugin). Nothing is copied; agents are told which SKILL.md files to read. |
 | CLI | `bin/ao-topology` → `topology/cli.mjs` | Launch, send, wait, reply, capture, nudge, status, journal, stop, doctor, templates, providers, compose, validate, runs. Dependency-free ESM; no bundle step. |
@@ -47,6 +48,83 @@ All five per-repo resource types — templates, skills, roles, providers and age
 `<repo>/.bytedesk/agent-orchestration/<kind>/`, with `<repo>/.orchestration/<kind>/` read as a
 fallback so a repository laid out under the old convention keeps working. Writes always use the
 new path.
+
+## Agents, identity, and the team
+
+An agent used to exist only as an inline entry in a spec's `agents[]` array, alive for one run. It
+is now a resource type like templates, skills, roles and providers, stored per repository under
+`.bytedesk/agent-orchestration/agents/<id>/` and resolved through the same four-tier search path.
+
+```
+ao-topology agent new --role lead --cli claude     # mint one
+ao-topology agent list                             # the roster, by name and title
+ao-topology agent show "Mira Halloran"             # by id, by full name, or by "Name, Title"
+```
+
+**Two identifiers, different jobs.** An agent gets a short **id**, minted once at creation and
+never changed. It is the address every machine surface uses: tmux session names, mailbox paths,
+routing predicates, delegation tokens, journal events, spec `agents[].id`. It also gets a **first
+name, last name and a title** derived from its role — `Mira Halloran, Engineering Lead`. That is
+what people see. The two are generated independently: the id takes nothing from the name, so a name
+collision can never disturb an address, and a name is checked against the existing roster before it
+is handed out.
+
+The rule about never showing the id is scoped to *human* interaction. Journals, session names,
+message envelopes, event payloads and agent-to-agent traffic all carry the id, deliberately.
+
+**One lead per repository**, enforced at creation rather than by convention. A lead is the repo's
+front door and may be `coordinates_only`, which is a capability fact and not an instruction: work
+cannot be delegated to one, and the refusal is mechanical.
+
+A spec entry may reference a stored agent instead of restating it, with any inline field
+overriding the stored definition:
+
+```json
+{ "agents": [ { "agent": "Mira Halloran", "cli": "codex" } ] }
+```
+
+## Talking across repositories
+
+Two repositories each have their own roster, their own lead and their own task store. A message
+that crosses that boundary is routed **at the mailbox**, not by trusting whoever composed it:
+
+- **Same project** — delivered as addressed.
+- **Addressed to the lead** — delivered. The lead is the front door.
+- **Covered by a delegation** — delivered directly to the named agent.
+- **Anything else** — redirected to the lead, with the original addressee preserved in the envelope
+  as `intended_for`, a `route.redirect` journal event, a note in the delivered message explaining
+  why it arrived, and an acknowledgement to the sender. A message that silently changes recipient is
+  the failure this layer exists to avoid, so a redirect is loud without being an error.
+
+**A delegation token is a pointer, not a permission.** The permission is the `tm` claim it names,
+and that claim lives in the *receiving* repo's own task-management store — the one store the sender
+cannot forge. Every use re-reads it off disk, so closing the task revokes the delegation with no
+revocation step anywhere:
+
+```
+ao-topology delegate --task TM-500 --to "Hana Fairbairn" --for <outside-agent-id>
+```
+
+A `via` chain travels in the message frontmatter and stops both re-forwarding and lead-to-lead
+loops, with a hop limit. And an agent may only write its own outbox: each agent's launcher exports
+a secret that `reply` checks, so `--agent <id>` is no longer a claim taken on trust, and an empty
+reply file no longer satisfies a waiting barrier.
+
+The whole arrangement is exercised end to end against two real repositories by
+`tests/live/two-projects.sh`.
+
+## Safety boundaries
+
+The agents' own permission prompts are this layer's safety boundary, so two things are guarded
+around them:
+
+- **A spec may not launch outside the repository that invoked it.** `cwd` and `run_dir` are
+  contained to the consumer; `/`, `~` and `../../other-repo` are refused. A spec is data, often
+  committed data, so a path it supplies is untrusted input. `--allow-outside` is the deliberate
+  exception.
+- **`auto_approve` removes the boundary entirely**, so it requires explicit consent:
+  `--allow-auto-approve`. Without it a spec requesting it refuses to launch, on the dry-run path
+  too, naming the agents affected.
 
 ## Provider chains and failover
 

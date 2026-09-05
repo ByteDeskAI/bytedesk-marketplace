@@ -156,7 +156,7 @@ export async function createAgent(consumer, spec = {}, dirs = null) {
   await mkdir(dir, { recursive: true });
   await writeJson(join(dir, DEFINITION), agent);
   if (!(await exists(join(dir, PROMPT)))) {
-    await writeFile(join(dir, PROMPT), spec.prompt || defaultPrompt(agent, consumer), "utf8");
+    await writeFile(join(dir, PROMPT), spec.prompt || defaultPrompt(agent, consumer, dir), "utf8");
   }
   return { ...agent, _dir: dir, _file: join(dir, DEFINITION) };
 }
@@ -166,20 +166,25 @@ export async function createAgent(consumer, spec = {}, dirs = null) {
  * working directory is its own identity directory while the work lives in the repo root — an agent
  * that does not know that will write its output into its own folder and look like it succeeded.
  */
-export function defaultPrompt(agent, consumer) {
+export function defaultPrompt(agent, consumer, dir = join(agentsRoot(consumer), agentDirName(agent))) {
   return `# ${displayName(agent)}
 
 You are **${agent.full_name}**, ${agent.title} on this project.
 
 ## Where you are, and where the work is
 
-Your working directory is your own agent directory. It is yours: notes, scratch files and whatever
-memory your CLI keeps are scoped to it, and nothing you leave here collides with another agent.
+Your working directory is \`${dir}\` — your own agent directory. It is yours: notes, scratch files
+and whatever memory your CLI keeps are scoped to it, and nothing you leave here collides with
+another agent.
 
-**The project you work on is \`${consumer}\`.** You have been granted access to it. Always use
-absolute paths beginning with \`${consumer}/\` when you read or write project files. A relative path
-resolves against your own directory, not the project, and a file written that way will look saved
-while being nowhere the project can see it.
+**Your working directory is NOT the project.** The project you work on is \`${consumer}\`, and you
+have been granted access to it.
+
+**Every path you use for project work must be absolute and begin with \`${consumer}/\`.** A relative
+path — \`src/app.ts\`, \`./README.md\`, \`docs/\` — resolves against your own agent directory instead.
+Written that way a file looks saved while being nowhere the project can see it; read that way an
+existing file reports as missing. This is the one mistake that looks like success, so check the
+paths in your own commands before you run them.
 
 ## Who you are
 

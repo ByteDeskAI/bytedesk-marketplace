@@ -244,6 +244,21 @@ grep -q "route.redirect" "$RUN_DIR/journal.jsonl" 2>/dev/null \
   && ok "the redirect is journalled, not silent" \
   || bad "the redirect is journalled, not silent"
 
+step "observability: the lead's inbox depth is a number, not a feeling"
+# The lead is a bottleneck by design — every unvouched cross-repo contact lands on it — and
+# congestion there raises no error, it just makes everyone slower.
+depth=$("$AO" status --run "$RUN_DIR" --json 2>&1 | node -e '
+  let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
+    try {
+      const r=JSON.parse(s.slice(s.indexOf("{")));
+      const q=(r.queues||[]).find(x=>x.agent===process.argv[1]);
+      process.stdout.write(String(q?q.depth:0));
+    } catch { process.stdout.write("0"); }
+  });' "$P1_LEAD")
+[ "${depth:-0}" -ge 1 ] \
+  && ok "the redirected message shows up as queue depth on the lead" \
+  || bad "the redirected message shows up as queue depth on the lead" "depth=$depth"
+
 step "delegation: a token is a pointer, the receiving repo's store is the permission"
 # No task-management store in project-1 yet, so nothing here vouches for a delegation.
 assert_fails "a delegation with nothing backing it is refused at issue time" "TOPOLOGY_DELEGATION_UNBACKED" \

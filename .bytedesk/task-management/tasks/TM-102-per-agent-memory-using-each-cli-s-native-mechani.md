@@ -1,7 +1,7 @@
 ---
 id: "TM-102"
 kind: "task"
-status: "blocked"
+status: "open"
 created: "2026-09-05T04:17:36.183Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "Per-agent memory using each CLI's native mechanism"
@@ -15,7 +15,7 @@ actor: "main"
 session: "a7da6c38-57d4-464b-b856-ebdb3dd72e1b"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-05T07:32:49.045Z"
+updated: "2026-09-05T07:36:55.610Z"
 touches: ["agent-orchestration/providers"]
 comments: [{"author":"main","ts":"2026-09-05T05:02:38.934Z","text":"Decision (owner, 2026-09-05): give each agent its own cwd at .bytedesk/agent-orchestration/agents/<id>/ and map the real work tree for it in the system prompt.\n\nMeasured today: Claude Code keys memory by sanitized cwd (~/.claude/projects/<sanitized>/memory/ confirmed for this session), so a per-agent cwd yields a per-agent memory dir — this does solve the shared-memory problem. 18 project dirs already exist for worktree paths, which is the same mechanism working in practice today.\n\nThe mechanism that makes it safe rather than advisory: `--add-dir <repo-root>` grants tool access to the real tree, and `--append-system-prompt-file` carries the mapping. cwd scopes identity and memory; --add-dir grants access; the prompt explains the arrangement. Without --add-dir the mapping would be prose-only and the agent would be denied access to the tree it is told to work in.\n\nResidual hazard to design for: relative paths still resolve against cwd, so an agent that forgets the mapping reads and writes inside its own agent directory instead of the repo. Prefer absolute paths in generated instructions, and consider whether the agent dir should be empty enough that a stray relative write is obvious rather than silently plausible.\n\nAlternative not chosen but worth measuring against: a per-agent git worktree also produces a distinct memory dir AND makes relative paths correct, at the cost of a worktree per agent and the duplication TM-088 is already resolving."}]
 ---

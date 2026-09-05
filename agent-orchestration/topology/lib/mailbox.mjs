@@ -6,6 +6,7 @@ import { appendFile, readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { exists, invariant, nowIso, readJson, sleep, writeJson, writeText } from "./util.mjs";
 import { MAX_HOPS, hopExceeded, isAssignmentStage, nextVia } from "./routing.mjs";
+import { agentDirs, findLead } from "./agents.mjs";
 
 export const RUN_FILE = "run.json";
 export const JOURNAL_FILE = "journal.jsonl";
@@ -365,12 +366,28 @@ export async function queueDepth(runDir, agentIds) {
   return out.sort((a, b) => b.depth - a.depth);
 }
 
-/** The depth of every agent whose run role is `lead` — the queue that matters for congestion. */
-export async function leadQueueDepth(runDir) {
+/**
+ * The lead's queue — the one that matters, because every unvouched cross-repo contact lands there.
+ *
+ * Who the lead is comes from the agent LIBRARY, not from the run record. A run agent's `role` is
+ * the spec's role, and a spec has exactly one `orchestrator` and no `lead` role pack, so a repo's
+ * lead appears in its own run as `role: "orchestrator"`. Filtering the run on `role === "lead"`
+ * therefore matched nothing, ever, and returned `[]` — which reads as "no congestion" and is the
+ * precise failure this function exists to catch. The library is the same source `routeMessage`
+ * redirects against, so the queue being measured is the queue being filled.
+ */
+export async function leadQueueDepth(runDir, { consumer, pluginRoot, home } = {}) {
   const run = await loadRun(runDir);
-  const leads = run.agents.filter((agent) => agent.role === "lead" || agent.coordinates_only === true).map((agent) => agent.id);
+  const ids = new Set(run.agents.map((agent) => agent.id));
+  const lead = await findLead(agentDirs({ consumer: consumer ?? run.consumer, pluginRoot, home })).catch(() => null);
+  // Fall back to the run record only when the library cannot answer — a run launched outside a
+  // repo that keeps an agent library still deserves a reading rather than silence.
+  const leads = lead && ids.has(lead.id)
+    ? [lead.id]
+    : run.agents.filter((agent) => agent.role === "lead" || agent.coordinates_only === true).map((agent) => agent.id);
   if (leads.length === 0) return [];
-  return queueDepth(runDir, leads);
+  const readings = await queueDepth(runDir, leads);
+  return readings.map((reading) => ({ ...reading, lead_from: lead && ids.has(lead.id) ? "library" : "run" }));
 }
 
 /** Measure one agent's queue and journal it, so depth over time is in the record, not inferred. */

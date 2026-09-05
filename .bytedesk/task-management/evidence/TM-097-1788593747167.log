@@ -1,0 +1,20 @@
+TM-097 evidence — bytedesk-remote-gateway, branch ep014/session-pinning, commit cc70a11
+(isolated worktree at .worktrees/ep014-session-pinning, branched from develop @7992a9c).
+NOT pushed, NOT merged — awaiting review.
+
+go build ./... : clean
+go test ./src/... -count=1 -timeout 15m : ok  github.com/ByteDeskAI/bytedesk-remote-gateway/src  74.094s
+gofmt and go vet ./src/ : clean
+
+Tests added:
+  TestLaunchRequestBuilderDefaultSessionUnchanged   no-session path byte-for-byte unchanged
+  TestPinnedSessionOutsideConventionIsNotDiscovered prefix gate on startup discovery
+  TestEnsureTmuxSessionReusesExistingSession        has-session probe recorded, new-session not
+  TestEnsureTmuxSessionCreatesWhenMissing           recorder proven non-vacuous
+  TestEnsureTmuxSessionAdoptsRealOrchestratorSession  REAL tmux: pane pid unchanged, no second session
+  TestRestorePinnedSessionReattachesWhenSessionAlive
+  TestRestorePinnedSessionRecreatesFromRecordCommand
+  TestPinnedSessionTabBindsToProjectByCWD
+
+Not verified: end-to-end HTTP -> live ttyd iframe; live gateway restart; a real /cutover.
+Those are inferred from the unchanged attach path, not observed.
