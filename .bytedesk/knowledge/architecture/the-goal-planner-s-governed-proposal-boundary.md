@@ -58,6 +58,14 @@ have written. **The lock dies with the process; the journal does not.** A dashbo
 Monday and a week of ordinary CLI work would have been deleted on Friday by the first person to
 reopen the session.
 
+The invariant that failed is worth naming precisely, because it generalises to any crash-recovery
+work in this store: **"the lock protected the window" is unsound by construction.** A lock dies with
+the process that held it; a journal outlives it. So any recovery heuristic reasoning "nothing else
+could have run during this" is arguing from a guarantee that expired at exactly the moment recovery
+became necessary. The reservation scheme is right because it REMOVES the need for the heuristic
+rather than tightening it — tightening a bound on that sweep would have made the same unsound
+argument with a smaller number in it.
+
 The rule that replaced it: *undo nothing you did not write down before you did it.* Ids are
 reserved with `nextId` under the lock the landing already holds, journalled, and then created with
 that exact id — so the journal names every record before it exists, and no ownership heuristic is
