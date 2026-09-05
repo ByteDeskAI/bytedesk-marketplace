@@ -3,7 +3,7 @@
 // fallback chain that actually comes up, and deliver each agent its bootstrap pointer.
 // `failoverAgent` re-runs the same start logic for one agent from the next candidate mid-run.
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { appendJournal, agentDir, loadRun, pendingReplies, saveRun } from "./mailbox.mjs";
 import { adapterFor, buildArgv, commandExists, failureOnScreen, grantsDirs, memoryLocation } from "./providers.mjs";
@@ -541,12 +541,16 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
   // One hook for the whole session: a death pushes a record instead of a poll discovering it later.
   // `#{pane_dead_status}` is the process's real exit code, readable only because remain-on-exit was
   // set above. `show-hooks` will not list this hook even though it fires — do not go looking there.
-  const deathLog = join(spec.run_dir, "deaths.jsonl");
-  await tmux.setHook(
+  // TSV, not JSON: the hook body is parsed by tmux, then by run-shell, then by the shell, and every
+  // layer of quoting is a chance to write a command that registers cleanly and silently does
+  // nothing. Two fields and one printf survive all three.
+  const deathLog = join(spec.run_dir, "deaths.tsv");
+  const hooked = await tmux.setHook(
     spec.session,
     "pane-died",
-    `run-shell -b "printf '{\\"pane\\":\\"%s\\",\\"status\\":\\"%s\\",\\"at\\":\\"%s\\"}\\n' '#{hook_pane}' '#{pane_dead_status}' \"$(date -Is)\" >> ${deathLog}"`,
+    `run-shell -b "printf '%s\\t%s\\n' '#{hook_pane}' '#{pane_dead_status}' >> ${shellQuote(deathLog)}"`,
   );
+  if (!hooked) warnings.push("tmux refused the pane-died hook; agent deaths will not be recorded in deaths.tsv.");
   for (const agent of run.agents) agent.pane = panes.get(agent.id);
   await saveRun(spec.run_dir, run);
 
@@ -599,6 +603,22 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
   await saveRun(spec.run_dir, run);
   await appendJournal(spec.run_dir, { type: "run.launched", state: run.state, warnings });
   return { runDir: spec.run_dir, session: spec.session, state: run.state, agents: results, warnings, attach: tmux.attachCommand(spec.session) };
+}
+
+/**
+ * What the pane-died hook recorded: one { pane, status } per death, in order. The status is the
+ * process's real exit code, which is only readable because remain-on-exit was set on the pane
+ * before it died — without it tmux destroys the pane and the code goes with it.
+ */
+export async function readDeaths(runDir) {
+  const text = await readFile(join(runDir, "deaths.tsv"), "utf8").catch(() => "");
+  return text
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      const [pane, status] = line.split("\t");
+      return { pane, status: status === "" || status === undefined ? null : Number(status) };
+    });
 }
 
 /**

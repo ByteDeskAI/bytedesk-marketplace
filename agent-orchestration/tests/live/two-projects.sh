@@ -382,6 +382,91 @@ after=$("$AO" send --run "$RUN_DIR" --from "$P2_RES" --from-project "$P2" --to "
         --body "One more thing." --no-ring 2>&1)
 assert_contains "closing the task in the store revokes the delegation" "$after" "$P1_LEAD"
 
+step "startup: agents come up together, not one after another"
+# A deliberately slow agent: three seconds before it prints its ready line. Serial starts cost
+# roughly 3 x that; concurrent starts cost roughly one. The gap is what makes this measurable
+# rather than a matter of opinion.
+cat > "$ROOT/providers/slowfake.json" <<'JSON'
+{
+  "id": "slowfake",
+  "display": "Slow fake agent",
+  "command": "sh",
+  "args": ["-c", "sleep 3; printf 'fake-agent ready\\n'; exec cat"],
+  "model_args": [], "system_prompt_args": [], "auto_approve_args": [],
+  "add_dir_args": [], "coordinator_args": [],
+  "ready": { "pattern": "fake-agent ready", "delay_ms": 500, "timeout_ms": 30000 },
+  "submit_keys": ["Enter"],
+  "bootstrap_message": "Read {{bootstrap_file}} and follow it.",
+  "detect": null,
+  "install_hint": "test double; never installed",
+  "notes": "Test double with a slow start, used to tell serial launches from concurrent ones."
+}
+JSON
+cat > "$ROOT/slow-team.json" <<JSON
+{ "version": 1, "name": "p1-slow",
+  "agents": [
+    { "id": "boss", "role": "orchestrator", "cli": "slowfake" },
+    { "id": "one",  "role": "implementer",  "cli": "slowfake" },
+    { "id": "two",  "role": "reviewer",     "cli": "slowfake" }
+  ],
+  "workflow": [ { "stage": "go", "from": "boss", "to": ["one"] } ] }
+JSON
+started=$(date +%s)
+slow=$("$AO" launch --spec "$ROOT/slow-team.json" --consumer "$P1" --providers-dir "$ROOT/providers" --json 2>&1)
+elapsed=$(( $(date +%s) - started ))
+SLOW_DIR=$(printf '%s' "$slow" | json .runDir)
+SLOW_SESSION=$(printf '%s' "$slow" | json .session)
+ready_count=$(printf '%s' "$slow" | node -e '
+  let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
+    try {
+      const r=JSON.parse(s.slice(s.indexOf("{")));
+      process.stdout.write(String((r.agents||[]).filter(a=>a.ready).length));
+    } catch { process.stdout.write("0"); }
+  });')
+[ "${ready_count:-0}" = "3" ] \
+  && ok "all three slow agents came up ready" \
+  || bad "all three slow agents came up ready" "ready=$ready_count of 3"
+# Serial would be ~9s plus overhead; concurrent ~3-4s. 7 leaves room for a loaded machine while
+# still failing a genuinely serial launch.
+[ "$elapsed" -lt 7 ] \
+  && ok "three 3-second agents started in ${elapsed}s, so they started together" \
+  || bad "three 3-second agents started in ${elapsed}s, so they started one after another" "serial launch costs agents x ready time"
+[ -n "$SLOW_DIR" ] && "$AO" stop --run "$SLOW_DIR" >/dev/null 2>&1
+[ -n "$SLOW_SESSION" ] && tmux kill-session -t "$SLOW_SESSION" 2>/dev/null
+
+step "death: an agent that exits is noticed, with its real exit code"
+cat > "$ROOT/providers/deadfake.json" <<'JSON'
+{
+  "id": "deadfake",
+  "display": "Agent that dies",
+  "command": "sh",
+  "args": ["-c", "printf 'starting\\n'; exit 42"],
+  "model_args": [], "system_prompt_args": [], "auto_approve_args": [],
+  "add_dir_args": [], "coordinator_args": [],
+  "ready": { "pattern": "never-appears-anywhere", "delay_ms": 200, "timeout_ms": 6000 },
+  "submit_keys": ["Enter"],
+  "bootstrap_message": "Read {{bootstrap_file}} and follow it.",
+  "detect": null,
+  "install_hint": "test double; never installed",
+  "notes": "Test double that exits 42 immediately, for death detection."
+}
+JSON
+cat > "$ROOT/dead-team.json" <<JSON
+{ "version": 1, "name": "p1-dead",
+  "agents": [ { "id": "boss", "role": "orchestrator", "cli": "deadfake" } ],
+  "workflow": [ { "stage": "go", "from": "boss", "to": ["boss"] } ] }
+JSON
+dead=$("$AO" launch --spec "$ROOT/dead-team.json" --consumer "$P1" --providers-dir "$ROOT/providers" --json 2>&1)
+DEAD_DIR=$(printf '%s' "$dead" | json .runDir)
+case "$dead" in
+  *"exit"*|*"died"*|*"42"*) ok "a dead agent is reported as dead rather than as not-ready" ;;
+  *) bad "a dead agent is reported as dead rather than as not-ready" "$(printf '%s' "$dead" | head -c 300)" ;;
+esac
+grep -q "42" "$DEAD_DIR/journal.jsonl" 2>/dev/null \
+  && ok "the real exit code reaches the journal" \
+  || bad "the real exit code reaches the journal" "no exit status 42 recorded in $DEAD_DIR/journal.jsonl"
+[ -n "$DEAD_DIR" ] && "$AO" stop --run "$DEAD_DIR" >/dev/null 2>&1
+
 step "teardown"
 if [ -n "$RUN_DIR" ]; then
   "$AO" stop --run "$RUN_DIR" >/dev/null 2>&1

@@ -251,8 +251,17 @@ export async function setPaneOption(pane, name, value) {
   await tmux(["set-option", "-p", "-t", pane, name, value], { allowFailure: true });
 }
 
+/**
+ * Register a hook on a session. Returns false if tmux refused it.
+ *
+ * The target must NOT carry the `=` exact-match prefix used everywhere else here: `set-hook`
+ * resolves its target as a window, and `-t "=name"` fails with "no such window". Combined with
+ * `show-hooks` not listing pane-died at all, a hook registered that way is invisible in both
+ * directions — it never fires and nothing says so. Hence the returned status.
+ */
 export async function setHook(session, hook, command) {
-  await tmux(["set-hook", "-t", `=${session}`, hook, command], { allowFailure: true });
+  const result = await tmux(["set-hook", "-t", session, hook, command], { allowFailure: true });
+  return result.code === 0;
 }
 
 /**
