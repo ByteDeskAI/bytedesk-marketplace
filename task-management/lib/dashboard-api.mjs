@@ -51,7 +51,8 @@ import { FORMATS } from "./export.mjs";
 import { serverVersion } from "./mcp.mjs";
 import { LINK_TYPES, TYPES } from "./issue.mjs";
 import { EFFORTS, LEVELS, assertLevel } from "./capability.mjs";
-import { importGoalDoc, importManifest } from "./goal-import.mjs";
+import { importGoalDoc, importManifest, planManifest, relativeToRoot } from "./goal-import.mjs";
+import { parseGoalDoc, refusal } from "./goals.mjs";
 import { addComment, addLink, assign, backlog, dependencies, estimate, labelCatalog, labels, prioritise, rank, removeLink, setType, subtasks } from "./issue.mjs";
 import { isAbsolute, resolve, sep } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
@@ -1064,6 +1065,8 @@ function writeRoute(method, url, payload, p) {
       return ok(counts(reindex(p)));
     case "/api/goal/import":
       return goalImport(payload, p);
+    case "/api/goal/preview":
+      return goalPreview(payload, p);
     default:
       return null;
   }
@@ -1077,6 +1080,58 @@ const counts = (index) => Object.fromEntries(["epics", "tasks", "adrs", "sprints
  * so a pasted goal never touches the filesystem at all. A manifest has to be a path: its docs are
  * resolved relative to where it lives.
  */
+/**
+ * What an import WOULD do, without doing any of it.
+ *
+ * A caller that has to show consequences before asking for approval — an approval card, a diff, a
+ * confirmation — otherwise has only one way to find out what a manifest contains, which is to
+ * import it and look at the board afterwards. That is the wrong order for anything gated on human
+ * consent, and it is the order the goal planner cannot use.
+ *
+ * It resolves the same paths, reads the same docs, applies the same skip rules and computes the
+ * same dependency edges as the import, because it IS the import's first half — `planManifest` is
+ * the value `importManifest` then lands. A preview that disagrees with the import would be worse
+ * than none.
+ *
+ * Refusals are deliberately surfaced here too, with their real status. A preview whose manifest is
+ * unreadable should say so at preview time rather than looking fine and failing at apply.
+ */
+function goalPreview(payload, p) {
+  try {
+    if (typeof payload?.content === "string") {
+      const source = String(payload.name || "pasted goal").trim() || "pasted goal";
+      const parsed = parseGoalDoc(payload.content);
+      if (!parsed.title) return fail(400, `${source} has no \`# Goal:\` heading and no \`**Objective:**\` line — cannot name the task.`);
+      if (!parsed.criteria.length) return fail(409, refusal(source));
+      return ok({ kind: "doc", title: parsed.title, criteria: parsed.criteria, shape: parsed.shape, epic: (typeof payload.epic === "string" && payload.epic) || state(p).activeEpic || null });
+    }
+    if (typeof payload?.path !== "string" || !payload.path.trim()) return fail(400, "goal preview needs { path } or { content, name }");
+    const full = isAbsolute(payload.path) ? resolve(payload.path) : resolve(p.root, payload.path);
+    if (full !== p.root && !full.startsWith(p.root + sep)) return fail(400, `path must be inside ${p.root}`);
+    if (!existsSync(full)) return fail(404, `no such file: ${payload.path}`);
+    if (/\.json$/i.test(full)) {
+      const plan = planManifest(full, p);
+      return ok({
+        kind: "manifest",
+        doc: plan.doc,
+        epic: { title: plan.epic.title, plan: plan.epic.plan },
+        // Titles and criteria counts, not whole bodies: this is a consequence summary, and a
+        // manifest of twenty goals would otherwise return every goal document in full.
+        goals: plan.goals.map((g) => ({ goalId: g.goalId, title: g.title, criteria: g.acceptance.length, goalDoc: g.goalDoc, touches: g.touches ?? [], labels: g.labels, dependsOn: g.dependsOn })),
+        skipped: plan.skipped,
+        edges: plan.edges,
+        danglingDeps: plan.danglingDeps,
+      });
+    }
+    const parsed = parseGoalDoc(readFileSync(full, "utf8"));
+    if (!parsed.title) return fail(400, `${payload.path} has no \`# Goal:\` heading and no \`**Objective:**\` line — cannot name the task.`);
+    if (!parsed.criteria.length) return fail(409, refusal(payload.path));
+    return ok({ kind: "doc", title: parsed.title, criteria: parsed.criteria, shape: parsed.shape, doc: relativeToRoot(full, p), epic: (typeof payload.epic === "string" && payload.epic) || state(p).activeEpic || null });
+  } catch (e) {
+    return fail(e.status || 400, e.message);
+  }
+}
+
 function goalImport(payload, p) {
   const epic = typeof payload?.epic === "string" && payload.epic ? payload.epic : null;
   try {

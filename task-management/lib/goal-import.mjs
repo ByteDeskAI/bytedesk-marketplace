@@ -9,12 +9,12 @@
  * list passes `tm done` unchallenged, so a silent import would have the gate certify a goal nobody
  * verified. A manifest skips such docs and names them rather than losing the other nineteen.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { gateTaskCreate } from "./enforce.mjs";
 import { goalBody, manifestGoalTitle, parseGoalDoc, parseManifest, refusal } from "./goals.mjs";
 import { paths } from "./paths.mjs";
-import { create, logEvent, mutate, read, state, writeState } from "./store.mjs";
+import { create, fileFor, logEvent, mutate, read, reindex, state, withLock, writeState } from "./store.mjs";
 
 const err = (message, status) => Object.assign(new Error(message), { status });
 
@@ -55,11 +55,19 @@ export function importGoalDoc(text, { source = "goal", epic = null, stamp = {} }
 }
 
 /**
- * A whole program: one epic (made active), one task per goal with a parseable gate, `dependsOn`
- * wired as blockedBy after every task exists — a manifest lists goals in planning order and
- * dependsOn points forward freely.
+ * Everything a manifest import decides BEFORE it writes anything: parse the manifest, resolve and
+ * read every goal doc, work out which goals are skipped and which dependency edges exist.
+ *
+ * Pure with respect to the store — it reads the filesystem and returns a value. Splitting this out
+ * is what makes the import atomic, because it moves every likely failure (a missing manifest, an
+ * unparseable one, a goal doc that is not where it says it is, a doc with no criteria) to before
+ * the first record is created. What is left in the write phase is disk failure, which the rollback
+ * in `applyManifestPlan` covers.
+ *
+ * It is exported because a caller that wants to SHOW what an import would do — a preview, an
+ * approval card, a diff — needs exactly this and must not write to find out.
  */
-export function importManifest(path, { stamp = {} } = {}, p = paths()) {
+export function planManifest(path, p = paths()) {
   if (!existsSync(path)) throw err(`no such file: ${path}`, 400);
   const m = parseManifest(readFileSync(path, "utf8"));
   if (m.error) throw err(`${path}: ${m.error}`, 400);
@@ -77,10 +85,7 @@ export function importManifest(path, { stamp = {} } = {}, p = paths()) {
     .filter(Boolean)
     .join("\n\n");
 
-  const epic = create("epic", { title: m.epicTitle, plan: rel(path), ...stamp }, epicBody, p);
-  writeState({ activeEpic: epic.id }, p);
-
-  const made = new Map(); // manifest goal id → tm task id
+  const goals = [];
   const skipped = [];
   for (const g of m.goals) {
     // A manifest doc path is relative to the repo the manifest lives in, not to the store.
@@ -96,47 +101,150 @@ export function importManifest(path, { stamp = {} } = {}, p = paths()) {
       skipped.push({ id: g.id, why: `no parseable success criteria in ${g.doc}` });
       continue;
     }
-    const t = create(
-      "task",
-      {
-        title: manifestGoalTitle(g, parsed),
-        epic: epic.id,
-        acceptance: parsed.criteria.map((text) => ({ text, done: false })),
-        goalDoc: rel(found),
-        goalId: g.id,
-        // The manifest declares these; nothing else ever wrote the field it feeds.
-        touches: g.touches.length ? g.touches : undefined,
-        labels: [g.mode, g.needsHumanGate ? "human-gate" : null].filter(Boolean),
-        evidence: [],
-        commits: [],
-        blockedBy: [],
-        blocks: [],
-        ...stamp,
-      },
-      goalBody(parsed, rel(found)),
-      p,
-    );
-    made.set(g.id, t.id);
+    goals.push({
+      goalId: g.id,
+      title: manifestGoalTitle(g, parsed),
+      acceptance: parsed.criteria.map((text) => ({ text, done: false })),
+      body: goalBody(parsed, rel(found)),
+      goalDoc: rel(found),
+      // The manifest declares these; nothing else ever wrote the field it feeds.
+      touches: g.touches.length ? g.touches : undefined,
+      labels: [g.mode, g.needsHumanGate ? "human-gate" : null].filter(Boolean),
+      dependsOn: g.dependsOn,
+    });
   }
 
-  let edges = 0;
+  const landing = new Set(goals.map((g) => g.goalId));
   const danglingDeps = [];
-  for (const g of m.goals) {
-    const mine = made.get(g.id);
-    if (!mine) continue;
-    const deps = g.dependsOn.map((d) => made.get(d)).filter(Boolean);
-    const lost = g.dependsOn.filter((d) => !made.has(d));
-    if (lost.length) danglingDeps.push({ id: g.id, task: mine, on: lost });
-    if (!deps.length) continue;
-    mutate(mine, (doc) => ({
-      blockedBy: [...new Set([...(doc.blockedBy || []), ...deps])],
-      status: doc.status === "open" ? "blocked" : doc.status,
-    }), p);
-    for (const d of deps) mutate(d, (doc) => ({ blocks: [...new Set([...(doc.blocks || []), mine])] }), p);
-    edges += deps.length;
+  let edges = 0;
+  for (const g of goals) {
+    const lost = g.dependsOn.filter((d) => !landing.has(d));
+    if (lost.length) danglingDeps.push({ id: g.goalId, on: lost });
+    edges += g.dependsOn.filter((d) => landing.has(d)).length;
   }
 
-  logEvent("goal_imported", { id: epic.id, doc: rel(path), goals: made.size, skipped: skipped.length, edges }, p);
-  const touched = [...made.values()].filter((id) => (read(id, p).touches || []).length).length;
-  return { epic, manifest: m, tasks: [...made.values()], made, skipped, edges, danglingDeps, touched };
+  return { manifest: m, source: path, doc: rel(path), epic: { title: m.epicTitle, plan: rel(path), body: epicBody }, goals, skipped, edges, danglingDeps };
+}
+
+/**
+ * Land a planned manifest, all of it or none of it.
+ *
+ * Before this, the import was N+1 separate `create` calls plus 2M `mutate` calls, each taking and
+ * releasing the store lock on its own, with no enclosing transaction. A throw partway through left
+ * the epic created, `activeEpic` pointed at it, and a partial set of tasks carrying a partial
+ * dependency graph — a board state nobody asked for and only `tm doctor` could find.
+ *
+ * Two things make it atomic now. One lock is held across the whole landing, so no other writer
+ * interleaves and the compensation cannot race a concurrent change. And every record created is
+ * remembered, so a failure removes exactly what this import made and puts `activeEpic` back.
+ *
+ * The index is rebuilt rather than restored: `patchIndex` already treats it as a cache that
+ * `reindex` can regenerate from the entity files, so once the files are gone the truthful index is
+ * the derived one.
+ *
+ * The event log is NOT rewound. It is append-only, `logEvent` is deliberately outside the lock, and
+ * a concurrent writer may have appended since — truncating it would delete somebody else's history
+ * to tidy up our own. A rollback appends `goal_import_rolled_back` naming what it removed, which is
+ * how an append-only log is supposed to record a compensation.
+ */
+export function applyManifestPlan(plan, { stamp = {} } = {}, p = paths()) {
+  return withLock(p, () => {
+    const createdIds = [];
+    const previousActiveEpic = state(p).activeEpic ?? null;
+    let activeEpicChanged = false;
+
+    const rollback = (cause) => {
+      for (const id of createdIds.reverse()) {
+        try {
+          const file = fileFor(id, p);
+          if (file) unlinkSync(file);
+        } catch {
+          /* best effort: a file we cannot remove is reported below, not a reason to stop undoing */
+        }
+      }
+      try {
+        if (activeEpicChanged) writeState({ activeEpic: previousActiveEpic }, p);
+        reindex(p);
+      } catch {
+        /* the index is a cache; `tm reindex` recovers it */
+      }
+      logEvent(
+        "goal_import_rolled_back",
+        { doc: plan.doc, removed: createdIds.length, ids: createdIds, why: cause?.message || String(cause) },
+        p,
+      );
+    };
+
+    try {
+      const epic = create("epic", { title: plan.epic.title, plan: plan.epic.plan, ...stamp }, plan.epic.body, p);
+      createdIds.push(epic.id);
+      writeState({ activeEpic: epic.id }, p);
+      activeEpicChanged = true;
+
+      const made = new Map(); // manifest goal id → tm task id
+      for (const g of plan.goals) {
+        const t = create(
+          "task",
+          {
+            title: g.title,
+            epic: epic.id,
+            acceptance: g.acceptance,
+            goalDoc: g.goalDoc,
+            goalId: g.goalId,
+            touches: g.touches,
+            labels: g.labels,
+            evidence: [],
+            commits: [],
+            blockedBy: [],
+            blocks: [],
+            ...stamp,
+          },
+          g.body,
+          p,
+        );
+        createdIds.push(t.id);
+        made.set(g.goalId, t.id);
+      }
+
+      // Second pass, after every task exists: a manifest lists goals in planning order and
+      // `dependsOn` points forward freely.
+      let edges = 0;
+      const danglingDeps = [];
+      for (const g of plan.goals) {
+        const mine = made.get(g.goalId);
+        const deps = g.dependsOn.map((d) => made.get(d)).filter(Boolean);
+        const lost = g.dependsOn.filter((d) => !made.has(d));
+        if (lost.length) danglingDeps.push({ id: g.goalId, task: mine, on: lost });
+        if (!deps.length) continue;
+        mutate(mine, (doc) => ({
+          blockedBy: [...new Set([...(doc.blockedBy || []), ...deps])],
+          status: doc.status === "open" ? "blocked" : doc.status,
+        }), p);
+        for (const d of deps) mutate(d, (doc) => ({ blocks: [...new Set([...(doc.blocks || []), mine])] }), p);
+        edges += deps.length;
+      }
+
+      logEvent(
+        "goal_imported",
+        { id: epic.id, doc: plan.doc, goals: made.size, skipped: plan.skipped.length, edges },
+        p,
+      );
+      const touched = [...made.values()].filter((id) => (read(id, p).touches || []).length).length;
+      return { epic, manifest: plan.manifest, tasks: [...made.values()], made, skipped: plan.skipped, edges, danglingDeps, touched };
+    } catch (cause) {
+      rollback(cause);
+      throw cause;
+    }
+  });
+}
+
+/**
+ * A whole program: one epic (made active), one task per goal with a parseable gate, `dependsOn`
+ * wired as blockedBy after every task exists.
+ *
+ * Plan first, then land it under one lock. Either the whole program is on the board or none of it
+ * is — see `applyManifestPlan` for what "none of it" costs and what it deliberately does not undo.
+ */
+export function importManifest(path, { stamp = {} } = {}, p = paths()) {
+  return applyManifestPlan(planManifest(path, p), { stamp }, p);
 }

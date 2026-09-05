@@ -80,6 +80,9 @@ export const CATALOG = {
     },
     plan_captured: { group: "writes", label: "An approved plan becomes an epic", priority: "default", tags: "clipboard" },
     goal_imported: { group: "writes", label: "A goal doc becomes a task, its success criteria the gate", priority: "default", tags: "dart" },
+    // High priority: a program that failed to land is the operator's problem now, not a footnote.
+    // The import undoes itself, so the board is clean — but whatever broke it is still broken.
+    goal_import_rolled_back: { group: "writes", label: "A program import failed and undid itself; nothing landed", priority: "high", tags: "rewind" },
     decision_captured: { group: "writes", label: "A decision is recorded as an ADR", priority: "low", tags: "memo" },
     decision_updated: { group: "writes", label: "An existing ADR is revised", priority: "min", tags: "memo" },
     "cap-accept": { group: "writes", label: "A capability is accepted and a task is minted", priority: "default", tags: "sparkles" },

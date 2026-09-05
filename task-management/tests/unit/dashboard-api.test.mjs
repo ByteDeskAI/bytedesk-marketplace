@@ -1413,6 +1413,65 @@ describe("goal import", () => {
     assert.deepEqual(second.blockedBy, [res.body.tasks[0]]);
     assert.equal(second.status, "blocked");
   });
+
+  it("previews a manifest without writing, and agrees with what the import then does", () => {
+    const p = store();
+    mkdirSync(join(p.root, "docs", "goals"), { recursive: true });
+    writeFileSync(join(p.root, "docs", "goals", "one.md"), doc);
+    writeFileSync(join(p.root, "docs", "goals", "two.md"), "# Goal: Second\n\n## Success criteria\n\n- it works\n");
+    writeFileSync(join(p.root, "docs", "goals", "bad.md"), "# Goal: no gate\n");
+    writeFileSync(
+      join(p.root, "docs", "goals", "prog.plan.json"),
+      JSON.stringify({
+        epic: { title: "Program" },
+        goals: [
+          { id: "G1", doc: "docs/goals/one.md", touches: ["a"] },
+          { id: "G2", doc: "docs/goals/two.md", dependsOn: ["G1", "GHOST"] },
+          { id: "G3", doc: "docs/goals/bad.md" },
+        ],
+      }),
+    );
+
+    const pre = handleWrite("POST", "/api/goal/preview", { path: "docs/goals/prog.plan.json" }, { p });
+    assert.equal(pre.status ?? 200, 200, pre.body.error);
+    assert.equal(pre.body.kind, "manifest");
+    assert.equal(pre.body.epic.title, "Program");
+    assert.deepEqual(pre.body.goals.map((g) => g.goalId), ["G1", "G2"]);
+    assert.deepEqual(pre.body.goals.map((g) => g.criteria), [2, 1]);
+    assert.deepEqual(pre.body.skipped.map((sk) => sk.id), ["G3"]);
+    assert.equal(pre.body.edges, 1);
+    assert.deepEqual(pre.body.danglingDeps, [{ id: "G2", on: ["GHOST"] }]);
+
+    // A preview that costs board state is not a preview.
+    assert.equal(list("epic", {}, p).length, 0);
+    assert.equal(list("task", {}, p).length, 0);
+    assert.ok(!state(p).activeEpic);
+
+    // And it has to be the same answer the import gives, or it is worse than no preview at all.
+    const res = handleWrite("POST", "/api/goal/import", { path: "docs/goals/prog.plan.json" }, { p });
+    assert.equal(res.status, 201, res.body.error);
+    assert.equal(res.body.tasks.length, pre.body.goals.length);
+    assert.equal(res.body.edges, pre.body.edges);
+    assert.deepEqual(res.body.skipped.map((sk) => sk.id), pre.body.skipped.map((sk) => sk.id));
+    assert.deepEqual(res.body.tasks.map((id) => read(id, p).title), pre.body.goals.map((g) => g.title));
+  });
+
+  it("previews a single doc, and refuses at preview time what the import would refuse", () => {
+    const p = store();
+    const pre = handleWrite("POST", "/api/goal/preview", { content: doc, name: "pasted.md" }, { p });
+    assert.equal(pre.status ?? 200, 200);
+    assert.equal(pre.body.kind, "doc");
+    assert.equal(pre.body.title, "Bake the harness into the image");
+    assert.deepEqual(pre.body.criteria, ["codex runs inside the pod", "the image builds"]);
+    assert.equal(list("task", {}, p).length, 0, "previewing a doc writes nothing either");
+
+    // Same refusals, same statuses, at preview time rather than at apply time.
+    assert.equal(handleWrite("POST", "/api/goal/preview", { content: "# Goal: nothing measurable\n", name: "x.md" }, { p }).status, 409);
+    assert.equal(handleWrite("POST", "/api/goal/preview", { content: "no heading at all\n", name: "x.md" }, { p }).status, 400);
+    assert.equal(handleWrite("POST", "/api/goal/preview", { path: "/etc/passwd" }, { p }).status, 400);
+    assert.equal(handleWrite("POST", "/api/goal/preview", { path: "docs/goals/nope.md" }, { p }).status, 404);
+    assert.equal(handleWrite("POST", "/api/goal/preview", {}, { p }).status, 400);
+  });
 });
 
 describe("entity edits", () => {
