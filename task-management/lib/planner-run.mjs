@@ -13,7 +13,7 @@
  * exactly the part that explains what happened.
  */
 import { appendTurn, readSession } from "./planner.mjs";
-import { AcpSession, plannerAgents } from "./planner-acp.mjs";
+import { AcpSession, governedToolServer, plannerAgents } from "./planner-acp.mjs";
 import { lifecycle, permissionRequest, slotFor, translate } from "./planner-agui.mjs";
 import { logEvent } from "./store.mjs";
 import { paths } from "./paths.mjs";
@@ -140,7 +140,7 @@ export async function startRun(sessionId, agentId, p = paths()) {
   (async () => {
     try {
       await run.acp.start();
-      await run.acp.newSession(p.root);
+      await run.acp.newSession(p.root, { mcpServers: governedToolServer(p) });
       const result = await run.acp.prompt(promptFor(session));
       run.finished = true;
       run.running = false;

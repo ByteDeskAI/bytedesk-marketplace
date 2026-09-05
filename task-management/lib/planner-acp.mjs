@@ -11,6 +11,8 @@
  */
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { config } from "./store.mjs";
 import { paths } from "./paths.mjs";
 
@@ -123,9 +125,14 @@ export class AcpSession {
     return init;
   }
 
-  /** Open a session. `cwd` is the repository the planner may reason about. */
-  async newSession(cwd, { timeoutMs = 30_000 } = {}) {
-    const res = await this.request("session/new", { cwd, mcpServers: [] }, { timeoutMs });
+  /**
+   * Open a session. `cwd` is the repository the planner may reason about, and `mcpServers` is the
+   * governed tool surface it is given — the read-only planner profile of this board's own MCP
+   * server. It gets what it needs to reason about the board and nothing that mutates it, because a
+   * planner holding `tm_task_create` makes every approval in this product decorative.
+   */
+  async newSession(cwd, { timeoutMs = 30_000, mcpServers = [] } = {}) {
+    const res = await this.request("session/new", { cwd, mcpServers }, { timeoutMs });
     this.sessionId = res?.sessionId ?? null;
     if (!this.sessionId) throw err("the planning agent opened no session", 502);
     return this.sessionId;
@@ -220,6 +227,29 @@ export class AcpSession {
     const body = result && result.error ? { jsonrpc: "2.0", id, error: result.error } : { jsonrpc: "2.0", id, result };
     this.child.stdin.write(`${JSON.stringify(body)}\n`);
   }
+}
+
+/**
+ * The MCP server entry an ACP session is given: this board, in the planner profile.
+ *
+ * `TM_MCP_PROFILE=planner` is what narrows it, and it is enforced where tools are CALLED rather
+ * than only where they are listed — hiding a write tool from the listing while still executing it
+ * on request would be theatre.
+ */
+export function governedToolServer(p = paths()) {
+  return [{
+    name: "task-management",
+    command: process.execPath,
+    args: [join(pluginRoot(), "bin", "tm-mcp")],
+    env: [
+      { name: "TM_MCP_PROFILE", value: "planner" },
+      { name: "TM_ROOT", value: p.root ?? "" },
+    ],
+  }];
+}
+
+function pluginRoot() {
+  return dirname(dirname(fileURLToPath(import.meta.url)));
 }
 
 /**

@@ -97,6 +97,30 @@ const clamp = (text) => (text.length <= MAX_CHARS ? text : `${text.slice(0, MAX_
 
 // ── tools ────────────────────────────────────────────────────────────────────
 
+/**
+ * The tools a bounded planner may hold.
+ *
+ * `TM_MCP_PROFILE=planner` narrows the surface to reads. This is not politeness toward the model:
+ * a planning agent that holds `tm_task_create` can write the board directly, and every approval in
+ * the product becomes decorative — the operator approves a proposal while the agent has already
+ * done something else. So the planner gets what it needs to *reason* (the board, a task, the
+ * graph, history, search) and nothing that mutates. Its writes go through the proposal and its
+ * digest-bound approval, which is the only path that is gated.
+ *
+ * An allowlist, not a denylist. A new tool added to `TOOLS` is invisible to a planner until
+ * somebody names it here, which is the right direction for the mistake to fall.
+ */
+export const PLANNER_TOOLS = Object.freeze([
+  "tm_board", "tm_next", "tm_show", "tm_find", "tm_why", "tm_graph", "tm_history",
+  "tm_log", "tm_stale", "tm_parallel", "tm_export", "tm_agents", "tm_cap_list", "tm_doctor",
+]);
+
+/** The tool table this session is allowed to serve. */
+export function plannerTools(profile = process.env.TM_MCP_PROFILE) {
+  if (profile !== "planner") return TOOLS;
+  return TOOLS.filter((t) => PLANNER_TOOLS.includes(t.name));
+}
+
 export const TOOLS = [
   {
     name: "tm_board",
@@ -1071,7 +1095,10 @@ export const TOOLS = [
 // ── protocol ─────────────────────────────────────────────────────────────────
 
 export function callTool(name, args = {}, p = paths()) {
-  const tool = TOOLS.find((t) => t.name === name);
+  // The PROFILE decides, not the listing. Filtering `tools/list` while `tools/call` still executes
+  // anything in the table is security theatre: a model that has seen the tool elsewhere, or simply
+  // guesses the name, gets the write anyway. The narrowed table is the one that is searched.
+  const tool = plannerTools().find((t) => t.name === name);
   if (!tool) return fail(`Unknown tool name: ${name}`);
   if (!p.root) return fail(p.unavailable);
   try {
@@ -1114,7 +1141,7 @@ export function handleRequest(request, { p = paths() } = {}) {
   }
   if (method === "notifications/initialized") return null;
   if (method === "tools/list") {
-    return reply(id, { tools: TOOLS.map(({ run, ...def }) => def) });
+    return reply(id, { tools: plannerTools().map(({ run, ...def }) => def) });
   }
   if (method === "resources/list") {
     // Must not throw: an error on a discovery call is retried and then abandoned, taking the
