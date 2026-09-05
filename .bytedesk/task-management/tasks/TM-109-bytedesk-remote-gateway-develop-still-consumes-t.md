@@ -6,7 +6,7 @@ created: "2026-09-05T14:52:29.327Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "bytedesk-remote-gateway: develop still consumes the design system as a git submodule, so every PR into it is red"
 epic: "EP-015"
-acceptance: [{"text":"The spa check passes on a pull request into develop","done":false},{"text":"develop carries .context/design-system as committed files, with no .gitmodules and no submodule gitlink","done":false}]
+acceptance: [{"text":"The spa check passes on a pull request into develop","done":false},{"text":"The design system reaches the spa build without a credential the runner does not have — either vendored and committed per the sync flow, or with a token the job legitimately holds","done":false}]
 evidence: []
 commits: ["f2545cb"]
 blockedBy: []
@@ -15,9 +15,10 @@ actor: "main"
 session: "4e1d7087-d606-432e-9341-3ce779b4baf8"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-05T14:52:52.783Z"
+updated: "2026-09-05T15:35:33.543Z"
 labels: ["blocked"]
 priority: "medium"
+comments: [{"author":"main","ts":"2026-09-05T15:35:28.897Z","text":"Correction: the finding stands, the fix direction in the body does not.\n\nI wrote that main is already correct and develop has not caught up. That is backwards. develop is 208 commits ahead of main and 8 behind — main simply predates the SPA work, and its ci.yml has no spa job at all. So main's vendored .context/design-system is the OLDER arrangement rather than a corrected one, and the submodule on develop is a newer deliberate choice. Copying main's directory onto develop would install a stale design-system tree over a live one; do not do it.\n\nWhat is unchanged: every PR into develop fails at checkout because ci.yml uses 'submodules: recursive' and .gitmodules points .context/design-system at the private ByteDeskAI/design-system, which the Actions token cannot clone. A private submodule is a build-time credential dependency, which is exactly the arrangement the vendoring rule exists to avoid.\n\nTwo real options, and choosing between them is the repo owner's: vendor the current design system per 'npx @bytedesk/design-client sync' and drop the submodule, or give the spa job a token that can read the private repo. The first matches the documented contract; the second is quicker and keeps the pin. I have corrected the comment on PR #124 as well, since someone could have acted on the wrong instruction."}]
 ---
 
 The 'spa' check fails on every pull request into bytedesk-remote-gateway's develop branch, and it is the base branch's fault rather than any PR's.
