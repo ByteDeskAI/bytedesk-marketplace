@@ -23,7 +23,7 @@ import { createHash } from "node:crypto";
 import { existsSync, unlinkSync } from "node:fs";
 import { gateTaskCreate } from "./enforce.mjs";
 import { paths } from "./paths.mjs";
-import { create, fileFor, logEvent, mutate, read, reindex, state, withLock, writeState } from "./store.mjs";
+import { create, fileFor, kindOf, logEvent, mutate, read, reindex, state, withLock, writeState } from "./store.mjs";
 
 const err = (message, status) => Object.assign(new Error(message), { status });
 
@@ -66,8 +66,7 @@ export const OPERATIONS = {
     check(args, ctx) {
       const id = ctx.resolve(args.epic);
       if (!id) return "epic.activate needs an epic id or a ref to one this proposal creates";
-      if (!ctx.pending.has(id) && !read(id, ctx.p)) return `no such epic: ${id}`;
-      return null;
+      return epicMustExist(id, ctx);
     },
     apply(args, ctx) {
       const id = ctx.resolve(args.epic);
@@ -95,7 +94,11 @@ export const OPERATIONS = {
       }
       const epic = args.epic ? ctx.resolve(args.epic) : null;
       if (args.epic && !epic) return `unknown epic reference: ${args.epic}`;
-      if (epic && !ctx.pending.has(epic) && !read(epic, ctx.p)) return `no such epic: ${epic}`;
+      // An id that exists is not the same as an epic. Without the kind check a task could be
+      // parented to another TASK — the board would accept it and the hierarchy would be quietly
+      // wrong, which nothing downstream is built to notice.
+      const epicProblem = epic ? epicMustExist(epic, ctx) : null;
+      if (epicProblem) return epicProblem;
       // The board's own create gate, with the real draft, so its wording is what the operator sees.
       const gate = gateTaskCreate(ctx.p, { body: str(args.body), acceptance: list(args.acceptance).map((text) => ({ text, done: false })) });
       if (!gate.allow && !epic && !state(ctx.p).activeEpic) return gate.reason;
@@ -133,6 +136,15 @@ export const OPERATIONS = {
       const on = list(args.on).map((d) => ctx.resolve(d)).filter(Boolean);
       if (!on.length) return "task.depends needs at least one blocker that exists in this proposal or on the board";
       if (on.includes(mine)) return `${mine} cannot depend on itself`;
+      // Every id named here has to be real, and it has to be real NOW. Without this the preview
+      // said "ok", showed the operator a consequence naming a task that does not exist, and only
+      // failed once the write was under way — so the approval was granted against a description
+      // the apply could not honour. A preview that disagrees with the apply is worse than none.
+      for (const id of [mine, ...on]) {
+        if (ctx.pending.has(id)) continue;
+        if (kindOf(id) !== "task") return `${id} is not a task id`;
+        if (!read(id, ctx.p)) return `no such task: ${id}`;
+      }
       return null;
     },
     apply(args, ctx) {
@@ -147,6 +159,19 @@ export const OPERATIONS = {
     },
   },
 };
+
+/**
+ * An epic reference resolves to an epic that exists — or to one this proposal is creating.
+ *
+ * Both halves matter. `read()` alone would accept any id that happens to be on the board, and the
+ * board holds tasks, ADRs and sprints too.
+ */
+function epicMustExist(id, ctx) {
+  if (ctx.pending.has(id)) return null;
+  if (kindOf(id) !== "epic") return `${id} is not an epic id`;
+  if (!read(id, ctx.p)) return `no such epic: ${id}`;
+  return null;
+}
 
 /**
  * A stable digest of exactly what is being proposed.
@@ -207,7 +232,15 @@ function normalizeOps(ops) {
         400,
       );
     }
-    return { op: name, args: op.args && typeof op.args === "object" ? op.args : {} };
+    const args = op.args && typeof op.args === "object" ? op.args : {};
+    // A ref is a name local to this proposal, and it must not look like a board id. `ref: "EP-001"`
+    // would shadow the real EP-001 for the rest of the proposal — every later reference resolves to
+    // the newly minted one — so the operator reads "under EP-001" on the card and something else
+    // happens. Ambiguity here is worth refusing outright rather than resolving cleverly.
+    if (str(args.ref) && kindOf(str(args.ref))) {
+      throw err(`operation ${i + 1}: ref "${args.ref}" is shaped like a board id; a ref is a local name for something this proposal creates.`, 400);
+    }
+    return { op: name, args };
   });
 }
 

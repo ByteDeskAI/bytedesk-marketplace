@@ -197,3 +197,56 @@ describe("applying", () => {
     assert.deepEqual(read(existing.id, p).blockedBy, res.created);
   });
 });
+
+describe("references, checked at preview rather than at apply", () => {
+  it("refuses a dependency on something that does not exist", () => {
+    const p = store();
+    const ops = [
+      { op: "task.create", args: { ref: "T", title: "A", body: "b", acceptance: ["x"] } },
+      { op: "task.depends", args: { task: "T", on: ["TM-999"] } },
+    ];
+    const pre = previewOps(ops, p);
+    // Before this check the preview said "ok", showed a consequence naming TM-999, and only failed
+    // once the write was under way — so the approval was granted against a description the apply
+    // could not honour. A preview that disagrees with the apply is worse than none.
+    assert.equal(pre.ok, false);
+    assert.match(pre.operations[1].refusal, /no such task: TM-999/);
+    assert.throws(() => applyOps(ops, { approvedDigest: pre.digest }, p), (e) => e.status === 409);
+    assert.equal(list("task", {}, p).length, 0);
+  });
+
+  it("refuses an epic reference that names something which is not an epic", () => {
+    const p = store();
+    const task = create("task", { title: "Not an epic", acceptance: [{ text: "x", done: false }] }, "b", p);
+    // An id that EXISTS is not the same as an epic. Without the kind check a task could be parented
+    // to another task: the board would accept it and the hierarchy would be quietly wrong.
+    const pre = previewOps([{ op: "task.create", args: { epic: task.id, title: "Child", body: "b", acceptance: ["x"] } }], p);
+    assert.equal(pre.ok, false);
+    assert.match(pre.operations[0].refusal, /is not an epic id/);
+
+    const activate = previewOps([{ op: "epic.activate", args: { epic: task.id } }], p);
+    assert.equal(activate.ok, false);
+    assert.match(activate.operations[0].refusal, /is not an epic id/);
+    assert.match(previewOps([{ op: "epic.activate", args: { epic: "EP-404" } }], p).operations[0].refusal, /no such epic/);
+  });
+
+  it("refuses a ref shaped like a board id", () => {
+    const p = store();
+    // `ref: "EP-001"` would shadow the real EP-001 for the rest of the proposal — every later
+    // reference resolves to the newly minted one — so the card reads "under EP-001" and something
+    // else happens. Ambiguity is worth refusing rather than resolving cleverly.
+    for (const ref of ["EP-001", "TM-042", "ADR-0001"]) {
+      assert.throws(
+        () => previewOps([{ op: "epic.create", args: { ref, title: "x", body: "b" } }], p),
+        (e) => e.status === 400 && /shaped like a board id/.test(e.message),
+        ref,
+      );
+    }
+    // A local name that is not an id shape is fine, and still resolves within the proposal.
+    const ok = previewOps([
+      { op: "epic.create", args: { ref: "E", title: "Fine", body: "b" } },
+      { op: "task.create", args: { epic: "E", title: "Under it", body: "b", acceptance: ["x"] } },
+    ], p);
+    assert.equal(ok.ok, true);
+  });
+});
