@@ -1,21 +1,21 @@
 ---
 id: "TM-085"
 kind: "task"
-status: "blocked"
+status: "in_progress"
 created: "2026-09-02T18:13:17.951Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "Build skill-capable goal-planning chat and atomic board import"
 epic: "EP-013"
 acceptance: [{"text":"A user can converse about a goal, attach allowed documents, restart the dashboard, and resume the session.","done":false},{"text":"The planner can conduct interview/map/spec/tickets/epic/ADR/goal-import workflows and apply approved board changes through shared task-management functions rather than direct file edits.","done":false},{"text":"All mutations show exact consequences, require applicable approval, preserve refusals verbatim, and appear on the live board event stream.","done":true,"at":"2026-09-05T11:37:05.723Z"},{"text":"Single-goal, one-epic, and multi-epic program proposals validate and import completely or leave no partial board/filesystem state.","done":true,"at":"2026-09-05T11:37:01.324Z"},{"text":"Uploads are path-confined, sanitized, type/size limited, hashed, treated as untrusted context, and cannot enable privileged skills.","done":true,"at":"2026-09-05T11:37:01.751Z"},{"text":"The UI matches the approved mockups and passes keyboard, screen-reader, reduced-motion, responsive, offline, and failure-state checks.","done":false},{"text":"Unit, API, import round-trip, security, dashboard build, and browser tests pass; committed dashboard dist is rebuilt.","done":false},{"text":"The browser/backend contract uses AG-UI events and translates a user-selected trusted ACP coding-agent session; task-management does not depend on the Claude Agent SDK.","done":false},{"text":"The selected ACP planner receives governed task-management skills/tools, while write operations remain server-mediated and approval-gated.","done":true,"at":"2026-09-05T11:37:05.893Z"}]
 evidence: [".bytedesk/task-management/evidence/TM-085-planner-ops.test.mjs"]
-commits: ["422982c","aed16bc","2e72991","0d35ce6","3a777d5","897f255"]
+commits: ["422982c","aed16bc","2e72991","0d35ce6","3a777d5","897f255","320bf43"]
 blockedBy: ["TM-084"]
 blocks: ["TM-086"]
 actor: "main"
-session: "01a062eb-2024-7368-bdb3-ad3fcf853ad4"
+session: "4e1d7087-d606-432e-9341-3ce779b4baf8"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-05T11:37:25.265Z"
+updated: "2026-09-05T12:47:54.913Z"
 labels: ["ready-for-agent"]
 touches: ["task-management/**"]
 comments: [{"author":"main","ts":"2026-09-02T18:17:33.310Z","text":"Architecture correction: product runtime is AG-UI frontend/server streaming over a selected ACP coding agent. Claude Agent SDK is not a task-management dependency; Claude may only participate through a catalogued ACP adapter if selected."},{"author":"main","ts":"2026-09-05T11:37:02.043Z","text":"Backend spine landed and fully tested; no UI yet, so the user-facing ACs are not met. What is done:\n\nAC3 (met at the API layer): every proposed mutation carries a named consequence sentence, approval is bound to the exact operations by a recomputed digest, store refusals pass through verbatim, and planner_applied / planner_apply_rolled_back reach events.jsonl and so the live board stream.\nAC4 (met): importManifest was NOT atomic - N+1 creates plus 2M mutates, each taking the lock separately, no rollback, so a throw halfway left the epic created, activeEpic pointing at it, and a partial task set with a partial dependency graph. Shipped behaviour, not something the planner introduced. Now plan-then-apply under one lock with a compensating rollback. Same discipline in applyOps.\nAC5 (met): content-addressed storage so a supplied filename never reaches the filesystem, text+image allowlist with a magic-byte check, per-file/session/count bounds, sha256 dedupe, trust:untrusted-session-context in the record, and a session record with no capability/skill/permission field an attachment could set (pinned by an exact key-set assertion). Served with Content-Disposition: attachment plus a sandbox CSP so uploaded bytes cannot borrow the dashboard origin.\nAC9 (met): writes are server-mediated through the store's own functions and gates, never the filesystem, and gated on an approval bound to the operations.\nAC2 (half): apply-through-shared-functions is done; conducting interview/map/spec/tickets skills needs the ACP bridge.\n\nNot started: AC1's UI half, AC6 (the UI itself), AC7 (browser tests + rebuilt dist), AC8 (the AG-UI/ACP bridge). The mockup and state-matrix in .bytedesk/designer/mockups/ are the contract for those.\n\nThree defects found by writing the tests rather than by reading: (1) task.depends registered the task it blocks as 'created', so a failed proposal would have DELETED a pre-existing task; (2) truncating a 5000-char attachment name cut off the extension, so a legitimate long .md was refused as having none; (3) the mockup clipped the store's verbatim refusal because a <pre> will not wrap."}]

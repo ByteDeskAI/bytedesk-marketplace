@@ -1,0 +1,16 @@
+TM-084 AC1 — canonical authority permits bounded goal planning
+
+ByteDeskAI/design-system#57, merged to main 2026-09-05.
+
+  $ git show origin/main:apps/task-management/PRODUCT.md | grep -c "bounded goal planning"
+  1
+  $ git show origin/main:apps/task-management/PRODUCT.md | grep -o "Avoid a general assistant anywhere in this product"
+  Avoid a general assistant anywhere in this product
+
+PRODUCT.md `## Purpose` permits it, scoped to one repository outcome through an
+operator-selected trusted coding agent, with mutations prepared for human approval and the
+manual import path retained. `## Anti-references and boundaries` names the refusals. A new
+Proposed cross-application scenario records the AG-UI / ACP architecture without implying it
+ships. DESIGN.md gains the composition, voice and approval rules — elicitation and permission
+are different components, a mutation is inspectable before it runs, a store refusal is
+verbatim, allow-once is the default.

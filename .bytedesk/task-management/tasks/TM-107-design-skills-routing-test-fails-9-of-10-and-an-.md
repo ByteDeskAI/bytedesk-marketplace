@@ -8,14 +8,14 @@ title: "design-skills routing test fails 9 of 10, and an uncommitted change woul
 epic: "EP-013"
 acceptance: [{"text":"The routing test passes, or is removed if it no longer describes intended routing","done":false},{"text":"The workflow either runs it or does not, as a committed decision rather than an uncommitted edit","done":false}]
 evidence: []
-commits: []
+commits: ["320bf43"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "4e1d7087-d606-432e-9341-3ce779b4baf8"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-05T12:44:45.398Z"
+updated: "2026-09-05T12:46:40.345Z"
 type: "bug"
 priority: "medium"
 ---
