@@ -6,12 +6,22 @@
   "model_args": [],
   "system_prompt_args": [],
   "auto_approve_args": [],
+  "coordinator_args": [],
   "add_dir_args": [],
-  "memory": { "scope": "none", "path": null, "note": "Unknown CLI: nothing is claimed about where it keeps state. Declare memory and add_dir_args in a provider JSON to change that." },
-  "ready": { "delay_ms": 4000, "timeout_ms": 20000 },
-  "submit_keys": ["Enter"],
+  "memory": {
+    "scope": "none",
+    "path": null,
+    "note": "Unknown CLI: nothing is claimed about where it keeps state. Declare memory and add_dir_args in a provider JSON to change that."
+  },
+  "ready": {
+    "delay_ms": 4000,
+    "timeout_ms": 20000
+  },
+  "submit_keys": [
+    "Enter"
+  ],
   "bootstrap_message": "Read {{bootstrap_file}} and follow it exactly. Reply with the single word READY once you have read it and every skill it lists.",
   "detect": null,
   "install_hint": "Install the CLI and make sure it is on PATH.",
-  "notes": "Fallback for any interactive CLI: `cli: <command>` in a spec launches that command and delivers every instruction as typed text. Set `command` on the agent to override the executable."
+  "notes": "Fallback for any interactive CLI: `cli: <command>` in a spec launches that command and delivers every instruction as typed text. Set `command` on the agent to override the executable. Coordinator form: none. An unknown CLI is assumed to have no way to drop its write tools, so a coordinator on it is contained only by having no directory granted."
 }

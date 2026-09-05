@@ -254,6 +254,7 @@ test("an agent token is a capability: long, random, and never repeated", () => {
   assert.equal(minted.size, 500);
   for (const token of minted) assert.match(token, /^[0-9a-f]{32}$/, "16 random bytes, not a guessable id");
   assert.equal(tokenDigest("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+  assert.notEqual(tokenDigest("abc"), "abc", "the record stores a digest, never the secret");
 });
 
 test("each agent's launcher exports that agent's token and no other agent's", () => {
@@ -290,6 +291,89 @@ test("a spec cannot name the token that decides which agent a pane may answer as
   });
   assert.match(script, /export AO_AGENT_TOKEN=minted-at-launch$/m);
   assert.ok(!script.includes("chosen-by-the-spec"));
+});
+
+// ---------------------------------------------------------------- TM-094 coordinator capability
+
+test("a coordinator is launched without the work-tree grant, so it cannot write the repo", async () => {
+  const consumer = process.cwd();
+  const agentDir = join(consumer, ".bytedesk", "agent-orchestration", "agents", "abc12345");
+  const spec = materializeSpec(
+    validateSpec({
+      name: "coord",
+      agents: [
+        { id: "lead", role: "orchestrator", cli: "claude", cwd: agentDir, coordinates_only: true },
+        { id: "hand", role: "worker", cli: "claude", cwd: agentDir },
+      ],
+    }),
+    { runId: "r1", consumer, home: consumer, inputs: {} },
+  );
+  const adapters = new Map([
+    ["generic", normalizeAdapter({ id: "generic" }, "generic")],
+    [
+      "claude",
+      normalizeAdapter(
+        { id: "claude", command: "claude", add_dir_args: ["--add-dir", "{{dir}}"], coordinator_args: ["--disallowed-tools", "Write,Edit"] },
+        "claude",
+      ),
+    ],
+  ]);
+  const result = await launchRun({ spec, adapters, skillSearchDirs: [], roleSearchDirs: [], cliBin: "ao", dryRun: true });
+
+  const lead = result.agents.find((a) => a.id === "lead").candidates[0];
+  assert.deepEqual(lead.add_dirs, [], "a coordinator is granted nothing");
+  assert.ok(!lead.command.includes("--add-dir"), lead.command.join(" "));
+  assert.ok(!lead.command.includes(consumer), "the work tree must not appear on a coordinator's argv");
+  assert.ok(lead.command.join(" ").includes("--disallowed-tools Write,Edit"), lead.command.join(" "));
+
+  // The same agent directory, without coordinates_only, still gets the repo — so the difference is
+  // the flag and not the cwd.
+  const hand = result.agents.find((a) => a.id === "hand").candidates[0];
+  assert.deepEqual(hand.add_dirs, [consumer]);
+  assert.ok(hand.command.includes("--add-dir"));
+  assert.ok(!hand.command.join(" ").includes("--disallowed-tools"), "only a coordinator is restricted");
+});
+
+test("a coordinator on an adapter that cannot drop its write tools is warned about, not quietly trusted", async () => {
+  const consumer = process.cwd();
+  const spec = materializeSpec(
+    validateSpec({
+      name: "coord2",
+      agents: [{ id: "lead", role: "orchestrator", cli: "grok", cwd: join(consumer, "topology"), coordinates_only: true }],
+    }),
+    { runId: "r1", consumer, home: consumer, inputs: {} },
+  );
+  const adapters = new Map([["grok", normalizeAdapter({ id: "grok", command: "grok", coordinator_args: [] }, "grok")]]);
+  const result = await launchRun({ spec, adapters, skillSearchDirs: [], roleSearchDirs: [], cliBin: "ao", dryRun: true });
+  assert.ok(
+    result.warnings.some((w) => w.startsWith("agent lead:") && w.includes("no coordinator_args")),
+    result.warnings.join("\n"),
+  );
+  // It is still contained: nothing outside its own directory was granted.
+  assert.deepEqual(result.agents[0].candidates[0].add_dirs, []);
+});
+
+test("a restriction beats a permission when one flag expresses both", () => {
+  // codex says sandbox mode with a single --sandbox; a coordinator that is also auto_approve must
+  // end up read-only, so coordinator_args is appended after auto_approve_args.
+  const codex = normalizeAdapter(
+    { id: "codex", command: "codex", auto_approve_args: ["--sandbox", "workspace-write"], coordinator_args: ["--sandbox", "read-only"] },
+    "codex",
+  );
+  const argv = buildArgv(codex, { args: [], auto_approve: true, coordinates_only: true }, {});
+  assert.deepEqual(argv, ["codex", "--sandbox", "workspace-write", "--sandbox", "read-only"]);
+  assert.equal(argv.lastIndexOf("--sandbox") + 1, argv.length - 1);
+  assert.equal(argv.at(-1), "read-only", "the last --sandbox value is the one the CLI keeps");
+});
+
+test("every shipped provider states a coordinator form, even when that form is 'none'", async () => {
+  for (const file of (await readdir(providersDir)).filter((name) => name.endsWith(".json"))) {
+    const raw = JSON.parse(await readFile(join(providersDir, file), "utf8"));
+    assert.ok("coordinator_args" in raw, `${file}: must declare coordinator_args, even as []`);
+    if (raw.coordinator_args.length === 0) {
+      assert.match(raw.notes, /[Cc]oordinator form/, `${file}: an empty coordinator_args must say why in notes`);
+    }
+  }
 });
 
 // ---------------------------------------------------------------- TM-101 session addressing

@@ -8,14 +8,14 @@ title: "Enforce cross-repo routing at the mailbox"
 epic: "EP-014"
 acceptance: [{"text":"recordReply verifies the writing agent's identity rather than trusting --agent","done":true,"at":"2026-09-05T07:41:45.890Z"},{"text":"The routing predicate redirects a disallowed direct contact to the receiving repo's lead","done":true,"at":"2026-09-05T07:41:46.000Z"},{"text":"A redirect emits a journal event and is acknowledged to the sender with the original addressee preserved","done":true,"at":"2026-09-05T07:41:46.138Z"},{"text":"A wait barrier is satisfied by a reply to the message regardless of which agent answered","done":true,"at":"2026-09-05T07:41:46.276Z"},{"text":"An empty reply file no longer satisfies a barrier","done":true,"at":"2026-09-05T07:41:46.407Z"}]
 evidence: [".bytedesk/task-management/evidence/TM-093-two-projects.sh"]
-commits: ["8f135ad","2bfa611"]
+commits: ["8f135ad","2bfa611","f63e751"]
 blockedBy: ["TM-094"]
 blocks: []
 actor: "main"
 session: "a7da6c38-57d4-464b-b856-ebdb3dd72e1b"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-05T07:41:46.656Z"
+updated: "2026-09-05T07:42:01.557Z"
 touches: ["agent-orchestration/topology/lib/mailbox.mjs"]
 comments: [{"author":"main","ts":"2026-09-05T07:41:45.770Z","text":"All five AC met and verified against a real tmux run, not only unit tests. recordReply verifies identity: launch mints one 16-byte token per agent per run, stores only its sha256 on the run record, and exports AO_AGENT_TOKEN into that agent's launcher alone — placed after the spec's own env map so a committed spec cannot name the secret that decides which agent a pane may answer as. Cross-agent forgery was tested with another agent's REAL token, not a garbage string, and is refused. Routing redirects an unvouched cross-repo contact to the lead with intended_for preserved, a route.redirect journal event and an acknowledgement to the sender; the barrier is satisfied by whoever actually answered; an empty reply file satisfies nothing. Two fail-opens closed during integration: routeMessage delivered an UNRESOLVABLE recipient as addressed before the external check ran, and project identity was a raw string compare that a trailing slash or a symlink would defeat."}]
 closed: "2026-09-05T07:41:46.651Z"

@@ -3,19 +3,36 @@
   "display": "Kimi Code CLI",
   "command": "kimi",
   "args": [],
-  "model_args": ["-m", "{{model}}"],
+  "model_args": [
+    "-m",
+    "{{model}}"
+  ],
   "system_prompt_args": [],
-  "auto_approve_args": ["--auto"],
-  "add_dir_args": ["--add-dir", "{{dir}}"],
+  "auto_approve_args": [
+    "--auto"
+  ],
+  "coordinator_args": [],
+  "add_dir_args": [
+    "--add-dir",
+    "{{dir}}"
+  ],
   "memory": {
     "scope": "cwd",
     "path": "{{home}}/.kimi-code/sessions",
     "note": "Verified 2026-09-05 on this machine: `kimi --help` lists `--add-dir <dir>` (repeatable), `-m/--model`, `--auto` (Never Ask mode) and `-y/--yolo`, and describes `-c` as continuing 'the previous session for the working directory'. ~/.kimi-code/sessions holds wd_<basename>_<hash> directories and ~/.kimi-code/session_index.jsonl records a workDir per session, so the key is the cwd."
   },
-  "ready": { "delay_ms": 6000, "timeout_ms": 30000 },
-  "submit_keys": ["Enter"],
+  "ready": {
+    "delay_ms": 6000,
+    "timeout_ms": 30000
+  },
+  "submit_keys": [
+    "Enter"
+  ],
   "bootstrap_message": "Read {{bootstrap_file}} and follow it exactly. Reply with the single word READY once you have read it and every skill it lists.",
-  "detect": ["kimi", "--version"],
+  "detect": [
+    "kimi",
+    "--version"
+  ],
   "install_hint": "Install Kimi Code CLI (~/.kimi-code/bin/kimi).",
-  "notes": "--auto is Never Ask mode; -y/--yolo is the milder Ask When Needed. auto_approve uses --auto because the launcher cannot answer a prompt."
+  "notes": "--auto is Never Ask mode; -y/--yolo is the milder Ask When Needed. auto_approve uses --auto because the launcher cannot answer a prompt. Coordinator form UNVERIFIED: `kimi --help` lists `--plan` ('Start in plan mode') which is the likely candidate, but the help does not state that plan mode is read-only, so it is not claimed here."
 }
