@@ -1,0 +1,37 @@
+TM-085 AC6 — accessibility, responsive and failure-state checks, measured
+
+tests/browser/planner-a11y.mjs, headless Chrome at 390x844:
+
+  ok   no horizontal page scroll at 390px
+  ok   the turn grid collapses to one column on phone
+  ok   touch targets meet the family floor
+  ok   the verbatim refusal wraps instead of clipping
+  ok   the live region is announced but not shown
+  ok   every section is labelled for a screen reader
+  ok   the refused proposal is not colour-only
+  ok   every visible control is keyboard reachable
+  ok   focus is visible, not suppressed
+  ok   nothing animates under prefers-reduced-motion   (measured 1e-05s)
+
+  10 passed, 0 failed
+
+tests/browser/planner.mjs, the approval path:
+
+  ok   the proposal renders as an inspectable card
+  ok   the card names a consequence, not just its arguments
+  ok   previewing wrote nothing to the board
+  ok   the only text input is the one bound to the open question
+  ok   approving opens a confirmation
+  ok   the confirmation names the digest being approved
+  ok   apply is disabled until the review box is ticked
+  ok   a click on the disabled control applies nothing
+  ok   ticking the box enables apply
+  ok   approving applies exactly the proposed change
+  ok   and the session ends
+
+  11 passed, 0 failed
+
+One correction along the way: the reduced-motion assertion originally demanded a transition
+duration of exactly 0 and failed. The app was right and the test was wrong — the family kill
+switch uses 0.01ms rather than 0, because a zero-duration transition can skip its transitionend
+event. The assertion now reads "effectively instant".

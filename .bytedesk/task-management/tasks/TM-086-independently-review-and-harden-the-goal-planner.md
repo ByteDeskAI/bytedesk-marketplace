@@ -1,7 +1,7 @@
 ---
 id: "TM-086"
 kind: "task"
-status: "blocked"
+status: "open"
 created: "2026-09-02T18:13:18.034Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "Independently review and harden the goal planner"
@@ -15,7 +15,7 @@ actor: "main"
 session: "01a062eb-2024-7368-bdb3-ad3fcf853ad4"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-02T18:13:26.580Z"
+updated: "2026-09-05T13:25:14.831Z"
 labels: ["ready-for-agent"]
 touches: ["task-management/**"]
 ---
