@@ -20,6 +20,8 @@ import { gateDone, gateStart, gateTaskCreate } from "./enforce.mjs";
 import { COLUMNS, board, collapseLog, handoff, renderHistory, sprintReport, standup, taskLine } from "./render.mjs";
 import { graphData, mermaid, renderWhy, why } from "./graph.mjs";
 import { MAX_CHARS, listResources, readResource } from "./resources.mjs";
+import { previewOps } from "./planner-ops.mjs";
+import { appendTurn, mutateSession } from "./planner.mjs";
 import { describeQuery, matchesQuery, parseQuery } from "./query.mjs";
 import { accept, drop, propose, ranked, score, ship } from "./capability.mjs";
 import { attachEvidence } from "./evidence.mjs";
@@ -113,6 +115,11 @@ const clamp = (text) => (text.length <= MAX_CHARS ? text : `${text.slice(0, MAX_
 export const PLANNER_TOOLS = Object.freeze([
   "tm_board", "tm_next", "tm_show", "tm_find", "tm_why", "tm_graph", "tm_history",
   "tm_log", "tm_stale", "tm_parallel", "tm_export", "tm_cap_list",
+  // The one thing a planner may WRITE, and it does not write the board. It records a proposal on
+  // its own session for a human to approve; the approval is what reaches the store. Without it a
+  // planner could reason perfectly and had no way to say what it concluded, so the operator could
+  // never get an approval card at all.
+  "tm_plan_propose",
 ]);
 
 /**
@@ -137,6 +144,59 @@ export function plannerTools(profile = process.env.TM_MCP_PROFILE) {
 }
 
 export const TOOLS = [
+  {
+    name: "tm_plan_propose",
+    description:
+      "Record the board changes you are proposing, for a human to approve. This does NOT write the board — it puts an inspectable proposal on your planning session, and nothing happens until the operator approves that exact set. Propose the whole plan in one call: it is approved or rejected as a unit. Operations: epic.create {ref,title,body}, epic.activate {epic}, task.create {ref,epic,title,body,acceptance[],touches[],labels[]}, task.depends {task,on[]}. Use `ref` to name something this proposal creates and refer to it later; declare it before you use it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        operations: {
+          type: "array",
+          description: "The governed operations, in the order they should be applied.",
+          items: {
+            type: "object",
+            properties: { op: { type: "string" }, args: { type: "object" } },
+            required: ["op"],
+          },
+        },
+      },
+      required: ["operations"],
+    },
+    run: ({ operations }, p) => {
+      // The session comes from the environment the BRIDGE set when it spawned this server, never
+      // from an argument. An agent that could name the session could write a proposal onto someone
+      // else's planning conversation and have it approved there.
+      const session = process.env.TM_PLANNER_SESSION || "";
+      if (!session) return fail("tm_plan_propose is only available inside a planning session");
+      try {
+        const preview = previewOps(operations, p);
+        mutateSession(session, (s) => {
+          if (s.status !== "open") throw new Error(`planning session ${session} is ${s.status}`);
+          return { proposal: { digest: preview.digest, operations, previewed: new Date().toISOString() } };
+        }, p);
+        appendTurn(session, {
+          role: "agent",
+          kind: "proposal",
+          text: `Proposed ${preview.operations.length} board change(s).`,
+          payload: { digest: preview.digest },
+        }, p);
+        return ok({
+          recorded: true,
+          digest: preview.digest,
+          // The verdicts go back to the agent so it can fix its own proposal rather than waiting
+          // for a human to explain the store's rules to it.
+          ok: preview.ok,
+          operations: preview.operations.map((o) => ({ index: o.index, op: o.op, valid: o.valid, refusal: o.refusal, consequence: o.consequence })),
+          text: preview.ok
+            ? "Recorded. The operator can now review and approve it; you cannot apply it yourself."
+            : `Recorded, but it cannot be applied as written:\n${preview.operations.filter((o) => !o.valid).map((o) => `  ${o.index}. ${o.refusal}`).join("\n")}`,
+        });
+      } catch (e) {
+        return fail(e.message);
+      }
+    },
+  },
   {
     name: "tm_board",
     description:

@@ -1,4 +1,4 @@
-/** TM-074 — agent-first docs and skills stay honest against lib/ and the 38 MCP tools. */
+/** TM-074 — agent-first docs and skills stay honest against lib/ and the 39 MCP tools. */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -45,9 +45,9 @@ describe("agent-first documentation (TM-074)", () => {
     assert.match(doc, /never dispatched|was never dispatched/);
   });
 
-  it("parity table lists all 38 MCP tools and the HTTP twins for dispatch/collect/caps/agents", () => {
+  it("parity table lists all 39 MCP tools and the HTTP twins for dispatch/collect/caps/agents", () => {
     const doc = read("docs/agent-first.md");
-    assert.equal(TOOLS.length, 38, `expected 38 MCP tools, got ${TOOLS.length}`);
+    assert.equal(TOOLS.length, 39, `expected 39 MCP tools, got ${TOOLS.length}`);
     for (const t of TOOLS) {
       assert.match(doc, new RegExp(`\`${t.name}\``), `docs/agent-first.md missing ${t.name}`);
     }

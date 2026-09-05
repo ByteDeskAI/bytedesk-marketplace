@@ -9,7 +9,7 @@ import type {
   Meta, NtfyInfo, PlanFile, PlanInboxItem, Session, SettingsSnapshot, Skill, Sprint, StoreEvent, Task,
   TaskTime, TemplateDetail, TemplateSummary, TimeSummary, Why, Worktree,
   AppliedProposal, PlannerAttachment, PlannerOperation, PlannerSession, PlannerStatus, PlannerSummary,
-  Proposal, TurnKind,
+  Proposal, TurnKind, AguiEvent, PlannerAgent, PlannerRunState,
 } from "./types";
 
 /** A refusal from a gate — the reason is written for the person reading the board. */
@@ -232,6 +232,36 @@ export async function attachToPlanner(id: string, file: File): Promise<{ attache
   const payload = await res.json().catch(() => ({ error: `${res.status}` }));
   if (!res.ok) throw new WriteError(payload.error || `attachment refused (${res.status})`, res.status);
   return payload;
+}
+
+export const fetchPlannerAgents = () => json<{ agents: PlannerAgent[] }>("/api/planner/agents").then((r) => r.agents);
+
+export const plannerRun = {
+  start: (id: string, agent: string) => send("POST", `/api/planner/${encodeURIComponent(id)}/run`, { agent }) as Promise<{ runId: string; agent: string }>,
+  state: (id: string) => json<PlannerRunState>(`/api/planner/${encodeURIComponent(id)}/run`),
+  cancel: (id: string) => send("POST", `/api/planner/${encodeURIComponent(id)}/cancel`, {}) as Promise<{ cancelled: boolean }>,
+  probe: (agentId: string) => send("POST", `/api/planner/agents/${encodeURIComponent(agentId)}/probe`, {}) as Promise<PlannerAgent>,
+};
+
+/**
+ * The AG-UI stream for a live run. Its own EventSource rather than the board feed: these are run
+ * events with a different shape and a different lifetime, and folding them into the store's stream
+ * would make every planning run wake every open board.
+ */
+export function subscribePlannerRun(id: string, onEvent: (e: AguiEvent) => void, onClose?: () => void) {
+  const src = new EventSource(`/api/planner/${encodeURIComponent(id)}/stream`);
+  src.onmessage = (m) => {
+    try {
+      onEvent(JSON.parse(m.data) as AguiEvent);
+    } catch {
+      /* a half-written frame arrives again */
+    }
+  };
+  src.onerror = () => {
+    src.close();
+    onClose?.();
+  };
+  return () => src.close();
 }
 
 export function subscribe({ onEvent, onLive, onResync }: FeedHandlers) {

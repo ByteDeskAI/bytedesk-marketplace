@@ -247,7 +247,7 @@ export class AcpSession {
  * than only where they are listed — hiding a write tool from the listing while still executing it
  * on request would be theatre.
  */
-export function governedToolServer(p = paths()) {
+export function governedToolServer(p = paths(), sessionId = "") {
   return [{
     name: "task-management",
     command: process.execPath,
@@ -255,6 +255,10 @@ export function governedToolServer(p = paths()) {
     env: [
       { name: "TM_MCP_PROFILE", value: "planner" },
       { name: "TM_ROOT", value: p.root ?? "" },
+      // Which planning conversation this server may record a proposal on. It comes from HERE, not
+      // from a tool argument: an agent that could name the session could put a proposal onto
+      // somebody else's conversation and have it approved there.
+      { name: "TM_PLANNER_SESSION", value: String(sessionId || "") },
     ],
   }];
 }

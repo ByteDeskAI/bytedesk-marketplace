@@ -10,11 +10,12 @@ import { Field, Select, TextArea } from "../../components/ui/Field";
 import { Modal } from "../../components/ui/Modal";
 import { SkeletonRows } from "../../components/ui/Skeleton";
 import {
-  attachToPlanner, fetchPlannerSession, fetchPlannerSessions, planner,
+  attachToPlanner, fetchPlannerAgents, fetchPlannerSession, fetchPlannerSessions, planner,
+  plannerRun, subscribePlannerRun,
 } from "../../lib/api";
 import { navigate, setQuery, useLocation } from "../../lib/router";
 import { useBoard } from "../../lib/store";
-import type { PlannerSession, PlannerSummary, Proposal } from "../../lib/types";
+import type { AguiEvent, PlannerAgent, PlannerSession, PlannerSummary, Proposal } from "../../lib/types";
 import "../../styles/planner.css";
 
 /**
@@ -159,6 +160,10 @@ function Session({ id }: { id: string }) {
   const [busy, setBusy] = useState(false);
   const [live, setLive] = useState("");
   const [answer, setAnswer] = useState("");
+  const [agents, setAgents] = useState<PlannerAgent[]>([]);
+  const [agent, setAgent] = useState("");
+  const [events, setEvents] = useState<AguiEvent[]>([]);
+  const [running, setRunning] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const load = useCallback(() => {
@@ -174,6 +179,56 @@ function Session({ id }: { id: string }) {
       .catch((e: Error) => setError(e.message));
   }, [id]);
   useEffect(load, [load]);
+
+  useEffect(() => {
+    fetchPlannerAgents().then((list) => {
+      setAgents(list);
+      setAgent((a) => a || list[0]?.id || "");
+    }).catch(() => {});
+  }, []);
+
+  /**
+   * Attach to the run stream whenever one is in flight. `tm.run.absent` means there is nothing to
+   * watch, which is the ordinary case for a session opened from the list — not an error.
+   */
+  const watch = useCallback(() => {
+    return subscribePlannerRun(id, (e) => {
+      if (e.type === "CUSTOM" && e.name === "tm.run.absent") return;
+      setEvents((prev) => [...prev.slice(-400), e]);
+      if (e.type === "RUN_FINISHED" || e.type === "RUN_ERROR") {
+        setRunning(false);
+        // The agent's proposal arrives on the session, not on the stream, so reload to pick it up.
+        load();
+      }
+    });
+  }, [id, load]);
+
+  useEffect(() => {
+    plannerRun.state(id).then((st) => {
+      setRunning(st.running);
+      if (st.running || st.events > 0) return watch();
+      return undefined;
+    }).catch(() => {});
+  }, [id, watch]);
+
+  const startRun = async () => {
+    setError(null);
+    setEvents([]);
+    try {
+      await plannerRun.start(id, agent);
+      setRunning(true);
+      watch();
+      say("Planning run started.");
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  const stopRun = async () => {
+    await plannerRun.cancel(id).catch(() => {});
+    setRunning(false);
+    say("Planning run cancelled.");
+  };
 
   const say = (message: string) => setLive(message);
 
@@ -276,6 +331,51 @@ function Session({ id }: { id: string }) {
       </p>
 
       {error ? <ErrorPanel title="Refused" detail={error} /> : null}
+
+      {openSession ? (
+        <section className="gp-agent" aria-labelledby="gp-agent-h">
+          <h2 id="gp-agent-h">Planner agent</h2>
+          {agents.length === 0 ? (
+            <p className="gp-hint">
+              No trusted coding agent is configured. Add one with{" "}
+              <code>tm config planner '{"{"}"agents":[{"{"}"id":"codex","label":"Codex","command":"codex-acp"{"}"}]{"}"}'</code>.
+              The board spawns the command you name, so this is deliberately not something that ships with entries.
+            </p>
+          ) : (
+            <div className="gp-agent__row">
+              <Field label="Agent">
+                {(props) => (
+                  <Select
+                    {...props}
+                    value={agent}
+                    disabled={running}
+                    options={agents.map((a) => ({ value: a.id, label: a.label }))}
+                    onChange={(e) => setAgent(e.currentTarget.value)}
+                  />
+                )}
+              </Field>
+              <Chip tone={running ? "accent" : "ok"} dot>{running ? "running" : "idle"}</Chip>
+              <Chip tone="warn">board writes: confirm each set</Chip>
+              <span className="tm-grow" />
+              {running ? (
+                <Button variant="ghost" onClick={stopRun}>Cancel run</Button>
+              ) : (
+                <Button disabled={!agent} onClick={startRun}>Ask the planner</Button>
+              )}
+            </div>
+          )}
+          {events.length > 0 ? (
+            <ol className="gp-trace" aria-label="Agent activity">
+              {events.slice(-40).map((e, i) => (
+                <li key={i} data-kind={e.type}>
+                  <span className="tm-mono gp-trace__type">{e.type}</span>
+                  <span>{describeEvent(e)}</span>
+                </li>
+              ))}
+            </ol>
+          ) : null}
+        </section>
+      ) : null}
 
       {/* Turns land in named slots. Never alternating speech bubbles. */}
       <section aria-labelledby="gp-turns-h">
@@ -451,6 +551,28 @@ function Session({ id }: { id: string }) {
       <p className="sr-only" role="status" aria-live="polite">{live}</p>
     </div>
   );
+}
+
+/**
+ * One line of trace, in words.
+ *
+ * Deliberately not the raw event: a trace is for a person watching what the agent is doing, and
+ * the payloads carry whatever the agent sent. Anything without a sentence here shows its type and
+ * nothing else, which is the right amount of detail for a variant this build has never seen.
+ */
+function describeEvent(e: AguiEvent): string {
+  switch (e.type) {
+    case "RUN_STARTED": return "The planner started.";
+    case "RUN_FINISHED": return `The planner finished (${e.reason ?? "done"}).`;
+    case "RUN_ERROR": return e.message ?? "The planner failed.";
+    case "ACTIVITY_DELTA": return e.activity === "thinking" ? "Thinking…" : `Working: ${e.activity ?? ""}`;
+    case "TEXT_MESSAGE_CONTENT": return e.delta ?? "";
+    case "TOOL_CALL_START": return `Reading: ${e.toolName ?? "a tool"}${e.toolClass === "mutation" ? " (would write)" : ""}`;
+    case "TOOL_CALL_RESULT": return e.failed ? `Refused: ${e.result ?? ""}` : "Read complete.";
+    case "STATE_DELTA": return `Updated ${e.path ?? "state"}.`;
+    case "CUSTOM": return e.name === "tm.permission.requested" ? "The agent asked for permission; approval happens on the proposal below." : (e.name ?? "");
+    default: return "";
+  }
 }
 
 /** Shown when a session is gone but its id is still in the URL. */

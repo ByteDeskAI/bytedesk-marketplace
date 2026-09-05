@@ -436,3 +436,20 @@ export interface ProposedOperation {
 export interface Proposal { digest: string; ok: boolean; operations: ProposedOperation[]; session?: string }
 
 export interface AppliedProposal { digest: string; created: string[]; applied: { op: string; id?: string; kind?: string; title?: string }[] }
+
+/** A trusted ACP agent the operator configured. Never carries the command line. */
+export interface PlannerAgent {
+  id: string; label: string; connected: boolean; session: string | null;
+  boardWrites: string; capabilities: { promptText: boolean; elicitation: boolean } | null;
+  error?: string;
+}
+
+/** One AG-UI event from a live planning run. */
+export interface AguiEvent {
+  type: string; runId?: string; ts?: string;
+  slot?: string; delta?: string; activity?: string; name?: string;
+  toolName?: string; toolClass?: string; toolCallId?: string; result?: string | null; failed?: boolean;
+  message?: string; reason?: string; path?: string; value?: unknown;
+}
+
+export interface PlannerRunState { running: boolean; runId: string | null; agent?: string; events: number; error: string | null }

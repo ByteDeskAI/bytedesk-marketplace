@@ -150,7 +150,7 @@ export async function startRun(sessionId, agentId, p = paths()) {
   (async () => {
     try {
       await run.acp.start();
-      await run.acp.newSession(p.root, { mcpServers: governedToolServer(p) });
+      await run.acp.newSession(p.root, { mcpServers: governedToolServer(p, sessionId) });
       const result = await run.acp.prompt(promptFor(session));
       run.finished = true;
       run.running = false;

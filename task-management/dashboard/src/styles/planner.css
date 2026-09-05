@@ -165,3 +165,40 @@
   background: var(--tm-accent-wash);
 }
 .gp-answer h3 { font-size: var(--tm-text); font-weight: var(--tm-w-medium); }
+
+/* ── the agent, and what it is doing ────────────────────────────────────────────────── */
+
+.gp-agent {
+  display: flex; flex-direction: column; gap: var(--tm-s3);
+  margin-top: var(--tm-s4);
+  padding: var(--tm-s4);
+  border: var(--tm-hairline) solid var(--tm-line-faint);
+  border-radius: var(--tm-radius-lg);
+  background: var(--tm-surface);
+}
+.gp-agent h2 { font-size: var(--tm-text); font-weight: var(--tm-w-medium); }
+.gp-agent__row { display: flex; align-items: flex-end; gap: var(--tm-s3); flex-wrap: wrap; }
+
+/*
+ * The trace is a log, not a transcript: one line per event, its type in its own column, so it
+ * reads as activity rather than as the agent talking. Bounded height with its own scroll, because
+ * a chatty run must not push the proposal below the fold.
+ */
+.gp-trace {
+  display: flex; flex-direction: column; gap: var(--tm-s1);
+  max-height: 14rem; overflow-y: auto;
+  padding: var(--tm-s3);
+  border-radius: var(--tm-radius);
+  background: var(--tm-ground);
+  font-size: var(--tm-text-sm);
+}
+.gp-trace li { display: grid; grid-template-columns: 12rem minmax(0, 1fr); gap: var(--tm-s3); }
+.gp-trace li > span:last-child { overflow-wrap: anywhere; color: var(--tm-ink-2); }
+.gp-trace__type { color: var(--tm-ink-3); font-size: var(--tm-text-mono-sm); }
+.gp-trace li[data-kind="RUN_ERROR"] .gp-trace__type { color: var(--tm-bad); }
+.gp-trace li[data-kind="RUN_FINISHED"] .gp-trace__type { color: var(--tm-ok); }
+
+@media (max-width: 719px) {
+  .gp-trace li { grid-template-columns: 1fr; gap: 0; }
+  .gp-agent__row { flex-direction: column; align-items: stretch; }
+}
