@@ -1267,6 +1267,12 @@ svg {
   border-radius: var(--gp-radius);
   background: var(--gp-ground);
   color: var(--gp-bad);
+  /* `pre-wrap`, not the default `pre`. This element is a <pre> because the store's refusal is
+     reproduced verbatim, newlines included — but `white-space: pre` also refuses to wrap, and
+     `overflow-wrap` cannot override it, so a refusal wider than the panel was simply cut off at the
+     edge. Preserving the wording and then hiding half of it is the one failure this element must not
+     have. `pre-wrap` keeps every character and every newline, and wraps the overflow. */
+  white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 

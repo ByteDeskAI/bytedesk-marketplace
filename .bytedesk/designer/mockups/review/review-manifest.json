@@ -1,0 +1,290 @@
+{
+  "capturedAt": "2026-09-05",
+  "source": "goal-planner.html",
+  "renderer": "Playwright (bytedesk-workforce node_modules)",
+  "nativeImageGeneration": false,
+  "note": "Review captures of the compliant HTML artifact across every width, theme and state family the acceptance criteria name. Not generated UI and not implementation source.",
+  "matrix": {
+    "widths": [
+      390,
+      1024,
+      1440
+    ],
+    "themes": [
+      "light",
+      "dark"
+    ],
+    "state_families": [
+      "loading",
+      "error",
+      "approval",
+      "success"
+    ]
+  },
+  "captures": [
+    {
+      "file": "loading-390-light.png",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "theme": "light",
+      "state": "streaming",
+      "state_family": "loading",
+      "sha256": "9a61ea4e854ebc7cd94815beb4ec9cb6ee51bf1b71de1bfdf12f8770a6eb0e94"
+    },
+    {
+      "file": "error-390-light.png",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "theme": "light",
+      "state": "validation-failure",
+      "state_family": "error",
+      "sha256": "8b364e6eba9adb175da737b3397f03ccaffe1f378a1a07cf3dcd669866e45e02"
+    },
+    {
+      "file": "approval-390-light.png",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "theme": "light",
+      "state": "confirmation",
+      "state_family": "approval",
+      "sha256": "6aa4d4dae4f3559930a242c28e944f9b46cac52f222365b474dbe897e5ac3585"
+    },
+    {
+      "file": "success-390-light.png",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "theme": "light",
+      "state": "import-success",
+      "state_family": "success",
+      "sha256": "88ce042604e70b9156962a7fde637d028b845de1839c6132d01ef635d3a0446f"
+    },
+    {
+      "file": "loading-390-dark.png",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "theme": "dark",
+      "state": "streaming",
+      "state_family": "loading",
+      "sha256": "93c15766d0bb50a55261520369c1ad33122f51078d70f660f0c9c5aae83156c0"
+    },
+    {
+      "file": "error-390-dark.png",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "theme": "dark",
+      "state": "validation-failure",
+      "state_family": "error",
+      "sha256": "2096f3078738353722174ad69e2cd858d64541c747240ead8479499b7d67088f"
+    },
+    {
+      "file": "approval-390-dark.png",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "theme": "dark",
+      "state": "confirmation",
+      "state_family": "approval",
+      "sha256": "dfa437afec2505fcbc02149c049e40c8e089a613d2c8116e22b4d7f40bf1f5c1"
+    },
+    {
+      "file": "success-390-dark.png",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "theme": "dark",
+      "state": "import-success",
+      "state_family": "success",
+      "sha256": "63a81392b24a2eb01a133e2e1765d25fb9d2092e73dbb2546e73169f5364c6e6"
+    },
+    {
+      "file": "loading-1024-light.png",
+      "viewport": {
+        "width": 1024,
+        "height": 900
+      },
+      "theme": "light",
+      "state": "streaming",
+      "state_family": "loading",
+      "sha256": "c72b2803d331079c652b8139a199c485d361bc6aba20f85920e4f4bf53a4f270"
+    },
+    {
+      "file": "error-1024-light.png",
+      "viewport": {
+        "width": 1024,
+        "height": 900
+      },
+      "theme": "light",
+      "state": "validation-failure",
+      "state_family": "error",
+      "sha256": "85b99dcd7df1fa4583022dfe0b91e09c20912d43185baf7c3938b9518abcd679"
+    },
+    {
+      "file": "approval-1024-light.png",
+      "viewport": {
+        "width": 1024,
+        "height": 900
+      },
+      "theme": "light",
+      "state": "confirmation",
+      "state_family": "approval",
+      "sha256": "8ab17a391a555a50bc0c37072bd2a04a726cb17ef16b9bf865a2132496edb8b8"
+    },
+    {
+      "file": "success-1024-light.png",
+      "viewport": {
+        "width": 1024,
+        "height": 900
+      },
+      "theme": "light",
+      "state": "import-success",
+      "state_family": "success",
+      "sha256": "c9ccb55a9f1587e4374c9e47b2344f915bb21ca58af1c4552d03f4d90e0c93b2"
+    },
+    {
+      "file": "loading-1024-dark.png",
+      "viewport": {
+        "width": 1024,
+        "height": 900
+      },
+      "theme": "dark",
+      "state": "streaming",
+      "state_family": "loading",
+      "sha256": "8e52113fce2aac59cf5e0481b8ddbfbe7865c83540cd58723fe84aad257d31b3"
+    },
+    {
+      "file": "error-1024-dark.png",
+      "viewport": {
+        "width": 1024,
+        "height": 900
+      },
+      "theme": "dark",
+      "state": "validation-failure",
+      "state_family": "error",
+      "sha256": "a1f7e3aa3a8c3762a8197a1d04751f81ba3fad17a32800bd8e922e9d58e47684"
+    },
+    {
+      "file": "approval-1024-dark.png",
+      "viewport": {
+        "width": 1024,
+        "height": 900
+      },
+      "theme": "dark",
+      "state": "confirmation",
+      "state_family": "approval",
+      "sha256": "83b8a553650966cf36c0a06c4e900ecdf501061aa11b2a19ec47ab92004f1854"
+    },
+    {
+      "file": "success-1024-dark.png",
+      "viewport": {
+        "width": 1024,
+        "height": 900
+      },
+      "theme": "dark",
+      "state": "import-success",
+      "state_family": "success",
+      "sha256": "a5e4762fc7c451da24d12c05a0bc797db0cb803c327e82daa690f1d68ad956f7"
+    },
+    {
+      "file": "loading-1440-light.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "theme": "light",
+      "state": "streaming",
+      "state_family": "loading",
+      "sha256": "32eb5ac4d1f9b57c81392250cb66cc440e3085304eeea14cfc1b29eabbcb0846"
+    },
+    {
+      "file": "error-1440-light.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "theme": "light",
+      "state": "validation-failure",
+      "state_family": "error",
+      "sha256": "3f6abca426d737298f84b3f02bf011d5a08fb441c55b547dae914e0be9ff9f33"
+    },
+    {
+      "file": "approval-1440-light.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "theme": "light",
+      "state": "confirmation",
+      "state_family": "approval",
+      "sha256": "4e87f6728122eba1b8550d746b17be14406958520f2e8849156122b70ca719e2"
+    },
+    {
+      "file": "success-1440-light.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "theme": "light",
+      "state": "import-success",
+      "state_family": "success",
+      "sha256": "1b0c25f1dc5bf553744809117bd3ba047b81a446ddc48a66e7a6f54b03b46a1a"
+    },
+    {
+      "file": "loading-1440-dark.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "theme": "dark",
+      "state": "streaming",
+      "state_family": "loading",
+      "sha256": "6d6108d0af7944544d1b82ece8d621387089d97ce5843e05fd8c1549c047cf53"
+    },
+    {
+      "file": "error-1440-dark.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "theme": "dark",
+      "state": "validation-failure",
+      "state_family": "error",
+      "sha256": "d6438f8cb53a78b73d4a00d82467a33b27fac3a8b01c6169ab9362ca59250663"
+    },
+    {
+      "file": "approval-1440-dark.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "theme": "dark",
+      "state": "confirmation",
+      "state_family": "approval",
+      "sha256": "cb33718457dfec4bbc95b8e060833018469740155b3c2d3eee724649c5fcbd42"
+    },
+    {
+      "file": "success-1440-dark.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "theme": "dark",
+      "state": "import-success",
+      "state_family": "success",
+      "sha256": "d2324e506d79be2bd737abee81849802fd5aad538e697b04446a840de3f33885"
+    }
+  ]
+}

@@ -1,6 +1,13 @@
 # Proposed task-management profile amendment — bounded goal planning
 
-Status: proposal only. This file does not override the managed design-system profile. Canonical wording must land in `ByteDeskAI/design-system` first and then arrive through the managed payload.
+Status: **submitted upstream** as [ByteDeskAI/design-system#57](https://github.com/ByteDeskAI/design-system/pull/57) on 2026-09-05. This file still does not override the managed profile; canonical wording lands in `ByteDeskAI/design-system` and arrives here through the managed payload at the next release, which the `.design-system.json` pin (currently `2.2.1`) takes via Renovate.
+
+**The submitted wording is not the wording below.** This document was drafted against the vendored 2.2.1 copy, whose section headings (`## Product purpose`, `## Product promises`, `## Primary journeys`, `## Success criteria`) no longer exist upstream — `main` has since restructured `PRODUCT.md` around `## Purpose`, `## Implemented functional areas`, `## Cross-application scenarios` and `## Anti-references and boundaries`. Every anchor here had to be re-targeted, and the substance was re-shaped to match the profile's own conventions in two ways worth knowing:
+
+- The architecture went in as a **Proposed** cross-application scenario, beside the existing `Designer to Task Management: proposed reviewed-artifact workflow`, rather than as a product promise. The profile describes reviewed source; recording an unbuilt surface as a promise would have made it read as shipped.
+- The anti-chat boundary was *strengthened* rather than merely excepted. The refusals are now named — a general assistant anywhere in the product, an open-ended transcript, alternating speech bubbles, a composer that stays an unrestricted prompt box after submission, rendered chain-of-thought — instead of being left to inference from one clause.
+
+Read the PR for the wording that was actually proposed. What follows is the original draft, kept as the record of what this design pass asked for.
 
 ## PRODUCT.md
 

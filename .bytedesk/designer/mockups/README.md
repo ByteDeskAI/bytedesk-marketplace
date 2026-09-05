@@ -1,7 +1,7 @@
 # ByteDesk Task Management — governed goal-planner mockup
 
-Status: **exploration; not approved and not production source**
-Date: 2026-09-02
+Status: **direction approved 2026-09-05 — see `DIRECTION-APPROVAL.md`. Still not production source.**
+Date: 2026-09-02, direction approved and review matrix added 2026-09-05
 Scope: Task Management `/plans` goal-planning extension
 
 This package develops a bounded planning workspace inside the existing Plans information architecture. It keeps the manual repo-path/paste import, makes the operator-selected ACP coding agent and capability health visible, streams read/tool activity through AG-UI, and turns every proposed board mutation into an inspectable approval card. It is deliberately not a general chat surface.
@@ -150,7 +150,9 @@ Light and dark change only semantic colors, material/shadow and highlight values
 | `chosen-direction-1024.png` | 1024 × 900 dark streaming/tool-call HTML capture |
 | `chosen-direction-390-mobile.png` | 390 × 844 dark questioning mobile HTML capture |
 | `capture-manifest.json` | Browser capture version, viewport/state/theme and SHA-256 metadata |
-| `profile-amendment.md` | Precise proposed PRODUCT/DESIGN language for bounded planning |
+| `DIRECTION-APPROVAL.md` | The approved direction, why it beat the other two, and what the approval does not cover |
+| `review/` | The full review matrix: every width x theme x state family, with `review-manifest.json` |
+| `profile-amendment.md` | Original draft of the PRODUCT/DESIGN language; submitted upstream (re-targeted) as design-system#57 |
 | `state-matrix.md` | ACP/permission → bridge → AG-UI → visible-state contract |
 | `prompts/01-claim-ledger.md` | Verbatim native image prompt and metadata |
 | `prompts/02-decision-rail.md` | Verbatim native image prompt and metadata |
@@ -162,6 +164,16 @@ Light and dark change only semantic colors, material/shadow and highlight values
 - JavaScript syntax: `node --check goal-planner.js` — passed.
 - Automated headless interaction pass: all 11 scenarios rendered; empty → decisions → attachment → streaming → proposal → permission → success passed; manual path/paste import passed; mobile trace open/close passed; dark/light planner-layout bounding geometry matched; browser console/page errors: 0.
 - Playwright captures produced and visually inspected at 1440 dark, 1440 light, 1024 and 390.
+- **Full review matrix** (2026-09-05): 24 captures under `review/` — every required width (390, 1024,
+  1440) x both themes x the four state families the acceptance criteria name (loading, error, approval,
+  success). Zero page errors and zero console errors across all 24. Each capture asserts that the
+  prototype actually rendered the scenario requested rather than silently falling back to another, which
+  is how the matrix stays an honest record of what was reviewed. Hashes in `review/review-manifest.json`.
+- One defect found and fixed by that pass: the store's verbatim refusal is a `<pre>`, and `white-space:
+  pre` refuses to wrap — `overflow-wrap: anywhere` cannot override it — so any refusal wider than its
+  panel was cut off at the edge. Preserving the store's exact wording and then hiding half of it is the
+  one failure this element must not have. Now `pre-wrap`: every character and newline kept, overflow
+  wrapped.
 - PNG dimensions and all generated/captured SHA-256 hashes recorded in the two manifests.
 - Every `--bd-*` reference in `planner.tokens.css` resolves in local `bytedesk.tokens.css`.
 - No literal hex/rgb/hsl/oklch color appears in `goal-planner.css` or `planner.tokens.css`; foundation values remain in the copied canonical token file.
