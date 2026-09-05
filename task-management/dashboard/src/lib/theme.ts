@@ -1,6 +1,11 @@
 /**
- * `data-bd-theme` on <html>. "auto" follows the OS; the family stylesheet does the rest.
- * localStorage is the cache so the first paint is right; the board setting, when it arrives,
+ * `data-bd-theme` on <html>. There are three states and only two of them are stamped:
+ * "auto" REMOVES the attribute, because an absent stamp is what the family stylesheet reads
+ * as "follow the machine" (`:root:not([data-bd-theme])` under `prefers-color-scheme`), and an
+ * explicit stamp wins over it in both directions. Resolving the media query here and stamping
+ * the answer, which this module used to do, opts the page out of that rule: the CSS path is
+ * never taken, and every auto viewer waits for this module to load before the theme is right.
+ * localStorage is the cache for the two explicit states; the board setting, when it arrives,
  * wins (Settings writes both).
  */
 import { useSyncExternalStore } from "react";
@@ -17,13 +22,11 @@ let theme: Theme = ((): Theme => {
   }
 })();
 
-const media = typeof matchMedia === "function" ? matchMedia("(prefers-color-scheme: light)") : null;
-
 function apply() {
-  const resolved = theme === "auto" ? (media?.matches ? "light" : "dark") : theme;
-  document.documentElement.setAttribute("data-bd-theme", resolved);
+  const root = document.documentElement;
+  if (theme === "auto") root.removeAttribute("data-bd-theme");
+  else root.setAttribute("data-bd-theme", theme);
 }
-media?.addEventListener("change", apply);
 apply();
 
 export function setTheme(next: Theme) {
