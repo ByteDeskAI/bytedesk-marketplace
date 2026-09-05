@@ -474,21 +474,33 @@ describe("a landing that is killed rather than thrown out of", () => {
     assert.equal(recoverInterruptedApply(p), null);
   });
 
-  it("sweeps a record written in the gap between the write and the journal", () => {
+  it("never removes a record it did not write down, however old the journal is", () => {
     const p = store();
     writeConfig({ requireEpic: false }, p);
-    const started = new Date(Date.now() - 1000).toISOString();
-    const orphan = create("task", { title: "Written, never journalled", acceptance: [{ text: "x", done: false }] }, "b", p);
+    // The wreckage of a landing killed a week ago: a journal naming ONE record it created.
+    const mine = create("task", { title: "Half-landed", acceptance: [{ text: "x", done: false }] }, "b", p);
     mkdirSync(dirname(journalPath(p)), { recursive: true });
-    // The journal is rewritten AFTER each operation, so this is the one window it cannot name
-    // directly. It is still findable: the landing held the store lock, so nothing else created
-    // anything while it ran, and every record stamped at or after the journal was opened is its.
-    writeFileSync(journalPath(p), JSON.stringify({ session: null, digest: "d", started, created: [], touched: [] }));
+    writeFileSync(journalPath(p), JSON.stringify({
+      session: "PL-aaaaaaaaaaaa", digest: "d", started: new Date(Date.now() - 7 * 864e5).toISOString(),
+      created: [mine.id], touched: [], previousActiveEpic: null,
+    }));
 
+    // A week of ordinary work by everyone else: `tm task new`, `tm epic new`, a harness mirror.
+    const theirs = [
+      create("task", { title: "Someone else's Tuesday", acceptance: [{ text: "x", done: false }] }, "b", p),
+      create("task", { title: "And their Wednesday", acceptance: [{ text: "x", done: false }] }, "b", p),
+      create("epic", { title: "A programme started on Thursday" }, "", p),
+    ];
+
+    // An earlier version of this swept every record stamped after the journal was opened, on the
+    // reasoning that the landing held the store lock so nothing else could have created anything.
+    // The lock dies with the process; the journal does not. That version deleted the week.
     const rec = recoverInterruptedApply(p);
-    assert.deepEqual(rec.ids, [orphan.id]);
-    assert.equal(list("task", {}, p).length, 0);
+    assert.deepEqual(rec.ids, [mine.id], "exactly what the journal named, and nothing else");
+    assert.equal(read(mine.id, p), null, "its own record is undone");
+    for (const t of theirs) assert.ok(read(t.id, p), `${t.id} belongs to someone else and must survive`);
   });
+
 });
 
 describe("an undo that cannot finish says so", () => {

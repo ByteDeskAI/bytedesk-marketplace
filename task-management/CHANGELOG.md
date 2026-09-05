@@ -220,6 +220,14 @@
 - **Tool-call markup is refused at the store boundary.** A body containing an agent's own `<parameter …>` / `<invoke …>` fragments is rejected by `write()`, so every entry point is covered — CLI, MCP, the dashboard's `PATCH /api/task/:id`, and the harness bridge mirroring a native `TaskCreate`. Eleven records were written with their own tool calls embedded before this existed, including one whose entire body was replaced by another task's progress note; the store accepted all of it silently. The check matches the corruption's shape (a tag alone on a line, at the start of one, or trailing at the end of the body) rather than the substring, and skips fenced code so documenting the rule still saves.
 
 ### Changed
+- **The test that proves the read-only planner profile writes nothing now reaches the code it is
+  about (TM-086).** It called every tool with one bag of hostile arguments, and `tm_plan_propose` —
+  the only tool on that surface that can write — has no `operations` key in it, so the call died at
+  argument validation. The test existed because "comparing the allowlist to itself would have
+  passed the whole time", and for the one tool that matters it was doing exactly that: it passed
+  unchanged while previewing was spending the operator's override. It now calls each tool with
+  arguments it accepts, from inside a real planning session, against a board at its WIP limit with
+  an override pending — and it fails when the defect is put back.
 - **`dispatch.backends` defaults to `["topology", "tmux", "orchestration", "manual"]`
   (TM-098).** ADR-0001's migration order. `topology` is the authoritative layer for dispatched
   work; raw `tmux` stays beneath it as the fallback until topology passes the same contract
@@ -246,6 +254,32 @@
 - **Generated runtime files stay out of git.** Store `.gitignore` now names `dashboard.pid` and `dashboard.port` explicitly (still covered by `dashboard.*`), plus `bin` (generated launchers) and `events.json` / `events.jsonl`. Bootstrap and `.bytedesk/task-management/bin/tm doctor --fix` write `.bytedesk/.gitignore` so `worktrees/` is ignored without swallowing the store. Dashboard `.gitignore` also drops Vite/tsc leftovers (`.vite`, `*.tsbuildinfo`).
 
 ### Fixed
+- **The crash-recovery sweep deleted other people's work (TM-086).** Introduced in this same round
+  and caught by the review that followed it. Recovery removed every record stamped at or after the
+  interrupted landing began, reasoning that the landing held the store lock so nothing else could
+  have created anything. The lock dies with the process; the journal does not. A dashboard killed on
+  Monday, a week of ordinary `tm task new`, and the first person to reopen the stranded session on
+  Friday would have deleted the week — silently. The sweep is gone: a landing now RESERVES each id
+  under the lock it already holds and journals it before the record exists, so recovery only ever
+  undoes what is written down.
+- **A rebound hostname could write to the board (TM-086).** The origin check compared `Origin` to
+  `http://${req.headers.host}` — two values the attacker supplies. A page on a domain that resolves
+  to 127.0.0.1 sends both, they match, and the browser calls it same-origin. The `Host` is now
+  checked first, against the port the server actually bound and a set of loopback literals.
+- **The journal was the least crash-safe part of the crash recovery (TM-086).** It was the one file
+  in the store written non-atomically, so a kill mid-write left JSON that would not parse — and an
+  unparseable journal undid nothing, silently. It uses `writeAtomic` now and says so loudly.
+- **A record modified but not yet journalled was never restored (TM-086).** The journal was written
+  after each operation while `ctx.touch()` snapshots happen inside one, so a kill during the
+  operation that edits a pre-existing record lost that snapshot — the ordinary case for
+  `task.depends`, which writes both ends of an edge. `touch()` journals as it snapshots.
+- **A journal's restore target was unvalidated (TM-086).** The snapshot's `file` is handed to
+  `write` as the path to write, and the journal comes off disk, so it is input rather than a value
+  this process computed.
+- **`propose` threw away its own refusal (TM-086).** It threw `fail(...).body` — `{error}` with no
+  `status` and no `message` — so the outer catch turned a considered 409 into
+  `400 {"error": undefined}` and the operator was told nothing.
+
 - **A rollback that could not finish still handed the approval back (TM-086).** Every step of the
   undo is best effort — a file that will not unlink, a record that will not write — and it said
   nothing about a step that failed, while the route treats any throw as "nothing landed". A partial

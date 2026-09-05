@@ -149,7 +149,7 @@ export function slug(s, max = 48) {
  * `${id}-`, and `fileFor` now requires `.md` as well. Two independent guards, because this
  * one failed silently and a single guard here is one typo from failing silently again.
  */
-function writeAtomic(file, text) {
+export function writeAtomic(file, text) {
   const dir = dirname(file);
   const tmp = join(dir, `.tm-tmp-${process.pid}-${basename(file)}`);
   writeFileSync(tmp, text);
@@ -680,7 +680,7 @@ export function moveTask(id, epicId, p = paths()) {
 
 // ── entities ─────────────────────────────────────────────────────────────────
 
-function dirFor(kind, p) {
+export function dirFor(kind, p) {
   const spec = KINDS[kind];
   if (!spec) throw new Error(`unknown kind: ${kind}`);
   return p[spec.dir];

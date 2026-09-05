@@ -1040,7 +1040,10 @@ function plannerRoute(method, url, payload, p) {
         // against what the server proposed, not against whatever the browser sends back.
         const preview = previewOps(payload?.operations, p);
         const session = mutateSession(id, (s) => {
-          if (s.status !== "open") throw fail(409, `planning session ${id} is ${s.status}`).body;
+          // A real Error, not `fail(...).body`. That shape is `{error}` with no `status` and no
+          // `message`, so the outer catch — `fail(e.status || 400, e.message)` — turned this
+          // refusal into `400 {"error": undefined}` and the operator was told nothing at all.
+          if (s.status !== "open") throw Object.assign(new Error(`planning session ${id} is ${s.status}`), { status: 409 });
           // `preview.resolved`, not what the caller sent: implicit destinations are filled in
           // there, and storing the raw operations would leave the digest covering one shape while
           // the stored operations said another.
@@ -1057,19 +1060,19 @@ function plannerRoute(method, url, payload, p) {
         let claimed = null;
         try {
           mutateSession(id, (session) => {
-            if (session.status !== "open") throw fail(409, `planning session ${id} is ${session.status}`).body;
-            if (!session.proposal) throw fail(409, "this planning session has no proposal to apply").body;
+            if (session.status !== "open") throw Object.assign(new Error(`planning session ${id} is ${session.status}`), { status: 409 });
+            if (!session.proposal) throw Object.assign(new Error("this planning session has no proposal to apply"), { status: 409 });
             // The digest the CALLER approved must match what the server proposed. `applyOps` then
             // recomputes it independently from the operations it is about to run, so neither the
             // browser's operation list nor its digest is trusted.
             if (payload?.approvedDigest !== session.proposal.digest) {
-              throw fail(409, "the approved proposal is not the one this session is holding — review it again").body;
+              throw Object.assign(new Error("the approved proposal is not the one this session is holding — review it again"), { status: 409 });
             }
             claimed = session.proposal;
             return { proposal: null, status: "applying" };
           }, p);
         } catch (e) {
-          return fail(e.status || 409, e.error || e.message);
+          return fail(e.status || 409, e.message || e.error);
         }
         APPLYING.add(id);
         let applied = null;

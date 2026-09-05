@@ -16,7 +16,8 @@ import { AcpSession, agentHealth, governedToolServer, plannerAgents, probeAgent 
 import { PLANNER_TOOLS, TOOLS, callTool, plannerTools } from "../../lib/mcp.mjs";
 import { writeConfig } from "../../lib/store.mjs";
 import { closeSession, newSession, readSession } from "../../lib/planner.mjs";
-import { create, list, read, state, update } from "../../lib/store.mjs";
+import { create, list, read, readEvents, state, update } from "../../lib/store.mjs";
+import { setOverride } from "../../lib/enforce.mjs";
 import { cancelRun, promptFor, runState, startRun, stopAllRuns, subscribe } from "../../lib/planner-run.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -407,17 +408,55 @@ describe("the governed tool surface", () => {
       epics: list("epic", {}, p).map((e) => read(e.id, p)),
       state: state(p),
     });
+    // The board is deliberately AT its WIP limit, and the operator deliberately holds a one-shot
+    // override. That is the only shape in which a preview reaches a refusal point and therefore
+    // touches the override at all — without it the gate simply allows, nothing is consulted, and
+    // the test passes against a `check()` that spends the token. Which is what it did.
+    writeConfig({ wipLimit: 1 }, p);
+    update(task.id, { status: "in_progress" }, p);
+    setOverride("operator: one-shot bypass", p);
+    // `tm_plan_propose` refuses outside a planning session, which is correct — and is also why the
+    // call has to be made INSIDE one for this test to reach the code that matters.
+    const planning = newSession({ goal: "Reach previewOps" }, p);
+    const priorSession = process.env.TM_PLANNER_SESSION;
+    process.env.TM_PLANNER_SESSION = planning.id;
     const before = snapshot();
+    // The event log is state too. Without this, a tool that only appended an event still passed.
+    const events = readEvents(p).length;
 
     const hostile = { fix: true, confirm: true, action: "reap", name: "anything", id: task.id, force: true, all: true };
+    // `tm_plan_propose` is the ONLY tool on this surface that can write anything, and the shared
+    // hostile bag has no `operations` key — so the call died at argument validation and never
+    // reached `previewOps`. The test that exists because "comparing the allowlist to itself would
+    // have passed the whole time" was doing exactly that for the one tool that matters: it would
+    // have passed unchanged while previewing was spending the operator's override. Each tool is
+    // now called with arguments it actually accepts.
+    const REAL_ARGUMENTS = {
+      tm_plan_propose: {
+        ...hostile,
+        operations: [
+          { op: "epic.create", args: { ref: "E", title: "Would land", body: "why" } },
+          { op: "task.create", args: { ref: "T", epic: "E", title: "Would land too", body: "b", acceptance: ["x"] } },
+          { op: "task.depends", args: { task: task.id, on: ["T"] } },
+        ],
+      },
+    };
     for (const name of PLANNER_TOOLS) {
+      const args = REAL_ARGUMENTS[name] ?? hostile;
+      let result = null;
       try {
-        callTool(name, hostile, p);
+        result = callTool(name, args, p);
       } catch {
         // A tool that refuses hostile arguments is fine; a tool that ACTS on them is not.
       }
-      assert.equal(snapshot(), before, `${name} changed the store when called with ${JSON.stringify(hostile)}`);
+      assert.equal(snapshot(), before, `${name} changed the store when called with ${JSON.stringify(args).slice(0, 200)}`);
+      assert.equal(readEvents(p).length, events, `${name} wrote to the event log`);
+      if (name === "tm_plan_propose") {
+        assert.ok(result?.ok !== false, `the propose call must actually REACH previewOps, not die at validation: ${result?.error}`);
+      }
     }
+    if (priorSession === undefined) delete process.env.TM_PLANNER_SESSION;
+    else process.env.TM_PLANNER_SESSION = priorSession;
   });
 
   it("enforces the profile where tools are CALLED, not only where they are listed", () => {

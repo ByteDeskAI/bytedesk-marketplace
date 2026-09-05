@@ -8,14 +8,14 @@ title: "bytedesk-remote-gateway: develop still consumes the design system as a g
 epic: "EP-015"
 acceptance: [{"text":"The spa check passes on a pull request into develop","done":false},{"text":"develop carries .context/design-system as committed files, with no .gitmodules and no submodule gitlink","done":false}]
 evidence: []
-commits: []
+commits: ["f2545cb"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "4e1d7087-d606-432e-9341-3ce779b4baf8"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-05T14:52:33.256Z"
+updated: "2026-09-05T14:52:52.783Z"
 labels: ["blocked"]
 priority: "medium"
 ---

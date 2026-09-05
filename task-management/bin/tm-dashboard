@@ -294,12 +294,28 @@ function crossOriginRefusal(req) {
   if (site && site !== "same-origin" && site !== "none") {
     return "cross-origin writes are refused";
   }
+  // The HOST is checked first, and against what this server actually bound rather than against
+  // itself. Comparing `Origin` to `http://${req.headers.host}` compares two values the attacker
+  // supplies: a page on evil.com whose name resolves to 127.0.0.1 sends `Host: evil.com` AND
+  // `Origin: http://evil.com`, they match, and the browser calls it same-origin so `Sec-Fetch-Site`
+  // agrees. That is DNS rebinding, and it is the standard way a website reaches a service bound to
+  // loopback. This server listens on 127.0.0.1 only, so the only names that can legitimately
+  // address it are the loopback literals.
+  const host = String(req.headers.host || "");
+  const [hostname, hostPort] = host.startsWith("[") ? [host.slice(0, host.indexOf("]") + 1), host.slice(host.indexOf("]") + 2)] : host.split(":");
+  if (!LOOPBACK_NAMES.has(hostname) || (hostPort && Number(hostPort) !== boundPort)) {
+    return "this board answers only to 127.0.0.1 — refusing a request addressed to another name";
+  }
   const origin = req.headers.origin;
-  if (origin && req.headers.host && origin !== `http://${req.headers.host}`) {
+  if (origin && origin !== `http://${host}`) {
     return "cross-origin writes are refused";
   }
   return null;
 }
+
+/** The names that can legitimately reach a server bound to 127.0.0.1. Anything else is rebinding. */
+const LOOPBACK_NAMES = new Set(["127.0.0.1", "localhost", "[::1]", "::1", ""]);
+let boundPort = null;
 
 /** A path component a client controls; `%` alone throws URIError, which must not reach the server. */
 function decodePath(raw) {
@@ -668,6 +684,8 @@ function listen(port, { waits = 0, moves = 0 } = {}) {
     throw err;
   });
   server.listen(port, "127.0.0.1", () => {
+    // What the origin check compares against: the port actually bound, not one a header claims.
+    boundPort = port;
     writeInstance(P, { pid: process.pid, port });
     const u = url(port);
     process.stdout.write(`task-management board: ${u}  (${P.root})\n`);

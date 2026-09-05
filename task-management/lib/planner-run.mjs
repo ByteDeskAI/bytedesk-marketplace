@@ -36,6 +36,16 @@ const MAX_EVENTS = 2000;
 const MAX_EVENT_BYTES = 8 * 1024 * 1024;
 
 /**
+ * And a ceiling on ONE event.
+ *
+ * Without it the total cap has a nastier reading: a single agent update just under the 4 MB frame
+ * limit evicts almost everything before it, so a hostile agent can blank a late watcher's trace by
+ * sending one enormous message. Capping per event keeps the buffer's history instead. The stub is
+ * applied here rather than in `translate`, which stays a pure function of the agent's update.
+ */
+const MAX_ONE_EVENT_BYTES = 256 * 1024;
+
+/**
  * How many FINISHED runs stay in memory.
  *
  * A run is kept after it ends so a browser that reconnects still gets the trace it missed. But a
@@ -113,8 +123,17 @@ export async function startRun(sessionId, agentId, p = paths()) {
     }
   };
   const emit = (event) => {
-    const framed = { ...event, runId, ts: new Date().toISOString() };
+    let framed = { ...event, runId, ts: new Date().toISOString() };
     framed.__bytes = sizeOf(framed);
+    if (framed.__bytes > MAX_ONE_EVENT_BYTES) {
+      // The payload is replaced, never the fact that it arrived: a watcher still sees the event in
+      // sequence and is told why it cannot read it.
+      framed = {
+        type: framed.type, name: framed.name, runId, ts: framed.ts,
+        omitted: `${framed.__bytes} bytes — larger than this trace will hold`,
+      };
+      framed.__bytes = sizeOf(framed);
+    }
     bufferedBytes += framed.__bytes;
     run.events.push(framed);
     // Bounded two ways. A long run against a chatty agent must not become the reason this process

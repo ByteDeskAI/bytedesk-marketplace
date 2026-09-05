@@ -20,12 +20,12 @@
  * because the operator is entitled to the store's own wording, not a paraphrase of it.
  */
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { consumeOverride, gateTaskCreate } from "./enforce.mjs";
 import { dependencies } from "./issue.mjs";
 import { paths } from "./paths.mjs";
-import { create, fileFor, kindOf, list as listRecords, logEvent, read, reindex, state, withLock, write, writeState } from "./store.mjs";
+import { create, dirFor, fileFor, kindOf, logEvent, nextId, read, reindex, state, withLock, write, writeAtomic, writeState } from "./store.mjs";
 
 const err = (message, status) => Object.assign(new Error(message), { status });
 
@@ -146,6 +146,7 @@ export const OPERATIONS = {
       const task = create(
         "task",
         {
+          id: ctx.reserved || undefined,
           title: str(args.title),
           // NEVER `state(ctx.p).activeEpic` as a fallback. `resolveDestinations` has already made
           // an implicit destination explicit, using the active epic as it stood when the card was
@@ -253,6 +254,15 @@ function undoLanding({ created = [], touched = [], previousActiveEpic }, p) {
   // pre-existing task left blocked on an id that was just deleted.
   for (const doc of touched) {
     try {
+      // A snapshot's `file` is passed straight to `write` as the target, and this journal came off
+      // disk — so it is input, not a value this process computed. Confined to the store's own
+      // entity directory for that id: the journal lives in a gitignored local directory, but "an
+      // attacker already had local write access" is not a reason to hand them an arbitrary file
+      // write, and a corrupt journal should fail rather than scatter.
+      if (doc?.file && doc.file !== fileFor(doc.id, p) && dirname(doc.file) !== dirFor(kindOf(doc.id), p)) {
+        stuck.push(doc.id);
+        continue;
+      }
       // WITH its `file`. Stripping it made `write` derive a path from the title instead, and a
       // task whose title had been edited since its file was named then restored to a SECOND file:
       // two files for one id, the index counting both, and the original left carrying the edit
@@ -301,27 +311,22 @@ export function recoverInterruptedApply(p = paths()) {
   }
   if (!journal || !Array.isArray(journal.created)) return null;
 
-  // The journal is rewritten AFTER each operation, so a kill in the window between a record being
-  // written and the journal naming it would leave one orphan behind. It is findable: the landing
-  // held the store lock, so nothing else created anything while it ran, and every record stamped
-  // at or after the moment the journal was opened belongs to it.
-  const orphans = journal.started
-    // `listRecords`, not the local `list` — that one coerces a value to an array of strings, and
-    // calling it here silently returned the kind names themselves and swept nothing.
-    ? ["epic", "task"]
-        .flatMap((kind) => listRecords(kind, {}, p))
-        .filter((row) => row.created && row.created >= journal.started)
-        .map((row) => row.id)
-        .filter((id) => !journal.created.includes(id))
-    : [];
-  undoLanding({ ...journal, created: [...journal.created, ...orphans] }, p);
+  // NOTHING is undone that the journal does not name. An earlier version of this swept "orphans"
+  // as well — every record stamped at or after the journal was opened — on the reasoning that the
+  // landing held the store lock, so nothing else could have created anything while it ran. That
+  // reasoning is exactly backwards: the lock dies with the process and the journal does not. A
+  // dashboard killed on Monday, a week of ordinary `tm task new` from the CLI, and the first
+  // person to reopen the stranded session on Friday would have deleted the week — silently, with
+  // one event as the only trace. A recovery that guesses at ownership is worse than one that
+  // misses something, so the journal now names every record before it is written and this only
+  // undoes what is named.
+  undoLanding(journal, p);
   logEvent(
     "planner_apply_recovered",
-    { session: journal.session ?? null, digest: journal.digest ?? null, removed: journal.created.length + orphans.length, ids: [...journal.created, ...orphans] },
+    { session: journal.session ?? null, digest: journal.digest ?? null, removed: journal.created.length, ids: journal.created },
     p,
   );
-  const ids = [...journal.created, ...orphans];
-  return { removed: ids.length, ids, session: journal.session ?? null };
+  return { removed: journal.created.length, ids: journal.created, session: journal.session ?? null };
 }
 
 /**
@@ -388,7 +393,7 @@ export function digestOps(ops) {
 }
 
 /** Shared context for check and apply: ref resolution, minted ids, the stamp. */
-function makeContext(ops, p, stamp) {
+function makeContext(ops, p, stamp, onChange = () => {}) {
   const minted = new Map();
   const touched = new Map(); // id -> the document as it was before this proposal changed it
   // Refs a proposal declares for itself, known before anything is created so `check` can resolve
@@ -440,7 +445,13 @@ function makeContext(ops, p, stamp) {
     touch(id) {
       if (!id || minted.has(id) || [...minted.values()].includes(id) || touched.has(id)) return;
       const doc = read(id, p);
-      if (doc) touched.set(id, doc);
+      if (!doc) return;
+      touched.set(id, doc);
+      // Journalled AS IT IS SNAPSHOTTED, not after the operation returns. `touch()` runs inside
+      // `apply`, so a kill during the operation that edits a pre-existing record left the journal
+      // holding the PREVIOUS operation's snapshot list and that edit was never undone. For
+      // `task.depends`, which writes both ends of an edge, that is the ordinary case.
+      onChange();
     },
     get touched() {
       return touched;
@@ -448,6 +459,7 @@ function makeContext(ops, p, stamp) {
     get previousActiveEpic() {
       return previousActiveEpic;
     },
+    reserved: null,
     get owesOverride() {
       return owesOverride;
     },
@@ -616,7 +628,6 @@ export function applyOps(ops, { approvedDigest, session = null, stamp = {} } = {
     // before starting another, so the board is never carrying half of an older proposal.
     recoverInterruptedApply(p);
 
-    const ctx = makeContext(normalized, p, stamp);
     const created = [];
     const results = [];
     // The intent, written BEFORE the first record. Files are written one at a time and nothing
@@ -626,14 +637,20 @@ export function applyOps(ops, { approvedDigest, session = null, stamp = {} } = {
     const journal = () => {
       try {
         mkdirSync(dirname(journalPath(p)), { recursive: true });
-        writeFileSync(
+        // Atomically, like every other file in the store. It was the one written with a plain
+        // `writeFileSync`, which made the recovery record the least crash-safe part of the crash
+        // recovery: a kill mid-write left JSON that would not parse, and an unparseable journal
+        // undoes nothing.
+        writeAtomic(
           journalPath(p),
-          `${JSON.stringify({ session, digest, started: new Date().toISOString(), created, touched: [...ctx.touched.values()], previousActiveEpic: ctx.previousActiveEpic })}\n`,
+          `${JSON.stringify({ session, digest, started, created, touched: [...ctx.touched.values()], previousActiveEpic: ctx.previousActiveEpic })}\n`,
         );
       } catch {
         /* a journal we cannot write is not a reason to refuse the write the operator approved */
       }
     };
+    const started = new Date().toISOString();
+    const ctx = makeContext(normalized, p, stamp, () => journal());
     journal();
     try {
       for (const op of normalized) {
@@ -649,13 +666,28 @@ export function applyOps(ops, { approvedDigest, session = null, stamp = {} } = {
         if (ctx.owesOverride && !consumeOverride(p)) {
           throw err(`${op.op}: the one-shot override this proposal relied on is already spent — review it again`, 409);
         }
+        // The id is RESERVED and journalled before the record exists. Journalling after the write
+        // left a window — one file write wide — in which a kill produced a record the journal
+        // could not name, and the heuristic that used to cover that window is what made recovery
+        // dangerous. `nextId` under the lock this landing already holds is exact, and `create`
+        // honours an id it is given, so the reservation is the record.
+        if (spec.creates && spec.kind) {
+          ctx.reserved = nextId(spec.kind, p);
+          created.push(ctx.reserved);
+          journal();
+        }
         const result = spec.apply(op.args, ctx);
         // ONLY an operation that declares `creates` registers an id here, and this is load-bearing.
         // `created` is the rollback list, so an operation that merely touches an existing record —
         // `task.depends` names the task it blocks — would otherwise put a task that was already on
         // the board onto the list of things to delete. A failed proposal would then destroy work
         // nobody proposed changing.
-        if (spec.creates && result?.id) created.push(result.id);
+        // The reservation is normally exactly what was created; this only corrects a spec that
+        // ignored it, so the journal can never name something the landing did not make.
+        if (spec.creates && result?.id && result.id !== ctx.reserved) {
+          created[created.length - 1] = result.id;
+        }
+        ctx.reserved = null;
         results.push({ op: op.op, ...result });
         journal();
       }
