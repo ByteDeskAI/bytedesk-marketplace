@@ -378,3 +378,61 @@ export interface NtfyInfo { config: Record<string, unknown>; hasToken: boolean; 
 export interface StreamPart { type: string; text?: string; name?: string; input?: unknown; output?: unknown; isError?: boolean }
 export interface StreamMessage { id?: string; role: "user" | "assistant" | "system" | string; parts: StreamPart[]; ts?: string }
 export interface Stream { messages: StreamMessage[]; session?: string | null; file?: string; harness?: string | null; reason?: string }
+
+/**
+ * A bounded planning session. Deliberately not a board entity — planning state is never board
+ * state until an approved write succeeds, so a session has no id prefix in the store's KINDS and
+ * never appears on the board.
+ */
+export type PlannerStatus = "open" | "applied" | "cancelled" | "rejected";
+export type TurnKind = "goal" | "question" | "answer" | "evidence" | "proposal" | "refusal" | "result" | "note" | "cancelled";
+
+export interface PlannerTurn { ts: string; role: string; kind: TurnKind; text: string; payload?: unknown }
+
+/** Session context, never board evidence. `trust` is carried so a reader cannot forget which it is. */
+export interface PlannerAttachment {
+  sha256: string;
+  name: string;
+  stored: string;
+  bytes: number;
+  type: string;
+  added: string;
+  trust: "untrusted-session-context";
+}
+
+export interface PlannerOperation { op: string; args: Record<string, unknown> }
+
+export interface PlannerSession {
+  id: string;
+  created: string;
+  updated: string;
+  status: PlannerStatus;
+  goal: string;
+  epic: string | null;
+  turns: PlannerTurn[];
+  attachments: PlannerAttachment[];
+  proposal: { digest: string; operations: PlannerOperation[]; previewed: string } | null;
+}
+
+/** `GET /api/planner` — the list view drops turns and attachments for counts. */
+export interface PlannerSummary {
+  id: string; created: string; updated: string; status: PlannerStatus;
+  goal: string; epic: string | null; turns: number; attachments: number;
+}
+
+/** One row of an approval card: what the operation would do, and whether it may. */
+export interface ProposedOperation {
+  index: number;
+  op: string;
+  summary: string;
+  /** The named consequence an operator reads before granting a write. Never the raw arguments. */
+  consequence: string;
+  args: Record<string, unknown>;
+  valid: boolean;
+  /** The store's own wording, verbatim. Null when the operation is valid. */
+  refusal: string | null;
+}
+
+export interface Proposal { digest: string; ok: boolean; operations: ProposedOperation[]; session?: string }
+
+export interface AppliedProposal { digest: string; created: string[]; applied: { op: string; id?: string; kind?: string; title?: string }[] }

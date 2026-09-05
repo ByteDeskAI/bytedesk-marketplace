@@ -1,1 +1,0 @@
-import{j as t}from"./vendor-BdezM1B8.js";function n({icon:e,title:a,children:s,action:r,tone:m}){return t.jsxs("div",{className:"tm-empty","data-tone":m,role:"status",children:[e,t.jsx("h3",{children:a}),s&&t.jsx("p",{children:s}),r]})}export{n as E};

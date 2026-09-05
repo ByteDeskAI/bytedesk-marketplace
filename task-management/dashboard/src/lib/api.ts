@@ -8,6 +8,8 @@ import type {
   Adr, Batch, Board, Capability, Claims, Doctor, Entity, Epic, EvidenceItem, FindHit, Graph, History,
   Meta, NtfyInfo, PlanFile, PlanInboxItem, Session, SettingsSnapshot, Skill, Sprint, StoreEvent, Task,
   TaskTime, TemplateDetail, TemplateSummary, TimeSummary, Why, Worktree,
+  AppliedProposal, PlannerAttachment, PlannerOperation, PlannerSession, PlannerStatus, PlannerSummary,
+  Proposal, TurnKind,
 } from "./types";
 
 /** A refusal from a gate — the reason is written for the person reading the board. */
@@ -193,6 +195,45 @@ export interface FeedHandlers {
  * the server's (docs/dashboard-api.md §SSE). Untyped `message` frames are the pre-rewrite
  * server — same payload, no id.
  */
+/**
+ * Planning sessions. Reads and writes go through the same guarded server surface as the board;
+ * nothing here talks to a model, and the browser never holds an agent credential.
+ */
+export const fetchPlannerSessions = () => json<{ sessions: PlannerSummary[] }>("/api/planner").then((r) => r.sessions);
+export const fetchPlannerSession = (id: string) => json<PlannerSession>(`/api/planner/${encodeURIComponent(id)}`);
+
+export const planner = {
+  open: (goal: string, epic?: string | null) => send("POST", "/api/planner", { goal, epic: epic ?? null }) as Promise<PlannerSession>,
+  turn: (id: string, turn: { role?: string; kind: TurnKind; text: string }) =>
+    send("POST", `/api/planner/${encodeURIComponent(id)}/turn`, turn) as Promise<PlannerSession>,
+  propose: (id: string, operations: PlannerOperation[]) =>
+    send("POST", `/api/planner/${encodeURIComponent(id)}/propose`, { operations }) as Promise<Proposal>,
+  /**
+   * The digest is what binds this approval to the operations that were shown. The server holds the
+   * proposal and recomputes the digest from the operations it is about to run, so neither this
+   * list nor this digest is trusted — sending the wrong one is refused rather than applied.
+   */
+  apply: (id: string, approvedDigest: string) =>
+    send("POST", `/api/planner/${encodeURIComponent(id)}/apply`, { approvedDigest }) as Promise<AppliedProposal>,
+  close: (id: string, status: PlannerStatus) =>
+    send("POST", `/api/planner/${encodeURIComponent(id)}/close`, { status }) as Promise<PlannerSession>,
+  remove: (id: string) => send("DELETE", `/api/planner/${encodeURIComponent(id)}`, {}) as Promise<{ deleted: boolean }>,
+};
+
+/**
+ * Attachments go up as multipart, because they are bytes rather than JSON — and every rule about
+ * what may be attached lives on the server. The browser shows the refusal it is given; it does not
+ * pre-judge a file, because a check the client could do is a check an attacker can skip.
+ */
+export async function attachToPlanner(id: string, file: File): Promise<{ attached: PlannerAttachment; attachments: PlannerAttachment[] }> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`/api/planner/${encodeURIComponent(id)}/attachment`, { method: "POST", body: form });
+  const payload = await res.json().catch(() => ({ error: `${res.status}` }));
+  if (!res.ok) throw new WriteError(payload.error || `attachment refused (${res.status})`, res.status);
+  return payload;
+}
+
 export function subscribe({ onEvent, onLive, onResync }: FeedHandlers) {
   const src = new EventSource("/events");
   const parse = (m: MessageEvent) => {

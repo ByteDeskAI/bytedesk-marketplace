@@ -5,7 +5,7 @@
  */
 import { lazy, type ComponentType, type LazyExoticComponent } from "react";
 import {
-  Activity, BookOpenCheck, CalendarRange, Compass, GitFork, HeartPulse, HelpCircle, Inbox, KanbanSquare, LayoutList,
+  Activity, BookOpenCheck, CalendarRange, Compass, GitFork, HeartPulse, HelpCircle, Inbox, KanbanSquare, LayoutList, Target,
   Lightbulb, Radio, Search, Settings, Sparkles, Sunrise, Layers, type LucideIcon,
 } from "lucide-react";
 import type { Params } from "../lib/router";
@@ -40,6 +40,10 @@ export const ROUTES: Route[] = [
   { pattern: "/capabilities", title: "Capabilities", icon: Lightbulb, nav: "secondary", screen: lazy(() => import("../features/capabilities/Capabilities")) },
   { pattern: "/decisions", title: "Decisions", icon: BookOpenCheck, nav: "secondary", screen: lazy(() => import("../features/decisions/Decisions")) },
   { pattern: "/plans", title: "Plans", icon: Inbox, nav: "secondary", screen: lazy(() => import("../features/plans/Plans")) },
+  // A secondary route under Plans, not a new top-level product: bounded planning is a workflow
+  // that ends, and giving it its own primary destination would be the first step to it becoming
+  // the general chat surface the profile refuses.
+  { pattern: "/planner", title: "Goal planner", icon: Target, nav: "secondary", screen: lazy(() => import("../features/plans/GoalPlanner")) },
   { pattern: "/search", title: "Search", icon: Search, nav: "secondary", screen: lazy(() => import("../features/search/Search")) },
   { pattern: "/reports", title: "Reports", icon: Compass, nav: "secondary", screen: lazy(() => import("../features/reports/Reports")) },
   { pattern: "/doctor", title: "Doctor", icon: HeartPulse, nav: "secondary", screen: lazy(() => import("../features/doctor/Doctor")) },

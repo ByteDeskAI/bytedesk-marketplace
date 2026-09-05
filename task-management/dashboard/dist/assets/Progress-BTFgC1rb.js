@@ -1,0 +1,1 @@
+import{j as s}from"./vendor-BkmA2Gwp.js";function n({value:a,max:r=1,tone:t,label:e}){const o=r>0?Math.max(0,Math.min(100,a/r*100)):0;return s.jsx("div",{className:"tm-progress",role:"progressbar","aria-valuenow":a,"aria-valuemax":r,"aria-label":e,"data-tone":t,children:s.jsx("div",{className:"tm-progress__bar",style:{width:`${o}%`}})})}export{n as P};

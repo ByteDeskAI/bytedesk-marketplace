@@ -8,14 +8,14 @@ title: "TeamCity agent environments expose live secrets through the REST API"
 epic: "EP-013"
 acceptance: [{"text":"The four exposed credentials are rotated","done":false},{"text":"Secrets are no longer supplied as agent-wide environment variables","done":false},{"text":"An agent that legitimately carries design.agent.trust=credential-free exists, or the requirement is retired","done":false}]
 evidence: []
-commits: []
+commits: ["b2a6ad4"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "4e1d7087-d606-432e-9341-3ce779b4baf8"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-05T12:31:37.243Z"
+updated: "2026-09-05T12:31:37.453Z"
 type: "bug"
 labels: ["architecture"]
 priority: "highest"
