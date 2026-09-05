@@ -8,14 +8,14 @@ title: "Register orchestrator-spawned sessions as gateway tabs"
 epic: "EP-014"
 acceptance: [{"text":"A session spawned by the orchestrator appears in the gateway as a live terminal","done":false},{"text":"The tab binds to the correct project by cwd","done":false},{"text":"The approach follows the spike's finding on tab id pinning rather than assuming it","done":false},{"text":"Behaviour after a gateway restart or cutover is verified, not assumed","done":false}]
 evidence: []
-commits: ["8f135ad"]
+commits: ["8f135ad","25c5664"]
 blockedBy: ["TM-087","TM-096"]
 blocks: ["TM-101"]
 actor: "main"
 session: "a7da6c38-57d4-464b-b856-ebdb3dd72e1b"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-05T04:17:47.947Z"
+updated: "2026-09-05T04:18:03.767Z"
 comments: [{"author":"main","ts":"2026-09-05T04:17:47.943Z","text":"Raised in importance by TM-101: carrying an agent's static id into the tmux session name is impossible until a caller can name a session at all. TM-087 established the session name is derived from a server-minted tab id and req.Session is decoded then overwritten. The req.Session fix is now load-bearing for identity, not only for visibility."}]
 ---
 
