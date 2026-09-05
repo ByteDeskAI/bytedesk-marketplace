@@ -1,4 +1,15 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["github>ByteDeskAI/design-system"]
+  "extends": ["github>ByteDeskAI/design-system"],
+  "packageRules": [
+    {
+      "description": "Frozen at 2.2.1 by TM-094. The task-management application was unregistered from the design-system lineup by owner decision, and generated output excludes unregistered apps, so the first release cut after that decision drops the slug from the catalog and the next sync here fails with an unknown app. The 2.2.1 catalog still carries it, so the vendored tree keeps working exactly as long as the pin does not move. Lift this only together with a decision about where the task-management dashboard gets its design context.",
+      "matchPackageNames": [
+        "@bytedesk/design-client",
+        "@bytedesk/design-tokens",
+        "@bytedesk/design-ui"
+      ],
+      "enabled": false
+    }
+  ]
 }
