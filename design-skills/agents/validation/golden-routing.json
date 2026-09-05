@@ -1,0 +1,230 @@
+[
+  {
+    "id": "profile-architect-native",
+    "request": {
+      "prompt": "Decide whether the Gateway command palette rule belongs in the shared foundation or its product profile.",
+      "nativeAgentAvailable": true
+    },
+    "expected": {
+      "status": "suggested",
+      "agent": "profile-architect",
+      "mode": "read-only",
+      "requiredSections": [
+        "Authority map",
+        "Profile decision",
+        "Evidence",
+        "Proposed changes",
+        "Validation"
+      ],
+      "execution": "named-agent",
+      "writesAuthorized": false
+    }
+  },
+  {
+    "id": "profile-architect-brief",
+    "request": {
+      "prompt": "Decide whether the Gateway command palette rule belongs in the shared foundation or its product profile.",
+      "nativeAgentAvailable": false
+    },
+    "expected": {
+      "status": "suggested",
+      "agent": "profile-architect",
+      "mode": "read-only",
+      "requiredSections": [
+        "Authority map",
+        "Profile decision",
+        "Evidence",
+        "Proposed changes",
+        "Validation"
+      ],
+      "execution": "brief-only",
+      "writesAuthorized": false
+    }
+  },
+  {
+    "id": "token-accessibility-auditor-native",
+    "request": {
+      "prompt": "Audit these token mappings for WCAG contrast, keyboard focus, and reduced-motion problems.",
+      "nativeAgentAvailable": true
+    },
+    "expected": {
+      "status": "suggested",
+      "agent": "token-accessibility-auditor",
+      "mode": "read-only",
+      "requiredSections": [
+        "Findings",
+        "Evidence",
+        "Accessibility impact",
+        "Remediation",
+        "Verification"
+      ],
+      "execution": "named-agent",
+      "writesAuthorized": false
+    }
+  },
+  {
+    "id": "token-accessibility-auditor-brief",
+    "request": {
+      "prompt": "Audit these token mappings for WCAG contrast, keyboard focus, and reduced-motion problems.",
+      "nativeAgentAvailable": false
+    },
+    "expected": {
+      "status": "suggested",
+      "agent": "token-accessibility-auditor",
+      "mode": "read-only",
+      "requiredSections": [
+        "Findings",
+        "Evidence",
+        "Accessibility impact",
+        "Remediation",
+        "Verification"
+      ],
+      "execution": "brief-only",
+      "writesAuthorized": false
+    }
+  },
+  {
+    "id": "consumer-migration-specialist-native",
+    "request": {
+      "prompt": "Migrate this legacy design-system submodule to the managed payload, showing the dry-run before any apply.",
+      "nativeAgentAvailable": true
+    },
+    "expected": {
+      "status": "suggested",
+      "agent": "consumer-migration-specialist",
+      "mode": "explicit-write",
+      "requiredSections": [
+        "Current delivery",
+        "Dry-run plan",
+        "Safety checks",
+        "Apply status",
+        "Review diff"
+      ],
+      "execution": "named-agent",
+      "writesAuthorized": false
+    }
+  },
+  {
+    "id": "consumer-migration-specialist-brief",
+    "request": {
+      "prompt": "Migrate this legacy design-system submodule to the managed payload, showing the dry-run before any apply.",
+      "nativeAgentAvailable": false
+    },
+    "expected": {
+      "status": "suggested",
+      "agent": "consumer-migration-specialist",
+      "mode": "explicit-write",
+      "requiredSections": [
+        "Current delivery",
+        "Dry-run plan",
+        "Safety checks",
+        "Apply status",
+        "Review diff"
+      ],
+      "execution": "brief-only",
+      "writesAuthorized": false
+    }
+  },
+  {
+    "id": "design-system-reviewer-native",
+    "request": {
+      "prompt": "Review this pull request for design drift against the selected product profile.",
+      "nativeAgentAvailable": true
+    },
+    "expected": {
+      "status": "suggested",
+      "agent": "design-system-reviewer",
+      "mode": "read-only",
+      "requiredSections": [
+        "Findings",
+        "Authority",
+        "Evidence",
+        "Risk",
+        "Recommendation"
+      ],
+      "execution": "named-agent",
+      "writesAuthorized": false
+    }
+  },
+  {
+    "id": "design-system-reviewer-brief",
+    "request": {
+      "prompt": "Review this pull request for design drift against the selected product profile.",
+      "nativeAgentAvailable": false
+    },
+    "expected": {
+      "status": "suggested",
+      "agent": "design-system-reviewer",
+      "mode": "read-only",
+      "requiredSections": [
+        "Findings",
+        "Authority",
+        "Evidence",
+        "Risk",
+        "Recommendation"
+      ],
+      "execution": "brief-only",
+      "writesAuthorized": false
+    }
+  },
+  {
+    "id": "ambiguous",
+    "request": {
+      "prompt": "Review the token mappings."
+    },
+    "expected": {
+      "status": "clarify",
+      "candidates": [
+        "design-system-reviewer",
+        "token-accessibility-auditor"
+      ]
+    }
+  },
+  {
+    "id": "unmatched",
+    "request": {
+      "prompt": "Fix the database connection pool."
+    },
+    "expected": {
+      "status": "unmatched"
+    }
+  },
+  {
+    "id": "no-substring",
+    "request": {
+      "prompt": "Debug profiling and tokenization."
+    },
+    "expected": {
+      "status": "unmatched"
+    }
+  },
+  {
+    "id": "empty",
+    "request": {
+      "prompt": ""
+    },
+    "expected": {
+      "status": "unmatched"
+    }
+  },
+  {
+    "id": "case-and-punctuation",
+    "request": {
+      "prompt": "REVIEW this PULL-REQUEST for DESIGN DRIFT against the selected product profile."
+    },
+    "expected": {
+      "status": "suggested",
+      "agent": "design-system-reviewer",
+      "mode": "read-only",
+      "requiredSections": [
+        "Findings",
+        "Authority",
+        "Evidence",
+        "Risk",
+        "Recommendation"
+      ],
+      "execution": "brief-only",
+      "writesAuthorized": false
+    }
+  }
+]

@@ -4,6 +4,10 @@
 
 ### Added
 
+- Restored checksum protection for all four specialist agents and CI golden routing
+  scenarios from the pre-consolidation catalog. Added a manual prompt selector with
+  explicit native-agent availability and a portable file-brief fallback (TM-099).
+
 - Added the `task-management` profile (`DESIGN.md`, `PRODUCT.md`) and its
   `[data-bd-product="task-management"]` accent scope, which inherits the Gateway
   accent, and picked up the `designer-studio` profile already upstream with its
