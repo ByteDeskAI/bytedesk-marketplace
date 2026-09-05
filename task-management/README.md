@@ -146,7 +146,7 @@ and is safe to hand off.
 
 **`.bytedesk/task-management/bin/tm caps` says what this host can run.** Before dispatch picks a launcher it probes the host: the
 agent-orchestration MCP server (env override, sibling plugin in a marketplace checkout, then
-the Claude plugin cache), fleet's `spawn-claude-feature`, tmux, the harness CLIs, and the
+the Claude plugin cache), that same plugin's `ao-topology` launcher, tmux, the harness CLIs, and the
 sandbox binaries the orchestration backend degrades without. It is a host-level probe, not a
 store read — it answers on a bare machine with no board initialized; `--json` gives the raw
 report. A missing dependency reads as `available: false` with a reason, never as an
@@ -158,13 +158,19 @@ provision its worktree, render the handoff brief, and launch a backend. On any f
 the claim, the claim is released and the status put back — a dispatch that started nothing
 leaves the task exactly as open as it found it, or the board would show in-progress work
 nobody is doing. The backend is pinned with `--backend <name>` or walked in the fallback
-order **orchestration → fleet → tmux → manual** (config `dispatch.backends` overrides it):
-richest launcher first, paste-it-yourself last. `manual` is the floor and never unavailable —
+order **topology → tmux → orchestration → manual** (config `dispatch.backends` overrides it):
+richest launcher first, paste-it-yourself last. That order is ADR-0001's
+(`agent-orchestration/docs/adr/0001-authoritative-orchestration-layer.md`): the topology
+backend launches a one-agent orchestration with `ao-topology launch --consumer <tm's
+worktree>`, so a task gets exactly one checkout — the one tm provisioned. `orchestration` is
+kept but demoted, because its runtime derives a second, detached worktree by invariant; ask
+for it explicitly when a dispatch needs the sandbox. `manual` is the floor and never unavailable —
 when no launcher exists, dispatch still succeeds at handing the work over; it hands it to
 *you*, as the commands to run. Every backend launches argv-only with `shell: false` — the
 prompt is arbitrary markdown and is never interpolated into a shell string — and the tmux
-backend also drops the durable copy at `.tm-dispatch-prompt.md` in the worktree, because an
-argv element vanishes with the process. An orchestration dispatch carries an idempotency key
+and topology backends also drop the durable copy at `.tm-dispatch-prompt.md` in the worktree,
+because an argv element vanishes with the process. That file (and every share) is excluded in
+the worktree's git dir at creation, so tm's own artifacts can never make the checkout dirty. An orchestration dispatch carries an idempotency key
 (`<task>-<session>`), so a retried dispatch collapses onto the same run instead of
 double-spawning a worker.
 
@@ -177,8 +183,8 @@ go-ahead, and a loop that guessed at what to run would be deciding, which is the
 
 **`.bytedesk/task-management/bin/tm collect <id>` is how the result comes back.** Dispatch records `dispatched:
 {backend, run}` on the task; each backend's collector reads its own completion signal — an
-orchestration run's terminal state, a tmux session disappearing, a fleet ticket's terminal
-event — and normalizes it into one write path. The acceptance gate stays the real gate: a
+orchestration run's terminal state, a tmux or topology session disappearing — and normalizes
+it into one write path. The acceptance gate stays the real gate: a
 collector never closes a task (the worker closes through `.bytedesk/task-management/bin/tm done` itself), a "done" report on a
 task that is not done downgrades to failed with the status named, and a failed or blocked
 outcome on a task still in_progress **parks it with the worker's summary as the reason and
@@ -1123,7 +1129,9 @@ against is [`docs/dashboard-contract.md`](docs/dashboard-contract.md).
 | `worktreeDir` / `branchPrefix` | `.bytedesk/worktrees` / `tm/` | where worktrees live and how branches are named |
 | `agentTtlMinutes` | `30` | when a silent agent reads as dead (`0` disables) |
 | `webhooks` / `webhooksAllowRemote` | `[]` / `false` | POST every event row to these (loopback-only) URLs; the flag admits remote ones |
-| `dispatch.backends` | orchestration → fleet → tmux → manual | the fallback order `.bytedesk/task-management/bin/tm dispatch` walks |
+| `dispatch.backends` | topology → tmux → orchestration → manual | the fallback order `.bytedesk/task-management/bin/tm dispatch` walks |
+| `dispatch.topologyAgent` | first non-lead | which stored agent a topology dispatch borrows its identity from |
+| `dispatch.topologyCandidates` | `"claude"` | provider chain for a topology dispatch in a repo with no agent library |
 | `dispatch.heartbeatSeconds` | `60` | how often a dispatched claim is re-stamped (`0` disables) |
 | `dispatch.enabled` / `dispatch.poolWip` / `dispatch.pollSeconds` | `false` / `3` / `30` | the worker pool: opt-in switch, WIP cap, poll interval |
 | `dispatch.backendCaps` | `{}` | per-backend concurrency ceilings on top of poolWip, e.g. `{"tmux": 2}` |

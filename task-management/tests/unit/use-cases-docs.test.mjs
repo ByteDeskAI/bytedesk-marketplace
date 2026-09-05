@@ -62,7 +62,7 @@ describe("use-cases catalog (TM-075)", () => {
     for (const needle of [
       "tm caps",
       "--backend orchestration",
-      "--backend fleet",
+      "--backend topology",
       "--backend tmux",
       "--backend manual",
       "tm pool",

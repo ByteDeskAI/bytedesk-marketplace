@@ -1,8 +1,8 @@
 ---
 name: dispatch
-description: Hand one ready-for-agent task to a worker end to end — claim, start, worktree, handoff, spawn (orchestration → fleet → tmux → manual). Use when the user says "dispatch this", "run this on an agent", "spawn a worker for TM-N", "/dispatch", or a labelled card should execute without this session doing the work.
+description: Hand one ready-for-agent task to a worker end to end — claim, start, worktree, handoff, spawn (topology → tmux → orchestration → manual). Use when the user says "dispatch this", "run this on an agent", "spawn a worker for TM-N", "/dispatch", or a labelled card should execute without this session doing the work.
 user-invokable: true
-argument-hint: "<TM-id> [--backend orchestration|fleet|tmux|manual] [--steal]"
+argument-hint: "<TM-id> [--backend topology|tmux|orchestration|manual] [--steal]"
 ---
 
 # Dispatch
@@ -31,7 +31,7 @@ HTTP: `POST /api/task/TM-014/dispatch` `{ "backend": "tmux" }` — 409 carries t
 CLI's wording.
 
 `--backend` pins one name and skips the fallback walk. Default order:
-orchestration → fleet → tmux → manual (`dispatch.backends`). Every spawn is
+topology → tmux → orchestration → manual (`dispatch.backends`). Every spawn is
 argv-only, `shell: false`. Tmux also writes `<worktree>/.tm-dispatch-prompt.md`.
 
 Worker env: `TM_SESSION_ID`, `TM_ACTOR` (dispatcher), `TM_ROOT` (repo). Do not override.

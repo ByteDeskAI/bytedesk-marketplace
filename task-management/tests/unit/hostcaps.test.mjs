@@ -24,10 +24,10 @@ const tmp = () => {
 after(() => cleanup(...dirs));
 
 /** A marketplace-shaped tree: <root>/task-management is the pluginRoot, siblings beside it. */
-function marketplace({ orchestration = true, fleet = true } = {}) {
+function marketplace({ orchestration = true, topology = true } = {}) {
   const root = tmp();
   if (orchestration) writeFile(root, "agent-orchestration/bin/agent-orchestration-mcp", "#!/bin/sh\n");
-  if (fleet) writeFile(root, "fleet/bin/spawn-claude-feature", "#!/bin/sh\n");
+  if (topology) writeFile(root, "agent-orchestration/bin/ao-topology", "#!/bin/sh\n");
   return join(root, "task-management");
 }
 
@@ -49,10 +49,10 @@ const bareEnv = () => ({ HOME: tmp() });
 
 describe("a bare machine", () => {
   it("reports only manual, with reasons, and never throws", () => {
-    const report = detectHostCaps({ env: bareEnv(), probe: bareProbe, pluginRoot: marketplace({ orchestration: false, fleet: false }) });
+    const report = detectHostCaps({ env: bareEnv(), probe: bareProbe, pluginRoot: marketplace({ orchestration: false, topology: false }) });
 
     assert.deepEqual(report.backends.manual, { available: true });
-    for (const name of ["orchestration", "fleet", "tmux"]) {
+    for (const name of ["topology", "orchestration", "tmux"]) {
       assert.equal(report.backends[name].available, false, name);
       assert.ok(report.backends[name].reason, `${name} must say why`);
     }
@@ -72,8 +72,8 @@ describe("a full machine", () => {
 
     assert.equal(report.backends.orchestration.available, true);
     assert.equal(report.backends.orchestration.path, join(pluginRoot, "..", "agent-orchestration", "bin", "agent-orchestration-mcp"));
-    assert.equal(report.backends.fleet.available, true);
-    assert.equal(report.backends.fleet.path, join(pluginRoot, "..", "fleet", "bin", "spawn-claude-feature"));
+    assert.equal(report.backends.topology.available, true);
+    assert.equal(report.backends.topology.path, join(pluginRoot, "..", "agent-orchestration", "bin", "ao-topology"));
     assert.equal(report.backends.tmux.available, true);
     assert.equal(report.backends.tmux.version, "tmux 1.0");
     for (const name of ["claude", "codex", "grok", "kimi", "pi"]) {
@@ -86,20 +86,28 @@ describe("a full machine", () => {
 });
 
 describe("single missing dependencies", () => {
-  it("no tmux takes the fleet backend down with it, but not orchestration", () => {
+  it("no tmux takes the topology backend down with it, but not orchestration", () => {
     const report = detectHostCaps({ env: bareEnv(), probe: missing("tmux"), pluginRoot: marketplace() });
 
     assert.equal(report.backends.tmux.available, false);
-    assert.equal(report.backends.fleet.available, false);
-    assert.match(report.backends.fleet.reason, /tmux/, "fleet must name the missing dep");
+    assert.equal(report.backends.topology.available, false);
+    assert.match(report.backends.topology.reason, /tmux/, "topology must name the missing dep");
     assert.equal(report.backends.orchestration.available, true, "orchestration does not need tmux");
   });
 
-  it("no fleet script fails fleet even with tmux present", () => {
-    const report = detectHostCaps({ env: bareEnv(), probe: fullProbe, pluginRoot: marketplace({ fleet: false }) });
+  it("no ao-topology binary fails topology even with tmux present", () => {
+    const report = detectHostCaps({ env: bareEnv(), probe: fullProbe, pluginRoot: marketplace({ topology: false }) });
 
-    assert.equal(report.backends.fleet.available, false);
-    assert.match(report.backends.fleet.reason, /spawn-claude-feature/);
+    assert.equal(report.backends.topology.available, false);
+    assert.match(report.backends.topology.reason, /ao-topology/);
+  });
+
+  it("the two agent-orchestration binaries are probed independently", () => {
+    // Half an install — the broker present, the topology launcher not — must fail
+    // exactly one backend. They ship in one plugin but are two separate runtimes.
+    const report = detectHostCaps({ env: bareEnv(), probe: fullProbe, pluginRoot: marketplace({ topology: false }) });
+    assert.equal(report.backends.orchestration.available, true);
+    assert.equal(report.backends.topology.available, false);
   });
 
   it("no orchestration binary anywhere fails orchestration", () => {
@@ -167,7 +175,7 @@ describe("per-process cache", () => {
     const a = detectHostCaps();
     assert.equal(detectHostCaps(), a, "same object, no re-probe");
 
-    const b = detectHostCaps({ env: bareEnv(), probe: bareProbe, pluginRoot: marketplace({ orchestration: false, fleet: false }) });
+    const b = detectHostCaps({ env: bareEnv(), probe: bareProbe, pluginRoot: marketplace({ orchestration: false, topology: false }) });
     assert.notEqual(b, a);
     assert.notEqual(detectHostCaps({ env: bareEnv(), probe: bareProbe, pluginRoot: tmp() }), b, "explicit opts always re-probe");
 

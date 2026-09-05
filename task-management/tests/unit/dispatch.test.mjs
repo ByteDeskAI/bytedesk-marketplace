@@ -243,10 +243,10 @@ describe("backend resolution", () => {
 
     assert.equal(picked.name, "manual");
     const byName = Object.fromEntries(picked.tried.map((t) => [t.name, t.reason]));
-    // orchestration and fleet landed in TM-063: the modules are present now, so
-    // with empty caps they lose on availability, not absence — still skipped, not fatal.
+    // Every real backend module is present, so with empty caps they lose on
+    // availability, not absence — still skipped, not fatal.
+    assert.match(byName.topology, /unavailable/);
     assert.match(byName.orchestration, /unavailable/);
-    assert.match(byName.fleet, /unavailable/);
     assert.match(byName.tmux, /unavailable/);
   });
 
@@ -264,7 +264,18 @@ describe("backend resolution", () => {
   });
 
   it("defaults to the documented order when config says nothing", () => {
-    assert.deepEqual(DEFAULT_ORDER, ["orchestration", "fleet", "tmux", "manual"]);
+    // ADR-0001's migration order: topology is authoritative, raw tmux is the
+    // fallback beneath it, orchestration is demoted to an explicit choice, manual
+    // is the floor.
+    assert.deepEqual(DEFAULT_ORDER, ["topology", "tmux", "orchestration", "manual"]);
+  });
+
+  it("fleet is gone — not in the order, and not loadable as a module", async () => {
+    assert.equal(DEFAULT_ORDER.includes("fleet"), false, "the retired plugin must not be in the fallback walk");
+    // A config that still names it must degrade to unavailable, never crash dispatch.
+    const picked = await resolveBackend({ requested: "fleet", caps: {}, p: paths("/tmp/none") });
+    assert.equal(picked.backend, null);
+    assert.deepEqual(picked.tried, [{ name: "fleet", reason: "module not present" }]);
   });
 });
 

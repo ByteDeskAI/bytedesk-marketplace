@@ -71,6 +71,16 @@ Both in the existing orchestration backend, found while writing the ADR against 
 1. **Collect cannot see the run it dispatched.** Dispatch spawns with `consumerCwd = <tm worktree>`
    so the run records that worktree's `repositoryKey`; collect asks with the repo root, a different
    hash, and `getRun` refuses with `AO_RUN_REPOSITORY_MISMATCH`. The round trip is broken as written.
+
+   **The worktree geometry is why**, and it is worth stating because the intuitive shape is wrong.
+   The broker does NOT derive its worktree underneath tm's. It derives a **sibling**:
+   `dirname(checkoutRoot)/.<repo>-worktrees/agent-orchestration/<repositoryKey>/<runId>/primary`
+   (`src/workspace/worktrees.mjs:10`). A linked worktree is its own `--show-toplevel`, so every tm
+   worktree is its own `checkoutRoot` and hashes to its own `repositoryKey`
+   (`repository.mjs:52-56`). Had the derivation been "underneath", the key would have matched on the
+   way back and this defect would not exist. Fleet's geometry was different again:
+   `<canonical checkout>/.claude/worktrees/<ticket>-<slug>`, taken from the FIRST entry of
+   `git worktree list` — the main checkout, not tm's.
 2. **`write` dispatches require a clean consumer.** The backend always sends
    `permissionProfile: "write"`, which resolves the consumer with `requireClean = true`; tm's own
    `applyShares` links `node_modules` and `.env` into the worktree and a prior tmux dispatch leaves
@@ -81,6 +91,9 @@ Both in the existing orchestration backend, found while writing the ADR against 
 
 - [Gateway tab ids are server-minted](/architecture/gateway-tab-ids-are-server-minted.md) — how a topology session becomes visible in the gateway, and what survives a restart.
 - Authorization classes salvaged from fleet: `agent-orchestration/docs/authorization-classes.md`.
+  Read it as a specification, not as a working model: fleet's own ADR records that enforcement for
+  the repo-destructive and external classes was never implemented, and `pr-merge-guard.sh` was the
+  single realised gate. The taxonomy is roughly one-quarter code and three-quarters specification.
   Note the consequence recorded there: `CLAUDE_SESSION_DEPTH` had exactly one authoritative writer
   and it retires with fleet, so topology inherits that obligation. A gate reading a depth nobody
   authoritatively writes grants authority by accident.

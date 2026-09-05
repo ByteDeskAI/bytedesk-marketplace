@@ -85,7 +85,8 @@ Probes, each try/caught (`available: false` + reason, never an exception):
 
 1. **orchestration** — `bin/agent-orchestration-mcp`: `TM_ORCHESTRATION_BIN` → sibling
    plugin in a marketplace checkout → `~/.claude/plugins/**/agent-orchestration*/bin/…`
-2. **fleet** — `bin/spawn-claude-feature`: `TM_FLEET_BIN` → sibling `fleet/` → Claude cache
+2. **topology** — `bin/ao-topology` in the same sibling plugin: `TM_TOPOLOGY_BIN` → sibling
+   `agent-orchestration/` → Claude cache. Needs tmux, and says so when it is missing.
 3. **tmux** — `tmux` on `PATH`
 4. **manual** — always available (the floor)
 5. **CLIs** — `claude`, `codex`, `grok`, `kimi` on `PATH` (version via `-V`, 2s timeout)
@@ -109,14 +110,16 @@ provision the worktree, render `tm handoff`, spawn a backend.
 MCP: `tm_dispatch` `{ "id": "TM-014", "backend": "tmux", "steal": false }`.
 HTTP: `POST /api/task/TM-014/dispatch` `{ "backend": "tmux" }` → 409 on the same refusals.
 
-**Backends**, richest first, `manual` last — orchestration → fleet → tmux → manual. Config `dispatch.backends` overrides the list;
+**Backends**, richest first, `manual` last — topology → tmux → orchestration → manual
+(ADR-0001, `agent-orchestration/docs/adr/0001-authoritative-orchestration-layer.md`).
+Config `dispatch.backends` overrides the list;
 an empty list is ignored. Pinning `--backend <name>` skips the walk — asking for one
 explicitly and silently getting another is how work lands in a harness nobody is watching.
 
 | Name | What it launches | Notes |
 |---|---|---|
-| `orchestration` | agent-orchestration MCP `spawn` | idempotency key `<task>-<session>`; argv-only, `shell: false` |
-| `fleet` | `spawn-claude-feature` | sets `CLAUDE_SESSION_TICKET` so the recursion guard engages |
+| `topology` | `ao-topology launch --consumer <tm worktree>` | one agent, tm's worktree reused as the consumer — no second checkout; identity from the repo's agent library when it has one |
+| `orchestration` | agent-orchestration MCP `spawn` | demoted: derives its OWN detached worktree, so it costs a second checkout. Pick it explicitly for sandboxed autonomous writes. Idempotency key `<task>-<session>` |
 | `tmux` | session `tm-<id>` | durable prompt at `<worktree>/.tm-dispatch-prompt.md` (argv vanishes with the process) |
 | `manual` | nothing | prints the commands to run; never unavailable |
 
@@ -180,7 +183,7 @@ one write path (`recordResult`):
 |---|---|
 | orchestration | run state in `{succeeded, failed, cancelled, timed_out, rejected, recovery_required}` |
 | tmux | session `tm-<id>` gone |
-| fleet | ticket event `merge` → done, `error` → failed |
+| topology | tmux session named by the run gone |
 | manual | nothing to collect — the human closed the task |
 
 ```
@@ -253,7 +256,9 @@ for the catalogued keys (`lib/settings.mjs`). Arrays/objects (`dispatch.backends
 
 | Key | Default | Effect |
 |---|---|---|
-| `dispatch.backends` | `["orchestration","fleet","tmux","manual"]` | fallback order `tm dispatch` walks |
+| `dispatch.backends` | `["topology","tmux","orchestration","manual"]` | fallback order `tm dispatch` walks |
+| `dispatch.topologyAgent` | first non-lead in the roster | which stored agent a topology dispatch borrows its identity from |
+| `dispatch.topologyCandidates` | `"claude"` | provider chain for a topology dispatch when the repo has no agent library |
 | `dispatch.heartbeatSeconds` | `60` | claim re-stamp while the worker is alive; `0` disables |
 | `dispatch.enabled` | `false` | the `tm-pool` **monitor** requires `true`; explicit `tm pool` verbs work regardless |
 | `dispatch.poolWip` | `3` | cap on pool-spawned workers (independent of interactive `wipLimit`) |

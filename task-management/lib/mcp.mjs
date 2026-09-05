@@ -983,7 +983,7 @@ export const TOOLS = [
   {
     name: "tm_dispatch",
     description:
-      "Hand a task to a worker, end to end: claim it, mark it in progress, provision its worktree, render the handoff and launch a backend (host order: orchestration → fleet → tmux → manual, or one pinned with backend). Dispatch IS a start — the WIP gate applies, and a task another live session holds is refused unless steal is true. Same mechanics and same refusal wording as `tm dispatch`.",
+      "Hand a task to a worker, end to end: claim it, mark it in progress, provision its worktree, render the handoff and launch a backend (host order: topology → tmux → orchestration → manual, or one pinned with backend). Dispatch IS a start — the WIP gate applies, and a task another live session holds is refused unless steal is true. Same mechanics and same refusal wording as `tm dispatch`.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1019,7 +1019,7 @@ export const TOOLS = [
   {
     name: "tm_collect",
     description:
-      "Pull a dispatched worker's result into the store: asks the backend's collector (orchestration run state, tmux session liveness, fleet events), records a task_result event, and parks the task with the reason on failure — never leaves a dead worker's task in_progress. Same mechanics as `tm collect <id>`.",
+      "Pull a dispatched worker's result into the store: asks the backend's collector (orchestration run state, tmux/topology session liveness), records a task_result event, and parks the task with the reason on failure — never leaves a dead worker's task in_progress. Same mechanics as `tm collect <id>`.",
     inputSchema: {
       type: "object",
       properties: { id: str("Task id, e.g. TM-001.") },

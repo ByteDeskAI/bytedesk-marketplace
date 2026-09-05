@@ -10,10 +10,10 @@
  *                  handle for the thing that started ("tmux:tm-TM-062"), `reason` the
  *                  refusal when ok is false
  *
- * Why a registry and not a switch statement: orchestration and fleet land in a later
- * task, but the ORDER they take precedence in is policy that belongs here, in one
- * list. Modules are lazy-imported so a not-yet-written backend is simply unavailable,
- * never a crash at import time — dispatch must always reach `manual`, the floor.
+ * Why a registry and not a switch statement: the ORDER backends take precedence in is
+ * policy, and policy belongs here, in one list. Modules are lazy-imported so a missing
+ * or broken backend is simply unavailable, never a crash at import time — dispatch must
+ * always reach `manual`, the floor.
  */
 import { isAbsolute, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -22,14 +22,21 @@ import { paths } from "../paths.mjs";
 
 /**
  * The fallback order when config `dispatch.backends` does not say otherwise.
- * Richest launcher first, paste-it-yourself last; manual never disappears.
+ *
+ * ADR-0001 (agent-orchestration/docs/adr/0001-authoritative-orchestration-layer.md)
+ * settles this list: `topology` is the authoritative layer for dispatched work —
+ * it reuses tm's worktree, so one task means one checkout. Raw `tmux` sits beneath
+ * it as the migration fallback and goes once topology passes the same contract
+ * tests. `orchestration` is DEMOTED to an explicit `--backend orchestration`
+ * choice for untrusted autonomous writes: it derives its own detached worktree by
+ * invariant, so it costs a second checkout per task. `manual` never disappears.
  */
-export const DEFAULT_ORDER = ["orchestration", "fleet", "tmux", "manual"];
+export const DEFAULT_ORDER = ["topology", "tmux", "orchestration", "manual"];
 
 /** Registry: name → module specifier, imported on first use. */
 const MODULES = {
+  topology: "./topology.mjs",
   orchestration: "./orchestration.mjs",
-  fleet: "./fleet.mjs",
   tmux: "./tmux.mjs",
   manual: "./manual.mjs",
 };
@@ -49,8 +56,8 @@ export async function loadCaps() {
 }
 
 /**
- * Load one backend module by name. Absent module (orchestration/fleet until they
- * land, a typo'd config entry) resolves to null — unavailable, not an error.
+ * Load one backend module by name. An absent module (a typo'd config entry, a
+ * retired backend still named in config) resolves to null — unavailable, not an error.
  */
 export async function loadBackend(name) {
   const spec = MODULES[name];

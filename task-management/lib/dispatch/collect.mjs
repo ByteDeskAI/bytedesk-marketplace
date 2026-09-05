@@ -4,9 +4,8 @@
  * dispatch (./index.mjs) starts the worker and records `dispatched:{backend,run,...}`
  * on the task. What it cannot do is know how that worker ENDED — each backend has a
  * different completion signal: an orchestration run reaches a terminal state, a tmux
- * session disappears, a fleet ticket emits a terminal event. The collectors here
- * normalize each of those into one call to `recordResult`, which is the protocol's
- * single write path.
+ * or topology session disappears. The collectors here normalize each of those into
+ * one call to `recordResult`, which is the protocol's single write path.
  *
  * The protocol's invariants, all enforced in recordResult rather than in the
  * collectors:
@@ -26,8 +25,6 @@
  *      failures come back as `{ ok: false, reason }`.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
 import { releaseClaim } from "../claims.mjs";
 import { addComment } from "../issue.mjs";
 import { detectHostCaps } from "../hostcaps.mjs";
@@ -42,15 +39,6 @@ const OUTCOMES = new Set(["done", "blocked", "failed"]);
 
 /** Orchestration's TERMINAL_STATES (agent-orchestration/src/state/store.mjs). */
 const ORCH_TERMINAL = new Set(["succeeded", "failed", "cancelled", "timed_out", "rejected", "recovery_required"]);
-
-/**
- * Fleet's event stream (claude-sessions events <ticket> --json: one
- * {ts, ticket, depth, kind, detail} per line) is tool-level observability, so it
- * has no "closed" kind. The terminal signals it DOES carry: a merge means the
- * work landed and the worker's job is over; an error event means it is not
- * coming back. Anything else is progress, not an ending.
- */
-const FLEET_TERMINAL = { merge: "done", error: "failed" };
 
 /**
  * Record one worker's result against the store. This is the only write path the
@@ -149,6 +137,24 @@ export async function collectOrchestration(id, { caps = null, p = paths(), spawn
       return { ok: false, reason: entry?.reason ?? "orchestration backend is not available on this host" };
     }
 
+    /**
+     * Ask with the SAME consumer the dispatch spawned with, or the server refuses its
+     * own run. Orchestration's authority is checkout-scoped — `repositoryKey =
+     * sha256(commonGitDir\0checkoutRoot)` (agent-orchestration/src/workspace/
+     * repository.mjs) — and a linked worktree is its own `--show-toplevel`, so the
+     * repo root hashes to a different key than the worktree dispatch handed over
+     * (dispatch/orchestration.mjs, `consumerCwd: req.worktree`). `getRun` re-derives
+     * the key on every read and refuses a mismatch with AO_RUN_REPOSITORY_MISMATCH,
+     * which made the dispatch → collect round trip fail for every orchestration run.
+     *
+     * The task's own `worktree` field IS that value: provision() records the path it
+     * created and dispatch passes the same one to the backend, so nothing new has to
+     * be written down at dispatch time to make collect agree with spawn. The repo
+     * root remains the fallback for a record from before worktrees, or one whose
+     * checkout has since been removed.
+     */
+    const consumerCwd = task.worktree || p.root;
+
     const res = await rpcSession({
       bin: process.execPath,
       argv: [entry.path],
@@ -157,8 +163,8 @@ export async function collectOrchestration(id, { caps = null, p = paths(), spawn
       spawnImpl,
       label: "orchestration MCP",
       calls: [
-        { name: "orchestration_events", arguments: { consumerCwd: p.root, runId, after: 0 } },
-        { name: "orchestration_status", arguments: { consumerCwd: p.root, runId } },
+        { name: "orchestration_events", arguments: { consumerCwd, runId, after: 0 } },
+        { name: "orchestration_status", arguments: { consumerCwd, runId } },
       ],
     });
     if (!res.ok) return { ok: false, reason: res.reason };
@@ -176,21 +182,27 @@ export async function collectOrchestration(id, { caps = null, p = paths(), spawn
 }
 
 /**
- * The tmux collector: the session IS the worker's liveness.
+ * The session collector, shared by every backend whose worker lives in a tmux
+ * session: the session IS the worker's liveness.
  *
- * `tmux has-session -t tm-<id>` answers one question — is the pane still there.
+ * `tmux has-session -t <session>` answers one question — is the pane still there.
  * Alive means the worker is still running: `{ ok:true, pending:true }`, nothing to
  * record. Gone means the worker exited, and then the task's own status is the
  * verdict: done means it closed through the gates before exiting; still
  * in_progress means it walked away, which is a failure with the reason named.
+ *
+ * `tmux` names its session `tm-<id>`; `topology` names it after the run the
+ * topology layer launched. Both put it in the handle after the backend prefix, so
+ * one implementation reads both — the only difference is the prefix it strips.
  */
-export function collectTmux(id, { p = paths(), spawnImpl = spawnSync } = {}) {
+function collectSession(id, backend, { p = paths(), spawnImpl = spawnSync } = {}) {
   try {
     const task = read(id, p);
     if (!task) return { ok: false, reason: `not found: ${id}` };
     const handle = String(task.dispatched?.run || "");
-    const session = handle.replace(/^tmux:/, "");
-    if (!session || session === handle) return { ok: false, reason: `${id} has no tmux run (dispatched.run: ${handle || "none"})` };
+    const prefix = `${backend}:`;
+    const session = handle.startsWith(prefix) ? handle.slice(prefix.length) : "";
+    if (!session) return { ok: false, reason: `${id} has no ${backend} run (dispatched.run: ${handle || "none"})` };
 
     const res = spawnImpl("tmux", ["has-session", "-t", session], { shell: false, stdio: "ignore" });
     if (res?.error) return { ok: false, reason: `tmux has-session failed: ${res.error.message}` };
@@ -198,7 +210,7 @@ export function collectTmux(id, { p = paths(), spawnImpl = spawnSync } = {}) {
 
     const after = read(id, p) ?? task;
     if (after.status === "done") {
-      return recordResult(id, { run: handle, outcome: "done", summary: "tmux worker exited; the task was closed through the gates" }, p);
+      return recordResult(id, { run: handle, outcome: "done", summary: `${backend} worker exited; the task was closed through the gates` }, p);
     }
     if (after.status === "in_progress") {
       return recordResult(id, { run: handle, outcome: "failed", summary: "worker exited without closing" }, p);
@@ -206,69 +218,23 @@ export function collectTmux(id, { p = paths(), spawnImpl = spawnSync } = {}) {
     // Parked/blocked/reopened already — the board was told by another path.
     return { ok: true, pending: false, skipped: `task is ${after.status}; nothing to collect` };
   } catch (err) {
-    return { ok: false, reason: `collectTmux failed for ${id}: ${err.message}` };
+    return { ok: false, reason: `collect${backend[0].toUpperCase()}${backend.slice(1)} failed for ${id}: ${err.message}` };
   }
 }
 
-/** claude-sessions sits next to spawn-claude-feature; on PATH as the fallback. */
-function fleetSessionsBin(caps) {
-  const spawnBin = caps?.backends?.fleet?.path;
-  if (spawnBin) {
-    const sibling = join(dirname(spawnBin), "claude-sessions");
-    if (existsSync(sibling)) return sibling;
-  }
-  return "claude-sessions";
+/** The raw-tmux collector: `tmux:tm-<id>`. */
+export function collectTmux(id, opts = {}) {
+  return collectSession(id, "tmux", opts);
 }
 
 /**
- * The fleet collector: read the ticket's event tail for a terminal kind.
- *
- * `claude-sessions events <ticket> --json` prints one {ts, ticket, depth, kind,
- * detail} per line and exits 0 with no output when the ticket has no events —
- * silence is pending, not an error. The LAST terminal event wins: a ticket that
- * errored and then merged ended merged.
+ * The topology collector: `topology:<session>`, the tmux session ao-topology
+ * launched the run into. The topology layer keeps a run journal and a mailbox
+ * too, but the session is the same coarse liveness signal ADR-0001 named, and it
+ * needs no second process to read.
  */
-export function collectFleet(id, { caps = null, p = paths(), spawnImpl = spawnSync, bin = null, timeoutMs = COLLECT_TIMEOUT_MS } = {}) {
-  try {
-    const task = read(id, p);
-    if (!task) return { ok: false, reason: `not found: ${id}` };
-    const handle = String(task.dispatched?.run || "");
-    const ticket = handle.replace(/^fleet:/, "");
-    if (!ticket || ticket === handle) return { ok: false, reason: `${id} has no fleet run (dispatched.run: ${handle || "none"})` };
-
-    const res = spawnImpl(bin ?? fleetSessionsBin(caps ?? detectHostCaps()), ["events", ticket, "--json"], {
-      shell: false,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: timeoutMs,
-    });
-    if (res?.error) return { ok: false, reason: `claude-sessions events failed: ${res.error.message}` };
-    if (res?.status !== 0) {
-      return { ok: false, reason: `claude-sessions events exited ${res?.status ?? "?"}: ${String(res?.stderr || "").trim()}` };
-    }
-
-    const events = String(res.stdout || "")
-      .split("\n")
-      .map((line) => {
-        try {
-          return JSON.parse(line);
-        } catch {
-          return null; // a torn line must not cost the tail
-        }
-      })
-      .filter(Boolean);
-    const terminal = [...events].reverse().find((e) => e.kind in FLEET_TERMINAL);
-    if (!terminal) return { ok: true, pending: true };
-
-    const outcome = FLEET_TERMINAL[terminal.kind];
-    const detail = Object.entries(terminal.detail || {})
-      .map(([k, v]) => `${k}=${v}`)
-      .join(" ");
-    const summary = `fleet worker signalled ${terminal.kind}${detail ? ` (${detail})` : ""}`;
-    return recordResult(id, { run: handle, outcome, summary }, p);
-  } catch (err) {
-    return { ok: false, reason: `collectFleet failed for ${id}: ${err.message}` };
-  }
+export function collectTopology(id, opts = {}) {
+  return collectSession(id, "topology", opts);
 }
 
 /**
@@ -285,7 +251,7 @@ export async function collect(id, p = paths(), impls = {}) {
     if (!task) return { ok: false, reason: `not found: ${id}` };
     const backend = task.dispatched?.backend;
     if (!backend) return { ok: false, reason: `${id} was never dispatched — there is no worker result to collect` };
-    const routes = { orchestration: collectOrchestration, tmux: collectTmux, fleet: collectFleet, ...impls };
+    const routes = { topology: collectTopology, orchestration: collectOrchestration, tmux: collectTmux, ...impls };
     const route = routes[backend];
     if (!route) return { ok: false, reason: `no collector for backend "${backend}"` };
     return route(id, { p });

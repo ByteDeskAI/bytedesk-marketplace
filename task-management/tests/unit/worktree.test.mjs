@@ -10,7 +10,8 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, writeFile
 import { join } from "node:path";
 import { addWorktree, cleanup, git, tempRepo, writeFile } from "./helpers.mjs";
 import { paths } from "../../lib/paths.mjs";
-import { applyShares, branchName, unlinkShares, worktreePath } from "../../lib/worktree.mjs";
+import { applyShares, branchName, createWorktree, unlinkShares, worktreePath } from "../../lib/worktree.mjs";
+import { PROMPT_FILE } from "../../lib/dispatch/tmux.mjs";
 
 const trash = [];
 after(() => cleanup(...trash));
@@ -149,5 +150,43 @@ describe("unlinkShares", () => {
   it("is a no-op on a worktree that was never shared", () => {
     const { wt, p } = repoPair();
     assert.deepEqual(unlinkShares(wt, { p }), []);
+  });
+});
+
+/**
+ * TM-098 — a task worktree must be a CLEAN checkout by the time a backend looks at it.
+ *
+ * agent-orchestration resolves a `write` dispatch's consumer with requireClean, which
+ * asserts `git status --porcelain --untracked-files=all` is empty and otherwise refuses
+ * with AO_CONSUMER_DIRTY. Every artifact tm itself puts in the worktree therefore has to
+ * be excluded before anything can observe it — at CREATION, not opportunistically.
+ */
+describe("tm's own worktree artifacts never dirty the checkout", () => {
+  it("excludes the dispatch prompt at creation, even with sharing off", () => {
+    const repo = tempRepo();
+    trash.push(repo);
+    const res = createWorktree({ id: "TM-900", title: "dispatch me" }, { p: paths(repo), share: false, config: {} });
+
+    writeFileSync(join(res.path, PROMPT_FILE), "# Handoff — TM-900\n");
+    assert.equal(
+      git(res.path, "status", "--porcelain", "--untracked-files=all"),
+      "",
+      "a write dispatch refuses a dirty consumer (AO_CONSUMER_DIRTY); the prompt must already be excluded",
+    );
+  });
+
+  it("excludes a share the worktree already had, which applyShares does not place", () => {
+    const { repo, wt, p } = repoPair();
+    writeFile(repo, "node_modules/marker.txt", "shared");
+    // The worktree grew its own node_modules — an `npm install` in a checkout that was
+    // provisioned with share:false, or a re-provision. applyShares refuses to clobber
+    // it, and used to `continue` past the exclude with it: untracked, and dirty.
+    writeFile(wt, "node_modules/other.txt", "local");
+
+    const applied = applyShares(wt, { p, config: shares({ path: "node_modules", mode: "symlink" }) });
+
+    assert.match(applied[0].reason, /already exists/);
+    assert.equal(applied[0].ok, false);
+    assert.equal(git(wt, "status", "--porcelain", "--untracked-files=all"), "", "not placed, but still excluded");
   });
 });

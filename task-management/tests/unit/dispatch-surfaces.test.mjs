@@ -249,7 +249,7 @@ describe("GET /api/caps", () => {
     const res = handleWrite("GET", "/api/caps", null, { p });
     assert.equal(res.status, 200);
     assert.equal(res.body.backends.manual.available, true, "the floor never disappears");
-    for (const name of ["orchestration", "fleet", "tmux"]) {
+    for (const name of ["topology", "orchestration", "tmux"]) {
       assert.ok(typeof res.body.backends[name].available === "boolean", `${name} reports availability`);
     }
   });

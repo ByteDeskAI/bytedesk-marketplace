@@ -3,6 +3,23 @@
 ## Unreleased
 
 ### Added
+- **The `topology` dispatch backend (TM-098, EP-014).** `lib/dispatch/topology.mjs` launches a
+  one-agent orchestration through the sibling agent-orchestration plugin's tmux layer:
+  `ao-topology launch --spec <spec> --consumer <tm's worktree> --json`. It reuses the checkout
+  `tm dispatch` already provisioned and creates none of its own, which is ADR-0001's
+  worktree-ownership rule (`agent-orchestration/docs/adr/0001-authoritative-orchestration-layer.md`)
+  — one task, one worktree. When the consumer repo has an agent library
+  (`.bytedesk/agent-orchestration/agents/`, or the legacy `.orchestration/agents/`) the worker
+  borrows a stored agent's identity, cli chain, skills and system prompt, and the handoff is
+  appended to that prompt rather than replacing it; a repo with no roster (or only a lead) gets
+  an inline single-agent spec instead. argv-only with `shell: false`: the handoff travels as
+  data inside the JSON spec file and as the durable worktree copy at `.tm-dispatch-prompt.md`,
+  never as an argv element. The run handle is `topology:<tmux session>` — paste-able into
+  `tmux attach -t`. Two new `tm config` keys: `dispatch.topologyAgent` pins which stored agent
+  to borrow, `dispatch.topologyCandidates` sets the provider chain when there is no roster.
+- **`collectTopology`.** `tm collect` reads a topology worker's liveness from its tmux session,
+  the same coarse signal ADR-0001 names. `collectTmux` and `collectTopology` are now one
+  implementation over the session in the run handle.
 - **Pi harness integration (TM-081).** `pi` joins the harness line-up, measured against the
   installed 0.82.0 rather than docs: the CLI appears in `tm caps`; session identity comes from
   `PI_SESSION_ID` (verified exported to tool subprocesses); the work stream resolves
@@ -186,6 +203,17 @@
 - **Tool-call markup is refused at the store boundary.** A body containing an agent's own `<parameter …>` / `<invoke …>` fragments is rejected by `write()`, so every entry point is covered — CLI, MCP, the dashboard's `PATCH /api/task/:id`, and the harness bridge mirroring a native `TaskCreate`. Eleven records were written with their own tool calls embedded before this existed, including one whose entire body was replaced by another task's progress note; the store accepted all of it silently. The check matches the corruption's shape (a tag alone on a line, at the start of one, or trailing at the end of the body) rather than the substring, and skips fenced code so documenting the rule still saves.
 
 ### Changed
+- **`dispatch.backends` defaults to `["topology", "tmux", "orchestration", "manual"]`
+  (TM-098).** ADR-0001's migration order. `topology` is the authoritative layer for dispatched
+  work; raw `tmux` stays beneath it as the fallback until topology passes the same contract
+  tests; `orchestration` is **demoted** to an explicit `--backend orchestration` choice for
+  untrusted autonomous writes, because its runtime derives a second, detached worktree by
+  invariant; `manual` remains the floor that can never disappear.
+- **`tm caps` reports `topology` where it reported `fleet`.** The probe resolves
+  `bin/ao-topology` (env `TM_TOPOLOGY_BIN` → sibling `agent-orchestration/` → Claude plugin
+  cache) and, like the fleet probe before it, fails when tmux is absent — tmux panes are where
+  its agents live. The two agent-orchestration binaries are probed independently, so half an
+  install fails exactly one backend.
 - **The README describes the rewritten dashboard** (TM-052, TM-053). The board sections are
   rewritten around the multi-screen app: every screen and the route it lives at, the
   inspector-over-list model (`/tasks/<id>` over the list you came from, back closes it), the live
@@ -201,6 +229,18 @@
 - **Generated runtime files stay out of git.** Store `.gitignore` now names `dashboard.pid` and `dashboard.port` explicitly (still covered by `dashboard.*`), plus `bin` (generated launchers) and `events.json` / `events.jsonl`. Bootstrap and `.bytedesk/task-management/bin/tm doctor --fix` write `.bytedesk/.gitignore` so `worktrees/` is ignored without swallowing the store. Dashboard `.gitignore` also drops Vite/tsc leftovers (`.vite`, `*.tsbuildinfo`).
 
 ### Fixed
+- **`tm collect` could never see an orchestration run it dispatched (TM-098).** Dispatch spawns
+  with `consumerCwd = <tm worktree>`, so the run records that checkout's `repositoryKey`
+  (`sha256(commonGitDir\0checkoutRoot)`); collect asked with the repo root, a different hash,
+  and every `getRun` answered `AO_RUN_REPOSITORY_MISMATCH`. Collect now asks with the task's own
+  `worktree` field — the exact value dispatch passed — falling back to the repo root for a
+  record that has none.
+- **A `write` dispatch could be refused for tm's own leftovers.** agent-orchestration resolves a
+  `write` consumer with `requireClean`, asserting `git status --porcelain --untracked-files=all`
+  is empty (`AO_CONSUMER_DIRTY`). `createWorktree` now excludes `.tm-dispatch-prompt.md` in the
+  worktree's git dir at creation — before any backend can write it, and regardless of whether
+  sharing is on — and `applyShares` excludes a shared path it finds already present instead of
+  skipping past the exclude, which is the path a re-provision takes.
 - **A unit test read the ambient session id instead of its own fixture.** `dashboard-api`'s actor/session stamping test set `CLAUDE_SESSION_ID`, which `CLAUDE_CODE_SESSION_ID` outranks in the `SESSION_ENV` chain — so it passed in CI and in a bare shell and failed only when run from inside a Claude Code session. New `withSessionEnv()` test helper clears every variable in `SESSION_ENV` before setting the ones under test, deriving the list from the source of truth so adding a harness cannot reintroduce the leak.
 - **The MCP parity suite depended on the ambient session.** `mcp.test.mjs`'s worktree test only
   exercised the claim interlock when `CLAUDE_CODE_SESSION_ID` happened to be set by whatever ran
@@ -221,6 +261,13 @@
   it first, or steal it deliberately with --steal"), and its rollback only releases a claim the
   call itself created. A harness-less dispatch also synthesizes a session (`dispatch-<id>`) so
   the claim interlocks and the worker's `TM_SESSION_ID` is never empty.
+
+### Removed
+- **The `fleet` backend (TM-098, EP-014).** `lib/dispatch/fleet.mjs`, the fleet collector, the
+  `fleet` entry in `DEFAULT_ORDER` and the `spawn-claude-feature` host-capability probe and its
+  `tm caps` line are all gone; the `fleet` plugin is retired. Its depth-based authorization
+  taxonomy was salvaged first under TM-095. A `dispatch.backends` config that still names
+  `fleet` degrades to "module not present" and falls through, as it does for any unknown name.
 
 ## [0.14.0] — 2026-08-18
 
@@ -761,7 +808,6 @@ Also: `monitors` moved under `experimental.monitors` in the manifest, which is w
   read paths for now.
 
 ### Removed
-
 - **`tm export pm`.** The format emitted `pm_issue_create` payloads for the
   `project-management` plugin, which has been removed from this marketplace — so it was
   exporting to a destination that no longer exists here. `md`, `csv` and `json` are unchanged,

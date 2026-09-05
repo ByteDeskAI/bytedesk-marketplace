@@ -26,7 +26,9 @@ Authority is checkout-scoped: `repositoryKey = sha256(commonGitDir\0checkoutRoot
 
 **The topology layer** (`topology/`) is a visible, interactive team of agent CLIs in tmux panes,
 with a file mailbox as the channel of record. It has no sandbox, no cgroup, no worktree and no
-audit chain. What it does have is everything EP-014 has been building: a per-repo agent library
+audit chain. (The task this ADR settles said it had "no isolation of any kind"; that was already an
+overstatement when this was written — see the containment, consent and outbox-authentication
+guards below. No sandbox is the accurate claim.) What it does have is everything EP-014 has been building: a per-repo agent library
 with stable ids and generated display identities (`topology/lib/agents.mjs`,
 `topology/lib/identity.mjs:47` `mintId`, `:96` `sessionName`), one-lead-per-repo enforcement
 (`agents.mjs` `findLead`/`createAgent`, `TOPOLOGY_MULTIPLE_LEADS` / `TOPOLOGY_LEAD_EXISTS`), cross-repo routing with lead redirect and
@@ -63,9 +65,19 @@ Both non-trivial backends abandon the worktree tm provisioned.
   `<repo>/.claude/worktrees/<ticket>-<slug>` (`fleet/bin/spawn-claude-feature:142-161`). tm's
   worktree stays behind as the claim's recorded checkout while the work happens elsewhere.
 - The orchestration backend passes tm's worktree as `consumerCwd`
-  (`dispatch/orchestration.mjs:73`) and the broker then derives a *second*, detached worktree
-  underneath it (`src/runtime/engine.mjs:195` → `worktrees.mjs:52`). The broker cannot be told not
-  to; the derivation is unconditional and the isolation is the point.
+  (`dispatch/orchestration.mjs:73`) and the broker then derives a *second*, detached worktree — as a
+  **sibling**, not underneath: `dirname(checkoutRoot)/.<repo>-worktrees/agent-orchestration/<repositoryKey>/<runId>/primary`
+  (`src/workspace/worktrees.mjs:10`, `:52`). The broker cannot be told not to; the derivation is
+  unconditional and the isolation is the point.
+
+  **The geometry is the root cause of defect 2 below, so it is worth being exact about.** Because a
+  linked worktree is its own `--show-toplevel`, every tm worktree is its own `checkoutRoot` and
+  therefore hashes to its own `repositoryKey` (`repository.mjs:52-56`). Had the broker derived its
+  worktree *underneath* tm's — the shape this task was originally written against — the key would
+  have matched on the way back and the dispatch/collect mismatch would not exist at all. Fleet's
+  geometry is different again and equally not-underneath: it builds at
+  `<canonical checkout>/.claude/worktrees/<ticket>-<slug>`, off the *first* entry of
+  `git worktree list`, which is the main checkout rather than tm's.
 
 Two consequences of that arrangement are live defects today, not future risks:
 

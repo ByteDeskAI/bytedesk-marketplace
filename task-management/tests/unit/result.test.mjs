@@ -6,16 +6,17 @@
  * and releases the claim, and everything lands as a comment plus one task_result
  * event. The collectors normalize each backend's completion signal into it:
  * tmux against a stubbed spawnImpl, orchestration against the fake MCP server
- * (fixtures/fake-orchestration-mcp.mjs), fleet against a stubbed events output.
+ * (fixtures/fake-orchestration-mcp.mjs).
  */
 import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { cleanup, tempStore } from "./helpers.mjs";
 import { handoff } from "../../lib/render.mjs";
 import { create, mutate, now, read, readEvents, state, update, writeState } from "../../lib/store.mjs";
-import { collect, collectFleet, collectOrchestration, collectTmux, recordResult } from "../../lib/dispatch/collect.mjs";
+import { collect, collectOrchestration, collectTmux, collectTopology, recordResult } from "../../lib/dispatch/collect.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FAKE_SERVER = join(HERE, "fixtures", "fake-orchestration-mcp.mjs");
@@ -33,7 +34,7 @@ const SESSION = "lead-session";
 /** The run handle each backend really records on the task. */
 const RUN_SHAPES = {
   tmux: (id) => `tmux:tm-${id}`,
-  fleet: (id) => `fleet:${id}`,
+  topology: (id) => `topology:${id.toLowerCase()}-20260905-120000-abcd`,
   orchestration: (id) => `orchestration:${id}`,
 };
 
@@ -256,6 +257,33 @@ describe("collectOrchestration — against the fake MCP server", () => {
     assert.equal(claimed(p, id), false);
   });
 
+  it("asks with the same consumer the dispatch spawned with, not the repo root", async () => {
+    // Regression: dispatch/orchestration.mjs spawns with consumerCwd = the tm
+    // worktree, whose repositoryKey (sha256(commonGitDir\0checkoutRoot)) differs
+    // from the repo root's. Asking with p.root made every getRun answer
+    // AO_RUN_REPOSITORY_MISMATCH, so no orchestration dispatch could ever be
+    // collected. The task's own worktree field is what was passed on spawn.
+    const p = store();
+    const worktree = join(p.root, ".bytedesk", "worktrees", "TM-x-work");
+    const id = dispatched(p, { backend: "orchestration", run: "orchestration:run-fake-1", worktree });
+    const capture = join(p.root, "capture.json");
+
+    const res = await collectOrchestration(id, { caps, p, env: { ...process.env, FAKE_STATE: "succeeded", FAKE_CAPTURE: capture } });
+    assert.equal(res.ok, true);
+
+    const params = JSON.parse(readFileSync(capture, "utf8"));
+    assert.equal(params.arguments.consumerCwd, worktree, "the worktree, not the repo root");
+    assert.notEqual(params.arguments.consumerCwd, p.root);
+  });
+
+  it("falls back to the repo root when the task carries no worktree", async () => {
+    const p = store();
+    const id = dispatched(p, { backend: "orchestration", run: "orchestration:run-fake-1" });
+    const capture = join(p.root, "capture-noworktree.json");
+    await collectOrchestration(id, { caps, p, env: { ...process.env, FAKE_STATE: "succeeded", FAKE_CAPTURE: capture } });
+    assert.equal(JSON.parse(readFileSync(capture, "utf8")).arguments.consumerCwd, p.root);
+  });
+
   it("an unavailable backend is a refusal, not a spawn", async () => {
     const p = store();
     const id = orchTask(p);
@@ -265,51 +293,39 @@ describe("collectOrchestration — against the fake MCP server", () => {
   });
 });
 
-describe("collectFleet — the event tail carries the ending", () => {
-  const eventsOut = (lines) => spawnReturning({ status: 0, stdout: lines.map((l) => JSON.stringify(l)).join("\n") + (lines.length ? "\n" : ""), stderr: "" });
-  const progress = { ts: "2026-09-02T10:00:00Z", ticket: "TM-001", depth: 0, kind: "commit_pushed", detail: { branch: "feat/x" } };
-  const merge = { ts: "2026-09-02T10:05:00Z", ticket: "TM-001", depth: 0, kind: "merge", detail: { pr: "346" } };
-  const error = { ts: "2026-09-02T10:06:00Z", ticket: "TM-001", depth: 0, kind: "error", detail: { message: "pane died" } };
-
-  it("a merge event with the task closed records done", () => {
+describe("collectTopology — the tmux session is the liveness signal", () => {
+  it("reads the session out of the topology handle, argv-only", () => {
     const p = store();
-    const id = dispatched(p, { backend: "fleet", status: "done", claim: false });
-    const spawn = eventsOut([progress, merge]);
+    const id = dispatched(p, { backend: "topology" });
+    const spawn = spawnReturning({ status: 0 });
 
-    const res = collectFleet(id, { p, bin: "/plugins/fleet/bin/claude-sessions", spawnImpl: spawn });
-    assert.equal(res.ok, true);
-    assert.equal(res.outcome, "done");
-    assert.match(lastComment(p, id), /merge/);
+    assert.deepEqual(collectTopology(id, { p, spawnImpl: spawn }), { ok: true, pending: true });
 
     const [bin, args, opts] = spawn.calls[0];
-    assert.equal(bin, "/plugins/fleet/bin/claude-sessions");
-    assert.deepEqual(args, ["events", id, "--json"], "the ticket is the run handle, argv-only");
+    assert.equal(bin, "tmux");
+    assert.deepEqual(args, ["has-session", "-t", `${id.toLowerCase()}-20260905-120000-abcd`], "the session, with the backend prefix stripped");
     assert.equal(opts.shell, false);
-  });
-
-  it("no terminal event is pending; an empty tail is pending too", () => {
-    const p = store();
-    const id = dispatched(p, { backend: "fleet" });
-    assert.deepEqual(collectFleet(id, { p, bin: "/x/claude-sessions", spawnImpl: eventsOut([progress]) }), { ok: true, pending: true });
-    assert.deepEqual(collectFleet(id, { p, bin: "/x/claude-sessions", spawnImpl: eventsOut([]) }), { ok: true, pending: true });
     assert.equal(results(p).length, 0);
   });
 
-  it("an error event on an open task is failed, and the last terminal event wins", () => {
+  it("session gone + task done = done; still in_progress = the worker walked away", () => {
     const p = store();
-    const id = dispatched(p, { backend: "fleet" });
-    const res = collectFleet(id, { p, bin: "/x/claude-sessions", spawnImpl: eventsOut([merge, error]) });
-    assert.equal(res.ok, true);
-    assert.equal(res.outcome, "failed", "the merge came before the error; the error is the ending");
-    assert.equal(read(id, p).status, "parked");
+    const done = dispatched(p, { backend: "topology", status: "done", claim: false });
+    assert.equal(collectTopology(done, { p, spawnImpl: spawnReturning({ status: 1 }) }).outcome, "done");
+
+    const open = dispatched(p, { backend: "topology" });
+    const res = collectTopology(open, { p, spawnImpl: spawnReturning({ status: 1 }) });
+    assert.equal(res.outcome, "failed");
+    assert.equal(read(open, p).status, "parked");
+    assert.equal(claimed(p, open), false);
   });
 
-  it("a failing claude-sessions is a reason, not a throw", () => {
+  it("a handle from another backend is a refusal, not a wrong session", () => {
     const p = store();
-    const id = dispatched(p, { backend: "fleet" });
-    const res = collectFleet(id, { p, bin: "/x/claude-sessions", spawnImpl: spawnReturning({ status: 64, stderr: "events: missing <ticket>" }) });
+    const id = dispatched(p, { backend: "topology", run: "tmux:tm-elsewhere" });
+    const res = collectTopology(id, { p, spawnImpl: () => assert.fail("must not ask tmux about a handle it cannot parse") });
     assert.equal(res.ok, false);
-    assert.match(res.reason, /exited 64/);
+    assert.match(res.reason, /has no topology run/);
   });
 });
 

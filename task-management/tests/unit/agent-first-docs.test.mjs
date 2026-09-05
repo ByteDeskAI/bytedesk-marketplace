@@ -34,7 +34,7 @@ describe("agent-first documentation (TM-074)", () => {
     assert.match(doc, /--follow/);
     assert.match(doc, /--since/);
     assert.match(doc, /--json/);
-    assert.match(doc, /orchestration → fleet → tmux → manual/);
+    assert.match(doc, /topology → tmux → orchestration → manual/);
     assert.match(doc, /dispatch\.backends/);
     assert.match(doc, /dispatch\.heartbeatSeconds/);
     assert.match(doc, /agentTtlMinutes/);

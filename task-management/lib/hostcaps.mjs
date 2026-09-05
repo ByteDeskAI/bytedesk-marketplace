@@ -21,7 +21,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_PLUGIN_ROOT = join(HERE, "..");
 
 const ORCH_BIN = join("bin", "agent-orchestration-mcp");
-const FLEET_BIN = join("bin", "spawn-claude-feature");
+const TOPOLOGY_BIN = join("bin", "ao-topology");
 
 const CLIS = ["claude", "codex", "grok", "kimi", "pi"];
 /** Linux sandbox dependencies of the orchestration backend, keyed as the report names them. */
@@ -178,22 +178,29 @@ function detect({ env, probe, pluginRoot }) {
     ? { available: true, path: orch.path }
     : { available: false, reason: `agent-orchestration-mcp not found (looked: ${orch.tried.join(", ")})` };
 
-  const flt = resolvePluginBinary({
+  // The topology layer ships in the SAME sibling plugin as the broker, under a different
+  // binary: `bin/ao-topology` launches tmux-hosted agent teams, `bin/agent-orchestration-mcp`
+  // serves the sandboxed broker. Two probes, one plugin — a host can have one and not the
+  // other only if the plugin is half-installed, and then each says so for itself.
+  const top = resolvePluginBinary({
+    envName: "TM_TOPOLOGY_BIN",
     env,
-    sibling: join(pluginRoot, "..", "fleet", FLEET_BIN),
+    sibling: join(pluginRoot, "..", "agent-orchestration", TOPOLOGY_BIN),
     cacheDir: home,
-    pluginName: "fleet",
-    binRel: FLEET_BIN,
+    pluginName: "agent-orchestration",
+    binRel: TOPOLOGY_BIN,
     dbg,
   });
-  const fleet = !flt.path
-    ? { available: false, reason: `spawn-claude-feature not found (looked: ${flt.tried.join(", ")})` }
+  // tmux IS the topology layer's runtime — panes are where its agents live — so a host
+  // without tmux has the launcher and no place to run it.
+  const topology = !top.path
+    ? { available: false, reason: `ao-topology not found (looked: ${top.tried.join(", ")})` }
     : !tmux.available
-      ? { available: false, path: flt.path, reason: "needs tmux, which is not on PATH" }
-      : { available: true, path: flt.path };
+      ? { available: false, path: top.path, reason: "needs tmux, which is not on PATH" }
+      : { available: true, path: top.path };
 
   return {
-    backends: { orchestration, fleet, tmux, manual: { available: true } },
+    backends: { topology, orchestration, tmux, manual: { available: true } },
     clis,
     sandbox,
   };
@@ -226,8 +233,8 @@ export function renderCaps(report) {
     }`;
   return [
     "backends",
+    line("topology", report.backends.topology),
     line("orchestration", report.backends.orchestration),
-    line("fleet", report.backends.fleet),
     line("tmux", report.backends.tmux),
     line("manual", report.backends.manual, "the floor — always available"),
     "clis",

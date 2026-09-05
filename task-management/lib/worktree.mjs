@@ -37,6 +37,20 @@ const DEFAULT_SHARE = [
   { path: ".env.local", mode: "copy" },
 ];
 
+/**
+ * Artifacts tm itself drops in a task worktree, which git must never see.
+ *
+ * Every dispatch backend writes the handoff to `.tm-dispatch-prompt.md` in the
+ * worktree root (dispatch/tmux.mjs `PROMPT_FILE`, and dispatch/topology.mjs
+ * re-exports it). Untracked, it makes the checkout dirty — and a dirty consumer
+ * is not cosmetic: agent-orchestration refuses a `write` run whose consumer has
+ * anything in `git status --porcelain` (AO_CONSUMER_DIRTY), so an artifact tm
+ * left behind on a previous dispatch blocks the next one. Excluding them at
+ * CREATION is what makes that unreachable — a name added here is ignored before
+ * any backend can write it, rather than after.
+ */
+const TM_WORKTREE_ARTIFACTS = [".tm-dispatch-prompt.md"];
+
 /** How deep `**` scans. Deep enough for a workspace layout, shallow enough to stay instant. */
 const SCAN_DEPTH = 6;
 
@@ -147,6 +161,10 @@ export function applyShares(worktree, { p = paths(), config = readConfig(p) } = 
         continue;
       }
       if (present(join(worktree, rel))) {
+        // Still ignore it: a share left by an earlier provision is just as untracked
+        // as one placed now, and skipping the exclude here is how a re-dispatch
+        // inherited a dirty consumer.
+        ensureIgnored(worktree, root, rel);
         applied.push({ ...entry, ok: false, reason: "already exists in the worktree" });
         continue;
       }
@@ -176,6 +194,16 @@ function ensureIgnored(worktree, root, rel) {
   const current = existsSync(file) ? readFileSync(file, "utf8") : "";
   if (current.split("\n").includes(rel)) return;
   writeFileSync(file, `${current}${current.endsWith("\n") || !current ? "" : "\n"}${rel}\n`);
+}
+
+/**
+ * Exclude every artifact tm puts in a worktree, before anything can write one.
+ * Called from createWorktree so it covers `share: false` checkouts too — the
+ * dispatch prompt lands in those exactly the same way.
+ */
+export function ignoreTmArtifacts(worktree, root) {
+  for (const rel of TM_WORKTREE_ARTIFACTS) ensureIgnored(worktree, root, rel);
+  return [...TM_WORKTREE_ARTIFACTS];
 }
 
 function manifestFile(worktree) {
@@ -244,6 +272,7 @@ export function createWorktree(task, { base = "HEAD", share = true, p = paths(),
   } catch (err) {
     throw new Error(`git worktree add failed: ${String(err.stderr || err.message).trim()}`);
   }
+  ignoreTmArtifacts(path, p.root);
   const shared = share ? applyShares(path, { p, config }) : [];
   if (read(task.id, p)) update(task.id, { worktree: path, branch }, p);
   return { path, branch, shared };

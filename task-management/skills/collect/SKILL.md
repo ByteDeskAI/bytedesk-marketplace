@@ -8,7 +8,7 @@ argument-hint: "<TM-id>"
 # Collect
 
 Each backend's completion signal (orchestration terminal state, tmux session
-gone, fleet merge/error) normalizes through one write path. The worker closes
+gone, topology's session gone) normalizes through one write path. The worker closes
 the task with `tm done`; this verb records how that ended.
 
 ## When to use

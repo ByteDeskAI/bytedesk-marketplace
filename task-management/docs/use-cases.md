@@ -478,8 +478,8 @@ TM_HOSTCAPS_DEBUG=1 .bytedesk/task-management/bin/tm caps --json
 ```
 
 No MCP tool — shell the CLI or hit HTTP `GET /api/caps`. Report shape:
-`{ backends: { orchestration, fleet, tmux, manual }, clis, sandbox }`. `manual` is always
-available. Overrides: `TM_ORCHESTRATION_BIN`, `TM_FLEET_BIN`. Probe order for plugin
+`{ backends: { topology, orchestration, tmux, manual }, clis, sandbox }`. `manual` is always
+available. Overrides: `TM_ORCHESTRATION_BIN`, `TM_TOPOLOGY_BIN`. Probe order for plugin
 bins: env → sibling marketplace checkout → `~/.claude/plugins/**`. CLIs:
 `claude|codex|grok|kimi` on PATH. Sandbox: `bwrap`, `systemd-run`, `slirp4netns`.
 
@@ -499,7 +499,7 @@ PATH)` is a successful probe.
 
 **Scenario** — The human already decided (label `ready-for-agent`). This session must not
 implement the card. The agent hands it to a worker: claim, start (WIP applies), worktree,
-handoff, spawn. Backends, richest first: **orchestration → fleet → tmux → manual**.
+handoff, spawn. Backends, richest first: **topology → tmux → orchestration → manual**.
 
 **When to use** — A labelled, unblocked card. "Run this on an agent." Pin a backend when
 the fallback would land in a harness nobody is watching.
@@ -511,7 +511,7 @@ the fallback would land in a harness nobody is watching.
 .bytedesk/task-management/bin/tm caps --json
 .bytedesk/task-management/bin/tm dispatch TM-014
 .bytedesk/task-management/bin/tm dispatch TM-014 --backend orchestration
-.bytedesk/task-management/bin/tm dispatch TM-014 --backend fleet
+.bytedesk/task-management/bin/tm dispatch TM-014 --backend topology
 .bytedesk/task-management/bin/tm dispatch TM-014 --backend tmux
 .bytedesk/task-management/bin/tm dispatch TM-014 --backend manual
 .bytedesk/task-management/bin/tm dispatch TM-014 --steal
@@ -524,8 +524,8 @@ held claim, or no backend (`tried` lists why). `--backend` skips the walk. Confi
 
 | Backend | What starts | Distinguishing fact |
 |---|---|---|
-| `orchestration` | agent-orchestration MCP `spawn` | idempotency key `<task>-<session>` |
-| `fleet` | `spawn-claude-feature` | `CLAUDE_SESSION_TICKET` so the recursion guard engages |
+| `topology` | `ao-topology launch --consumer <tm worktree>` | reuses tm's worktree — one checkout per task |
+| `orchestration` | agent-orchestration MCP `spawn` | demoted; derives its own detached worktree. Idempotency key `<task>-<session>` |
 | `tmux` | session `tm-<id>` | durable prompt at `<worktree>/.tm-dispatch-prompt.md` |
 | `manual` | nothing | prints the commands; never unavailable |
 
@@ -638,7 +638,7 @@ The human asks what happened to that run.
 MCP: `tm_collect` `{ "id": "TM-014" }`.
 HTTP: `POST /api/task/TM-014/collect`. Signals: orchestration terminal states
 `succeeded|failed|cancelled|timed_out|rejected|recovery_required`; tmux session `tm-<id>`
-gone; fleet ticket event `merge` → done, `error` → failed; `manual` has nothing to collect.
+gone; topology's tmux session gone; `manual` has nothing to collect.
 Returns `{ ok, outcome, downgraded?, parked? }` or `{ ok, pending: true }` while the worker
 runs. `blocked`/`failed` on still-`in_progress` parks with the summary and releases the
 claim. Comment + `task_result` event. Refusal: not found; never dispatched; no collector.
