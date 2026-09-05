@@ -8,7 +8,8 @@
 import { describe, it, after } from "node:test";
 import assert from "node:assert/strict";
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
+import { tmpdir } from "node:os";
 import { cleanup, tempStore } from "./helpers.mjs";
 import { OPERATIONS, applyOps, digestOps, previewOps , journalPath, recoverInterruptedApply } from "../../lib/planner-ops.mjs";
 import { create, list, read, readEvents, state, update, writeConfig, writeState } from "../../lib/store.mjs";
@@ -549,5 +550,39 @@ describe("an undo that cannot finish says so", () => {
     assert.ok(thrown.rollbackIncomplete.includes(existing.id), "including the record left edited");
     assert.equal(list("task", {}, p).length, 2, "the created record really is still there");
     assert.ok(readEvents(p).some((e) => e.event === "planner_apply_rolled_back" && e.stuck?.length));
+  });
+});
+
+describe("the journal is input, not a value this process computed", () => {
+  it("reserves interleaved ids, so two operations never collide on one", () => {
+    const p = store();
+    writeConfig({ requireEpic: false }, p);
+    // `nextId` is max(existing)+1 read off the directory, so a reservation is only safe if it
+    // interleaves with the write: reserve, create, reserve. Reserve three up front and every one
+    // is the same number, which is the clash where `fileFor` matches by prefix and the loser
+    // becomes permanently unaddressable.
+    const ops = [1, 2, 3].map((n) => ({ op: "task.create", args: { title: `Task ${n}`, body: "b", acceptance: ["x"] } }));
+    const pre = previewOps(ops, p);
+    const res = applyOps(pre.resolved, { approvedDigest: pre.digest, stamp: { actor: "m" } }, p);
+    assert.equal(new Set(res.created).size, 3, `ids collided: ${res.created.join(", ")}`);
+    assert.equal(list("task", {}, p).length, 3);
+    for (const id of res.created) assert.ok(read(id, p), `${id} must be addressable`);
+  });
+
+  it("will not restore a snapshot to a file outside the store", () => {
+    const p = store();
+    const victim = join(tmpdir(), `tm-journal-probe-${process.pid}.md`);
+    mkdirSync(dirname(journalPath(p)), { recursive: true });
+    // `undoLanding` passes `write(doc, p)` WITH its file — correct, and the fix for the
+    // two-files-per-id bug — and `write` uses that path as the target. The journal is read back
+    // off disk after a crash, so it is input: `created` was checked for being an array and
+    // `touched` was checked for nothing at all.
+    writeFileSync(journalPath(p), JSON.stringify({
+      session: null, digest: "d", started: new Date().toISOString(), created: [],
+      touched: [{ id: "EP-001", kind: "epic", title: "E", status: "open", file: victim }],
+      previousActiveEpic: null,
+    }));
+    recoverInterruptedApply(p);
+    assert.equal(existsSync(victim), false, `a journal wrote to ${victim}`);
   });
 });

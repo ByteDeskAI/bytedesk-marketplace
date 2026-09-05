@@ -254,6 +254,9 @@
 - **Generated runtime files stay out of git.** Store `.gitignore` now names `dashboard.pid` and `dashboard.port` explicitly (still covered by `dashboard.*`), plus `bin` (generated launchers) and `events.json` / `events.jsonl`. Bootstrap and `.bytedesk/task-management/bin/tm doctor --fix` write `.bytedesk/.gitignore` so `worktrees/` is ignored without swallowing the store. Dashboard `.gitignore` also drops Vite/tsc leftovers (`.vite`, `*.tsbuildinfo`).
 
 ### Fixed
+- **Crash recovery ran without the store lock (TM-086).** `reopenIfStranded` called it unlocked, so
+  the undo's unlinks could remove a record another process was between reserving and writing — a
+  window the id reservation makes more likely, not less.
 - **The crash-recovery sweep deleted other people's work (TM-086).** Introduced in this same round
   and caught by the review that followed it. Recovery removed every record stamped at or after the
   interrupted landing began, reasoning that the landing held the store lock so nothing else could

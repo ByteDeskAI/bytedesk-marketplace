@@ -95,6 +95,7 @@ import {
   state,
   unblockDependents,
   update,
+  withLock,
   writeState,
   storeBoard,
   boardOwner,
@@ -131,7 +132,11 @@ function reopenIfStranded(id, p) {
     // half a landing on the board. Undo that first, from the journal the landing wrote — reopening
     // the session without it would invite the operator to approve the same set again on top of
     // the part that already landed.
-    recoverInterruptedApply(p);
+    //
+    // Under the store lock, as `applyOps` already does it. The undo unlinks files, and doing that
+    // unlocked meant it could remove a record another process was between reserving and writing —
+    // which matters more now that a landing reserves its ids, not less.
+    withLock(p, () => recoverInterruptedApply(p));
     mutateSession(id, () => ({ status: "open" }), p);
     logEvent("planner_apply_abandoned", { id }, p);
   } catch {
