@@ -1,0 +1,5 @@
+
+> @bytedesk/agent-orchestration@0.4.0 design-system:check
+> design-client sync --check
+
+design-client: ok: agent-orchestration@2.2.1, 31 files match lock.json

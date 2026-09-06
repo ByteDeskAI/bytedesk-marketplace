@@ -1,5 +1,10 @@
 # TM-111: diagnose before repair
 
+This is the accepted historical criteria 1/3 checkpoint at `975b8de`, against
+`834f4ce`. Reproduce `diagnose.mjs` from that checkpoint: the original test has
+since been repaired. Current criterion 2 work and mutation evidence are in
+[AC2.md](AC2.md); the historical logs below remain unchanged.
+
 ## Criterion 1: a missing fixture precondition, not absent mount ordering
 
 At main `834f4ce`, the unchanged test fails with an empty HOME and passes when a

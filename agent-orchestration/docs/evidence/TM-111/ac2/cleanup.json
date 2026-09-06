@@ -1,0 +1,13 @@
+{
+  "ownedSessionHost": {
+    "pid": 3095884,
+    "fixtureRoot": "/tmp/ao-clean-install-hbAj8i",
+    "started": "2026-09-06T02:17:15-04:00",
+    "contractRunWindow": [
+      "2026-09-06T02:17:10-04:00",
+      "2026-09-06T02:17:18-04:00"
+    ],
+    "signal": "SIGTERM"
+  },
+  "otherExistingSessionHosts": "preserved"
+}

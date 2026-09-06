@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -70,7 +70,7 @@ test("non-Codex sandboxes do not receive INITIAL_AGENT_MODE", { skip: process.pl
   }
 });
 
-test("write provider sandboxes make only the worktree writable and remount Git metadata read-only", { skip: process.platform === "win32" }, async () => {
+test("write provider sandboxes make only the worktree writable and remount Git metadata read-only", { skip: process.platform === "win32" }, async (t) => {
   const root = await mkdtemp(join(os.tmpdir(), "ao-sandbox-test-"));
   const workspace = join(root, "workspace");
   const commonGitDir = join(root, "consumer.git");
@@ -79,6 +79,16 @@ test("write provider sandboxes make only the worktree writable and remount Git m
   try {
     await Promise.all([mkdir(workspace), mkdir(commonGitDir), mkdir(sandboxTempDir), mkdir(brokerControlDir)]);
     await writeFile(join(workspace, ".git"), `gitdir: ${join(commonGitDir, "worktrees", "fixture")}\n`);
+    // This case models an authenticated provider bootstrap. The planner mounts
+    // auth.json only when it exists in the host home; an empty CI home therefore
+    // cannot exercise the read-only auth/ancestor ordering assertion below.
+    // Never borrow developer credentials: this synthetic file is copied only by
+    // the planner, is not a usable credential, and no provider process is started.
+    const fixtureHome = join(root, "fixture-host-home");
+    await mkdir(join(fixtureHome, ".codex"), { recursive: true });
+    const syntheticAuth = '{"fixture":"TM-111 synthetic bootstrap; not a credential"}\n';
+    await writeFile(join(fixtureHome, ".codex", "auth.json"), syntheticAuth);
+    t.mock.method(os, "homedir", () => fixtureHome); // Restored automatically when this test completes.
     const args = await sandboxArguments({ providerId: "codex", pluginRoot: "/plugin", workspacePath: workspace, commonGitDir, sandboxTempDir, brokerControlDir, providerExecutable: "/usr/bin/true", permissionProfile: "write" });
     assert.deepEqual(args.slice(0, 6), ["--unshare-all", "--die-with-parent", "--new-session", "--tmpfs", "/", "--proc"]);
     assert.equal(args.includes("--share-net"), false, "the provider must not share the host network namespace");
@@ -109,8 +119,23 @@ test("write provider sandboxes make only the worktree writable and remount Git m
     assert.equal(args.includes(sandboxTempDir), true);
     assert.equal(args.some((value) => value.startsWith("/dev/shm/agent-orchestration-") && value !== sandboxTempDir), false, "sandbox destinations must not expose broker tmpfs ancestry");
     assert.match(args[providerAuthReadOnly + 1], new RegExp(`^${brokerControlDir}/provider-home/`));
+    assert.equal(await readFile(args[providerAuthReadOnly + 1], "utf8"), syntheticAuth, "the read-only mount must expose the broker-staged synthetic bootstrap copy");
     assert.ok(markerReadOnly > providerAuthReadOnly && commonReadOnly > markerReadOnly);
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("provider sandbox without credentials protects home ancestors without inventing an auth mount", { skip: process.platform === "win32" }, async (t) => {
+  const fixtureHome = await mkdtemp(join(os.tmpdir(), "ao-empty-provider-home-"));
+  try {
+    t.mock.method(os, "homedir", () => fixtureHome);
+    const args = await sandboxArgsFor({ providerId: "codex", permissionProfile: "write" });
+    const homes = "/agent-orchestration-runtime/provider-home";
+    const rootMount = args.findIndex((value, index) => value === "--bind" && args[index + 2] === homes);
+    const homeMount = args.findIndex((value, index) => value === "--bind" && args[index + 2] === `${homes}/codex`);
+    assert.ok(rootMount > 0 && homeMount > rootMount, "home mountpoints remain protected even without bootstrap credentials");
+    assert.equal(args.includes(`${homes}/codex/auth.json`), false,
+      "no auth input means no auth file to mount; it must not borrow ambient host credentials");
+  } finally { await rm(fixtureHome, { recursive: true, force: true }); }
 });
 
 test("sandbox execution revalidates provider-specific executable authority", { skip: process.platform === "win32" }, async () => {

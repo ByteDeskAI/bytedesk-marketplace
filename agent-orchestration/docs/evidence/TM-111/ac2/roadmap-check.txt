@@ -1,0 +1,5 @@
+
+> @bytedesk/agent-orchestration@0.4.0 roadmap:check
+> node scripts/roadmap.mjs --check ROADMAP.md
+
+ROADMAP OK: 55 tasks, 96 unlocks, 6 goals, 7 trajectories, 7 gaps.

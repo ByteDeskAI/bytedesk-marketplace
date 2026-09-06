@@ -1,0 +1,29 @@
+
+> @bytedesk/agent-orchestration@0.4.0 build:check
+> node scripts/check-bundle.mjs
+
+
+  ../../../../../../../../tmp/ao-build-check-Po1GP3/host-launcher.cjs  6.3kb
+
+⚡ Done in 8ms
+
+  .../../../../../../../tmp/ao-build-check-Po1GP3/provider-sandbox.cjs  47.6kb
+
+⚡ Done in 21ms
+
+  ../../../../../../../../tmp/ao-build-check-Po1GP3/probe-worker.cjs  941.5kb
+
+⚡ Done in 69ms
+
+  ../../../../../../../../tmp/ao-build-check-Po1GP3/cli.cjs  1.1mb ⚠️
+
+⚡ Done in 76ms
+
+  ../../../../../../../../tmp/ao-build-check-Po1GP3/mcp.cjs  1.7mb ⚠️
+
+⚡ Done in 84ms
+
+  ...../../../../../../tmp/ao-build-check-Po1GP3/claude-agent-acp.mjs  2.2mb ⚠️
+  ..../../../tmp/ao-build-check-Po1GP3/claude-agent-acp.mjs.LEGAL.txt  197b 
+
+⚡ Done in 152ms

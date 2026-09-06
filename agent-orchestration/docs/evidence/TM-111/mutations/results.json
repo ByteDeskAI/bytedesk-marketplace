@@ -1,0 +1,60 @@
+{
+  "productionSourceUnchanged": true,
+  "productionSourceSha256": "8f3e8ca725d159182b4fa0990e1a2fd4e372379d2ee3f331c6c0a766bb06b0d2",
+  "rows": [
+    {
+      "name": "unmutated-before",
+      "exitCode": 0,
+      "sourceSha256": "8f3e8ca725d159182b4fa0990e1a2fd4e372379d2ee3f331c6c0a766bb06b0d2",
+      "intendedAssertionRejected": false
+    },
+    {
+      "name": "remove-provider-home-root",
+      "exitCode": 1,
+      "sourceSha256": "4fbd6a6d48b2e8c1861aec042deab42ebee6c5ceb1681ce9ae3944ed5641ada0",
+      "intendedAssertionRejected": true
+    },
+    {
+      "name": "remove-provider-home",
+      "exitCode": 1,
+      "sourceSha256": "760b2f28e2e41ff8ee0d81dfb91102dd26074595f1341fed9777865431738683",
+      "intendedAssertionRejected": true
+    },
+    {
+      "name": "remove-all-ancestors",
+      "exitCode": 1,
+      "sourceSha256": "489595a7a1f0a2364dc96a4a14d11dabbaae981f73abe061c85756f678030b25",
+      "intendedAssertionRejected": true
+    },
+    {
+      "name": "remove-auth-mount",
+      "exitCode": 1,
+      "sourceSha256": "9db69e2403b41bd0225f1a1cde2a3063f095e84821aee8d92b612d06013c87ef",
+      "intendedAssertionRejected": true
+    },
+    {
+      "name": "make-auth-writable",
+      "exitCode": 1,
+      "sourceSha256": "269b2108fdeaa8e3b4ccfef18b1193f5b56b15bf517659595b471fb1a7b7d1aa",
+      "intendedAssertionRejected": true
+    },
+    {
+      "name": "reverse-ancestor-order",
+      "exitCode": 1,
+      "sourceSha256": "c8a129ea6c2ea61df70cfdcd99a9998d28e864a53195711d4765bbc906e1bcf9",
+      "intendedAssertionRejected": true
+    },
+    {
+      "name": "auth-before-ancestors",
+      "exitCode": 1,
+      "sourceSha256": "89a0dc5724f9485e93afdcd0adc5637df47a56d8db09b26cec38a65c17d4ae8b",
+      "intendedAssertionRejected": true
+    },
+    {
+      "name": "restored-after",
+      "exitCode": 0,
+      "sourceSha256": "8f3e8ca725d159182b4fa0990e1a2fd4e372379d2ee3f331c6c0a766bb06b0d2",
+      "intendedAssertionRejected": false
+    }
+  ]
+}
