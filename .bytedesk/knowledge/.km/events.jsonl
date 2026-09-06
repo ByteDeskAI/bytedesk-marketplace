@@ -37,3 +37,10 @@
 {"ts":"2026-09-05T15:10:24.420Z","kind":"concept_write","session":"4e1d7087-d606-432e-9341-3ce779b4baf8","id":"architecture/the-goal-planner-s-governed-proposal-boundary","type":"Architecture"}
 {"ts":"2026-09-06T02:29:24.984Z","kind":"concept_write","session":"4e1d7087-d606-432e-9341-3ce779b4baf8","id":"decisions/decision-2026-09-06","type":"Decision"}
 {"ts":"2026-09-06T02:29:25.013Z","kind":"hook_decision_captured","session":"4e1d7087-d606-432e-9341-3ce779b4baf8","title":"Decision 2026-09-06"}
+{"ts":"2026-09-06T22:47:43.263Z","kind":"hook_session_start","session":"27ec6ace-ff37-4765-b058-74f8a60e917e"}
+{"ts":"2026-09-06T22:47:46.217Z","kind":"hook_session_start","session":"620728e3-dd3b-4ac4-9a5a-ea2ba1584035"}
+{"ts":"2026-09-06T22:49:57.916Z","kind":"concept_write","session":"4e1d7087-d606-432e-9341-3ce779b4baf8","id":"decisions/decision-2026-09-06-2","type":"Decision"}
+{"ts":"2026-09-06T22:49:57.937Z","kind":"hook_decision_captured","session":"4e1d7087-d606-432e-9341-3ce779b4baf8","title":"Decision 2026-09-06"}
+{"ts":"2026-09-06T22:51:15.907Z","kind":"hook_session_start","session":"13edefc8-1c15-42af-b137-7c24209da2f2"}
+{"ts":"2026-09-06T23:23:44.728Z","kind":"hook_pre_compact","session":"4e1d7087-d606-432e-9341-3ce779b4baf8"}
+{"ts":"2026-09-06T23:25:20.991Z","kind":"hook_session_start","session":"4e1d7087-d606-432e-9341-3ce779b4baf8"}
