@@ -11,7 +11,7 @@ on:
       - ".github/quarantines/tm111.json"
       - ".github/scripts/tm111-quarantine.mjs"
       - ".github/tests/tm111-quarantine.test.mjs"
-      - ".github/tests/fixtures/tm111-runner-failure.tap"
+      - ".github/tests/fixtures/tm111-runner-failure.json"
   pull_request:
     paths:
       - "agent-orchestration/**"
@@ -20,7 +20,7 @@ on:
       - ".github/quarantines/tm111.json"
       - ".github/scripts/tm111-quarantine.mjs"
       - ".github/tests/tm111-quarantine.test.mjs"
-      - ".github/tests/fixtures/tm111-runner-failure.tap"
+      - ".github/tests/fixtures/tm111-runner-failure.json"
 
 jobs:
   unit-build-contracts:

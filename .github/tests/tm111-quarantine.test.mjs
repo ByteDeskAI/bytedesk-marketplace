@@ -40,6 +40,6 @@ test('expiry, missing owner, missing or duplicated case cannot silently extend t
 });
 
 test('captured hosted Node assertion diagnostic retains its exact narrow exception', () => {
-  const stdout = readFileSync(new URL('./fixtures/tm111-runner-failure.tap', import.meta.url), 'utf8');
+  const { stdout } = JSON.parse(readFileSync(new URL('./fixtures/tm111-runner-failure.json', import.meta.url), 'utf8'));
   assert.equal(classify({ status: 1, stdout }), 'quarantined');
 });
