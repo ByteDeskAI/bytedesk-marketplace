@@ -1,19 +1,30 @@
 name: agent-orchestration
 
 on:
+  schedule:
+    - cron: "0 8 * * *"
   push:
     paths:
       - "agent-orchestration/**"
       - ".claude-plugin/marketplace.json"
       - ".github/workflows/agent-orchestration.yml"
+      - ".github/quarantines/tm111.json"
+      - ".github/scripts/tm111-quarantine.mjs"
+      - ".github/tests/tm111-quarantine.test.mjs"
+      - ".github/tests/fixtures/tm111-runner-failure.tap"
   pull_request:
     paths:
       - "agent-orchestration/**"
       - ".claude-plugin/marketplace.json"
       - ".github/workflows/agent-orchestration.yml"
+      - ".github/quarantines/tm111.json"
+      - ".github/scripts/tm111-quarantine.mjs"
+      - ".github/tests/tm111-quarantine.test.mjs"
+      - ".github/tests/fixtures/tm111-runner-failure.tap"
 
 jobs:
-  test-build-install:
+  unit-build-contracts:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -34,9 +45,74 @@ jobs:
         run: npm run build --prefix agent-orchestration
       - name: Tracked bundle drift
         run: git diff --exit-code -- agent-orchestration/dist
-      - name: Clean installed-cache contract
-        run: npm run test:contract --prefix agent-orchestration
+      - name: Quarantine refusal and expiry tests
+        run: node --test .github/tests/tm111-quarantine.test.mjs
+      - name: Bundle and other installed-cache contracts (TM-111 runs separately)
+        working-directory: agent-orchestration
+        run: |
+          npm run build:check
+          contracts=()
+          for file in tests/contract/*.test.mjs; do
+            if [[ "$file" != tests/contract/clean-install.test.mjs ]]; then contracts+=("$file"); fi
+          done
+          test "${#contracts[@]}" -gt 0
+          node --test "${contracts[@]}"
       - name: Manifest contracts
         run: |
           node -e 'const fs=require("fs"); const c=JSON.parse(fs.readFileSync("agent-orchestration/.codex-plugin/plugin.json")); if("version" in c) process.exit(1)'
           node -e 'const fs=require("fs"); const c=JSON.parse(fs.readFileSync("agent-orchestration/.claude-plugin/plugin.json")); if("version" in c) process.exit(1)'
+
+  installed-cache-quarantine:
+    name: "QUARANTINED TM-111 — Ryan Helms — expires 2026-09-13 UTC"
+    if: github.event_name != 'schedule'
+    needs: unit-build-contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: agent-orchestration/package-lock.json
+      - name: Install existing sandbox prerequisites
+        run: sudo apt-get update && sudo apt-get install --yes bubblewrap slirp4netns
+      - run: npm ci --prefix agent-orchestration --ignore-scripts
+      - name: Attempt exact contract; tolerate only recorded runner initialization refusal
+        run: node .github/scripts/tm111-quarantine.mjs
+      - name: Publish explicit coverage result and raw contract output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TM-111-quarantine-coverage
+          path: tm111-ci-result/
+          if-no-files-found: error
+          retention-days: 14
+
+  quarantine-expiry:
+    name: "TM-111 quarantine expiry — owner Ryan Helms"
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Fail expired quarantine even without a source change
+        run: node .github/scripts/tm111-quarantine.mjs --check-expiry
+
+  test-build-install:
+    if: always() && github.event_name != 'schedule'
+    needs: [unit-build-contracts, installed-cache-quarantine]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require both strict gates and the explicitly reported quarantine result
+        env:
+          STRICT_RESULT: ${{ needs.unit-build-contracts.result }}
+          QUARANTINE_RESULT: ${{ needs.installed-cache-quarantine.result }}
+        run: |
+          test "$STRICT_RESULT" = success
+          test "$QUARANTINE_RESULT" = success
+          echo 'Gate complete; inspect TM-111 quarantine coverage result before claiming installed-cache acceptance.' >> "$GITHUB_STEP_SUMMARY"

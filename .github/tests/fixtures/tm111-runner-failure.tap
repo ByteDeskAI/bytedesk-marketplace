@@ -1,0 +1,41 @@
+# Historical failure block: GitHub run34016794318. Singleton summary adapted for classifier fixture.
+TAP version 13
+# Subtest: tracked install bundle starts from plugin cwd but resolves only explicit consumerCwd
+not ok 1 - tracked install bundle starts from plugin cwd but resolves only explicit consumerCwd
+  ---
+  duration_ms: 2311.470384
+  type: 'test'
+  location: '/home/runner/work/bytedesk-marketplace/bytedesk-marketplace/agent-orchestration/tests/contract/clean-install.test.mjs:44:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    {
+      "id": "kimi",
+      "ready": false,
+      "reason": "provider_authentication_entitlement_or_acp_session_unavailable",
+      "selectedExecutable": null,
+      "sessionProbe": {
+        "ok": false,
+        "error": "Command failed: /usr/bin/systemd-run --user --scope --collect --quiet --unit=agent-orchestration-probe-kimi-85722949-7996-47e6-9532-176c93f80244 --property=RuntimeMaxSec=30s --property=TimeoutStopSec=2s --property=KillMode=control-group --property=MemoryMax=2G --property=TasksMax=128 /usr/bin/prlimit --core=0 --fsize=268435456 -- /opt/hostedtoolcache/node/22.23.2/x64/bin/node /tmp/ao-clean-install-GuLxLu/cache/agent-orchestration/dist/probe-worker.cjs /tmp/ao-clean-install-GuLxLu/cache/agent-orchestration /tmp/ao-clean-install-GuLxLu/state /tmp/ao-clean-install-GuLxLu/cache/agent-orchestration kimi /tmp/ao-clean-install-GuLxLu/home/.local/share/uv/tools/kimi-cli/bin/kimi\nAO_PROVIDER_PROBE_FAILED: ACP agent exited before initialize completed (exit=1, signal=null): bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted /proc/4748/ns/net: No such file or directory child failed(1) [agent-orchestration-sandbox] {\"code\":\"AO_INTERNAL\",\"message\":\"slirp4netns exited before readiness (exit=1, signal=null).\"}\n"
+      }
+    }
+    
+    false !== true
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/runner/work/bytedesk-marketplace/bytedesk-marketplace/agent-orchestration/tests/contract/clean-install.test.mjs:126:16)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
