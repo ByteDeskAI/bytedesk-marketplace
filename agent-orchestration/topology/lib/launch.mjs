@@ -26,8 +26,15 @@ export function candidateLabel(candidate) {
 function describeAgents(spec, selfId) {
   return spec.agents
     .map((agent) => {
-      const chain = agent.candidates.map(candidateLabel).join(" → ");
-      return `- \`${agent.id}\` — role ${agent.role}, providers ${chain}${agent.id === selfId ? " ← you" : ""}`;
+      const you = agent.id === selfId ? " ← you" : "";
+      // A participant is a whole team behind one address. Say so: the conductor addresses it exactly
+      // like an agent, but knowing there are several people back there changes how you brief it, and
+      // it has no provider chain to report.
+      if (agent.workflow) {
+        return `- \`${agent.id}\` — a TEAM running the \`${agent.workflow}\` workflow. Address it like any other agent; its own conductor answers you.${you}`;
+      }
+      const chain = (agent.candidates ?? []).map(candidateLabel).join(" → ");
+      return `- \`${agent.id}\` — role ${agent.role}, providers ${chain}${you}`;
     })
     .join("\n");
 }
@@ -600,6 +607,9 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
       // filled in once the child is actually launched, below — before that they are honestly null
       // rather than optimistically guessed, so a failed child is visible as one.
       ...(item.participant ? { workflow: { name: item.agent.workflow, inputs: item.agent.inputs ?? {}, run_dir: null, session: null, conductor: null } } : {}),
+      // Which fan-out this child came from, so `--to <collective id>` can find its members and a
+      // barrier over the group can too. Absent on a participant that was written out by hand.
+      ...(item.agent.fanout_of ? { fanout_of: item.agent.fanout_of, fanout_item: item.agent.fanout_item ?? null } : {}),
     })),
   };
   await saveRun(spec.run_dir, run);

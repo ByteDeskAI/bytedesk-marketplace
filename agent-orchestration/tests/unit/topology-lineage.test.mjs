@@ -10,6 +10,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { childEnv, lineageFromEnv, lineageRefusal, MAX_DEPTH } from "../../topology/lib/lineage.mjs";
+import { expandForEach, MAX_FANOUT } from "../../topology/lib/spec.mjs";
 
 describe("lineage travels in the environment", () => {
   it("reads nothing at the root, and a full chain below it", () => {
@@ -64,5 +65,44 @@ describe("the refusals that keep a tree finite", () => {
 
   it("has nothing to refuse at the root", () => {
     assert.equal(lineageRefusal({ name: "anything", lineage: null }), null);
+  });
+});
+
+describe("fan-out expands one entry into a team per item", () => {
+  it("names each child after its item, not its position", () => {
+    const agents = [
+      { id: "conductor", role: "orchestrator", cli: "generic" },
+      { id: "per-file", workflow: "review-one", for_each: ["src/a.js", "src/b.js"], inputs: { target: "{{item}}" } },
+    ];
+    const out = expandForEach(agents, {});
+    assert.equal(out.length, 3);
+    // The id is what a conductor types when it wants one of them. "per-file.1" is a thing nobody can
+    // hold in their head across a run; the item is.
+    assert.deepEqual(out.slice(1).map((a) => a.id), ["per-file.src-a-js", "per-file.src-b-js"]);
+    assert.deepEqual(out.slice(1).map((a) => a.fanout_of), ["per-file", "per-file"]);
+    // The item reaches the child through its own inputs, which is how the children differ at all.
+    assert.deepEqual(out.slice(1).map((a) => a.inputs.target), ["src/a.js", "src/b.js"]);
+    assert.equal(out[1].for_each, undefined, "the expanded copy is not itself a fan-out");
+  });
+
+  it("takes a comma-separated string, because an input can only ever supply one", () => {
+    const out = expandForEach([{ id: "r", workflow: "w", for_each: "{{inputs.files}}" }], { inputs: { files: "a.js, b.js" } });
+    assert.deepEqual(out.map((a) => a.id), ["r.a-js", "r.b-js"]);
+  });
+
+  it("resolves a slug collision rather than silently losing a child", () => {
+    // "src/a.js" and "src-a.js" both slug to "src-a-js". Collapsing them would drop a reviewer and
+    // look like it worked, which is the worst available outcome.
+    const out = expandForEach([{ id: "r", workflow: "w", for_each: ["src/a.js", "src-a.js"] }], {});
+    assert.equal(new Set(out.map((a) => a.id)).size, 2);
+    assert.deepEqual(out.map((a) => a.id), ["r.src-a-js", "r.src-a-js-2"]);
+  });
+
+  it("refuses an empty list and one wider than the cap", () => {
+    assert.throws(() => expandForEach([{ id: "r", workflow: "w", for_each: [] }], {}), (e) => e.code === "TOPOLOGY_FANOUT_EMPTY");
+    const wide = Array.from({ length: MAX_FANOUT + 1 }, (_, i) => `f${i}`);
+    // Each item is a whole tmux session and mailbox, not a pane — width is the cost that matters.
+    assert.throws(() => expandForEach([{ id: "r", workflow: "w", for_each: wide }], {}), (e) => e.code === "TOPOLOGY_FANOUT_TOO_WIDE");
+    assert.equal(expandForEach([{ id: "r", workflow: "w", for_each: wide }], {}, { maxFanout: 99 }).length, MAX_FANOUT + 1);
   });
 });

@@ -114,6 +114,19 @@ export async function sendMessage({ runDir, from, to, stage, body, contract, rou
   const deliveries = [];
   const notices = [];
 
+  // A fan-out is addressed collectively by the id that produced it: `--to per-file` reaches every
+  // `per-file.<item>`. The conductor asked for one team and got N, which is an implementation detail
+  // of the fan-out and not something it should have to track — and `wait --from per-file` then
+  // barriers over all of them for the same reason.
+  const expanded = [];
+  for (const requested of to) {
+    if (known.has(requested)) { expanded.push(requested); continue; }
+    const members = run.agents.filter((agent) => agent.fanout_of === requested).map((agent) => agent.id);
+    if (members.length > 0) expanded.push(...members);
+    else expanded.push(requested);
+  }
+  to = expanded;
+
   for (const requested of to) {
     // `route` is the policy hook. When supplied it decides where this message actually lands; the
     // intended recipient is preserved either way so the receiver knows what was meant.
@@ -216,9 +229,19 @@ function replyFileNameFor(messageId) {
 }
 
 /** Messages an agent still owes an answer for, optionally filtered by agent ids. */
+/** Resolve a collective fan-out id to its members; anything else is returned unchanged. */
+export function expandFanout(run, ids) {
+  const known = new Set(run.agents.map((agent) => agent.id));
+  return ids.flatMap((id) => {
+    if (known.has(id)) return [id];
+    const members = run.agents.filter((agent) => agent.fanout_of === id).map((agent) => agent.id);
+    return members.length > 0 ? members : [id];
+  });
+}
+
 export async function pendingReplies(runDir, agentIds) {
   const run = await loadRun(runDir);
-  const ids = agentIds && agentIds.length > 0 ? agentIds : run.agents.map((agent) => agent.id);
+  const ids = agentIds && agentIds.length > 0 ? expandFanout(run, agentIds) : run.agents.map((agent) => agent.id);
   const pending = [];
   for (const agentId of ids) {
     for (const item of await obligations(runDir, run, agentId)) {
@@ -242,7 +265,7 @@ export async function pendingReplies(runDir, agentIds) {
 export async function waitForReplies({ runDir, agentIds, messageId, timeoutMs, pollMs = 3000, onTick }) {
   const started = Date.now();
   const run = await loadRun(runDir);
-  const targets = agentIds && agentIds.length > 0 ? agentIds : run.agents.filter((agent) => agent.role !== "orchestrator").map((agent) => agent.id);
+  const targets = agentIds && agentIds.length > 0 ? expandFanout(run, agentIds) : run.agents.filter((agent) => agent.role !== "orchestrator").map((agent) => agent.id);
   for (;;) {
     const pending = (await pendingReplies(runDir, targets)).filter((item) => !messageId || item.id === messageId);
     if (pending.length === 0) {

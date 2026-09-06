@@ -31,6 +31,15 @@
   `AO_REPLY_TOKEN`, with `AO_REPLY_TO_RUN_DIR` and `AO_REPLY_AS_AGENT` — deliberately not the
   `AO_PARENT_*` names, which point the other way, at the run this agent would itself be the parent
   of. Sharing them would have made one of the two directions silently wrong.
+- **`for_each` fans one participant out into a team per item.** An array, or one comma-separated
+  string so an input can supply it — `{{item}}` and `{{item.<key>}}` reach each child. Children are
+  named after their item (`per-file.src-a-js`), not their position, because the id is what a
+  conductor types and nobody can hold `per-file.1` in their head across a run; a slug collision is
+  resolved rather than allowed to silently drop a child. The group is addressed collectively by the
+  id that produced it — `send --to per-file` reaches every member and `wait --from per-file` barriers
+  over all of them — so the conductor never has to track how wide the fan actually was. Capped at
+  eight (`--max-fanout`): ten *panes* was measured flat at 9.6s, but ten *children* is ten tmux
+  sessions and ten mailboxes, so width costs far more here than depth.
 - **`stop` cascades**, depth-first, journalling `run.child_exited` on the parent as it goes.
   Depth-first because stopping top-down orphans every level below the one that fails. `--no-cascade`
   opts out.

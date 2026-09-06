@@ -115,6 +115,12 @@ export function validateSpec(raw) {
         note(`${where}.inputs must be a map of input name to value, passed to "${normalized.workflow}" when it launches`);
       }
       normalized.inputs = normalized.inputs && typeof normalized.inputs === "object" && !Array.isArray(normalized.inputs) ? normalized.inputs : {};
+      // `for_each` turns one entry into one child per item. An array or a comma-separated string,
+      // matching how `candidates` already accepts both — an input can only ever supply a string, and
+      // a fan-out whose width comes from an input is the whole point.
+      if (normalized.for_each !== undefined && typeof normalized.for_each !== "string" && !Array.isArray(normalized.for_each)) {
+        note(`${where}.for_each must be an array, or one comma-separated string (often "{{inputs.<name>}}")`);
+      }
       // A participant is a worker as far as the mailbox is concerned: it can be briefed and it owes
       // replies. Only a pane-ful agent may be the conductor, which the orchestrator count enforces.
       normalized.role = typeof normalized.role === "string" && normalized.role ? normalized.role : "worker";
@@ -397,11 +403,25 @@ export function materializeSpec(rawSpec, context) {
   const rendered = renderDeep({ ...spec, session, run_dir: runDir }, vars);
   rendered.cwd = absolutize(rendered.cwd, context.consumer);
   containPath(rendered.cwd, context.consumer, "cwd", context);
+  // Fan-out happens BEFORE the per-agent pass, so every expanded child then goes through exactly
+  // the same rendering, containment and cwd resolution as a hand-written entry. Expanding afterwards
+  // would mean the copies skipped checks the original passed.
+  rendered.agents = expandForEach(rendered.agents, vars, context);
   rendered.agents = rendered.agents.map((agent) => {
     const agentVars = { ...vars, agent: { id: agent.id, role: agent.role } };
     const withAgent = renderDeep(agent, agentVars);
     withAgent.cwd = absolutize(withAgent.cwd ?? libraryCwd(withAgent, context) ?? rendered.cwd, context.consumer);
     containPath(withAgent.cwd, context.consumer, `agents.${agent.id}.cwd`, context);
+    // A participant has no provider chain, and running the chain logic over one produced the STRING
+    // "undefined" as its cli plus a candidates array to match. Nothing read it — `prepared` skips
+    // participants before it gets that far — so it sat in the materialized spec looking plausible
+    // and would have surfaced in the first dry-run anyone inspected.
+    if (withAgent.workflow) {
+      delete withAgent.cli;
+      delete withAgent.model;
+      delete withAgent.candidates;
+      return withAgent;
+    }
     // Re-parse the chain after rendering: an input may have supplied "codex:gpt-5,claude:fable".
     const chainSource = withAgent.candidates ? withAgent.candidates.map((c) => (c.model ? `${c.cli}:${c.model}` : c.cli)).join(",") : `${withAgent.cli}:${withAgent.model ?? ""}`;
     withAgent.candidates = candidateList(chainSource).filter((c) => c.cli && c.cli !== "none");
@@ -415,6 +435,51 @@ export function materializeSpec(rawSpec, context) {
   rendered.run_id = context.runId;
   rendered.consumer = context.consumer;
   return rendered;
+}
+
+/** How wide a single fan-out may go before we refuse. Ten PANES was measured flat at 9.6s; ten
+ * CHILDREN is ten tmux sessions and ten mailboxes, so width costs far more than depth here. */
+export const MAX_FANOUT = 8;
+
+/**
+ * Expand every `for_each` participant into one entry per item.
+ *
+ * The item is available to that child as `{{item}}`, and as `{{item.<key>}}` when it is an object,
+ * so a fan-out can pass a whole record down rather than only a string. Ids are derived from the item
+ * so they are stable and readable — `per-file.src-index-js` rather than `per-file.0` — because the
+ * id is what a conductor types when it wants one of them, and a positional index is a thing nobody
+ * can hold in their head across a run.
+ */
+export function expandForEach(agents, vars, context = {}) {
+  const out = [];
+  for (const agent of agents) {
+    if (agent.for_each === undefined) {
+      out.push(agent);
+      continue;
+    }
+    const raw = renderDeep(agent.for_each, vars);
+    const items = Array.isArray(raw) ? raw : String(raw).split(",").map((item) => item.trim()).filter(Boolean);
+    const max = Number.isInteger(context.maxFanout) ? context.maxFanout : MAX_FANOUT;
+    if (items.length === 0) {
+      fail("TOPOLOGY_FANOUT_EMPTY", `agents.${agent.id}.for_each resolved to nothing, so there is no team to launch. Give it a non-empty list, or drop the entry.`);
+    }
+    if (items.length > max) {
+      fail("TOPOLOGY_FANOUT_TOO_WIDE", `agents.${agent.id}.for_each has ${items.length} items; the limit is ${max}. Each one is a whole tmux session and mailbox, not a pane — raise it with --max-fanout if this machine can carry it.`);
+    }
+    const seen = new Set();
+    for (const item of items) {
+      const label = slug(typeof item === "object" && item ? String(item.id ?? item.name ?? JSON.stringify(item)) : String(item));
+      let id = `${agent.id}.${label}`;
+      // Two items that slug to the same thing would silently collapse into one child, so the
+      // collision is resolved rather than ignored — one lost reviewer is worse than an ugly id.
+      let n = 2;
+      while (seen.has(id)) id = `${agent.id}.${label}-${n++}`;
+      seen.add(id);
+      const { for_each: _dropped, ...rest } = agent;
+      out.push(renderDeep({ ...rest, id, fanout_of: agent.id, fanout_item: item }, { ...vars, item }));
+    }
+  }
+  return out;
 }
 
 /** Search order: explicit dirs, consumer `.bytedesk/agent-orchestration/templates` (then the

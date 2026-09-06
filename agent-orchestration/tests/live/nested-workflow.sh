@@ -24,7 +24,7 @@ SESSIONS=()
 cleanup() {
   for session in "${SESSIONS[@]:-}"; do [ -n "$session" ] && tmux kill-session -t "$session" 2>/dev/null; done
   # Anything this run started but did not name, so a failure part-way does not leave panes behind.
-  tmux ls 2>/dev/null | grep -E "^(nested-parent|nested-child)-" | cut -d: -f1 | while read -r s; do tmux kill-session -t "$s" 2>/dev/null; done
+  tmux ls 2>/dev/null | grep -E "^(nested-parent|nested-child|nested-fan)-" | cut -d: -f1 | while read -r s; do tmux kill-session -t "$s" 2>/dev/null; done
   rm -rf "$ROOT"
 }
 trap cleanup EXIT
@@ -146,6 +146,34 @@ OUT=$("$AO" launch --template nested-selfish --consumer "$ROOT" --json 2>&1)
 echo "$OUT" | grep -qE "TOPOLOGY_WORKFLOW_CYCLE|cannot contain itself"
 check "a workflow that contains itself is refused" "$?" "0"
 check "and nothing was started for it" "$(tmux ls 2>/dev/null | grep -cE '^nested-selfish-')" "0"
+
+echo
+echo "== fan-out: one entry, one child per item, addressed as a group"
+cat > "$WF/nested-fan.json" <<'JSON'
+{"name":"nested-fan","description":"one child per item","inputs":{"files":{"description":"which","default":"src/a.js,src/b.js"}},
+ "agents":[
+  {"id":"conductor","role":"orchestrator","cli":"generic","command":"cat"},
+  {"id":"per-file","workflow":"nested-child","for_each":"{{inputs.files}}","inputs":{}}]}
+JSON
+FAN="$ROOT/fan.json"
+"$AO" launch --template nested-fan --consumer "$ROOT" --json 2>/dev/null | sed -n '/^{/,$p' > "$FAN"
+FAN_DIR=$(jq_ "$FAN" "d['runDir']")
+FAN_SESSION=$(jq_ "$FAN" "d['session']")
+SESSIONS+=("$FAN_SESSION")
+check "one entry expanded into two children" "$(jq_ "$FAN_DIR/run.json" "len([a for a in d['agents'] if a.get('fanout_of')=='per-file'])")" "2"
+# Ids come from the ITEM, not a position: the id is what a conductor types, and nobody can hold
+# "per-file.1" in their head across a run.
+check "and each is named after its item" "$(jq_ "$FAN_DIR/run.json" "sorted(a['id'] for a in d['agents'] if a.get('fanout_of'))[0]")" "per-file.src-a-js"
+for s in $(jq_ "$FAN_DIR/run.json" "' '.join((a['workflow'] or {}).get('session','') for a in d['agents'] if a.get('fanout_of'))"); do SESSIONS+=("$s"); done
+
+FANSEND="$ROOT/fansend.json"
+"$AO" send --run "$FAN_DIR" --from conductor --to per-file --stage brief --body "fan me out" --json 2>/dev/null | sed -n '/^{/,$p' > "$FANSEND"
+check "a send to the collective id reaches both members" "$(jq_ "$FANSEND" "len(d['delivered'])")" "2"
+"$AO" wait --run "$FAN_DIR" --from per-file --timeout 3s >/dev/null 2>&1
+check "and a barrier on the collective id waits for both" "$?" "2"
+
+"$AO" stop --run "$FAN_DIR" >/dev/null 2>&1
+check "stopping the fan-out takes every child with it" "$(tmux ls 2>/dev/null | grep -cE "^nested-child-")" "1"
 
 echo
 echo "== teardown: stopping the parent stops the tree"

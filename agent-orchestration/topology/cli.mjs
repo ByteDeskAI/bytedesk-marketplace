@@ -294,6 +294,7 @@ const commands = {
         home: ctx.home,
         inputs: resolveInputs(child.spec, childInputs),
         allowOutside: Boolean(flags["allow-outside"]),
+        ...(flags["max-fanout"] && flags["max-fanout"] !== true ? { maxFanout: Number(flags["max-fanout"]) } : {}),
       });
       const result = await launchRun({
         spec: materializedChild,
@@ -330,6 +331,7 @@ const commands = {
       home: ctx.home,
       inputs,
       allowOutside: Boolean(flags["allow-outside"]),
+      ...(flags["max-fanout"] && flags["max-fanout"] !== true ? { maxFanout: Number(flags["max-fanout"]) } : {}),
       session: address ? await uniqueSessionName(address) : undefined,
     });
     const adapters = await loadAdapters(ctx.providerDirs);
