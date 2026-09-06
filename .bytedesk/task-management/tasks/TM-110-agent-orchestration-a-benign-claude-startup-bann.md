@@ -1,7 +1,7 @@
 ---
 id: "TM-110"
 kind: "task"
-status: "open"
+status: "in_progress"
 created: "2026-09-06T04:54:46.271Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "agent-orchestration: a benign Claude startup banner kills the agent as a provider failure"
@@ -15,7 +15,7 @@ actor: "main"
 session: "4e1d7087-d606-432e-9341-3ce779b4baf8"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-06T04:54:46.280Z"
+updated: "2026-09-06T23:49:31.343Z"
 ---
 
 Launching a real Claude agent through the topology layer fails at readiness whenever the operator has any unauthenticated MCP server — common, and true on this machine.

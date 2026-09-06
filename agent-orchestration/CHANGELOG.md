@@ -74,6 +74,16 @@
   absent.** It shells out to `design-client sync --check`, a devDependency from `npm.bytedesk.ai`; on
   a machine that installed without the registry token it failed with `Cannot find module`, which
   reads as a broken packed plugin rather than a missing credential.
+- **A benign startup banner no longer kills an agent** (TM-110). Every failure pattern now needs
+  failure context rather than a bare noun. `authentication` matched Claude Code's ordinary
+  `⚠ 2 MCP servers need authentication · run /mcp` — printed on any machine with an unauthenticated
+  MCP server, which is most of them — so a healthy agent was declared a failed candidate in five
+  seconds, and on a single-candidate spec never came up at all. `quota`, `capacity` and `billing`
+  were the same mistake waiting to happen. `no such file or directory` is deliberately left broad:
+  narrowing it to the `: no such file` shell shape would buy precision on the polling path by
+  disabling it on the subscription path, because `tmuxFailureTrigger` drops any pattern tmux's format
+  parser cannot read. Verified live rather than in a fixture — a real `claude:haiku` agent came up
+  ready with that banner on its screen and no repo-local override in play.
 
 ### Changed — the noun is "workflow" (EP-016)
 

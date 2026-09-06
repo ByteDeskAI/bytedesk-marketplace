@@ -27,22 +27,40 @@ export const GENERIC_ADAPTER = {
   memory: { scope: "none", path: null, note: "" },
   ready: { delay_ms: 3000 },
   // Screen text that means "this candidate cannot serve": the launcher moves to the next one.
+  //
+  // Every entry needs failure CONTEXT, not a bare noun. A bare noun costs a healthy agent its slot:
+  // Claude Code prints "⚠ 2 MCP servers need authentication · run /mcp" at startup on any machine
+  // with an unauthenticated MCP server — extremely common — and `authentication` matched it, so the
+  // agent was declared a failed candidate in five seconds and, on a single-candidate spec, never
+  // came up at all. `quota`, `capacity` and `billing` were the same shape of mistake waiting to
+  // happen. These patterns are matched case-insensitively against the pane, with paths blanked
+  // first (see `withoutPaths`), so they must survive that stripping too.
+  //
+  // Keep them free of "{", "}" and ":" where you can: `tmuxFailureTrigger` drops any pattern tmux's
+  // format parser cannot read, and on the subscription path a dropped pattern never fires at all.
+  // That is why `no such file or directory` is not narrowed to the `: no such file` shell shape —
+  // the colon would buy precision on the polling path by disabling it on the path real adapters use.
   failure_patterns: [
     "usage limit",
     "rate limit",
-    "quota",
+    "quota[ _-](exceeded|exhausted|reached)",
+    "exceeded your quota",
+    "out of quota",
     "too many requests",
     "\\b429\\b",
     "overloaded",
-    "capacity",
+    "(at|over|no) capacity",
+    "capacity[ _-](exceeded|limit)",
     "not logged in",
     "please log in",
-    "unauthori[sz]ed",
+    "\\bunauthori[sz]ed\\b",
     "invalid api key",
-    "authentication",
+    "authentication[ _-](failed|error|required|expired)",
+    "failed to authenticate",
     "command not found",
     "no such file or directory",
-    "billing",
+    "billing[ _-](issue|problem|error|required)",
+    "update your billing",
   ],
   submit_keys: ["Enter"],
   bootstrap_message: "Read {{bootstrap_file}} and follow it exactly. Reply here with the single word READY when you have read it.",
