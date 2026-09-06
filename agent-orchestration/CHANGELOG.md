@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Added — the run tree (EP-016)
+
+- **Nesting is recorded.** An agent has a shell and `ao-topology` on its PATH, so a conductor that
+  wanted a sub-team could already start one — and nothing knew it had. A run now carries `parent`
+  (`{run_dir, run_id, agent_id, depth, chain}`, null at the root) and `depth` in its `run.json`, the
+  parent journals `run.spawned`, and `children.json` beside the parent is the index `stop` walks.
+  The lineage travels two ways because each covers the other's blind spot: the file is the durable
+  record that survives the process, and `AO_PARENT_RUN_DIR` / `AO_PARENT_RUN_ID` /
+  `AO_PARENT_AGENT_ID` / `AO_RUN_DEPTH` / `AO_RUN_CHAIN` in **every** agent's environment is what
+  lets a child nobody planned still record where it came from.
+- **`stop` cascades**, depth-first, journalling `run.child_exited` on the parent as it goes.
+  Depth-first because stopping top-down orphans every level below the one that fails. `--no-cascade`
+  opts out.
+- **A workflow cannot enter its own ancestry** (`TOPOLOGY_WORKFLOW_CYCLE`) and nesting stops at
+  three levels (`TOPOLOGY_DEPTH_EXCEEDED`, `--max-depth` to raise it). Both refusals name the chain,
+  because "this loops" without saying where is not something an operator can act on.
+
 ## [0.4.0] — 2026-09-05
 
 ### Added — the topology layer becomes a durable team (EP-014)

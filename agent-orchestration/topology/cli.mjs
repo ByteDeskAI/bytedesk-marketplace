@@ -17,6 +17,7 @@ import * as tmux from "./lib/tmux.mjs";
 import { TopologyError, absolutize, exists, fail, invariant, newRunId, parseArgs, parseDuration, readJson, writeJson, AO_HOME } from "./lib/util.mjs";
 import { agentDirs, agentsRoot, createAgent, findLead, listAgents, requireAgent } from "./lib/agents.mjs";
 import { displayName, parseSessionName } from "./lib/identity.mjs";
+import { childrenFile } from "./lib/lineage.mjs";
 import { issueDelegation, listDelegations, routeMessage } from "./lib/routing.mjs";
 
 const PLUGIN_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -133,6 +134,42 @@ async function runDirFrom(flags) {
   const runDir = absolutize(flags.run);
   invariant(await exists(join(runDir, "run.json")), "TOPOLOGY_RUN_NOT_FOUND", `No run.json under ${runDir}.`);
   return runDir;
+}
+
+/**
+ * Stop every run beneath this one, depth-first.
+ *
+ * Depth-first because stopping top-down orphans every level below the one that fails: kill the
+ * parent's session first and a grandchild is still running with nothing left that names it. From the
+ * bottom up, a failure leaves a smaller mess, and one that `children.json` can still describe.
+ *
+ * Every step is best effort. A child whose directory has been deleted, or whose session a human
+ * already killed, is not a reason to abandon the rest of the tree — the point of cascading is that
+ * one unreachable node does not strand its siblings.
+ */
+async function stopChildren(runDir, stopped, seen = new Set()) {
+  if (seen.has(runDir)) return stopped;
+  seen.add(runDir);
+  const children = await readJson(childrenFile(runDir)).catch(() => null);
+  if (!Array.isArray(children)) return stopped;
+  for (const child of children) {
+    if (!child?.run_dir) continue;
+    await stopChildren(child.run_dir, stopped, seen);
+    try {
+      const run = await loadRun(child.run_dir);
+      if (run.state !== "stopped") {
+        run.state = "stopped";
+        await saveRun(child.run_dir, run);
+        await appendJournal(child.run_dir, { type: "run.stopped", by: "parent cascade" });
+      }
+      if (await tmux.hasSession(run.session)) await tmux.killSession(run.session);
+      await appendJournal(runDir, { type: "run.child_exited", child_run_id: run.run_id, child_run_dir: child.run_dir, reason: "stopped with its parent" });
+      stopped.push({ run_id: run.run_id, run_dir: child.run_dir, session: run.session });
+    } catch {
+      /* a child we cannot read is one we cannot stop; the siblings still get their turn */
+    }
+  }
+  return stopped;
 }
 
 const commands = {
@@ -275,6 +312,7 @@ const commands = {
       cliBin: CLI_BIN,
       dryRun: Boolean(flags["dry-run"]),
       allowAutoApprove: Boolean(flags["allow-auto-approve"]),
+      ...(flags["max-depth"] && flags["max-depth"] !== true ? { maxDepth: Number(flags["max-depth"]) } : {}),
       log: (line) => process.stderr.write(`${line}\n`),
     });
     result.template = path;
@@ -612,18 +650,23 @@ const commands = {
   async stop({ flags }) {
     let session = flags.session && flags.session !== true ? String(flags.session) : null;
     let runDir = null;
+    // Children first, and depth-first, so a grandchild is not left holding a session after its
+    // parent's is gone. Stopping the tree from the top down would orphan every level below the one
+    // that failed; from the bottom up, a failure leaves a smaller mess and a findable one.
+    const stoppedChildren = [];
     if (flags.run && flags.run !== true) {
       runDir = await runDirFrom(flags);
+      if (flags["no-cascade"] !== true) await stopChildren(runDir, stoppedChildren);
       const run = await loadRun(runDir);
       session = run.session;
       run.state = "stopped";
       await saveRun(runDir, run);
-      await appendJournal(runDir, { type: "run.stopped" });
+      await appendJournal(runDir, { type: "run.stopped", children_stopped: stoppedChildren.length });
     }
     invariant(session, "TOPOLOGY_SESSION_REQUIRED", "Pass --run <run_dir> or --session <name>.");
     const existed = await tmux.hasSession(session);
     if (existed) await tmux.killSession(session);
-    out({ ok: true, session, killed: existed, run_dir: runDir, files_kept: true });
+    out({ ok: true, session, killed: existed, run_dir: runDir, files_kept: true, children_stopped: stoppedChildren });
   },
 };
 

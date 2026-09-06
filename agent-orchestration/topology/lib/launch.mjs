@@ -6,6 +6,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { appendJournal, agentDir, loadRun, pendingReplies, saveRun } from "./mailbox.mjs";
+import { childEnv, childrenFile, lineageFromEnv, lineageRefusal } from "./lineage.mjs";
 import { adapterFor, buildArgv, commandExists, failureOnScreen, grantsDirs, memoryLocation } from "./providers.mjs";
 import { mintSpawn, sessionName } from "./identity.mjs";
 import { loadRole, resolveSkill } from "./resolve.mjs";
@@ -350,7 +351,7 @@ export function tokenDigest(token) {
 }
 
 /** Build launcher + argv for every candidate of one agent; write nothing yet. */
-function prepareCandidates({ spec, agent, adapters, bootstrapFile, dir, warnings, token }) {
+function prepareCandidates({ spec, agent, adapters, bootstrapFile, dir, warnings, token, lineage = null }) {
   // A coordinator is granted nothing. It delegates rather than implements, and it is the only
   // address an outsider may reach directly in cross-repo routing — the most exposed agent in the
   // system should be the least capable one. Its cwd is its own agent directory, so withholding the
@@ -377,7 +378,11 @@ function prepareCandidates({ spec, agent, adapters, bootstrapFile, dir, warnings
     const argv = buildArgv(adapter, { ...agent, cli: candidate.cli, model: candidate.model, coordinates_only: coordinator, add_dirs: addDirs }, vars);
     // AO_AGENT_TOKEN goes in last, after the spec's own env: a spec is data, often committed data,
     // and it may not name the secret that decides which agent this pane is allowed to answer as.
-    const env = { AO_RUN_DIR: spec.run_dir, AO_AGENT_ID: agent.id, AO_AGENT_ROLE: agent.role, AO_SESSION: spec.session, AO_PROVIDER: candidateLabel(candidate), ...agent.env, AO_AGENT_TOKEN: token };
+    // The lineage this agent would pass DOWN if it starts a run of its own. Every agent gets it,
+    // not only ones a spec expects to nest: an agent has a shell and `ao-topology` on its PATH, so
+    // the run we did not plan for is exactly the one that needs to carry the chain.
+    const descend = childEnv({ runDir: spec.run_dir, runId: spec.run_id, agentId: agent.id, depth: lineage?.depth ?? 0, chain: lineage?.chain ?? [], name: spec.name });
+    const env = { AO_RUN_DIR: spec.run_dir, AO_AGENT_ID: agent.id, AO_AGENT_ROLE: agent.role, AO_SESSION: spec.session, AO_PROVIDER: candidateLabel(candidate), ...descend, ...agent.env, AO_AGENT_TOKEN: token };
     return { index, candidate, label: candidateLabel(candidate), adapter, argv, env, vars, add_dirs: addDirs, memory: memoryLocation(adapter, { cwd: agent.cwd, home: spec.home ?? process.env.HOME ?? "" }), launcher: join(dir, `launch-${index}.sh`) };
   });
 }
@@ -434,8 +439,36 @@ async function startAgentInPane({ pane, agentId, candidates, startIndex = 0, run
 /**
  * Launch one run. Returns { runDir, session, agents:[{id, pane, provider, ready, attempts}], warnings, attach }.
  */
-export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDirs, cliBin, dryRun = false, allowAutoApprove = false, log = () => {} }) {
+/**
+ * Add a child to its parent's index, best effort.
+ *
+ * Best effort on purpose: the child is already running by the time this is called, so a parent whose
+ * directory has been removed underneath it must not turn a live run into a failed launch. The
+ * journal entry beside it is the durable record; this file is the convenience `stop` reads.
+ */
+async function recordChild(lineage, child) {
+  try {
+    const file = childrenFile(lineage.run_dir);
+    const existing = (await readJson(file).catch(() => null)) ?? [];
+    const children = Array.isArray(existing) ? existing : [];
+    if (!children.some((entry) => entry.run_dir === child.runDir)) {
+      children.push({ run_dir: child.runDir, run_id: child.runId, name: child.name, session: child.session, agent_id: lineage.agent_id ?? null, at: nowIso() });
+      await writeJson(file, children);
+    }
+    await appendJournal(lineage.run_dir, { type: "run.spawned", child_run_id: child.runId, child_run_dir: child.runDir, child_name: child.name, child_session: child.session, agent: lineage.agent_id ?? null });
+  } catch {
+    /* a parent we cannot reach is not a reason to fail a child that is already up */
+  }
+}
+
+export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDirs, cliBin, dryRun = false, allowAutoApprove = false, maxDepth = undefined, lineage = lineageFromEnv(), log = () => {} }) {
   const warnings = [];
+
+  // Where this run sits in the tree, decided before anything is created. A run launched by an agent
+  // inherits its lineage through the environment, so this fires for a child a model started by hand
+  // just as it does for one a spec asked for — which is the case that actually runs away.
+  const refusal = lineageRefusal({ name: spec.name, lineage, ...(maxDepth === undefined ? {} : { maxDepth }) });
+  invariant(!refusal, refusal && refusal.startsWith("workflow") ? "TOPOLOGY_WORKFLOW_CYCLE" : "TOPOLOGY_DEPTH_EXCEEDED", refusal || "");
   // Consent, not just a warning. auto_approve strips the agent's own permission prompts, which
   // docs/topology.md names as this layer's safety boundary; a spec is data, often committed data,
   // so removing that boundary has to be an operator's decision at the moment of launch.
@@ -473,7 +506,7 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
     const bootstrapFile = join(dir, "BOOTSTRAP.md");
     // One token per agent, not per candidate: a failover changes the provider, not who the agent is.
     const token = mintAgentToken();
-    const candidates = prepareCandidates({ spec, agent, adapters, bootstrapFile, dir, warnings, token });
+    const candidates = prepareCandidates({ spec, agent, adapters, bootstrapFile, dir, warnings, token, lineage });
     prepared.push({ agent, skills, role, dir, bootstrapFile, candidates, token });
   }
 
@@ -516,6 +549,11 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
     run_dir: spec.run_dir,
     layout: spec.layout,
     inputs: spec.inputs_resolved ?? {},
+    // Null at the root, and stored rather than inferred: "no parent" and "a parent we failed to
+    // write" look identical from the outside otherwise, and the difference matters when you are
+    // holding an orphan and asking where it came from.
+    parent: lineage,
+    depth: lineage?.depth ?? 0,
     workflow: spec.workflow,
     gates: spec.gates,
     artifacts_dir: join(spec.run_dir, spec.artifacts.dir),
@@ -541,6 +579,11 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
   };
   await saveRun(spec.run_dir, run);
   await appendJournal(spec.run_dir, { type: "run.created", name: spec.name, run_id: spec.run_id, session: spec.session, agents: run.agents.map((agent) => agent.id) });
+
+  // Tell the parent it has a child. Recorded in two places for two different readers: the journal is
+  // the append-only history a human reads, `children.json` is the index `stop` walks so it does not
+  // have to scan every run in the repo looking for orphans to adopt.
+  if (lineage?.run_dir) await recordChild(lineage, { runDir: spec.run_dir, runId: spec.run_id, name: spec.name, session: spec.session });
 
   // Conductor first so it owns pane 0 / the main pane.
   const ordered = [...prepared].sort((a, b) => (a.agent.role === "orchestrator" ? -1 : b.agent.role === "orchestrator" ? 1 : 0));
