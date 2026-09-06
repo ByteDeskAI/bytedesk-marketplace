@@ -1,0 +1,74 @@
+[
+  {
+    "mode": "empty-home",
+    "originalTestExitCode": 1,
+    "plans": {
+      "source": {
+        "indices": {
+          "workspace": 84,
+          "scratch": 89,
+          "providerHomeRoot": 92,
+          "providerHome": 95,
+          "authReadOnly": -1,
+          "gitMarker": 100,
+          "commonGit": 103
+        },
+        "authPresent": false,
+        "kernel": null
+      },
+      "committed-bundle-copy": {
+        "indices": {
+          "workspace": 84,
+          "scratch": 89,
+          "providerHomeRoot": 92,
+          "providerHome": 95,
+          "authReadOnly": -1,
+          "gitMarker": 100,
+          "commonGit": 103
+        },
+        "authPresent": false,
+        "kernel": null
+      }
+    }
+  },
+  {
+    "mode": "fixture-auth-home",
+    "originalTestExitCode": 0,
+    "plans": {
+      "source": {
+        "indices": {
+          "workspace": 84,
+          "scratch": 89,
+          "providerHomeRoot": 92,
+          "providerHome": 95,
+          "authReadOnly": 98,
+          "gitMarker": 103,
+          "commonGit": 106
+        },
+        "authPresent": true,
+        "kernel": {
+          "exitCode": 0,
+          "stdout": "[{\"name\":\"rename-home-root\",\"blocked\":true,\"code\":\"EBUSY\"},{\"name\":\"rename-provider-home\",\"blocked\":true,\"code\":\"EBUSY\"},{\"name\":\"rename-auth\",\"blocked\":true,\"code\":\"EBUSY\"},{\"name\":\"write-auth\",\"blocked\":true,\"code\":\"EROFS\"},{\"name\":\"write-git-marker\",\"blocked\":true,\"code\":\"EROFS\"},{\"name\":\"write-common-git\",\"blocked\":true,\"code\":\"EROFS\"},{\"name\":\"write-workspace\",\"allowed\":true},{\"name\":\"write-scratch\",\"allowed\":true}]\n",
+          "stderr": ""
+        }
+      },
+      "committed-bundle-copy": {
+        "indices": {
+          "workspace": 84,
+          "scratch": 89,
+          "providerHomeRoot": 92,
+          "providerHome": 95,
+          "authReadOnly": 98,
+          "gitMarker": 103,
+          "commonGit": 106
+        },
+        "authPresent": true,
+        "kernel": {
+          "exitCode": 0,
+          "stdout": "[{\"name\":\"rename-home-root\",\"blocked\":true,\"code\":\"EBUSY\"},{\"name\":\"rename-provider-home\",\"blocked\":true,\"code\":\"EBUSY\"},{\"name\":\"rename-auth\",\"blocked\":true,\"code\":\"EBUSY\"},{\"name\":\"write-auth\",\"blocked\":true,\"code\":\"EROFS\"},{\"name\":\"write-git-marker\",\"blocked\":true,\"code\":\"EROFS\"},{\"name\":\"write-common-git\",\"blocked\":true,\"code\":\"EROFS\"},{\"name\":\"write-workspace\",\"allowed\":true},{\"name\":\"write-scratch\",\"allowed\":true}]\n",
+          "stderr": ""
+        }
+      }
+    }
+  }
+]

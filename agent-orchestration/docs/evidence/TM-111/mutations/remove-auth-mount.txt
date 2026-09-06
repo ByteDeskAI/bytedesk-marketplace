@@ -1,0 +1,28 @@
+TAP version 13
+# Subtest: write provider sandboxes make only the worktree writable and remount Git metadata read-only
+not ok 1 - write provider sandboxes make only the worktree writable and remount Git metadata read-only
+  ---
+  duration_ms: 11.557919
+  type: 'test'
+  location: '/tmp/tm111-mutation-ZLGJq9/tests/unit/provider-sandbox.test.mjs:73:1'
+  failureType: 'testCodeFailure'
+  error: 'every writable auth ancestor must be an unrenameable mountpoint before the exact read-only auth mount'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/tm111-mutation-ZLGJq9/tests/unit/provider-sandbox.test.mjs:118:12)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 65.2909

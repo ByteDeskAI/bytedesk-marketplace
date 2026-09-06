@@ -1,0 +1,7 @@
+Validating plugin manifest: /home/ryan/Documents/GitHub/ByteDeskAI/.tm111-worktrees/marketplace/agent-orchestration/.claude-plugin/plugin.json
+
+⚠ Found 1 warning:
+
+  ❯ version: No version specified. Consider adding a version following semver (e.g., "1.0.0")
+
+✔ Validation passed with warnings

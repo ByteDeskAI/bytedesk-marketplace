@@ -1,0 +1,1511 @@
+TAP version 13
+# Subtest: stateRoot uses native Windows and Linux state locations
+ok 1 - stateRoot uses native Windows and Linux state locations
+  ---
+  duration_ms: 1.298712
+  type: 'test'
+  ...
+# Subtest: validateStateRoot preserves nested missing segments on every platform
+ok 2 - validateStateRoot preserves nested missing segments on every platform
+  ---
+  duration_ms: 7.503143
+  type: 'test'
+  ...
+# Subtest: parseArgs defaults to every host
+ok 3 - parseArgs defaults to every host
+  ---
+  duration_ms: 3.514615
+  type: 'test'
+  ...
+# Subtest: pluginRootFromScript walks out of the skill scripts directory
+ok 4 - pluginRootFromScript walks out of the skill scripts directory
+  ---
+  duration_ms: 0.302882
+  type: 'test'
+  ...
+# Subtest: kimi host wiring merges mcp.json and links skills without dropping other servers
+ok 5 - kimi host wiring merges mcp.json and links skills without dropping other servers
+  ---
+  duration_ms: 23.118133
+  type: 'test'
+  ...
+# Subtest: grok host plan uses trusted plugin install and does not run on dry-run
+ok 6 - grok host plan uses trusted plugin install and does not run on dry-run
+  ---
+  duration_ms: 0.55008
+  type: 'test'
+  ...
+# Subtest: public MCP surface exposes exactly the orchestration-prefixed contract
+ok 7 - public MCP surface exposes exactly the orchestration-prefixed contract
+  ---
+  duration_ms: 130.850988
+  type: 'test'
+  ...
+# Subtest: MCP plan and spawn expose protocols while route remains a single-route preview
+ok 8 - MCP plan and spawn expose protocols while route remains a single-route preview
+  ---
+  duration_ms: 46.75627
+  type: 'test'
+  ...
+# Subtest: every MCP tool publishes a concrete forward-compatible success/error envelope
+ok 9 - every MCP tool publishes a concrete forward-compatible success/error envelope
+  ---
+  duration_ms: 58.834232
+  type: 'test'
+  ...
+# Subtest: concrete output schemas preserve serialized operation errors
+ok 10 - concrete output schemas preserve serialized operation errors
+  ---
+  duration_ms: 13.28317
+  type: 'test'
+  ...
+# Subtest: Abstract Factory selects the native Linux strategy family
+ok 11 - Abstract Factory selects the native Linux strategy family
+  ---
+  duration_ms: 2.082759
+  type: 'test'
+  ...
+# Subtest: Abstract Factory selects the native Windows strategy family
+ok 12 - Abstract Factory selects the native Windows strategy family
+  ---
+  duration_ms: 0.502142
+  type: 'test'
+  ...
+# Subtest: explicit Windows host backend selection is deterministic
+ok 13 - explicit Windows host backend selection is deterministic
+  ---
+  duration_ms: 0.456793
+  type: 'test'
+  ...
+# Subtest: WSL Adapter checks the Linux security stack and translates the entrypoint
+ok 14 - WSL Adapter checks the Linux security stack and translates the entrypoint
+  ---
+  duration_ms: 0.959582
+  type: 'test'
+  ...
+# Subtest: WSL Adapter fails closed when an isolation dependency is missing
+ok 15 - WSL Adapter fails closed when an isolation dependency is missing
+  ---
+  duration_ms: 0.754292
+  type: 'test'
+  ...
+# Subtest: WSL path Adapter translates only absolute Windows paths
+ok 16 - WSL path Adapter translates only absolute Windows paths
+  ---
+  duration_ms: 0.382435
+  type: 'test'
+  ...
+# Subtest: Windows executable Strategy honors PATHEXT without invoking a shell
+ok 17 - Windows executable Strategy honors PATHEXT without invoking a shell
+  ---
+  duration_ms: 11.160733
+  type: 'test'
+  ...
+# Subtest: Codex sandbox always uses agent-full-access regardless of mount profile
+ok 18 - Codex sandbox always uses agent-full-access regardless of mount profile
+  ---
+  duration_ms: 30.359269
+  type: 'test'
+  ...
+# Subtest: Claude sandbox HOME is the provider config dir, not the unmounted host home
+ok 19 - Claude sandbox HOME is the provider config dir, not the unmounted host home
+  ---
+  duration_ms: 8.896813
+  type: 'test'
+  ...
+# Subtest: Grok sandbox always passes --always-approve
+ok 20 - Grok sandbox always passes --always-approve
+  ---
+  duration_ms: 11.794598
+  type: 'test'
+  ...
+# Subtest: non-Codex sandboxes do not receive INITIAL_AGENT_MODE
+ok 21 - non-Codex sandboxes do not receive INITIAL_AGENT_MODE
+  ---
+  duration_ms: 7.206441
+  type: 'test'
+  ...
+# Subtest: write provider sandboxes make only the worktree writable and remount Git metadata read-only
+ok 22 - write provider sandboxes make only the worktree writable and remount Git metadata read-only
+  ---
+  duration_ms: 22.630756
+  type: 'test'
+  ...
+# Subtest: provider sandbox without credentials protects home ancestors without inventing an auth mount
+ok 23 - provider sandbox without credentials protects home ancestors without inventing an auth mount
+  ---
+  duration_ms: 4.879215
+  type: 'test'
+  ...
+# Subtest: sandbox execution revalidates provider-specific executable authority
+ok 24 - sandbox execution revalidates provider-specific executable authority
+  ---
+  duration_ms: 2.765851
+  type: 'test'
+  ...
+# Subtest: ACP proxy releases pipelined prompts after bootstrap and revokes on close
+ok 25 - ACP proxy releases pipelined prompts after bootstrap and revokes on close
+  ---
+  duration_ms: 5.136113
+  type: 'test'
+  ...
+# Subtest: ACP proxy rejects prompts before any session establishment
+ok 26 - ACP proxy rejects prompts before any session establishment
+  ---
+  duration_ms: 1.337947
+  type: 'test'
+  ...
+# Subtest: consumerCwd is required and never falls back to the plugin process cwd
+ok 27 - consumerCwd is required and never falls back to the plugin process cwd
+  ---
+  duration_ms: 48.959116
+  type: 'test'
+  ...
+# Subtest: linked consumer worktrees have distinct run authority keys
+ok 28 - linked consumer worktrees have distinct run authority keys
+  ---
+  duration_ms: 53.197442
+  type: 'test'
+  ...
+# Subtest: worktrees derive from the consumer repository sibling and register only there
+ok 29 - worktrees derive from the consumer repository sibling and register only there
+  ---
+  duration_ms: 81.504435
+  type: 'test'
+  ...
+# Subtest: cleanup rejects a sibling worktree path and a mismatched ownership nonce
+ok 30 - cleanup rejects a sibling worktree path and a mismatched ownership nonce
+  ---
+  duration_ms: 84.321765
+  type: 'test'
+  ...
+# Subtest: cleanup verifies the marker hash, base SHA, and exact Git administration entry
+ok 31 - cleanup verifies the marker hash, base SHA, and exact Git administration entry
+  ---
+  duration_ms: 56.27821
+  type: 'test'
+  ...
+# Subtest: the marketplace checkout containing the plugin source is rejected as a consumer
+ok 32 - the marketplace checkout containing the plugin source is rejected as a consumer
+  ---
+  duration_ms: 23.024837
+  type: 'test'
+  ...
+# Subtest: a separate marketplace source checkout is rejected from an installed plugin cache
+ok 33 - a separate marketplace source checkout is rejected from an installed plugin cache
+  ---
+  duration_ms: 21.55651
+  type: 'test'
+  ...
+# Subtest: dirty tracked and untracked consumers are rejected for write orchestration
+ok 34 - dirty tracked and untracked consumers are rejected for write orchestration
+  ---
+  duration_ms: 24.473283
+  type: 'test'
+  ...
+# Subtest: the checked-in roadmap is valid and preserves the canonical seed inventory
+ok 35 - the checked-in roadmap is valid and preserves the canonical seed inventory
+  ---
+  duration_ms: 66.218503
+  type: 'test'
+  ...
+# Subtest: parsing, derived indexes, and generated views are deterministic
+ok 36 - parsing, derived indexes, and generated views are deterministic
+  ---
+  duration_ms: 19.686403
+  type: 'test'
+  ...
+# Subtest: hard dependency cycles report the explicit cycle path
+ok 37 - hard dependency cycles report the explicit cycle path
+  ---
+  duration_ms: 29.577758
+  type: 'test'
+  ...
+# Subtest: task and outgoing unlock reciprocity cannot drift
+ok 38 - task and outgoing unlock reciprocity cannot drift
+  ---
+  duration_ms: 27.288545
+  type: 'test'
+  ...
+# Subtest: a preferred one-hop trajectory is rejected with an actionable distance error
+ok 39 - a preferred one-hop trajectory is rejected with an actionable distance error
+  ---
+  duration_ms: 26.009667
+  type: 'test'
+  ...
+# Subtest: orphan strategic references identify the missing object
+ok 40 - orphan strategic references identify the missing object
+  ---
+  duration_ms: 29.542179
+  type: 'test'
+  ...
+# Subtest: duplicate live trajectories for one goal are rejected
+ok 41 - duplicate live trajectories for one goal are rejected
+  ---
+  duration_ms: 24.129275
+  type: 'test'
+  ...
+# Subtest: strategic records cannot grant agents execution or budget authority
+ok 42 - strategic records cannot grant agents execution or budget authority
+  ---
+  duration_ms: 21.56609
+  type: 'test'
+  ...
+# Subtest: source seams must remain inside the plugin and identify real source
+ok 43 - source seams must remain inside the plugin and identify real source
+  ---
+  duration_ms: 27.658356
+  type: 'test'
+  ...
+# Subtest: source seam manifests support installed caches and detect source-checkout drift
+ok 44 - source seam manifests support installed caches and detect source-checkout drift
+  ---
+  duration_ms: 40.554903
+  type: 'test'
+  ...
+# Subtest: source manifest generation is deterministic and matches the checked-in inventory
+ok 45 - source manifest generation is deterministic and matches the checked-in inventory
+  ---
+  duration_ms: 6.744898
+  type: 'test'
+  ...
+# Subtest: source manifest generation fails closed for installed, missing, and invalid sources
+ok 46 - source manifest generation fails closed for installed, missing, and invalid sources
+  ---
+  duration_ms: 8.987902
+  type: 'test'
+  ...
+# Subtest: mutating CLI commands use their plugin root and leave installed artifacts untouched
+ok 47 - mutating CLI commands use their plugin root and leave installed artifacts untouched
+  ---
+  duration_ms: 149.077668
+  type: 'test'
+  ...
+# Subtest: a disconnected preferred route cannot masquerade as a materialized trajectory
+ok 48 - a disconnected preferred route cannot masquerade as a materialized trajectory
+  ---
+  duration_ms: 29.375844
+  type: 'test'
+  ...
+# Subtest: checked-in Mermaid and trajectory views cannot drift from canonical records
+ok 49 - checked-in Mermaid and trajectory views cannot drift from canonical records
+  ---
+  duration_ms: 77.063254
+  type: 'test'
+  ...
+# Subtest: unknown multi-hop distance remains valid for research trajectories and gaps
+ok 50 - unknown multi-hop distance remains valid for research trajectories and gaps
+  ---
+  duration_ms: 19.8409
+  type: 'test'
+  ...
+# Subtest: approved strategy records require explicit human approval provenance
+ok 51 - approved strategy records require explicit human approval provenance
+  ---
+  duration_ms: 27.210559
+  type: 'test'
+  ...
+# Subtest: retired or invalidated trajectories cannot remain preferred
+ok 52 - retired or invalidated trajectories cannot remain preferred
+  ---
+  duration_ms: 25.027677
+  type: 'test'
+  ...
+# Subtest: gap materialization and evidence must match lifecycle state
+ok 53 - gap materialization and evidence must match lifecycle state
+  ---
+  duration_ms: 19.793833
+  type: 'test'
+  ...
+# Subtest: realized trajectories and attained goals require completed, validated evidence
+ok 54 - realized trajectories and attained goals require completed, validated evidence
+  ---
+  duration_ms: 23.473703
+  type: 'test'
+  ...
+# Subtest: trajectory selections admit only hard and bridge edges
+ok 55 - trajectory selections admit only hard and bridge edges
+  ---
+  duration_ms: 18.79025
+  type: 'test'
+  ...
+# Subtest: trajectory roots, reachability, and global hard prerequisites are enforced
+ok 56 - trajectory roots, reachability, and global hard prerequisites are enforced
+  ---
+  duration_ms: 43.475972
+  type: 'test'
+  ...
+# Subtest: task counts and preferred estimates must fit declared ranges
+ok 57 - task counts and preferred estimates must fit declared ranges
+  ---
+  duration_ms: 34.471331
+  type: 'test'
+  ...
+# Subtest: append-only inventory preserves every ID and kind-specific identity
+ok 58 - append-only inventory preserves every ID and kind-specific identity
+  ---
+  duration_ms: 20.454493
+  type: 'test'
+  ...
+# Subtest: inventory appends only contiguous namespace suffixes and unions valid additions
+ok 59 - inventory appends only contiguous namespace suffixes and unions valid additions
+  ---
+  duration_ms: 41.856999
+  type: 'test'
+  ...
+# Subtest: future tasks need an active incident edge but no trajectory membership
+ok 60 - future tasks need an active incident edge but no trajectory membership
+  ---
+  duration_ms: 52.798714
+  type: 'test'
+  ...
+# Subtest: inventory append validates prospective roadmap semantics without mutating its input
+ok 61 - inventory append validates prospective roadmap semantics without mutating its input
+  ---
+  duration_ms: 53.023606
+  type: 'test'
+  ...
+# Subtest: append-inventory CLI writes only a fully validated prospective inventory
+ok 62 - append-inventory CLI writes only a fully validated prospective inventory
+  ---
+  duration_ms: 171.99571
+  type: 'test'
+  ...
+# Subtest: documented maintenance sequence handles new IDs plus source drift end to end
+ok 63 - documented maintenance sequence handles new IDs plus source drift end to end
+  ---
+  duration_ms: 779.076561
+  type: 'test'
+  ...
+# Subtest: gap fillers are reciprocal, goal-local lineage owned by the parent trajectory
+ok 64 - gap fillers are reciprocal, goal-local lineage owned by the parent trajectory
+  ---
+  duration_ms: 54.264947
+  type: 'test'
+  ...
+# Subtest: filled gaps require completed fillers, exact completion evidence, and cleared nextGapId
+ok 65 - filled gaps require completed fillers, exact completion evidence, and cleared nextGapId
+  ---
+  duration_ms: 30.241133
+  type: 'test'
+  ...
+# Subtest: operational strategic state always rests on an approved human decision
+ok 66 - operational strategic state always rests on an approved human decision
+  ---
+  duration_ms: 44.808334
+  type: 'test'
+  ...
+# Subtest: done tasks require completion evidence distinct from baseline evidence
+ok 67 - done tasks require completion evidence distinct from baseline evidence
+  ---
+  duration_ms: 47.382239
+  type: 'test'
+  ...
+# Subtest: hop ranges reject alternate or extra field shapes
+ok 68 - hop ranges reject alternate or extra field shapes
+  ---
+  duration_ms: 47.944405
+  type: 'test'
+  ...
+# Subtest: object source seams must use anchors that occur exactly once
+ok 69 - object source seams must use anchors that occur exactly once
+  ---
+  duration_ms: 2.383534
+  type: 'test'
+  ...
+# Subtest: canonical generated views recover every stale marked projection
+ok 70 - canonical generated views recover every stale marked projection
+  ---
+  duration_ms: 27.549244
+  type: 'test'
+  ...
+# Subtest: CLI accepts only the canonical roadmap path and prints stale canonical views
+ok 71 - CLI accepts only the canonical roadmap path and prints stale canonical views
+  ---
+  duration_ms: 142.433714
+  type: 'test'
+  ...
+# Subtest: trajectory reachability derives from the full declared gap set and lifecycle
+ok 72 - trajectory reachability derives from the full declared gap set and lifecycle
+  ---
+  duration_ms: 11.149203
+  type: 'test'
+  ...
+# Subtest: same-kind supersession permits acyclic chains to a live terminal
+ok 73 - same-kind supersession permits acyclic chains to a live terminal
+  ---
+  duration_ms: 50.787205
+  type: 'test'
+  ...
+# Subtest: active projections ignore superseded history while retired routes retain it
+ok 74 - active projections ignore superseded history while retired routes retain it
+  ---
+  duration_ms: 32.147364
+  type: 'test'
+  ...
+# Subtest: history-only reverse edges cannot introduce an operational dependency cycle
+ok 75 - history-only reverse edges cannot introduce an operational dependency cycle
+  ---
+  duration_ms: 32.305603
+  type: 'test'
+  ...
+# Subtest: live routes reject history-only selections and active edges reject superseded endpoints
+ok 76 - live routes reject history-only selections and active edges reject superseded endpoints
+  ---
+  duration_ms: 59.904743
+  type: 'test'
+  ...
+# Subtest: superseded gaps remain reciprocal history on retired trajectories
+ok 77 - superseded gaps remain reciprocal history on retired trajectories
+  ---
+  duration_ms: 27.23082
+  type: 'test'
+  ...
+# Subtest: retired goals may retain their retired preferred trajectory as history
+ok 78 - retired goals may retain their retired preferred trajectory as history
+  ---
+  duration_ms: 20.467417
+  type: 'test'
+  ...
+# Subtest: capability keys are globally unique across roadmap record kinds
+ok 79 - capability keys are globally unique across roadmap record kinds
+  ---
+  duration_ms: 16.594238
+  type: 'test'
+  ...
+# Subtest: inventory schema and append reject cross-kind capability collisions
+ok 80 - inventory schema and append reject cross-kind capability collisions
+  ---
+  duration_ms: 1.409298
+  type: 'test'
+  ...
+# Subtest: supersession chains may traverse retired records but must terminate live
+ok 81 - supersession chains may traverse retired records but must terminate live
+  ---
+  duration_ms: 31.280306
+  type: 'test'
+  ...
+# Subtest: retired gaps preserve completion evidence and retired child lineage
+ok 82 - retired gaps preserve completion evidence and retired child lineage
+  ---
+  duration_ms: 15.593158
+  type: 'test'
+  ...
+# Subtest: active gaps reject completion history or retired children, and retired gaps reject live children
+ok 83 - active gaps reject completion history or retired children, and retired gaps reject live children
+  ---
+  duration_ms: 54.082763
+  type: 'test'
+  ...
+# Subtest: provider catalog exposes only canonical ACPX targets and no commands
+ok 84 - provider catalog exposes only canonical ACPX targets and no commands
+  ---
+  duration_ms: 2.036911
+  type: 'test'
+  ...
+# Subtest: documented model IDs are isolated from runtime-only Grok and Kimi defaults
+ok 85 - documented model IDs are isolated from runtime-only Grok and Kimi defaults
+  ---
+  duration_ms: 0.245253
+  type: 'test'
+  ...
+# Subtest: bundled Claude ACP bridge isolates settings and forwards exact runtime model IDs
+ok 86 - bundled Claude ACP bridge isolates settings and forwards exact runtime model IDs
+  ---
+  duration_ms: 27.31546
+  type: 'test'
+  ...
+# Subtest: bundled Codex bridge launches app-server without a shell
+ok 87 - bundled Codex bridge launches app-server without a shell
+  ---
+  duration_ms: 5.630077
+  type: 'test'
+  ...
+# Subtest: default aliases preserve the agreed architecture, design, and implementation order
+ok 88 - default aliases preserve the agreed architecture, design, and implementation order
+  ---
+  duration_ms: 0.511702
+  type: 'test'
+  ...
+# Subtest: provider capabilities and sandbox credential inputs are explicit metadata
+ok 89 - provider capabilities and sandbox credential inputs are explicit metadata
+  ---
+  duration_ms: 0.420583
+  type: 'test'
+  ...
+# Subtest: architecture plan is adversarial, cross-provider, max effort, and session-stable
+ok 90 - architecture plan is adversarial, cross-provider, max effort, and session-stable
+  ---
+  duration_ms: 15.776877
+  type: 'test'
+  ...
+# Subtest: architecture blocks when the required independent Sol adversary is unavailable
+ok 91 - architecture blocks when the required independent Sol adversary is unavailable
+  ---
+  duration_ms: 2.231817
+  type: 'test'
+  ...
+# Subtest: non-architecture intent uses the single protocol
+ok 92 - non-architecture intent uses the single protocol
+  ---
+  duration_ms: 1.109291
+  type: 'test'
+  ...
+# Subtest: architecture protocol rejects a contradictory intent
+ok 93 - architecture protocol rejects a contradictory intent
+  ---
+  duration_ms: 0.533704
+  type: 'test'
+  ...
+# Subtest: architecture uses separate frozen aliases for proposal and critique
+ok 94 - architecture uses separate frozen aliases for proposal and critique
+  ---
+  duration_ms: 0.99393
+  type: 'test'
+  ...
+# Subtest: execution plans and explanations are deterministic and JSON serializable
+ok 95 - execution plans and explanations are deterministic and JSON serializable
+  ---
+  duration_ms: 3.658385
+  type: 'test'
+  ...
+# Subtest: protocol definitions are validated and deterministically topologically ordered
+ok 96 - protocol definitions are validated and deterministically topologically ordered
+  ---
+  duration_ms: 0.31549
+  type: 'test'
+  ...
+# Subtest: protocol validation rejects duplicate, missing, and cyclic dependencies with clear errors
+ok 97 - protocol validation rejects duplicate, missing, and cyclic dependencies with clear errors
+  ---
+  duration_ms: 0.464051
+  type: 'test'
+  ...
+# Subtest: protocol validation rejects unregistered executors and internal output contracts
+ok 98 - protocol validation rejects unregistered executors and internal output contracts
+  ---
+  duration_ms: 0.54917
+  type: 'test'
+  ...
+# Subtest: execution requirements derive hard workspace and session capabilities
+ok 99 - execution requirements derive hard workspace and session capabilities
+  ---
+  duration_ms: 1.974769
+  type: 'test'
+  ...
+# Subtest: write routing admits proven Grok tools but rejects unknown Kimi write capability
+ok 100 - write routing admits proven Grok tools but rejects unknown Kimi write capability
+  ---
+  duration_ms: 1.028935
+  type: 'test'
+  ...
+# Subtest: protocolId rejects non-string and unknown public values
+ok 101 - protocolId rejects non-string and unknown public values
+  ---
+  duration_ms: 0.319908
+  type: 'test'
+  ...
+# Subtest: design prefers Claude Fable at high effort
+ok 102 - design prefers Claude Fable at high effort
+  ---
+  duration_ms: 14.833528
+  type: 'test'
+  ...
+# Subtest: implementation prefers Codex Sol and accepts an exact effort override
+ok 103 - implementation prefers Codex Sol and accepts an exact effort override
+  ---
+  duration_ms: 1.164325
+  type: 'test'
+  ...
+# Subtest: Fable unavailability deterministically falls back to Opus
+ok 104 - Fable unavailability deterministically falls back to Opus
+  ---
+  duration_ms: 0.589417
+  type: 'test'
+  ...
+# Subtest: unknown availability blocks execution when a live snapshot is required
+ok 105 - unknown availability blocks execution when a live snapshot is required
+  ---
+  duration_ms: 0.766211
+  type: 'test'
+  ...
+# Subtest: hard capabilities beat provider preference and unknown is not treated as supported
+ok 106 - hard capabilities beat provider preference and unknown is not treated as supported
+  ---
+  duration_ms: 1.776066
+  type: 'test'
+  ...
+# Subtest: a probed capability override can make an explicit provider route eligible
+ok 107 - a probed capability override can make an explicit provider route eligible
+  ---
+  duration_ms: 0.402085
+  type: 'test'
+  ...
+# Subtest: unsupported exact effort is rejected instead of clamped
+ok 108 - unsupported exact effort is rejected instead of clamped
+  ---
+  duration_ms: 0.300923
+  type: 'test'
+  ...
+# Subtest: frozen alias candidates are independent from mutable policy inputs
+ok 109 - frozen alias candidates are independent from mutable policy inputs
+  ---
+  duration_ms: 0.805845
+  type: 'test'
+  ...
+# Subtest: per-alias frozen snapshots are honored
+ok 110 - per-alias frozen snapshots are honored
+  ---
+  duration_ms: 0.608577
+  type: 'test'
+  ...
+# Subtest: routing ties are deterministic by alias rank then candidate ID
+ok 111 - routing ties are deterministic by alias rank then candidate ID
+  ---
+  duration_ms: 0.737061
+  type: 'test'
+  ...
+# Subtest: invalid intent and alias produce stable contract errors
+ok 112 - invalid intent and alias produce stable contract errors
+  ---
+  duration_ms: 0.652979
+  type: 'test'
+  ...
+# Subtest: architecture runtime retains Fable to Opus fallback and proposal-session reuse
+ok 113 - architecture runtime retains Fable to Opus fallback and proposal-session reuse
+  ---
+  duration_ms: 12.611316
+  type: 'test'
+  ...
+# Subtest: fallback is limited to pre-turn model, effort, and session negotiation errors
+ok 114 - fallback is limited to pre-turn model, effort, and session negotiation errors
+  ---
+  duration_ms: 0.496676
+  type: 'test'
+  ...
+# Subtest: timeout classification is stable and separate from generic provider failure
+ok 115 - timeout classification is stable and separate from generic provider failure
+  ---
+  duration_ms: 0.285126
+  type: 'test'
+  ...
+# Subtest: deterministic gate requires approval for unparseable or severe unresolved critique
+ok 116 - deterministic gate requires approval for unparseable or severe unresolved critique
+  ---
+  duration_ms: 2.946383
+  type: 'test'
+  ...
+# Subtest: deterministic gate correlates stable finding IDs and escalates severe disagreement
+ok 117 - deterministic gate correlates stable finding IDs and escalates severe disagreement
+  ---
+  duration_ms: 0.423943
+  type: 'test'
+  ...
+# Subtest: deterministic gate fails closed on invalid fields and unknown dispositions
+ok 118 - deterministic gate fails closed on invalid fields and unknown dispositions
+  ---
+  duration_ms: 0.924197
+  type: 'test'
+  ...
+# Subtest: provider executable discovery excludes plugin-local binaries and aliases
+ok 119 - provider executable discovery excludes plugin-local binaries and aliases
+  ---
+  duration_ms: 11.590342
+  type: 'test'
+  ...
+# Subtest: provider executable discovery resolves a trusted target when PATH contains only a shim
+ok 120 - provider executable discovery resolves a trusted target when PATH contains only a shim
+  ---
+  duration_ms: 3.211355
+  type: 'test'
+  ...
+# Subtest: run authority does not cross linked consumer worktrees
+ok 121 - run authority does not cross linked consumer worktrees
+  ---
+  duration_ms: 70.704828
+  type: 'test'
+  ...
+# Subtest: request semantics dynamically route design, implementation, research, and large context
+ok 122 - request semantics dynamically route design, implementation, research, and large context
+  ---
+  duration_ms: 74.475397
+  type: 'test'
+  ...
+# Subtest: architecture is a max-effort Claude and Sol adversarial protocol
+ok 123 - architecture is a max-effort Claude and Sol adversarial protocol
+  ---
+  duration_ms: 29.59012
+  type: 'test'
+  ...
+# Subtest: single-route preview refuses to hide architecture protocol stages
+ok 124 - single-route preview refuses to hide architecture protocol stages
+  ---
+  duration_ms: 38.463835
+  type: 'test'
+  ...
+# Subtest: review excludes the originating provider family when possible
+ok 125 - review excludes the originating provider family when possible
+  ---
+  duration_ms: 32.578469
+  type: 'test'
+  ...
+# Subtest: explicit Claude and Codex provider requests resolve through catalog aliases
+ok 126 - explicit Claude and Codex provider requests resolve through catalog aliases
+  ---
+  duration_ms: 41.891711
+  type: 'test'
+  ...
+# Subtest: an exact catalog endpoint can select Fable 5.1 for implementation
+ok 127 - an exact catalog endpoint can select Fable 5.1 for implementation
+  ---
+  duration_ms: 28.913974
+  type: 'test'
+  ...
+# Subtest: state roots must be absolute and outside the plugin installation
+ok 128 - state roots must be absolute and outside the plugin installation
+  ---
+  duration_ms: 1.259591
+  type: 'test'
+  ...
+# Subtest: scheduler enforces concurrency and preserves idempotent spawn
+ok 129 - scheduler enforces concurrency and preserves idempotent spawn
+  ---
+  duration_ms: 84.957112
+  type: 'test'
+  ...
+# Subtest: architecture decisions can transition only from complete waiting evidence
+ok 130 - architecture decisions can transition only from complete waiting evidence
+  ---
+  duration_ms: 108.092878
+  type: 'test'
+  ...
+# Subtest: waiting-for-decision returns immediately and can be cancelled without a live worker
+ok 131 - waiting-for-decision returns immediately and can be cancelled without a live worker
+  ---
+  duration_ms: 96.94233
+  type: 'test'
+  ...
+# Subtest: restart recovery relaunches queued work and quarantines a lost active worker
+ok 132 - restart recovery relaunches queued work and quarantines a lost active worker
+  ---
+  duration_ms: 52.950265
+  type: 'test'
+  ...
+# Subtest: worker startup acknowledgement fails closed and leaves a durable terminal failure
+ok 133 - worker startup acknowledgement fails closed and leaves a durable terminal failure
+  ---
+  duration_ms: 39.443211
+  type: 'test'
+  ...
+# Subtest: session host refuses non-loopback binds
+ok 134 - session host refuses non-loopback binds
+  ---
+  duration_ms: 2.067256
+  type: 'test'
+  ...
+# Subtest: session host binds 127.0.0.1, walks a busy port, and exchanges a one-time capability
+ok 135 - session host binds 127.0.0.1, walks a busy port, and exchanges a one-time capability
+  ---
+  duration_ms: 73.400471
+  type: 'test'
+  ...
+# Subtest: spawn returns a session URL that is not stored on the snapshot
+ok 136 - spawn returns a session URL that is not stored on the snapshot
+  ---
+  duration_ms: 67.195543
+  type: 'test'
+  ...
+# Subtest: SSE after=N returns only later events and Last-Event-ID is equivalent
+ok 137 - SSE after=N returns only later events and Last-Event-ID is equivalent
+  ---
+  duration_ms: 43.531972
+  type: 'test'
+  ...
+# Subtest: SSE returns 409 when the journal hash chain is corrupt
+ok 138 - SSE returns 409 when the journal hash chain is corrupt
+  ---
+  duration_ms: 16.6778
+  type: 'test'
+  ...
+# Subtest: SSE watch delivers seq+1 after a later journal append
+ok 139 - SSE watch delivers seq+1 after a later journal append
+  ---
+  duration_ms: 22.9063
+  type: 'test'
+  ...
+# Subtest: POST controls require loopback Origin, journal follow-up, and cancel the run
+ok 140 - POST controls require loopback Origin, journal follow-up, and cancel the run
+  ---
+  duration_ms: 39.5545
+  type: 'test'
+  ...
+# Subtest: POST decision reviews a waiting architecture run
+ok 141 - POST decision reviews a waiting architecture run
+  ---
+  duration_ms: 26.264817
+  type: 'test'
+  ...
+# Subtest: session supervisor unit names are stable, hashed, and refuse unsafe ids
+ok 142 - session supervisor unit names are stable, hashed, and refuse unsafe ids
+  ---
+  duration_ms: 2.791449
+  type: 'test'
+  ...
+# Subtest: session supervisor launch argv is systemd-run, prlimit, and cli session-host
+ok 143 - session supervisor launch argv is systemd-run, prlimit, and cli session-host
+  ---
+  duration_ms: 1.477635
+  type: 'test'
+  ...
+# Subtest: supervision is off on Windows, inside the session-host process, and when env is 0
+ok 144 - supervision is off on Windows, inside the session-host process, and when env is 0
+  ---
+  duration_ms: 8.451087
+  type: 'test'
+  ...
+# Subtest: ensureSessionHost joins a live lease and dispose leaves that listener running
+ok 145 - ensureSessionHost joins a live lease and dispose leaves that listener running
+  ---
+  duration_ms: 51.411283
+  type: 'test'
+  ...
+# Subtest: ensureSessionHost listens in-process when dist/cli.cjs is missing
+ok 146 - ensureSessionHost listens in-process when dist/cli.cjs is missing
+  ---
+  duration_ms: 12.78043
+  type: 'test'
+  ...
+# Subtest: waitForSessionHostLease returns the first successful probe
+ok 147 - waitForSessionHostLease returns the first successful probe
+  ---
+  duration_ms: 0.965219
+  type: 'test'
+  ...
+# Subtest: idempotency keys return one durable run
+ok 148 - idempotency keys return one durable run
+  ---
+  duration_ms: 109.253681
+  type: 'test'
+  ...
+# Subtest: run IDs cannot traverse outside the state root
+ok 149 - run IDs cannot traverse outside the state root
+  ---
+  duration_ms: 2.589563
+  type: 'test'
+  ...
+# Subtest: a torn final event is ignored but prior hashes remain verified
+ok 150 - a torn final event is ignored but prior hashes remain verified
+  ---
+  duration_ms: 9.773036
+  type: 'test'
+  ...
+# Subtest: events are sequenced and terminal states are immutable
+ok 151 - events are sequenced and terminal states are immutable
+  ---
+  duration_ms: 32.710404
+  type: 'test'
+  ...
+# Subtest: operator_message events append to the verified hash chain
+ok 152 - operator_message events append to the verified hash chain
+  ---
+  duration_ms: 9.687597
+  type: 'test'
+  ...
+# Subtest: cancel requests are idempotent
+ok 153 - cancel requests are idempotent
+  ---
+  duration_ms: 17.548248
+  type: 'test'
+  ...
+# Subtest: the durable journal repairs a stale snapshot after an interrupted commit
+ok 154 - the durable journal repairs a stale snapshot after an interrupted commit
+  ---
+  duration_ms: 20.167344
+  type: 'test'
+  ...
+# Subtest: generic updates cannot mutate lifecycle or identity fields
+ok 155 - generic updates cannot mutate lifecycle or identity fields
+  ---
+  duration_ms: 10.59235
+  type: 'test'
+  ...
+# Subtest: generic updates reject terminal evidence changes while clearWorkspace is narrow and idempotent
+ok 156 - generic updates reject terminal evidence changes while clearWorkspace is narrow and idempotent
+  ---
+  duration_ms: 25.359283
+  type: 'test'
+  ...
+# Subtest: list fails closed when a valid run directory contains a corrupt journal
+ok 157 - list fails closed when a valid run directory contains a corrupt journal
+  ---
+  duration_ms: 8.042306
+  type: 'test'
+  ...
+# Subtest: an empty or malformed stale primary lock is reclaimed under the breaker
+ok 158 - an empty or malformed stale primary lock is reclaimed under the breaker
+  ---
+  duration_ms: 4.932957
+  type: 'test'
+  ...
+# Subtest: an abandoned breaker can be reclaimed before breaking a stale lock
+ok 159 - an abandoned breaker can be reclaimed before breaking a stale lock
+  ---
+  duration_ms: 245.276578
+  type: 'test'
+  ...
+# Subtest: internal collaboration: a project's own agents reach each other directly
+ok 160 - internal collaboration: a project's own agents reach each other directly
+  ---
+  duration_ms: 27.598592
+  type: 'test'
+  ...
+# Subtest: external collaboration: an outsider reaches the lead, not the member
+ok 161 - external collaboration: an outsider reaches the lead, not the member
+  ---
+  duration_ms: 21.728413
+  type: 'test'
+  ...
+# Subtest: an unresolvable recipient fails closed: an outsider naming a stranger still reaches the lead
+ok 162 - an unresolvable recipient fails closed: an outsider naming a stranger still reaches the lead
+  ---
+  duration_ms: 17.084035
+  type: 'test'
+  ...
+# Subtest: a project reached by another path shape is the same project, not an outsider
+ok 163 - a project reached by another path shape is the same project, not an outsider
+  ---
+  duration_ms: 10.103379
+  type: 'test'
+  ...
+# Subtest: a barrier on the original addressee is satisfied by the lead's answer, and returns it
+ok 164 - a barrier on the original addressee is satisfied by the lead's answer, and returns it
+  ---
+  duration_ms: 147.161849
+  type: 'test'
+  ...
+# Subtest: a delegation opens the direct channel, scoped to task and to the named outsider
+ok 165 - a delegation opens the direct channel, scoped to task and to the named outsider
+  ---
+  duration_ms: 20.528159
+  type: 'test'
+  ...
+# Subtest: the receiving repo's task store gets the last word on a delegation token
+ok 166 - the receiving repo's task store gets the last word on a delegation token
+  ---
+  duration_ms: 16.187067
+  type: 'test'
+  ...
+# Subtest: the via chain is appended to per hop and enforced on the send path
+ok 167 - the via chain is appended to per hop and enforced on the send path
+  ---
+  duration_ms: 12.919335
+  type: 'test'
+  ...
+# Subtest: coordinates_only is a capability: the mailbox refuses to assign a coordinator work
+ok 168 - coordinates_only is a capability: the mailbox refuses to assign a coordinator work
+  ---
+  duration_ms: 11.675311
+  type: 'test'
+  ...
+# Subtest: the lead's inbox depth is a number, and it is journalled as it grows
+ok 169 - the lead's inbox depth is a number, and it is journalled as it grows
+  ---
+  duration_ms: 20.747994
+  type: 'test'
+  ...
+# Subtest: a run that records only the token's digest still authenticates the writer
+ok 170 - a run that records only the token's digest still authenticates the writer
+  ---
+  duration_ms: 9.677181
+  type: 'test'
+  ...
+# Subtest: an agent cannot answer for another agent, and an empty reply satisfies nothing
+ok 171 - an agent cannot answer for another agent, and an empty reply satisfies nothing
+  ---
+  duration_ms: 127.635897
+  type: 'test'
+  ...
+# Subtest: ids and names are minted independently; a name collision never moves an address
+ok 172 - ids and names are minted independently; a name collision never moves an address
+  ---
+  duration_ms: 4.038039
+  type: 'test'
+  ...
+# Subtest: every built-in role including lead has a title, and people never see an id
+ok 173 - every built-in role including lead has a title, and people never see an id
+  ---
+  duration_ms: 0.400731
+  type: 'test'
+  ...
+# Subtest: a session is one agent's stable address plus a per-spawn discriminator
+ok 174 - a session is one agent's stable address plus a per-spawn discriminator
+  ---
+  duration_ms: 0.242004
+  type: 'test'
+  ...
+# Subtest: agents resolve through the same four-tier search path as the other resource types
+ok 175 - agents resolve through the same four-tier search path as the other resource types
+  ---
+  duration_ms: 1.149708
+  type: 'test'
+  ...
+# Subtest: a repo takes exactly one lead, and agents resolve by id or by name
+ok 176 - a repo takes exactly one lead, and agents resolve by id or by name
+  ---
+  duration_ms: 16.300735
+  type: 'test'
+  ...
+# Subtest: an agent's prompt maps the real work tree and warns against relative paths
+ok 177 - an agent's prompt maps the real work tree and warns against relative paths
+  ---
+  duration_ms: 9.410047
+  type: 'test'
+  ...
+# Subtest: loop and hop guards
+ok 178 - loop and hop guards
+  ---
+  duration_ms: 0.380253
+  type: 'test'
+  ...
+# Subtest: a session name resolves back to the agent that owns it, and to one spawn of it
+ok 179 - a session name resolves back to the agent that owns it, and to one spawn of it
+  ---
+  duration_ms: 0.542656
+  type: 'test'
+  ...
+# Subtest: a spec with auto_approve refuses to launch without explicit consent — dry run included
+ok 180 - a spec with auto_approve refuses to launch without explicit consent — dry run included
+  ---
+  duration_ms: 4.82333
+  type: 'test'
+  ...
+# Subtest: consent gets past the gate, and the launch still names the agents it applies to
+ok 181 - consent gets past the gate, and the launch still names the agents it applies to
+  ---
+  duration_ms: 8.186417
+  type: 'test'
+  ...
+# Subtest: the runs root is gitignored before a run writes into it
+ok 182 - the runs root is gitignored before a run writes into it
+  ---
+  duration_ms: 11.46624
+  type: 'test'
+  ...
+# Subtest: a shell prompt that looks exactly like the ready pattern does not count as ready
+ok 183 - a shell prompt that looks exactly like the ready pattern does not count as ready
+  ---
+  duration_ms: 2.499189
+  type: 'test'
+  ...
+# Subtest: screenSince anchors on the last occurrence, because tmux trims trailing blank lines
+ok 184 - screenSince anchors on the last occurrence, because tmux trims trailing blank lines
+  ---
+  duration_ms: 0.179956
+  type: 'test'
+  ...
+# Subtest: the fixed-delay path can return ready:false, so the not-ready warning is reachable
+ok 185 - the fixed-delay path can return ready:false, so the not-ready warning is reachable
+  ---
+  duration_ms: 3.916942
+  type: 'test'
+  ...
+# Subtest: a dead pane fails whichever readiness path the adapter uses
+ok 186 - a dead pane fails whichever readiness path the adapter uses
+  ---
+  duration_ms: 0.429929
+  type: 'test'
+  ...
+# Subtest: failure patterns no longer fire on a word that only appears inside a path
+ok 187 - failure patterns no longer fire on a word that only appears inside a path
+  ---
+  duration_ms: 0.494275
+  type: 'test'
+  ...
+# Subtest: a failure pattern in fresh output still fails the candidate
+ok 188 - a failure pattern in fresh output still fails the candidate
+  ---
+  duration_ms: 0.508358
+  type: 'test'
+  ...
+# Subtest: every shipped provider declares where its memory lives and how it grants a directory
+ok 189 - every shipped provider declares where its memory lives and how it grants a directory
+  ---
+  duration_ms: 6.876291
+  type: 'test'
+  ...
+# Subtest: two agents in the same repo do not share memory, and one agent keeps its across spawns
+ok 190 - two agents in the same repo do not share memory, and one agent keeps its across spawns
+  ---
+  duration_ms: 0.506776
+  type: 'test'
+  ...
+# Subtest: the repo is granted through the adapter's own add_dir mechanism, never a hardcoded flag
+ok 191 - the repo is granted through the adapter's own add_dir mechanism, never a hardcoded flag
+  ---
+  duration_ms: 0.43648
+  type: 'test'
+  ...
+# Subtest: an adapter with a bad memory declaration is rejected at load, not at launch
+ok 192 - an adapter with a bad memory declaration is rejected at load, not at launch
+  ---
+  duration_ms: 0.45851
+  type: 'test'
+  ...
+# Subtest: an agent whose cwd is not the repo is warned about when its CLI cannot be granted the repo
+ok 193 - an agent whose cwd is not the repo is warned about when its CLI cannot be granted the repo
+  ---
+  duration_ms: 2.561447
+  type: 'test'
+  ...
+# Subtest: an agent token is a capability: long, random, and never repeated
+ok 194 - an agent token is a capability: long, random, and never repeated
+  ---
+  duration_ms: 6.025762
+  type: 'test'
+  ...
+# Subtest: each agent's launcher exports that agent's token and no other agent's
+ok 195 - each agent's launcher exports that agent's token and no other agent's
+  ---
+  duration_ms: 0.736188
+  type: 'test'
+  ...
+# Subtest: a spec cannot name the token that decides which agent a pane may answer as
+ok 196 - a spec cannot name the token that decides which agent a pane may answer as
+  ---
+  duration_ms: 0.489611
+  type: 'test'
+  ...
+# Subtest: a coordinator is launched without the work-tree grant, so it cannot write the repo
+ok 197 - a coordinator is launched without the work-tree grant, so it cannot write the repo
+  ---
+  duration_ms: 4.398692
+  type: 'test'
+  ...
+# Subtest: a coordinator on an adapter that cannot drop its write tools is warned about, not quietly trusted
+ok 198 - a coordinator on an adapter that cannot drop its write tools is warned about, not quietly trusted
+  ---
+  duration_ms: 1.283385
+  type: 'test'
+  ...
+# Subtest: a restriction beats a permission when one flag expresses both
+ok 199 - a restriction beats a permission when one flag expresses both
+  ---
+  duration_ms: 0.254037
+  type: 'test'
+  ...
+# Subtest: every shipped provider states a coordinator form, even when that form is 'none'
+ok 200 - every shipped provider states a coordinator form, even when that form is 'none'
+  ---
+  duration_ms: 2.907219
+  type: 'test'
+  ...
+# Subtest: a session name is the agent's stable id plus a per-spawn discriminator, unique among live sessions
+ok 201 - a session name is the agent's stable id plus a per-spawn discriminator, unique among live sessions
+  ---
+  duration_ms: 0.527466
+  type: 'test'
+  ...
+# Subtest: two concurrent spawns of one agent are two distinct, separately addressable sessions
+ok 202 - two concurrent spawns of one agent are two distinct, separately addressable sessions
+  ---
+  duration_ms: 0.389944
+  type: 'test'
+  ...
+# Subtest: minting gives up loudly rather than handing back a name that is already taken
+ok 203 - minting gives up loudly rather than handing back a name that is already taken
+  ---
+  duration_ms: 0.271493
+  type: 'test'
+  ...
+# Subtest: the subscription format asks the server for readiness, failure, death and the exit code
+ok 204 - the subscription format asks the server for readiness, failure, death and the exit code
+  ---
+  duration_ms: 0.323809
+  type: 'test'
+  ...
+# Subtest: patterns tmux cannot parse are left out of the trigger rather than breaking the format
+ok 205 - patterns tmux cannot parse are left out of the trigger rather than breaking the format
+  ---
+  duration_ms: 0.173751
+  type: 'test'
+  ...
+# Subtest: an adapter whose tmux_pattern tmux cannot parse is rejected at load
+ok 206 - an adapter whose tmux_pattern tmux cannot parse is rejected at load
+  ---
+  duration_ms: 0.23907
+  type: 'test'
+  ...
+# Subtest: a pushed value decides readiness, and the shell's own prompt still does not count
+ok 207 - a pushed value decides readiness, and the shell's own prompt still does not count
+  ---
+  duration_ms: 0.232014
+  type: 'test'
+  ...
+# Subtest: a pushed death carries the process's real exit code, not just 'it died'
+ok 208 - a pushed death carries the process's real exit code, not just 'it died'
+  ---
+  duration_ms: 0.149403
+  type: 'test'
+  ...
+# Subtest: a server-side failure hit only asks for a second look; it does not decide
+ok 209 - a server-side failure hit only asks for a second look; it does not decide
+  ---
+  duration_ms: 0.115314
+  type: 'test'
+  ...
+# Subtest: deaths recorded by the pane-died hook parse back with their exit codes
+ok 210 - deaths recorded by the pane-died hook parse back with their exit codes
+  ---
+  duration_ms: 6.679189
+  type: 'test'
+  ...
+# Subtest: a role-session is named from the agent's stable id and never from a run
+ok 211 - a role-session is named from the agent's stable id and never from a run
+  ---
+  duration_ms: 0.437897
+  type: 'test'
+  ...
+# Subtest: a role-session name refuses the two characters tmux silently mangles
+ok 212 - a role-session name refuses the two characters tmux silently mangles
+  ---
+  duration_ms: 0.39623
+  type: 'test'
+  ...
+# Subtest: the record lives beside the agent, not inside a run that will be torn down
+ok 213 - the record lives beside the agent, not inside a run that will be torn down
+  ---
+  duration_ms: 0.107409
+  type: 'test'
+  ...
+# Subtest: reattaching to a live role-session returns the same session rather than a second one
+ok 214 - reattaching to a live role-session returns the same session rather than a second one
+  ---
+  duration_ms: 3184.251367
+  type: 'test'
+  ...
+# Subtest: the window is sized so every agent's pane stays wider than a ready pattern
+ok 215 - the window is sized so every agent's pane stays wider than a ready pattern
+  ---
+  duration_ms: 0.295785
+  type: 'test'
+  ...
+# Subtest: splitting for a large team re-equalizes, so the seventh agent still gets a pane
+ok 216 - splitting for a large team re-equalizes, so the seventh agent still gets a pane
+  ---
+  duration_ms: 141.783889
+  type: 'test'
+  ...
+# Subtest: a blank anchor never truncates the screen away — the readiness flake
+ok 217 - a blank anchor never truncates the screen away — the readiness flake
+  ---
+  duration_ms: 0.255516
+  type: 'test'
+  ...
+# Subtest: sendMessage writes one inbox file per recipient and journals it
+ok 218 - sendMessage writes one inbox file per recipient and journals it
+  ---
+  duration_ms: 21.404084
+  type: 'test'
+  ...
+# Subtest: waitForReplies resolves when every reply file exists and times out otherwise
+ok 219 - waitForReplies resolves when every reply file exists and times out otherwise
+  ---
+  duration_ms: 370.442995
+  type: 'test'
+  ...
+# Subtest: adapters: unknown cli falls back to generic with the id as command; argv order is stable
+ok 220 - adapters: unknown cli falls back to generic with the id as command; argv order is stable
+  ---
+  duration_ms: 3.084889
+  type: 'test'
+  ...
+# Subtest: queue depth counts what each agent still owes, and a run with no lead reports no lead queue
+ok 221 - queue depth counts what each agent still owes, and a run with no lead reports no lead queue
+  ---
+  duration_ms: 13.086134
+  type: 'test'
+  ...
+# Subtest: validateSpec normalizes a minimal spec
+ok 222 - validateSpec normalizes a minimal spec
+  ---
+  duration_ms: 2.896158
+  type: 'test'
+  ...
+# Subtest: validateSpec lists every problem at once
+ok 223 - validateSpec lists every problem at once
+  ---
+  duration_ms: 0.854098
+  type: 'test'
+  ...
+# Subtest: validateSpec requires exactly one orchestrator
+ok 224 - validateSpec requires exactly one orchestrator
+  ---
+  duration_ms: 0.212137
+  type: 'test'
+  ...
+# Subtest: resolveInputs applies defaults and reports missing required inputs
+ok 225 - resolveInputs applies defaults and reports missing required inputs
+  ---
+  duration_ms: 0.67872
+  type: 'test'
+  ...
+# Subtest: inputs with options are validated, support multi, and reject unknown values
+ok 226 - inputs with options are validated, support multi, and reject unknown values
+  ---
+  duration_ms: 0.777455
+  type: 'test'
+  ...
+# Subtest: candidates give an ordered fallback chain, from arrays, strings, or inputs
+ok 227 - candidates give an ordered fallback chain, from arrays, strings, or inputs
+  ---
+  duration_ms: 10.216884
+  type: 'test'
+  ...
+# Subtest: materializeSpec renders placeholders, run_dir, and per-agent cwd
+ok 228 - materializeSpec renders placeholders, run_dir, and per-agent cwd
+  ---
+  duration_ms: 2.302093
+  type: 'test'
+  ...
+# Subtest: helpers: render leaves unknown placeholders visible, durations parse, shellQuote is safe
+ok 229 - helpers: render leaves unknown placeholders visible, durations parse, shellQuote is safe
+  ---
+  duration_ms: 0.767355
+  type: 'test'
+  ...
+# Subtest: a spec entry may reference a stored agent, and anything inline overrides the stored definition
+ok 230 - a spec entry may reference a stored agent, and anything inline overrides the stored definition
+  ---
+  duration_ms: 14.725065
+  type: 'test'
+  ...
+# Subtest: an unknown agent reference fails with the roster and the search path
+ok 231 - an unknown agent reference fails with the roster and the search path
+  ---
+  duration_ms: 5.599153
+  type: 'test'
+  ...
+# Subtest: a system prompt can come from a file, and a missing one is fatal
+ok 232 - a system prompt can come from a file, and a missing one is fatal
+  ---
+  duration_ms: 2.579041
+  type: 'test'
+  ...
+# Subtest: mcp is part of the agent schema and is documented
+ok 233 - mcp is part of the agent schema and is documented
+  ---
+  duration_ms: 0.59868
+  type: 'test'
+  ...
+# Subtest: a minted agent id is a valid spec agent id
+ok 234 - a minted agent id is a valid spec agent id
+  ---
+  duration_ms: 5.722064
+  type: 'test'
+  ...
+# Subtest: a spec may not launch outside the repo that invoked it
+ok 235 - a spec may not launch outside the repo that invoked it
+  ---
+  duration_ms: 3.105705
+  type: 'test'
+  ...
+# Subtest: a library agent runs in its own directory; an inline agent still follows the spec cwd
+ok 236 - a library agent runs in its own directory; an inline agent still follows the spec cwd
+  ---
+  duration_ms: 4.179719
+  type: 'test'
+  ...
+# Subtest: a library agent found outside the consumer still works inside it
+ok 237 - a library agent found outside the consumer still works inside it
+  ---
+  duration_ms: 5.044396
+  type: 'test'
+  ...
+# Subtest: coordinates_only reaches the run agent, from the library or declared inline
+ok 238 - coordinates_only reaches the run agent, from the library or declared inline
+  ---
+  duration_ms: 3.80642
+  type: 'test'
+  ...
+# Subtest: a run of one library agent is addressed by that agent; anything else stays run-addressed
+ok 239 - a run of one library agent is addressed by that agent; anything else stays run-addressed
+  ---
+  duration_ms: 7.885387
+  type: 'test'
+  ...
+# Subtest: missing user-bus variables are recovered from the validated canonical runtime
+ok 240 - missing user-bus variables are recovered from the validated canonical runtime
+  ---
+  duration_ms: 1.399741
+  type: 'test'
+  ...
+# Subtest: systemd-run, systemctl, and worker launch receive the same canonical user-bus environment
+ok 241 - systemd-run, systemctl, and worker launch receive the same canonical user-bus environment
+  ---
+  duration_ms: 0.783344
+  type: 'test'
+  ...
+# Subtest: ambient user-bus paths are replaced instead of trusted
+ok 242 - ambient user-bus paths are replaced instead of trusted
+  ---
+  duration_ms: 0.317991
+  type: 'test'
+  ...
+# Subtest: user-manager execution fails closed for unsafe canonical runtime or bus paths
+    # Subtest: runtime permissions are not private
+    ok 1 - runtime permissions are not private
+      ---
+      duration_ms: 1.131561
+      type: 'test'
+      ...
+    # Subtest: runtime path resolves elsewhere
+    ok 2 - runtime path resolves elsewhere
+      ---
+      duration_ms: 0.362676
+      type: 'test'
+      ...
+    # Subtest: bus path is not an owned socket
+    ok 3 - bus path is not an owned socket
+      ---
+      duration_ms: 0.31211
+      type: 'test'
+      ...
+    1..3
+ok 243 - user-manager execution fails closed for unsafe canonical runtime or bus paths
+  ---
+  duration_ms: 4.715816
+  type: 'test'
+  ...
+# Subtest: native Windows helper creates Job Objects and AppContainers
+ok 244 - native Windows helper creates Job Objects and AppContainers # SKIP
+  ---
+  duration_ms: 0.865548
+  type: 'test'
+  ...
+# Subtest: native Windows AppContainer launches a bounded console process
+ok 245 - native Windows AppContainer launches a bounded console process # SKIP
+  ---
+  duration_ms: 0.161764
+  type: 'test'
+  ...
+# Subtest: native Windows AppContainer launches a staged Node runtime
+ok 246 - native Windows AppContainer launches a staged Node runtime # SKIP
+  ---
+  duration_ms: 0.108314
+  type: 'test'
+  ...
+# Subtest: native Windows AppContainer launches the installed Codex executable
+ok 247 - native Windows AppContainer launches the installed Codex executable # SKIP
+  ---
+  duration_ms: 0.097635
+  type: 'test'
+  ...
+1..247
+# tests 250
+# suites 0
+# pass 246
+# fail 0
+# cancelled 0
+# skipped 4
+# todo 0
+# duration_ms 8497.759573

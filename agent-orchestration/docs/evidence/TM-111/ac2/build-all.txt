@@ -1,0 +1,38 @@
+
+> @bytedesk/agent-orchestration@0.4.0 build:all
+> npm run build && npm run build:windows-native
+
+
+> @bytedesk/agent-orchestration@0.4.0 build
+> node scripts/build.mjs
+
+
+  dist/host-launcher.cjs  6.3kb
+
+⚡ Done in 12ms
+
+  dist/provider-sandbox.cjs  47.6kb
+
+⚡ Done in 19ms
+
+  dist/probe-worker.cjs  941.5kb
+
+⚡ Done in 63ms
+
+  dist/cli.cjs  1.1mb ⚠️
+
+⚡ Done in 64ms
+
+  dist/mcp.cjs  1.7mb ⚠️
+
+⚡ Done in 76ms
+
+  dist/claude-agent-acp.mjs            2.2mb ⚠️
+  dist/claude-agent-acp.mjs.LEGAL.txt  197b 
+
+⚡ Done in 145ms
+
+> @bytedesk/agent-orchestration@0.4.0 build:windows-native
+> node scripts/build-windows-native.mjs
+
+Using the committed Windows native helper artifacts on this non-Windows host.
