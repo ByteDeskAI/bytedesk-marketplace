@@ -1,0 +1,9 @@
+{
+  "task": "TM-111",
+  "owner": "Ryan Helms (@ryanhelms)",
+  "expiresAt": "2026-09-13T00:00:00Z",
+  "file": "agent-orchestration/tests/contract/clean-install.test.mjs",
+  "test": "tracked install bundle starts from plugin cwd but resolves only explicit consumerCwd",
+  "reason": "Hosted Ubuntu 24.04 denies Bubblewrap loopback RTM_NEWADDR before Fake Kimi initializes. Runner policy change requires owner approval.",
+  "evidence": "https://github.com/ByteDeskAI/bytedesk-marketplace/actions/runs/34016794318"
+}
