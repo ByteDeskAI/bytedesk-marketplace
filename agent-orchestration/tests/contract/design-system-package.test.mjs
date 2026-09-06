@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { dirname, join } from "node:path";
@@ -11,7 +12,13 @@ const run = promisify(execFile);
 const root = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const cli = join(root, "node_modules/@bytedesk/design-client/cli.mjs");
 
-test("packed plugin owns its complete design identity and rejects parent inheritance or payload drift", async () => {
+// The check this test runs is `design-client sync --check`, and the client is a devDependency from
+// the private registry. On a machine that installed without the registry token it is simply absent,
+// and the test then failed with "Cannot find module .../design-client/cli.mjs" — which reads as a
+// broken packed plugin rather than a missing credential. Skipping names the real prerequisite.
+const clientInstalled = existsSync(cli);
+
+test("packed plugin owns its complete design identity and rejects parent inheritance or payload drift", { skip: clientInstalled ? false : "@bytedesk/design-client is not installed; run npm install with access to npm.bytedesk.ai to run this contract" }, async () => {
   const scratch = await mkdtemp(join(os.tmpdir(), "ao-design-package-"));
   try {
     // A conflicting marketplace identity must never become the plugin identity.

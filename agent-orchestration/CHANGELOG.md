@@ -55,6 +55,25 @@
   participant as a nested block — the child's state, session liveness, agent count and what is
   awaiting reply there — instead of `on NO PROVIDER [chain: ] pane null`, which read as a broken
   agent when the team was perfectly healthy.
+- **A ready pattern tmux can never match is refused at load** (TM-112). tmux searches rendered lines
+  one at a time, so a `ready.tmux_pattern` spanning a newline matches nothing, and tmux trims
+  trailing whitespace off a line, so one ending in a space class cannot match a prompt sitting at the
+  end of its line. Both used to cost the adapter's whole timeout and then report themselves as "ready
+  pattern not seen" — a slow agent, not a broken pattern. Measured on tmux 3.4 against a pane showing
+  `ready` then `> `: `#{C/r:ready\n>}` answers 0 where `#{C/r:ready}` answers 1, and
+  `#{C/r:>[[:space:]]}` answers 0 where `#{C/r:>$}` answers 2. The shipped `claude` and `codex`
+  patterns were already written to survive both and stay legal, which the test asserts.
+- **The tmux contract test now exercises the path real adapters take.** The fake adapter declared
+  only `ready.pattern`, so it took the polling fallback and left `waitReadySubscribed` — the
+  subscription path every shipped adapter uses — uncovered. It now declares a single-line
+  `tmux_pattern` as well, verified by making the polling pattern unmatchable and watching the run
+  still come up ready. Its ready timeout went from 10s to 30s: `node --test` runs the contract files
+  concurrently, and under the clean-install contract's load a local node process needed longer than
+  10s to draw a prompt.
+- **The design-system packaging contract skips instead of failing when the private client is
+  absent.** It shells out to `design-client sync --check`, a devDependency from `npm.bytedesk.ai`; on
+  a machine that installed without the registry token it failed with `Cannot find module`, which
+  reads as a broken packed plugin rather than a missing credential.
 
 ### Changed — the noun is "workflow" (EP-016)
 

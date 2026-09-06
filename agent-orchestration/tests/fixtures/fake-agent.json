@@ -3,11 +3,21 @@
   "display": "Fake agent (tests)",
   "command": "node",
   "args": [],
-  "model_args": ["--model", "{{model}}"],
+  "model_args": [
+    "--model",
+    "{{model}}"
+  ],
   "system_prompt_args": [],
   "auto_approve_args": [],
-  "ready": { "pattern": "ready\\n>", "delay_ms": 500, "timeout_ms": 10000 },
-  "submit_keys": ["Enter"],
+  "ready": {
+    "pattern": "^>",
+    "tmux_pattern": "^>",
+    "delay_ms": 500,
+    "timeout_ms": 30000
+  },
+  "submit_keys": [
+    "Enter"
+  ],
   "detect": null,
-  "notes": "Test-only adapter. The spec passes the fake-agent script path through the agent's args."
+  "notes": "Test-only adapter. The spec passes the fake-agent script path through the agent's args. Both ready patterns are single-line and identical on purpose: tmux evaluates tmux_pattern per rendered line, so a pattern spanning a newline can never match there, and declaring tmux_pattern is what makes this fixture exercise the subscription path every real adapter takes. The 10s ready timeout was raised to 30s because node --test runs the contract files concurrently and the clean-install contract packs and installs the plugin next door; under that load a local node process took longer than 10s to draw its prompt and the run failed as 'ready pattern not seen'. The timeout is here to bound a hang, not to measure startup speed."
 }

@@ -97,6 +97,23 @@ export function normalizeAdapter(raw, source) {
       "TOPOLOGY_ADAPTER_INVALID",
       `Adapter ${adapter.id}: ready.tmux_pattern may not contain "{", "}" or ":" — tmux's format parser consumes them. Got ${JSON.stringify(adapter.ready.tmux_pattern)}.`,
     );
+    // tmux searches the pane's RENDERED LINES one at a time (`#{C/r:}`), and no rendered line
+    // contains a newline, so a pattern spanning one matches nothing — silently, for the adapter's
+    // whole timeout, and then reports itself as "ready pattern not seen". Measured against tmux 3.4:
+    // a pane showing "ready\n> " answers 0 for `#{C/r:ready\n>}` and 1 for `#{C/r:ready}`.
+    invariant(
+      !/\\n|\\r|\n/.test(adapter.ready.tmux_pattern),
+      "TOPOLOGY_ADAPTER_INVALID",
+      `Adapter ${adapter.id}: ready.tmux_pattern may not span a line break — tmux matches one rendered line at a time, so a pattern containing a newline can never match. Got ${JSON.stringify(adapter.ready.tmux_pattern)}. Match the prompt line alone, and keep the multi-line form in ready.pattern if you need it.`,
+    );
+    // tmux also trims trailing whitespace off a rendered line, so a pattern ending in a space class
+    // cannot match a prompt that is the last thing on its line — the common case. Verified: for a
+    // pane whose line reads "> ", `#{C/r:>[[:space:]]}` answers 0 while `#{C/r:>$}` answers 2.
+    invariant(
+      !/(\\s|\[\[:space:\]\]|\\t| )[*+?]?$/.test(adapter.ready.tmux_pattern),
+      "TOPOLOGY_ADAPTER_INVALID",
+      `Adapter ${adapter.id}: ready.tmux_pattern ends in a whitespace match, which tmux has already trimmed off the rendered line. Got ${JSON.stringify(adapter.ready.tmux_pattern)}. Drop the trailing whitespace from the tmux pattern.`,
+    );
   }
   if (adapter.ready.pattern) {
     try {

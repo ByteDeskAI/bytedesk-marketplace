@@ -457,6 +457,23 @@ test("an adapter whose tmux_pattern tmux cannot parse is rejected at load", () =
   assert.throws(() => normalizeAdapter({ id: "x", ready: { tmux_pattern: "[[:space:]]>" } }, "x"), /may not contain/);
 });
 
+test("a tmux_pattern that tmux can parse but can never match is rejected too", () => {
+  // Both of these are worse than a syntax error, because they cost the adapter's whole timeout and
+  // then report themselves as "ready pattern not seen" — a slow agent, not a broken pattern.
+  // Measured against tmux 3.4 on a pane showing "ready\n> ": #{C/r:ready\n>} answers 0 while
+  // #{C/r:ready} answers 1, and #{C/r:>[[:space:]]} answers 0 while #{C/r:>$} answers 2.
+  assert.throws(() => normalizeAdapter({ id: "x", ready: { tmux_pattern: "ready\\n>" } }, "x"), /may not span a line break/);
+  assert.throws(() => normalizeAdapter({ id: "x", ready: { tmux_pattern: "^\\s*>\\s" } }, "x"), /already trimmed/);
+  assert.throws(() => normalizeAdapter({ id: "x", ready: { tmux_pattern: "^> " } }, "x"), /already trimmed/);
+  // What the shipped adapters actually declare stays legal — this guard exists to protect them, not
+  // to fail them.
+  assert.doesNotThrow(() => normalizeAdapter({ id: "x", ready: { tmux_pattern: "^\\s*[│|]?\\s*[>❯]" } }, "x"));
+  assert.doesNotThrow(() => normalizeAdapter({ id: "x", ready: { tmux_pattern: "^\\s*[›>❯]" } }, "x"));
+  // The multi-line form is still fine in ready.pattern, which this process evaluates over a whole
+  // captured screen rather than one line.
+  assert.doesNotThrow(() => normalizeAdapter({ id: "x", ready: { pattern: "ready\\n>" } }, "x"));
+});
+
 test("a pushed value decides readiness, and the shell's own prompt still does not count", () => {
   // The pane is cleared before the launcher is sent, so what remains above the agent is the prompt
   // the shell redraws. A content match inside it is the false positive TM-091 removed.
