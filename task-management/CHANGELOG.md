@@ -254,6 +254,12 @@
 - **Generated runtime files stay out of git.** Store `.gitignore` now names `dashboard.pid` and `dashboard.port` explicitly (still covered by `dashboard.*`), plus `bin` (generated launchers) and `events.json` / `events.jsonl`. Bootstrap and `.bytedesk/task-management/bin/tm doctor --fix` write `.bytedesk/.gitignore` so `worktrees/` is ignored without swallowing the store. Dashboard `.gitignore` also drops Vite/tsc leftovers (`.vite`, `*.tsbuildinfo`).
 
 ### Fixed
+- **A `--restart` that had to wait announced itself twice.** The ready line was the callback
+  argument to `server.listen`, which registers a fresh one-shot `listening` handler on every call —
+  and `listen` calls itself to retry while an evicted incumbent is still letting go of the port. Each
+  retry left another handler waiting on the single `listening` event, so the board printed its URL
+  and wrote `dashboard.pid` once per attempt. Intermittent by nature: a takeover of a board that
+  released its port immediately printed once. The handler is registered once now, outside the retry.
 - **`tm-dashboard --help` started a server instead of printing anything.** The flag matched nothing,
   fell through every check, and the process went on to bind a port and serve the board — so a help
   invocation became a real dashboard that sat in `ps` looking hung for as long as it ran, and the

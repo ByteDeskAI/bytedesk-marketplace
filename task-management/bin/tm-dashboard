@@ -721,13 +721,27 @@ function listen(port, { waits = 0, moves = 0 } = {}) {
     }
     throw err;
   });
-  server.listen(port, "127.0.0.1", () => {
-    // What the origin check compares against: the port actually bound, not one a header claims.
-    boundPort = port;
-    writeInstance(P, { pid: process.pid, port });
-    const u = url(port);
-    process.stdout.write(`task-management board: ${u}  (${P.root})\n`);
-    if (launchBrowserEnabled(P, process.env, process.argv)) openUrl(u);
-  });
+  server.listen(port, "127.0.0.1");
 }
+
+/**
+ * Registered ONCE, not per attempt.
+ *
+ * It used to be the callback argument to `server.listen`, which registers a fresh one-shot
+ * `listening` handler on every call — and `listen` calls itself to retry while an evicted
+ * incumbent is still letting go of the port. Every retry therefore left another handler waiting
+ * on the single `listening` event that eventually fires, so a `--restart` that had to wait once
+ * announced itself twice and wrote the instance file twice. Seen for real restarting the gateway
+ * board; the same restart of a board that released its port immediately printed once, which is
+ * why it looks intermittent.
+ */
+server.on("listening", () => {
+  const { port } = server.address();
+  // What the origin check compares against: the port actually bound, not one a header claims.
+  boundPort = port;
+  writeInstance(P, { pid: process.pid, port });
+  const u = url(port);
+  process.stdout.write(`task-management board: ${u}  (${P.root})\n`);
+  if (launchBrowserEnabled(P, process.env, process.argv)) openUrl(u);
+});
 listen(assignment.port);
