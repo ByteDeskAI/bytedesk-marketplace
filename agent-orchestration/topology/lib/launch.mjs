@@ -883,6 +883,15 @@ export async function failoverAgent({ runDir, agentId, adapters, toLabel, log = 
   const run = await loadRun(runDir);
   const entry = run.agents.find((agent) => agent.id === agentId);
   invariant(entry, "TOPOLOGY_UNKNOWN_AGENT", `Unknown agent "${agentId}". Agents: ${run.agents.map((agent) => agent.id).join(", ")}.`);
+  // Failover is a PROVIDER concept: restart this process on the next model in its chain. A team has
+  // no provider and no chain, so the question does not apply — and answering it from the empty chain
+  // produced "no provider left after none. Chain: .", which reads like a fault rather than a
+  // category error. Fail over an agent inside the child run instead.
+  invariant(
+    !entry.workflow,
+    "TOPOLOGY_AGENT_IS_A_WORKFLOW",
+    `${agentId} is a workflow participant running "${entry.workflow?.name}", not a process on a provider — there is no chain to fail over. Fail over an agent inside its own run: \`failover --run ${entry.workflow?.run_dir ?? "<child run dir>"} --agent <id>\`.`,
+  );
   invariant(await tmux.hasSession(run.session), "TOPOLOGY_SESSION_GONE", `tmux session ${run.session} is not running.`);
   let startIndex = (entry.active ?? -1) + 1;
   if (toLabel) {

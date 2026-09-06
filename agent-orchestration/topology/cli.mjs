@@ -137,6 +137,44 @@ async function runDirFrom(flags) {
 }
 
 /**
+ * Refuse a pane operation on a workflow participant, and say where to look instead.
+ *
+ * capture, nudge and failover are all questions about a PROCESS — what is on its screen, type this
+ * at it, restart it on another provider. A participant is a team in another run, so none of them
+ * have an answer here; the honest response names the run where they do. Without this, capture
+ * returned silence, nudge leaked `can't find pane: null` from tmux, and failover reported "no
+ * provider left after none. Chain: ." — three different ways of not saying "that is a team".
+ */
+function refuseIfParticipant(agent, verb) {
+  invariant(
+    !agent?.workflow,
+    "TOPOLOGY_AGENT_IS_A_WORKFLOW",
+    `${agent?.id} is a workflow participant running "${agent?.workflow?.name}", not a pane, so there is nothing to ${verb}. Its own run is at ${agent?.workflow?.run_dir ?? "(not launched)"} — try \`status --run ${agent?.workflow?.run_dir ?? "<child run dir>"}\`.`,
+  );
+}
+
+/**
+ * What a participant's child run is actually doing, for the parent's `status`.
+ *
+ * A participant has no pane, so every column `status` prints about a process is empty for it — the
+ * first cut rendered a perfectly healthy team as "on NO PROVIDER [chain: ] pane null", which reads
+ * as a broken agent. What the operator wants at the parent level is the one line they would get by
+ * running `status` in the child: is its session up, what state is it in, and is anything queued
+ * there. Best-effort throughout: a child whose run.json has been deleted is reported as gone rather
+ * than crashing the parent's status.
+ */
+async function childSummary(runDir) {
+  try {
+    const run = await loadRun(runDir);
+    const alive = await tmux.hasSession(run.session);
+    const pending = await pendingReplies(runDir).catch(() => []);
+    return { state: run.state, session_alive: alive, agents: run.agents?.length ?? 0, pending: pending.length };
+  } catch {
+    return { state: "unreadable", session_alive: false, agents: 0, pending: 0 };
+  }
+}
+
+/**
  * Stop every run beneath this one, depth-first.
  *
  * Depth-first because stopping top-down orphans every level below the one that fails: kill the
@@ -628,6 +666,7 @@ const commands = {
     const run = await loadRun(runDir);
     const agent = run.agents.find((item) => item.id === flags.agent);
     invariant(agent, "TOPOLOGY_UNKNOWN_AGENT", `Unknown agent "${flags.agent}". Agents: ${run.agents.map((item) => item.id).join(", ")}.`);
+    refuseIfParticipant(agent, "capture");
     const lines = Number(flags.lines) > 0 ? Number(flags.lines) : 60;
     out(await tmux.capture(agent.pane, lines));
   },
@@ -637,6 +676,7 @@ const commands = {
     const run = await loadRun(runDir);
     const agent = run.agents.find((item) => item.id === flags.agent);
     invariant(agent, "TOPOLOGY_UNKNOWN_AGENT", `Unknown agent "${flags.agent}".`);
+    refuseIfParticipant(agent, "nudge — send it a message instead");
     invariant(typeof flags.text === "string" && flags.text.trim(), "TOPOLOGY_TEXT_REQUIRED", "Pass --text <text>.");
     await tmux.sendText(agent.pane, flags.text, agent.submit_keys ?? ["Enter"]);
     await appendJournal(runDir, { type: "agent.nudged", agent: agent.id, text: flags.text });
@@ -669,9 +709,10 @@ const commands = {
     // Reporting it as a number is the difference between diagnosing that and guessing at it.
     const queues = await queueDepth(runDir);
     const journal = await readJournal(runDir, Number(flags.limit) > 0 ? Number(flags.limit) : 12);
-    const agents = run.agents.map((agent) => {
+    const agents = [];
+    for (const agent of run.agents) {
       const pane = panes.find((item) => item.id === agent.pane);
-      return {
+      const entry = {
         id: agent.id,
         role: agent.role,
         provider: agent.provider ?? null,
@@ -683,7 +724,13 @@ const commands = {
         pending: pending.filter((item) => item.agent === agent.id).map((item) => item.id),
         queue: queues.find((q) => q.agent === agent.id) ?? { depth: 0, oldest_age_ms: null, messages: [] },
       };
-    });
+      // A participant is a whole run, so its liveness is its child session's, not a pane's.
+      if (agent.workflow?.run_dir) {
+        entry.workflow = { ...agent.workflow, child: await childSummary(agent.workflow.run_dir) };
+        entry.alive = entry.workflow.child.session_alive;
+      }
+      agents.push(entry);
+    }
     const report = { run_id: run.run_id, name: run.name, session: run.session, session_alive: alive, state: run.state, run_dir: runDir, inputs: run.inputs, agents, pending_count: pending.length, queues, recent: journal };
     if (flags.json) return out(report);
     out(`${run.name} · run ${run.run_id} · state ${run.state} · session ${run.session} ${alive ? "(alive)" : "(gone)"}`);
@@ -691,7 +738,16 @@ const commands = {
     // library, so if the library cannot name a single lead, the queue shown below is measuring a
     // different agent than the one messages are actually going to.
     for (const queue of queues) if (queue.lead_error) out(`  ! roster problem: ${queue.lead_error}`);
-    for (const agent of agents) out(`  ${agent.alive ? "●" : "○"} ${agent.id} (${agent.role}) on ${agent.provider ?? "NO PROVIDER"} [chain: ${agent.chain.join(" → ")}] pane ${agent.pane}${agent.command ? ` running ${agent.command}` : ""}${agent.pending.length ? ` — queue ${agent.queue.depth}${agent.queue.oldest_age_ms != null ? `, oldest ${Math.round(agent.queue.oldest_age_ms / 1000)}s` : ""}: ${agent.pending.join(", ")}` : ""}`);
+    for (const agent of agents) {
+      const queued = agent.pending.length ? ` — queue ${agent.queue.depth}${agent.queue.oldest_age_ms != null ? `, oldest ${Math.round(agent.queue.oldest_age_ms / 1000)}s` : ""}: ${agent.pending.join(", ")}` : "";
+      if (agent.workflow) {
+        const child = agent.workflow.child;
+        out(`  ${agent.alive ? "●" : "○"} ${agent.id} (${agent.role}) is a TEAM running \`${agent.workflow.name}\` — ${child.agents} agents, state ${child.state}, session ${agent.workflow.session} ${child.session_alive ? "(alive)" : "(gone)"}${queued}`);
+        out(`      conductor ${agent.workflow.conductor} · ${child.pending} awaiting reply there · status --run ${agent.workflow.run_dir}`);
+        continue;
+      }
+      out(`  ${agent.alive ? "●" : "○"} ${agent.id} (${agent.role}) on ${agent.provider ?? "NO PROVIDER"} [chain: ${agent.chain.join(" → ")}] pane ${agent.pane}${agent.command ? ` running ${agent.command}` : ""}${queued}`);
+    }
     out("Recent journal:");
     for (const event of journal) out(`  ${event.ts ?? ""}  ${event.type}${event.id ? ` ${event.id}` : ""}${event.agent ? ` ${event.agent}` : ""}${event.from ? ` from ${event.from}` : ""}${event.to ? ` to ${[].concat(event.to).join(",")}` : ""}`);
   },

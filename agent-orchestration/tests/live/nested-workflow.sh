@@ -132,6 +132,38 @@ check "and is accepted with it" "$?" "0"
 check "the parent's barrier releases on the team's answer" "$?" "0"
 
 echo
+echo "== a participant is a team, and every pane question says so"
+# capture, nudge and failover all ask something about a PROCESS. Before the guards they each failed
+# differently and none of them said "that is a team": capture returned silence, nudge leaked tmux's
+# `can't find pane: null`, and failover reported "no provider left after none. Chain: .".
+for verb in capture nudge failover; do
+  case "$verb" in
+    nudge) OUT=$("$AO" nudge --run "$PARENT_DIR" --agent reviewers --body hi 2>&1);;
+    failover) OUT=$("$AO" failover --run "$PARENT_DIR" --agent reviewers 2>&1);;
+    *) OUT=$("$AO" capture --run "$PARENT_DIR" --agent reviewers 2>&1);;
+  esac
+  CODE=$?
+  check "$verb on a participant fails" "$CODE" "1"
+  echo "$OUT" | grep -q "TOPOLOGY_AGENT_IS_A_WORKFLOW"
+  check "  and names it a workflow participant" "$?" "0"
+  echo "$OUT" | grep -qF "$CHILD_DIR"
+  check "  and points at the child run" "$?" "0"
+done
+
+STATUS=$("$AO" status --run "$PARENT_DIR" 2>/dev/null)
+# The regression this guards: a healthy team rendered as "on NO PROVIDER [chain: ] pane null".
+echo "$STATUS" | grep -q "NO PROVIDER"
+check "status does not call a live team a provider failure" "$?" "1"
+echo "$STATUS" | grep -q "reviewers (worker) is a TEAM running"
+check "status renders a participant as a nested team" "$?" "0"
+echo "$STATUS" | grep -qF "status --run $CHILD_DIR"
+check "and hands over the command to look inside it" "$?" "0"
+SJSON="$ROOT/status.json"
+"$AO" status --run "$PARENT_DIR" --json 2>/dev/null | sed -n '/^{/,$p' > "$SJSON"
+check "the json carries the child's state" "$(jq_ "$SJSON" "[a for a in d['agents'] if a['id']=='reviewers'][0]['workflow']['child']['state']")" "running"
+check "and its liveness is the child session's, not a pane's" "$(jq_ "$SJSON" "[a for a in d['agents'] if a['id']=='reviewers'][0]['alive']")" "True"
+
+echo
 echo "== refusals: a tree stays finite"
 cat > "$WF/nested-selfish.json" <<'JSON'
 {"name":"nested-selfish","description":"a workflow that contains itself","agents":[
