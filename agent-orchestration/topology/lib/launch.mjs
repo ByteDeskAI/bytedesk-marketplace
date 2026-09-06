@@ -40,8 +40,9 @@ function describeAgents(spec, selfId) {
 }
 
 function describeWorkflow(spec) {
-  if (spec.workflow.length === 0) return "_No fixed workflow; the conductor decides the stages from the mission._";
-  return spec.workflow
+  const stages = spec.stages ?? spec.workflow ?? [];
+  if (stages.length === 0) return "_No fixed stage list; the conductor decides the stages from the mission._";
+  return stages
     .map((stage, index) => {
       const parts = [`${index + 1}. **${stage.stage}**`];
       if (stage.from) parts.push(`from \`${stage.from}\``);
@@ -582,7 +583,10 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
     // holding an orphan and asking where it came from.
     parent: lineage,
     depth: lineage?.depth ?? 0,
-    workflow: spec.workflow,
+    // `stages` is the field; `workflow` stays alongside it so a run.json written by this version
+    // is still readable by a consumer pinned to the previous one.
+    stages: spec.stages,
+    workflow: spec.stages,
     gates: spec.gates,
     artifacts_dir: join(spec.run_dir, spec.artifacts.dir),
     created: nowIso(),

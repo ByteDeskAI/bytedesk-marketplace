@@ -1,6 +1,6 @@
 ---
 name: orchestration-compose
-description: Turn a natural-language description of a multi-agent collaboration ("a Fable conductor, two designers on Codex and Grok, an Opus judge, human sign-off at the end") into a validated tmux orchestration spec, then save it as a reusable template. Use when the user describes agents working together, asks for a new orchestration or team template, or wants to change an existing template.
+description: Turn a natural-language description of a multi-agent collaboration ("a Fable conductor, two designers on Codex and Grok, an Opus judge, human sign-off at the end") into a validated tmux orchestration spec, then save it as a reusable workflow. Use when the user describes agents working together, asks for a new orchestration or team workflow, or wants to change an existing workflow.
 user-invokable: true
 argument-hint: "<what the agents should do together> [--save user|consumer]"
 ---
@@ -21,7 +21,7 @@ developing the plugin.
    - `AO schema` — the fields, roles, and placeholders.
    - `AO providers` — which CLI adapters exist and what each supports (model flag, system prompt,
      auto-approve). An unknown `cli` id still works through the generic adapter.
-   - `AO templates` — reuse or extend an existing template instead of starting blank when one is
+   - `AO workflows` — reuse or extend an existing workflow instead of starting blank when one is
      close.
 2. **Extract the team.** For every agent the user named or implied, decide: `id` (short slug),
    `role` (one orchestrator; others from orchestrator/worker/designer/judge/reviewer/researcher/
@@ -56,10 +56,10 @@ developing the plugin.
    then the gates and inputs. Ask for corrections only if something material is ambiguous
    (which CLI for an unnamed designer, whether a judge should be independent of the designers'
    model family). Otherwise proceed.
-8. **Save**: `AO compose --spec <file> --save user` (default; `~/.config/agent-orchestration/templates/`)
-   or `--save consumer` (`<repo>/.bytedesk/agent-orchestration/templates/`) when the template belongs to one repo.
+8. **Save**: `AO compose --spec <file> --save user` (default; `~/.config/agent-orchestration/workflows/`)
+   or `--save consumer` (`<repo>/.bytedesk/agent-orchestration/workflows/`) when the workflow belongs to one repo.
    Report the saved path and the launch command:
-   `AO launch --template <name> --input <k>=<v> --consumer <repo>`.
+   `AO launch --workflow <name> --input <k>=<v> --consumer <repo>`.
 
 ## Worked example
 
@@ -96,5 +96,5 @@ Draft (abridged):
 - Do not invent CLI flags. Model and approval flags come from the adapter, not the spec.
 - Skills are referenced by folder name; if the user names a skill that does not exist, keep the
   reference and tell them `launch` will warn until it exists.
-- Never put secrets or absolute machine paths into a saved template; use inputs and
+- Never put secrets or absolute machine paths into a saved workflow; use inputs and
   `{{consumer}}` / `{{home}}`.

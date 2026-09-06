@@ -5,7 +5,7 @@ import os from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
 
-import { agentAddress, DEFAULT_SESSION, materializeSpec, resolveInputs, specSchemaSummary, validateSpec } from "../../topology/lib/spec.mjs";
+import { agentAddress, DEFAULT_SESSION, materializeSpec, resolveInputs, specSchemaSummary, validateSpec, workflowDirs } from "../../topology/lib/spec.mjs";
 import { parseSessionName } from "../../topology/lib/identity.mjs";
 import { agentsRoot, createAgent } from "../../topology/lib/agents.mjs";
 import { mintId } from "../../topology/lib/identity.mjs";
@@ -247,7 +247,7 @@ test("a minted agent id is a valid spec agent id", () => {
     workflow: [{ stage: "do-it", from: ids[0], to: [ids[1]] }],
   });
   assert.equal(spec.agents[0].id, ids[0]);
-  assert.deepEqual(spec.workflow[0].to, [ids[1]]);
+  assert.deepEqual(spec.stages[0].to, [ids[1]]);
   for (const id of ids) {
     assert.doesNotThrow(
       () => validateSpec({ name: "minted-ids", agents: [{ id, role: "orchestrator", cli: "claude" }] }),
@@ -402,4 +402,49 @@ test("a run of one library agent is addressed by that agent; anything else stays
   } finally {
     await rm(consumer, { recursive: true, force: true });
   }
+});
+
+test("the stage list is `stages`, and the old `workflow` key still runs", () => {
+  // Two different things were both called "workflow": the steps of this run, and — since nesting —
+  // a whole other run named in agents[].workflow. Specs are committed data in repos this rename
+  // does not get to break, so the old key still resolves; it just says so.
+  const agents = [{ id: "lead", role: "orchestrator", cli: "claude" }, { id: "hand", role: "worker", cli: "codex" }];
+  const stage = { stage: "brief", from: "lead", to: ["hand"] };
+
+  const modern = validateSpec({ name: "modern", agents, stages: [stage] });
+  assert.equal(modern.stages.length, 1);
+  assert.equal(modern.workflow, undefined, "the old key is not written back out");
+  assert.equal(modern.deprecations, undefined, "nothing to deprecate when the spec is already current");
+
+  const legacy = validateSpec({ name: "legacy", agents, workflow: [stage] });
+  assert.deepEqual(legacy.stages, modern.stages, "the old key produces the identical stage list");
+  assert.equal(legacy.workflow, undefined, "and is normalized away, so nothing downstream reads two spellings");
+  assert.match(legacy.deprecations[0], /stage list is now `stages`/);
+
+  // Both at once: the explicit new key wins and the old one is dropped rather than merged, because
+  // merging two stage lists would silently invent a run nobody wrote.
+  const both = validateSpec({ name: "both", agents, stages: [stage], workflow: [{ stage: "other", from: "lead", to: ["hand"] }] });
+  assert.deepEqual(both.stages.map((item) => item.stage), ["brief"]);
+  assert.equal(both.deprecations, undefined);
+
+  // A problem in the stage list is reported against the field the operator actually typed.
+  assert.throws(
+    () => validateSpec({ name: "bad", agents, stages: [{ stage: "brief", from: "nobody", to: ["hand"] }] }),
+    /stages\[0\]\.from references unknown agent/,
+  );
+});
+
+test("a repo laid out under the old templates/ name still resolves its workflows", () => {
+  // The rename's whole risk is silent: a consumer with specs in templates/ finding nothing and
+  // being told the workflow does not exist. Both names are searched, new first.
+  const dirs = workflowDirs({ pluginRoot: "/plugin", consumer: "/repo", home: "/home/u" });
+  const at = (needle) => dirs.findIndex((dir) => dir.endsWith(needle));
+  assert.ok(at("/repo/.bytedesk/agent-orchestration/workflows") >= 0, "the new consumer path is searched");
+  assert.ok(at("/repo/.bytedesk/agent-orchestration/templates") >= 0, "and so is the old one");
+  assert.ok(at("/repo/.bytedesk/agent-orchestration/workflows") < at("/repo/.bytedesk/agent-orchestration/templates"), "new before old, so a repo holding both runs the new one");
+  assert.ok(at("/home/u/.config/agent-orchestration/templates") >= 0, "the user's old directory too");
+  assert.ok(at("/plugin/templates/orchestrations") >= 0, "and the plugin's own former location");
+  // The legacy .orchestration/ home is still in the list — this rename must not quietly finish the
+  // previous one.
+  assert.ok(at("/repo/.orchestration/workflows") >= 0);
 });

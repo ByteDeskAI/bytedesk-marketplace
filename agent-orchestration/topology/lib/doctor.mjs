@@ -57,7 +57,7 @@ export function tmuxInstallPlan(osInfo) {
   }
 }
 
-export async function doctor({ adapters, templateDirs, skillDirs, roleDirs, providerDirs }) {
+export async function doctor({ adapters, workflowDirs, skillDirs, roleDirs, providerDirs }) {
   const osInfo = await detectOs();
   const tmux = await tmuxVersion();
   const node = process.version;
@@ -67,7 +67,7 @@ export async function doctor({ adapters, templateDirs, skillDirs, roleDirs, prov
     providers.push(await detectAdapter(adapter));
   }
   const dirs = {};
-  for (const [label, list] of Object.entries({ templates: templateDirs, skills: skillDirs, roles: roleDirs, providers: providerDirs })) {
+  for (const [label, list] of Object.entries({ workflows: workflowDirs, skills: skillDirs, roles: roleDirs, providers: providerDirs })) {
     dirs[label] = [];
     for (const dir of list) dirs[label].push({ dir, exists: await exists(dir) });
   }

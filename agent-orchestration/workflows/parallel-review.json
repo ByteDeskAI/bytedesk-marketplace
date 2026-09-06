@@ -53,7 +53,7 @@
       ]
     }
   ],
-  "workflow": [
+  "stages": [
     {
       "stage": "review",
       "from": "conductor",

@@ -12,7 +12,7 @@ import { failoverAgent, launchRun, messagePointer, openRoleSession, roleSessionN
 import { appendJournal, loadRun, pendingReplies, queueDepth, readJournal, recordReply, saveRun, sendMessage, waitForReplies } from "./lib/mailbox.mjs";
 import { adapterFor, adapterSummary, buildArgv, loadAdapters, providerDirs } from "./lib/providers.mjs";
 import { roleDirs, skillDirs } from "./lib/resolve.mjs";
-import { agentAddress, DEFAULT_SESSION, listTemplates, loadSpec, materializeSpec, resolveInputs, specSchemaSummary, templateDirs, validateSpec } from "./lib/spec.mjs";
+import { agentAddress, DEFAULT_SESSION, listWorkflows, loadSpec, materializeSpec, resolveInputs, specSchemaSummary, workflowDirs, validateSpec } from "./lib/spec.mjs";
 import * as tmux from "./lib/tmux.mjs";
 import { TopologyError, absolutize, exists, fail, invariant, newRunId, parseArgs, parseDuration, readJson, writeJson, AO_HOME } from "./lib/util.mjs";
 import { agentDirs, agentsRoot, createAgent, findLead, listAgents, requireAgent } from "./lib/agents.mjs";
@@ -26,20 +26,20 @@ const CLI_BIN = process.env.AO_TOPOLOGY_BIN || join(PLUGIN_ROOT, "bin", "ao-topo
 const USAGE = `ao-topology — tmux-hosted multi-agent orchestration
 
 Discover
-  templates [--consumer <dir>]                 list orchestration templates
+  workflows [--consumer <dir>]                 list orchestration workflows
   schema                                       print the spec schema summary
   providers [--json]                           list provider adapters
   doctor [--json] [--consumer <dir>]           check tmux, CLIs, and search paths
   runs [--consumer <dir>]                      list runs under <consumer>/.bytedesk/agent-orchestration/runs
 
 Compose
-  inputs (--template <name> | --spec <file>)    show a template's inputs, options, and defaults
-  validate (--spec <file> | --template <name>) validate a spec and print the normalized form
+  inputs (--workflow <name> | --spec <file>)   show a workflow's inputs, options, and defaults
+  validate (--spec <file> | --workflow <name>) validate a spec and print the normalized form
   compose --spec <file> [--save user|consumer|<dir>] [--name <slug>]
-                                               validate and save a spec as a template
+                                               validate and save a spec as a workflow
 
 Launch and stop
-  launch (--template <name> | --spec <file>) [--consumer <dir>] [--input k=v]... [--run-id <id>]
+  launch (--workflow <name> | --spec <file>) [--consumer <dir>] [--input k=v]... [--run-id <id>]
          [--dry-run] [--json]
          [--allow-outside]       permit a cwd or run_dir outside the invoking repository
          [--allow-auto-approve]  permit agents that run without their own permission prompts
@@ -100,7 +100,7 @@ function inputPairs(value) {
 function context(flags) {
   const consumer = absolutize(flags.consumer && flags.consumer !== true ? flags.consumer : process.cwd());
   const home = homedir();
-  const extraTemplates = list(flags["templates-dir"]).map((dir) => absolutize(dir));
+  const extraWorkflows = [...list(flags["workflows-dir"]), ...list(flags["templates-dir"])].map((dir) => absolutize(dir));
   const extraSkills = list(flags["skills-dir"]).map((dir) => absolutize(dir));
   const extraRoles = list(flags["roles-dir"]).map((dir) => absolutize(dir));
   const extraProviders = list(flags["providers-dir"]).map((dir) => absolutize(dir));
@@ -109,7 +109,7 @@ function context(flags) {
     consumer,
     home,
     pluginRoot: PLUGIN_ROOT,
-    templateDirs: unique(templateDirs({ pluginRoot: PLUGIN_ROOT, consumer, home, extra: extraTemplates })),
+    workflowDirs: unique(workflowDirs({ pluginRoot: PLUGIN_ROOT, consumer, home, extra: extraWorkflows })),
     skillDirs: unique(skillDirs({ pluginRoot: PLUGIN_ROOT, consumer, home, extra: extraSkills })),
     roleDirs: unique(roleDirs({ pluginRoot: PLUGIN_ROOT, consumer, home, extra: extraRoles })),
     providerDirs: unique(providerDirs({ pluginRoot: PLUGIN_ROOT, consumer, home, extra: extraProviders })),
@@ -210,6 +210,16 @@ async function stopChildren(runDir, stopped, seen = new Set()) {
   return stopped;
 }
 
+/**
+ * The workflow named on the command line: `--workflow` is the flag, `--template` is what it used to
+ * be called. Both resolve, undocumented on the old side — a rename that breaks every script and
+ * SKILL.md in every consuming repo is not a rename, it is an outage with a changelog entry.
+ */
+function nameFrom(flags) {
+  const value = flags.workflow ?? flags.template;
+  return value && value !== true ? String(value) : undefined;
+}
+
 const commands = {
   async help() {
     out(USAGE);
@@ -219,13 +229,13 @@ const commands = {
     out(specSchemaSummary());
   },
 
-  async templates({ flags }) {
+  async workflows({ flags }) {
     const ctx = context(flags);
-    const templates = await listTemplates(ctx.templateDirs);
-    if (flags.json) return out({ searched: ctx.templateDirs, templates });
-    if (templates.length === 0) return out(`No templates found. Searched:\n- ${ctx.templateDirs.join("\n- ")}`);
-    for (const template of templates) {
-      out(template.error ? `✗ ${template.name}  (${template.path}) — ${template.error.split("\n")[0]}` : `• ${template.name} — ${template.description || "(no description)"}\n    agents: ${template.agents.join(", ")}\n    ${template.path}`);
+    const workflows = await listWorkflows(ctx.workflowDirs);
+    if (flags.json) return out({ searched: ctx.workflowDirs, workflows, templates: workflows });
+    if (workflows.length === 0) return out(`No workflows found. Searched:\n- ${ctx.workflowDirs.join("\n- ")}`);
+    for (const workflow of workflows) {
+      out(workflow.error ? `✗ ${workflow.name}  (${workflow.path}) — ${workflow.error.split("\n")[0]}` : `• ${workflow.name} — ${workflow.description || "(no description)"}\n    agents: ${workflow.agents.join(", ")}\n    ${workflow.path}`);
     }
   },
 
@@ -243,7 +253,7 @@ const commands = {
   async doctor({ flags }) {
     const ctx = context(flags);
     const adapters = await loadAdapters(ctx.providerDirs);
-    const report = await runDoctor({ adapters, templateDirs: ctx.templateDirs, skillDirs: ctx.skillDirs, roleDirs: ctx.roleDirs, providerDirs: ctx.providerDirs });
+    const report = await runDoctor({ adapters, workflowDirs: ctx.workflowDirs, skillDirs: ctx.skillDirs, roleDirs: ctx.roleDirs, providerDirs: ctx.providerDirs });
     if (flags.json) return out(report);
     out(`OS: ${report.os.platform}${report.os.wsl ? " (WSL2)" : ""} · package manager: ${report.os.package_manager ?? "none"} · node ${report.node}`);
     out(`tmux: ${report.tmux ?? "NOT FOUND"}`);
@@ -281,7 +291,7 @@ const commands = {
 
   async inputs({ flags }) {
     const ctx = context(flags);
-    const { spec, path } = await loadSpec({ template: flags.template, specPath: flags.spec, dirs: ctx.templateDirs });
+    const { spec, path } = await loadSpec({ workflow: nameFrom(flags), specPath: flags.spec, dirs: ctx.workflowDirs });
     const entries = Object.entries(spec.inputs).map(([name, def]) => ({ name, ...def }));
     if (flags.json) return out({ template: spec.name, path, inputs: entries });
     if (entries.length === 0) return out(`${spec.name} takes no inputs.`);
@@ -290,12 +300,15 @@ const commands = {
       out(`\n${input.name}${input.required ? " (required)" : ` (default: ${input.default})`}${input.multi ? " — pick one or more, comma-separated" : ""}\n  ${input.description || "(no description)"}`);
       for (const option of input.options ?? []) out(`    • ${option.value}${option.description ? ` — ${option.description}` : ""}`);
     }
-    out(`\nLaunch with: ${CLI_BIN} launch --template ${spec.name}${entries.map((input) => ` --input ${input.name}=<value>`).join("")}`);
+    out(`\nLaunch with: ${CLI_BIN} launch --workflow ${spec.name}${entries.map((input) => ` --input ${input.name}=<value>`).join("")}`);
   },
 
   async validate({ flags }) {
     const ctx = context(flags);
-    const { spec, path } = await loadSpec({ template: flags.template, specPath: flags.spec, dirs: ctx.templateDirs });
+    const { spec, path } = await loadSpec({ workflow: nameFrom(flags), specPath: flags.spec, dirs: ctx.workflowDirs });
+    // A deprecated key is not a problem — the spec is valid and will run — so it is reported rather
+    // than raised. Silently accepting it is how a rename never finishes.
+    for (const note of spec.deprecations ?? []) process.stderr.write(`deprecated: ${note}\n`);
     out({ ok: true, path, spec });
   },
 
@@ -307,24 +320,24 @@ const commands = {
     const spec = validateSpec(raw);
     if (!flags.save) return out({ ok: true, saved: null, spec });
     let dir;
-    if (flags.save === true || flags.save === "user") dir = join(ctx.home, ".config", "agent-orchestration", "templates");
-    else if (flags.save === "consumer") dir = join(ctx.consumer, AO_HOME, "templates");
+    if (flags.save === true || flags.save === "user") dir = join(ctx.home, ".config", "agent-orchestration", "workflows");
+    else if (flags.save === "consumer") dir = join(ctx.consumer, AO_HOME, "workflows");
     else dir = absolutize(flags.save);
     const path = join(dir, `${spec.name}.json`);
-    if ((await exists(path)) && !flags.force) fail("TOPOLOGY_TEMPLATE_EXISTS", `Template already exists: ${path}. Pass --force to overwrite.`);
+    if ((await exists(path)) && !flags.force) fail("TOPOLOGY_TEMPLATE_EXISTS", `A workflow by that name already exists: ${path}. Pass --force to overwrite.`);
     await writeJson(path, spec);
     out({ ok: true, saved: path, name: spec.name });
   },
 
   async launch({ flags }) {
     const ctx = context(flags);
-    const { spec, path } = await loadSpec({ template: flags.template, specPath: flags.spec, dirs: ctx.templateDirs });
+    const { spec, path } = await loadSpec({ workflow: nameFrom(flags), specPath: flags.spec, dirs: ctx.workflowDirs });
     // How a workflow participant becomes a real run. The launcher knows how to start a set of panes;
     // it does not know how to find a workflow by name, resolve its inputs, or build the adapter and
     // skill search paths — that context lives here, so the recursion is handed down as a function
     // rather than reimplemented one layer lower.
     const launchChild = async ({ workflow, inputs: childInputs, lineage: childLineage, replyToken }) => {
-      const child = await loadSpec({ template: workflow, dirs: ctx.templateDirs });
+      const child = await loadSpec({ workflow, dirs: ctx.workflowDirs });
       const childRunId = newRunId();
       const materializedChild = materializeSpec(child.spec, {
         runId: childRunId,
@@ -779,6 +792,10 @@ const commands = {
     out({ ok: true, session, killed: existed, run_dir: runDir, files_kept: true, children_stopped: stoppedChildren });
   },
 };
+
+// The old noun still answers, undocumented. `templates` was in every SKILL.md, every runbook and
+// every consumer's muscle memory before this rename; the cost of keeping it is one line.
+commands.templates = commands.workflows;
 
 async function main() {
   // `ao-topology ... | head` must not crash with EPIPE.

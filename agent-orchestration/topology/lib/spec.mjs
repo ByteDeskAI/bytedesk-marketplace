@@ -18,7 +18,7 @@ export function specSchemaSummary() {
     required: ["name", "agents"],
     fields: {
       name: "slug; becomes the template name",
-      description: "one sentence shown by `ao-topology templates`",
+      description: "one sentence shown by `ao-topology workflows`",
       inputs: "map of input name -> { description, required, default, options?: [value | {value, description}], multi?: bool }; referenced as {{inputs.<name>}}; options make the launcher show a menu",
       session: "tmux session name template (default '{{name}}-{{run_id}}')",
       cwd: "default working directory for every agent (default '{{consumer}}')",
@@ -191,10 +191,20 @@ export function validateSpec(raw) {
     if (problem) note(problem);
   }
 
-  spec.workflow = Array.isArray(spec.workflow) ? spec.workflow : [];
+  // The stage list is `stages`. It used to be `workflow`, which collided head-on with
+  // `agents[].workflow` naming another workflow to nest — one word for "the steps of this run" and
+  // for "a whole other run" is a spec nobody can read. The old key is still accepted, because specs
+  // are committed data in repos this rename does not get to break; `validate` says so out loud.
+  const deprecations = [];
+  if (spec.stages === undefined && Array.isArray(spec.workflow)) {
+    spec.stages = spec.workflow;
+    deprecations.push('the stage list is now `stages`; `workflow` is still read but names a nested workflow elsewhere in the spec. Rename the top-level "workflow" key to "stages".');
+  }
+  delete spec.workflow;
+  spec.stages = Array.isArray(spec.stages) ? spec.stages : [];
   const stages = new Set();
-  spec.workflow = spec.workflow.map((stage, index) => {
-    const where = `workflow[${index}]`;
+  spec.stages = spec.stages.map((stage, index) => {
+    const where = `stages[${index}]`;
     if (!stage || typeof stage !== "object") {
       note(`${where} must be an object`);
       return { stage: `stage-${index}`, from: "", to: [] };
@@ -222,6 +232,8 @@ export function validateSpec(raw) {
 
   spec.artifacts = spec.artifacts && typeof spec.artifacts === "object" ? spec.artifacts : {};
   spec.artifacts.dir = typeof spec.artifacts.dir === "string" && spec.artifacts.dir ? spec.artifacts.dir : "artifacts";
+
+  if (deprecations.length > 0) spec.deprecations = deprecations;
 
   if (problems.length > 0) {
     fail("TOPOLOGY_SPEC_INVALID", `Spec "${raw.name ?? "(unnamed)"}" has ${problems.length} problem(s):\n- ${problems.join("\n- ")}`, { problems });
@@ -482,8 +494,6 @@ export function expandForEach(agents, vars, context = {}) {
   return out;
 }
 
-/** Search order: explicit dirs, consumer `.bytedesk/agent-orchestration/templates` (then the
- * legacy `.orchestration/templates`), user config, plugin templates. */
 /**
  * A spec may not launch outside the repo that invoked it. `cwd: "~"`, `cwd: "/"` and
  * `cwd: "../../other-repo"` all used to resolve and launch there; a spec is frequently committed to
@@ -500,15 +510,26 @@ export function containPath(candidate, consumer, field, context = {}) {
   return candidate;
 }
 
-export function templateDirs({ pluginRoot, consumer, home, extra = [] }) {
+/**
+ * Where workflow specs are looked for, most specific first.
+ *
+ * Every location is listed twice: the `workflows` name, then the `templates` name it used to have.
+ * A repo that laid its specs out under the old name keeps working with no migration step and no
+ * warning — the same new-then-legacy shape `consumerResourceDirs` already uses for the `.bytedesk`
+ * versus `.orchestration` move. First hit wins, so a repo that has both is running the new one.
+ */
+export function workflowDirs({ pluginRoot, consumer, home, extra = [] }) {
   const dirs = [...extra];
-  if (consumer) dirs.push(...consumerResourceDirs(consumer, "templates"));
-  if (home) dirs.push(join(home, ".config", "agent-orchestration", "templates"));
-  if (pluginRoot) dirs.push(join(pluginRoot, "templates", "orchestrations"));
+  if (consumer) dirs.push(...consumerResourceDirs(consumer, "workflows"), ...consumerResourceDirs(consumer, "templates"));
+  if (home) dirs.push(join(home, ".config", "agent-orchestration", "workflows"), join(home, ".config", "agent-orchestration", "templates"));
+  if (pluginRoot) dirs.push(join(pluginRoot, "workflows"), join(pluginRoot, "templates", "orchestrations"));
   return dirs;
 }
 
-export async function listTemplates(dirs) {
+/** @deprecated Kept so an out-of-tree caller keeps resolving; `workflowDirs` is the name. */
+export const templateDirs = workflowDirs;
+
+export async function listWorkflows(dirs) {
   const found = [];
   for (const dir of dirs) {
     if (!(await exists(dir))) continue;
@@ -526,21 +547,24 @@ export async function listTemplates(dirs) {
   return found;
 }
 
-/** Resolve `--template <name|path>` or `--spec <path>` to a validated spec plus its source path. */
-export async function loadSpec({ template, specPath, dirs }) {
+/** Resolve `--workflow <name|path>` or `--spec <path>` to a validated spec plus its source path. */
+export async function loadSpec({ workflow, template, specPath, dirs }) {
+  const name = workflow ?? template;
   if (specPath) {
     const path = absolutize(specPath);
     invariant(await exists(path), "TOPOLOGY_SPEC_NOT_FOUND", `Spec file not found: ${path}`);
     return { spec: validateSpec(await readJson(path)), path };
   }
-  invariant(template, "TOPOLOGY_SPEC_REQUIRED", "Pass --template <name> or --spec <file.json>.");
-  if (template.endsWith(".json")) {
-    const path = absolutize(template);
+  invariant(name, "TOPOLOGY_SPEC_REQUIRED", "Pass --workflow <name> or --spec <file.json>.");
+  if (name.endsWith(".json")) {
+    const path = absolutize(name);
     if (await exists(path)) return { spec: validateSpec(await readJson(path)), path };
   }
   for (const dir of dirs) {
-    const path = join(dir, `${template}.json`);
+    const path = join(dir, `${name}.json`);
     if (await exists(path)) return { spec: validateSpec(await readJson(path)), path };
   }
-  fail("TOPOLOGY_TEMPLATE_NOT_FOUND", `No template named "${template}". Searched:\n- ${dirs.join("\n- ")}\nRun \`ao-topology templates\` to list what exists.`);
+  // The code keeps its old spelling: it is matched by name in tests, in the live harness and in at
+  // least one consumer's error handling, and a rename there buys nothing a caller can use.
+  fail("TOPOLOGY_TEMPLATE_NOT_FOUND", `No workflow named "${name}". Searched:\n- ${dirs.join("\n- ")}\nRun \`ao-topology workflows\` to list what exists.`);
 }

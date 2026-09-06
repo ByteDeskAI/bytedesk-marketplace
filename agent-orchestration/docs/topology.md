@@ -14,13 +14,13 @@ boundary.
 
 | Piece | Path | What it is |
 |---|---|---|
-| Spec | JSON, see `ao-topology schema` | One declarative document: agents, workflow, gates, inputs. Natural language compiles into it; a template is a saved one. |
-| Templates | `templates/orchestrations/*.json`, `~/.config/agent-orchestration/templates/`, `<repo>/.bytedesk/agent-orchestration/templates/` (legacy `<repo>/.orchestration/templates/` is still read) | Reusable specs. Earlier locations override later ones by name. |
+| Spec | JSON, see `ao-topology schema` | One declarative document: agents, stages, gates, inputs. Natural language compiles into it; a workflow is a saved one. |
+| Workflows | `workflows/*.json`, `~/.config/agent-orchestration/workflows/`, `<repo>/.bytedesk/agent-orchestration/workflows/` | Reusable specs. Earlier locations override later ones by name. Every location is also searched under its former name `templates/`, and `<repo>/.orchestration/` is still read, so a repo laid out the old way needs no migration. |
 | Provider adapters | `providers/*.json` plus the same user/consumer overrides | How to launch one CLI: command, model flag, system-prompt flag, auto-approve flag, idle-prompt regex, failure patterns, submit keys. Unknown `cli` ids fall back to `generic` with the id as the command, so any installed CLI works. |
 | Agents | `.bytedesk/agent-orchestration/agents/<id>/` in the consumer, plus the same user/plugin overrides | A durable per-repo roster. Each agent has a stable minted id, a generated name and title, a role, a provider chain, skills, MCP servers and an optional file-backed system prompt. A spec may reference one instead of restating it. |
 | Role packs | `roles/*.md` plus overrides | The abstract, domain-free part of an agent's instructions: what an orchestrator, worker, designer, judge, reviewer, researcher, or implementer owes the run. |
 | Skills | resolved by name from the consumer repo, the user's home, and this plugin | Domain knowledge an agent must read before working (for example `brand-brief`, `brand-concept`, `brand-judge` from the design-system plugin). Nothing is copied; agents are told which SKILL.md files to read. |
-| CLI | `bin/ao-topology` → `topology/cli.mjs` | Launch, send, wait, reply, capture, nudge, status, journal, stop, doctor, templates, providers, compose, validate, runs. Dependency-free ESM; no bundle step. |
+| CLI | `bin/ao-topology` → `topology/cli.mjs` | Launch, send, wait, reply, capture, nudge, status, journal, stop, doctor, workflows, providers, compose, validate, runs. Dependency-free ESM; no bundle step. |
 | Skills for hosts | `skills/orchestration-*`, `skills/setup-agent-orchestration` | Thin clients of the CLI for whichever host (Claude, Codex, Grok, Kimi) the human is talking to. |
 
 ## A run on disk
@@ -44,7 +44,7 @@ so without it every mailbox file and launcher script would land in a diff, in a 
 adopted orchestration after its `.gitignore` was written. Promotion of anything into a canonical
 tree is a human step the conductor recommends in `REPORT.md`.
 
-All five per-repo resource types — templates, skills, roles, providers and agents — resolve from
+All five per-repo resource types — workflows, skills, roles, providers and agents — resolve from
 `<repo>/.bytedesk/agent-orchestration/<kind>/`, with `<repo>/.orchestration/<kind>/` read as a
 fallback so a repository laid out under the old convention keeps working. Writes always use the
 new path.
@@ -52,7 +52,7 @@ new path.
 ## Agents, identity, and the team
 
 An agent used to exist only as an inline entry in a spec's `agents[]` array, alive for one run. It
-is now a resource type like templates, skills, roles and providers, stored per repository under
+is now a resource type like workflows, skills, roles and providers, stored per repository under
 `.bytedesk/agent-orchestration/agents/<id>/` and resolved through the same four-tier search path.
 
 ```
@@ -263,7 +263,7 @@ through registering an extra CLI as an adapter.
 
 - **New CLI**: add `providers/<id>.json` (copy `generic.json`, fill flags and an idle-prompt regex).
 - **New role**: add `roles/<name>.md`; reference it as `role` in a spec.
-- **New team shape**: write a spec (or ask `orchestration-compose`) and save it as a template.
+- **New team shape**: write a spec (or ask `orchestration-compose`) and save it as a workflow.
 - **Domain knowledge**: ship skills in the domain's own plugin and reference them by name.
 
 ## Relationship to the broker roadmap

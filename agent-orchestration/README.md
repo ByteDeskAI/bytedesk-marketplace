@@ -142,15 +142,15 @@ competing reviews, and research fan-outs a human watches and steers. Full design
 
 ```sh
 bin/ao-topology doctor                                         # tmux, CLIs, search paths
-bin/ao-topology templates                                      # saved orchestrations
-bin/ao-topology launch --template brand-identity-tournament \
+bin/ao-topology workflows                                      # saved orchestrations
+bin/ao-topology launch --workflow brand-identity-tournament \
   --input product=vault --consumer ~/GitHub/bytedesk-design-system
 tmux attach -t brand-vault-<run_id>
 ```
 
 - **Spec** — one JSON document (`ao-topology schema`): agents (id, role, cli, model, skills,
   instructions), ordered workflow stages, human gates, inputs. Natural language compiles into it
-  through the `orchestration-compose` skill; a saved spec is a template.
+  through the `orchestration-compose` skill; a saved spec is a workflow.
 - **Templates** — `design-studio` launches the ByteDesk design system’s own studio roles
   (director, hands, judge from `design-system-studio`) as three panes on separate provider
   chains; `logo-design` and `brand-identity-tournament` are the generic brand pipelines for

@@ -50,7 +50,7 @@
       "instructions": "You are THE JUDGE. Load the design-system-studio skill and read its judge.md; that file governs and overrides the generic judge role above. Score every round against the criteria the brief copied from the rubric, and write the decision record the director waits on. Never brief, never render, never edit an artifact."
     }
   ],
-  "workflow": [
+  "stages": [
     { "stage": "studio", "from": "director", "to": ["hands", "judge"], "timeout": "60m", "description": "The studio's own loop: diverge, score, direction approval, produce, score the deliverable. Round ceilings and escalation come from the rubric, not from this template." }
   ],
   "gates": [

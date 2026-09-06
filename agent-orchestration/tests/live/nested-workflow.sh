@@ -37,7 +37,8 @@ jq_() { python3 -c "import json,sys;d=json.load(open(sys.argv[1]));print(eval(sy
 echo "== fixture: a repo with a parent workflow and a child"
 git init -q "$ROOT"
 git -C "$ROOT" commit -q --allow-empty -m init
-WF="$ROOT/.bytedesk/agent-orchestration/templates"
+WF="$ROOT/.bytedesk/agent-orchestration/workflows"
+LEGACY_WF="$ROOT/.bytedesk/agent-orchestration/templates"
 mkdir -p "$WF"
 cat > "$WF/nested-child.json" <<'JSON'
 {"name":"nested-child","description":"the team that is joined as a participant","agents":[
@@ -67,7 +68,7 @@ check "a participant that also names a cli is refused" "$?" "1"
 echo
 echo "== launch: the parent starts, and the child starts with it"
 LAUNCH="$ROOT/launch.json"
-"$AO" launch --template nested-parent --consumer "$ROOT" --json 2>/dev/null | sed -n '/^{/,$p' > "$LAUNCH"
+"$AO" launch --workflow nested-parent --consumer "$ROOT" --json 2>/dev/null | sed -n '/^{/,$p' > "$LAUNCH"
 PARENT_DIR=$(jq_ "$LAUNCH" "d['runDir']")
 PARENT_SESSION=$(jq_ "$LAUNCH" "d['session']")
 SESSIONS+=("$PARENT_SESSION")
@@ -174,7 +175,7 @@ JSON
 # naming itself is decidable without launching anything, so nothing should start. The indirect case
 # (A contains B, B contains A) is only visible from the ancestry and is refused by the launcher with
 # TOPOLOGY_WORKFLOW_CYCLE — this asserts the outcome rather than which of the two fired.
-OUT=$("$AO" launch --template nested-selfish --consumer "$ROOT" --json 2>&1)
+OUT=$("$AO" launch --workflow nested-selfish --consumer "$ROOT" --json 2>&1)
 echo "$OUT" | grep -qE "TOPOLOGY_WORKFLOW_CYCLE|cannot contain itself"
 check "a workflow that contains itself is refused" "$?" "0"
 check "and nothing was started for it" "$(tmux ls 2>/dev/null | grep -cE '^nested-selfish-')" "0"
@@ -188,7 +189,7 @@ cat > "$WF/nested-fan.json" <<'JSON'
   {"id":"per-file","workflow":"nested-child","for_each":"{{inputs.files}}","inputs":{}}]}
 JSON
 FAN="$ROOT/fan.json"
-"$AO" launch --template nested-fan --consumer "$ROOT" --json 2>/dev/null | sed -n '/^{/,$p' > "$FAN"
+"$AO" launch --workflow nested-fan --consumer "$ROOT" --json 2>/dev/null | sed -n '/^{/,$p' > "$FAN"
 FAN_DIR=$(jq_ "$FAN" "d['runDir']")
 FAN_SESSION=$(jq_ "$FAN" "d['session']")
 SESSIONS+=("$FAN_SESSION")
@@ -218,6 +219,29 @@ tmux has-session -t "$PARENT_SESSION" 2>/dev/null
 check "and so is the parent's" "$?" "1"
 grep -q '"type":"run.child_exited"' "$PARENT_DIR/journal.jsonl" 2>/dev/null
 check "the parent journalled the child's exit" "$?" "0"
+
+echo
+echo "== the rename does not strand a repo that never renamed anything"
+# The whole risk of this rename is silent: a consumer with its specs in templates/ being told the
+# workflow does not exist. Both directory names and both flag spellings resolve, new first.
+mkdir -p "$LEGACY_WF"
+cat > "$LEGACY_WF/nested-legacy.json" <<'JSON'
+{"name":"nested-legacy","description":"specs still in templates/, stage list still called workflow","agents":[
+  {"id":"conductor","role":"orchestrator","cli":"generic","command":"cat"},
+  {"id":"hand","role":"worker","cli":"generic","command":"cat"}],
+ "workflow":[{"stage":"brief","from":"conductor","to":["hand"]}]}
+JSON
+LEG="$ROOT/legacy.json"
+"$AO" launch --template nested-legacy --consumer "$ROOT" --json 2>/dev/null | sed -n '/^{/,$p' > "$LEG"
+LEG_DIR=$(jq_ "$LEG" "d['runDir']")
+LEG_SESSION=$(jq_ "$LEG" "d['session']")
+SESSIONS+=("$LEG_SESSION")
+check "a spec still in templates/ launches under the old flag" "$(jq_ "$LEG_DIR/run.json" "d['name']")" "nested-legacy"
+check "and its old stage list is read as stages" "$(jq_ "$LEG_DIR/run.json" "d['stages'][0]['stage']")" "brief"
+OUT=$("$AO" validate --workflow nested-legacy --consumer "$ROOT" 2>&1 >/dev/null)
+echo "$OUT" | grep -q "deprecated:"
+check "validate names the deprecated key rather than accepting it silently" "$?" "0"
+"$AO" stop --run "$LEG_DIR" >/dev/null 2>&1
 
 echo
 echo "== summary"

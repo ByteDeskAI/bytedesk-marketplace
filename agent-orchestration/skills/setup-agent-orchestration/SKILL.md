@@ -1,6 +1,6 @@
 ---
 name: setup-agent-orchestration
-description: Prepare a machine for tmux-hosted multi-agent orchestrations — verify or install tmux for the OS, inventory installed agent CLIs against the provider adapters, create the user template and adapter folders, and register any extra CLI as an adapter. Use on a new machine, when `ao-topology doctor` reports problems, or when the user wants to add a CLI as an agent.
+description: Prepare a machine for tmux-hosted multi-agent orchestrations — verify or install tmux for the OS, inventory installed agent CLIs against the provider adapters, create the user workflow and adapter folders, and register any extra CLI as an adapter. Use on a new machine, when `ao-topology doctor` reports problems, or when the user wants to add a CLI as an agent.
 user-invokable: true
 argument-hint: "[--add-cli <command>]"
 ---
@@ -13,7 +13,7 @@ Resolve `AO` as `../../bin/ao-topology` relative to this skill.
 
 Run `AO doctor` and read it as a checklist. It reports the OS (and whether this is WSL2), the
 package manager, tmux, node, every known CLI with its path and version, the search paths for
-templates/skills/roles/providers, and a `Problems` list with the exact fix command per problem.
+workflows/skills/roles/providers, and a `Problems` list with the exact fix command per problem.
 
 ## 2. tmux
 
@@ -39,12 +39,12 @@ set -g history-limit 50000
 
 For each CLI the user wants as an agent, the doctor shows ready (on PATH) or the install hint.
 Authentication is the CLI's own business: after installing, the user runs its login once in a
-normal terminal. Never store keys in specs, adapters, or templates.
+normal terminal. Never store keys in specs, adapters, or workflows.
 
 ## 4. Folders
 
-Create, if missing, `~/.config/agent-orchestration/{templates,providers,roles,skills}`. Templates
-saved with `--save user` land in `templates/`; a JSON in `providers/` overrides or adds an adapter;
+Create, if missing, `~/.config/agent-orchestration/{workflows,providers,roles,skills}`. Workflows
+saved with `--save user` land in `workflows/`; a JSON in `providers/` overrides or adds an adapter;
 a Markdown file in `roles/` overrides or adds a role pack; `skills/` holds skills the user wants
 available to agents on every run.
 

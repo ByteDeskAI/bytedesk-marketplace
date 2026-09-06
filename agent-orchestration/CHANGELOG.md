@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [0.5.0] — 2026-09-06
 
 ### Added — the run tree (EP-016)
 
@@ -46,6 +46,30 @@
 - **A workflow cannot enter its own ancestry** (`TOPOLOGY_WORKFLOW_CYCLE`) and nesting stops at
   three levels (`TOPOLOGY_DEPTH_EXCEEDED`, `--max-depth` to raise it). Both refusals name the chain,
   because "this loops" without saying where is not something an operator can act on.
+- **A participant answers every pane question as a team.** `capture`, `nudge` and `failover` all ask
+  something about a process — what is on its screen, type this at it, restart it on the next
+  provider — and a participant has none of those. Each used to fail differently and none of them said
+  why: `capture` returned silence, `nudge` leaked tmux's `can't find pane: null`, and `failover`
+  reported "no provider left after none. Chain: .". One refusal (`TOPOLOGY_AGENT_IS_A_WORKFLOW`) now
+  covers all three and names the child run where the question does have an answer. `status` renders a
+  participant as a nested block — the child's state, session liveness, agent count and what is
+  awaiting reply there — instead of `on NO PROVIDER [chain: ] pane null`, which read as a broken
+  agent when the team was perfectly healthy.
+
+### Changed — the noun is "workflow" (EP-016)
+
+- **Templates are workflows.** `ao-topology workflows` lists them, `--workflow <name>` launches one,
+  `compose --save` writes to `workflows/`, and the plugin's own specs moved to
+  `agent-orchestration/workflows/`. Nothing breaks on the way: `templates` and `--template` still
+  work undocumented, and every search location is looked up under both names — new first, so a repo
+  holding both runs the new one. A repo that never renamed anything needs no migration step, which
+  the live harness asserts end to end rather than trusting.
+- **The stage list is `stages:`.** One word was doing two jobs the moment a spec could name another
+  spec: `workflow` for the steps of this run, and `agents[].workflow` for a whole other run. Specs
+  are committed data in repos this rename does not get to break, so a top-level `workflow:` is still
+  read — normalized to `stages` so nothing downstream sees two spellings — and `validate` reports it
+  as deprecated rather than accepting it silently. `run.json` writes both keys for one release, so a
+  consumer pinned to 0.4.0 can still read a run this version wrote.
 
 ## [0.4.0] — 2026-09-05
 

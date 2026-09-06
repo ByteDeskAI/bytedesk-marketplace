@@ -23,7 +23,7 @@ changes the external model provider. Wire hosts with `skills/install-orchestrati
 
 ## tmux topology layer
 
-`topology/`, `bin/ao-topology`, `providers/`, `roles/`, `templates/orchestrations/`, and the
+`topology/`, `bin/ao-topology`, `providers/`, `roles/`, `workflows/`, and the
 `orchestration-*` / `setup-agent-orchestration` skills form a second runtime that does **not** go
 through the MCP broker or the sandbox: it launches visible agent CLIs in tmux panes and moves
 messages as files. Invariants:

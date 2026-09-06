@@ -8,11 +8,11 @@ Run one with:
 
 ```
 AO=agent-orchestration/bin/ao-topology
-$AO launch --template showcase-<name> --consumer "$PWD" --input <k>=<v> --json
+$AO launch --workflow showcase-<name> --consumer "$PWD" --input <k>=<v> --json
 ```
 
 Add `--dry-run` first to see the exact argv, granted directories and warnings without starting
-anything. `$AO inputs --template showcase-<name>` lists what each one wants.
+anything. `$AO inputs --workflow showcase-<name>` lists what each one wants.
 
 ## The claude override in `../providers/claude.json`
 

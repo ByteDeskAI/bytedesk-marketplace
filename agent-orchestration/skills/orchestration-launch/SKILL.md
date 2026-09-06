@@ -1,8 +1,8 @@
 ---
 name: orchestration-launch
-description: Launch a saved orchestration template (or a spec file) as a tmux session with one pane per agent, each CLI started with its role, skills, and mailbox. Use when the user says "launch", "start the tournament", "spin up the team", "run the <name> orchestration", or names a template.
+description: Launch a saved orchestration workflow (or a spec file) as a tmux session with one pane per agent, each CLI started with its role, skills, and mailbox. Use when the user says "launch", "start the tournament", "spin up the team", "run the <name> orchestration", or names a workflow.
 user-invokable: true
-argument-hint: "<template-name | spec.json> [--input k=v]... [--consumer <repo>] [--dry-run]"
+argument-hint: "<workflow-name | spec.json> [--input k=v]... [--consumer <repo>] [--dry-run]"
 ---
 
 # Launch an orchestration
@@ -13,11 +13,11 @@ Resolve `AO` as `../../bin/ao-topology` relative to this skill (the installed pl
 
 1. **Check the machine** once per session: `AO doctor --consumer <repo>`. If tmux or a needed CLI
    is missing, stop and hand the user to `setup-agent-orchestration`; do not improvise installs.
-2. **Pick the template.** `AO templates --consumer <repo>` lists user, consumer, and plugin
-   templates. If the user described a team instead of naming one, run `orchestration-compose`
+2. **Pick the workflow.** `AO workflows --consumer <repo>` lists user, consumer, and plugin
+   workflows. If the user described a team instead of naming one, run `orchestration-compose`
    first.
-3. **Gather inputs.** `AO inputs --template <name>` lists every input with its description,
-   default, and — when the template defines `options` — the allowed values with one line each.
+3. **Gather inputs.** `AO inputs --workflow <name>` lists every input with its description,
+   default, and — when the workflow defines `options` — the allowed values with one line each.
    Present option inputs to the user as a menu (AskUserQuestion when available; one question per
    input, multi-select when the input says "pick one or more") and free-text inputs as a short
    question; skip inputs whose default the user is happy with. Pass results as
@@ -27,7 +27,7 @@ Resolve `AO` as `../../bin/ao-topology` relative to this skill (the installed pl
    where `.bytedesk/agent-orchestration/runs/<run_id>/` is created. The runs directory ignores
    itself — a `.gitignore` holding `*` is written into it on first use — so there is nothing to add
    to the repository's own `.gitignore`.
-5. **Dry-run first when anything is new**: `AO launch --template <name> --input ... --consumer <repo> --dry-run`.
+5. **Dry-run first when anything is new**: `AO launch --workflow <name> --input ... --consumer <repo> --dry-run`.
    Read the warnings: missing skills, missing role packs, generic-adapter fallbacks. Fix what
    matters (a missing skill for a designer matters; a generic fallback for a CLI the user chose on
    purpose does not).

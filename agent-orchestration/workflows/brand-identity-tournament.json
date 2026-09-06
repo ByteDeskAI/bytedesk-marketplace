@@ -79,7 +79,7 @@
       "candidates": "{{inputs.judge}}"
     }
   ],
-  "workflow": [
+  "stages": [
     {
       "stage": "brief",
       "from": "conductor",
