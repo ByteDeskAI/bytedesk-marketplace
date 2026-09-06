@@ -1,0 +1,14 @@
+[
+  {
+    "mode": "empty-home",
+    "exitCode": 1,
+    "fixtureAuth": false,
+    "originalTestUnmodified": true
+  },
+  {
+    "mode": "fixture-auth-home",
+    "exitCode": 0,
+    "fixtureAuth": true,
+    "originalTestUnmodified": true
+  }
+]

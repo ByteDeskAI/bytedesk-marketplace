@@ -1,0 +1,27 @@
+{
+  "baseline": "834f4cef4daefb79a2b6a3e0827927f016237485",
+  "node": "22.22.3",
+  "platform": "Linux x86_64",
+  "files": [
+    {
+      "path": "agent-orchestration/src/provider-sandbox.mjs",
+      "sha256": "8f3e8ca725d159182b4fa0990e1a2fd4e372379d2ee3f331c6c0a766bb06b0d2",
+      "unchanged": true
+    },
+    {
+      "path": "agent-orchestration/tests/unit/provider-sandbox.test.mjs",
+      "sha256": "266a4621c08a1fff6cb0ac45b5dbf87d563ba01ea0be5dda78048f2646f5d3a4",
+      "unchanged": true
+    },
+    {
+      "path": "agent-orchestration/dist/provider-sandbox.cjs",
+      "sha256": "2d9eaf4bd48ef12f287c90f335c229519462741c917eddee7f028d545e445c2a",
+      "unchanged": true
+    },
+    {
+      "path": ".github/workflows/agent-orchestration.yml",
+      "sha256": "491208253e978d9d83dad8e64a8848c7be8640c0e0842a8693b94c8c7b477357",
+      "unchanged": true
+    }
+  ]
+}
