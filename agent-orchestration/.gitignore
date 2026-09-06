@@ -3,3 +3,6 @@ node_modules/
 *.log
 native/windows/bin/
 native/windows/obj/
+
+# Include the plugin-local generated brand assets despite the root PNG ignore.
+!.context/design-system/**/*.png

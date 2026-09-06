@@ -11,6 +11,8 @@
     "ao-topology": "bin/ao-topology"
   },
   "files": [
+    ".design-system.json",
+    ".context/design-system",
     ".claude-plugin",
     ".codex-plugin",
     ".mcp.json",
@@ -45,9 +47,11 @@
     "roadmap:append-inventory": "node scripts/roadmap.mjs --append-inventory ROADMAP.md",
     "roadmap:refresh-sources": "node scripts/roadmap.mjs --refresh-sources ROADMAP.md",
     "roadmap:refresh-views": "node scripts/roadmap.mjs --refresh-views ROADMAP.md",
-    "prepack": "npm run build:check && npm test",
+    "prepack": "npm run design-system:check && npm run build:check && npm test",
     "test:topology": "node --test tests/unit/topology-*.test.mjs",
-    "test:topology:tmux": "node --test tests/contract/topology-tmux.test.mjs"
+    "test:topology:tmux": "node --test tests/contract/topology-tmux.test.mjs",
+    "design-system:sync": "design-client sync",
+    "design-system:check": "design-client sync --check"
   },
   "engines": {
     "node": ">=22.13.0"
@@ -57,9 +61,11 @@
     "@agentclientprotocol/codex-acp": "0.0.44",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "acpx": "0.12.0",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "@bytedesk/design-tokens": "2.2.1"
   },
   "devDependencies": {
-    "esbuild": "^0.28.2"
+    "esbuild": "^0.28.2",
+    "@bytedesk/design-client": "2.2.1"
   }
 }

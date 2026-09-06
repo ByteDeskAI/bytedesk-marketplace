@@ -158,3 +158,15 @@ It must still pass, and CI must not add a pinned version merely to silence the w
 The contract suites must cover JSON-RPC framing, all tool schemas, explicit `consumerCwd`, path and
 prompt injection, provider-independent doctor behavior, spawn/send/wait/events/cancel/cleanup,
 approval decisions, restart recovery, and clean installed-cache startup.
+
+## Plugin-local design identity
+
+This plugin owns the `agent-orchestration` identity at release 2.2.1. Its
+`.design-system.json` and `.context/design-system/` are packaged together; the
+marketplace root's `task-management` pin does not apply to this plugin. Read
+`.context/design-system/apps/agent-orchestration/DESIGN.md` and `PRODUCT.md` for
+its design context. Run `npm run design-system:sync` here to update the managed
+tree and `npm run design-system:check` here to verify it offline. The exact
+client and token dependencies are locked in this directory's package lock.
+The installed plugin remains self-contained and never installs design packages
+at runtime. This context adoption does not restyle a runtime surface.

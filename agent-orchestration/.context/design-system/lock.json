@@ -1,0 +1,134 @@
+{
+  "schemaVersion": 1,
+  "version": "2.2.1",
+  "sourceSha": "c050abca4c35cf3355f897af9e8d3c6e5c9eec61",
+  "app": "agent-orchestration",
+  "include": [],
+  "status": "current",
+  "files": {
+    "foundation/bytedesk.css": {
+      "sha256": "b021a230d6eb2e7645aa05d864622bc80580f7c8f4cedea7ca562dd9b31f5b6a",
+      "bytes": 19265
+    },
+    "foundation/components.css": {
+      "sha256": "1165f406436bb9390008408c6428a9842787cf4cfa5d632cf2f14362bf15d968",
+      "bytes": 71270
+    },
+    "foundation/tailwind/theme.css": {
+      "sha256": "ba9bed2ef2002d312fe1b68bf338f663fc10f5fb7a7b442b4b5154fe570f037a",
+      "bytes": 6556
+    },
+    "foundation/platforms/typescript/bytedesk-tokens.ts": {
+      "sha256": "5dfa51a328b6907e3ba9572925054048fb2415bca425cab51dbabd2f0c7906a8",
+      "bytes": 9030
+    },
+    "foundation/platforms/rust/bytedesk_tokens.rs": {
+      "sha256": "aa525a0e3017d60ce8c5abc8ca328940fc47db1efce6c2fd529c479bf9ab07b5",
+      "bytes": 21540
+    },
+    "foundation/platforms/go/bytedesk_tokens.go": {
+      "sha256": "b018f21fa5532b7bfa6ce2d6e6473083e6ae10cfcd7d7b9a364e031e3279dcdf",
+      "bytes": 27039
+    },
+    "foundation/tokens.json": {
+      "sha256": "9c3f4a3bc1ae86e4f8e7a480c1b368dc029799a78dac2d1dfd5e4c8a88fd3a10",
+      "bytes": 30101
+    },
+    "foundation/fonts.css": {
+      "sha256": "3268f8cb442f4a23c7d17b64bea9c4d302d6f43d3fc7e9fa91b53bf5bf2d5f38",
+      "bytes": 1039
+    },
+    "foundation/DESIGN.md": {
+      "sha256": "b156947bb41cc093d09d767aea0c23016283abff63113ae52971c686fb186b40",
+      "bytes": 13221
+    },
+    "client/go/design.go": {
+      "sha256": "28c572bba1a8a635f98231bb3961fa69fa3f39c69a8595ccfb33be179d0c56e7",
+      "bytes": 6150
+    },
+    "client/go/go.mod": {
+      "sha256": "3690ff313f664c4c3f1283d7ae1c7d6ce46534d9c5afa5c4855948b79539246b",
+      "bytes": 62
+    },
+    "client/rust/Cargo.toml": {
+      "sha256": "a05abe7f65954fb0131d585aec59005c12088c4a03cbde071ea2824ca2028972",
+      "bytes": 383
+    },
+    "client/rust/src/lib.rs": {
+      "sha256": "40d1989a9ddb0cb364294b64d0efd53ee2fe4cd46716bb5c99ebadaecab6c52f",
+      "bytes": 6095
+    },
+    "apps/agent-orchestration/brand/icon.svg": {
+      "sha256": "e03e27a894fb13418611447bb18a3a7a86b30f859f5701ec4c954f71061933c9",
+      "bytes": 626
+    },
+    "apps/agent-orchestration/brand/icon-light.svg": {
+      "sha256": "dbf7c31175e94c6d5c55d199cd01e79296345fadc691db786fcc85defb5fe599",
+      "bytes": 666
+    },
+    "apps/agent-orchestration/brand/icon-mono.svg": {
+      "sha256": "aa1c38b6de14b79dbb0e833451590d1586ae281ac0dca4a49c413c25329f4db9",
+      "bytes": 586
+    },
+    "apps/agent-orchestration/brand/icon-dark.png": {
+      "sha256": "e1d2cda8b379407ee7b4947a6f9867884fdf1ea4b322ff7bc9b7e622591041b8",
+      "bytes": 657749
+    },
+    "apps/agent-orchestration/brand/icon-light.png": {
+      "sha256": "f86e42e99d61c75c28395bdb706b045a4770e18de221ba8c1a01cdef6e12faa2",
+      "bytes": 770155
+    },
+    "apps/agent-orchestration/brand/favicon-16.svg": {
+      "sha256": "b4aed4db20d86eb68073a7b6dc4a9bc8a3e5217bfec9bedad928460ef0bec436",
+      "bytes": 359
+    },
+    "apps/agent-orchestration/brand/favicon-16-light.svg": {
+      "sha256": "b1b543c0d3d20600543415865e505e5ca7322cab97baea90f6f0ae59a3a3f634",
+      "bytes": 387
+    },
+    "apps/agent-orchestration/brand/favicon-32.svg": {
+      "sha256": "f2135a3fda7f0af084cdc8029b78acad49dedab24b9c05591ace648b57ad04ab",
+      "bytes": 498
+    },
+    "apps/agent-orchestration/brand/favicon-32-light.svg": {
+      "sha256": "6f37876b3d9154926672ecf7b3383b1e75664c8c7177ad224a0b586c460de97c",
+      "bytes": 526
+    },
+    "apps/agent-orchestration/brand/favicon-48.svg": {
+      "sha256": "905f9c01da3e7ca864f6617a29ffbd253843b6dd117d5474a555af30963db63f",
+      "bytes": 499
+    },
+    "apps/agent-orchestration/brand/favicon-48-light.svg": {
+      "sha256": "2cff56a6e3b4470c6491ffc913535f4df3e13e56950f3fc54e07fd27ba39d8ca",
+      "bytes": 527
+    },
+    "apps/agent-orchestration/brand/favicon.ico": {
+      "sha256": "b7758d19ad65c17b2b593971882ec4a0d3e941203e54af95a74d2bc0c1a2f45c",
+      "bytes": 1080
+    },
+    "apps/agent-orchestration/brand/icon-192.png": {
+      "sha256": "501717debedfd3aa4df10387b0630578ff95c525d4180c12005c9e1b9b3c3c46",
+      "bytes": 31970
+    },
+    "apps/agent-orchestration/DESIGN.md": {
+      "sha256": "069fc89955325ccb7acfbd27075d83cf4ebea1a2350c6c25fcd0c3382aca54a4",
+      "bytes": 7269
+    },
+    "apps/agent-orchestration/DESIGN.json": {
+      "sha256": "1d782e8e8a0e2b3f903979795102a56cf7a1fe96b2846c90b3f2b53533579a3e",
+      "bytes": 5152
+    },
+    "apps/agent-orchestration/app.json": {
+      "sha256": "d3eeccd9f74d1dee14d04fa845cb8713d65bb76c207d2359ffa01698601b28db",
+      "bytes": 824
+    },
+    "apps/agent-orchestration/PRODUCT.md": {
+      "sha256": "92ac4a2a51aafbd7b0a3c5970d9327e5634603cf56cf5704b1e9df854bf93523",
+      "bytes": 1383
+    },
+    "catalog.json": {
+      "sha256": "8c9737f7ad10fc1711c38655a0a3c6abe72abedce08084c4e8efc22058c6aa3d",
+      "bytes": 85851
+    }
+  }
+}
