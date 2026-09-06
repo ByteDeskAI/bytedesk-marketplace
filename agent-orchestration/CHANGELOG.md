@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.4.0] — 2026-09-05
+
 ### Added — the topology layer becomes a durable team (EP-014)
 
 - **A per-repo agent library.** Agents are now a resource type like templates, skills, roles and
@@ -224,7 +226,7 @@
 - Keep strategic proposals human-approved and non-executing, and preserve explicit
   consumer-relative `consumerCwd` for every external provider run.
 
-## 0.1.0 - Unreleased
+## [0.1.0] — 2026-08-21
 
 - Add dual Claude Code and Codex plugin manifests.
 - Add bundled MCP and CLI launcher contracts.
