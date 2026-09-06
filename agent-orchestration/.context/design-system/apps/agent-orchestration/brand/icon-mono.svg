@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-labelledby="agent-orchestration-mono-title agent-orchestration-mono-desc">
+  <title id="agent-orchestration-mono-title">ByteDesk Agent Orchestration monochrome</title>
+  <desc id="agent-orchestration-mono-desc">Four parallel strands pass through one rounded yoke.</desc>
+  <path fill="#E6E8EB" d="M4 2H8V30H4ZM11 2H15V30H11ZM18 2H22V30H18ZM25 2H29V30H25Z"/>
+  <path fill="#E6E8EB" d="M4 12H28C29.105 12 30 12.895 30 14V18C30 19.105 29.105 20 28 20H4C2.895 20 2 19.105 2 18V14C2 12.895 2.895 12 4 12Z"/>
+</svg>

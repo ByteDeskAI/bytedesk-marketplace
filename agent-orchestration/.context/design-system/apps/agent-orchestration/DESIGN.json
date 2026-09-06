@@ -1,0 +1,154 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-04T19:50:18Z",
+  "title": "Design System: Agent Orchestration",
+  "extensions": {
+    "colorMeta": {
+      "accent": {
+        "role": "primary",
+        "displayName": "Agent Orchestration accent",
+        "canonical": "#C1BBFF",
+        "mode": "own",
+        "inherits": null
+      },
+      "interaction-blue": {
+        "role": "primary",
+        "displayName": "Interaction blue",
+        "canonical": "#047BF4",
+        "tonalRamp": [
+          "#071221",
+          "#0E2037",
+          "#193356",
+          "#1F487C",
+          "#255DA5",
+          "#047BF4",
+          "#468CE8",
+          "#71A7EF",
+          "#9CC0F1",
+          "#C7D9F2"
+        ]
+      },
+      "brand-orange": {
+        "role": "secondary",
+        "displayName": "ByteDesk orange",
+        "canonical": "#EC4E02"
+      },
+      "canvas-dark": {
+        "role": "neutral",
+        "displayName": "Dark canvas",
+        "canonical": "#101316"
+      },
+      "canvas-light": {
+        "role": "neutral",
+        "displayName": "Light canvas",
+        "canonical": "#ECEDEF"
+      }
+    },
+    "typographyMeta": {
+      "body": {
+        "displayName": "Body",
+        "purpose": "Every interface surface. IBM Plex Sans."
+      },
+      "machine-text": {
+        "displayName": "Machine text",
+        "purpose": "Terminal emulation, log viewers, code, secret reveal. Nothing else."
+      }
+    },
+    "shadows": [
+      {
+        "name": "shell",
+        "value": "inset 0 1px 0 #FFFFFF0A, 0 24px 56px #05080DB8, 0 8px 20px #07182E66",
+        "purpose": "The one floating command shell."
+      },
+      {
+        "name": "raised",
+        "value": "inset 0 1px 0 #FFFFFF08, 0 8px 20px #05080D66",
+        "purpose": "Raised surfaces that explain real hierarchy."
+      },
+      {
+        "name": "focus-glow",
+        "value": "0 0 0 1px #1B84F3, 0 0 24px #1B84F34D",
+        "purpose": "Focus and selection."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-out-expo",
+        "value": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Default easing."
+      },
+      {
+        "name": "duration-fast",
+        "value": "150ms",
+        "purpose": "fast transitions"
+      },
+      {
+        "name": "duration-base",
+        "value": "250ms",
+        "purpose": "base transitions"
+      },
+      {
+        "name": "duration-slow",
+        "value": "400ms",
+        "purpose": "slow transitions"
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "compact-max",
+        "value": "719px"
+      },
+      {
+        "name": "standard-min",
+        "value": "720px"
+      },
+      {
+        "name": "wide-min",
+        "value": "1200px"
+      },
+      {
+        "name": "ultrawide-min",
+        "value": "1600px"
+      }
+    ],
+    "personality": {
+      "density": "compact",
+      "motion": "calm",
+      "richness": "balanced",
+      "motif": "many lines of work converging under one hand",
+      "icon": "a dimensional relay or loom handing agent strands through a conducting core"
+    },
+    "richness": {
+      "soft": {
+        "canvas": "#1B1E22",
+        "shell": "#22262A"
+      },
+      "balanced": {
+        "canvas": "#101316",
+        "shell": "#171A1D"
+      },
+      "rich": {
+        "canvas": "#090C0F",
+        "shell": "#121518"
+      }
+    }
+  },
+  "components": [],
+  "narrative": {
+    "northStar": "Black Glass + Optical Layering",
+    "overview": "Agent Orchestration is the governed operator window for one delegated run across\nClaude Code, Codex, Grok Build, and Kimi Code. It projects the durable hash-chained\njournal and never becomes a second source of execution truth. Operators and reviewers\nuse it inside the plugin host; it is not a fleet dashboard. Register: product.\n\nThe creative north star is the Conductor's Desk: a full-screen shell whose central\nassistant journal is the anchor, with live run metadata arranged around it. The\ncomposition motif is many lines of work converging under one hand: dispatch and\nconvergence, never completion.\n\nPersonality: compact operational density, calm interruptible motion, balanced\nrichness, and a dimensional relay or loom handing agent strands through a conducting\ncore as the icon metaphor. Read after the shared foundation; this file names only\nwhat Agent Orchestration adds.",
+    "keyCharacteristics": [
+      "**Material:** near-opaque graphite or pearl glass, a fine perimeter, subtle inner",
+      "**Neutrals:** no neutral in the system is `#000` or `#fff`. Every neutral is tinted",
+      "**Layering:** canvas, then floating shell, then inset region, then raised or overlay",
+      "**Energy:** electric blue carries interaction, focus, selection, agent activity, and",
+      "**Typography:** IBM Plex Sans for every interface surface: chrome, labels, paths,",
+      "**Geometry:** an 8px rhythm, 1px hairlines, restrained 8 to 16px shell radii, and",
+      "**Breathing room:** the family's resting floor is `space.6` (16px) between content and",
+      "**Motion:** short, interruptible, state-led, with one clear focal event. Ambient glow"
+    ],
+    "rules": [],
+    "dos": [],
+    "donts": []
+  }
+}

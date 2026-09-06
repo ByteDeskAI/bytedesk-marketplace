@@ -1,0 +1,32 @@
+{
+  "slug": "agent-orchestration",
+  "name": "Agent Orchestration",
+  "kind": "plugin-dashboard",
+  "status": "active",
+  "accent": {
+    "mode": "own",
+    "value": "#C1BBFF",
+    "light": "#5339A8"
+  },
+  "personality": {
+    "density": "compact",
+    "motion": "calm",
+    "richness": "balanced",
+    "motif": "many lines of work converging under one hand",
+    "icon": "a dimensional relay or loom handing agent strands through a conducting core"
+  },
+  "source": {
+    "repository": "ByteDeskAI/agent-orchestration",
+    "path": "profiles/agent-orchestration/DESIGN.md",
+    "commit": "5283423bb2d0e2dc0a4f82fc261a638cf98f3b45"
+  },
+  "consumers": [
+    "ByteDeskAI/agent-orchestration"
+  ],
+  "resolvedAccent": {
+    "mode": "own",
+    "hex": "#C1BBFF",
+    "light": "#5339A8",
+    "root": "agent-orchestration"
+  }
+}

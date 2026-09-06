@@ -26,6 +26,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install --yes bubblewrap slirp4netns
       - name: Install build dependencies
         run: npm ci --prefix agent-orchestration --ignore-scripts
+      - name: Verify plugin-local design system (offline)
+        run: npm run design-system:check --prefix agent-orchestration
       - name: Unit tests
         run: npm test --prefix agent-orchestration
       - name: Rebuild tracked artifacts
@@ -36,5 +38,5 @@ jobs:
         run: npm run test:contract --prefix agent-orchestration
       - name: Manifest contracts
         run: |
-          node -e 'const fs=require("fs"); const c=JSON.parse(fs.readFileSync("agent-orchestration/.codex-plugin/plugin.json")); const p=JSON.parse(fs.readFileSync("agent-orchestration/package.json")); if(c.version!==p.version) process.exit(1)'
+          node -e 'const fs=require("fs"); const c=JSON.parse(fs.readFileSync("agent-orchestration/.codex-plugin/plugin.json")); if("version" in c) process.exit(1)'
           node -e 'const fs=require("fs"); const c=JSON.parse(fs.readFileSync("agent-orchestration/.claude-plugin/plugin.json")); if("version" in c) process.exit(1)'
