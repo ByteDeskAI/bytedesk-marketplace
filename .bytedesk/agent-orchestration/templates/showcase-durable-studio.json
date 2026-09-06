@@ -1,0 +1,13 @@
+{
+  "name": "showcase-durable-studio",
+  "description": "Standing agents you CALL rather than launch. Not a run: three role-sessions keyed to stable agent ids, each with its own workspace that survives the process that opened it. Close your laptop, come back tomorrow, reattach to the same pane with the conversation intact. This is the one scenario driven by `session open`, not `launch`.",
+  "layout": "windows",
+  "inputs": {
+    "remit": { "description": "What this standing team is for", "required": true }
+  },
+  "agents": [
+    { "id": "architect", "role": "orchestrator", "candidates": ["claude:opus"] },
+    { "id": "builder",   "role": "implementer", "candidates": ["claude:sonnet", "grok"] },
+    { "id": "critic",    "role": "reviewer",    "candidates": ["kimi", "copilot"] }
+  ]
+}

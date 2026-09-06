@@ -1,0 +1,17 @@
+{
+  "name": "showcase-astra-relay",
+  "description": "An assembly line rather than a fan-out. Work passes hand to hand — Astra drafts, a Claude reviewer marks it up, Astra revises against the marks, a Grok verifier checks the result against the ORIGINAL requirement rather than against the revision. Each agent sees only what the previous one produced, which is what makes the last check meaningful: the verifier has no attachment to how the work got there.",
+  "layout": "windows",
+  "inputs": {
+    "requirement": { "description": "What must be true when this is done", "required": true },
+    "target": { "description": "File or area to work in", "required": true }
+  },
+  "agents": [
+    { "id": "conductor", "role": "orchestrator", "candidates": ["claude:opus"],
+      "instructions": "You run a relay, not a meeting. Send the requirement to the drafter only. Pass the draft to the reviewer, the review back to the drafter, and the revised work to the verifier together with the ORIGINAL requirement — never the intermediate discussion. Nobody sees the whole chain except you. Report what each stage changed and whether the verifier accepted it." },
+    { "id": "drafter",  "role": "implementer", "candidates": ["codex:gpt-6-astra"], "auto_approve": true },
+    { "id": "reviewer", "role": "reviewer",    "candidates": ["claude:opus", "claude:sonnet"] },
+    { "id": "verifier", "role": "judge",       "candidates": ["grok", "kimi"],
+      "instructions": "You are given a requirement and a finished piece of work. You did not see the drafting or the review and that is deliberate — you have no attachment to how it got here. Answer one question: does the work satisfy the requirement as written? If not, name the gap in one sentence. Do not suggest improvements beyond the requirement." }
+  ]
+}

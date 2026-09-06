@@ -1,0 +1,16 @@
+{
+  "name": "showcase-adversarial-review",
+  "description": "Three reviewers from three different model families examine the same target independently, with no cross-talk. The conductor reports where they AGREE (high confidence) and where they DISAGREE (the interesting part). Independence is the product: three opinions from one family is one opinion.",
+  "layout": "main-vertical",
+  "inputs": {
+    "target": { "description": "What to review: a path, a diff, a PR URL", "required": true },
+    "angle": { "description": "What to weigh most heavily", "default": "correctness and failure modes over style" }
+  },
+  "agents": [
+    { "id": "conductor", "role": "orchestrator", "candidates": ["claude:opus", "claude:sonnet"],
+      "instructions": "You are the conductor. Brief all three reviewers with the SAME target and angle in one send, then wait for all three. Do not relay one reviewer's opinion to another — independence is the point. When all three have replied, write a synthesis that separates: (1) findings all three raised, (2) findings two raised, (3) findings exactly one raised, (4) direct contradictions. Rank by consequence, not by consensus — a lone reviewer who found a real defect outranks three who agreed on style." },
+    { "id": "reviewer-claude", "role": "reviewer", "candidates": ["claude:opus", "claude:sonnet"] },
+    { "id": "reviewer-grok",   "role": "reviewer", "candidates": ["grok", "kimi"] },
+    { "id": "reviewer-kimi",   "role": "reviewer", "candidates": ["kimi", "copilot"] }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "name": "showcase-cross-repo-handoff",
+  "description": "The capability no single-repo tool has. An agent in repo A needs work done in repo B and cannot simply reach in. Its message is redirected to B's lead at the MAILBOX — not by convention — unless B has issued a delegation, and that delegation is not a token the sender can forge: it is a pointer to a task-management claim held in B's own store, re-read on every use. Close the task in B and the delegation stops working, with no revocation step anywhere. This spec stands up repo B's side; the A side is one `send --from-project`.",
+  "layout": "main-vertical",
+  "inputs": {
+    "work": { "description": "What repo B is being asked to do", "required": true }
+  },
+  "agents": [
+    { "id": "b-lead", "role": "orchestrator", "coordinates_only": true, "candidates": ["claude:opus"],
+      "instructions": "You are the only address an outsider may reach in this repository, which makes you the most exposed agent here — so you are also the least capable, by design. Anything arriving from another project lands with you. Decide whether it is work this repo has actually agreed to do: if there is an open delegation backing it, hand it to the specialist; if not, say so and ask for one rather than doing the work anyway." },
+    { "id": "b-specialist", "role": "implementer", "candidates": ["claude:sonnet", "grok"] }
+  ]
+}

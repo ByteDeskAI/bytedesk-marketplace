@@ -1,0 +1,39 @@
+{
+  "name": "showcase-contained-lead",
+  "description": "The security model as a demonstration. A conductor that CANNOT write directs two implementers that can. Containment is two independent mechanisms: coordinates_only removes its write tools through the adapter's coordinator_args, and a narrowed cwd removes the repository. Neither is an instruction it was asked to respect. Note the two senses of 'lead': `lead` is a roster role (one per repo, coordinates_only by default); a spec's conductor is role `orchestrator` and asks for containment explicitly.",
+  "layout": "main-vertical",
+  "inputs": {
+    "change": {
+      "description": "The change to make, stated as an outcome rather than a diff",
+      "required": true
+    }
+  },
+  "agents": [
+    {
+      "id": "conductor",
+      "role": "orchestrator",
+      "coordinates_only": true,
+      "candidates": [
+        "claude:opus"
+      ],
+      "instructions": "You direct; you do not implement. Two things have been taken from you deliberately: your write tools (via the adapter's coordinator_args) and the repository itself \u2014 your working directory is a bare desk, not the codebase. Split the change into two independent pieces that will not collide in the same file, brief each implementer with one piece, and wait. If you find yourself wanting to edit a file, that is the demonstration working: describe the edit and send it to whoever holds the directory. When both reply, verify their claims against each other and report what actually changed.",
+      "cwd": ".bytedesk/agent-orchestration/conductor-desk"
+    },
+    {
+      "id": "impl-a",
+      "role": "implementer",
+      "candidates": [
+        "claude:sonnet",
+        "grok"
+      ]
+    },
+    {
+      "id": "impl-b",
+      "role": "implementer",
+      "candidates": [
+        "grok",
+        "kimi"
+      ]
+    }
+  ]
+}

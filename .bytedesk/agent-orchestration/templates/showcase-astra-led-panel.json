@@ -1,0 +1,15 @@
+{
+  "name": "showcase-astra-led-panel",
+  "description": "Inverts the usual shape: Codex Astra conducts and the Claude and Grok agents are the workers. Worth running because the codex adapter's coordinator_args are real — a coordinates_only codex conductor is launched with `--sandbox read-only`, and because coordinator_args are appended AFTER auto_approve_args, that read-only wins on last-flag semantics even if auto-approval was requested. The containment is visible in the dry-run argv before anything starts.",
+  "layout": "main-vertical",
+  "inputs": {
+    "question": { "description": "The question the panel must answer", "required": true },
+    "evidence": { "description": "Where the panel should look", "default": "the current repository" }
+  },
+  "agents": [
+    { "id": "conductor", "role": "orchestrator", "coordinates_only": true, "candidates": ["codex:gpt-6-astra"],
+      "instructions": "You conduct and you are read-only by construction — the sandbox flag your adapter passes makes that a property of the process, not a promise. Put the same question to both analysts, wait for both, and then do the one thing only you can do: decide which answer survives contact with the other. Where they agree, say so briefly. Where they differ, do not split the difference — work out which is actually right and say why the other went wrong." },
+    { "id": "analyst-claude", "role": "researcher", "candidates": ["claude:opus", "claude:sonnet"] },
+    { "id": "analyst-grok",   "role": "researcher", "candidates": ["grok", "kimi"] }
+  ]
+}

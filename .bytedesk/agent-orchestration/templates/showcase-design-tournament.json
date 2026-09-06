@@ -1,0 +1,18 @@
+{
+  "name": "showcase-design-tournament",
+  "description": "Competition as a quality mechanism. Two designers on different model families draw against the SAME brief without seeing each other's work; an independent judge on a third family scores both against stated criteria; the conductor runs a revision round and stops at a human gate before anything is promoted. The judge never learns which family produced which entry.",
+  "layout": "grid",
+  "inputs": {
+    "brief": { "description": "What to design, and for whom", "required": true },
+    "criteria": { "description": "How the judge should score", "default": "fitness for the stated audience, originality, and internal consistency — in that order" },
+    "rounds": { "description": "Revision rounds after the first scoring", "default": "1" }
+  },
+  "agents": [
+    { "id": "conductor", "role": "orchestrator", "candidates": ["claude:opus"],
+      "instructions": "Send the identical brief to both designers in one send. Never show one designer the other's work or score. When both have replied, forward BOTH entries to the judge as A and B without saying which model produced which — the judge must not be able to favour a family. Relay only the judge's criticism back to each designer, then run the revision round. Stop before promoting anything and report both entries, both scores, and what changed between rounds." },
+    { "id": "designer-a", "role": "designer", "candidates": ["claude:opus", "claude:sonnet"] },
+    { "id": "designer-b", "role": "designer", "candidates": ["grok", "kimi"] },
+    { "id": "judge", "role": "judge", "candidates": ["kimi", "copilot", "claude:sonnet"],
+      "instructions": "You score two anonymous entries, A and B, against the stated criteria. You do not know which model produced which, and you must not guess. Score each criterion separately with a one-sentence justification, then state which entry wins and what would have to change for the loser to win." }
+  ]
+}

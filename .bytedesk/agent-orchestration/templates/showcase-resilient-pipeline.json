@@ -1,0 +1,38 @@
+{
+  "name": "showcase-resilient-pipeline",
+  "description": "A team that survives a dead provider. Every worker's chain STARTS with `codex:gpt-5.6-codex`, which this account cannot use \u2014 the API answers 'The gpt-5.6-codex model is not supported when using Codex with a ChatGPT account'. That is a real, deterministic, repeatable rejection rather than a simulated one, and unlike burning a rate limit it costs nothing and works every time. The run should walk the chain, journal agent.candidate_failed then agent.failover, re-deliver any unanswered messages to the replacement, and finish. Note the fallback is codex:gpt-6-astra \u2014 the same CLI, a model the account DOES have \u2014 so this proves per-model failover, not just per-vendor.",
+  "layout": "grid",
+  "inputs": {
+    "task": {
+      "description": "A small, self-contained piece of work",
+      "required": true
+    }
+  },
+  "agents": [
+    {
+      "id": "conductor",
+      "role": "orchestrator",
+      "candidates": [
+        "claude:opus"
+      ]
+    },
+    {
+      "id": "worker-1",
+      "role": "worker",
+      "candidates": [
+        "codex:gpt-5.6-codex",
+        "codex:gpt-6-astra",
+        "claude:sonnet"
+      ]
+    },
+    {
+      "id": "worker-2",
+      "role": "worker",
+      "candidates": [
+        "codex:gpt-5.6-codex",
+        "grok",
+        "kimi"
+      ]
+    }
+  ]
+}
