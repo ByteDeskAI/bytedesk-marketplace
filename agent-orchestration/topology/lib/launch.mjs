@@ -351,7 +351,7 @@ export function tokenDigest(token) {
 }
 
 /** Build launcher + argv for every candidate of one agent; write nothing yet. */
-function prepareCandidates({ spec, agent, adapters, bootstrapFile, dir, warnings, token, lineage = null }) {
+function prepareCandidates({ spec, agent, adapters, bootstrapFile, dir, warnings, token, lineage = null, replyToken = null }) {
   // A coordinator is granted nothing. It delegates rather than implements, and it is the only
   // address an outsider may reach directly in cross-repo routing — the most exposed agent in the
   // system should be the least capable one. Its cwd is its own agent directory, so withholding the
@@ -382,7 +382,17 @@ function prepareCandidates({ spec, agent, adapters, bootstrapFile, dir, warnings
     // not only ones a spec expects to nest: an agent has a shell and `ao-topology` on its PATH, so
     // the run we did not plan for is exactly the one that needs to carry the chain.
     const descend = childEnv({ runDir: spec.run_dir, runId: spec.run_id, agentId: agent.id, depth: lineage?.depth ?? 0, chain: lineage?.chain ?? [], name: spec.name });
-    const env = { AO_RUN_DIR: spec.run_dir, AO_AGENT_ID: agent.id, AO_AGENT_ROLE: agent.role, AO_SESSION: spec.session, AO_PROVIDER: candidateLabel(candidate), ...descend, ...agent.env, AO_AGENT_TOKEN: token };
+    // Only the conductor answers upward, and only when this run IS a participant in another.
+    //
+    // Distinct names from the AO_PARENT_* set on purpose. Those describe the run this agent would be
+    // the PARENT of — what a grandchild inherits — and they point at this run. Replying upward is the
+    // opposite direction and points at the run above, so sharing the variables would make one of the
+    // two silently wrong. The token is the parent's, minted for the participant slot this run fills,
+    // so the child never names itself: it presents a secret the parent already holds a digest of.
+    const upward = replyToken && agent.role === "orchestrator" && lineage?.run_dir
+      ? { AO_REPLY_TO_RUN_DIR: lineage.run_dir, AO_REPLY_AS_AGENT: lineage.agent_id ?? "", AO_REPLY_TOKEN: replyToken }
+      : {};
+    const env = { AO_RUN_DIR: spec.run_dir, AO_AGENT_ID: agent.id, AO_AGENT_ROLE: agent.role, AO_SESSION: spec.session, AO_PROVIDER: candidateLabel(candidate), ...descend, ...upward, ...agent.env, AO_AGENT_TOKEN: token };
     return { index, candidate, label: candidateLabel(candidate), adapter, argv, env, vars, add_dirs: addDirs, memory: memoryLocation(adapter, { cwd: agent.cwd, home: spec.home ?? process.env.HOME ?? "" }), launcher: join(dir, `launch-${index}.sh`) };
   });
 }
@@ -461,7 +471,7 @@ async function recordChild(lineage, child) {
   }
 }
 
-export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDirs, cliBin, dryRun = false, allowAutoApprove = false, maxDepth = undefined, lineage = lineageFromEnv(), log = () => {} }) {
+export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDirs, cliBin, dryRun = false, allowAutoApprove = false, maxDepth = undefined, lineage = lineageFromEnv(), launchChild = null, replyToken = null, log = () => {} }) {
   const warnings = [];
 
   // Where this run sits in the tree, decided before anything is created. A run launched by an agent
@@ -493,7 +503,15 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
   }
 
   const prepared = [];
+  // A participant is a team, not a process: it gets a mailbox so the conductor can address it, and
+  // nothing else. No skills, no role pack, no launcher, no pane. Its child run is started after the
+  // parent's own session exists, so the child can be told where to reply.
+  const participants = spec.agents.filter((agent) => agent.workflow);
   for (const agent of spec.agents) {
+    if (agent.workflow) {
+      prepared.push({ agent, skills: [], role: { text: "", path: null, fallback: false }, dir: agentDir(spec.run_dir, agent.id), bootstrapFile: null, candidates: [], token: mintAgentToken(), participant: true });
+      continue;
+    }
     const skills = [];
     for (const name of agent.skills.filter((item) => item && item !== "none")) {
       const resolved = await resolveSkill(name, skillSearchDirs);
@@ -506,7 +524,7 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
     const bootstrapFile = join(dir, "BOOTSTRAP.md");
     // One token per agent, not per candidate: a failover changes the provider, not who the agent is.
     const token = mintAgentToken();
-    const candidates = prepareCandidates({ spec, agent, adapters, bootstrapFile, dir, warnings, token, lineage });
+    const candidates = prepareCandidates({ spec, agent, adapters, bootstrapFile, dir, warnings, token, lineage, replyToken });
     prepared.push({ agent, skills, role, dir, bootstrapFile, candidates, token });
   }
 
@@ -534,6 +552,9 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
   for (const item of prepared) {
     await mkdir(join(item.dir, "inbox"), { recursive: true });
     await mkdir(join(item.dir, "outbox"), { recursive: true });
+    // A participant has a mailbox and no launcher: there is no pane to brief, and the child run's
+    // own conductor gets its instructions from the child's spec.
+    if (item.participant) continue;
     await writeText(item.bootstrapFile, bootstrapText({ spec, agent: item.agent, role: item.role, skills: item.skills, cliBin }));
     for (const candidate of item.candidates) {
       await writeText(candidate.launcher, launcherScript({ agent: item.agent, candidate: candidate.candidate, argv: candidate.argv, env: candidate.env }), 0o700);
@@ -575,6 +596,10 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
       provider: null,
       adapter: null,
       submit_keys: ["Enter"],
+      // A participant carries the name of the workflow it stands for. The run_dir and session are
+      // filled in once the child is actually launched, below — before that they are honestly null
+      // rather than optimistically guessed, so a failed child is visible as one.
+      ...(item.participant ? { workflow: { name: item.agent.workflow, inputs: item.agent.inputs ?? {}, run_dir: null, session: null, conductor: null } } : {}),
     })),
   };
   await saveRun(spec.run_dir, run);
@@ -585,8 +610,9 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
   // have to scan every run in the repo looking for orphans to adopt.
   if (lineage?.run_dir) await recordChild(lineage, { runDir: spec.run_dir, runId: spec.run_id, name: spec.name, session: spec.session });
 
-  // Conductor first so it owns pane 0 / the main pane.
-  const ordered = [...prepared].sort((a, b) => (a.agent.role === "orchestrator" ? -1 : b.agent.role === "orchestrator" ? 1 : 0));
+  // Conductor first so it owns pane 0 / the main pane. Participants are not in this list at all —
+  // they have no process to host, and including one would consume a pane that stays empty.
+  const ordered = [...prepared].filter((item) => !item.participant).sort((a, b) => (a.agent.role === "orchestrator" ? -1 : b.agent.role === "orchestrator" ? 1 : 0));
   const first = ordered[0];
   // Sized for the whole team before the first split, because a window that is resized after the
   // panes exist redistributes rows by ratio and leaves the small ones small.
@@ -627,7 +653,10 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
     `run-shell -b "printf '%s\\t%s\\n' '#{hook_pane}' '#{pane_dead_status}' >> ${shellQuote(deathLog)}"`,
   );
   if (!hooked) warnings.push("tmux refused the pane-died hook; agent deaths will not be recorded in deaths.tsv.");
-  for (const agent of run.agents) agent.pane = panes.get(agent.id);
+  // `?? null`, not the bare lookup: a participant has no pane and `undefined` is dropped by
+  // JSON.stringify, which would leave run.json with no `pane` key at all for that agent. Every
+  // reader then has to distinguish "absent" from "null", and one of them will forget.
+  for (const agent of run.agents) agent.pane = panes.get(agent.id) ?? null;
   await saveRun(spec.run_dir, run);
 
   // One control-mode client for the session: the readiness signal for every pane, pushed by the
@@ -675,10 +704,43 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
   await saveRun(spec.run_dir, run);
   if (spec.layout !== "windows") await tmux.selectPane(panes.get(first.agent.id));
 
-  run.state = results.every((result) => result.provider) ? "running" : "degraded";
+  // Children last, and only once this run's own session exists. A child needs to be told where to
+  // reply, and "where" is this run — so there is nothing to tell it until this run is real. Launched
+  // through the caller's own launcher so the child resolves adapters, roles and skills exactly as a
+  // hand-typed `launch` would; this function does not know how to build that context and should not
+  // learn.
+  for (const item of prepared.filter((entry) => entry.participant)) {
+    const entry = run.agents.find((agent) => agent.id === item.agent.id);
+    if (!launchChild) {
+      warnings.push(`agent ${item.agent.id}: workflow "${item.agent.workflow}" was not launched — this caller cannot start child runs.`);
+      continue;
+    }
+    try {
+      const child = await launchChild({
+        workflow: item.agent.workflow,
+        inputs: item.agent.inputs ?? {},
+        // The parent's own lineage, extended by one: the child reads this and records it, exactly as
+        // a child started by a model from an agent's environment would.
+        lineage: { run_dir: spec.run_dir, run_id: spec.run_id, agent_id: item.agent.id, depth: (lineage?.depth ?? 0) + 1, chain: [...(lineage?.chain ?? []), spec.name] },
+        // The parent's token for THIS participant. The child's conductor answers as `reviewers` in
+        // the parent's mailbox, and this is the secret that lets it — minted by the parent, so the
+        // child never has to be trusted to name itself.
+        replyToken: item.token,
+      });
+      entry.workflow = { ...entry.workflow, run_dir: child.runDir, session: child.session, conductor: child.conductor ?? null, state: child.state };
+      for (const warning of child.warnings ?? []) warnings.push(`workflow ${item.agent.id}: ${warning}`);
+    } catch (error) {
+      // A child that will not start is a degraded run, not a dead one: the panes that did come up
+      // are still useful and the conductor can be told what is missing.
+      entry.workflow = { ...entry.workflow, error: error?.message ?? String(error) };
+      warnings.push(`agent ${item.agent.id}: workflow "${item.agent.workflow}" failed to launch — ${error?.message ?? error}`);
+    }
+  }
+
+  run.state = results.every((result) => result.provider) && run.agents.every((agent) => !agent.workflow || agent.workflow.run_dir) ? "running" : "degraded";
   await saveRun(spec.run_dir, run);
   await appendJournal(spec.run_dir, { type: "run.launched", state: run.state, warnings });
-  return { runDir: spec.run_dir, session: spec.session, state: run.state, agents: results, warnings, attach: tmux.attachCommand(spec.session) };
+  return { runDir: spec.run_dir, session: spec.session, state: run.state, agents: results, participants: run.agents.filter((agent) => agent.workflow).map((agent) => ({ id: agent.id, ...agent.workflow })), warnings, attach: tmux.attachCommand(spec.session) };
 }
 
 // ---------------------------------------------------------------------------------------------

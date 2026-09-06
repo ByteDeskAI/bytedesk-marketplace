@@ -281,6 +281,35 @@ const commands = {
   async launch({ flags }) {
     const ctx = context(flags);
     const { spec, path } = await loadSpec({ template: flags.template, specPath: flags.spec, dirs: ctx.templateDirs });
+    // How a workflow participant becomes a real run. The launcher knows how to start a set of panes;
+    // it does not know how to find a workflow by name, resolve its inputs, or build the adapter and
+    // skill search paths — that context lives here, so the recursion is handed down as a function
+    // rather than reimplemented one layer lower.
+    const launchChild = async ({ workflow, inputs: childInputs, lineage: childLineage, replyToken }) => {
+      const child = await loadSpec({ template: workflow, dirs: ctx.templateDirs });
+      const childRunId = newRunId();
+      const materializedChild = materializeSpec(child.spec, {
+        runId: childRunId,
+        consumer: ctx.consumer,
+        home: ctx.home,
+        inputs: resolveInputs(child.spec, childInputs),
+        allowOutside: Boolean(flags["allow-outside"]),
+      });
+      const result = await launchRun({
+        spec: materializedChild,
+        adapters: await loadAdapters(ctx.providerDirs),
+        skillSearchDirs: ctx.skillDirs,
+        roleSearchDirs: ctx.roleDirs,
+        cliBin: CLI_BIN,
+        allowAutoApprove: Boolean(flags["allow-auto-approve"]),
+        ...(flags["max-depth"] && flags["max-depth"] !== true ? { maxDepth: Number(flags["max-depth"]) } : {}),
+        lineage: childLineage,
+        replyToken,
+        launchChild,
+        log: (line) => process.stderr.write(`${line}\n`),
+      });
+      return { ...result, conductor: (materializedChild.agents.find((agent) => agent.role === "orchestrator") ?? {}).id ?? null };
+    };
     const inputs = resolveInputs(spec, inputPairs(flags.input));
     const runId = flags["run-id"] && flags["run-id"] !== true ? String(flags["run-id"]) : newRunId();
     // Two deliberate escape hatches, both off unless the operator asks. `--allow-outside` lets a
@@ -313,6 +342,7 @@ const commands = {
       dryRun: Boolean(flags["dry-run"]),
       allowAutoApprove: Boolean(flags["allow-auto-approve"]),
       ...(flags["max-depth"] && flags["max-depth"] !== true ? { maxDepth: Number(flags["max-depth"]) } : {}),
+      launchChild,
       log: (line) => process.stderr.write(`${line}\n`),
     });
     result.template = path;
@@ -515,6 +545,23 @@ const commands = {
     if (!flags["no-ring"]) {
       for (const delivery of message.deliveries) {
         const agent = run.agents.find((item) => item.id === delivery.agent);
+        // A workflow participant has no pane to ring. Ringing is how a message reaches a process;
+        // for a team, the equivalent is putting the message in front of that team's conductor. The
+        // message is already in this run's mailbox either way — this only decides who gets told.
+        if (agent?.workflow?.run_dir) {
+          const forwarded = await sendMessage({
+            runDir: agent.workflow.run_dir,
+            from,
+            to: [agent.workflow.conductor].filter(Boolean),
+            stage,
+            body,
+            contract: flags.contract,
+            round: flags.round,
+            subject: flags.subject,
+          });
+          delivered.push({ agent: agent.id, workflow: agent.workflow.name, forwarded_as: forwarded.id, run_dir: agent.workflow.run_dir });
+          continue;
+        }
         if (!agent?.pane) continue;
         const pointer = messagePointer({ id: message.id, from, stage, inbox: delivery.inbox, outbox: delivery.outbox });
         const alive = await tmux.paneAlive(agent.pane);
@@ -565,7 +612,12 @@ const commands = {
     invariant(flags.agent && flags.agent !== true, "TOPOLOGY_AGENT_REQUIRED", "Pass --agent <id>.");
     invariant(flags.message && flags.message !== true, "TOPOLOGY_MESSAGE_REQUIRED", "Pass --message <id> (the id from the inbox file name, e.g. 003-brief).");
     const body = await bodyFrom(flags);
-    const path = await recordReply({ runDir, agentId: String(flags.agent), messageId: String(flags.message), body });
+    // `--token` was named in recordReply's own refusal text and never wired, so an agent following
+    // that advice got the same refusal again. It is required now anyway: a child workflow's
+    // conductor already holds AO_AGENT_TOKEN for its OWN run, so answering upward as a participant
+    // in its parent needs the other token passed explicitly.
+    const token = flags.token && flags.token !== true ? String(flags.token) : undefined;
+    const path = await recordReply({ runDir, agentId: String(flags.agent), messageId: String(flags.message), body, ...(token ? { token } : {}) });
     out({ ok: true, reply: path });
   },
 

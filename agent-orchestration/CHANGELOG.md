@@ -12,6 +12,25 @@
   record that survives the process, and `AO_PARENT_RUN_DIR` / `AO_PARENT_RUN_ID` /
   `AO_PARENT_AGENT_ID` / `AO_RUN_DEPTH` / `AO_RUN_CHAIN` in **every** agent's environment is what
   lets a child nobody planned still record where it came from.
+- **A workflow can be a participant in another workflow.** An `agents[]` entry with
+  `{ id, workflow, inputs }` joins the run as a team rather than a pane: the conductor addresses it
+  by id, sends to it and waits on it exactly as it would an agent, and never learns it is four
+  agents in another tmux session. `ao-topology validate` refuses a participant that also names a
+  `cli` — it is a team, not a process — and refuses a workflow that names itself, which is decidable
+  without launching anything.
+
+  Almost all of it is plumbing over what was already there. `sendMessage` and `recordReply` already
+  took a run directory, so a message crossing between runs needed no bridge; the delivery loop
+  already skipped an agent with no pane, so that `continue` became "forward into the child instead
+  of ringing"; and `agents[].agent` was already the precedent for an entry whose meaning is resolved
+  at launch rather than at validation.
+- **`reply --token`** is wired. It was named in `recordReply`'s own refusal text and never
+  implemented, so an agent following that advice got the same refusal again. It is load-bearing now:
+  a child conductor already holds `AO_AGENT_TOKEN` for its own run, so answering upward as a
+  participant in its parent needs the other token passed explicitly. The child is handed it as
+  `AO_REPLY_TOKEN`, with `AO_REPLY_TO_RUN_DIR` and `AO_REPLY_AS_AGENT` — deliberately not the
+  `AO_PARENT_*` names, which point the other way, at the run this agent would itself be the parent
+  of. Sharing them would have made one of the two directions silently wrong.
 - **`stop` cascades**, depth-first, journalling `run.child_exited` on the parent as it goes.
   Depth-first because stopping top-down orphans every level below the one that fails. `--no-cascade`
   opts out.

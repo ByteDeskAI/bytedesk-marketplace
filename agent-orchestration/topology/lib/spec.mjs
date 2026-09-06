@@ -100,6 +100,33 @@ export function validateSpec(raw) {
       return { id: `agent-${index}`, role: "worker", cli: "generic", skills: [] };
     }
     const normalized = { ...agent };
+    // `workflow` names another workflow, which joins this run as a PARTICIPANT rather than a pane:
+    // the conductor addresses it by id exactly like an agent and never learns it is a team. Like
+    // `agent` below, what it names cannot be checked here — validation is synchronous and dirless —
+    // so the child spec is resolved at launch, not now. A participant is not a process, so it has no
+    // cli, no model and no fallback chain, and saying otherwise is a spec bug worth naming early.
+    if (normalized.workflow !== undefined && (typeof normalized.workflow !== "string" || !normalized.workflow.trim())) note(`${where}.workflow must be the name of another workflow`);
+    const isParticipant = typeof normalized.workflow === "string" && normalized.workflow.trim().length > 0;
+    if (isParticipant) {
+      for (const field of ["cli", "model", "candidates", "agent", "instructions_file", "auto_approve"]) {
+        if (normalized[field] !== undefined) note(`${where}.${field} cannot be set on a workflow participant — "${normalized.workflow}" is a team, not a process. Set it inside that workflow instead.`);
+      }
+      if (normalized.inputs !== undefined && (typeof normalized.inputs !== "object" || Array.isArray(normalized.inputs))) {
+        note(`${where}.inputs must be a map of input name to value, passed to "${normalized.workflow}" when it launches`);
+      }
+      normalized.inputs = normalized.inputs && typeof normalized.inputs === "object" && !Array.isArray(normalized.inputs) ? normalized.inputs : {};
+      // A participant is a worker as far as the mailbox is concerned: it can be briefed and it owes
+      // replies. Only a pane-ful agent may be the conductor, which the orchestrator count enforces.
+      normalized.role = typeof normalized.role === "string" && normalized.role ? normalized.role : "worker";
+      if (normalized.role === "orchestrator") note(`${where}.role cannot be orchestrator — a workflow participant has no pane, so it cannot conduct this run`);
+      // The direct loop, caught here rather than at launch. An indirect one (A contains B, B contains
+      // A) is only visible once the ancestry exists, so the launcher refuses that from the lineage —
+      // but a workflow naming ITSELF is decidable from this file alone, and catching it here means
+      // the operator is told before a single pane is created rather than after half a run is up.
+      if (typeof spec.name === "string" && normalized.workflow.trim() === spec.name) {
+        note(`${where}.workflow is "${spec.name}", which is this workflow — a workflow cannot contain itself. For a loop over items use for_each; for a nested team name a different workflow.`);
+      }
+    }
     // `agent` names a stored agent in this repo's library. What it supplies cannot be checked here —
     // validation is synchronous and dirless — so the entry is allowed to omit what the library will
     // provide, and materializeSpec merges the stored definition in. `_inline` is the record of what
@@ -132,7 +159,7 @@ export function validateSpec(raw) {
         if (normalized.model === undefined && normalized.candidates[0]) normalized.model = normalized.candidates[0].model;
       }
     }
-    if (!hasRef && (typeof normalized.cli !== "string" || !normalized.cli.trim())) note(`${where}.cli is required (a provider adapter id such as claude, codex, grok, or generic), or give candidates: ["claude:fable", "codex:gpt-5"]`);
+    if (!hasRef && !isParticipant && (typeof normalized.cli !== "string" || !normalized.cli.trim())) note(`${where}.cli is required (a provider adapter id such as claude, codex, grok, or generic), or give candidates: ["claude:fable", "codex:gpt-5"]`);
     normalized.skills = Array.isArray(normalized.skills) ? normalized.skills.map(String) : [];
     if (normalized.mcp !== undefined && !Array.isArray(normalized.mcp)) note(`${where}.mcp must be an array of MCP server names or server objects`);
     normalized.mcp = Array.isArray(normalized.mcp) ? normalized.mcp : [];
@@ -224,7 +251,10 @@ export function resolveInputs(spec, provided = {}) {
 }
 
 function orchestratorProblem(agents) {
-  const found = agents.filter((agent) => agent.role === "orchestrator").length;
+  // Participants are excluded: a workflow participant has no pane, so it cannot be the thing that
+  // conducts this run. Counting one would let a spec whose only "conductor" is a child team pass
+  // validation and then have nobody to send the first message.
+  const found = agents.filter((agent) => agent.role === "orchestrator" && !agent.workflow).length;
   return found === 1 ? null : `exactly one agent must have role "orchestrator" (found ${found}); it is the conductor that runs the workflow`;
 }
 
