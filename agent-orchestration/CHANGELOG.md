@@ -226,6 +226,37 @@
 - Keep strategic proposals human-approved and non-executing, and preserve explicit
   consumer-relative `consumerCwd` for every external provider run.
 
+## [0.3.0] — 2026-09-03
+
+Backfilled. This release shipped without a changelog entry; the summary below is derived from the
+17 commits in `ea85b8d..272a01f`, which is the authority for the detail.
+
+- The tmux topology layer — visible agent teams in real panes, and the launch-time menus and
+  `logo-design` template that drive them.
+- Provider fallback chains and mid-run failover, so a dead provider moves work rather than ending it.
+- A loopback session host bound on spawn, with live session SSE and operator controls, supervised
+  under systemd.
+- Native Windows and WSL runtimes, and the cross-platform launch repairs that made them load.
+- Provider discovery in the caller's directory rather than the server process's, exact Fable 5.1
+  routing, and a fix for idle servers re-reading every run forever.
+
+**A version the package never carried.** `9e30405` moved `src/mcp.mjs` from 0.1.0 straight to
+**0.2.3** — skipping 0.2.1 and 0.2.2, which never existed anywhere — while `package.json` sat at
+0.2.0 and had already been there since `ea85b8d`. The two only came back together at `272a01f`,
+which set both to 0.3.0. So an MCP client that asked this server its version during that fortnight
+was told 0.2.3, a number no manifest ever carried and no release here is named after.
+
+## [0.2.0] — 2026-08-21
+
+Backfilled, on the same terms: no entry was written at the time, and `64e099a..ea85b8d` is the
+authority.
+
+- A governed living roadmap.
+- The MCP tool prefix rename to `orchestration_*` (`31d586f`), which also removed this plugin's
+  Codex-side `version` — it has been deliberately versionless there ever since.
+- Codex read-sandbox mode alignment, canonical user-bus recovery, and refreshed source and sandbox
+  bundles.
+
 ## [0.1.0] — 2026-08-21
 
 - Add dual Claude Code and Codex plugin manifests.
