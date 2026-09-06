@@ -254,6 +254,14 @@
 - **Generated runtime files stay out of git.** Store `.gitignore` now names `dashboard.pid` and `dashboard.port` explicitly (still covered by `dashboard.*`), plus `bin` (generated launchers) and `events.json` / `events.jsonl`. Bootstrap and `.bytedesk/task-management/bin/tm doctor --fix` write `.bytedesk/.gitignore` so `worktrees/` is ignored without swallowing the store. Dashboard `.gitignore` also drops Vite/tsc leftovers (`.vite`, `*.tsbuildinfo`).
 
 ### Fixed
+- **`tm-dashboard --help` started a server instead of printing anything.** The flag matched nothing,
+  fell through every check, and the process went on to bind a port and serve the board — so a help
+  invocation became a real dashboard that sat in `ps` looking hung for as long as it ran, and the
+  only way to tell it from a genuine launch was to ask its port what it was serving. Two boards on
+  this machine were running that way. `--help` and `-h` now print usage and exit, and an
+  unrecognised flag is refused by name with exit 2 rather than ignored — being ignored is what let
+  `--help` reach the server-start path. Both are handled before `paths()` and `ensureDirs()`, so
+  asking for help no longer creates a store either.
 - **Test runs leaked their throwaway stores.** `tempStore()` and `tempRepo()` relied entirely on
   each test file remembering `cleanup()` in an `after()` hook, so a file that forgot one leaked and
   so did every interrupted run — a killed soak, a crash, a filtered run that never reached the hook.

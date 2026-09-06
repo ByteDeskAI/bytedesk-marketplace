@@ -14,6 +14,7 @@
  *   tm-dashboard             start, or report the one already running
  *   tm-dashboard --status    print url/pid/port; exit 1 if nothing is running
  *   tm-dashboard --restart   evict the incumbent and take over
+ *   tm-dashboard --help      this, and exit
  *
  * ponytail: node stdlib only, no build step. The lock lives in lib/singleton.mjs.
  */
@@ -39,6 +40,44 @@ import { subscribe as subscribePlanner } from "../lib/planner-run.mjs";
 
 // Degrade like `tm` does. Launched from a directory with no resolvable store —
 // an installed copy of the plugin — a raw stack trace is a terrible answer.
+/**
+ * Flags, handled before `paths()` and `ensureDirs()` below, because those have side effects and a
+ * request for help should have none.
+ *
+ * An unrecognised flag is REFUSED rather than ignored. Ignoring it is how `tm-dashboard --help`
+ * silently started a server instead of printing anything: the flag fell through every check and
+ * the process went on to bind a port and serve the board. It looked like a hung help invocation in
+ * `ps` for as long as it ran, and the only way to tell it apart from a real board was to ask the
+ * port what it was serving.
+ */
+const FLAGS = new Set(["--status", "--restart", "--browser", "--no-browser", "--help", "-h"]);
+const args = new Set(process.argv.slice(2));
+
+const USAGE = [
+  "task-management board — one dashboard per project, first-wins.",
+  "",
+  "  tm-dashboard             start, or report the one already running",
+  "  tm-dashboard --status    print url/pid/port; exit 1 if nothing is running",
+  "  tm-dashboard --restart   evict the incumbent and take over",
+  "  tm-dashboard --help      this, and exit",
+  "",
+  "  --browser / --no-browser   override board.launchBrowser for this run",
+  "",
+  "The port is assigned once, probed free above 45000 and persisted, so the project",
+  "opens at the same URL every time. TM_DASHBOARD_PORT overrides it without changing",
+  "the stored assignment.",
+].join("\n");
+
+if (args.has("--help") || args.has("-h")) {
+  process.stdout.write(`${USAGE}\n`);
+  process.exit(0);
+}
+const unknown = [...args].filter((a) => !FLAGS.has(a));
+if (unknown.length) {
+  process.stderr.write(`tm-dashboard: unknown option ${unknown.join(", ")}\n\n${USAGE}\n`);
+  process.exit(2);
+}
+
 const resolved = paths();
 if (!resolved.root) {
   process.stderr.write(`${resolved.unavailable}\n`);
@@ -178,7 +217,6 @@ function receiveMultipart(req, res) {
     }
   });
 }
-const args = new Set(process.argv.slice(2));
 const url = (port) => `http://127.0.0.1:${port}`;
 
 // ── singleton, first-wins ────────────────────────────────────────────────────

@@ -64,8 +64,34 @@ tm init >/dev/null
 tm epic new "Dashboard epic" >/dev/null
 tm task new "Visible on the board" --body "proves the board serves the store" --ac "the board shows it" >/dev/null
 
-# ── no server yet ────────────────────────────────────────────────────────────
+# ── flags, before anything is running ────────────────────────────────────────
 assert_status 1 "--status exits 1 when nothing is running" dashq --status
+
+# `--help` used to fall through every check and start a SERVER: it bound the port, served the
+# board, and sat in `ps` looking like a hung help invocation for as long as it ran. Two boards on
+# this machine were running that way, and the only way to tell one from a real launch was to ask
+# its port what it was serving.
+HELP_OUT="$(dashq --help 2>&1)"
+assert_status 0 "--help exits 0" dashq --help
+assert_contains "$HELP_OUT" "tm-dashboard --restart" "--help prints the usage"
+assert_contains "$HELP_OUT" "--browser / --no-browser" "--help documents the browser overrides"
+[[ -z "$(pid_of)" ]] && ok "--help starts no server" || no "--help starts no server" "pid file: $(pid_of)"
+# In a VIRGIN root, so it measures what it claims: this suite has already seeded a store above,
+# and asserting "$STORE does not exist" there would pass or fail for reasons unrelated to --help.
+# `paths()` and `ensureDirs()` run at import time, so a help path that reached them would create a
+# store just by being asked for help.
+VIRGIN="$(mktemp -d)"
+TM_ROOT="$VIRGIN" CLAUDE_PROJECT_DIR="$VIRGIN" timeout 10 node "$PLUGIN_ROOT/bin/tm-dashboard" --help >/dev/null 2>&1
+[[ -z "$(ls -A "$VIRGIN" 2>/dev/null)" ]] && ok "--help creates nothing in an empty project" \
+  || no "--help creates nothing in an empty project" "created: $(ls -A "$VIRGIN" | tr '\n' ' ')"
+rm -rf "$VIRGIN"
+assert_status 0 "-h is the same" dashq -h
+
+# An unrecognised flag is refused rather than ignored — being ignored is exactly how `--help`
+# reached the server-start path.
+assert_status 2 "an unknown flag exits 2" dashq --halp
+assert_contains "$(dashq --halp 2>&1)" "unknown option --halp" "an unknown flag is named"
+[[ -z "$(pid_of)" ]] && ok "an unknown flag starts no server" || no "an unknown flag starts no server" "pid file: $(pid_of)"
 
 # ── first launch ─────────────────────────────────────────────────────────────
 dash >"$TM_ROOT/first.log" 2>&1 &
