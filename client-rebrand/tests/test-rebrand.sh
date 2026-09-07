@@ -160,6 +160,39 @@ OUT="$(rebrand next --dry-run --client "$C" 2>&1)"
 has "$OUT" "nothing left to run" "and next has nothing left to do"
 
 echo
+echo "== collect records the deliverables; it does not gather the run's working files"
+
+# An earlier version copied everything under the run's artifacts/ into the stage folder. That put
+# the conductor's round notes and a researcher's scratch into a client deliverable folder, changed
+# the digest an approval binds to, and left agents finding files in their workspace that none of
+# them had written — one of them checked each byte-for-byte and deleted them, which is the right
+# instinct and not work it should have had to do.
+G="$REBRAND_ROOT/gather"
+rebrand new gather --name "Gather" >/dev/null 2>&1
+RUNDIR="$G/.bytedesk/agent-orchestration/runs/fake"
+mkdir -p "$RUNDIR/artifacts/conductor" "$RUNDIR/artifacts/researcher/001-brief"
+printf 'round notes\n' > "$RUNDIR/artifacts/conductor/brief-round1.md"
+printf 'scratch\n'     > "$RUNDIR/artifacts/researcher/001-brief/notes.md"
+printf 'the deliverable\n' > "$G/01-discovery/brief.md"
+python3 - "$G/state.json" "$RUNDIR" <<'PY2'
+import json, sys
+state = json.load(open(sys.argv[1]))
+state["stages"]["discovery"]["run"] = sys.argv[2]
+json.dump(state, open(sys.argv[1], "w"), indent=2)
+PY2
+
+rebrand collect discovery --client "$G" >/dev/null 2>&1
+[ -f "$G/01-discovery/brief.md" ] && ok "collect records what the agents wrote into the stage folder" \
+  || no "collect records what the agents wrote into the stage folder"
+[ -e "$G/01-discovery/conductor" ] && no "the run's working files stay out of the deliverable folder" "conductor/ was copied in" \
+  || ok "the run's working files stay out of the deliverable folder"
+[ -e "$G/01-discovery/researcher" ] && no "and so does per-agent scratch" "researcher/ was copied in" \
+  || ok "and so does per-agent scratch"
+# The run itself is untouched — the rounds have to stay readable afterwards.
+[ -f "$RUNDIR/artifacts/conductor/brief-round1.md" ] && ok "and the run keeps its own copy" \
+  || no "and the run keeps its own copy"
+
+echo
 echo "== stage 6 takes its page set from what discovery found"
 
 # The pages a client has are a finding, not a constant. `for_each` expands before any agent runs, so

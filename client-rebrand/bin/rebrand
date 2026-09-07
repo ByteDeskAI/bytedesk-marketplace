@@ -374,13 +374,18 @@ cmd_collect() {
   local run_dir; run_dir="$(state_get stages "$stage" run)"
   [ -n "$run_dir" ] || die "$stage has no recorded run"
 
-  # Copy anything the run produced under artifacts/ that is not the conductor's own paperwork.
-  if [ -d "$run_dir/artifacts" ]; then
-    ( cd "$run_dir/artifacts" && find . -type f ! -name 'GATE-*.md' ! -name 'REPORT.md' \
-        ! -name 'decision-*.md' -print0 2>/dev/null | while IFS= read -r -d '' f; do
-        mkdir -p "$folder/$(dirname "$f")"; cp -n "$f" "$folder/$f" 2>/dev/null || true
-      done ) || true
-  fi
+  # NOTHING is copied out of the run. The agents write their deliverables straight into the stage
+  # folder — CONTRACT.md says which files that is — and everything else under the run's artifacts/
+  # is WORKING material: the conductor's round notes, a researcher's scratch, per-message
+  # directories. An earlier version copied all of it in, and the result was worse than untidy: it
+  # put three files into a client deliverable folder that no later stage should read, changed the
+  # digest an approval binds to, and left agents finding files in their workspace that none of them
+  # had written. The synthesist noticed, checked each copy byte-for-byte against its original, and
+  # removed them — which is the right instinct and not work it should have had to do.
+  #
+  # So collect RECORDS what is there; it does not gather. The run directory stays whole, and
+  # runs/<stage> symlinks to it, so the rounds and the mailbox remain readable without being
+  # confused for the deliverable.
 
   local digest; digest="$(stage_digest "$folder")"
   [ -n "$digest" ] || die "$folder is empty — $stage produced nothing to collect.

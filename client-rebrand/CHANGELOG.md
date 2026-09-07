@@ -54,6 +54,16 @@
   bypasses it. More pages than the fan-out cap is refused here, with the list in hand, rather than
   surfacing three layers down as `TOPOLOGY_FANOUT_TOO_WIDE`.
 
+- **`collect` records, it does not gather.** The first version copied everything under the run's
+  `artifacts/` into the stage folder. On the first real client run that put the conductor's round
+  notes and a researcher's scratch into a deliverable folder, changed the digest an approval binds
+  to, and left agents finding files in their own workspace that none of them had written. The
+  synthesist noticed within seconds of its last write, verified each copy byte-for-byte against its
+  original, removed them, and reported the mechanism as unknown to it — correct on every count, and
+  work it should never have had to do. Agents write their deliverables straight into the stage
+  folder; the run stays whole and `runs/<stage>` symlinks to it, so the rounds and the mailbox
+  remain readable without being mistaken for the deliverable.
+
 ### Notes
 
 - The specs use the `bytedesk-designer-*` skills, which resolve. They deliberately do not reference
