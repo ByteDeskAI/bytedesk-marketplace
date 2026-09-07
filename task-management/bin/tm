@@ -10,7 +10,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { boardId, currentCheckout, ensureDirs, gitUser, isInitialized, legacyStore, paths } from "../lib/paths.mjs";
+import { boardId, currentCheckout, ensureDirs, gitUser, isInitialized, legacyStore, paths, resolveRoot } from "../lib/paths.mjs";
 import {
   kindOf,
   config,
@@ -1744,7 +1744,29 @@ function hook(event) {
    * is the same rule `subagent-stop` already follows below.
    */
   if (input?.session_id) process.env.TM_SESSION_ID = String(input.session_id);
-  if (!isInitialized(P) && event !== "session-start") process.exit(0);
+
+  /**
+   * The store the payload names beats the one this process happens to stand in.
+   *
+   * Shadows the module-level P for the whole hook, so every gate, claim and event below
+   * reads the same corrected store. Codex runs plugin hooks with cwd INSIDE the installed
+   * plugin — which resolveRoot() rightly refuses, since a store there would be wiped by the
+   * next update — and passes a hook no environment at all, so CLAUDE_PROJECT_DIR is absent
+   * too. Every candidate failed, the board was never found, and PreCompact re-injected
+   * nothing on exactly the event that exists to preserve it. Silent, because a hook that
+   * finds no store is indistinguishable from a project that has none.
+   *
+   * No payload cwd (a bare CLI-style invocation) resolves exactly as before.
+   */
+  const P = paths(resolveRoot(typeof input?.cwd === "string" ? input.cwd : undefined));
+
+  if (!isInitialized(P) && event !== "session-start") {
+    // Codex validates this hook's stdout and rejects empty output as
+    // "invalid PreCompact hook JSON output". With no store under cwd there is no
+    // board to re-inject, so {} is the honest payload -- but it must be emitted.
+    if (event === "pre-compact") out("{}");
+    process.exit(0);
+  }
 
   switch (event) {
     case "session-start": {
@@ -1816,7 +1838,10 @@ function hook(event) {
     // Compaction is exactly when task state evaporates — put the board back.
     case "pre-compact": {
       const ctx = sessionContext(P);
-      if (ctx) out(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreCompact", additionalContext: ctx } }));
+      // Always emit an envelope. Codex validates this hook's stdout and rejects empty
+      // output as "invalid PreCompact hook JSON output"; Claude Code tolerates it. With
+      // no store under cwd there is no board to re-inject, so {} is the honest payload.
+      out(JSON.stringify(ctx ? { hookSpecificOutput: { hookEventName: "PreCompact", additionalContext: ctx } } : {}));
       break;
     }
 

@@ -129,9 +129,14 @@ function insidePluginInstall(dir) {
  * The store root, or null when every candidate would land inside an installed copy of the
  * plugin. Callers that write must surface that as an error, not create a store anyway.
  */
-export function resolveRoot() {
+export function resolveRoot(hint) {
   if (process.env.TM_ROOT && existsSync(process.env.TM_ROOT)) return process.env.TM_ROOT;
-  for (const candidate of [process.env.CLAUDE_PROJECT_DIR, process.cwd()]) {
+  // `hint` is a location the caller was told authoritatively — the `cwd` on a hook payload.
+  // It outranks CLAUDE_PROJECT_DIR because that is inherited environment: a hook process
+  // inherits whatever launched the harness, so running Codex from a Claude Code shell leaves
+  // another session's project dir set. Same rule the hook already applies to session_id.
+  // TM_ROOT still wins over everything: it is an explicit operator override.
+  for (const candidate of [hint, process.env.CLAUDE_PROJECT_DIR, process.cwd()]) {
     // Both the candidate and its canonical root: an installed copy that happens to sit
     // inside a git repo would otherwise canonicalize its way out of the guard.
     if (insidePluginInstall(candidate)) continue;

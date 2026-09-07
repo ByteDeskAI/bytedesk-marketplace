@@ -261,6 +261,30 @@
   the dashboard can approve, exactly as anyone who can run `tm` can create a task.
 
 ### Fixed
+- **PreCompact restores the board on Codex, where it never had.** Codex runs plugin hooks with
+  cwd inside the *installed plugin* and passes a hook no environment at all, so all three of
+  `resolveRoot()`'s candidates failed at once: `TM_ROOT` and `CLAUDE_PROJECT_DIR` were unset, and
+  the cwd was refused by the guard that (correctly) declines to resolve a store inside an installed
+  copy of the plugin. `resolveRoot()` returned null, `isInitialized` was false, and the hook exited
+  before its switch. The event that exists precisely to survive a context squeeze re-injected
+  nothing, on every Codex compaction, since the hook was introduced.
+
+  It failed silently in both directions. A hook that finds no store is indistinguishable from a
+  project that has none, so nothing was logged; and because the early exit wrote no stdout at all,
+  Codex separately rejected the empty output as `invalid PreCompact hook JSON output` — a visible
+  error whose stated cause (malformed JSON) had nothing to do with the actual defect. Observed in
+  the wild as sessions running `tm board` and `tm handoff` immediately after every compaction,
+  re-deriving by hand the state the hook was supposed to hand back.
+
+  `resolveRoot(hint)` now takes an optional location and tries it after `TM_ROOT` but ahead of the
+  environment candidates, and `hook()` passes the payload's `cwd`, shadowing `P` for the whole
+  function so every gate, claim and event below reads the same corrected store. The payload
+  outranks `CLAUDE_PROJECT_DIR` for the same reason it already outranks `CLAUDE_CODE_SESSION_ID`:
+  a hook process inherits the environment of whatever launched the harness, so running Codex from
+  a Claude Code shell leaves another session's project dir set. `TM_ROOT` still wins over
+  everything, being an explicit operator override. The early exit also emits `{}` rather than
+  nothing, so a genuinely store-less directory answers in valid JSON instead of an error.
+  Claude Code's resolution is byte-identical to before.
 - **Attached evidence records where it came from, and `tm doctor` reports when it has drifted
   (TM-125).** `tm evidence <id> <path>` copies the file into the store and recorded nothing else,
   so a source edited afterwards never reached the task and nothing said the copy had gone stale.

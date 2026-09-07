@@ -38,6 +38,24 @@ PRE="$(hook pre-compact)"
 has "$PRE" '"additionalContext"' "PreCompact re-injects context"
 has "$PRE" "TM-001" "PreCompact names the in-progress work — this is the moment state gets lost"
 
+# A store-less directory still has to answer, and answer in JSON. Codex validates this
+# hook's stdout and rejects empty output as "invalid PreCompact hook JSON output", so
+# exiting 0 silently broke every Codex session whose cwd was outside a store.
+BARE_ROOT="$(mktemp -d)"
+PRE_BARE="$(TM_ROOT="$BARE_ROOT" "$PLUGIN_ROOT/hooks/tm-hook.sh" pre-compact </dev/null 2>/dev/null)"
+has "$PRE_BARE" '{}' "PreCompact answers in JSON with no store — empty stdout is what Codex rejects"
+lacks "$PRE_BARE" 'additionalContext' "no store means no board to re-inject, and it says so"
+rm -rf "$BARE_ROOT"
+
+# Codex runs plugin hooks from inside the installed plugin, not the project, and passes a hook
+# no environment at all — so cwd and CLAUDE_PROJECT_DIR both fail to name the board and only the
+# payload's cwd does. Without this the board was silently never restored on Codex compaction.
+AWAY="$(mktemp -d)"
+PRE_CWD="$(cd "$AWAY" && printf '{"session_id":"codex-x","cwd":"%s"}' "$TM_ROOT" \
+  | env -u CLAUDE_PROJECT_DIR TM_ROOT= "$PLUGIN_ROOT/hooks/tm-hook.sh" pre-compact 2>/dev/null)"
+has "$PRE_CWD" "TM-001" "PreCompact finds the board the payload names, not the one cwd stands in"
+rm -rf "$AWAY"
+
 # ── UserPromptSubmit: match a prompt to open work instead of duplicating it ───
 MATCH="$(hook user-prompt '{"prompt":"lets make the parser reentrant now"}')"
 has "$MATCH" "TM-001" "a prompt matching open work surfaces that task"
