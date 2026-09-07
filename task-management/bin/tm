@@ -216,9 +216,21 @@ const VERBS = {
   epic(sub, ...rest) {
     requireInit();
     if (sub === "new") {
+      // --body <text|-> exactly as `tm task new` takes it. Without this the title was `rest.join(" ")`
+      // over everything, so `tm epic new "X" --body "Y"` created an epic literally titled
+      // `X --body Y` and said nothing — which is how EP-017 got its flag baked into its name.
+      const bi = rest.indexOf("--body");
+      let body = "";
+      if (bi !== -1) {
+        const given = rest[bi + 1];
+        body = given === undefined || given === "-" ? readFileSync(0, "utf8") : given;
+        rest.splice(bi, 2);
+      }
+      const stray = rest.find((word) => word.startsWith("--"));
+      if (stray) die(`unknown option ${stray}\nusage: tm epic new "<title>" [--body <text|->]`);
       const title = rest.join(" ");
-      if (!title) die('usage: tm epic new "<title>"');
-      const e = create("epic", { title, ...stamp() }, "", P);
+      if (!title) die('usage: tm epic new "<title>" [--body <text|->]');
+      const e = create("epic", { title, ...stamp() }, body, P);
       writeState({ activeEpic: e.id }, P);
       out(`${e.id} created and set active — ${e.file}`);
     } else if (sub === "use") {
@@ -1404,7 +1416,7 @@ const VERBS = {
         "tm — task-management store (.bytedesk/task-management)",
         "",
         "  init                          create the store here",
-        '  epic new "<title>" | use <id> | done <id> | (list)',
+        '  epic new "<title>" [--body <text|->] | use <id> | done <id> | (list)',
         '  task new "<title>" [--body <text|->] [--ac "<criterion>"]... | (list)',
         '  adr new "<title>"',
         '  cap new "<title>" [--area --impact --effort --confidence --source]   the enhancement backlog',

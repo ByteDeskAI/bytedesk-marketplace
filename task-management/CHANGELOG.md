@@ -254,6 +254,10 @@
 - **Generated runtime files stay out of git.** Store `.gitignore` now names `dashboard.pid` and `dashboard.port` explicitly (still covered by `dashboard.*`), plus `bin` (generated launchers) and `events.json` / `events.jsonl`. Bootstrap and `.bytedesk/task-management/bin/tm doctor --fix` write `.bytedesk/.gitignore` so `worktrees/` is ignored without swallowing the store. Dashboard `.gitignore` also drops Vite/tsc leftovers (`.vite`, `*.tsbuildinfo`).
 
 ### Fixed
+- **`tm epic new` takes a `--body`, and refuses an option it does not know.** The title was every
+  remaining word, so `tm epic new "X" --body "Y"` created an epic literally titled `X --body Y`
+  and reported success — found by doing exactly that to EP-017. It now parses `--body <text|->`
+  the way `tm task new` does, and an unrecognised `--flag` is an error rather than part of the name.
 - **A `--restart` that had to wait announced itself twice.** The ready line was the callback
   argument to `server.listen`, which registers a fresh one-shot `listening` handler on every call —
   and `listen` calls itself to retry while an evicted incumbent is still letting go of the port. Each

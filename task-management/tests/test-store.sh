@@ -82,6 +82,14 @@ assert_status 2 "task create denied without an active epic" tm task new "orphan 
 
 tm epic new "Test epic" >/dev/null
 assert_contains "$(tm epic)" "EP-001" "epic created and listed"
+# An epic takes a body the same way a task does. Before this, the title was every remaining word,
+# so `epic new "X" --body "Y"` silently created an epic titled `X --body Y`.
+tm epic new "Epic with a body" --body "why this epic exists" >/dev/null
+BODYEPIC="$(tm find "Epic with a body" --json | jq -r '.[0].id')"
+assert_contains "$(tm show "$BODYEPIC")" "Epic with a body" "an epic keeps its title when a body follows it"
+assert_contains "$(cat "$TM_ROOT"/.bytedesk/task-management/epics/"$BODYEPIC"-*.md)" "why this epic exists" "and stores the body"
+assert_status 1 "an unknown option is refused rather than absorbed into the title" tm epic new "Bad epic" --nonsense x
+tm epic use EP-001 >/dev/null
 assert_contains "$(tm task new 'First real task' --body 'the task that proves creates work' --ac 'it is verifiably true')" "TM-001" "task created under the active epic"
 assert_contains "$(cat "$TM_ROOT"/.bytedesk/task-management/tasks/TM-001-*.md)" 'epic: "EP-001"' "task carries the epic link"
 
