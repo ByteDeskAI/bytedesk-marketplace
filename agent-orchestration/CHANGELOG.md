@@ -141,6 +141,9 @@
   AND its own `READY` answer, and `worker-a`'s held the usage-limit line whose only purpose is to be
   caught by a failure pattern. Nothing was slow and no pattern was wrong — the launcher was blind.
   The contract test now keeps its scratch tree on failure, which is what made those logs readable.
+  Re-run afterwards: fourteen loop iterations, half alongside a full `two-projects.sh`, no failure —
+  against failures at iteration 4 and 12 of the same loop before the fix. Evidence, not proof; the
+  kept-on-failure tree stays so the next occurrence is readable rather than silent.
 
 ### Changed — the noun is "workflow" (EP-016)
 
