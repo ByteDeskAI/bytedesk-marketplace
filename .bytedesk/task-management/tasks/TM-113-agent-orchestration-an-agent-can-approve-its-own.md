@@ -1,21 +1,22 @@
 ---
 id: "TM-113"
 kind: "task"
-status: "open"
+status: "done"
 created: "2026-09-06T04:55:23.788Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "agent-orchestration: an agent can approve its own architecture decision"
 epic: "EP-016"
-acceptance: [{"text":"The guarantee is documented accurately where an operator reads about the gate — a separate attributed act, not proof a human acted","done":false},{"text":"Either approval identity is verified, or the loopback path can be required for architecture decisions","done":false}]
-evidence: []
-commits: []
+acceptance: [{"text":"The guarantee is documented accurately where an operator reads about the gate — a separate attributed act, not proof a human acted","done":true,"at":"2026-09-07T00:02:26.662Z"},{"text":"Either approval identity is verified, or the loopback path can be required for architecture decisions","done":true,"at":"2026-09-07T00:02:26.943Z"}]
+evidence: [".bytedesk/task-management/evidence/TM-113-service-routing.test.mjs"]
+commits: ["cbd176f"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "4e1d7087-d606-432e-9341-3ce779b4baf8"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-06T04:55:23.795Z"
+updated: "2026-09-07T00:02:27.584Z"
+closed: "2026-09-07T00:02:27.416Z"
 ---
 
 orchestration_decision_approve is a state gate, not an identity gate, and the distinction is not documented anywhere an operator would meet it.
