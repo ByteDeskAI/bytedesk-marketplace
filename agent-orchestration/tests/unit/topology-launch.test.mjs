@@ -749,3 +749,33 @@ test("a screen only a human can clear is reported as that, not as a provider fau
     /message is what an operator is told to do/,
   );
 });
+
+test("a pane's liveness and exit status come from one answer", { skip: haveTmux ? false : "no tmux" }, async (t) => {
+  // The bug this pins produced `{"reason":"pane exited","exit_status":null}` — a death with no way
+  // to tell a CLI that rejected its flags from one that was killed. Two causes, both measured on
+  // tmux 3.4 rather than reasoned about:
+  //   1. liveness and status were two separate `display-message` calls, so the pane could be reaped
+  //      between the one that said "dead" and the one that would have said "42";
+  //   2. tmux answers an UNKNOWN pane id with exit 0 and an empty line, not an error, so
+  //      `pane_dead != "1"` read a pane that no longer exists as alive.
+  const session = `ao-panestate-${process.pid}`;
+  t.after(async () => { await tmux.killSession(session).catch(() => {}); });
+  const pane = await tmux.newSession(session, { cwd: tmpdir(), windowName: "main" });
+  // remain-on-exit is what keeps a dead pane's body — and its status — readable at all.
+  await tmux.setPaneOption(pane, "remain-on-exit", "on");
+
+  assert.deepEqual(await tmux.paneState(pane), { gone: false, alive: true, dead: false, status: null, signal: null });
+
+  await promisify(execFile)("tmux", ["respawn-pane", "-k", "-t", pane, "sh", "-c", "exit 42"]);
+  await new Promise((resolve) => setTimeout(resolve, 800));
+  const dead = await tmux.paneState(pane);
+  assert.equal(dead.alive, false);
+  assert.equal(dead.status, 42, "the status arrives with the deadness, not from a second query");
+
+  // The one tmux does not treat as an error.
+  const missing = await tmux.paneState("%99999");
+  assert.equal(missing.gone, true);
+  assert.equal(missing.alive, false, "a pane that does not exist is not alive");
+  assert.equal(missing.status, null, "and its status is unknown rather than zero");
+  assert.equal(await tmux.paneAlive("%99999"), false);
+});

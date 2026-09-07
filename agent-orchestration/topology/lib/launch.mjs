@@ -267,25 +267,23 @@ async function waitReadySubscribed({ client, pane, adapter, timeoutMs, subName, 
 
 async function waitReady(pane, adapter, timeoutMs, { baseline = "" } = {}) {
   const started = Date.now();
+  // Liveness and exit status in ONE query, then the screen. Asking twice — `paneAlive` to decide,
+  // `paneDeath` to get the number — left a window where the second answer no longer described the
+  // state the first one judged, and gave a loaded machine a second command to time out. What came
+  // out of that window was `{"reason":"pane exited","exit_status":null}`: a death with no way to
+  // tell a CLI that rejected its flags from one that was killed.
   const look = async () => {
+    const state = await tmux.paneState(pane);
     const screen = screenSince(await tmux.captureAll(pane), baseline);
-    return evaluateScreen(adapter, screen, { alive: await tmux.paneAlive(pane) });
-  };
-
-  // A death is the one verdict worth a second query: the pure decision knows the pane is gone, but
-  // only tmux knows what status it went with, and that number is the whole diagnosis.
-  const withExitStatus = async (verdict) => {
-    if (!verdict?.failed || verdict.reason !== "pane exited") return verdict;
-    const death = await tmux.paneDeath(pane);
-    return death.status === null
-      ? verdict
-      : { ...verdict, reason: `pane exited with status ${death.status}`, exit_status: death.status };
+    const verdict = evaluateScreen(adapter, screen, { alive: state.alive });
+    if (!verdict?.failed || verdict.reason !== "pane exited" || state.status === null) return verdict;
+    return { ...verdict, reason: `pane exited with status ${state.status}`, exit_status: state.status };
   };
 
   if (adapter.ready.pattern) {
     while (Date.now() - started < timeoutMs) {
       const verdict = await look();
-      if (verdict) return { ...(await withExitStatus(verdict)), elapsed_ms: Date.now() - started };
+      if (verdict) return { ...verdict, elapsed_ms: Date.now() - started };
       await sleep(500);
     }
     return { ready: false, failed: false, reason: `ready pattern not seen within ${timeoutMs}ms` };
@@ -293,7 +291,7 @@ async function waitReady(pane, adapter, timeoutMs, { baseline = "" } = {}) {
 
   // No pattern for this adapter: wait the declared delay, then decide from what the pane shows.
   await sleep(adapter.ready.delay_ms ?? 3000);
-  return { ...(await withExitStatus(await look())), elapsed_ms: Date.now() - started };
+  return { ...(await look()), elapsed_ms: Date.now() - started };
 }
 
 /**

@@ -1,0 +1,107 @@
+
+== fixture: two repositories under /tmp/ao-two-projects-yw63mx
+  ok   project-1 and project-2 exist as git repos
+
+== roster: each repo gets its own agents, minted with identity
+  ok   five agents minted across two repos
+  ok   roster shows names and titles, not bare ids
+  ok   agents are stored under .bytedesk/agent-orchestration/
+
+== hierarchy: exactly one lead per repo
+  ok   a second lead in the same repo is refused
+
+== identity: an agent resolves by id and by full name
+  ok   resolving by full name reaches the same agent as the id
+  ok   resolving by the displayed 'Name, Title' form works
+
+== safety: a spec may not launch outside the repo that invoked it
+  ok   a cwd outside the repo is refused
+  ok   --allow-outside is a real escape hatch, not a dead flag
+
+== safety: auto_approve needs explicit operator consent
+  ok   auto_approve without consent refuses to launch
+  ok   consented auto_approve launches and says which agents are affected
+
+== launch: a real tmux run in project-1, on a fake agent CLI
+  ok   a run was created under the repo
+  ok   the tmux session is live
+  ok   the runs directory ignores itself
+  ok   no run artifact shows up as untracked in the consumer
+
+== memory: a library agent works from its own directory, granted the repo
+  ok   a library agent runs from its own directory
+  ok   two agents in the same repo do not share a working directory
+  ok   the agent directory exists before the launcher cds into it
+  ok   the repo is granted through the adapter's own add-dir mechanism
+  ok   a coordinator is granted no directory beyond its own
+  ok   a coordinator's write tools are removed by its adapter, not by its prompt
+  ok   a worker keeps its write tools
+
+== collaboration: inside one project, agents reach each other directly
+  ok   a message was delivered internally with no redirect
+  ok   an internal message is not redirected
+
+== authentication: an agent may only write its own outbox
+  ok   another agent cannot answer on this agent's behalf
+  ok   an empty reply satisfies nothing
+  ok   the real agent, holding its own token, can answer
+  ok   the barrier is satisfied by that answer
+
+== cross-repo: an outsider reaches the lead, not the member
+  ok   an unvouched outsider is redirected
+  ok   the redirected message landed in the lead's inbox
+  ok   the envelope preserves the original addressee
+  ok   the redirect is journalled, not silent
+
+== observability: the lead's inbox depth is a number, not a feeling
+  ok   the redirected message shows up as queue depth on the lead
+  ok   a message that has already taken too many hops is refused
+
+== delegation: a token is a pointer, the receiving repo's store is the permission
+  ok   a delegation with nothing backing it is refused at issue time
+  ok   the same delegation is issued once the store backs it
+  ok   the delegated outsider now reaches the member directly
+  ok   work cannot be delegated to a coordinates_only agent
+  ok   closing the task in the store revokes the delegation
+
+== startup: launch cost does not scale with the number of agents
+  ok   all three slow agents came up ready
+  ok   the single-agent baseline came up ready
+  FAIL three agents cost 10959ms against a 7819ms baseline
+       a serial launch costs two extra ready-times; budget was 10819ms
+  ok   all ten agents came up ready
+  ok   ten agents cost 9766ms against a 7819ms baseline — ten cost what three do
+
+== death: an agent that exits is noticed, with its real exit code
+  ok   a dead agent is reported as dead rather than as not-ready
+  ok   the real exit code reaches the journal
+
+== addressing: a spawn is named for who is running, and two spawns stay apart
+  ok   the session is named from the agent's static id
+  ok   and carries a per-spawn discriminator
+  ok   two concurrent spawns of one agent get two distinct names
+  ok   and both are separately addressable in tmux
+  ok   resolving an agent by id reaches the agent
+  ok   resolving an agent by full name reaches the same agent
+  ok   resolving a session reaches one spawn — both are listed under their agent
+  ok   a multi-agent run stays addressed by what ran, not by one agent
+
+== role-session: a named workspace that outlives the process that opened it
+  ok   the session is named from the agent's stable id, not from a run
+  ok   opening an agent that has no session creates one
+  ok   a second process reattaches instead of creating a duplicate
+  ok   and it is the same pane, so nothing in flight was lost
+  ok   tmux holds exactly one session for this agent
+  ok   the record lives beside the agent, not inside a run
+  ok   the restore command survives its run
+  ok   the record alone rebuilds the session, which is what gateway restore does
+  ok   close ends the session
+  ok   and the agent survives it — closing a session does not retire an agent
+
+== teardown
+  ok   stop tears the session down
+
+== summary
+
+64 passed, 1 failed
+kept for inspection: /tmp/ao-two-projects-yw63mx

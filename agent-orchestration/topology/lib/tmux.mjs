@@ -164,9 +164,9 @@ export async function captureAll(pane) {
 }
 
 export async function paneAlive(pane) {
-  const result = await tmux(["display-message", "-p", "-t", pane, "#{pane_dead}"], { allowFailure: true });
-  if (result.code !== 0) return false;
-  return result.stdout.trim() !== "1";
+  // Deliberately delegated: asking tmux directly here made an unknown pane id look alive, because
+  // tmux answers an unknown target with exit 0 and an empty line rather than an error.
+  return (await paneState(pane)).alive;
 }
 
 export async function listPanes(session) {
@@ -353,12 +353,36 @@ export async function pipePane(pane, command) {
   await tmux(["pipe-pane", "-o", "-t", pane, command], { allowFailure: true });
 }
 
-/** The real exit status of a dead pane. Requires `remain-on-exit on` set BEFORE it died. */
-export async function paneDeath(pane) {
+/**
+ * Whether a pane is alive, and — if it is not — what it went out with. One query, deliberately.
+ *
+ * Liveness and exit status used to be two calls: `paneAlive` decided the verdict, then `paneDeath`
+ * fetched the number. Two calls means two chances for the answer to change underneath and two
+ * chances for a loaded machine to time one of them out, and the failure that produces is a death
+ * reported with `exit_status: null` — "pane exited" with nothing to say WHICH exit, which is the
+ * whole diagnosis. A CLI that rejected its flags and one that was killed look identical then.
+ *
+ * `#{pane_dead_status}` requires `remain-on-exit on` to have been set BEFORE the pane died.
+ */
+export async function paneState(pane) {
   const result = await tmux(["display-message", "-p", "-t", pane, "#{pane_dead}\t#{pane_dead_status}\t#{pane_dead_signal}"], { allowFailure: true });
-  if (result.code !== 0) return { dead: true, status: null, signal: null, gone: true };
-  const [dead, status, signal] = result.stdout.trim().split("\t");
-  return { dead: dead === "1", status: status ? Number(status) : null, signal: signal || null, gone: false };
+  // The pane is not there at all — killed, or its session is gone. Dead is the honest answer; the
+  // status is genuinely unknown rather than zero.
+  if (result.code !== 0) return { gone: true, alive: false, dead: true, status: null, signal: null };
+  // Split the raw first line, not a trimmed string: an alive pane's status and signal are EMPTY
+  // fields, and trimming first eats the tabs that hold their places.
+  const [dead = "", status = "", signal = ""] = result.stdout.split("\n")[0].split("\t").map((field) => field.trim());
+  // An unknown pane id is NOT an error to tmux: `display-message -t %99999` exits 0 and prints an
+  // empty line. Read literally that is `pane_dead != "1"`, so a pane that no longer exists reported
+  // itself ALIVE — measured on tmux 3.4, and the reason this is checked rather than assumed.
+  if (dead === "") return { gone: true, alive: false, dead: true, status: null, signal: null };
+  return { gone: false, alive: dead !== "1", dead: dead === "1", status: status === "" ? null : Number(status), signal: signal || null };
+}
+
+/** @deprecated Use `paneState`, which answers this and liveness in the same query. */
+export async function paneDeath(pane) {
+  const { gone, dead, status, signal } = await paneState(pane);
+  return { dead, status, signal, gone };
 }
 
 /**

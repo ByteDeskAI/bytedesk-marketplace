@@ -114,6 +114,17 @@
   `agent-orchestrate` skill now say plainly that this is a stop-and-attest, not a separation of
   duties — and the skill tells an agent never to pass a person's name for a decision they did not
   make.
+- **A dead pane reports what it died of** (TM-119). Liveness and exit status were two separate
+  `display-message` calls — one to decide the verdict, one to fetch the number — so a pane reaped
+  between them produced `{"reason":"pane exited","exit_status":null}`: a death with no way to tell a
+  CLI that rejected its flags from one that was killed. `paneState` answers both in one query, and
+  `paneAlive` now delegates to it. Found because the live harness's exit-status assertion failed once
+  under load and passed on two clean reruns.
+
+  Probing that turned up a second defect in the same place: **tmux answers an unknown pane id with
+  exit 0 and an empty line**, not an error, so `pane_dead != "1"` read a pane that no longer exists
+  as *alive*. Measured on tmux 3.4 — `display-message -p -t %99999 '#{pane_dead}'` prints nothing and
+  exits 0. An empty answer is now "gone", and the test that pins it fails against the old behaviour.
 
 ### Changed — the noun is "workflow" (EP-016)
 
