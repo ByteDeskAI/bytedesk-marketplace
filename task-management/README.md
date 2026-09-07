@@ -273,6 +273,7 @@ a fresh repo from zero: [docs/install.md](docs/install.md).
 .bytedesk/task-management/bin/tm cap accept <CAP-id>               mint the task that builds it, criteria and all
 .bytedesk/task-management/bin/tm cap ship <CAP-id> | drop <CAP-id> shipping refuses without evidence
 .bytedesk/task-management/bin/tm evidence <id> <path|->            attach a log/screenshot as proof
+.bytedesk/task-management/bin/tm evidence [<id>] --check           does each attachment still match its source?
 .bytedesk/task-management/bin/tm task new "<title>" --template bug   start from a template
 .bytedesk/task-management/bin/tm next | board | stale | standup      read the board  (add --json to any of these)
 .bytedesk/task-management/bin/tm find <words> [field:value]...      search; a leading - negates a filter

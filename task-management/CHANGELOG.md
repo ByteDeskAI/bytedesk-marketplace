@@ -261,6 +261,40 @@
   the dashboard can approve, exactly as anyone who can run `tm` can create a task.
 
 ### Fixed
+- **Attached evidence records where it came from, and `tm doctor` reports when it has drifted
+  (TM-125).** `tm evidence <id> <path>` copies the file into the store and recorded nothing else,
+  so a source edited afterwards never reached the task and nothing said the copy had gone stale.
+  A drift check across three attachments taken during one night's run found one already stale
+  within about an hour: an agent appended a ten-run measurement addendum to its source after the
+  copy was taken, so the task pointed at evidence predating the very measurement it was closed on
+  — and that was the copy whose numbers had just been quoted in a board comment. Without the
+  source path recorded, that was undetectable by construction rather than merely unreported.
+
+  Attaching now writes the absolute source path, a sha256 of the bytes, the size and a timestamp
+  to `evidenceSources` on the entity, a map keyed by the same ref string already on `evidence[]`.
+  A sibling map rather than richer `evidence[]` entries, because every reader there is — CLI,
+  dashboard, MCP, the done gate, doctor, export — treats `evidence[]` as a list of strings, and
+  an entity that has never seen this code simply has no map. All four writers share
+  `attachEvidence`, so the CLI, the dashboard upload, the `tm_evidence` tool and a paste all
+  record it.
+
+  `tm doctor` names a drifted attachment with its source path (`evidence-drift`), and
+  distinguishes a source that has been deleted or moved (`evidence-source-gone`) and one that
+  cannot be read (`evidence-source-unreadable`) from one that has changed — all three distinct
+  from the existing `missing-evidence`, which is the copy in the store going missing. All are
+  warnings, not errors: the store is not lying (the copy is exactly what was attached), editing
+  a source after attaching is normal, and a check that exits 1 the first time anyone edits a file
+  they once attached is a check that gets ignored — which is this defect's own failure mode in a
+  new coat. None is fixable by `--fix`, for the reason `done-unmet-ac` is not: re-copying would
+  silently replace evidence a task was closed on with content nobody reviewed. The message names
+  the command that refreshes it.
+
+  An attachment with no recorded provenance is `unknown`, never `drifted`, and doctor says
+  nothing about it — an older board must not light up with findings whose actionable part was
+  never written down. `tm evidence [<id>] --check` (and `tm_evidence` with `check: true`, and
+  `GET /api/task/:id/evidence`) reports every attachment's verdict on request, including the
+  unknown ones. An inline capture from stdin records `source: null` and reads as `inline`:
+  the question was asked and there is no upstream, which is not the same as nobody asking.
 - **`tm epic new` takes a `--body`, and refuses an option it does not know.** The title was every
   remaining word, so `tm epic new "X" --body "Y"` created an epic literally titled `X --body Y`
   and reported success — found by doing exactly that to EP-017. It now parses `--body <text|->`

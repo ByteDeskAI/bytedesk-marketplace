@@ -24,7 +24,7 @@ import { previewOps } from "./planner-ops.mjs";
 import { appendTurn, mutateSession } from "./planner.mjs";
 import { describeQuery, matchesQuery, parseQuery } from "./query.mjs";
 import { accept, drop, propose, ranked, score, ship } from "./capability.mjs";
-import { attachEvidence } from "./evidence.mjs";
+import { attachEvidence, evidenceSyncReport } from "./evidence.mjs";
 import { LINK_TYPES, TYPES, addComment, addLink, assign, dependencies, estimate, labelCatalog, labels as setLabels, prioritise, rank, removeLink, setType, subtasks } from "./issue.mjs";
 import { listWorktrees, provision, unprovision } from "./worktree.mjs";
 import { diagnose, render as renderDoctor, repairAll } from "./doctor.mjs";
@@ -559,15 +559,27 @@ export const TOOLS = [
         id: str("Task id."),
         text: str("Inline output to store as a log file."),
         path: str("Path to an existing file to copy into the store instead."),
+        check: {
+          type: "boolean",
+          description:
+            "Report instead of attaching: whether each attachment still matches the source it was copied from (in-sync, drifted, source-missing, inline, unknown).",
+        },
       },
       required: ["id"],
     },
-    run: ({ id, text, path }, p) => {
-      if (!read(id, p)) return fail(`not found: ${id}`);
+    run: ({ id, text, path, check }, p) => {
+      const entity = read(id, p);
+      if (!entity) return fail(`not found: ${id}`);
+      /**
+       * Attaching COPIES, so a source edited afterwards never reaches the task. `check` asks
+       * the question the copy cannot answer for itself; `unknown` means the attachment predates
+       * provenance and there is nothing recorded to compare it against.
+       */
+      if (check) return ok({ id, evidence: evidenceSyncReport(entity, p) });
       if (!text && !path) return fail("tm_evidence needs text or path");
       try {
-        const { ref } = attachEvidence(id, path ? { path } : { text }, p);
-        return ok({ id, evidence: ref });
+        const { ref, provenance } = attachEvidence(id, path ? { path } : { text }, p);
+        return ok({ id, evidence: ref, provenance });
       } catch (e) {
         return fail(e.message);
       }

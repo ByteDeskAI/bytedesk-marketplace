@@ -62,7 +62,7 @@ import { FORMATS, exportStore } from "../lib/export.mjs";
 import { MAX_TOUCHES, observe, record } from "../lib/touches.mjs";
 import { importGoalDoc, importManifest } from "../lib/goal-import.mjs";
 import { batches } from "../lib/parallel.mjs";
-import { attachEvidence } from "../lib/evidence.mjs";
+import { attachEvidence, evidenceSyncReport } from "../lib/evidence.mjs";
 import { capturePlan as saveCapturedPlan } from "../lib/plans.mjs";
 import { detectHostCaps, renderCaps } from "../lib/hostcaps.mjs";
 import { heartbeatAgent, listAgents, reapDeadWorkers, renderAgents } from "../lib/agents.mjs";
@@ -109,6 +109,42 @@ const die = (s, code = 1) => {
   process.stderr.write(`${s}\n`);
   process.exit(code);
 };
+
+/**
+ * `tm evidence --check` as a table. One line per attachment, plus the source when there is one,
+ * because the source path is the only part a reader can actually act on.
+ */
+const EVIDENCE_STATE = {
+  drifted: "DRIFTED",
+  "source-missing": "SOURCE GONE",
+  "source-unreadable": "UNREADABLE",
+  "in-sync": "in sync",
+  inline: "inline",
+  unknown: "unknown",
+  external: "external",
+};
+
+function renderEvidenceCheck(rows) {
+  if (!rows.length) return "no evidence attached";
+  const lines = [];
+  for (const r of rows) {
+    lines.push(`${(EVIDENCE_STATE[r.state] || r.state).padEnd(11)} ${(r.id || "—").padEnd(9)} ${r.ref}`);
+    if (r.source) lines.push(`${" ".repeat(12)}source: ${r.source}`);
+  }
+  const count = (state) => rows.filter((r) => r.state === state).length;
+  const drifted = count("drifted");
+  const gone = count("source-missing") + count("source-unreadable");
+  const unknown = count("unknown");
+  lines.push("");
+  lines.push(
+    `${rows.length} attachment(s): ${count("in-sync")} in sync, ${drifted} drifted, ${gone} with the source gone, ` +
+      `${count("inline")} inline, ${count("external")} external, ${unknown} unknown`,
+  );
+  if (unknown) {
+    lines.push("unknown = attached before the source was recorded; there is nothing to compare it against.");
+  }
+  return lines.join("\n");
+}
 
 const USAGE_TASK_NEW = 'usage: tm task new "<title>" [--body <text|->] [--ac "<criterion>"]...';
 
@@ -624,12 +660,30 @@ const VERBS = {
     out(`${id} AC ${n} ${undo ? "unmet" : "met"} (${res.met}/${res.acceptance.length})${note}`);
   },
 
-  evidence(id, path) {
+  /**
+   * `tm evidence <id> <path|->` attaches, and records where it came from.
+   *
+   * `tm evidence [<id>] --check` answers the question the attach can no longer beg: does the
+   * copy still say what its source says? Attachments made before provenance existed report
+   * `unknown` rather than a verdict — the source path was never written down, so nothing here
+   * can recover it, and guessing would be worse than admitting it.
+   */
+  evidence(...args) {
     requireInit();
+    const check = args.includes("--check");
+    const [id, path] = args.filter((a) => a !== "--check");
+    if (check) {
+      const entities = id
+        ? [read(id, P) || die(`not found: ${id}`)]
+        : [...list("task", {}, P), ...list("capability", {}, P)];
+      const rows = entities.flatMap((e) => evidenceSyncReport(e, P).map((s) => ({ id: e.id, ...s })));
+      return emit(rows, () => renderEvidenceCheck(rows));
+    }
+    if (!id) die("usage: tm evidence <id> <path|->   |   tm evidence [<id>] --check");
     read(id, P) || die(`not found: ${id}`);
     const source = path && path !== "-" ? { path } : { text: readFileSync(0, "utf8") };
-    const { ref } = attachEvidence(id, source, P);
-    out(`${id} evidence: ${ref}`);
+    const { ref, provenance } = attachEvidence(id, source, P);
+    out(`${id} evidence: ${ref}${provenance?.source ? `\n  from ${provenance.source} (sha256 ${provenance.sha256.slice(0, 12)})` : ""}`);
   },
 
   /**
@@ -1426,7 +1480,8 @@ const VERBS = {
         "  defer <id> | todo <id>        move to the backlog column, or back to todo (`backlog` alone lists the ranked queue)",
         "  reopen <id> [why]             bring a done task back, and its epic with it",
         '  ac <id> "<criterion>" | ac <id> --rm <n> | accept <id> <n> [--undo]',
-        "  evidence <id> <path|-> | link <id> <ref> | dep <id> [-]<blocker>...",
+        "  evidence <id> <path|-> | evidence [<id>] --check   attach proof, or check it still matches its source",
+        "  link <id> <ref> | dep <id> [-]<blocker>...",
         "  touches <id> [path...]        paths a task owns; `tm parallel` batches on these",
         "  edit <id> \"<title>\" [--body <text|->]   move <id> <EP-nnn|none>",
         "  assign <id> <who> | label <id> [-]<name>... [--force] | label --catalog",
