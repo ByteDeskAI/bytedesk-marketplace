@@ -127,13 +127,24 @@ export async function setPaneTitle(pane, title) {
  *   batched (`send-keys -l … ; send-keys Enter`)  ->  CHUNK 1: "text\r"
  *   separate invocations, no delay at all         ->  CHUNK 1: "text"   CHUNK 2: "\r"
  *
- * No sleep between them: the split is a consequence of the write boundary, not of timing. Verified
- * against a deliberately hostile reader that blocks for 300ms on its first chunk — still two
- * chunks. The cost is one extra tmux client per message, which is the price of the doorbell
- * actually ringing.
+ * Separate writes are NECESSARY BUT NOT SUFFICIENT, and this is the part a chunk probe cannot show
+ * you. A probe that logs its stdin reads has no paste heuristic to trip, so it reports two clean
+ * chunks and looks fixed. Measured against a real Codex TUI on the same pane:
+ *
+ *   separate writes, no delay  ->  still sitting in the composer
+ *   separate writes, +300ms    ->  submitted
+ *   separate writes, +800ms    ->  submitted
+ *
+ * So the composer also has to SETTLE before an Enter counts as a keystroke rather than as more
+ * pasted input. `AO_SUBMIT_SETTLE_MS` tunes it for a slower machine; the default is deliberately
+ * above the measured threshold rather than at it. This costs one delay per message — a price worth
+ * paying for a doorbell that rings, and paid only on the submit, not on the text.
  */
+export const SUBMIT_SETTLE_MS = Number(process.env.AO_SUBMIT_SETTLE_MS ?? 500);
+
 export async function sendText(pane, text, submitKeys = ["Enter"]) {
   await tmux(["send-keys", "-t", pane, "-l", "--", text]);
+  if (submitKeys.length > 0 && SUBMIT_SETTLE_MS > 0) await new Promise((resolve) => setTimeout(resolve, SUBMIT_SETTLE_MS));
   for (const key of submitKeys) await tmux(["send-keys", "-t", pane, key]);
 }
 
