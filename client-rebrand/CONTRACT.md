@@ -1,7 +1,13 @@
 # The contract between the driver and the six specs
 
-This file is the interface. `bin/rebrand` and `workflows/*.json` are written against it, and a
-change here is a change to both.
+This file is the interface. `bin/rebrand` and the six
+`agent-orchestration/workflows/client-rebrand-*.json` specs are written against it, and a change
+here is a change to both.
+
+The specs live in the orchestration plugin rather than in this one because that is what makes them
+native: `pluginRoot/workflows` is on the resolution path whatever the consumer is, and the consumer
+for a rebrand is the client's own repo. They list, validate and launch by name like any other
+workflow, with or without this driver.
 
 ## Stage ids and folders
 

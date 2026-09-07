@@ -35,11 +35,14 @@
   pending without deleting anything; what was rejected and why is the most useful thing in a case
   file six months later.
 
-- **The specs are native orchestration workflows and resolve by name.** The driver launches with
-  `--workflow <name> --workflows-dir` rather than `--spec <path>`, so `ao-topology workflows
-  --workflows-dir client-rebrand/workflows` lists all six with their descriptions and
-  `--workflow client-rebrand-3-direction` finds one. A spec reachable only by absolute path is
-  invisible to every tool that discovers workflows by name, which is what the first cut of this was.
+- **The specs are native orchestration workflows.** They live in
+  `agent-orchestration/workflows/` beside the shipped and showcase ones, and resolve by name from
+  any directory with no flags — `ao-topology workflows` lists them, and
+  `launch --workflow client-rebrand-1-discovery` runs one without this plugin's driver involved at
+  all. Keeping them in this plugin, as the first cut did, made them reachable only by absolute path
+  and invisible to everything that discovers workflows by name; `pluginRoot/workflows` is the only
+  location on the search path whatever the consumer is, and the consumer for a rebrand is the
+  client's own repo, never this one.
 
 - **Stage 6's page set comes from discovery, not from a default.** Stage 1 now writes
   `01-discovery/pages.json` — the pages the client actually has, or the pages discovery argues a
