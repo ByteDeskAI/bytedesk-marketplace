@@ -42,6 +42,7 @@ test("launch → send → wait → status → stop with fake agents in tmux", { 
   await writeJson(specPath, spec);
   let runDir;
   let session;
+  let passed = false;
   try {
     const launched = JSON.parse(await ao(["launch", "--spec", specPath, "--consumer", consumer, "--providers-dir", join(root, "tests", "fixtures"), "--run-id", `t-${tmpSocket}`, "--json"], env));
     runDir = launched.runDir;
@@ -103,8 +104,15 @@ test("launch → send → wait → status → stop with fake agents in tmux", { 
     const after = JSON.parse(await ao(["status", "--run", runDir, "--json"], env));
     assert.equal(after.session_alive, false);
     assert.equal(after.state, "stopped");
+    passed = true;
   } finally {
     if (session) await execFile("tmux", ["kill-session", "-t", session], { env: { ...process.env, ...env } }).catch(() => {});
-    await rm(consumer, { recursive: true, force: true });
+    // Kept on failure, deliberately. This case has failed intermittently for days and every
+    // investigation started from an assertion message with no pane logs behind it, because the
+    // finally had already deleted the run — including `agents/<id>/pane.log`, which is the only
+    // record of what a pane that "never looked ready" actually had on it. The live harness keeps
+    // its scratch tree on failure for exactly this reason; so does this one now.
+    if (passed) await rm(consumer, { recursive: true, force: true });
+    else process.stderr.write(`\nkept for inspection: ${consumer}\n`);
   }
 });
