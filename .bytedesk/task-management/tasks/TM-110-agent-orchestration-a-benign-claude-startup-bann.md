@@ -8,14 +8,14 @@ title: "agent-orchestration: a benign Claude startup banner kills the agent as a
 epic: "EP-016"
 acceptance: [{"text":"A Claude agent launches and reports ready on a machine with an unauthenticated MCP server","done":true,"at":"2026-09-06T23:53:45.168Z"},{"text":"Generic failure patterns no longer fire on benign text containing a bare noun, or each adapter narrows its own","done":true,"at":"2026-09-06T23:53:45.305Z"},{"text":"A regression test covers a real provider banner rather than a fixture's canned failure line","done":true,"at":"2026-09-06T23:53:45.450Z"}]
 evidence: [".bytedesk/task-management/evidence/TM-110-TM-110-claude-ready-with-banner.txt"]
-commits: ["525f7f6","708d14d"]
+commits: ["525f7f6","708d14d","c61f634"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "4e1d7087-d606-432e-9341-3ce779b4baf8"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-07T00:18:13.997Z"
+updated: "2026-09-07T00:18:54.394Z"
 closed: "2026-09-06T23:53:45.716Z"
 ---
 
