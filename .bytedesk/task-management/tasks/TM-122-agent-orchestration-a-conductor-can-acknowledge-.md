@@ -1,7 +1,7 @@
 ---
 id: "TM-122"
 kind: "task"
-status: "in_progress"
+status: "done"
 created: "2026-09-07T02:06:15.757Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "agent-orchestration: a conductor can acknowledge its bootstrap and then stop"
@@ -15,7 +15,8 @@ actor: "main"
 session: "4e1d7087-d606-432e-9341-3ce779b4baf8"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-07T16:04:05.825Z"
+updated: "2026-09-07T16:04:05.994Z"
+closed: "2026-09-07T16:04:05.990Z"
 ---
 
 An orchestrator read its BOOTSTRAP.md, replied READY, and did nothing further. The run sat with three healthy agents, an empty mailbox and no error until a human nudged it to begin. Non-deterministic: the same spec, same provider and same brief drove itself end to end an hour earlier.
