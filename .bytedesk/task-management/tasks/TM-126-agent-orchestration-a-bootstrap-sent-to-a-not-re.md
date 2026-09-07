@@ -1,7 +1,7 @@
 ---
 id: "TM-126"
 kind: "task"
-status: "in_progress"
+status: "done"
 created: "2026-09-07T23:38:10.559Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "agent-orchestration: a bootstrap sent to a not-ready agent is lost silently"
@@ -15,8 +15,9 @@ actor: "main"
 session: "4e1d7087-d606-432e-9341-3ce779b4baf8"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-07T23:49:14.787Z"
+updated: "2026-09-07T23:49:14.967Z"
 evidenceSources: {".bytedesk/task-management/evidence/TM-126-deaf-pane.mjs":{"source":"/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/agent-orchestration/tests/fixtures/deaf-pane.mjs","sha256":"6fd25c94c36164e46a59d30663e2de8939f97c6ed6664558dd95e1b7b6048f3e","bytes":637,"at":"2026-09-07T23:49:14.783Z"}}
+closed: "2026-09-07T23:49:14.962Z"
 ---
 
 When readiness times out the launcher sends the bootstrap pointer anyway and warns 'bootstrap pointer was sent anyway'. That is a guess, and on a real client run it was wrong: both Claude agents reported ready=False, the pointer was typed into panes whose TUI had not yet attached a key handler, and the keystrokes went nowhere. The composers were EMPTY — not holding unsent text, which is the TM-121 signature. Nothing errored. The run sat with three healthy agents and an empty mailbox until the operator noticed.
