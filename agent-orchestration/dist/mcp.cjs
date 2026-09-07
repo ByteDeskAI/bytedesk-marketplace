@@ -45690,7 +45690,7 @@ async function discoverProviderPaths(pluginRoot, adapter, discovered, resolverRu
   return externalProviderPaths(pluginRoot, candidates, adapter.executableRoots);
 }
 var OrchestrationService = class {
-  constructor({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot2 = stateRoot(), workerEntrypoint = (0, import_node_path21.join)(pluginRoot, "dist", "cli.cjs"), platformRuntime = createPlatformRuntime({ pluginRoot, stateRoot: stateRoot2 }), maxConcurrentRuns = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_RUNS || 4), maxConcurrentPerProvider = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_PER_PROVIDER || 2), autoRecover = true, recoveryGraceMs = 5e3, sessionUiRoot = (0, import_node_path21.join)(pluginRoot, "dist", "session-ui") } = {}) {
+  constructor({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot2 = stateRoot(), workerEntrypoint = (0, import_node_path21.join)(pluginRoot, "dist", "cli.cjs"), platformRuntime = createPlatformRuntime({ pluginRoot, stateRoot: stateRoot2 }), maxConcurrentRuns = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_RUNS || 4), maxConcurrentPerProvider = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_PER_PROVIDER || 2), autoRecover = true, recoveryGraceMs = 5e3, sessionUiRoot = (0, import_node_path21.join)(pluginRoot, "dist", "session-ui"), requireAttestedApproval = process.env.AGENT_ORCHESTRATION_REQUIRE_ATTESTED_APPROVAL === "1" } = {}) {
     this.pluginRoot = pluginRoot;
     this.stateRoot = stateRoot2;
     this.workerEntrypoint = workerEntrypoint;
@@ -45699,6 +45699,7 @@ var OrchestrationService = class {
     this.autoRecover = autoRecover;
     this.recoveryGraceMs = recoveryGraceMs;
     this.sessionUiRoot = sessionUiRoot;
+    this.requireAttestedApproval = requireAttestedApproval === true;
     this.platformRuntime = platformRuntime;
     this.sessionHost = null;
     this.store = new RunStore(stateRoot2);
@@ -46054,7 +46055,13 @@ var OrchestrationService = class {
       approved: Boolean(body.approved),
       rationale: typeof body.rationale === "string" ? body.rationale.slice(0, 500) : "",
       approvedBy: "operator"
-    });
+      // Second argument, deliberately: `via` is the one thing about an approval that is not the
+      // caller's to state. The MCP tool handler forwards exactly one argument — the validated input —
+      // so this channel cannot be claimed from outside the process, while an input field named `via`
+      // would have been exactly as forgeable as `approvedBy` already is. The channel itself is the one
+      // a headless agent cannot reach: loopback-only, a 32-byte capability token, a ten-minute TTL and
+      // a single exchange.
+    }, { via: "session" });
   }
   async send(input) {
     const parent = await this.getRun(input);
@@ -46115,14 +46122,29 @@ var OrchestrationService = class {
       approval: run.decision?.approval ?? null
     };
   }
-  async approveDecision(input) {
+  async approveDecision(input, { via: channel = "mcp" } = {}) {
     const decision = await this.decision(input);
     const current = await this.getRun(input);
     invariant(current.state === "waiting_for_decision", "AO_DECISION_NOT_WAITING", "Only a completed adversarial gate waiting for human review can be approved or rejected.");
     const requiredStages = /* @__PURE__ */ new Set(["proposal", "critique", "revision", "decision_gate"]);
     for (const output of current.outputs) requiredStages.delete(output.stageId);
     invariant(requiredStages.size === 0 && current.decision?.requiresHumanApproval === true, "AO_DECISION_EVIDENCE_INCOMPLETE", "Architecture decision evidence is incomplete.", { missingStages: [...requiredStages] });
-    const approval = { state: input.approved ? "approved" : "rejected", rationale: input.rationale, by: input.approvedBy, at: (/* @__PURE__ */ new Date()).toISOString() };
+    const via = channel === "session" ? "session" : "mcp";
+    invariant(
+      via === "session" || !this.requireAttestedApproval,
+      "AO_APPROVAL_REQUIRES_ATTESTED_CHANNEL",
+      "This server requires architecture approvals to come through the loopback session UI, which a headless agent cannot reach. Open the run's session (orchestration_status returns its URL) and decide there; `approvedBy` on a tool call is an unverified string."
+    );
+    const approval = {
+      state: input.approved ? "approved" : "rejected",
+      rationale: input.rationale,
+      by: input.approvedBy,
+      // False on the MCP path and true only for the loopback session: the difference between
+      // "someone typed this name" and "someone held a capability token this process minted".
+      by_attested: via === "session",
+      via,
+      at: (/* @__PURE__ */ new Date()).toISOString()
+    };
     const nextDecision = { ...current.decision, state: approval.state, approval };
     const run = await this.store.transition(input.runId, ["waiting_for_decision"], input.approved ? "succeeded" : "rejected", { decision: nextDecision }, "decision_reviewed");
     return { runId: run.runId, decision: run.decision, evidence: decision.evidence };
@@ -46443,7 +46465,7 @@ async function createServer2(options = {}) {
   register(server, service, "orchestration_cancel", "Idempotently request cancellation and terminate the verified worker process group when active.", runFields, runData, service.cancel);
   register(server, service, "orchestration_cleanup", "Permanently discard and remove a terminal run worktree through Git after repository ownership checks.", runFields, cleanupData, service.cleanup);
   register(server, service, "orchestration_decision_get", "Return the attributed evidence and approval state for an architecture decision run.", runFields, decisionData, service.decision);
-  register(server, service, "orchestration_decision_approve", "Approve or reject an architecture decision with an auditable rationale.", { ...runFields, approved: external_exports.boolean(), rationale: external_exports.string().min(1), approvedBy: external_exports.string().min(1) }, approvedDecisionData, service.approveDecision);
+  register(server, service, "orchestration_decision_approve", "Record an approval or rejection of an architecture decision with a rationale. `approvedBy` is an unverified label, not an authenticated identity: this gate proves a separate explicit act was taken and journals it, it does not prove a human took it. For an approval an agent cannot make, use the run's loopback session UI, which mints a capability token this process holds.", { ...runFields, approved: external_exports.boolean(), rationale: external_exports.string().min(1), approvedBy: external_exports.string().min(1) }, approvedDecisionData, service.approveDecision);
   return { server, service };
 }
 async function main() {

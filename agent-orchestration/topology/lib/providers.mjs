@@ -62,6 +62,11 @@ export const GENERIC_ADAPTER = {
     "billing[ _-](issue|problem|error|required)",
     "update your billing",
   ],
+  // Screen text that means "a human has to answer something before this CLI will start". It is a
+  // failure like any other for chain purposes — the next candidate is a different CLI and may have
+  // no such prompt — but the operator's action is completely different from a provider outage, so
+  // the message says what to do instead of naming a regex. Entries are { pattern, message }.
+  attention_patterns: [],
   submit_keys: ["Enter"],
   bootstrap_message: "Read {{bootstrap_file}} and follow it exactly. Reply here with the single word READY when you have read it.",
   detect: null,
@@ -106,6 +111,20 @@ export function normalizeAdapter(raw, source) {
       invariant(false, "TOPOLOGY_ADAPTER_INVALID", `Adapter ${adapter.id}: failure pattern "${pattern}" is not a valid regex (${error.message}).`);
     }
   }
+  invariant(Array.isArray(adapter.attention_patterns), "TOPOLOGY_ADAPTER_INVALID", `Adapter ${adapter.id}: "attention_patterns" must be an array.`);
+  adapter.attention_patterns = adapter.attention_patterns.map((entry, index) => {
+    invariant(
+      entry && typeof entry === "object" && typeof entry.pattern === "string" && typeof entry.message === "string",
+      "TOPOLOGY_ADAPTER_INVALID",
+      `Adapter ${adapter.id}: attention_patterns[${index}] must be { pattern, message } — the message is what an operator is told to do, so it is not optional.`,
+    );
+    try {
+      new RegExp(entry.pattern, "i");
+    } catch (error) {
+      invariant(false, "TOPOLOGY_ADAPTER_INVALID", `Adapter ${adapter.id}: attention pattern "${entry.pattern}" is not a valid regex (${error.message}).`);
+    }
+    return { pattern: entry.pattern, message: entry.message };
+  });
   // A tmux-side pattern is evaluated by the tmux server, not by this process, and its format parser
   // treats these three characters as structure. Catch it at load rather than letting the format
   // silently return a literal and readiness never fire.
@@ -226,6 +245,22 @@ export function failureOnScreen(adapter, screen) {
   const text = withoutPaths(screen);
   for (const pattern of adapter.failure_patterns ?? []) {
     if (new RegExp(pattern, "i").test(text)) return pattern;
+  }
+  return null;
+}
+
+/**
+ * Returns the attention entry if the screen shows something only a human can answer.
+ *
+ * Checked before the failure list, because these screens are specific and the failure list is
+ * generic: Claude's folder-trust modal contains the word "exit", and a first-launch login screen
+ * says "not logged in" while meaning "press a key", not "this provider is down". Naming the specific
+ * thing first is what makes the message actionable.
+ */
+export function attentionOnScreen(adapter, screen) {
+  const text = withoutPaths(screen);
+  for (const entry of adapter.attention_patterns ?? []) {
+    if (new RegExp(entry.pattern, "i").test(text)) return entry;
   }
   return null;
 }

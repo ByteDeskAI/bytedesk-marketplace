@@ -40,7 +40,12 @@ Resolve `AO` as `../../bin/ao-topology` relative to this skill (the installed pl
    every pane (the conductor is the main pane; `Ctrl-b` then arrow keys to move between panes,
    `Ctrl-b d` to detach), and `AO status --run <run_dir>` from any shell for the journal.
    The conductor pane is where human gates are answered.
-8. If an agent shows `?` (not ready) in the launch output, `AO capture --run <run_dir> --agent <id>`
+8. **If an agent failed because a CLI is waiting on a person** — the outcome says so in a sentence,
+   typically Claude's folder-trust question for a directory it has never seen, or a login screen —
+   relay that sentence and stop. Nothing here can answer it: the user runs the CLI once in that
+   directory in a normal terminal, answers it, and then you launch again. Agents get their own
+   `cwd`, so a run can involve several directories the CLI has never been trusted for.
+9. If an agent shows `?` (not ready) in the launch output, `AO capture --run <run_dir> --agent <id>`
    and read its screen: usually a login prompt, a missing flag, or a slow start. Re-send the
    bootstrap with `AO nudge --run <run_dir> --agent <id> --text "Read <bootstrap path> and follow it exactly."`
    once the CLI is at its prompt.

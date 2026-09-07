@@ -123,6 +123,19 @@ The `agent-orchestrate` skill drives the public MCP surface:
 | Control | `orchestration_cancel`, `orchestration_cleanup` |
 | Approval | `orchestration_decision_get`, `orchestration_decision_approve` |
 
+**What the approval gate guarantees.** `orchestration_decision_approve` is a state gate, not an
+identity gate. It enforces repository authority, that the run is an architecture run waiting for a
+decision, and that every evidence stage is present — and it records the act, with its rationale, in
+the hash-chained journal. `approvedBy` is an unauthenticated string: nothing compares it to the run's
+initiator, so an agent can call this tool and pass any name. What you get is a **stop-and-attest** —
+the run cannot move without a separate explicit act that is permanently attributed — not a separation
+of duties. The approval record says which it was: `via: "mcp"` with `by_attested: false` for a tool
+call, `via: "session"` with `by_attested: true` for the loopback session UI, which is bound to
+127.0.0.1, needs a 32-byte capability token this process minted, expires in ten minutes and can be
+exchanged once — a path a headless agent has no way to reach. Set
+`AGENT_ORCHESTRATION_REQUIRE_ATTESTED_APPROVAL=1` to accept only that path for architecture
+decisions; the tool call is then refused with `AO_APPROVAL_REQUIRES_ATTESTED_CHANNEL`.
+
 Every mutating or consumer-grounded call requires `consumerCwd`: the explicit absolute path of the
 repository or worktree the external agent may observe or change. The server never infers it from its
 own process directory.

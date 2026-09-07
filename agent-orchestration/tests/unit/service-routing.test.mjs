@@ -7,7 +7,7 @@ import { OrchestrationService, discoverProviderPaths, externalProviderPaths } fr
 import { createExecutionPlan } from "../../src/protocols/index.mjs";
 import { git } from "../../src/util.mjs";
 
-async function fixture() {
+async function fixture(options = {}) {
   const root = await mkdtemp(join(os.tmpdir(), "ao-service-test-"));
   const consumerCwd = join(root, "consumer");
   const pluginRoot = join(root, "plugin");
@@ -19,7 +19,7 @@ async function fixture() {
   await writeFile(join(consumerCwd, "README.md"), "fixture\n");
   await git(consumerCwd, ["add", "README.md"]);
   await git(consumerCwd, ["commit", "-qm", "fixture"]);
-  const service = await new OrchestrationService({ pluginRoot, stateRoot }).initialize();
+  const service = await new OrchestrationService({ pluginRoot, stateRoot, ...options }).initialize();
   return { root, consumerCwd, service, cleanup: async () => { await service.dispose(); await rm(root, { recursive: true, force: true }); } };
 }
 
@@ -273,5 +273,55 @@ test("worker startup acknowledgement fails closed and leaves a durable terminal 
     const failed = await fx.service.store.get(run.runId);
     assert.equal(failed.state, "failed");
     assert.equal(failed.error.code, "AO_WORKER_LAUNCH_FAILED");
+  } finally { await fx.cleanup(); }
+});
+
+/** Walk a fresh architecture run to the point where it is waiting for a decision. */
+async function waitingForDecision(fx) {
+  const consumer = await fx.service.resolveConsumer(fx.consumerCwd);
+  const plan = createExecutionPlan({ intent: "architecture" });
+  let run = await fx.service.store.create({ input: { intent: "architecture", task: "fixture", permissionProfile: "read" }, consumer, plan });
+  for (const [from, to] of [["queued", "preparing"], ["preparing", "running"], ["running", "verifying"]]) run = await fx.service.store.transition(run.runId, [from], to);
+  const outputs = ["proposal", "critique", "revision", "decision_gate"].map((stageId) => ({ stageId, text: "{}" }));
+  return fx.service.store.transition(run.runId, ["verifying"], "waiting_for_decision", { outputs, decision: { state: "waiting_for_decision", requiresHumanApproval: true } });
+}
+
+test("an approval records which channel it came through, because the name on it proves nothing", async () => {
+  // approvedBy is an unauthenticated string: nothing compares it to the run's initiator, and an
+  // agent can pass any name it likes. Rather than pretend otherwise, the record says whether the act
+  // came through the MCP tool or through the loopback session, which is the only channel a headless
+  // agent cannot reach. What the gate guarantees is a separate attributed act, not who took it.
+  const fx = await fixture();
+  try {
+    const run = await waitingForDecision(fx);
+    const approved = await fx.service.approveDecision({ consumerCwd: fx.consumerCwd, runId: run.runId, approved: true, rationale: "Evidence reviewed", approvedBy: "operator" });
+    assert.equal(approved.decision.approval.by, "operator", "the label is still recorded verbatim");
+    assert.equal(approved.decision.approval.by_attested, false, "but nothing about it was verified");
+    assert.equal(approved.decision.approval.via, "mcp");
+
+    // A caller cannot promote its own act by claiming the channel — `via` is set by the session
+    // host, never read from the tool input.
+    const second = await fixture();
+    try {
+      const run2 = await waitingForDecision(second);
+      const forged = await second.service.approveDecision({ consumerCwd: second.consumerCwd, runId: run2.runId, approved: true, rationale: "r", approvedBy: "operator", via: "session" });
+      assert.equal(forged.decision.approval.by_attested, false, "a via passed in by the caller must not be believed");
+    } finally { await second.cleanup(); }
+  } finally { await fx.cleanup(); }
+});
+
+test("a server can require the channel an agent cannot reach", async () => {
+  const fx = await fixture({ requireAttestedApproval: true });
+  try {
+    const run = await waitingForDecision(fx);
+    await assert.rejects(
+      () => fx.service.approveDecision({ consumerCwd: fx.consumerCwd, runId: run.runId, approved: true, rationale: "r", approvedBy: "operator" }),
+      { code: "AO_APPROVAL_REQUIRES_ATTESTED_CHANNEL" },
+    );
+    // The loopback session still settles it, and its approval is the attested one.
+    const decided = await fx.service.sessionDecide(run.runId, { approved: true, rationale: "reviewed in the session UI" });
+    assert.equal(decided.decision.approval.by_attested, true);
+    assert.equal(decided.decision.approval.via, "session");
+    assert.equal((await fx.service.store.get(run.runId)).state, "succeeded");
   } finally { await fx.cleanup(); }
 });

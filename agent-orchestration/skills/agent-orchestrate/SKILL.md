@@ -31,7 +31,12 @@ instead of shelling out to `claude`, `codex`, `grok`, or `kimi`.
    the parent was explicitly read-only and persistent and its provider supports session loading;
    otherwise spawn a new scoped run. Do not poll aggressively.
 8. If a provider requests approval, inspect it with `orchestration_decision_get`. Call `orchestration_decision_approve`
-   only when the user or existing policy explicitly authorizes that exact action.
+   only when the user or existing policy explicitly authorizes that exact action. `approvedBy` is an
+   unverified label, and the server cannot tell your call from a human's: the gate records that a
+   separate explicit act happened, it does not establish that a person made the decision. Never pass
+   a person's name for a decision they did not make, and never treat your own call as their sign-off.
+   Where the difference matters, hand the user the run's loopback session URL and let them decide
+   there — an approval through it is recorded as `by_attested: true`, and yours is not.
 9. Cancel stalled or superseded work with `orchestration_cancel`. Use `orchestration_cleanup` only after results and
    evidence have been collected; cleanup permanently discards the terminal worktree and its patch.
 10. Synthesize results by provider. Preserve disagreements, partial failures, verification gaps, and

@@ -1,21 +1,22 @@
 ---
 id: "TM-110"
 kind: "task"
-status: "in_progress"
+status: "done"
 created: "2026-09-06T04:54:46.271Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "agent-orchestration: a benign Claude startup banner kills the agent as a provider failure"
 epic: "EP-016"
-acceptance: [{"text":"A Claude agent launches and reports ready on a machine with an unauthenticated MCP server","done":false},{"text":"Generic failure patterns no longer fire on benign text containing a bare noun, or each adapter narrows its own","done":false},{"text":"A regression test covers a real provider banner rather than a fixture's canned failure line","done":false}]
-evidence: []
-commits: []
+acceptance: [{"text":"A Claude agent launches and reports ready on a machine with an unauthenticated MCP server","done":true,"at":"2026-09-06T23:53:45.168Z"},{"text":"Generic failure patterns no longer fire on benign text containing a bare noun, or each adapter narrows its own","done":true,"at":"2026-09-06T23:53:45.305Z"},{"text":"A regression test covers a real provider banner rather than a fixture's canned failure line","done":true,"at":"2026-09-06T23:53:45.450Z"}]
+evidence: [".bytedesk/task-management/evidence/TM-110-TM-110-claude-ready-with-banner.txt"]
+commits: ["525f7f6"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "4e1d7087-d606-432e-9341-3ce779b4baf8"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-06T23:49:31.343Z"
+updated: "2026-09-06T23:53:45.866Z"
+closed: "2026-09-06T23:53:45.716Z"
 ---
 
 Launching a real Claude agent through the topology layer fails at readiness whenever the operator has any unauthenticated MCP server — common, and true on this machine.

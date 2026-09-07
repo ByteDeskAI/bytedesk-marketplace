@@ -7,7 +7,7 @@ import { mkdir, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { appendJournal, agentDir, loadRun, pendingReplies, saveRun } from "./mailbox.mjs";
 import { childEnv, childrenFile, lineageFromEnv, lineageRefusal } from "./lineage.mjs";
-import { adapterFor, buildArgv, commandExists, failureOnScreen, grantsDirs, memoryLocation } from "./providers.mjs";
+import { adapterFor, attentionOnScreen, buildArgv, commandExists, failureOnScreen, grantsDirs, memoryLocation } from "./providers.mjs";
 import { mintSpawn, sessionName } from "./identity.mjs";
 import { loadRole, resolveSkill } from "./resolve.mjs";
 import * as tmux from "./tmux.mjs";
@@ -199,6 +199,11 @@ export function screenSince(screen, baseline) {
  * ready:false reachable for the five adapters that have no pattern.
  */
 export function evaluateScreen(adapter, screen, { alive = true } = {}) {
+  // Before the generic failure list, because these screens are specific and it is not: the trust
+  // modal contains the word "exit" and a login screen says "not logged in", and both would otherwise
+  // be reported as an unexplained provider fault when what they need is one keystroke from a person.
+  const attention = attentionOnScreen(adapter, screen);
+  if (attention) return { ready: false, failed: true, attention: true, reason: attention.message };
   const failure = failureOnScreen(adapter, screen);
   if (failure) return { ready: false, failed: true, reason: `screen matched failure pattern /${failure}/` };
   if (!alive) return { ready: false, failed: true, reason: "pane exited" };
@@ -247,6 +252,8 @@ async function waitReadySubscribed({ client, pane, adapter, timeoutMs, subName, 
       if (verdict.check === "failure") {
         // The server found one of the words; this process decides whether it is actually an error.
         const screen = screenSince(await tmux.captureAll(pane), baseline);
+        const attention = attentionOnScreen(adapter, screen);
+        if (attention) return finish({ ready: false, failed: true, attention: true, reason: attention.message });
         const failure = failureOnScreen(adapter, screen);
         if (failure) finish({ ready: false, failed: true, reason: `screen matched failure pattern /${failure}/` });
         return;
@@ -296,7 +303,10 @@ async function waitReady(pane, adapter, timeoutMs, { baseline = "" } = {}) {
  * false positive TM-091 removed straight back, because the server has no way to ignore a run path.
  */
 export function tmuxFailureTrigger(adapter) {
-  const usable = (adapter.failure_patterns ?? []).filter((pattern) => !/[{}:]/.test(pattern));
+  // Attention patterns ride the same trigger: on this path nothing is captured until the server sees
+  // one of these words, so a pattern left out of the trigger can never fire at all.
+  const all = [...(adapter.failure_patterns ?? []), ...(adapter.attention_patterns ?? []).map((entry) => entry.pattern)];
+  const usable = all.filter((pattern) => !/[{}:]/.test(pattern));
   return usable.length > 0 ? usable.join("|") : null;
 }
 
@@ -441,7 +451,7 @@ async function startAgentInPane({ pane, agentId, candidates, startIndex = 0, run
       : await waitReady(pane, item.adapter, timeoutMs, { baseline });
     if (readiness.failed) {
       attempts.push({ label: item.label, outcome: readiness.reason });
-      await appendJournal(runDir, { type: "agent.candidate_failed", agent: agentId, candidate: item.label, reason: readiness.reason, exit_status: readiness.exit_status ?? null });
+      await appendJournal(runDir, { type: "agent.candidate_failed", agent: agentId, candidate: item.label, reason: readiness.reason, attention: readiness.attention === true, exit_status: readiness.exit_status ?? null });
       continue;
     }
     const pointer = render(item.adapter.bootstrap_message, item.vars);

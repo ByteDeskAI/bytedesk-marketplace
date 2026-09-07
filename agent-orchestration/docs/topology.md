@@ -203,6 +203,31 @@ calls it when a wait times out and the screen shows a limit; the journal records
 `agent.candidate_failed`, `agent.failover`, and `agent.failover_complete`. Because the message
 of record is a file, a provider swap loses nothing except in-flight terminal context.
 
+### Before the first launch: a CLI that wants a human
+
+Some CLIs will not start unattended until a person has answered something once, and no amount of
+retrying helps. The two that bite in practice:
+
+- **Claude's folder-trust question.** Launching into a directory Claude Code has never seen opens
+  *"Is this a project you created or one you trust?"* with **No, exit** / **Yes, I trust this
+  folder**. Nothing can answer it from the launcher.
+- **A login screen**, on a machine where the CLI has never been signed in.
+
+The launcher detects both and stops in about five seconds with the sentence you need — *"Answer it
+once in a normal terminal (cd into the agent's cwd and run `claude`, choose 'Yes, I trust this
+folder'), then launch again"* — rather than sitting out the adapter's full readiness timeout and
+reporting `ready pattern not seen`. These are the adapter's `attention_patterns`, checked before the
+generic failure list because the operator's action is completely different from a provider outage;
+the next candidate in the chain is still tried, because a different CLI may have no such prompt.
+
+**Trust every directory your agents will run in before the first launch.** An agent gets its own
+`cwd` — that is what gives it its own memory — so a five-agent run can involve five directories
+Claude has never seen.
+
+When a launch times out for any other reason, read `<run>/agents/<id>/pane.log`. `pipe-pane` is
+attached before the shell is touched, so it holds everything the pane ever drew, including a modal
+that has since been cleared.
+
 ## Messaging
 
 Files first, tmux second. `ao-topology send` writes the message into each recipient's inbox with

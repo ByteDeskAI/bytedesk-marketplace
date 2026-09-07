@@ -245,7 +245,10 @@ export async function createServer(options = {}) {
   register(server, service, "orchestration_cancel", "Idempotently request cancellation and terminate the verified worker process group when active.", runFields, runData, service.cancel);
   register(server, service, "orchestration_cleanup", "Permanently discard and remove a terminal run worktree through Git after repository ownership checks.", runFields, cleanupData, service.cleanup);
   register(server, service, "orchestration_decision_get", "Return the attributed evidence and approval state for an architecture decision run.", runFields, decisionData, service.decision);
-  register(server, service, "orchestration_decision_approve", "Approve or reject an architecture decision with an auditable rationale.", { ...runFields, approved: z.boolean(), rationale: z.string().min(1), approvedBy: z.string().min(1) }, approvedDecisionData, service.approveDecision);
+  // "attributed", not "authorized": `approvedBy` is an unauthenticated label. This gate proves that a
+  // separate explicit act happened and records it with a rationale in the tamper-evident journal —
+  // it does not prove who performed it, and the description says so where a caller will read it.
+  register(server, service, "orchestration_decision_approve", "Record an approval or rejection of an architecture decision with a rationale. `approvedBy` is an unverified label, not an authenticated identity: this gate proves a separate explicit act was taken and journals it, it does not prove a human took it. For an approval an agent cannot make, use the run's loopback session UI, which mints a capability token this process holds.", { ...runFields, approved: z.boolean(), rationale: z.string().min(1), approvedBy: z.string().min(1) }, approvedDecisionData, service.approveDecision);
 
   return { server, service };
 }

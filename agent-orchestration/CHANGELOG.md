@@ -84,6 +84,36 @@
   disabling it on the subscription path, because `tmuxFailureTrigger` drops any pattern tmux's format
   parser cannot read. Verified live rather than in a fixture — a real `claude:haiku` agent came up
   ready with that banner on its screen and no repo-local override in play.
+- **A CLI waiting on a person says so, in five seconds, in a sentence** (TM-111). Adapters gained
+  `attention_patterns` — `{ pattern, message }` entries checked before the generic failure list,
+  because these screens are specific where that list is generic, and because the operator's action is
+  completely different from a provider outage. Claude's folder-trust modal and its login screen are
+  the first two. The launch still walks to the next candidate, since a different CLI may have no such
+  prompt, but the outcome now reads "Answer it once in a normal terminal (cd into the agent's cwd and
+  run `claude`, choose 'Yes, I trust this folder'), then launch again" instead of
+  `ready pattern not seen within 30000ms`. Measured live: 5s and a correct message, against 30s and
+  an unexplained timeout.
+- **A menu row is no longer mistaken for an empty prompt** (TM-111). The claude and codex ready
+  patterns now require the prompt glyph to be the last thing on its line. The trust modal draws
+  `❯ No, exit`, which the old pattern matched — so the launcher reported the agent *ready*, then
+  typed the bootstrap pointer into a modal whose Enter means "No, exit". Measured on tmux 3.4 against
+  two live panes: the real input box is `❯` followed by U+00A0 and nothing else, which the new
+  pattern matches at its line while the menu row does not match at all. The report had this the other
+  way round — it read as a timeout, not a false ready — which is why it was worth reproducing before
+  fixing.
+- **An approval says what it actually is** (TM-113). `orchestration_decision_approve` is a state
+  gate, not an identity gate: `approvedBy` is an unauthenticated string that nothing compares to the
+  run's initiator, so an agent can call the tool and pass any name. Rather than leave that implied,
+  the approval record now carries `via` and `by_attested` — `"mcp"`/`false` for a tool call,
+  `"session"`/`true` for the loopback session UI, which is bound to 127.0.0.1, needs a capability
+  token this process minted, expires in ten minutes and can be exchanged once. `via` is a second
+  argument to the service method, not a field of the tool input, so a caller cannot promote its own
+  act by claiming the channel; a test asserts exactly that. `AGENT_ORCHESTRATION_REQUIRE_ATTESTED_APPROVAL=1`
+  refuses tool-call approvals for architecture decisions outright
+  (`AO_APPROVAL_REQUIRES_ATTESTED_CHANNEL`). The tool description, the README and the
+  `agent-orchestrate` skill now say plainly that this is a stop-and-attest, not a separation of
+  duties — and the skill tells an agent never to pass a person's name for a decision they did not
+  make.
 
 ### Changed — the noun is "workflow" (EP-016)
 

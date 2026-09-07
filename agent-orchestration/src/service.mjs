@@ -58,7 +58,7 @@ export async function discoverProviderPaths(pluginRoot, adapter, discovered, res
 }
 
 export class OrchestrationService {
-  constructor({ pluginRoot = PLUGIN_ROOT, stateRoot = resolveStateRoot(), workerEntrypoint = join(pluginRoot, "dist", "cli.cjs"), platformRuntime = createPlatformRuntime({ pluginRoot, stateRoot }), maxConcurrentRuns = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_RUNS || 4), maxConcurrentPerProvider = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_PER_PROVIDER || 2), autoRecover = true, recoveryGraceMs = 5_000, sessionUiRoot = join(pluginRoot, "dist", "session-ui") } = {}) {
+  constructor({ pluginRoot = PLUGIN_ROOT, stateRoot = resolveStateRoot(), workerEntrypoint = join(pluginRoot, "dist", "cli.cjs"), platformRuntime = createPlatformRuntime({ pluginRoot, stateRoot }), maxConcurrentRuns = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_RUNS || 4), maxConcurrentPerProvider = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_PER_PROVIDER || 2), autoRecover = true, recoveryGraceMs = 5_000, sessionUiRoot = join(pluginRoot, "dist", "session-ui"), requireAttestedApproval = process.env.AGENT_ORCHESTRATION_REQUIRE_ATTESTED_APPROVAL === "1" } = {}) {
     this.pluginRoot = pluginRoot;
     this.stateRoot = stateRoot;
     this.workerEntrypoint = workerEntrypoint;
@@ -67,6 +67,9 @@ export class OrchestrationService {
     this.autoRecover = autoRecover;
     this.recoveryGraceMs = recoveryGraceMs;
     this.sessionUiRoot = sessionUiRoot;
+    // Off by default: turning it on means no architecture decision can be approved by a tool call at
+    // all, which is a deliberate operator choice rather than something to inflict on every install.
+    this.requireAttestedApproval = requireAttestedApproval === true;
     this.platformRuntime = platformRuntime;
     this.sessionHost = null;
     this.store = new RunStore(stateRoot);
@@ -463,7 +466,13 @@ export class OrchestrationService {
       approved: Boolean(body.approved),
       rationale: typeof body.rationale === "string" ? body.rationale.slice(0, 500) : "",
       approvedBy: "operator",
-    });
+    // Second argument, deliberately: `via` is the one thing about an approval that is not the
+    // caller's to state. The MCP tool handler forwards exactly one argument — the validated input —
+    // so this channel cannot be claimed from outside the process, while an input field named `via`
+    // would have been exactly as forgeable as `approvedBy` already is. The channel itself is the one
+    // a headless agent cannot reach: loopback-only, a 32-byte capability token, a ten-minute TTL and
+    // a single exchange.
+    }, { via: "session" });
   }
 
   async send(input) {
@@ -528,14 +537,34 @@ export class OrchestrationService {
     };
   }
 
-  async approveDecision(input) {
+  async approveDecision(input, { via: channel = "mcp" } = {}) {
     const decision = await this.decision(input);
     const current = await this.getRun(input);
     invariant(current.state === "waiting_for_decision", "AO_DECISION_NOT_WAITING", "Only a completed adversarial gate waiting for human review can be approved or rejected.");
     const requiredStages = new Set(["proposal", "critique", "revision", "decision_gate"]);
     for (const output of current.outputs) requiredStages.delete(output.stageId);
     invariant(requiredStages.size === 0 && current.decision?.requiresHumanApproval === true, "AO_DECISION_EVIDENCE_INCOMPLETE", "Architecture decision evidence is incomplete.", { missingStages: [...requiredStages] });
-    const approval = { state: input.approved ? "approved" : "rejected", rationale: input.rationale, by: input.approvedBy, at: new Date().toISOString() };
+    // What this gate actually guarantees, said plainly because the record is what someone reads
+    // later: a run cannot move without a separate, explicit, journalled act carrying a rationale. It
+    // is a stop-and-attest, not a separation of duties. `approvedBy` arrives as an unauthenticated
+    // string on the MCP path — nothing compares it to the run's initiator and nothing can — so the
+    // record says which channel the act came through and refuses to imply more than it knows.
+    const via = channel === "session" ? "session" : "mcp";
+    invariant(
+      via === "session" || !this.requireAttestedApproval,
+      "AO_APPROVAL_REQUIRES_ATTESTED_CHANNEL",
+      "This server requires architecture approvals to come through the loopback session UI, which a headless agent cannot reach. Open the run's session (orchestration_status returns its URL) and decide there; `approvedBy` on a tool call is an unverified string.",
+    );
+    const approval = {
+      state: input.approved ? "approved" : "rejected",
+      rationale: input.rationale,
+      by: input.approvedBy,
+      // False on the MCP path and true only for the loopback session: the difference between
+      // "someone typed this name" and "someone held a capability token this process minted".
+      by_attested: via === "session",
+      via,
+      at: new Date().toISOString(),
+    };
     const nextDecision = { ...current.decision, state: approval.state, approval };
     const run = await this.store.transition(input.runId, ["waiting_for_decision"], input.approved ? "succeeded" : "rejected", { decision: nextDecision }, "decision_reviewed");
     return { runId: run.runId, decision: run.decision, evidence: decision.evidence };

@@ -34,6 +34,7 @@ import {
   buildArgv,
   failureOnScreen,
   grantsDirs,
+  loadAdapters,
   memoryLocation,
   normalizeAdapter,
   sanitizeCwd,
@@ -707,4 +708,44 @@ test("the shipped failure list does not fire on a real provider's startup banner
     const adapter = normalizeAdapter({ id, command: id }, "test");
     assert.equal(failureOnScreen(adapter, benign[0]), null, `${id} still treats the banner as a failure`);
   }
+});
+
+test("a prompt glyph that is not an empty input box is not readiness", async () => {
+  // Measured on tmux 3.4 against two live Claude panes. The real input box is "❯" followed by
+  // U+00A0 and nothing else; the folder-trust modal draws "❯ No, exit" as a menu row. The old
+  // pattern matched BOTH, so a launch into an untrusted directory reported ready and then typed the
+  // bootstrap pointer into a modal whose Enter means "No, exit".
+  const claude = (await loadAdapters([providersDir])).get("claude");
+  const box = new RegExp(claude.ready.pattern, "m");
+  assert.ok(box.test("❯\u00a0"), "the real, empty input box is still readiness");
+  assert.ok(box.test("│ > "), "and so is the boxed form");
+  assert.ok(!box.test(" ❯ No, exit\n   Yes, I trust this folder"), "a menu row is not an input box");
+  assert.ok(!box.test("❯ Read BOOTSTRAP.md and follow it"), "nor is a box with the pointer already typed into it");
+  // The tmux-side form has to say the same thing, and stay parseable by tmux's format language.
+  assert.ok(!/[{}:]/.test(claude.ready.tmux_pattern));
+});
+
+test("a screen only a human can clear is reported as that, not as a provider fault", async () => {
+  const claude = (await loadAdapters([providersDir])).get("claude");
+  const modal = "Quick safety check: Is this a project you created or one you trust? (Like your own code)\n ❯ No, exit\n   Yes, I trust this folder";
+
+  // The generic list would have called this an outage: the modal contains "exit", and a login screen
+  // says "not logged in" while meaning "press a key". The attention entry is checked first and its
+  // message is what an operator is told to do.
+  const verdict = evaluateScreen(claude, modal);
+  assert.equal(verdict.attention, true);
+  assert.match(verdict.reason, /folder-trust question/);
+  assert.match(verdict.reason, /Yes, I trust this folder/);
+  assert.equal(evaluateScreen(claude, "⚠ 3 MCP servers need authentication · run /mcp"), null, "a healthy banner is neither");
+
+  // On the subscription path nothing is captured until the server sees one of these words, so an
+  // attention pattern left out of the trigger could never fire at all.
+  assert.match(tmuxFailureTrigger(claude), /Is this a project you created or one you trust/);
+
+  // The message is required, because a pattern with no message is just a failure pattern with extra
+  // steps — the whole point is the sentence the operator reads.
+  assert.throws(
+    () => normalizeAdapter({ id: "x", command: "x", attention_patterns: [{ pattern: "trust" }] }, "x"),
+    /message is what an operator is told to do/,
+  );
 });
