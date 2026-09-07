@@ -122,7 +122,7 @@
         "brand-concept",
         "{{inputs.image_skill}}"
       ],
-      "instructions": "You explore with images first and vector second. In the explore stage, use the {{inputs.image_skill}} skill to generate {{inputs.directions}} directions × 2 images into artifacts/designer/<message-id>/directions/<n>/ and a CONTACT-SHEET.md as brand-explore describes; images are mood references only and are never deliverables. In the concepts stage, produce {{inputs.concepts}} original SVG concepts from the chosen direction per brand-concept. If the image skill is `none`, skip exploration and say so in your reply.",
+      "instructions": "You explore with images first and vector second. In the explore stage, use the {{inputs.image_skill}} skill to generate {{inputs.directions}} directions × 2 images into artifacts/designer/<message-id>/directions/<n>/ and a CONTACT-SHEET.md as brand-explore describes; images are mood references only and are never deliverables. In the concepts stage, produce {{inputs.concepts}} original SVG concepts from the chosen direction per brand-concept. You AUTHOR those SVGs — write the paths as a real vector file. An image tool that emits only raster is a limit of that tool, not a reason to skip the vector, and a PNG wrapped in an <svg> element is not a vector concept. If the image skill is `none`, skip exploration and say so in your reply.",
       "candidates": "{{inputs.designer}}"
     },
     {

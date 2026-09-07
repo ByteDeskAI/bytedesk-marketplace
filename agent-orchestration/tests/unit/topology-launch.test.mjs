@@ -796,3 +796,26 @@ test("a capture that could not be taken is not a blank screen", { skip: haveTmux
   assert.equal(evaluateScreen(withPattern, ""), null, "a genuinely blank screen decides nothing");
   assert.deepEqual(evaluateScreen(withPattern, "READY"), { ready: true, failed: false, reason: "ready pattern" });
 });
+
+test("the submit key reaches the pane as a keystroke, not as the tail of a paste", { skip: haveTmux ? false : "no tmux" }, async (t) => {
+  // The mailbox doorbell. `sendText` used to batch the text and its Enter into one tmux invocation
+  // to save a client round trip, and tmux then wrote both at once — so the pane's program read
+  // `"…the message\r"` as a single chunk. A TUI reads one chunk containing a newline as a paste of
+  // multiline text, so the pointer landed in the composer and stayed there: the agent looked idle,
+  // the conductor's wait ran to its timeout, and nothing anywhere errored. Observed three times in
+  // one showcase run, on the Claude adapter and the Codex adapter alike.
+  const session = `ao-chunk-${process.pid}`;
+  t.after(async () => { await tmux.killSession(session).catch(() => {}); });
+  const probe = join(here, "..", "fixtures", "chunk-probe.mjs");
+  const pane = await tmux.newSession(session, { cwd: tmpdir(), windowName: "main", width: 200, height: 20 });
+  await promisify(execFile)("tmux", ["respawn-pane", "-k", "-t", pane, `${process.execPath} ${probe}`]);
+  await new Promise((resolve) => setTimeout(resolve, 700));
+
+  await tmux.sendText(pane, "ring the doorbell");
+  await new Promise((resolve) => setTimeout(resolve, 700));
+
+  const chunks = (await tmux.captureAll(pane) ?? "").split("\n").filter((line) => line.startsWith("CHUNK"));
+  assert.equal(chunks.length, 2, `text and Enter must arrive as two reads, got: ${JSON.stringify(chunks)}`);
+  assert.match(chunks[0], /"ring the doorbell"$/, "the text arrives without a newline glued to it");
+  assert.match(chunks[1], /"\\r"$/, "and the carriage return arrives alone, which is what makes it the Enter key");
+});

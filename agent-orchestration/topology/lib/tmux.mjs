@@ -112,17 +112,29 @@ export async function setPaneTitle(pane, title) {
 }
 
 /**
- * Type text into a pane. Literal mode (-l) avoids tmux key-name interpretation of the message.
+ * Type text into a pane and submit it. Literal mode (-l) avoids tmux key-name interpretation.
  *
- * The text and its submit keys go in ONE invocation, joined by tmux's own `;` command separator.
- * Every separate invocation is a fresh client process that connects to the server and waits its
- * turn behind every other client, so at three sendText calls per agent the split version was the
- * single largest source of launch latency — 60 of 134 calls for ten agents.
+ * The submit key MUST go in its own invocation. Batching it after the text with tmux's `;`
+ * separator — which this did, to save a client round trip — makes tmux write both in one go, and
+ * the pane's program then reads them in a single chunk: `"…the message\r"`. Every modern TUI reads
+ * one chunk containing a newline as a PASTE of multiline text, so the message landed in the
+ * composer and sat there, unsent, while the agent looked idle and the run looked like an agent
+ * ignoring its mail. It is the mailbox doorbell that stops ringing, so nothing errors and nothing
+ * retries; a human pressing Enter in the pane fixes it, which is how it was found.
+ *
+ * Measured on tmux 3.4 against a probe that logs one line per stdin read:
+ *
+ *   batched (`send-keys -l … ; send-keys Enter`)  ->  CHUNK 1: "text\r"
+ *   separate invocations, no delay at all         ->  CHUNK 1: "text"   CHUNK 2: "\r"
+ *
+ * No sleep between them: the split is a consequence of the write boundary, not of timing. Verified
+ * against a deliberately hostile reader that blocks for 300ms on its first chunk — still two
+ * chunks. The cost is one extra tmux client per message, which is the price of the doorbell
+ * actually ringing.
  */
 export async function sendText(pane, text, submitKeys = ["Enter"]) {
-  const args = ["send-keys", "-t", pane, "-l", "--", text];
-  for (const key of submitKeys) args.push(";", "send-keys", "-t", pane, key);
-  await tmux(args);
+  await tmux(["send-keys", "-t", pane, "-l", "--", text]);
+  for (const key of submitKeys) await tmux(["send-keys", "-t", pane, key]);
 }
 
 /** Title, remain-on-exit and pipe-pane are one round trip rather than three. */
