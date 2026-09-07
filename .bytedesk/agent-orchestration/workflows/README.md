@@ -1,8 +1,8 @@
 # Showcase orchestrations
 
-Six scenarios that demonstrate what the plugin can do, as distinct from the feature-by-feature
+Nine scenarios that demonstrate what the plugin can do, as distinct from the feature-by-feature
 test plan. Each has a different **team shape** and produces a different **kind of outcome** —
-they are not six ways of doing the same thing.
+they are not nine ways of doing the same thing.
 
 Run one with:
 
@@ -14,24 +14,22 @@ $AO launch --workflow showcase-<name> --consumer "$PWD" --input <k>=<v> --json
 Add `--dry-run` first to see the exact argv, granted directories and warnings without starting
 anything. `$AO inputs --workflow showcase-<name>` lists what each one wants.
 
-## The claude override in `../providers/claude.json`
+## The claude override that used to live in `../providers/`
 
-Repo-local, and load-bearing. `failure_patterns` is declared only on `GENERIC_ADAPTER`, no shipped
-adapter overrides it, and it contains the bare word `authentication` — so Claude Code's ordinary
-startup line *"2 MCP servers need authentication"* had every claude agent declared a failed
-candidate in five seconds. That is TM-110. This override narrows the patterns to require failure
-context, and adapters resolve first-wins with consumer directories first, so it replaces the
-shipped one outright.
-
-Measured before and after, same spec, same repo:
+Gone, and worth recording why it existed. `failure_patterns` was declared only on
+`GENERIC_ADAPTER`, no shipped adapter overrode it, and it contained the bare word `authentication`
+— so Claude Code's ordinary startup line *"2 MCP servers need authentication"* had every claude
+agent declared a failed candidate in five seconds. Measured, same spec, same repo:
 
 | | outcome |
 |---|---|
-| shipped adapter | `"ready": false` — `screen matched failure pattern /authentication/`, 5s |
-| this override | `"ready": true`, no warnings, 5s |
+| shipped adapter, before TM-110 | `"ready": false` — `screen matched failure pattern /authentication/`, 5s |
+| the repo-local override | `"ready": true`, no warnings, 5s |
+| shipped adapter, after TM-110 | `"ready": true`, with that banner on screen |
 
-Detection is narrowed, not weakened: `authentication failed` and `usage limit` still match.
-**Delete this file once TM-110 lands upstream.**
+TM-110 narrowed the shipped list to require failure context, so the override is deleted and these
+scenarios exercise the adapter everyone else gets. If a scenario ever comes up `ready: false` on a
+pattern that looks like ordinary output, that is the shape of bug to suspect.
 
 ## Two words that mean different things
 
