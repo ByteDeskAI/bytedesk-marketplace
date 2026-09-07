@@ -241,17 +241,35 @@ async function waitReadySubscribed({ client, pane, adapter, timeoutMs, subName, 
       client.unsubscribe(subName);
       settle({ ...verdict, elapsed_ms: Date.now() - started });
     };
-    const timer = setTimeout(
-      () => finish({ ready: false, failed: false, reason: `ready pattern not seen within ${timeoutMs}ms` }),
-      timeoutMs,
-    );
+    // Before giving up, LOOK. The subscription is a push channel: if the server never delivered —
+    // because it was overloaded, or the subscription was dropped — nothing here has ever seen the
+    // pane, and "ready pattern not seen" is a statement about the agent that this process has no
+    // basis for. Measured on a real failure: all three panes plainly held their ready lines, one of
+    // them held a usage-limit line that a failure pattern would have caught, and every agent was
+    // reported as a timeout. One direct capture at the deadline turns that into the right answer.
+    const timer = setTimeout(async () => {
+      const raw = await tmux.captureAll(pane).catch(() => null);
+      const verdict = raw === null ? null : evaluateScreen(adapter, screenSince(raw, baseline), { alive: (await tmux.paneState(pane)).alive });
+      if (verdict) return finish({ ...verdict, reason: `${verdict.reason} (seen only on the final look; the subscription delivered nothing)` });
+      finish({
+        ready: false,
+        failed: false,
+        reason: raw === null
+          ? `ready pattern not seen within ${timeoutMs}ms, and the final screen capture failed too — tmux may be overloaded, so this is not evidence about the agent`
+          : `ready pattern not seen within ${timeoutMs}ms`,
+      });
+    }, timeoutMs);
     const onPush = async (event) => {
       if (done || event.name !== subName || event.pane !== pane) return;
       const verdict = decideFromSubscription(event.value, { promptLines });
       if (!verdict) return;
       if (verdict.check === "failure") {
         // The server found one of the words; this process decides whether it is actually an error.
-        const screen = screenSince(await tmux.captureAll(pane), baseline);
+        // If the capture itself failed we know nothing — returning here leaves the subscription
+        // running, so the next push tries again, rather than silently clearing a real failure.
+        const raw = await tmux.captureAll(pane);
+        if (raw === null) return;
+        const screen = screenSince(raw, baseline);
         const attention = attentionOnScreen(adapter, screen);
         if (attention) return finish({ ready: false, failed: true, attention: true, reason: attention.message });
         const failure = failureOnScreen(adapter, screen);
@@ -272,26 +290,48 @@ async function waitReady(pane, adapter, timeoutMs, { baseline = "" } = {}) {
   // state the first one judged, and gave a loaded machine a second command to time out. What came
   // out of that window was `{"reason":"pane exited","exit_status":null}`: a death with no way to
   // tell a CLI that rejected its flags from one that was killed.
+  // A capture we could not take is NOT a blank screen, and conflating the two is what made this
+  // whole function lie under load: `captureAll` returned "" on a failed or timed-out tmux call, an
+  // empty screen matches no ready pattern and no failure pattern, and the agent was reported as
+  // "ready pattern not seen" — a slow agent, for what was really a query that never landed. Counted
+  // rather than merely skipped, so the timeout can say which of the two actually happened.
+  let unreadable = 0;
   const look = async () => {
     const state = await tmux.paneState(pane);
-    const screen = screenSince(await tmux.captureAll(pane), baseline);
-    const verdict = evaluateScreen(adapter, screen, { alive: state.alive });
+    const raw = await tmux.captureAll(pane);
+    if (raw === null) {
+      unreadable += 1;
+      // A pane that is GONE is still a decision, even with no screen to read.
+      return state.gone || !state.alive ? { ready: false, failed: true, reason: state.status === null ? "pane exited" : `pane exited with status ${state.status}`, exit_status: state.status ?? undefined } : null;
+    }
+    const verdict = evaluateScreen(adapter, screenSince(raw, baseline), { alive: state.alive });
     if (!verdict?.failed || verdict.reason !== "pane exited" || state.status === null) return verdict;
     return { ...verdict, reason: `pane exited with status ${state.status}`, exit_status: state.status };
   };
 
+  const timedOut = (looks) => ({
+    ready: false,
+    failed: false,
+    reason: unreadable === 0
+      ? `ready pattern not seen within ${timeoutMs}ms`
+      : `ready pattern not seen within ${timeoutMs}ms, and ${unreadable} of ${looks} screen captures failed — tmux may be overloaded, so this is not evidence about the agent`,
+  });
+
   if (adapter.ready.pattern) {
+    let looks = 0;
     while (Date.now() - started < timeoutMs) {
+      looks += 1;
       const verdict = await look();
       if (verdict) return { ...verdict, elapsed_ms: Date.now() - started };
       await sleep(500);
     }
-    return { ready: false, failed: false, reason: `ready pattern not seen within ${timeoutMs}ms` };
+    return timedOut(looks);
   }
 
   // No pattern for this adapter: wait the declared delay, then decide from what the pane shows.
   await sleep(adapter.ready.delay_ms ?? 3000);
-  return { ...(await look()), elapsed_ms: Date.now() - started };
+  const verdict = await look();
+  return { ...(verdict ?? timedOut(1)), elapsed_ms: Date.now() - started };
 }
 
 /**

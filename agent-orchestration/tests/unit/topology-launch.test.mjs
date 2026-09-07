@@ -779,3 +779,20 @@ test("a pane's liveness and exit status come from one answer", { skip: haveTmux 
   assert.equal(missing.status, null, "and its status is unknown rather than zero");
   assert.equal(await tmux.paneAlive("%99999"), false);
 });
+
+test("a capture that could not be taken is not a blank screen", { skip: haveTmux ? false : "no tmux" }, async () => {
+  // The bug behind TM-120's intermittent contract failure. `captureAll` returned "" whenever the
+  // tmux call failed — a timeout on a loaded machine included — and "" is exactly what a pane that
+  // has drawn nothing yet returns. So readiness polled a screen it had never read, matched neither
+  // the ready pattern nor any failure pattern, and blamed the agent: every candidate reported
+  // "ready pattern not seen", including the fixture whose only job is to print a usage limit and be
+  // caught by a failure pattern.
+  assert.equal(await tmux.captureAll("%99999"), null, "an unreadable pane reads as unknown, not as empty");
+
+  // And the distinction has to survive into the verdict, or it buys nothing: an empty screen
+  // decides nothing and keeps waiting, which is right, but it must not be reached by way of a
+  // failed query.
+  const withPattern = adapter({ ready: { pattern: "READY" } });
+  assert.equal(evaluateScreen(withPattern, ""), null, "a genuinely blank screen decides nothing");
+  assert.deepEqual(evaluateScreen(withPattern, "READY"), { ready: true, failed: false, reason: "ready pattern" });
+});

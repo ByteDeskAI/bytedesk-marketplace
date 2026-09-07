@@ -157,10 +157,22 @@ export async function signalChannel(channel) {
   await tmux(["wait-for", "-S", channel], { allowFailure: true });
 }
 
-/** The pane's whole scrollback. Append-only, so a prefix taken earlier stays a prefix. */
+/**
+ * The pane's whole scrollback, or `null` if tmux could not be asked. Append-only, so a prefix taken
+ * earlier stays a prefix.
+ *
+ * The null matters more than it looks. This used to return `""` when the capture failed — including
+ * when the tmux call TIMED OUT, which happens on a loaded machine — and an empty string is exactly
+ * what a pane that has drawn nothing yet returns. So a failed capture was indistinguishable from a
+ * blank pane: readiness kept polling a screen it had never actually read, matched neither the ready
+ * pattern nor any failure pattern, and reported "ready pattern not seen within 30000ms" — a slow
+ * agent, for what was really a failed query. That is the intermittent contract-test failure in
+ * TM-120: every agent timing out at once, including the fixture whose whole job is to print a usage
+ * limit and be caught by a failure pattern.
+ */
 export async function captureAll(pane) {
   const result = await tmux(["capture-pane", "-p", "-t", pane, "-S", "-"], { allowFailure: true });
-  return result.code === 0 ? result.stdout : "";
+  return result.code === 0 ? result.stdout : null;
 }
 
 export async function paneAlive(pane) {
@@ -410,6 +422,9 @@ export async function clearAndWaitForShell(pane, channel, timeoutMs = 15_000) {
   const signalled = await waitForChannel(channel, timeoutMs);
   if (!signalled) return { ok: false, baseline: "", promptLines: 0 };
   const screen = await captureAll(pane);
+  // A capture we could not take is not a screen with nothing on it: fall back to "no prompt lines"
+  // rather than pretending the pane was blank.
+  if (screen === null) return { ok: true, baseline: marker, promptLines: 0 };
   // The echoed command holds the marker too, but `clear` wiped it from the visible screen and it
   // survives only above in the history — so the LAST occurrence is the printed one, which is the
   // boundary we want.

@@ -125,6 +125,22 @@
   exit 0 and an empty line**, not an error, so `pane_dead != "1"` read a pane that no longer exists
   as *alive*. Measured on tmux 3.4 — `display-message -p -t %99999 '#{pane_dead}'` prints nothing and
   exits 0. An empty answer is now "gone", and the test that pins it fails against the old behaviour.
+- **A screen the launcher could not read is no longer reported as a screen with nothing on it**
+  (TM-120). `captureAll` returned `""` whenever its tmux call failed — a timeout on a loaded machine
+  included — and `""` is exactly what a pane that has drawn nothing yet returns. Readiness therefore
+  polled a screen it had never actually read, matched neither the ready pattern nor any failure
+  pattern, and blamed the agent. It returns `null` now; the polling loop counts unreadable looks and
+  says so in the timeout instead of asserting something about the agent it never observed.
+
+  The subscription path had the same blindness from the other direction: it decides from pushes, so
+  if the server delivers nothing, nothing in this process has ever looked at the pane. It now takes
+  one direct capture at the deadline before giving up.
+
+  Both are measured, from a captured failing run whose pane logs are the whole argument: all three
+  agents were reported as "ready pattern not seen", while the conductor's pane held its ready line
+  AND its own `READY` answer, and `worker-a`'s held the usage-limit line whose only purpose is to be
+  caught by a failure pattern. Nothing was slow and no pattern was wrong — the launcher was blind.
+  The contract test now keeps its scratch tree on failure, which is what made those logs readable.
 
 ### Changed — the noun is "workflow" (EP-016)
 
