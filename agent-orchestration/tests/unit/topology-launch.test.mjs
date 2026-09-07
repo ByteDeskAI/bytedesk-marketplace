@@ -28,7 +28,7 @@ import * as tmux from "../../topology/lib/tmux.mjs";
 import { MIN_PANE_ROWS, windowSizeFor } from "../../topology/lib/tmux.mjs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { BEGIN_CLAUSE } from "../../topology/lib/launch.mjs";
+import { BEGIN_CLAUSE, deliverPointer } from "../../topology/lib/launch.mjs";
 import {
   GENERIC_ADAPTER,
   MEMORY_SCOPES,
@@ -840,4 +840,35 @@ test("the conductor is told to begin, and only the conductor", async () => {
     assert.equal(pointer, base, `${role} must be told only to read and acknowledge`);
   }
   assert.notEqual(base + BEGIN_CLAUSE, base, "and the orchestrator must be told more than that");
+});
+
+test("a pointer typed at a pane that is not listening is a failure, not a warning", { skip: haveTmux ? false : "no tmux" }, async (t) => {
+  // The launcher used to send the bootstrap into a not-ready pane and warn "sent anyway". On a real
+  // client run that guess was wrong: two agents timed out on a startup banner, the pointer went into
+  // panes whose TUI had not attached a key handler, and the keystrokes vanished. The composers were
+  // EMPTY — which is what distinguishes this from the paste-and-settle bug, where the text is
+  // sitting right there unsent.
+  const session = `ao-deliver-${process.pid}`;
+  t.after(async () => { await tmux.killSession(session).catch(() => {}); });
+  const adapter = { submit_keys: ["Enter"] };
+  const pointer = "Read /run/agents/x/BOOTSTRAP.md and follow it exactly.";
+
+  // `cat` echoes what it is given: the pointer reaches the pane and is visible on it.
+  const listening = await tmux.newSession(session, { cwd: tmpdir(), windowName: "main" });
+  await promisify(execFile)("tmux", ["respawn-pane", "-k", "-t", listening, "cat"]);
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  const heard = await deliverPointer(listening, adapter, pointer, { attempts: 2, settleMs: 600 });
+  assert.equal(heard.delivered, true, "a pane that echoes its input confirms delivery");
+  assert.equal(heard.attempts, 1, "and does it first time, without a retry");
+
+  // A pane that is ON but not listening. NOT `sleep`: a process that merely ignores stdin still has
+  // the tty echoing what is typed at it, so the text appears and any check for it passes — which is
+  // how the first version of this test passed against a bug. The fixture takes the terminal into raw
+  // mode, which is what a CLI does as it starts, and is why a pointer typed mid-startup vanishes.
+  const deaf = join(here, "..", "fixtures", "deaf-pane.mjs");
+  await promisify(execFile)("tmux", ["respawn-pane", "-k", "-t", listening, `${process.execPath} ${deaf}`]);
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  const lost = await deliverPointer(listening, adapter, pointer, { attempts: 2, settleMs: 600 });
+  assert.equal(lost.delivered, false, "a pane that is not listening does NOT confirm delivery");
+  assert.equal(lost.attempts, 2, "and it is retried before being called a failure");
 });

@@ -32034,6 +32034,27 @@ async function ensurePrivateDir(path3) {
   await (0, import_promises.mkdir)(path3, { recursive: true, mode: 448 });
   return path3;
 }
+async function removeTree(path3) {
+  const options = { recursive: true, force: true, maxRetries: 8, retryDelay: 50 };
+  try {
+    await (0, import_promises.rm)(path3, options);
+    return;
+  } catch (error51) {
+    if (error51?.code !== "EACCES" && error51?.code !== "EPERM") throw error51;
+  }
+  await restoreDirectoryWrite(path3);
+  await (0, import_promises.rm)(path3, options);
+}
+async function restoreDirectoryWrite(path3) {
+  const info = await (0, import_promises.lstat)(path3).catch(() => null);
+  if (!info?.isDirectory()) return;
+  await (0, import_promises.chmod)(path3, 448).catch(() => {
+  });
+  const entries = await (0, import_promises.readdir)(path3, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    if (entry.isDirectory()) await restoreDirectoryWrite((0, import_node_path2.join)(path3, entry.name));
+  }
+}
 async function readJson(path3, fallback = void 0) {
   try {
     return JSON.parse(await (0, import_promises.readFile)(path3, "utf8"));
@@ -32299,9 +32320,9 @@ var RunStore = class {
   }
   /** Run ids that still carry an active marker, plus any run predating the marker scheme. */
   async listRecoverable() {
-    const { readdir: readdir3, stat: stat3 } = await import("node:fs/promises");
+    const { readdir: readdir4, stat: stat3 } = await import("node:fs/promises");
     await this.initialize();
-    const ids = (await readdir3((0, import_node_path7.join)(this.root, "runs"))).filter((id) => RUN_ID.test(id));
+    const ids = (await readdir4((0, import_node_path7.join)(this.root, "runs"))).filter((id) => RUN_ID.test(id));
     const recoverable = [];
     for (const id of ids) {
       const marked = await stat3(this.activeMarkerPath(id)).then(() => true).catch(() => false);
@@ -32476,9 +32497,9 @@ var RunStore = class {
     return snapshot;
   }
   async list() {
-    const { readdir: readdir3 } = await import("node:fs/promises");
+    const { readdir: readdir4 } = await import("node:fs/promises");
     await this.initialize();
-    const ids = (await readdir3((0, import_node_path7.join)(this.root, "runs"))).filter((id) => RUN_ID.test(id));
+    const ids = (await readdir4((0, import_node_path7.join)(this.root, "runs"))).filter((id) => RUN_ID.test(id));
     const snapshots = await Promise.all(ids.map((id) => this.get(id)));
     return snapshots.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
@@ -43934,7 +43955,7 @@ async function createEphemeralScratch(kind) {
     try {
       process.kill(Number(match[1]), 0);
     } catch (error51) {
-      if (error51?.code === "ESRCH") await (0, import_promises9.rm)((0, import_node_path11.join)(scratchRoot, entry.name), { recursive: true, force: true, maxRetries: 8, retryDelay: 50 });
+      if (error51?.code === "ESRCH") await removeTree((0, import_node_path11.join)(scratchRoot, entry.name));
     }
   }
   const path3 = await (0, import_promises9.mkdtemp)((0, import_node_path11.join)(scratchRoot, `agent-orchestration-${kind}-${process.pid}-`));
@@ -44105,7 +44126,7 @@ async function runProviderTurn({
         }
       }
     }
-    await (0, import_promises9.rm)(sandboxTempDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 50 });
+    await removeTree(sandboxTempDir);
     if (closeError && !operationError) throw closeError;
   }
 }

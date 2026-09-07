@@ -83,6 +83,27 @@ async function ensurePrivateDir(path) {
   await (0, import_promises.mkdir)(path, { recursive: true, mode: 448 });
   return path;
 }
+async function removeTree(path) {
+  const options = { recursive: true, force: true, maxRetries: 8, retryDelay: 50 };
+  try {
+    await (0, import_promises.rm)(path, options);
+    return;
+  } catch (error) {
+    if (error?.code !== "EACCES" && error?.code !== "EPERM") throw error;
+  }
+  await restoreDirectoryWrite(path);
+  await (0, import_promises.rm)(path, options);
+}
+async function restoreDirectoryWrite(path) {
+  const info = await (0, import_promises.lstat)(path).catch(() => null);
+  if (!info?.isDirectory()) return;
+  await (0, import_promises.chmod)(path, 448).catch(() => {
+  });
+  const entries = await (0, import_promises.readdir)(path, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    if (entry.isDirectory()) await restoreDirectoryWrite((0, import_node_path.join)(path, entry.name));
+  }
+}
 async function atomicWriteJson(path, value) {
   await ensurePrivateDir((0, import_node_path.dirname)(path));
   const tempPath = `${path}.${process.pid}.${(0, import_node_crypto.randomUUID)()}.tmp`;
@@ -608,7 +629,7 @@ async function runWindowsSandbox({ providerId, pluginRoot }) {
     providerExecutable: process.env.ao_provider_executable,
     permissionProfile: process.env.ao_sandbox_permission_profile
   }).catch(async (error) => {
-    await (0, import_promises3.rm)(brokerControlDir, { recursive: true, force: true });
+    await removeTree(brokerControlDir);
     throw error;
   });
   const configPath = (0, import_node_path3.join)(brokerControlDir, "appcontainer.json");
@@ -652,7 +673,7 @@ async function runWindowsSandbox({ providerId, pluginRoot }) {
   } finally {
     child?.kill("SIGKILL");
     await revokeBootstrap();
-    await (0, import_promises3.rm)(brokerControlDir, { recursive: true, force: true });
+    await removeTree(brokerControlDir);
   }
 }
 async function readBubblewrapInfo(stream, timeoutMs = 1e4) {
@@ -879,7 +900,7 @@ async function main() {
     try {
       process.kill(Number(match[1]), 0);
     } catch (error) {
-      if (error?.code === "ESRCH") await (0, import_promises3.rm)((0, import_node_path3.join)("/dev/shm", entry.name), { recursive: true, force: true });
+      if (error?.code === "ESRCH") await removeTree((0, import_node_path3.join)("/dev/shm", entry.name));
     }
   }
   const brokerControlDir = await (0, import_promises3.mkdtemp)((0, import_node_path3.join)("/dev/shm", `agent-orchestration-broker-${process.pid}-`));
@@ -892,7 +913,7 @@ async function main() {
       terminating = true;
       child?.kill(signal);
       network?.kill(signal);
-      (0, import_promises3.rm)(brokerControlDir, { recursive: true, force: true }).finally(() => process.exit(exitCode));
+      removeTree(brokerControlDir).finally(() => process.exit(exitCode));
     });
   }
   const plan = await sandboxPlan({
@@ -905,7 +926,7 @@ async function main() {
     providerExecutable: process.env.ao_provider_executable,
     permissionProfile: process.env.ao_sandbox_permission_profile
   }).catch(async (error) => {
-    await (0, import_promises3.rm)(brokerControlDir, { recursive: true, force: true });
+    await removeTree(brokerControlDir);
     throw error;
   });
   let bootstrapRevoked = false;
@@ -996,7 +1017,7 @@ async function main() {
       if (network.exitCode === null) network.kill("SIGTERM");
     }
     await revokeBootstrap();
-    await (0, import_promises3.rm)(brokerControlDir, { recursive: true, force: true });
+    await removeTree(brokerControlDir);
   }
   if (outcome.signal) process.kill(process.pid, outcome.signal);
   else process.exitCode = outcome.code ?? 1;

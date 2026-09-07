@@ -75,6 +75,51 @@ export const BEGIN_CLAUSE =
   " Then begin the mission immediately, in the same turn — do not stop after READY and do not wait" +
   " for another message. You are the conductor: nobody is going to tell you to start.";
 
+/**
+ * Send the bootstrap pointer, then CHECK IT ARRIVED.
+ *
+ * The launcher used to send and warn: when readiness timed out it typed the pointer anyway and said
+ * "bootstrap pointer was sent anyway", which is a guess. On a real client run the guess was wrong —
+ * two Claude agents timed out on their startup banner, the pointer was typed into panes whose TUI
+ * had not yet attached a key handler, and the keystrokes went nowhere. The composers were EMPTY,
+ * which is the tell: unsent text sitting in a composer is a different bug (the paste-and-settle one
+ * above). This is typing before anything is listening at all. Nothing errored, and the run sat with
+ * healthy agents and an empty mailbox until a human noticed.
+ *
+ * Verification is a substring of the pointer appearing on the pane — whether the agent has submitted
+ * it or it is still in the composer, both mean it was RECEIVED, and only "not there at all" is the
+ * failure. Whitespace is squashed on both sides because a long path wraps, and a wrapped line breaks
+ * a naive match.
+ *
+ * A false negative costs a duplicate bootstrap, which makes an agent read its brief twice. Silent
+ * total loss costs the run. That trade is not close.
+ */
+const squash = (text) => String(text ?? "").replace(/\s+/g, "");
+
+export async function deliverPointer(pane, adapter, pointer, { attempts = 3, settleMs = 2000 } = {}) {
+  const needle = squash(pointer).slice(0, 48);
+  // Count occurrences, do not merely look for one. `captureAll` reads the whole scrollback, so on a
+  // failover — where the pane is respawned and its history survives — the PREVIOUS attempt's echo
+  // would confirm a delivery that never happened. A count that has gone up is the only evidence
+  // that this send landed. Found by the test for this function, which respawns a pane and would
+  // otherwise have passed on the corpse of an earlier attempt.
+  const occurrences = async () => {
+    const screen = await tmux.captureAll(pane);
+    return screen === null ? null : squash(screen).split(needle).length - 1;
+  };
+  let before = (await occurrences()) ?? 0;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    await tmux.sendText(pane, pointer, adapter.submit_keys);
+    await sleep(settleMs);
+    const after = await occurrences();
+    // A capture we could not take says nothing either way: try again rather than declaring success
+    // or failure from a screen this process never read.
+    if (after !== null && after > before) return { delivered: true, attempts: attempt };
+    if (after !== null) before = after;
+  }
+  return { delivered: false, attempts };
+}
+
 function describeGates(spec) {
   if (spec.gates.length === 0) return "_No human gates declared._";
   return spec.gates.map((gate) => `- after **${gate.after}**: ${gate.human ? "stop and ask the operator" : "automatic"}${gate.description ? ` — ${gate.description}` : ""}`).join("\n");
@@ -511,9 +556,23 @@ async function startAgentInPane({ pane, agentId, role = null, candidates, startI
       continue;
     }
     const pointer = render(item.adapter.bootstrap_message, item.vars) + (role === "orchestrator" ? BEGIN_CLAUSE : "");
-    await tmux.sendText(pane, pointer, item.adapter.submit_keys);
-    attempts.push({ label: item.label, outcome: readiness.ready ? "ready" : `started (${readiness.reason})` });
-    await appendJournal(runDir, { type: "agent.started", agent: agentId, candidate: item.label, adapter: item.adapter.id, pane, ready: readiness.ready });
+    // Always verified, ready or not. A not-ready pane is where the pointer vanishes outright, but a
+    // READY one is where it lands in the composer and is never submitted, and one check covers both.
+    // The cost is a settle and a capture per agent, paid in parallel with every other agent's.
+    const delivery = await deliverPointer(pane, item.adapter, pointer);
+    if (!delivery.delivered) {
+      // Not a warning. An agent that never received its brief will never do anything, and calling
+      // that "started" is what let a whole run look healthy while doing nothing.
+      const reason = `bootstrap never reached the pane after ${delivery.attempts} attempts — the agent came up but was not accepting input`;
+      attempts.push({ label: item.label, outcome: reason });
+      await appendJournal(runDir, { type: "agent.candidate_failed", agent: agentId, candidate: item.label, reason, attention: false, exit_status: null });
+      continue;
+    }
+    const outcome = readiness.ready
+      ? "ready"
+      : `started (${readiness.reason}); bootstrap confirmed on the pane`;
+    attempts.push({ label: item.label, outcome });
+    await appendJournal(runDir, { type: "agent.started", agent: agentId, candidate: item.label, adapter: item.adapter.id, pane, ready: readiness.ready, bootstrap_attempts: delivery.attempts });
     return { ok: true, index, label: item.label, adapter: item.adapter, ready: readiness.ready, attempts };
   }
   await appendJournal(runDir, { type: "agent.exhausted", agent: agentId, attempts });

@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { access, chmod, copyFile, lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rm, unlink, writeFile } from "node:fs/promises";
+import { access, chmod, copyFile, lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, unlink, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { delimiter, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import os from "node:os";
 import readline from "node:readline";
 import { AgentOrchestrationError, invariant, serializeError } from "./errors.mjs";
-import { atomicWriteJson, isPathWithin } from "./util.mjs";
+import { atomicWriteJson, isPathWithin, removeTree } from "./util.mjs";
 import { getProviderAdapter } from "./providers/adapters.mjs";
 import { AUTH_BOOTSTRAP_PROMPT } from "./runtime/bootstrap.mjs";
 
@@ -398,7 +398,7 @@ async function runWindowsSandbox({ providerId, pluginRoot }) {
     providerExecutable: process.env.ao_provider_executable,
     permissionProfile: process.env.ao_sandbox_permission_profile,
   }).catch(async (error) => {
-    await rm(brokerControlDir, { recursive: true, force: true });
+    await removeTree(brokerControlDir);
     throw error;
   });
   const configPath = join(brokerControlDir, "appcontainer.json");
@@ -442,7 +442,7 @@ async function runWindowsSandbox({ providerId, pluginRoot }) {
   } finally {
     child?.kill("SIGKILL");
     await revokeBootstrap();
-    await rm(brokerControlDir, { recursive: true, force: true });
+    await removeTree(brokerControlDir);
   }
 }
 
@@ -673,7 +673,7 @@ async function main() {
     const match = /^agent-orchestration-broker-(\d+)-/.exec(entry.name);
     if (!match) continue;
     try { process.kill(Number(match[1]), 0); } catch (error) {
-      if (error?.code === "ESRCH") await rm(join("/dev/shm", entry.name), { recursive: true, force: true });
+      if (error?.code === "ESRCH") await removeTree(join("/dev/shm", entry.name));
     }
   }
   const brokerControlDir = await mkdtemp(join("/dev/shm", `agent-orchestration-broker-${process.pid}-`));
@@ -686,7 +686,7 @@ async function main() {
       terminating = true;
       child?.kill(signal);
       network?.kill(signal);
-      rm(brokerControlDir, { recursive: true, force: true })
+      removeTree(brokerControlDir)
         .finally(() => process.exit(exitCode));
     });
   }
@@ -700,7 +700,7 @@ async function main() {
     providerExecutable: process.env.ao_provider_executable,
     permissionProfile: process.env.ao_sandbox_permission_profile,
   }).catch(async (error) => {
-    await rm(brokerControlDir, { recursive: true, force: true });
+    await removeTree(brokerControlDir);
     throw error;
   });
   let bootstrapRevoked = false;
@@ -778,7 +778,7 @@ async function main() {
       if (network.exitCode === null) network.kill("SIGTERM");
     }
     await revokeBootstrap();
-    await rm(brokerControlDir, { recursive: true, force: true });
+    await removeTree(brokerControlDir);
   }
   if (outcome.signal) process.kill(process.pid, outcome.signal);
   else process.exitCode = outcome.code ?? 1;

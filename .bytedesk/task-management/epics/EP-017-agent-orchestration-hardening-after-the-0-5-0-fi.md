@@ -1,7 +1,7 @@
 ---
 id: "EP-017"
 kind: "epic"
-status: "done"
+status: "open"
 created: "2026-09-07T00:03:05.246Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "agent-orchestration hardening after the 0.5.0 field test"
@@ -11,7 +11,6 @@ branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
 updated: "2026-09-07T16:04:06.028Z"
 plan: ".bytedesk/task-management/plans/2026-09-07-client-rebrand-a-gated-resumable-six-stage-rebra.md"
-closed: "2026-09-07T16:04:06.023Z"
 ---
 
 Follow-ups found while field-testing 0.4.0/0.5.0 that are not blocking a release: test flakes,

@@ -79,7 +79,7 @@
       ]
     },
     "src/provider-sandbox.mjs": {
-      "sha256": "8f3e8ca725d159182b4fa0990e1a2fd4e372379d2ee3f331c6c0a766bb06b0d2",
+      "sha256": "2068c4dc6a6de724a59522e100358c07dbaf2dd08e86fe8e4e45871c75337dcd",
       "lineCount": 793,
       "anchors": [
         "\"AO_ACP_PROVIDER_REQUEST_LIMIT\""
@@ -103,7 +103,7 @@
       ]
     },
     "src/runtime/acpx-driver.mjs": {
-      "sha256": "329b037b84930f10fa6e2917d27ae0543a63969164c4829690821c7b3dd3f567",
+      "sha256": "e54b48f8e5298e97b7b6bdedebca1a2b19ae26ce0bcd3ee6c4e95ea4973defb6",
       "lineCount": 274,
       "anchors": [
         "const permissionState =",

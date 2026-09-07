@@ -29,7 +29,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 
 // src/runtime/acpx-driver.mjs
 var import_promises5 = require("node:fs/promises");
-var import_node_path4 = require("node:path");
+var import_node_path5 = require("node:path");
 var import_node_os3 = __toESM(require("node:os"), 1);
 
 // node_modules/acpx/dist/live-checkpoint-ClPCSdrW.js
@@ -16704,11 +16704,11 @@ var Connection = class {
     const id = this.nextRequestId++;
     let cancel = () => {
     };
-    const response = new Promise((resolve, reject) => {
+    const response = new Promise((resolve2, reject) => {
       const pendingResponse = {
         resolve: (value) => {
           try {
-            resolve(mapResponse ? mapResponse(value) : value);
+            resolve2(mapResponse ? mapResponse(value) : value);
           } catch (error51) {
             reject(error51);
           }
@@ -16765,8 +16765,8 @@ var Connection = class {
     this.stream = stream;
     this.staticHandlers = handlers;
     this.allowBatches = options?.allowBatches ?? true;
-    this.closedPromise = new Promise((resolve) => {
-      this.abortController.signal.addEventListener("abort", () => resolve());
+    this.closedPromise = new Promise((resolve2) => {
+      this.abortController.signal.addEventListener("abort", () => resolve2());
     });
     void this.receive();
   }
@@ -17503,8 +17503,8 @@ var AsyncQueue = class {
     if (this.failed) {
       return Promise.reject(this.failure);
     }
-    return new Promise((resolve, reject) => {
-      this.waiters.push({ resolve, reject });
+    return new Promise((resolve2, reject) => {
+      this.waiters.push({ resolve: resolve2, reject });
     });
   }
 };
@@ -19116,7 +19116,7 @@ async function withTimeout(promise2, timeoutMs) {
   }
 }
 async function withInterrupt(run, onInterrupt) {
-  return await new Promise((resolve, reject) => {
+  return await new Promise((resolve2, reject) => {
     let settled = false;
     const finish = (cb) => {
       if (settled) return;
@@ -19143,7 +19143,7 @@ async function withInterrupt(run, onInterrupt) {
     process.once("SIGINT", onSigint);
     process.once("SIGTERM", onSigterm);
     process.once("SIGHUP", onSighup);
-    run().then((result) => finish(() => resolve(result)), (error51) => finish(() => reject(error51)));
+    run().then((result) => finish(() => resolve2(result)), (error51) => finish(() => reject(error51)));
   });
 }
 function promptCapabilityRequirement(block) {
@@ -19829,8 +19829,8 @@ function nowIso$1() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function isWithinRoot(rootDir, targetPath) {
-  const relative = import_node_path.default.relative(rootDir, targetPath);
-  return relative.length === 0 || !relative.startsWith("..") && !import_node_path.default.isAbsolute(relative);
+  const relative2 = import_node_path.default.relative(rootDir, targetPath);
+  return relative2.length === 0 || !relative2.startsWith("..") && !import_node_path.default.isAbsolute(relative2);
 }
 function toWritePreview(content) {
   const lines = content.replace(/\r\n/g, "\n").split("\n");
@@ -20247,9 +20247,9 @@ function findExistingCommandInDirectory(directory, candidates) {
   return candidates.map((candidate) => import_node_path.default.join(trimmedDirectory, candidate)).find((resolved) => import_node_fs.default.existsSync(resolved));
 }
 function resolveWindowsWrapperToken(token, wrapperPath) {
-  const relative = token.match(/%~?dp0%?\s*[\\/]*(.*)$/i)?.[1]?.trim();
-  if (!relative) return;
-  const candidate = import_node_path.default.resolve(import_node_path.default.dirname(wrapperPath), relative.replace(/[\\/]+/g, import_node_path.default.sep).replace(/^[\\/]+/, ""));
+  const relative2 = token.match(/%~?dp0%?\s*[\\/]*(.*)$/i)?.[1]?.trim();
+  if (!relative2) return;
+  const candidate = import_node_path.default.resolve(import_node_path.default.dirname(wrapperPath), relative2.replace(/[\\/]+/g, import_node_path.default.sep).replace(/^[\\/]+/, ""));
   return import_node_path.default.extname(candidate).toLowerCase() === ".exe" && import_node_fs.default.existsSync(candidate) ? candidate : void 0;
 }
 function resolveWindowsWrapperExecutable(wrapperPath) {
@@ -20358,10 +20358,10 @@ function isoNow$1() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function waitForSpawn$1(child) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve2, reject) => {
     const onSpawn = () => {
       child.off("error", onError);
-      resolve();
+      resolve2();
     };
     const onError = (error51) => {
       child.off("spawn", onSpawn);
@@ -20380,7 +20380,7 @@ function requireAgentStdio(child) {
 }
 function waitForChildExit(child, timeoutMs) {
   if (!isChildProcessRunning(child)) return Promise.resolve(true);
-  return new Promise((resolve) => {
+  return new Promise((resolve2) => {
     let settled = false;
     const timer = setTimeout(() => {
       finish(false);
@@ -20391,7 +20391,7 @@ function waitForChildExit(child, timeoutMs) {
       child.off("close", onExitLike);
       child.off("exit", onExitLike);
       clearTimeout(timer);
-      resolve(value);
+      resolve2(value);
     };
     const onExitLike = () => {
       finish(true);
@@ -20645,7 +20645,7 @@ async function resolveGeminiCommandArgs(command, args) {
   return [...args];
 }
 async function readCommandOutput(command, args, timeoutMs) {
-  return await new Promise((resolve) => {
+  return await new Promise((resolve2) => {
     const child = (0, import_node_child_process.spawn)(command, [...args], buildSpawnCommandOptions(command, {
       stdio: [
         "ignore",
@@ -20664,7 +20664,7 @@ async function readCommandOutput(command, args, timeoutMs) {
       child.removeAllListeners();
       child.stdout?.removeAllListeners();
       child.stderr?.removeAllListeners();
-      resolve(value);
+      resolve2(value);
     };
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
@@ -21018,10 +21018,10 @@ function trimToUtf8Boundary(buffer, limit) {
   return buffer.subarray(start);
 }
 function waitForSpawn(process3) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve2, reject) => {
     const onSpawn = () => {
       process3.off("error", onError);
-      resolve();
+      resolve2();
     };
     const onError = (error51) => {
       process3.off("spawn", onSpawn);
@@ -21039,8 +21039,8 @@ function canPromptForPermission() {
   return process.stdin.isTTY && process.stderr.isTTY;
 }
 function waitMs(ms) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, Math.max(0, ms));
+  return new Promise((resolve2) => {
+    setTimeout(resolve2, Math.max(0, ms));
   });
 }
 var TerminalManager = class {
@@ -21080,8 +21080,8 @@ var TerminalManager = class {
       const { proc, spawnCommand } = await spawnTerminalProcess(params, this.cwd);
       let resolveExit = () => {
       };
-      const exitPromise = new Promise((resolve) => {
-        resolveExit = resolve;
+      const exitPromise = new Promise((resolve2) => {
+        resolveExit = resolve2;
       });
       const terminal = {
         process: proc,
@@ -21405,7 +21405,7 @@ function parseProcessListLine(line) {
 }
 async function runProcessListCommand() {
   if (process.platform === "win32") return await runWindowsProcessListCommand();
-  return await new Promise((resolve, reject) => {
+  return await new Promise((resolve2, reject) => {
     const child = (0, import_node_child_process.spawn)("ps", ["-eo", "pid=,ppid="], { stdio: [
       "ignore",
       "pipe",
@@ -21424,7 +21424,7 @@ async function runProcessListCommand() {
     child.once("error", reject);
     child.once("close", (code, signal) => {
       if (code === 0) {
-        resolve(stdout);
+        resolve2(stdout);
         return;
       }
       reject(/* @__PURE__ */ new Error(`ps exited with code ${code ?? "null"} signal ${signal ?? "null"}: ${stderr}`));
@@ -21458,7 +21458,7 @@ async function listProcessGroupPids(processGroupId) {
   return pids;
 }
 async function runProcessGroupListCommand() {
-  return await new Promise((resolve, reject) => {
+  return await new Promise((resolve2, reject) => {
     const child = (0, import_node_child_process.spawn)("ps", ["-eo", "pid=,pgid="], { stdio: [
       "ignore",
       "pipe",
@@ -21477,7 +21477,7 @@ async function runProcessGroupListCommand() {
     child.once("error", reject);
     child.once("close", (code, signal) => {
       if (code === 0) {
-        resolve(stdout);
+        resolve2(stdout);
         return;
       }
       reject(/* @__PURE__ */ new Error(`ps exited with code ${code ?? "null"} signal ${signal ?? "null"}: ${stderr}`));
@@ -21485,7 +21485,7 @@ async function runProcessGroupListCommand() {
   });
 }
 async function runWindowsProcessListCommand() {
-  return await new Promise((resolve, reject) => {
+  return await new Promise((resolve2, reject) => {
     const child = (0, import_node_child_process.spawn)("powershell.exe", [
       "-NoProfile",
       "-NonInteractive",
@@ -21512,7 +21512,7 @@ async function runWindowsProcessListCommand() {
     child.once("error", reject);
     child.once("close", (code, signal) => {
       if (code === 0) {
-        resolve(stdout);
+        resolve2(stdout);
         return;
       }
       reject(/* @__PURE__ */ new Error(`powershell process list exited with code ${code ?? "null"} signal ${signal ?? "null"}: ${stderr}`));
@@ -21526,7 +21526,7 @@ async function killWindowsProcessTree(pid, signal) {
     "/t"
   ];
   if (signal === "SIGKILL") args.push("/f");
-  await new Promise((resolve) => {
+  await new Promise((resolve2) => {
     const child = (0, import_node_child_process.spawn)("taskkill", args, {
       stdio: [
         "ignore",
@@ -21535,8 +21535,8 @@ async function killWindowsProcessTree(pid, signal) {
       ],
       windowsHide: true
     });
-    child.once("error", () => resolve());
-    child.once("close", () => resolve());
+    child.once("error", () => resolve2());
+    child.once("close", () => resolve2());
   });
 }
 function sendSignal(pid, signal) {
@@ -22271,8 +22271,8 @@ var AcpClient = class {
     }
     if (waitMs2 <= 0) return;
     let timer;
-    const timeoutPromise = new Promise((resolve) => {
-      timer = setTimeout(resolve, waitMs2);
+    const timeoutPromise = new Promise((resolve2) => {
+      timer = setTimeout(resolve2, waitMs2);
     });
     try {
       return await Promise.race([active.promise.then((response) => response, () => void 0), timeoutPromise]);
@@ -22573,7 +22573,7 @@ var AcpClient = class {
     return error51;
   }
   async runConnectionRequest(run) {
-    return await new Promise((resolve, reject) => {
+    return await new Promise((resolve2, reject) => {
       const pending = {
         settled: false,
         reject
@@ -22585,7 +22585,7 @@ var AcpClient = class {
         cb();
       };
       this.pendingConnectionRequests.add(pending);
-      Promise.resolve().then(run).then((value) => finish(() => resolve(value)), (error51) => finish(() => reject(error51)));
+      Promise.resolve().then(run).then((value) => finish(() => resolve2(value)), (error51) => finish(() => reject(error51)));
     });
   }
   rejectPendingConnectionRequests(error51) {
@@ -22700,8 +22700,8 @@ var AcpClient = class {
         await this.sessionUpdateChain;
         if (this.processedSessionUpdates === this.observedSessionUpdates) return;
       }
-      await new Promise((resolve) => {
-        setTimeout(resolve, DRAIN_POLL_INTERVAL_MS);
+      await new Promise((resolve2) => {
+        setTimeout(resolve2, DRAIN_POLL_INTERVAL_MS);
       });
     }
     throw new Error(`Timed out waiting for session replay drain after ${normalizedTimeoutMs}ms`);
@@ -24461,14 +24461,14 @@ function shouldReuseExistingRecord(record2, params) {
   return true;
 }
 function createDeferred() {
-  let resolve;
+  let resolve2;
   let reject;
   return {
     promise: new Promise((res, rej) => {
-      resolve = res;
+      resolve2 = res;
       reject = rej;
     }),
-    resolve,
+    resolve: resolve2,
     reject
   };
 }
@@ -25805,6 +25805,7 @@ function getProviderAdapter(providerId2) {
 var import_node_child_process2 = require("node:child_process");
 var import_node_crypto3 = require("node:crypto");
 var import_promises4 = require("node:fs/promises");
+var import_node_path4 = require("node:path");
 var import_node_util2 = require("node:util");
 var execFile2 = (0, import_node_util2.promisify)(import_node_child_process2.execFile);
 async function runFile(command, args, options = {}) {
@@ -25829,6 +25830,27 @@ async function ensurePrivateDir(path3) {
   await (0, import_promises4.mkdir)(path3, { recursive: true, mode: 448 });
   return path3;
 }
+async function removeTree(path3) {
+  const options = { recursive: true, force: true, maxRetries: 8, retryDelay: 50 };
+  try {
+    await (0, import_promises4.rm)(path3, options);
+    return;
+  } catch (error51) {
+    if (error51?.code !== "EACCES" && error51?.code !== "EPERM") throw error51;
+  }
+  await restoreDirectoryWrite(path3);
+  await (0, import_promises4.rm)(path3, options);
+}
+async function restoreDirectoryWrite(path3) {
+  const info = await (0, import_promises4.lstat)(path3).catch(() => null);
+  if (!info?.isDirectory()) return;
+  await (0, import_promises4.chmod)(path3, 448).catch(() => {
+  });
+  const entries = await (0, import_promises4.readdir)(path3, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    if (entry.isDirectory()) await restoreDirectoryWrite((0, import_node_path4.join)(path3, entry.name));
+  }
+}
 
 // src/runtime/acpx-driver.mjs
 async function createEphemeralScratch(kind) {
@@ -25840,10 +25862,10 @@ async function createEphemeralScratch(kind) {
     try {
       process.kill(Number(match[1]), 0);
     } catch (error51) {
-      if (error51?.code === "ESRCH") await (0, import_promises5.rm)((0, import_node_path4.join)(scratchRoot, entry.name), { recursive: true, force: true, maxRetries: 8, retryDelay: 50 });
+      if (error51?.code === "ESRCH") await removeTree((0, import_node_path5.join)(scratchRoot, entry.name));
     }
   }
-  const path3 = await (0, import_promises5.mkdtemp)((0, import_node_path4.join)(scratchRoot, `agent-orchestration-${kind}-${process.pid}-`));
+  const path3 = await (0, import_promises5.mkdtemp)((0, import_node_path5.join)(scratchRoot, `agent-orchestration-${kind}-${process.pid}-`));
   return path3;
 }
 function shellQuote(value) {
@@ -25854,10 +25876,10 @@ function windowsQuote(value) {
 }
 function providerCommandOverrides(pluginRoot2, sandboxEnvironment = {}) {
   if (process.platform === "win32") {
-    const launcher2 = `${windowsQuote(process.execPath)} ${windowsQuote((0, import_node_path4.join)(pluginRoot2, "dist", "provider-sandbox.cjs"))}`;
+    const launcher2 = `${windowsQuote(process.execPath)} ${windowsQuote((0, import_node_path5.join)(pluginRoot2, "dist", "provider-sandbox.cjs"))}`;
     return Object.fromEntries(Object.values(PROVIDER_ADAPTERS).map((adapter) => [adapter.agentTarget, `${launcher2} ${windowsQuote(adapter.providerId)}`]));
   }
-  const launcher = shellQuote((0, import_node_path4.join)(pluginRoot2, "bin", "provider-sandbox"));
+  const launcher = shellQuote((0, import_node_path5.join)(pluginRoot2, "bin", "provider-sandbox"));
   const environment = Object.entries(sandboxEnvironment).map(([key, value]) => `${key}=${shellQuote(value)}`).join(" ");
   return Object.fromEntries(Object.values(PROVIDER_ADAPTERS).map((adapter) => [adapter.agentTarget, `${environment ? `env ${environment} ` : ""}${launcher} ${shellQuote(adapter.providerId)}`]));
 }
@@ -25883,13 +25905,13 @@ var YOLO_MODE_VALUES = Object.freeze(["bypassPermissions", "agent-full-access", 
 async function probeProviderSession({ pluginRoot: pluginRoot2, stateRoot: stateRoot2, cwd: cwd2, providerId: providerId2, providerExecutable: providerExecutable2 }) {
   const adapter = getProviderAdapter(providerId2);
   invariant(adapter, "AO_PROVIDER_ADAPTER_MISSING", `No trusted adapter is registered for provider ${providerId2}.`);
-  const probeWorkspace = await ensurePrivateDir((0, import_node_path4.join)(stateRoot2, "probe-workspaces", providerId2, "workspace"));
+  const probeWorkspace = await ensurePrivateDir((0, import_node_path5.join)(stateRoot2, "probe-workspaces", providerId2, "workspace"));
   await git(probeWorkspace, ["init", "-q"]);
-  const probeGitDir = (0, import_node_path4.join)(probeWorkspace, ".git");
+  const probeGitDir = (0, import_node_path5.join)(probeWorkspace, ".git");
   const sandboxTempDir = await createEphemeralScratch(`probe-${providerId2}`);
   const runtime = createProviderRuntime({
     pluginRoot: pluginRoot2,
-    sessionStateDir: (0, import_node_path4.join)(stateRoot2, "probe-sessions", providerId2),
+    sessionStateDir: (0, import_node_path5.join)(stateRoot2, "probe-sessions", providerId2),
     cwd: probeWorkspace,
     commonGitDir: probeGitDir,
     permissionProfile: "read",
@@ -25921,7 +25943,7 @@ async function probeProviderSession({ pluginRoot: pluginRoot2, stateRoot: stateR
         if (error51?.code !== "ACP_BACKEND_UNSUPPORTED_CONTROL") throw error51;
       }
     }
-    await (0, import_promises5.rm)(sandboxTempDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 50 });
+    await removeTree(sandboxTempDir);
   }
 }
 

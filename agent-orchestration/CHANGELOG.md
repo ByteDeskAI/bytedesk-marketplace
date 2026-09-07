@@ -1,5 +1,18 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **Sandbox teardown no longer fails on a provider's Go module cache.** An agent that ran
+  `go build` or `go test` left `go/pkg/mod` inside its sandbox HOME with directories at mode
+  `0555`. Unlink needs write on the *parent* directory, so cleanup died with
+  `EACCES: permission denied, unlink '/dev/shm/.../provider-home/<provider>/go/pkg/mod/.../LICENSE'`
+  — `fs.rm({ force: true })` does not help, because `force` only swallows `ENOENT`. Every broker
+  and turn-scratch removal now goes through `removeTree`, which restores write on its own
+  directories and retries once. Symlinked directories are not followed, so it cannot chmod outside
+  the tree it owns.
+
 ## [0.5.0] — 2026-09-06
 
 ### Added — the run tree (EP-016)
@@ -160,6 +173,20 @@
   that tail within minutes, so a claim built on it would have grown *louder* the longer a run worked
   correctly. Verified both ways against live runs — it fires at 135s on a conductor that never sent
   anything, and stays quiet on one that has.
+- **A bootstrap that never arrived is a failure, not a warning** (TM-126). When readiness timed out
+  the launcher typed the pointer anyway and said "bootstrap pointer was sent anyway" — a guess. On a
+  real client run it was wrong: two Claude agents timed out on their startup banner, the pointer went
+  into panes whose TUI had not yet attached a key handler, and the keystrokes vanished. The composers
+  were EMPTY, which is what separates this from the paste-and-settle bug where the text is sitting
+  right there unsent. Nothing errored; the run held three healthy agents and an empty mailbox until a
+  human noticed. The pointer is now confirmed on the pane, retried up to three times, and a delivery
+  that never lands fails the candidate instead of reporting it as started.
+- Two things the test for it caught in the fix itself. **Occurrences are counted, not looked for** —
+  `captureAll` reads the whole scrollback, so on a failover the previous attempt's echo would confirm
+  a delivery that never happened. And the "not listening" pane in the test is a **raw-mode** fixture
+  rather than `sleep`: a process that merely ignores stdin still has the tty echoing what is typed at
+  it, so the text appears and the check passes — the first version of the test passed against the
+  bug for exactly that reason.
 
 ### Changed — the noun is "workflow" (EP-016)
 

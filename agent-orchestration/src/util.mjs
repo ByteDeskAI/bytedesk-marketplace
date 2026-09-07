@@ -1,7 +1,7 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { randomUUID, createHash } from "node:crypto";
-import { mkdir, open, readFile, realpath, rename, stat } from "node:fs/promises";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { chmod, lstat, mkdir, open, readFile, readdir, realpath, rename, rm, stat } from "node:fs/promises";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 import { invariant } from "./errors.mjs";
@@ -61,6 +61,38 @@ export function newId(prefix) {
 export async function ensurePrivateDir(path) {
   await mkdir(path, { recursive: true, mode: 0o700 });
   return path;
+}
+
+/**
+ * Remove a sandbox tree that may contain read-only caches.
+ *
+ * `rm({ force: true })` only swallows ENOENT. A provider that ran `go build`
+ * leaves `go/pkg/mod` behind with directories at mode 0555, and unlink needs
+ * write on the *parent* directory, so teardown fails with EACCES on a file the
+ * broker owns. Restore write on our own directories and retry once. Symlinked
+ * directories are skipped (Dirent.isDirectory() is false for them), so this
+ * cannot chmod outside the tree.
+ */
+export async function removeTree(path) {
+  const options = { recursive: true, force: true, maxRetries: 8, retryDelay: 50 };
+  try {
+    await rm(path, options);
+    return;
+  } catch (error) {
+    if (error?.code !== "EACCES" && error?.code !== "EPERM") throw error;
+  }
+  await restoreDirectoryWrite(path);
+  await rm(path, options);
+}
+
+async function restoreDirectoryWrite(path) {
+  const info = await lstat(path).catch(() => null);
+  if (!info?.isDirectory()) return;
+  await chmod(path, 0o700).catch(() => {});
+  const entries = await readdir(path, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    if (entry.isDirectory()) await restoreDirectoryWrite(join(path, entry.name));
+  }
 }
 
 export async function readJson(path, fallback = undefined) {
