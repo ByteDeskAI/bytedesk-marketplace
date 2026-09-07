@@ -22,6 +22,7 @@ import { RESOLVED, config, list, logEvent, missingContractRules, reindex, remove
 import { LINK_TYPES } from "./issue.mjs";
 import { releaseClaim, staleClaims, sweepClaims } from "./claims.mjs";
 import { KINDS, paths } from "./paths.mjs";
+import { evidenceSync } from "./evidence.mjs";
 import {
   launcherStatus,
   legacyCodexHooks,
@@ -272,13 +273,65 @@ export function diagnose(p = paths()) {
 
     for (const ref of t.evidence || []) {
       if (!checkable(ref)) continue;
-      if (existsSync(evidenceTarget(ref, p))) continue;
-      out.push(
-        finding("warning", "missing-evidence", t.id, `evidence ${ref} is recorded but the file is gone`, () => {
-          update(t.id, { evidence: (t.evidence || []).filter((e) => e !== ref) }, p);
-          return `dropped ${ref} from ${t.id}.evidence`;
-        }),
-      );
+      if (!existsSync(evidenceTarget(ref, p))) {
+        out.push(
+          finding("warning", "missing-evidence", t.id, `evidence ${ref} is recorded but the file is gone`, () => {
+            update(t.id, { evidence: (t.evidence || []).filter((e) => e !== ref) }, p);
+            return `dropped ${ref} from ${t.id}.evidence`;
+          }),
+        );
+        continue;
+      }
+      /**
+       * The copy is there. Does it still say what its source says?
+       *
+       * Warning, not error, and deliberately. The store is not lying: the copy is exactly the
+       * bytes that were attached, and `evidence[]` names it correctly — which is what `error`
+       * is reserved for here. A source that has moved on is normal and often intentional; the
+       * snapshot is a snapshot. Making drift an error would exit 1 and turn every board red the
+       * first time anyone edits a file they once attached, and a check that is red by default is
+       * a check that gets ignored — which is precisely this defect's own failure mode in a new
+       * coat. A named warning carrying the source path is enough for a reader to decide.
+       *
+       * Not fixable, for the same reason `done-unmet-ac` is not. `--fix` re-copying the source
+       * would silently replace the evidence a task was closed on with content nobody reviewed,
+       * and the newer bytes are not always the better ones. Refreshing is a decision; the
+       * message says exactly which command makes it.
+       *
+       * `unknown` emits nothing at all. Every attachment made before provenance existed is
+       * unknown, so reporting it would flood an older board with a finding no one can act on
+       * — the source path is not recorded, which is the thing that cannot be recovered.
+       * `tm evidence <id> --check` names them on request.
+       */
+      const sync = evidenceSync(t, ref, p);
+      if (sync.state === "drifted") {
+        out.push(
+          finding(
+            "warning",
+            "evidence-drift",
+            t.id,
+            `evidence ${ref} no longer matches its source ${sync.source} (changed since it was attached${sync.at ? ` ${sync.at}` : ""}) — re-attach with \`.bytedesk/task-management/bin/tm evidence ${t.id} ${sync.source}\` if the newer content is the proof`,
+          ),
+        );
+      } else if (sync.state === "source-missing") {
+        out.push(
+          finding(
+            "warning",
+            "evidence-source-gone",
+            t.id,
+            `evidence ${ref} was copied from ${sync.source}, which no longer exists — the copy stands, but it can no longer be checked against anything`,
+          ),
+        );
+      } else if (sync.state === "source-unreadable") {
+        out.push(
+          finding(
+            "warning",
+            "evidence-source-unreadable",
+            t.id,
+            `evidence ${ref} was copied from ${sync.source}, which is present but cannot be read — drift cannot be determined`,
+          ),
+        );
+      }
     }
   }
 

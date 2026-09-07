@@ -8,11 +8,12 @@
  */
 import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { cleanup, tempStore } from "./helpers.mjs";
 import { create, read, update } from "../../lib/store.mjs";
-import { attachEvidence, detachEvidence, evidenceDest, listEvidence, servableEvidencePath } from "../../lib/evidence.mjs";
+import { PROVENANCE, attachEvidence, detachEvidence, evidenceDest, evidenceSync, listEvidence, servableEvidencePath } from "../../lib/evidence.mjs";
 import { diagnose, repairAll } from "../../lib/doctor.mjs";
 import { handleWrite } from "../../lib/dashboard-api.mjs";
 import { writeConfig } from "../../lib/store.mjs";
@@ -194,5 +195,171 @@ describe("list, detach, doctor", () => {
     repairAll(p);
     assert.deepEqual(read(t.id, p).evidence, [url]);
     assert.equal(listEvidence(t, p)[0].exists, true);
+  });
+});
+
+/**
+ * TM-125 — an attachment is a COPY, so the source can move on without it. These tests exist
+ * because that happened: TM-123's evidence drifted within an hour of being attached and the
+ * board said nothing, because nothing recorded where the file came from.
+ *
+ * Each one is written so that removing the provenance write, or the doctor check, makes it
+ * fail — a test that passes with the fix reverted is guarding a different property than its
+ * name claims.
+ */
+describe("evidence provenance", () => {
+  const codes = (p) => diagnose(p).map((f) => f.code);
+  const at = (p, code) => diagnose(p).find((f) => f.code === code);
+
+  it("records the absolute source path and a content hash at attach time", () => {
+    const p = store();
+    const t = task(p);
+    const src = join(p.root, "measure.txt");
+    writeFileSync(src, "22/123/14\n");
+    const { ref, provenance } = attachEvidence(t.id, { path: src }, p);
+
+    assert.equal(provenance.source, src, "the source path is what makes drift detectable at all");
+    assert.equal(provenance.sha256, createHash("sha256").update("22/123/14\n").digest("hex"));
+    assert.equal(provenance.bytes, 10);
+    // …and it survives the round trip through frontmatter, which is where it has to live.
+    const stored = read(t.id, p)[PROVENANCE][ref];
+    assert.equal(stored.source, src);
+    assert.equal(stored.sha256, provenance.sha256);
+    assert.equal(evidenceSync(read(t.id, p), ref, p).state, "in-sync");
+  });
+
+  it("reports drift, naming the source, when the source is edited after the copy", () => {
+    const p = store();
+    const t = task(p);
+    const src = join(p.root, "rate.md");
+    writeFileSync(src, "buckets 22/123/14\n");
+    const { dest, ref } = attachEvidence(t.id, { path: src }, p);
+    assert.deepEqual(codes(p), [], "in sync the moment it is attached");
+
+    // The live failure, reproduced: an addendum appended to the source after the copy.
+    writeFileSync(src, "buckets 22/123/14\n\n## ten-run addendum\n55/90/14\n");
+
+    const f = at(p, "evidence-drift");
+    assert.ok(f, "an edited source must be reported, not silently tolerated");
+    assert.equal(f.id, t.id);
+    assert.ok(f.message.includes(src), "the finding must carry the source path — it is the actionable part");
+    assert.ok(f.message.includes(ref));
+    assert.equal(evidenceSync(read(t.id, p), ref, p).state, "drifted");
+    // The copy itself is untouched; it is the pointer that is stale, not the bytes.
+    assert.equal(readFileSync(dest, "utf8"), "buckets 22/123/14\n");
+  });
+
+  it("keeps drift a warning, so an edited source cannot turn the board red", () => {
+    const p = store();
+    const t = task(p);
+    const src = join(p.root, "out.log");
+    writeFileSync(src, "before\n");
+    attachEvidence(t.id, { path: src }, p);
+    writeFileSync(src, "after\n");
+
+    const f = at(p, "evidence-drift");
+    assert.equal(f.level, "warning");
+    assert.equal(f.fixable, false, "refreshing evidence a task was closed on is a decision, not a repair");
+    assert.equal(
+      diagnose(p).filter((x) => x.level === "error").length,
+      0,
+      "`tm doctor` exits 1 on an error; drift must not gate every commit after an ordinary edit",
+    );
+  });
+
+  it("leaves a drifted attachment alone under --fix", () => {
+    const p = store();
+    const t = task(p);
+    const src = join(p.root, "proof.txt");
+    writeFileSync(src, "one\n");
+    const { dest, ref } = attachEvidence(t.id, { path: src }, p);
+    writeFileSync(src, "two\n");
+
+    repairAll(p);
+    assert.deepEqual(read(t.id, p).evidence, [ref], "the ref must survive a repair pass");
+    assert.equal(readFileSync(dest, "utf8"), "one\n", "--fix must not overwrite reviewed evidence with newer bytes");
+    assert.ok(at(p, "evidence-drift"), "and it is still reported afterwards");
+  });
+
+  it("distinguishes a deleted source from a changed one, and from a missing copy", () => {
+    const p = store();
+    const t = task(p);
+    const src = join(p.root, "gone.txt");
+    writeFileSync(src, "present\n");
+    const { dest, ref } = attachEvidence(t.id, { path: src }, p);
+    rmSync(src);
+
+    const found = codes(p);
+    assert.ok(found.includes("evidence-source-gone"), "a source that has moved or been deleted is its own fact");
+    assert.ok(!found.includes("evidence-drift"), "a deleted source has not 'changed' — that would be a different claim");
+    assert.ok(!found.includes("missing-evidence"), "the copy in the store is still there; only the source is gone");
+    assert.equal(existsSync(dest), true);
+    assert.equal(evidenceSync(read(t.id, p), ref, p).state, "source-missing");
+
+    // And when the COPY goes instead, it is the old finding, not a provenance one.
+    rmSync(dest);
+    const after = codes(p);
+    assert.ok(after.includes("missing-evidence"));
+    assert.ok(!after.includes("evidence-source-gone"));
+  });
+
+  it("calls an attachment with no recorded provenance unknown, and says nothing about it", () => {
+    const p = store();
+    const t = task(p);
+    // Exactly the shape of a store written before this existed: a ref, no evidenceSources.
+    const ref = `.bytedesk/task-management/evidence/${t.id}-legacy.log`;
+    mkdirSync(p.evidence, { recursive: true });
+    writeFileSync(join(p.evidence, `${t.id}-legacy.log`), "attached last year\n");
+    update(t.id, { evidence: [ref] }, p);
+
+    const doc = read(t.id, p);
+    assert.equal(doc[PROVENANCE], undefined, "an old store gains no frontmatter by being read");
+    assert.equal(evidenceSync(doc, ref, p).state, "unknown", "unknown is not drifted — nothing was ever recorded");
+    assert.deepEqual(codes(p), [], "an older board must not light up with findings nobody can act on");
+    assert.equal(listEvidence(doc, p)[0].sync, "unknown", "…but asking directly still gets an honest answer");
+  });
+
+  it("treats an inline capture as inline, not as a source that vanished", () => {
+    const p = store();
+    const t = task(p);
+    const { ref } = attachEvidence(t.id, { text: "pasted output\n", ts: 7 }, p);
+    const doc = read(t.id, p);
+    assert.equal(doc[PROVENANCE][ref].source, null, "stdin has no upstream file");
+    assert.equal(evidenceSync(doc, ref, p).state, "inline");
+    assert.deepEqual(codes(p), []);
+  });
+
+  it("clears the drift when the source is attached again", () => {
+    const p = store();
+    const t = task(p);
+    const src = join(p.root, "refresh.txt");
+    writeFileSync(src, "v1\n");
+    attachEvidence(t.id, { path: src }, p);
+    writeFileSync(src, "v2\n");
+    assert.ok(at(p, "evidence-drift"));
+
+    const { dest, ref } = attachEvidence(t.id, { path: src }, p);
+    assert.equal(readFileSync(dest, "utf8"), "v2\n");
+    assert.equal(evidenceSync(read(t.id, p), ref, p).state, "in-sync");
+    assert.equal(at(p, "evidence-drift"), undefined, "the refresh is what makes the warning actionable");
+  });
+
+  it("drops the provenance entry when the ref is detached", () => {
+    const p = store();
+    const t = task(p);
+    const src = join(p.root, "detach.txt");
+    writeFileSync(src, "x\n");
+    const { ref } = attachEvidence(t.id, { path: src }, p);
+    detachEvidence(t.id, ref, p);
+    const doc = read(t.id, p);
+    assert.deepEqual(doc.evidence, []);
+    assert.ok(!doc[PROVENANCE] || !(ref in doc[PROVENANCE]), "a stale record would mis-report the next attach of the same name");
+  });
+
+  it("says nothing about a url — there is no source path to compare", () => {
+    const p = store();
+    const t = task(p, "proven", { evidence: ["https://example.com/pull/69"] });
+    assert.equal(evidenceSync(read(t.id, p), "https://example.com/pull/69", p).state, "external");
+    assert.deepEqual(codes(p), []);
   });
 });

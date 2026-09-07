@@ -266,6 +266,51 @@ assert_contains "$(tm doctor || true)" "TM-404" "doctor names the broken referen
 assert_contains "$(tm doctor --fix)" "dropped TM-404" "doctor --fix says what it changed"
 assert_status 0 "and the store is clean afterwards" node "$PLUGIN_ROOT/bin/tm" doctor
 
+# TM-125 — `tm evidence` COPIES, so the source can move on and the task never hears about it.
+# Attaching now records where the file came from and what it said; doctor reports when that
+# stops being true. Sits here because the block above has just proved the store is otherwise
+# clean, which is what makes the exit code below mean something.
+DRIFT_SRC="$TM_ROOT/rate-addendum.md"
+printf 'buckets 22/123/14\n' > "$DRIFT_SRC"
+# The gates are not what is under test here, and the suite is sitting at the WIP limit by now.
+DID="$(env TM_ENFORCE=off node "$PLUGIN_ROOT/bin/tm" task new "Evidence that can go stale" --body "attach a file, then move the source on" --ac "drift is named" | grep -o 'TM-[0-9][0-9]*' | head -1)"
+[[ -n "$DID" ]] && ok "the drift fixture task exists" || no "the drift fixture task exists" "no id"
+assert_contains "$(tm evidence "$DID" "$DRIFT_SRC")" "from $DRIFT_SRC" "attaching says which source it copied"
+assert_contains "$(tm evidence "$DID" --check)" "in sync     $DID" "a fresh attachment reads as in sync"
+assert_status 0 "and doctor stays quiet about it" node "$PLUGIN_ROOT/bin/tm" doctor
+
+# The live failure: an addendum appended to the source after the copy was taken.
+printf 'buckets 22/123/14\n\n## ten-run addendum\n55/90/14\n' > "$DRIFT_SRC"
+assert_contains "$(tm doctor)" "evidence-drift" "doctor reports a source edited after the copy"
+assert_contains "$(tm doctor)" "$DRIFT_SRC" "and names the source path, which is the actionable part"
+assert_status 0 "drift is a warning: an edited source must not fail a commit gate" node "$PLUGIN_ROOT/bin/tm" doctor
+assert_contains "$(tm evidence "$DID" --check)" "DRIFTED     $DID" "and --check says so per attachment"
+tm doctor --fix >/dev/null
+assert_contains "$(grep -c 'buckets 22/123/14' "$STORE"/evidence/"$DID"-rate-addendum.md)" "1" "--fix does not overwrite reviewed evidence"
+
+# A source that is gone is a different fact from one that has changed.
+rm "$DRIFT_SRC"
+assert_contains "$(tm doctor)" "evidence-source-gone" "a deleted source gets its own finding"
+case "$(tm doctor)" in *evidence-drift*) no "a deleted source is not reported as drift" "still says evidence-drift" ;; *) ok "a deleted source is not reported as drift" ;; esac
+case "$(tm doctor)" in *missing-evidence*) no "the copy is still there, so the copy is not missing" "said missing-evidence" ;; *) ok "the copy is still there, so the copy is not missing" ;; esac
+tm doctor --fix >/dev/null
+
+# An attachment written before provenance existed: unknown, not drifted, and silent.
+LEGACY="$STORE/evidence/$DID-legacy.log"
+printf 'attached last year\n' > "$LEGACY"
+python3 - "$STORE" "$DID" <<'EOF'
+import glob, re, sys
+store, tid = sys.argv[1], sys.argv[2]
+path = glob.glob(f"{store}/tasks/{tid}-*.md")[0]
+text = open(path).read()
+text = re.sub(r'^evidence: .*$', f'evidence: [".bytedesk/task-management/evidence/{tid}-legacy.log"]', text, count=1, flags=re.M)
+text = re.sub(r'^evidenceSources: .*\n', '', text, count=1, flags=re.M)
+open(path, "w").write(text)
+EOF
+assert_status 0 "an older store gains no findings from having no provenance" node "$PLUGIN_ROOT/bin/tm" doctor
+case "$(tm doctor)" in *evidence-drift*|*evidence-source-gone*) no "no provenance means unknown, not drifted" "doctor invented a verdict" ;; *) ok "no provenance means unknown, not drifted" ;; esac
+assert_contains "$(tm evidence "$DID" --check)" "unknown     $DID" "--check says unknown rather than guessing"
+
 # Event log
 assert_contains "$(tm log 100 --json)" '"event": "done"' "events are logged"
 assert_contains "$(tm standup 2000-01-01T00:00:00Z)" "TM-001" "standup reads the event log"

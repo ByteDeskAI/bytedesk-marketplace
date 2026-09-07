@@ -10,7 +10,8 @@
  * never served. 200 only if the ref is on that task.evidence AND realpath is
  * inside p.evidence.
  */
-import { copyFileSync, existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { basename, extname, isAbsolute, join, resolve, sep } from "node:path";
 import { mutate } from "./store.mjs";
 
@@ -44,6 +45,46 @@ export const PREVIEWABLE = new Set([
  * every board write, the dispatch route that spawns a worker, and the planner's approve-and-apply
  * pair. It is still attachable and still downloadable — it is no longer rendered.
  */
+
+/**
+ * Provenance — where an attached file came from, and what it said when it was taken.
+ *
+ * `attachEvidence` COPIES. That is the right call (the store must still read after the
+ * branch is deleted and the source is gone), but for a long time it copied and recorded
+ * nothing else, so a source edited five minutes later left the task pointing at a snapshot
+ * with no way to tell. That is not a hypothetical: TM-123's attachment drifted within an
+ * hour of being taken, because the agent appended its measurement addendum to the source
+ * after the copy, and the task was closed on numbers its own evidence no longer contained.
+ *
+ * The record lives on the entity under `evidenceSources`, a map keyed by the SAME ref
+ * string that is already on `evidence[]`:
+ *
+ *   evidenceSources: {".bytedesk/task-management/evidence/TM-1-out.txt":
+ *      {"source":"/abs/path/out.txt","sha256":"<hex>","bytes":12,"at":"2026-…"}}
+ *
+ * A map rather than richer `evidence[]` entries, because `evidence[]` is a list of strings
+ * in every reader there is — the CLI, the dashboard, the MCP tools, the done gate, doctor,
+ * export, and any store already on disk. Turning it into a list of objects would break all
+ * of them at once; a sibling map is additive, and an entity that has never seen this code
+ * simply has no map. That absence is `unknown`, which is a different verdict from `drifted`
+ * and is reported as such.
+ *
+ * An inline capture (stdin, a pasted log, an upload) has no upstream file, so it records
+ * `source: null`. That is not the same as no record at all: it says the question was asked
+ * and there is nothing to track, where `unknown` says nobody asked.
+ */
+export const PROVENANCE = "evidenceSources";
+
+/** sha256 of a file's bytes, or null if it cannot be read. */
+export function hashFile(file) {
+  try {
+    return createHash("sha256").update(readFileSync(file)).digest("hex");
+  } catch {
+    return null;
+  }
+}
+
+export const hashBytes = (buf) => createHash("sha256").update(buf).digest("hex");
 
 export const isEvidenceUri = (ref) => typeof ref === "string" && URI.test(ref);
 
@@ -85,8 +126,10 @@ export function evidenceDest(id, source = {}, p) {
  */
 export function attachEvidence(id, source, p) {
   const { dest, ref } = evidenceDest(id, source, p);
+  let origin = null;
   if (source.path && source.path !== "-") {
-    copyFileSync(resolve(source.path), dest);
+    origin = resolve(source.path);
+    copyFileSync(origin, dest);
   } else if (source.buffer != null) {
     writeFileSync(dest, source.buffer);
   } else if (source.content != null) {
@@ -94,16 +137,85 @@ export function attachEvidence(id, source, p) {
   } else {
     writeFileSync(dest, source.text ?? "");
   }
-  mutate(id, (doc) => ({ evidence: [...(doc.evidence || []), ref] }), p);
-  return { dest, ref };
+  /**
+   * Hash the copy, not the source: they are the same bytes at this instant, and the copy
+   * is the thing that cannot change under us between the write and the read.
+   */
+  const record = { source: origin, sha256: hashFile(dest), bytes: sizeOf(dest), at: new Date().toISOString() };
+  mutate(id, (doc) => ({
+    evidence: [...(doc.evidence || []), ref],
+    [PROVENANCE]: { ...(doc[PROVENANCE] || {}), [ref]: record },
+  }), p);
+  return { dest, ref, provenance: record };
 }
 
-/** Drop the ref from the array. The file, if any, stays on disk. */
+/**
+ * Drop the ref from the array. The file, if any, stays on disk.
+ *
+ * The provenance entry goes with it. Leaving it behind would accumulate records for refs
+ * no entity carries, and — worse — a later attach of the same basename would find a stale
+ * hash sitting under its own ref and be reported as drifted before anyone touched it.
+ */
 export function detachEvidence(id, ref, p) {
-  const next = mutate(id, (doc) => ({
-    evidence: (doc.evidence || []).filter((e) => e !== ref),
-  }), p);
+  const next = mutate(id, (doc) => {
+    const map = { ...(doc[PROVENANCE] || {}) };
+    delete map[ref];
+    return {
+      evidence: (doc.evidence || []).filter((e) => e !== ref),
+      [PROVENANCE]: Object.keys(map).length ? map : undefined,
+    };
+  }, p);
   return next.evidence || [];
+}
+
+const sizeOf = (file) => {
+  try {
+    return statSync(file).size;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Whether the copy on the task still says what its source says.
+ *
+ *   external        the ref is a url or an opaque handle — nothing on disk to compare
+ *   unknown         no provenance recorded (attached before this existed, or hand-written)
+ *   inline          captured from stdin or a paste; there is no upstream file
+ *   in-sync         the source is present and hashes to what was attached
+ *   drifted         the source is present and its content has changed since
+ *   source-missing  the source path no longer resolves — deleted, moved, or a worktree gone
+ *   source-unreadable  the path is there but the bytes are not (permissions, a directory)
+ *
+ * `unknown` is deliberately not `drifted`. An older store cannot answer the question, and
+ * a check that answers "changed" when it means "cannot tell" is the same species of lie
+ * this whole record exists to stop.
+ */
+export function evidenceSync(entity, ref, p) {
+  if (evidenceKind(ref) !== "file") return { ref, state: "external", source: null };
+  const map = entity && typeof entity[PROVENANCE] === "object" && entity[PROVENANCE] ? entity[PROVENANCE] : null;
+  const rec = map ? map[ref] : null;
+  if (!rec) return { ref, state: "unknown", source: null };
+  const source = rec.source || null;
+  const at = rec.at || null;
+  if (!source) return { ref, state: "inline", source: null, at };
+  if (!existsSync(source)) return { ref, state: "source-missing", source, at, sha256: rec.sha256 || null };
+  const current = hashFile(source);
+  if (current == null) return { ref, state: "source-unreadable", source, at, sha256: rec.sha256 || null };
+  if (!rec.sha256) return { ref, state: "unknown", source, at };
+  return {
+    ref,
+    state: current === rec.sha256 ? "in-sync" : "drifted",
+    source,
+    at,
+    sha256: rec.sha256,
+    current,
+  };
+}
+
+/** Every attachment on one entity, with its sync verdict. */
+export function evidenceSyncReport(entity, p) {
+  return (entity.evidence || []).map((ref) => evidenceSync(entity, ref, p));
 }
 
 export function describeEvidence(ref, p) {
@@ -128,7 +240,10 @@ export function describeEvidence(ref, p) {
 }
 
 export function listEvidence(task, p) {
-  return (task.evidence || []).map((ref) => describeEvidence(ref, p));
+  return (task.evidence || []).map((ref) => {
+    const { state, source, at } = evidenceSync(task, ref, p);
+    return { ...describeEvidence(ref, p), sync: state, source, attachedAt: at ?? null };
+  });
 }
 
 /**
