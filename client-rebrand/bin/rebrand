@@ -263,12 +263,14 @@ Stages run in order, and each one is approved before the next begins.
     i=$((i+1))
   done
 
-  local spec="$PLUGIN_ROOT/workflows/client-rebrand-$((idx+1))-$target.json"
+  local name="client-rebrand-$((idx+1))-$target"
+  local spec="$PLUGIN_ROOT/workflows/$name.json"
   [ -f "$spec" ] || die "no spec for stage $target at $spec"
   [ -x "$AO" ] || die "ao-topology not found at $AO — set AO_TOPOLOGY_BIN"
 
   mkdir -p "$CLIENT/$(folder_for "$target")"
   note "Stage $((idx+1)) — $target"
+  note "  workflow: $name"
   note "  spec:   $spec"
   note "  client: $CLIENT"
   note ""
@@ -282,7 +284,11 @@ Stages run in order, and each one is approved before the next begins.
   fi
 
   local out
-  out="$("$AO" launch --spec "$spec" --consumer "$CLIENT" \
+  # Resolved BY NAME through --workflows-dir rather than by path through --spec. Same file either
+  # way, but this is the resolution path everything else uses, so `ao-topology workflows
+  # --workflows-dir <this dir>` lists these six and `--workflow <name>` finds them. A spec only
+  # reachable by absolute path is invisible to every tool that discovers workflows by name.
+  out="$("$AO" launch --workflow "$name" --workflows-dir "$PLUGIN_ROOT/workflows" --consumer "$CLIENT" \
       --input "client_dir=$CLIENT" ${passthru[@]+"${passthru[@]}"} ${skills[@]+"${skills[@]}"} \
       --allow-auto-approve $dry --json 2>&1)" || { printf '%s\n' "$out" >&2; die "launch failed"; }
   printf '%s\n' "$out"

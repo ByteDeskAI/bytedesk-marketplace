@@ -35,6 +35,12 @@
   pending without deleting anything; what was rejected and why is the most useful thing in a case
   file six months later.
 
+- **The specs are native orchestration workflows and resolve by name.** The driver launches with
+  `--workflow <name> --workflows-dir` rather than `--spec <path>`, so `ao-topology workflows
+  --workflows-dir client-rebrand/workflows` lists all six with their descriptions and
+  `--workflow client-rebrand-3-direction` finds one. A spec reachable only by absolute path is
+  invisible to every tool that discovers workflows by name, which is what the first cut of this was.
+
 ### Notes
 
 - The specs use the `bytedesk-designer-*` skills, which resolve. They deliberately do not reference

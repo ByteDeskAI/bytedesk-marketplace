@@ -30,6 +30,25 @@ $REBRAND next                # stage 2
 
 Stopping is closing the terminal. Resuming is `rebrand next`.
 
+## They are ordinary ao-topology workflows
+
+The six specs are native orchestration specs, and they resolve by name — the driver launches them
+that way rather than by path, so anything that discovers workflows finds them:
+
+```bash
+AO=agent-orchestration/bin/ao-topology
+WF=client-rebrand/workflows
+
+$AO workflows --workflows-dir $WF                     # all six, with their descriptions
+$AO inputs --workflow client-rebrand-3-direction --workflows-dir $WF
+$AO launch --workflow client-rebrand-3-direction --workflows-dir $WF --input client_dir=<dir> ...
+```
+
+`--workflows-dir` is needed because spec resolution searches the consumer repo, `~/.config` and
+`agent-orchestration`'s own `workflows/` — a sibling plugin is on none of those paths. The same is
+true of the stage skills, which is why the driver also passes `--skills-dir` at
+`bytedesk-designer/skills`. Running a stage through `rebrand` handles both.
+
 ## The gate
 
 `next` refuses for exactly four reasons, and says which:
