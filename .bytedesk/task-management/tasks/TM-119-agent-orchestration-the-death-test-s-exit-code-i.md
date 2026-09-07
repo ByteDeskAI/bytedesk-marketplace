@@ -8,14 +8,14 @@ title: "agent-orchestration: the death test's exit code is lost under load"
 epic: "EP-017"
 acceptance: [{"text":"The exit status assertion passes with the suite under load, demonstrated on a loaded machine","done":false},{"text":"Deadness and exit status come from one tmux query, or the retry that closes the window is justified in a comment","done":false}]
 evidence: []
-commits: []
+commits: ["d741258"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "4e1d7087-d606-432e-9341-3ce779b4baf8"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-07T00:03:13.321Z"
+updated: "2026-09-07T00:03:20.981Z"
 ---
 
 tests/live/two-projects.sh assertion 'the real exit code reaches the journal' failed once under load and passed on two clean reruns of the same tree, so it is a flake rather than a regression.
