@@ -160,6 +160,59 @@ OUT="$(rebrand next --dry-run --client "$C" 2>&1)"
 has "$OUT" "nothing left to run" "and next has nothing left to do"
 
 echo
+echo "== stage 6 takes its page set from what discovery found"
+
+# The pages a client has are a finding, not a constant. `for_each` expands before any agent runs, so
+# stage 6 cannot read the list itself — the driver reads discovery's pages.json and hands it in.
+D="$REBRAND_ROOT/pageset"
+rebrand new pageset --name "Page Set" >/dev/null 2>&1
+for pair in discovery:01-discovery identity:02-identity direction:03-direction theme:04-theme brand:05-brand; do
+  name="${pair%%:*}"; folder="${pair##*:}"
+  printf 'x\n' > "$D/$folder/O.md"
+  python3 - "$D/state.json" "$name" <<'PY'
+import json, sys
+state = json.load(open(sys.argv[1]))
+state["stages"][sys.argv[2]]["status"] = "complete"
+json.dump(state, open(sys.argv[1], "w"), indent=2)
+PY
+  rebrand approve "$name" --client "$D" --by tester >/dev/null 2>&1
+done
+
+OUT="$(rebrand next --dry-run --client "$D" 2>&1)"; STATUS=$?
+[ "$STATUS" -ne 0 ] && ok "stage 6 refuses when discovery left no page set" || no "stage 6 refuses when discovery left no page set" "$OUT"
+has "$OUT" "pages.json" "and names the file it wanted"
+has "$OUT" "--input pages=" "and offers the manual way round it"
+
+cat > "$D/01-discovery/pages.json" <<'JSON'
+{"source": "existing", "pages": [
+  {"slug": "home", "why": "where the estimate request starts"},
+  {"slug": "services", "why": "the whole offer on one page"},
+  {"slug": "contact", "why": "where a quote is actually requested"}]}
+JSON
+# Adding a file to an approved stage breaks its approval, correctly — in a real run discovery writes
+# pages.json before anyone approves it. Re-approve to get past the gate this test is not about.
+rebrand approve discovery --client "$D" --by tester >/dev/null 2>&1
+
+OUT="$(rebrand next --dry-run --client "$D" 2>&1)"
+has "$OUT" "home, services, contact" "the page set comes from discovery"
+has "$OUT" "from 01-discovery/pages.json" "and says where it came from"
+
+OUT="$(rebrand next --dry-run --client "$D" --input pages="just-one" 2>&1)"
+hasnt "$OUT" "from 01-discovery/pages.json" "an explicit --input pages overrides the derivation"
+
+# The cap belongs to the launcher; refusing here means the operator hears it with the list in hand
+# rather than as TOPOLOGY_FANOUT_TOO_WIDE after committing to a run.
+python3 - "$D/01-discovery/pages.json" <<'PY'
+import json, sys
+json.dump({"source": "proposed", "pages": [{"slug": f"p{n}"} for n in range(9)]},
+          open(sys.argv[1], "w"))
+PY
+rebrand approve discovery --client "$D" --by tester >/dev/null 2>&1
+OUT="$(rebrand next --dry-run --client "$D" 2>&1)"; STATUS=$?
+[ "$STATUS" -ne 0 ] && ok "more pages than the fan-out cap is refused" || no "more pages than the fan-out cap is refused" "$OUT"
+has "$OUT" "cap is 8" "and the refusal names the cap"
+
+echo
 echo "== resuming is reading a file, not restoring a process"
 
 # The claim the whole design rests on: everything needed to continue is on disk, so a fresh process

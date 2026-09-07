@@ -41,6 +41,16 @@
   `--workflow client-rebrand-3-direction` finds one. A spec reachable only by absolute path is
   invisible to every tool that discovers workflows by name, which is what the first cut of this was.
 
+- **Stage 6's page set comes from discovery, not from a default.** Stage 1 now writes
+  `01-discovery/pages.json` — the pages the client actually has, or the pages discovery argues a
+  client without a site needs — and `rebrand next` reads it and hands the slugs to the fan-out.
+  `for_each` expands when the spec is materialized, before any agent runs, so stage 6 cannot read
+  the file itself; something has to pass it in. The generic `home, product, pricing, about, contact`
+  default this replaces would have quietly mocked up a business nobody audited, so the input has no
+  default at all now and the stage refuses without one, naming the file it wanted and the flag that
+  bypasses it. More pages than the fan-out cap is refused here, with the list in hand, rather than
+  surfacing three layers down as `TOPOLOGY_FANOUT_TOO_WIDE`.
+
 ### Notes
 
 - The specs use the `bytedesk-designer-*` skills, which resolve. They deliberately do not reference

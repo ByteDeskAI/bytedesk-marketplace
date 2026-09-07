@@ -76,6 +76,40 @@ stage_digest() {
   printf 'sha256:%s' "$(printf '%s' "$listing" | sha256sum | cut -c1-64)"
 }
 
+# ── inputs a stage derives from an earlier one ───────────────────────────────────────────────
+# `for_each` expands when the spec is materialized, before a single agent runs, so stage 6 cannot
+# read the page list itself — something has to hand it in. That something is here, and what it reads
+# is discovery's own `pages.json`: the pages a client has, or for a client with no site the pages
+# discovery argues they need, are a finding rather than a constant. The generic
+# home/product/pricing default this replaces would have quietly mocked up a business nobody audited.
+pages_from_discovery() {
+  local file="$CLIENT/01-discovery/pages.json"
+  [ -f "$file" ] || return 1
+  py "$file" <<'PY'
+import json, sys
+try:
+    doc = json.load(open(sys.argv[1]))
+except Exception as exc:
+    sys.exit(f"01-discovery/pages.json is not readable JSON: {exc}")
+pages = doc.get("pages") if isinstance(doc, dict) else doc
+if not isinstance(pages, list) or not pages:
+    sys.exit("01-discovery/pages.json holds no pages")
+slugs = []
+for page in pages:
+    slug = str((page.get("slug") if isinstance(page, dict) else page) or "").strip()
+    if slug and slug not in slugs:
+        slugs.append(slug)
+if not slugs:
+    sys.exit("01-discovery/pages.json holds no usable slugs")
+# The cap is the launcher's. Hitting it here says so with the list in hand, rather than surfacing
+# three layers down as TOPOLOGY_FANOUT_TOO_WIDE after the operator has already committed to a run.
+if len(slugs) > 8:
+    sys.exit(f"discovery listed {len(slugs)} pages and the fan-out cap is 8. "
+             "Trim 01-discovery/pages.json, or pass --input pages=... deliberately.")
+print(", ".join(slugs))
+PY
+}
+
 py() { python3 - "$@"; }
 
 state_get() {
@@ -275,6 +309,24 @@ Stages run in order, and each one is approved before the next begins.
   note "  client: $CLIENT"
   note ""
 
+  # Stage 6 takes its page set from what discovery found, unless the operator names one explicitly.
+  local derived=()
+  if [ "$target" = "mockups" ] && ! printf '%s\n' ${passthru[@]+"${passthru[@]}"} | grep -q '^pages='; then
+    local pages
+    if pages="$(pages_from_discovery 2>&1)"; then
+      derived=(--input "pages=$pages")
+      note "  pages:  $pages"
+      note "          (from 01-discovery/pages.json)"
+    else
+      die "stage 6 needs a page set and discovery did not leave a usable one.
+  $pages
+Expected at $CLIENT/01-discovery/pages.json:
+  {\"source\": \"existing\"|\"proposed\", \"pages\": [{\"slug\": \"home\", \"why\": \"...\"}]}
+Either re-run discovery so it writes that file, or name the pages yourself:
+  rebrand next --input pages=\"home, about, services, contact\""
+    fi
+  fi
+
   local skills=()
   if [ -d "$DESIGNER_SKILLS" ]; then
     skills=(--skills-dir "$DESIGNER_SKILLS")
@@ -289,7 +341,7 @@ Stages run in order, and each one is approved before the next begins.
   # --workflows-dir <this dir>` lists these six and `--workflow <name>` finds them. A spec only
   # reachable by absolute path is invisible to every tool that discovers workflows by name.
   out="$("$AO" launch --workflow "$name" --workflows-dir "$PLUGIN_ROOT/workflows" --consumer "$CLIENT" \
-      --input "client_dir=$CLIENT" ${passthru[@]+"${passthru[@]}"} ${skills[@]+"${skills[@]}"} \
+      --input "client_dir=$CLIENT" ${passthru[@]+"${passthru[@]}"} ${derived[@]+"${derived[@]}"} ${skills[@]+"${skills[@]}"} \
       --allow-auto-approve $dry --json 2>&1)" || { printf '%s\n' "$out" >&2; die "launch failed"; }
   printf '%s\n' "$out"
   [ -n "$dry" ] && return 0

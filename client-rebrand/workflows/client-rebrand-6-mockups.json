@@ -1,15 +1,15 @@
 {
   "version": 1,
   "name": "client-rebrand-6-mockups",
-  "description": "Stage 6 of a client rebrand. One page builder is fanned out per page — each its own agent, working only its page — and a judge reads the set as a set: one brand across several pages rather than several pages that each look fine alone. Produces 06-mockups/*.png and nothing else, and stops at a human gate.",
+  "description": "Stage 6 of a client rebrand. One page builder is fanned out per page — each its own agent, working only its page — and a judge reads the set as a set: one brand across several pages rather than several pages that each look fine alone. Takes its page set from what discovery found rather than from a default. Produces 06-mockups/*.png and nothing else, and stops at a human gate.",
   "inputs": {
     "client_dir": {
       "description": "Absolute path to the case file. 04-theme/tokens.json and 05-brand/*.png are what the pages are built from.",
       "required": true
     },
     "pages": {
-      "description": "The pages to mock up, comma-separated. One agent is launched per page, so keep it to four to six; the fan-out cap is 8 and each item is a whole session, not a pane.",
-      "default": "home, product, pricing, about, contact"
+      "description": "The pages to mock up, comma-separated slugs. Supplied by `rebrand next` from 01-discovery/pages.json — the page set discovery established, either from the site the client actually has or proposed for one they do not. There is no default on purpose: a generic home/product/pricing list would quietly mock up a business nobody audited. One agent is launched per page; the fan-out cap is 8.",
+      "required": true
     },
     "conductor": {
       "description": "Ordered provider chain for the conductor",
@@ -54,7 +54,7 @@
         "bytedesk-designer-surface"
       ],
       "for_each": "{{inputs.pages}}",
-      "instructions": "You own exactly one page: {{item}}. You do not build, touch, or comment on any other page in this set.\n\nBuild it as real HTML and CSS against the real tokens in {{inputs.client_dir}}/04-theme/tokens.json — never a colour typed from memory — using the approved artwork in {{inputs.client_dir}}/05-brand/ for the mark, and 02-identity/IDENTITY.md for the voice of every word on the page. Real copy in the brand's voice, not lorem ipsum: a mockup with placeholder text hides the thing the operator is trying to judge.\n\nWrite the HTML and any assets into THIS RUN's artifacts directory under your own agent id — not into the case file. Then render the page at {{inputs.viewport}}px wide, look at the screenshot, fix what is wrong, and re-render. The only thing you copy into {{inputs.client_dir}}/06-mockups/ is the finished PNG, named {{item}}.png. That folder is PNG only; an .html file in it is a defect.\n\nReply with the absolute path of your PNG, its size in bytes, and one paragraph on what the page is doing and what you know is weakest about it. On a revision round, apply only the fixes addressed to your page, re-render, and save to a new numbered filename in artifacts/ before replacing {{item}}.png."
+      "instructions": "You own exactly one page: {{item}}. You do not build, touch, or comment on any other page in this set.\n\nWhat this page is FOR is in {{inputs.client_dir}}/01-discovery/pages.json — find your slug there and read its `why`, and its `url` if the client has a live version of this page. That entry is your brief for what the page has to do; the identity and the theme tell you how it should look and sound.\n\nBuild it as real HTML and CSS against the real tokens in {{inputs.client_dir}}/04-theme/tokens.json — never a colour typed from memory — using the approved artwork in {{inputs.client_dir}}/05-brand/ for the mark, and 02-identity/IDENTITY.md for the voice of every word on the page. Real copy in the brand's voice, not lorem ipsum: a mockup with placeholder text hides the thing the operator is trying to judge.\n\nWrite the HTML and any assets into THIS RUN's artifacts directory under your own agent id — not into the case file. Then render the page at {{inputs.viewport}}px wide, look at the screenshot, fix what is wrong, and re-render. The only thing you copy into {{inputs.client_dir}}/06-mockups/ is the finished PNG, named {{item}}.png. That folder is PNG only; an .html file in it is a defect.\n\nReply with the absolute path of your PNG, its size in bytes, and one paragraph on what the page is doing and what you know is weakest about it. On a revision round, apply only the fixes addressed to your page, re-render, and save to a new numbered filename in artifacts/ before replacing {{item}}.png."
     },
     {
       "id": "judge",
