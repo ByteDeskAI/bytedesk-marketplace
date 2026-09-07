@@ -1,21 +1,22 @@
 ---
 id: "TM-121"
 kind: "task"
-status: "open"
+status: "done"
 created: "2026-09-07T01:54:34.967Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "agent-orchestration: the mailbox doorbell silently fails to submit"
 epic: "EP-017"
-acceptance: [{"text":"sendText delivers the submit key as its own read, proven by a probe that logs one line per stdin chunk","done":false},{"text":"The regression test fails against the batched form","done":false},{"text":"Launch cost is re-measured and the added tmux calls are accounted for","done":false}]
-evidence: []
-commits: []
+acceptance: [{"text":"sendText delivers the submit key as its own read, proven by a probe that logs one line per stdin chunk","done":true,"at":"2026-09-07T01:57:24.315Z"},{"text":"The regression test fails against the batched form","done":true,"at":"2026-09-07T01:57:24.465Z"},{"text":"Launch cost is re-measured and the added tmux calls are accounted for","done":true,"at":"2026-09-07T01:57:24.600Z"}]
+evidence: [".bytedesk/task-management/evidence/TM-121-chunk-probe.mjs"]
+commits: ["3ff291d"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "4e1d7087-d606-432e-9341-3ce779b4baf8"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-07T01:54:34.975Z"
+updated: "2026-09-07T01:57:24.845Z"
+closed: "2026-09-07T01:57:24.841Z"
 ---
 
 The pointer that tells an agent it has mail is typed into its pane and then never submitted. The message file is written correctly, so nothing is lost and nothing errors — the agent simply looks idle, the conductor's wait runs to its timeout, and the run reads as an agent ignoring its mail. Hit three times in one showcase run (astra-image-pipeline), on the Claude adapter and the Codex adapter alike; each time a human pressing Enter in the pane unstuck it.
