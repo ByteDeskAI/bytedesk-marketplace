@@ -139,7 +139,10 @@
   are committed data in repos this rename does not get to break, so a top-level `workflow:` is still
   read — normalized to `stages` so nothing downstream sees two spellings — and `validate` reports it
   as deprecated rather than accepting it silently. `run.json` writes both keys for one release, so a
-  consumer pinned to 0.4.0 can still read a run this version wrote.
+  consumer pinned to 0.4.0 can still read a run this version wrote. `ao-topology schema` now names
+  `stages`, marks `workflow` deprecated with the collision that caused it, and documents
+  `agents[].workflow` and `agents[].for_each` — the schema summary is what a composing agent reads,
+  so a feature missing from it may as well not exist.
 
 ## [0.4.0] — 2026-09-05
 

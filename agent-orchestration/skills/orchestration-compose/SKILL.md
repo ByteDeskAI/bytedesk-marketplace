@@ -79,7 +79,7 @@ Draft (abridged):
     { "id": "designer-grok", "role": "designer", "candidates": ["grok", "gemini", "kimi"], "skills": ["brand-concept"] },
     { "id": "judge", "role": "judge", "candidates": ["claude:opus", "claude:fable", "kimi"], "skills": ["brand-judge"] }
   ],
-  "workflow": [
+  "stages": [
     { "stage": "brief", "from": "conductor", "to": ["designer-codex", "designer-grok"], "contract": "brand.brief.v1" },
     { "stage": "concepts", "wait_for": ["designer-codex", "designer-grok"], "timeout": "30m" },
     { "stage": "judge", "from": "conductor", "to": ["judge"], "contract": "brand.scorecard.v1" },
