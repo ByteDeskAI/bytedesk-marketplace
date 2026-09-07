@@ -144,6 +144,22 @@
   Re-run afterwards: fourteen loop iterations, half alongside a full `two-projects.sh`, no failure —
   against failures at iteration 4 and 12 of the same loop before the fix. Evidence, not proof; the
   kept-on-failure tree stays so the next occurrence is readable rather than silent.
+- **A conductor starts on its own** (TM-122). Twice, on a first-choice `claude:opus` in a clean
+  repository, an orchestrator read its brief, replied READY and stopped — three healthy agents, an
+  empty mailbox, no error anywhere. It was complying: the pane's bootstrap message asks it to read
+  the brief and reply READY, and the licence to start the mission is the last line of a 118-line
+  document it has been told to follow exactly. For a WORKER, replying READY *is* the whole job, so
+  the fix cannot be a blanket change to `bootstrap_message` — an agent that invented work for itself
+  rather than waiting for mail would be a worse bug than this one. The orchestrator's pointer now
+  carries a `BEGIN_CLAUSE` telling it to begin in the same turn, on the same message rather than a
+  second one, because a follow-up send would race the agent's own first turn and land in a composer
+  busy reading the brief.
+- **And a stalled run stops looking healthy.** `status` reports `STALLED` when the orchestrator has
+  been up two minutes and has never sent a message, with the nudge that starts it. The check reads
+  the whole journal rather than the twelve entries `status` displays: `message.sent` scrolls out of
+  that tail within minutes, so a claim built on it would have grown *louder* the longer a run worked
+  correctly. Verified both ways against live runs — it fires at 135s on a conductor that never sent
+  anything, and stays quiet on one that has.
 
 ### Changed — the noun is "workflow" (EP-016)
 

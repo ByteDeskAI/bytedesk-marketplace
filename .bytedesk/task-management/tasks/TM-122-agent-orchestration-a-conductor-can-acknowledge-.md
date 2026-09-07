@@ -1,13 +1,13 @@
 ---
 id: "TM-122"
 kind: "task"
-status: "open"
+status: "in_progress"
 created: "2026-09-07T02:06:15.757Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "agent-orchestration: a conductor can acknowledge its bootstrap and then stop"
 epic: "EP-017"
-acceptance: [{"text":"A conductor that has replied READY begins its mission without a human nudge, demonstrated across repeated launches of the same spec","done":false},{"text":"A run whose orchestrator never sends a first message is reported as stalled rather than looking healthy","done":false}]
-evidence: []
+acceptance: [{"text":"A conductor that has replied READY begins its mission without a human nudge, demonstrated across repeated launches of the same spec","done":true,"at":"2026-09-07T16:04:05.436Z"},{"text":"A run whose orchestrator never sends a first message is reported as stalled rather than looking healthy","done":true,"at":"2026-09-07T16:04:05.574Z"}]
+evidence: [".bytedesk/task-management/evidence/TM-122-topology-launch.test.mjs"]
 commits: ["086830a"]
 blockedBy: []
 blocks: []
@@ -15,7 +15,7 @@ actor: "main"
 session: "4e1d7087-d606-432e-9341-3ce779b4baf8"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-07T02:06:25.548Z"
+updated: "2026-09-07T16:04:05.825Z"
 ---
 
 An orchestrator read its BOOTSTRAP.md, replied READY, and did nothing further. The run sat with three healthy agents, an empty mailbox and no error until a human nudged it to begin. Non-deterministic: the same spec, same provider and same brief drove itself end to end an hour earlier.

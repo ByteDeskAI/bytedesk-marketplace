@@ -57,6 +57,24 @@ function describeWorkflow(spec) {
     .join("\n");
 }
 
+/**
+ * The sentence that gets a conductor off the starting line.
+ *
+ * The pane's bootstrap message asks every agent to read its brief and reply READY. For a WORKER
+ * that is the whole job — it then waits for mail, and an agent that invented work for itself would
+ * be a worse bug than this one. For the ORCHESTRATOR it is exactly half the job, and the licence to
+ * start the mission is the last line of a 118-line document it has just been told to "follow
+ * exactly". Replying READY and stopping is a fair reading of the instruction it was handed, which
+ * is why it happened twice on `claude:opus` in clean repositories and not at all in between.
+ *
+ * So the instruction is completed here rather than argued with. It rides on the SAME message as the
+ * bootstrap pointer, not a second one: a follow-up send would race the agent's own first turn, and
+ * arrive in a composer that is busy reading the brief.
+ */
+export const BEGIN_CLAUSE =
+  " Then begin the mission immediately, in the same turn — do not stop after READY and do not wait" +
+  " for another message. You are the conductor: nobody is going to tell you to start.";
+
 function describeGates(spec) {
   if (spec.gates.length === 0) return "_No human gates declared._";
   return spec.gates.map((gate) => `- after **${gate.after}**: ${gate.human ? "stop and ask the operator" : "automatic"}${gate.description ? ` — ${gate.description}` : ""}`).join("\n");
@@ -457,7 +475,7 @@ function prepareCandidates({ spec, agent, adapters, bootstrapFile, dir, warnings
  * Start one agent in its pane, walking the candidate chain from `startIndex`. Returns
  * { ok, index, label, adapter, ready, attempts:[{label, outcome}] }.
  */
-async function startAgentInPane({ pane, agentId, candidates, startIndex = 0, runDir, log = () => {}, respawn = false, client = null }) {
+async function startAgentInPane({ pane, agentId, role = null, candidates, startIndex = 0, runDir, log = () => {}, respawn = false, client = null }) {
   const attempts = [];
   for (let index = startIndex; index < candidates.length; index += 1) {
     const item = candidates[index];
@@ -492,7 +510,7 @@ async function startAgentInPane({ pane, agentId, candidates, startIndex = 0, run
       await appendJournal(runDir, { type: "agent.candidate_failed", agent: agentId, candidate: item.label, reason: readiness.reason, attention: readiness.attention === true, exit_status: readiness.exit_status ?? null });
       continue;
     }
-    const pointer = render(item.adapter.bootstrap_message, item.vars);
+    const pointer = render(item.adapter.bootstrap_message, item.vars) + (role === "orchestrator" ? BEGIN_CLAUSE : "");
     await tmux.sendText(pane, pointer, item.adapter.submit_keys);
     attempts.push({ label: item.label, outcome: readiness.ready ? "ready" : `started (${readiness.reason})` });
     await appendJournal(runDir, { type: "agent.started", agent: agentId, candidate: item.label, adapter: item.adapter.id, pane, ready: readiness.ready });
@@ -738,6 +756,7 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
       startAgentInPane({
         pane: panes.get(item.agent.id),
         agentId: item.agent.id,
+        role: item.agent.role,
         candidates: item.candidates,
         runDir: spec.run_dir,
         log,
@@ -957,7 +976,7 @@ export async function failoverAgent({ runDir, agentId, adapters, toLabel, log = 
     return { index, label: candidate.label, adapter, launcher: candidate.launcher, vars: { run_id: run.run_id, run_dir: runDir, session: run.session, agent_id: agentId, agent_role: entry.role, bootstrap_file: entry.bootstrap } };
   });
   await appendJournal(runDir, { type: "agent.failover", agent: agentId, from: previous, to_index: startIndex });
-  const started = await startAgentInPane({ pane: entry.pane, agentId, candidates, startIndex, runDir, log, respawn: true });
+  const started = await startAgentInPane({ pane: entry.pane, agentId, role: entry.role, candidates, startIndex, runDir, log, respawn: true });
   if (!started.ok) {
     entry.active = entry.candidates.length;
     entry.provider = null;

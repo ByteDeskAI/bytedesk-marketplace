@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-07T02:32:29.694Z",
+  "generatedAt": "2026-09-07T15:49:58.109Z",
   "concepts": [
     {
       "id": "architecture/gateway-tab-ids-are-server-minted",
@@ -77,6 +77,20 @@
       "path": "/decisions/decision-2026-09-06.md",
       "type": "Decision",
       "title": "Decision 2026-09-06",
+      "description": "Agent-captured decision",
+      "tags": [
+        "decision",
+        "captured"
+      ],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    },
+    {
+      "id": "decisions/decision-2026-09-07-2",
+      "path": "/decisions/decision-2026-09-07-2.md",
+      "type": "Decision",
+      "title": "Decision 2026-09-07",
       "description": "Agent-captured decision",
       "tags": [
         "decision",

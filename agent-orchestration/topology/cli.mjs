@@ -744,13 +744,32 @@ const commands = {
       }
       agents.push(entry);
     }
-    const report = { run_id: run.run_id, name: run.name, session: run.session, session_alive: alive, state: run.state, run_dir: runDir, inputs: run.inputs, agents, pending_count: pending.length, queues, recent: journal };
+    // A conductor that came up, acknowledged its brief and then stopped looks EXACTLY like a healthy
+    // run from here: session alive, every agent ready, no error anywhere, an empty mailbox. The only
+    // thing missing is the one thing that matters — it never sent anything. Nothing said so, so the
+    // operator's first clue was a stage that had produced nothing an hour later (TM-122).
+    const orchestrator = run.agents.find((agent) => agent.role === "orchestrator" && !agent.workflow);
+    // The WHOLE journal, not the tail `journal` holds for display. `readJournal`'s default here is
+    // twelve entries, so on any run with a bit of history the first `message.sent` scrolls out of
+    // view — and a conductor that has been working for an hour would be reported as one that never
+    // started. A stall claim that gets louder the longer a run works is worse than no claim.
+    const everSent = (await readJournal(runDir, Number.MAX_SAFE_INTEGER)).some((event) => event.type === "message.sent");
+    const sinceLaunch = Date.now() - Date.parse(run.created ?? 0);
+    const stalled = Boolean(
+      orchestrator && alive && run.state === "running" && !everSent && Number.isFinite(sinceLaunch) && sinceLaunch > 120_000,
+    );
+    const report = { run_id: run.run_id, name: run.name, session: run.session, session_alive: alive, state: run.state, run_dir: runDir, inputs: run.inputs, agents, pending_count: pending.length, queues, stalled, recent: journal };
     if (flags.json) return out(report);
     out(`${run.name} · run ${run.run_id} · state ${run.state} · session ${run.session} ${alive ? "(alive)" : "(gone)"}`);
     // A malformed roster is worth saying out loud here: routing redirects against the agent
     // library, so if the library cannot name a single lead, the queue shown below is measuring a
     // different agent than the one messages are actually going to.
     for (const queue of queues) if (queue.lead_error) out(`  ! roster problem: ${queue.lead_error}`);
+    if (stalled) {
+      out(`  ! STALLED: ${orchestrator.id} has been up for ${Math.round(sinceLaunch / 60_000)} minutes and has never sent a message.`);
+      out(`    Every agent is healthy and the mailbox is empty, which is what a conductor that acknowledged its`);
+      out(`    brief and then stopped looks like. Start it: nudge --run ${runDir} --agent ${orchestrator.id} --text "Begin now, and follow your BOOTSTRAP.md end to end."`);
+    }
     for (const agent of agents) {
       const queued = agent.pending.length ? ` — queue ${agent.queue.depth}${agent.queue.oldest_age_ms != null ? `, oldest ${Math.round(agent.queue.oldest_age_ms / 1000)}s` : ""}: ${agent.pending.join(", ")}` : "";
       if (agent.workflow) {

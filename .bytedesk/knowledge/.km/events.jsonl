@@ -56,3 +56,5 @@
 {"ts":"2026-09-07T02:32:29.676Z","kind":"concept_write","session":"4e1d7087-d606-432e-9341-3ce779b4baf8","id":"decisions/decision-2026-09-07","type":"Decision"}
 {"ts":"2026-09-07T02:32:29.716Z","kind":"hook_decision_captured","session":"4e1d7087-d606-432e-9341-3ce779b4baf8","title":"Decision 2026-09-07"}
 {"ts":"2026-09-07T02:43:35.291Z","kind":"hook_session_start","session":"c8e7d59a-9fdc-47ee-a682-be5f6610368b"}
+{"ts":"2026-09-07T15:49:58.094Z","kind":"concept_write","session":"4e1d7087-d606-432e-9341-3ce779b4baf8","id":"decisions/decision-2026-09-07-2","type":"Decision"}
+{"ts":"2026-09-07T15:49:58.125Z","kind":"hook_decision_captured","session":"4e1d7087-d606-432e-9341-3ce779b4baf8","title":"Decision 2026-09-07"}
