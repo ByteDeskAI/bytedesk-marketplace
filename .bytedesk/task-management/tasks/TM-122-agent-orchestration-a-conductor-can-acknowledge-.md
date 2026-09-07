@@ -8,14 +8,14 @@ title: "agent-orchestration: a conductor can acknowledge its bootstrap and then 
 epic: "EP-017"
 acceptance: [{"text":"A conductor that has replied READY begins its mission without a human nudge, demonstrated across repeated launches of the same spec","done":true,"at":"2026-09-07T16:04:05.436Z"},{"text":"A run whose orchestrator never sends a first message is reported as stalled rather than looking healthy","done":true,"at":"2026-09-07T16:04:05.574Z"}]
 evidence: [".bytedesk/task-management/evidence/TM-122-topology-launch.test.mjs"]
-commits: ["086830a","80510df"]
+commits: ["086830a","80510df","007c59b"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "4e1d7087-d606-432e-9341-3ce779b4baf8"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-07T16:04:19.700Z"
+updated: "2026-09-07T16:04:46.545Z"
 closed: "2026-09-07T16:04:05.990Z"
 ---
 
