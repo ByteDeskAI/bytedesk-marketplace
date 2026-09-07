@@ -1,0 +1,115 @@
+{
+  "version": 1,
+  "name": "client-rebrand-5-brand",
+  "description": "Stage 5 of a client rebrand. Codex Astra renders the approved direction in the approved palette as finished PNG artwork — the primary mark, a dimensional treatment, a size ladder and the ground variants — and a critic on a different family judges the picture that exists rather than the brief it came from. PNG only, by operator instruction. Stops at a human gate.",
+  "inputs": {
+    "client_dir": {
+      "description": "Absolute path to the case file. 03-direction/ (the approved direction) and 04-theme/tokens.json are what this stage renders from.",
+      "required": true
+    },
+    "conductor": {
+      "description": "Ordered provider chain for the conductor",
+      "default": "claude:opus, claude:fable, codex"
+    },
+    "critic": {
+      "description": "Ordered provider chain for the critic — a different family from the illustrator, which is what makes the second look worth having",
+      "default": "claude:opus, claude:sonnet"
+    },
+    "sizes": {
+      "description": "The size ladder, in pixels, rendered from the primary mark",
+      "default": "1024, 512, 256, 128, 64, 32, 16"
+    },
+    "max_rounds": {
+      "description": "Maximum critic-and-revise rounds after the first render",
+      "default": "2"
+    }
+  },
+  "session": "rebrand-brand-{{run_id}}",
+  "cwd": "{{inputs.client_dir}}",
+  "run_dir": "{{inputs.client_dir}}/.bytedesk/agent-orchestration/runs/{{run_id}}",
+  "layout": "main-vertical",
+  "agents": [
+    {
+      "id": "conductor",
+      "role": "orchestrator",
+      "candidates": "{{inputs.conductor}}",
+      "skills": [
+        "orchestration-conduct"
+      ],
+      "instructions": "The case file is {{inputs.client_dir}}. Read {{inputs.client_dir}}/state.json before you brief anyone, and quote the client's current name, the incoming name, and the stated reason for the rename in every brief you send — a rebrand brief that names only one of the two names is not a brief. This stage renders the direction the operator approved in 03-direction/, in the colours approved in 04-theme/tokens.json. If a file this stage needs is absent, refuse and name the stage that owes it, exactly as the bytedesk-designer-* skills do; do not reconstruct a missing input from memory or inference. Name the approved concept and quote the exact hex values from tokens.json in the brief — an illustrator that has to guess a colour will guess a nice one. PNG ONLY, by operator instruction: 05-brand/ holds *.png and nothing else. If the illustrator reports an SVG, do not accept it into 05-brand/ and say why. You own the brief and the gate, not the drawing: when paths come back, send the PATHS to the critic and ask for a judgement of the rendered pictures, not of the prompt. Never describe the artwork yourself — you have not seen it. Relay the criticism, run at most {{inputs.max_rounds}} revision rounds, and report the final paths with their sizes in bytes. Write only into {{inputs.client_dir}}/05-brand/ and into this run's artifacts/ directory — no other folder in the case file, and never state.json: the driver owns it and `rebrand collect` is what records a stage. At the gate write artifacts/GATE-brand.md — what was produced and where, what was rejected and why, what could not be determined, and the decision the operator has to make — then stop. Do not continue past it."
+    },
+    {
+      "id": "illustrator",
+      "role": "designer",
+      "candidates": [
+        "codex:gpt-6-astra"
+      ],
+      "auto_approve": true,
+      "instructions": "You are Codex Astra. You have full write access to the workspace and a native image tool, so the deliverable is a file on disk, not a description of one.\n\nRASTER, and the default: the built-in `image_gen` tool (the `imagegen` skill's built-in mode; no API key needed). It saves under $CODEX_HOME/generated_images/, so copy the chosen file into the output path you were given. PNG is the default deliverable unless the brief says otherwise. `image_gen` is also how you get a DIMENSIONAL treatment — depth, material, lighting — which is a raster job and should stay one.\n\nPNG ONLY at this stage, by operator instruction. `image_gen` is raster-only by design and that is exactly what is wanted here: do not author an SVG, do not trace one with potrace or inkscape even though both are installed, and do not put an .svg file in 05-brand/. The vector master is a later decision, not this stage's deliverable. If a deliverable genuinely needs a vector to work, say so in your reply and let the operator decide at the gate rather than producing one anyway.\n\nRender, all as PNG, all under {{inputs.client_dir}}/05-brand/, in the exact colours the conductor quoted from tokens.json:\n- primary-mark.png — the approved direction as a finished mark, the highest quality you can produce;\n- dimensional.png — a dimensional treatment of the same mark: depth, material and lighting, which is a raster job and stays one;\n- ladder-<n>.png — the size ladder at {{inputs.sizes}} pixels, each rendered AT that size rather than downscaled from one image, because what dies at 32px is what this file is for;\n- ground-light.png, ground-dark.png, ground-mono.png — the mark on its light ground, its dark ground, and in one colour.\n\nRead the brief, then write one short paragraph naming the visual direction you have committed to and why it fits — commit rather than hedging across three. Then generate, save to disk, creating the directory if needed, and reply with the absolute path of each file and its size in bytes, nothing else. On a revision round, regenerate toward the specific criticism and save to a new numbered filename so every round survives for comparison."
+    },
+    {
+      "id": "critic",
+      "role": "judge",
+      "candidates": "{{inputs.critic}}",
+      "skills": [
+        "bytedesk-designer-review"
+      ],
+      "instructions": "You are given paths to rendered PNGs. Open them and look at them. Judge the pictures that exist, not the brief they came from: does the mark read at a glance; does it survive the bottom of the size ladder, which you check by opening the small files rather than by reasoning about the large one; is it one idea or three competing ones; are the colours the ones tokens.json specifies, sampled rather than eyeballed; does the dimensional treatment add depth or add noise; does the mono version hold when colour is gone.\n\nName the single most consequential change and say what it would cost. Do not rewrite the brief, do not propose a different direction — the direction was approved two gates ago — and do not ask for an SVG: this stage is PNG only by operator instruction."
+    }
+  ],
+  "stages": [
+    {
+      "stage": "brief",
+      "from": "conductor",
+      "to": [
+        "illustrator"
+      ],
+      "contract": "rebrand.brand.brief.v1",
+      "timeout": "5m",
+      "description": "Conductor names the approved concept, quotes the exact token hex values, and states the PNG-only rule."
+    },
+    {
+      "stage": "render",
+      "from": "conductor",
+      "to": [
+        "illustrator"
+      ],
+      "contract": "rebrand.brand.v1",
+      "timeout": "40m",
+      "description": "Astra renders the primary mark, the dimensional treatment, the size ladder rendered at size, and the ground variants, all PNG."
+    },
+    {
+      "stage": "critique",
+      "from": "conductor",
+      "to": [
+        "critic"
+      ],
+      "contract": "rebrand.brand.critique.v1",
+      "timeout": "20m",
+      "description": "Critic opens the files and judges the pictures, including the small end of the ladder."
+    },
+    {
+      "stage": "revise",
+      "from": "conductor",
+      "to": [
+        "illustrator"
+      ],
+      "contract": "rebrand.brand.v1",
+      "timeout": "30m",
+      "loop_until": "critic.verdict == accept",
+      "max_rounds": 2,
+      "description": "Astra regenerates toward the named criticism into new numbered filenames; the critic re-looks."
+    }
+  ],
+  "gates": [
+    {
+      "after": "revise",
+      "human": true,
+      "description": "Approve the artwork. Stage 6 puts these renderings on pages, so a mark changed after this gate invalidates every mockup."
+    }
+  ],
+  "artifacts": {
+    "dir": "artifacts",
+    "promote_to": "Nothing is promoted out of the case file here, and nothing is published. `rebrand collect brand` records 05-brand/*.png against the approval digest; keep every superseded round under artifacts/ so the operator can see what the criticism actually bought. This spec runs the illustrator with auto_approve, so `ao-topology launch` needs --allow-auto-approve."
+  }
+}

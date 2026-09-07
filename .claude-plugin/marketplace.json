@@ -106,6 +106,11 @@
       "name": "bytedesk-designer",
       "description": "An eval-driven design suite \u2014 product idea to rendered HTML, Claude directing and the Codex CLI producing at every stage. Reads your own design authority for tokens, motif, and generated-art rules rather than imposing a house style.",
       "source": "./bytedesk-designer"
+    },
+    {
+      "name": "client-rebrand",
+      "description": "Take a client through a rebrand in six gated stages \u2014 discovery, identity, direction, theme, brand, mockups \u2014 one at a time, with a human approval between each that is bound to the bytes it approved. Every stage is a tmux agent team; between stages nothing is running, so a case waiting on a client can sit for a week and be picked up with one command.",
+      "source": "./client-rebrand"
     }
   ]
 }

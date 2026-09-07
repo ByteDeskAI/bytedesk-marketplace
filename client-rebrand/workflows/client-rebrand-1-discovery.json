@@ -1,0 +1,108 @@
+{
+  "version": 1,
+  "name": "client-rebrand-1-discovery",
+  "description": "Stage 1 of a client rebrand. Two researchers work in parallel on separate ground — one audits the brand the client has live today, one maps the category it competes in — and a synthesist turns both bodies of evidence into the brief every later stage reads. Produces 01-discovery/brief.md, 01-discovery/audit.md and the harvested assets, and stops at a human gate.",
+  "inputs": {
+    "client_dir": {
+      "description": "Absolute path to the case file. state.json holds the brief; each stage writes into its own numbered folder here.",
+      "required": true
+    },
+    "conductor": {
+      "description": "Ordered provider chain for the conductor: cli:model pairs, comma-separated, tried in order at launch and on failover",
+      "default": "claude:opus, claude:fable, codex"
+    },
+    "auditor": {
+      "description": "Ordered provider chain for the brand auditor",
+      "default": "claude:sonnet, codex, kimi"
+    },
+    "market": {
+      "description": "Ordered provider chain for the market researcher — keep it off the auditor's family so the two readings are genuinely independent",
+      "default": "grok, kimi, codex"
+    },
+    "synthesist": {
+      "description": "Ordered provider chain for the synthesist",
+      "default": "claude:opus, claude:sonnet, codex"
+    }
+  },
+  "session": "rebrand-discovery-{{run_id}}",
+  "cwd": "{{inputs.client_dir}}",
+  "run_dir": "{{inputs.client_dir}}/.bytedesk/agent-orchestration/runs/{{run_id}}",
+  "layout": "main-vertical",
+  "agents": [
+    {
+      "id": "conductor",
+      "role": "orchestrator",
+      "candidates": "{{inputs.conductor}}",
+      "skills": [
+        "orchestration-conduct",
+        "bytedesk-designer-discovery"
+      ],
+      "instructions": "The case file is {{inputs.client_dir}}. Read {{inputs.client_dir}}/state.json before you brief anyone, and quote the client's current name, the incoming name, and the stated reason for the rename in every brief you send — a rebrand brief that names only one of the two names is not a brief. If state.json is missing or holds no brief, refuse before briefing anyone: say which of the two it is and stop — the driver owns state.json and only the driver can supply it. Nothing in this stage is reconstructed from memory or inference. Send the same case facts to brand-auditor and market-researcher in ONE send, with different assignments: the auditor works only what the client has live today, the market researcher works only the category and never the client's own site. Overlap between them costs a round and buys nothing. When both have replied, hand BOTH replies to the synthesist unedited, together with the list of files the auditor actually downloaded — the synthesist writes the two documents, you do not write them for it. Write only into {{inputs.client_dir}}/01-discovery/ and into this run's artifacts/ directory — no other folder in the case file, and never state.json: the driver owns it and `rebrand collect` is what records a stage. At the gate write artifacts/GATE-discovery.md — what was produced and where, what was rejected and why, what could not be determined, and the decision the operator has to make — then stop. Do not continue past it. The gate note also lists the open questions identity cannot start without."
+    },
+    {
+      "id": "brand-auditor",
+      "role": "researcher",
+      "candidates": "{{inputs.auditor}}",
+      "instructions": "You audit the brand that exists TODAY, not the one being built. This is a rebrand: there is an incumbent identity in the world and your job is to record it before it is replaced.\n\nWork the client's live presence — the site and its subpages, social profiles, app listings, anything indexed — and record, each with the URL or path you took it from:\n- the old wordmark and every place it appears, including the variants nobody meant to ship;\n- the colours actually in use, sampled as hex from the rendered page or the asset, never described in words;\n- the typefaces actually in use; name them, and say plainly when what you can see is only a fallback;\n- the taglines and the boilerplate 'about' sentence, quoted verbatim in each place they appear;\n- the inconsistencies: the same mark at three different ratios, two blues that were meant to be one, a tagline that was updated in one place and not the other.\n\nThen answer the question the rename creates: what does the name change invalidate? List every asset, URL, handle, file, printed or physical item and stock phrase that CARRIES the old name and therefore dies with it, and keep that list separate from the things that merely mention the brand and can survive a find-and-replace.\n\nHarvest what you can actually download into {{inputs.client_dir}}/01-discovery/assets/, one file per asset, named <what>-<where>.<ext>, and list each with its source URL. An asset you described but did not save is not an asset — say so instead of implying you have it. Write nothing outside 01-discovery/assets/; your reply is evidence for the synthesist, not a brief."
+    },
+    {
+      "id": "market-researcher",
+      "role": "researcher",
+      "candidates": "{{inputs.market}}",
+      "instructions": "You work the category, not the client. Do not audit the client's own site — brand-auditor owns it, and a second pass over it costs a round.\n\nName the five to eight organizations this client is actually compared against by a buyer, each with a URL, and for each record: the mark and what it depicts, the palette as hex, the typographic voice, and their positioning in their own words, quoted.\n\nThen, across the set: what the category's visual conventions are; which of them have hardened into cliché; and where the whitespace is — the register nobody in this set occupies. Note the naming conventions of the set as well, because a new name has to survive being read beside them.\n\nDate anything that can go stale, mark inference as inference, and state what you could not find as plainly as what you found."
+    },
+    {
+      "id": "synthesist",
+      "role": "worker",
+      "candidates": "{{inputs.synthesist}}",
+      "skills": [
+        "bytedesk-designer-discovery"
+      ],
+      "instructions": "You receive both researchers' evidence and write exactly two files, both under {{inputs.client_dir}}/01-discovery/.\n\naudit.md — the state of the brand today: what exists, where, in what condition, with the source beside each claim. The inconsistencies are an itemised list, not a paragraph. It ends with a section 'What the rename invalidates', as a table of asset -> why it dies -> who has to replace it.\n\nbrief.md — the brief every later stage reads: who the client is and who they serve; what the rename is for; what the new brand must do that the old one did not; the competitive set in one paragraph with the whitespace named; the hard constraints that are real (regulatory, physical, technical, budgetary); and an explicit 'must never look like' list drawn from the category clichés.\n\nEvery claim traces to the evidence you were given. Where the two researchers disagree, say so in the brief and name both readings — do not average them into a claim neither made. Do not touch 01-discovery/assets/ (the auditor owns it), write nothing outside 01-discovery/, and never edit state.json."
+    }
+  ],
+  "stages": [
+    {
+      "stage": "brief",
+      "from": "conductor",
+      "to": [
+        "brand-auditor",
+        "market-researcher"
+      ],
+      "contract": "rebrand.discovery.brief.v1",
+      "timeout": "5m",
+      "description": "Conductor reads state.json and sends both researchers the same case facts with their separate assignments."
+    },
+    {
+      "stage": "research",
+      "wait_for": [
+        "brand-auditor",
+        "market-researcher"
+      ],
+      "contract": "rebrand.discovery.evidence.v1",
+      "timeout": "40m",
+      "description": "Auditor records the incumbent brand and harvests its assets; market researcher maps the category. Neither writes the brief."
+    },
+    {
+      "stage": "synthesize",
+      "from": "conductor",
+      "to": [
+        "synthesist"
+      ],
+      "contract": "rebrand.discovery.v1",
+      "timeout": "25m",
+      "description": "Synthesist writes 01-discovery/brief.md and 01-discovery/audit.md from both bodies of evidence."
+    }
+  ],
+  "gates": [
+    {
+      "after": "synthesize",
+      "human": true,
+      "description": "Read brief.md and audit.md, check the harvested assets, and approve discovery before identity starts. The approval digest is taken here."
+    }
+  ],
+  "artifacts": {
+    "dir": "artifacts",
+    "promote_to": "Nothing is promoted out of this stage and nothing is published. `rebrand collect discovery` is what records 01-discovery/brief.md, audit.md and assets/ against the approval digest; keep both researchers' raw replies and every round under artifacts/ as the decision trail the later stages cite when they are asked why the brief says what it says."
+  }
+}

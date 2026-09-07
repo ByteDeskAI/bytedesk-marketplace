@@ -1,0 +1,123 @@
+{
+  "version": 1,
+  "name": "client-rebrand-6-mockups",
+  "description": "Stage 6 of a client rebrand. One page builder is fanned out per page — each its own agent, working only its page — and a judge reads the set as a set: one brand across several pages rather than several pages that each look fine alone. Produces 06-mockups/*.png and nothing else, and stops at a human gate.",
+  "inputs": {
+    "client_dir": {
+      "description": "Absolute path to the case file. 04-theme/tokens.json and 05-brand/*.png are what the pages are built from.",
+      "required": true
+    },
+    "pages": {
+      "description": "The pages to mock up, comma-separated. One agent is launched per page, so keep it to four to six; the fan-out cap is 8 and each item is a whole session, not a pane.",
+      "default": "home, product, pricing, about, contact"
+    },
+    "conductor": {
+      "description": "Ordered provider chain for the conductor",
+      "default": "claude:opus, claude:fable, codex"
+    },
+    "builder": {
+      "description": "Ordered provider chain used by every page builder",
+      "default": "claude:sonnet, codex, claude:opus"
+    },
+    "judge": {
+      "description": "Ordered provider chain for the judge — keep it off the builders' family so the set is read by something that did not build it",
+      "default": "kimi, claude:opus, copilot"
+    },
+    "viewport": {
+      "description": "Render width in pixels for every page PNG, so the set is comparable",
+      "default": "1440"
+    },
+    "max_rounds": {
+      "description": "Maximum revision rounds after the first judgement",
+      "default": "2"
+    }
+  },
+  "session": "rebrand-mockups-{{run_id}}",
+  "cwd": "{{inputs.client_dir}}",
+  "run_dir": "{{inputs.client_dir}}/.bytedesk/agent-orchestration/runs/{{run_id}}",
+  "layout": "grid",
+  "agents": [
+    {
+      "id": "conductor",
+      "role": "orchestrator",
+      "candidates": "{{inputs.conductor}}",
+      "skills": [
+        "orchestration-conduct"
+      ],
+      "instructions": "The case file is {{inputs.client_dir}}. Read {{inputs.client_dir}}/state.json before you brief anyone, and quote the client's current name, the incoming name, and the stated reason for the rename in every brief you send — a rebrand brief that names only one of the two names is not a brief. This stage builds from 04-theme/tokens.json and the approved artwork in 05-brand/, against 02-identity/IDENTITY.md for voice. If a file this stage needs is absent, refuse and name the stage that owes it, exactly as the bytedesk-designer-* skills do; do not reconstruct a missing input from memory or inference. There is one builder per page and it is addressed by its page: the fan-out gives you `page.<slug>` ids (`page.home` for the page `home`), and `page` addresses all of them at once. Send them the IDENTICAL brief in one send — same tokens, same artwork, same viewport, same voice — because the only difference between the pages should be the page. PNG ONLY: 06-mockups/ holds *.png and nothing else. The HTML each builder writes to render its page lives in this run's artifacts/, never in 06-mockups/. When every page has replied, send the judge the PATHS to all of them and ask it to judge the SET, not each page alone. Relay its numbered fixes to the specific builders they name — never to all of them — and run at most {{inputs.max_rounds}} revision rounds. Write only into {{inputs.client_dir}}/06-mockups/ and into this run's artifacts/ directory — no other folder in the case file, and never state.json: the driver owns it and `rebrand collect` is what records a stage. At the gate write artifacts/GATE-mockups.md — what was produced and where, what was rejected and why, what could not be determined, and the decision the operator has to make — then stop. Do not continue past it. The gate note lists every page and its file, and any page that could not be built."
+    },
+    {
+      "id": "page",
+      "role": "designer",
+      "candidates": "{{inputs.builder}}",
+      "skills": [
+        "bytedesk-designer-surface"
+      ],
+      "for_each": "{{inputs.pages}}",
+      "instructions": "You own exactly one page: {{item}}. You do not build, touch, or comment on any other page in this set.\n\nBuild it as real HTML and CSS against the real tokens in {{inputs.client_dir}}/04-theme/tokens.json — never a colour typed from memory — using the approved artwork in {{inputs.client_dir}}/05-brand/ for the mark, and 02-identity/IDENTITY.md for the voice of every word on the page. Real copy in the brand's voice, not lorem ipsum: a mockup with placeholder text hides the thing the operator is trying to judge.\n\nWrite the HTML and any assets into THIS RUN's artifacts directory under your own agent id — not into the case file. Then render the page at {{inputs.viewport}}px wide, look at the screenshot, fix what is wrong, and re-render. The only thing you copy into {{inputs.client_dir}}/06-mockups/ is the finished PNG, named {{item}}.png. That folder is PNG only; an .html file in it is a defect.\n\nReply with the absolute path of your PNG, its size in bytes, and one paragraph on what the page is doing and what you know is weakest about it. On a revision round, apply only the fixes addressed to your page, re-render, and save to a new numbered filename in artifacts/ before replacing {{item}}.png."
+    },
+    {
+      "id": "judge",
+      "role": "judge",
+      "candidates": "{{inputs.judge}}",
+      "skills": [
+        "bytedesk-designer-review"
+      ],
+      "instructions": "You are given the paths to every page PNG in the set. Open all of them and judge them AS A SET — each page was built by a different agent that never saw the others, so incoherence is the expected failure and finding it is your whole job.\n\nScore, with evidence: does one brand run across all the pages, or several that each look fine alone; do type scale, spacing rhythm, corner radius, button shape and mark placement agree across the set; are the colours the tokens' colours, sampled from the pixels rather than judged by eye; is the voice one voice; and does any page contradict IDENTITY.md's positioning.\n\nNumber every fix and ADDRESS EACH ONE TO THE PAGE IT BELONGS TO by page name, so the conductor can send it to that builder alone. Where two pages disagree, say which one should change and why — 'make them consistent' is not a fix anyone can act on. Then one verdict for the set."
+    }
+  ],
+  "stages": [
+    {
+      "stage": "brief",
+      "from": "conductor",
+      "to": [
+        "page"
+      ],
+      "contract": "rebrand.mockups.brief.v1",
+      "timeout": "5m",
+      "description": "The identical brief — tokens, artwork, voice, viewport — goes to every page builder in one send."
+    },
+    {
+      "stage": "build",
+      "wait_for": [
+        "page"
+      ],
+      "contract": "rebrand.mockups.v1",
+      "timeout": "45m",
+      "description": "Each builder builds and renders its own page and copies only the finished PNG into 06-mockups/."
+    },
+    {
+      "stage": "judge",
+      "from": "conductor",
+      "to": [
+        "judge"
+      ],
+      "contract": "rebrand.mockups.scorecard.v1",
+      "timeout": "25m",
+      "description": "Judge reads the pages as one set and returns fixes addressed to individual pages."
+    },
+    {
+      "stage": "revise",
+      "from": "conductor",
+      "to": [
+        "page"
+      ],
+      "contract": "rebrand.mockups.v1",
+      "timeout": "30m",
+      "loop_until": "judge.verdict == accept",
+      "max_rounds": 2,
+      "description": "Only the builders the judge named revise their own page; the judge re-reads the whole set."
+    }
+  ],
+  "gates": [
+    {
+      "after": "revise",
+      "human": true,
+      "description": "Approve the mockup set. This is the last stage of the rebrand: what the operator approves here is what the client sees."
+    }
+  ],
+  "artifacts": {
+    "dir": "artifacts",
+    "promote_to": "Nothing is promoted automatically. `rebrand collect mockups` records 06-mockups/*.png against the approval digest; the HTML, the intermediate renders and every judged round stay under artifacts/, which is what makes a page rebuildable later without re-running the stage."
+  }
+}

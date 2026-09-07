@@ -1,0 +1,432 @@
+#!/usr/bin/env bash
+# rebrand — drive a client rebrand through six gated stages, one at a time.
+#
+# The whole point of this script is the GATE. Stages in the orchestration layer are prose: a spec's
+# `gates` block is rendered into the conductor's BOOTSTRAP.md and nothing ever reads it back, so a
+# gate there is a sentence asking a model to stop. Here it is a refusal.
+#
+# The state lives in the case file, not in this process and not in a tmux session, because a rebrand
+# waits on people. A client takes a week to look at three directions. Between stages nothing is
+# running at all — which is what makes "stop and pick it up later" free rather than a feature.
+#
+# The durable shape is bytedesk-designer's run-folder contract (see its
+# references/run-folder-contract.md), extended with one block per stage:
+#
+#   "approval": { "by": ..., "at": ..., "digest": "sha256:...", "note": ... }
+#
+# The digest covers the stage's whole artifact set, sorted. `next` recomputes it, and an approval
+# that no longer matches what is on disk is not an approval. That is the same discipline the
+# contract already applies to `viewed` — record the content, not just the name — and it exists
+# because a name list cannot say the file still holds what was approved.
+set -euo pipefail
+
+PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+AO="${AO_TOPOLOGY_BIN:-$PLUGIN_ROOT/../agent-orchestration/bin/ao-topology}"
+# The stage skills live in a SIBLING plugin. Skill resolution searches the consumer's directories,
+# the user's home, and the orchestration plugin's own skills/ — a sibling plugin is on none of those
+# paths, so without this every stage launches with "skill not found" and an agent told to carry on
+# without the procedure it was supposed to follow. Which is exactly the state the two shipped brand
+# workflows are in today, and the reason this is passed explicitly rather than hoped for.
+DESIGNER_SKILLS="${REBRAND_DESIGNER_SKILLS:-$PLUGIN_ROOT/../bytedesk-designer/skills}"
+STAGES=(discovery identity direction theme brand mockups)
+
+die() { printf '%s\n' "$*" >&2; exit "${2:-1}"; }
+note() { printf '%s\n' "$*"; }
+
+# ── the case file ────────────────────────────────────────────────────────────────────────────
+# Resolved from --client, then $REBRAND_CLIENT, then the cwd if it holds a state.json. Explicit
+# beats implicit, but a directory you are standing in is a fair default.
+CLIENT=""
+resolve_client() {
+  [ -n "$CLIENT" ] || CLIENT="${REBRAND_CLIENT:-}"
+  [ -n "$CLIENT" ] || { [ -f "$PWD/state.json" ] && CLIENT="$PWD"; } || true
+  [ -n "$CLIENT" ] || die "no case file: pass --client <dir>, set REBRAND_CLIENT, or run from inside one"
+  CLIENT="$(cd "$CLIENT" 2>/dev/null && pwd)" || die "no such directory: $CLIENT"
+  [ -f "$CLIENT/state.json" ] || die "$CLIENT holds no state.json — run \`rebrand new\` first"
+}
+
+folder_for() {
+  case "$1" in
+    discovery) echo "01-discovery" ;; identity) echo "02-identity" ;; direction) echo "03-direction" ;;
+    theme) echo "04-theme" ;; brand) echo "05-brand" ;; mockups) echo "06-mockups" ;;
+    *) die "unknown stage \"$1\". Stages: ${STAGES[*]}" ;;
+  esac
+}
+
+index_of() {
+  local want="$1" i=0
+  for s in "${STAGES[@]}"; do [ "$s" = "$want" ] && { echo "$i"; return; }; i=$((i+1)); done
+  die "unknown stage \"$want\". Stages: ${STAGES[*]}"
+}
+
+# ── the digest ───────────────────────────────────────────────────────────────────────────────
+# Every file under the stage folder, sorted by path, hashed by path AND content. Sorted because a
+# digest that depends on readdir order is not a digest; by path as well as content because moving a
+# file is a change to the deliverable even when no byte differs.
+#
+# Empty folder -> the empty digest, which never matches a recorded one. A stage with no artifacts
+# has produced nothing and must not be approvable.
+stage_digest() {
+  local dir="$1"
+  [ -d "$dir" ] || { echo ""; return; }
+  local listing
+  listing="$(cd "$dir" && find . -type f ! -name '.DS_Store' -print0 2>/dev/null \
+    | LC_ALL=C sort -z | xargs -0 -r sha256sum 2>/dev/null || true)"
+  [ -n "$listing" ] || { echo ""; return; }
+  printf 'sha256:%s' "$(printf '%s' "$listing" | sha256sum | cut -c1-64)"
+}
+
+py() { python3 - "$@"; }
+
+state_get() {
+  py "$CLIENT/state.json" "$@" <<'PY'
+import json, sys
+state = json.load(open(sys.argv[1]))
+cur = state
+for key in sys.argv[2:]:
+    if isinstance(cur, dict): cur = cur.get(key)
+    else: cur = None
+    if cur is None: break
+print("" if cur is None else (cur if isinstance(cur, str) else json.dumps(cur)))
+PY
+}
+
+# Every write goes through here so state.json is never left half-written: build the new document in
+# a temp file and rename it over the old one, which is atomic on the same filesystem.
+state_set() {
+  local script="$1"; shift
+  py "$CLIENT/state.json" "$script" "$@" <<'PY'
+import json, os, sys, tempfile
+path, script = sys.argv[1], sys.argv[2]
+state = json.load(open(path))
+exec(script, {"state": state, "args": sys.argv[3:], "json": json})
+fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path))
+with os.fdopen(fd, "w") as handle:
+    json.dump(state, handle, indent=2, ensure_ascii=False)
+    handle.write("\n")
+os.replace(tmp, path)
+PY
+}
+
+# ── stage verdicts ───────────────────────────────────────────────────────────────────────────
+# One function every command agrees with, so `status` can never say something `next` disagrees
+# with. Returns one of: pending | running | complete | approved | drifted | missing.
+#
+# `missing` is the case the run-folder contract calls out by name: a stage marked complete whose
+# files have been deleted is incomplete regardless of what the JSON says. Trusting the JSON alone
+# is how a run reports green over an empty folder.
+stage_verdict() {
+  local stage="$1" folder status recorded actual
+  folder="$CLIENT/$(folder_for "$stage")"
+  status="$(state_get stages "$stage" status)"
+  actual="$(stage_digest "$folder")"
+
+  case "$status" in
+    ""|pending) echo "pending"; return ;;
+    running)    echo "running"; return ;;
+  esac
+  [ -n "$actual" ] || { echo "missing"; return; }
+
+  recorded="$(state_get stages "$stage" approval digest)"
+  if [ -z "$recorded" ]; then echo "complete"; return; fi
+  if [ "$recorded" = "$actual" ]; then echo "approved"; else echo "drifted"; fi
+}
+
+# ── commands ─────────────────────────────────────────────────────────────────────────────────
+
+cmd_new() {
+  local slug="${1:-}"; shift || true
+  [ -n "$slug" ] || die 'usage: rebrand new <slug> --name "<client name>" [--input k=v]...'
+  local name="" inputs=() root="${REBRAND_ROOT:-$HOME/Documents/GitHub/ByteDeskAI/clients}"
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --name) name="${2:-}"; shift 2 ;;
+      --root) root="${2:-}"; shift 2 ;;
+      --input) inputs+=("${2:-}"); shift 2 ;;
+      *) die "unknown option $1" ;;
+    esac
+  done
+  [ -n "$name" ] || die 'a client needs a --name: rebrand new <slug> --name "Viking Surface Care"'
+  local dir="$root/$slug"
+  [ -e "$dir" ] && die "$dir already exists — a case file is created once and then continued"
+  mkdir -p "$dir"
+  for stage in "${STAGES[@]}"; do mkdir -p "$dir/$(folder_for "$stage")"; done
+  mkdir -p "$dir/runs"
+
+  CLIENT="$dir"
+  py "$dir/state.json" "$slug" "$name" "${inputs[@]+"${inputs[@]}"}" <<'PY'
+import json, sys, datetime
+path, slug, name = sys.argv[1], sys.argv[2], sys.argv[3]
+brief = {}
+for pair in sys.argv[4:]:
+    key, _, value = pair.partition("=")
+    if key: brief[key] = value
+stages = ["discovery", "identity", "direction", "theme", "brand", "mockups"]
+json.dump({
+    "slug": slug,
+    "client": name,
+    "created": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "brief": brief,
+    # Same shape as bytedesk-designer's run-folder contract, so anything that already reads one of
+    # those folders reads this one. `approval` is the addition.
+    "stages": {stage: {"status": "pending", "artifacts": [], "viewed": []} for stage in stages},
+}, open(path, "w"), indent=2, ensure_ascii=False)
+open(path, "a").write("\n")
+PY
+  ( cd "$dir" && git init -q . 2>/dev/null && git add -A && \
+    git -c user.email=rebrand@bytedesk.ai -c user.name=rebrand commit -qm "case file for $name" ) || true
+  note "$dir"
+  note ""
+  note "Case file for $name. Six stages, all pending."
+  note "Next: rebrand next --client $dir"
+}
+
+cmd_status() {
+  resolve_client
+  local name; name="$(state_get client)"
+  note "$name — $CLIENT"
+  note ""
+  local i=1 blocked=""
+  for stage in "${STAGES[@]}"; do
+    local verdict mark detail=""
+    verdict="$(stage_verdict "$stage")"
+    case "$verdict" in
+      approved) mark="✓"; detail="approved $(state_get stages "$stage" approval at) by $(state_get stages "$stage" approval by)" ;;
+      complete) mark="◑"; detail="produced, NOT approved — rebrand approve $stage" ;;
+      drifted)  mark="✗"; detail="APPROVED THEN CHANGED — the approval no longer describes what is on disk" ;;
+      missing)  mark="✗"; detail="marked $(state_get stages "$stage" status) but its folder is empty" ;;
+      running)  mark="◐"; detail="running — $(state_get stages "$stage" run)" ;;
+      *)        mark="○"; detail="" ;;
+    esac
+    printf '  %s %d %-10s %s\n' "$mark" "$i" "$stage" "$detail"
+    [ -z "$blocked" ] && [ "$verdict" != "approved" ] && blocked="$stage"
+    i=$((i+1))
+  done
+  note ""
+  if [ -z "$blocked" ]; then
+    note "All six stages approved."
+  else
+    local verdict; verdict="$(stage_verdict "$blocked")"
+    case "$verdict" in
+      pending) note "Next: rebrand next        (starts $blocked)" ;;
+      running) note "In flight: $blocked. When its run is done: rebrand collect $blocked" ;;
+      complete) note "Waiting on you: rebrand approve $blocked" ;;
+      drifted) note "Blocked: $blocked changed after approval. Re-approve it or restore the files." ;;
+      missing) note "Blocked: $blocked has no artifacts. Re-run it: rebrand next" ;;
+    esac
+  fi
+}
+
+cmd_next() {
+  resolve_client
+  local dry="" passthru=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --dry-run) dry="--dry-run"; shift ;;
+      --input) passthru+=(--input "${2:-}"); shift 2 ;;
+      --client) shift 2 ;;
+      *) die "unknown option $1" ;;
+    esac
+  done
+
+  # Find the first stage that is not approved, and refuse for the reason that actually applies.
+  local target="" idx=0
+  for stage in "${STAGES[@]}"; do
+    local verdict; verdict="$(stage_verdict "$stage")"
+    if [ "$verdict" != "approved" ]; then target="$stage"; idx="$(index_of "$stage")"; break; fi
+  done
+  [ -n "$target" ] || die "every stage is approved — there is nothing left to run" 0
+
+  case "$(stage_verdict "$target")" in
+    running)
+      die "$target is already running: $(state_get stages "$target" run)
+Stop it first (ao-topology stop --run <dir>) or collect it (rebrand collect $target)." ;;
+    complete)
+      die "$target has produced its artifacts but nobody has approved them.
+  Look at: $CLIENT/$(folder_for "$target")
+  Then:    rebrand approve $target" ;;
+    drifted)
+      die "$target was approved, then its files changed. The approval no longer describes what is on disk.
+  Recorded: $(state_get stages "$target" approval digest)
+  On disk:  $(stage_digest "$CLIENT/$(folder_for "$target")")
+Re-approve it deliberately, or restore the files that were approved." ;;
+  esac
+
+  # The gate. Everything before this stage must be approved AND still match.
+  local i=0
+  for stage in "${STAGES[@]}"; do
+    [ "$i" -ge "$idx" ] && break
+    local verdict; verdict="$(stage_verdict "$stage")"
+    [ "$verdict" = "approved" ] || die "cannot start $target: stage $((i+1)) \"$stage\" is $verdict.
+Stages run in order, and each one is approved before the next begins.
+  rebrand status"
+    i=$((i+1))
+  done
+
+  local spec="$PLUGIN_ROOT/workflows/client-rebrand-$((idx+1))-$target.json"
+  [ -f "$spec" ] || die "no spec for stage $target at $spec"
+  [ -x "$AO" ] || die "ao-topology not found at $AO — set AO_TOPOLOGY_BIN"
+
+  mkdir -p "$CLIENT/$(folder_for "$target")"
+  note "Stage $((idx+1)) — $target"
+  note "  spec:   $spec"
+  note "  client: $CLIENT"
+  note ""
+
+  local skills=()
+  if [ -d "$DESIGNER_SKILLS" ]; then
+    skills=(--skills-dir "$DESIGNER_SKILLS")
+  else
+    note "! $DESIGNER_SKILLS is not there — the stage skills will not resolve and every agent will"
+    note "  be told to carry on without its procedure. Set REBRAND_DESIGNER_SKILLS."
+  fi
+
+  local out
+  out="$("$AO" launch --spec "$spec" --consumer "$CLIENT" \
+      --input "client_dir=$CLIENT" ${passthru[@]+"${passthru[@]}"} ${skills[@]+"${skills[@]}"} \
+      --allow-auto-approve $dry --json 2>&1)" || { printf '%s\n' "$out" >&2; die "launch failed"; }
+  printf '%s\n' "$out"
+  [ -n "$dry" ] && return 0
+
+  # The launch JSON as an ARGUMENT, not on stdin: this function's own heredoc feeds python's stdin,
+  # so a pipe into it is silently swallowed. shellcheck SC2259 caught that here.
+  local run_dir
+  run_dir="$(py "$out" <<'PY'
+import json, sys
+text = sys.argv[1]
+start = text.find("{")
+try: print(json.loads(text[start:]).get("runDir", "") if start >= 0 else "")
+except Exception: print("")
+PY
+)"
+  if [ -n "$run_dir" ]; then
+    ln -sfn "$run_dir" "$CLIENT/runs/$target"
+    state_set 'state["stages"][args[0]]["status"] = "running"; state["stages"][args[0]]["run"] = args[1]' "$target" "$run_dir"
+    note ""
+    note "When the run has finished: rebrand collect $target"
+  fi
+}
+
+# Take what the run produced and record it. Separate from the run itself because a conductor writes
+# into its own run directory, and what belongs to the client is a decision somebody makes afterwards.
+cmd_collect() {
+  resolve_client
+  local stage="${1:-}"; [ -n "$stage" ] || die "usage: rebrand collect <stage>"
+  local folder; folder="$CLIENT/$(folder_for "$stage")"
+  local run_dir; run_dir="$(state_get stages "$stage" run)"
+  [ -n "$run_dir" ] || die "$stage has no recorded run"
+
+  # Copy anything the run produced under artifacts/ that is not the conductor's own paperwork.
+  if [ -d "$run_dir/artifacts" ]; then
+    ( cd "$run_dir/artifacts" && find . -type f ! -name 'GATE-*.md' ! -name 'REPORT.md' \
+        ! -name 'decision-*.md' -print0 2>/dev/null | while IFS= read -r -d '' f; do
+        mkdir -p "$folder/$(dirname "$f")"; cp -n "$f" "$folder/$f" 2>/dev/null || true
+      done ) || true
+  fi
+
+  local digest; digest="$(stage_digest "$folder")"
+  [ -n "$digest" ] || die "$folder is empty — $stage produced nothing to collect.
+Its run is at $run_dir; look at artifacts/ and the agents' outbox files."
+
+  local files; files="$(cd "$folder" && find . -type f | sed 's|^\./||' | LC_ALL=C sort)"
+  state_set 'state["stages"][args[0]].update({"status": "complete", "artifacts": args[1].split("\n") if args[1] else []})' \
+    "$stage" "$files"
+  note "$stage: $(printf '%s' "$files" | wc -l) artifact(s) in $folder"
+  printf '%s\n' "$files" | sed 's/^/  /'
+  note ""
+  note "Look at them, then: rebrand approve $stage"
+}
+
+cmd_approve() {
+  resolve_client
+  local stage="${1:-}"; shift || true
+  [ -n "$stage" ] || die "usage: rebrand approve <stage> [--note <text>] [--by <who>]"
+  local text="" who="${USER:-operator}"
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --note) text="${2:-}"; shift 2 ;;
+      --by) who="${2:-}"; shift 2 ;;
+      --client) shift 2 ;;
+      *) die "unknown option $1" ;;
+    esac
+  done
+  local folder digest; folder="$CLIENT/$(folder_for "$stage")"; digest="$(stage_digest "$folder")"
+  [ -n "$digest" ] || die "nothing to approve: $folder is empty"
+  [ "$(state_get stages "$stage" status)" != "pending" ] || die "$stage has not run yet"
+
+  local at; at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  state_set 'state["stages"][args[0]]["approval"] = {"by": args[1], "at": args[2], "digest": args[3], "note": args[4]}; state["stages"][args[0]]["status"] = "complete"' \
+    "$stage" "$who" "$at" "$digest" "$text"
+  note "$stage approved by $who at $at"
+  note "  digest $digest"
+  note "  over $(cd "$folder" && find . -type f | wc -l) file(s) in $(folder_for "$stage")/"
+  note ""
+  note "Next: rebrand next"
+}
+
+cmd_reject() {
+  resolve_client
+  local stage="${1:-}"; shift || true
+  [ -n "$stage" ] || die "usage: rebrand reject <stage> --why <text>"
+  local why=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --why) why="${2:-}"; shift 2 ;;
+      --client) shift 2 ;;
+      *) die "unknown option $1" ;;
+    esac
+  done
+  [ -n "$why" ] || die "a rejection needs --why: it becomes the brief for the next round"
+  local at; at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  # The round is kept, not deleted. What was rejected and why is the most useful thing in a case
+  # file six months later, and re-running a stage over the top of it would erase exactly that.
+  state_set 'stage = state["stages"][args[0]]
+stage.setdefault("rejected", []).append({"at": args[1], "why": args[2], "digest": args[3]})
+stage.pop("approval", None)
+stage["status"] = "pending"' "$stage" "$at" "$why" "$(stage_digest "$CLIENT/$(folder_for "$stage")")"
+  note "$stage sent back: $why"
+  note "The round is kept. Re-run with: rebrand next"
+}
+
+usage() {
+  cat <<'EOF'
+rebrand — drive a client rebrand through six gated stages
+
+  new <slug> --name "<client>" [--input k=v]...   create the case file
+  status                                          where the work is
+  next [--dry-run] [--input k=v]...               run the next stage, if the gate allows
+  collect <stage>                                 record what a finished run produced
+  approve <stage> [--note <text>] [--by <who>]    approve it, bound to what is on disk
+  reject <stage> --why <text>                     send it back, keeping the round
+
+Stages, in order: discovery identity direction theme brand mockups
+Common: --client <dir>, or $REBRAND_CLIENT, or run inside the case file.
+
+Between stages nothing is running. Stopping is closing the terminal; resuming is `rebrand next`.
+EOF
+}
+
+main() {
+  local args=() cmd=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --client) CLIENT="${2:-}"; shift 2 ;;
+      -h|--help) usage; exit 0 ;;
+      *) if [ -z "$cmd" ]; then cmd="$1"; else args+=("$1"); fi; shift ;;
+    esac
+  done
+  case "$cmd" in
+    new)     cmd_new "${args[@]+"${args[@]}"}" ;;
+    status)  cmd_status ;;
+    next)    cmd_next "${args[@]+"${args[@]}"}" ;;
+    collect) cmd_collect "${args[@]+"${args[@]}"}" ;;
+    approve) cmd_approve "${args[@]+"${args[@]}"}" ;;
+    reject)  cmd_reject "${args[@]+"${args[@]}"}" ;;
+    ""|help) usage ;;
+    *) die "unknown command \"$cmd\"
+
+$(usage)" ;;
+  esac
+}
+
+main "$@"

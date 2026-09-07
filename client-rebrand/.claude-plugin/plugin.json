@@ -1,0 +1,5 @@
+{
+  "name": "client-rebrand",
+  "description": "Take a client through a rebrand in six gated stages — discovery, identity, direction, theme, brand, mockups — one at a time, with a human approval between each that is bound to the bytes it approved. Every stage is a tmux agent team; between stages nothing is running, so a case waiting on a client can sit for a week and be picked up with one command.",
+  "author": { "name": "ByteDesk" }
+}

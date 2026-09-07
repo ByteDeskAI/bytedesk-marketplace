@@ -1,0 +1,142 @@
+{
+  "version": 1,
+  "name": "client-rebrand-3-direction",
+  "description": "Stage 3 of a client rebrand. Two designers on different model families draw against the identical brief without seeing each other's work, and a judge on a third family scores the concepts without being told which family produced which. Produces 03-direction/concepts/, the prompt beside each concept, contact-sheet.html and notes.md carrying the per-round critique, and stops at a human gate.",
+  "inputs": {
+    "client_dir": {
+      "description": "Absolute path to the case file. 02-identity/IDENTITY.md and 01-discovery/brief.md are what this stage draws from.",
+      "required": true
+    },
+    "conductor": {
+      "description": "Ordered provider chain for the conductor",
+      "default": "claude:opus, claude:fable, codex"
+    },
+    "designer_a": {
+      "description": "Ordered provider chain for designer-a",
+      "default": "claude:opus, claude:sonnet"
+    },
+    "designer_b": {
+      "description": "Ordered provider chain for designer-b — a different model family from designer-a, which is the whole point of running two",
+      "default": "codex, grok, kimi"
+    },
+    "judge": {
+      "description": "Ordered provider chain for the judge — keep it off BOTH designer families so it has no house style to favour",
+      "default": "kimi, claude:opus, copilot"
+    },
+    "concepts": {
+      "description": "Concepts each designer produces, from genuinely different strategies",
+      "default": "2"
+    },
+    "max_rounds": {
+      "description": "Maximum revision rounds after the first judgement",
+      "default": "2"
+    }
+  },
+  "session": "rebrand-direction-{{run_id}}",
+  "cwd": "{{inputs.client_dir}}",
+  "run_dir": "{{inputs.client_dir}}/.bytedesk/agent-orchestration/runs/{{run_id}}",
+  "layout": "grid",
+  "agents": [
+    {
+      "id": "conductor",
+      "role": "orchestrator",
+      "candidates": "{{inputs.conductor}}",
+      "skills": [
+        "orchestration-conduct"
+      ],
+      "instructions": "The case file is {{inputs.client_dir}}. Read {{inputs.client_dir}}/state.json before you brief anyone, and quote the client's current name, the incoming name, and the stated reason for the rename in every brief you send — a rebrand brief that names only one of the two names is not a brief. This stage reads 02-identity/IDENTITY.md and 01-discovery/brief.md. If a file this stage needs is absent, refuse and name the stage that owes it, exactly as the bytedesk-designer-* skills do; do not reconstruct a missing input from memory or inference. Send the IDENTICAL brief to both designers in one send, so the judge compares work rather than prompts, and never show one designer the other's concepts, letter or score. Blind judging is the mechanism this stage exists for, and it survives only if you keep it: assign each designer a neutral folder letter in the brief (designer-a and designer-b are ids, not letters, and the letters do NOT have to match them), keep the letter-to-designer map in this run's artifacts/decision-direction.md and nowhere inside 03-direction/, and forward the concepts to the judge as A and B without saying which model family produced which. The judge must not be able to favour a family. Relay only the judge's criticism back to each designer, never the other designer's work, and run at most {{inputs.max_rounds}} revision rounds. You write two files yourself, because they are the decision trail and not design work: 03-direction/notes.md, which carries the judge's critique for every round in order with what changed between them; and 03-direction/contact-sheet.html, a plain zero-dependency page showing every concept beside the prompt that produced it, so the operator can choose by looking. The stage's output is two to three genuinely different directions for the operator to choose between: keep every concept in place and let notes.md name the two or three that are real alternatives and say why the rest are variations of them. Write only into {{inputs.client_dir}}/03-direction/ and into this run's artifacts/ directory — no other folder in the case file, and never state.json: the driver owns it and `rebrand collect` is what records a stage. At the gate write artifacts/GATE-direction.md — what was produced and where, what was rejected and why, what could not be determined, and the decision the operator has to make — then stop. Do not continue past it."
+    },
+    {
+      "id": "designer-a",
+      "role": "designer",
+      "candidates": "{{inputs.designer_a}}",
+      "skills": [
+        "bytedesk-designer-direction"
+      ],
+      "instructions": "You draw {{inputs.concepts}} concepts against the brief you are sent, each from a genuinely different strategy — three variations of one idea count as one concept and will be scored as one. This is direction, not the finished mark: a simple SVG or a PNG that shows the idea at a glance is what the stage wants, not an asset kit.\n\nWrite each concept to {{inputs.client_dir}}/03-direction/concepts/<letter>-<n>/, where <letter> is the folder letter the conductor assigned you, and put the prompt or the construction notes that produced it beside it at {{inputs.client_dir}}/03-direction/prompts/<letter>-<n>.md — one prompt file per concept, so a direction can be regenerated by someone who was not here.\n\nThe judging is blind. Do not sign your work, do not name your model, family, provider or tooling anywhere in a file name, a file, an SVG comment or your rationale, and do not mention which letter you were given to anyone but the conductor. Write nothing outside 03-direction/concepts/ and 03-direction/prompts/ — notes.md and contact-sheet.html belong to the conductor — and never edit state.json.\n\nOn a revision round you revise only the concept the judge named, against its numbered fixes, into a new numbered folder so every round survives for comparison."
+    },
+    {
+      "id": "designer-b",
+      "role": "designer",
+      "candidates": "{{inputs.designer_b}}",
+      "skills": [
+        "bytedesk-designer-direction"
+      ],
+      "instructions": "You draw {{inputs.concepts}} concepts against the brief you are sent, each from a genuinely different strategy — three variations of one idea count as one concept and will be scored as one. This is direction, not the finished mark: a simple SVG or a PNG that shows the idea at a glance is what the stage wants, not an asset kit.\n\nWrite each concept to {{inputs.client_dir}}/03-direction/concepts/<letter>-<n>/, where <letter> is the folder letter the conductor assigned you, and put the prompt or the construction notes that produced it beside it at {{inputs.client_dir}}/03-direction/prompts/<letter>-<n>.md — one prompt file per concept, so a direction can be regenerated by someone who was not here.\n\nThe judging is blind. Do not sign your work, do not name your model, family, provider or tooling anywhere in a file name, a file, an SVG comment or your rationale, and do not mention which letter you were given to anyone but the conductor. Write nothing outside 03-direction/concepts/ and 03-direction/prompts/ — notes.md and contact-sheet.html belong to the conductor — and never edit state.json.\n\nOn a revision round you revise only the concept the judge named, against its numbered fixes, into a new numbered folder so every round survives for comparison."
+    },
+    {
+      "id": "judge",
+      "role": "judge",
+      "candidates": "{{inputs.judge}}",
+      "skills": [
+        "bytedesk-designer-review"
+      ],
+      "instructions": "You score anonymous entries, A and B. You do not know which model family produced which, the folder letters carry no information about it, and you must not guess or reason about it — if you find yourself inferring a provider from a house style, say so and score anyway.\n\nScore every concept against, in this order: fitness to IDENTITY.md's motif and positioning; distance from the 'must never look like' list in the brief; genuine difference between the concepts offered (two concepts that resolve to one idea lose a mark that neither would lose alone); and whether the idea survives being drawn simply — this stage is choosing a direction, so craft is worth less than legibility of the idea.\n\nOpen every file; do not score a concept from its rationale. Disqualify any concept that reproduces an existing brand's mark, breaks a stated ban, or is missing its prompt file. Give each criterion a number and one sentence of evidence, then one verdict, then say which two or three concepts are real alternatives to each other rather than variations of one."
+    }
+  ],
+  "stages": [
+    {
+      "stage": "brief",
+      "from": "conductor",
+      "to": [
+        "designer-a",
+        "designer-b"
+      ],
+      "contract": "rebrand.direction.brief.v1",
+      "timeout": "5m",
+      "description": "The identical brief goes to both designers in one send, each with its own neutral folder letter."
+    },
+    {
+      "stage": "concepts",
+      "wait_for": [
+        "designer-a",
+        "designer-b"
+      ],
+      "contract": "rebrand.direction.concepts.v1",
+      "timeout": "35m",
+      "description": "Each designer produces its concepts as simple SVG or PNG with the prompt kept beside each one."
+    },
+    {
+      "stage": "judge",
+      "from": "conductor",
+      "to": [
+        "judge"
+      ],
+      "contract": "rebrand.direction.scorecard.v1",
+      "timeout": "20m",
+      "description": "Concepts are forwarded as A and B with no family attribution; the judge scores and names the real alternatives."
+    },
+    {
+      "stage": "revise",
+      "from": "conductor",
+      "to": [
+        "designer-a",
+        "designer-b"
+      ],
+      "contract": "rebrand.direction.concepts.v1",
+      "timeout": "25m",
+      "loop_until": "judge.verdict == accept",
+      "max_rounds": 2,
+      "description": "Only the named concepts are revised against the judge's numbered fixes, into new numbered folders, then back to the judge."
+    },
+    {
+      "stage": "collate",
+      "from": "conductor",
+      "to": [],
+      "contract": "rebrand.direction.v1",
+      "timeout": "15m",
+      "description": "Conductor writes 03-direction/notes.md (per-round critique and what changed) and 03-direction/contact-sheet.html (every concept beside its prompt)."
+    }
+  ],
+  "gates": [
+    {
+      "after": "collate",
+      "human": true,
+      "description": "Open contact-sheet.html and choose the direction. Stage 4 colours the chosen direction and stage 5 renders it, so this is the last cheap place to change course."
+    }
+  ],
+  "artifacts": {
+    "dir": "artifacts",
+    "promote_to": "Nothing leaves the case file at this stage. `rebrand collect direction` records 03-direction/notes.md, concepts/, prompts/ and contact-sheet.html against the approval digest; the letter-to-designer map stays in artifacts/decision-direction.md, out of 03-direction/, so a later reader can reconstruct who drew what without the judging having known it."
+  }
+}

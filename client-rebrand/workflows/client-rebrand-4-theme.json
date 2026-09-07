@@ -1,0 +1,112 @@
+{
+  "version": 1,
+  "name": "client-rebrand-4-theme",
+  "description": "Stage 4 of a client rebrand. A token author derives the palette from the approved direction and writes it once, for every place the brand is reproduced — web light and dark, print, vehicle wrap, signage and embroidery — and a contrast auditor on a different family recomputes every ratio rather than believing the table. Produces 04-theme/tokens.json and PALETTE.md, and stops at a human gate.",
+  "inputs": {
+    "client_dir": {
+      "description": "Absolute path to the case file. 03-direction/ (the approved direction) and 02-identity/IDENTITY.md are what this stage derives from.",
+      "required": true
+    },
+    "conductor": {
+      "description": "Ordered provider chain for the conductor",
+      "default": "claude:opus, claude:fable, codex"
+    },
+    "author": {
+      "description": "Ordered provider chain for the token author",
+      "default": "claude:opus, codex, claude:sonnet"
+    },
+    "auditor": {
+      "description": "Ordered provider chain for the contrast auditor — keep it off the author's family so the numbers are checked by something that did not produce them",
+      "default": "codex, kimi, grok"
+    },
+    "max_rounds": {
+      "description": "Maximum revision rounds after the first audit",
+      "default": "2"
+    }
+  },
+  "session": "rebrand-theme-{{run_id}}",
+  "cwd": "{{inputs.client_dir}}",
+  "run_dir": "{{inputs.client_dir}}/.bytedesk/agent-orchestration/runs/{{run_id}}",
+  "layout": "main-vertical",
+  "agents": [
+    {
+      "id": "conductor",
+      "role": "orchestrator",
+      "candidates": "{{inputs.conductor}}",
+      "skills": [
+        "orchestration-conduct"
+      ],
+      "instructions": "The case file is {{inputs.client_dir}}. Read {{inputs.client_dir}}/state.json before you brief anyone, and quote the client's current name, the incoming name, and the stated reason for the rename in every brief you send — a rebrand brief that names only one of the two names is not a brief. This stage reads the direction the operator approved in 03-direction/ and 02-identity/IDENTITY.md. If a file this stage needs is absent, refuse and name the stage that owes it, exactly as the bytedesk-designer-* skills do; do not reconstruct a missing input from memory or inference. Name the approved direction explicitly in the brief — a palette derived from the wrong concept is a stage wasted — and say which downstream uses must be covered: web light, web dark, print/CMYK, vehicle wrap, signage and embroidery thread. When the author replies, send the auditor the PATHS to tokens.json and PALETTE.md and require it to RECOMPUTE the contrast figures rather than check that the table is internally consistent. Relay failures as numbered fixes and run at most {{inputs.max_rounds}} revision rounds. A pair that cannot be made to pass is reported as a documented exception with its restriction, not quietly dropped. The auditor never edits the tokens; it reports. Write only into {{inputs.client_dir}}/04-theme/ and into this run's artifacts/ directory — no other folder in the case file, and never state.json: the driver owns it and `rebrand collect` is what records a stage. At the gate write artifacts/GATE-theme.md — what was produced and where, what was rejected and why, what could not be determined, and the decision the operator has to make — then stop. Do not continue past it. The gate note states every failing or exception pair by name."
+    },
+    {
+      "id": "token-author",
+      "role": "implementer",
+      "candidates": "{{inputs.author}}",
+      "skills": [
+        "bytedesk-designer-authority"
+      ],
+      "instructions": "You write exactly two files, both under {{inputs.client_dir}}/04-theme/.\n\ntokens.json — the machine-readable palette. Every colour is a named token with a stated role (surface, ink, accent, border, state) and carries its value in every space it will actually be reproduced in: sRGB hex for web, a light and a dark assignment for each semantic role, CMYK for print, the Pantone or nearest coated match for wrap and signage vinyl, and the thread number for embroidery. A colour that exists only as hex is not finished — the client's van and the client's polo shirts are reproductions of this palette too, and CMYK, vinyl and thread are each a different gamut that will move the colour if nobody chooses where it moves to. Where a match is approximate, record the approximation and its Delta-E rather than implying an exact match.\n\nPALETTE.md — the same palette for a human, organized by USE and not by colour: web light, web dark, print/CMYK, vehicle wrap, signage, embroidery thread. Each section says what may be set on what, what is forbidden, and the minimum size or distance the colour still reads at in that medium.\n\nCONTRAST IS MEASURED, NEVER ASSERTED. For every foreground/background pair the palette actually permits — in light and in dark — compute the WCAG 2.x contrast ratio and print it to two decimals with its pass/fail at AA and AAA for normal and for large text. Compute it with a command and paste the command and its output into PALETTE.md; do not estimate a ratio by eye or from memory. python3 is available:\npython3 -c \"\ndef lin(c):\n    c=c/255\n    return c/12.92 if c<=0.04045 else ((c+0.055)/1.055)**2.4\ndef L(h):\n    h=h.lstrip('#'); r,g,b=(int(h[i:i+2],16) for i in (0,2,4))\n    return 0.2126*lin(r)+0.7152*lin(g)+0.0722*lin(b)\ndef ratio(a,b):\n    la,lb=sorted((L(a),L(b)))\n    return (lb+0.05)/(la+0.05)\nprint(round(ratio('#111111','#ffffff'),2))\n\"\nDerive the palette from the direction the conductor named and from IDENTITY.md's motif; do not import a colour because it is fashionable. Write nothing outside 04-theme/, and never edit state.json.\n\nOn a revision round, fix the pairs the auditor failed and recompute the whole table — a fix that moves one token changes every ratio that token appears in."
+    },
+    {
+      "id": "contrast-auditor",
+      "role": "reviewer",
+      "candidates": "{{inputs.auditor}}",
+      "instructions": "You do not trust the table. Recompute every contrast figure in PALETTE.md yourself from the hex values in tokens.json, with your own command, and report any figure that differs from the author's by more than 0.01 as a defect — a wrong ratio that reads as a pass is the failure mode this stage exists to catch.\n\nThen check what the table does not say: pairs the palette permits but the author did not test (every semantic foreground against every semantic surface, in light and in dark); non-text contrast for borders, focus rings, disabled states and chart series, which have their own 3:1 floor; whether the dark assignment is a real dark palette or the light one inverted; and whether the print, wrap, signage and embroidery values are plausible reproductions of the sRGB colour rather than the hex copied across.\n\nEvery finding cites the token names, your computed ratio, and the concrete fix. Paste the command you ran. You report; you never edit tokens.json or PALETTE.md. End with the one-line disposition your role requires."
+    }
+  ],
+  "stages": [
+    {
+      "stage": "brief",
+      "from": "conductor",
+      "to": [
+        "token-author"
+      ],
+      "contract": "rebrand.theme.brief.v1",
+      "timeout": "5m",
+      "description": "Conductor names the approved direction and the full list of downstream reproductions the palette must cover."
+    },
+    {
+      "stage": "tokens",
+      "from": "conductor",
+      "to": [
+        "token-author"
+      ],
+      "contract": "rebrand.theme.v1",
+      "timeout": "35m",
+      "description": "Author writes 04-theme/tokens.json and PALETTE.md with every contrast ratio computed by command and pasted."
+    },
+    {
+      "stage": "audit",
+      "from": "conductor",
+      "to": [
+        "contrast-auditor"
+      ],
+      "contract": "rebrand.theme.audit.v1",
+      "timeout": "20m",
+      "description": "Auditor recomputes every ratio independently and tests the pairs the author did not."
+    },
+    {
+      "stage": "revise",
+      "from": "conductor",
+      "to": [
+        "token-author"
+      ],
+      "contract": "rebrand.theme.v1",
+      "timeout": "25m",
+      "loop_until": "contrast-auditor.disposition == approve",
+      "max_rounds": 2,
+      "description": "Author fixes the failing pairs and recomputes the whole table; the auditor re-audits."
+    }
+  ],
+  "gates": [
+    {
+      "after": "revise",
+      "human": true,
+      "description": "Approve the palette. Stage 5 renders in these colours and stage 6 builds pages from these tokens, so a colour changed after this gate invalidates both."
+    }
+  ],
+  "artifacts": {
+    "dir": "artifacts",
+    "promote_to": "Nothing is promoted out of this stage. `rebrand collect theme` records 04-theme/tokens.json and PALETTE.md against the approval digest; keep every audit round under artifacts/, including the failed ratios, since the documented exceptions are what a print vendor or a signage shop will ask about later."
+  }
+}

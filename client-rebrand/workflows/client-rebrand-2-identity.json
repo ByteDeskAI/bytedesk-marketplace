@@ -1,0 +1,109 @@
+{
+  "version": 1,
+  "name": "client-rebrand-2-identity",
+  "description": "Stage 2 of a client rebrand. A strategist turns the discovery brief into the brand's positioning, personality, motif and voice, and a challenger on a different model family is paid to argue against it rather than to improve it. Produces 02-identity/IDENTITY.md, which says explicitly what survives the rename and what dies with it, and stops at a human gate.",
+  "inputs": {
+    "client_dir": {
+      "description": "Absolute path to the case file. state.json holds the brief; 01-discovery/ holds the input this stage reads.",
+      "required": true
+    },
+    "conductor": {
+      "description": "Ordered provider chain for the conductor",
+      "default": "claude:opus, claude:fable, codex"
+    },
+    "strategist": {
+      "description": "Ordered provider chain for the strategist",
+      "default": "claude:opus, claude:fable, codex"
+    },
+    "challenger": {
+      "description": "Ordered provider chain for the challenger — keep it off the strategist's family; an argument against a position is worth little from the model that would have taken it",
+      "default": "grok, kimi, codex"
+    },
+    "max_rounds": {
+      "description": "Maximum revision rounds after the first challenge",
+      "default": "2"
+    }
+  },
+  "session": "rebrand-identity-{{run_id}}",
+  "cwd": "{{inputs.client_dir}}",
+  "run_dir": "{{inputs.client_dir}}/.bytedesk/agent-orchestration/runs/{{run_id}}",
+  "layout": "main-vertical",
+  "agents": [
+    {
+      "id": "conductor",
+      "role": "orchestrator",
+      "candidates": "{{inputs.conductor}}",
+      "skills": [
+        "orchestration-conduct"
+      ],
+      "instructions": "The case file is {{inputs.client_dir}}. Read {{inputs.client_dir}}/state.json before you brief anyone, and quote the client's current name, the incoming name, and the stated reason for the rename in every brief you send — a rebrand brief that names only one of the two names is not a brief. This stage reads 01-discovery/brief.md and 01-discovery/audit.md. If a file this stage needs is absent, refuse and name the stage that owes it, exactly as the bytedesk-designer-* skills do; do not reconstruct a missing input from memory or inference. Brief the strategist with the paths, not with your summary of them. When IDENTITY.md exists, send the challenger the PATH and the brief, and ask for the case AGAINST it — a challenger that returns compliments has not done the job, and you send it back once with that said. Relay the challenge to the strategist as numbered objections; the strategist answers each one either by changing the document or by writing down why the objection is wrong. Run at most {{inputs.max_rounds}} revision rounds. The challenger never writes into 02-identity/ — its output lives in this run's artifacts/. Write only into {{inputs.client_dir}}/02-identity/ and into this run's artifacts/ directory — no other folder in the case file, and never state.json: the driver owns it and `rebrand collect` is what records a stage. At the gate write artifacts/GATE-identity.md — what was produced and where, what was rejected and why, what could not be determined, and the decision the operator has to make — then stop. Do not continue past it. The gate note lists the objections that were accepted, the ones that were refused, and the reason given for each refusal."
+    },
+    {
+      "id": "strategist",
+      "role": "worker",
+      "candidates": "{{inputs.strategist}}",
+      "instructions": "You write one file: {{inputs.client_dir}}/02-identity/IDENTITY.md. It is the document stage 3 briefs designers from and stage 4 derives a palette from, so every section has to be actionable rather than atmospheric.\n\nSections, in this order:\n- POSITIONING: who this is for, what it replaces for them, and the one claim the brand is making. One paragraph, in the client's market's language, not in brand-agency language.\n- PERSONALITY: three to five traits, each with its opposite named so it is a choice and not a compliment ('plainspoken, not folksy'). A trait that no competitor would refuse is not a trait — cut it.\n- MOTIF: the visual idea the identity is built on, described concretely enough that two designers reading it independently would draw the same family of shapes. Say what it is NOT, and name the category clichés from the brief it must avoid.\n- VOICE: how the brand writes. Three before/after rewrites of real sentences taken from the audit, so the change is demonstrated rather than asserted.\n- WHAT SURVIVES THE RENAME: the equity that carries over — a colour customers recognise, a shape, a phrase, a reputation the audit evidences — and why each is worth keeping.\n- WHAT DIES WITH IT: the assets, phrases and associations that go, drawn from the audit's invalidation table, with the cost of losing each stated plainly. A rebrand that claims to lose nothing is not being honest with the client.\n\nEvery claim traces to 01-discovery/. Where the brief is silent, say so in the document rather than inventing a fact about the client. Write nothing outside 02-identity/, and never edit state.json.\n\nOn a revision round you answer the challenger's objections by number: either change the document, or write one sentence in the document saying why the objection does not hold. Silence on an objection is not an answer."
+    },
+    {
+      "id": "challenger",
+      "role": "reviewer",
+      "candidates": "{{inputs.challenger}}",
+      "instructions": "You are not a second strategist and you are not here to improve the document. You are here to argue against it, hard enough that what survives is load-bearing.\n\nRead 02-identity/IDENTITY.md against 01-discovery/brief.md and audit.md and attack it on these fronts, in this order:\n1. Would any competitor in the brief's set refuse this positioning? If not, it says nothing.\n2. Does the motif survive being drawn by someone who has not read the document? Where is it ambiguous enough that two designers diverge?\n3. Is 'what survives the rename' equity the audit actually evidences, or nostalgia? Name the claims with no evidence behind them.\n4. Is 'what dies with it' honest about the cost, or is it a list of things nobody would miss?\n5. Which sentence in the document would be equally true of a different client in the same category? Quote it.\n\nNumber your objections; each carries the quote it attacks and what would have to be true for the objection to be wrong. Write into this run's artifacts/ only — never into 02-identity/. End with the one-line disposition your role requires."
+    }
+  ],
+  "stages": [
+    {
+      "stage": "brief",
+      "from": "conductor",
+      "to": [
+        "strategist"
+      ],
+      "contract": "rebrand.identity.brief.v1",
+      "timeout": "5m",
+      "description": "Conductor briefs the strategist with the paths to the discovery output and the required section list."
+    },
+    {
+      "stage": "position",
+      "from": "conductor",
+      "to": [
+        "strategist"
+      ],
+      "contract": "rebrand.identity.v1",
+      "timeout": "30m",
+      "description": "Strategist writes 02-identity/IDENTITY.md: positioning, personality, motif, voice, what survives the rename and what dies with it."
+    },
+    {
+      "stage": "challenge",
+      "from": "conductor",
+      "to": [
+        "challenger"
+      ],
+      "contract": "rebrand.identity.challenge.v1",
+      "timeout": "20m",
+      "description": "Challenger, on a different model family, argues against the document and returns numbered objections."
+    },
+    {
+      "stage": "revise",
+      "from": "conductor",
+      "to": [
+        "strategist"
+      ],
+      "contract": "rebrand.identity.v1",
+      "timeout": "25m",
+      "loop_until": "challenger.disposition == approve",
+      "max_rounds": 2,
+      "description": "Strategist answers every objection by number — by changing the document or by defending it in writing — and the challenger re-reads."
+    }
+  ],
+  "gates": [
+    {
+      "after": "revise",
+      "human": true,
+      "description": "Approve IDENTITY.md before any direction work starts. Positioning, motif and the survives/dies split are what stage 3 draws from and stage 4 colours."
+    }
+  ],
+  "artifacts": {
+    "dir": "artifacts",
+    "promote_to": "Nothing is promoted out of this stage. `rebrand collect identity` records 02-identity/IDENTITY.md against the approval digest; keep every challenge round and the strategist's written refusals under artifacts/, because the refusals are the record of why the identity says what it says."
+  }
+}
