@@ -253,6 +253,13 @@
 - **Global command installation and SessionStart autolinking are removed.** Repositories invoke the committed launchers under `.bytedesk/task-management/bin/`; `.bytedesk/task-management/bin/tm doctor --fix` removes legacy links only when they are proven to belong to this plugin.
 - **Generated runtime files stay out of git.** Store `.gitignore` now names `dashboard.pid` and `dashboard.port` explicitly (still covered by `dashboard.*`), plus `bin` (generated launchers) and `events.json` / `events.jsonl`. Bootstrap and `.bytedesk/task-management/bin/tm doctor --fix` write `.bytedesk/.gitignore` so `worktrees/` is ignored without swallowing the store. Dashboard `.gitignore` also drops Vite/tsc leftovers (`.vite`, `*.tsbuildinfo`).
 
+### Documentation
+- **[`docs/goal-planner.md`](docs/goal-planner.md).** What the planner is for, the four operations
+  an agent may propose and the ones deliberately absent, the four properties that make an approval
+  mean something, how to configure a trusted ACP agent, the attachment limits, and — stated plainly
+  — that this is a governed proposal boundary and not an authorization system: anyone who can reach
+  the dashboard can approve, exactly as anyone who can run `tm` can create a task.
+
 ### Fixed
 - **`tm epic new` takes a `--body`, and refuses an option it does not know.** The title was every
   remaining word, so `tm epic new "X" --body "Y"` created an epic literally titled `X --body Y`

@@ -254,6 +254,7 @@ a fresh repo from zero: [docs/install.md](docs/install.md).
 | [`docs/agent-first.md`](docs/agent-first.md) | dispatch loop, backends, harness recipes, CLI / MCP / HTTP parity |
 | [`docs/dashboard-api.md`](docs/dashboard-api.md) | HTTP contract |
 | [`docs/dashboard-contract.md`](docs/dashboard-contract.md) | SPA contract |
+| [`docs/goal-planner.md`](docs/goal-planner.md) | the goal planner: the four proposable operations, the governed boundary, configuring an ACP agent |
 
 ## CLI
 
