@@ -25,10 +25,19 @@ import {
   queueDepth,
   readJournal,
   recordReply,
-  sendMessage,
+  sendMessage as productionSendMessage,
   waitForReplies,
 } from "../../topology/lib/mailbox.mjs";
 import { readJson, writeJson } from "../../topology/lib/util.mjs";
+
+// Explicit nonce-proven lead fixture; mailbox persistence stays inside the test.
+async function sendMessage(args) {
+  return productionSendMessage({ ...args, standingOptions: {
+    env: { AGENT_ORCHESTRATION_STATE_HOME: join(args.runDir, 'standing-state') },
+    home: join(args.runDir, 'isolated-home'),
+    readiness: async () => ({ status: 'responsive', record: { agent_id: 'fixture-lead' }, library_lead: 'fixture-lead' }),
+  } });
+}
 
 /**
  * A minimal but real task-management store for a project: one task file with JSON frontmatter and
@@ -206,11 +215,12 @@ test("a barrier on the original addressee is satisfied by the lead's answer, and
     });
     assert.equal(msg.deliveries[0].agent, b.lead.id);
 
-    // Still pending, and the wait names the box the answer will actually appear in.
+    // Still pending, with the durable standing identity and actual answerer.
     const before = await pendingReplies(runDir, [b.member.id]);
     assert.equal(before.length, 1);
     assert.equal(before[0].answered_by, b.lead.id);
-    assert.match(before[0].outbox, new RegExp(`${b.lead.id}/outbox`));
+    assert.ok(before[0].standingId);
+    assert.equal(before[0].status, "delivered-unanswered");
 
     // Guard against the barrier being satisfied by nothing. A redirected message never reaches the
     // addressee's inbox, so listing inbox files alone found no obligation and released the wait
@@ -341,14 +351,13 @@ test("the via chain is appended to per hop and enforced on the send path", async
 
     // Lead-to-lead ping-pong: this message already passed through B's lead, so B refuses to be
     // handed it again rather than forwarding it in a circle.
-    await assert.rejects(
-      () => sendMessage({
-        runDir, from: a.lead.id, to: [b.member.id], stage: "ask", body: "Round two.",
-        route, fromProject: a.dir, via: [b.lead.id],
-      }),
-      (e) => e.code === "TOPOLOGY_ROUTE_LOOP",
-      "a message must not be forwarded back through an agent that already handled it",
-    );
+    const looping = await sendMessage({
+      runDir, from: a.lead.id, to: [b.member.id], stage: "ask", body: "Round two.",
+      route, fromProject: a.dir, via: [b.lead.id],
+    });
+    assert.equal(looping.holds[0].reason, 'loop');
+    assert.equal(looping.deliveries.length, 0);
+
 
     // The hop limit is enforced at the mailbox, so a hand-forwarded message trips it too — no
     // router required.
@@ -389,35 +398,22 @@ test("coordinates_only is a capability: the mailbox refuses to assign a coordina
     });
     assert.equal(asked.deliveries[0].agent, b.lead.id, "a coordinator may still be asked things");
 
-    await assert.rejects(
-      () => sendMessage({
-        runDir, from: a.member.id, to: [b.lead.id], stage: "implement", body: "Please write the parser.",
-        route, fromProject: a.dir,
-      }),
-      (e) => e.code === "TOPOLOGY_COORDINATOR_NOT_A_WORKER",
-      "an assignment stage aimed at a coordinator must be refused, not merely discouraged",
-    );
+    for (const to of [b.lead.id, b.member.id]) {
+      const denied = await sendMessage({runDir, from: a.member.id, to: [to], stage: "implement", body: "Please write the parser.", route, fromProject: a.dir});
+      assert.equal(denied.deliveries.length, 0);
+      assert.equal(denied.holds[0].reason, 'coordinator_not_worker');
+    }
 
-    // A redirect does not become a back door: work aimed at a member lands on the lead only if it
-    // is not an assignment.
-    await assert.rejects(
-      () => sendMessage({
-        runDir, from: a.member.id, to: [b.member.id], stage: "implement", body: "Do this for us.",
-        route, fromProject: a.dir,
-      }),
-      (e) => e.code === "TOPOLOGY_COORDINATOR_NOT_A_WORKER",
-      "a redirect must not hand the lead work the member was meant to do",
-    );
 
     // The same fact holds with no router at all, from the run record alone.
     const flagged = await runFor({ ...b, dir: await mkdtemp(join(tmpdir(), "ao-coord-flag-")) }, { flagCoordinator: true });
     await assert.rejects(
-      () => sendMessage({ runDir: flagged, from: "operator", to: [b.lead.id], stage: "build", body: "Ship it." }),
+      async () => sendMessage({ runDir: flagged, fromProject: (await readJson(join(flagged, "run.json"))).consumer, from: "operator", to: [b.lead.id], stage: "build", body: "Ship it." }),
       (e) => e.code === "TOPOLOGY_COORDINATOR_NOT_A_WORKER",
     );
     // An explicit `assignment: false` is the escape hatch for a stage name that only looks like one.
     const forwarded = await sendMessage({
-      runDir: flagged, from: "operator", to: [b.lead.id], stage: "build", body: "FYI: the build broke.", assignment: false,
+      runDir: flagged, fromProject: (await readJson(join(flagged, "run.json"))).consumer, from: "operator", to: [b.lead.id], stage: "build", body: "FYI: the build broke.", assignment: false,
     });
     assert.equal(forwarded.deliveries[0].agent, b.lead.id);
   } finally {
@@ -481,7 +477,7 @@ test("a run that records only the token's digest still authenticates the writer"
     run.agents = run.agents.map((a) => (a.id === p.member.id ? { id: a.id, role: a.role, token_sha256: digest } : a));
     await writeJson(join(runDir, "run.json"), run);
 
-    const msg = await sendMessage({ runDir, from: p.lead.id, to: [p.member.id], stage: "brief", body: "Do the thing." });
+    const msg = await sendMessage({ runDir, fromProject: p.dir, from: p.lead.id, to: [p.member.id], stage: "brief", body: "Do the thing." });
     await assert.rejects(
       () => recordReply({ runDir, agentId: p.member.id, messageId: msg.id, body: "forged", token: digest }),
       (e) => e.code === "TOPOLOGY_AGENT_UNAUTHORIZED",
@@ -499,7 +495,7 @@ test("an agent cannot answer for another agent, and an empty reply satisfies not
   const p = await project("auth");
   try {
     const runDir = await runFor(p);
-    const msg = await sendMessage({ runDir, from: p.lead.id, to: [p.member.id], stage: "brief", body: "Do the thing." });
+    const msg = await sendMessage({ runDir, fromProject: p.dir, from: p.lead.id, to: [p.member.id], stage: "brief", body: "Do the thing." });
 
     await assert.rejects(
       () => recordReply({ runDir, agentId: p.member.id, messageId: msg.id, body: "forged", token: `tok-${p.lead.id}` }),

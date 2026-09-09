@@ -5,6 +5,9 @@ delegating bounded work to Claude Code, Codex, Grok Build, and Kimi. Any of thos
 orchestration. It preserves provider attribution, durable execution identity, explicit permissions,
 lifecycle control, and structured results instead of scraping terminal output.
 
+See [repository leads and standing services](docs/repository-leads.md) for canonical worktree identity,
+configurable prompts, reviewer gates, durable mail and Presence v1.
+
 ## What it provides
 
 - Capability and health discovery for each provider independently.

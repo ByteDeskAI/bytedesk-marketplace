@@ -280,7 +280,7 @@ function orchestratorProblem(agents) {
 }
 
 /** Fields a stored agent contributes to a spec entry that references it. */
-const FROM_LIBRARY = ["role", "cli", "model", "candidates", "skills", "mcp", "instructions", "instructions_file", "args", "env", "auto_approve", "coordinates_only", "cwd"];
+const FROM_LIBRARY = ["template", "full_name", "title", "role", "cli", "model", "candidates", "skills", "mcp", "instructions", "instructions_file", "args", "env", "auto_approve", "coordinates_only", "cwd"];
 
 /** A spec entry that omits `id` borrows the stored agent's name, uniquely within the run. */
 function derivedAgentId(stored, taken) {
@@ -343,6 +343,8 @@ function expandAgentRefs(spec, context) {
       if (inline.has(field) || stored[field] === undefined || stored[field] === null) continue;
       merged[field] = field === "candidates" ? candidateList(stored[field]) : stored[field];
     }
+    // The library's generated output is not a custom input source.
+    if (!inline.has("instructions_file") && stored.instructions_file === "prompt.md") delete merged.instructions_file;
     // An inline cli/model states the chain for this run, so it replaces the stored one rather than
     // being overruled by it — candidates otherwise win over cli everywhere downstream.
     if ((inline.has("cli") || inline.has("model")) && !inline.has("candidates")) delete merged.candidates;
@@ -443,7 +445,12 @@ export function materializeSpec(rawSpec, context) {
     if (withAgent.candidates.length === 0) withAgent.candidates = [{ cli: withAgent.cli, model: withAgent.model || undefined }];
     withAgent.cli = withAgent.candidates[0].cli;
     withAgent.model = withAgent.candidates[0].model;
-    if (withAgent.instructions_file) withAgent.instructions = readInstructionsFile(withAgent, context, agentVars);
+    withAgent._inline_instructions = withAgent.instructions || "";
+    withAgent._prompt_vars = agentVars;
+    if (withAgent.instructions_file) {
+      withAgent.instructions = readInstructionsFile(withAgent, context, agentVars);
+      withAgent.instructions_file = absolutize(withAgent.instructions_file, withAgent._agent_dir || context.consumer);
+    }
     return withAgent;
   });
   rendered.inputs_resolved = vars.inputs;

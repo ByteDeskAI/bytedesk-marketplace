@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "repositoryKey": "9f2c41ab77e0d3b5",
+  "repositoryRoot": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace",
+  "generation": "13",
+  "revision": "0",
+  "generatedAt": "2026-09-09T07:00:12.000Z",
+  "staleAfterMs": 30000,
+  "clockSkewToleranceMs": 5000,
+  "agents": []
+}

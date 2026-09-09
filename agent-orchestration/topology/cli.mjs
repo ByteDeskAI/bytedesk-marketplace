@@ -8,7 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { doctor as runDoctor, tmuxInstallPlan } from "./lib/doctor.mjs";
-import { failoverAgent, launchRun, messagePointer, openRoleSession, roleSessionName, uniqueSessionName } from "./lib/launch.mjs";
+import { failoverAgent, launchRun, openRoleSession, roleSessionName, uniqueSessionName } from "./lib/launch.mjs";
 import { appendJournal, loadRun, pendingReplies, queueDepth, readJournal, recordReply, saveRun, sendMessage, waitForReplies } from "./lib/mailbox.mjs";
 import { adapterFor, adapterSummary, buildArgv, loadAdapters, providerDirs } from "./lib/providers.mjs";
 import { roleDirs, skillDirs } from "./lib/resolve.mjs";
@@ -72,6 +72,19 @@ Conduct (used by the orchestrator agent)
 
 Reply (used by every agent)
   reply --run <run_dir> --agent <id> --message <id> (--file <md> | --body <text>)
+
+Standing repository services
+  supervise [--once --server <socket>]          reconcile presence, prompts and held mail
+  lead status|ensure|assign <agent>|detach|probes|ack <nonce>
+  reviewer status|ensure|request|collect|eligible [--task TM-id --revision <sha> --author <id>]
+  prompt preview|refresh|watch|ack <agent> [--revision <hash> --nonce <nonce>]
+  startup pending|watch|hooks|install-hooks|uninstall-hooks [--provider <id> --server <name>]
+  startup-check --source hook|manual
+  enrollment request --pending-key <key> --agent <id> [--consumer <repo>]
+  enrollment ack --pending-key <key> --nonce <nonce> [--agent <id>]
+  presence publish|watch [--server <socket> --dir <presence-directory>]
+  mailbox send|forward|inbox|outbox|resume [--agent <id> --from-project <dir> --to <id> --id <stable-id>]
+  manage status|admit|report|eligible|integrate|cleanup --task <TM-id> [--file <protocol.json>]
 
 Common: --consumer defaults to the current directory; --json prints machine-readable output.
 `;
@@ -221,6 +234,135 @@ function nameFrom(flags) {
 }
 
 const commands = {
+  async supervise({ flags }) {
+    const { superviseRepository } = await import('./lib/supervision.mjs');
+    const ctx = context(flags);
+    if (flags.once) return superviseRepository({ ...ctx, tmuxServer: flags.server }, { once: true, onTick: out });
+    const { watchServer } = await import('./lib/startup.mjs');
+    return Promise.all([superviseRepository({ ...ctx, tmuxServer: flags.server }, { onTick: out }), watchServer({ ...ctx, tmuxServer: flags.server || 'default' })]);
+  },
+  async presence({ flags, positional }) {
+    const ctx = context(flags), api = await import('./lib/presence.mjs');
+    const options = { ...ctx, presenceDir: flags.dir, tmuxServer: flags.server };
+    if (positional[0] === 'watch') return api.watchPresence({ ...options, onPublish: out });
+    invariant(!positional[0] || positional[0] === 'publish', 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use presence publish|watch.');
+    return out(await api.publishPresence(options));
+  },
+  async mailbox({ flags, positional }) {
+    const ctx = context(flags), api = await import('./lib/standing-mailbox.mjs');
+    const sub = positional[0] || 'inbox';
+    if (sub === 'resume') return out(await api.resumeStandingMessages(ctx));
+    if (sub === 'reply') return out(await api.recordStandingReply({ ...ctx, messageId: flags.message, agentId: flags.agent || process.env.AO_AGENT_ID, body: await bodyFrom(flags) }));
+    if (sub === 'inbox' || sub === 'outbox') return out(await api[sub === 'inbox' ? 'readStandingInbox' : 'readStandingOutbox']({ ...ctx, agent: flags.agent || process.env.AO_AGENT_ID }));
+    const input = { consumer: ctx.consumer, fromProject: flags['from-project'] || process.env.AO_CONSUMER,
+      from: flags.from || process.env.AO_AGENT_ID, to: flags.to, id: flags.id, body: await bodyFrom(flags),
+      task: flags.task, stage: flags.stage, subject: flags.subject, provenance: { source: 'ao-topology CLI' }, via: list(flags.via) };
+    if (sub === 'send') return out(await api.sendStandingMessage(input, ctx));
+    if (sub === 'forward') return out(await api.forwardStandingMessage({ ...input, parentId: flags.parent }, ctx));
+    fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use mailbox send|forward|inbox|outbox|resume.');
+  },
+  async enrollment({ flags, positional }) {
+    const sub = positional[0];
+    invariant(sub === 'request' || sub === 'ack', 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use enrollment request|ack.');
+    const ctx = context({ ...flags, consumer: flags.consumer || process.env.AO_CONSUMER });
+    const pendingKey = flags['pending-key'];
+    invariant(typeof pendingKey === 'string' && pendingKey, 'TOPOLOGY_ENROLLMENT_KEY', 'Pass --pending-key from startup pending.');
+    const agentRef = flags.agent || (sub === 'ack' ? process.env.AO_AGENT_ID : undefined);
+    invariant(typeof agentRef === 'string' && agentRef, 'TOPOLOGY_ENROLLMENT_AGENT', 'Pass --agent with the repository library identity.');
+    const api = await import('./lib/enrollment.mjs');
+    const options = { ...ctx, pendingKey, agentRef };
+    if (sub === 'request') return out(await api.requestEnrollment(options));
+    invariant(typeof flags.nonce === 'string' && flags.nonce, 'TOPOLOGY_ENROLLMENT_ACK', 'Pass the challenge --nonce from the assigned session.');
+    const result = await api.acknowledgeEnrollment({ ...options, nonce: flags.nonce });
+    const { startRepositorySupervision } = await import('./lib/supervision.mjs');
+    return out({ ...result, supervision: await startRepositorySupervision(ctx) });
+  },
+  async reviewer({ flags, positional }) {
+    const ctx = context(flags), api = await import('./lib/reviewer.mjs');
+    const options = { ...ctx, task: flags.task, revision: flags.revision, authorAgentIds: list(flags.author) };
+    const sub = positional[0] || 'status';
+    if (sub === 'status') return out(await api.reviewerAvailability(options));
+    if (sub === 'ensure') return out(await api.ensureReviewer({ ...options, notAgentIds: options.authorAgentIds }));
+    if (sub === 'request') return out(await api.requestReview(options));
+    if (sub === 'collect') return out(await api.collectReview(options));
+    if (sub === 'eligible') return out(await api.reviewEligibility(options));
+    if (sub === 'ack') return out(await api.reviewerNonceAck({ ...options, nonce: positional[1] }));
+    fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use reviewer status|ensure|request|collect|eligible|ack.');
+  },
+  async manage({ flags, positional }) {
+    const ctx = context(flags), api = await import('./lib/management.mjs');
+    const supplied = flags.file ? await readJson(absolutize(flags.file)) : {};
+    const options = { ...supplied, ...ctx, task: flags.task || supplied.task, owner: process.env.TM_SESSION_ID || process.env.AO_AGENT_ID };
+    const methods = { status:'managementStatus', bind:'bindTaskWorker', admit:'admitTask', report:'workerReport', eligible:'integrationEligibility', integrate:'integrateTask', cleanup:'cleanupTask' };
+    const method = methods[positional[0] || 'status'];
+    invariant(method, 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use manage status|admit|report|eligible|integrate|cleanup.');
+    return out(await api[method](options));
+  },
+  async 'startup-check'({ flags }) {
+    const ctx = context(flags);
+    const { startupCheck } = await import('./lib/startup.mjs');
+    const result=await startupCheck({ ...ctx, source: String(flags.source || 'manual'), agentId: process.env.AO_AGENT_ID, session: process.env.AO_SESSION, pane: process.env.TMUX_PANE });
+    if(result.readiness.state === 'blocked') process.exitCode=2;
+    return out(result);
+  },
+  async startup({ flags, positional }) {
+    const ctx = context(flags), api = await import('./lib/startup.mjs');
+    const sub = positional[0] || 'pending';
+    if (sub === 'pending') return out(await api.pendingEnrollments(ctx));
+    if (sub === 'watch') return out(await api.watchServer({ ...ctx, once: flags.once === true, tmuxServer: flags.server || 'default' }));
+    const adapter = (await loadAdapters(ctx.providerDirs)).get(String(flags.provider || 'claude'));
+    invariant(adapter, 'TOPOLOGY_PROVIDER_UNKNOWN', 'Unknown provider.');
+    if (sub === 'install-hooks') return out(await api.installHooks({ ...ctx, adapter, cliBin: join(PLUGIN_ROOT, 'bin', 'ao-topology') }));
+    if (sub === 'uninstall-hooks') return out(await api.uninstallHooks({ ...ctx, adapter }));
+    if (sub === 'hooks') return out(await api.hooksStatus({ ...ctx, adapter }));
+    fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use startup pending|watch|hooks|install-hooks|uninstall-hooks.');
+  },
+  async lead({ flags, positional }) {
+    const ctx = context(flags);
+    const api = await import('./lib/lead.mjs');
+    const sub = positional[0] || 'status';
+    const options = { ...ctx, ackTimeoutMs: Number(flags['ack-timeout'] || 5000) };
+    if (sub === 'status') return out(await api.leadState(options));
+    if (sub === 'probes') return out(await api.pendingLeadProbes(options));
+    if (sub === 'ensure') {
+      const result = await api.ensureLead(options);
+      const { startRepositorySupervision } = await import('./lib/supervision.mjs');
+      return out({ ...result, supervision: await startRepositorySupervision(ctx) });
+    }
+    if (sub === 'assign') {
+      const result = await api.assignLead({ ...options, agentRef: positional[1], session: flags.session });
+      const { startRepositorySupervision } = await import('./lib/supervision.mjs');
+      return out({ ...result, supervision: await startRepositorySupervision(ctx) });
+    }
+    if (sub === 'detach') return out(await api.detachLead({ ...options, kill: flags.kill === true }));
+    if (sub === 'ack') return out(await api.leadNonceAck({ ...options, nonce: positional[1] }));
+    fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use lead status|ensure|assign|detach|ack.');
+  },
+  async prompt({ flags, positional }) {
+    const ctx = context(flags);
+    let agent, promptSession;
+    if (flags.run) {
+      const runDir = await runDirFrom(flags), run = await loadRun(runDir);
+      const entry = run.agents.find(a => a.id === positional[1]);
+      invariant(entry, 'TOPOLOGY_UNKNOWN_AGENT', 'Agent is not in this workflow run.');
+      invariant(run.consumer, 'TOPOLOGY_RUN_CONSUMER_REQUIRED', 'Workflow prompt composition requires its recorded repository.');
+      const dir = join(runDir, 'agents', entry.id);
+      const definition = await readJson(join(dir, 'prompt-agent.json'));
+      agent = { ...entry, ...definition, id: entry.id, _dir: dir };
+      ctx.consumer = run.consumer;
+      promptSession = run.session;
+    } else agent = await requireAgent(positional[1], ctx.agentDirs);
+    const api = await import('./lib/prompt-lifecycle.mjs');
+    if (positional[0] === 'preview') {
+      const { composePrompt } = await import('./lib/prompts.mjs');
+      const { loadConfig } = await import('./lib/config.mjs');
+      return out(await composePrompt({ ...ctx, agent, dir: agent._dir, loaded: await loadConfig(ctx), templateName: agent.template }));
+    }
+    if (positional[0] === 'ack') return out(await api.acknowledgePrompt({ agent, revision: flags.revision, nonce: flags.nonce }));
+    if (positional[0] === 'watch') return api.watchPrompts({ ...ctx, agent }, { onChange: out });
+    invariant(positional[0] === 'refresh', 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use prompt preview|refresh|ack|watch.');
+    return out(await api.refreshPrompt({ ...ctx, agent, live: await tmux.hasSession(promptSession || roleSessionName(agent.id)), safeBoundary: flags['safe-boundary'] === true }));
+  },
   async help() {
     out(USAGE);
   },
@@ -415,16 +557,23 @@ const commands = {
     const ctx = context(flags);
     const sub = (positional && positional[0]) || "list";
     if (sub === "new") {
-      const role = flags.role && flags.role !== true ? String(flags.role) : "worker";
+      const { loadConfig, findTemplate } = await import('./lib/config.mjs');
+      const loaded = await loadConfig(ctx);
+      invariant(!loaded.errors.length, 'TOPOLOGY_CONFIG_INVALID', 'Agent configuration is invalid.', { errors: loaded.errors });
+      const found = flags.template ? findTemplate(loaded.layers, String(flags.template)) : null;
+      invariant(!flags.template || found, 'TOPOLOGY_TEMPLATE_MISSING', 'Requested template is not configured.');
+      const template = found?.template || {};
+      const role = flags.role && flags.role !== true ? String(flags.role) : template.role || "worker";
       const agent = await createAgent(ctx.consumer, {
+        ...template, template: found?.name,
         role,
-        cli: flags.cli && flags.cli !== true ? String(flags.cli) : undefined,
+        cli: flags.cli && flags.cli !== true ? String(flags.cli) : template.cli,
         candidates: flags.candidates && flags.candidates !== true ? String(flags.candidates) : undefined,
         reports_to: flags["reports-to"] && flags["reports-to"] !== true ? String(flags["reports-to"]) : null,
         full_name: flags.name && flags.name !== true ? String(flags.name) : undefined,
-        skills: list(flags.skill),
-        mcp: list(flags.mcp),
-      }, ctx.agentDirs);
+        skills: flags.skill ? list(flags.skill) : template.skills,
+        mcp: flags.mcp ? list(flags.mcp) : template.mcp,
+      }, ctx.agentDirs, ctx);
       out({ ok: true, agent: displayName(agent), id: agent.id, role: agent.role, dir: agent._dir, reports_to: agent.reports_to });
       return;
     }
@@ -524,6 +673,9 @@ const commands = {
       bootstrap_file: join(agent._dir, "prompt.md"),
       system_prompt: `You are ${displayName(agent)} (id "${agent.id}", role: ${agent.role}), the standing ${agent.role} for ${ctx.consumer}. Read ${join(agent._dir, "prompt.md")} and follow it.`,
     };
+    const { refreshPrompt } = await import('./lib/prompt-lifecycle.mjs');
+    const prompt = await refreshPrompt({ ...ctx, agent, live: await tmux.hasSession(session) });
+    invariant(prompt.status !== 'invalid-config', 'TOPOLOGY_PROMPT_INVALID', 'Prompt invalid; existing session preserved.');
     const argv = buildArgv(adapter, { ...agent, add_dirs: addDirs }, vars);
     const result = await openRoleSession({
       agentsDir: dirname(agent._dir),
@@ -572,60 +724,50 @@ const commands = {
   async send({ flags }) {
     const runDir = await runDirFrom(flags);
     const run = await loadRun(runDir);
-    const from = flags.from && flags.from !== true ? String(flags.from) : "operator";
+    const from = flags.from && flags.from !== true ? String(flags.from) : process.env.AO_AGENT_ID || "operator";
     const stage = flags.stage && flags.stage !== true ? String(flags.stage) : "message";
     invariant(/^[a-z][a-z0-9-]{0,39}$/.test(stage), "TOPOLOGY_STAGE_INVALID", "--stage must be a lowercase slug.");
     const body = await bodyFrom(flags);
     const ctx = context(flags);
-    const fromProject = flags["from-project"] && flags["from-project"] !== true ? absolutize(String(flags["from-project"])) : null;
+    const fromProject = flags["from-project"] && flags["from-project"] !== true ? absolutize(String(flags["from-project"])) : process.env.AO_CONSUMER || null;
     const task = flags.task && flags.task !== true ? String(flags.task) : null;
     // The receiving repo is the one the RUN belongs to, recorded in run.json at launch — never the
     // caller's cwd. An agent sends from its own agent directory (its cwd is what scopes its memory),
     // and the conductor may send from anywhere; a cwd-derived consumer would silently look for the
     // wrong repo's lead and roster, and routing would then allow everything by finding no lead.
-    // An explicit --consumer still wins, for the operator who means it.
-    const routingConsumer = flags.consumer && flags.consumer !== true ? ctx.consumer : (run.consumer ?? ctx.consumer);
+    // An explicit --consumer supplies context only for legacy runs lacking it.
+    const routingConsumer = run.consumer || (flags.consumer && flags.consumer !== true ? ctx.consumer : null);
     // Routing is applied here, at the mailbox, rather than trusted to whoever composed the message.
-    const route = fromProject
+    const route = fromProject && routingConsumer
       ? (args) => routeMessage({ consumer: routingConsumer, pluginRoot: PLUGIN_ROOT, home: ctx.home, ...args })
       : null;
     // The via chain travels with the message and is what stops re-forwarding and lead-to-lead
     // ping-pong. Without a way to pass it, a forwarding agent starts every hop from an empty chain
     // and the hop limit can never be reached — the guard would be wired and still never fire.
     const via = list(flags.via);
-    const message = await sendMessage({ runDir, from, to: list(flags.to), stage, body, contract: flags.contract, round: flags.round, subject: flags.subject, route, fromProject, task, via });
+    const message = await sendMessage({ runDir, from, to: list(flags.to), stage, body, contract: flags.contract, round: flags.round, subject: flags.subject, route, fromProject, task, via, idempotencyKey: flags.id, consumer: flags.consumer && flags.consumer !== true ? ctx.consumer : undefined, standingOptions: { pluginRoot: PLUGIN_ROOT, home: ctx.home } });
     const delivered = [];
-    if (!flags["no-ring"]) {
-      for (const delivery of message.deliveries) {
-        const agent = run.agents.find((item) => item.id === delivery.agent);
-        // A workflow participant has no pane to ring. Ringing is how a message reaches a process;
-        // for a team, the equivalent is putting the message in front of that team's conductor. The
-        // message is already in this run's mailbox either way — this only decides who gets told.
-        if (agent?.workflow?.run_dir) {
-          const forwarded = await sendMessage({
-            runDir: agent.workflow.run_dir,
-            from,
-            to: [agent.workflow.conductor].filter(Boolean),
-            stage,
-            body,
-            contract: flags.contract,
-            round: flags.round,
-            subject: flags.subject,
-          });
-          delivered.push({ agent: agent.id, workflow: agent.workflow.name, forwarded_as: forwarded.id, run_dir: agent.workflow.run_dir });
-          continue;
-        }
-        if (!agent?.pane) continue;
-        const pointer = messagePointer({ id: message.id, from, stage, inbox: delivery.inbox, outbox: delivery.outbox });
-        const alive = await tmux.paneAlive(agent.pane);
-        if (alive) await tmux.sendText(agent.pane, pointer, agent.submit_keys ?? ["Enter"]);
-        delivered.push({ agent: agent.id, pane: agent.pane, rang: alive });
+    const { forwardMessageToWorkflow } = await import('./lib/mailbox.mjs');
+    for (const delivery of message.deliveries) {
+      const agent = run.agents.find((item) => item.id === delivery.agent);
+      if (agent?.workflow?.run_dir) {
+        const forwarded = await forwardMessageToWorkflow({ runDir, messageId: message.id,
+          recipient: delivery.agent, standingOptions: { pluginRoot: PLUGIN_ROOT, home: ctx.home } });
+        delivered.push({ agent: agent.id, workflow: agent.workflow.name, forwarded_as: forwarded.id,
+          run_dir: agent.workflow.run_dir, holds: forwarded.holds, notification: 'durable-pending' });
+      } else {
+        // Pane liveness proves neither an empty composer nor a safe tool-input
+        // state. No adapter currently supplies a mechanically proven safe bell.
+        delivered.push({ agent: delivery.agent, standing: Boolean(delivery.standing),
+          rang: false, notification: 'durable-pending' });
       }
     }
+
     out({
       ok: true,
       id: message.id,
       deliveries: message.deliveries,
+      holds: message.holds,
       delivered,
       // A redirect is not an error, but the sender has to be told: it is waiting on an answer from
       // an agent that never received the message.

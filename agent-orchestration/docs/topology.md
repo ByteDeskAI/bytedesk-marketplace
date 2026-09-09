@@ -296,3 +296,12 @@ through registering an extra CLI as an adapter.
 AO-GOAL-001 (terminal mission control), AO-COL-001 (typed message envelopes), and AO-COL-006
 (live team topologies) describe, in broker terms, what this layer does with files and tmux. The
 journal event shape here is deliberately compatible so a future TUI can render both.
+
+## Persistent repository services (0.6)
+
+See [repository-leads.md](repository-leads.md) for the current lifecycle, configuration, prompt,
+standing-mailbox and Presence v1 contracts. Supported coding-agent workflow adapters declare
+`requires_repository_readiness`; their governed launch fails before creating panes when the lead
+or reviewer is unavailable. Native and hookless observation remains labeled pending enrollment.
+The standing-mailbox ledger is authoritative for held/external messages; run barriers track its
+pending/reply state. Do not infer satisfaction from the absence of a run inbox file.

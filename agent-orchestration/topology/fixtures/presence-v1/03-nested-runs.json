@@ -1,0 +1,229 @@
+{
+  "schemaVersion": 1,
+  "repositoryKey": "9f2c41ab77e0d3b5",
+  "repositoryRoot": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace",
+  "generation": "12",
+  "revision": "530",
+  "generatedAt": "2026-09-09T07:01:44.610Z",
+  "staleAfterMs": 30000,
+  "clockSkewToleranceMs": 5000,
+  "agents": [
+    {
+      "agentId": "k3n8vq2a",
+      "displayName": "Priya Raman",
+      "title": "Engineering Lead",
+      "repoRole": "lead",
+      "runRole": "orchestrator",
+      "coordinatesOnly": true,
+      "enrollment": "enrolled",
+      "lifecycle": "ready",
+      "readinessCheckedAt": "2026-09-09T06:58:39.880Z",
+      "session": {
+        "kind": "role-session",
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 24390,
+        "sessionId": "$7",
+        "sessionCreated": 1788902620,
+        "sessionName": "ao-k3n8vq2a",
+        "paneId": "%3",
+        "panePid": 25863,
+        "spawn": null
+      },
+      "memberships": [
+        {
+          "runId": "run-root-0a",
+          "parentRunId": null,
+          "rootRunId": "run-root-0a",
+          "runName": "lead-rollout",
+          "depth": 0,
+          "chain": [
+            "lead-rollout"
+          ]
+        }
+      ],
+      "primaryRunId": "run-root-0a"
+    },
+    {
+      "agentId": "b4h6rt1c",
+      "displayName": "Amara Okonkwo",
+      "title": "Delivery Coordinator",
+      "repoRole": "member",
+      "runRole": "orchestrator",
+      "coordinatesOnly": false,
+      "enrollment": "enrolled",
+      "lifecycle": "busy",
+      "readinessCheckedAt": "2026-09-09T07:01:44.200Z",
+      "session": {
+        "kind": "spawn",
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 24390,
+        "sessionId": "$104",
+        "sessionCreated": 1788936770,
+        "sessionName": "b4h6rt1c-1f4c9de",
+        "paneId": "%113",
+        "panePid": 4180407,
+        "spawn": "1f4c9de"
+      },
+      "memberships": [
+        {
+          "runId": "run-child-1b",
+          "parentRunId": "run-root-0a",
+          "rootRunId": "run-root-0a",
+          "runName": "presence-producer",
+          "depth": 1,
+          "chain": [
+            "lead-rollout",
+            "presence-producer"
+          ]
+        }
+      ],
+      "primaryRunId": "run-child-1b"
+    },
+    {
+      "agentId": "n5c9la7x",
+      "displayName": "Yusuf Demir",
+      "title": "Engineer",
+      "repoRole": "member",
+      "runRole": "worker",
+      "coordinatesOnly": false,
+      "enrollment": "enrolled",
+      "lifecycle": "busy",
+      "readinessCheckedAt": "2026-09-09T07:01:44.300Z",
+      "session": {
+        "kind": "spawn",
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 24390,
+        "sessionId": "$118",
+        "sessionCreated": 1788936902,
+        "sessionName": "n5c9la7x-7ab30f2",
+        "paneId": "%141",
+        "panePid": 4181330,
+        "spawn": "7ab30f2"
+      },
+      "memberships": [
+        {
+          "runId": "run-grandchild-2c",
+          "parentRunId": "run-child-1b",
+          "rootRunId": "run-root-0a",
+          "runName": "fixture-check",
+          "depth": 2,
+          "chain": [
+            "lead-rollout",
+            "presence-producer",
+            "fixture-check"
+          ]
+        }
+      ],
+      "primaryRunId": "run-grandchild-2c"
+    },
+    {
+      "agentId": "j1q5tf8b",
+      "displayName": "Ana Sofia Cruz",
+      "title": "Engineer",
+      "repoRole": "member",
+      "runRole": "worker",
+      "coordinatesOnly": false,
+      "enrollment": "enrolled",
+      "lifecycle": "busy",
+      "readinessCheckedAt": "2026-09-09T07:01:44.350Z",
+      "session": {
+        "kind": "spawn",
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 24390,
+        "sessionId": "$121",
+        "sessionCreated": 1788936940,
+        "sessionName": "j1q5tf8b-2d8c04b",
+        "paneId": "%147",
+        "panePid": 4181402,
+        "spawn": "2d8c04b"
+      },
+      "memberships": [
+        {
+          "runId": "run-deep-5e",
+          "parentRunId": "run-deep-4d",
+          "rootRunId": "run-root-0a",
+          "runName": "sweep-leaf",
+          "depth": 5,
+          "chain": [
+            "lead-rollout",
+            "presence-producer",
+            "fixture-check",
+            "sweep",
+            "sweep-leaf"
+          ]
+        }
+      ],
+      "primaryRunId": "run-deep-5e"
+    },
+    {
+      "agentId": "w8z4gk6m",
+      "displayName": "Hannah Boateng",
+      "title": "Research Engineer",
+      "repoRole": "member",
+      "runRole": "researcher",
+      "coordinatesOnly": false,
+      "enrollment": "enrolled",
+      "lifecycle": "ready",
+      "readinessCheckedAt": "2026-09-09T07:01:44.400Z",
+      "session": {
+        "kind": "spawn",
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 24390,
+        "sessionId": "$119",
+        "sessionCreated": 1788936950,
+        "sessionName": "w8z4gk6m-c02d5e1",
+        "paneId": "%150",
+        "panePid": 4181455,
+        "spawn": "c02d5e1"
+      },
+      "memberships": [
+        {
+          "runId": "run-orphan-3d",
+          "parentRunId": "run-pruned-xx",
+          "rootRunId": null,
+          "runName": "catalog-sweep",
+          "depth": 2,
+          "chain": [
+            "catalog-sweep"
+          ]
+        }
+      ],
+      "primaryRunId": "run-orphan-3d"
+    },
+    {
+      "agentId": "v3d9mc2p",
+      "displayName": "Lukas Nowak",
+      "title": "Research Engineer",
+      "repoRole": "member",
+      "runRole": "researcher",
+      "coordinatesOnly": false,
+      "enrollment": "enrolled",
+      "lifecycle": "ready",
+      "readinessCheckedAt": "2026-09-09T07:01:44.420Z",
+      "session": {
+        "kind": "spawn",
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 24390,
+        "sessionId": "$120",
+        "sessionCreated": 1788936955,
+        "sessionName": "v3d9mc2p-a71f3c9",
+        "paneId": "%152",
+        "panePid": 4181460,
+        "spawn": "a71f3c9"
+      },
+      "memberships": [
+        {
+          "runId": "run-orphan-9z",
+          "parentRunId": "run-pruned-yy",
+          "rootRunId": null,
+          "runName": "catalog-sweep",
+          "depth": 2,
+          "chain": [
+            "catalog-sweep"
+          ]
+        }
+      ],
+      "primaryRunId": "run-orphan-9z"
+    }
+  ]
+}

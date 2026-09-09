@@ -42,3 +42,10 @@ for a live tmux session. The newest is usually the one the user means; confirm i
 `AO stop --run <run_dir>` kills the tmux session and marks the run stopped; every file stays. To
 discard a run's files the user deletes `<run_dir>` themselves — never do it for them, the
 artifacts are the evidence trail.
+
+## Standing repository services
+
+Read `../../docs/repository-leads.md` for lead/reviewer readiness, task-backed admission, prompt
+acknowledgment and standing-mailbox holds. A process being alive is not proof of readiness.
+`ao-topology lead status` reports the distinction; `ao-topology supervise` reconciles derived state.
+Never mark implementation done from a worker report or bypass independent exact-revision review.

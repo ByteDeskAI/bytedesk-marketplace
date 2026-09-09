@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "repositoryKey": "9f2c41ab77e0d3b5",
+  "repositoryRoot": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace",
+  "generation": "12",
+  "revision": "402",
+  "generatedAt": "2026-09-09T05:11:03.000Z",
+  "staleAfterMs": 30000,
+  "clockSkewToleranceMs": 5000,
+  "agents": [
+    {
+      "agentId": "k3n8vq2a",
+      "displayName": "Priya Raman",
+      "title": "Engineering Lead",
+      "repoRole": "lead",
+      "runRole": "orchestrator",
+      "coordinatesOnly": true,
+      "enrollment": "enrolled",
+      "lifecycle": "ready",
+      "readinessCheckedAt": "2026-09-09T06:58:39.880Z",
+      "session": {
+        "kind": "role-session",
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 24390,
+        "sessionId": "$7",
+        "sessionCreated": 1788902620,
+        "sessionName": "ao-k3n8vq2a",
+        "paneId": "%3",
+        "panePid": 25863,
+        "spawn": null
+      },
+      "memberships": [
+        {
+          "runId": "run-root-0a",
+          "parentRunId": null,
+          "rootRunId": "run-root-0a",
+          "runName": "lead-rollout",
+          "depth": 0,
+          "chain": [
+            "lead-rollout"
+          ]
+        }
+      ],
+      "primaryRunId": "run-root-0a"
+    }
+  ]
+}

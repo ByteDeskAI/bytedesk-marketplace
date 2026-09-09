@@ -2,12 +2,18 @@
 // recorded at launch so later commands never guess by index.
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { fail, run } from "./util.mjs";
+import { isAbsolute } from "node:path";
+import { fail, run, shellQuote } from "./util.mjs";
 
 const TMUX = process.env.AO_TMUX_COMMAND || "tmux";
+// Launcher shells are infrastructure: user login rc files may consume input or replace the shell.
+// Keep inherited PATH/credentials, but never depend on interactive profile startup completing.
+const LAUNCH_SHELL = ["bash", "--noprofile", "--norc", "-i"];
 
 export async function tmux(args, options = {}) {
-  const result = await run(TMUX, args, { allowFailure: true, timeoutMs: options.timeoutMs ?? 15_000 }).catch((error) => ({ code: 1, stdout: "", stderr: error.message }));
+  const server = options.tmuxServer;
+  const prefix = server ? [isAbsolute(server) ? "-S" : "-L", server] : [];
+  const result = await run(options.env?.AO_TMUX_COMMAND || TMUX, [...prefix, ...args], { env: options.env, allowFailure: true, timeoutMs: options.timeoutMs ?? 15_000 }).catch((error) => ({ code: 1, stdout: "", stderr: error.message }));
   if (result.code !== 0 && !options.allowFailure) {
     fail("TOPOLOGY_TMUX_FAILED", `tmux ${args.join(" ")} failed: ${result.stderr.trim() || result.stdout.trim() || `exit ${result.code}`}`, { args });
   }
@@ -43,7 +49,7 @@ export async function hasSession(session) {
  * ours — a client attaching later, control-mode or human, no longer reflows the agents.
  */
 export async function newSession(session, { cwd, windowName = "main", width = 220, height = 60 }) {
-  await tmux(["new-session", "-d", "-s", session, "-n", windowName, "-c", cwd, "-x", String(width), "-y", String(height)]);
+  await tmux(["new-session", "-d", "-s", session, "-n", windowName, "-c", cwd, "-x", String(width), "-y", String(height), ...LAUNCH_SHELL]);
   // Session-scoped (-t <session>), never -g: this server is shared with everyone else's sessions.
   await tmux(["set-option", "-t", session, "window-size", "manual"], { allowFailure: true });
   await tmux(["resize-window", "-t", `${session}:${windowName}`, "-x", String(width), "-y", String(height)], { allowFailure: true });
@@ -66,7 +72,7 @@ export function windowSizeFor(agents) {
 }
 
 export async function newWindow(session, windowName, cwd) {
-  await tmux(["new-window", "-t", session, "-n", windowName, "-c", cwd]);
+  await tmux(["new-window", "-t", session, "-n", windowName, "-c", cwd, ...LAUNCH_SHELL]);
   return paneId(`${session}:${windowName}`);
 }
 
@@ -85,7 +91,7 @@ export async function splitPanes(target, cwds) {
   const args = [];
   for (const cwd of cwds) {
     if (args.length) args.push(";");
-    args.push("split-window", "-v", "-t", target, "-c", cwd, "-P", "-F", "#{pane_id}");
+    args.push("split-window", "-v", "-t", target, "-c", cwd, "-P", "-F", "#{pane_id}", ...LAUNCH_SHELL);
     args.push(";", "select-layout", "-t", target, "tiled");
   }
   const result = await tmux(args);
@@ -172,8 +178,17 @@ export async function capture(pane, lines = 60) {
  * text one character per line and defeats any form of screen scraping.
  */
 export async function waitForChannel(channel, timeoutMs) {
-  const result = await tmux(["wait-for", channel], { allowFailure: true, timeoutMs });
-  return result.code === 0;
+  // tmux handles SIGTERM by exiting 0. A subprocess timeout can therefore look successful;
+  // observing the deadline separately is essential: timeout is never a shell acknowledgement.
+  if (!(timeoutMs > 0)) return false;
+  return new Promise(resolve => {
+    let settled = false;
+    const child = spawn(TMUX, ["wait-for", channel], { stdio: "ignore", shell: false });
+    const finish = value => { if (!settled) { settled = true; clearTimeout(timer); resolve(value); } };
+    const timer = setTimeout(() => { finish(false); child.kill('SIGTERM'); }, timeoutMs);
+    child.once('error', () => finish(false));
+    child.once('exit', (code, signal) => finish(code === 0 && signal === null));
+  });
 }
 
 export async function signalChannel(channel) {
@@ -221,7 +236,7 @@ export async function listPanes(session) {
 
 /** Kill whatever runs in the pane and give it a fresh shell in the same place. */
 export async function respawnPane(pane) {
-  await tmux(["respawn-pane", "-k", "-t", pane]);
+  await tmux(["respawn-pane", "-k", "-t", pane, ...LAUNCH_SHELL]);
 }
 
 /** Every live session name on this tmux server. Empty when there is no server at all. */
@@ -441,7 +456,7 @@ export async function paneDeath(pane) {
  */
 export async function clearAndWaitForShell(pane, channel, timeoutMs = 15_000) {
   const marker = `ao-baseline-${channel}`;
-  await sendText(pane, `clear; printf '%s\\n' '${marker}'; ${TMUX} wait-for -S ${channel}`);
+  await sendText(pane, `clear; printf '%s\\n' '${marker}'; ${shellQuote(TMUX)} wait-for -S ${shellQuote(channel)}`);
   const signalled = await waitForChannel(channel, timeoutMs);
   if (!signalled) return { ok: false, baseline: "", promptLines: 0 };
   const screen = await captureAll(pane);
@@ -454,4 +469,18 @@ export async function clearAndWaitForShell(pane, channel, timeoutMs = 15_000) {
   const at = screen.lastIndexOf(marker);
   const after = at === -1 ? "" : screen.slice(at + marker.length);
   return { ok: true, baseline: marker, promptLines: after.split("\n").filter((line) => line.trim().length > 0).length };
+}
+
+/** Enumerate exact pane incarnations on the selected server, independent of session names. */
+export async function listServerPanes({ tmuxServer, env = process.env } = {}) {
+  const fields = ["socket_path", "pid", "session_id", "session_created", "pane_id", "pane_pid", "session_name", "pane_current_command", "pane_current_path", "pane_dead"];
+  const result = await tmux(["-u", "list-panes", "-a", "-F", fields.map((key) => `#{${key}}`).join("\t")], { tmuxServer, env, allowFailure: true });
+  if (result.code !== 0) {
+    if (/no server running|error connecting.*No such file|failed to connect.*No such file/.test(result.stderr)) return [];
+    fail("TOPOLOGY_TMUX_OBSERVATION_FAILED", "Cannot enumerate tmux panes; liveness is unknown.");
+  }
+  return result.stdout.split("\n").filter(Boolean).map((line) => {
+    const [serverKey, serverPid, sessionId, sessionCreated, paneId, panePid, sessionName, command, cwd, dead] = line.split("\t");
+    return { serverKey, serverPid: Number(serverPid), sessionId, sessionCreated: Number(sessionCreated), paneId, panePid: Number(panePid), sessionName, command, cwd, alive: dead === "0" };
+  });
 }

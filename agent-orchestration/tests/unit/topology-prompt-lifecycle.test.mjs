@@ -1,0 +1,31 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { refreshPrompt, acknowledgePrompt } from '../../topology/lib/prompt-lifecycle.mjs';
+
+test('last-valid prompt survives malformed config and live changes require restart and agent acknowledgment', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'ao-prompt-live-')); t.after(() => rm(root,{recursive:true,force:true}));
+  const consumer=join(root,'repo'), home=join(root,'home'), dir=join(root,'agent');
+  const conf=join(consumer,'.bytedesk','agent-orchestration'); await mkdir(conf,{recursive:true});
+  const agent={id:'abc12345',role:'worker',full_name:'Test Worker',_dir:dir,instructions:'original'};
+  const opts={agent,consumer,home,env:{XDG_CONFIG_HOME:join(home,'.config')}};
+  const staged=await refreshPrompt(opts); assert.equal(staged.status,'awaiting-ack'); assert.equal(staged.applied_revision,undefined);
+  const unchanged=await refreshPrompt({...opts,live:true}); assert.equal(unchanged.status,'awaiting-ack'); assert.equal(unchanged.nonce,staged.nonce);
+  await assert.rejects(acknowledgePrompt({agent,revision:staged.desired_revision,nonce:staged.nonce,env:{AO_AGENT_ID:'wrong'}}),{code:'TOPOLOGY_PROMPT_ACK_INVALID'});
+  const applied=await acknowledgePrompt({agent,revision:staged.desired_revision,nonce:staged.nonce,env:{AO_AGENT_ID:agent.id}});
+  const before=await readFile(join(dir,'prompt.md'),'utf8');
+  await writeFile(join(conf,'config.json'),'{');
+  const invalid=await refreshPrompt({...opts,live:true}); assert.equal(invalid.status,'invalid-config'); assert.equal(invalid.applied_revision,applied.applied_revision); assert.equal(await readFile(join(dir,'prompt.md'),'utf8'),before);
+  await writeFile(join(conf,'config.json'),'{}');
+  const restored=await refreshPrompt({...opts,live:true}); assert.equal(restored.status,'current');
+  assert.deepEqual(JSON.parse(await readFile(join(dir,'prompt-state.json'),'utf8')).errors,[]);
+  const sameRestart=await refreshPrompt(opts); assert.equal(sameRestart.status,'awaiting-ack'); assert.notEqual(sameRestart.nonce,staged.nonce); assert.equal(sameRestart.applied_revision,undefined);
+  await acknowledgePrompt({agent,revision:sameRestart.desired_revision,nonce:sameRestart.nonce,env:{AO_AGENT_ID:agent.id}});
+  agent.instructions='changed';
+  const queued=await refreshPrompt({...opts,live:true}); assert.equal(queued.status,'queued');
+  const safe=await refreshPrompt({...opts,live:true,safeBoundary:true}); assert.equal(safe.status,'restart-required'); assert.equal(safe.applied_revision,applied.applied_revision); assert.equal(await readFile(join(dir,'prompt.md'),'utf8'),before);
+  await assert.rejects(acknowledgePrompt({agent,revision:safe.desired_revision,nonce:staged.nonce,env:{AO_AGENT_ID:agent.id}}),{code:'TOPOLOGY_PROMPT_ACK_INVALID'});
+  const restart=await refreshPrompt(opts); const ack=await acknowledgePrompt({agent,revision:restart.desired_revision,nonce:restart.nonce,env:{AO_AGENT_ID:agent.id}}); assert.notEqual(ack.applied_revision,applied.applied_revision);
+});

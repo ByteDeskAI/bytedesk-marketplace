@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "repositoryKey": "3c08de5119aa47f2",
+  "repositoryRoot": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-remote-gateway",
+  "generation": "4",
+  "revision": "3",
+  "generatedAt": "2026-09-09T06:59:02.400Z",
+  "staleAfterMs": 30000,
+  "clockSkewToleranceMs": 5000,
+  "agents": [
+    {
+      "agentId": "q2w8ej4z",
+      "displayName": "Noor Haddad",
+      "title": "Engineering Lead",
+      "repoRole": "lead",
+      "runRole": null,
+      "coordinatesOnly": true,
+      "enrollment": "enrolled",
+      "lifecycle": "ready",
+      "readinessCheckedAt": "2026-09-09T06:59:01.900Z",
+      "session": {
+        "kind": "role-session",
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 24390,
+        "sessionId": "$21",
+        "sessionCreated": 1788902801,
+        "sessionName": "ao-q2w8ej4z",
+        "paneId": "%35",
+        "panePid": 61200,
+        "spawn": null
+      },
+      "memberships": [],
+      "primaryRunId": null
+    },
+    {
+      "agentId": "y6t3nb0v",
+      "displayName": "Diego Ferreira",
+      "title": "Staff Reviewer",
+      "repoRole": "reviewer",
+      "runRole": null,
+      "coordinatesOnly": false,
+      "enrollment": "enrolled",
+      "lifecycle": "ready",
+      "readinessCheckedAt": "2026-09-09T06:59:01.950Z",
+      "session": {
+        "kind": "role-session",
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 24390,
+        "sessionId": "$22",
+        "sessionCreated": 1788902805,
+        "sessionName": "ao-y6t3nb0v",
+        "paneId": "%36",
+        "panePid": 61244,
+        "spawn": null
+      },
+      "memberships": [],
+      "primaryRunId": null
+    }
+  ]
+}

@@ -72,3 +72,10 @@ Then say the run is complete. Do not stop the tmux session; the operator does.
 - Never write into another agent's mailbox or edit their deliverables.
 - Never promote, commit, push, or publish. Recommend; the operator acts.
 - Keep terminal output short; files carry the substance.
+
+## Standing repository services
+
+Read `../../docs/repository-leads.md` for lead/reviewer readiness, task-backed admission, prompt
+acknowledgment and standing-mailbox holds. A process being alive is not proof of readiness.
+`ao-topology lead status` reports the distinction; `ao-topology supervise` reconciles derived state.
+Never mark implementation done from a worker report or bypass independent exact-revision review.

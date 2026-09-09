@@ -5,12 +5,22 @@
 // The directory doubles as the agent's cwd at spawn time. That is deliberate — Claude Code keys its
 // memory by working directory, so a per-agent cwd gives each agent its own memory without inventing
 // a memory layer. The real work tree is reached with --add-dir and explained in the prompt.
+import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { refreshPrompt } from "./prompt-lifecycle.mjs";
 import { consumerResourceDirs, exists, fail, invariant, nowIso, writeJson } from "./util.mjs";
 import { addressOf, agentDirName, displayName, mintId, mintName, titleForRole } from "./identity.mjs";
 
+function libraryConsumer(consumer) {
+  try {
+    const paths = execFileSync('git', ['-C', consumer, 'worktree', 'list', '--porcelain'], { encoding:'utf8', stdio:['ignore','pipe','ignore'] });
+    const first = paths.split('\n').find(line => line.startsWith('worktree '));
+    return first ? first.slice(9) : consumer;
+  } catch { return consumer; }
+}
 export const AGENTS_KIND = "agents";
 const DEFINITION = "agent.json";
 const PROMPT = "prompt.md";
@@ -18,15 +28,15 @@ const PROMPT = "prompt.md";
 /** Search order mirrors the other resource types: repo first, then user config, then plugin. */
 export function agentDirs({ pluginRoot, consumer, home, extra = [] }) {
   const dirs = [...extra];
-  if (consumer) dirs.push(...consumerResourceDirs(consumer, AGENTS_KIND));
+  if (consumer) dirs.push(...consumerResourceDirs(libraryConsumer(consumer), AGENTS_KIND), ...consumerResourceDirs(consumer, AGENTS_KIND));
   if (home) dirs.push(join(home, ".config", "agent-orchestration", AGENTS_KIND));
   if (pluginRoot) dirs.push(join(pluginRoot, AGENTS_KIND));
-  return dirs;
+  return [...new Set(dirs)];
 }
 
 /** The writable home for this repo's agents — always the current convention, never the legacy one. */
 export function agentsRoot(consumer) {
-  return consumerResourceDirs(consumer, AGENTS_KIND)[0];
+  return consumerResourceDirs(libraryConsumer(consumer), AGENTS_KIND)[0];
 }
 
 /**
@@ -102,7 +112,7 @@ export async function findLead(dirs) {
  * Create an agent. The id is minted independently of the name; the name is checked against the
  * existing roster so no two agents in a repo share a display identity.
  */
-export async function createAgent(consumer, spec = {}, dirs = null) {
+export async function createAgent(consumer, spec = {}, dirs = null, context = {}) {
   const role = String(spec.role || "worker");
   const searchDirs = dirs || [agentsRoot(consumer)];
   const existing = await listAgents(searchDirs);
@@ -137,6 +147,9 @@ export async function createAgent(consumer, spec = {}, dirs = null) {
     id,
     ...named,
     role,
+    // Template provenance: which named template this instance was minted from. The instance gets
+    // a fresh identity regardless — the template shapes it, it never shares one.
+    template: spec.template || null,
     coordinates_only: role === "lead" ? spec.coordinates_only !== false : spec.coordinates_only === true,
     reports_to: spec.reports_to ?? null,
     cli: spec.cli || "claude",
@@ -144,7 +157,7 @@ export async function createAgent(consumer, spec = {}, dirs = null) {
     model: spec.model,
     skills: Array.isArray(spec.skills) ? spec.skills : [],
     mcp: Array.isArray(spec.mcp) ? spec.mcp : [],
-    instructions: typeof spec.instructions === "string" ? spec.instructions : "",
+    instructions: [spec.instructions, spec.prompt].filter(value => typeof value === "string" && value.trim()).join("\n\n"),
     instructions_file: spec.instructions_file || PROMPT,
     args: Array.isArray(spec.args) ? spec.args : [],
     env: spec.env && typeof spec.env === "object" ? spec.env : {},
@@ -158,7 +171,10 @@ export async function createAgent(consumer, spec = {}, dirs = null) {
   if (!(await exists(join(dir, PROMPT)))) {
     await writeFile(join(dir, PROMPT), spec.prompt || defaultPrompt(agent, consumer, dir), "utf8");
   }
-  return { ...agent, _dir: dir, _file: join(dir, DEFINITION) };
+  const enriched = { ...agent, _dir: dir, _file: join(dir, DEFINITION) };
+  const state = await refreshPrompt({ agent: enriched, consumer, pluginRoot: dirname(dirname(dirname(fileURLToPath(import.meta.url)))), ...context });
+  invariant(state.status !== "invalid-config", "TOPOLOGY_PROMPT_INVALID", "Cannot create agent with invalid prompt configuration.", { errors: state.errors });
+  return enriched;
 }
 
 /**

@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.6.0] — 2026-09-09
+
+### Added
+
+- Repository lead and reviewer registries, configurable templates and one prompt resolver.
+- Startup hook/watcher detection, exact session bindings, durable standing messages and holds.
+- Presence v1 producer and frozen contract fixtures, task-store-backed review/integration gates.
+
+### Fixed
+
+- Lock ownership races, unsafe prompt fallback, hook sibling deletion and watcher lease fencing.
+- Linked worktree identity and cross-repository routing admission.
+
 ## [Unreleased]
 
 ### Fixed
