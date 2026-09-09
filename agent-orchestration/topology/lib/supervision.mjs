@@ -33,6 +33,7 @@ import { withLock } from './lockfile.mjs';
 import { listAgents, agentDirs } from './agents.mjs';
 import { refreshPrompt } from './prompt-lifecycle.mjs';
 import { resumeStandingMessages } from './standing-mailbox.mjs';
+import { notifyGrants, reconcileSlots } from './slots.mjs';
 import { sleep, writeJson, readJson, run } from './util.mjs';
 
 /** Adaptive tick sleep. Index 0 is the busy rung; a quiet tick walks one rung down the list. */
@@ -185,6 +186,20 @@ export async function superviseRepository(options, { signal, once = false, inter
          memo:censusMemo,previous:census,runDirs:censusRunDirs,
          intervalMs:intervalMs ?? SLEEP_LADDER_MS[Math.max(rung,0)],
          staleAfterMs:3*SLEEP_LADDER_MS[SLEEP_LADDER_MS.length-1]});
+       // TM-132: the mechanical slot grant rides the SAME listing the census just used, so a
+       // handover costs zero extra tmux calls and zero model turns. Its failure is absorbed the
+       // way the census absorbs its own — a slot record is not presence, and must not take the
+       // supervisor down. An unreadable listing (null) reconciles nothing: reclamation needs proof
+       // of absence, never merely the absence of proof.
+       if(Array.isArray(censusPanes)) {
+         const slots=await reconcileSlots({...options,identity,panes:censusPanes})
+           .catch(error=>({error:error?.code ?? String(error)}));
+         const granted=Array.isArray(slots)?slots.flatMap(view=>view.events):[];
+         if(granted.length) await notifyGrants(granted,options).catch(()=>{});
+         if(Array.isArray(slots)?slots.length:slots) report={...report,slots:Array.isArray(slots)
+           ?slots.map(view=>({name:view.name,holder:view.holder?.agent_id??null,queue:view.queue.length,events:view.events.map(e=>e.type)}))
+           :slots};
+       }
        censusPanes=undefined;   // consumed; the next tick reuses L2's or takes its own
        report={...report,census:{at:census.at,tick_ms:census.tickMs,captures:census.captures,
          states:census.agents.reduce((totals,agent)=>({...totals,[agent.state]:(totals[agent.state]??0)+1}),{}),

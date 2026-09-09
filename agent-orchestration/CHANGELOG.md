@@ -77,6 +77,38 @@
   the pane was judged safe and the pointer still did not land, never for `held`, an unsupported
   adapter, `--no-ring`, or a degraded supervisor. `status` gains an `undelivered` field and an
   `! UNDELIVERED` banner modelled on `! STALLED`.
+- **Named serial slots with a mechanical queue (TM-132, EP-018).** `topology/lib/slots.mjs` and
+  `ao-topology slot request|release|status|grant` replace the conductor's hand-rolled
+  SERIAL SLOT REQUEST / GRANTED / RELEASED heredocs. Records live at
+  `<stateRoot>/slots/<repoKey>/<name>.json`, keyed by the git common directory, so every linked
+  worktree shares one `cutover` slot. `integration`, `cutover` and `deploy-safe` are names, not code.
+  - `withLock` is the wrong holder and the right mutex: it serialises every mutation, and **the
+    record is the holder**. Slot lifetime and lock lifetime are unrelated.
+  - Fairness is a monotonic decimal-string **ticket** allocated under the lock — FIFO by ticket,
+    never by timestamp, because clocks tie and skew. A repeated request by the same agent is
+    idempotent (same ticket, same position, and no write at all).
+  - **The grant is mechanical.** `reconcile()` is pure and idempotent, runs from `slot request`,
+    `slot status` and the supervise tick, and grants the head of the queue unconditionally when the
+    holder is null. `slot release` only clears the holder. A handover costs **zero model turns on
+    both sides**. `slot grant --to` is a lead-only override that records the tickets it jumped, and
+    its help says so.
+  - Liveness is the **tmux six-tuple**, not a pid, so reclamation works identically on macOS, and
+    the same test applies to queue entries as to the holder — otherwise a dead ticket starves the
+    queue forever while `status` reports success. A grant records the binding it was checked
+    against. `failoverAgent` re-stamps that binding after a respawn, or every quota failover would
+    silently forfeit the agent's slot.
+  - **Age never reclaims.** `status` reports `held_for_ms` and flags a hold past its declared
+    `--expect`; the remedy for a long hold is a human. **Reclamation requires proof of absence** —
+    an unreadable `list-panes` reconciles nothing, because a tmux hiccup must never hand one
+    cutover slot to two agents.
+  - Release requires proof the holder is asking, with two accepted proofs because `AO_AGENT_TOKEN`
+    is minted per agent *per run* and a standing lead has none: a run agent proves its token digest
+    with `timingSafeEqual` as `recordReply` does; a standing agent proves `AO_AGENT_ID` +
+    `AO_CONSUMER` + the exact pane as `acknowledgeEnrollment` does. Neither →
+    `TOPOLOGY_SLOT_NOT_HOLDER` with the record byte-identical.
+  - The supervise tick reuses the pane listing the census already took, so a mechanical grant costs
+    zero extra tmux calls, and rings the new holder through the existing standing mailbox with a
+    grant-derived id so a retried tick delivers nothing twice.
 
 ### Changed
 
