@@ -9,8 +9,12 @@
 //   L2 reconcile — the expensive body below: collectPresenceAgents, `git worktree list`, a readdir
 //      of every run dir in every linked worktree, refreshPrompt per enrolled agent, and
 //      resumeStandingMessages. Rate-limited to at most once per AO_RECONCILE_MIN_MS (default 10s).
-//   L3 the tick — an adaptive 2s/5s/15s sleep. A tick that finds no activity backs off; the next
-//      tick that does snaps straight back to 2s.
+//   L3 the tick — an adaptive 2s/5s/15s sleep, and the liveness census (TM-131) that rides it. A
+//      tick that finds no activity backs off; the next tick that does snaps straight back to 2s.
+//      The census is the observation work this cadence exists for: tmux only, reusing L2's listing
+//      when one was just taken and taking its own single `list-panes -a` otherwise, plus at most
+//      AO_CENSUS_CAPTURE_BUDGET captures. It runs on EVERY tick, including cheap ones — putting it
+//      inside L2 would peg it to the 10s reconcile floor and the 2s rung would buy nothing.
 //
 // A QUIET REPOSITORY THEREFORE PUBLISHES PRESENCE MORE OFTEN THAN IT RECONCILES. That looks like
 // a bug and is not one: presence staleness is a contract a consumer enforces, reconcile staleness
@@ -21,7 +25,10 @@ import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { mkdir, open, readdir } from 'node:fs/promises';
 import { createPresenceProducer, collectPresenceAgents } from './presence.mjs';
+import { takeCensus } from './census.mjs';
+import { loadAdapters, providerDirs } from './providers.mjs';
 import { canonicalRepoId, repoKey, stateRoot } from './repoid.mjs';
+import { listServerPanes } from './tmux.mjs';
 import { withLock } from './lockfile.mjs';
 import { listAgents, agentDirs } from './agents.mjs';
 import { refreshPrompt } from './prompt-lifecycle.mjs';
@@ -59,9 +66,32 @@ export async function superviseRepository(options, { signal, once = false, inter
    signal?.addEventListener('abort', () => controller.abort(), {once:true});
    let latest, heartbeatError;
    const heartbeat = once ? null : producer.watch({signal:controller.signal,onPublish:snapshot=>{latest=snapshot;}}).catch(error=>{heartbeatError=error;controller.abort();});
+   // Adapters are files on disk; loading them per tick would put a readdir straight back into the
+   // hot path L2's rate limit just took out. The census wants them only for attention patterns.
+   const adapters=await loadAdapters(options.providerDirs ?? providerDirs(options)).catch(()=>null);
+   // Census memory across ticks: the capture cache keyed by (paneId, panePid) so a respawn
+   // invalidates; the roster and run dirs from the last reconcile; and the last document, which is
+   // what carries the needs-input edge state and lets an agent that has left the listing be
+   // reported dead for one tick instead of silently vanishing.
+   //
+   // censusPanes is THREE-VALUED and each value means something different:
+   //   undefined -> not taken yet this tick
+   //   null      -> a listing was attempted and failed; every agent is `unknown`
+   //   array     -> the listing succeeded; an EMPTY array is a real answer, every agent is dead
+   // Collapsing the first two would make a tmux hiccup report every agent dead. `let`, not `=null`.
+   const censusMemo=new Map();
+   let censusRoster=[], censusRunDirs=[], censusPanes, census=null;
    // The expensive body. Returns the report it wrote plus whether anything actually moved.
    const reconcile=async()=>{
-     const observed=await collectPresenceAgents(options);
+     // The census reuses the listing this call already takes; wrapping listPanesFn is what makes
+     // that free. Deliberately NO catch here: swallowing TOPOLOGY_TMUX_OBSERVATION_FAILED so the
+     // census could still report was considered and rejected, because it would change reconcile()'s
+     // failure semantics as a side effect of adding an observer. A stale census already degrades to
+     // `unknown` with nothing dispatchable, which is the honest answer to "tmux did not respond".
+     const seen=[];
+     const listPanesFn=async args=>{const rows=await listServerPanes(args);seen.push(...rows);return rows;};
+     const observed=await collectPresenceAgents({...options,listPanesFn});
+     censusRoster=observed; censusPanes=seen;
      const panes=observed.filter(p=>p.lifecycle!=="dead").map(p=>({...p.session,alive:true}));
      const agents=await listAgents(agentDirs(options));
      const prompts=[];
@@ -71,10 +101,13 @@ export async function superviseRepository(options, { signal, once = false, inter
      }
      const listing=await run('git',['-C',consumer,'worktree','list','--porcelain'],{allowFailure:true});
      const roots=new Set([consumer,...listing.stdout.split('\n').filter(line=>line.startsWith('worktree ')).map(line=>line.slice(9))]);
+     // Where deaths.tsv lives. Collected at L2's cadence because that is how often it can change.
+     const runDirs=[];
      for(const checkout of roots) {
        const runsRoot=join(checkout,'.bytedesk/agent-orchestration/runs');
        for(const name of await readdir(runsRoot).catch(()=>[])) {
          const runDir=join(runsRoot,name), runRecord=await readJson(join(runDir,'run.json')).catch(()=>null);
+         runDirs.push(runDir);
          if(!runRecord || (await canonicalRepoId(runRecord.consumer || checkout)).id!==identity.id) continue;
          for(const entry of runRecord.agents || []) {
            if(!entry.binding || !panes.some(p=>p.alive && ['serverKey','serverPid','sessionId','sessionCreated','paneId','panePid'].every(k=>p[k]===entry.binding[k]))) continue;
@@ -84,6 +117,7 @@ export async function superviseRepository(options, { signal, once = false, inter
          }
        }
      }
+     censusRunDirs=runDirs;
      if(heartbeatError) throw heartbeatError;
      const snapshot=latest || await producer.publish();
      const resumed=await resumeStandingMessages(options);
@@ -105,6 +139,13 @@ export async function superviseRepository(options, { signal, once = false, inter
        if(heartbeatError) throw heartbeatError;
        let activity=false;
        // `once` always reconciles: a single-shot supervise is asking for the expensive answer.
+       //
+       // KNOWN, and not a census concern: a throw out of reconcile() propagates through this loop,
+       // out of withLock, and ENDS superviseRepository — so a tmux enumeration failure restarts the
+       // supervisor (the monitor brings it back, incrementing `restarts`) rather than skipping one
+       // tick. The end state is the same as skipping — the census document ages out and reads
+       // `unknown` — but by a louder route than the wording elsewhere suggests. Softening it means
+       // deciding which failures are transient, which is a change with its own test, not a comment.
        if(once || Date.now()-lastReconcileAt>=floorMs) {
          lastReconcileAt=Date.now();
          ({report,activity}=await reconcile());
@@ -113,7 +154,40 @@ export async function superviseRepository(options, { signal, once = false, inter
          // cadence has somewhere to live without dragging L2's git-and-filesystem body with it.
          report={...report,at:new Date().toISOString(),reconciled:false,activity:false};
        }
-       rung=nextRung(rung,activity);
+       // L3, every tick. On a reconciling tick censusPanes is the listing that just happened; on a
+       // cheap tick we take our own — one tmux call, against exactly the servers the roster's own
+       // bindings name, which is the same set presence queried.
+       //
+       // THIS listing is caught where reconcile()'s is not, and the asymmetry is deliberate: that
+       // one belongs to presence and its failure is presence's to define, while this one exists
+       // only for the census, so the census may absorb its own failure and report `unknown` rather
+       // than take the whole supervisor down with it.
+       if(censusPanes===undefined) {
+         const servers=[...new Set(censusRoster.map(a=>a.session?.serverKey).filter(Boolean))];
+         try { censusPanes=(await Promise.all((servers.length?servers:[options.tmuxServer]).map(server=>listServerPanes({tmuxServer:server,env})))).flat(); }
+         catch(error){ if(error?.code!=='TOPOLOGY_TMUX_OBSERVATION_FAILED') throw error; censusPanes=null; }
+       }
+       // The loop owns the cadence, so the loop TELLS the census: how often it is being called, and
+       // how long its answer should be believed. Staleness comes off the SLOWEST rung rather than
+       // the current one — a document must not read stale merely because the loop backed off, and
+       // the bound has to cover the widest gap the ladder can produce, not the gap we happen to be
+       // at. Deliberately not presence's staleAfterMs: that is a wire promise about a heartbeat
+       // this loop does not drive, and coupling a hint to a contract makes one silently move the
+       // other.
+       census=await takeCensus({...options,identity},{agents:censusRoster,panes:censusPanes,adapters,
+         memo:censusMemo,previous:census,runDirs:censusRunDirs,
+         intervalMs:intervalMs ?? SLEEP_LADDER_MS[Math.max(rung,0)],
+         staleAfterMs:3*SLEEP_LADDER_MS[SLEEP_LADDER_MS.length-1]});
+       censusPanes=undefined;   // consumed; the next tick reuses L2's or takes its own
+       report={...report,census:{at:census.at,tick_ms:census.tickMs,captures:census.captures,
+         states:census.agents.reduce((totals,agent)=>({...totals,[agent.state]:(totals[agent.state]??0)+1}),{}),
+         dispatchable:census.agents.filter(agent=>agent.dispatchable).length}};
+       // The census contributes to the ladder, and it CANNOT pin it: `census.activity` means the
+       // world moved, never that we looked. A pane that is still `working` is the steady state and
+       // contributes nothing — the same reason a prompt already at `current` does not — and neither
+       // does a transition into or out of `unknown`, which past the capture budget is our own
+       // rationing rotating rather than news.
+       rung=nextRung(rung,activity||census.activity);
        const sleepMs=intervalMs ?? SLEEP_LADDER_MS[rung];
        report={...report,sleep_ms:sleepMs};
        await onTick(report);

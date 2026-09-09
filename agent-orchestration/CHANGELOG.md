@@ -1,5 +1,73 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **Liveness census (TM-131, EP-018).** `topology/lib/census.mjs` and the repo-scoped
+  `ao-topology census [--json] [--watch]` answer what every agent in a repository is *doing*:
+  `dead > quota-blocked > attention > working > needs-input > idle > unknown`, in that precedence.
+  Presence v1 is untouched — its `LIFE` set is a session lifecycle, not a work state, and the
+  census writes its own document at `<stateRoot>/census/<repoKey>.json`.
+  - Busy detection is the Unicode Braille Patterns **range** U+2800–U+28FF in the pane title or the
+    captured tail, plus a short measured marker list — not a per-CLI spinner table.
+  - `needs-input` is **edge-triggered exactly once**, when a post-busy idle streak first reaches two
+    polls; it then falls back to `idle` with `needsInputAt` retained. A pane never observed working
+    never produces it.
+  - `unknown` is never silently `idle`: a failed capture, an exhausted capture budget and a failed
+    `list-panes` are all reported as unknown.
+  - `--json` serves a human and a scheduler from one document; the scheduler reads `binding` and the
+    derived `dispatchable`, and a **stale census makes nothing dispatchable**.
+  - Cost: reuses the supervisor's single `list-panes -a`, decides most panes from the pane title
+    alone, captures only inconclusive panes with `-S -20`, caps captures at
+    `AO_CENSUS_CAPTURE_BUDGET` (default 8) per tick oldest-observation-first, and memoizes by
+    `(paneId, panePid)` so a respawn invalidates.
+- **The census rides the supervisor's L3 tick (TM-131).** `superviseRepository` takes one census
+  per tick — **including the cheap ticks**, since putting it inside the `AO_RECONCILE_MIN_MS`-gated
+  body would peg it to the 10 s floor and the 2 s rung would buy nothing. On a reconciling tick it
+  reuses the `list-panes -a` that `collectPresenceAgents` just took (by wrapping its injectable
+  `listPanesFn`); on a cheap tick it takes one of its own against exactly the servers the roster's
+  bindings name. Each tick's report gains a `census` block (`at`, `tick_ms`, `captures`, per-state
+  counts, `dispatchable`) so `supervisionStatus` and `doctor` see it for free.
+  - **The census cannot pin the sleep ladder.** `census.activity` means the world *moved*, never
+    that we looked: a pane still `working` is the steady state and contributes nothing, and neither
+    does a transition into or out of `unknown`, which past the capture budget is the budget
+    rotating rather than news. A quiet repository still walks 2 s → 5 s → 15 s and stays there.
+  - The loop **tells** the census its cadence rather than the census owning one: `intervalMs` is
+    recorded in the document as a hint, and `staleAfterMs` is bound to the **slowest** rung (45 s)
+    so a document never reads stale merely because the loop backed off. A one-shot with no loop
+    behind it falls back to the slowest rung, not the fastest.
+- `listServerPanes` carries `pane_title` — one extra tab-separated column on a call the supervisor
+  already makes, which decides "is this agent working" for every pane on the server at zero extra
+  tmux calls.
+
+### Changed
+
+- **An out-of-quota Kimi is now an actionable *attention*, not a bare failure — this changes launch
+  behaviour, not only the census.** `attention_patterns` entries gain an optional `state`
+  (`attention` by default, or `quota-blocked`), and `providers/kimi.json` declares one anchored on
+  the fragment `reached your \d+-hour usage limit` — observed live as
+  `Error: [provider.auth_error] 403 You've reached your 5-hour usage limit.` and deliberately
+  anchored on the fragment, because `[provider.auth_error]`'s brackets and colon would be dropped
+  by `tmuxFailureTrigger` and the pattern would then never fire on the subscription path at all.
+  `attentionOnScreen` is checked **before** `failureOnScreen` in both `evaluateScreen` and the
+  subscription path, and the generic `failure_patterns` list already contains `usage limit`, so
+  until now an out-of-quota Kimi was a plain failure that triggered failover. It is now an
+  attention with an operator message. That is the right ordering — "wait for the window" is not
+  "this provider is down" — but a run that relied on failover to move off an exhausted Kimi will
+  hold instead.
+
+### Fixed
+
+- **Sandbox teardown no longer fails on a provider's Go module cache.** An agent that ran
+  `go build` or `go test` left `go/pkg/mod` inside its sandbox HOME with directories at mode
+  `0555`. Unlink needs write on the *parent* directory, so cleanup died with
+  `EACCES: permission denied, unlink '/dev/shm/.../provider-home/<provider>/go/pkg/mod/.../LICENSE'`
+  — `fs.rm({ force: true })` does not help, because `force` only swallows `ENOENT`. Every broker
+  and turn-scratch removal now goes through `removeTree`, which restores write on its own
+  directories and retries once. Symlinked directories are not followed, so it cannot chmod outside
+  the tree it owns.
+
 ## [0.7.0] — 2026-09-09
 
 TM-127 / EP-018. The supervisor is now started and kept honest, and its tick stops behaving like a
@@ -62,56 +130,6 @@ busy loop.
 
 - Lock ownership races, unsafe prompt fallback, hook sibling deletion and watcher lease fencing.
 - Linked worktree identity and cross-repository routing admission.
-
-## [Unreleased]
-
-### Added
-
-- **Liveness census (TM-131, EP-018).** `topology/lib/census.mjs` and the repo-scoped
-  `ao-topology census [--json] [--watch]` answer what every agent in a repository is *doing*:
-  `dead > quota-blocked > attention > working > needs-input > idle > unknown`, in that precedence.
-  Presence v1 is untouched — its `LIFE` set is a session lifecycle, not a work state, and the
-  census writes its own document at `<stateRoot>/census/<repoKey>.json`.
-  - Busy detection is the Unicode Braille Patterns **range** U+2800–U+28FF in the pane title or the
-    captured tail, plus a short measured marker list — not a per-CLI spinner table.
-  - `needs-input` is **edge-triggered exactly once**, when a post-busy idle streak first reaches two
-    polls; it then falls back to `idle` with `needsInputAt` retained. A pane never observed working
-    never produces it.
-  - `unknown` is never silently `idle`: a failed capture, an exhausted capture budget and a failed
-    `list-panes` are all reported as unknown.
-  - `--json` serves a human and a scheduler from one document; the scheduler reads `binding` and the
-    derived `dispatchable`, and a **stale census makes nothing dispatchable**.
-  - Cost: reuses the supervisor's single `list-panes -a`, decides most panes from the pane title
-    alone, captures only inconclusive panes with `-S -20`, caps captures at
-    `AO_CENSUS_CAPTURE_BUDGET` (default 8) per tick oldest-observation-first, and memoizes by
-    `(paneId, panePid)` so a respawn invalidates.
-
-### Changed
-
-- **An out-of-quota Kimi is now an actionable *attention*, not a bare failure — this changes launch
-  behaviour, not only the census.** `attention_patterns` entries gain an optional `state`
-  (`attention` by default, or `quota-blocked`), and `providers/kimi.json` declares one anchored on
-  the fragment `reached your \d+-hour usage limit` — observed live as
-  `Error: [provider.auth_error] 403 You've reached your 5-hour usage limit.` and deliberately
-  anchored on the fragment, because `[provider.auth_error]`'s brackets and colon would be dropped
-  by `tmuxFailureTrigger` and the pattern would then never fire on the subscription path at all.
-  `attentionOnScreen` is checked **before** `failureOnScreen` in both `evaluateScreen` and the
-  subscription path, and the generic `failure_patterns` list already contains `usage limit`, so
-  until now an out-of-quota Kimi was a plain failure that triggered failover. It is now an
-  attention with an operator message. That is the right ordering — "wait for the window" is not
-  "this provider is down" — but a run that relied on failover to move off an exhausted Kimi will
-  hold instead.
-
-### Fixed
-
-- **Sandbox teardown no longer fails on a provider's Go module cache.** An agent that ran
-  `go build` or `go test` left `go/pkg/mod` inside its sandbox HOME with directories at mode
-  `0555`. Unlink needs write on the *parent* directory, so cleanup died with
-  `EACCES: permission denied, unlink '/dev/shm/.../provider-home/<provider>/go/pkg/mod/.../LICENSE'`
-  — `fs.rm({ force: true })` does not help, because `force` only swallows `ENOENT`. Every broker
-  and turn-scratch removal now goes through `removeTree`, which restores write on its own
-  directories and retries once. Symlinked directories are not followed, so it cannot chmod outside
-  the tree it owns.
 
 ## [0.5.0] — 2026-09-06
 

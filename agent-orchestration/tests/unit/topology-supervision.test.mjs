@@ -3,10 +3,12 @@ import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,readFile,rm} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
-import {run,writeJson} from '../../topology/lib/util.mjs';
+import {run,writeJson,readJson} from '../../topology/lib/util.mjs';
 import {listServerPanes} from '../../topology/lib/tmux.mjs';
 import {refreshPrompt} from '../../topology/lib/prompt-lifecycle.mjs';
 import {superviseRepository,nextRung,SLEEP_LADDER_MS} from '../../topology/lib/supervision.mjs';
+import {censusPath,withStaleness} from '../../topology/lib/census.mjs';
+import {canonicalRepoId,repoKey} from '../../topology/lib/repoid.mjs';
 
 test('supervision refreshes a live workflow instance and publishes exact membership without applying an unacknowledged change',async t=>{
  const root=await mkdtemp(join(tmpdir(),'ao-supervision-'));t.after(()=>rm(root,{recursive:true,force:true}));
@@ -117,4 +119,48 @@ test('the supervisor records where it went and how often it has been restarted',
   const status = await supervisionStatus({ consumer: repo, env, home });
   assert.equal(status.pid, first.pid);
   assert.equal(status.state, 'running-or-ownership-unknown');
+});
+
+test('the census rides every tick, including the cheap ones, and is told its cadence', async t => {
+  const { repo, home, env, options } = await quietRepo(t, 'census');
+  const ticks = [];
+  const controller = new AbortController();
+  // A floor so generous that only the first tick reconciles: the census must still run on the
+  // eleven cheap ticks after it, because that is the cadence it exists at. If it lived inside the
+  // reconcile body it would be pegged to the 10s floor and the 2s rung would buy nothing.
+  await superviseRepository(options, {
+    signal: controller.signal,
+    reconcileMinMs: 3_600_000,
+    sleepFn: async () => {},
+    onTick: report => { ticks.push(report); if (ticks.length === 12) controller.abort(); },
+  });
+  assert.equal(ticks.filter(tick => tick.reconciled).length, 1);
+  assert.equal(ticks.filter(tick => tick.census).length, 12, 'the census runs on cheap ticks too');
+  assert.ok(ticks.every(tick => Number.isInteger(tick.census.tick_ms)), 'tickMs makes a regression visible rather than felt');
+
+  // The document lands where a scheduler will look for it, and carries what the loop told it.
+  const key = repoKey((await canonicalRepoId(repo)).id);
+  const document = await readJson(censusPath({ env, home, key }));
+  assert.equal(document.repoId, (await canonicalRepoId(repo)).id);
+  // Staleness is bound to the SLOWEST rung, not the rung we happen to be on: a document must not
+  // read stale merely because the loop backed off.
+  assert.equal(document.staleAfterMs, 3 * SLEEP_LADDER_MS[SLEEP_LADDER_MS.length - 1]);
+  assert.ok(SLEEP_LADDER_MS.includes(document.intervalMs), 'the census records the cadence it was told');
+  assert.equal(withStaleness(document, Date.parse(document.at) + 1000).stale, false);
+  assert.equal(withStaleness(document, Date.parse(document.at) + document.staleAfterMs + 1).stale, true);
+});
+
+test('a quiet census does not pin the sleep ladder to its busy rung', async t => {
+  const { options } = await quietRepo(t, 'census-ladder');
+  const slept = [];
+  const controller = new AbortController();
+  await superviseRepository(options, {
+    signal: controller.signal,
+    reconcileMinMs: 0,
+    sleepFn: async ms => { slept.push(ms); if (slept.length >= 5) controller.abort(); },
+    onTick: () => {},
+  });
+  // Same expectation as the ladder test above, asserted again WITH the census in the loop: its
+  // `activity` must mean the world moved, never that it looked.
+  assert.deepEqual(slept, [2000, 5000, 15000, 15000, 15000]);
 });
