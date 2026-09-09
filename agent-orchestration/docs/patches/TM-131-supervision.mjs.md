@@ -1,4 +1,14 @@
-# TM-131 — patch for `topology/lib/supervision.mjs` (integrator-owned)
+# TM-131 — patch for `topology/lib/supervision.mjs` — **APPLIED**
+
+> **Status: applied by its author on a branch cut from `main` at `f077dc4`.** `supervision.mjs` was
+> integrator-owned only while three workers were editing it concurrently; that reason expired when
+> `roles` finished and `delivery` turned out to touch `cli.mjs` alone. The file now carries these
+> hunks directly, with the reasoning below inlined as comments — read `topology/lib/supervision.mjs`
+> as the source of truth and this file as the record of *why*. `topology/cli.mjs` is still
+> integrator-owned (two workers patch it), so `TM-131-cli.mjs.md` remains a patch.
+>
+> The `tmux.mjs` patch landed separately at `f077dc4`; `listServerPanes` rows already carry `title`.
+
 
 **Rewritten against the merged file at `main` (`d79db04` / `ebc92e3`), not against `f3f21e7`.**
 The version in my worktree is stale; every hunk below quotes the merged shape — `reconcile()` as a
