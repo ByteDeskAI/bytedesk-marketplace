@@ -81,6 +81,9 @@ Standing repository services
   census [--json] [--watch]                     what every agent in this repo is doing right now:
                                                 working / needs-input / idle / attention /
                                                 quota-blocked / dead / unknown
+  slot request <name> --reason <text> [--expect 30m] | release <name> | status [<name>]
+       grant <name> --to <agent>                LEAD-ONLY override that jumps the queue; the
+                                                ordinary handover is mechanical and needs no verb
   lead status|ensure|assign <agent>|detach|probes|ack <nonce>
   reviewer status|ensure|request|collect|eligible [--task TM-id --revision <sha> --author <id>]
   role list|show <role>|status <role>|assign <role> [<agent>]|ensure <role> [<agent>]
@@ -323,6 +326,42 @@ const commands = {
       rung = nextRung(rung, previous.activity);
       await new Promise((resolve) => setTimeout(resolve, SLEEP_LADDER_MS[rung]));
     }
+  },
+
+  async slot({ flags, positional }) {
+    // TM-132. The only verbs here are request / release / status / grant. There is deliberately no
+    // "wait for my turn": the grant is mechanical, so the supervise tick hands the slot over with
+    // zero model turns on either side, and `status` is how you see that it happened.
+    const ctx = context(flags);
+    const api = await import('./lib/slots.mjs');
+    const sub = positional[0] || 'status';
+    const name = positional[1];
+    const say = (view) => out(flags.json ? view : api.formatSlot(view));
+    if (sub === 'status') {
+      const view = await api.slotStatus({ ...ctx, name: name ?? null });
+      return out(flags.json ? view : (view.slots ? view.slots.map(api.formatSlot).join('\n') || 'no slots in this repository' : api.formatSlot(view)));
+    }
+    if (sub === 'request') {
+      const view = await api.requestSlot({ ...ctx, name,
+        agentId: flags.agent && flags.agent !== true ? String(flags.agent) : process.env.AO_AGENT_ID,
+        reason: flags.reason && flags.reason !== true ? String(flags.reason) : null,
+        expectMs: flags.expect && flags.expect !== true ? parseDuration(String(flags.expect)) : null,
+        runDir: flags.run && flags.run !== true ? absolutize(String(flags.run)) : null });
+      await api.notifyGrants(view.events, ctx);
+      return say(view);
+    }
+    if (sub === 'release') {
+      const view = await api.releaseSlot({ ...ctx, name,
+        agentId: flags.agent && flags.agent !== true ? String(flags.agent) : process.env.AO_AGENT_ID,
+        runDir: flags.run && flags.run !== true ? absolutize(String(flags.run)) : null });
+      return say(view);
+    }
+    if (sub === 'grant') {
+      const view = await api.grantSlot({ ...ctx, name, to: flags.to && flags.to !== true ? String(flags.to) : null });
+      await api.notifyGrants(view.events, ctx);
+      return say(view);
+    }
+    fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use slot request|release|status|grant.');
   },
 
   async presence({ flags, positional }) {

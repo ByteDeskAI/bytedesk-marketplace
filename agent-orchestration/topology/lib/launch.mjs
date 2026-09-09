@@ -1115,6 +1115,14 @@ export async function failoverAgent({ runDir, agentId, adapters, toLabel, log = 
   await appendJournal(runDir, { type: "agent.failover", agent: agentId, from: previous, to_index: startIndex });
   const started = await startAgentInPane({ pane: entry.pane, agentId, role: entry.role, candidates, startIndex, runDir, log, respawn: true });
   entry.binding = (await tmux.listServerPanes()).find(p => p.paneId === entry.pane && p.sessionName === run.session) || null;
+  // TM-132: the respawn keeps the pane but takes a new panePid, so this agent's OLD six-tuple is
+  // now provably absent — and a slot reconcile would read that as "the holder is gone" and hand its
+  // cutover slot to the next in the queue. Re-stamp before anything can observe the gap. Best
+  // effort: a failover must not fail because a slot record could not be rewritten.
+  if (entry.binding) {
+    const { restampSlotBindings } = await import("./slots.mjs");
+    await restampSlotBindings({ consumer: run.consumer || runDir, agentId, binding: entry.binding }).catch(() => {});
+  }
   if (!started.ok) {
     entry.active = entry.candidates.length;
     entry.provider = null;
