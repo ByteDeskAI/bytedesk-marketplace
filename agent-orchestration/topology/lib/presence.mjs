@@ -173,6 +173,13 @@ export async function collectPresenceAgents({consumer, repositoryRoot, identity,
  * allows independent repository publishers without letting an old publisher overwrite its successor. */
 export async function createPresenceProducer({consumer,env=process.env,home=homedir(),presenceDir,staleAfterMs=30000,clockSkewToleranceMs=5000,tmuxServer,listPanesFn,runDirs=[]}={}) {
   bounds(staleAfterMs,clockSkewToleranceMs);
+  // L1, and only L1. The frozen contract §2.2 requires a rewrite every staleAfterMs/3 — the
+  // heartbeat is what makes the ABSENCE of a rewrite meaningful to a consumer. The supervisor's
+  // reconcile tick is a different, slower, deliberately unrelated cadence (see supervision.mjs);
+  // asserting the bound at CONSTRUCTION is what stops the two ever being conflated into one number.
+  const publishIntervalMs=Math.floor(staleAfterMs/3);
+  invariant(publishIntervalMs>0 && publishIntervalMs*3<=staleAfterMs,"TOPOLOGY_PRESENCE_BOUNDS",
+    `Presence publish interval ${publishIntervalMs}ms exceeds the contract's staleAfterMs/3 (${staleAfterMs}/3).`);
   const identity=await canonicalRepoId(consumer), repositoryKey=repoKey(identity.id), repositoryRoot=await rootCheckout(consumer,identity);
   const global=await json(globalConfigPath(home,env));
   const dir=presenceDir ?? global?.presenceDir ?? join(stateRoot(env,home),"presence");
@@ -211,13 +218,13 @@ export async function createPresenceProducer({consumer,env=process.env,home=home
     });
   };
   const watch=async({signal,onPublish=()=>{}}={})=>{
-    const intervalMs=Math.floor(staleAfterMs/3);
+    const intervalMs=publishIntervalMs;
     while(!signal?.aborted) {
       const start=Date.now(); const snapshot=await publish(); await onPublish(snapshot);
       try {await delay(Math.max(0,intervalMs-(Date.now()-start)),undefined,{signal});} catch(e) {if(e.name!=="AbortError") throw e;}
     }
   };
-  return {generation,path,publish,watch};
+  return {generation,path,publish,watch,publishIntervalMs,staleAfterMs};
 }
 export async function publishPresence(options={}) {return (await createPresenceProducer(options)).publish();}
 export async function watchPresence(options={}) {const producer=await createPresenceProducer(options);await producer.watch({signal:options.signal,onPublish:options.onPublish});return producer;}

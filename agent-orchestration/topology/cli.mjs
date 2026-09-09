@@ -233,13 +233,40 @@ function nameFrom(flags) {
   return value && value !== true ? String(value) : undefined;
 }
 
+/**
+ * Claude hosts start the supervisor as a plugin monitor (`monitors/monitors.json`). Codex, Grok and
+ * Kimi have no monitor concept at all, so the ordinary verbs self-start it too: first command wins,
+ * and both routes converge on the same per-repo supervision lock. Idempotent — a live pid
+ * short-circuits in microseconds — and deliberately NEVER fatal: a repo with no supervisor
+ * publishes stale presence, which is a degraded repo, not a failed command.
+ */
+async function ensureSupervision(ctx) {
+  try {
+    const { startRepositorySupervision } = await import('./lib/supervision.mjs');
+    return await startRepositorySupervision(ctx);
+  } catch (error) {
+    return { started: false, error: error.message };
+  }
+}
+
 const commands = {
   async supervise({ flags }) {
     const { superviseRepository } = await import('./lib/supervision.mjs');
     const ctx = context(flags);
-    if (flags.once) return superviseRepository({ ...ctx, tmuxServer: flags.server }, { once: true, onTick: out });
+    // Linked worktrees share one canonical repository id, so a machine with N worktrees of this
+    // repo open starts N supervisors and N-1 of them MUST lose. Losing is the correct outcome and
+    // therefore not an error: exit 0 saying who owns it, so a monitor host does not read the loss
+    // as a crash and restart it in a loop.
+    const owned = async (task) => {
+      try { return await task(); }
+      catch (error) {
+        if (error?.code !== 'TOPOLOGY_LOCK_TIMEOUT') throw error;
+        return out({ ok: true, supervising: false, reason: 'another-supervisor-owns-this-repository', consumer: ctx.consumer });
+      }
+    };
+    if (flags.once) return owned(() => superviseRepository({ ...ctx, tmuxServer: flags.server }, { once: true, onTick: out }));
     const { watchServer } = await import('./lib/startup.mjs');
-    return Promise.all([superviseRepository({ ...ctx, tmuxServer: flags.server }, { onTick: out }), watchServer({ ...ctx, tmuxServer: flags.server || 'default' })]);
+    return Promise.all([owned(() => superviseRepository({ ...ctx, tmuxServer: flags.server }, { onTick: out })), watchServer({ ...ctx, tmuxServer: flags.server || 'default' })]);
   },
   async presence({ flags, positional }) {
     const ctx = context(flags), api = await import('./lib/presence.mjs');
@@ -395,10 +422,15 @@ const commands = {
   async doctor({ flags }) {
     const ctx = context(flags);
     const adapters = await loadAdapters(ctx.providerDirs);
-    const report = await runDoctor({ adapters, workflowDirs: ctx.workflowDirs, skillDirs: ctx.skillDirs, roleDirs: ctx.roleDirs, providerDirs: ctx.providerDirs });
+    const report = await runDoctor({ adapters, workflowDirs: ctx.workflowDirs, skillDirs: ctx.skillDirs, roleDirs: ctx.roleDirs, providerDirs: ctx.providerDirs, consumer: ctx.consumer, env: ctx.env, home: ctx.home });
     if (flags.json) return out(report);
     out(`OS: ${report.os.platform}${report.os.wsl ? " (WSL2)" : ""} · package manager: ${report.os.package_manager ?? "none"} · node ${report.node}`);
     out(`tmux: ${report.tmux ?? "NOT FOUND"}`);
+    if (report.supervision) {
+      const s = report.supervision;
+      const age = s.tick_age_ms === null ? "no tick yet" : `last tick ${Math.round(s.tick_age_ms / 1000)}s ago`;
+      out(`Supervisor: ${s.state}${s.pid ? ` pid ${s.pid}` : ""} · ${age}${s.restarts ? ` · ${s.restarts} restarts` : ""}`);
+    }
     out("Providers:");
     for (const provider of report.providers) {
       out(`  ${provider.ready ? "✓" : "✗"} ${provider.id} — ${provider.ready ? `${provider.path}${provider.version ? ` (${provider.version})` : ""}` : `not found; ${provider.install_hint}`}`);
@@ -541,6 +573,7 @@ const commands = {
       log: (line) => process.stderr.write(`${line}\n`),
     });
     result.template = path;
+    if (!flags["dry-run"]) result.supervision = await ensureSupervision(ctx);
     if (flags.json || flags["dry-run"]) return out(result);
     out(`Launched ${materialized.name} · run ${runId}`);
     out(`  run dir: ${result.runDir}`);
@@ -690,6 +723,7 @@ const commands = {
       ok: true,
       agent: displayName(agent),
       id: agent.id,
+      supervision: await ensureSupervision(ctx),
       session: result.session,
       pane: result.pane,
       created: result.created,
@@ -766,6 +800,8 @@ const commands = {
     out({
       ok: true,
       id: message.id,
+      // The receiving repo is the run's, never the caller's cwd — same reasoning as routingConsumer.
+      supervision: await ensureSupervision({ ...ctx, consumer: routingConsumer || ctx.consumer }),
       deliveries: message.deliveries,
       holds: message.holds,
       delivered,

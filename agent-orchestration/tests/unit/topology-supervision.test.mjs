@@ -6,7 +6,7 @@ import {tmpdir} from 'node:os';
 import {run,writeJson} from '../../topology/lib/util.mjs';
 import {listServerPanes} from '../../topology/lib/tmux.mjs';
 import {refreshPrompt} from '../../topology/lib/prompt-lifecycle.mjs';
-import {superviseRepository} from '../../topology/lib/supervision.mjs';
+import {superviseRepository,nextRung,SLEEP_LADDER_MS} from '../../topology/lib/supervision.mjs';
 
 test('supervision refreshes a live workflow instance and publishes exact membership without applying an unacknowledged change',async t=>{
  const root=await mkdtemp(join(tmpdir(),'ao-supervision-'));t.after(()=>rm(root,{recursive:true,force:true}));
@@ -27,4 +27,94 @@ test('supervision refreshes a live workflow instance and publishes exact members
  assert.equal(report.prompts.find(p=>p.agent===agent.id).status,'queued');
  assert.match(await readFile(join(dir,'prompt.pending.md'),'utf8'),/changed policy/);
  const state=JSON.parse(await readFile(join(dir,'prompt-state.json'),'utf8'));assert.equal(state.applied_revision,undefined);
+});
+
+// ── Phase 0.5: the tick must be safe as a `"when": "always"` monitor ────────────────────────────
+// Every assertion below is about a property that makes eight concurrent supervisors on one machine
+// correct rather than merely survivable.
+
+/** A repo with no tmux server and no agents: enough for the loop, cheap enough to run in a test. */
+async function quietRepo(t, label) {
+  const root = await mkdtemp(join(tmpdir(), `ao-supervise-${label}-`));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const repo = join(root, 'repo'), home = join(root, 'home');
+  const env = { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state'), XDG_CONFIG_HOME: join(home, '.config') };
+  await run('git', ['init', repo]);
+  return { root, repo, home, env, options: { consumer: repo, home, env, tmuxServer: `ao-absent-${process.pid}-${Date.now()}` } };
+}
+
+test('a second supervisor for the same repository exits on the lock instead of double-publishing', async t => {
+  const { options } = await quietRepo(t, 'lock');
+  let firstIsInside, releaseFirst;
+  const inside = new Promise(resolve => { firstIsInside = resolve; });
+  const held = new Promise(resolve => { releaseFirst = resolve; });
+  // The first supervisor parks inside the lock; the second must not get in behind it.
+  const first = superviseRepository(options, { once: true, onTick: async () => { firstIsInside(); await held; } });
+  await inside;
+  await assert.rejects(
+    superviseRepository(options, { once: true }),
+    error => error.code === 'TOPOLOGY_LOCK_TIMEOUT',
+    'the loser must fail closed on the lock, never proceed to publish a second snapshot',
+  );
+  releaseFirst();
+  const report = await first;
+  assert.equal(report.reconciled, true);
+});
+
+test('the expensive reconcile body runs at most once per AO_RECONCILE_MIN_MS across many cheap ticks', async t => {
+  const { options } = await quietRepo(t, 'floor');
+  const ticks = [];
+  const controller = new AbortController();
+  // A generous floor and a no-op sleep: every tick after the first is inside the window, so exactly
+  // one reconcile may happen however many times the loop goes round.
+  await superviseRepository(options, {
+    signal: controller.signal,
+    reconcileMinMs: 3_600_000,
+    sleepFn: async () => {},
+    onTick: report => { ticks.push(report); if (ticks.length === 12) controller.abort(); },
+  });
+  assert.equal(ticks.length, 12);
+  assert.equal(ticks.filter(tick => tick.reconciled).length, 1, 'only the first tick may pay for git + readdir + refreshPrompt');
+  assert.equal(ticks[0].reconciled, true);
+  // A cheap tick still carries the last reconcile's answer forward rather than inventing an empty one.
+  assert.equal(ticks[11].repo_id, ticks[0].repo_id);
+  assert.equal(ticks[11].generation, ticks[0].generation);
+});
+
+test('the tick sleep walks 2s / 5s / 15s while quiet', async t => {
+  const { options } = await quietRepo(t, 'ladder');
+  const slept = [];
+  const controller = new AbortController();
+  await superviseRepository(options, {
+    signal: controller.signal,
+    reconcileMinMs: 0,
+    sleepFn: async ms => { slept.push(ms); if (slept.length >= 5) controller.abort(); },
+    onTick: () => {},
+  });
+  assert.deepEqual(slept, [2000, 5000, 15000, 15000, 15000], 'a quiet repo must back off and stay backed off, not poll the filesystem every second');
+});
+
+test('any activity snaps the ladder back to its busy rung rather than stepping down it', () => {
+  assert.equal(nextRung(-1, false), 0, 'the first tick sleeps at the busy rung');
+  assert.equal(nextRung(0, false), 1);
+  assert.equal(nextRung(1, false), 2);
+  assert.equal(nextRung(2, false), 2, 'the slow rung is the floor, never an unbounded backoff');
+  for (const rung of [0, 1, 2]) assert.equal(nextRung(rung, true), 0);
+  assert.deepEqual(SLEEP_LADDER_MS, [2000, 5000, 15000]);
+});
+
+test('the supervisor records where it went and how often it has been restarted', async t => {
+  const { options, env, home, repo } = await quietRepo(t, 'restart');
+  const { startRepositorySupervision, supervisionStatus } = await import('../../topology/lib/supervision.mjs');
+  const first = await startRepositorySupervision(options);
+  t.after(() => { try { process.kill(first.pid, 'SIGKILL'); } catch {} });
+  assert.equal(first.restarts, 0);
+  assert.match(first.log, /\.log$/);
+  // An already-running supervisor is never spawned twice.
+  const again = await startRepositorySupervision(options);
+  assert.equal(again.pid, first.pid);
+  assert.equal(again.state, 'running-or-ownership-unknown');
+  const status = await supervisionStatus({ consumer: repo, env, home });
+  assert.equal(status.pid, first.pid);
+  assert.equal(status.state, 'running-or-ownership-unknown');
 });
