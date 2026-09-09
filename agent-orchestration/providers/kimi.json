@@ -25,6 +25,14 @@
     "delay_ms": 6000,
     "timeout_ms": 30000
   },
+  "attention_patterns": [
+    {
+      "pattern": "reached your \\d+-hour usage limit",
+      "state": "quota-blocked",
+      "message": "Kimi has hit its rolling usage limit for this account. Nothing is broken and there is nothing to fix — wait for the window to roll over, or move this agent to another provider with `failover`.",
+      "note": "Anchored on the FRAGMENT, never on the whole observed string, and the first reason is empirical rather than theoretical. Measured across four live quota-blocked kimi panes on 2026-09-09 (%113, %24, %40, %14 — see docs/evidence/TM-131-quota-blocked-live-panes.md), the error renders TWO different ways: three panes show `Error: [provider.auth_error] 403 You've reached your 5-hour usage limit.` and %113 shows `Error: 403 You've reached your 5-hour usage limit.` inside a box-drawing frame, with no `[provider.auth_error]` prefix at all. A pattern anchored on the full string would have matched three panes and missed the fourth. The second reason is the tmux format parser: `[provider.auth_error]`'s colon would get the whole entry dropped by tmuxFailureTrigger, and a dropped pattern never fires on the subscription path at all, silently. Third, the fragment survives withoutPaths, which blanks whitespace-delimited tokens containing `/` — `5-hour` has none. `\\d+` rather than a literal 5 because the window length is an account/plan property."
+    }
+  ],
   "submit_keys": [
     "Enter"
   ],

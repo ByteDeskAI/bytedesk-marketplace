@@ -65,6 +65,43 @@ busy loop.
 
 ## [Unreleased]
 
+### Added
+
+- **Liveness census (TM-131, EP-018).** `topology/lib/census.mjs` and the repo-scoped
+  `ao-topology census [--json] [--watch]` answer what every agent in a repository is *doing*:
+  `dead > quota-blocked > attention > working > needs-input > idle > unknown`, in that precedence.
+  Presence v1 is untouched — its `LIFE` set is a session lifecycle, not a work state, and the
+  census writes its own document at `<stateRoot>/census/<repoKey>.json`.
+  - Busy detection is the Unicode Braille Patterns **range** U+2800–U+28FF in the pane title or the
+    captured tail, plus a short measured marker list — not a per-CLI spinner table.
+  - `needs-input` is **edge-triggered exactly once**, when a post-busy idle streak first reaches two
+    polls; it then falls back to `idle` with `needsInputAt` retained. A pane never observed working
+    never produces it.
+  - `unknown` is never silently `idle`: a failed capture, an exhausted capture budget and a failed
+    `list-panes` are all reported as unknown.
+  - `--json` serves a human and a scheduler from one document; the scheduler reads `binding` and the
+    derived `dispatchable`, and a **stale census makes nothing dispatchable**.
+  - Cost: reuses the supervisor's single `list-panes -a`, decides most panes from the pane title
+    alone, captures only inconclusive panes with `-S -20`, caps captures at
+    `AO_CENSUS_CAPTURE_BUDGET` (default 8) per tick oldest-observation-first, and memoizes by
+    `(paneId, panePid)` so a respawn invalidates.
+
+### Changed
+
+- **An out-of-quota Kimi is now an actionable *attention*, not a bare failure — this changes launch
+  behaviour, not only the census.** `attention_patterns` entries gain an optional `state`
+  (`attention` by default, or `quota-blocked`), and `providers/kimi.json` declares one anchored on
+  the fragment `reached your \d+-hour usage limit` — observed live as
+  `Error: [provider.auth_error] 403 You've reached your 5-hour usage limit.` and deliberately
+  anchored on the fragment, because `[provider.auth_error]`'s brackets and colon would be dropped
+  by `tmuxFailureTrigger` and the pattern would then never fire on the subscription path at all.
+  `attentionOnScreen` is checked **before** `failureOnScreen` in both `evaluateScreen` and the
+  subscription path, and the generic `failure_patterns` list already contains `usage limit`, so
+  until now an out-of-quota Kimi was a plain failure that triggered failover. It is now an
+  attention with an operator message. That is the right ordering — "wait for the window" is not
+  "this provider is down" — but a run that relied on failover to move off an exhausted Kimi will
+  hold instead.
+
 ### Fixed
 
 - **Sandbox teardown no longer fails on a provider's Go module cache.** An agent that ran
