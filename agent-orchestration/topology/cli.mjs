@@ -8,8 +8,9 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { doctor as runDoctor, tmuxInstallPlan } from "./lib/doctor.mjs";
-import { failoverAgent, launchRun, openRoleSession, roleSessionName, uniqueSessionName } from "./lib/launch.mjs";
-import { appendJournal, loadRun, pendingReplies, queueDepth, readJournal, recordReply, saveRun, sendMessage, waitForReplies } from "./lib/mailbox.mjs";
+import { closeAllClients, isUndelivered, ringMessage, undeliveredReport } from "./lib/delivery.mjs";
+import { deliverPointer, failoverAgent, launchRun, messagePointer, openRoleSession, roleSessionName, tmuxFailureTrigger, uniqueSessionName } from "./lib/launch.mjs";
+import { agentDir, appendJournal, loadRun, pendingReplies, queueDepth, readJournal, recordReply, saveRun, sendMessage, waitForReplies } from "./lib/mailbox.mjs";
 import { adapterFor, adapterSummary, buildArgv, loadAdapters, providerDirs } from "./lib/providers.mjs";
 import { roleDirs, skillDirs } from "./lib/resolve.mjs";
 import { agentAddress, DEFAULT_SESSION, listWorkflows, loadSpec, materializeSpec, resolveInputs, specSchemaSummary, workflowDirs, validateSpec } from "./lib/spec.mjs";
@@ -64,6 +65,8 @@ Conduct (used by the orchestrator agent)
        [--via <id>[,<id>]]                     hops already taken; forwarding must pass the chain on
        [--contract <name>] [--round <n>] [--subject <text>] [--no-ring]
   wait --run <run_dir> [--from <id>[,<id>]] [--message <id>] [--timeout 20m] [--poll 3s] [--json]
+  ack --run <run_dir> --agent <id> --message <id> [--note <text>]
+                                               optional receipt; no state depends on it
   capture --run <run_dir> --agent <id> [--lines 60]
   nudge --run <run_dir> --agent <id> --text <text>
   failover --run <run_dir> --agent <id> [--to <cli:model>]
@@ -75,6 +78,9 @@ Reply (used by every agent)
 
 Standing repository services
   supervise [--once --server <socket>]          reconcile presence, prompts and held mail
+  census [--json] [--watch]                     what every agent in this repo is doing right now:
+                                                working / needs-input / idle / attention /
+                                                quota-blocked / dead / unknown
   lead status|ensure|assign <agent>|detach|probes|ack <nonce>
   reviewer status|ensure|request|collect|eligible [--task TM-id --revision <sha> --author <id>]
   role list|show <role>|status <role>|assign <role> [<agent>]|ensure <role> [<agent>]
@@ -271,6 +277,54 @@ const commands = {
     const { watchServer } = await import('./lib/startup.mjs');
     return Promise.all([owned(() => superviseRepository({ ...ctx, tmuxServer: flags.server }, { onTick: out })), watchServer({ ...ctx, tmuxServer: flags.server || 'default' })]);
   },
+
+  async census({ flags }) {
+    const ctx = context(flags);
+    const { readCensus, takeCensus, formatCensus } = await import('./lib/census.mjs');
+    // The ladder belongs to the loop owner, so --watch borrows the SUPERVISOR's, rather than
+    // census.mjs keeping a second copy of the same three numbers.
+    const { nextRung, SLEEP_LADDER_MS } = await import('./lib/supervision.mjs');
+    const { canonicalRepoId } = await import('./lib/repoid.mjs');
+    const { collectPresenceAgents } = await import('./lib/presence.mjs');
+    const identity = await canonicalRepoId(ctx.consumer);
+    // `census` is a repo-scoped verb, so it self-starts the supervisor like every other one:
+    // asking what the agents are doing is exactly the moment you want the tick back after a
+    // reboot. `ensureSupervision` is idempotent — a live pid short-circuits in microseconds — and
+    // never fatal, which is the right trade here: a census with no supervisor is a one-shot
+    // answer, not a failed command.
+    const supervision = await ensureSupervision(ctx);
+    const memo = new Map();
+    const observe = async (previous) => {
+      // Prefer the supervisor's document: ONE answer to "is this agent alive" per repo. Only when
+      // it is missing or stale does the CLI take its own — a stale document is not a cheap read,
+      // it is a wrong one.
+      const published = await readCensus({ ...ctx, identity });
+      if (published && !published.stale) return published;
+      let panes = [];
+      const listPanesFn = async (args) => { const rows = await (await import('./lib/tmux.mjs')).listServerPanes(args); panes.push(...rows); return rows; };
+      let agents = [];
+      try { agents = await collectPresenceAgents({ ...ctx, identity, tmuxServer: flags.server, listPanesFn }); }
+      catch (error) { if (error?.code !== 'TOPOLOGY_TMUX_OBSERVATION_FAILED') throw error; panes = null; }
+      const adapters = await loadAdapters(ctx.providerDirs).catch(() => null);
+      // A one-shot has no loop behind it, so it takes census.mjs's own conservative fallbacks
+      // (15 s / 45 s) rather than inventing a cadence it is not running at.
+      return takeCensus({ ...ctx, identity }, { agents, panes, adapters, memo, previous });
+    };
+    if (!flags.watch) {
+      const document = await observe(null);
+      return out(flags.json ? { ...document, supervision } : formatCensus(document));
+    }
+    // --watch rides the supervisor's own 2/5/15 ladder: 2 s while anything is moving, 15 s while
+    // nothing is. A watcher that polls at a fixed 1 s is the busy loop this phase removed.
+    let previous = null, rung = -1;
+    for (;;) {
+      previous = await observe(previous);
+      out(flags.json ? previous : formatCensus(previous));
+      rung = nextRung(rung, previous.activity);
+      await new Promise((resolve) => setTimeout(resolve, SLEEP_LADDER_MS[rung]));
+    }
+  },
+
   async presence({ flags, positional }) {
     const ctx = context(flags), api = await import('./lib/presence.mjs');
     const options = { ...ctx, presenceDir: flags.dir, tmuxServer: flags.server };
@@ -810,21 +864,73 @@ const commands = {
     // and the hop limit can never be reached — the guard would be wired and still never fire.
     const via = list(flags.via);
     const message = await sendMessage({ runDir, from, to: list(flags.to), stage, body, contract: flags.contract, round: flags.round, subject: flags.subject, route, fromProject, task, via, idempotencyKey: flags.id, consumer: flags.consumer && flags.consumer !== true ? ctx.consumer : undefined, standingOptions: { pluginRoot: PLUGIN_ROOT, home: ctx.home } });
+    // `--no-ring` has been in USAGE, in tests/live/two-projects.sh and in
+    // tests/contract/topology-tmux.test.mjs since this command was written, and was never
+    // implemented in this body — the flag parsed and did nothing.
+    const noRing = flags["no-ring"] === true || String(flags["no-ring"]) === "true";
+    const adapters = await loadAdapters(ctx.providerDirs);
     const delivered = [];
     const { forwardMessageToWorkflow } = await import('./lib/mailbox.mjs');
-    for (const delivery of message.deliveries) {
-      const agent = run.agents.find((item) => item.id === delivery.agent);
-      if (agent?.workflow?.run_dir) {
-        const forwarded = await forwardMessageToWorkflow({ runDir, messageId: message.id,
-          recipient: delivery.agent, standingOptions: { pluginRoot: PLUGIN_ROOT, home: ctx.home } });
-        delivered.push({ agent: agent.id, workflow: agent.workflow.name, forwarded_as: forwarded.id,
-          run_dir: agent.workflow.run_dir, holds: forwarded.holds, notification: 'durable-pending' });
-      } else {
-        // Pane liveness proves neither an empty composer nor a safe tool-input
-        // state. No adapter currently supplies a mechanically proven safe bell.
-        delivered.push({ agent: delivery.agent, standing: Boolean(delivery.standing),
-          rang: false, notification: 'durable-pending' });
+
+    // TM-127 disabled the bell on the correct observation that "pane liveness proves neither an
+    // empty composer nor a safe tool-input state" — but the result was that every send reported
+    // { rang: false, notification: 'durable-pending' }, so an idle agent was never woken at all.
+    // The answer is not to re-enable the guess: `ringMessage` OBSERVES the composer through the
+    // adapter's measured `composer` block, and an adapter without one still holds and reports.
+    const ring = async ({ agentEntry, agentId, pointer, session, runDirForState, messageId }) => {
+      const adapter = adapters.get(agentEntry?.adapter ?? "") ?? adapters.get(agentEntry?.cli ?? "");
+      if (!adapter) {
+        return { agent: agentId, rang: false, notification: 'durable-pending',
+          delivery: { state: 'held', ring_capability: 'unsupported', reason: `no adapter recorded for ${agentId}`, escalated: false } };
       }
+      return ringMessage({
+        runDir: runDirForState, agentId, agent: agentEntry, adapter, pointer, messageId,
+        session, noRing, deliverPointer, tmuxFailureTrigger,
+        log: (line) => process.stderr.write(`${line}\n`),
+      });
+    };
+
+    try {
+      for (const delivery of message.deliveries) {
+        const agent = run.agents.find((item) => item.id === delivery.agent);
+        if (agent?.workflow?.run_dir) {
+          const forwarded = await forwardMessageToWorkflow({ runDir, messageId: message.id,
+            recipient: delivery.agent, standingOptions: { pluginRoot: PLUGIN_ROOT, home: ctx.home } });
+          // The child's conductor is the one that has to wake up, in the CHILD session. Same bell,
+          // no new path: "a message reaches a terminal state on every transport, or a human is told
+          // which one it is stuck on and why."
+          const childRun = await loadRun(agent.workflow.run_dir).catch(() => null);
+          const conductor = childRun?.agents?.find((item) => item.id === agent.workflow.conductor) ?? null;
+          const rung = conductor
+            ? await ring({
+                agentEntry: conductor, agentId: conductor.id, session: childRun.session,
+                runDirForState: agent.workflow.run_dir, messageId: forwarded.id,
+                pointer: messagePointer({ id: forwarded.id, from, stage, inbox: join(agentDir(agent.workflow.run_dir, conductor.id), "inbox"), outbox: join(agentDir(agent.workflow.run_dir, conductor.id), "outbox") }),
+              })
+            : { rang: false, notification: 'durable-pending', delivery: null };
+          delivered.push({ agent: agent.id, workflow: agent.workflow.name, forwarded_as: forwarded.id,
+            run_dir: agent.workflow.run_dir, holds: forwarded.holds,
+            rang: rung.rang, notification: rung.notification, delivery: rung.delivery });
+          continue;
+        }
+        // A standing (cross-repo) delivery does not carry `inbox`/`outbox` back from `sendMessage` —
+        // `standing-mailbox.mjs` owns those paths. The pointer then names the command that reads it,
+        // which is true and useful; surfacing the real path means threading it out of
+        // `sendStandingMessage`, which is a change to a frozen-adjacent surface and not this one.
+        const pointer = delivery.inbox
+          ? messagePointer({ id: message.id, from, stage, inbox: delivery.inbox, outbox: delivery.outbox })
+          : `[ao] Message ${message.id} from ${from} (${stage}): read it with ${CLI_BIN} mailbox inbox --agent ${delivery.agent}, then reply.`;
+        const rung = await ring({
+          agentEntry: agent, agentId: delivery.agent, pointer,
+          session: run.session, runDirForState: runDir, messageId: message.id,
+        });
+        delivered.push({ agent: delivery.agent, standing: Boolean(delivery.standing),
+          rang: rung.rang, notification: rung.notification, delivery: rung.delivery });
+      }
+    } finally {
+      // One control client per session, refcounted — a fan-out `--to a,b,c` costs one tmux client,
+      // not three — but the process must not be held open by it.
+      closeAllClients();
     }
 
     out({
@@ -840,6 +946,24 @@ const commands = {
       redirected: message.redirects.length > 0 ? message.redirects : undefined,
       next: `${CLI_BIN} wait --run ${runDir} --from ${list(flags.to).join(",")} --message ${message.id} --timeout 20m`,
     });
+    // Exit 3 ONLY when the pane was judged safe and the pointer still did not land. Never for
+    // `held` (nothing was typed, so nothing is wrong with the pane), never for an adapter with no
+    // measured composer, never for `--no-ring`, and never for a degraded supervisor — that is
+    // reported in `supervision` above and is not a delivery failure. `isUndelivered` is that rule
+    // in one place.
+    if (delivered.some((item) => isUndelivered(item.delivery))) process.exitCode = 3;
+  },
+
+  async ack({ flags }) {
+    // Optional, and deliberately load-bearing for nothing: engagement is a pane.log byte offset, so
+    // no state in the delivery machine depends on an agent remembering to call this. Useful to a
+    // human or a hook that wants a receipt in the journal.
+    const runDir = await runDirFrom(flags);
+    const agentId = String(flags.agent && flags.agent !== true ? flags.agent : process.env.AO_AGENT_ID || "");
+    const messageId = String(flags.message && flags.message !== true ? flags.message : "");
+    invariant(agentId && messageId, "TOPOLOGY_ACK_INVALID", "Pass --agent <id> and --message <id>.");
+    await appendJournal(runDir, { type: "message.acked", id: messageId, agent: agentId, note: flags.note && flags.note !== true ? String(flags.note) : null });
+    out({ ok: true, id: messageId, agent: agentId });
   },
 
   async wait({ flags }) {
@@ -966,7 +1090,11 @@ const commands = {
     const stalled = Boolean(
       orchestrator && alive && run.state === "running" && !everSent && Number.isFinite(sinceLaunch) && sinceLaunch > 120_000,
     );
-    const report = { run_id: run.run_id, name: run.name, session: run.session, session_alive: alive, state: run.state, run_dir: runDir, inputs: run.inputs, agents, pending_count: pending.length, queues, stalled, recent: journal };
+    // Escalation is never silent. Two things land here: a bell that was judged safe and still did
+    // not land, and a message that WAS submitted and then produced nothing — the latter is TM-122
+    // (an agent that acknowledged its bootstrap and stopped) caught mechanically, for a stat().
+    const undelivered = await undeliveredReport(runDir);
+    const report = { run_id: run.run_id, name: run.name, session: run.session, session_alive: alive, state: run.state, run_dir: runDir, inputs: run.inputs, agents, pending_count: pending.length, queues, stalled, undelivered, recent: journal };
     if (flags.json) return out(report);
     out(`${run.name} · run ${run.run_id} · state ${run.state} · session ${run.session} ${alive ? "(alive)" : "(gone)"}`);
     // A malformed roster is worth saying out loud here: routing redirects against the agent
@@ -977,6 +1105,11 @@ const commands = {
       out(`  ! STALLED: ${orchestrator.id} has been up for ${Math.round(sinceLaunch / 60_000)} minutes and has never sent a message.`);
       out(`    Every agent is healthy and the mailbox is empty, which is what a conductor that acknowledged its`);
       out(`    brief and then stopped looks like. Start it: nudge --run ${runDir} --agent ${orchestrator.id} --text "Begin now, and follow your BOOTSTRAP.md end to end."`);
+    }
+    if (undelivered.length > 0) {
+      out(`  ! UNDELIVERED: ${undelivered.length} message${undelivered.length === 1 ? "" : "s"} reached the mailbox and were never driven.`);
+      for (const item of undelivered) out(`    - ${item.message} → ${item.agent}: ${item.state} (${item.notification}) — ${item.reason}`);
+      out(`    The message files are intact; only the bell failed. Re-ring one with: nudge --run ${runDir} --agent <id> --text "Read your inbox and answer <message-id> now."`);
     }
     for (const agent of agents) {
       const queued = agent.pending.length ? ` — queue ${agent.queue.depth}${agent.queue.oldest_age_ms != null ? `, oldest ${Math.round(agent.queue.oldest_age_ms / 1000)}s` : ""}: ${agent.pending.join(", ")}` : "";

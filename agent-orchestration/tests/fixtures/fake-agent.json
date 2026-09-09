@@ -15,6 +15,11 @@
     "delay_ms": 500,
     "timeout_ms": 30000
   },
+  "composer": {
+    "empty_tmux_pattern": "^>[^a-zA-Z0-9]*$",
+    "empty_pattern": "(^|\\n)>[^a-zA-Z0-9\\n]*$",
+    "note": "Measured 2026-09-09 against tmux 3.4 by running this fixture in a real pane and asking `tmux display-message -p -t <pane> '#{C/r:^>[^a-zA-Z0-9]*$}'`: idle answered 2, the same pane with `[ao] Message 001-ping from conductor` typed and NOT submitted answered 0, and after Enter it answered 4. That negative is what makes the send contract meaningful — without a composer block this fixture reports `ring_capability: unsupported`, the bell correctly refuses to ring, and the inverted assertion in tests/contract/topology-tmux.test.mjs would pass while proving nothing. Two facts this pattern depends on: `#{C/r:}` searches the pane's VISIBLE content only (a marker in scrollback at history_size 26 answered 0, an on-screen string 14), so an old `> ` line that has scrolled away cannot answer for the live one; and tmux trims trailing whitespace off a rendered line, which is why the pattern does not end in `\\s` — `assertTmuxPattern` refuses one that does."
+  },
   "submit_keys": [
     "Enter"
   ],

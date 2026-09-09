@@ -40,6 +40,43 @@
 - `listServerPanes` carries `pane_title` — one extra tab-separated column on a call the supervisor
   already makes, which decides "is this agent working" for every pane on the server at zero extra
   tmux calls.
+- **Delivery is a state machine, not a fire-and-forget bell** (TM-130). New `topology/lib/delivery.mjs`
+  observes each transition instead of assuming it: `held` / `not-typed` / `typed-unsubmitted` /
+  `submitted` / `engaged` / `submitted-inert` / `escalated`. Classification (`classifyLanding`,
+  `nextDeliveryRung`, `decideBell`, `decideResubmit`) is pure and the I/O is separate, so the whole
+  ladder is testable with a stub client and no tmux server. The retry ladder is cheapest-rung-first and idempotent: a stuck
+  draft is recovered by sending the submit key **alone** (never re-typed — re-typing appends a second
+  copy to the draft), a never-typed pointer goes back through `deliverPointer`, and nothing re-sends
+  the message of record. Each rung is gated for what that rung actually does: typing requires an
+  empty composer, pressing the submit key requires everything except that — `typed-unsubmitted` IS a
+  non-empty composer, so a shared gate would have made the only rung that can fix a stuck draft
+  unreachable. Ring bookkeeping lives in `run.json` under `ring_state[messageId][agentId]`,
+  written through the existing `.mailbox-sequence.lock`.
+- **`providers/*.json` gain a measured `composer` block** (`empty_tmux_pattern`, `empty_pattern`,
+  required `note`), validated by the newly extracted `assertTmuxPattern` in
+  `topology/lib/providers.mjs`. Absent means absent: an adapter with no measured composer is
+  `ring_capability: "unsupported"`, holds its mail and reports — it never rings blind, and it never
+  defaults to `ready.tmux_pattern`. Shipped for claude, codex and kimi; grok, gemini, copilot and
+  generic are deliberately left without one.
+- Engagement without a model turn: `pipe-pane -o` is already attached at pane creation, so
+  `observeEngagement` reads `agents/<id>/pane.log` growth past the offset recorded at submit. No
+  growth in `AO_ENGAGE_MS` is `submitted-inert` — TM-122 caught for the price of a `stat()`. A
+  missing or late-attached log reports **unknown**, never inert.
+- **The doorbell is wired into `send`** (TM-130). `ringMessage` now drives every local recipient,
+  the child-workflow branch rings the child conductor in the CHILD session, and `delivered[]` stays
+  additive — `rang` is still the boolean discriminator and everything new lives under `delivery`.
+  `notification` widens to `submitted`, `no-safe-bell`, `ring-skipped`, `stuck-in-composer`,
+  `ring-failed`, `stale-binding` and `submitted-inert`; **`durable-pending` keeps its meaning
+  exactly** — the file is in the mailbox and no bell was rung, which is what an adapter with no
+  measured composer still reports.
+- **`--no-ring` is implemented.** It had sat in `USAGE`, in `tests/live/two-projects.sh` and in
+  `tests/contract/topology-tmux.test.mjs` since `send` was written, and the body never read it.
+- **`ack --run --agent --message [--note]`** — an optional receipt in the journal. Nothing in the
+  protocol requires it and no state depends on it: engagement is a `pane.log` byte offset.
+- **Escalation is never silent.** `send` journals `message.undelivered` and exits **3** — only when
+  the pane was judged safe and the pointer still did not land, never for `held`, an unsupported
+  adapter, `--no-ring`, or a degraded supervisor. `status` gains an `undelivered` field and an
+  `! UNDELIVERED` banner modelled on `! STALLED`.
 
 ### Changed
 
@@ -67,36 +104,19 @@
   and turn-scratch removal now goes through `removeTree`, which restores write on its own
   directories and retries once. Symlinked directories are not followed, so it cannot chmod outside
   the tree it owns.
-
-- **Delivery is a state machine, not a fire-and-forget bell** (TM-130). New `topology/lib/delivery.mjs`
-  observes each transition instead of assuming it: `held` / `not-typed` / `typed-unsubmitted` /
-  `submitted` / `engaged` / `submitted-inert` / `escalated`. Classification (`classifyLanding`,
-  `nextDeliveryRung`, `decideBell`, `decideResubmit`) is pure and the I/O is separate, so the whole
-  ladder is testable with a stub client and no tmux server. The retry ladder is cheapest-rung-first and idempotent: a stuck
-  draft is recovered by sending the submit key **alone** (never re-typed — re-typing appends a second
-  copy to the draft), a never-typed pointer goes back through `deliverPointer`, and nothing re-sends
-  the message of record. Each rung is gated for what that rung actually does: typing requires an
-  empty composer, pressing the submit key requires everything except that — `typed-unsubmitted` IS a
-  non-empty composer, so a shared gate would have made the only rung that can fix a stuck draft
-  unreachable. Ring bookkeeping lives in `run.json` under `ring_state[messageId][agentId]`,
-  written through the existing `.mailbox-sequence.lock`.
-- **`providers/*.json` gain a measured `composer` block** (`empty_tmux_pattern`, `empty_pattern`,
-  required `note`), validated by the newly extracted `assertTmuxPattern` in
-  `topology/lib/providers.mjs`. Absent means absent: an adapter with no measured composer is
-  `ring_capability: "unsupported"`, holds its mail and reports — it never rings blind, and it never
-  defaults to `ready.tmux_pattern`. Shipped for claude, codex and kimi; grok, gemini, copilot and
-  generic are deliberately left without one.
-- Engagement without a model turn: `pipe-pane -o` is already attached at pane creation, so
-  `observeEngagement` reads `agents/<id>/pane.log` growth past the offset recorded at submit. No
-  growth in `AO_ENGAGE_MS` is `submitted-inert` — TM-122 caught for the price of a `stat()`. A
-  missing or late-attached log reports **unknown**, never inert.
-
-
 - **`providers/codex.json`'s ready pattern never matched.** Re-measured 2026-09-09 against tmux 3.4
   on a live idle codex pane: the shipped `^\s*[›>❯][^a-zA-Z0-9]*$` answered **0**, while
   `^\s*›\s*Ask Codex to do anything` answered 16. An empty codex composer renders that placeholder
   and the old pattern forbade letters after the glyph, so every codex agent burned its full 30s
   `timeout_ms` and was then reported as a slow agent. Both the JS and the tmux form are corrected.
+- **`ControlClient` and `waitForChannel` ignored the tmux server prefix** (TM-130). Both spawned a
+  bare `tmux`, with none of the `-L`/`-S` every call through `tmux()` gets. On a run started with
+  `--server <socket>` the control client attached to the DEFAULT server, found no such session, and
+  every agent fell back to polling — correctly, quietly, and for entirely the wrong reason. Both now
+  take an optional `tmuxServer` and apply the shared `serverArgs()` prefix, and
+  `clearAndWaitForShell` passes it to the waiter and to the command it types into the pane so the
+  two name the same server. **No caller passes one yet**, so behaviour today is unchanged — this is
+  the seam, and it is untested on a non-default socket.
 - **Mail wording, applied from the `BEGIN_CLAUSE` lesson** (TM-122). `bootstrapText` and
   `prompts.mjs` now say: do the work in the same turn you read the message, do not stop to confirm
   receipt and wait to be told to continue, and if you are blocked still write a reply saying what is

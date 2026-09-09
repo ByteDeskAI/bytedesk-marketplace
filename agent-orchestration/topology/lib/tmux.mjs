@@ -10,9 +10,17 @@ const TMUX = process.env.AO_TMUX_COMMAND || "tmux";
 // Keep inherited PATH/credentials, but never depend on interactive profile startup completing.
 const LAUNCH_SHELL = ["bash", "--noprofile", "--norc", "-i"];
 
+/**
+ * The `-L <name>` / `-S <path>` prefix that selects a tmux server. Pure, and exported, because it is
+ * the one thing every entry point into this file has to get right and the two that spawn `tmux`
+ * directly — `waitForChannel` and `ControlClient` — used to omit it entirely (TM-130).
+ */
+export function serverArgs(server) {
+  return server ? [isAbsolute(server) ? "-S" : "-L", server] : [];
+}
+
 export async function tmux(args, options = {}) {
-  const server = options.tmuxServer;
-  const prefix = server ? [isAbsolute(server) ? "-S" : "-L", server] : [];
+  const prefix = serverArgs(options.tmuxServer);
   const result = await run(options.env?.AO_TMUX_COMMAND || TMUX, [...prefix, ...args], { env: options.env, allowFailure: true, timeoutMs: options.timeoutMs ?? 15_000 }).catch((error) => ({ code: 1, stdout: "", stderr: error.message }));
   if (result.code !== 0 && !options.allowFailure) {
     fail("TOPOLOGY_TMUX_FAILED", `tmux ${args.join(" ")} failed: ${result.stderr.trim() || result.stdout.trim() || `exit ${result.code}`}`, { args });
@@ -177,13 +185,20 @@ export async function capture(pane, lines = 60) {
  * server: it does not depend on what a pane looks like, which matters because a narrow pane renders
  * text one character per line and defeats any form of screen scraping.
  */
-export async function waitForChannel(channel, timeoutMs) {
+export async function waitForChannel(channel, timeoutMs, { tmuxServer = null } = {}) {
   // tmux handles SIGTERM by exiting 0. A subprocess timeout can therefore look successful;
   // observing the deadline separately is essential: timeout is never a shell acknowledgement.
+  //
+  // TM-130: this spawned a BARE `tmux`, with none of the `-L`/`-S` prefix every call through
+  // `tmux()` gets. On a run started with `--server <socket>` it therefore waited on the default
+  // server — agreeing with `clearAndWaitForShell`, which signalled through an equally bare command
+  // typed into the pane, so the pair happened to match and nothing looked wrong. The costs are that
+  // a run on a private socket touches (and may start) an unrelated default server, and that any
+  // caller signalling through `signalChannel({ tmuxServer })` would deadlock against it.
   if (!(timeoutMs > 0)) return false;
   return new Promise(resolve => {
     let settled = false;
-    const child = spawn(TMUX, ["wait-for", channel], { stdio: "ignore", shell: false });
+    const child = spawn(TMUX, [...serverArgs(tmuxServer), "wait-for", channel], { stdio: "ignore", shell: false });
     const finish = value => { if (!settled) { settled = true; clearTimeout(timer); resolve(value); } };
     const timer = setTimeout(() => { finish(false); child.kill('SIGTERM'); }, timeoutMs);
     child.once('error', () => finish(false));
@@ -291,9 +306,14 @@ const SUBSCRIPTION_LINE = /^%subscription-changed\s+(\S+)\s+\S+\s+\S+\s+\S+\s+(%
  * Emits "subscription" with { name, pane, value } and "close".
  */
 export class ControlClient extends EventEmitter {
-  constructor(session) {
+  constructor(session, { tmuxServer = null } = {}) {
     super();
     this.session = session;
+    // TM-130: without this the client attached to the DEFAULT server. On a run started with
+    // `--server <socket>` it found no such session, `start()` resolved false, and every agent fell
+    // back to polling — correctly, quietly, and for entirely the wrong reason, with nothing
+    // anywhere saying the subscription path had been disabled for the whole run.
+    this.tmuxServer = tmuxServer;
     this.child = null;
     this.buffer = "";
     this.closed = false;
@@ -310,7 +330,7 @@ export class ControlClient extends EventEmitter {
         resolveStart(ok);
       };
       try {
-        this.child = spawn(TMUX, ["-C", "attach", "-t", `=${this.session}`, "-f", "read-only,ignore-size"], {
+        this.child = spawn(TMUX, [...serverArgs(this.tmuxServer), "-C", "attach", "-t", `=${this.session}`, "-f", "read-only,ignore-size"], {
           stdio: ["pipe", "pipe", "pipe"],
         });
       } catch {
@@ -454,10 +474,13 @@ export async function paneDeath(pane) {
  * (`captureAll` is `-S -`), which is only harmless while a pane's history happens to be empty.
  * Counting after the marker counts the prompt and nothing else, which is what the name says.
  */
-export async function clearAndWaitForShell(pane, channel, timeoutMs = 15_000) {
+export async function clearAndWaitForShell(pane, channel, timeoutMs = 15_000, { tmuxServer = null } = {}) {
   const marker = `ao-baseline-${channel}`;
-  await sendText(pane, `clear; printf '%s\\n' '${marker}'; ${shellQuote(TMUX)} wait-for -S ${shellQuote(channel)}`);
-  const signalled = await waitForChannel(channel, timeoutMs);
+  // The signal is typed into the PANE, so it carries the server prefix the same way the waiter
+  // does. The two must name the same server or the barrier never closes.
+  const signal = [shellQuote(TMUX), ...serverArgs(tmuxServer).map(shellQuote), "wait-for", "-S", shellQuote(channel)].join(" ");
+  await sendText(pane, `clear; printf '%s\\n' '${marker}'; ${signal}`);
+  const signalled = await waitForChannel(channel, timeoutMs, { tmuxServer });
   if (!signalled) return { ok: false, baseline: "", promptLines: 0 };
   const screen = await captureAll(pane);
   // A capture we could not take is not a screen with nothing on it: fall back to "no prompt lines"
