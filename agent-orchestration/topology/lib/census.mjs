@@ -33,20 +33,20 @@ import { readJson, writeJson } from "./util.mjs";
 export const CENSUS_SCHEMA_VERSION = 1;
 export const CENSUS_STATES = ["dead", "quota-blocked", "attention", "working", "needs-input", "idle", "unknown"];
 /**
- * Adaptive observation cadence. Decoupled from the reconcile tick, or the backoff buys nothing.
+ * How long a census document stays trustworthy when nobody said.
  *
- * These are the same three numbers as `SLEEP_LADDER_MS` in supervision.mjs, and that is one
- * duplication too many — but supervision.mjs imports this file, so this file cannot import it back.
- * The resolution is one direction only: supervision.mjs should `import { CENSUS_INTERVALS }` and
- * define `SLEEP_LADDER_MS = CENSUS_INTERVALS`, keeping its own name as the public one. Until then,
- * if you change one, change both.
+ * The census does NOT own a cadence. The supervisor owns the loop, so the supervisor owns the
+ * ladder and tells the census both how often it is being called (`intervalMs`, recorded in the
+ * document as a hint) and how long its answer should be believed (`staleAfterMs`, which it derives
+ * from the SLOWEST rung of its own ladder — a document must not read stale merely because the loop
+ * backed off). This literal is the fallback for a one-shot with no loop behind it, e.g. the CLI.
+ *
+ * Deliberately NOT presence's 30 s: that number is a frozen wire promise about a heartbeat this
+ * layer does not drive, and coupling a hint to a contract means a change to one silently moves the
+ * other. `AO_CENSUS_STALE_MS` overrides.
  */
-export const CENSUS_INTERVALS = [2000, 5000, 15000];
-// Three times the SLOWEST rung above, the same 3x relationship Presence v1 §2.2 uses between its
-// rewrite cadence and its staleness bound: one missed observation is a hiccup, three is a silence.
-// Deliberately NOT presence's own 30 s — that number is a frozen wire promise about a heartbeat we
-// do not drive, and borrowing it would couple a hint to a contract.
-const DEFAULT_STALE_MS = 3 * CENSUS_INTERVALS[CENSUS_INTERVALS.length - 1];
+const DEFAULT_STALE_MS = 45_000;
+const DEFAULT_INTERVAL_MS = 15_000;
 const DEFAULT_BUDGET = 8;
 const DEFAULT_MEMO_MS = 2000;
 const TAIL_LINES = 20;
@@ -223,6 +223,8 @@ export async function takeCensus(options = {}, input = {}) {
   const memo = input.memo ?? memoStore;
   const budget = Number(input.budget ?? env.AO_CENSUS_CAPTURE_BUDGET ?? DEFAULT_BUDGET);
   const memoMs = Number(input.memoMs ?? env.AO_CENSUS_MEMO_MS ?? DEFAULT_MEMO_MS);
+  // Told, never owned: the loop owner says how often it calls us and how long to be believed.
+  const intervalMs = Number(input.intervalMs ?? DEFAULT_INTERVAL_MS);
   const staleAfterMs = Number(input.staleAfterMs ?? env.AO_CENSUS_STALE_MS ?? DEFAULT_STALE_MS);
   const capture = input.capture ?? captureTail;
   const adapters = input.adapters ?? null;
@@ -345,6 +347,9 @@ export async function takeCensus(options = {}, input = {}) {
     repoId: identity.id,
     at: new Date(now).toISOString(),
     staleAfterMs,
+    // The cadence we were called at, as a hint for whoever reads this. Not authority: the loop
+    // owner may well be on a different rung by the time anyone looks.
+    intervalMs,
     stale: false,
     tickMs: Date.now() - started,
     captures,
@@ -382,13 +387,6 @@ export async function readCensus(options = {}) {
   const identity = options.identity ?? (await canonicalRepoId(consumer));
   const document = await readJson(censusPath({ env, home, key: repoKey(identity.id) })).catch(() => null);
   return withStaleness(document, options.now ?? Date.now());
-}
-
-/** 2 s while something is moving, backing off to 15 s while nothing is. Snaps back on activity. */
-export function nextIntervalMs(current, activity) {
-  if (activity) return CENSUS_INTERVALS[0];
-  const index = CENSUS_INTERVALS.indexOf(Number(current));
-  return index === -1 ? CENSUS_INTERVALS[0] : CENSUS_INTERVALS[Math.min(index + 1, CENSUS_INTERVALS.length - 1)];
 }
 
 const GLYPH = { dead: "x", "quota-blocked": "⏳", attention: "!", working: "•", "needs-input": "◆", idle: "○", unknown: "?" };

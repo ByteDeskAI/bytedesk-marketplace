@@ -60,34 +60,40 @@ captures, because the pane title decides them (see `docs/patches/TM-131-tmux.mjs
 `collectPresenceAgents` takes an injectable `listPanesFn`, so wrapping it hands us the rows it
 already fetched. **No extra tmux call on a reconciling tick.**
 
-`censusPanes` is set to `null` — not `[]` — when the listing itself threw. That distinction is the
-whole contract: a failed listing makes every agent `unknown`, an empty one makes them all `dead`.
+`censusPanes` is `null` — not `[]` — when there is no usable listing. That distinction is the whole
+contract: no listing makes every agent `unknown`, an empty listing makes them all `dead`.
 
 ```diff
    const reconcile=async()=>{
 -    const observed=await collectPresenceAgents(options);
++    // The census reuses the listing this call already takes; wrapping listPanesFn is what makes
++    // that free. A throw from here is deliberately NOT caught — see the comment below.
 +    const seen=[];
 +    const listPanesFn=async args=>{const rows=await listServerPanes(args);seen.push(...rows);return rows;};
-+    let observed;
-+    try { observed=await collectPresenceAgents({...options,listPanesFn}); censusPanes=seen; }
-+    catch(error){
-+      if(error?.code!=='TOPOLOGY_TMUX_OBSERVATION_FAILED') throw error;
-+      // tmux could not be enumerated. Presence rightly refuses to publish a snapshot it cannot
-+      // stand behind; the census still reports, as `unknown` for everything.
-+      observed=[]; censusPanes=null;
-+    }
-+    censusRoster=observed;
++    const observed=await collectPresenceAgents({...options,listPanesFn});
++    censusRoster=observed; censusPanes=seen;
      const panes=observed.filter(p=>p.lifecycle!=="dead").map(p=>({...p.session,alive:true}));
 ```
 
 **Careful:** the merged body already has a local called `panes` (the alive-only projection used by
 the run-agent binding check). It is a different thing from the raw listing — do not merge the two.
-I have deliberately named mine `seen` / `censusPanes` so nothing collides.
+Mine are deliberately named `seen` / `censusPanes` so nothing collides.
 
-If the `catch` above is judged too generous (it changes `reconcile`'s failure behaviour, which is
-TM-127's), drop it and let the throw stand: the census then simply does not run on that tick, and
-the next tick reports the agents as `unknown` because the document has gone stale. Say which you
-want; the census is correct either way.
+**No `catch` here, on purpose — and the comment says so, so nobody adds one back thinking it was an
+oversight.** An earlier revision of this patch wrapped `collectPresenceAgents` in a catch for
+`TOPOLOGY_TMUX_OBSERVATION_FAILED` so the census could still report `unknown` on a tmux hiccup.
+That was rejected: it changes `reconcile()`'s failure semantics — TM-127's, and a different task's
+lane — as a side effect of adding an observer. Letting the throw stand is the smaller and more
+honest failure. The census simply does not run that tick, the document ages out, and `stale: true`
+already rewrites every row to `unknown` and makes nothing dispatchable. A tmux hiccup degrades into
+"we do not know", which is precisely what it should mean.
+
+Put this line above the call so the decision survives:
+
+```js
+// Deliberately no catch: a failed listing is TM-127's failure to define, and a stale census
+// already degrades to `unknown` + nothing dispatchable, which is the honest answer anyway.
+```
 
 Then, in the loop that already computes `runDir`, one line — the run dirs are where `deaths.tsv`
 lives, and they change at L2's cadence, not L3's:
@@ -119,13 +125,22 @@ This is the only structural hunk. It sits between the reconcile-or-not branch an
 +      // L3. Every tick, cheap or not. On a reconciling tick `censusPanes` is the listing that just
 +      // happened; on a cheap tick we take our own — one tmux call, against exactly the servers the
 +      // roster's own bindings name, which is the same set presence queried.
++      //
++      // This one IS caught, unlike the one in reconcile(): that listing belongs to presence and its
++      // failure is TM-127's to define, while this listing exists only for the census, so the census
++      // may absorb its own failure and report `unknown` rather than take the loop down with it.
 +      if(censusPanes===undefined) {
 +        const servers=[...new Set(censusRoster.map(a=>a.session?.serverKey).filter(Boolean))];
 +        try { censusPanes=(await Promise.all((servers.length?servers:[options.tmuxServer]).map(s=>listServerPanes({tmuxServer:s,env})))).flat(); }
 +        catch(error){ if(error?.code!=='TOPOLOGY_TMUX_OBSERVATION_FAILED') throw error; censusPanes=null; }
 +      }
++      // The loop owns the cadence and TELLS the census: how often it is being called, and how long
++      // its answer should be believed. Staleness comes off the SLOWEST rung, not the current one —
++      // a document must not read stale merely because the loop backed off.
 +      census=await takeCensus({...options,identity},{agents:censusRoster,panes:censusPanes,adapters,
-+        memo:censusMemo,previous:census,runDirs:censusRunDirs});
++        memo:censusMemo,previous:census,runDirs:censusRunDirs,
++        intervalMs:intervalMs ?? SLEEP_LADDER_MS[Math.max(rung,0)],
++        staleAfterMs:3*SLEEP_LADDER_MS[SLEEP_LADDER_MS.length-1]});
 +      censusPanes=undefined;   // consumed; the next tick takes or reuses its own
 +      report={...report,census:{at:census.at,tick_ms:census.tickMs,captures:census.captures,
 +        states:census.agents.reduce((totals,a)=>({...totals,[a.state]:(totals[a.state]??0)+1}),{}),
@@ -168,11 +183,11 @@ where an agent hands work back snaps to 2 s within one tick, which is the point.
 ## 6. Presence numbers are read, not re-derived
 
 The merged `createPresenceProducer` returns `publishIntervalMs` and `staleAfterMs`; nothing in this
-patch re-derives `staleAfterMs/3`. **The census deliberately does not borrow either number.** Its
-own `staleAfterMs` is `3 × SLEEP_LADDER_MS[last]` = 45 s — the same 3× relationship the frozen
-contract §2.2 uses, applied to the cadence the census actually runs at. Presence's 30 s is a wire
-promise about a heartbeat this loop does not drive; coupling a hint to a contract would mean a
-change to one silently moves the other. `AO_CENSUS_STALE_MS` overrides.
+patch re-derives `staleAfterMs/3`. **The census deliberately does not borrow either number either.**
+Its bound is `3 × SLEEP_LADDER_MS[last]` = 45 s, passed in from §4 — the same 3× relationship the
+frozen contract §2.2 uses, applied to the cadence the census actually runs at. Presence's 30 s is a
+wire promise about a heartbeat this loop does not drive; coupling a hint to a contract would mean a
+change to one silently moves the other.
 
 ## 7. `supervisionStatus` / `doctor`
 
@@ -180,23 +195,33 @@ Nothing to add: the census rides `report.census` into `supervision/<key>.json`, 
 `supervisionStatus`'s existing `last_tick_at` / `tick_age_ms` already cover "is anyone observing",
 and `doctor`'s `SUPERVISOR_STALLED` already fires on the same record.
 
-## 8. One ladder, not two (small, do it while you are in the file)
+## 8. One ladder, and this file owns it
 
-`census.mjs` exports `CENSUS_INTERVALS = [2000, 5000, 15000]` and `nextIntervalMs`, which are the
-same three numbers as the merged `SLEEP_LADDER_MS` / `nextRung`. They exist because the CLI's
-`census --watch` needs the ladder without importing the supervisor, and because the census's
-`staleAfterMs` derives from the slowest rung.
+`census.mjs` no longer exports `CENSUS_INTERVALS` or `nextIntervalMs`. You were right that I had
+the constraint backwards: the cycle only forbids `census.mjs` importing `supervision.mjs`, and the
+honest shape is that **the loop owner owns the cadence and tells the observer**. So there is no
+shared-constants module and no third home for three numbers — `SLEEP_LADDER_MS` and `nextRung` stay
+exactly as TM-127 landed them, and the census is passed `intervalMs` and `staleAfterMs` per call
+(see §4).
 
-`census.mjs` cannot import `supervision.mjs` — supervision imports census, and that is a cycle. So
-the dedupe goes the other way, one line, in supervision.mjs:
+What the census does with them: records `intervalMs` in the document as a hint for whoever reads it,
+and uses `staleAfterMs` as the bound `withStaleness` enforces on read. Its own fallbacks — 15 s and
+45 s — apply only to a one-shot with no loop behind it, i.e. the CLI's single `census` invocation.
+The fallback interval is deliberately the SLOWEST rung rather than the fastest: a caller who says
+nothing must not get a document that reads stale six seconds later.
 
-```diff
-+import { CENSUS_INTERVALS, takeCensus } from './census.mjs';
--export const SLEEP_LADDER_MS = [2000, 5000, 15000];
-+export const SLEEP_LADDER_MS = CENSUS_INTERVALS;
-```
+The census does not reason about the ladder anywhere else, so nothing else needs sharing. The AC
+"the interval walks 2000 → 5000 → 15000 and snaps back on activity" is now covered where it belongs,
+by `nextRung`'s own test in `tests/unit/topology-supervision.test.mjs`; my replacement test asserts
+only that the census records what it was told and owns no cadence of its own.
 
-`nextRung` and `nextIntervalMs` are then the same function under two names; keep `nextRung` as the
-public one (its tests and its `rung`-index contract are already landed) and I will drop
-`nextIntervalMs` in favour of it once these patches are applied — it is the CLI's only other user.
-Until that lands, if you change one ladder, change both.
+## 9. One thing I am not fixing, but you should know
+
+A throw out of `reconcile()` propagates through the `do…while`, out of `withLock`, and ends
+`superviseRepository` — so a tmux enumeration failure does not merely skip a tick, it takes the
+supervisor down and leaves the monitor to restart it. That is pre-existing TM-127 behaviour, not
+something this patch introduces, and §3 deliberately does not change it. Flagging it because my
+"the census just goes stale for a tick" phrasing is optimistic: what actually happens is a restart,
+after which the census document ages out and reads `unknown` — the same end state, by a louder
+route. If you want that softened, it is a TM-127 follow-up with its own test, not a line in this
+patch.

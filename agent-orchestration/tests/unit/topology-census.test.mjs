@@ -7,7 +7,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { busyEvidence, classify, nextIntervalMs, takeCensus, withStaleness, adapterForPane, CENSUS_INTERVALS } from "../../topology/lib/census.mjs";
+import { busyEvidence, classify, takeCensus, withStaleness, adapterForPane } from "../../topology/lib/census.mjs";
 import { loadAdapters, providerDirs, withoutPaths, attentionOnScreen } from "../../topology/lib/providers.mjs";
 import { tmuxFailureTrigger } from "../../topology/lib/launch.mjs";
 
@@ -135,16 +135,26 @@ test("a failed capture is unknown, never idle; so is a listing we could not take
   assert.equal(classify({ title: CODEX_BUSY_TITLE, tail: null }).evidence.source, "title");
 });
 
-test("the observation interval walks 2000 -> 5000 -> 15000 and snaps back on activity", () => {
-  assert.deepEqual(CENSUS_INTERVALS, [2000, 5000, 15000]);
-  let interval = nextIntervalMs(undefined, false);
-  assert.equal(interval, 2000);
-  interval = nextIntervalMs(interval, false);
-  assert.equal(interval, 5000);
-  interval = nextIntervalMs(interval, false);
-  assert.equal(interval, 15000);
-  assert.equal(nextIntervalMs(interval, false), 15000, "it stops at the top rather than climbing forever");
-  assert.equal(nextIntervalMs(15000, true), 2000, "activity snaps straight back");
+// The 2/5/15 ladder is NOT the census's. supervision.mjs owns the loop and therefore owns the
+// cadence; `nextRung` is tested there. All the census does is record what it was told, so nobody
+// reading a document has to guess how fresh it was meant to be.
+test("the census records the cadence it was told, and owns none of its own", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "ao-census-cadence-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const env = { AGENT_ORCHESTRATION_STATE_HOME: join(root, "state") };
+  const identity = { id: root, kind: "path", git_common_dir: null };
+  const panes = [pane("%1", 11, { title: CODEX_BUSY_TITLE, command: "codex" })];
+  const agents = [{ agentId: "a1", displayName: "A", session: { ...panes[0] } }];
+  const take = (over) => takeCensus({ env, home: root, consumer: root }, { identity, panes, agents, memo: new Map(), now: 1_000_000, ...over });
+
+  const told = await take({ intervalMs: 2000, staleAfterMs: 45_000 });
+  assert.equal(told.intervalMs, 2000);
+  assert.equal(told.staleAfterMs, 45_000);
+  // A one-shot with no loop behind it assumes the SLOWEST cadence rather than the fastest: a
+  // caller who says nothing must not get a document that reads stale six seconds later.
+  const untold = await take({});
+  assert.equal(untold.intervalMs, 15_000);
+  assert.equal(untold.staleAfterMs, 45_000);
 });
 
 test("activity means the world moved, so it cannot pin the supervisor's sleep ladder", async (t) => {

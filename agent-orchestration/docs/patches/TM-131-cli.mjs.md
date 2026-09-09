@@ -26,7 +26,10 @@ person gets a line per agent, a scheduler gets `--json` and reads `binding` plus
 ```js
   async census({ flags }) {
     const ctx = context(flags);
-    const { readCensus, takeCensus, formatCensus, nextIntervalMs, CENSUS_INTERVALS } = await import('./lib/census.mjs');
+    const { readCensus, takeCensus, formatCensus } = await import('./lib/census.mjs');
+    // The ladder belongs to the loop owner, so --watch borrows the SUPERVISOR's, rather than
+    // census.mjs keeping a second copy of the same three numbers.
+    const { nextRung, SLEEP_LADDER_MS } = await import('./lib/supervision.mjs');
     const { canonicalRepoId } = await import('./lib/repoid.mjs');
     const { collectPresenceAgents } = await import('./lib/presence.mjs');
     const { loadAdapters } = await import('./lib/providers.mjs');
@@ -50,20 +53,22 @@ person gets a line per agent, a scheduler gets `--json` and reads `binding` plus
       try { agents = await collectPresenceAgents({ ...ctx, identity, tmuxServer: flags.server, listPanesFn }); }
       catch (error) { if (error?.code !== 'TOPOLOGY_TMUX_OBSERVATION_FAILED') throw error; panes = null; }
       const adapters = await loadAdapters(ctx.providerDirs).catch(() => null);
+      // A one-shot has no loop behind it, so it takes census.mjs's own conservative fallbacks
+      // (15 s / 45 s) rather than inventing a cadence it is not running at.
       return takeCensus({ ...ctx, identity }, { agents, panes, adapters, memo, previous });
     };
     if (!flags.watch) {
       const document = await observe(null);
       return out(flags.json ? { ...document, supervision } : formatCensus(document));
     }
-    // --watch rides the same 2/5/15 ladder as the supervisor: 2 s while anything is moving, 15 s
-    // while nothing is. A watcher that polls at a fixed 1 s is the busy loop this phase removed.
-    let previous = null, interval = CENSUS_INTERVALS[0];
+    // --watch rides the supervisor's own 2/5/15 ladder: 2 s while anything is moving, 15 s while
+    // nothing is. A watcher that polls at a fixed 1 s is the busy loop this phase removed.
+    let previous = null, rung = -1;
     for (;;) {
       previous = await observe(previous);
       out(flags.json ? previous : formatCensus(previous));
-      interval = nextIntervalMs(interval, previous.activity);
-      await new Promise((resolve) => setTimeout(resolve, interval));
+      rung = nextRung(rung, previous.activity);
+      await new Promise((resolve) => setTimeout(resolve, SLEEP_LADDER_MS[rung]));
     }
   },
 ```
