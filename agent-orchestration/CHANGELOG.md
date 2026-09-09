@@ -20,11 +20,14 @@
 - **Delivery is a state machine, not a fire-and-forget bell** (TM-130). New `topology/lib/delivery.mjs`
   observes each transition instead of assuming it: `held` / `not-typed` / `typed-unsubmitted` /
   `submitted` / `engaged` / `submitted-inert` / `escalated`. Classification (`classifyLanding`,
-  `nextRung`, `decideBell`) is pure and the I/O is separate, so the whole ladder is testable with a
-  stub client and no tmux server. The retry ladder is cheapest-rung-first and idempotent: a stuck
+  `nextDeliveryRung`, `decideBell`, `decideResubmit`) is pure and the I/O is separate, so the whole
+  ladder is testable with a stub client and no tmux server. The retry ladder is cheapest-rung-first and idempotent: a stuck
   draft is recovered by sending the submit key **alone** (never re-typed — re-typing appends a second
   copy to the draft), a never-typed pointer goes back through `deliverPointer`, and nothing re-sends
-  the message of record. Ring bookkeeping lives in `run.json` under `ring_state[messageId][agentId]`,
+  the message of record. Each rung is gated for what that rung actually does: typing requires an
+  empty composer, pressing the submit key requires everything except that — `typed-unsubmitted` IS a
+  non-empty composer, so a shared gate would have made the only rung that can fix a stuck draft
+  unreachable. Ring bookkeeping lives in `run.json` under `ring_state[messageId][agentId]`,
   written through the existing `.mailbox-sequence.lock`.
 - **`providers/*.json` gain a measured `composer` block** (`empty_tmux_pattern`, `empty_pattern`,
   required `note`), validated by the newly extracted `assertTmuxPattern` in

@@ -142,11 +142,23 @@ export function normalizeAdapter(raw, source) {
     return { pattern: entry.pattern, message: entry.message };
   });
   assertTmuxPattern(adapter, "ready.tmux_pattern", adapter.ready.tmux_pattern);
-  // How this CLI renders an EMPTY composer, right now. Absent means absent: an adapter with no
-  // measured `composer` holds its mail and reports rather than ringing blind, and NOTHING defaults
-  // it to `ready.tmux_pattern` — codex is the proof that the two differ (its shipped ready pattern
-  // matched zero lines while the empty composer plainly rendered a placeholder). The note is
-  // required for the same reason `memory.note` is: an unmeasured pattern is the codex bug again.
+  // How this CLI renders an EMPTY composer, right now.
+  //
+  // Absent means absent: an adapter with no measured `composer` holds its mail and reports rather
+  // than ringing blind, and NOTHING defaults it to `ready.tmux_pattern`.
+  //
+  // The reason is NOT that the two strings differ. For claude, codex and kimi they are currently
+  // identical, and an earlier version of this rule justified itself by claiming codex proved
+  // otherwise — which stopped being true the moment codex's broken ready pattern was fixed, while
+  // the rule stayed correct. The real reason is that they answer DIFFERENT QUESTIONS and so have to
+  // be measured and declared independently: "has this CLI finished starting up" and "is its input
+  // box empty right now" only happen to coincide. kimi is the clean proof — it ships a measured
+  // `composer` and has no ready pattern at all, because it comes up on a fixed delay. A default
+  // would quietly answer one question with the other's evidence, and be right often enough that
+  // nobody checked.
+  //
+  // The note is required for the same reason `memory.note` is: an unmeasured pattern is the codex
+  // bug again — one that compiles, matches nothing, and costs an agent its whole timeout.
   if (adapter.composer === undefined || adapter.composer === null) {
     adapter.composer = null;
   } else {

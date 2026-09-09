@@ -182,4 +182,4 @@ test("a pointer stuck in the composer is resubmitted with the submit key alone, 
 ```
 
 The last assertion is the one that matters most in this file. It is cheap, it is direct evidence,
-and it is what a future refactor of `nextRung` would break first.
+and it is what a future refactor of `nextDeliveryRung` would break first.

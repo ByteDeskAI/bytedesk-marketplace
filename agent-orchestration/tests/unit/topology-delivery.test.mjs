@@ -9,10 +9,11 @@ import {
   composerEmptyOnScreen,
   composerFormat,
   decideBell,
+  decideResubmit,
   isUndelivered,
   MAX_RESUBMITS,
   MAX_RETYPES,
-  nextRung,
+  nextDeliveryRung,
   notificationFor,
   ringCapability,
   ringMessage,
@@ -47,27 +48,27 @@ test("classifyLanding: the truth table, including the row that must never read a
   assert.equal(classifyLanding({ countRose: true, composerEmpty: undefined }), "held");
 });
 
-test("nextRung: a stuck draft is resubmitted, then waited on — and NEVER re-typed", () => {
+test("nextDeliveryRung: a stuck draft is resubmitted, then waited on — and NEVER re-typed", () => {
   // Re-typing appends a second copy of the pointer to the draft already in the composer, and the
   // agent then reads a doubled message. This test is what stops a refactor from doing that.
-  assert.equal(nextRung({ state: "typed-unsubmitted", resubmits: 0 }), "resubmit");
-  assert.equal(nextRung({ state: "typed-unsubmitted", resubmits: 1 }), "resubmit");
-  assert.equal(nextRung({ state: "typed-unsubmitted", resubmits: MAX_RESUBMITS }), "wait-safe");
-  assert.equal(nextRung({ state: "typed-unsubmitted", resubmits: MAX_RESUBMITS + 5 }), "wait-safe");
+  assert.equal(nextDeliveryRung({ state: "typed-unsubmitted", resubmits: 0 }), "resubmit");
+  assert.equal(nextDeliveryRung({ state: "typed-unsubmitted", resubmits: 1 }), "resubmit");
+  assert.equal(nextDeliveryRung({ state: "typed-unsubmitted", resubmits: MAX_RESUBMITS }), "wait-safe");
+  assert.equal(nextDeliveryRung({ state: "typed-unsubmitted", resubmits: MAX_RESUBMITS + 5 }), "wait-safe");
   for (let resubmits = 0; resubmits <= MAX_RESUBMITS + 5; resubmits += 1) {
-    assert.notEqual(nextRung({ state: "typed-unsubmitted", resubmits }), "retype");
+    assert.notEqual(nextDeliveryRung({ state: "typed-unsubmitted", resubmits }), "retype");
   }
 
-  assert.equal(nextRung({ state: "not-typed", retypes: 0 }), "retype");
-  assert.equal(nextRung({ state: "not-typed", retypes: MAX_RETYPES }), "escalate");
-  assert.equal(nextRung({ state: "held", retypes: 0 }), "retype");
-  assert.equal(nextRung({ state: "held", retypes: MAX_RETYPES }), "escalate");
+  assert.equal(nextDeliveryRung({ state: "not-typed", retypes: 0 }), "retype");
+  assert.equal(nextDeliveryRung({ state: "not-typed", retypes: MAX_RETYPES }), "escalate");
+  assert.equal(nextDeliveryRung({ state: "held", retypes: 0 }), "retype");
+  assert.equal(nextDeliveryRung({ state: "held", retypes: MAX_RETYPES }), "escalate");
 
-  assert.equal(nextRung({ state: "typed-unsubmitted", safe: false }), "wait-safe");
-  assert.equal(nextRung({ state: "not-typed", exhausted: true }), "escalate");
-  assert.equal(nextRung({ state: "submitted" }), null);
-  assert.equal(nextRung({ state: "engaged" }), null);
-  assert.equal(nextRung({ state: "processed" }), null);
+  assert.equal(nextDeliveryRung({ state: "typed-unsubmitted", safe: false }), "wait-safe");
+  assert.equal(nextDeliveryRung({ state: "not-typed", exhausted: true }), "escalate");
+  assert.equal(nextDeliveryRung({ state: "submitted" }), null);
+  assert.equal(nextDeliveryRung({ state: "engaged" }), null);
+  assert.equal(nextDeliveryRung({ state: "processed" }), null);
 });
 
 test("decideBell refuses on a failure column, a dead pane and a stale binding", () => {
@@ -90,6 +91,23 @@ test("decideBell thresholds on > 0, not > promptLines — the launch rule reject
   assert.equal(decideBell("1|0|0|").safe, true);
   assert.equal(decideFromSubscription("1|0|0|"), null, "the launch rule discards this same value");
   assert.equal(decideFromSubscription("1|0|0|", { promptLines: 0 })?.ready, true);
+});
+
+test("decideResubmit drops the composer check and NOTHING else — the rung must stay reachable", () => {
+  // The bug this pins: `typed-unsubmitted` IS a non-empty composer, so gating the resubmit rung on
+  // `decideBell` (which requires an empty one) made the only rung that can fix a stuck draft
+  // unreachable. Every stuck message would have gone straight to `stuck-in-composer` without one
+  // Enter ever being sent, and the ladder would have looked correct in review.
+  assert.equal(decideBell("0|0|0|").safe, false, "a full composer is never safe to TYPE into");
+  assert.equal(decideResubmit("0|0|0|").safe, true, "but it is exactly when the submit key is called for");
+  // Everything else decideBell refuses, this refuses too. TM-111: pressing Enter at the folder-trust
+  // modal ("❯ No, exit") is if anything worse than typing there.
+  assert.equal(decideResubmit("0|7|0|").safe, false);
+  assert.equal(decideResubmit("0|7|0|").check, "failure");
+  assert.equal(decideResubmit("0|0|1|9").safe, false);
+  assert.equal(decideResubmit("0|0|1|9").exit_status, 9);
+  assert.equal(decideResubmit("0|0|0|", { bindingOk: false }).safe, false);
+  assert.equal(decideResubmit("0|0|0|", { bindingOk: false }).stale, true);
 });
 
 test("an adapter with no composer is ring_capability unsupported, holds, and touches tmux not at all", async () => {
@@ -199,11 +217,13 @@ test("a stuck draft is resubmitted with the submit key alone, never re-typed", a
     const result = await ringMessage({
       runDir, agentId: "a", agent: { id: "a", pane: "%1" }, adapter: adapters.get("claude"),
       pointer: "[ao] Message 001-ping", messageId: "001-ping", session: null,
-      windowMs: 4000,
+      windowMs: 6000,
       tmux: {
-        // Safe on every look, so the ladder — not the gate — is what is under test here.
-        tmux: async () => { looks += 1; return { code: 0, stdout: "3|0|0|\n" }; },
-        // The composer never empties: the draft is stuck.
+        // The pane as it really behaves: composer empty until we type into it, non-empty forever
+        // after. That is what makes this test load-bearing — the resubmit rung has to be reachable
+        // through a NON-empty composer, because a non-empty composer is the only thing that asks
+        // for it. Gating it on `decideBell` (composer empty) made it unreachable.
+        tmux: async () => { looks += 1; return { code: 0, stdout: typed.length === 0 ? "3|0|0|\n" : "0|0|0|\n" }; },
         captureAll: async () => "❯ [ao] Message 001-ping from conductor\n",
         capture: async () => "",
         listServerPanes: async () => [],

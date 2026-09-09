@@ -97,6 +97,13 @@ export function composerFormat(adapter, failureTrigger) {
  * the shell has been `exec`'d away — the pane's process IS the agent — so there is no prompt to
  * discount and the threshold is `> 0`. Using `> promptLines` here rejects every safe pane, because a
  * composer that renders on line 1 of a short pane is a perfectly good composer.
+ *
+ * WHAT "SAFE" DOES NOT MEAN: it does not mean the agent is idle. Measured 2026-09-09 on live codex
+ * pane %448, which was mid-turn (`◦ Working (50s • esc to interrupt)`) and STILL rendered its empty
+ * composer placeholder. An empty composer proves the INPUT BOX is free, not that the model stopped
+ * — so a ring can land mid-turn, where codex takes it as a steer. `submitted` therefore means "the
+ * pointer went in", never "the agent put down what it was doing". Idleness is a different question
+ * with different evidence; do not read one as the other.
  */
 export function decideBell(value, { bindingOk = true } = {}) {
   const [composerLine, failLine, dead, deadStatus] = String(value).split("|");
@@ -110,7 +117,45 @@ export function decideBell(value, { bindingOk = true } = {}) {
   return { safe: false, reason: "the composer is not empty" };
 }
 
-/** Composer emptiness from a captured screen, for the poll path and for post-typing verification. */
+/**
+ * Is it safe to press the SUBMIT KEY at a pane whose composer already holds our pointer?
+ *
+ * Everything `decideBell` requires except the composer being empty — and dropping that one is the
+ * whole point, not a relaxation. `typed-unsubmitted` IS the non-empty-composer state, so gating the
+ * resubmit rung on an empty composer makes that rung unreachable: the pane can never satisfy the
+ * condition that would let us fix it. (This was the first version of this module, and the unit test
+ * for the ladder is what caught it — in production every stuck draft would have skipped straight
+ * from `retype` to `stuck-in-composer` without one Enter ever being sent.)
+ *
+ * What is NOT dropped: pane alive, binding intact, and no attention or failure line. TM-111 is
+ * exactly a keystroke sent at the wrong screen — the folder-trust modal draws "❯ No, exit" — and
+ * pressing Enter there is if anything worse than typing there.
+ */
+export function decideResubmit(value, { bindingOk = true } = {}) {
+  const [, failLine, dead, deadStatus] = String(value).split("|");
+  if (dead === "1") {
+    const status = deadStatus === "" || deadStatus === undefined ? null : Number(deadStatus);
+    return { safe: false, dead: true, reason: status === null ? "pane exited" : `pane exited with status ${status}`, exit_status: status };
+  }
+  if (!bindingOk) return { safe: false, stale: true, reason: "the pane's six-tuple binding no longer matches; tmux may have reused this %N for someone else's session" };
+  if (Number(failLine) > 0) return { safe: false, check: "failure", reason: "the pane shows an attention or failure line" };
+  return { safe: true, reason: "pane alive, binding intact, no attention or failure line" };
+}
+
+/**
+ * Composer emptiness from a captured screen, for the poll path and for post-typing verification.
+ *
+ * The tmux-side twin of this (`composer.empty_tmux_pattern`, evaluated as `#{C/r:…}`) is
+ * load-bearing in a way that is not obvious and that nobody would think to re-derive: **`#{C/r:}`
+ * searches the pane's VISIBLE content only, never its scrollback.** Measured on tmux 3.4 against a
+ * pane with `history_size` 26 — a marker that had scrolled off-screen answered 0, a string on the
+ * visible screen answered 14. That is what stops an old prompt line, scrolled away minutes ago,
+ * from answering "composer empty" forever and turning every ring into a false `submitted`.
+ *
+ * This JS side has no such protection — `captureAll` reads the whole scrollback — which is why it
+ * is used only to classify a landing we have just caused, never to decide a pane is safe to type
+ * into. That decision belongs to `decideBell` and the server-side pattern.
+ */
 export function composerEmptyOnScreen(adapter, screen) {
   if (!adapter?.composer?.empty_pattern) return null;
   if (screen === null || screen === undefined) return null;
@@ -150,13 +195,13 @@ export function classifyLanding({ countRose, composerEmpty }) {
  * Nothing here re-sends the message of record — `nextSequence(runDir, idempotencyKey, fingerprint)`
  * is already idempotent, and this ladder never calls it.
  *
- * NAME COLLISION, deliberate and worth knowing before you grep: `supervision.mjs` also exports a
- * `nextRung`, and it is a different ladder — it returns an index into `SLEEP_LADDER_MS` for the
- * reconcile loop's backoff. Nothing imports both (there is no `export *` anywhere in this
- * directory), so the two never meet; but if you searched for "nextRung" and landed here expecting
- * a sleep interval, this is the retry ladder for one message's doorbell.
+ * Named `nextDeliveryRung`, not `nextRung`, because `supervision.mjs` already exports a `nextRung`
+ * and it is a DIFFERENT ladder — an index into `SLEEP_LADDER_MS` for the reconcile loop's backoff.
+ * Nothing can import both (there is no `export *` anywhere in this directory), so the two could
+ * have coexisted; a reader grepping one verb and finding two ladders could not. This one is the
+ * retry ladder for a single message's doorbell.
  */
-export function nextRung({ state, safe = true, resubmits = 0, retypes = 0, exhausted = false }) {
+export function nextDeliveryRung({ state, safe = true, resubmits = 0, retypes = 0, exhausted = false }) {
   if (state === "submitted" || state === "engaged" || state === "processed") return null;
   if (exhausted) return "escalate";
   if (!safe) return "wait-safe";
@@ -237,6 +282,38 @@ async function lookAtPane(pane, format, tmux) {
   return result.code === 0 ? result.stdout.split("\n")[0] : null;
 }
 
+/** Is this still the same pane incarnation? A `%N` tmux has reused is a stranger's live session. */
+async function stillBound(pane, binding, tmux) {
+  if (!binding) return true;
+  const observed = (await tmux.listServerPanes().catch(() => [])).find((item) => item.paneId === pane);
+  return bindingMatches(observed, binding);
+}
+
+/**
+ * Confirm a server-side failure hit in THIS process: only here do we have the path-stripping
+ * matcher, and without it a run directory called `.../quota-work/` reads as a provider outage.
+ */
+async function confirmFailure(adapter, pane, tmux, verdict) {
+  if (verdict.check !== "failure") return verdict;
+  const screen = await tmux.capture(pane, 60).catch(() => "");
+  const attention = attentionOnScreen(adapter, screen);
+  if (attention) return { safe: false, terminal: true, attention: true, reason: attention.message };
+  const failure = failureOnScreen(adapter, screen);
+  if (failure) return { safe: false, terminal: true, reason: `the pane matched failure pattern /${failure}/` };
+  return { safe: false, reason: "a failure word on the pane turned out to be a path; still waiting" };
+}
+
+/**
+ * One look, for the resubmit rung: everything `whenSafe` proves except the empty composer. It does
+ * not wait, because what it is checking cannot improve by waiting — see `decideResubmit`.
+ */
+export async function checkResubmitSafe({ pane, adapter, format, binding, tmux = defaultTmux }) {
+  const value = await lookAtPane(pane, format, tmux);
+  // A look we could not take is not permission. Refuse rather than press a key blind.
+  if (value === null) return { safe: false, reason: "the pane could not be read, so pressing the submit key is unproven" };
+  return confirmFailure(adapter, pane, tmux, decideResubmit(value, { bindingOk: await stillBound(pane, binding, tmux) }));
+}
+
 /**
  * Wait until the pane is safe to ring, or the window closes. Push when we have a control client,
  * bounded poll when we do not.
@@ -247,22 +324,8 @@ async function lookAtPane(pane, format, tmux) {
  */
 export async function whenSafe({ pane, adapter, client, subName, format, binding, timeoutMs = RING_WINDOW_MS, tmux = defaultTmux, pollMs = BELL_POLL_MS }) {
   const started = Date.now();
-  const bindingOk = async () => {
-    if (!binding) return true;
-    const observed = (await tmux.listServerPanes().catch(() => [])).find((item) => item.paneId === pane);
-    return bindingMatches(observed, binding);
-  };
-  // Confirm a server-side failure hit in THIS process: only here do we have the path-stripping
-  // matcher, and without it a run directory called `.../quota-work/` reads as a provider outage.
-  const confirm = async (verdict) => {
-    if (verdict.check !== "failure") return verdict;
-    const screen = await tmux.capture(pane, 60).catch(() => "");
-    const attention = attentionOnScreen(adapter, screen);
-    if (attention) return { safe: false, terminal: true, attention: true, reason: attention.message };
-    const failure = failureOnScreen(adapter, screen);
-    if (failure) return { safe: false, terminal: true, reason: `the pane matched failure pattern /${failure}/` };
-    return { safe: false, reason: "a failure word on the pane turned out to be a path; still waiting" };
-  };
+  const bindingOk = () => stillBound(pane, binding, tmux);
+  const confirm = (verdict) => confirmFailure(adapter, pane, tmux, verdict);
 
   const settleWith = (verdict) => ({ ...verdict, waited_ms: Date.now() - started });
 
@@ -488,47 +551,58 @@ export async function ringMessage({
 
   try {
     for (;;) {
-      const remaining = windowMs - (now() - started);
-      const gate = await whenSafe({ pane, adapter, client, subName: `ao-bell-${agentId}`, format, binding: agent?.binding ?? null, timeoutMs: Math.max(0, remaining), tmux });
-      waited += gate.waited_ms ?? 0;
-      if (gate.stale) {
-        return finish(heldDelivery({ pane, state: "held", waited_ms: waited, rungs, attempts, typed, composer_empty_after: composerEmptyAfter,
-          notification: "stale-binding", reason: gate.reason }));
-      }
-      if (!gate.safe) {
+      // Decide the rung FIRST, then gate for that rung. The other order is what made `resubmit`
+      // unreachable: it gated every rung on an empty composer, and `typed-unsubmitted` — the only
+      // state that asks for a resubmit — is by definition a composer that is not empty.
+      const rung = attempts === 0 ? "retype" : nextDeliveryRung({ state, safe: true, resubmits, retypes });
+      if (rung === null) break;
+
+      const terminal = (fields) => finish(heldDelivery({
+        pane, waited_ms: waited, rungs, attempts, typed, composer_empty_after: composerEmptyAfter, ...fields,
+      }));
+      const refused = (gate, finalState) => gate.stale
+        ? terminal({ state: "held", notification: "stale-binding", reason: gate.reason })
         // Never typed at all: the message is durable and a human is told which pane would not open.
         // Typed already and now unsafe: report the last landing we actually observed.
-        const finalState = typed ? state : "held";
-        return finish(heldDelivery({
-          pane, state: finalState, waited_ms: waited, rungs, attempts, typed, composer_empty_after: composerEmptyAfter,
-          notification: notificationFor({ state: finalState, capability, everSafe }),
-          reason: gate.reason,
-          escalated: typed && finalState !== "submitted",
-        }));
-      }
-      everSafe = true;
+        : terminal({
+            state: finalState,
+            notification: notificationFor({ state: finalState, capability, everSafe }),
+            reason: gate.reason,
+            escalated: typed && finalState !== "submitted",
+          });
 
-      // The rung. First time round there is nothing to resubmit, so it is always a full delivery.
-      const rung = attempts === 0 ? "retype" : nextRung({ state, safe: true, resubmits, retypes });
-      if (rung === null) break;
       if (rung === "escalate") {
-        return finish(heldDelivery({
-          pane, state, waited_ms: waited, rungs, attempts, typed, composer_empty_after: composerEmptyAfter,
+        return terminal({
+          state,
           notification: notificationFor({ state, capability, everSafe }),
           reason: reason || `the ladder was exhausted in state ${state}`,
           escalated: true,
-        }));
+        });
       }
-      rungs.push(rung);
-      attempts += 1;
 
-      if (rung === "resubmit") {
-        // The submit key ALONE, after the settle. Re-typing here would append a second copy of the
-        // pointer to the draft that is already sitting in the composer.
-        resubmits += 1;
-        if (defaultTmux.SUBMIT_SETTLE_MS > 0) await sleep(defaultTmux.SUBMIT_SETTLE_MS);
-        for (const key of adapter.submit_keys ?? ["Enter"]) await tmux.sendKeys(pane, [key]);
-      } else if (rung === "retype") {
+      if (rung === "wait-safe") {
+        // The resubmits are spent and the draft is still sitting there. The file is already written,
+        // so waiting costs nothing — and what we are waiting for is the composer to EMPTY, which is
+        // the same condition `whenSafe` tests. If it empties, the draft left: that is `submitted`,
+        // observed rather than assumed, and there is no further rung to run.
+        const gate = await whenSafe({ pane, adapter, client, subName: `ao-bell-${agentId}`, format, binding: agent?.binding ?? null, timeoutMs: Math.max(0, windowMs - (now() - started)), tmux });
+        waited += gate.waited_ms ?? 0;
+        if (!gate.safe) return refused(gate, typed ? state : "held");
+        composerEmptyAfter = true;
+        state = "submitted";
+        submittedAt = new Date(now()).toISOString();
+        engageOffset = await paneLogOffset(dir);
+        break;
+      }
+
+      if (rung === "retype") {
+        // Never type into a full composer, a modal, or a pane that is no longer ours.
+        const gate = await whenSafe({ pane, adapter, client, subName: `ao-bell-${agentId}`, format, binding: agent?.binding ?? null, timeoutMs: Math.max(0, windowMs - (now() - started)), tmux });
+        waited += gate.waited_ms ?? 0;
+        if (!gate.safe) return refused(gate, typed ? state : "held");
+        everSafe = true;
+        rungs.push(rung);
+        attempts += 1;
         // The first delivery is not a retry; only the ones after it count against the cap.
         if (attempts > 1) retypes += 1;
         const landed = await deliverPointer(pane, adapter, pointer, { attempts: 1 });
@@ -537,24 +611,22 @@ export async function ringMessage({
           state = "not-typed";
           reason = "the pointer was typed and the pane's occurrence count did not rise; the TUI had no key handler";
           if (retypes >= MAX_RETYPES) {
-            return finish(heldDelivery({
-              pane, state, waited_ms: waited, rungs, attempts, typed, composer_empty_after: composerEmptyAfter,
-              notification: notificationFor({ state, capability, everSafe }), reason, escalated: true,
-            }));
+            return terminal({ state, notification: notificationFor({ state, capability, everSafe }), reason, escalated: true });
           }
           continue;
         }
       } else {
-        // wait-safe: the file is already written, so waiting costs nothing. Loop back to the gate.
-        if (now() - started >= windowMs) {
-          return finish(heldDelivery({
-            pane, state, waited_ms: waited, rungs, attempts, typed, composer_empty_after: composerEmptyAfter,
-            notification: notificationFor({ state, capability, everSafe }),
-            reason: reason || `the ring window of ${windowMs}ms closed while waiting for a safe moment`,
-            escalated: true,
-          }));
-        }
-        continue;
+        // resubmit: the submit key ALONE, after the settle. Re-typing here would append a second
+        // copy of the pointer to the draft already in the composer. Gated on everything except the
+        // composer being empty — see `decideResubmit`.
+        const gate = await checkResubmitSafe({ pane, adapter, format, binding: agent?.binding ?? null, tmux });
+        if (!gate.safe) return refused(gate, typed ? state : "held");
+        everSafe = true;
+        rungs.push(rung);
+        attempts += 1;
+        resubmits += 1;
+        if (defaultTmux.SUBMIT_SETTLE_MS > 0) await sleep(defaultTmux.SUBMIT_SETTLE_MS);
+        for (const key of adapter.submit_keys ?? ["Enter"]) await tmux.sendKeys(pane, [key]);
       }
 
       // Observe, do not assume. The composer is read AFTER the send settles, and a capture we could
@@ -573,12 +645,12 @@ export async function ringMessage({
       if (state === "typed-unsubmitted") reason = "the pointer landed in the composer and was not submitted";
       if (state === "held") reason = "the pointer landed but the composer could not be read, so submission is unproven";
       if (now() - started >= windowMs) {
-        return finish(heldDelivery({
-          pane, state, waited_ms: waited, rungs, attempts, typed, composer_empty_after: composerEmptyAfter,
+        return terminal({
+          state,
           notification: notificationFor({ state, capability, everSafe }),
           reason: `${reason}; the ring window of ${windowMs}ms closed`,
           escalated: true,
-        }));
+        });
       }
     }
   } finally {
