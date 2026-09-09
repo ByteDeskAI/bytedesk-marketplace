@@ -1,0 +1,31 @@
+# Presence v1 header extension — TM-136 artifact hashes
+# Generated 2026-09-09 by Marketplace Claude (TM-136).
+#
+# Paths are relative to `agent-orchestration/`, so this file is directly checkable:
+#     sha256sum -c <(grep -v '^#' topology/fixtures/presence-v1-header/HEADER-EXTENSION-HASHES.txt)
+#
+# The FROZEN set is reproduced here so a countersigner can verify in ONE place that this extension
+# changed nothing it promised not to. It must match
+# .bytedesk/task-management/evidence/TM-128-CONTRACT-HASHES.txt exactly.
+
+# --- frozen under TM-128: must be unchanged ---
+3748e32d26f6f7b3764009a95a2227c44a1b7107504f1934bace1c4d7a6297f5  topology/PRESENCE-CONTRACT.md
+4fef13c80f8a9c4e27dcf9345d6edec0cf375a46ae44ba884f53aae93150baa7  topology/fixtures/presence-v1/README.md
+b6711de9321a23223a1eda82385c604e3e09c5d85972d4d5b4fd8c81ef01fd78  topology/fixtures/presence-v1/validate_presence.py
+b095ba737175ab080ae01381623ca2e9e9f1b2da2d0b885cbbf7f283d3bf6e79  topology/fixtures/presence-v1/test_validator.py
+253141cca84b699a59c29d127ecbd87c863217c195c422b6756a1748fbf6afaa  topology/fixtures/presence-v1/01-exact-match.json
+9b6ba0356e8c85039c32bd23c7ffbcaeee80b274896ef2ef0e275f54f2e51302  topology/fixtures/presence-v1/02-stale.json
+e8784ecfcf18cbc9c2111f7e353d8133401f3ca25f29393b72466c0ef1c7d9ea  topology/fixtures/presence-v1/03-nested-runs.json
+074d3e3b2be00f4503ba2d5f91639fa1c322665216658fdb343a71e31bdfff87  topology/fixtures/presence-v1/04-standing-session.json
+ddcda9b9578204196080c942096333df204ee28df0fab35a5b1b536bf2e52efb  topology/fixtures/presence-v1/05-empty-clears.json
+c3cb40a914fe7d661c485953b1146414dbb9cee562358edb559f836ed82b0e05  topology/fixtures/presence-v1/06-membership-removal.json
+60d27bfa2e66317a0af12d89b3f4e2ef939712be0930c419046173f75b7322f5  topology/fixtures/presence-v1/07-server-restart.json
+
+# --- new under TM-136: additive, countersignature pending ---
+6f15b383b2c2a102879976a2baada1164ee1c7a79426846f2c4702562b370c1f  topology/PRESENCE-HEADER-ADDENDUM.md
+86e37a6ff95e97fa846ac704fb66e2ea38cc6fbd098cd5cb31f10af27d12e98d  topology/HEADER-EXTENSION-COUNTERSIGNATURE-REQUEST.md
+a46c814a69d27180c6fd6f7f12ed858b451258193212ad39c5530410eb73553d  topology/fixtures/presence-v1-header/README.md
+05c2129f091987a6c03a0e4faff3e319e54eab4b1aca4693efe499c1a6310c32  topology/fixtures/presence-v1-header/check.py
+f1fe9be0c7a9001f3d8ddf9621fc3aaf0b49006aa1c7202818e95bc5d8ee6719  topology/fixtures/presence-v1-header/h01-header-full.json
+883b2ea943d986e21e4e6e7ca68c9666467ffec3b24c6079a047d31468162e1a  topology/fixtures/presence-v1-header/h02-header-sparse.json
+3f2fe7a402347b9896959773c9bdacb63b97e0e4d0dd34b4ae01ff91bc7f3851  topology/fixtures/presence-v1-header/n01-repo-role-designer.json
