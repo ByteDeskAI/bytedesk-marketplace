@@ -25,6 +25,14 @@
     "delay_ms": 6000,
     "timeout_ms": 30000
   },
+  "attention_patterns": [
+    {
+      "pattern": "reached your \\d+-hour usage limit",
+      "state": "quota-blocked",
+      "message": "Kimi has hit its rolling usage limit for this account. Nothing is broken and there is nothing to fix — wait for the window to roll over, or move this agent to another provider with `failover`.",
+      "note": "Observed inline in a live kimi pane 2026-09-09: `Error: [provider.auth_error] 403 You've reached your 5-hour usage limit.` Anchored on the FRAGMENT, never the whole string: `[provider.auth_error]` would be dropped from tmuxFailureTrigger (the format parser eats `{`, `}` and `:`) and the pattern would then never fire on the subscription path at all. The fragment also survives withoutPaths, which blanks whitespace-delimited tokens containing `/` — `5-hour` has none."
+    }
+  ],
   "submit_keys": [
     "Enter"
   ],

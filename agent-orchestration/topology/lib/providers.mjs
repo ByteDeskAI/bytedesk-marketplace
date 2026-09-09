@@ -65,7 +65,8 @@ export const GENERIC_ADAPTER = {
   // Screen text that means "a human has to answer something before this CLI will start". It is a
   // failure like any other for chain purposes — the next candidate is a different CLI and may have
   // no such prompt — but the operator's action is completely different from a provider outage, so
-  // the message says what to do instead of naming a regex. Entries are { pattern, message }.
+  // the message says what to do instead of naming a regex. Entries are { pattern, message, state? },
+  // where `state` is "attention" (default) or "quota-blocked" — see ATTENTION_STATES.
   attention_patterns: [],
   submit_keys: ["Enter"],
   bootstrap_message: "Read {{bootstrap_file}} and follow it exactly. Reply here with the single word READY when you have read it.",
@@ -75,6 +76,8 @@ export const GENERIC_ADAPTER = {
 };
 
 export const MEMORY_SCOPES = ["cwd", "home", "none"];
+/** What an attention screen means to a scheduler. See the note in `normalizeAdapter`. */
+export const ATTENTION_STATES = ["attention", "quota-blocked"];
 
 export function providerDirs({ pluginRoot, consumer, home, extra = [] }) {
   const dirs = [...extra];
@@ -139,7 +142,17 @@ export function normalizeAdapter(raw, source) {
     } catch (error) {
       invariant(false, "TOPOLOGY_ADAPTER_INVALID", `Adapter ${adapter.id}: attention pattern "${entry.pattern}" is not a valid regex (${error.message}).`);
     }
-    return { pattern: entry.pattern, message: entry.message };
+    // Optional, and deliberately ONE field rather than a third pattern list: an out-of-quota screen
+    // is an attention screen — the operator waits for a window rather than fixing anything — but a
+    // scheduler has to tell "come back in an hour" apart from "answer this prompt". Defaulting to
+    // "attention" keeps every existing entry meaning exactly what it meant.
+    const state = entry.state === undefined ? "attention" : entry.state;
+    invariant(
+      ATTENTION_STATES.includes(state),
+      "TOPOLOGY_ADAPTER_INVALID",
+      `Adapter ${adapter.id}: attention_patterns[${index}].state must be one of ${ATTENTION_STATES.join(", ")} (got ${JSON.stringify(entry.state)}).`,
+    );
+    return { pattern: entry.pattern, message: entry.message, state };
   });
   // A tmux-side pattern is evaluated by the tmux server, not by this process, and its format parser
   // treats these three characters as structure. Catch it at load rather than letting the format
