@@ -169,7 +169,9 @@ ${describeInputs(spec)}
 1. A message arrives as a file in your inbox. Poll that directory at safe boundaries, including
    after startup and after finishing each reply. Delivery does not type into your terminal.
    A terminal pointer, if one is supplied by the operator, is only a bell; the file is the message.
-2. Read the message file. Do the work it asks for.
+2. Read the message file, then **do the work in the same turn you read it**. Do not stop to
+   confirm receipt and wait to be told to continue — nobody is going to tell you. If you are
+   blocked or the request is ambiguous, still write a reply saying what is missing.
 3. Write your complete reply to the exact outbox path named in the message. The reply file is the
    only thing the sender reads — never rely on what you print in the terminal.
 4. Prefer this helper to write the reply (it also journals it):

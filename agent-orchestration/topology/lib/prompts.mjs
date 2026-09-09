@@ -48,6 +48,9 @@ paths in your own commands before you run them.
 ## Protocol
 
 - The message of record is the inbox/outbox file. A terminal pointer is only a bell.
+- Do the work in the same turn you read a message. Do not stop to confirm receipt and wait to
+  be told to continue — nobody is going to tell you. If you are blocked or the request is
+  ambiguous, still write a reply saying what is missing.
 - Reply files are complete answers; never rely on what you printed in the terminal.
 - Read prompt-state.json in this agent directory. Acknowledge its staged revision and nonce with
   ao-topology prompt ack ${shellQuote(agent.id)}${agent._prompt_vars?.run_dir ? ` --run ${shellQuote(agent._prompt_vars.run_dir)}` : ''} --consumer ${shellQuote(consumer)} --revision <desired_revision> --nonce <nonce>.

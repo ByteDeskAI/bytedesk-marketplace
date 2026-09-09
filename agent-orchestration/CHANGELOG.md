@@ -15,8 +15,39 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Delivery is a state machine, not a fire-and-forget bell** (TM-130). New `topology/lib/delivery.mjs`
+  observes each transition instead of assuming it: `held` / `not-typed` / `typed-unsubmitted` /
+  `submitted` / `engaged` / `submitted-inert` / `escalated`. Classification (`classifyLanding`,
+  `nextRung`, `decideBell`) is pure and the I/O is separate, so the whole ladder is testable with a
+  stub client and no tmux server. The retry ladder is cheapest-rung-first and idempotent: a stuck
+  draft is recovered by sending the submit key **alone** (never re-typed — re-typing appends a second
+  copy to the draft), a never-typed pointer goes back through `deliverPointer`, and nothing re-sends
+  the message of record. Ring bookkeeping lives in `run.json` under `ring_state[messageId][agentId]`,
+  written through the existing `.mailbox-sequence.lock`.
+- **`providers/*.json` gain a measured `composer` block** (`empty_tmux_pattern`, `empty_pattern`,
+  required `note`), validated by the newly extracted `assertTmuxPattern` in
+  `topology/lib/providers.mjs`. Absent means absent: an adapter with no measured composer is
+  `ring_capability: "unsupported"`, holds its mail and reports — it never rings blind, and it never
+  defaults to `ready.tmux_pattern`. Shipped for claude, codex and kimi; grok, gemini, copilot and
+  generic are deliberately left without one.
+- Engagement without a model turn: `pipe-pane -o` is already attached at pane creation, so
+  `observeEngagement` reads `agents/<id>/pane.log` growth past the offset recorded at submit. No
+  growth in `AO_ENGAGE_MS` is `submitted-inert` — TM-122 caught for the price of a `stat()`. A
+  missing or late-attached log reports **unknown**, never inert.
+
 ### Fixed
 
+- **`providers/codex.json`'s ready pattern never matched.** Re-measured 2026-09-09 against tmux 3.4
+  on a live idle codex pane: the shipped `^\s*[›>❯][^a-zA-Z0-9]*$` answered **0**, while
+  `^\s*›\s*Ask Codex to do anything` answered 16. An empty codex composer renders that placeholder
+  and the old pattern forbade letters after the glyph, so every codex agent burned its full 30s
+  `timeout_ms` and was then reported as a slow agent. Both the JS and the tmux form are corrected.
+- **Mail wording, applied from the `BEGIN_CLAUSE` lesson** (TM-122). `bootstrapText` and
+  `prompts.mjs` now say: do the work in the same turn you read the message, do not stop to confirm
+  receipt and wait to be told to continue, and if you are blocked still write a reply saying what is
+  missing.
 - **Sandbox teardown no longer fails on a provider's Go module cache.** An agent that ran
   `go build` or `go test` left `go/pkg/mod` inside its sandbox HOME with directories at mode
   `0555`. Unlink needs write on the *parent* directory, so cleanup died with

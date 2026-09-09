@@ -141,32 +141,34 @@ export function normalizeAdapter(raw, source) {
     }
     return { pattern: entry.pattern, message: entry.message };
   });
-  // A tmux-side pattern is evaluated by the tmux server, not by this process, and its format parser
-  // treats these three characters as structure. Catch it at load rather than letting the format
-  // silently return a literal and readiness never fire.
-  if (adapter.ready.tmux_pattern) {
+  assertTmuxPattern(adapter, "ready.tmux_pattern", adapter.ready.tmux_pattern);
+  // How this CLI renders an EMPTY composer, right now. Absent means absent: an adapter with no
+  // measured `composer` holds its mail and reports rather than ringing blind, and NOTHING defaults
+  // it to `ready.tmux_pattern` — codex is the proof that the two differ (its shipped ready pattern
+  // matched zero lines while the empty composer plainly rendered a placeholder). The note is
+  // required for the same reason `memory.note` is: an unmeasured pattern is the codex bug again.
+  if (adapter.composer === undefined || adapter.composer === null) {
+    adapter.composer = null;
+  } else {
     invariant(
-      !/[{}:]/.test(adapter.ready.tmux_pattern),
+      typeof adapter.composer === "object" && !Array.isArray(adapter.composer)
+        && typeof adapter.composer.empty_tmux_pattern === "string" && adapter.composer.empty_tmux_pattern
+        && typeof adapter.composer.empty_pattern === "string" && adapter.composer.empty_pattern
+        && typeof adapter.composer.note === "string" && adapter.composer.note.trim(),
       "TOPOLOGY_ADAPTER_INVALID",
-      `Adapter ${adapter.id}: ready.tmux_pattern may not contain "{", "}" or ":" — tmux's format parser consumes them. Got ${JSON.stringify(adapter.ready.tmux_pattern)}.`,
+      `Adapter ${adapter.id}: "composer" must be { empty_tmux_pattern, empty_pattern, note } — the note records WHEN and against WHAT the pattern was measured, so it is not optional.`,
     );
-    // tmux searches the pane's RENDERED LINES one at a time (`#{C/r:}`), and no rendered line
-    // contains a newline, so a pattern spanning one matches nothing — silently, for the adapter's
-    // whole timeout, and then reports itself as "ready pattern not seen". Measured against tmux 3.4:
-    // a pane showing "ready\n> " answers 0 for `#{C/r:ready\n>}` and 1 for `#{C/r:ready}`.
-    invariant(
-      !/\\n|\\r|\n/.test(adapter.ready.tmux_pattern),
-      "TOPOLOGY_ADAPTER_INVALID",
-      `Adapter ${adapter.id}: ready.tmux_pattern may not span a line break — tmux matches one rendered line at a time, so a pattern containing a newline can never match. Got ${JSON.stringify(adapter.ready.tmux_pattern)}. Match the prompt line alone, and keep the multi-line form in ready.pattern if you need it.`,
-    );
-    // tmux also trims trailing whitespace off a rendered line, so a pattern ending in a space class
-    // cannot match a prompt that is the last thing on its line — the common case. Verified: for a
-    // pane whose line reads "> ", `#{C/r:>[[:space:]]}` answers 0 while `#{C/r:>$}` answers 2.
-    invariant(
-      !/(\\s|\[\[:space:\]\]|\\t| )[*+?]?$/.test(adapter.ready.tmux_pattern),
-      "TOPOLOGY_ADAPTER_INVALID",
-      `Adapter ${adapter.id}: ready.tmux_pattern ends in a whitespace match, which tmux has already trimmed off the rendered line. Got ${JSON.stringify(adapter.ready.tmux_pattern)}. Drop the trailing whitespace from the tmux pattern.`,
-    );
+    assertTmuxPattern(adapter, "composer.empty_tmux_pattern", adapter.composer.empty_tmux_pattern);
+    try {
+      new RegExp(adapter.composer.empty_pattern, "m");
+    } catch (error) {
+      invariant(false, "TOPOLOGY_ADAPTER_INVALID", `Adapter ${adapter.id}: composer.empty_pattern is not a valid regex (${error.message}).`);
+    }
+    adapter.composer = {
+      empty_tmux_pattern: adapter.composer.empty_tmux_pattern,
+      empty_pattern: adapter.composer.empty_pattern,
+      note: adapter.composer.note,
+    };
   }
   if (adapter.ready.pattern) {
     try {
@@ -176,6 +178,41 @@ export function normalizeAdapter(raw, source) {
     }
   }
   return adapter;
+}
+
+/**
+ * Validate one tmux-side pattern. Every field whose value is evaluated by the tmux SERVER goes
+ * through here, because the traps are the server's, not ours, and each one costs the full timeout
+ * while looking like a slow agent:
+ *
+ *   * `{`, `}` and `:` are structure to tmux's format parser — `#{C/r:a{2}}` returns the literal
+ *     `0}`, and `:` is the format's own separator, so `[[:space:]]` cannot be used at all.
+ *   * tmux searches one RENDERED LINE at a time, so a pattern spanning a newline matches nothing.
+ *     Measured on tmux 3.4: a pane showing "ready\n> " answers 0 for `#{C/r:ready\n>}`, 1 for
+ *     `#{C/r:ready}`.
+ *   * tmux trims trailing whitespace off a rendered line, so a pattern ending in a whitespace class
+ *     cannot match a prompt that is last on its line — the common case. Verified: for a line "> ",
+ *     `#{C/r:>[[:space:]]}` answers 0 while `#{C/r:>$}` answers 2.
+ *
+ * `field` names the declaration so the message points at the JSON key that has to change.
+ */
+export function assertTmuxPattern(adapter, field, value) {
+  if (!value) return;
+  invariant(
+    !/[{}:]/.test(value),
+    "TOPOLOGY_ADAPTER_INVALID",
+    `Adapter ${adapter.id}: ${field} may not contain "{", "}" or ":" — tmux's format parser consumes them. Got ${JSON.stringify(value)}.`,
+  );
+  invariant(
+    !/\\n|\\r|\n/.test(value),
+    "TOPOLOGY_ADAPTER_INVALID",
+    `Adapter ${adapter.id}: ${field} may not span a line break — tmux matches one rendered line at a time, so a pattern containing a newline can never match. Got ${JSON.stringify(value)}. Match the one line alone.`,
+  );
+  invariant(
+    !/(\\s|\[\[:space:\]\]|\\t| )[*+?]?$/.test(value),
+    "TOPOLOGY_ADAPTER_INVALID",
+    `Adapter ${adapter.id}: ${field} ends in a whitespace match, which tmux has already trimmed off the rendered line. Got ${JSON.stringify(value)}. Drop the trailing whitespace.`,
+  );
 }
 
 /** Load adapters from every dir; earlier dirs win so a consumer can override a plugin adapter. */

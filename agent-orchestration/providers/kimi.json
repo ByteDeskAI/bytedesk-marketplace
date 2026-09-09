@@ -25,6 +25,11 @@
     "delay_ms": 6000,
     "timeout_ms": 30000
   },
+  "composer": {
+    "empty_tmux_pattern": "^\\s*[│|]\\s*>[^a-zA-Z0-9]*$",
+    "empty_pattern": "(^|\\n)\\s*[│|]\\s*>[^a-zA-Z0-9\\n]*$",
+    "note": "Measured 2026-09-09 against tmux 3.4 with `tmux display-message -p -t <pane> '#{C/r:<pattern>}'`, which answers the matching line number or 0. Kimi draws its composer as a box: the input line is U+2502, a space, `>`, padding, and a closing U+2502. Live idle pane %40 answered 14; a pane rendering `│ > read inbox 001  │` answers 0. The left box character is REQUIRED here (no `?`), unlike claude's, because that is what kimi actually renders. kimi still has no ready.tmux_pattern — it comes up on a fixed delay — and this field deliberately does not become one: readiness and composer-emptiness are separate questions and are declared separately."
+  },
   "submit_keys": [
     "Enter"
   ],
