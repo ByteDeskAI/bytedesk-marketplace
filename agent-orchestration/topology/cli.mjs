@@ -372,10 +372,12 @@ const commands = {
     // One surface over lead.mjs and reviewer.mjs; roles.mjs does the dispatch, so this stays a
     // parameter map. `role status` prints registered/alive/responsive as three separate fields —
     // do not collapse them into one tick when rendering non-JSON output later.
+    const ctx = context(flags);
     const { roleCommand } = await import('./lib/roles.mjs');
-    return out(await roleCommand({
-      ...context(flags),
-      verb: positional[0] || 'list',
+    const verb = positional[0] || 'list';
+    const result = await roleCommand({
+      ...ctx,
+      verb,
       role: positional[1],
       agentRef: positional[2] ?? (flags.agent && flags.agent !== true ? String(flags.agent) : null),
       session: flags.session && flags.session !== true ? String(flags.session) : null,
@@ -385,7 +387,13 @@ const commands = {
       kill: flags.kill === true,
       limit: Number(flags.limit || 0),
       ackTimeoutMs: Number(flags['ack-timeout'] || 5000),
-    }));
+    });
+    // A verb that leaves the repo with a standing holder starts supervision, exactly as
+    // `lead ensure` and `lead assign` do — two surfaces onto the same operation must not differ on
+    // whether presence gets published afterwards. Read-only verbs and `detach` do not.
+    return out(['assign', 'ensure', 'reassign'].includes(verb)
+      ? { ...result, supervision: await ensureSupervision(ctx) }
+      : result);
   },
   async prompt({ flags, positional }) {
     const ctx = context(flags);
