@@ -473,14 +473,18 @@ export async function clearAndWaitForShell(pane, channel, timeoutMs = 15_000) {
 
 /** Enumerate exact pane incarnations on the selected server, independent of session names. */
 export async function listServerPanes({ tmuxServer, env = process.env } = {}) {
-  const fields = ["socket_path", "pid", "session_id", "session_created", "pane_id", "pane_pid", "session_name", "pane_current_command", "pane_current_path", "pane_dead"];
+  // `pane_title` is here for the liveness census (TM-131): codex, kimi and grok animate a braille
+  // spinner in the pane title, so one extra column on the listing the supervisor already takes
+  // answers "is this agent working" for every pane on the server without a single extra tmux call.
+  // Appended LAST so every existing positional destructure keeps its index.
+  const fields = ["socket_path", "pid", "session_id", "session_created", "pane_id", "pane_pid", "session_name", "pane_current_command", "pane_current_path", "pane_dead", "pane_title"];
   const result = await tmux(["-u", "list-panes", "-a", "-F", fields.map((key) => `#{${key}}`).join("\t")], { tmuxServer, env, allowFailure: true });
   if (result.code !== 0) {
     if (/no server running|error connecting.*No such file|failed to connect.*No such file/.test(result.stderr)) return [];
     fail("TOPOLOGY_TMUX_OBSERVATION_FAILED", "Cannot enumerate tmux panes; liveness is unknown.");
   }
   return result.stdout.split("\n").filter(Boolean).map((line) => {
-    const [serverKey, serverPid, sessionId, sessionCreated, paneId, panePid, sessionName, command, cwd, dead] = line.split("\t");
-    return { serverKey, serverPid: Number(serverPid), sessionId, sessionCreated: Number(sessionCreated), paneId, panePid: Number(panePid), sessionName, command, cwd, alive: dead === "0" };
+    const [serverKey, serverPid, sessionId, sessionCreated, paneId, panePid, sessionName, command, cwd, dead, title] = line.split("\t");
+    return { serverKey, serverPid: Number(serverPid), sessionId, sessionCreated: Number(sessionCreated), paneId, panePid: Number(panePid), sessionName, command, cwd, alive: dead === "0", title: title ?? "" };
   });
 }
