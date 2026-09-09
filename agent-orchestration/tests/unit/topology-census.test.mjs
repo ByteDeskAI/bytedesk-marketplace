@@ -144,6 +144,49 @@ test("the observation interval walks 2000 -> 5000 -> 15000 and snaps back on act
   assert.equal(nextIntervalMs(15000, true), 2000, "activity snaps straight back");
 });
 
+test("activity means the world moved, so it cannot pin the supervisor's sleep ladder", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "ao-census-activity-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const env = { AGENT_ORCHESTRATION_STATE_HOME: join(root, "state") };
+  const identity = { id: root, kind: "path", git_common_dir: null };
+  const memo = new Map();
+  const take = (panes, agents, previous, over = {}) => takeCensus({ env, home: root, consumer: root }, { identity, panes, agents, memo, previous, memoMs: 0, ...over });
+
+  const busy = [pane("%1", 11, { title: CODEX_BUSY_TITLE, command: "codex" })];
+  const agents = [{ agentId: "a1", displayName: "A", session: { ...busy[0] } }];
+
+  const first = await take(busy, agents, null);
+  assert.equal(first.activity, true, "first sighting of an agent is news");
+  // Still working two ticks later: the STEADY STATE is not activity, or one busy agent holds the
+  // supervisor at its 2 s rung forever and undoes the reconcile fix TM-127 landed.
+  const second = await take(busy, agents, first);
+  assert.equal(second.agents[0].state, "working");
+  assert.equal(second.activity, false);
+  // A real transition still snaps the ladder back.
+  const quiet = [pane("%1", 11, { title: "✳ task" })];
+  const finished = await take(quiet, [{ agentId: "a1", displayName: "A", session: { ...quiet[0] } }], second, { capture: async () => CLAUDE_IDLE_TAIL });
+  assert.equal(finished.agents[0].state, "idle");
+  assert.equal(finished.activity, true, "working -> idle is news");
+
+  // A never-busy pane, so no needs-input edge can fire: a failed capture flips it
+  // idle -> unknown -> idle with nothing whatsoever having happened. Neither direction may count,
+  // or our own rationing pins the ladder as hard as a busy loop would.
+  const shell = [pane("%2", 22, { title: "zsh", command: "zsh" })];
+  const shellAgents = [{ agentId: "a2", displayName: "B", session: { ...shell[0] } }];
+  const read = { capture: async () => "$ " };
+  const blind = { capture: async () => null };
+  let document = await take(shell, shellAgents, null, read);
+  document = await take(shell, shellAgents, document, read);
+  assert.equal(document.agents[0].state, "idle");
+  assert.equal(document.activity, false, "idle -> idle is not news");
+  document = await take(shell, shellAgents, document, blind);
+  assert.equal(document.agents[0].state, "unknown");
+  assert.equal(document.activity, false, "we stopped looking; nothing moved");
+  document = await take(shell, shellAgents, document, read);
+  assert.equal(document.agents[0].state, "idle");
+  assert.equal(document.activity, false, "and looking again is not news either");
+});
+
 test("stale forces every dispatchable false and every state unknown", () => {
   const document = {
     at: "2026-09-09T12:00:00.000Z",

@@ -32,9 +32,21 @@ import { readJson, writeJson } from "./util.mjs";
 
 export const CENSUS_SCHEMA_VERSION = 1;
 export const CENSUS_STATES = ["dead", "quota-blocked", "attention", "working", "needs-input", "idle", "unknown"];
-/** Adaptive observation cadence. Decoupled from the reconcile tick, or the backoff buys nothing. */
+/**
+ * Adaptive observation cadence. Decoupled from the reconcile tick, or the backoff buys nothing.
+ *
+ * These are the same three numbers as `SLEEP_LADDER_MS` in supervision.mjs, and that is one
+ * duplication too many — but supervision.mjs imports this file, so this file cannot import it back.
+ * The resolution is one direction only: supervision.mjs should `import { CENSUS_INTERVALS }` and
+ * define `SLEEP_LADDER_MS = CENSUS_INTERVALS`, keeping its own name as the public one. Until then,
+ * if you change one, change both.
+ */
 export const CENSUS_INTERVALS = [2000, 5000, 15000];
-const DEFAULT_STALE_MS = 45_000;
+// Three times the SLOWEST rung above, the same 3x relationship Presence v1 §2.2 uses between its
+// rewrite cadence and its staleness bound: one missed observation is a hiccup, three is a silence.
+// Deliberately NOT presence's own 30 s — that number is a frozen wire promise about a heartbeat we
+// do not drive, and borrowing it would couple a hint to a contract.
+const DEFAULT_STALE_MS = 3 * CENSUS_INTERVALS[CENSUS_INTERVALS.length - 1];
 const DEFAULT_BUDGET = 8;
 const DEFAULT_MEMO_MS = 2000;
 const TAIL_LINES = 20;
@@ -127,6 +139,9 @@ export function classify({ title = "", tail = null, adapter = null, dead = false
   // idle agent — claude's title is a constant.
   if (tail === null) return done("unknown", "pane title was inconclusive and no capture was taken", "none");
 
+  // The streak counts OBSERVED idle polls, not elapsed ticks: a tick whose capture failed returns
+  // `unknown` above without touching the carry, so it neither advances nor resets the streak. Two
+  // idle observations either side of a blind tick still mean the agent went idle and stayed idle.
   const idleStreak = carry.idleStreak + 1;
   // Edge-triggered exactly once. Level-triggering re-notifies forever while an agent sits at a
   // prompt, because the condition never clears; the edge is what makes it mean "this one just
@@ -243,7 +258,17 @@ export async function takeCensus(options = {}, input = {}) {
       prior: item.prior,
       now,
     });
-    if (verdict.state !== item.prior?.state || verdict.edge) activity = true;
+    // `activity` drives the supervisor's 2 s/5 s/15 s sleep ladder, so it must mean the WORLD
+    // changed — never that we merely looked. Two exclusions, both load-bearing:
+    //   * a pane that is still `working` is the steady state, not news. Counting presence-of-work
+    //     would pin the ladder to its 2 s rung for as long as one agent is busy, which is exactly
+    //     the busy loop TM-127 removed.
+    //   * a transition into or out of `unknown` is usually our own capture BUDGET rationing —
+    //     idle -> unknown -> idle as the budget rotates — and counting it would pin the ladder
+    //     just as hard, while telling the operator nothing.
+    // A `needs-input` edge always counts: that is the one transition a scheduler is waiting for.
+    const rationed = verdict.state === "unknown" || item.prior?.state === "unknown";
+    if (verdict.edge || (verdict.state !== item.prior?.state && !rationed)) activity = true;
     // TM-130 owns delivery state and the standing mailbox owns held cross-repo mail. The census
     // does not compute either — a second source of truth for "did this land" is exactly the drift
     // this document exists to prevent. Fed in by the caller once TM-130 lands.
