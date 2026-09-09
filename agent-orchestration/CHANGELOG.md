@@ -4,6 +4,29 @@
 
 ### Added
 
+- **Presence v1 header extension: contract, fixtures, countersignature (TM-136, EP-018).** The
+  gateway terminal header needs slot queue, unread mailbox depth, agent state and current task per
+  pane, and frozen Presence v1 carries none of them. `topology/PRESENCE-HEADER-ADDENDUM.md` specifies
+  five optional agent keys — `activity`, `mailboxDepth`, `task`, `roleName`, `slots` — and one
+  optional envelope key, `slotQueues`, **all additive: `schemaVersion` stays `1` and
+  `PRESENCE-CONTRACT.md` is not edited.**
+  - `lifecycle` keeps its frozen five values and its frozen meaning as a *session* lifecycle. The
+    richer work state rides on the new `activity` key, whose vocabulary is the **seven** census
+    states, `unknown` included.
+  - Three §5 narrowings, each a documented judgement rather than a mechanical consequence:
+    `mailboxDepth` drops `queueDepth`'s `messages` (the ids embed a stage slug close enough to a
+    subject); `activity` is a state label and never the census `reason`/`evidence` derived from
+    captured terminal text; `slots`/`slotQueues` omit the operator-prose `reason`. `task` is an id
+    gated by `^[A-Z]+-[0-9]+$`, **omitted rather than coerced**.
+  - New fixtures at `topology/fixtures/presence-v1-header/`. The frozen directory is untouched, and
+    the acceptance test is that the **frozen `validate_presence.py`, unmodified, passes every
+    extended fixture** — with `n01-repo-role-designer.json` proving it still goes red for a
+    `repoRole` outside the frozen set, which is the evidence that opening a closed vocabulary is
+    `schemaVersion: 2` and not additive. Wired into the suite as
+    `tests/unit/topology-presence-header.test.mjs`, not asserted in prose.
+  - `topology/HEADER-EXTENSION-COUNTERSIGNATURE-REQUEST.md` is the request to the gateway
+    coordinator. No producer code emitting the new keys merges before it is countersigned.
+
 - **Liveness census (TM-131, EP-018).** `topology/lib/census.mjs` and the repo-scoped
   `ao-topology census [--json] [--watch]` answer what every agent in a repository is *doing*:
   `dead > quota-blocked > attention > working > needs-input > idle > unknown`, in that precedence.
@@ -95,6 +118,17 @@
   hold instead.
 
 ### Fixed
+
+- **A run agent with an unrecognised role vanished from presence entirely** (TM-136). Inside the
+  run-agent loop only, `collectPresenceAgents` did `if (!ROLES.has(agent.role)) continue`, so
+  `add()` never ran and an `image-gen` run agent — or a `lead`, which a run spec never carries
+  because a repo lead appears in its own run as `orchestrator` — had **no entry in the snapshot at
+  all**, not merely a wrong label. A *standing* `image-gen` role-session was unaffected. An unknown
+  library role now maps to the nearest legal token (`runRole: "worker"`; `repoRole` already
+  defaulted to `member`) with the truth carried in the additive `roleName`, so nothing is dropped
+  and nothing is misdeclared in a field a consumer validates. `topology/lib/spec.mjs`'s identical
+  list is left alone: there it only feeds an advisory message, `ID_PATTERN` is the real gate, and
+  `image-gen` passes it.
 
 - **Sandbox teardown no longer fails on a provider's Go module cache.** An agent that ran
   `go build` or `go test` left `go/pkg/mod` inside its sandbox HOME with directories at mode

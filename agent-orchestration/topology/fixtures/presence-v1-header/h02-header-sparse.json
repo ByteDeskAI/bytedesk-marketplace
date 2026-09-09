@@ -1,0 +1,199 @@
+{
+  "schemaVersion": 1,
+  "repositoryKey": "9f2c41ab77e0d3b5",
+  "repositoryRoot": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace",
+  "generation": "13",
+  "revision": "1",
+  "generatedAt": "2026-09-09T21:14:14.200Z",
+  "staleAfterMs": 30000,
+  "clockSkewToleranceMs": 5000,
+  "agents": [
+    {
+      "agentId": "k3n8vq2a",
+      "displayName": "Priya Raman",
+      "title": "Engineering Lead",
+      "repoRole": "lead",
+      "runRole": "orchestrator",
+      "coordinatesOnly": true,
+      "enrollment": "enrolled",
+      "lifecycle": "ready",
+      "readinessCheckedAt": "2026-09-09T06:58:39.880Z",
+      "session": {
+        "kind": "role-session",
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 24390,
+        "sessionId": "$7",
+        "sessionCreated": 1788902620,
+        "sessionName": "ao-k3n8vq2a",
+        "paneId": "%3",
+        "panePid": 25863,
+        "spawn": null
+      },
+      "memberships": [
+        {
+          "runId": "run-root-0a",
+          "parentRunId": null,
+          "rootRunId": "run-root-0a",
+          "runName": "lead-rollout",
+          "depth": 0,
+          "chain": [
+            "lead-rollout"
+          ]
+        }
+      ],
+      "primaryRunId": "run-root-0a",
+      "roleName": "lead"
+    },
+    {
+      "agentId": "d7m2xw9e",
+      "displayName": "Tomas Lindqvist",
+      "title": "Staff Reviewer",
+      "repoRole": "reviewer",
+      "runRole": null,
+      "coordinatesOnly": false,
+      "enrollment": "enrolled",
+      "lifecycle": "ready",
+      "readinessCheckedAt": "2026-09-09T06:58:40.010Z",
+      "session": {
+        "kind": "role-session",
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 24390,
+        "sessionId": "$9",
+        "sessionCreated": 1788902633,
+        "sessionName": "ao-d7m2xw9e",
+        "paneId": "%88",
+        "panePid": 57218,
+        "spawn": null
+      },
+      "memberships": [],
+      "primaryRunId": null,
+      "activity": {
+        "state": "dead",
+        "since": "2026-09-09T21:02:11.000Z",
+        "observed": false
+      },
+      "roleName": "reviewer"
+    },
+    {
+      "agentId": "b4h6rt1c",
+      "displayName": "Amara Okonkwo",
+      "title": "Implementation Engineer",
+      "repoRole": "member",
+      "runRole": "implementer",
+      "coordinatesOnly": false,
+      "enrollment": "enrolled",
+      "lifecycle": "busy",
+      "readinessCheckedAt": "2026-09-09T06:58:41.100Z",
+      "session": {
+        "kind": "spawn",
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 24390,
+        "sessionId": "$104",
+        "sessionCreated": 1788936770,
+        "sessionName": "b4h6rt1c-1f4c9de",
+        "paneId": "%113",
+        "panePid": 4180407,
+        "spawn": "1f4c9de"
+      },
+      "memberships": [
+        {
+          "runId": "run-root-0a",
+          "parentRunId": null,
+          "rootRunId": "run-root-0a",
+          "runName": "lead-rollout",
+          "depth": 0,
+          "chain": [
+            "lead-rollout"
+          ]
+        }
+      ],
+      "primaryRunId": "run-root-0a",
+      "activity": {
+        "state": "unknown",
+        "since": "2026-09-09T21:13:02.000Z",
+        "observed": true
+      },
+      "mailboxDepth": {
+        "depth": 0,
+        "oldestAgeMs": null
+      },
+      "roleName": "implementer",
+      "slots": {
+        "held": [],
+        "waiting": []
+      }
+    },
+    {
+      "agentId": "s2v7ho3j",
+      "displayName": "Kenji Watanabe",
+      "title": "Engineer",
+      "repoRole": "member",
+      "runRole": "worker",
+      "coordinatesOnly": false,
+      "enrollment": "enrolled",
+      "lifecycle": "busy",
+      "readinessCheckedAt": "2026-09-09T06:58:41.140Z",
+      "session": {
+        "kind": "spawn",
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 24390,
+        "sessionId": "$105",
+        "sessionCreated": 1788936801,
+        "sessionName": "s2v7ho3j-9b1e40a",
+        "paneId": "%118",
+        "panePid": 4180512,
+        "spawn": "9b1e40a"
+      },
+      "memberships": [
+        {
+          "runId": "run-root-0a",
+          "parentRunId": null,
+          "rootRunId": "run-root-0a",
+          "runName": "lead-rollout",
+          "depth": 0,
+          "chain": [
+            "lead-rollout"
+          ]
+        }
+      ],
+      "primaryRunId": "run-root-0a",
+      "roleName": "image-gen",
+      "activity": {
+        "state": "working",
+        "since": "2026-09-09T21:10:44.000Z",
+        "observed": true
+      },
+      "mailboxDepth": {
+        "depth": 0,
+        "oldestAgeMs": null
+      },
+      "task": "TM-134"
+    },
+    {
+      "agentId": "f9k1ps5u",
+      "displayName": "Ines Vargas",
+      "title": "Engineer",
+      "repoRole": "member",
+      "runRole": null,
+      "coordinatesOnly": false,
+      "enrollment": "pending",
+      "lifecycle": "starting",
+      "readinessCheckedAt": "2026-09-09T06:58:41.180Z",
+      "session": {
+        "kind": "external",
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 24390,
+        "sessionId": "$14",
+        "sessionCreated": 1788902700,
+        "sessionName": "zsh",
+        "paneId": "%120",
+        "panePid": 60011,
+        "spawn": null
+      },
+      "memberships": [],
+      "primaryRunId": null,
+      "roleName": "worker"
+    }
+  ],
+  "slotQueues": []
+}

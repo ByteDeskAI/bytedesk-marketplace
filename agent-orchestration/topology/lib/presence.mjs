@@ -12,7 +12,15 @@ import { listServerPanes } from "./tmux.mjs";
 import { invariant, run } from "./util.mjs";
 
 export const PRESENCE_BINDING_FIELDS = ["serverKey", "serverPid", "sessionId", "sessionCreated", "paneId", "panePid"];
+// The frozen contract's runRole vocabulary (§3), enforced by exact membership. It is a MAPPING
+// TARGET, never a filter: a run agent whose library role is outside it — `image-gen`, and `lead`,
+// which a run spec never carries because a repo lead appears in its own run as `orchestrator` —
+// used to be `continue`d past, so `add()` never ran and the agent had NO ENTRY IN THE SNAPSHOT AT
+// ALL. Dropping an agent is strictly worse than mislabelling one. Unknown roles now map to the
+// nearest legal token and the truth rides in the additive `roleName` (PRESENCE-HEADER-ADDENDUM.md
+// §3.4/§7), which a v1 consumer ignores. Opening this set is schemaVersion 2, and stays out.
 const ROLES = new Set(["orchestrator", "worker", "designer", "judge", "reviewer", "researcher", "implementer"]);
+const NEAREST_RUN_ROLE = "worker";
 const LIFE = new Set(["starting", "ready", "busy", "unresponsive", "dead"]);
 const COUNTER = /^[0-9]+$/;
 const idValid = value => typeof value === "string" && /^[a-z0-9]{8}$/.test(value);
@@ -133,7 +141,7 @@ export async function collectPresenceAgents({consumer, repositoryRoot, identity,
     panes.set(bindingKey(pane),pane);
   }
   const agents = new Map();
-  const add = (record, {agentId,kind="role-session",runRole=null,membership:member=null,enrollment="enrolled",spawn=null}={}) => {
+  const add = (record, {agentId,kind="role-session",runRole=null,roleName=null,membership:member=null,enrollment="enrolled",spawn=null}={}) => {
     const binding=bindingOf(record);
     if(!validBinding(binding)) return;
     const pane=panes.get(bindingKey(binding)); if(!pane) return;
@@ -144,12 +152,16 @@ export async function collectPresenceAgents({consumer, repositoryRoot, identity,
     if(entry) {
       invariant(entry.agentId === agentId,"TOPOLOGY_PRESENCE_CONFLICT","Two identities claim one pane incarnation.");
       if(member && !entry.memberships.some(m=>m.runId===member.runId)) entry.memberships.push(member);
-      if(member && entry.primaryRunId === null) {entry.primaryRunId=member.runId;entry.runRole=runRole;}
+      if(member && entry.primaryRunId === null) {entry.primaryRunId=member.runId;entry.runRole=runRole;if(roleName) entry.roleName=roleName;}
       return;
     }
     const repoRole=def?.role === "lead" ? "lead" : def?.role === "reviewer" ? "reviewer" : "member";
     const lifecycle=pane.alive === false ? "dead" : LIFE.has(record.lifecycle) ? record.lifecycle : record.ready === true ? "ready" : "starting";
-    entry={agentId,displayName:typeof def?.full_name === "string" ? def.full_name : "Unenrolled agent",title:typeof def?.title === "string" ? def.title : "Agent",repoRole,runRole,coordinatesOnly:def?.coordinates_only === true,enrollment,lifecycle,readinessCheckedAt:typeof (record.readiness_checked_at ?? record.readinessCheckedAt) === "string" ? (record.readiness_checked_at ?? record.readinessCheckedAt) : null,
+    // Additive and optional: emitted only when a role token was actually read, never as a
+    // placeholder. `repoRole`/`runRole` stay inside their frozen vocabularies; this carries what
+    // the producer actually knows so nothing has to be coerced or dropped.
+    const trueRole=typeof roleName === "string" && roleName ? roleName : typeof def?.role === "string" && def.role ? def.role : null;
+    entry={agentId,displayName:typeof def?.full_name === "string" ? def.full_name : "Unenrolled agent",title:typeof def?.title === "string" ? def.title : "Agent",repoRole,runRole,...(trueRole?{roleName:trueRole}:{}),coordinatesOnly:def?.coordinates_only === true,enrollment,lifecycle,readinessCheckedAt:typeof (record.readiness_checked_at ?? record.readinessCheckedAt) === "string" ? (record.readiness_checked_at ?? record.readinessCheckedAt) : null,
       session:{kind,...Object.fromEntries(PRESENCE_BINDING_FIELDS.map(k=>[k,pane[k]])),sessionName:pane.sessionName,spawn},memberships:member?[member]:[],primaryRunId:member?.runId??null};
     agents.set(key,entry);
   };
@@ -157,9 +169,9 @@ export async function collectPresenceAgents({consumer, repositoryRoot, identity,
   for(const record of [...runs.values()].sort((a,b)=>a.run_id.localeCompare(b.run_id))) {
     const member=await membership(record,identity.id);
     for(const agent of record.agents??[]) {
-      if(!ROLES.has(agent.role)) continue;
       const spawn=typeof agent.spawn === "string" && /^[a-f0-9]{7}$/.test(agent.spawn) ? agent.spawn : null;
-      add(agent,{agentId:agent.agent_id ?? agent.id,kind:spawn?"spawn":"run",spawn,runRole:agent.role,membership:member});
+      const declared=typeof agent.role === "string" && agent.role ? agent.role : null;
+      add(agent,{agentId:agent.agent_id ?? agent.id,kind:spawn?"spawn":"run",spawn,runRole:ROLES.has(declared)?declared:NEAREST_RUN_ROLE,roleName:declared,membership:member});
     }
   }
   for(const record of pending) {
