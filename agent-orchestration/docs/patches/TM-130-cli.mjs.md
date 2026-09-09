@@ -1,19 +1,29 @@
 # TM-130 — patch for `topology/cli.mjs`
 
-`topology/cli.mjs` is integrator-owned for the duration of TM-127/TM-130, so this is the change I
-want rather than an edit I made. Everything it depends on is already committed on
-`tm/TM-130-delivery-state-machine`: `topology/lib/delivery.mjs`, the `composer` block on
-`providers/{claude,codex,kimi}.json`, and `assertTmuxPattern` in `topology/lib/providers.mjs`.
+**Written against `main` @ `ebc92e3`** (the merged TM-127 tip), re-anchored after `d79db04` moved
+this file. Every line number below is `main`'s. `topology/cli.mjs` is integrator-owned, so this is
+the change I want rather than an edit I made.
 
-Four changes: wire the ring into `send`, implement `--no-ring` (it has been in `USAGE` and in two
-test files since it was written, and was never implemented in the `send` body), add the optional
+Everything it depends on is committed on `tm/TM-130-delivery-state-machine`:
+`topology/lib/delivery.mjs`, the `composer` block on `providers/{claude,codex,kimi}.json`, and
+`assertTmuxPattern` in `topology/lib/providers.mjs`.
+
+> **What `d79db04` changed under this patch.** `ensureSupervision(ctx)` is now called from `launch`,
+> `session open` and `send`. In `send` it lands inside the `out({…})` object (line 833), *after* the
+> `delivered` loop has already run — so the loop this patch replaces (lines 813-828) is **byte-for-byte
+> identical** to the pre-merge version and the replacement below applies verbatim. The `status` body
+> is unchanged too; only its line numbers moved. The exit-3 addition is the one place the merge
+> matters, and it is called out there.
+
+Four changes: wire the ring into `send`, implement `--no-ring` (it has been in `USAGE` at line 65
+and in two test files since this command was written, and the body never read it), add the optional
 `ack` verb, and give `status` an `! UNDELIVERED` banner.
 
 ---
 
 ## 1. Imports
 
-**Context — `topology/cli.mjs:11-13`:**
+**Context — `topology/cli.mjs:10-12` (main):**
 
 ```js
 import { doctor as runDoctor, tmuxInstallPlan } from "./lib/doctor.mjs";
@@ -38,7 +48,8 @@ unit tests drive the whole state machine with a stub that throws on any tmux use
 
 ## 2. `send` — the ring, and `--no-ring`
 
-**Context — `topology/cli.mjs:748-765`** (the block TM-127 left as a permanent `rang: false`):
+**Context — `topology/cli.mjs:813-828` (main)**, the block TM-127 left as a permanent `rang: false`.
+Unchanged by `d79db04`, so this matches your working tree exactly:
 
 ```js
     const delivered = [];
@@ -144,23 +155,34 @@ mailbox and no bell was rung — which is what an adapter with no measured compo
 
 ## 3. `send` — exit 3
 
-**Context — the end of `send`, `topology/cli.mjs:767-780`:**
+**Context — the end of `send`, `topology/cli.mjs:830-843` (main).** This is the block `d79db04`
+touched: `supervision:` is line 833, and it must keep running before the exit code is set, because a
+degraded supervisor is not what exit 3 means.
 
 ```js
     out({
       ok: true,
       id: message.id,
+      // The receiving repo is the run's, never the caller's cwd — same reasoning as routingConsumer.
+      supervision: await ensureSupervision({ ...ctx, consumer: routingConsumer || ctx.consumer }),
       deliveries: message.deliveries,
       holds: message.holds,
       delivered,
+      // A redirect is not an error, but the sender has to be told: it is waiting on an answer from
+      // an agent that never received the message.
+      redirected: message.redirects.length > 0 ? message.redirects : undefined,
+      next: `${CLI_BIN} wait --run ${runDir} --from ${list(flags.to).join(",")} --message ${message.id} --timeout 20m`,
+    });
+  },
 ```
 
-**Change (add after the `out({...})` call, before the closing `},` of `send`):**
+**Change — insert between the closing `});` of `out({…})` (line 843) and the `},` that ends `send`:**
 
 ```js
     // Exit 3 ONLY when the pane was judged safe and the pointer still did not land. Never for
     // `held` (nothing was typed, so nothing is wrong with the pane), never for an adapter with no
-    // measured composer, never for `--no-ring`. `isUndelivered` is that rule in one place.
+    // measured composer, never for `--no-ring`, and never for a degraded supervisor. `isUndelivered`
+    // is that rule in one place.
     if (delivered.some((item) => isUndelivered(item.delivery))) process.exitCode = 3;
 ```
 
@@ -182,18 +204,21 @@ engagement is a `pane.log` byte offset, which costs zero model turns. Add to the
   },
 ```
 
-and to `USAGE`, under the `send`/`wait` group:
+and to `USAGE`, immediately after the `wait` line (`topology/cli.mjs:66`):
 
 ```
   ack --run <run_dir> --agent <id> --message <id> [--note <text>]
                                                optional receipt; no state depends on it
 ```
 
+Deliberately NOT wired to `ensureSupervision`: `ack` is a journal append that an agent or a hook may
+fire at any moment, and it changes no standing state.
+
 ---
 
 ## 5. `status` — the `! UNDELIVERED` banner
 
-**Context — `topology/cli.mjs:900-914`** (the `stalled` computation and the report object):
+**Context — `topology/cli.mjs:966-969` (main)**, unchanged by `d79db04`:
 
 ```js
     const stalled = Boolean(
@@ -215,7 +240,7 @@ and to `USAGE`, under the `send`/`wait` group:
     const report = { run_id: run.run_id, name: run.name, session: run.session, session_alive: alive, state: run.state, run_dir: runDir, inputs: run.inputs, agents, pending_count: pending.length, queues, stalled, undelivered, recent: journal };
 ```
 
-**And after the existing `if (stalled) { ... }` block (`topology/cli.mjs:909-914`), add:**
+**And after the existing `if (stalled) { … }` block (`topology/cli.mjs:976-980`), add:**
 
 ```js
     if (undelivered.length > 0) {
@@ -227,3 +252,16 @@ and to `USAGE`, under the `send`/`wait` group:
 
 The wording deliberately mirrors the `! STALLED` block above it: name the condition, say what it
 looks like, and end with the exact command that fixes it.
+
+---
+
+## Note on TM-139 (`absolutize`'s default parameter and a dead cwd)
+
+Checked, because it is the same class of bug. **Nothing in `topology/lib/delivery.mjs` assumes a
+live cwd.** It never calls `absolutize`, never calls `process.cwd()`, and every path it touches is
+derived from the absolute `runDir` the CLI already resolved — `join(runDir, ".mailbox-sequence.lock")`,
+`agentDir(runDir, agentId)`, `join(dir, "pane.log")`. Its tmux calls go through the existing
+`tmux()` → `run()` path with `cwd` unset, exactly as every other caller in this layer already does,
+so it adds no new exposure. The `join(process.cwd(), "providers")` in
+`tests/unit/topology-delivery.test.mjs` is test-only and matches the convention in
+`tests/unit/topology-mailbox.test.mjs`. I have not touched `util.mjs`.

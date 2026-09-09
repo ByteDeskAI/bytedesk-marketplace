@@ -149,6 +149,12 @@ export function classifyLanding({ countRose, composerEmpty }) {
  *
  * Nothing here re-sends the message of record — `nextSequence(runDir, idempotencyKey, fingerprint)`
  * is already idempotent, and this ladder never calls it.
+ *
+ * NAME COLLISION, deliberate and worth knowing before you grep: `supervision.mjs` also exports a
+ * `nextRung`, and it is a different ladder — it returns an index into `SLEEP_LADDER_MS` for the
+ * reconcile loop's backoff. Nothing imports both (there is no `export *` anywhere in this
+ * directory), so the two never meet; but if you searched for "nextRung" and landed here expecting
+ * a sleep interval, this is the retry ladder for one message's doorbell.
  */
 export function nextRung({ state, safe = true, resubmits = 0, retypes = 0, exhausted = false }) {
   if (state === "submitted" || state === "engaged" || state === "processed") return null;
