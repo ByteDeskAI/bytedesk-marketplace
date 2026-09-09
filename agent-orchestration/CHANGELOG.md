@@ -121,6 +121,46 @@
   `prompts.mjs` now say: do the work in the same turn you read the message, do not stop to confirm
   receipt and wait to be told to continue, and if you are blocked still write a reply saying what is
   missing.
+## [0.7.1] — 2026-09-09
+
+TM-139. A supervisor died on startup whenever its working directory had been removed, and said
+`state: "starting"` while doing it. Found by the logging added in 0.7.0, which is the first time
+this failure left any trace at all.
+
+### Fixed
+
+- **`absolutize()` consulted the cwd for paths that were already absolute.** `base` was a default
+  parameter (`base = process.cwd()`), and a default parameter is evaluated on every call where the
+  argument is undefined — including the absolute-path branch that never reads it. `process.cwd()`
+  throws `ENOENT … uv_cwd` inside a process whose working directory has been unlinked, so
+  `ao-topology supervise --consumer /abs/path` died resolving a path it had already been given in
+  absolute form. `tm` removes a task-owned worktree after a verified merge, so this is a routine
+  case, not a test artifact. `base` is now resolved lazily, on the relative branch only. All 19
+  call sites were checked: none depended on the eager evaluation, and a `null` base — previously a
+  `TypeError` — now falls back to the cwd like an omitted one.
+- **A supervisor that lost its repository ran forever.** Fixing the crash above turned a
+  self-clearing failure into an immortal daemon spinning against a deleted path. The tick now
+  checks that its consumer still exists, retires with `state: "consumer-gone"` and `stopped_at`,
+  and exits.
+- **Two unit tests wrote into the developer's real `~/.local/state`.** `send` self-starts a
+  supervisor as of 0.7.0, so `tests/unit/topology-mailbox.test.mjs` — which shells `cli.mjs send`
+  without pinning `AGENT_ORCHESTRATION_STATE_HOME` — spawned a real background daemon per run and
+  orphaned its record when the temp dir went away. That is where all ten stale records came from.
+  The state home is now pinned, and tests that start a real daemon reap it before removing the
+  directory it writes to.
+
+### Changed
+
+- **The process record advances past `starting`.** The first completed tick promotes it to
+  `state: "running"` with `first_tick_at`, so a startup crash is now mechanically distinguishable
+  from a supervisor that has only just been spawned.
+- **`supervisionStatus` names the failure instead of calling everything `down`**: `never-started`,
+  `running-or-ownership-unknown`, `died-before-first-tick`, `retired-consumer-gone`, `orphaned`,
+  `down` — plus `consumer_exists`, `record_state`, `record_path` and `stopped_at`.
+- **`doctor` gains `SUPERVISOR_NEVER_TICKED`** (died during startup; read the log) and
+  **`SUPERVISOR_ORPHANED`** (a record naming a directory that no longer exists, which no restart can
+  reclaim — debris, with the exact file to delete). A clean `retired-consumer-gone` is not a fault
+  and raises nothing.
 
 ## [0.7.0] — 2026-09-09
 

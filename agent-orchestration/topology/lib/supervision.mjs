@@ -33,7 +33,7 @@ import { withLock } from './lockfile.mjs';
 import { listAgents, agentDirs } from './agents.mjs';
 import { refreshPrompt } from './prompt-lifecycle.mjs';
 import { resumeStandingMessages } from './standing-mailbox.mjs';
-import { sleep, writeJson, readJson, run } from './util.mjs';
+import { exists, sleep, writeJson, readJson, run } from './util.mjs';
 
 /** Adaptive tick sleep. Index 0 is the busy rung; a quiet tick walks one rung down the list. */
 export const SLEEP_LADDER_MS = [2000, 5000, 15000];
@@ -136,6 +136,7 @@ export async function superviseRepository(options, { signal, once = false, inter
        prompts:prompts.map(p=>({agent:p.agent,status:p.state.status,errors:p.state.errors})),
        mail:resumed.map(m=>({id:m.envelope.id,status:m.status,reason:m.reason}))};
      await writeJson(join(root,`${key}.json`),report);
+     await promoteRecord(join(root,`${key}.process.json`));
      return {report,activity};
    };
    try {
@@ -144,6 +145,17 @@ export async function superviseRepository(options, { signal, once = false, inter
      let lastReconcileAt=-Infinity, rung=-1, report=null;
      do {
        if(heartbeatError) throw heartbeatError;
+       // A consumer can be removed out from under a live daemon — `tm` removes a task-owned
+       // worktree after a verified merge. There is then nothing left to supervise, and a supervisor
+       // that keeps ticking against a deleted directory is an immortal process nobody will ever
+       // think to look for. Before TM-139 this case "solved itself" by crashing on uv_cwd; now that
+       // it no longer crashes, it has to retire deliberately, and say so in its record.
+       if(!(await exists(consumer))) {
+         await retireRecord(join(root,`${key}.process.json`));
+         report={...report,at:new Date().toISOString(),reconciled:false,stopped:'consumer-gone'};
+         await onTick(report);
+         return report;
+       }
        let activity=false;
        // `once` always reconciles: a single-shot supervise is asking for the expensive answer.
        //
@@ -207,6 +219,31 @@ export async function superviseRepository(options, { signal, once = false, inter
  },{timeoutMs:100});
 }
 
+/**
+ * A process record written by startRepositorySupervision says `state: "starting"` and nothing ever
+ * moved it, so a supervisor that died during startup was indistinguishable from one that had just
+ * been spawned — which is how five records sat at `starting` with dead pids and a stack trace in
+ * their logs that nobody was looking for. The first completed tick is the proof that startup
+ * finished, so that is where the record advances. Only OUR pid's record is touched, and a missing
+ * record is fine: a hand-run `ao-topology supervise` has none and must not invent one.
+ */
+async function promoteRecord(recordPath) {
+  try {
+    const record = await readJson(recordPath);
+    if (record?.pid !== process.pid || record.state === 'running') return;
+    await writeJson(recordPath, { ...record, state: 'running', first_tick_at: new Date().toISOString() });
+  } catch { /* observability only: never fail a tick because bookkeeping could not be written */ }
+}
+
+/** Retire our own record when the repository we supervise is gone. Same ownership rule as promote. */
+async function retireRecord(recordPath) {
+  try {
+    const record = await readJson(recordPath);
+    if (record?.pid !== process.pid) return;
+    await writeJson(recordPath, { ...record, state: 'consumer-gone', stopped_at: new Date().toISOString() });
+  } catch { /* observability only */ }
+}
+
 function pidAlive(pid) {
   try { process.kill(pid,0); return true; }
   catch (error) { if (error.code==='ESRCH') return false; return true; }
@@ -219,14 +256,32 @@ function pidAlive(pid) {
 export async function supervisionStatus({consumer,env=process.env,home=homedir()}={}) {
   const identity=await canonicalRepoId(consumer), key=repoKey(identity.id);
   const root=join(stateRoot(env,home),'supervision');
-  const record=await readJson(join(root,`${key}.process.json`)).catch(()=>null);
+  const recordPath=join(root,`${key}.process.json`);
+  const record=await readJson(recordPath).catch(()=>null);
   const tick=await readJson(join(root,`${key}.json`)).catch(()=>null);
   const at=tick?.at ? Date.parse(tick.at) : NaN;
+  const alive=record ? pidAlive(record.pid) : false;
+  // The consumer can outlive nothing: `tm` removes a task-owned worktree after a verified merge,
+  // and a record naming a directory that is gone can never be reclaimed by a restart. It is debris,
+  // and saying so is what stops it making the next diagnosis harder.
+  const consumerExists=record?.consumer ? await exists(record.consumer) : true;
+  const state = !record ? 'never-started'
+    : alive ? 'running-or-ownership-unknown'
+    // A supervisor that noticed its repository was gone and stopped did the right thing; only an
+    // UNEXPLAINED record for a vanished consumer is debris worth flagging.
+    : record.state === 'consumer-gone' ? 'retired-consumer-gone'
+    : !consumerExists ? 'orphaned'
+    // `starting` on a dead pid means it never reached its first tick — a startup crash, not a
+    // long-running supervisor that later fell over. The log holds the reason.
+    : record.state === 'starting' ? 'died-before-first-tick'
+    : 'down';
   return {
-    repo_id:identity.id, key,
-    state: !record ? 'never-started' : pidAlive(record.pid) ? 'running-or-ownership-unknown' : 'down',
-    pid:record?.pid ?? null, pid_alive:record ? pidAlive(record.pid) : false,
-    started_at:record?.started_at ?? null, restarts:record?.restarts ?? 0,
+    repo_id:identity.id, key, state,
+    pid:record?.pid ?? null, pid_alive:alive,
+    consumer:record?.consumer ?? null, consumer_exists:consumerExists,
+    record_state:record?.state ?? null, record_path:recordPath,
+    started_at:record?.started_at ?? null, first_tick_at:record?.first_tick_at ?? null, stopped_at:record?.stopped_at ?? null,
+    restarts:record?.restarts ?? 0,
     log:record?.log ?? join(root,`${key}.log`),
     last_tick_at:tick?.at ?? null, tick_age_ms:Number.isFinite(at) ? Date.now()-at : null,
     reconcile_min_ms:tick?.reconcile_min_ms ?? reconcileFloor(env),

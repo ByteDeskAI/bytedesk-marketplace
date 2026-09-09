@@ -117,11 +117,20 @@ export function expandHome(path) {
   return path;
 }
 
-export function absolutize(path, base = process.cwd()) {
+export function absolutize(path, base) {
   // resolve() also normalizes separators, so a template like "{{consumer}}/.orchestration/runs"
   // does not leave mixed / and \\ in a Windows run directory.
+  //
+  // `base` is resolved LAZILY and only on the relative branch. It used to be a default parameter
+  // (`base = process.cwd()`), and a default parameter is evaluated on every call where the argument
+  // is undefined — including every call with an already-absolute path that never reads it. That is
+  // not free: process.cwd() throws `ENOENT: uv_cwd` inside a process whose working directory has
+  // been unlinked, so a long-lived daemon started in a directory that later goes away (tm removing
+  // a task-owned worktree after a verified merge is the routine case) died on startup while
+  // resolving a path it had already been given in absolute form. An absolute path must never need
+  // a cwd to exist. TM-139.
   const expanded = expandHome(path);
-  return isAbsolute(expanded) ? resolve(expanded) : resolve(base, expanded);
+  return isAbsolute(expanded) ? resolve(expanded) : resolve(base ?? process.cwd(), expanded);
 }
 
 export async function readJson(path) {
