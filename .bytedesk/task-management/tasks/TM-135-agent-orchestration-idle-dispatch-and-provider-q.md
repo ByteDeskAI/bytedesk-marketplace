@@ -1,7 +1,7 @@
 ---
 id: "TM-135"
 kind: "task"
-status: "blocked"
+status: "open"
 created: "2026-09-09T21:32:31.188Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "agent-orchestration: idle dispatch and provider-quota failover"
@@ -15,7 +15,7 @@ actor: "main"
 session: "e01dd923-50ea-45d8-9911-b9d5faed94bd"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-09T21:33:05.960Z"
+updated: "2026-09-09T23:11:40.944Z"
 ---
 
 Two halves of the same tick. Idle dispatch hands a ready task to an already-live idle enrolled agent instead of launching a new one; quota failover detects a provider usage-limit mid-run, which today nobody looks for after startup. Both implementers died on 'Error: [provider.auth_error] 403 You have reached your 5-hour usage limit' and were recovered only by a human authorising a manual Codex takeover. Design detail is in the approved plan under .bytedesk/task-management/plans/.
