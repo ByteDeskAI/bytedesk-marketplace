@@ -1,0 +1,8 @@
+[
+  {
+    "name": "ao-supervise",
+    "description": "One repository supervisor for the checkout Claude is open in. It republishes the Presence v1 snapshot on the contract's own heartbeat (staleAfterMs/3, ~10s — without it a gateway reads this repo as permanently stale), reconciles derived state on a slower adaptive tick (prompt refresh for enrolled agents, held standing mail), and runs the per-tmux-server watcher that labels direct, hookless agent starts as pending-enrollment. It reconciles DERIVED state only: it launches no agent, kills no session, sends no keys and merges nothing. A second supervisor for the same repository — one per open worktree, since linked worktrees share a canonical repository id — loses the per-repo supervision lock and exits instead of double-publishing.",
+    "command": "${CLAUDE_PLUGIN_ROOT}/bin/ao-topology supervise",
+    "when": "always"
+  }
+]

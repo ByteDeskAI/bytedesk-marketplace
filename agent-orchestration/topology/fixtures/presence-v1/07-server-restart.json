@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "repositoryKey": "9f2c41ab77e0d3b5",
+  "repositoryRoot": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace",
+  "generation": "14",
+  "revision": "1",
+  "generatedAt": "2026-09-09T07:05:10.500Z",
+  "staleAfterMs": 30000,
+  "clockSkewToleranceMs": 5000,
+  "agents": [
+    {
+      "agentId": "k3n8vq2a",
+      "displayName": "Priya Raman",
+      "title": "Engineering Lead",
+      "repoRole": "lead",
+      "runRole": "orchestrator",
+      "coordinatesOnly": true,
+      "enrollment": "enrolled",
+      "lifecycle": "ready",
+      "readinessCheckedAt": "2026-09-09T07:05:10.100Z",
+      "session": {
+        "kind": "role-session",
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 31877,
+        "sessionId": "$7",
+        "sessionCreated": 1788937400,
+        "sessionName": "ao-k3n8vq2a",
+        "paneId": "%3",
+        "panePid": 25863,
+        "spawn": null
+      },
+      "memberships": [
+        {
+          "runId": "run-root-0a",
+          "parentRunId": null,
+          "rootRunId": "run-root-0a",
+          "runName": "lead-rollout",
+          "depth": 0,
+          "chain": [
+            "lead-rollout"
+          ]
+        }
+      ],
+      "primaryRunId": "run-root-0a"
+    },
+    {
+      "agentId": "b4h6rt1c",
+      "displayName": "Amara Okonkwo",
+      "title": "Implementation Engineer",
+      "repoRole": "member",
+      "runRole": "implementer",
+      "coordinatesOnly": false,
+      "enrollment": "enrolled",
+      "lifecycle": "starting",
+      "readinessCheckedAt": "2026-09-09T07:05:10.200Z",
+      "session": {
+        "kind": "spawn",
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 31877,
+        "sessionId": "$104",
+        "sessionCreated": 1788937402,
+        "sessionName": "b4h6rt1c-1f4c9de",
+        "paneId": "%113",
+        "panePid": 4180407,
+        "spawn": "1f4c9de"
+      },
+      "memberships": [
+        {
+          "runId": "run-root-0a",
+          "parentRunId": null,
+          "rootRunId": "run-root-0a",
+          "runName": "lead-rollout",
+          "depth": 0,
+          "chain": [
+            "lead-rollout"
+          ]
+        }
+      ],
+      "primaryRunId": "run-root-0a"
+    }
+  ]
+}

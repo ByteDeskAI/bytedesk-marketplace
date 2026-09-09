@@ -1,7 +1,8 @@
 // Small shared helpers for the topology layer. Zero dependencies on purpose:
 // this code runs from an installed plugin cache with no node_modules.
 import { execFile as execFileCallback } from "node:child_process";
-import { mkdir, readFile, writeFile, stat } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, writeFile, stat, open, rename, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -27,19 +28,25 @@ export function invariant(condition, code, message, details) {
 
 /** Run a command with argv (never a shell string). */
 export async function run(command, args, options = {}) {
+  const started = performance.now();
+  const timeoutMs = options.timeoutMs ?? 30_000;
   try {
     const result = await execFile(command, args, {
       cwd: options.cwd,
       env: options.env ?? process.env,
       encoding: "utf8",
       maxBuffer: options.maxBuffer ?? 8 * 1024 * 1024,
-      timeout: options.timeoutMs ?? 30_000,
+      timeout: timeoutMs,
       windowsHide: true,
     });
+    if (timeoutMs > 0 && performance.now() - started >= timeoutMs) {
+      const error = Object.assign(new Error(`Command exceeded ${timeoutMs}ms deadline`), {code:124, killed:true, stdout:result.stdout, stderr:result.stderr});
+      throw error;
+    }
     return { code: 0, stdout: result.stdout, stderr: result.stderr };
   } catch (error) {
     if (options.allowFailure) {
-      return { code: error.code ?? 1, stdout: error.stdout ?? "", stderr: error.stderr ?? String(error.message) };
+      return { code: error.killed ? 124 : (error.code || 1), stdout: error.stdout ?? "", stderr: error.stderr ?? String(error.message) };
     }
     throw error;
   }
@@ -128,7 +135,14 @@ export async function readJson(path) {
 
 export async function writeJson(path, value) {
   await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  const temp = `${path}.${randomUUID()}.tmp`;
+  let handle;
+  try {
+    handle = await open(temp, 'wx', 0o600);
+    await handle.writeFile(`${JSON.stringify(value, null, 2)}\n`, 'utf8');
+    await handle.sync(); await handle.close(); handle = null;
+    await rename(temp, path);
+  } finally { await handle?.close(); await rm(temp, { force:true }); }
 }
 
 export async function writeText(path, text, mode) {

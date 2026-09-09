@@ -167,7 +167,8 @@ test("a spec entry may reference a stored agent, and anything inline overrides t
     assert.equal(first.cli, "claude");
     assert.deepEqual(first.skills, ["review"], "stored skills are inherited");
     assert.deepEqual(first.mcp, ["filesystem"], "the mcp field survives materialization");
-    assert.ok(first.instructions.includes(conductor.full_name), "the stored prompt.md becomes the agent's instructions");
+    assert.equal(first.instructions_file, undefined, "generated library prompt is output, not a source");
+    assert.equal(first.full_name, conductor.full_name, "identity is available to the shared resolver");
     assert.equal(first._agent, conductor.id, "the materialized agent still points at its library identity");
 
     assert.equal(second.id, "second", "an explicit id wins over the derived one");
@@ -211,6 +212,14 @@ test("a system prompt can come from a file, and a missing one is fatal", async (
     const rendered = materializeSpec(spec, { runId: "r", consumer, home: "/h", inputs: resolveInputs(spec, {}) });
     assert.equal(rendered.agents[0].instructions, "Ship the vault, conductor.\n\nThen stop.", "the file leads and inline instructions follow");
 
+    const {composePrompt} = await import('../../topology/lib/prompts.mjs');
+    const {loadConfig} = await import('../../topology/lib/config.mjs');
+    const definition = {...rendered.agents[0], instructions:rendered.agents[0]._inline_instructions};
+    const composed = await composePrompt({agent:definition,consumer,dir:join(consumer,'run-agent'),loaded:await loadConfig({consumer,home:'/h',env:{}})});
+    assert.equal(composed.ok,true);
+    assert.match(composed.text,/Ship the vault, conductor\./);
+    assert.equal(composed.text.includes('{{'),false);
+    assert.equal(composed.text.split('Then stop.').length,2);
     const missing = validateSpec({ ...spec, agents: [{ id: "conductor", role: "orchestrator", cli: "claude", instructions_file: "nope.md" }] });
     assert.throws(
       () => materializeSpec(missing, { runId: "r", consumer, home: "/h", inputs: resolveInputs(spec, {}) }),
@@ -333,7 +342,8 @@ test("a library agent found outside the consumer still works inside it", async (
     // directory in another repo — and a cwd outside the consumer would not survive containment.
     assert.equal(rendered.agents[0].cwd, join(consumer, ".bytedesk", "agent-orchestration", "agents", shared.id));
     assert.ok(existsSync(rendered.agents[0].cwd));
-    assert.ok(rendered.agents[0].instructions.includes(shared.full_name), "its prompt still comes from where it is stored");
+    assert.equal(rendered.agents[0].full_name, shared.full_name, "shared identity is retained for fresh composition");
+    assert.equal(rendered.agents[0].instructions_file,undefined,"generated library output is not recursively composed");
   } finally {
     await rm(consumer, { recursive: true, force: true });
     await rm(library, { recursive: true, force: true });

@@ -34,5 +34,6 @@
     "--version"
   ],
   "install_hint": "Install Kimi Code CLI (~/.kimi-code/bin/kimi).",
-  "notes": "--auto is Never Ask mode; -y/--yolo is the milder Ask When Needed. auto_approve uses --auto because the launcher cannot answer a prompt. Coordinator form UNVERIFIED: `kimi --help` lists `--plan` ('Start in plan mode') which is the likely candidate, but the help does not state that plan mode is read-only, so it is not claimed here."
+  "notes": "--auto is Never Ask mode; -y/--yolo is the milder Ask When Needed. auto_approve uses --auto because the launcher cannot answer a prompt. Coordinator form UNVERIFIED: `kimi --help` lists `--plan` ('Start in plan mode') which is the likely candidate, but the help does not state that plan mode is read-only, so it is not claimed here.",
+  "requires_repository_readiness": true
 }

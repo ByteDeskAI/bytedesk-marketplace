@@ -94,6 +94,22 @@ export function normalizeAdapter(raw, source) {
   }
   adapter.ready = { ...GENERIC_ADAPTER.ready, ...(adapter.ready ?? {}) };
   adapter.memory = { ...GENERIC_ADAPTER.memory, ...(adapter.memory ?? {}) };
+  // Native session-start hook coverage, when the CLI has a mechanism we have observed. Absent means
+  // honestly none — the startup layer reports no coverage rather than inventing one. Normalized to
+  // { kind, path, event } so startup.mjs can switch on kind without re-validating.
+  if (adapter.hooks === undefined || adapter.hooks === null) {
+    adapter.hooks = null;
+  } else {
+    invariant(
+      typeof adapter.hooks === "object" && !Array.isArray(adapter.hooks)
+        && typeof adapter.hooks.kind === "string" && adapter.hooks.kind
+        && typeof adapter.hooks.path === "string" && adapter.hooks.path
+        && typeof adapter.hooks.event === "string" && adapter.hooks.event,
+      "TOPOLOGY_ADAPTER_INVALID",
+      `Adapter ${adapter.id}: "hooks" must be { kind, path, event } — the mechanism, the settings file it lives in, and the event to hang on.`,
+    );
+    adapter.hooks = { kind: adapter.hooks.kind, path: adapter.hooks.path, event: adapter.hooks.event };
+  }
   invariant(
     MEMORY_SCOPES.includes(adapter.memory.scope),
     "TOPOLOGY_ADAPTER_INVALID",
@@ -302,6 +318,7 @@ export function adapterSummary(adapter) {
       add_dir: grantsDirs(adapter),
       coordinator: (adapter.coordinator_args ?? []).length > 0,
       ready_pattern: Boolean(adapter.ready.pattern),
+      hooks: Boolean(adapter.hooks),
     },
     memory: adapter.memory ?? GENERIC_ADAPTER.memory,
     source: adapter.source,

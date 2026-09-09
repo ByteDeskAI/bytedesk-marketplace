@@ -8,11 +8,12 @@
 // acknowledged to the sender, and keeps the original addressee in the envelope. A message that
 // silently changes recipient is the failure mode this whole layer exists to avoid.
 import { randomBytes } from "node:crypto";
-import { mkdir, readFile, readdir, realpath } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { mkdir, readFile, readdir } from "node:fs/promises";
+import { join } from "node:path";
 import { consumerResourceDirs, invariant, nowIso, readJson, writeJson } from "./util.mjs";
 import { agentDirs, findLead, resolveAgentRef } from "./agents.mjs";
 import { displayName } from "./identity.mjs";
+import { canonicalRepoId } from "./repoid.mjs";
 
 export const DELEGATIONS_KIND = "delegations";
 const DEFAULT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -212,8 +213,7 @@ export async function delegationAllows(consumer, { from, to, task, token, agent 
  */
 export async function sameProject(a, b) {
   if (!a || !b) return false;
-  const real = async (p) => realpath(resolve(p)).catch(() => resolve(p));
-  return (await real(a)) === (await real(b));
+  return (await canonicalRepoId(a)).id === (await canonicalRepoId(b)).id;
 }
 
 /**
@@ -236,7 +236,11 @@ export async function routeMessage({ consumer, pluginRoot, home, from, fromProje
   };
   if (target) decision.coordinates_only = coordinatesOnly(target);
 
-  const external = Boolean(fromProject && consumer && !(await sameProject(fromProject, consumer)));
+  // An omitted source is UNVOUCHED, and unvouched is external. A message that cannot name the repo
+  // it came from must not bypass admission: letting `fromProject: undefined` pass as same-project
+  // meant any sender could reach a member directly simply by declining to say where it was from —
+  // the one route this layer exists to close.
+  const external = !fromProject || !consumer || !(await sameProject(fromProject, consumer));
 
   // Send it to the lead, unless doing so would send it back where it has already been. Shared by
   // the unresolvable-recipient case and the no-delegation case, because both are the same answer:
@@ -244,7 +248,11 @@ export async function routeMessage({ consumer, pluginRoot, home, from, fromProje
   const toLead = async (because, intended) => {
     const lead = await findLead(dirs);
     if (!lead) {
-      decision.reason = `${because}; no lead declared in this repo, so it was delivered as addressed`;
+      // Fail closed. Delivering as addressed when there is no lead hands an unvouched outsider a
+      // member of this repo precisely when nobody exists to vouch for the contact — the absence of
+      // the front door is exactly when the door matters.
+      decision.blocked = "no_lead";
+      decision.reason = `${because}; admission refused the unvouched contact because this repo has no lead to vouch for it`;
       return decision;
     }
     if (wouldLoop(via, lead.id)) {

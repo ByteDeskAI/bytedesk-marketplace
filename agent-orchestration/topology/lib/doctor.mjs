@@ -57,7 +57,7 @@ export function tmuxInstallPlan(osInfo) {
   }
 }
 
-export async function doctor({ adapters, workflowDirs, skillDirs, roleDirs, providerDirs }) {
+export async function doctor({ adapters, workflowDirs, skillDirs, roleDirs, providerDirs, consumer, env, home }) {
   const osInfo = await detectOs();
   const tmux = await tmuxVersion();
   const node = process.version;
@@ -76,5 +76,24 @@ export async function doctor({ adapters, workflowDirs, skillDirs, roleDirs, prov
   if (osInfo.platform === "win32" && !osInfo.wsl) problems.push({ code: "WINDOWS_HOST", message: "Running on native Windows; tmux sessions must be created inside WSL2 or MSYS2.", fix: tmuxInstallPlan(osInfo) });
   const readyProviders = providers.filter((provider) => provider.ready);
   if (readyProviders.length === 0) problems.push({ code: "NO_PROVIDERS", message: "No known agent CLI was found on PATH. Install at least one, or use cli: <command> with the generic adapter." });
-  return { ok: problems.length === 0, os: osInfo, tmux: tmux ?? null, node, providers, dirs, problems };
+  // Is a supervisor alive for this repository, and how old is its last tick? Without one, the
+  // Presence v1 heartbeat stops and every consumer reads this repo as permanently stale — the
+  // failure that has no other symptom on this machine, which is exactly why doctor asks.
+  // A repo that never started one is reported, not faulted: not every checkout wants a supervisor.
+  let supervision = null;
+  if (consumer) {
+    try {
+      const { supervisionStatus } = await import("./supervision.mjs");
+      supervision = await supervisionStatus({ consumer, env, home });
+      const stallMs = Math.max(60_000, supervision.reconcile_min_ms * 4);
+      if (supervision.state === "down") {
+        problems.push({ code: "SUPERVISOR_DOWN", message: `The repository supervisor (pid ${supervision.pid}) is gone after ${supervision.restarts} restart(s); presence for this repo is no longer being republished.`, fix: { command: "ao-topology supervise", note: `Last words, if any: ${supervision.log}` } });
+      } else if (supervision.state !== "never-started" && supervision.tick_age_ms !== null && supervision.tick_age_ms > stallMs) {
+        problems.push({ code: "SUPERVISOR_STALLED", message: `The supervisor process is alive but its last reconcile tick was ${Math.round(supervision.tick_age_ms / 1000)}s ago (floor ${supervision.reconcile_min_ms}ms).`, fix: { note: `Inspect ${supervision.log}` } });
+      }
+    } catch (error) {
+      supervision = { state: "unknown", error: error.message };
+    }
+  }
+  return { ok: problems.length === 0, os: osInfo, tmux: tmux ?? null, node, providers, dirs, supervision, problems };
 }

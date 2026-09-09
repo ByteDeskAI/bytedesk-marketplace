@@ -1,5 +1,68 @@
 # Changelog
 
+## [0.7.0] — 2026-09-09
+
+TM-127 / EP-018. The supervisor is now started and kept honest, and its tick stops behaving like a
+busy loop.
+
+### Added
+
+- **`monitors/monitors.json` — the supervisor runs as a plugin monitor (`"when": "always"`).**
+  `startRepositorySupervision` was reachable only from `enrollment ack`, `lead ensure` and
+  `lead assign`: three one-time setup paths. Reboot the machine or let the detached process die and
+  nothing brought it back, so the Presence v1 heartbeat stopped and every consumer read the
+  repository as permanently stale. One entry, not two, because `ao-topology supervise` already runs
+  `superviseRepository` and the host-scoped `watchServer` concurrently.
+- **Self-start from `launch`, `session open` and `send`.** Codex, Grok and Kimi hosts have no
+  monitor concept; monitor primary on Claude hosts, first-command-wins elsewhere, both converging
+  on the same per-repo lock. Never fatal — a repo with no supervisor is degraded, not a failed
+  command.
+- **`doctor` reports the supervisor**: state, pid, restart count and the age of the last reconcile
+  tick, with `SUPERVISOR_DOWN` / `SUPERVISOR_STALLED` problems. This is the check that would have
+  caught the defect above; a repository that never started one is reported, not faulted.
+- **`topology/PRESENCE-CONTRACT.md`** — contract revision 3, sha256 `3748e32d26f6f7b3…`, committed at
+  the path `topology/fixtures/presence-v1/README.md` had always cited but that never existed —
+  the fixtures were an acceptance artifact for a document that had not landed with them.
+- `supervisionStatus()` and the exported `nextRung` / `SLEEP_LADDER_MS` seams, with adversarial
+  tests in `tests/unit/topology-supervision.test.mjs`.
+
+### Changed
+
+- **The reconcile loop is no longer a 1-second filesystem-and-git busy loop.** Its body is
+  `collectPresenceAgents` + `git worktree list` + a `readdir` of every run dir in every linked
+  worktree + `refreshPrompt` per agent + `resumeStandingMessages`, and it ran every second. The
+  tick sleep is now adaptive (2s / 5s / 15s, driven by an `activity` boolean; any activity snaps
+  back to 2s) and the expensive body is rate-limited behind `AO_RECONCILE_MIN_MS` (default 10s).
+- **The presence heartbeat is explicitly NOT that cadence.** `createPresenceProducer` now asserts at
+  construction that its publish interval never exceeds the frozen contract's `staleAfterMs / 3`, so
+  the two numbers cannot be conflated by a later edit. A quiet repository publishes presence more
+  often than it reconciles: presence staleness is a contract, reconcile staleness is a hint.
+- **Losing the supervision lock is no longer an error.** Linked worktrees share one canonical
+  repository id, so a machine with eight worktrees open starts eight supervisors and seven must
+  lose. They now exit **0** with `another-supervisor-owns-this-repository` inside the 100ms lock
+  timeout, rather than throwing `TOPOLOGY_LOCK_TIMEOUT` — which a monitor host would read as a
+  crash and restart in a loop. Measured 8-way: 1 supervisor alive, 7 clean exits.
+
+### Fixed
+
+- **A supervisor that died left no trace.** It was spawned with `stdio: 'ignore'`. Both streams now
+  append to `<stateRoot>/supervision/<repoKey>.log` with a start banner, and the process record
+  carries `started_at` and a `restarts` counter — a supervisor on its fortieth restart is a crash
+  loop, and nothing could tell you that before.
+
+## [0.6.0] — 2026-09-09
+
+### Added
+
+- Repository lead and reviewer registries, configurable templates and one prompt resolver.
+- Startup hook/watcher detection, exact session bindings, durable standing messages and holds.
+- Presence v1 producer and frozen contract fixtures, task-store-backed review/integration gates.
+
+### Fixed
+
+- Lock ownership races, unsafe prompt fallback, hook sibling deletion and watcher lease fencing.
+- Linked worktree identity and cross-repository routing admission.
+
 ## [Unreleased]
 
 ### Fixed

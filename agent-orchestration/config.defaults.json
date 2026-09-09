@@ -1,0 +1,25 @@
+{
+  "lead": { "template": "lead-default", "provider": null, "model": null },
+  "reviewer": { "template": "reviewer-default", "provider": null, "model": null },
+  "templates": {
+    "lead-default": {
+      "role": "lead",
+      "cli": "claude",
+      "prompt": "./prompts/lead.md"
+    },
+    "reviewer-default": {
+      "role": "reviewer",
+      "cli": "claude",
+      "prompt": "./prompts/reviewer.md"
+    }
+  },
+  "prompts": {
+    "common": "./prompts/common.md",
+    "roles": {}
+  },
+  "management": {
+    "auto_merge": true,
+    "require_reviewer": true,
+    "reviewer_providers": ["claude", "codex"]
+  }
+}

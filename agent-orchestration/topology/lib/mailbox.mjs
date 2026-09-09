@@ -1,12 +1,13 @@
 // File-first messaging. A message is a Markdown file in the recipient's inbox; the reply is a file in
 // the recipient's outbox with the same sequence number. tmux only ever delivers a one-line pointer.
 // Every send and reply is appended to run_dir/journal.jsonl.
-import { createHash, timingSafeEqual } from "node:crypto";
-import { appendFile, readdir, readFile, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import { appendFile, readdir, readFile, stat, open, rename, rm } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 import { exists, invariant, nowIso, readJson, sleep, writeJson, writeText } from "./util.mjs";
-import { MAX_HOPS, hopExceeded, isAssignmentStage, nextVia } from "./routing.mjs";
+import { MAX_HOPS, hopExceeded, isAssignmentStage, nextVia, sameProject } from "./routing.mjs";
 import { agentDirs, findLead } from "./agents.mjs";
+import { withLock } from "./lockfile.mjs";
 
 export const RUN_FILE = "run.json";
 export const JOURNAL_FILE = "journal.jsonl";
@@ -23,7 +24,18 @@ export async function loadRun(runDir) {
 
 export async function saveRun(runDir, run) {
   run.updated = nowIso();
-  await writeJson(join(runDir, RUN_FILE), run);
+  const file = join(runDir, RUN_FILE);
+  const temp = `${file}.${randomUUID()}.tmp`;
+  try {
+    const handle = await open(temp, 'wx', 0o600);
+    try { await handle.writeFile(`${JSON.stringify(run, null, 2)}\n`); await handle.sync(); }
+    finally { await handle.close(); }
+    await rename(temp, file);
+    if (process.platform !== 'win32') {
+      const directory = await open(runDir, 'r');
+      try { await directory.sync(); } finally { await directory.close(); }
+    }
+  } finally { await rm(temp, { force: true }); }
 }
 
 /**
@@ -32,12 +44,14 @@ export async function saveRun(runDir, run) {
  * handled redirect still times the sender out.
  */
 export async function recordRedirect(runDir, { messageId, intended, deliveredTo, reason }) {
-  const run = await loadRun(runDir);
-  run.redirects = run.redirects || {};
-  run.redirects[`${messageId}:${intended}`] = deliveredTo;
-  await saveRun(runDir, run);
-  await appendJournal(runDir, { type: "route.redirect", id: messageId, intended, delivered_to: deliveredTo, reason: reason || null });
-  return run.redirects;
+  return withLock(join(runDir, '.mailbox-sequence.lock'), async () => {
+    const run = await loadRun(runDir);
+    run.redirects = run.redirects || {};
+    run.redirects[`${messageId}:${intended}`] = deliveredTo;
+    await saveRun(runDir, run);
+    await appendJournal(runDir, { type: "route.redirect", id: messageId, intended, delivered_to: deliveredTo, reason: reason || null });
+    return run.redirects;
+  });
 }
 
 export async function appendJournal(runDir, event) {
@@ -59,11 +73,21 @@ export async function readJournal(runDir, limit = 50) {
   });
 }
 
-async function nextSequence(runDir) {
-  const run = await loadRun(runDir);
-  run.sequence = (run.sequence ?? 0) + 1;
-  await saveRun(runDir, run);
-  return { seq: String(run.sequence).padStart(3, "0"), run };
+async function nextSequence(runDir, idempotencyKey, fingerprint) {
+  return withLock(join(runDir, '.mailbox-sequence.lock'), async () => {
+    const run = await loadRun(runDir);
+    const key = idempotencyKey === undefined ? null : createHash('sha256').update(String(idempotencyKey)).digest('hex');
+    if (key && run.message_keys?.[key]) {
+      const prior = run.message_keys[key];
+      invariant(prior.fingerprint === fingerprint, 'TOPOLOGY_MESSAGE_ID_CONFLICT', 'Idempotency key already identifies different content or provenance.');
+      return { seq: prior.seq, run };
+    }
+    run.sequence = (run.sequence ?? 0) + 1;
+    const seq = String(run.sequence).padStart(3, '0');
+    if (key) { run.message_keys ??= {}; run.message_keys[key] = { seq, fingerprint }; }
+    await saveRun(runDir, run);
+    return { seq, run };
+  });
 }
 
 export function messageFileName(seq, stage) {
@@ -95,7 +119,7 @@ function frontmatter(fields) {
  * Write one message into each recipient's inbox. Returns the message id and the list of
  * { agent, inbox, outbox } paths so the caller can deliver a pointer through tmux.
  */
-export async function sendMessage({ runDir, from, to, stage, body, contract, round, subject, route, fromProject, task, via = [], assignment }) {
+export async function sendMessage({ runDir, from, to, stage, body, contract, round, subject, route, fromProject, task, via = [], assignment, consumer, idempotencyKey, token, provenance, parentId, standingOptions = {}, env = process.env }) {
   invariant(Array.isArray(to) && to.length > 0, "TOPOLOGY_RECIPIENT_REQUIRED", "A message needs at least one recipient (--to <agent-id>).");
   invariant(typeof body === "string" && body.trim(), "TOPOLOGY_BODY_REQUIRED", "A message needs a body (--file <path> or --body <text>).");
   // The hop limit is enforced here, on the send path, because this is the only place every hop
@@ -108,11 +132,35 @@ export async function sendMessage({ runDir, from, to, stage, body, contract, rou
     `This message has already been forwarded ${chain.length} times (${chain.join(" → ")}); the limit is ${MAX_HOPS}. Answer it or drop it rather than passing it on again.`,
   );
   const isAssignment = assignment === undefined ? isAssignmentStage(stage) : assignment === true;
-  const { seq, run } = await nextSequence(runDir);
+  invariant(idempotencyKey === undefined || (typeof idempotencyKey === 'string' && idempotencyKey.length > 0 && idempotencyKey.length <= 256), 'TOPOLOGY_MESSAGE_ID_INVALID', 'Idempotency key must be a nonempty string of at most 256 characters.');
+  const declaredSource = fromProject || env.AO_CONSUMER || null;
+  const sourceProject = declaredSource ? resolve(declaredSource) : null;
+  const existing = await loadRun(runDir);
+  const destination = existing.consumer || consumer;
+  invariant(destination, 'TOPOLOGY_RUN_CONSUMER_REQUIRED', 'Legacy run has no destination repository; pass explicit consumer context before sending.');
+  const external = !sourceProject || !(await sameProject(sourceProject, destination));
+  const fingerprint = createHash('sha256').update(JSON.stringify({ from, to, stage, body, contract, round, subject, sourceProject, destination, task, chain, isAssignment, token, provenance, parentId })).digest('hex');
+  const { seq, run } = await nextSequence(runDir, idempotencyKey, fingerprint);
   const known = new Set(run.agents.map((agent) => agent.id));
   const id = `${seq}-${stage}`;
+  // Persist the original content/source once. Child workflow forwarding reads
+  // this envelope, never mutable CLI flags or the forwarding process's cwd/env.
+  const envelope = JSON.parse(JSON.stringify({ id, from, to, stage, body,
+    contract: contract ?? null, round: round ?? null, subject: subject ?? null,
+    fromProject: sourceProject, consumer: destination, task: task ?? null,
+    token: token ?? null, via: chain, assignment: isAssignment,
+    provenance: provenance ?? null, parentId: parentId ?? null }));
+  await withLock(join(runDir, '.mailbox-sequence.lock'), async () => {
+    const current = await loadRun(runDir);
+    current.message_envelopes ??= {};
+    const old = current.message_envelopes[id];
+    invariant(!old || JSON.stringify(old) === JSON.stringify(envelope), 'TOPOLOGY_MESSAGE_ID_CONFLICT', 'Stored message envelope differs from retry.');
+    current.message_envelopes[id] = envelope;
+    await saveRun(runDir, current);
+  });
   const deliveries = [];
   const notices = [];
+  const holds = [];
 
   // A fan-out is addressed collectively by the id that produced it: `--to per-file` reaches every
   // `per-file.<item>`. The conductor asked for one team and got N, which is an implementation detail
@@ -130,11 +178,59 @@ export async function sendMessage({ runDir, from, to, stage, body, contract, rou
   for (const requested of to) {
     // `route` is the policy hook. When supplied it decides where this message actually lands; the
     // intended recipient is preserved either way so the receiver knows what was meant.
-    const decision = route ? await route({ from, fromProject, to: requested, task, via: chain }) : { deliver_to: requested, redirected: false };
+    let decision;
+    if (external) {
+      const { sendStandingMessage, standingMailboxRoot } = await import('./standing-mailbox.mjs');
+      const standingId = createHash('sha256').update(JSON.stringify([resolve(runDir), id, requested])).digest('hex');
+      // A legacy callback is never cross-repo authority. Shared durable admission
+      // independently invokes canonical routing and both read-only lead probes.
+      const { router: _ignoredRouter, ...admissionOptions } = standingOptions;
+      const mailboxOptions = { env, ...admissionOptions };
+      // Persist bridge intent BEFORE admission so interruption never makes a
+      // delivered or held request disappear from its original run barrier.
+      await withLock(join(runDir, '.mailbox-sequence.lock'), async () => {
+        const current = await loadRun(runDir);
+        current.standing_messages ??= {};
+        current.standing_messages[standingId] = { messageId: id, requested,
+          consumer: destination, stateHome: dirname(standingMailboxRoot(mailboxOptions)) };
+        await saveRun(runDir, current);
+      });
+      const record = await sendStandingMessage({ id: standingId, consumer: destination,
+        fromProject: sourceProject, from, to: requested, body, contract, round, subject,
+        stage, task, token, parentId, via: chain, assignment: isAssignment,
+        provenance: { runDir: resolve(runDir), runId: run.run_id ?? null, messageId: id, source: provenance ?? null, parent: run.parent ?? null, depth: run.depth ?? 0, parentRunId: run.parent?.run_id ?? run.parent_run_id ?? null, rootRunId: run.parent?.root_run_id ?? run.root_run_id ?? null },
+      }, mailboxOptions);
+      if (record.status !== 'delivered') {
+        holds.push({ requested, id: standingId, reason: record.reason });
+        continue;
+      }
+      decision = record.decision;
+      if (!known.has(record.delivered_to)) {
+        deliveries.push({ agent: record.delivered_to, requested, standing: true,
+          standingId, redirected: Boolean(decision.redirected), via: record.delivered_via });
+        if (decision.redirected) notices.push({ requested, delivered_to: record.delivered_to, reason: decision.reason, via: record.delivered_via });
+        continue;
+      }
+    } else {
+      decision = route ? await route({ from, fromProject: sourceProject, to: requested, task, via: chain }) : { deliver_to: requested, redirected: false };
+    }
     invariant(
       decision.blocked !== "loop",
       "TOPOLOGY_ROUTE_LOOP",
       decision.reason || `Routing ${requested} would send this message back through an agent that already handled it.`,
+    );
+    // A router's refusal is final: ANY truthy `blocked` stops the send here rather than falling
+    // through to delivery. A no-lead refusal used to be delivered as addressed — fail-open — which
+    // let an unvouched external contact reach a member exactly when no lead existed to vouch.
+    invariant(
+      decision.blocked !== "no_lead",
+      "TOPOLOGY_ROUTE_NO_LEAD",
+      decision.reason || `Routing ${requested} was refused: this repo has no lead to vouch for the contact.`,
+    );
+    invariant(
+      !decision.blocked,
+      "TOPOLOGY_ROUTE_BLOCKED",
+      decision.reason || `Routing ${requested} was blocked (${decision.blocked}).`,
     );
     const recipient = decision.deliver_to || requested;
     invariant(known.has(recipient), "TOPOLOGY_UNKNOWN_AGENT", `Unknown agent "${recipient}". Agents in this run: ${[...known].join(", ")}.`);
@@ -187,10 +283,43 @@ export async function sendMessage({ runDir, from, to, stage, body, contract, rou
     }
   }
 
-  await appendJournal(runDir, { type: "message.sent", id, from, to, stage, round, contract, subject, task });
+  await withLock(join(runDir, '.mailbox-sequence.lock'), async () => {
+    const current = await loadRun(runDir);
+    current.message_deliveries ??= {};
+    current.message_deliveries[id] = deliveries;
+    await saveRun(runDir, current);
+  });
+  await appendJournal(runDir, { type: holds.length ? "message.held" : "message.sent", id, from, to, stage, round, contract, subject, task, holds });
   // The sender is told when a message did not go where it was addressed. A redirect is not an
   // error, but a silent one is indistinguishable from a message that vanished.
-  return { id, seq, deliveries, redirects: notices };
+  return { id, seq, deliveries, redirects: notices, holds };
+}
+
+/** Host-resolved workflow forwarding from the immutable parent envelope. The
+ * caller names only the delivered parent participant, not a new child target,
+ * body, source, task, or ancestry. Admission is rerun against the child's repo. */
+export async function forwardMessageToWorkflow({ runDir, messageId, recipient, env = process.env, standingOptions = {} }) {
+  const run = await loadRun(runDir);
+  const parent = run.message_envelopes?.[messageId];
+  const delivered = run.message_deliveries?.[messageId]?.find(item => item.agent === recipient);
+  const workflow = run.agents.find(agent => agent.id === recipient)?.workflow;
+  invariant(parent && delivered && workflow?.run_dir && workflow.conductor,
+    'TOPOLOGY_WORKFLOW_FORWARD_INVALID', 'Forwarding requires a persisted delivery to a declared child workflow.');
+  const childDir = resolve(workflow.run_dir);
+  const hops = delivered.via ?? parent.via ?? [];
+  const via = hops.at(-1) === recipient ? [...hops] : nextVia(hops, recipient);
+  const idempotencyKey = createHash('sha256').update(JSON.stringify([resolve(runDir), messageId, recipient, childDir, workflow.conductor])).digest('hex');
+  return sendMessage({ runDir: childDir, from: parent.from, fromProject: parent.fromProject,
+    to: [workflow.conductor], body: parent.body, stage: parent.stage,
+    contract: parent.contract, round: parent.round, subject: parent.subject,
+    task: parent.task, token: parent.token, via, assignment: parent.assignment,
+    parentId: parent.id, provenance: { original: parent.provenance, lineage: run.parent ?? null, depth: run.depth ?? 0,
+      parent: { runDir: resolve(runDir), messageId, recipient } },
+    idempotencyKey, standingOptions,
+    // An unknown original source stays unknown. The forwarding shell's startup
+    // environment is never a substitute for the original sender's provenance.
+    env: { ...env, AO_CONSUMER: undefined },
+  });
 }
 
 /**
@@ -211,17 +340,32 @@ async function obligations(runDir, run, agentId) {
   const elsewhere = Object.keys(redirects)
     .filter((key) => key.slice(key.lastIndexOf(":") + 1) === agentId)
     .map((key) => key.slice(0, key.lastIndexOf(":")));
-  const ids = [...new Set([...own, ...elsewhere])].sort();
-  return ids.map((id) => {
+  const standing = [];
+  const { readStandingMessage } = await import('./standing-mailbox.mjs');
+  for (const [standingId, ref] of Object.entries(run.standing_messages ?? {})) {
+    let record = null;
+    let state = 'missing';
+    try {
+      record = await readStandingMessage({ id: standingId, env: { AGENT_ORCHESTRATION_STATE_HOME: ref.stateHome } });
+      state = record?.status === 'held' ? 'held' : record?.status === 'delivered' ? (record.reply ? 'answered' : 'delivered-unanswered') : 'missing';
+    } catch { state = 'unknown'; }
+    if (ref.requested !== agentId && record?.delivered_to !== agentId) continue;
+    standing.push({ id: ref.messageId, answerer: record?.delivered_to ?? ref.requested,
+      standingId, status: state, reason: record?.reason ?? null,
+      replyBody: state === 'answered' ? record.reply.body : null,
+      created_at: record?.created_at, inbox: null, outbox: null, addressee_outbox: null });
+  }
+  const covered = new Set(standing.map(item => item.id));
+  const ids = [...new Set([...own, ...elsewhere])].filter(id => !covered.has(id)).sort();
+  return [...standing, ...ids.map((id) => {
     const answerer = redirects[`${id}:${agentId}`] || agentId;
     return {
-      id,
-      answerer,
+      id, answerer,
       inbox: join(agentDir(runDir, own.includes(id) ? agentId : answerer), "inbox", `${id}.md`),
       outbox: join(agentDir(runDir, answerer), "outbox", replyFileNameFor(id)),
       addressee_outbox: join(agentDir(runDir, agentId), "outbox", replyFileNameFor(id)),
     };
-  });
+  })];
 }
 
 function replyFileNameFor(messageId) {
@@ -241,14 +385,18 @@ export function expandFanout(run, ids) {
 
 export async function pendingReplies(runDir, agentIds) {
   const run = await loadRun(runDir);
-  const ids = agentIds && agentIds.length > 0 ? expandFanout(run, agentIds) : run.agents.map((agent) => agent.id);
+  const ids = agentIds && agentIds.length > 0 ? expandFanout(run, agentIds) : [...new Set([...run.agents.map((agent) => agent.id), ...Object.values(run.standing_messages ?? {}).map(ref => ref.requested)])];
   const pending = [];
   for (const agentId of ids) {
     for (const item of await obligations(runDir, run, agentId)) {
       // The outbox reported is the one the answer must actually appear in. Naming the addressee's
       // box on a redirected message sends whoever is debugging the wait to an empty directory.
-      if (await hasAnswer(item.outbox)) continue;
+      if (item.standingId ? item.replyBody !== null : await hasAnswer(item.outbox)) continue;
       pending.push({
+        standingId: item.standingId,
+        status: item.status ?? "delivered-unanswered",
+        reason: item.reason,
+        created_at: item.created_at,
         agent: agentId,
         answered_by: item.answerer,
         id: item.id,
@@ -265,7 +413,7 @@ export async function pendingReplies(runDir, agentIds) {
 export async function waitForReplies({ runDir, agentIds, messageId, timeoutMs, pollMs = 3000, onTick }) {
   const started = Date.now();
   const run = await loadRun(runDir);
-  const targets = agentIds && agentIds.length > 0 ? expandFanout(run, agentIds) : run.agents.filter((agent) => agent.role !== "orchestrator").map((agent) => agent.id);
+  const targets = agentIds && agentIds.length > 0 ? expandFanout(run, agentIds) : [...new Set([...run.agents.filter((agent) => agent.role !== "orchestrator").map((agent) => agent.id), ...Object.values(run.standing_messages ?? {}).map(ref => ref.requested)])];
   for (;;) {
     const pending = (await pendingReplies(runDir, targets)).filter((item) => !messageId || item.id === messageId);
     if (pending.length === 0) {
@@ -278,14 +426,16 @@ export async function waitForReplies({ runDir, agentIds, messageId, timeoutMs, p
       for (const agentId of targets) {
         for (const item of await obligations(runDir, current, agentId)) {
           if (messageId && item.id !== messageId) continue;
-          if (seen.has(item.outbox) || !(await hasAnswer(item.outbox))) continue;
-          seen.add(item.outbox);
+          const answerKey = item.standingId ?? item.outbox;
+          if (seen.has(answerKey) || (item.standingId ? item.replyBody === null : !(await hasAnswer(item.outbox)))) continue;
+          seen.add(answerKey);
           replies.push({
             agent: item.answerer,
             on_behalf_of: item.answerer === agentId ? undefined : agentId,
             id: item.id,
             path: item.outbox,
-            body: await readFile(item.outbox, "utf8"),
+            standingId: item.standingId,
+            body: item.standingId ? item.replyBody : await readFile(item.outbox, "utf8"),
           });
         }
       }
@@ -344,6 +494,22 @@ export async function recordReply({ runDir, agentId, messageId, body, token = pr
     );
   }
 
+  const { readStandingMessage, recordStandingReply } = await import('./standing-mailbox.mjs');
+  const standingRefs = Object.entries(run.standing_messages ?? {}).filter(([, ref]) => ref.messageId === messageId);
+  let standingAnswered = false;
+  for (const [standingId, ref] of standingRefs) {
+    const bridgeEnv = { AGENT_ORCHESTRATION_STATE_HOME: ref.stateHome };
+    const standing = await readStandingMessage({ id: standingId, env: bridgeEnv });
+    if (standing?.delivered_to !== agentId) continue;
+    if (!(known.token_sha256 || known.token)) {
+      invariant(process.env.AO_AGENT_ID === agentId && process.env.AO_CONSUMER && await sameProject(process.env.AO_CONSUMER, ref.consumer),
+        'TOPOLOGY_AGENT_UNAUTHORIZED', 'A legacy run without reply tokens must prove the receiving launcher identity for standing replies.');
+    }
+    await recordStandingReply({ consumer: ref.consumer, messageId: standingId, agentId, body: text,
+      env: { ...bridgeEnv, AO_AGENT_ID: agentId, AO_CONSUMER: ref.consumer } });
+    standingAnswered = true;
+  }
+  invariant(standingRefs.length === 0 || standingAnswered, "TOPOLOGY_AGENT_UNAUTHORIZED", "Only the actual receiving agent can answer this standing request.");
   const outbox = join(agentDir(runDir, agentId), "outbox", replyFileName(seq, stage));
   await writeText(outbox, text.endsWith("\n") ? text : `${text}\n`);
   await appendJournal(runDir, { type: "message.replied", id: messageId, from: agentId, bytes: Buffer.byteLength(text) });
@@ -375,7 +541,7 @@ export async function queueDepth(runDir, agentIds) {
   for (const [agent, items] of byAnswerer) {
     let oldest = null;
     for (const item of items) {
-      const at = await stat(item.inbox).then((s) => s.mtimeMs).catch(() => null);
+      const at = item.standingId ? (item.created_at ? Date.parse(item.created_at) : null) : await stat(item.inbox).then((s) => s.mtimeMs).catch(() => null);
       if (at != null && (oldest == null || at < oldest)) oldest = at;
     }
     out.push({

@@ -4,7 +4,10 @@
 // `failoverAgent` re-runs the same start logic for one agent from the next candidate mid-run.
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join, resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { composePrompt } from "./prompts.mjs";
+import { loadConfig } from "./config.mjs";
 import { appendJournal, agentDir, loadRun, pendingReplies, saveRun } from "./mailbox.mjs";
 import { childEnv, childrenFile, lineageFromEnv, lineageRefusal } from "./lineage.mjs";
 import { adapterFor, attentionOnScreen, buildArgv, commandExists, failureOnScreen, grantsDirs, memoryLocation } from "./providers.mjs";
@@ -163,8 +166,9 @@ ${describeInputs(spec)}
 
 ## Mailbox protocol (all agents)
 
-1. A message arrives as a file in your inbox. The terminal shows a one-line pointer like
-   \`[ao] Message 003-brief from orchestrator ...\`. The file is the message; the pointer is only a bell.
+1. A message arrives as a file in your inbox. Poll that directory at safe boundaries, including
+   after startup and after finishing each reply. Delivery does not type into your terminal.
+   A terminal pointer, if one is supplied by the operator, is only a bell; the file is the message.
 2. Read the message file. Do the work it asks for.
 3. Write your complete reply to the exact outbox path named in the message. The reply file is the
    only thing the sender reads — never rely on what you print in the terminal.
@@ -198,7 +202,7 @@ ${describeGates(spec)}
 
 ## Conductor commands
 
-Send a message (writes inbox files, journals, and rings each pane):
+Send a message (writes durable inbox files and journals; recipients poll at safe boundaries):
 \`${cliBin} send --run ${shellQuote(spec.run_dir)} --from ${agent.id} --to <id>[,<id>] --stage <stage> --file <message.md>\`
 
 Wait for replies (blocks until every recipient's reply file exists or the timeout passes):
@@ -511,7 +515,7 @@ function prepareCandidates({ spec, agent, adapters, bootstrapFile, dir, warnings
     const upward = replyToken && agent.role === "orchestrator" && lineage?.run_dir
       ? { AO_REPLY_TO_RUN_DIR: lineage.run_dir, AO_REPLY_AS_AGENT: lineage.agent_id ?? "", AO_REPLY_TOKEN: replyToken }
       : {};
-    const env = { AO_RUN_DIR: spec.run_dir, AO_AGENT_ID: agent.id, AO_AGENT_ROLE: agent.role, AO_SESSION: spec.session, AO_PROVIDER: candidateLabel(candidate), ...descend, ...upward, ...agent.env, AO_AGENT_TOKEN: token };
+    const env = { AO_RUN_DIR: spec.run_dir, AO_AGENT_ID: agent.id, AO_AGENT_ROLE: agent.role, AO_SESSION: spec.session, AO_PROVIDER: candidateLabel(candidate), ...descend, ...upward, ...agent.env, AO_CONSUMER: spec.consumer || spec.cwd, AO_AGENT_ID: agent.id, AO_AGENT_TOKEN: token };
     return { index, candidate, label: candidateLabel(candidate), adapter, argv, env, vars, add_dirs: addDirs, memory: memoryLocation(adapter, { cwd: agent.cwd, home: spec.home ?? process.env.HOME ?? "" }), launcher: join(dir, `launch-${index}.sh`) };
   });
 }
@@ -630,6 +634,13 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
       { agents: autoApproved.map((agent) => agent.id) },
     );
   }
+  if (!dryRun && spec.agents.some(agent => !agent.workflow && agent.candidates.some(candidate => adapters.get(candidate.cli)?.requires_repository_readiness === true))) {
+    const { leadState } = await import('./lead.mjs');
+    const { reviewerAvailability } = await import('./reviewer.mjs');
+    const options = { consumer: spec.consumer || spec.cwd, pluginRoot: dirname(dirname(dirname(fileURLToPath(import.meta.url)))) };
+    const lead = await leadState(options), reviewer = await reviewerAvailability(options);
+    invariant(lead.status === 'responsive' && reviewer.available, 'TOPOLOGY_STARTUP_NOT_READY', 'Governed workflow launch requires a responsive repository lead and independent reviewer. Create or assign the lead first; no workflow panes were created.');
+  }
   invariant(!(await exists(join(spec.run_dir, "run.json"))), "TOPOLOGY_RUN_EXISTS", `Run directory already exists: ${spec.run_dir}`);
   if (!dryRun && (await tmux.hasSession(spec.session))) {
     fail("TOPOLOGY_SESSION_EXISTS", `tmux session "${spec.session}" already exists. Stop it first: ao-topology stop --session ${spec.session}`);
@@ -688,7 +699,13 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
     // A participant has a mailbox and no launcher: there is no pane to brief, and the child run's
     // own conductor gets its instructions from the child's spec.
     if (item.participant) continue;
-    await writeText(item.bootstrapFile, bootstrapText({ spec, agent: item.agent, role: item.role, skills: item.skills, cliBin }));
+    const loaded = await loadConfig({ consumer: spec.consumer || spec.cwd, pluginRoot: dirname(dirname(dirname(fileURLToPath(import.meta.url)))) });
+    const promptAgent = { ...Object.fromEntries(['id','role','full_name','title','template','coordinates_only','instructions_file','_agent_dir','_prompt_vars'].map(key=>[key,item.agent[key]])), instructions: item.agent._inline_instructions ?? item.agent.instructions ?? "", _dir:item.dir };
+    await writeJson(join(item.dir,'prompt-agent.json'),promptAgent);
+    const composed = await composePrompt({ agent: promptAgent, consumer: spec.consumer || spec.cwd, dir: item.dir, loaded, templateName: item.agent.template });
+    invariant(composed.ok, "TOPOLOGY_PROMPT_INVALID", "Workflow prompt configuration is invalid.", { errors: composed.errors });
+    await writeText(item.bootstrapFile, composed.text + "\n" + bootstrapText({ spec, agent: {...item.agent, instructions:""}, role: item.role, skills: item.skills, cliBin }));
+    await writeJson(join(item.dir, "prompt-state.json"), { desired_revision: composed.revision, sources: composed.sources, status: "awaiting-ack", nonce: randomUUID(), replacement: "cold-start" });
     for (const candidate of item.candidates) {
       await writeText(candidate.launcher, launcherScript({ agent: item.agent, candidate: candidate.candidate, argv: candidate.argv, env: candidate.env }), 0o700);
     }
@@ -719,6 +736,7 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
     sequence: 0,
     agents: prepared.map((item) => ({
       id: item.agent.id,
+      agent_id: item.agent._agent || item.agent.id,
       role: item.agent.role,
       cwd: item.agent.cwd,
       pane: null,
@@ -795,7 +813,12 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
   // `?? null`, not the bare lookup: a participant has no pane and `undefined` is dropped by
   // JSON.stringify, which would leave run.json with no `pane` key at all for that agent. Every
   // reader then has to distinguish "absent" from "null", and one of them will forget.
-  for (const agent of run.agents) agent.pane = panes.get(agent.id) ?? null;
+  const observedBindings = await tmux.listServerPanes();
+  for (const agent of run.agents) {
+    agent.pane = panes.get(agent.id) ?? null;
+    agent.binding = observedBindings.find(p => p.paneId === agent.pane && p.sessionName === run.session) || null;
+    agent.session_kind = "run";
+  }
   await saveRun(spec.run_dir, run);
 
   // One control-mode client for the session: the readiness signal for every pane, pushed by the
@@ -825,10 +848,12 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
   );
   client.close();
 
+  const finalBindings = await tmux.listServerPanes();
   const results = [];
   for (const { item, outcome } of started) {
     const pane = panes.get(item.agent.id);
     const entry = run.agents.find((agent) => agent.id === item.agent.id);
+    entry.binding = finalBindings.find(p => p.paneId === pane && p.sessionName === run.session) || null;
     if (outcome.ok) {
       entry.active = outcome.index;
       entry.provider = outcome.label;
@@ -950,13 +975,44 @@ export async function openRoleSession({ agentsDir, agentId, adapter, argv, env =
   const dir = join(agentsDir, String(agentId));
   const recordPath = roleSessionPath(agentsDir, agentId);
 
+  if (env.AO_CONSUMER && !['lead','reviewer'].includes(role)) {
+    const { leadState } = await import('./lead.mjs');
+    const { reviewerAvailability } = await import('./reviewer.mjs');
+    const options = { consumer: env.AO_CONSUMER, pluginRoot: dirname(dirname(dirname(fileURLToPath(import.meta.url)))), env: { ...process.env, ...env } };
+    const lead = await leadState(options), reviewer = await reviewerAvailability(options);
+    invariant(lead.status === 'responsive' && reviewer.available, 'TOPOLOGY_STARTUP_NOT_READY', 'A responsive repository lead and independent reviewer are required before starting governed work. Use lead ensure or lead assign; the existing session is preserved.');
+  }
+
   if (await tmux.hasSession(session)) {
     // The live session IS the state. Reattaching is the whole point: creating a second one would
     // give the agent two identities and lose whatever the first was in the middle of.
     const record = (await exists(recordPath)) ? await readJson(recordPath) : null;
     const panes = await tmux.listPanes(session);
+    invariant(record?.agent_id === agentId, 'TOPOLOGY_SESSION_OWNERSHIP', 'A same-named session has no matching owned record; refusing adoption or restart.');
+    const currentBinding=(await tmux.listServerPanes()).find(p=>p.paneId===record.binding?.paneId);
+    invariant(record.binding && currentBinding && ['serverKey','serverPid','sessionId','sessionCreated','paneId','panePid'].every(k=>currentBinding[k]===record.binding[k]), 'TOPOLOGY_SESSION_OWNERSHIP', 'Recorded session incarnation is absent or replaced; refusing reattachment.');
+    if (!panes.some(p => p.alive)) {
+      invariant(record.binding, 'TOPOLOGY_SESSION_OWNERSHIP', 'Dead session has no recorded incarnation; preserve it for recovery.');
+      const observed = (await tmux.listServerPanes()).find(p => p.paneId === record.binding.paneId);
+      invariant(observed && ['serverKey','serverPid','sessionId','sessionCreated','paneId','panePid'].every(k => observed[k] === record.binding[k]), 'TOPOLOGY_SESSION_OWNERSHIP', 'Session incarnation changed; refusing restart.');
+      await tmux.respawnPane(observed.paneId);
+      record.binding=(await tmux.listServerPanes()).find(p=>p.paneId===observed.paneId);
+      await writeJson(recordPath,record);
+      const shell = await tmux.clearAndWaitForShell(observed.paneId, `ao-role-${randomUUID().slice(0,8)}`);
+      invariant(shell.ok, 'TOPOLOGY_SESSION_START', 'Restarted shell did not become ready.');
+      await writeText(record.launcher, launcherScript({ agent: { id:agentId, role, cwd:dir }, candidate:{cli:adapter.id}, argv, env }), 0o700);
+      await tmux.sendText(observed.paneId, `exec bash ${shellQuote(record.launcher)}`);
+      if (env.AO_CONSUMER) {
+        const readiness = await waitReady(observed.paneId, adapter, adapter.ready?.timeout_ms || 30000, { baseline: shell.baseline });
+        invariant(readiness.ready, 'TOPOLOGY_SESSION_START', 'Provider is not accepting its startup instructions.');
+        await deliverPointer(observed.paneId, adapter, `Read ${join(dir,'prompt.md')} and begin your standing role. Poll your protocol inbox at safe boundaries.`);
+      }
+      record.binding = (await tmux.listServerPanes()).find(p => p.paneId === observed.paneId);
+      await writeJson(recordPath, record);
+      return {session,pane:observed.paneId,binding:record.binding,created:false,reattached:false,restarted:true,record};
+    }
     log(`reattaching to ${session}`);
-    return { session, pane: panes[0]?.id ?? null, created: false, reattached: true, record };
+    return { session, pane: panes[0]?.id ?? null, binding: record.binding, created: false, reattached: true, record };
   }
 
   const launcher = join(dir, "session.sh");
@@ -981,12 +1037,28 @@ export async function openRoleSession({ agentsDir, agentId, adapter, argv, env =
   await writeJson(recordPath, record);
 
   const pane = await tmux.newSession(session, { cwd: dir, windowName: agentId });
+  record.binding=(await tmux.listServerPanes()).find(p=>p.paneId===pane && p.sessionName===session);
+  await writeJson(recordPath,record);
   await tmux.setPaneOption(pane, "remain-on-exit", "on");
   await tmux.pipePane(pane, `cat >> ${shellQuote(join(dir, "pane.log"))}`);
   const shell = await tmux.clearAndWaitForShell(pane, `ao-role-${randomUUID().slice(0, 8)}`);
-  if (shell.ok) await tmux.sendText(pane, command);
+  invariant(shell.ok, 'TOPOLOGY_SESSION_START', 'Session shell did not become ready.');
+  await tmux.sendText(pane, `exec bash ${shellQuote(launcher)}`);
+  if (env.AO_CONSUMER) {
+    const readiness = await waitReady(pane, adapter, adapter.ready?.timeout_ms || 30000, { baseline: shell.baseline });
+    invariant(readiness.ready, 'TOPOLOGY_SESSION_START', 'Provider is not accepting startup instructions; session preserved.');
+    const delivery = await deliverPointer(pane, adapter, `Read ${join(dir,'prompt.md')} and begin your standing role. Poll your protocol inbox at safe boundaries.`);
+    invariant(delivery.delivered, 'TOPOLOGY_SESSION_START', 'Standing bootstrap was not delivered.');
+  }
+  const binding = (await tmux.listServerPanes()).find(p => p.paneId === pane && p.sessionName === session) || null;
+  record.binding = binding;
+  await writeJson(recordPath, record);
+  if (env.AO_CONSUMER) {
+    const { afterSessionOpen } = await import('./startup.mjs');
+    await afterSessionOpen({ consumer: env.AO_CONSUMER, agentId, session, pane, incarnation: binding, env: { ...process.env, ...env } });
+  }
   log(`created ${session}`);
-  return { session, pane, created: true, reattached: false, record };
+  return { session, pane, binding, created: true, reattached: false, record };
 }
 
 /**
@@ -1029,6 +1101,10 @@ export async function failoverAgent({ runDir, agentId, adapters, toLabel, log = 
     invariant(startIndex >= 0, "TOPOLOGY_CANDIDATE_UNKNOWN", `"${toLabel}" is not in ${agentId}'s chain: ${entry.candidates.map((candidate) => candidate.label).join(", ")}.`);
   }
   invariant(startIndex < entry.candidates.length, "TOPOLOGY_CHAIN_EXHAUSTED", `${agentId} has no provider left after ${entry.provider ?? "none"}. Chain: ${entry.candidates.map((candidate) => candidate.label).join(" → ")}. Add candidates to the template or restart with --to <cli:model>.`);
+  if (entry.binding) {
+    const observed = (await tmux.listServerPanes()).find(p => p.paneId === entry.pane);
+    invariant(observed && ['serverKey','serverPid','sessionId','sessionCreated','paneId','panePid'].every(k => observed[k] === entry.binding[k]), 'TOPOLOGY_SESSION_OWNERSHIP', 'Run pane incarnation changed; refusing failover.');
+  }
   const previous = entry.provider;
   const candidates = entry.candidates.map((candidate, index) => {
     const adapter = adapterFor({ cli: candidate.cli, model: candidate.model, args: [], skills: [] }, adapters);
@@ -1036,6 +1112,7 @@ export async function failoverAgent({ runDir, agentId, adapters, toLabel, log = 
   });
   await appendJournal(runDir, { type: "agent.failover", agent: agentId, from: previous, to_index: startIndex });
   const started = await startAgentInPane({ pane: entry.pane, agentId, role: entry.role, candidates, startIndex, runDir, log, respawn: true });
+  entry.binding = (await tmux.listServerPanes()).find(p => p.paneId === entry.pane && p.sessionName === run.session) || null;
   if (!started.ok) {
     entry.active = entry.candidates.length;
     entry.provider = null;
@@ -1048,12 +1125,9 @@ export async function failoverAgent({ runDir, agentId, adapters, toLabel, log = 
   entry.adapter = started.adapter.id;
   entry.submit_keys = started.adapter.submit_keys;
   await saveRun(runDir, run);
-  // Re-ring anything still unanswered so the new provider picks up where the old one stopped.
+  // The restarted provider reads its durable inbox at a safe boundary. Bootstrap readiness
+  // does not prove that a later composer is empty or that a tool is not accepting input.
   const pending = await pendingReplies(runDir, [agentId]);
-  for (const item of pending) {
-    const pointer = messagePointer({ id: item.id, from: "conductor", stage: item.id.split("-").slice(1).join("-"), inbox: item.inbox, outbox: item.outbox });
-    await tmux.sendText(entry.pane, pointer, entry.submit_keys);
-  }
-  await appendJournal(runDir, { type: "agent.failover_complete", agent: agentId, from: previous, to: started.label, redelivered: pending.map((item) => item.id) });
-  return { ok: true, agent: agentId, from: previous, to: started.label, ready: started.ready, redelivered: pending.map((item) => item.id), attempts: started.attempts };
+  await appendJournal(runDir, { type: "agent.failover_complete", agent: agentId, from: previous, to: started.label, redelivered: [], pending: pending.map((item) => item.id) });
+  return { ok: true, agent: agentId, from: previous, to: started.label, ready: started.ready, redelivered: [], pending: pending.map((item) => item.id), attempts: started.attempts };
 }

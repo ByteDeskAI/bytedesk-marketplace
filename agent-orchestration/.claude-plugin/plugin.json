@@ -19,5 +19,8 @@
     "grok",
     "kimi",
     "tmux"
-  ]
+  ],
+  "experimental": {
+    "monitors": "./monitors/monitors.json"
+  }
 }
