@@ -31,6 +31,7 @@ const TITLES = {
   orchestrator: "Delivery Coordinator",
   worker: "Engineer",
   designer: "Design Engineer",
+  "image-gen": "Image Generation Engineer",
   judge: "Review Judge",
   reviewer: "Staff Reviewer",
   researcher: "Research Engineer",

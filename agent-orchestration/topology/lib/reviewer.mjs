@@ -32,7 +32,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readdir, readFile, rm, mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { agentDirs, createAgent, findLead, resolveAgentRef } from "./agents.mjs";
+import { agentDirs, createAgent, findLead, requireAgent, resolveAgentRef } from "./agents.mjs";
 import { findTemplate, loadConfig } from "./config.mjs";
 import { displayName } from "./identity.mjs";
 import { openRoleSession, roleSessionName } from "./launch.mjs";
@@ -192,6 +192,21 @@ export async function reviewerNonceAck({ consumer, nonce, env = process.env, hom
 }
 
 /**
+ * A reviewer only runs on a provider the operator approved for review. Shared by every path that
+ * installs one — minting from config and enrolling a running session alike — because an enrolment
+ * that skipped it would be a hole in exactly the guarantee the check exists for.
+ */
+function assertApprovedProvider(provider, loaded) {
+  const allowed = loaded.config.management?.reviewer_providers ?? DEFAULT_REVIEWER_PROVIDERS;
+  invariant(
+    Array.isArray(allowed) && DEFAULT_REVIEWER_PROVIDERS.includes(provider) && allowed.includes(provider),
+    "TOPOLOGY_REVIEWER_PROVIDER",
+    `Reviewer provider "${provider ?? "none"}" is not in management.reviewer_providers (${Array.isArray(allowed) ? allowed.join(", ") : "invalid config"}). The reviewer only runs on a provider the operator approved for review — change the config, not this check.`,
+    { provider, allowed },
+  );
+}
+
+/**
  * Resolve the reviewer provider from configuration — and refuse anything the operator did not
  * approve. The chain is config.reviewer.provider, then the template's cli; the result must be in
  * management.reviewer_providers. Returns { provider, model, templateName, template, loaded }.
@@ -208,13 +223,7 @@ async function resolveReviewerConfig({ consumer, home, pluginRoot, env }) {
   );
   const provider = loaded.config.reviewer?.provider ?? found.template.cli ?? null;
   const model = loaded.config.reviewer?.model ?? found.template.model ?? null;
-  const allowed = loaded.config.management?.reviewer_providers ?? DEFAULT_REVIEWER_PROVIDERS;
-  invariant(
-    Array.isArray(allowed) && DEFAULT_REVIEWER_PROVIDERS.includes(provider) && allowed.includes(provider),
-    "TOPOLOGY_REVIEWER_PROVIDER",
-    `Reviewer provider "${provider ?? "none"}" is not in management.reviewer_providers (${Array.isArray(allowed) ? allowed.join(", ") : "invalid config"}). The reviewer only runs on a provider the operator approved for review — change the config, not this check.`,
-    { provider, allowed },
-  );
+  assertApprovedProvider(provider, loaded);
   return { provider, model, templateName, template: found.template, loaded };
 }
 
@@ -318,24 +327,128 @@ export async function ensureReviewer({ consumer, home = homedir(), pluginRoot = 
 }
 
 /**
- * Can this repository's reviewer actually review right now? { available, record, reason }.
- * Fail closed and say why: an unavailable reviewer is REPORTED, so the merge gate blocks on facts
- * instead of pretending a review can happen.
+ * The reviewer's standing, kept as THREE separate facts: { registered, alive, responsive, record,
+ * reason }. A record naming a holder, a pane incarnation running, and a nonce acknowledged are
+ * different questions — a session parked on a login screen is alive and useless, and a reviewer
+ * deep in a diff is alive, unacknowledged, and perfectly healthy. Callers that need one boolean
+ * derive it (see reviewerAvailability); callers reporting to a human must not.
  */
-export async function reviewerAvailability({ consumer, env = process.env, home = homedir(), probes = null }) {
+export async function reviewerStanding({ consumer, env = process.env, home = homedir(), probes = null }) {
   const session = probes ?? defaultProbes();
   const record = await readReviewerRecord(consumer, env, home);
   if (!record) {
-    return { available: false, record: null, reason: "no reviewer is registered for this repository — run ensureReviewer first" };
+    return { registered: false, alive: false, responsive: false, record: null, reason: "no reviewer is registered for this repository — run ensureReviewer first" };
   }
   if (!(await session.alive(record.session, record))) {
-    return { available: false, record, reason: `reviewer session ${record.session} is not running — restart it before requesting a review` };
+    return { registered: true, alive: false, responsive: false, record, reason: `reviewer session ${record.session} is not running — restart it before requesting a review` };
   }
   const responsive = probes?.responsive
     ? await probes.responsive(record)
     : await reviewerProbeReady({ consumer, record, env, home });
-  if (!responsive) return { available: false, record, reason: "reviewer is alive but has not acknowledged a readiness nonce" };
-  return { available: true, record, reason: null };
+  return { registered: true, alive: true, responsive, record, reason: responsive ? null : "reviewer is alive but has not acknowledged a readiness nonce" };
+}
+
+/**
+ * Can this repository's reviewer actually review right now? { available, record, reason }.
+ * Fail closed and say why: an unavailable reviewer is REPORTED, so the merge gate blocks on facts
+ * instead of pretending a review can happen. The three facts behind the one boolean are in
+ * reviewerStanding; this is the merge gate's view, where only "yes or no, and why not" matters.
+ */
+export async function reviewerAvailability({ consumer, env = process.env, home = homedir(), probes = null }) {
+  const standing = await reviewerStanding({ consumer, env, home, probes });
+  return { available: standing.registered && standing.alive && standing.responsive, record: standing.record, reason: standing.reason };
+}
+
+/**
+ * Enroll an EXISTING live session as this repository's reviewer — the mirror of assignLead, which
+ * reviewer.mjs has never had. It is a handshake, not a launch: the session must already be running
+ * and enrollment changes nothing about it, so the record says privileges: "unchanged".
+ *
+ * Independence is checked here exactly as it is on every other path — assertIndependent, the same
+ * function, on the same lead-and-authors inputs — because a second way in that skipped it would be
+ * a second way to end up with a reviewer reviewing its own work. The provider allowlist is applied
+ * for the same reason.
+ */
+export async function assignReviewer({ consumer, agentRef, session: existingSession = null, home = homedir(), pluginRoot = null, env = process.env, log = () => {}, notAgentIds = [], probes = null }) {
+  invariant(agentRef, "TOPOLOGY_REVIEWER_AGENT_REQUIRED", "Name the agent whose live session becomes the reviewer: assignReviewer needs an agent reference.");
+  const session = probes ?? defaultProbes();
+  const { identity, recordPath, lockPath } = await reviewerPaths(consumer, env, home);
+  const dirs = agentDirs({ pluginRoot, consumer, home });
+  await mkdir(dirname(recordPath), { recursive: true });
+
+  return withLock(lockPath, async () => {
+    const agent = await requireAgent(agentRef, dirs);
+    const lead = await findLead(dirs);
+    assertIndependent(agent.id, { lead, notAgentIds });
+    const previous = (await exists(recordPath)) ? await readJson(recordPath) : null;
+    invariant(!previous || previous.agent_id === agent.id, "TOPOLOGY_REVIEWER_ALREADY_ASSIGNED", "Detach the existing reviewer before assigning a different identity.");
+    const provider = agent.cli ?? null;
+    assertApprovedProvider(provider, await loadConfig({ consumer, home, pluginRoot, env }));
+    const name = existingSession || roleSessionName(agent.id);
+    const candidate = { session: name, pane: null, agent_id: agent.id, repo_id: identity.id };
+    invariant(
+      await session.alive(name, candidate),
+      "TOPOLOGY_REVIEWER_NOT_ALIVE",
+      `${displayName(agent)} has no live session (${name}). Assignment is a handshake with a RUNNING session — open one first; enrollment never spawns it for you.`,
+      { agent_id: agent.id, session: name },
+    );
+    const binding = probes?.binding
+      ? await probes.binding(candidate)
+      : (await tmux.listServerPanes({ env })).find(pane => pane.sessionName === name && pane.alive !== false) || null;
+    invariant(probes || binding, "TOPOLOGY_REVIEWER_BINDING_REQUIRED", "Assignment needs exact observed session binding.");
+    candidate.binding = binding;
+    candidate.pane = binding?.paneId ?? null;
+    const responsive = probes?.responsive
+      ? await probes.responsive(candidate)
+      : await reviewerProbeReady({ consumer, record: candidate, env, home });
+    invariant(responsive, "TOPOLOGY_REVIEWER_HANDSHAKE_REQUIRED", "Assignment requires an acknowledged readiness nonce; the existing session was preserved.");
+    await writeJson(agent._file, { ...Object.fromEntries(Object.entries(agent).filter(([key]) => !key.startsWith("_"))), role: "reviewer" });
+    const now = nowIso();
+    const record = {
+      version: 1,
+      repo_id: identity.id,
+      consumer,
+      agent_id: agent.id,
+      session: name,
+      pane: candidate.pane,
+      binding,
+      provider,
+      mode: "assigned",
+      managed: false,
+      externally_owned: true,
+      created_at: previous?.created_at ?? now,
+      updated_at: now,
+    };
+    await writeJson(recordPath, record);
+    log(`assigned reviewer ${agent.id} in ${name}`);
+    return { action: "assigned", record, agent, privileges: "unchanged", preserved: { conversation: true, task: "kept", cwd: "kept" } };
+  });
+}
+
+/**
+ * Remove the reviewer registration. The mirror of detachLead, and the same rule: detaching is about
+ * the RECORD, not the session. An externally owned pane is never killed, and a managed one only on
+ * an explicit { kill: true } against an incarnation still observably ours.
+ */
+export async function detachReviewer({ consumer, env = process.env, home = homedir(), kill = false, probes = null, log = () => {} }) {
+  const { recordPath, lockPath } = await reviewerPaths(consumer, env, home);
+  if (!(await exists(recordPath))) return { action: "absent", detached: false };
+  return withLock(lockPath, async () => {
+    if (!(await exists(recordPath))) return { action: "absent", detached: false };
+    const record = await readJson(recordPath);
+    let killed = false;
+    if (record.managed && !record.externally_owned && kill === true) {
+      const terminate = probes?.kill ?? (async (r) => {
+        invariant(r.binding && await bindingAlive(r), "TOPOLOGY_REVIEWER_OWNERSHIP_UNKNOWN", "Exact managed pane incarnation is absent or changed; refusing termination.");
+        await tmux.tmux(["kill-pane", "-t", r.binding.paneId], { tmuxServer: r.binding.serverKey });
+      });
+      await terminate(record);
+      killed = true;
+    }
+    await rm(recordPath, { force: true });
+    log(`detached reviewer ${record.agent_id}${killed ? " and killed its managed session" : ""}`);
+    return { action: "detached", detached: true, record, killed };
+  });
 }
 
 // ── Review records ───────────────────────────────────────────────────────────
