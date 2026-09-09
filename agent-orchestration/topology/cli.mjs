@@ -77,6 +77,9 @@ Standing repository services
   supervise [--once --server <socket>]          reconcile presence, prompts and held mail
   lead status|ensure|assign <agent>|detach|probes|ack <nonce>
   reviewer status|ensure|request|collect|eligible [--task TM-id --revision <sha> --author <id>]
+  role list|show <role>|status <role>|assign <role> [<agent>]|ensure <role> [<agent>]
+       |reassign <role> [<agent>] [--force]|detach <role> [<agent>] [--kill]|history <role>
+                                               lead, reviewer, worker, designer, image-gen
   prompt preview|refresh|watch|ack <agent> [--revision <hash> --nonce <nonce>]
   startup pending|watch|hooks|install-hooks|uninstall-hooks [--provider <id> --server <name>]
   startup-check --source hook|manual
@@ -364,6 +367,25 @@ const commands = {
     if (sub === 'detach') return out(await api.detachLead({ ...options, kill: flags.kill === true }));
     if (sub === 'ack') return out(await api.leadNonceAck({ ...options, nonce: positional[1] }));
     fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use lead status|ensure|assign|detach|ack.');
+  },
+  async role({ flags, positional }) {
+    // One surface over lead.mjs and reviewer.mjs; roles.mjs does the dispatch, so this stays a
+    // parameter map. `role status` prints registered/alive/responsive as three separate fields —
+    // do not collapse them into one tick when rendering non-JSON output later.
+    const { roleCommand } = await import('./lib/roles.mjs');
+    return out(await roleCommand({
+      ...context(flags),
+      verb: positional[0] || 'list',
+      role: positional[1],
+      agentRef: positional[2] ?? (flags.agent && flags.agent !== true ? String(flags.agent) : null),
+      session: flags.session && flags.session !== true ? String(flags.session) : null,
+      notAgentIds: list(flags.author),
+      runDir: flags.run && flags.run !== true ? absolutize(String(flags.run)) : null,
+      force: flags.force === true,
+      kill: flags.kill === true,
+      limit: Number(flags.limit || 0),
+      ackTimeoutMs: Number(flags['ack-timeout'] || 5000),
+    }));
   },
   async prompt({ flags, positional }) {
     const ctx = context(flags);
