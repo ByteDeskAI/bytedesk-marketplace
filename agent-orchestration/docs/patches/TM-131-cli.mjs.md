@@ -31,10 +31,12 @@ person gets a line per agent, a scheduler gets `--json` and reads `binding` plus
     const { collectPresenceAgents } = await import('./lib/presence.mjs');
     const { loadAdapters } = await import('./lib/providers.mjs');
     const identity = await canonicalRepoId(ctx.consumer);
-    // Phase 0.5: every repo-scoped verb self-starts the supervisor, so asking for a census is one
-    // of the things that brings the tick back after a reboot. Idempotent — a kill(pid,0) and a
-    // spawn only when dead. Uncomment once startRepositorySupervision is wired for `census`.
-    // await startRepositorySupervision({ ...ctx, tmuxServer: flags.server });
+    // `census` is a repo-scoped verb, so it self-starts the supervisor like every other one:
+    // asking what the agents are doing is exactly the moment you want the tick back after a
+    // reboot. `ensureSupervision` (already in this file as of 89b5531) is idempotent — a live pid
+    // short-circuits in microseconds — and never fatal, which is the right trade here: a census
+    // with no supervisor is a one-shot answer, not a failed command.
+    const supervision = await ensureSupervision(ctx);
     const memo = new Map();
     const observe = async (previous) => {
       // Prefer the supervisor's document: ONE answer to "is this agent alive" per repo. Only when
@@ -52,7 +54,7 @@ person gets a line per agent, a scheduler gets `--json` and reads `binding` plus
     };
     if (!flags.watch) {
       const document = await observe(null);
-      return out(flags.json ? document : formatCensus(document));
+      return out(flags.json ? { ...document, supervision } : formatCensus(document));
     }
     // --watch rides the same 2/5/15 ladder as the supervisor: 2 s while anything is moving, 15 s
     // while nothing is. A watcher that polls at a fixed 1 s is the busy loop this phase removed.
@@ -77,3 +79,18 @@ person gets a line per agent, a scheduler gets `--json` and reads `binding` plus
   check `stale`.
 - The non-watch path takes at most one `list-panes -a` and at most `AO_CENSUS_CAPTURE_BUDGET`
   (default 8) `capture-pane -S -20` calls, and only when the supervisor has published nothing fresh.
+
+## Rebase note — checked against `main` at `89b5531`
+
+Nothing in this patch assumed the pre-TM-134 CLI.
+
+- **The `role` verb (`7191cc4`) does not collide.** `census` is a new key in the `commands` object
+  and a new USAGE line; it shares no flag, no positional and no state with `role`.
+- **The USAGE anchor still exists verbatim.** I insert directly after
+  `supervise [--once --server <socket>]`, which is still the first line of the "Standing repository
+  services" block; `role` was added lower, after `reviewer`.
+- **`ensureSupervision` (`89b5531`) is now used rather than reinvented.** The earlier revision of
+  this patch carried a commented-out `startRepositorySupervision` call with a note to wire it up.
+  That is exactly what `ensureSupervision(ctx)` already does — try, return `{started:false,error}`
+  on failure, never throw — so `census` calls it like `role assign`, `launch` and `send` do. No new
+  helper.

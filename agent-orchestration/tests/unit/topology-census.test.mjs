@@ -37,14 +37,17 @@ test("busy is the braille RANGE, not a table of glyphs", () => {
   assert.equal(busyEvidence(CODEX_IDLE_TITLE), null);
 });
 
-test("claude 2.1 renders no braille at all, so the measured timer marker carries it", () => {
-  assert.equal(/[⠀-⣿]/.test(CLAUDE_BUSY_TAIL), false, "claude 2.1 animates with ✻✽✳✶, not braille");
+// If you are here because you loosened the timer marker to "ellipsis then paren" and this test went
+// red: the tail `\(\d+\s*[hms]\b` is load-bearing, not decoration. Both strings below are real idle
+// panes captured on 2026-09-09, and the loose form matches both.
+test("the claude timer marker stays off the two real IDLE screens it was tuned against", () => {
+  assert.equal(/[⠀-⣿]/.test(CLAUDE_BUSY_TAIL), false, "claude 2.1 animates with ✻✽✳✶, not braille — the braille range cannot carry it");
   assert.notEqual(busyEvidence(CLAUDE_BUSY_TAIL), "braille-spinner");
-  assert.notEqual(busyEvidence(CLAUDE_BUSY_TAIL), null, "so a measured marker has to carry it");
+  assert.notEqual(busyEvidence(CLAUDE_BUSY_TAIL), null, "so the measured timer marker has to");
+  // Same glyph, past tense: only the running timer separates busy from done.
   assert.equal(busyEvidence(CLAUDE_IDLE_TAIL), null);
-  // Two real IDLE screens that a looser "ellipsis then paren" marker would call busy.
-  assert.equal(busyEvidence("   … (17 more lines, ctrl+o to expand)"), null);
-  assert.equal(busyEvidence("    … +134 lines (ctrl + t to view transcript)"), null);
+  assert.equal(busyEvidence("   … (17 more lines, ctrl+o to expand)"), null, "idle kimi");
+  assert.equal(busyEvidence("    … +134 lines (ctrl + t to view transcript)"), null, "idle codex");
 });
 
 test("needs-input is edge-triggered exactly once across busy -> idle -> idle -> idle", () => {
@@ -255,6 +258,12 @@ test("a census reuses one listing, captures only inconclusive panes, and honours
   const dropped = await takeCensus({ env, home: root, consumer: root }, { identity, panes: [respawned[0]], agents: [agentsAfter[0]], memo, capture, budget: 8, now: 1_000_003 });
   const gone = dropped.agents.find((a) => a.agentId === "agent2");
   assert.equal(gone?.state, "dead");
+  // A tombstone must never be mistakable for a current reading, so the flag rides out to --json.
+  assert.equal(gone.carriedForward, true);
+  assert.equal(dropped.agents.find((a) => a.agentId === "agent1").carriedForward, false);
+  // And it is dropped after that one tick rather than accumulating forever.
+  const settled = await takeCensus({ env, home: root, consumer: root }, { identity, panes: [respawned[0]], agents: [agentsAfter[0]], memo, capture, budget: 8, now: 1_000_004, previous: dropped });
+  assert.equal(settled.agents.some((a) => a.agentId === "agent2"), false);
 
   // A listing we could not take at all makes every agent unknown and nothing dispatchable.
   const blind = await takeCensus({ env, home: root, consumer: root }, { identity, panes: null, agents, memo, capture, budget: 8, now: 1_000_004 });

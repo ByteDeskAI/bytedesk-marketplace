@@ -69,16 +69,38 @@ const TAIL_LINES = 20;
  *                "✻ Whirlpooling… (8m 45s · ↓ 37.1k tokens)". Idle reads "✻ Worked for 12m 29s ·
  *                done 3:36 AM" — same glyph, past tense.            -> NOT braille; timer marker
  *
+ * **This corrects the brief this was built from**, which stated the braille sweep was the
+ * CLI-agnostic detector working across claude/codex/grok/kimi. Measured, it is not: claude renders
+ * no braille anywhere, and a detector built on claude's glyph alone would read every IDLE claude
+ * pane as busy, because `✻` is on both screens and only the TENSE differs.
+ *
+ * `✶` in the marker list is likewise a coin flip on its own: it is one frame of claude's
+ * `✻ ✽ ✳ ✶` spinner cycle, so it matches roughly one capture in four of a busy claude and cannot
+ * be relied on. It stays because it is free and it catches other CLIs; it is not what carries
+ * claude. **Do not delete the timer marker and lean on it.**
+ *
  * Hence one measured marker beyond the range: an ellipsis followed by a RUNNING elapsed timer.
- * `\(\d+\s*[hms]\b` is what keeps it off "… (17 more lines, ctrl+o to expand)" and "… +134 lines
- * (ctrl + t to view transcript)", both of which sit in real IDLE panes right now.
+ * The `\(\d+\s*[hms]\b` tail is not decoration — it is what keeps the marker off two strings that
+ * sit in real IDLE panes right now:
+ *
+ *     "… (17 more lines, ctrl+o to expand)"          <- idle kimi
+ *     "… +134 lines (ctrl + t to view transcript)"   <- idle codex
+ *
+ * A looser "ellipsis then paren" matches both and silently breaks idle detection for two of the
+ * four CLIs. If you are about to simplify this regex, read
+ * `tests/unit/topology-census.test.mjs` first — that test exists for you.
+ *
+ * ponytail: every line of this is a screen heuristic with a ~2 s ceiling and no way to see an
+ * agent thinking without animating. The upgrade path is a provider end-of-turn signal — Claude
+ * Code's `Stop` hook — which would report `evidence.source: "hook"` and make all of the above
+ * dead weight for claude. Keep `evidence.source` populated so that handover is visible.
  */
 const BRAILLE = /[⠀-⣿]/;
 const MARKERS = [
   /esc to interrupt/i,      // codex; claude <= 2.0
-  /…\s*\(\d+\s*[hms]\b/, // claude 2.1 running spinner line
+  /…\s*\(\d+\s*[hms]\b/, // claude 2.1 running spinner line — see the two idle strings above
   /working…|thinking…/i,
-  /[✶◐◓◑◒]/,
+  /[✶◐◓◑◒]/,             // one frame in four of claude's cycle; a bonus, never the load-bearing test
 ];
 
 /** The matched busy evidence, or null. Exported so a test can prove it is the RANGE, not a table. */
@@ -223,7 +245,10 @@ export async function takeCensus(options = {}, input = {}) {
   const roster = [...observed];
   for (const prior of priors.values()) {
     if (seen.has(prior.agentId) || prior.state === "dead") continue;
-    roster.push({ agentId: prior.agentId, displayName: prior.displayName, title: prior.title, repoRole: prior.repoRole, runRole: prior.runRole, session: prior.binding, primaryRunId: prior.runId ?? null });
+    // `carriedForward` marks a TOMBSTONE: this agent was not in today's observation at all, it is
+    // here only so its disappearance can be reported. A consumer must never mistake one for a
+    // current reading, so the flag rides all the way out to --json.
+    roster.push({ agentId: prior.agentId, displayName: prior.displayName, title: prior.title, repoRole: prior.repoRole, runRole: prior.runRole, session: prior.binding, primaryRunId: prior.runId ?? null, carriedForward: true });
   }
 
   // Decide who needs a capture: title-conclusive panes cost nothing at all.
@@ -295,8 +320,21 @@ export async function takeCensus(options = {}, input = {}) {
       sessionName: item.pane?.sessionName ?? item.prior?.sessionName ?? null,
       undeliveredMessages,
       mailStuck,
+      // A tombstone: this row is the last census's memory of an agent that is no longer in the
+      // listing, kept for one tick so its disappearance is reported rather than silent. It is not
+      // an observation, and `--json` says so.
+      carriedForward: item.agent.carriedForward === true,
       // ONE derived boolean for the scheduler. Never re-derive dispatch from the precedence table
       // on the other side, or scheduler and supervisor drift on what "idle" means.
+      //
+      // `needs-input` is deliberately EXCLUDED even though it is the freshest-idle agent there is,
+      // because the state is ambiguous: "post-busy idle streak reached 2" covers both "just
+      // finished, ready for more" AND "stopped to ask a human a question and is waiting for the
+      // answer". Dispatching into the second is precisely the failure the delivery-guarantee work
+      // exists to prevent. The cost of excluding it is ~2 s of latency and it self-corrects on the
+      // next tick; the cost of including it is handing work to an agent blocked on a person. Two
+      // seconds is the cheaper mistake. Distinguishing the two would need a bottom-up scan for a
+      // trailing question mark — a heuristic on top of a heuristic, and not worth it yet.
       dispatchable: verdict.state === "idle" && undeliveredMessages.length === 0 && Boolean(item.pane && item.pane.alive !== false),
     };
   });
