@@ -40,8 +40,15 @@ export const SLEEP_LADDER_MS = [2000, 5000, 15000];
 /** Floor between two runs of the expensive reconcile body. AO_RECONCILE_MIN_MS overrides. */
 export const DEFAULT_RECONCILE_MIN_MS = 10_000;
 
-/** Quiet ticks walk one rung down the ladder; ANY activity snaps straight back to the busy rung.
- *  `rung` is the previous rung, or -1 before the first tick. */
+/**
+ * Quiet ticks walk one rung down the ladder; ANY activity snaps straight back to the busy rung.
+ * `rung` is the previous rung, or -1 before the first tick.
+ *
+ * Not to be confused with `delivery.mjs`'s `nextDeliveryRung`, which is a different ladder entirely
+ * — the retry rungs for one message's doorbell (`resubmit` / `retype` / `wait-safe` / `escalate`).
+ * That one was renamed away from this name for exactly this reason; nothing imports both, so the
+ * hazard was always to the reader rather than to the code.
+ */
 export function nextRung(rung, activity) {
   return activity ? 0 : Math.min(rung + 1, SLEEP_LADDER_MS.length - 1);
 }
