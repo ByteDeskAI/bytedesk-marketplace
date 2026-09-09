@@ -139,6 +139,24 @@ export async function sendMessage({ runDir, from, to, stage, body, contract, rou
   const destination = existing.consumer || consumer;
   invariant(destination, 'TOPOLOGY_RUN_CONSUMER_REQUIRED', 'Legacy run has no destination repository; pass explicit consumer context before sending.');
   const external = !sourceProject || !(await sameProject(sourceProject, destination));
+  // THE one expansion point. A fan-out is addressed collectively by the id that produced it
+  // (`--to per-file` reaches every `per-file.<item>`), and an `@` audience names a whole room —
+  // both resolve to concrete agent ids here, before the per-recipient loop and before the
+  // external/standing branch below, so a broadcast is N ordinary sends each individually admitted
+  // through the identical path. `forwardMessageToWorkflow` routes back through this function, so
+  // there is no way around it by control flow, never mind by convention.
+  //
+  // It sits BELOW the `external` computation because TOPOLOGY_BROADCAST_EXTERNAL depends on it, and
+  // ABOVE `nextSequence` because every reason a broadcast is refused — an unknown audience, an
+  // audience that names nobody, one wider than the limit, an outsider addressing a room — is
+  // knowable from the run roster the `loadRun` above already produced. Refusing here consumes no
+  // sequence number and writes no envelope, so a refused broadcast leaves run.json byte-identical.
+  // The alternative, allocating and rolling back, cannot be made safe: `nextSequence` hands numbers
+  // out under `.mailbox-sequence.lock` and a second sender can already hold the next one, so a
+  // rollback either reuses a live number or leaves the gap it meant to close.
+  const { expandAddresses } = await import('./addressing.mjs');
+  const recipients = await expandAddresses({ run: existing, to, from, external, consumer: destination,
+    env, home: standingOptions.home, ...addressing });
   const fingerprint = createHash('sha256').update(JSON.stringify({ from, to, stage, body, contract, round, subject, sourceProject, destination, task, chain, isAssignment, token, provenance, parentId })).digest('hex');
   const { seq, run } = await nextSequence(runDir, idempotencyKey, fingerprint);
   const known = new Set(run.agents.map((agent) => agent.id));
@@ -162,15 +180,6 @@ export async function sendMessage({ runDir, from, to, stage, body, contract, rou
   const notices = [];
   const holds = [];
 
-  // THE one expansion point. A fan-out is addressed collectively by the id that produced it
-  // (`--to per-file` reaches every `per-file.<item>`), and an `@` audience names a whole room —
-  // both resolve to concrete agent ids here, before the per-recipient loop and before the
-  // external/standing branch below, so a broadcast is N ordinary sends each individually admitted
-  // through the identical path. `forwardMessageToWorkflow` routes back through this function, so
-  // there is no way around it by control flow, never mind by convention.
-  const { expandAddresses } = await import('./addressing.mjs');
-  const recipients = await expandAddresses({ run, to, from, external, consumer: destination,
-    env, home: standingOptions.home, ...addressing });
   to = recipients.map((entry) => entry.id);
 
   for (const address of recipients) {
