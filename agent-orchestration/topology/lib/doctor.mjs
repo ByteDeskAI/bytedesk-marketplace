@@ -86,7 +86,13 @@ export async function doctor({ adapters, workflowDirs, skillDirs, roleDirs, prov
       const { supervisionStatus } = await import("./supervision.mjs");
       supervision = await supervisionStatus({ consumer, env, home });
       const stallMs = Math.max(60_000, supervision.reconcile_min_ms * 4);
-      if (supervision.state === "down") {
+      if (supervision.state === "died-before-first-tick") {
+        // Distinct from "down" on purpose: this one never worked, so the remedy is to read the
+        // startup crash rather than to wonder what killed a healthy daemon hours later.
+        problems.push({ code: "SUPERVISOR_NEVER_TICKED", message: `The repository supervisor (pid ${supervision.pid}) died during startup and never completed a tick, so presence for this repo was never published.`, fix: { note: `The reason is at the end of ${supervision.log}` } });
+      } else if (supervision.state === "orphaned") {
+        problems.push({ code: "SUPERVISOR_ORPHANED", message: `A supervisor record names ${supervision.consumer}, which no longer exists — a removed worktree leaves a record no restart can reclaim.`, fix: { command: `rm ${supervision.record_path}`, note: "Debris only; nothing is running. Delete the record and its .log sibling." } });
+      } else if (supervision.state === "down") {
         problems.push({ code: "SUPERVISOR_DOWN", message: `The repository supervisor (pid ${supervision.pid}) is gone after ${supervision.restarts} restart(s); presence for this repo is no longer being republished.`, fix: { command: "ao-topology supervise", note: `Last words, if any: ${supervision.log}` } });
       } else if (supervision.state !== "never-started" && supervision.tick_age_ms !== null && supervision.tick_age_ms > stallMs) {
         problems.push({ code: "SUPERVISOR_STALLED", message: `The supervisor process is alive but its last reconcile tick was ${Math.round(supervision.tick_age_ms / 1000)}s ago (floor ${supervision.reconcile_min_ms}ms).`, fix: { note: `Inspect ${supervision.log}` } });

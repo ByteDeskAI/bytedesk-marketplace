@@ -140,7 +140,10 @@ test('CLI send persists notification without injecting a live terminal composer'
  const bin=join(runDir,'bin'),marker=join(runDir,'unsafe-tmux-call');await mkdir(bin);
  await writeFile(join(bin,'tmux'),'#!/bin/sh\nprintf unsafe > "$AO_TEST_MARKER"\nexit 0\n',{mode:0o755});
  const cli=fileURLToPath(new URL('../../topology/cli.mjs',import.meta.url));
- const result=await exec(process.execPath,[cli,'send','--run',runDir,'--from-project',runDir,'--from','conductor','--to','a','--body','Wait in the inbox.','--json'],{env:{...process.env,PATH:`${bin}:${process.env.PATH}`,AO_TEST_MARKER:marker}});
+ // `send` self-starts a repository supervisor (TM-127), so this test MUST pin the state home or it
+ // spawns a real background daemon into the developer's own ~/.local/state and leaves a record
+ // behind when t.after removes runDir. That is exactly how TM-139's five orphaned records appeared.
+ const result=await exec(process.execPath,[cli,'send','--run',runDir,'--from-project',runDir,'--from','conductor','--to','a','--body','Wait in the inbox.','--json'],{env:{...process.env,PATH:`${bin}:${process.env.PATH}`,AO_TEST_MARKER:marker,AGENT_ORCHESTRATION_STATE_HOME:join(runDir,'state')}});
  const output=JSON.parse(result.stdout);assert.equal(output.delivered[0].rang,false);assert.equal(output.delivered[0].notification,'durable-pending');
  await assert.rejects(readFile(marker),{code:'ENOENT'});
  assert.match(await readFile(output.deliveries[0].inbox,'utf8'),/Wait in the inbox/);
