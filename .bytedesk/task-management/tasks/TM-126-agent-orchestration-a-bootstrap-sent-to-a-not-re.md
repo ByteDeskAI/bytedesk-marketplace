@@ -8,14 +8,14 @@ title: "agent-orchestration: a bootstrap sent to a not-ready agent is lost silen
 epic: "EP-017"
 acceptance: [{"text":"A bootstrap sent to an agent that was not ready is verified to have landed, and retried when it did not","done":true,"at":"2026-09-07T23:49:14.414Z"},{"text":"A pointer that cannot be delivered after the retries is reported as a failure rather than a warning","done":true,"at":"2026-09-07T23:49:14.552Z"},{"text":"The regression test covers a pane that is not listening when the send happens","done":true,"at":"2026-09-07T23:49:14.674Z"}]
 evidence: [".bytedesk/task-management/evidence/TM-126-deaf-pane.mjs"]
-commits: []
+commits: ["82eaf62"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "4e1d7087-d606-432e-9341-3ce779b4baf8"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-07T23:49:14.967Z"
+updated: "2026-09-07T23:49:17.355Z"
 evidenceSources: {".bytedesk/task-management/evidence/TM-126-deaf-pane.mjs":{"source":"/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/agent-orchestration/tests/fixtures/deaf-pane.mjs","sha256":"6fd25c94c36164e46a59d30663e2de8939f97c6ed6664558dd95e1b7b6048f3e","bytes":637,"at":"2026-09-07T23:49:14.783Z"}}
 closed: "2026-09-07T23:49:14.962Z"
 ---

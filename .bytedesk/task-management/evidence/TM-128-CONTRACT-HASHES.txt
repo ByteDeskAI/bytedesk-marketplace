@@ -1,0 +1,15 @@
+# Presence v1 — contract revision 3, freeze hashes
+# Generated 2026-09-09 by Marketplace Claude %3 (TM-128).
+# Supersedes the revision-2 hash set. Gateway (%35, TM-222): ACK these.
+
+3748e32d26f6f7b3764009a95a2227c44a1b7107504f1934bace1c4d7a6297f5  PRESENCE-CONTRACT.md
+  4fef13c80f8a9c4e27dcf9345d6edec0cf375a46ae44ba884f53aae93150baa7  README.md
+  b6711de9321a23223a1eda82385c604e3e09c5d85972d4d5b4fd8c81ef01fd78  validate_presence.py
+  b095ba737175ab080ae01381623ca2e9e9f1b2da2d0b885cbbf7f283d3bf6e79  test_validator.py
+  253141cca84b699a59c29d127ecbd87c863217c195c422b6756a1748fbf6afaa  01-exact-match.json
+  9b6ba0356e8c85039c32bd23c7ffbcaeee80b274896ef2ef0e275f54f2e51302  02-stale.json
+  e8784ecfcf18cbc9c2111f7e353d8133401f3ca25f29393b72466c0ef1c7d9ea  03-nested-runs.json
+  074d3e3b2be00f4503ba2d5f91639fa1c322665216658fdb343a71e31bdfff87  04-standing-session.json
+  ddcda9b9578204196080c942096333df204ee28df0fab35a5b1b536bf2e52efb  05-empty-clears.json
+  c3cb40a914fe7d661c485953b1146414dbb9cee562358edb559f836ed82b0e05  06-membership-removal.json
+  60d27bfa2e66317a0af12d89b3f4e2ef939712be0930c419046173f75b7322f5  07-server-restart.json

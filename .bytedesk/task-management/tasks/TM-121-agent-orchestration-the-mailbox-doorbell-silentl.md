@@ -8,14 +8,14 @@ title: "agent-orchestration: the mailbox doorbell silently fails to submit"
 epic: "EP-017"
 acceptance: [{"text":"sendText delivers the submit key as its own read, proven by a probe that logs one line per stdin chunk","done":true,"at":"2026-09-07T01:57:24.315Z"},{"text":"The regression test fails against the batched form","done":true,"at":"2026-09-07T01:57:24.465Z"},{"text":"Launch cost is re-measured and the added tmux calls are accounted for","done":true,"at":"2026-09-07T01:57:24.600Z"}]
 evidence: [".bytedesk/task-management/evidence/TM-121-chunk-probe.mjs"]
-commits: ["3ff291d","d7f1256","d3fa043","d3f9721"]
+commits: ["3ff291d","d7f1256","d3fa043","d3f9721","82eaf62"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "4e1d7087-d606-432e-9341-3ce779b4baf8"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-07T02:55:00.170Z"
+updated: "2026-09-07T23:49:17.373Z"
 closed: "2026-09-07T01:57:24.841Z"
 comments: [{"author":"main","ts":"2026-09-07T02:03:53.600Z","text":"Correction: the first fix was necessary but not sufficient, and the test I wrote could not have told me. A chunk probe that logs its stdin reads has no paste heuristic, so it reported two clean chunks and looked fixed while a real Codex TUI still left the message in its composer. Measured on a live pane: no delay -> stuck, +300ms -> submitted, +800ms -> submitted. sendText now settles 500ms before the submit key (AO_SUBMIT_SETTLE_MS). The relaunch after that delivered three bootstraps and a brief with no manual Enter — first clean delivery of the day."}]
 ---
