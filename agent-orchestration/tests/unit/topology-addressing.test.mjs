@@ -7,7 +7,7 @@
 // truncating.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -211,4 +211,66 @@ test("forwarding a broadcast-delivered message into a child workflow cannot re-b
     "the child sees one named conductor, never the parent's audience token");
   const child = await loadRun(childDir);
   assert.deepEqual(child.message_envelopes[forwarded.id].to, ["childcond"]);
+});
+
+// TM-142 — a refused broadcast must cost nothing.
+//
+// Expansion used to run AFTER `nextSequence` and after the envelope write, so a refusal left
+// `message_envelopes[id]` behind and burned a sequence number for a message nobody ever received.
+// The assertion here is deliberately on the BYTES of run.json rather than on any one field: a
+// refusal that leaves the file identical cannot have written anything at all, whatever gets added
+// to the record later.
+test("a refused broadcast leaves run.json byte-identical, and an outsider cannot grow it", async (t) => {
+  const wide = [{ id: "conductor", role: "orchestrator" },
+    ...Array.from({ length: MAX_BROADCAST + 2 }, (_, i) => ({ id: `w${i}`, role: "worker" }))];
+  const f = await fixture(t, { agents: wide, library: [...LIBRARY, ...wide.map((a) => [a.id, a.role])] });
+  const outside = await mkdtemp(join(tmpdir(), "ao-outsider-"));
+  t.after(() => rm(outside, { recursive: true, force: true }));
+  const runFile = join(f.runDir, "run.json");
+  const bytes = () => readFile(runFile);
+
+  // One real send first, so the file under comparison is a run with history rather than a blank.
+  await sendMessage({ runDir: f.runDir, from: "conductor", fromProject: f.consumer, to: ["w0"],
+    stage: "brief", body: "One real message.", env: f.env, standingOptions: f.standingOptions });
+  const before = await bytes();
+
+  const refusals = [
+    ["TOPOLOGY_BROADCAST_TOO_WIDE", { from: "conductor", fromProject: f.consumer, to: ["@run"] }],
+    ["TOPOLOGY_BROADCAST_EXTERNAL", { from: "stranger", fromProject: outside, to: ["@run"] }],
+    ["TOPOLOGY_BROADCAST_EXTERNAL", { from: "stranger", fromProject: outside, to: ["@repo"] }],
+    ["TOPOLOGY_ADDRESS_UNKNOWN", { from: "conductor", fromProject: f.consumer, to: ["@nobody"] }],
+  ];
+  // Repeated, because the adversarial case is an outsider hammering the same refusal to grow
+  // somebody else's run record one envelope at a time.
+  for (let round = 0; round < 3; round += 1) {
+    for (const [code, args] of refusals) {
+      await assert.rejects(sendMessage({ runDir: f.runDir, stage: "brief", body: "Tell everyone.",
+        env: f.env, standingOptions: f.standingOptions, ...args }), { code });
+      assert.deepEqual(await bytes(), before, `${code} must leave run.json untouched`);
+    }
+  }
+
+  // And the run is still usable afterwards: the next real send takes the very next number, with no
+  // gap a reader could mistake for a lost message.
+  const next = await sendMessage({ runDir: f.runDir, from: "conductor", fromProject: f.consumer,
+    to: ["w1"], stage: "brief", body: "Second real message.", env: f.env, standingOptions: f.standingOptions });
+  assert.equal(next.seq, "002", "no sequence number was consumed by the refusals");
+  const run = await loadRun(f.runDir);
+  assert.deepEqual(Object.keys(run.message_envelopes), ["001-brief", "002-brief"]);
+});
+
+// The reorder moved expansion above `nextSequence`, which is where idempotency lives. Same key +
+// same content must still return the same seq; same key + different content must still conflict.
+test("moving expansion above the allocation does not disturb idempotency", async (t) => {
+  const f = await fixture(t);
+  const args = { runDir: f.runDir, from: "alice", fromProject: f.consumer, to: ["bob"], stage: "brief",
+    body: "Once.", env: f.env, standingOptions: f.standingOptions, idempotencyKey: "k1" };
+  const first = await sendMessage(args);
+  const again = await sendMessage(args);
+  assert.equal(again.seq, first.seq, "a repeated key with the same fingerprint reuses its number");
+  await assert.rejects(sendMessage({ ...args, body: "Twice." }), { code: "TOPOLOGY_MESSAGE_ID_CONFLICT" });
+  // A refused broadcast must not burn the key either.
+  await assert.rejects(sendMessage({ ...args, to: ["@nobody"], idempotencyKey: "k2" }), { code: "TOPOLOGY_ADDRESS_UNKNOWN" });
+  const run = await loadRun(f.runDir);
+  assert.equal(Object.keys(run.message_keys).length, 1, "the refused send recorded no idempotency key");
 });
