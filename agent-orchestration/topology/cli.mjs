@@ -61,6 +61,7 @@ Conduct (used by the orchestrator agent)
   delegations [--json]                         open delegations in this repo
 
   send --run <run_dir> --from <id> --to <id>[,<id>] --stage <slug> (--file <md> | --body <text>)
+       [--to @run|@repo|@role:<role>|@idle]    audiences, unioned by the same comma; [--max-recipients <n>]
        [--from-project <dir>] [--task <id>]    routed: an outsider reaches the lead unless delegated
        [--via <id>[,<id>]]                     hops already taken; forwarding must pass the chain on
        [--contract <name>] [--round <n>] [--subject <text>] [--no-ring]
@@ -902,7 +903,11 @@ const commands = {
     // ping-pong. Without a way to pass it, a forwarding agent starts every hop from an empty chain
     // and the hop limit can never be reached — the guard would be wired and still never fire.
     const via = list(flags.via);
-    const message = await sendMessage({ runDir, from, to: list(flags.to), stage, body, contract: flags.contract, round: flags.round, subject: flags.subject, route, fromProject, task, via, idempotencyKey: flags.id, consumer: flags.consumer && flags.consumer !== true ? ctx.consumer : undefined, standingOptions: { pluginRoot: PLUGIN_ROOT, home: ctx.home } });
+    // `--max-recipients` mirrors `--max-fanout`, and is the ONLY addressing knob the CLI owns:
+    // expansion itself happens inside sendMessage, never here, so no caller can address a room
+    // without passing through admission.
+    const maxRecipients = flags["max-recipients"] && flags["max-recipients"] !== true ? { maxRecipients: Number(flags["max-recipients"]) } : {};
+    const message = await sendMessage({ runDir, from, to: list(flags.to), stage, body, contract: flags.contract, round: flags.round, subject: flags.subject, route, fromProject, task, via, idempotencyKey: flags.id, consumer: flags.consumer && flags.consumer !== true ? ctx.consumer : undefined, standingOptions: { pluginRoot: PLUGIN_ROOT, home: ctx.home }, addressing: maxRecipients });
     // `--no-ring` has been in USAGE, in tests/live/two-projects.sh and in
     // tests/contract/topology-tmux.test.mjs since this command was written, and was never
     // implemented in this body — the flag parsed and did nothing.

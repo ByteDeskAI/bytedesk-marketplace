@@ -119,7 +119,7 @@ function frontmatter(fields) {
  * Write one message into each recipient's inbox. Returns the message id and the list of
  * { agent, inbox, outbox } paths so the caller can deliver a pointer through tmux.
  */
-export async function sendMessage({ runDir, from, to, stage, body, contract, round, subject, route, fromProject, task, via = [], assignment, consumer, idempotencyKey, token, provenance, parentId, standingOptions = {}, env = process.env }) {
+export async function sendMessage({ runDir, from, to, stage, body, contract, round, subject, route, fromProject, task, via = [], assignment, consumer, idempotencyKey, token, provenance, parentId, standingOptions = {}, addressing = {}, env = process.env }) {
   invariant(Array.isArray(to) && to.length > 0, "TOPOLOGY_RECIPIENT_REQUIRED", "A message needs at least one recipient (--to <agent-id>).");
   invariant(typeof body === "string" && body.trim(), "TOPOLOGY_BODY_REQUIRED", "A message needs a body (--file <path> or --body <text>).");
   // The hop limit is enforced here, on the send path, because this is the only place every hop
@@ -162,24 +162,28 @@ export async function sendMessage({ runDir, from, to, stage, body, contract, rou
   const notices = [];
   const holds = [];
 
-  // A fan-out is addressed collectively by the id that produced it: `--to per-file` reaches every
-  // `per-file.<item>`. The conductor asked for one team and got N, which is an implementation detail
-  // of the fan-out and not something it should have to track — and `wait --from per-file` then
-  // barriers over all of them for the same reason.
-  const expanded = [];
-  for (const requested of to) {
-    if (known.has(requested)) { expanded.push(requested); continue; }
-    const members = run.agents.filter((agent) => agent.fanout_of === requested).map((agent) => agent.id);
-    if (members.length > 0) expanded.push(...members);
-    else expanded.push(requested);
-  }
-  to = expanded;
+  // THE one expansion point. A fan-out is addressed collectively by the id that produced it
+  // (`--to per-file` reaches every `per-file.<item>`), and an `@` audience names a whole room —
+  // both resolve to concrete agent ids here, before the per-recipient loop and before the
+  // external/standing branch below, so a broadcast is N ordinary sends each individually admitted
+  // through the identical path. `forwardMessageToWorkflow` routes back through this function, so
+  // there is no way around it by control flow, never mind by convention.
+  const { expandAddresses } = await import('./addressing.mjs');
+  const recipients = await expandAddresses({ run, to, from, external, consumer: destination,
+    env, home: standingOptions.home, ...addressing });
+  to = recipients.map((entry) => entry.id);
 
-  for (const requested of to) {
+  for (const address of recipients) {
+    const requested = address.id;
     // `route` is the policy hook. When supplied it decides where this message actually lands; the
     // intended recipient is preserved either way so the receiver knows what was meant.
     let decision;
-    if (external) {
+    // The envelope path is chosen PER RECIPIENT, not per message. A standing lead or reviewer is
+    // normally not in `run.agents`, so writing into `agentDir(runDir, …)` for one would trip
+    // TOPOLOGY_UNKNOWN_AGENT for exactly the agents `@repo` exists to reach. The durable mailbox is
+    // already correct for intra-repo standing mail: `advance()` skips the lead-readiness gate when
+    // source and destination are the same repository, and still runs `routeMessage`.
+    if (external || address.delivery === 'standing') {
       const { sendStandingMessage, standingMailboxRoot } = await import('./standing-mailbox.mjs');
       const standingId = createHash('sha256').update(JSON.stringify([resolve(runDir), id, requested])).digest('hex');
       // A legacy callback is never cross-repo authority. Shared durable admission
@@ -383,9 +387,21 @@ export function expandFanout(run, ids) {
   });
 }
 
-export async function pendingReplies(runDir, agentIds) {
+/**
+ * The barrier resolves addresses through the SAME function the send did. That is what makes
+ * `wait --from @run` cover the room the broadcast covered rather than a set that has quietly
+ * drifted — with the one honest difference that an audience expands LIVE, so `@run` means everyone
+ * in the run *now*, while `wait --message <id>` barriers over exactly who that message reached.
+ */
+async function expandTargets(run, agentIds, addressing = {}) {
+  const { expandAddresses } = await import('./addressing.mjs');
+  return (await expandAddresses({ run, to: agentIds, consumer: run.consumer, external: false, ...addressing }))
+    .map((entry) => entry.id);
+}
+
+export async function pendingReplies(runDir, agentIds, { addressing = {} } = {}) {
   const run = await loadRun(runDir);
-  const ids = agentIds && agentIds.length > 0 ? expandFanout(run, agentIds) : [...new Set([...run.agents.map((agent) => agent.id), ...Object.values(run.standing_messages ?? {}).map(ref => ref.requested)])];
+  const ids = agentIds && agentIds.length > 0 ? await expandTargets(run, agentIds, addressing) : [...new Set([...run.agents.map((agent) => agent.id), ...Object.values(run.standing_messages ?? {}).map(ref => ref.requested)])];
   const pending = [];
   for (const agentId of ids) {
     for (const item of await obligations(runDir, run, agentId)) {
@@ -410,10 +426,10 @@ export async function pendingReplies(runDir, agentIds) {
 }
 
 /** Wait until every named agent has replied to the message id (or to all pending messages). */
-export async function waitForReplies({ runDir, agentIds, messageId, timeoutMs, pollMs = 3000, onTick }) {
+export async function waitForReplies({ runDir, agentIds, messageId, timeoutMs, pollMs = 3000, onTick, addressing = {} }) {
   const started = Date.now();
   const run = await loadRun(runDir);
-  const targets = agentIds && agentIds.length > 0 ? expandFanout(run, agentIds) : [...new Set([...run.agents.filter((agent) => agent.role !== "orchestrator").map((agent) => agent.id), ...Object.values(run.standing_messages ?? {}).map(ref => ref.requested)])];
+  const targets = agentIds && agentIds.length > 0 ? await expandTargets(run, agentIds, addressing) : [...new Set([...run.agents.filter((agent) => agent.role !== "orchestrator").map((agent) => agent.id), ...Object.values(run.standing_messages ?? {}).map(ref => ref.requested)])];
   for (;;) {
     const pending = (await pendingReplies(runDir, targets)).filter((item) => !messageId || item.id === messageId);
     if (pending.length === 0) {

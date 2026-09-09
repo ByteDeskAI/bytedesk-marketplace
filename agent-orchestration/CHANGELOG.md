@@ -4,6 +4,35 @@
 
 ### Added
 
+- **Broadcast addressing (TM-133, EP-018).** `topology/lib/addressing.mjs` adds four complete
+  audiences to `--to`, unioned by the comma it already means: `@run` (this run's roster minus the
+  sender minus the orchestrator), `@repo` (the enrolled standing agents of the destination
+  repository), `@role:<role>` (both scopes), and `@idle` (whatever the census calls dispatchable).
+  An `@`-prefixed token is the only new syntax — every existing form (agent id, collective fan-out
+  id, `"Full Name"`) still goes through the unchanged `expandFanout` and produces byte-identical
+  output. There is deliberately no intersection grammar.
+  - **One expansion point.** `sendMessage` calls `expandAddresses` before the per-recipient loop,
+    and `forwardMessageToWorkflow` routes back through `sendMessage`, so a forwarding agent cannot
+    bypass admission by control flow rather than by convention. The CLI never expands.
+  - **Admission is repeated, not widened.** Expansion yields concrete ids before the
+    external/standing branch, so a broadcast is N ordinary sends each individually admitted.
+    One new invariant closes the interesting attack: any `@` token with `external === true` is
+    refused (`TOPOLOGY_BROADCAST_EXTERNAL`). An outsider still reaches the lead exactly as before.
+    Cross-repo broadcast is therefore never held on a remote lead's readiness.
+  - **The trap.** A standing lead or reviewer is normally *not* in `run.agents`, so `expandAddresses`
+    returns `{id, delivery}` and the per-recipient branch is `external || delivery === 'standing'` —
+    the envelope path is chosen per recipient. Without it `@repo` throws `TOPOLOGY_UNKNOWN_AGENT`
+    for exactly the agents the feature exists to reach.
+  - **Bounded by refusal.** `MAX_BROADCAST = 24` is separate from `MAX_FANOUT = 8` because it prices
+    one inbox file plus one pointer, not a tmux session. Past it the send is refused naming the
+    resolved count and the limit — never truncated; `--max-recipients` raises it.
+  - `@repo` reads `collectPresenceAgents` **in-process** as a directory, not authority (every
+    candidate is still validated by `routeMessage` and `known.has`), so the frozen Presence v1
+    fixtures are untouched. `@idle` **refuses** when the census is missing or stale rather than
+    degrading to "everyone". The reply barrier needs no new state: `pendingReplies`/`waitForReplies`
+    resolve through the same function, so `wait --from @run` works (expanding live) and
+    `wait --message <id>` barriers over exactly `run.message_deliveries[id]`.
+
 - **Liveness census (TM-131, EP-018).** `topology/lib/census.mjs` and the repo-scoped
   `ao-topology census [--json] [--watch]` answer what every agent in a repository is *doing*:
   `dead > quota-blocked > attention > working > needs-input > idle > unknown`, in that precedence.
