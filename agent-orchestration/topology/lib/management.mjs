@@ -337,8 +337,20 @@ export async function managementStatus(options) {
 
 const ASSIGNMENT_OUTCOMES = { DONE: 'done', BLOCKED: 'blocked', FAILED: 'failed' };
 const assignmentLock = ctx => join(ctx.root, 'assignment.lock');
-const assignmentMessageId = (ctx, task, agentId) =>
-  createHash('sha256').update(`idle-dispatch:${ctx.identity.id}:${task}:${agentId}`).digest('hex').slice(0, 32);
+/**
+ * The envelope id for one assignment. Derived, so a RETRIED assign delivers nothing twice — same
+ * discipline as slot grants.
+ *
+ * `round` is load-bearing and not decoration. Without it the id is a pure function of
+ * (repo, task, agent), so releasing an assignment and later handing the SAME task back to the SAME
+ * agent recomputes the same id, `sendStandingMessage` dedupes to the already-delivered envelope,
+ * and `assignmentResult` reads the PREVIOUS round's reply as this round's completion signal — the
+ * task collects instantly with a stale outcome and nobody ever sees the second attempt. The round
+ * is the count of assignments this record has already seen, which is stable across a retry of the
+ * same attempt (nothing is written until delivery succeeded) and different across a reassignment.
+ */
+const assignmentMessageId = (ctx, task, agentId, round) =>
+  createHash('sha256').update(`idle-dispatch:${ctx.identity.id}:${task}:${agentId}:${round}`).digest('hex').slice(0, 32);
 
 /** Every unreleased assignment in this repository. Read under the assignment lock, never cached. */
 async function heldAssignments(ctx) {
@@ -408,7 +420,7 @@ export async function assignTaskToAgent(options) {
     const prior = await loadRecord(ctx.path);
     invariant(!prior?.assignee || prior.assignee.released_at,
       'TOPOLOGY_MANAGEMENT_ASSIGNED', `${task} is already assigned to ${prior?.assignee?.agent_id}; release it before reassigning.`);
-    const census = await (options.census ?? readCensus)({ ...options, identity: ctx.identity });
+    const census = await (options.census ?? readCensus)({ ...options, identity: ctx.identity, env: ctx.env, home: ctx.home });
     invariant(census && !census.stale, 'TOPOLOGY_MANAGEMENT_CENSUS',
       'No fresh liveness census for this repository; start the repository supervisor. Nothing is dispatchable from a stale or missing census.');
     const held = new Set((await heldAssignments(ctx)).map(row => row.agent_id));
@@ -417,9 +429,17 @@ export async function assignTaskToAgent(options) {
     invariant(pick, 'TOPOLOGY_MANAGEMENT_NO_IDLE_AGENT', agent
       ? `${agent} is not an idle, unassigned agent in this repository right now.`
       : `No idle unassigned agent in this repository. Observed: ${(census.agents ?? []).map(row => `${row.agentId}=${row.state}`).join(', ') || 'none'}.`);
+    // The census is a HINT even when it is fresh: `staleAfterMs` is 45s off the supervisor's
+    // slowest rung, which is 45s in which a pane can exit. So the six-tuple is re-proved HERE,
+    // inside the same critical section as the write, exactly as `observeWorker` proves a dispatched
+    // worker's. Assigning to a pane that is already gone costs the task a whole collect cycle
+    // before anyone notices, and the agent slot until someone releases it by hand.
+    const panes = await (options.listPanes ?? listServerPanes)({ env: ctx.env });
+    invariant(pick.binding && panes.some(pane => pane.alive && bindingKeys.every(key => pane[key] === pick.binding[key])),
+      'TOPOLOGY_MANAGEMENT_AGENT_GONE', `${pick.agentId} read as idle in the census but its pane incarnation is no longer live; nothing was assigned.`);
     const promptFile = options.promptFile ? (isAbsolute(options.promptFile) ? options.promptFile : join(doc.worktree, options.promptFile)) : join(doc.worktree, '.tm-dispatch-prompt.md');
-    const messageId = assignmentMessageId(ctx, task, pick.agentId);
-    // A derived id, so a retried assignment delivers nothing twice — same discipline as slot grants.
+    const round = (prior?.events ?? []).filter(entry => entry.event === 'assigned').length;
+    const messageId = assignmentMessageId(ctx, task, pick.agentId, round);
     const mail = await (options.deliver ?? sendStandingMessage)({
       id: messageId, consumer: ctx.store.root, fromProject: ctx.store.root, from: options.from ?? 'tm-dispatch',
       to: pick.agentId, task, subject: `task assignment ${task}`, assignment: true,
@@ -429,7 +449,7 @@ export async function assignTaskToAgent(options) {
     invariant(mail?.status === 'delivered', 'TOPOLOGY_MANAGEMENT_ASSIGN_UNDELIVERED',
       `The assignment pointer for ${task} could not be delivered to ${pick.agentId}: ${mail?.reason ?? 'unknown'}.`);
     const assignee = { agent_id: pick.agentId, session_name: pick.sessionName ?? null, binding: pick.binding ?? null,
-      message_id: messageId, owner, worktree: doc.worktree, prompt_file: promptFile, assigned_at: nowIso(), released_at: null };
+      message_id: messageId, round, owner, worktree: doc.worktree, prompt_file: promptFile, assigned_at: nowIso(), released_at: null };
     const record = await recordEvent(ctx, task, prior, 'assigned', { assignee });
     record.assignee = assignee;
     await writeJson(ctx.path, record);

@@ -238,6 +238,76 @@ export function collectTopology(id, opts = {}) {
 }
 
 /**
+ * The idle collector: ask the topology layer whether the assigned agent has REPLIED.
+ *
+ * `idle:<agentId>` is the only handle in the table that does not name a session, because the
+ * completion signal is not session death. A standing agent outlives the task — that is the entire
+ * point of dispatching into one — so `has-session` would report `pending: true` forever and the
+ * board would never learn the work finished. What ends an idle dispatch is the reply to the
+ * standing-mailbox assignment, which `ao-topology manage assignment` reads.
+ *
+ * Everything after that is deliberately the shared path: the reply's first word becomes an
+ * outcome, and `recordResult` — unmodified — applies the downgrade rule ("done" for a task the
+ * store does not show done is a failure that says so) and the park-never-strand rule byte for byte.
+ *
+ * A TERMINAL reply also RELEASES the assignment, and it does so whether or not `recordResult`
+ * accepted the outcome. The agent's freedom is not conditional on the store's bookkeeping: a reply
+ * that arrived means this agent is done with this task, and leaving it bound because a comment
+ * could not be written would cost the repository a standing worker permanently.
+ */
+export function collectIdle(id, { caps = null, p = paths(), spawnImpl = spawnSync, timeoutMs = COLLECT_TIMEOUT_MS, env = process.env } = {}) {
+  try {
+    const task = read(id, p);
+    if (!task) return { ok: false, reason: `not found: ${id}` };
+    const handle = String(task.dispatched?.run || "");
+    const agentId = handle.startsWith("idle:") ? handle.slice("idle:".length) : "";
+    if (!agentId) return { ok: false, reason: `${id} has no idle assignment (dispatched.run: ${handle || "none"})` };
+
+    const report = caps ?? detectHostCaps();
+    const entry = report?.backends?.topology;
+    if (!entry?.available || !entry.path) {
+      return { ok: false, reason: entry?.reason ?? "topology backend is not available on this host, so the assignment cannot be read" };
+    }
+
+    // The same consumer the dispatch assigned with. Linked worktrees share one canonical repository
+    // id, so this picks the same management record either way; the worktree is preferred only
+    // because it is the path the task itself records, and the root is the fallback for a checkout
+    // that has since been removed.
+    const consumer = task.worktree || p.root;
+    const ask = (args) => spawnImpl(entry.path, args, { shell: false, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024 });
+
+    const res = ask(["manage", "assignment", "--task", id, "--consumer", consumer]);
+    if (res?.error) return { ok: false, reason: `ao-topology failed to start: ${res.error.message}` };
+    if (res?.status !== 0) {
+      return { ok: false, reason: `ao-topology manage assignment exited ${res?.status ?? "?"}: ${String(res?.stderr || "").trim()}` };
+    }
+    let record;
+    try {
+      record = JSON.parse(String(res.stdout || ""));
+    } catch {
+      return { ok: false, reason: `ao-topology manage assignment printed no assignment JSON: ${String(res.stdout || "").trim().slice(-300)}` };
+    }
+    if (record?.assigned !== true) {
+      return { ok: true, pending: false, skipped: record?.reason ?? `${id} has no live idle assignment; nothing to collect` };
+    }
+    if (record.pending === true) return { ok: true, pending: true, agent: record.agent_id ?? agentId };
+    if (!OUTCOMES.has(record.outcome)) {
+      return { ok: false, reason: `ao-topology manage assignment reported an unknown outcome for ${id}: ${JSON.stringify(record.outcome)}` };
+    }
+
+    const recorded = recordResult(id, { run: handle, outcome: record.outcome, summary: String(record.summary || "").trim() }, p);
+    // Release AFTER recording, so the agent is never free while the board still says nobody
+    // reported — and unconditionally, so a refused recording cannot strand it. Its own failure is
+    // reported alongside rather than replacing the result: two facts, both true.
+    const released = ask(["manage", "release", "--task", id, "--consumer", consumer, "--reason", `collected: ${record.outcome}`]);
+    const releaseFailed = released?.error ? released.error.message : released?.status !== 0 ? String(released?.stderr || "").trim() : null;
+    return { ...recorded, agent: record.agent_id ?? agentId, released: !releaseFailed, ...(releaseFailed ? { releaseReason: releaseFailed } : {}) };
+  } catch (err) {
+    return { ok: false, reason: `collectIdle failed for ${id}: ${err.message}` };
+  }
+}
+
+/**
  * Collect whatever backend the task was dispatched to. The dispatched record is
  * the routing table; a task that was never dispatched, or whose backend has no
  * collector (manual work has no worker to hear from), is a refusal, not an error.
@@ -251,7 +321,7 @@ export async function collect(id, p = paths(), impls = {}) {
     if (!task) return { ok: false, reason: `not found: ${id}` };
     const backend = task.dispatched?.backend;
     if (!backend) return { ok: false, reason: `${id} was never dispatched — there is no worker result to collect` };
-    const routes = { topology: collectTopology, orchestration: collectOrchestration, tmux: collectTmux, ...impls };
+    const routes = { topology: collectTopology, orchestration: collectOrchestration, tmux: collectTmux, idle: collectIdle, ...impls };
     const route = routes[backend];
     if (!route) return { ok: false, reason: `no collector for backend "${backend}"` };
     return route(id, { p });

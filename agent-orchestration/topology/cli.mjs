@@ -71,8 +71,10 @@ Conduct (used by the orchestrator agent)
   capture --run <run_dir> --agent <id> [--lines 60]
   nudge --run <run_dir> --agent <id> --text <text>
   failover --run <run_dir> --agent <id> [--to <cli:model>]
-                                               restart the agent on the next provider in its chain and
-                                               re-deliver its unanswered messages
+       [--incident <id> --approved-by <who>]   restart the agent on the next provider in its chain and
+                                               re-deliver its unanswered messages. With --incident it
+                                               spends failover.consent: ask needs --approved-by, auto
+                                               is consent given in advance in config, never refuses.
 
 Reply (used by every agent)
   reply --run <run_dir> --agent <id> --message <id> (--file <md> | --body <text>)
@@ -99,6 +101,9 @@ Standing repository services
   mailbox send|forward|inbox|outbox|resume [--agent <id> --from-project <dir> --to <id> --id <stable-id>]
   manage status|admit|report|eligible|integrate|cleanup --task <TM-id> [--file <protocol.json>]
   manage assign|assignment|release --task <TM-id> [--agent <id>] [--prompt-file <path>]
+  quota status [--agent <id>] [--json] | resolve --agent <id> --state applied|declined|closed
+                                               provider quota incidents raised by the supervise tick.
+                                               Detection writes the incident; it restarts nothing.
 
 Common: --consumer defaults to the current directory; --json prints machine-readable output.
 `;
@@ -1081,7 +1086,15 @@ const commands = {
     invariant(flags.agent && flags.agent !== true, "TOPOLOGY_AGENT_REQUIRED", "Pass --agent <id>.");
     const ctx = context(flags);
     const adapters = await loadAdapters(ctx.providerDirs);
-    const result = await failoverAgent({ runDir, agentId: String(flags.agent), adapters, toLabel: flags.to && flags.to !== true ? String(flags.to) : undefined, log: (line) => process.stderr.write(`${line}\n`) });
+    const result = await failoverAgent({ runDir, agentId: String(flags.agent), adapters,
+      toLabel: flags.to && flags.to !== true ? String(flags.to) : undefined,
+      // TM-135: an incident is the OBSERVATION a failover answers, and --approved-by is who said
+      // yes. Neither is required for the manual path — an operator at a keyboard is already the
+      // human turn the consent gate exists to demand.
+      incidentId: flags.incident && flags.incident !== true ? String(flags.incident) : null,
+      approvedBy: flags["approved-by"] && flags["approved-by"] !== true ? String(flags["approved-by"]) : null,
+      consumer: ctx.consumer, home: ctx.home, pluginRoot: ctx.pluginRoot,
+      log: (line) => process.stderr.write(`${line}\n`) });
     if (flags.json) return out(result);
     if (!result.ok) {
       out(`${result.agent}: no provider came up. Attempts: ${result.attempts.map((attempt) => `${attempt.label} (${attempt.outcome})`).join("; ")}`);
@@ -1089,6 +1102,37 @@ const commands = {
       return;
     }
     out(`${result.agent}: ${result.from ?? "none"} → ${result.to}${result.ready ? "" : " (not confirmed ready)"}${result.redelivered.length ? `; re-delivered ${result.redelivered.join(", ")}` : ""}`);
+    if (result.incident) out(`  incident ${result.incident} closed as applied, authorised by ${result.approved_by}; the lead was told (${result.announced ?? "not delivered"}).`);
+    if (result.pending.length) out(`  ${result.pending.length} unanswered message(s) are being re-delivered — the new provider has a different memory, so it will read as cold. That is expected.`);
+  },
+
+  /**
+   * Provider quota incidents. Read-only by default: this verb never fails anything over, because
+   * detection and takeover are deliberately two acts. `ao-topology failover --incident <id>` is
+   * the second one.
+   */
+  async quota({ flags, positional }) {
+    const ctx = context(flags);
+    const { listIncidents, readIncident, resolveIncident, approvalCommand } = await import("./lib/quota.mjs");
+    const verb = positional[0] ?? "status";
+    if (verb === "resolve") {
+      invariant(flags.agent && flags.agent !== true, "TOPOLOGY_AGENT_REQUIRED", "Pass --agent <id>.");
+      invariant(flags.state && flags.state !== true, "TOPOLOGY_QUOTA_STATE", "Pass --state applied|declined|closed.");
+      return out(await resolveIncident({ consumer: ctx.consumer, home: ctx.home, agentId: String(flags.agent), state: String(flags.state),
+        by: flags["approved-by"] && flags["approved-by"] !== true ? String(flags["approved-by"]) : null,
+        note: flags.note && flags.note !== true ? String(flags.note) : null }));
+    }
+    invariant(verb === "status", "TOPOLOGY_SUBCOMMAND_UNKNOWN", "Use quota status|resolve.");
+    const rows = flags.agent && flags.agent !== true
+      ? [await readIncident({ consumer: ctx.consumer, home: ctx.home, agentId: String(flags.agent) })].filter(Boolean)
+      : await listIncidents({ consumer: ctx.consumer, home: ctx.home });
+    if (flags.json) return out({ incidents: rows });
+    if (rows.length === 0) return out("No provider quota incidents recorded for this repository.");
+    for (const row of rows) {
+      out(`${row.state === "open" ? "!" : "-"} ${row.agent_id.padEnd(24)} ${String(row.provider).padEnd(10)} ${row.state.padEnd(9)} /${row.pattern}/ (${row.evidence}) ${row.detected_at}`);
+      const command = approvalCommand({ incident: row });
+      if (row.state === "open") out(`    ${command ?? "not in a run roster; change a standing agent's provider with `role reassign`"}`);
+    }
   },
 
   async status({ flags }) {

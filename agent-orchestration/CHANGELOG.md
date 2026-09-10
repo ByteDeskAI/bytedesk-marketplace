@@ -4,6 +4,52 @@
 
 ### Added
 
+- **Provider quota failover, mid-run (TM-135, EP-018).** `topology/lib/quota.mjs`, called from the
+  supervise tick, closes a gap that cost two agents a working day: `failureOnScreen` was consulted
+  only during the ~30 s of startup readiness, so once an agent was working nobody looked at its
+  screen again — and the incident this closes happened hours in, with
+  `403 You have reached your 5-hour usage limit` on a pane, recovered only because a human
+  authorised a Codex takeover by hand.
+  - **No provider JSON changed.** The signature is already in `failure_patterns` (`"usage limit"`
+    is the first entry of `GENERIC_ADAPTER.failure_patterns`, and it survives `withoutPaths`).
+    `attention_patterns` is the wrong home and the ordering proves it: attention is checked first
+    because it means "a human must press a key here", and quota exhaustion is not answerable at the
+    keyboard. Distinct from TM-131's `state: "quota-blocked"` census entry, which is the
+    *observation* path (scheduling); this is the *failover* path.
+  - **Only the quota-shaped subset acts.** `QUOTA_SIGNATURE` filters `failure_patterns` down to the
+    quota entries. The full list is a STARTUP list — `command not found` and
+    `no such file or directory` are ordinary output from a working agent's shell, and a supervisor
+    watching for hours would propose a provider takeover for a failed `ls`.
+  - **The server pushes.** One tmux control-mode client per agent session, `tmuxFailureTrigger`
+    compiled into the subscribed format, so a quiet pane costs zero tmux calls and a capture is
+    taken only when the trigger fires. Capped by `AO_QUOTA_MAX_CLIENTS` (default 8); panes past the
+    cap are reported `unwatched`, never silently polled instead.
+  - **Detection writes an incident and RESTARTS NOTHING.** The supervisor's "reconciles derived
+    state only" rule is intact; applying a failover is a separate `ao-topology failover` call.
+  - **`failover.consent` ∈ `ask` (default) | `auto` | `never`**, through the existing config
+    layers. `ask` rings the lead with the approval command and is the one unavoidable human turn.
+    `auto` applies AND ANNOUNCES — the rule forbids *silent* substitution, not substitution, and
+    someone who sets `auto` consented in advance, in writing, in config; the reasoning is written
+    into `config.defaults.json` itself so nobody re-litigates it. `never` refuses every takeover.
+  - **Three false-positive defences, all required**, because an agent working on this feature will
+    put the signature on its own screen: the match must still be present on a second capture ≥2 s
+    later; the pane must be dead or the agent must not be making progress; and `ask` is the default
+    so a false positive costs one message, not one provider.
+  - **`failoverAgent` gains `{incidentId, approvedBy}`** and asserts the incident is open and names
+    this agent and this provider before anything is respawned. TM-132's slot re-stamp is unchanged
+    and still runs. New `ao-topology quota status|resolve`, and `docs/quota-failover.md` documents
+    the three things that survive a failover separately — the work does, the conversation does NOT
+    (which is why unanswered messages are re-delivered), and the claim does via tm's dispatch
+    heartbeat with the named ceiling that `claimTtlMinutes` defaults to 240 against a five-hour
+    quota window.
+
+- **Idle-dispatch arbitration (TM-135, EP-018).** `management.mjs` gains `assignTaskToAgent`,
+  `assignmentResult` and `releaseAssignment`, and the management record grows an `assignee`;
+  `ao-topology manage assign|assignment|release` exposes them. The idle read and the assignment
+  write happen inside ONE critical section under a repo-wide `assignment.lock` — the census is a
+  hint, the record is the authority, and checking idle in the scheduler while writing the binding
+  here is precisely how one pane ends up interleaving two tasks.
+
 - **Broadcast addressing (TM-133, EP-018).** `topology/lib/addressing.mjs` adds four complete
   audiences to `--to`, unioned by the comma it already means: `@run` (this run's roster minus the
   sender minus the orchestrator), `@repo` (the enrolled standing agents of the destination
@@ -179,6 +225,12 @@
 
 ### Fixed
 
+- **A re-assignment could collect the previous round's reply (TM-135).** The assignment envelope id
+  was a pure function of (repo, task, agent), so releasing a task and handing it back to the same
+  agent recomputed the same id, the standing mailbox deduped to the already-delivered envelope, and
+  the old reply was read as the new round's completion signal. The id now carries the round.
+- **The census could name an agent that had already gone (TM-135).** A census is up to 45 s old at
+  its staleness bound, so the six-tuple is now re-proved under the assignment lock before the write.
 - **A run agent with an unrecognised role vanished from presence entirely** (TM-136). Inside the
   run-agent loop only, `collectPresenceAgents` did `if (!ROLES.has(agent.role)) continue`, so
   `add()` never ran and an `image-gen` run agent — or a `lead`, which a run spec never carries

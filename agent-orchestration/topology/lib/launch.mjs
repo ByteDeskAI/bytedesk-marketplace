@@ -4,6 +4,7 @@
 // `failoverAgent` re-runs the same start logic for one agent from the next candidate mid-run.
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { composePrompt } from "./prompts.mjs";
@@ -1082,8 +1083,29 @@ export async function readDeaths(runDir) {
 /**
  * Restart one agent on the next candidate in its chain (or a specific one via `toLabel`),
  * re-send its bootstrap, and re-ring every message it has not answered yet.
+ *
+ * THREE THINGS SURVIVE THIS AND THEY NEED THREE SEPARATE ANSWERS. See `docs/quota-failover.md`.
+ *
+ *   the WORK        survives: same pane, same worktree, same branch. `startAgentInPane` respawns
+ *                   in place and re-sends the bootstrap, which is what tells the new provider to
+ *                   orient itself — `git status`, `git log`, read its prompt file — because it has
+ *                   no idea what the last one had been doing.
+ *   the CONVERSATION does NOT: a different CLI has a different memory. That is precisely WHY
+ *                   `pendingReplies` is re-delivered below rather than assumed answered, and it is
+ *                   the fact a team most often misreads — a cold agent looks broken and is not.
+ *   the CLAIM       survives outside this layer entirely, on tm's dispatch heartbeat, which keys
+ *                   off the worker registry rather than the pane. Named ceiling: `claimTtlMinutes`
+ *                   defaults to 240 minutes against a five-hour quota window, so a repository that
+ *                   relies on quota failover raises it. The topology layer deliberately cannot
+ *                   import task-management, so that is a config line, not a cross-plugin heartbeat.
+ *
+ * `incidentId` / `approvedBy` (TM-135) are the quota-failover path. Supplying an incident asserts
+ * it is OPEN and names this agent and this provider, and spends `failover.consent`: `ask` requires
+ * a human named in `approvedBy`, `auto` is the operator's advance consent and announces, `never`
+ * refuses. Supplying none leaves the manual path exactly as it was — an operator at a keyboard is
+ * already the human turn the gate exists to require.
  */
-export async function failoverAgent({ runDir, agentId, adapters, toLabel, log = () => {} }) {
+export async function failoverAgent({ runDir, agentId, adapters, toLabel, incidentId = null, approvedBy = null, env = process.env, home = homedir(), pluginRoot = null, log = () => {} }) {
   const run = await loadRun(runDir);
   const entry = run.agents.find((agent) => agent.id === agentId);
   invariant(entry, "TOPOLOGY_UNKNOWN_AGENT", `Unknown agent "${agentId}". Agents: ${run.agents.map((agent) => agent.id).join(", ")}.`);
@@ -1097,6 +1119,15 @@ export async function failoverAgent({ runDir, agentId, adapters, toLabel, log = 
     `${agentId} is a workflow participant running "${entry.workflow?.name}", not a process on a provider — there is no chain to fail over. Fail over an agent inside its own run: \`failover --run ${entry.workflow?.run_dir ?? "<child run dir>"} --agent <id>\`.`,
   );
   invariant(await tmux.hasSession(run.session), "TOPOLOGY_SESSION_GONE", `tmux session ${run.session} is not running.`);
+  // TM-135. Before anything is respawned: is there an observation that justifies this, and has
+  // somebody consented to it? Both refusals are invariants, so a run whose incident has been
+  // resolved or whose config says `never` is left exactly as it was.
+  let quota = null;
+  if (incidentId) {
+    const { authorizeFailover } = await import("./quota.mjs");
+    quota = await authorizeFailover({ consumer: run.consumer || runDir, agentId, provider: entry.adapter ?? null, incidentId, approvedBy, env, home, pluginRoot });
+    log(`failover authorised by ${quota.approval.approved_by} against incident ${quota.incident.incident_id}`);
+  }
   let startIndex = (entry.active ?? -1) + 1;
   if (toLabel) {
     startIndex = entry.candidates.findIndex((candidate) => candidate.label === toLabel || candidate.cli === toLabel);
@@ -1112,7 +1143,8 @@ export async function failoverAgent({ runDir, agentId, adapters, toLabel, log = 
     const adapter = adapterFor({ cli: candidate.cli, model: candidate.model, args: [], skills: [] }, adapters);
     return { index, label: candidate.label, adapter, launcher: candidate.launcher, vars: { run_id: run.run_id, run_dir: runDir, session: run.session, agent_id: agentId, agent_role: entry.role, bootstrap_file: entry.bootstrap } };
   });
-  await appendJournal(runDir, { type: "agent.failover", agent: agentId, from: previous, to_index: startIndex });
+  await appendJournal(runDir, { type: "agent.failover", agent: agentId, from: previous, to_index: startIndex,
+    ...(quota ? { incident: quota.incident.incident_id, approved_by: quota.approval.approved_by, consent: quota.consent } : {}) });
   const started = await startAgentInPane({ pane: entry.pane, agentId, role: entry.role, candidates, startIndex, runDir, log, respawn: true });
   entry.binding = (await tmux.listServerPanes()).find(p => p.paneId === entry.pane && p.sessionName === run.session) || null;
   // TM-132: the respawn keeps the pane but takes a new panePid, so this agent's OLD six-tuple is
@@ -1138,6 +1170,19 @@ export async function failoverAgent({ runDir, agentId, adapters, toLabel, log = 
   // The restarted provider reads its durable inbox at a safe boundary. Bootstrap readiness
   // does not prove that a later composer is empty or that a tool is not accepting input.
   const pending = await pendingReplies(runDir, [agentId]);
-  await appendJournal(runDir, { type: "agent.failover_complete", agent: agentId, from: previous, to: started.label, redelivered: [], pending: pending.map((item) => item.id) });
-  return { ok: true, agent: agentId, from: previous, to: started.label, ready: started.ready, redelivered: [], pending: pending.map((item) => item.id), attempts: started.attempts };
+  // The announcement, and the incident closed against the takeover it authorised. Both are best
+  // effort by contract: the pane has already changed hands, and reporting a completed failover as
+  // failed because a mailbox or a state file could not be written would be a worse lie than a
+  // missing message. `auto` is legitimate precisely BECAUSE this fires — the operator's rule
+  // forbids silent substitution, not substitution.
+  let announced = null;
+  if (quota) {
+    const { announceFailoverApplied, resolveIncident } = await import("./quota.mjs");
+    announced = await announceFailoverApplied({ consumer: run.consumer || runDir, incident: quota.incident, approval: quota.approval, from: previous, to: started.label, env, home }).catch(() => null);
+    await resolveIncident({ consumer: run.consumer || runDir, agentId, state: "applied", by: quota.approval.approved_by, note: `${previous ?? "none"} -> ${started.label}`, env, home }).catch(() => {});
+  }
+  await appendJournal(runDir, { type: "agent.failover_complete", agent: agentId, from: previous, to: started.label, redelivered: [], pending: pending.map((item) => item.id),
+    ...(quota ? { incident: quota.incident.incident_id, approved_by: quota.approval.approved_by, announced: announced?.status ?? null } : {}) });
+  return { ok: true, agent: agentId, from: previous, to: started.label, ready: started.ready, redelivered: [], pending: pending.map((item) => item.id), attempts: started.attempts,
+    ...(quota ? { incident: quota.incident.incident_id, approved_by: quota.approval.approved_by, announced: announced?.status ?? null } : {}) };
 }

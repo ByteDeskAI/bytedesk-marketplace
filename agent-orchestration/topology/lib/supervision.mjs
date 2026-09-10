@@ -9,12 +9,22 @@
 //   L2 reconcile — the expensive body below: collectPresenceAgents, `git worktree list`, a readdir
 //      of every run dir in every linked worktree, refreshPrompt per enrolled agent, and
 //      resumeStandingMessages. Rate-limited to at most once per AO_RECONCILE_MIN_MS (default 10s).
-//   L3 the tick — an adaptive 2s/5s/15s sleep, and the liveness census (TM-131) that rides it. A
-//      tick that finds no activity backs off; the next tick that does snaps straight back to 2s.
+//   L3 the tick — an adaptive 2s/5s/15s sleep, and the two observers that ride it: the liveness
+//      census (TM-131) and the quota watch (TM-135). A tick that finds no activity backs off; the
+//      next tick that does snaps straight back to 2s.
 //      The census is the observation work this cadence exists for: tmux only, reusing L2's listing
 //      when one was just taken and taking its own single `list-panes -a` otherwise, plus at most
 //      AO_CENSUS_CAPTURE_BUDGET captures. It runs on EVERY tick, including cheap ones — putting it
 //      inside L2 would peg it to the 10s reconcile floor and the 2s rung would buy nothing.
+//      The quota watch rides the same rung and costs LESS than the census on a quiet repository:
+//      it holds one tmux control-mode client per agent session and captures only when the server
+//      pushes a failure-trigger hit, so a pane nobody is failing on costs zero tmux calls.
+//
+// THE QUOTA WATCH DOES NOT BREAK THE "RECONCILES DERIVED STATE ONLY" RULE ABOVE, and it is worth
+// saying why, because it is the one observer here that could. It writes an incident and announces
+// it. It restarts nothing, kills nothing and sends no keys: applying a failover is a separate,
+// deliberate `ao-topology failover` invocation that spends `failover.consent`. Detection asks;
+// taking a pane over is somebody's decision, never a tick's.
 //
 // A QUIET REPOSITORY THEREFORE PUBLISHES PRESENCE MORE OFTEN THAN IT RECONCILES. That looks like
 // a bug and is not one: presence staleness is a contract a consumer enforces, reconcile staleness
@@ -34,6 +44,7 @@ import { listAgents, agentDirs } from './agents.mjs';
 import { refreshPrompt } from './prompt-lifecycle.mjs';
 import { resumeStandingMessages } from './standing-mailbox.mjs';
 import { notifyGrants, reconcileSlots } from './slots.mjs';
+import { createQuotaWatch, quotaTick } from './quota.mjs';
 import { exists, sleep, writeJson, readJson, run } from './util.mjs';
 
 /** Adaptive tick sleep. Index 0 is the busy rung; a quiet tick walks one rung down the list. */
@@ -89,6 +100,15 @@ export async function superviseRepository(options, { signal, once = false, inter
    // Collapsing the first two would make a tmux hiccup report every agent dead. `let`, not `=null`.
    const censusMemo=new Map();
    let censusRoster=[], censusRunDirs=[], censusPanes, census=null;
+   // Which run dir each run agent belongs to. The quota watch needs it for exactly one reason: a
+   // failover is a RUN concept — `failoverAgent` restarts an agent from the next candidate in the
+   // chain its run record declares — so an incident that cannot name a run dir cannot offer an
+   // approval command, and says so instead of printing one that would refuse.
+   let censusRunDirByAgent=new Map();
+   // The quota watch's cross-tick memory: attached control clients, armed subscriptions, and
+   // suspicions waiting for their second look. Closed in the same `finally` as the heartbeat, so a
+   // supervisor that exits never leaves tmux clients attached.
+   const quotaWatch=createQuotaWatch();
    // The expensive body. Returns the report it wrote plus whether anything actually moved.
    const reconcile=async()=>{
      // The census reuses the listing this call already takes; wrapping listPanesFn is what makes
@@ -110,7 +130,7 @@ export async function superviseRepository(options, { signal, once = false, inter
      const listing=await run('git',['-C',consumer,'worktree','list','--porcelain'],{allowFailure:true});
      const roots=new Set([consumer,...listing.stdout.split('\n').filter(line=>line.startsWith('worktree ')).map(line=>line.slice(9))]);
      // Where deaths.tsv lives. Collected at L2's cadence because that is how often it can change.
-     const runDirs=[];
+     const runDirs=[], runDirByAgent=new Map();
      for(const checkout of roots) {
        const runsRoot=join(checkout,'.bytedesk/agent-orchestration/runs');
        for(const name of await readdir(runsRoot).catch(()=>[])) {
@@ -118,6 +138,7 @@ export async function superviseRepository(options, { signal, once = false, inter
          runDirs.push(runDir);
          if(!runRecord || (await canonicalRepoId(runRecord.consumer || checkout)).id!==identity.id) continue;
          for(const entry of runRecord.agents || []) {
+           runDirByAgent.set(entry.id,runDir);
            if(!entry.binding || !panes.some(p=>p.alive && ['serverKey','serverPid','sessionId','sessionCreated','paneId','panePid'].every(k=>p[k]===entry.binding[k]))) continue;
            const dir=join(runDir,'agents',entry.id), definition=await readJson(join(dir,'prompt-agent.json')).catch(()=>null);
            if(!definition) continue;
@@ -125,7 +146,7 @@ export async function superviseRepository(options, { signal, once = false, inter
          }
        }
      }
-     censusRunDirs=runDirs;
+     censusRunDirs=runDirs; censusRunDirByAgent=runDirByAgent;
      if(heartbeatError) throw heartbeatError;
      const snapshot=latest || await producer.publish();
      const resumed=await resumeStandingMessages(options);
@@ -212,6 +233,20 @@ export async function superviseRepository(options, { signal, once = false, inter
            ?slots.map(view=>({name:view.name,holder:view.holder?.agent_id??null,queue:view.queue.length,events:view.events.map(e=>e.type)}))
            :slots};
        }
+       // TM-135: the quota watch rides the same listing again. Its failure is absorbed exactly as
+       // the census and the slot reconcile absorb theirs — an observer may not take the supervisor
+       // down — and it is reported only when it has something to say, so a quiet repository does
+       // not grow a `quota` key on every tick.
+       if(Array.isArray(censusPanes)) {
+         const quota=await quotaTick({...options,env,home},{identity,panes:censusPanes,agents:censusRoster,adapters,
+           watch:quotaWatch,runDirOf:agentId=>censusRunDirByAgent.get(agentId)??null})
+           .catch(error=>({error:error?.code ?? String(error)}));
+         if(quota?.error || quota?.incidents?.length || quota?.dismissed?.length || quota?.unwatched?.length || quota?.consentError) {
+           report={...report,quota:{watching:quota.watching,consent:quota.consent,error:quota.error ?? quota.consentError ?? null,
+             incidents:(quota.incidents??[]).map(i=>({agent:i.agent_id,provider:i.provider,id:i.incident_id,announced:i.announced?.status??null})),
+             dismissed:quota.dismissed??[],unwatched:quota.unwatched??[]}};
+         }
+       }
        censusPanes=undefined;   // consumed; the next tick reuses L2's or takes its own
        report={...report,census:{at:census.at,tick_ms:census.tickMs,captures:census.captures,
          states:census.agents.reduce((totals,agent)=>({...totals,[agent.state]:(totals[agent.state]??0)+1}),{}),
@@ -230,7 +265,7 @@ export async function superviseRepository(options, { signal, once = false, inter
      } while(!signal?.aborted && !controller.signal.aborted);
      if(heartbeatError) throw heartbeatError;
      return report;
-   } finally { controller.abort(); await heartbeat; }
+   } finally { controller.abort(); quotaWatch.close(); await heartbeat; }
  },{timeoutMs:100});
 }
 
