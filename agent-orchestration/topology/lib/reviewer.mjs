@@ -180,8 +180,14 @@ export const PROBE_POLL_MS = Number(process.env.AO_PROBE_POLL_MS ?? 500);
 
 export async function reviewerProbeReady({ consumer, record, env = process.env, home = homedir(), timeoutMs = PROBE_TIMEOUT_MS, onProbe = null, output = reviewerOutput, wake = defaultWake, adapters = null }) {
   if (!record?.agent_id) return false;
-  const nonce = randomUUID();
   const dir = join(await reviewerInboxRoot(consumer, env, home), "probes");
+  // TM-157: an ack that cost a model turn is kept. See the same block in lead.mjs for why — a
+  // governed launch needs BOTH roles responsive in one call, and two independent model turns do not
+  // land inside one window. Bound to the six-tuple, so a respawn proves nothing; `alive` is still
+  // asked every time.
+  const cached = await recentReviewerAck(dir, record);
+  if (cached) return true;
+  const nonce = randomUUID();
   const path = join(dir, `${nonce}.json`), ackPath = join(dir, `${nonce}.ack.json`);
   const probe = { nonce, repo_id: record.repo_id, agent_id: record.agent_id, session: record.session, expires_at: Date.now() + timeoutMs };
   await writeJson(path, probe);
@@ -190,18 +196,67 @@ export async function reviewerProbeReady({ consumer, record, env = process.env, 
     // Best effort by contract: a pane that cannot be woken is not a pane that failed. The file is
     // already written, so a refusal here degrades to exactly the old behaviour rather than to an
     // error — and a busy agent answers at its next boundary the way it always did.
+    // The wake costs real time — a tmux look, maybe a styled capture, a keystroke — and that time
+    // must not be taken out of the agent's window. So the probe's expiry moves by exactly what the
+    // wake spent, and the file is rewritten to match, because `reviewerNonceAck` validates an ack
+    // against `expires_at` and a window the host waits on but the ack refuses is worse than either.
+    const wokeAt = Date.now();
     try { await wake?.({ consumer, record, nonce, env, home, adapters }); } catch { /* best effort */ }
+    const wakeCost = Date.now() - wokeAt;
+    if (wakeCost > 0) {
+      probe.expires_at += wakeCost;
+      await writeJson(path, probe).catch(() => {});
+    }
     while (Date.now() <= probe.expires_at) {
       const screen = await output(record);
-      if (String(screen).split(/\r?\n/).some(line => line.trim() === `AO_REVIEWER_READY ${nonce}`)) return true;
+      if (readySignalOnScreen(screen, nonce)) { await rememberReviewerAck(dir, record); return true; }
       const ack = await readJson(ackPath).catch(() => null);
-      if (ack?.nonce === nonce && ack.agent_id === record.agent_id && ack.repo_id === record.repo_id && ack.session === record.session) return true;
+      if (ack?.nonce === nonce && ack.agent_id === record.agent_id && ack.repo_id === record.repo_id && ack.session === record.session) { await rememberReviewerAck(dir, record); return true; }
       // TM-157: the window is now seconds rather than one second, so the poll has to be a poll and
       // not a spin — at 25ms this would take ~800 captures of the same pane to answer one probe.
       await sleep(Math.min(PROBE_POLL_MS, Math.max(1, probe.expires_at - Date.now())));
     }
     return false;
   } finally { await Promise.all([rm(path, { force: true }), rm(ackPath, { force: true })]); }
+}
+
+/**
+ * Did the reviewer answer THIS nonce on its own pane?
+ *
+ * TM-157. This was `line.trim() === "AO_REVIEWER_READY <nonce>"`, and a correct answer could never
+ * satisfy it: Claude renders every line of its own output with a leading bullet, so the pane shows
+ *
+ *     ● AO_REVIEWER_READY af9cb619-cc66-4cfd-aceb-9d84fb942a60
+ *
+ * and exact equality failed on the bullet. Measured on a live pane — the reviewer obeyed the
+ * protocol perfectly and was still reported unresponsive.
+ *
+ * The decoration is stripped rather than the match loosened, and a line carrying AO_PROBE is
+ * excluded outright: the ring itself ends with the same nonce ("Reply with exactly: …"), so a
+ * looser match would let the QUESTION count as its own ANSWER.
+ */
+export function readySignalOnScreen(screen, nonce) {
+  return String(screen ?? "").split(/\r?\n/).some((line) => {
+    if (line.includes("AO_PROBE")) return false;
+    return line.trim().replace(/^[\s\u25cf\u2022*>\u276f-]+/, "") === `AO_REVIEWER_READY ${nonce}`;
+  });
+}
+
+/** How long a reviewer's acknowledgement stands as proof that this incarnation answers. */
+const RESPONSIVE_TTL_MS = Number(process.env.AO_RESPONSIVE_TTL_MS ?? 600_000);
+
+const reviewerAckMemo = (dir, record) => join(dir, `${record.agent_id}.answered.json`);
+
+async function recentReviewerAck(dir, record) {
+  const memo = await readJson(reviewerAckMemo(dir, record)).catch(() => null);
+  if (!memo?.at) return null;
+  const age = Date.now() - Number(memo.at);
+  if (!(age >= 0 && age < RESPONSIVE_TTL_MS)) return null;
+  return JSON.stringify(memo.binding ?? null) === JSON.stringify(record.binding ?? null) ? { age_ms: age } : null;
+}
+
+async function rememberReviewerAck(dir, record) {
+  await writeJson(reviewerAckMemo(dir, record), { at: Date.now(), agent_id: record.agent_id, binding: record.binding ?? null }).catch(() => {});
 }
 
 /**

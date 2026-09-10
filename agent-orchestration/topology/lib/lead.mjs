@@ -114,8 +114,19 @@ async function defaultPane(record) {
  */
 async function defaultResponsive(record, ackTimeoutMs, { registryDir, log = () => {} }) {
   if (!record?.pane) return false;
-  const nonce = randomUUID();
   const dir = join(registryDir, "probes");
+  // TM-157. A PROOF THAT COST A MODEL TURN IS WORTH KEEPING. Every call used to mint a new nonce
+  // and demand a fresh answer, so `role status` twice in a minute cost two turns, and a governed
+  // launch — which needs the lead AND the reviewer responsive in the SAME call — needed both to
+  // answer inside one window. They rarely align, which is why the demo could get each role
+  // responsive on its own and never both at once.
+  //
+  // An ack that landed a minute ago is still evidence that this incarnation answers. It is bound to
+  // the six-tuple, so a respawned pane invalidates it, and `alive` is checked separately on every
+  // call — this caches "it answered", never "it is up".
+  const cached = await recentAck(dir, record);
+  if (cached) { log(`lead answered ${cached.age_ms}ms ago; proof reused`); return true; }
+  const nonce = randomUUID();
   const probePath = join(dir, `${nonce}.json`);
   const ackPath = join(dir, `${nonce}.ack.json`);
   await writeJson(probePath, { nonce, repo_id: record.repo_id, agent_id: record.agent_id, expires_at: Date.now() + ackTimeoutMs, created_at: nowIso() });
@@ -140,8 +151,29 @@ async function defaultResponsive(record, ackTimeoutMs, { registryDir, log = () =
   // Probes are transient state; a stale one would make a later `lead ack` answer a dead question.
   await rm(probePath, { force: true });
   if (acked) await rm(ackPath, { force: true });
+  if (acked) await rememberAck(dir, record);
   log(acked ? `lead acknowledged probe ${nonce}` : `lead probe ${nonce} timed out after ${ackTimeoutMs}ms`);
   return acked;
+}
+
+/** How long an acknowledgement stands as proof. Not liveness — `alive` answers that every time. */
+const RESPONSIVE_TTL_MS = Number(process.env.AO_RESPONSIVE_TTL_MS ?? 600_000);
+
+const ackMemoPath = (dir, record) => join(dir, `${record.agent_id}.answered.json`);
+
+async function recentAck(dir, record) {
+  const memo = await readJson(ackMemoPath(dir, record)).catch(() => null);
+  if (!memo?.at) return null;
+  const age = Date.now() - Number(memo.at);
+  if (!(age >= 0 && age < RESPONSIVE_TTL_MS)) return null;
+  // The proof belongs to an INCARNATION, not to an agent id. A pane that has been respawned since
+  // is a different process wearing the same name, and it has proven nothing.
+  const same = JSON.stringify(memo.binding ?? null) === JSON.stringify(record.binding ?? null);
+  return same ? { age_ms: age } : null;
+}
+
+async function rememberAck(dir, record) {
+  await writeJson(ackMemoPath(dir, record), { at: Date.now(), agent_id: record.agent_id, binding: record.binding ?? null }).catch(() => {});
 }
 
 /**

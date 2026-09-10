@@ -103,3 +103,60 @@ test("an attention screen is never typed into — TM-111, where Enter means exit
   assert.equal(result.rang, false, "a matching composer does not license a keystroke when an attention line is up");
   assert.equal(tmux.sent.length, 0);
 });
+
+
+// ── TM-151: the styled second look ───────────────────────────────────────────
+// These are the exact bytes tmux handed back for two composer lines from ONE live session, written
+// with explicit escapes so the file stays readable. Keeping them verbatim is the point: the whole
+// fix rests on the claim that Claude renders its own suggestions dim and a human's draft bright,
+// and that claim should fail loudly here if it ever stops holding.
+import { composerEmptyStyled, composerLineOf } from "../../topology/lib/delivery.mjs";
+
+const ESC = "\x1b";
+const SUGGESTION = `${ESC}[39m❯  ${ESC}[2mrun tm init${ESC}[0m`;
+const DRAFT = `${ESC}[38;5;239m${ESC}[48;5;237m❯ ${ESC}[38;5;231mRead /home/ryan/prompt.md and begin your standing role.${ESC}[39m`;
+const BARE = `${ESC}[39m❯  ${ESC}[0m`;
+
+test("a composer holding only dim suggestion text is EMPTY", () => {
+  assert.equal(composerEmptyStyled(SUGGESTION), true, "ghost text is not a draft; the box is free");
+  assert.equal(composerEmptyStyled(BARE), true, "and a bare box is obviously free");
+});
+
+test("a composer holding bright typed text is OCCUPIED — the one that must never be wrong", () => {
+  assert.equal(composerEmptyStyled(DRAFT), false, "typing over an unsent draft is the failure this layer exists to prevent");
+});
+
+test("anything unparseable stays occupied, because 'empty' has to be PROVEN", () => {
+  assert.equal(composerEmptyStyled(""), false);
+  assert.equal(composerEmptyStyled(null), false);
+  assert.equal(composerEmptyStyled("no prompt glyph on this line at all"), false, "no glyph means this is not a composer line");
+  assert.equal(composerEmptyStyled("❯ half typed text"), false, "unstyled text after the glyph is a draft until proven otherwise");
+});
+
+test("the composer line is the LAST prompt line, not the first", () => {
+  // Scrollback holds every earlier prompt; the live composer is at the bottom.
+  const screen = [DRAFT, "some output", SUGGESTION].join("\n");
+  assert.equal(composerLineOf(screen), SUGGESTION);
+  assert.equal(composerLineOf("nothing here"), null);
+});
+
+test("the styled look is taken ONLY for a not-empty composer, and only turns that into empty", async () => {
+  const calls = [];
+  const base = stubTmux({ value: "0|0|0|" });
+  const tmux = { ...base, async capture(pane, lines, opts) { calls.push({ pane, lines, opts }); return SUGGESTION; } };
+  const busy = { ...ADAPTER, composer: { empty_tmux_pattern: "^NEVER_MATCHES$" } };
+  const verdict = await checkBellSafe({ pane: "%1", adapter: busy, format: composerFormat(busy, () => null), binding: BINDING, tmux });
+  assert.equal(verdict.safe, true, "a dim-only composer is safe to ring");
+  assert.equal(verdict.styled, true);
+  assert.equal(calls.length, 1, "exactly one extra capture, and only when the cheap test refused");
+  assert.deepEqual(calls[0].opts, { escapes: true }, "the second look is worthless without -e");
+});
+
+test("a dead pane is never rescued by the styled look", async () => {
+  // The second look answers ONE question. A pane that has exited is not asking that question.
+  const base = stubTmux({ value: "1|0|1|0" });
+  const tmux = { ...base, async capture() { return SUGGESTION; } };
+  const verdict = await checkBellSafe({ pane: "%1", adapter: ADAPTER, format: FORMAT, binding: BINDING, tmux });
+  assert.equal(verdict.safe, false);
+  assert.equal(verdict.dead, true);
+});
