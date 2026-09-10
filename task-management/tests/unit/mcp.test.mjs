@@ -1,6 +1,9 @@
 /** MCP protocol shape + tool dispatch. handleRequest is pure, so no process is spawned. */
 import { strict as assert } from "node:assert";
 import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { basename as pathBasename, dirname as pathDirname, join as pathJoin } from "node:path";
+import { fileURLToPath as toPath } from "node:url";
 import { test } from "node:test";
 import { gateTaskCreate } from "../../lib/enforce.mjs";
 import { TOOLS, handleRequest, respondToLine } from "../../lib/mcp.mjs";
@@ -19,7 +22,40 @@ function payload(res) {
 const call = (name, args, p) =>
   payload(handleRequest({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }, { p }));
 
-test("the handshake identifies the code, not merely 'dev'", () => {
+/**
+ * TM-149. Can this tree answer the version question AT ALL?
+ *
+ * `serverVersion()` tries three sources in order: a manifest `version` (absent here by design —
+ * these plugins are versionless so every commit reaches consumers by SHA), a SHA in the installed
+ * directory name, then `git describe`. A `git archive` extract has none of the three, so `dev` is
+ * the CORRECT answer there and asserting against it fails by construction, at every revision,
+ * forever.
+ *
+ * That is not hypothetical: gates were run from archive trees twice during EP-018 and this test's
+ * failure was twice reported as a real defect — once as "the bundle is stale", once as a blocker on
+ * another task. Both cost real time. See .claude/rules/verification-that-can-fail.md rule 2:
+ * isolation is never free, and what `git archive` removes is `.git`.
+ */
+const versionIsAnswerable = () => {
+  const root = pathJoin(pathDirname(toPath(import.meta.url)), "../..");
+  try {
+    if (JSON.parse(readFileSync(pathJoin(root, ".claude-plugin/plugin.json"), "utf8")).version) return true;
+  } catch { /* no manifest version: expected for a versionless plugin */ }
+  if (/^[0-9a-f]{7,40}$/i.test(pathBasename(root))) return true;
+  try {
+    execFileSync("git", ["-C", root, "rev-parse", "--git-dir"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+test("the handshake identifies the code, not merely 'dev'", (t) => {
+  if (!versionIsAnswerable()) {
+    t.skip("no manifest version, no SHA in the path, and no git: 'dev' is the correct answer here, "
+      + "so this asserts nothing. Run the gates from a checkout or a clone, not a `git archive` tree.");
+    return;
+  }
   // `dev` was honest and useless: every build said it, so a client could not tell which code it
   // was talking to — the only reason the handshake carries a version at all. An installed copy
   // reads the SHA out of its own path; a source checkout asks git, and lets it say `-dirty`,
