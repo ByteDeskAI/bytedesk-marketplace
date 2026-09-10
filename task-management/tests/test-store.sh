@@ -450,5 +450,38 @@ printf 'piped body\n' | tm task new "stdin bodied task" --body - --ac "it reads 
 PIPEID="$(tm find "stdin bodied task" --json | jq -r '.[0].id')"
 assert_contains "$(tm show "$PIPEID")" "piped body" "--body - reads the body from stdin"
 
+# TM-148. A parked task still knows where its work is. `park` releases the claim, so reclaiming has
+# no interlock to trip — the claim was legitimately free — and `start` used to overwrite the
+# record's branch and worktree with wherever the reclaimer stood. TM-135 and TM-143 both had those
+# fields corrected by hand afterwards. The live-holder case is a DIFFERENT path and already refuses,
+# which is asserted separately.
+PARKID="$(tm task new "work that lives elsewhere" --body "context" --ac "done" | grep -oE 'TM-[0-9]+')"
+TM_SESSION_ID=owner tm start "$PARKID" >/dev/null
+TM_SESSION_ID=owner tm park "$PARKID" "session ended" >/dev/null
+# Record the location the work actually has. Set directly rather than by switching branches: this
+# harness does not run inside a git repository, and the behaviour under test is what `start` WRITES,
+# not how the value got there.
+PARKFILE="$(ls "$TM_ROOT"/.bytedesk/task-management/tasks/"$PARKID"-*.md)"
+# Set the fields whether or not `start` already wrote them: in this harness git may or may not
+# resolve, so a sed that silently matches nothing would make the PRECONDITION the thing that fails
+# and hide whether the behaviour under test works at all.
+if grep -q '^branch:' "$PARKFILE"; then sed -i 's|^branch: .*$|branch: "tm/TM-148-elsewhere"|' "$PARKFILE"
+else sed -i '0,/^---$/!{0,/^$/s|^$|branch: "tm/TM-148-elsewhere"|}' "$PARKFILE"; fi
+if grep -q '^worktree:' "$PARKFILE"; then sed -i 's|^worktree: .*$|worktree: "/somewhere/else"|' "$PARKFILE"
+else sed -i 's|^branch: "tm/TM-148-elsewhere"$|branch: "tm/TM-148-elsewhere"\nworktree: "/somewhere/else"|' "$PARKFILE"; fi
+assert_contains "$(tm show "$PARKID" --json | jq -r '.branch')" "tm/TM-148-elsewhere" "precondition: the record names where the work is"
+
+RECLAIM="$(TM_SESSION_ID=other tm start "$PARKID" 2>&1)"
+assert_contains "$RECLAIM" "keeps its recorded location" "reclaiming from elsewhere says it is not re-homing"
+assert_contains "$(tm show "$PARKID" --json | jq -r '.branch')" "tm/TM-148-elsewhere" "the recorded branch survives the reclaim"
+assert_contains "$(tm show "$PARKID" --json | jq -r '.worktree')" "/somewhere/else" "and so does the worktree"
+assert_contains "$(tm show "$PARKID" --json | jq -r '.session')" "other" "while the session correctly moves to the reclaimer"
+
+TM_SESSION_ID=other tm park "$PARKID" "again" >/dev/null
+TM_SESSION_ID=third tm start "$PARKID" --here >/dev/null
+RESULT="$(tm show "$PARKID" --json | jq -r '.branch')"
+[[ "$RESULT" != "tm/TM-148-elsewhere" ]] && ok "--here re-homes deliberately" || no "--here re-homes deliberately" "branch stayed $RESULT"
+
+
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [[ "$FAIL" == 0 ]]

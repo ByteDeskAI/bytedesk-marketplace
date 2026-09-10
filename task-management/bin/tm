@@ -467,7 +467,33 @@ const VERBS = {
     });
     if (!claim.ok) die(claim.reason, 2);
     const wasDone = t.status === "done";
-    update(id, { status: "in_progress", ...stamp() }, P);
+    /**
+     * TM-148. A RELEASED RECORD STILL KNOWS WHERE ITS WORK IS, and `stamp()` used to overwrite that
+     * with wherever the reclaimer happened to be standing.
+     *
+     * The claim interlock is not what fails here — it works, and a live foreign holder is refused
+     * with `--steal`. But `park()` calls `release()`, so a parked task has NO claim to interlock on.
+     * Reclaiming it is legitimate, and the silent part is what `start` then WRITES: the record's
+     * `branch` and `worktree` still described a `tm/` branch in a worktree, and were replaced by
+     * `main` and the shared checkout. TM-135 and TM-143 both had all four fields corrected by hand
+     * afterwards for exactly this reason.
+     *
+     * So preserve a location the record already carries when it disagrees with this checkout, and
+     * say so. `--here` re-homes deliberately, which is the honest verb for "the work moved to me".
+     */
+    const rehome = argv.includes("--here");
+    const priorBranch = typeof t.branch === "string" && t.branch ? t.branch : null;
+    const priorWorktree = typeof t.worktree === "string" && t.worktree ? t.worktree : null;
+    const fresh = stamp();
+    const moved = !rehome && ((priorBranch && priorBranch !== fresh.branch) || (priorWorktree && priorWorktree !== fresh.worktree));
+    const stamped = moved
+      ? { ...fresh, ...(priorBranch ? { branch: priorBranch } : {}), ...(priorWorktree ? { worktree: priorWorktree } : {}) }
+      : fresh;
+    update(id, { status: "in_progress", ...stamped }, P);
+    if (moved) {
+      out(`${id} keeps its recorded location — ${priorBranch ?? "(no branch)"} in ${priorWorktree ?? "(no worktree)"}.`);
+      out(`  You are in ${fresh.branch ?? "(no branch)"} at ${fresh.worktree ?? "(no worktree)"}. Re-home it with \`--here\` if the work has moved.`);
+    }
     out(
       `${id} in progress — ${t.title}` +
         (claim.stolenFrom ? `  (stolen from ${claim.stolenFrom})` : "") +
