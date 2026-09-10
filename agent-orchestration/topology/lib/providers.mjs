@@ -275,7 +275,9 @@ export function buildArgv(adapter, agent, vars) {
   if (agent.auto_approve && adapter.auto_approve_args.length > 0) argv.push(...adapter.auto_approve_args);
   // Last of the option groups, so where a CLI expresses both with one flag (codex's --sandbox) the
   // coordinator's restriction is the value that survives.
-  if (agent.coordinates_only && adapter.coordinator_args.length > 0) argv.push(...adapter.coordinator_args);
+  // An observer receives no repository add-dir grant, but must write its own attachment,
+  // fingerprints, prompt acknowledgement and mailbox state from its private cwd.
+  if (agent.coordinates_only && !agent.own_state_only && adapter.coordinator_args.length > 0) argv.push(...adapter.coordinator_args);
   const rendered = argv.map((item) => render(item, { ...vars, model: agent.model ?? "" }));
   // Extra directories are rendered per directory rather than with the shared vars: the flag repeats.
   for (const dir of grantedDirs(adapter, agent)) {

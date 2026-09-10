@@ -151,6 +151,7 @@ export async function createAgent(consumer, spec = {}, dirs = null, context = {}
     // a fresh identity regardless — the template shapes it, it never shares one.
     template: spec.template || null,
     coordinates_only: ['lead', 'observer'].includes(role) ? spec.coordinates_only !== false : spec.coordinates_only === true,
+    own_state_only: role === 'observer',
     reports_to: spec.reports_to ?? null,
     cli: spec.cli || "claude",
     candidates: spec.candidates,
