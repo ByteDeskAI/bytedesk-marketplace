@@ -2159,7 +2159,23 @@ function linkGit(input) {
   // ref to every id someone reasoned about would recreate TM-146's over-attachment by a different
   // route. The subject says what this commit IS; `Refs:`/`Closes:`/`Fixes:`/`Task:` say what it is
   // deliberately filed against.
-  const mentioned = [...(cmd.match(/\bTM-\d+\b/g) || []), ...(isPRCommand ? [] : idsFromCommitMessage())];
+  //
+  // TM-159. FOR A COMMIT, THE COMMAND STRING IS NOT READ AT ALL, and that is the completion of
+  // TM-154 rather than a reversal of it.
+  //
+  // TM-154 made the message readable and took the union of both sources. That left the older,
+  // looser source in charge, because of how these commits are actually written: the message is a
+  // heredoc IN THE SAME Bash invocation, so the entire body — every task discussed in prose — sits
+  // in the command string, and the subject-only reading is bypassed before it is consulted. The
+  // merge commit for TM-154 itself attached to NINE tasks that way, and the one after it to three.
+  //
+  // Nothing is lost by dropping it. `git commit -m "TM-nnn: …"` puts the id in the message too, so
+  // `git log -1` still sees it; a `-F` or heredoc message was never visible in the command anyway.
+  // What goes is the ONLY route by which a task merely mentioned in a body could attach.
+  //
+  // `gh pr create` keeps reading its command, because there is no committed message to read
+  // instead: its body is in the command or in the response, and that is the whole signal.
+  const mentioned = isPRCommand ? (cmd.match(/\bTM-\d+\b/g) || []) : idsFromCommitMessage();
   // Branch first: `tm/TM-014-…` is unambiguous and needs no discipline in the message.
   const fromBranch = (git(["rev-parse", "--abbrev-ref", "HEAD"]).match(/\bTM-\d+\b/) || [])[0];
 

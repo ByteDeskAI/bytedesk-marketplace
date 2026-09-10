@@ -112,6 +112,10 @@ CLAUDE_PROJECT_DIR="$TM_ROOT" hook post-bash '{"tool_name":"Bash","tool_input":{
 has "$(cat "$TM_ROOT/.bytedesk/task-management/events.jsonl")" "git_link_unattributed" "the unattributed commit is on the record, not silent"
 
 # The explicit signal must still work from this same branch, or the fix would be a regression.
+# TM-159: the commit has to actually EXIST with that message now. Before, the id was read out of the
+# command string, so a payload describing a commit nobody made was enough — which is precisely the
+# looseness that let a heredoc body attach nine tasks.
+echo x2 >> "$TM_ROOT/a.txt" && git -C "$TM_ROOT" add . && git -C "$TM_ROOT" commit -qm "fix the parser for TM-002"
 CLAUDE_PROJECT_DIR="$TM_ROOT" hook post-bash '{"tool_name":"Bash","tool_input":{"command":"git commit -m \"fix the parser for TM-002\""}}' >/dev/null
 [[ "$(tm show TM-002 --json | jq '.commits | length')" -gt "$BEFORE_2" ]] \
   && ok "a commit that NAMES its task still attaches, claim or no claim" \
@@ -148,6 +152,32 @@ CLAUDE_PROJECT_DIR="$TM_ROOT" hook post-bash '{"tool_name":"Bash","tool_input":{
   && ok "a task merely DISCUSSED in the body attaches nothing" \
   || no "a task merely DISCUSSED in the body attaches nothing"
 has "$(cat "$TM_ROOT/.bytedesk/task-management/events.jsonl")" "git_link_unattributed" "and it is recorded as unattributed, not silent"
+
+# ── a heredoc floods the command string (TM-159) ──────────────────────────────
+# TM-154 made the message readable and took the UNION of message and command string. That left the
+# looser source in charge, because of how these commits are really written: the message is a heredoc
+# in the SAME Bash invocation, so the whole body sits in the command string and the subject-only
+# reading never gets a say. The merge commit for TM-154 itself attached to NINE tasks that way.
+BEFORE_1="$(tm show TM-001 --json | jq '.commits | length')"
+BEFORE_2="$(tm show TM-002 --json | jq '.commits | length')"
+printf 'TM-002: the subject names exactly one task\n\nThe body reasons about TM-001 at length, as bodies here do.\n' > "$TM_ROOT/msg9.txt"
+echo h1 >> "$TM_ROOT/a.txt" && git -C "$TM_ROOT" add . && git -C "$TM_ROOT" commit -q -F "$TM_ROOT/msg9.txt"
+# The payload is what the hook sees when a heredoc is used: the whole message, inside the command.
+CLAUDE_PROJECT_DIR="$TM_ROOT" hook post-bash "$(jq -nc --arg c "$(printf 'git commit -F - <<MSG\nTM-002: the subject names exactly one task\n\nThe body reasons about TM-001 at length, as bodies here do.\nMSG')" '{tool_name:"Bash",tool_input:{command:$c}}')" >/dev/null
+[[ "$(tm show TM-002 --json | jq '.commits | length')" -gt "$BEFORE_2" ]] \
+  && ok "the task its SUBJECT names still attaches" \
+  || no "the task its SUBJECT names still attaches"
+[[ "$(tm show TM-001 --json | jq '.commits | length')" == "$BEFORE_1" ]] \
+  && ok "a task discussed in the body does NOT attach, even though the heredoc put it in the command string" \
+  || no "a task discussed in the body does NOT attach, even though the heredoc put it in the command string"
+
+# The inline form must keep working: -m puts the id in the message too, so git log still sees it.
+BEFORE_1="$(tm show TM-001 --json | jq '.commits | length')"
+echo h2 >> "$TM_ROOT/a.txt" && git -C "$TM_ROOT" add . && git -C "$TM_ROOT" commit -qm "TM-001: fixed inline"
+CLAUDE_PROJECT_DIR="$TM_ROOT" hook post-bash '{"tool_name":"Bash","tool_input":{"command":"git commit -m \"TM-001: fixed inline\""}}' >/dev/null
+[[ "$(tm show TM-001 --json | jq '.commits | length')" -gt "$BEFORE_1" ]] \
+  && ok "an inline -m commit naming its task still attaches" \
+  || no "an inline -m commit naming its task still attaches"
 
 # ── a ref never crosses repos (TM-036) ───────────────────────────────────────
 # The store resolves from CLAUDE_PROJECT_DIR while the shell sits wherever it sits. When those are
