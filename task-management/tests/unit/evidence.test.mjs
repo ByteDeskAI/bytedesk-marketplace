@@ -43,6 +43,32 @@ describe("dest + ref", () => {
     assert.equal(ref, `.bytedesk/task-management/evidence/${t.id}-out.txt`);
   });
 
+  // TM-145. `TM-144-REPORT.md` is the natural name to hand `tm evidence`, and the name every
+  // evidence file in this store already uses — so prepending unconditionally produced
+  // `TM-144-TM-144-REPORT.md`. Cosmetic alone, harmful together: one artifact becomes two files
+  // that look like two, the reader finds the un-prefixed copy first, and the task record points at
+  // the other one. Observed twice in this store before it was fixed.
+  it("does not double a prefix the source filename already carries", () => {
+    const p = store();
+    const t = task(p);
+    const of = (id, filename) => evidenceDest(id, { path: join(p.root, filename) }, p).dest;
+
+    assert.equal(of(t.id, `${t.id}-REPORT.md`), join(p.evidence, `${t.id}-REPORT.md`));
+    assert.equal(of(t.id, `${t.id.toLowerCase()}-report.md`), join(p.evidence, `${t.id.toLowerCase()}-report.md`),
+      "matched case-insensitively, the way the id is matched elsewhere");
+    assert.equal(of(t.id, "REPORT.md"), join(p.evidence, `${t.id}-REPORT.md`), "the ordinary case is untouched");
+  });
+
+  it("requires the separator, so a short id cannot swallow a longer one's prefix", () => {
+    // Without the separator `TM-1` matches the start of `TM-14-NOTES.md`, and the file lands under
+    // the wrong task with a name that looks deliberate.
+    const p = store();
+    assert.equal(evidenceDest("TM-1", { path: join(p.root, "TM-14-NOTES.md") }, p).dest,
+      join(p.evidence, "TM-1-TM-14-NOTES.md"));
+    assert.equal(evidenceDest("TM-1", { path: join(p.root, "TM-1_NOTES.md") }, p).dest,
+      join(p.evidence, "TM-1_NOTES.md"), "underscore and dot count as separators too");
+  });
+
   it("names stdin/text TM-NNN-<ts>.log, the same as `tm evidence <id> -`", () => {
     const p = store();
     const t = task(p);
