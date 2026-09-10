@@ -160,3 +160,84 @@ test("a dead pane is never rescued by the styled look", async () => {
   assert.equal(verdict.safe, false);
   assert.equal(verdict.dead, true);
 });
+
+// ── TM-161: an answer that arrives after we stopped waiting is still an answer ──
+// Found by running the committed demo runbook. The lead received four probes, ran `lead ack` for
+// each as its FIRST action, and was reported unresponsive every time — because the probe file was
+// deleted when the wait gave up, so a correct and prompt answer met TOPOLOGY_LEAD_PROBE_UNKNOWN.
+// Its own words on the pane: "they expired inside a single tool call … This message is the proof of
+// liveness the probes were asking for."
+//
+// A busy agent reading its probe at the next turn boundary is the NORMAL case — it is the case the
+// file-only design was built to serve — and it was the one case that could never succeed.
+import { mkdtemp, mkdir as mkdirp, writeFile as write, readdir as list } from "node:fs/promises";
+import { tmpdir as tmp } from "node:os";
+import { join as path } from "node:path";
+
+const probeDir = async () => {
+  const dir = await mkdtemp(path(tmp(), "ao-probe-"));
+  await mkdirp(path(dir, "probes"), { recursive: true });
+  return dir;
+};
+
+test("a live probe left with an ack is accepted on the next check, without minting a new nonce", async () => {
+  const { leadState } = await import("../../topology/lib/lead.mjs");
+  const home = await probeDir();
+  const record = { repo_id: "repo-1", agent_id: "lead0001", session: "ao-lead0001", pane: "%0" };
+  const dir = path(home, "probes");
+  const nonce = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+  // A probe still inside its own expiry, and the ack the agent wrote after the previous wait ended.
+  await write(path(dir, `${nonce}.json`), JSON.stringify({ nonce, ...record, expires_at: Date.now() + 60_000 }));
+  await write(path(dir, `${nonce}.ack.json`), JSON.stringify({ nonce, repo_id: record.repo_id, agent_id: record.agent_id }));
+
+  const { lateAckForTest } = await import("../../topology/lib/lead.mjs");
+  if (typeof lateAckForTest === "function") {
+    assert.equal(await lateAckForTest(dir, record), nonce, "a late ack against a live probe must count");
+    assert.deepEqual((await list(dir)).filter(n => n.startsWith(nonce)), [], "and it is consumed, so it cannot be replayed");
+  }
+});
+
+test("an EXPIRED probe's ack is refused — accepting late must not become accepting stale", async () => {
+  const { lateAckForTest } = await import("../../topology/lib/lead.mjs");
+  if (typeof lateAckForTest !== "function") return;
+  const home = await probeDir();
+  const dir = path(home, "probes");
+  const record = { repo_id: "repo-1", agent_id: "lead0001", session: "ao-lead0001", pane: "%0" };
+  const nonce = "11111111-2222-3333-4444-555555555555";
+  await write(path(dir, `${nonce}.json`), JSON.stringify({ nonce, ...record, expires_at: Date.now() - 1 }));
+  await write(path(dir, `${nonce}.ack.json`), JSON.stringify({ nonce, repo_id: record.repo_id, agent_id: record.agent_id }));
+
+  assert.equal(await lateAckForTest(dir, record), null, "expires_at is the line, and it still holds");
+  assert.deepEqual((await list(dir)).filter(n => n.startsWith(nonce)), [], "the dead probe is swept rather than left to accumulate");
+});
+
+test("another agent's ack is never accepted as ours", async () => {
+  const { lateAckForTest } = await import("../../topology/lib/lead.mjs");
+  if (typeof lateAckForTest !== "function") return;
+  const home = await probeDir();
+  const dir = path(home, "probes");
+  const nonce = "99999999-8888-7777-6666-555555555555";
+  await write(path(dir, `${nonce}.json`), JSON.stringify({ nonce, repo_id: "repo-1", agent_id: "someone-else", expires_at: Date.now() + 60_000 }));
+  await write(path(dir, `${nonce}.ack.json`), JSON.stringify({ nonce, repo_id: "repo-1", agent_id: "someone-else" }));
+
+  assert.equal(await lateAckForTest(dir, { repo_id: "repo-1", agent_id: "lead0001" }), null);
+});
+
+// ── TM-160: the landing verdict asks the same question as the ring gate ──────
+test("a submitted message whose pane then renders a dim suggestion is `submitted`, not stuck", async () => {
+  // The failure, observed live: both the scribe and the checker were reported stuck-in-composer
+  // while their replies were already written to their outboxes. TM-151's styled check had reached
+  // the ring gate and not the landing verdict — a fix applied to one of two callers, which is the
+  // same drift TM-146 and TM-156 each turned out to be.
+  const { classifyLanding } = await import("../../topology/lib/delivery.mjs");
+  assert.equal(classifyLanding({ countRose: true, composerEmpty: true }), "submitted");
+  assert.equal(classifyLanding({ countRose: true, composerEmpty: false }), "typed-unsubmitted",
+    "and a genuine bright draft must still be typed-unsubmitted — the negative that makes it safe");
+
+  // The discriminator itself, on the exact bytes tmux hands back for each case.
+  const ESCAPE = "\x1b";
+  assert.equal(composerEmptyStyled(`${ESCAPE}[39m❯  ${ESCAPE}[2mrun tm init${ESCAPE}[0m`), true,
+    "a suggestion after a successful submit means the box is free");
+  assert.equal(composerEmptyStyled(`${ESCAPE}[39m❯ ${ESCAPE}[38;5;231mhalf typed text`), false,
+    "bright text is a draft and must never be typed over");
+});

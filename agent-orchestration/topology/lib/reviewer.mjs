@@ -187,6 +187,17 @@ export async function reviewerProbeReady({ consumer, record, env = process.env, 
   // asked every time.
   const cached = await recentReviewerAck(dir, record);
   if (cached) return true;
+  // TM-161: an ack left against a still-unexpired probe by a reviewer that answered after the last
+  // wait returned. The same rule as the lead's, and the same line — expires_at.
+  for (const name of await readdir(dir).catch(() => [])) {
+    if (!name.endsWith(".ack.json")) continue;
+    const stale = name.slice(0, -".ack.json".length);
+    const pending = await readJson(join(dir, `${stale}.json`)).catch(() => null);
+    const ack = await readJson(join(dir, name)).catch(() => null);
+    const mine = ack?.agent_id === record.agent_id && ack?.repo_id === record.repo_id && ack?.session === record.session;
+    await Promise.all([rm(join(dir, `${stale}.json`), { force: true }), rm(join(dir, name), { force: true })]);
+    if (mine && pending && Number(pending.expires_at) >= Date.now()) { await rememberReviewerAck(dir, record); return true; }
+  }
   const nonce = randomUUID();
   const path = join(dir, `${nonce}.json`), ackPath = join(dir, `${nonce}.ack.json`);
   const probe = { nonce, repo_id: record.repo_id, agent_id: record.agent_id, session: record.session, expires_at: Date.now() + timeoutMs };
@@ -217,7 +228,15 @@ export async function reviewerProbeReady({ consumer, record, env = process.env, 
       await sleep(Math.min(PROBE_POLL_MS, Math.max(1, probe.expires_at - Date.now())));
     }
     return false;
-  } finally { await Promise.all([rm(path, { force: true }), rm(ackPath, { force: true })]); }
+  } finally {
+    // TM-161, the reviewer's half. The probe OUTLIVES this wait, up to its own expires_at: a
+    // reviewer that was mid-review when the ring landed answers at its next boundary, and that
+    // answer used to arrive to a deleted file. Only a probe that was ANSWERED, or one nobody can
+    // answer any more, is removed here.
+    const answered = await exists(ackPath);
+    const expired = Date.now() > probe.expires_at;
+    if (answered || expired) await Promise.all([rm(path, { force: true }), rm(ackPath, { force: true })]);
+  }
 }
 
 /**

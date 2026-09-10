@@ -126,6 +126,12 @@ async function defaultResponsive(record, ackTimeoutMs, { registryDir, log = () =
   // call — this caches "it answered", never "it is up".
   const cached = await recentAck(dir, record);
   if (cached) { log(`lead answered ${cached.age_ms}ms ago; proof reused`); return true; }
+  // TM-161. AN ANSWER THAT ARRIVED AFTER WE STOPPED WAITING IS STILL AN ANSWER. Before minting a
+  // new nonce, look for an ack against a probe still inside its own expiry — that is a lead which
+  // was MID-TURN when the last ring landed, read it at its next boundary, and ran the command
+  // correctly and promptly. It is the normal case for a working agent, and it used to be discarded.
+  const late = await lateAck(dir, record);
+  if (late) { await rememberAck(dir, record); log(`lead acknowledged probe ${late} after the previous wait returned`); return true; }
   const nonce = randomUUID();
   const probePath = join(dir, `${nonce}.json`);
   const ackPath = join(dir, `${nonce}.ack.json`);
@@ -148,12 +154,49 @@ async function defaultResponsive(record, ackTimeoutMs, { registryDir, log = () =
     }
     await sleep(ACK_POLL_MS);
   }
-  // Probes are transient state; a stale one would make a later `lead ack` answer a dead question.
-  await rm(probePath, { force: true });
-  if (acked) await rm(ackPath, { force: true });
+  // TM-161: the probe now OUTLIVES this wait, up to its own expires_at. Deleting it here is what
+  // made a busy lead unprovable: it ran `lead ack` as its first action at the next turn boundary,
+  // the file was already gone, and TOPOLOGY_LEAD_PROBE_UNKNOWN came back — a correct, prompt answer
+  // refused. `expires_at` is still the line, and `leadNonceAck` still enforces it, so accepting a
+  // LATE ack never becomes accepting a STALE one. Expired probes are swept on the next pass.
+  if (acked) { await rm(probePath, { force: true }); await rm(ackPath, { force: true }); await rememberAck(dir, record); }
+  else await sweepExpired(dir);
   if (acked) await rememberAck(dir, record);
   log(acked ? `lead acknowledged probe ${nonce}` : `lead probe ${nonce} timed out after ${ackTimeoutMs}ms`);
   return acked;
+}
+
+/**
+ * An ack sitting against a probe that has not expired, left by a lead that answered after the
+ * previous wait gave up. Returns the nonce it found, or null.
+ */
+export async function lateAckForTest(dir, record) { return lateAck(dir, record); }
+
+async function lateAck(dir, record) {
+  for (const name of await readdir(dir).catch(() => [])) {
+    if (!name.endsWith(".ack.json")) continue;
+    const nonce = name.slice(0, -".ack.json".length);
+    const probe = await readJson(join(dir, `${nonce}.json`)).catch(() => null);
+    const ack = await readJson(join(dir, name)).catch(() => null);
+    const mine = ack?.agent_id === record.agent_id && ack?.repo_id === record.repo_id && ack?.nonce === nonce;
+    if (!mine) continue;
+    // The probe's own expiry is the line, exactly as `leadNonceAck` enforces it at write time.
+    if (probe && Number(probe.expires_at) >= Date.now()) {
+      await Promise.all([rm(join(dir, `${nonce}.json`), { force: true }), rm(join(dir, name), { force: true })]);
+      return nonce;
+    }
+    await Promise.all([rm(join(dir, `${nonce}.json`), { force: true }), rm(join(dir, name), { force: true })]);
+  }
+  return null;
+}
+
+/** Remove probes nobody can answer any more. Cheap, and it keeps the directory from growing. */
+async function sweepExpired(dir) {
+  for (const name of await readdir(dir).catch(() => [])) {
+    if (!name.endsWith(".json") || name.endsWith(".ack.json")) continue;
+    const probe = await readJson(join(dir, name)).catch(() => null);
+    if (!probe || Number(probe.expires_at) < Date.now()) await rm(join(dir, name), { force: true });
+  }
 }
 
 /** How long an acknowledgement stands as proof. Not liveness — `alive` answers that every time. */
