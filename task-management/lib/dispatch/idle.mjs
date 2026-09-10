@@ -30,6 +30,7 @@
  * mailbox reply, NOT from session death: the session outlives the task, which is the entire point.
  */
 import { spawnSync } from "node:child_process";
+import { toolFailureReason } from "./backend.mjs";
 import { writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { detectHostCaps } from "../hostcaps.mjs";
@@ -111,7 +112,7 @@ export function spawn(
   });
   if (res?.error) return { ok: false, reason: `ao-topology failed to start: ${res.error.message}`, detail: { args } };
   if (res?.status !== 0) {
-    return { ok: false, reason: `ao-topology manage assign exited ${res?.status ?? "?"}: ${String(res?.stderr || "").trim()}`, detail: { args } };
+    return { ok: false, reason: toolFailureReason("ao-topology manage assign", res), detail: { args } };
   }
 
   const parsed = parseAssign(res.stdout);

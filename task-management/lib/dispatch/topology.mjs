@@ -32,6 +32,7 @@
  * and what ./collect.mjs reads liveness from.
  */
 import { spawnSync } from "node:child_process";
+import { toolFailureReason } from "./backend.mjs";
 import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
@@ -222,7 +223,7 @@ export function spawn(
   });
   if (res?.error) return { ok: false, reason: `ao-topology failed to start: ${res.error.message}`, detail: { args } };
   if (res?.status !== 0) {
-    return { ok: false, reason: `ao-topology launch exited ${res?.status ?? "?"}: ${String(res?.stderr || "").trim()}`, detail: { args } };
+    return { ok: false, reason: toolFailureReason("ao-topology launch", res), detail: { args } };
   }
 
   const parsed = parseLaunch(res.stdout);

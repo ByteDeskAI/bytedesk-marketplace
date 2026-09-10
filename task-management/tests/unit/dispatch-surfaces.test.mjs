@@ -254,3 +254,52 @@ describe("GET /api/caps", () => {
     }
   });
 });
+
+// ── TM-153 ───────────────────────────────────────────────────────────────────
+describe("a supplied registry participates in selection", () => {
+  it("reaches a registry backend whose name is not in the configured order", async () => {
+    // What TM_DISPATCH_REGISTRY was always for, and what it never did: the walk was over the
+    // configured order alone, and a registry could only SUBSTITUTE a module for a name already in
+    // it — so a registry naming a backend `fake` was never consulted, and dispatch went to whatever
+    // real backend the host happened to have. That is why test-pool.sh was red in every real
+    // checkout and green in every archive extract: it reported the machine, not the code.
+    const { resolveBackend } = await import("../../lib/dispatch/backend.mjs");
+    const fake = { name: "fake", available: () => true, spawn: () => ({ ok: true, run: "fake:1" }) };
+    const picked = await resolveBackend({ registry: { fake }, caps: {} });
+    assert.equal(picked.name, "fake", "a registry backend must be reachable, or the registry is decorative");
+  });
+
+  it("keeps an overridden name in its configured place rather than promoting it", async () => {
+    const { resolveBackend } = await import("../../lib/dispatch/backend.mjs");
+    const spawn = () => ({ ok: true, run: "x:1" });
+    const registry = {
+      topology: { name: "topology", available: () => true, spawn },
+      fake: { name: "fake", available: () => true, spawn },
+    };
+    const picked = await resolveBackend({ registry, caps: {} });
+    assert.equal(picked.name, "fake", "names absent from the order go first; an override stays where it was");
+  });
+});
+
+describe("a tool failure reports what the tool said", () => {
+  it("reads the structured refusal ao-topology prints on STDOUT", async () => {
+    // `ao-topology --json` puts refusals on stdout as {ok:false, code, message} with stderr EMPTY,
+    // and every backend built its reason from stderr alone. The board recorded
+    // `ao-topology launch exited 1:` — an exit code, a colon, and nothing.
+    const { toolFailureReason } = await import("../../lib/dispatch/backend.mjs");
+    const reason = toolFailureReason("ao-topology launch", {
+      status: 1,
+      stderr: "",
+      stdout: JSON.stringify({ ok: false, code: "TOPOLOGY_STARTUP_NOT_READY", message: "needs a responsive lead" }),
+    });
+    assert.match(reason, /TOPOLOGY_STARTUP_NOT_READY/);
+    assert.match(reason, /needs a responsive lead/);
+  });
+
+  it("still prefers stderr when there is any, and never returns an empty tail", async () => {
+    const { toolFailureReason } = await import("../../lib/dispatch/backend.mjs");
+    assert.match(toolFailureReason("x", { status: 2, stderr: "boom" }), /exited 2: boom/);
+    assert.match(toolFailureReason("x", { status: 1, stdout: "not json" }), /not json/);
+    assert.match(toolFailureReason("x", { status: 1 }), /no output on either stream/);
+  });
+});
