@@ -231,6 +231,33 @@
   the old reply was read as the new round's completion signal. The id now carries the round.
 - **The census could name an agent that had already gone (TM-135).** A census is up to 45 s old at
   its staleness bound, so the six-tuple is now re-proved under the assignment lock before the write.
+- **A refusal mid-way through a multi-recipient send could partially deliver** (TM-143, EP-018).
+  TM-142 fixed the *broadcast* refusals by resolving addresses before allocating a sequence number.
+  The refusals raised inside the per-recipient loop — `TOPOLOGY_ROUTE_BLOCKED`,
+  `TOPOLOGY_ROUTE_NO_LEAD`, `TOPOLOGY_ROUTE_LOOP`, `TOPOLOGY_UNKNOWN_AGENT`,
+  `TOPOLOGY_COORDINATOR_NOT_A_WORKER` — still threw with the envelope already persisted, and once
+  several recipients were addressed at once they threw *after* the recipients ahead of the refused
+  one already had an inbox file. The sender saw an error, some agents had the message, and
+  `run.json` said a message existed.
+  - **Every local recipient is now admitted before anything is written.** `sendMessage` runs one
+    resolution pass above `nextSequence`: the router is consulted once per recipient and the five
+    refusals are raised there, where a refusal consumes no sequence number, writes no envelope and
+    writes no inbox file. The write pass reuses the admitted decision rather than re-calling the
+    router, so a policy that changes in between cannot admit one pass and refuse the other.
+  - **Prevention, not rollback, and for the reason TM-142 already gave.** A sequence number cannot
+    be handed back. Unwinding inbox files has the same shape of problem one level down: the unlink
+    races the pointer delivery that may already have woken the recipient, and a message an agent has
+    begun reading cannot be made not to have been read.
+  - **The five refusals live in one `assertRoutable` helper**, called by the admission pass and
+    re-asserted against the roster `nextSequence` returned, so the two passes cannot drift about
+    what a refusal is.
+  - **One residual is named rather than hidden.** The standing/external branch is not pre-flighted,
+    because its delivery *is* its admission — `sendStandingMessage` runs canonical routing itself
+    and reports a refusal as a hold, not a throw. The single reachable case where a refusal can
+    still follow a delivery is an assignment that the standing router redirected onto a local
+    `coordinates_only` agent; a standing delivery cannot be unwound, so it throws with the delivery
+    recorded rather than pretending it did not happen. Documented at the branch.
+
 - **A run agent with an unrecognised role vanished from presence entirely** (TM-136). Inside the
   run-agent loop only, `collectPresenceAgents` did `if (!ROLES.has(agent.role)) continue`, so
   `add()` never ran and an `image-gen` run agent — or a `lead`, which a run spec never carries

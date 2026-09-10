@@ -116,6 +116,44 @@ function frontmatter(fields) {
 }
 
 /**
+ * Every refusal that is knowable from the routing decision and the roster, in one place so the
+ * pre-flight pass and the write loop cannot drift apart about what "admitted" means.
+ */
+function assertRoutable({ decision, requested, known, agents, isAssignment, stage }) {
+  invariant(
+    decision.blocked !== "loop",
+    "TOPOLOGY_ROUTE_LOOP",
+    decision.reason || `Routing ${requested} would send this message back through an agent that already handled it.`,
+  );
+  // A router's refusal is final: ANY truthy `blocked` stops the send here rather than falling
+  // through to delivery. A no-lead refusal used to be delivered as addressed — fail-open — which
+  // let an unvouched external contact reach a member exactly when no lead existed to vouch.
+  invariant(
+    decision.blocked !== "no_lead",
+    "TOPOLOGY_ROUTE_NO_LEAD",
+    decision.reason || `Routing ${requested} was refused: this repo has no lead to vouch for the contact.`,
+  );
+  invariant(
+    !decision.blocked,
+    "TOPOLOGY_ROUTE_BLOCKED",
+    decision.reason || `Routing ${requested} was blocked (${decision.blocked}).`,
+  );
+  const recipient = decision.deliver_to || requested;
+  invariant(known.has(recipient), "TOPOLOGY_UNKNOWN_AGENT", `Unknown agent "${recipient}". Agents in this run: ${[...known].join(", ")}.`);
+  // `coordinates_only` as a capability rather than an instruction: a coordinator can be briefed,
+  // asked and reported to, but the mailbox will not carry it a work assignment. Refusing here is
+  // what makes the flag a fact — a line in a prompt is only a request.
+  const entry = agents.find((agent) => agent.id === recipient);
+  const coordinator = typeof entry?.coordinates_only === "boolean" ? entry.coordinates_only : decision.coordinates_only === true;
+  invariant(
+    !(isAssignment && coordinator),
+    "TOPOLOGY_COORDINATOR_NOT_A_WORKER",
+    `${recipient} coordinates and does not implement, so stage "${stage}" cannot be assigned to them. Ask them who should take it, or address the worker directly.`,
+  );
+  return recipient;
+}
+
+/**
  * Write one message into each recipient's inbox. Returns the message id and the list of
  * { agent, inbox, outbox } paths so the caller can deliver a pointer through tmux.
  */
@@ -157,6 +195,31 @@ export async function sendMessage({ runDir, from, to, stage, body, contract, rou
   const { expandAddresses } = await import('./addressing.mjs');
   const recipients = await expandAddresses({ run: existing, to, from, external, consumer: destination,
     env, home: standingOptions.home, ...addressing });
+  // TM-143. ADMIT EVERY LOCAL RECIPIENT BEFORE ANYTHING IS WRITTEN — the same argument TM-142 made
+  // one level up, applied one level down. A refusal raised inside the write loop is worse than a
+  // wasted envelope: the recipients ahead of the refused one already have an inbox file, so the
+  // sender sees an error while some agents have the message and run.json says a message exists.
+  //
+  // Prevention, not rollback, for the reason `nextSequence` gives above: a sequence number cannot
+  // be handed back, so an "allocate and unwind" mechanism either reuses a live number or leaves the
+  // gap it meant to close. Unwinding inbox files has the same shape of problem — an unlink races the
+  // pointer delivery that may already have woken the recipient, and a message an agent has started
+  // reading cannot be made not to have been read. So every refusal that is knowable from policy and
+  // the roster is raised HERE, above `nextSequence`, where a refusal writes nothing at all.
+  //
+  // The standing/external branch is deliberately NOT pre-flighted: its delivery IS its admission —
+  // `sendStandingMessage` runs canonical routing itself and reports a refusal as a HOLD rather than
+  // a throw, so it cannot partially deliver on this path. Its one residual is documented at the
+  // branch itself.
+  const admitted = new Map();
+  const preKnown = new Set(existing.agents.map((agent) => agent.id));
+  for (const address of recipients) {
+    if (external || address.delivery === 'standing') continue;
+    const requested = address.id;
+    const decision = route ? await route({ from, fromProject: sourceProject, to: requested, task, via: chain }) : { deliver_to: requested, redirected: false };
+    assertRoutable({ decision, requested, known: preKnown, agents: existing.agents, isAssignment, stage });
+    admitted.set(requested, decision);
+  }
   const fingerprint = createHash('sha256').update(JSON.stringify({ from, to, stage, body, contract, round, subject, sourceProject, destination, task, chain, isAssignment, token, provenance, parentId })).digest('hex');
   const { seq, run } = await nextSequence(runDir, idempotencyKey, fingerprint);
   const known = new Set(run.agents.map((agent) => agent.id));
@@ -217,6 +280,13 @@ export async function sendMessage({ runDir, from, to, stage, body, contract, rou
         holds.push({ requested, id: standingId, reason: record.reason });
         continue;
       }
+      // TM-143's residual, named rather than hidden: this delivery has ALREADY happened, so the
+      // `assertRoutable` below is the one refusal in this function that can still fire after a
+      // recipient has the message. It cannot fire on a routing refusal — a blocked standing message
+      // comes back as a hold, not as `delivered` — so the reachable case is narrow: an assignment
+      // that the standing router redirected onto a local `coordinates_only` agent. Unwinding a
+      // standing delivery is not available (the record is durable and the pointer may already have
+      // been rung), so it throws with the delivery recorded rather than pretending it did not occur.
       decision = record.decision;
       if (!known.has(record.delivered_to)) {
         deliveries.push({ agent: record.delivered_to, requested, standing: true,
@@ -225,39 +295,15 @@ export async function sendMessage({ runDir, from, to, stage, body, contract, rou
         continue;
       }
     } else {
-      decision = route ? await route({ from, fromProject: sourceProject, to: requested, task, via: chain }) : { deliver_to: requested, redirected: false };
+      // Already admitted above, and the decision is REUSED rather than recomputed: calling the
+      // router twice would let a policy that changed in between admit one pass and refuse the
+      // other, which is the partial delivery this task exists to remove.
+      decision = admitted.get(requested);
     }
-    invariant(
-      decision.blocked !== "loop",
-      "TOPOLOGY_ROUTE_LOOP",
-      decision.reason || `Routing ${requested} would send this message back through an agent that already handled it.`,
-    );
-    // A router's refusal is final: ANY truthy `blocked` stops the send here rather than falling
-    // through to delivery. A no-lead refusal used to be delivered as addressed — fail-open — which
-    // let an unvouched external contact reach a member exactly when no lead existed to vouch.
-    invariant(
-      decision.blocked !== "no_lead",
-      "TOPOLOGY_ROUTE_NO_LEAD",
-      decision.reason || `Routing ${requested} was refused: this repo has no lead to vouch for the contact.`,
-    );
-    invariant(
-      !decision.blocked,
-      "TOPOLOGY_ROUTE_BLOCKED",
-      decision.reason || `Routing ${requested} was blocked (${decision.blocked}).`,
-    );
-    const recipient = decision.deliver_to || requested;
-    invariant(known.has(recipient), "TOPOLOGY_UNKNOWN_AGENT", `Unknown agent "${recipient}". Agents in this run: ${[...known].join(", ")}.`);
-
-    // `coordinates_only` as a capability rather than an instruction: a coordinator can be briefed,
-    // asked and reported to, but the mailbox will not carry it a work assignment. Refusing here is
-    // what makes the flag a fact — a line in a prompt is only a request.
-    const entry = run.agents.find((agent) => agent.id === recipient);
-    const coordinator = typeof entry?.coordinates_only === "boolean" ? entry.coordinates_only : decision.coordinates_only === true;
-    invariant(
-      !(isAssignment && coordinator),
-      "TOPOLOGY_COORDINATOR_NOT_A_WORKER",
-      `${recipient} coordinates and does not implement, so stage "${stage}" cannot be assigned to them. Ask them who should take it, or address the worker directly.`,
-    );
+    // Re-asserted against the roster `nextSequence` returned, because the pre-flight read the
+    // roster from the earlier `loadRun`. Same helper, so the two can never disagree about what a
+    // refusal is; on the local path this is a cheap re-check that has already passed once.
+    const recipient = assertRoutable({ decision, requested, known, agents: run.agents, isAssignment, stage });
 
     // The chain grows by exactly one hop per delivery, and the hop recorded is where the message
     // actually landed — not where it was addressed.
