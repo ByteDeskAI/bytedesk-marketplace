@@ -1,7 +1,7 @@
 // Environment diagnosis and setup guidance. Read-only: it never installs anything itself; the
 // setup-agent-orchestration skill runs the commands it suggests after the operator agrees.
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { platform, release } from "node:os";
 import { detectAdapter } from "./providers.mjs";
 import { socketPathProblem, tmuxVersion } from "./tmux.mjs";
@@ -84,9 +84,19 @@ async function claudeTrust(consumer, home) {
   } catch {
     return { known: false, trusted: null, reason: `no readable ${path}` };
   }
-  const entry = config?.projects?.[consumer] ?? null;
-  if (!entry) return { known: false, trusted: false, path };
-  return { known: true, trusted: entry.hasTrustDialogAccepted === true, path };
+  // TRUST IS INHERITED BY SUBDIRECTORIES, and asking about the exact path only is how this check
+  // reproduced the very mistake this task exists to correct. Run live against a linked worktree of
+  // an already-trusted repository, an exact-path lookup answered "never trusted" — for a directory
+  // whose agents come straight up. So walk up: the nearest ancestor with an entry is the answer,
+  // and a trusted ancestor means no modal here.
+  const projects = config?.projects ?? {};
+  for (let dir = consumer; ; dir = dirname(dir)) {
+    const entry = projects[dir];
+    if (entry) return { known: true, trusted: entry.hasTrustDialogAccepted === true, path, matched: dir };
+    const parent = dirname(dir);
+    if (parent === dir) break;
+  }
+  return { known: false, trusted: false, path };
 }
 
 export async function doctor({ adapters, workflowDirs, skillDirs, roleDirs, providerDirs, consumer, env, home }) {

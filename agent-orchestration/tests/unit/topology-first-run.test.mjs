@@ -7,7 +7,7 @@
 // path over the kernel's limit and on a template override whose refusal named neither the template
 // nor the file.
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -79,4 +79,43 @@ test("doctor says nothing about trust once the repository is trusted", async () 
 
   assert.equal(report.problems.find((problem) => problem.code === "CLAUDE_FOLDER_UNTRUSTED"), undefined);
   assert.equal(report.trust.trusted, true);
+});
+
+test("a subdirectory of a trusted repository is trusted — the mistake this check first reproduced", async () => {
+  // Trust is inherited. My first version of this check asked about the EXACT path, and run live
+  // against a linked worktree of an already-trusted repository it answered "never trusted" — for a
+  // directory whose agents come straight up. That is the same error as this task's original filing,
+  // committed a second time inside the fix for it. Caught by running doctor rather than reading it.
+  const home = await mkdtemp(join(tmpdir(), "ao-trust-parent-"));
+  const root = await mkdtemp(join(tmpdir(), "ao-repo-root-"));
+  const nested = join(root, ".bytedesk", "worktrees", "TM-999-something");
+  await mkdir(nested, { recursive: true });
+  await writeFile(join(home, ".claude.json"), JSON.stringify({ projects: { [root]: { hasTrustDialogAccepted: true } } }), "utf8");
+
+  const report = await doctor({
+    adapters: new Map([["claude", { id: "claude", command: process.execPath }]]),
+    workflowDirs: [], skillDirs: [], roleDirs: [], providerDirs: [],
+    consumer: nested, env: {}, home,
+  });
+
+  assert.equal(report.trust.trusted, true, "a nested directory inherits the repository's trust");
+  assert.equal(report.trust.matched, root, "and it says which ancestor answered");
+  assert.equal(report.problems.find((problem) => problem.code === "CLAUDE_FOLDER_UNTRUSTED"), undefined);
+});
+
+test("an untrusted ancestor is still untrusted — inheritance is not an escape hatch", async () => {
+  const home = await mkdtemp(join(tmpdir(), "ao-trust-no-"));
+  const root = await mkdtemp(join(tmpdir(), "ao-repo-no-"));
+  const nested = join(root, "sub", "dir");
+  await mkdir(nested, { recursive: true });
+  await writeFile(join(home, ".claude.json"), JSON.stringify({ projects: { [root]: { hasTrustDialogAccepted: false } } }), "utf8");
+
+  const report = await doctor({
+    adapters: new Map([["claude", { id: "claude", command: process.execPath }]]),
+    workflowDirs: [], skillDirs: [], roleDirs: [], providerDirs: [],
+    consumer: nested, env: {}, home,
+  });
+
+  assert.equal(report.trust.trusted, false);
+  assert.ok(report.problems.find((problem) => problem.code === "CLAUDE_FOLDER_UNTRUSTED"), "the nearest ancestor with an entry is the answer, whatever it says");
 });
