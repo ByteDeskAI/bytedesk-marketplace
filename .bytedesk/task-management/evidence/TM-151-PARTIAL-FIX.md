@@ -26,6 +26,17 @@ case the original pattern existed to reject.
 
 Live measurement, two reviewer panes during the demo: shipped **0**, fixed **12**.
 
+**Gates**, in this worktree: topology unit **335 tests, 335 pass, 0 fail**; both frozen presence
+validators pass unmodified; `roadmap:check` OK; operator tmux sessions 5 before and after.
+
+The five `src/` suites — `mcp-contract`, `runtime-engine`, `service-routing`, `session-host`,
+`session-supervisor` — **were not run here and are not reported as a result**. This worktree has no
+`node_modules`, so they fail with `Cannot find package 'zod'`. They pass 41/41 in the canonical
+checkout, which is where they should be gated. I deliberately did not symlink `node_modules` in to
+make them run: that is precisely what produced TM-152's false failure, because a symlinked
+dependency tree rewrites the paths esbuild embeds. The topology suite needs no dependencies at all,
+which is ADR-0001's dependency-free rule paying off.
+
 ## Why it does not close the task
 
 After both role agents bootstrapped and went idle, their composers read:
