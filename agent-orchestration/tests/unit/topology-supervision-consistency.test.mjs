@@ -121,8 +121,9 @@ test('lead assign and role assign lead answer a failed supervisor identically', 
   // Every other state directory under the same root is untouched, so the assign itself succeeds
   // and the two surfaces are compared on the failure this test is actually about.
   await writeFile(join(state, 'supervision'), 'not a directory\n');
-  const env = { ...process.env, HOME: home, XDG_CONFIG_HOME: join(home, '.config'),
+  const env = { ...process.env, TMUX: '', HOME: home, XDG_CONFIG_HOME: join(home, '.config'),
     AGENT_ORCHESTRATION_STATE_HOME: state, TMUX_TMPDIR: tmuxTmp };
+  assert.equal(env.TMUX, '', 'the real-tmux fixture must not inherit and destroy an operator tmux server');
 
   const cli = async args => {
     try { const { stdout } = await exec(process.execPath, [CLI, ...args, '--consumer', repo], { env }); return { code: 0, stdout }; }
@@ -135,7 +136,8 @@ test('lead assign and role assign lead answer a failed supervisor identically', 
 
   const session = roleSessionName(agentId);
   await run('tmux', ['new-session', '-d', '-s', session, '-c', repo, 'sleep', '120'], { env });
-  t.after(() => run('tmux', ['kill-server'], { env, allowFailure: true }));
+  const socket = (await run('tmux', ['display-message', '-p', '-t', session, '#{socket_path}'], { env })).stdout.trim();
+  t.after(() => run('tmux', ['-S', socket, 'kill-server'], { env, allowFailure: true }));
   const acker = new AbortController();
   const acking = ackProbes(join(state, 'leads', 'probes'), acker.signal);
   t.after(async () => { acker.abort(); await acking; });
