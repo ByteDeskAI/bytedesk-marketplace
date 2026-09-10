@@ -1,24 +1,25 @@
 ---
 id: "TM-156"
 kind: "task"
-status: "blocked"
+status: "done"
 created: "2026-09-10T02:23:47.644Z"
 board: "bytedeskai/bytedesk-marketplace"
-title: "task-management: tm task edit --title sets the title to the literal string --title"
-acceptance: [{"text":"tm task edit <id> --title \"X\" sets the title to X","done":true,"at":"2026-09-10T03:22:43.544Z"},{"text":"A malformed edit invocation fails loudly rather than writing a flag name into a field","done":true,"at":"2026-09-10T03:22:43.686Z"},{"text":"A test covers the retitle path, since both agents who hit this assumed the verb worked","done":true,"at":"2026-09-10T03:22:43.812Z"}]
+title: "task-management: tm edit takes the title positionally, so --title is written into the field"
+acceptance: [{"text":"tm task edit <id> --title \"X\" sets the title to X","done":true,"at":"2026-09-10T03:25:20.451Z"},{"text":"A malformed edit invocation fails loudly rather than writing a flag name into a field","done":true,"at":"2026-09-10T03:25:20.594Z"},{"text":"A test covers the retitle path, since both agents who hit this assumed the verb worked","done":true,"at":"2026-09-10T03:25:20.732Z"}]
 evidence: [".bytedesk/task-management/evidence/TM-156-HANDOFF.md"]
-commits: ["caba55b"]
+commits: ["ed3fc5d","87bbb04","3c15cb7"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "e01dd923-50ea-45d8-9911-b9d5faed94bd"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-10T03:22:44.090Z"
+updated: "2026-09-10T03:25:20.877Z"
 type: "bug"
 labels: ["plugin:task-management"]
 evidenceSources: {".bytedesk/task-management/evidence/TM-156-HANDOFF.md":{"source":"/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-156-title/.bytedesk/task-management/evidence/TM-156-HANDOFF.md","sha256":"750f618b54dad439211f9f91c7e206678165ddba5ceb53090bda932d585048a2","bytes":3259,"at":"2026-09-10T03:22:43.927Z"}}
-blockedReason: "Code complete and gated; blocked on the integrator's merge only. Branch tm/TM-156-title-flag, STACKED on tm/TM-154-git-link-message because both touch bin/tm — take TM-154 first. Code commit ed3fc5d. Cause: edit(id, ...rest) takes the title positionally, so --title landed in rest[0] and the value was discarded, while the command printed 'title updated (was <old title>)' which reads like success. Fix: --title <value> accepted alongside the positional form, --title with no value refused, and an unrecognised --flag now dies rather than being written into a field — the guard epic new already had after EP-017 was created with --body baked into its name. Six new assertions, all six red against unmodified main. Gates: 1364/1364 unit, store 140/140, every bash suite clean except test-pool.sh which is TM-153. NOTE: tm block does NOT corrupt titles; I inferred that and passed it on, and it is wrong — block writes status and blockedReason only."
+comments: [{"author":"main","ts":"2026-09-10T03:25:20.300Z","text":"MERGED and VERIFIED LIVE on the merged binary, not only by tests.\n\n  tm edit TM-156 --bogus \"x\"   ->  \"unknown option --bogus\" + usage. Refused.\n  tm edit TM-156 --title \"...\" ->  title updated, and the file now carries the real title.\n\nThis tasks own title was the last casualty and is now correct. It had been repaired by hand once already; this is the first time the verb itself set it.\n\nROOT CAUSE, from the author: the title is POSITIONAL, so `--title` landed in rest[0] and became the title while the value was discarded. What made it survive so long is that it PRINTED SUCCESS — \"title updated (was <old title>)\" names the OLD title, so the output looks like confirmation whichever way you read it. Both agents on this epic read it that way.\n\nTHE GENERALISABLE PART, and it is the reason this is worth more than one verb: `epic new` already carried a stray-flag guard, added after an epic was created with `--body` baked into its name, with a comment recording why. The guard never propagated to `edit`. A guard that exists in one verb and not its sibling is worse than no guard at all, because the CLI is then inconsistent and the inconsistent half looks like it worked. Six new assertions cover it, all six red against unmodified main, including \"a refused edit changes nothing\".\n\nGates on the merged tree: unit 1366/1366; store 140 (up from 134), hooks 65, hooks2 37, link 13, mcp 77, read 59 — all exit 0.\n\nTHE AUTHOR ALSO RETRACTED ITS OWN EARLIER CLAIM, unprompted, and this session had already repeated it. It told me `tm block` corrupts titles too, which narrowed the search toward shared argument parsing. Reading the verb disproved it: block writes status and blockedReason and touches nothing else. What corrupted the title after a block was an `edit --title` call minutes earlier. It attributed the damage to the last command it ran rather than the last command that COULD have done it — a distinction worth keeping, because I accepted the inference and passed it on without checking either."}]
+closed: "2026-09-10T03:25:20.872Z"
 ---
 
 `tm task edit <id> --title "Some new title"` does not retitle. It records the title as the literal string `--title`, discarding the value.
