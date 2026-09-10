@@ -7,14 +7,14 @@ board: "bytedeskai/bytedesk-marketplace"
 title: "task-management: git-link reads only the command string, so a commit authored with -F or a heredoc attaches nothing"
 acceptance: [{"text":"A commit whose message names TM-nnn attaches, whether written with -m, -F or a heredoc","done":false},{"text":"A commit whose message names no task still attaches nothing and records git_link_unattributed","done":false},{"text":"A test covers the -F case specifically, since it is the one the command-string reader cannot see","done":false}]
 evidence: []
-commits: ["TM-146","ffa3355"]
+commits: ["TM-146","ffa3355","fa18b8c"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "e01dd923-50ea-45d8-9911-b9d5faed94bd"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-10T03:14:20.589Z"
+updated: "2026-09-10T03:14:38.656Z"
 type: "bug"
 labels: ["plugin:task-management"]
 priority: "high"
