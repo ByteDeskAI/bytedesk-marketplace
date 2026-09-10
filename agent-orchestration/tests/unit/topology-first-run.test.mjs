@@ -15,6 +15,7 @@ import test from "node:test";
 import { socketPathProblem } from "../../topology/lib/tmux.mjs";
 import { promptErrorDetail } from "../../topology/lib/prompts.mjs";
 import { doctor } from "../../topology/lib/doctor.mjs";
+import { run } from "../../topology/lib/util.mjs";
 
 test("a TMUX_TMPDIR too long for a unix socket is refused with the reason", () => {
   // Measured during the demo: tmux answers "File name too long", which reads like a filename
@@ -63,6 +64,33 @@ test("doctor reports the first-run trust gate for a repository Claude has never 
   assert.ok(found, "an untrusted repository must be reported before a launch stalls on the modal");
   assert.match(found.message, /No, exit/, "name the highlighted answer: Enter there exits the provider");
   assert.match(found.fix.note, /per-repository/, "and say it is asked once per repo, not per agent directory");
+  assert.equal(report.trust.trusted, false);
+});
+
+test("a trusted ANCESTOR does not make a repository nested under it trusted", async () => {
+  // TM-169. The check used to walk ancestors and take the nearest entry, so an accepted directory
+  // anywhere above the repo answered "trusted". Measured live: a brand-new git repository created
+  // under an accepted ancestor still draws the folder-trust modal, and doctor reported no problem —
+  // a false negative in the one direction that costs a stalled launch, since it promises a demo
+  // will run and it does not. Claude keys the gate on the git COMMON DIRECTORY, which is the same
+  // identity this plugin already uses for leads and slots.
+  const home = await mkdtemp(join(tmpdir(), "ao-trust-anc-"));
+  const ancestor = await mkdtemp(join(tmpdir(), "ao-anc-"));
+  const consumer = join(ancestor, "nested-repo");
+  await mkdir(join(consumer, "deep"), { recursive: true });
+  await run("git", ["init", consumer]);
+  // The ANCESTOR is accepted; the repository itself has never been asked about.
+  await writeFile(join(home, ".claude.json"),
+    JSON.stringify({ projects: { [ancestor]: { hasTrustDialogAccepted: true } } }), "utf8");
+
+  const report = await doctor({
+    adapters: new Map([["claude", { id: "claude", command: process.execPath }]]),
+    workflowDirs: [], skillDirs: [], roleDirs: [], providerDirs: [],
+    consumer, env: {}, home,
+  });
+
+  assert.ok(report.problems.find((problem) => problem.code === "CLAUDE_FOLDER_UNTRUSTED"),
+    "an accepted ancestor must not be read as trust for a repository nested under it");
   assert.equal(report.trust.trusted, false);
 });
 
