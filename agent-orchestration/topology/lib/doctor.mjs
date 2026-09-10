@@ -1,11 +1,12 @@
 // Environment diagnosis and setup guidance. Read-only: it never installs anything itself; the
 // setup-agent-orchestration skill runs the commands it suggests after the operator agrees.
 import { readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { platform, release } from "node:os";
 import { detectAdapter } from "./providers.mjs";
 import { socketPathProblem, tmuxVersion } from "./tmux.mjs";
 import { exists, run } from "./util.mjs";
+import { canonicalRepoId } from "./repoid.mjs";
 
 async function hasCommand(name) {
   const which = process.platform === "win32" ? "where" : "which";
@@ -84,13 +85,40 @@ async function claudeTrust(consumer, home) {
   } catch {
     return { known: false, trusted: null, reason: `no readable ${path}` };
   }
-  // TRUST IS INHERITED BY SUBDIRECTORIES, and asking about the exact path only is how this check
-  // reproduced the very mistake this task exists to correct. Run live against a linked worktree of
-  // an already-trusted repository, an exact-path lookup answered "never trusted" — for a directory
-  // whose agents come straight up. So walk up: the nearest ancestor with an entry is the answer,
-  // and a trusted ancestor means no modal here.
+  // TRUST IS KEYED ON THE GIT COMMON DIRECTORY — the same identity the rest of this plugin already
+  // uses for leads and slots, so every linked worktree of a repository shares one answer. This is
+  // the THIRD position this check has held, and the first with an experiment behind it rather than
+  // an argument. An exact-path lookup was wrong (a worktree of a trusted repo read as untrusted);
+  // walking arbitrary ancestors was also wrong, in the more dangerous direction — it reported
+  // "trusted" from a distant accepted ancestor and the demo then stopped at the modal the check
+  // exists to predict.
+  //
+  // Five live cases, each run as an interactive pane and observed (TM-169):
+  //
+  //   cwd                                      common dir      entry?   modal
+  //   agent dir in an untrusted repo           that repo       none     YES
+  //   agent dir in a trusted repo              that repo       true     no
+  //   fresh git repo under a TRUSTED ancestor  itself          none     YES   <- kills ancestor-walk
+  //   fresh deep subdir of a trusted repo      that repo       true     no    <- kills exact-path
+  //   linked worktree, own path never trusted  the main repo   true     no    <- kills toplevel too
+  //
+  // The third case is the one that matters: an accepted ancestor does NOT cover a repository nested
+  // under it. The fifth is why the key is the COMMON dir and not the worktree toplevel.
   const projects = config?.projects ?? {};
-  for (let dir = consumer; ; dir = dirname(dir)) {
+  const identity = await canonicalRepoId(consumer).catch(() => null);
+  if (identity?.kind === "git-common-dir") {
+    // The entry is keyed by the working directory, so step off the `.git` the common dir names.
+    const key = dirname(identity.git_common_dir);
+    const entry = projects[key];
+    if (entry) return { known: true, trusted: entry.hasTrustDialogAccepted === true, path, matched: key };
+    return { known: false, trusted: false, path, matched: key };
+  }
+  // No repository identity at all — not a git tree. There is no better key than the path itself, so
+  // keep the ancestor walk here rather than inventing a second rule for a case with no repository
+  // to key on. This is the same two-branch shape canonicalRepoId itself has, and it is deliberately
+  // NOT the answer for a git tree: the dangerous case is a repository nested under an accepted
+  // ancestor, and that one takes the branch above and is reported.
+  for (let dir = resolve(consumer); ; dir = dirname(dir)) {
     const entry = projects[dir];
     if (entry) return { known: true, trusted: entry.hasTrustDialogAccepted === true, path, matched: dir };
     const parent = dirname(dir);
