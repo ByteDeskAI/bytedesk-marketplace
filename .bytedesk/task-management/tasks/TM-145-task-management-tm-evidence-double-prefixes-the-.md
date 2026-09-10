@@ -7,14 +7,14 @@ board: "bytedeskai/bytedesk-marketplace"
 title: "task-management: tm evidence double-prefixes the task id when the source filename already carries it"
 acceptance: [{"text":"A source named TM-nnn-REPORT.md is stored as TM-nnn-REPORT.md, not TM-nnn-TM-nnn-REPORT.md","done":false},{"text":"A source named REPORT.md is still stored as TM-nnn-REPORT.md","done":false},{"text":"The two existing doubled files in this store are removed, leaving one copy each","done":false}]
 evidence: []
-commits: ["114f4ad","a05c993","eac8ae7"]
+commits: ["114f4ad","a05c993","eac8ae7","f840403"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "2ee26155-9e57-4cf8-8bc4-a8379f88e5a4"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-10T01:21:32.011Z"
+updated: "2026-09-10T02:09:48.259Z"
 type: "bug"
 labels: ["plugin:task-management"]
 priority: "low"
