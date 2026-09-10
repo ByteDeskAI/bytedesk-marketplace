@@ -316,6 +316,13 @@ const VERBS = {
         acs.push(rest[ai + 1]);
         rest.splice(ai, 2);
       }
+      // Any flag left in `rest` is one this verb does not take, and `rest.join(" ")` would bake it
+      // into the title. `tm epic new` and `tm edit` already guard this; `task new` did not, which is
+      // the same guard-in-one-sibling shape those two were fixed for. Observed: a `--epic EP-018`
+      // that this verb has never accepted (the epic comes from the active epic) ended up as the last
+      // four words of a task's title, and the create still reported success.
+      const stray = rest.find((word) => word.startsWith("--"));
+      if (stray) die(`unknown option ${stray}\n${USAGE_TASK_NEW}`);
       const title = rest.join(" ");
       if (!title) die(USAGE_TASK_NEW);
       const base = { title, epic: state(P).activeEpic || null, acceptance: acs.map((text) => ({ text, done: false })), evidence: [], commits: [], blockedBy: [], blocks: [], ...stamp() };
