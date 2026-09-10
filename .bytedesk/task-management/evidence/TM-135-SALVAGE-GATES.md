@@ -29,6 +29,49 @@ on this machine (exit 137).
 (289 rather than main's 294: the branch predates the five TM-140/141 consistency
 tests. Not a regression — a different base.)
 
+## RETRACTED — the "pre-existing failure" conclusion was WRONG
+
+**This section originally claimed `not ok 206 - the handshake identifies the code,
+not merely 'dev'` was a pre-existing defect, verified by a control run on
+`a5d550e^`. That conclusion is retracted. It was an artifact of my method.**
+
+Caught by the integrator, who checked this evidence instead of accepting it.
+
+**The confounder:** a `git archive` tree has **no `.git` directory**. That test
+asserts the handshake does not answer `dev`, and its own comment says how it is
+meant to pass — *"a source checkout asks git"*. With no repository to ask, it
+answers `dev` and fails **by construction, at every revision, forever**.
+
+Both my tree and my control were archive extracts. They shared that confounder
+**identically**, so the control could not possibly have detected it. A control
+that shares the confounder is not a control.
+
+That sentence is in this very document, one section above, where I wrote it about
+an earlier worker who symlinked one `node_modules` into both trees and drew the
+same shape of false conclusion. I wrote the warning and then walked into it. The
+`node_modules` confounder I did eliminate; the missing `.git` I did not even see.
+
+**Verified properly by the integrator, in a real checkout rather than an archive:**
+`main` **passes** this test — task-management unit suite 1350 pass, 0 fail — and
+the *same* test fails when `main` is extracted with `git archive` into `/tmp`.
+
+**Consequences, so nobody acts on the retracted claim:**
+
+- There is **no unowned defect**. My earlier "someone should own this" was wrong;
+  no task was filed and nobody should go looking for an owner.
+- The real problem is that gates run from archive trees fail this test forever and
+  read as a regression to the next person. The integrator filed **TM-149** for it,
+  and an honest skip when no SHA is resolvable is a better fix than a document
+  nobody reads before reaching for archive isolation.
+- `build:check` and `roadmap:check` remain unverified at this revision for the
+  same root cause: an archive tree has no `node_modules` either.
+
+**What still stands from the original run:** topology 289/289, both frozen presence
+validators passing unmodified, and the frozen fixtures untouched by this commit.
+Those results do not depend on `.git` and are unaffected by the retraction.
+
+## Original section, retained for the record
+
 ## The one failure is PRE-EXISTING, and that was verified, not assumed
 
 ```
