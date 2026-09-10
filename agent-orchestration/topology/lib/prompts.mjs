@@ -73,6 +73,29 @@ async function readLayer(path) {
  * every required source that could not be read. Text remains available for diagnostic preview.
  * Explicit file references are required, even when inline template instructions also exist.
  */
+/**
+ * TM-155. Say WHICH key is wrong, at the point of refusal.
+ *
+ * `composePrompt` has always returned `errors` carrying the layer, the path and a note. Several
+ * refusals threw them away and said only "Invalid lead prompt; refusing restart." — so an operator
+ * who overrode a template in a repo config, and copied the DEFAULT value `./prompts/lead.md` while
+ * doing it, got a sentence naming neither the template nor the file. That value is relative to the
+ * layer that declares it, so in a repo config it points at `<repo>/prompts/lead.md`, which does not
+ * exist. Correct behaviour, unreadable message.
+ *
+ * A PARTIAL override fails identically, because a template is replaced rather than merged. Both
+ * cases now say so, and both cost an hour to diagnose from the old sentence.
+ */
+export function promptErrorDetail(errors) {
+  const list = (errors ?? []).map((item) => {
+    const where = item.layer ?? "config";
+    const what = item.path ? ` ${item.path}` : "";
+    const why = item.note ? ` — ${item.note}` : "";
+    return `${where}${what}${why}`;
+  });
+  return list.length ? ` Cause: ${list.join("; ")}.` : "";
+}
+
 export async function composePrompt({ agent, consumer, dir, loaded, templateName = null }) {
   const role = agent.role || "worker";
   const layers = [];

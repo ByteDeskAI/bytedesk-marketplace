@@ -175,6 +175,36 @@ export async function sendKeys(pane, keys) {
   await tmux(["send-keys", "-t", pane, ...keys]);
 }
 
+/**
+ * TM-155. A unix socket path is limited to ~108 bytes by the kernel (`sun_path`), and tmux builds
+ * its socket as `$TMUX_TMPDIR/tmux-<uid>/<name>`. A session-scratch directory blows through that
+ * easily — measured during the EP-018 demo with a per-session scratchpad path:
+ *
+ *     error connecting to /tmp/claude-1000/-home-ryan-…-scratchpad/demo-tmux/tmux-1000/default
+ *     (File name too long)
+ *
+ * tmux names the path but not the cause, and "File name too long" reads like a filename problem
+ * rather than a socket-length one. Answering before the call is cheap and the message can say what
+ * to do about it.
+ *
+ * Returns null when there is nothing to say.
+ */
+export function socketPathProblem(env = process.env, uid = process.getuid?.() ?? 0) {
+  const dir = env.TMUX_TMPDIR;
+  if (!dir) return null;
+  const path = `${dir}/tmux-${uid}/default`;
+  const bytes = Buffer.byteLength(path, "utf8");
+  if (bytes <= SOCKET_PATH_MAX) return null;
+  return {
+    code: "TMUX_SOCKET_PATH_TOO_LONG",
+    message: `TMUX_TMPDIR makes a socket path of ${bytes} bytes and the kernel limit is ${SOCKET_PATH_MAX}: ${path}. tmux reports this as "File name too long", which reads like a filename problem and is not.`,
+    fix: { note: "Point TMUX_TMPDIR at a short directory — /tmp/ao-<something> — rather than a per-session scratch path." },
+  };
+}
+
+/** `sun_path` is 108 bytes on Linux and 104 on macOS; the smaller one is the safe answer. */
+export const SOCKET_PATH_MAX = 104;
+
 export async function capture(pane, lines = 60, { escapes = false } = {}) {
   // `-e` keeps the SGR sequences. TM-151: that is the ONLY way to tell Claude's dim suggestion text
   // from a human's typed draft — both are plain letters after the prompt glyph, and only one of

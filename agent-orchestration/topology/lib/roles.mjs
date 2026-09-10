@@ -41,6 +41,7 @@ import { assignLead, detachLead, ensureLead, leadState, readLeadRegistration } f
 import { leadQueueDepth } from "./mailbox.mjs";
 import { adapterFor, buildArgv, loadAdapters, providerDirs } from "./providers.mjs";
 import { refreshPrompt } from "./prompt-lifecycle.mjs";
+import { promptErrorDetail } from "./prompts.mjs";
 import { canonicalRepoId, repoKey, stateRoot } from "./repoid.mjs";
 import { assignReviewer, detachReviewer, ensureReviewer, readReviewerRecord, reviewerStanding } from "./reviewer.mjs";
 import { readStandingInbox, sendStandingMessage } from "./standing-mailbox.mjs";
@@ -132,7 +133,7 @@ async function openAgentSession({ agent, consumer, home, pluginRoot, env = proce
   const adapter = adapterFor(agent, adapters);
   const session = roleSessionName(agent.id);
   const prompt = await refreshPrompt({ agent, consumer, home, pluginRoot, env, live: false });
-  invariant(prompt.status !== "invalid-config", "TOPOLOGY_PROMPT_INVALID", "Prompt config is invalid; the existing session is preserved.");
+  invariant(prompt.status !== "invalid-config", "TOPOLOGY_PROMPT_INVALID", `Prompt config is invalid; the existing session is preserved.${promptErrorDetail(prompt.errors)}`, { errors: prompt.errors ?? [] });
   const vars = {
     session,
     agent_id: agent.id,
