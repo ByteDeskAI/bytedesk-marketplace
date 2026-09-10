@@ -104,6 +104,30 @@ AFTER="$(tm show TM-002 --json | jq '.commits | length')"
 has "$(cat "$TM_ROOT/.bytedesk/task-management/events.jsonl")" "git_link_skipped" "and the refusal is on the record, not silent"
 rm -rf "$ELSEWHERE"
 
+# ── the ref's own repo is the authority, not the cwd (TM-063) ────────────────
+# The case above moves the *process*, so the directory check catches it. The failure that actually
+# shipped never moved: `gh pr create` targeted another repo while CLAUDE_PROJECT_DIR still pointed
+# at this store, so boardId(CHECKOUT) answered "same board" and the link went through. It bites
+# because every store numbers tasks TM-nnn — the PR body named the *other* project's TM-063, and
+# this board had a TM-063 of its own, closed days earlier under a different epic.
+BEFORE="$(tm show TM-002 --json | jq '.commits | length')"
+CLAUDE_PROJECT_DIR="$TM_ROOT" hook post-bash '{"tool_name":"Bash","tool_input":{"command":"gh pr create --repo acme/other-repo --body \"adjudicates TM-002\""},"tool_response":{"stdout":"https://github.com/acme/other-repo/pull/17"}}' >/dev/null
+AFTER="$(tm show TM-002 --json | jq '.commits | length')"
+[[ "$AFTER" == "$BEFORE" ]] \
+  && ok "a PR in another repo is refused even when the cwd says this board" \
+  || no "a PR in another repo is refused even when the cwd says this board" "commits went $BEFORE → $AFTER"
+
+# A `gh pr create` with no URL to read used to write the literal string "pr" as the ref.
+BEFORE="$(tm show TM-002 --json | jq '.commits | length')"
+CLAUDE_PROJECT_DIR="$TM_ROOT" hook post-bash '{"tool_name":"Bash","tool_input":{"command":"gh pr create --body \"about TM-002\""},"tool_response":{"stdout":""}}' >/dev/null
+[[ "$(tm show TM-002 --json | jq -r '.commits | index("pr") // "none"')" == "none" ]] \
+  && ok "a PR that printed no URL attaches nothing, not the literal \"pr\"" \
+  || no "a PR that printed no URL attaches nothing, not the literal \"pr\""
+
+# The guard must still let this board's own pull requests through.
+CLAUDE_PROJECT_DIR="$TM_ROOT" hook post-bash '{"tool_name":"Bash","tool_input":{"command":"gh pr create --body \"closes TM-002\""},"tool_response":{"stdout":"https://github.com/acme/store-repo/pull/9"}}' >/dev/null
+has "$(tm show TM-002 --json)" "acme/store-repo/pull/9" "a PR in this board's own repo still links"
+
 # ── hooks degrade rather than block, under any harness (TM-039) ──────────────
 # Claude Code is the only CLI that invokes these, so under Codex or Grok they must simply not run
 # — never half-run and never block a turn. Exit 0 on a foreign payload, a malformed one, and on

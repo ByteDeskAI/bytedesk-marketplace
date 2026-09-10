@@ -2068,6 +2068,34 @@ function capturePlan(input) {
   );
 }
 
+/**
+ * The repo a pull-request URL belongs to, as `owner/name`. The URL is the one part of a
+ * `gh pr create` that cannot lie about where the pull request landed — `--repo`, a `cd`, or a
+ * shell alias all change the target without changing this process's directory.
+ */
+function prBoard(url) {
+  const m = String(url).match(/github\.com\/([^/]+\/[^/]+?)(?:\.git)?(?:[/?#]|$)/);
+  return m ? m[1].toLowerCase() : null;
+}
+
+/**
+ * Where a shell command actually ran, when the command says so. `git -C <dir>` and a leading
+ * `cd <dir> &&` both retarget a checkout without moving this process, which is how a commit made
+ * in one repo gets attributed to another repo's board. Returns null when the command is silent,
+ * and the caller falls back to CHECKOUT.
+ */
+function commandCheckout(cmd) {
+  const dir =
+    (cmd.match(/\bgit\s+-C\s+(['"]?)([^\s'"]+)\1/) || [])[2] ||
+    (cmd.match(/(?:^|[;&|]\s*)cd\s+(['"]?)([^\s'"&;|]+)\1/) || [])[2];
+  if (!dir) return null;
+  try {
+    return isAbsolute(dir) ? dir : resolve(CHECKOUT, dir);
+  } catch {
+    return null;
+  }
+}
+
 /** git commit / gh pr create → attach the ref to the task it mentions or the active claim. */
 function linkGit(input) {
   if (!config(P).gitLink) return;
@@ -2085,27 +2113,38 @@ function linkGit(input) {
   if (!targets.length) return;
 
   /**
-   * The ref comes from the checkout the command ran in; the tasks come from the store `tm`
-   * resolved. Those are usually the same repo and occasionally are not — `tm` follows
-   * CLAUDE_PROJECT_DIR while a shell sits wherever it sits — and when they differ, this used to
-   * staple one project's pull request onto another project's task. bytedesk-persona's TM-001
-   * carries 25 marketplace PR urls for exactly this reason.
+   * The ref comes from the command that ran; the tasks come from the store `tm` resolved. Those are
+   * usually the same repo and occasionally are not, and when they differ this used to staple one
+   * project's pull request onto another project's task. bytedesk-persona's TM-001 carries 25
+   * marketplace PR urls for exactly this reason.
+   *
+   * Asking the *directory* was not enough, because a command retargets another repo without moving
+   * this process: `gh pr create --repo`, `git -C`, or a plain `cd` earlier in the same line. So
+   * CLAUDE_PROJECT_DIR still answered "same board" and the link went through. bytedesk-remote-gateway's
+   * TM-063 collected bytedesk-passport's PR #17 that way, and the collision is invisible from here
+   * because both stores number tasks TM-nnn — the PR body named passport's TM-063 and the gateway
+   * had a TM-063 of its own, closed days earlier under a different epic.
+   *
+   * So ask the ref, not the cwd. A pull-request URL names its own repo, and that is the authority.
    *
    * A cross-repo reference is a real thing worth recording, but it is a link that names the other
    * repo, not a commit on a task that never touched it.
    */
-  const from = boardId(CHECKOUT);
+  const isPR = /gh\s+pr\s+create/.test(cmd);
+  const url = isPR ? (String(input.tool_response?.stdout || "").match(/https:\/\/\S+/) || [""])[0] : "";
+  // A `gh pr create` that printed no URL says nothing about which repo it hit, so there is nothing
+  // safe to attribute. The old `|| "pr"` fallback wrote the literal string as a ref: it deduped
+  // against itself, pinned nothing, and is still sitting in stores that ran this hook.
+  if (isPR && !url) return;
+  const ref = isPR ? url : git(["rev-parse", "--short", "HEAD"]);
+  if (!ref) return;
+
   const mine = storeBoard(P);
+  const from = isPR ? prBoard(url) : boardId(commandCheckout(cmd) || CHECKOUT);
   if (from && mine && from !== mine) {
-    logEvent("git_link_skipped", { from, board: mine, reason: "ref came from another repo" }, P);
+    logEvent("git_link_skipped", { from, board: mine, ref, reason: "ref came from another repo" }, P);
     return;
   }
-
-  const sha = git(["rev-parse", "--short", "HEAD"]);
-  const ref = /gh\s+pr\s+create/.test(cmd)
-    ? (String(input.tool_response?.stdout || "").match(/https:\/\/\S+/) || [""])[0] || "pr"
-    : sha;
-  if (!ref) return;
   for (const id of targets) {
     const t = read(id, P);
     if (!t || (t.commits || []).includes(ref)) continue;
