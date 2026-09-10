@@ -448,15 +448,18 @@ const commands = {
     const options = { ...ctx, ackTimeoutMs: Number(flags['ack-timeout'] || 5000) };
     if (sub === 'status') return out(await api.leadState(options));
     if (sub === 'probes') return out(await api.pendingLeadProbes(options));
+    // `ensureSupervision`, NOT startRepositorySupervision: `role assign|ensure lead` is the same
+    // operation through the other surface and degrades, so these must too. Two surfaces onto one
+    // operation must not disagree about whether a repo that cannot start a supervisor is a
+    // degraded repo or a failed command. tests/unit/topology-supervision-consistency.test.mjs
+    // drives both and compares.
     if (sub === 'ensure') {
       const result = await api.ensureLead(options);
-      const { startRepositorySupervision } = await import('./lib/supervision.mjs');
-      return out({ ...result, supervision: await startRepositorySupervision(ctx) });
+      return out({ ...result, supervision: await ensureSupervision(ctx) });
     }
     if (sub === 'assign') {
       const result = await api.assignLead({ ...options, agentRef: positional[1], session: flags.session });
-      const { startRepositorySupervision } = await import('./lib/supervision.mjs');
-      return out({ ...result, supervision: await startRepositorySupervision(ctx) });
+      return out({ ...result, supervision: await ensureSupervision(ctx) });
     }
     if (sub === 'detach') return out(await api.detachLead({ ...options, kill: flags.kill === true }));
     if (sub === 'ack') return out(await api.leadNonceAck({ ...options, nonce: positional[1] }));
