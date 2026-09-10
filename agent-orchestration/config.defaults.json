@@ -11,16 +11,13 @@
       "role": "reviewer",
       "cli": "claude",
       "prompt": "./prompts/reviewer.md"
-    },
-    "observer-default": {
-      "role": "observer",
-      "cli": "codex",
-      "prompt": "./roles/observer.md"
     }
   },
   "prompts": {
     "common": "./prompts/common.md",
-    "roles": {}
+    "roles": {
+      "observer": "./roles/observer.md"
+    }
   },
   "failover": {
     "consent": "ask",
