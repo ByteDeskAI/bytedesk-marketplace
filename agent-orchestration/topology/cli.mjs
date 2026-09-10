@@ -32,6 +32,8 @@ Discover
   providers [--json]                           list provider adapters
   doctor [--json] [--consumer <dir>]           check tmux, CLIs, and search paths
   runs [--consumer <dir>]                      list runs under <consumer>/.bytedesk/agent-orchestration/runs
+  observer targets|open|status|inspect|watch|report|close
+           [--observer <id> --target <id> | --run <run_dir>]
 
 Compose
   inputs (--workflow <name> | --spec <file>)   show a workflow's inputs, options, and defaults
@@ -597,6 +599,42 @@ const commands = {
     if (flags.json) return out(runs);
     if (runs.length === 0) return out(`No runs under ${root}.`);
     for (const run of runs) out(`${run.alive ? "●" : "○"} ${run.run_id}  ${run.name}  ${run.state}  session=${run.session}\n    ${run.run_dir}`);
+  },
+
+  async observer({ flags, positional }) {
+    const ctx = context(flags);
+    const api = await import('./lib/observer.mjs');
+    const sub = positional[0] || 'targets';
+    const observerId = flags.observer && flags.observer !== true ? String(flags.observer) : process.env.AO_AGENT_ID || 'observer';
+    const options = { ...ctx, observerId };
+    if (sub === 'targets') return out({ ok: true, targets: await api.discoverObserverTargets(ctx) });
+    if (sub === 'open') {
+      if ((!flags.run || flags.run === true) && (!flags.target || flags.target === true)) {
+        const targets = await api.discoverObserverTargets(ctx);
+        if (process.stdin.isTTY && targets.length === 1) flags.target = targets[0].id;
+        else return out({ ok: false, code: 'TOPOLOGY_OBSERVER_SELECTION', message: 'Select one target and rerun with --target <id>.', targets });
+      }
+      return out({ ok: true, ...await api.openObserver({ ...options,
+        runDir: flags.run && flags.run !== true ? absolutize(String(flags.run)) : null,
+        target: flags.target && flags.target !== true ? String(flags.target) : null }) });
+    }
+    if (sub === 'status') return out({ ok: true, ...await api.observerStatus(options) });
+    if (sub === 'inspect') return out({ ok: true, ...await api.inspectObservedRun(options) });
+    if (sub === 'watch') return api.watchObservedRun(options, { once: flags.once === true,
+      intervalMs: flags.interval && flags.interval !== true ? parseDuration(String(flags.interval)) : 5000,
+      onTick: value => out({ ok: true, ...value }) });
+    if (sub === 'report') {
+      const { sendStandingMessage } = await import('./lib/standing-mailbox.mjs');
+      return out({ ok: true, ...await api.reportFinding(String(flags.finding || ''), { ...options,
+        affectedConsumer: flags['affected-consumer'] ? absolutize(String(flags['affected-consumer'])) : ctx.consumer,
+        affectedLead: flags['affected-lead'],
+        marketplaceConsumer: flags['marketplace-consumer'] ? absolutize(String(flags['marketplace-consumer'])) : null,
+        marketplaceLead: flags['marketplace-lead'],
+        send: (input) => sendStandingMessage(input, ctx),
+      }) });
+    }
+    if (sub === 'close') return out({ ok: true, ...await api.closeObserver(options) });
+    fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use observer targets|open|status|inspect|watch|report|close.');
   },
 
   async inputs({ flags }) {
