@@ -9,13 +9,28 @@
   basename already carries the id, matched case-insensitively and only with the separator, so a
   short id cannot swallow a longer one's prefix (`TM-1` must not claim `TM-14-NOTES.md`).
   - **The store's existing population is larger than the task assumed: 18 doubled files, not two**,
-    and they are not all duplicates. Eleven are byte-identical to a correctly-named sibling and can
-    be dropped; four have NO single copy, so deleting them would destroy the only artifact and they
-    must be renamed instead; and `TM-127-TM-127-INTEGRATION-VERIFICATION.md` differs in content from
-    its sibling, so the two are separate artifacts rather than one duplicated. Nineteen task records
+    and they are not one population. Some are byte-identical to a correctly-named sibling; four have
+    NO other copy, so deleting them would destroy the only artifact and they must be renamed; two
+    differ in content from their sibling and are separate artifacts rather than one duplicated. A
+    further category is the dangerous one: a file can be byte-identical to a sibling and still be
+    LOAD-BEARING, because the task record points at the prefixed path and nothing points at the
+    clean one — TM-140, TM-141, TM-130 and TM-131 are each in that position. 18 task records
     reference doubled paths, and `doctor`'s `missing-evidence` repair DELETES a ref whose file is
-    gone — so any cleanup must repoint the records BEFORE removing a file, or the fix silently
-    strips nineteen evidence links.
+    gone, so any cleanup must repoint the records BEFORE removing a file. The safety test is
+    reference topology, not content equality.
+- **A commit written with `-F` or a heredoc now attaches** (TM-154). `linkGit` selected its target
+  from the Bash COMMAND STRING and never read the message, so `git commit -F <file>` — what anyone
+  writing a real message uses — attached nothing however clearly the subject named its task. The
+  merge commit for TM-146 itself was unattributed for this reason, and so was most of an integrator
+  session's output. It now reads `git log -1 --format=%B` after the fact; the hook already asks git
+  for the ref at that point, so the commit exists.
+  - **TM-146's rule is intact.** A message naming a task is an EXPLICIT statement about what
+    changed, which is what TM-146 required; a claim is not. This is a second explicit signal, not a
+    restored guess.
+  - **Only the subject and an explicit trailer are read**, never the whole body. Bodies here
+    routinely discuss other tasks in prose — "the same shape as TM-135's defence 2" — and attaching
+    a ref to every id someone reasoned about would recreate TM-146's over-attachment by another
+    route. `Refs:`, `Closes:`, `Fixes:` and `Task:` count; a mention in the prose does not.
 - **A claim no longer attaches a ref to a task** (TM-146). `linkGit`'s commit path fell back to
   whatever task held the claim when the message named no task, so any commit made while a task was
   in progress was recorded against it regardless of what it touched. TM-140 and TM-141 each
