@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { composePrompt } from "./prompts.mjs";
 import { loadConfig } from "./config.mjs";
 import { appendJournal, agentDir, loadRun, pendingReplies, saveRun } from "./mailbox.mjs";
+import { composerEmptyStyled } from "./delivery.mjs";
 import { childEnv, childrenFile, lineageFromEnv, lineageRefusal } from "./lineage.mjs";
 import { adapterFor, attentionOnScreen, buildArgv, commandExists, failureOnScreen, grantsDirs, memoryLocation } from "./providers.mjs";
 import { mintSpawn, sessionName } from "./identity.mjs";
@@ -268,7 +269,17 @@ export function screenSince(screen, baseline) {
  * ready-pattern path can return it. The fixed-delay path always decides, which is what makes
  * ready:false reachable for the five adapters that have no pattern.
  */
-export function evaluateScreen(adapter, screen, { alive = true } = {}) {
+/**
+ * The composer is the LAST line carrying a prompt glyph. Earlier ones are scrollback — an agent's
+ * own answer can quote a glyph, and the box is redrawn at the bottom.
+ */
+export function lastComposerLine(styledScreen) {
+  const lines = String(styledScreen ?? "").split(/\r?\n/);
+  for (let i = lines.length - 1; i >= 0; i -= 1) if (/[>\u276f]/.test(lines[i])) return lines[i];
+  return "";
+}
+
+export function evaluateScreen(adapter, screen, { alive = true, styled = null } = {}) {
   // Before the generic failure list, because these screens are specific and it is not: the trust
   // modal contains the word "exit" and a login screen says "not logged in", and both would otherwise
   // be reported as an unexplained provider fault when what they need is one keystroke from a person.
@@ -278,7 +289,26 @@ export function evaluateScreen(adapter, screen, { alive = true } = {}) {
   if (failure) return { ready: false, failed: true, reason: `screen matched failure pattern /${failure}/` };
   if (!alive) return { ready: false, failed: true, reason: "pane exited" };
   if (adapter.ready.pattern) {
-    return new RegExp(adapter.ready.pattern, "m").test(screen) ? { ready: true, failed: false, reason: "ready pattern" } : null;
+    if (new RegExp(adapter.ready.pattern, "m").test(screen)) return { ready: true, failed: false, reason: "ready pattern" };
+    /**
+     * TM-151. The pattern is a TEXT test, and text cannot answer this question. A composer holding
+     * Claude's dim suggestion is READY; one holding a human's typed draft is not — and after the
+     * prompt glyph both are ordinary letters. The literal `Try "` branch in the shipped pattern
+     * only ever covered the fresh-session hint; an idle agent renders `❯ init the task store` and
+     * scores zero, which is why a healthy reviewer never registered.
+     *
+     * The discriminator is STYLE, and `capture-pane -e` is the only thing that keeps it, so the
+     * caller supplies a styled screen and this stays a pure decision.
+     *
+     * Consulted ONLY after the pattern has already failed, and it can only ever turn "keep waiting"
+     * into "ready" by PROVING every visible character after the glyph is ghost text. Anything it
+     * cannot parse stays undecided, which is the same direction `delivery.mjs` takes for the same
+     * reason: this never widens what counts as ready on its own.
+     */
+    if (styled && composerEmptyStyled(lastComposerLine(styled))) {
+      return { ready: true, failed: false, reason: "composer empty by style" };
+    }
+    return null;
   }
   const delay = adapter.ready.delay_ms ?? 3000;
   if (screen.trim().length === 0) {
@@ -374,7 +404,15 @@ async function waitReady(pane, adapter, timeoutMs, { baseline = "" } = {}) {
       // A pane that is GONE is still a decision, even with no screen to read.
       return state.gone || !state.alive ? { ready: false, failed: true, reason: state.status === null ? "pane exited" : `pane exited with status ${state.status}`, exit_status: state.status ?? undefined } : null;
     }
-    const verdict = evaluateScreen(adapter, screenSince(raw, baseline), { alive: state.alive });
+    let verdict = evaluateScreen(adapter, screenSince(raw, baseline), { alive: state.alive });
+    // TM-151. Only when the cheap plain-text test decided nothing: pay for a styled capture and ask
+    // whether the composer is empty ghost text. A pane that is genuinely mid-answer, or holds a
+    // typed draft, still fails this — so it can only turn "keep waiting" into "ready", never the
+    // reverse, and a pane that is already decided costs nothing extra.
+    if (verdict === null) {
+      const styled = await tmux.capture(pane, 60, { escapes: true }).catch(() => null);
+      if (styled) verdict = evaluateScreen(adapter, screenSince(raw, baseline), { alive: state.alive, styled });
+    }
     if (!verdict?.failed || verdict.reason !== "pane exited" || state.status === null) return verdict;
     return { ...verdict, reason: `pane exited with status ${state.status}`, exit_status: state.status };
   };

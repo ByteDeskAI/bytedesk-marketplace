@@ -11,6 +11,7 @@ import test from "node:test";
 import {
   decideFromSubscription,
   evaluateScreen,
+  lastComposerLine,
   launchRun,
   launcherScript,
   mintAgentToken,
@@ -884,4 +885,42 @@ test("a pointer typed at a pane that is not listening is a failure, not a warnin
   const lost = await deliverPointer(listening, adapter, pointer, { attempts: 2, settleMs: 600 });
   assert.equal(lost.delivered, false, "a pane that is not listening does NOT confirm delivery");
   assert.equal(lost.attempts, 2, "and it is retried before being called a failure");
+});
+
+test("TM-151: a composer holding only DIM suggestion text is ready, though no text pattern can say so", () => {
+  // The shipped pattern forbids letters after the glyph, so an idle agent rendering a suggestion
+  // scores zero and a healthy pane never registers. That is what kept a live reviewer unregistered.
+  const claudeish = adapter({ ready: { pattern: "(^|\\n)\\s*[│|]?\\s*[>❯][^a-zA-Z0-9\\n]*$", timeout_ms: 1 } });
+
+  const DIM = "\x1b[2m", RESET = "\x1b[0m", BRIGHT = "\x1b[38;5;231m";
+  const suggestion = `❯ ${DIM}init the task store${RESET}`;
+  const draft      = `❯ ${BRIGHT}Read /home/x/prompt.md and begin${RESET}`;
+
+  // Precondition, so this test cannot pass for the wrong reason: the PLAIN text of both is
+  // identical in shape and neither matches the pattern.
+  const plain = "❯ init the task store";
+  assert.equal(new RegExp(claudeish.ready.pattern, "m").test(plain), false, "precondition: the pattern cannot decide this");
+
+  // Without a styled screen nothing changes — still undecided, keep waiting.
+  assert.equal(evaluateScreen(claudeish, plain), null);
+
+  // With one, the dim suggestion proves the composer is empty.
+  assert.deepEqual(
+    evaluateScreen(claudeish, plain, { styled: suggestion }),
+    { ready: true, failed: false, reason: "composer empty by style" },
+  );
+
+  // And the negative that makes it safe: a real draft is bright, so it stays NOT ready.
+  assert.equal(evaluateScreen(claudeish, "❯ Read /home/x/prompt.md and begin", { styled: draft }), null);
+});
+
+test("TM-151: the composer is the LAST glyph line, not an earlier one the agent quoted", () => {
+  const DIM = "\x1b[2m", RESET = "\x1b[0m";
+  const screen = [
+    "❯ an earlier line the agent quoted back",
+    "some output",
+    `❯ ${DIM}try something${RESET}`,
+  ].join("\n");
+  assert.match(lastComposerLine(screen), /try something/);
+  assert.equal(lastComposerLine("no glyph anywhere"), "");
 });
