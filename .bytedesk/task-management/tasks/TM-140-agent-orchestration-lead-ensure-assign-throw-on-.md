@@ -7,7 +7,7 @@ board: "bytedeskai/bytedesk-marketplace"
 title: "agent-orchestration: lead ensure/assign throw on supervision failure while every other verb degrades"
 epic: "EP-018"
 acceptance: [{"text":"The lead handler's two direct startRepositorySupervision call sites go through the same non-fatal ensureSupervision wrapper as every other verb, so lead ensure and lead assign degrade rather than throw when supervision cannot start.","done":true,"at":"2026-09-10T01:13:35.271Z"},{"text":"A test asserts the degradation: with supervision made to fail, lead assign still returns its result with a supervision field reporting the failure, and exits 0.","done":true,"at":"2026-09-10T01:13:35.526Z"},{"text":"Whichever behaviour is chosen is the SAME for lead assign and role assign lead — verified by a test that drives both surfaces and compares, so the two cannot drift again.","done":true,"at":"2026-09-10T01:13:35.757Z"}]
-evidence: [".bytedesk/task-management/evidence/TM-140-TM-140-141-INTEGRATION-VERIFICATION.md"]
+evidence: [".bytedesk/task-management/evidence/TM-140-141-INTEGRATION-VERIFICATION.md"]
 commits: ["14b3ecd","73536a1","eac8ae7","f8bb70c","578498b"]
 blockedBy: []
 blocks: []

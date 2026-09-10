@@ -7,7 +7,7 @@ board: "bytedeskai/bytedesk-marketplace"
 title: "agent-orchestration: Claude's folder-trust modal reads as a launch timeout"
 epic: "EP-016"
 acceptance: [{"text":"An agent that stalls on a trust prompt is reported as awaiting a human decision, not as a bare timeout","done":true,"at":"2026-09-07T00:02:26.547Z"},{"text":"The precondition is documented where an operator will meet it before their first launch","done":true,"at":"2026-09-07T00:02:26.795Z"}]
-evidence: [".bytedesk/task-management/evidence/TM-111-TM-111-trust-modal-attention.md"]
+evidence: [".bytedesk/task-management/evidence/TM-111-trust-modal-attention.md"]
 commits: ["cbd176f","1069713","caba55b","ff628cb","44a4d26"]
 blockedBy: []
 blocks: []

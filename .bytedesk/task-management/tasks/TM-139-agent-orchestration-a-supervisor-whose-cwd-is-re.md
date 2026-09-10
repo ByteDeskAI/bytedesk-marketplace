@@ -7,7 +7,7 @@ board: "bytedeskai/bytedesk-marketplace"
 title: "agent-orchestration: a supervisor whose cwd is removed dies on absolutize's eager process.cwd() default"
 epic: "EP-018"
 acceptance: [{"text":"absolutize no longer calls process.cwd() when it does not need it — the default becomes lazy, so an absolute path resolves without touching the cwd at all.","done":true,"at":"2026-09-09T23:08:29.589Z"},{"text":"A supervisor started with an explicit absolute --consumer survives the removal of the directory it was spawned in, proven by a test that spawns into a temp dir, removes it, and asserts the process is still ticking rather than dead.","done":true,"at":"2026-09-09T23:08:29.717Z"},{"text":"The failure mode is no longer silent even if it recurs: the process record advances past 'starting' once the first tick completes, so a record stuck at 'starting' with a dead pid is mechanically distinguishable from a healthy one, and doctor says which.","done":true,"at":"2026-09-09T23:08:29.843Z"},{"text":"The five stale records currently in the supervision state dir are accounted for — either reclaimed by the restart path or explained — rather than left as debris that makes the next diagnosis harder.","done":true,"at":"2026-09-09T23:08:29.968Z"}]
-evidence: [".bytedesk/task-management/evidence/TM-139-TM-139-INTEGRATION-VERIFICATION.md"]
+evidence: [".bytedesk/task-management/evidence/TM-139-INTEGRATION-VERIFICATION.md"]
 commits: ["89b5531","c125404","4f67d94","7dcb437","750c495","8c5cc81"]
 blockedBy: []
 blocks: []

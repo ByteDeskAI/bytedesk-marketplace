@@ -7,7 +7,7 @@ board: "bytedeskai/bytedesk-marketplace"
 title: "Review and integrate the lead/template/presence branch, then refresh the plugin cache"
 epic: "EP-018"
 acceptance: [{"text":"The worker's branch is reviewed against TM-127's acceptance criteria in the provisioned worktree, and its RESULT file is reconciled against what the store and the diff actually show — a worker's self-reported done is not accepted on its own.","done":true,"at":"2026-09-09T23:39:36.918Z"},{"text":"Local runtime proof is obtained and reported SEPARATELY from any publish claim: a clean installed-plugin launch from the local marketplace, with the plugin's own tests and gates run and their output quoted.","done":true,"at":"2026-09-09T23:39:37.054Z"},{"text":"The branch is integrated into main by this coordinator (workers run no git commands in the lead's tree), the unrelated in-flight task-management changes in the main checkout are preserved, and the plugin cache is refreshed and verified per .claude/rules/version-enforcement.md — versionless Claude/Codex manifests stay versionless.","done":true,"at":"2026-09-09T23:39:37.179Z"},{"text":"The new Kimi worker spawned for TM-127 is shut down after its output is collected and integrated; persistent product leads and peer sessions are left alive.","done":true,"at":"2026-09-09T23:39:37.293Z"}]
-evidence: [".bytedesk/task-management/evidence/TM-129-MARKETPLACE-BASELINE-main-82eaf62.txt",".bytedesk/task-management/evidence/TM-129-TM-129-COORDINATOR-CLOSEOUT.md"]
+evidence: [".bytedesk/task-management/evidence/TM-129-MARKETPLACE-BASELINE-main-82eaf62.txt",".bytedesk/task-management/evidence/TM-129-COORDINATOR-CLOSEOUT.md"]
 commits: ["/tmp/ao-lead-rollout-20260909/PLAN.md","4f67d94","114f4ad"]
 blockedBy: ["TM-127"]
 blocks: []

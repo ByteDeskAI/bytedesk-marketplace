@@ -7,7 +7,7 @@ board: "bytedeskai/bytedesk-marketplace"
 title: "agent-orchestration: a tmux enumeration failure restarts the supervisor instead of skipping a tick"
 epic: "EP-018"
 acceptance: [{"text":"A transient failure to enumerate tmux panes degrades one reconcile tick rather than ending superviseRepository — or, if ending it is the deliberate choice, that is stated in a comment at the throw site with its reasoning, so the next reader does not treat it as an oversight.","done":true,"at":"2026-09-10T01:13:35.396Z"},{"text":"Whichever is chosen, the restarts counter no longer conflates 'tmux was briefly unavailable' with 'the supervisor crashed', since doctor uses that number to identify a crash loop.","done":true,"at":"2026-09-10T01:13:35.639Z"},{"text":"The asymmetry between the caught census listing and the uncaught presence listing is preserved and documented, because the two have different owners and different failure semantics.","done":true,"at":"2026-09-10T01:13:35.880Z"}]
-evidence: [".bytedesk/task-management/evidence/TM-141-TM-140-141-INTEGRATION-VERIFICATION.md"]
+evidence: [".bytedesk/task-management/evidence/TM-140-141-INTEGRATION-VERIFICATION.md"]
 commits: ["14b3ecd","73536a1","f8bb70c","578498b"]
 blockedBy: []
 blocks: []

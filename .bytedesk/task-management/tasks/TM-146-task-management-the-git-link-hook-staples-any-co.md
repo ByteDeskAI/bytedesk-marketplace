@@ -6,7 +6,7 @@ created: "2026-09-10T01:17:45.900Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "task-management: the git-link hook staples any commit made while a task holds the claim onto that task"
 acceptance: [{"text":"A commit whose message and branch name no task is not attached to the merely-claimed task","done":true,"at":"2026-09-10T02:12:16.302Z"},{"text":"A commit naming a task, or on a tm/<ID>- branch, still attaches as it does today","done":true,"at":"2026-09-10T02:12:16.417Z"},{"text":"A test covers the claim-only case, asserting nothing is attached","done":true,"at":"2026-09-10T02:12:16.536Z"}]
-evidence: [".bytedesk/task-management/evidence/TM-146-TM-146-HANDOFF-TO-INTEGRATOR.md"]
+evidence: [".bytedesk/task-management/evidence/TM-146-HANDOFF-TO-INTEGRATOR.md"]
 commits: ["2545066","8e387d3","a31042c","fa18b8c","578498b","b0732c9"]
 blockedBy: []
 blocks: []

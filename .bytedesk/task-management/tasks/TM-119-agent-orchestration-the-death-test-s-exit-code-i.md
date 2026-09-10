@@ -7,7 +7,7 @@ board: "bytedeskai/bytedesk-marketplace"
 title: "agent-orchestration: the death test's exit code is lost under load"
 epic: "EP-017"
 acceptance: [{"text":"The exit status assertion passes with the suite under load, demonstrated on a loaded machine","done":true,"at":"2026-09-07T00:17:18.154Z"},{"text":"Deadness and exit status come from one tmux query, or the retry that closes the window is justified in a comment","done":true,"at":"2026-09-07T00:17:18.268Z"}]
-evidence: [".bytedesk/task-management/evidence/TM-119-TM-119-two-projects-under-load.txt"]
+evidence: [".bytedesk/task-management/evidence/TM-119-two-projects-under-load.txt"]
 commits: ["d741258","341ba60","a660150"]
 blockedBy: []
 blocks: []

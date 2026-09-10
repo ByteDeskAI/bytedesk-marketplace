@@ -7,14 +7,14 @@ board: "bytedeskai/bytedesk-marketplace"
 title: "agent-orchestration: pane.log is tracked in git, so every agent action permanently dirties the shared checkout"
 acceptance: [{"text":"pane.log files are gitignored and no longer tracked","done":true,"at":"2026-09-10T05:07:27.602Z"},{"text":"The logs still exist on disk and are still written","done":true,"at":"2026-09-10T05:07:27.745Z"},{"text":"git status in the shared checkout is clean when no agent has pending work","done":true,"at":"2026-09-10T05:07:27.918Z"}]
 evidence: [".bytedesk/task-management/evidence/TM-147-MERGE-SEQUENCE.md",".bytedesk/task-management/evidence/TM-147-TM147.md"]
-commits: ["e8e2560","93acaa4"]
+commits: ["e8e2560","93acaa4","2f96c2c"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "e01dd923-50ea-45d8-9911-b9d5faed94bd"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-10T05:07:28.090Z"
+updated: "2026-09-10T05:07:39.520Z"
 type: "bug"
 labels: ["plugin:agent-orchestration"]
 evidenceSources: {".bytedesk/task-management/evidence/TM-147-MERGE-SEQUENCE.md":{"source":"/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-147-panelog/.bytedesk/task-management/evidence/TM-147-MERGE-SEQUENCE.md","sha256":"9f31eb00228d4b6daa01ff2bf310135b9f8b8336901b9d831dd1482b805a9b1a","bytes":3989,"at":"2026-09-10T03:54:15.642Z"},".bytedesk/task-management/evidence/TM-147-TM147.md":{"source":"/tmp/claude-1000/-home-ryan-Documents-GitHub-ByteDeskAI-bytedesk-marketplace/2ee26155-9e57-4cf8-8bc4-a8379f88e5a4/scratchpad/TM147.md","sha256":"297161802e8304b9cdf7245565284c598551c1dfba1c930b5cc28271dabb7430","bytes":2415,"at":"2026-09-10T05:07:27.445Z"}}

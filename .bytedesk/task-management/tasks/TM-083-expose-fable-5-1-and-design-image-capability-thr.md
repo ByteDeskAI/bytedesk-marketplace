@@ -7,7 +7,7 @@ board: "bytedeskai/bytedesk-marketplace"
 title: "Expose Fable 5.1 and design-image capability through orchestration"
 epic: "EP-013"
 acceptance: [{"text":"A live orchestration doctor/capability probe reports an exact Fable 5.1 Claude endpoint.","done":true,"at":"2026-09-02T18:27:08.824Z"},{"text":"The orchestration spawn API can select the approved exact endpoint without arbitrary command or model injection.","done":true,"at":"2026-09-02T18:27:08.893Z"},{"text":"The Pi session can invoke orchestration through the MCP protocol and reports spawned session URLs verbatim.","done":true,"at":"2026-09-02T18:27:08.976Z"},{"text":"Codex image generation is positively probed before the design run, otherwise execution stops with a clear refusal.","done":true,"at":"2026-09-02T18:27:09.044Z"}]
-evidence: [".bytedesk/task-management/evidence/TM-083-TM-083-fable-image-orchestration-evidence.md"]
+evidence: [".bytedesk/task-management/evidence/TM-083-fable-image-orchestration-evidence.md"]
 commits: []
 blockedBy: []
 blocks: ["TM-084"]

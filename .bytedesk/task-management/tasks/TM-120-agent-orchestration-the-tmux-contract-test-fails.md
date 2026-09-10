@@ -7,7 +7,7 @@ board: "bytedeskai/bytedesk-marketplace"
 title: "agent-orchestration: the tmux contract test fails intermittently and its error text has never been captured"
 epic: "EP-017"
 acceptance: [{"text":"A failing run's full output is captured, including the launch JSON and the pane log of whichever agent did not come up","done":true,"at":"2026-09-07T00:36:20.049Z"},{"text":"The cause named in that evidence is fixed, or the test is made robust against it with the reason recorded","done":true,"at":"2026-09-07T00:36:20.186Z"}]
-evidence: [".bytedesk/task-management/evidence/TM-120-TM-120-evidence.md"]
+evidence: [".bytedesk/task-management/evidence/TM-120-evidence.md"]
 commits: ["6328c83","5be70c6","ed42808","14e8244","189d742","b3d8a35","239a23f","8425309"]
 blockedBy: []
 blocks: []

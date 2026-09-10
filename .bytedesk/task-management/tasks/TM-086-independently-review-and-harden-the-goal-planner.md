@@ -7,7 +7,7 @@ board: "bytedeskai/bytedesk-marketplace"
 title: "Independently review and harden the goal planner"
 epic: "EP-013"
 acceptance: [{"text":"Codex produces an evidence-backed review covering backend, frontend, uploads, tool authorization, atomicity, accessibility, and tests.","done":true,"at":"2026-09-05T15:33:31.649Z"},{"text":"All high-severity findings are fixed or explicitly rejected with evidence, then re-reviewed.","done":true,"at":"2026-09-05T15:33:31.774Z"},{"text":"The complete task-management verification and packaging suite passes in the integration worktree.","done":true,"at":"2026-09-05T15:33:31.901Z"}]
-evidence: [".bytedesk/task-management/evidence/TM-086-TM-086-suite-and-packaging.txt",".bytedesk/task-management/evidence/TM-086-TM-086-codex-round-two.txt",".bytedesk/task-management/evidence/TM-086-CHANGELOG.md"]
+evidence: [".bytedesk/task-management/evidence/TM-086-suite-and-packaging.txt",".bytedesk/task-management/evidence/TM-086-codex-round-two.txt",".bytedesk/task-management/evidence/TM-086-CHANGELOG.md"]
 commits: ["38194d4","6a82df8","e5b9091","2f8d30f","edcc827","5eae4f0","716d6f4","5c140bf","fec622a","20924e8","46fdf26","e1c669f","87645c4","0e993ea","f6bf160"]
 blockedBy: ["TM-085"]
 blocks: []
