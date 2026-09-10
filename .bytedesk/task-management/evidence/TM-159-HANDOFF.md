@@ -44,8 +44,8 @@ failed**.
 | **hooks2** — the suite this changes | **40 pass, 0 fail** |
 | capability / concurrency / dashboard / events | 22 / 12 / 210 / 12, 0 fail |
 | hooks / install / link | 65 / 13 / 13, 0 fail |
-| mcp / read / store / worktree | ran after this file was written; see the task's block note |
-| `test-pool.sh` | expected 17/2 — TM-153, unrelated |
+| mcp / read / store / worktree | 77 / 59 / 140 / 22, 0 fail |
+| `test-pool.sh` | **17 pass, 2 fail — TM-153**, fails identically in the canonical checkout |
 
 **This commit is its own test case.** `e160820`'s subject names TM-159 and its body names TM-154.
 Under `main` today it would attach to both; under this fix, only to TM-159. Checkable directly after
