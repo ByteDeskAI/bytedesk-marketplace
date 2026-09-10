@@ -79,6 +79,32 @@ exit code, a colon, and nothing.
 **Read the failure text before deciding what the failure was.** A verb that refused is not a verb
 that succeeded, and the id it did not return is not yours to use.
 
+## 6. A default a caller hardcodes past is not a default
+
+The sibling of rule 4, and the one this file was first used to FIND rather than to record. Fixing a
+library is worthless while every caller supplies its own value.
+
+The late-ack fix let a probe outlive its wait so a lead that was mid-turn could answer at its next
+boundary. It was correct, it had unit tests, and on a live pane it changed nothing — three
+consecutive `unresponsive` reads. Both of its real callers passed a timeout past the default it had
+just raised:
+
+| caller | what it passed | consequence |
+|---|---|---|
+| `cli.mjs` | `Number(flags['ack-timeout'] \|\| 5000)` on every call | the env-configurable 30s default was never consulted; a probe expired five seconds after it was written, so the ack a lead ran at its next turn boundary was refused as STALE rather than accepted as LATE |
+| `startup.mjs` | a hardcoded `1000` | a one-second probe nobody can answer: it burns a ring, its own sweep deletes it, and its expiry defeats the late-ack path from a caller that never intended to wait |
+
+The second one is why "raise the number" was the wrong fix. That path is a SessionStart screen for
+every session on the machine and genuinely cannot wait for a model turn — so it now passes `0`,
+meaning **answer from proof already on disk and mint nothing**. A screen asks; it does not
+interrogate. "Not proven" is an honest answer for it to give, and it is checked after the cached and
+late paths, so a screen still reports proof that already exists.
+
+**When a fix changes a default, grep every call site before believing it shipped.** The unit suite
+passed in both states, because it exercised the library directly and never went through either
+caller's argument construction — which is rule 1 wearing different clothes: testing the piece you
+wrote instead of the behaviour the criterion names.
+
 ## What to do with a green run
 
 State what you **verified** and what you only **read**. They are different words. A gate reported as
