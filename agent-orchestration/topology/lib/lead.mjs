@@ -42,7 +42,7 @@ import { displayName } from "./identity.mjs";
 import { composerFormat, wakeForProbe } from "./delivery.mjs";
 import { openRoleSession, roleSessionName, tmuxFailureTrigger } from "./launch.mjs";
 import { withLock } from "./lockfile.mjs";
-import { composePrompt } from "./prompts.mjs";
+import { composePrompt, promptErrorDetail } from "./prompts.mjs";
 import { refreshPrompt } from "./prompt-lifecycle.mjs";
 import { adapterFor, buildArgv, loadAdapters, providerDirs } from "./providers.mjs";
 import { canonicalRepoId, repoKey, stateRoot } from "./repoid.mjs";
@@ -346,7 +346,7 @@ async function createLeadAgent({ consumer, home, pluginRoot, env }) {
  */
 async function openLeadSession({ agent, consumer, pluginRoot, home, env, log, open }) {
   const prompt = await refreshPrompt({ agent, consumer, pluginRoot, home, env });
-  invariant(prompt.status !== "invalid-config", "TOPOLOGY_PROMPT_INVALID", "Invalid lead prompt; refusing restart.");
+  invariant(prompt.status !== "invalid-config", "TOPOLOGY_PROMPT_INVALID", `Invalid lead prompt; refusing restart.${promptErrorDetail(prompt.errors)}`, { errors: prompt.errors ?? [] });
   const adapters = await loadAdapters(providerDirs({ pluginRoot, consumer, home }));
   const adapter = adapterFor(agent, adapters);
   const session = roleSessionName(agent.id);

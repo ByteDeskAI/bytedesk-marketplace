@@ -38,7 +38,7 @@ import { displayName } from "./identity.mjs";
 import { composerFormat, wakeForProbe } from "./delivery.mjs";
 import { openRoleSession, roleSessionName, tmuxFailureTrigger } from "./launch.mjs";
 import { withLock } from "./lockfile.mjs";
-import { composePrompt } from "./prompts.mjs";
+import { composePrompt, promptErrorDetail } from "./prompts.mjs";
 import { refreshPrompt } from "./prompt-lifecycle.mjs";
 import { adapterFor, buildArgv, loadAdapters, providerDirs } from "./providers.mjs";
 import { canonicalRepoId, repoKey, stateRoot } from "./repoid.mjs";
@@ -385,7 +385,7 @@ export async function ensureReviewer({ consumer, home = homedir(), pluginRoot = 
         `Reviewer record names agent ${record.agent_id}, but the library no longer has that agent. Restore the agent or remove ${recordPath} and ensure again.`,
       );
       const prompt = await refreshPrompt({ agent, consumer, home, pluginRoot, env, live: false });
-      invariant(prompt.status !== "invalid-config", "TOPOLOGY_PROMPT_INVALID", "Reviewer prompt config is invalid.");
+      invariant(prompt.status !== "invalid-config", "TOPOLOGY_PROMPT_INVALID", `Reviewer prompt config is invalid.${promptErrorDetail(prompt.errors)}`, { errors: prompt.errors ?? [] });
       const opened = await session.open({ agent, consumer, home, pluginRoot, env, provider: record.provider, model: agent.model ?? null, log, existing: record });
       const updated = { ...record, session: opened.session ?? record.session, pane: opened.pane ?? record.pane ?? null, binding: opened.binding ?? null, updated_at: nowIso() };
       await writeJson(recordPath, updated);
@@ -422,7 +422,7 @@ export async function ensureReviewer({ consumer, home = homedir(), pluginRoot = 
     await writeText(join(agent._dir, "prompt.md"), composed.text);
 
     const prompt = await refreshPrompt({ agent, consumer, home, pluginRoot, env, live: false });
-    invariant(prompt.status !== "invalid-config", "TOPOLOGY_PROMPT_INVALID", "Reviewer prompt config is invalid.");
+    invariant(prompt.status !== "invalid-config", "TOPOLOGY_PROMPT_INVALID", `Reviewer prompt config is invalid.${promptErrorDetail(prompt.errors)}`, { errors: prompt.errors ?? [] });
     const opened = await session.open({ agent, consumer, home, pluginRoot, env, provider, model, log });
     const record = {
       version: 1,

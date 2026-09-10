@@ -1,9 +1,10 @@
 // Environment diagnosis and setup guidance. Read-only: it never installs anything itself; the
 // setup-agent-orchestration skill runs the commands it suggests after the operator agrees.
 import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { platform, release } from "node:os";
 import { detectAdapter } from "./providers.mjs";
-import { tmuxVersion } from "./tmux.mjs";
+import { socketPathProblem, tmuxVersion } from "./tmux.mjs";
 import { exists, run } from "./util.mjs";
 
 async function hasCommand(name) {
@@ -57,6 +58,47 @@ export function tmuxInstallPlan(osInfo) {
   }
 }
 
+
+/**
+ * TM-155. WILL A GOVERNED RUN COME UP HERE, OR WILL IT MEET A MODAL NOBODY IS WATCHING?
+ *
+ * Claude Code asks "Is this a project you created or one you trust?" the first time it opens a
+ * directory, and the highlighted answer is `❯ No, exit`. The orchestration layer handles that
+ * correctly — TM-111's guard means it never presses Enter at an attention screen — so the failure is
+ * silent by design: `lead ensure` reports "Provider is not accepting startup instructions; session
+ * preserved" and the pane sits there until a human looks at it.
+ *
+ * Measured during the EP-018 demo: in a repository Claude had never been trusted in, this stopped
+ * every governed launch. In a TRUSTED repository the agents' own subdirectories inherited that trust
+ * and came straight up — so the gate is per project root, once, not per agent directory.
+ *
+ * Reported rather than faulted, and only for the CLIs that actually ask: a repo nobody intends to
+ * orchestrate in is not broken for never having been trusted.
+ */
+async function claudeTrust(consumer, home) {
+  if (!consumer) return null;
+  const path = join(home, ".claude.json");
+  let config = null;
+  try {
+    config = JSON.parse(await readFile(path, "utf8"));
+  } catch {
+    return { known: false, trusted: null, reason: `no readable ${path}` };
+  }
+  // TRUST IS INHERITED BY SUBDIRECTORIES, and asking about the exact path only is how this check
+  // reproduced the very mistake this task exists to correct. Run live against a linked worktree of
+  // an already-trusted repository, an exact-path lookup answered "never trusted" — for a directory
+  // whose agents come straight up. So walk up: the nearest ancestor with an entry is the answer,
+  // and a trusted ancestor means no modal here.
+  const projects = config?.projects ?? {};
+  for (let dir = consumer; ; dir = dirname(dir)) {
+    const entry = projects[dir];
+    if (entry) return { known: true, trusted: entry.hasTrustDialogAccepted === true, path, matched: dir };
+    const parent = dirname(dir);
+    if (parent === dir) break;
+  }
+  return { known: false, trusted: false, path };
+}
+
 export async function doctor({ adapters, workflowDirs, skillDirs, roleDirs, providerDirs, consumer, env, home }) {
   const osInfo = await detectOs();
   const tmux = await tmuxVersion();
@@ -101,5 +143,17 @@ export async function doctor({ adapters, workflowDirs, skillDirs, roleDirs, prov
       supervision = { state: "unknown", error: error.message };
     }
   }
-  return { ok: problems.length === 0, os: osInfo, tmux: tmux ?? null, node, providers, dirs, supervision, problems };
+  // TM-155: the first-run trust gate, and the socket-path limit. Both are conditions an operator
+  // meets as a stalled pane or a raw tmux error, and both are knowable before anything is launched.
+  const trust = await claudeTrust(consumer, home);
+  if (trust && trust.trusted !== true && readyProviders.some((provider) => provider.id === "claude")) {
+    problems.push({
+      code: "CLAUDE_FOLDER_UNTRUSTED",
+      message: `Claude Code has never been trusted in ${consumer}, so the first agent session here will stop at its folder-trust question ("❯ No, exit" is the highlighted answer). Nothing types at that screen — by design — so a governed launch will refuse with no visible reason.`,
+      fix: { command: `cd ${consumer} && claude`, note: 'Answer "Yes, I trust this folder" once, then Ctrl-C. Agent subdirectories inherit it; this is a per-repository question, not a per-agent one.' },
+    });
+  }
+  const socket = socketPathProblem(env);
+  if (socket) problems.push(socket);
+  return { ok: problems.length === 0, os: osInfo, tmux: tmux ?? null, node, providers, dirs, supervision, trust, problems };
 }

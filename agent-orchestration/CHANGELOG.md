@@ -264,6 +264,25 @@
   replies sat in their outboxes. Wrong in the safe direction — it never claimed a delivery it did not
   have — but it fires `undeliveredMessages` and the `! UNDELIVERED` banner for messages that landed,
   and a signal that cries wolf stops being one. Both paths now ask the same question.
+- **Three first-run conditions an operator used to meet as a stalled pane** (TM-155, EP-018). All
+  found by running the demo four times, and all knowable before anything is launched.
+  - **`doctor` reports `CLAUDE_FOLDER_UNTRUSTED`.** Claude Code asks "Is this a project you created
+    or one you trust?" the first time it opens a directory, and the highlighted answer is
+    `❯ No, exit`. The layer handles that correctly — TM-111's guard means nothing types at an
+    attention screen — so the failure is silent by design: `lead ensure` reports "Provider is not
+    accepting startup instructions; session preserved" and the pane waits for a human. Reported with
+    the one-line remedy, and stating that the question is asked **per repository, not per agent
+    directory**: a trusted repo's agent subdirectories inherit it, which is the correction to this
+    task's original framing.
+  - **A `TMUX_TMPDIR` too long for a unix socket is named before tmux answers.** `sun_path` is 104-108
+    bytes and tmux builds `$TMUX_TMPDIR/tmux-<uid>/<name>`, so a per-session scratch directory
+    exceeds it. tmux says "File name too long", which reads like a filename problem and is not.
+  - **A prompt refusal names the key that is wrong.** `composePrompt` always returned `errors` with
+    the layer, path and note; several refusals discarded them and said only "Invalid lead prompt;
+    refusing restart." Both shapes that actually occur now say so — a template override that copied
+    the default `./prompts/lead.md` (relative to the layer that declares it, so in a repo config it
+    points at `<repo>/prompts/lead.md`), and a partial override, since a template is replaced rather
+    than merged.
 - **A readiness probe nothing woke anybody up for** (TM-157, EP-018). `reviewerProbeReady` wrote a
   nonce file and waited **one second** for the agent to notice it "at a safe boundary". That is the
   right answer for an agent mid-turn and no answer at all for an IDLE one: it sits at an empty
