@@ -7,14 +7,14 @@ board: "bytedeskai/bytedesk-marketplace"
 title: "task-management: tm task edit --title sets the title to the literal string --title"
 acceptance: [{"text":"tm task edit <id> --title \"X\" sets the title to X","done":false},{"text":"A malformed edit invocation fails loudly rather than writing a flag name into a field","done":false},{"text":"A test covers the retitle path, since both agents who hit this assumed the verb worked","done":false}]
 evidence: []
-commits: []
+commits: ["caba55b"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "2ee26155-9e57-4cf8-8bc4-a8379f88e5a4"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-10T02:23:48.062Z"
+updated: "2026-09-10T02:24:08.316Z"
 type: "bug"
 labels: ["plugin:task-management"]
 ---
