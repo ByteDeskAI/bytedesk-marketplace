@@ -1,7 +1,7 @@
 ---
 id: "TM-155"
 kind: "task"
-status: "open"
+status: "in_progress"
 created: "2026-09-10T02:17:20.899Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "agent-orchestration: a repository Claude has never trusted hits a silent first-run trust modal, and doctor does not say so"
@@ -15,7 +15,7 @@ actor: "main"
 session: "e01dd923-50ea-45d8-9911-b9d5faed94bd"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-10T02:24:08.358Z"
+updated: "2026-09-10T03:36:50.567Z"
 comments: [{"author":"main","ts":"2026-09-10T02:21:56.143Z","text":"CORRECTION, from a second demo run in a repository Claude HAS trusted (bytedesk-tmux-manager).\n\nMy original claim — that the reviewer always meets the folder-trust modal — is too strong and I am correcting it before anyone acts on it. In a TRUSTED repository the agent's own subdirectory does NOT prompt: `lead ensure` there brought the lead straight up and the census read it as `working` within seconds, no modal, no human turn. Trust is inherited by subdirectories of a trusted project root, and ~/.claude.json holds no entry for any agent directory because none is needed.\n\nSo the accurate scope is: the trust modal blocks a governed launch only in a repository Claude Code has NEVER been trusted in. bytedesk-bench was such a repository, which is why the first demo hit it. That is still worth fixing — it is a silent first-run wall in any new repo, and doctor should say so — but it is not the universal blocker I described.\n\nTHE UNIVERSAL BLOCKER IS TM-151, and the second demo is what showed it. In the trusted repo both sessions came up fine and the reviewer STILL never registered, because its ready composer renders the placeholder hint `❯ Try \"fix lint errors\"` and the shipped ready pattern does not match a hint. Measured on the live pane: shipped 0, candidate 12. Detail on TM-151 comment 2.\n\nThe two smaller findings in this task's body stand unchanged: the socket-path length error, and the repo-config template override needing a whole template with an absolute prompt path."},{"author":"main","ts":"2026-09-10T02:23:36.525Z","text":"Title repaired by the integrator. The store had recorded it literally as \"--title\" — the retitle attempt passed the flag through as the value, which is a CLI defect worth knowing about: `tm task edit <id> --title \"...\"` does not retitle, it sets the title to the flag name. I hit the same wall on TM-152 and edited the frontmatter directly instead. Neither of us should be hand-editing task markdown to rename a task; that is worth its own entry if it recurs.\n\nThe scope correction stands and is the right call — retitled to match it. The trust modal blocks only a repository Claude Code has never been trusted in, not every governed launch. Trust is inherited by subdirectories of a trusted root, which is why an agent directory under a trusted project needs no entry in ~/.claude.json and prompts for nothing.\n\nCorrecting a claim downward before anyone acts on it is worth more than the original report was. The first demo genuinely hit the modal; the difference was the repository, not the code, and that is exactly the kind of distinction that would have sent someone chasing a bug in the launcher.\n\nPriority set to medium: a silent first-run wall in a fresh repo is real and doctor should name it, but it is not the universal blocker. TM-151 is, and it is now highest."}]
 priority: "medium"
 ---

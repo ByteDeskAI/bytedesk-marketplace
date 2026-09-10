@@ -1,13 +1,13 @@
 ---
 id: "TM-153"
 kind: "task"
-status: "in_progress"
+status: "blocked"
 created: "2026-09-10T02:10:53.601Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "task-management: test-pool.sh fails in every real checkout and passes only in a detached copy"
 epic: "EP-018"
-acceptance: [{"text":"The launch failure's stderr and argv reach the skip reason, or the log, so the cause is visible rather than an exit code with an empty string after it.","done":false},{"text":"The root cause of 'ao-topology launch exited 1' in a real checkout is established and named.","done":false},{"text":"test-pool.sh gives the same verdict in the canonical checkout, in a linked worktree and in a detached copy — or the difference is documented at the test as deliberate, with what each location exercises.","done":false}]
-evidence: []
+acceptance: [{"text":"The launch failure's stderr and argv reach the skip reason, or the log, so the cause is visible rather than an exit code with an empty string after it.","done":true,"at":"2026-09-10T03:36:29.865Z"},{"text":"The root cause of 'ao-topology launch exited 1' in a real checkout is established and named.","done":true,"at":"2026-09-10T03:36:30.021Z"},{"text":"test-pool.sh gives the same verdict in the canonical checkout, in a linked worktree and in a detached copy — or the difference is documented at the test as deliberate, with what each location exercises.","done":true,"at":"2026-09-10T03:36:30.156Z"}]
+evidence: [".bytedesk/task-management/evidence/TM-153-HANDOFF.md"]
 commits: ["ffa3355","113e2d7","578498b"]
 blockedBy: []
 blocks: []
@@ -15,7 +15,9 @@ actor: "main"
 session: "e01dd923-50ea-45d8-9911-b9d5faed94bd"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-10T03:30:45.245Z"
+updated: "2026-09-10T03:36:30.440Z"
+evidenceSources: {".bytedesk/task-management/evidence/TM-153-HANDOFF.md":{"source":"/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-153-pool/.bytedesk/task-management/evidence/TM-153-HANDOFF.md","sha256":"db57eb3ddc33fdcbac73f56536da7947e1805c55124957be083f2c2d1664f386","bytes":3339,"at":"2026-09-10T03:36:30.302Z"}}
+blockedReason: "Code complete and gated; blocked on the integrator's merge only. Branch tm/TM-153-pool-launch off main@e38a2ba, code commit 554c975. TWO defects. (1) ao-topology --json reports refusals as {ok:false,code,message} on STDOUT with exit 1 and stderr EMPTY, and all three dispatch backends built their reason from stderr alone — the board recorded 'ao-topology launch exited 1:', an exit code and a colon. toolFailureReason reads the structured answer first; the same run now names TOPOLOGY_STARTUP_NOT_READY and its message. Applied to topology.mjs, idle.mjs and collect.mjs, which all had the same line. (2) TM_DISPATCH_REGISTRY never participated in backend selection: resolveBackend walked the configured order and a registry could only SUBSTITUTE a module for a name already in it, so a registry naming a backend 'fake' was never consulted — despite existing, per its own doc comment, to exercise dispatch without spawning a worker. The verdict therefore depended on whether a real ao-topology existed on the host. Registry names absent from the order now go first; an overridden name keeps its place. VERIFIED IN THREE LOCATIONS: 19/19 linked worktree, 19/19 detached copy, 17/2 in the UNPATCHED canonical checkout as the control. Gates: unit 1370/1370 and every bash suite clean INCLUDING test-pool 19/0 — the first time this session that suite has been green in a real checkout."
 ---
 
 `tests/test-pool.sh` reports 17 passed / 2 failed in the canonical checkout AND in linked worktrees, and 19 passed / 0 failed in a tar or `git archive` extract of the same tree. Measured four ways: canonical checkout FAIL 2, .bytedesk/worktrees/TM-143-refusal (no TM-146 changes) FAIL 2, git archive of main PASS 19, tar of the TM-146 working tree PASS 19. So it is neither a revision difference nor TM-146's: it is the same shape as TM-152, a test whose result depends on where it runs.
