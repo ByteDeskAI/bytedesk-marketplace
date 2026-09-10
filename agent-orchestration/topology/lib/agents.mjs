@@ -150,7 +150,7 @@ export async function createAgent(consumer, spec = {}, dirs = null, context = {}
     // Template provenance: which named template this instance was minted from. The instance gets
     // a fresh identity regardless — the template shapes it, it never shares one.
     template: spec.template || null,
-    coordinates_only: role === "lead" ? spec.coordinates_only !== false : spec.coordinates_only === true,
+    coordinates_only: ['lead', 'observer'].includes(role) ? spec.coordinates_only !== false : spec.coordinates_only === true,
     reports_to: spec.reports_to ?? null,
     cli: spec.cli || "claude",
     candidates: spec.candidates,

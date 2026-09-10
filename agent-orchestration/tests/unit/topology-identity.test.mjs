@@ -26,7 +26,7 @@ test("ids and names are minted independently; a name collision never moves an ad
 });
 
 test("every built-in role including lead has a title, and people never see an id", () => {
-  for (const role of ["lead", "orchestrator", "worker", "designer", "judge", "reviewer", "researcher", "implementer"]) {
+  for (const role of ["lead", "orchestrator", "worker", "designer", "judge", "reviewer", "researcher", "implementer", "observer"]) {
     assert.ok(titleForRole(role).length > 0, `${role} needs a title`);
   }
   const agent = { id: "deadbeef", first_name: "Mira", last_name: "Thorne", full_name: "Mira Thorne", title: "Staff Reviewer" };
@@ -64,9 +64,11 @@ test("a repo takes exactly one lead, and agents resolve by id or by name", async
   try {
     const lead = await createAgent(dir, { role: "lead" });
     const rev = await createAgent(dir, { role: "reviewer", reports_to: lead.id });
+    const observer = await createAgent(dir, { role: "observer", reports_to: lead.id });
     const dirs = [agentsRoot(dir)];
 
-    assert.equal((await listAgents(dirs)).length, 2);
+    assert.equal((await listAgents(dirs)).length, 3);
+    assert.equal(observer.coordinates_only, true, "observers are read-only coordinators by construction");
     assert.equal((await findLead(dirs)).id, lead.id);
     assert.equal((await resolveAgentRef(rev.id, dirs)).id, rev.id, "resolves by id");
     assert.equal((await resolveAgentRef(rev.full_name, dirs)).id, rev.id, "resolves by name");

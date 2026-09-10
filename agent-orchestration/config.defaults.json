@@ -15,7 +15,6 @@
     "observer-default": {
       "role": "observer",
       "cli": "codex",
-      "coordinates_only": true,
       "prompt": "./roles/observer.md"
     }
   },
