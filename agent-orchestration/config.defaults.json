@@ -17,6 +17,10 @@
     "common": "./prompts/common.md",
     "roles": {}
   },
+  "failover": {
+    "consent": "ask",
+    "_why": "ask | auto | never, and JSON has no comments, so this key IS the comment. ask (the default) rings the repository lead with the approval command and is THE ONE UNAVOIDABLE HUMAN TURN in the whole design: nothing takes an agent's pane over until a person authorises it, which is exactly what happened the day this feature was written. auto APPLIES AND ANNOUNCES. That is not a loophole in the operator's no-silent-substitution rule and it should not be re-litigated: the rule forbids SILENT substitution, not substitution, and somebody who writes auto here has consented in advance, in writing, in config -- so the announcement to the lead is what keeps it non-silent, and it is sent every time. never refuses every INCIDENT-AUTHORISED takeover: `failover --incident <id>` is refused outright. It does NOT gate a bare `failover --run ... --agent ...` with no incident, and that is deliberate rather than an oversight -- consent is consulted only when an incident is supplied, because an operator typing the command at a keyboard IS the human turn this gate exists to demand, and a repository whose provider is genuinely dead must not have to edit config before it can recover. DETECTION IS UNAFFECTED BY THIS SETTING: the supervise tick records the incident under all three values, because an observation nobody acts on is still worth having."
+  },
   "management": {
     "auto_merge": true,
     "require_reviewer": true,

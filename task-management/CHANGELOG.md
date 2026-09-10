@@ -18,6 +18,28 @@
   still hold these; they are safe to delete by hand.
 
 ### Added
+- **Idle dispatch (TM-135, EP-018).** A new backend, `lib/dispatch/idle.mjs`, plus one pool
+  preference — deliberately NOT a second scheduler. Instead of launching a worker it asks the
+  topology layer to bind the task to an agent that is ALREADY running, which costs a file write
+  rather than a provider start-up. Zero edits to `lib/dispatch/index.mjs`: a backend is called
+  after the claim and after provisioning, so every ordering invariant holds for free and a refusal
+  rolls back through the existing path that never releases a pre-existing claim.
+  - **`dispatch.preferIdle`** puts `idle` at the front of the backend order. A preference, not a
+    mode: `idle` refuses when nothing is free and the walk falls straight through to `topology`,
+    with the tick's WIP accounting and `touches` collision set untouched.
+  - **`collectIdle` joins the routing table, and its completion signal is the standing-mailbox
+    REPLY, not session death** — the standing session outlives the task, which is the whole point,
+    so a `has-session` probe would report pending forever. It routes through the unmodified
+    `recordResult`, so the downgrade rule ("done" for a task the store does not show done is a
+    failure that says so) and the park-never-strand rule apply byte-identically. A terminal result
+    releases the assignment, and does so even when `recordResult` refuses the outcome: leaving a
+    standing agent bound because a comment could not be written would cost the repository a worker.
+  - **CAP-0002 gets better by one deliberate line.** The handoff carries a real `TM_SESSION_ID` —
+    the dispatching session, which is the one holding the claim — and `spawn()` asserts the session
+    is non-null before it writes anything, so this path can only ever produce an owned claim and
+    adds zero new null-session claims. CAP-0002's body is now written up.
+  - The worktree is still provisioned by tm. One task, one checkout, unchanged.
+
 - **The goal planner (EP-013).** A conversational surface at `/planner` where an operator states a
   goal in prose and an agent proposes board operations, which land only when the operator approves
   them. The agent talks ACP over stdio (`lib/planner-acp.mjs`); its stream is translated to typed

@@ -166,7 +166,16 @@ worktree>`, so a task gets exactly one checkout — the one tm provisioned. `orc
 kept but demoted, because its runtime derives a second, detached worktree by invariant; ask
 for it explicitly when a dispatch needs the sandbox. `manual` is the floor and never unavailable —
 when no launcher exists, dispatch still succeeds at handing the work over; it hands it to
-*you*, as the commands to run. Every backend launches argv-only with `shell: false` — the
+*you*, as the commands to run.
+
+**`idle` is the backend that starts nothing.** It is not in the default order — set
+`dispatch.preferIdle: true` (or `--backend idle`) — and instead of launching a worker it asks the
+topology layer for an agent that is already running and binds this task to it. A standing agent
+has a warm provider, a loaded identity and a startup cost somebody already paid, so dispatching
+into one costs a file write. The worktree is still provisioned by tm: one task, one checkout,
+unchanged. What IS different is collection — the standing session outlives the task, so
+`tm collect` reads the agent's mailbox REPLY rather than watching for a dead session, and a
+terminal reply frees the agent for the next task. Every backend launches argv-only with `shell: false` — the
 prompt is arbitrary markdown and is never interpolated into a shell string — and the tmux
 and topology backends also drop the durable copy at `.tm-dispatch-prompt.md` in the worktree,
 because an argv element vanishes with the process. That file (and every share) is excluded in
@@ -1136,6 +1145,7 @@ against is [`docs/dashboard-contract.md`](docs/dashboard-contract.md).
 | `dispatch.topologyCandidates` | `"claude"` | provider chain for a topology dispatch in a repo with no agent library |
 | `dispatch.heartbeatSeconds` | `60` | how often a dispatched claim is re-stamped (`0` disables) |
 | `dispatch.enabled` / `dispatch.poolWip` / `dispatch.pollSeconds` | `false` / `3` / `30` | the worker pool: opt-in switch, WIP cap, poll interval |
+| `dispatch.preferIdle` | `false` | put the `idle` backend at the front of the order: hand a ready task to an agent that is ALREADY running before paying to start one. A preference, not a mode — `idle` refuses when nothing is free and the walk falls through to the next backend |
 | `dispatch.backendCaps` | `{}` | per-backend concurrency ceilings on top of poolWip, e.g. `{"tmux": 2}` |
 
 ## Tests

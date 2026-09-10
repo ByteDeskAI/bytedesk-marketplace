@@ -23,6 +23,10 @@ import { paths } from "../paths.mjs";
 /**
  * The fallback order when config `dispatch.backends` does not say otherwise.
  *
+ * `idle` is NOT in this list. It is opt-in through `dispatch.preferIdle` (or `--backend idle`),
+ * because "hand this to whoever is already up" is a policy about a repository's agents, not a
+ * property of a host, and `available()` cannot tell the difference.
+ *
  * ADR-0001 (agent-orchestration/docs/adr/0001-authoritative-orchestration-layer.md)
  * settles this list: `topology` is the authoritative layer for dispatched work —
  * it reuses tm's worktree, so one task means one checkout. Raw `tmux` sits beneath
@@ -35,6 +39,7 @@ export const DEFAULT_ORDER = ["topology", "tmux", "orchestration", "manual"];
 
 /** Registry: name → module specifier, imported on first use. */
 const MODULES = {
+  idle: "./idle.mjs",
   topology: "./topology.mjs",
   orchestration: "./orchestration.mjs",
   tmux: "./tmux.mjs",
@@ -69,10 +74,21 @@ export async function loadBackend(name) {
   }
 }
 
-/** Configured backend order, or the default. An empty list is a mistake, not a choice. */
+/**
+ * Configured backend order, or the default. An empty list is a mistake, not a choice.
+ *
+ * `dispatch.preferIdle` moves `idle` to the front — hand ready work to an agent that is already
+ * running before paying to start a new one. Deliberately a PREFERENCE and not a mode: `idle`
+ * refuses when nothing is free, the walk falls straight through to `topology`, and the tick's WIP
+ * accounting, `touches` collision set and claim interlock are all untouched. That is what makes
+ * this one predicate rather than a second scheduler.
+ */
 export function backendOrder(p = paths()) {
-  const configured = config(p).dispatch?.backends;
-  return Array.isArray(configured) && configured.length ? configured : DEFAULT_ORDER;
+  const dispatch = config(p).dispatch ?? {};
+  const configured = dispatch.backends;
+  const base = Array.isArray(configured) && configured.length ? configured : DEFAULT_ORDER;
+  if (dispatch.preferIdle !== true) return base;
+  return ["idle", ...base.filter((name) => name !== "idle")];
 }
 
 /**
