@@ -7,14 +7,14 @@ board: "bytedeskai/bytedesk-marketplace"
 title: "task-management: tm edit takes the title positionally, so --title is written into the field"
 acceptance: [{"text":"tm task edit <id> --title \"X\" sets the title to X","done":true,"at":"2026-09-10T03:25:20.451Z"},{"text":"A malformed edit invocation fails loudly rather than writing a flag name into a field","done":true,"at":"2026-09-10T03:25:20.594Z"},{"text":"A test covers the retitle path, since both agents who hit this assumed the verb worked","done":true,"at":"2026-09-10T03:25:20.732Z"}]
 evidence: [".bytedesk/task-management/evidence/TM-156-HANDOFF.md"]
-commits: ["ed3fc5d","87bbb04","3c15cb7"]
+commits: ["ed3fc5d","87bbb04","3c15cb7","d386660"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "e01dd923-50ea-45d8-9911-b9d5faed94bd"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-10T03:25:20.877Z"
+updated: "2026-09-10T03:25:32.471Z"
 type: "bug"
 labels: ["plugin:task-management"]
 evidenceSources: {".bytedesk/task-management/evidence/TM-156-HANDOFF.md":{"source":"/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-156-title/.bytedesk/task-management/evidence/TM-156-HANDOFF.md","sha256":"750f618b54dad439211f9f91c7e206678165ddba5ceb53090bda932d585048a2","bytes":3259,"at":"2026-09-10T03:22:43.927Z"}}

@@ -1,7 +1,7 @@
 ---
 id: "TM-159"
 kind: "task"
-status: "open"
+status: "in_progress"
 created: "2026-09-10T03:23:12.482Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "task-management: a heredoc commit message floods the command string, defeating the subject-only guard"
@@ -11,10 +11,10 @@ commits: []
 blockedBy: []
 blocks: []
 actor: "main"
-session: "2ee26155-9e57-4cf8-8bc4-a8379f88e5a4"
+session: "e01dd923-50ea-45d8-9911-b9d5faed94bd"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-10T03:23:18.334Z"
+updated: "2026-09-10T03:26:55.372Z"
 type: "bug"
 priority: "high"
 ---
