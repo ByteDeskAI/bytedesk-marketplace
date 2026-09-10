@@ -1,21 +1,24 @@
 ---
 id: "TM-143"
 kind: "task"
-status: "in_progress"
+status: "blocked"
 created: "2026-09-09T23:42:47.937Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "agent-orchestration: a per-recipient refusal mid-loop persists the envelope and can partially deliver"
 epic: "EP-018"
-acceptance: [{"text":"A send that is refused for one recipient does not leave that message delivered to any other recipient — either no inbox file is written, or every write is undone, and the chosen mechanism is argued rather than assumed.","done":false},{"text":"The run record does not claim a message that was never delivered to anyone, matching the invariant TM-142 established for broadcast refusals.","done":false},{"text":"A test drives a mid-loop refusal with several recipients ahead of the refused one and asserts on the resulting filesystem, not on the error.","done":false}]
-evidence: []
-commits: []
+acceptance: [{"text":"A send that is refused for one recipient does not leave that message delivered to any other recipient — either no inbox file is written, or every write is undone, and the chosen mechanism is argued rather than assumed.","done":true,"at":"2026-09-10T02:05:43.971Z"},{"text":"The run record does not claim a message that was never delivered to anyone, matching the invariant TM-142 established for broadcast refusals.","done":true,"at":"2026-09-10T02:05:44.084Z"},{"text":"A test drives a mid-loop refusal with several recipients ahead of the refused one and asserts on the resulting filesystem, not on the error.","done":true,"at":"2026-09-10T02:05:44.190Z"}]
+evidence: [".bytedesk/task-management/evidence/TM-143-TM-143-HANDOFF-TO-INTEGRATOR.md"]
+commits: ["9c765c3","f57062a"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "e01dd923-50ea-45d8-9911-b9d5faed94bd"
 branch: "tm/TM-143-per-recipient-refusal"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-143-refusal"
-updated: "2026-09-10T01:55:38.658Z"
+updated: "2026-09-10T02:05:44.324Z"
+comments: [{"author":"main","ts":"2026-09-10T02:02:18.177Z","text":"MECHANISM AND ITS ONE RESIDUAL, recorded on the task so the next reader does not rediscover it.\n\nFix: sendMessage admits every LOCAL recipient in one pass above nextSequence. The router is consulted once per recipient and TOPOLOGY_ROUTE_BLOCKED, ROUTE_NO_LEAD, ROUTE_LOOP, UNKNOWN_AGENT and COORDINATOR_NOT_A_WORKER are raised there, where a refusal consumes no sequence number, writes no envelope and writes no inbox file. The write pass reuses the admitted decision rather than re-calling the router, so a policy that changes in between cannot admit one pass and refuse the other. The five refusals live in one assertRoutable helper, called by the admission pass and re-asserted against the roster nextSequence returned.\n\nPrevention, not rollback, and the argument is TM-142's one level down: a sequence number cannot be handed back, and unwinding inbox files has the same shape of problem — the unlink races a pointer delivery that may already have woken the recipient, and a message an agent has begun reading cannot be made not to have been read.\n\nRESIDUAL: the standing/external path is deliberately NOT pre-flighted, because its delivery IS its admission — sendStandingMessage runs canonical routing itself and reports a refusal as a HOLD rather than a throw, so it cannot partially deliver on a routing refusal. Exactly one case remains where a refusal can still follow a delivery: an assignment that the standing router redirected onto a LOCAL coordinates_only agent. A standing delivery cannot be unwound (the record is durable and the pointer may already have been rung), so it throws with the delivery recorded rather than pretending it did not occur. Documented at the branch as well as here."}]
+blockedReason: "Code complete, gated and handed to the integrator. Branch tm/TM-143-per-recipient-refusal rebased onto main@9c765c3, code commit 11976f4, evidence b8262f4. Gates on the rebased revision: 504/500/0/4 agent-orchestration unit (main's 499 plus this branch's 5, additive), 6 contract (1 skipped), roadmap OK, both frozen presence validators unmodified and passing, 1364/1364 task-management, operator tmux sessions 5 before and after. The three trap tests fail against unmodified main and pass with the fix. build:check is NOT reported as a gate result here: it fails in a linked worktree and passes in the canonical checkout at the same revision (TM-152). Blocked on the integrator's merge only."
+evidenceSources: {".bytedesk/task-management/evidence/TM-143-TM-143-HANDOFF-TO-INTEGRATOR.md":{"source":"/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-143-refusal/.bytedesk/task-management/evidence/TM-143-HANDOFF-TO-INTEGRATOR.md","sha256":"89d8cea8c78a7ef4bd8f7ab0cee7389fc3689294ceabba47a652dc83c1e480fa","bytes":6521,"at":"2026-09-10T02:05:44.320Z"}}
 ---
 
 Scoped out of TM-142 deliberately by its worker, and worth its own task rather than being folded in. TM-142 fixed the BROADCAST refusals (TOPOLOGY_BROADCAST_TOO_WIDE, TOPOLOGY_BROADCAST_EXTERNAL) by resolving addresses before allocating the sequence, so a refused broadcast now leaves run.json byte-identical. But refusals raised INSIDE the per-recipient loop — TOPOLOGY_ROUTE_BLOCKED, TOPOLOGY_UNKNOWN_AGENT, TOPOLOGY_COORDINATOR_NOT_A_WORKER — still throw with the envelope already persisted, and can now throw AFTER some recipients have already had an inbox file written. That is a partial-delivery problem rather than a wasted-envelope one: the sender sees an error, some agents have the message, and the run record says a message exists. It needs a different mechanism from TM-142's reordering — either resolve every recipient's admission before writing any inbox file, or make the per-recipient writes recoverable as a set.
