@@ -25,6 +25,7 @@
  *      failures come back as `{ ok: false, reason }`.
  */
 import { spawnSync } from "node:child_process";
+import { toolFailureReason } from "./backend.mjs";
 import { releaseClaim } from "../claims.mjs";
 import { addComment } from "../issue.mjs";
 import { detectHostCaps } from "../hostcaps.mjs";
@@ -279,7 +280,7 @@ export function collectIdle(id, { caps = null, p = paths(), spawnImpl = spawnSyn
     const res = ask(["manage", "assignment", "--task", id, "--consumer", consumer]);
     if (res?.error) return { ok: false, reason: `ao-topology failed to start: ${res.error.message}` };
     if (res?.status !== 0) {
-      return { ok: false, reason: `ao-topology manage assignment exited ${res?.status ?? "?"}: ${String(res?.stderr || "").trim()}` };
+      return { ok: false, reason: toolFailureReason("ao-topology manage assignment", res) };
     }
     let record;
     try {

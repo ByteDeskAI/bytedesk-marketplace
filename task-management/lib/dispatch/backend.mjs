@@ -35,6 +35,38 @@ import { paths } from "../paths.mjs";
  * choice for untrusted autonomous writes: it derives its own detached worktree by
  * invariant, so it costs a second checkout per task. `manual` never disappears.
  */
+/**
+ * Why did an `ao-topology` call fail? TM-153.
+ *
+ * Every one of these backends built its failure reason out of STDERR alone, and `ao-topology --json`
+ * puts its refusals on STDOUT as `{ ok: false, code, message }` with stderr EMPTY. So a real refusal
+ * — "this repository has no responsive lead", "no workflow named X" — reached the board as:
+ *
+ *     ao-topology launch exited 1:
+ *
+ * An exit code, a colon, and nothing. `test-pool.sh` reported that failure for however long it has
+ * been failing, and it is why nobody could tell whether the pool was broken or the environment was.
+ *
+ * Reads the structured answer first, falls back to the raw text, and never returns an empty tail.
+ */
+export function toolFailureReason(what, res) {
+  const status = res?.status ?? "?";
+  const stderr = String(res?.stderr || "").trim();
+  const stdout = String(res?.stdout || "").trim();
+  const structured = (() => {
+    if (!stdout.startsWith("{")) return null;
+    try {
+      const parsed = JSON.parse(stdout);
+      if (!parsed || parsed.ok !== false) return null;
+      return [parsed.code, parsed.message].filter(Boolean).join(": ") || null;
+    } catch {
+      return null;
+    }
+  })();
+  const detail = structured || stderr || stdout || "no output on either stream";
+  return `${what} exited ${status}: ${detail}`;
+}
+
 export const DEFAULT_ORDER = ["topology", "tmux", "orchestration", "manual"];
 
 /** Registry: name → module specifier, imported on first use. */
@@ -121,7 +153,23 @@ export async function envRegistry(env = process.env) {
  */
 export async function resolveBackend({ requested = null, caps = null, registry = null, p = paths() } = {}) {
   const capsNow = caps ?? (await loadCaps());
-  const names = requested ? [requested] : backendOrder(p);
+  // TM-153. A SUPPLIED REGISTRY IS AUTHORITATIVE, and until now it was decorative. The walk was
+  // over `backendOrder(p)` alone, and a registry could only SUBSTITUTE a module for a name already
+  // in that list — so `TM_DISPATCH_REGISTRY` naming a backend called `fake` was never consulted at
+  // all. Its own doc comment says it exists "so dispatch can be exercised end to end without
+  // spawning a worker", and it could not do that.
+  //
+  // The consequence was a test that answered differently depending on the machine: with a real
+  // `ao-topology` on the host, `topology` won and refused (no repository lead); in a detached copy
+  // it was unavailable, the walk fell through to a backend that succeeds, and the suite passed.
+  // `test-pool.sh` has been red in every real checkout and green in every archive extract for
+  // exactly this reason — a gate that reports the host rather than the code.
+  //
+  // Registry names that are not already in the order go FIRST. Names that are keep their place, so
+  // a registry that overrides `topology` still overrides it rather than jumping the queue.
+  const configured = backendOrder(p);
+  const extra = registry ? Object.keys(registry).filter((name) => !configured.includes(name)) : [];
+  const names = requested ? [requested] : [...extra, ...configured];
   const tried = [];
   for (const name of names) {
     const mod = registry && name in registry ? registry[name] : await loadBackend(name);
