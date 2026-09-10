@@ -2105,12 +2105,6 @@ function linkGit(input) {
   const mentioned = cmd.match(/\bTM-\d+\b/g) || [];
   // Branch first: `tm/TM-014-…` is unambiguous and needs no discipline in the message.
   const fromBranch = (git(["rev-parse", "--abbrev-ref", "HEAD"]).match(/\bTM-\d+\b/) || [])[0];
-  const targets = mentioned.length
-    ? [...new Set(mentioned)]
-    : fromBranch
-      ? [fromBranch]
-      : list("task", { status: "in_progress" }, P).map((t) => t.id);
-  if (!targets.length) return;
 
   /**
    * The ref comes from the command that ran; the tasks come from the store `tm` resolved. Those are
@@ -2139,10 +2133,43 @@ function linkGit(input) {
   const ref = isPR ? url : git(["rev-parse", "--short", "HEAD"]);
   if (!ref) return;
 
+  // TM-146: the repo guard runs BEFORE attribution deliberately. Whether a ref belongs to this
+  // board is a fact about the ref; which task it names is a separate question, and answering them
+  // in this order keeps `git_link_skipped` meaning "wrong repo" rather than collapsing into
+  // "nothing to attach".
   const mine = storeBoard(P);
   const from = isPR ? prBoard(url) : boardId(commandCheckout(cmd) || CHECKOUT);
   if (from && mine && from !== mine) {
     logEvent("git_link_skipped", { from, board: mine, ref, reason: "ref came from another repo" }, P);
+    return;
+  }
+
+  //
+  // TM-146. THERE IS NO FALLBACK TO THE ACTIVE CLAIM, and its absence is the fix.
+  //
+  // This used to end `: list("task", { status: "in_progress" }, P).map((t) => t.id)`, so any commit
+  // made while a task held the claim was recorded against it whatever it touched. TM-140 and
+  // TM-141 both collected `59ca483` (TM-142's merge) and `04d26a6` (a rules commit); the commit
+  // that actually carried their fix, `14b3ecd`, was not among them. Five of the integrator's board
+  // commits landed on TM-135's refs the same way.
+  //
+  // A claim is a statement about WHO IS WORKING. A ref is a statement about WHAT CHANGED. The
+  // first is far too weak to imply the second, and the failure is silent and cumulative: nobody
+  // reads a task's `commits` list until they are reconciling drift, by which time the wrong refs
+  // look exactly like the right ones.
+  //
+  // The two surviving signals both name the task explicitly — a `TM-nnn` in the command, or a
+  // `tm/<ID>-` branch. The branch path already behaved this way and is the sibling this copies.
+  // A commit that names neither now attaches NOTHING, and says so in the log rather than guessing.
+  //
+  // This governs `gh pr create` as well as `git commit`, because the argument does not weaken for
+  // pull requests: a PR opened while a claim is held is no more evidence about that task's content
+  // than a commit is. TM-146's criteria name commits; widening to the shared expression is
+  // deliberate, and stated here so the next reader knows it was a decision and not an oversight.
+  const targets = mentioned.length ? [...new Set(mentioned)] : fromBranch ? [fromBranch] : [];
+  if (!targets.length) {
+    logEvent("git_link_unattributed", { branch: git(["rev-parse", "--abbrev-ref", "HEAD"]) || null,
+      reason: "the command named no task and the branch carries none; a claim alone is not evidence about a ref" }, P);
     return;
   }
   for (const id of targets) {

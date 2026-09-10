@@ -3,6 +3,24 @@
 ## Unreleased
 
 ### Fixed
+- **A claim no longer attaches a ref to a task** (TM-146). `linkGit`'s commit path fell back to
+  whatever task held the claim when the message named no task, so any commit made while a task was
+  in progress was recorded against it regardless of what it touched. TM-140 and TM-141 each
+  collected `59ca483` (TM-142's merge) and `04d26a6` (a rules commit) this way, while `14b3ecd` —
+  the commit that actually carried their fix — was absent; five board commits landed on TM-135's
+  refs the same way during its merge. A claim is a statement about *who is working*; a ref is a
+  statement about *what changed*, and the first is far too weak to imply the second. The failure is
+  silent and cumulative: nobody reads a task's `commits` list until they are reconciling drift, by
+  which point the wrong refs look exactly like the right ones.
+  - Only the two explicit signals attach now — a `TM-nnn` in the command, or a `tm/<ID>-` branch,
+    which is the sibling path that already behaved this way. A commit that names neither attaches
+    nothing and records `git_link_unattributed` rather than guessing.
+  - **This governs `gh pr create` as well as `git commit`**, because the argument does not weaken
+    for pull requests. TM-146's criteria name commits; widening to the shared expression is
+    deliberate and is stated in the code so it reads as a decision rather than an oversight.
+  - The cross-repo guard now runs *before* attribution. Whether a ref belongs to this board is a
+    fact about the ref; which task it names is a separate question, and this order keeps
+    `git_link_skipped` meaning "wrong repo" instead of collapsing into "nothing to attach".
 - **A pull request is attributed to the repo it landed in, not the directory `tm` resolved** (TM-144).
   `linkGit` checked `boardId(CHECKOUT)` — the store's own project dir — against the board, so a
   `gh pr create` that retargeted another repo without moving the process (`--repo`, `git -C`, a
