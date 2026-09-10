@@ -10,7 +10,7 @@
 // and the agent had no entry at all. See PRESENCE-HEADER-ADDENDUM.md §7.
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -87,4 +87,47 @@ test("a run agent whose library role is outside the frozen vocabulary appears, m
   // The whole point: the extended snapshot is still a valid v1 snapshot.
   await python([join(frozen, "validate_presence.py"), join(env.AGENT_ORCHESTRATION_STATE_HOME, "presence",
     `${snapshot.repositoryKey}.json`)]);
+});
+
+// ── D1: an activity reading must say when it was CONFIRMED ───────────────────
+// The gateway countersigned the addendum conditionally, and this is the condition. `since` says
+// when a state was entered, not when it was last confirmed — and presence and the census run on
+// deliberately different clocks (census stale bound 45s, capture budget 8, presence republished
+// every ~10s). So a snapshot fresh by every rule the contract enforces could carry an activity
+// block up to 45s old, and "confirmed a second ago" and "last confirmed four minutes ago" render
+// identically. One of them is a lie.
+//
+// The frozen validator CANNOT check this — it has no key whitelist and no knowledge of `activity` —
+// so it is producer discipline, and this is the gate that keeps it honest.
+test("every activity block in the header fixtures carries observedAt", async () => {
+  const dir = new URL("../../topology/fixtures/presence-v1-header/", import.meta.url);
+  const names = (await readdir(dir)).filter((name) => name.endsWith(".json"));
+  assert.ok(names.length >= 2, "the fixture set must not be empty, or this test proves nothing");
+
+  let checked = 0;
+  for (const name of names) {
+    const snapshot = JSON.parse(await readFile(new URL(name, dir), "utf8"));
+    for (const agent of snapshot.agents ?? []) {
+      const activity = agent.activity;
+      if (!activity) continue;
+      checked += 1;
+      assert.ok(activity.observedAt, `${name} ${agent.agentId}: activity without observedAt is advisory-only to the gateway`);
+      assert.match(activity.observedAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/, `${name} ${agent.agentId}: RFC3339 Z, like every other timestamp on the wire`);
+      assert.ok(activity.observedAt >= activity.since, `${name} ${agent.agentId}: a state cannot be confirmed before it was entered`);
+      if (snapshot.generatedAt) {
+        assert.ok(activity.observedAt <= snapshot.generatedAt, `${name} ${agent.agentId}: the census confirms BEFORE presence publishes, never after`);
+      }
+    }
+  }
+  assert.ok(checked >= 5, `only ${checked} activity blocks were checked; the fixtures should cover more than that`);
+});
+
+test("a live reading is confirmed strictly before the snapshot was generated", async () => {
+  // The point of the field is that the two clocks are NOT the same. A fixture where every
+  // observedAt equalled generatedAt would assert exactly the coupling D1 says does not exist, and
+  // would pass the test above while teaching a consumer the wrong thing.
+  const full = JSON.parse(await readFile(new URL("../../topology/fixtures/presence-v1-header/h01-header-full.json", import.meta.url), "utf8"));
+  const live = (full.agents ?? []).filter((agent) => agent.activity?.observed === true);
+  assert.ok(live.some((agent) => agent.activity.observedAt < full.generatedAt),
+    "at least one live reading must show the census lag the field exists to express");
 });

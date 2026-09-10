@@ -45,6 +45,7 @@
       "activity": {
         "state": "idle",
         "since": "2026-09-09T21:12:55.100Z",
+        "observedAt": "2026-09-09T21:13:56.900Z",
         "observed": true
       },
       "mailboxDepth": {
@@ -89,6 +90,7 @@
       "activity": {
         "state": "needs-input",
         "since": "2026-09-09T21:13:41.700Z",
+        "observedAt": "2026-09-09T21:13:56.900Z",
         "observed": true
       },
       "mailboxDepth": {
@@ -139,6 +141,7 @@
       "activity": {
         "state": "working",
         "since": "2026-09-09T21:09:02.000Z",
+        "observedAt": "2026-09-09T21:13:56.900Z",
         "observed": true
       },
       "mailboxDepth": {
@@ -191,6 +194,7 @@
       "activity": {
         "state": "quota-blocked",
         "since": "2026-09-09T21:11:20.000Z",
+        "observedAt": "2026-09-09T21:13:56.900Z",
         "observed": true
       },
       "mailboxDepth": {
@@ -235,6 +239,7 @@
       "activity": {
         "state": "attention",
         "since": "2026-09-09T21:13:58.000Z",
+        "observedAt": "2026-09-09T21:13:58.000Z",
         "observed": true
       },
       "mailboxDepth": {

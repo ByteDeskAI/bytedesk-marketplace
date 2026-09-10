@@ -70,6 +70,7 @@
       "activity": {
         "state": "dead",
         "since": "2026-09-09T21:02:11.000Z",
+        "observedAt": "2026-09-09T21:02:11.000Z",
         "observed": false
       },
       "roleName": "reviewer"
@@ -111,6 +112,7 @@
       "activity": {
         "state": "unknown",
         "since": "2026-09-09T21:13:02.000Z",
+        "observedAt": "2026-09-09T21:14:07.200Z",
         "observed": true
       },
       "mailboxDepth": {
@@ -161,6 +163,7 @@
       "activity": {
         "state": "working",
         "since": "2026-09-09T21:10:44.000Z",
+        "observedAt": "2026-09-09T21:14:07.200Z",
         "observed": true
       },
       "mailboxDepth": {

@@ -75,11 +75,39 @@ the mailbox was read and was empty, and no `mailboxDepth` key says it was not re
 
 ```jsonc
 "activity": {
-  "state": "working",                    // required within the object
-  "since": "2026-09-09T06:58:12.400Z",   // RFC3339 Z, when the state was entered
-  "observed": true                       // false = carried-forward tombstone, not a live reading
+  "state": "working",                       // required within the object
+  "since":      "2026-09-09T06:58:12.400Z", // RFC3339 Z, when the state was ENTERED
+  "observedAt": "2026-09-09T06:58:44.900Z", // RFC3339 Z, when it was last CONFIRMED  (required)
+  "observed": true                          // false = carried-forward tombstone, not a live reading
 }
 ```
+
+**`observedAt` is required whenever `activity` is present, and it exists because presence and the
+census run on deliberately different clocks.** This is defect D1 from the gateway countersignature,
+and it is the one condition that signature attached to `activity`.
+
+`since` says when the state was entered. It does **not** say when the state was last confirmed, and
+nothing else in the object did either — `observed: true` asserts "this was a live reading" without
+saying *when*. That would be harmless if the two layers shared a clock. They do not, by our own
+design:
+
+- `census.mjs` `DEFAULT_STALE_MS = 45_000`, explicitly *"Deliberately NOT presence's 30 s: that
+  number is a frozen wire promise about a heartbeat this layer does not drive."*
+- `DEFAULT_INTERVAL_MS = 15_000` with `DEFAULT_BUDGET = 8` captures — with more panes than budget, a
+  given pane is **not** recaptured every tick.
+- The supervisor republishes presence every `staleAfterMs / 3` (~10 s), a faster and separate rung.
+
+So a snapshot that is fresh by every rule this contract enforces could carry an `activity` block
+sourced from a census document up to 45 s old, or older. From the wire alone, "confirmed `working` a
+second ago" and "last confirmed `working` four minutes ago, `since` unchanged because the state never
+changed" render identically, **and one of them is a lie**. §9.3 tells a consumer how to survive an
+unknown *value*; nothing told it how to survive an unknown *age*.
+
+The producer takes `observedAt` from the census document's own top-level `at` (`census.mjs:348`) —
+the value is already computed and needs no new observation. A consumer that finds `activity` without
+`observedAt` must treat it as advisory only.
+
+**§5-clean by the same argument as `since`:** a timestamp carries no content.
 
 `state` is one of the **seven** census states, verbatim from `CENSUS_STATES` in
 `topology/lib/census.mjs:34`:
