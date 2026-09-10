@@ -1,0 +1,48 @@
+{
+  "name": "ep018-demo",
+  "description": "EP-018 coordination primitives, demonstrated end to end in any idle repository: a governed launch, verified delivery, replies, and a liveness census. Deliberately trivial work \u2014 the point is the coordination, not the task.",
+  "session": "ep018-demo-{{run_id}}",
+  "layout": "main-vertical",
+  "agents": [
+    {
+      "id": "conductor",
+      "role": "orchestrator",
+      "cli": "claude",
+      "coordinates_only": true,
+      "instructions": "You coordinate this demo and do not implement. Answer every message in the same turn you read it. Keep replies to two sentences.",
+      "auto_approve": true
+    },
+    {
+      "id": "scribe",
+      "role": "worker",
+      "cli": "claude",
+      "instructions": "Read README.md in your cwd. When asked, reply with a one-sentence description of what this repository is. Do the work in the same turn you read the message; never stop to confirm receipt. Keep replies to two sentences.",
+      "auto_approve": true
+    },
+    {
+      "id": "checker",
+      "role": "worker",
+      "cli": "claude",
+      "instructions": "You verify the scribe's claim against README.md in your cwd. When asked, reply agreeing or disagreeing in one sentence, quoting the line you relied on. Do the work in the same turn you read the message. Keep replies to two sentences.",
+      "auto_approve": true
+    }
+  ],
+  "stages": [
+    {
+      "stage": "describe",
+      "from": "conductor",
+      "to": [
+        "scribe"
+      ],
+      "description": "ask the scribe what this repository is"
+    },
+    {
+      "stage": "verify",
+      "from": "conductor",
+      "to": [
+        "checker"
+      ],
+      "description": "ask the checker to confirm it against the file"
+    }
+  ]
+}
