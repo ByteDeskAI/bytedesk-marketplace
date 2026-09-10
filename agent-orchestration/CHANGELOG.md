@@ -224,6 +224,27 @@
   hold instead.
 
 ### Fixed
+- **A readiness probe nothing woke anybody up for** (TM-157, EP-018). `reviewerProbeReady` wrote a
+  nonce file and waited **one second** for the agent to notice it "at a safe boundary". That is the
+  right answer for an agent mid-turn and no answer at all for an IDLE one: it sits at an empty
+  composer with nothing to do, never polls again, never sees the probe, and reads `unresponsive`
+  forever — so `reviewer.available` (registered AND alive AND responsive) is false and every
+  governed launch refuses with `TOPOLOGY_STARTUP_NOT_READY`. Both `lead.mjs` and `reviewer.mjs`
+  carried comments claiming the probe "rings the pane". Neither did.
+  - The probe now **wakes** the pane through `wakeForProbe`, under the bell's own rules — alive,
+    six-tuple unchanged, composer provably empty, no attention or failure screen — and the ring text
+    carries the exact line to reply with, so it does not depend on any prompt file having mentioned
+    the protocol.
+  - **The file-only path is unchanged and still the fallback.** A pane that is busy, moved, dead or
+    showing a modal gets nothing typed into it, and the probe degrades to precisely the old
+    behaviour. TM-111 is the reason: a composer-shaped match on the folder-trust modal is what makes
+    a keystroke dangerous rather than safe.
+  - `AO_PROBE_TIMEOUT_MS` (default 20s) replaces the 1s window, and `AO_PROBE_POLL_MS` (default
+    500ms) replaces a 25ms spin that would have cost ~800 captures of one pane per probe.
+  - **The independence guarantee is untouched.** The reviewer still runs `--restricted --safe-mode`
+    with no shell; its READY signal was always a printed line, which is why this needed no new
+    permission. Anyone tempted to "fix" this by handing the reviewer a shell should read TM-157: it
+    would satisfy neither cause and would remove the only thing making the reviewer read-only.
 
 - **A re-assignment could collect the previous round's reply (TM-135).** The assignment envelope id
   was a pure function of (repo, task, agent), so releasing a task and handing it back to the same

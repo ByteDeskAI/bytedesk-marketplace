@@ -35,7 +35,8 @@ import { dirname, join } from "node:path";
 import { agentDirs, createAgent, findLead, requireAgent, resolveAgentRef } from "./agents.mjs";
 import { findTemplate, loadConfig } from "./config.mjs";
 import { displayName } from "./identity.mjs";
-import { openRoleSession, roleSessionName } from "./launch.mjs";
+import { composerFormat, wakeForProbe } from "./delivery.mjs";
+import { openRoleSession, roleSessionName, tmuxFailureTrigger } from "./launch.mjs";
 import { withLock } from "./lockfile.mjs";
 import { composePrompt } from "./prompts.mjs";
 import { refreshPrompt } from "./prompt-lifecycle.mjs";
@@ -159,8 +160,25 @@ async function reviewerOutput(record) {
 
 const defaultProbes = () => ({ alive: (_session, record) => bindingAlive(record), open: defaultOpen });
 
-/** File-only challenge: agents poll at safe boundaries; no typing into active composers. */
-export async function reviewerProbeReady({ consumer, record, env = process.env, home = homedir(), timeoutMs = 1000, onProbe = null, output = reviewerOutput }) {
+/**
+ * The readiness challenge: a nonce file the reviewer answers with `AO_REVIEWER_READY <nonce>` on
+ * its own pane, which is why this needs no shell and works under `--restricted --safe-mode`.
+ *
+ * TM-157. It used to be file-ONLY, with a one-second window, and the comment here said "agents poll
+ * at safe boundaries; no typing into active composers". The instinct is right and is kept — but an
+ * IDLE agent has no next boundary. It sits at an empty composer with nothing to do, never polls,
+ * never sees a probe that lives for a second, and reads `unresponsive` forever; the governed launch
+ * gate then refuses on a reviewer that is perfectly healthy. That is what stopped every demo run.
+ *
+ * So the probe now WAKES the pane, under the bell's own rules — composer empty, binding unchanged,
+ * no attention or failure screen — and falls back to file-only for a pane that is busy, which is
+ * exactly the case the original comment was protecting. `AO_PROBE_TIMEOUT_MS` is the window; one
+ * second was not answerable by an agent that is awake, never mind one that has to notice first.
+ */
+export const PROBE_TIMEOUT_MS = Number(process.env.AO_PROBE_TIMEOUT_MS ?? 20_000);
+export const PROBE_POLL_MS = Number(process.env.AO_PROBE_POLL_MS ?? 500);
+
+export async function reviewerProbeReady({ consumer, record, env = process.env, home = homedir(), timeoutMs = PROBE_TIMEOUT_MS, onProbe = null, output = reviewerOutput, wake = defaultWake, adapters = null }) {
   if (!record?.agent_id) return false;
   const nonce = randomUUID();
   const dir = join(await reviewerInboxRoot(consumer, env, home), "probes");
@@ -169,15 +187,40 @@ export async function reviewerProbeReady({ consumer, record, env = process.env, 
   await writeJson(path, probe);
   try {
     await onProbe?.(probe);
+    // Best effort by contract: a pane that cannot be woken is not a pane that failed. The file is
+    // already written, so a refusal here degrades to exactly the old behaviour rather than to an
+    // error — and a busy agent answers at its next boundary the way it always did.
+    try { await wake?.({ consumer, record, nonce, env, home, adapters }); } catch { /* best effort */ }
     while (Date.now() <= probe.expires_at) {
       const screen = await output(record);
       if (String(screen).split(/\r?\n/).some(line => line.trim() === `AO_REVIEWER_READY ${nonce}`)) return true;
       const ack = await readJson(ackPath).catch(() => null);
       if (ack?.nonce === nonce && ack.agent_id === record.agent_id && ack.repo_id === record.repo_id && ack.session === record.session) return true;
-      await sleep(Math.min(25, Math.max(1, probe.expires_at - Date.now())));
+      // TM-157: the window is now seconds rather than one second, so the poll has to be a poll and
+      // not a spin — at 25ms this would take ~800 captures of the same pane to answer one probe.
+      await sleep(Math.min(PROBE_POLL_MS, Math.max(1, probe.expires_at - Date.now())));
     }
     return false;
   } finally { await Promise.all([rm(path, { force: true }), rm(ackPath, { force: true })]); }
+}
+
+/**
+ * Ring the reviewer's pane with the one line it needs to answer. The adapter comes from the
+ * record's own provider — the reviewer is launched restricted, but its READY signal is a printed
+ * line, so nothing here needs it to have a shell.
+ */
+async function defaultWake({ consumer, record, nonce, env, home, adapters = null }) {
+  if (!record?.pane) return { rang: false, reason: "the record names no pane" };
+  const loaded = adapters ?? await loadAdapters(providerDirs({ consumer, home, env })).catch(() => null);
+  const adapter = loaded ? adapterFor({ cli: record.provider, model: null, args: [], skills: [] }, loaded) : null;
+  if (!adapter) return { rang: false, reason: `no adapter for provider ${record.provider}` };
+  return wakeForProbe({
+    pane: record.pane,
+    adapter,
+    format: composerFormat(adapter, tmuxFailureTrigger(adapter)),
+    binding: record.binding,
+    text: `AO_PROBE ${nonce} — you are being asked to prove you are listening. Reply with exactly: AO_REVIEWER_READY ${nonce}`,
+  });
 }
 
 export async function reviewerNonceAck({ consumer, nonce, env = process.env, home = homedir() }) {

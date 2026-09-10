@@ -315,6 +315,49 @@ export async function checkResubmitSafe({ pane, adapter, format, binding, tmux =
 }
 
 /**
+ * TM-157. WAKE A STANDING AGENT FOR A READINESS PROBE, and only when the pane says that is safe.
+ *
+ * The probe was file-only: write a nonce under `probes/` and wait for the agent to notice it "at a
+ * safe boundary". That is exactly right for an agent mid-turn — and it never fires for an IDLE one,
+ * which has no next boundary. It is sitting at an empty composer with nothing to do, so it never
+ * polls again, so a healthy reviewer reads `unresponsive` forever and the governed launch gate
+ * refuses on it. Both `lead.mjs` and `reviewer.mjs` carried doc comments claiming the probe "rings
+ * the pane"; neither did.
+ *
+ * This rings it, under the same rules as any other bell: one look, and the pane must be alive, the
+ * six-tuple unchanged, the composer empty, and no attention or failure screen. Anything else and it
+ * types NOTHING and says why — the file-only path is still there and still correct for a busy
+ * agent, so a refusal here costs a probe rather than a draft.
+ *
+ * It deliberately does NOT go through `ringMessage`: that is run-scoped bookkeeping (ring state,
+ * pane.log offsets, journal entries under a run dir) and a probe has no run. What it borrows is the
+ * decision — `decideBell` — which is the part that must not diverge.
+ */
+export async function wakeForProbe({ pane, adapter, format, binding, text, tmux = defaultTmux, submitKeys = null, log = () => {} }) {
+  if (!pane) return { rang: false, reason: "the record names no pane" };
+  const verdict = await checkBellSafe({ pane, adapter, format, binding, tmux });
+  if (!verdict.safe) {
+    log(`probe wake skipped: ${verdict.reason}`);
+    return { rang: false, reason: verdict.reason, attention: verdict.attention === true };
+  }
+  await tmux.sendText(pane, text, submitKeys ?? adapter?.submit_keys ?? ["Enter"]);
+  log("probe wake rung");
+  return { rang: true };
+}
+
+/**
+ * One look, with the bell's rules: alive, still bound, composer empty, no attention or failure
+ * screen. `checkResubmitSafe`'s sibling — same shape, different decision, kept side by side so the
+ * two cannot quietly drift.
+ */
+export async function checkBellSafe({ pane, adapter, format, binding, tmux = defaultTmux }) {
+  const value = await lookAtPane(pane, format, tmux);
+  // A look we could not take is not permission.
+  if (value === null) return { safe: false, reason: "the pane could not be read, so typing is unproven" };
+  return confirmFailure(adapter, pane, tmux, decideBell(value, { bindingOk: await stillBound(pane, binding, tmux) }));
+}
+
+/**
  * Wait until the pane is safe to ring, or the window closes. Push when we have a control client,
  * bounded poll when we do not.
  *
