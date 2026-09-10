@@ -3,6 +3,19 @@
 ## Unreleased
 
 ### Fixed
+- **`tm evidence` no longer doubles the task id** (TM-145). The prefix was prepended
+  unconditionally, so `TM-144-REPORT.md` — the natural name to hand it, and the name every evidence
+  file in the store already uses — was stored as `TM-144-TM-144-REPORT.md`. It is skipped when the
+  basename already carries the id, matched case-insensitively and only with the separator, so a
+  short id cannot swallow a longer one's prefix (`TM-1` must not claim `TM-14-NOTES.md`).
+  - **The store's existing population is larger than the task assumed: 18 doubled files, not two**,
+    and they are not all duplicates. Eleven are byte-identical to a correctly-named sibling and can
+    be dropped; four have NO single copy, so deleting them would destroy the only artifact and they
+    must be renamed instead; and `TM-127-TM-127-INTEGRATION-VERIFICATION.md` differs in content from
+    its sibling, so the two are separate artifacts rather than one duplicated. Nineteen task records
+    reference doubled paths, and `doctor`'s `missing-evidence` repair DELETES a ref whose file is
+    gone — so any cleanup must repoint the records BEFORE removing a file, or the fix silently
+    strips nineteen evidence links.
 - **A claim no longer attaches a ref to a task** (TM-146). `linkGit`'s commit path fell back to
   whatever task held the claim when the message named no task, so any commit made while a task was
   in progress was recorded against it regardless of what it touched. TM-140 and TM-141 each

@@ -115,7 +115,16 @@ export function evidenceDest(id, source = {}, p) {
   const leaf = namedSource(source)
     ? safeBase(source.filename || source.path)
     : `${source.ts ?? Date.now()}.log`;
-  const dest = join(p.evidence, `${id}-${leaf}`);
+  // TM-145. The prefix is skipped when the source already carries it, because `TM-144-REPORT.md`
+  // is the natural name to give the file AND the name every evidence file in this store already
+  // uses — so prepending unconditionally produced `TM-144-TM-144-REPORT.md`. That is cosmetic on
+  // its own and harmful together: one artifact becomes two files that look like two, the reader
+  // finds the un-prefixed copy first, and the task record points at the other one.
+  //
+  // Matched case-insensitively and only at the START, with the separator required. `TM-1` must not
+  // swallow the prefix of `TM-14-NOTES.md`, so the id has to be followed by `-` or `_` or `.`.
+  const prefixed = new RegExp(`^${id}[-_.]`, "i").test(leaf);
+  const dest = join(p.evidence, prefixed ? leaf : `${id}-${leaf}`);
   return { dest, ref: refFor(dest, p) };
 }
 
