@@ -92,6 +92,11 @@ assert_status 1 "an unknown option is refused rather than absorbed into the titl
 tm epic use EP-001 >/dev/null
 assert_contains "$(tm task new 'First real task' --body 'the task that proves creates work' --ac 'it is verifiably true')" "TM-001" "task created under the active epic"
 assert_contains "$(cat "$TM_ROOT"/.bytedesk/task-management/tasks/TM-001-*.md)" 'epic: "EP-001"' "task carries the epic link"
+# TM-170. `epic new` and `edit` were each fixed for this; `task new` — the most-used verb — was not,
+# and it joined any unrecognised flag into the title while reporting success. A real `--epic EP-018`
+# ended up as the last four words of a task's name that way.
+assert_status 1 "task new refuses an unknown option rather than joining it into the title" \
+  tm task new "Bad task" --epic EP-001 --body "b" --ac "a"
 
 # Duplicate guard — a complete draft again, so the gate passes and the guard is what refuses.
 assert_status 2 "duplicate title is refused" tm task new "First real task" --body "context" --ac "it exists"
@@ -485,3 +490,9 @@ RESULT="$(tm show "$PARKID" --json | jq -r '.branch')"
 
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [[ "$FAIL" == 0 ]]
+
+# TM-170, deliberately LAST: this one creates a task, and creating a task mid-file shifts the
+# board-completion counts a later assertion checks. The refusal assertion above is safely inline
+# because a refused create writes nothing.
+assert_contains "$(tm task new 'Title with real flags' --body 'a body' --ac 'a criterion')" "TM-" \
+  "and a legitimate create with --body and --ac still works, so the guard runs after they are spliced out"
