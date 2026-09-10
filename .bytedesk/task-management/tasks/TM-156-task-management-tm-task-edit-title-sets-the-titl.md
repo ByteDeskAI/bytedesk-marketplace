@@ -1,7 +1,7 @@
 ---
 id: "TM-156"
 kind: "task"
-status: "open"
+status: "in_progress"
 created: "2026-09-10T02:23:47.644Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "task-management: tm task edit --title sets the title to the literal string --title"
@@ -11,10 +11,10 @@ commits: ["caba55b"]
 blockedBy: []
 blocks: []
 actor: "main"
-session: "2ee26155-9e57-4cf8-8bc4-a8379f88e5a4"
+session: "e01dd923-50ea-45d8-9911-b9d5faed94bd"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-10T02:24:08.316Z"
+updated: "2026-09-10T03:18:28.163Z"
 type: "bug"
 labels: ["plugin:task-management"]
 ---
