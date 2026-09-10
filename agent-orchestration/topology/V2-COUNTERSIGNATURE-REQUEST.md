@@ -13,17 +13,47 @@ entitled to reject an unknown value, and we proved it does.
 
 ## 2. Why this is v2 rather than another additive extension
 
-The frozen v1 validator, unmodified, **rejects** a v2 snapshot:
+The frozen v1 validator, unmodified, rejects a v2 snapshot — but that rejection **is not the
+evidence**, and an earlier revision of this document presented it as though it were. It is quoted
+here in full, because the earlier revision quoted it truncated and a reviewer reasonably concluded
+something it does not say:
 
 ```
 $ python3 topology/fixtures/presence-v1/validate_presence.py \
         topology/fixtures/presence-v2/v01-standing-designer.json
+FAIL v01-standing-designer.json: schemaVersion must be 1
 FAIL v01-standing-designer.json: k3n8vq2a: repoRole 'designer'
 2 violation(s)
 ```
 
-That failure is the evidence. The header extension (TM-136) was additive and we showed it was
-invisible to you; this is the opposite case, and we are not trying to slip it through as one.
+Two violations, not one. The validator collects rather than short-circuits, so the role check IS
+reached — but the rejection is **overdetermined**. A v2 fixture differs from a passing v1 snapshot
+in two ways at once, the roles and the version, and a version-1 validator refuses anything declaring
+version 2 by definition. So this run can only ever come back red, whatever the vocabulary does. As a
+proof that the roles are what forced the bump it is circular.
+
+**The evidence is the downgrade.** Take the same fixture, force `schemaVersion` back to `1`, change
+nothing else, and run the frozen validator again:
+
+```
+$ python3 topology/fixtures/presence-v2/check.py     # claim 1b does exactly this
+FAIL downgraded-v01-standing-designer.json: k3n8vq2a: repoRole 'designer'
+1 violation(s)
+```
+
+One violation, and it is the vocabulary. With the version neutralised the frozen validator still
+refuses the value, which is what "the vocabulary is closed, so this cannot ship as additive" actually
+means. This run **can come back green** — if the role sets were open, a v1-declaring snapshot
+carrying `repoRole: "designer"` would pass and this check would fail, telling us the bump is
+unnecessary. The previous evidence could not have done that.
+
+It ships as code rather than as a quotation: `check.py` claim 1b performs the downgrade in a
+temporary copy on every run. We verified the check can fail, rather than assuming it: re-pointed at a
+fixture set whose roles are all legal in v1, claim 1b goes red and names the reason — while claim 1
+still passes, which is the vacuity made visible.
+
+The header extension (TM-136) was additive and we showed it was invisible to you; this is the
+opposite case, and we are not trying to slip it through as one.
 
 ## 3. Enumeration, not `roleName`-driven rendering — and it is your rule we are keeping
 
@@ -43,11 +73,19 @@ a closed vocabulary is what makes a rendering rule checkable. **§9.5 stands unc
 
 ## 4. What we are asking you to confirm
 
-1. **Your v1 parser rejects a v2 snapshot** — so this genuinely needs a negotiated bump rather than
-   being shipped as additive. Reproduce with the command in §2 against your own parser.
-2. **A v2-aware consumer still parses every v1 snapshot unchanged.** Our delegating validator does:
-   it imports the frozen v1 file and overrides only the two role sets, so every other rule is
-   literally the frozen code rather than a reimplementation of it.
+1. **Your v1 parser refuses the new role VALUES, independently of the version number** — that, and
+   not the version rejection, is what makes this a negotiated bump rather than an additive change.
+   Reproduce with the downgrade in §2: neutralise `schemaVersion` and confirm your parser still
+   refuses `designer` as a `repoRole`. If it accepts it, say so — that answer is useful and this
+   whole request is unnecessary.
+2. **A v2-aware consumer still parses every v1 snapshot unchanged.** Be aware of exactly what you
+   would be confirming here, because it is not symmetrical with the other three: all of our checks
+   exercise the PRODUCER side. Our delegating validator imports the frozen v1 file and overrides
+   only the two role sets, so every other rule is literally the frozen code rather than a
+   reimplementation — that part is verified and you can re-run it. But there is no v2 consumer on
+   your side yet, so confirming this point is a **forward commitment** that your future v2 parser
+   will preserve the property. It is not an attestation about code that exists today. We are naming
+   that rather than letting the wording imply otherwise.
 3. **The two new `repoRole` values and the one new `runRole` value are renderable by you**, or tell
    us what they should be called instead. `designer` already exists as a `runRole` in v1; v2 makes it
    a `repoRole` too, and adds `image-gen` to both.
