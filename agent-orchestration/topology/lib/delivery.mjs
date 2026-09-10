@@ -767,6 +767,24 @@ export async function ringMessage({
       await sleep(defaultTmux.SUBMIT_SETTLE_MS);
       const screen = await tmux.captureAll(pane).catch(() => null);
       composerEmptyAfter = composerEmptyOnScreen(adapter, screen);
+      // TM-160. THE SAME QUESTION MUST GET THE SAME ANSWER ON BOTH PATHS. TM-151 established that a
+      // composer holding only Claude's DIM suggestion text is empty, and that `capture-pane -e` is
+      // the only way to tell that from a bright draft. That landed on the safe-to-ring path
+      // (`checkBellSafe`, `whenSafe`) and NOT here — so a message that was genuinely submitted, onto
+      // a pane that then rendered a suggestion, classified as `typed-unsubmitted`, exhausted the
+      // resubmit rung and reported `stuck-in-composer`. Observed on a live run: both the scribe and
+      // the checker were reported stuck while their replies were already in their outboxes.
+      //
+      // Wrong in the safe direction — it never claimed a delivery it did not have — but it fires
+      // `undeliveredMessages` and the `! UNDELIVERED` banner for messages that landed, and a signal
+      // that cries wolf stops being a signal.
+      //
+      // One extra capture, taken only when the cheap answer was "not empty", exactly as the ring
+      // gate does it.
+      if (composerEmptyAfter === false) {
+        const styledLine = composerLineOf(await tmux.capture(pane, 4, { escapes: true }).catch(() => ""));
+        if (styledLine && composerEmptyStyled(styledLine)) composerEmptyAfter = true;
+      }
       state = classifyLanding({ countRose: true, composerEmpty: composerEmptyAfter });
       if (state === "submitted") {
         // Offset recorded HERE rather than before typing: our own keystrokes echo into pane.log, so

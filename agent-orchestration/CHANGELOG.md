@@ -224,6 +224,27 @@
   hold instead.
 
 ### Fixed
+- **A late acknowledgement is no longer thrown away** (TM-161, EP-018). `defaultResponsive` deleted
+  the probe when its wait gave up, so an agent that was mid-turn when the ring landed — the NORMAL
+  case for a working agent, and the one the file-only design existed to serve — read the probe at its
+  next boundary, ran `ao-topology lead ack` correctly and promptly, and met
+  `TOPOLOGY_LEAD_PROBE_UNKNOWN`. Responsiveness was provable only by an agent that happened to be
+  idle at the instant of the ring.
+  - The probe now outlives the wait, up to its own `expires_at`, and the next readiness check
+    accepts an ack it finds there rather than minting a new nonce. **`expires_at` is still the line**
+    — accepting a LATE ack never becomes accepting a STALE one — and an expired probe is swept.
+  - Found by executing the committed EP-018 demo runbook, which is what that runbook is for. The
+    lead diagnosed it on its own pane: *"they expired inside a single tool call … This message is
+    the proof of liveness the probes were asking for."* It was right.
+  - The reviewer's half carries the same rule and the same line.
+- **A delivered message no longer reports `stuck-in-composer`** (TM-160, EP-018). TM-151's styled
+  composer check reached the safe-to-ring path (`checkBellSafe`, `whenSafe`) and not the landing
+  verdict, which still used the plain-text pattern. So a message that was genuinely submitted, onto a
+  pane that then rendered a dim suggestion, classified as `typed-unsubmitted`, exhausted the resubmit
+  rung and escalated. Observed live: the scribe and the checker were both reported stuck while their
+  replies sat in their outboxes. Wrong in the safe direction — it never claimed a delivery it did not
+  have — but it fires `undeliveredMessages` and the `! UNDELIVERED` banner for messages that landed,
+  and a signal that cries wolf stops being one. Both paths now ask the same question.
 - **A readiness probe nothing woke anybody up for** (TM-157, EP-018). `reviewerProbeReady` wrote a
   nonce file and waited **one second** for the agent to notice it "at a safe boundary". That is the
   right answer for an agent mid-turn and no answer at all for an IDLE one: it sits at an empty
