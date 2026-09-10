@@ -57,3 +57,16 @@ project-management/.pm/
 # Claude telemetry and session artifacts
 .claude/telemetry/
 .claudeignore
+
+# Agent terminal logs. `pipe-pane -o` is attached at pane creation and appends every byte the pane
+# renders, so these are rewritten continuously while an agent is doing anything — TM-147.
+#
+# Tracking them made `git status` useless as a signal in a shared checkout: the tree was never
+# clean, so every commit either swept unrelated terminal noise into itself or was made against a
+# dirty tree. It cost this repository real work — a conductor once attributed a change to an
+# unowned party when the only dirty file was one agent's own log, and a merge that raced a live
+# pane.log write left MERGE_HEAD set and landed a branch with none of its code in it.
+#
+# The logs stay on disk and keep being written. They stop being repository content.
+.bytedesk/agent-orchestration/agents/*/pane.log
+.bytedesk/agent-orchestration/runs/*/agents/*/pane.log
