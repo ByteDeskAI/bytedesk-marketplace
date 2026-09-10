@@ -170,7 +170,7 @@ test("a dead pane is never rescued by the styled look", async () => {
 //
 // A busy agent reading its probe at the next turn boundary is the NORMAL case — it is the case the
 // file-only design was built to serve — and it was the one case that could never succeed.
-import { mkdtemp, mkdir as mkdirp, writeFile as write, readdir as list } from "node:fs/promises";
+import { mkdtemp, mkdir as mkdirp, readFile, writeFile as write, readdir as list } from "node:fs/promises";
 import { tmpdir as tmp } from "node:os";
 import { join as path } from "node:path";
 
@@ -240,4 +240,45 @@ test("a submitted message whose pane then renders a dim suggestion is `submitted
     "a suggestion after a successful submit means the box is free");
   assert.equal(composerEmptyStyled(`${ESCAPE}[39m❯ ${ESCAPE}[38;5;231mhalf typed text`), false,
     "bright text is a draft and must never be typed over");
+});
+
+// ── TM-161, second half: the CLI must not hardcode past the library default ──
+// The late-ack fix did nothing on a live pane because `cli.mjs` passed an EXPLICIT 5000ms on every
+// `lead` call, so DEFAULT_ACK_TIMEOUT_MS — raised to 30s and made env-configurable precisely because
+// a probe has to fit a model turn — was never consulted. The probe expired before the agent's next
+// turn boundary, and the ack it then ran correctly was refused as stale.
+//
+// Measured live: the probe file appeared and was gone within ~5s against a nominal 150s window, and
+// three consecutive asks read `unresponsive`. The unit tests passed throughout, because they call
+// the library directly and never go through the CLI's argument construction.
+test("the lead CLI omits ackTimeoutMs unless --ack-timeout was given", async () => {
+  const source = await readFile(new URL("../../topology/cli.mjs", import.meta.url), "utf8");
+  assert.ok(!/ackTimeoutMs:\s*Number\(flags\['ack-timeout'\]\s*\|\|\s*\d+\)/.test(source),
+    "a hardcoded fallback here silently overrides the library default and cannot be configured");
+  assert.match(source, /flags\['ack-timeout'\]\s*\?\s*\{\s*ackTimeoutMs/,
+    "pass the flag when it is given, and otherwise let the library decide");
+});
+
+test("the library default is long enough for a model turn, and env-configurable", async () => {
+  // 5s was the right window when the only possible answer came from a poll the agent was already
+  // about to make. Once the probe RINGS, the window has to cover: read the line, decide, run one
+  // command. Anything under ~10s cannot be answered by an agent that is awake.
+  const source = await readFile(new URL("../../topology/lib/lead.mjs", import.meta.url), "utf8");
+  const match = /DEFAULT_ACK_TIMEOUT_MS\s*=\s*Number\(process\.env\.AO_LEAD_ACK_TIMEOUT_MS\s*\?\?\s*([0-9_]+)\)/.exec(source);
+  assert.ok(match, "the default must come from the environment, or a slow provider cannot be accommodated");
+  assert.ok(Number(match[1].replace(/_/g, "")) >= 10_000, `a ${match[1]}ms probe window is not answerable by a woken agent`);
+});
+
+test("a readiness SCREEN answers from disk and mints nothing", async () => {
+  // startupCheck runs on a SessionStart hook for every Claude session on the machine, so it cannot
+  // wait for a model turn. It used to pass ackTimeoutMs:1000 — worse than none: no agent can answer
+  // inside a second, so it burned a ring, and the one-second expiry then made a busy lead's
+  // next-boundary ack read as STALE rather than LATE, defeating the late-ack path from a caller
+  // that never intended to wait. `0` now means "cached proof only".
+  const source = await readFile(new URL("../../topology/lib/startup.mjs", import.meta.url), "utf8");
+  assert.ok(!/ackTimeoutMs\s*:\s*1000/.test(source), "a screen must not mint a probe it cannot wait for");
+  assert.match(source, /ackTimeoutMs\s*:\s*0/, "0 is the read-only contract");
+
+  const lead = await readFile(new URL("../../topology/lib/lead.mjs", import.meta.url), "utf8");
+  assert.match(lead, /if \(!\(ackTimeoutMs > 0\)\)/, "and the library has to honour it, or the caller's intent is decorative");
 });

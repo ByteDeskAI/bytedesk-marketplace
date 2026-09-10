@@ -457,7 +457,20 @@ const commands = {
     const ctx = context(flags);
     const api = await import('./lib/lead.mjs');
     const sub = positional[0] || 'status';
-    const options = { ...ctx, ackTimeoutMs: Number(flags['ack-timeout'] || 5000) };
+    // TM-161. `|| 5000` here is why the late-ack fix did nothing on a live pane: the CLI passed an
+    // EXPLICIT five seconds on every call, so `lead.mjs`'s DEFAULT_ACK_TIMEOUT_MS — raised to 30s
+    // and made env-configurable by TM-157 precisely because a probe has to fit a MODEL TURN — was
+    // never consulted. The probe's `expires_at` was five seconds away, so it was expired before the
+    // agent's next turn boundary, and the ack it then ran correctly was refused as stale.
+    //
+    // Measured on a live pane: the probe file appeared and was gone within about five seconds
+    // against what should have been a 150s window, and three consecutive asks read `unresponsive`.
+    //
+    // Omit the key when the flag is absent, so the library default applies. A fix that raises a
+    // default is worthless while a caller hardcodes past it — this is the third time in this epic
+    // that a change reached one of two callers, and it is now written down in
+    // `.claude/rules/verification-that-can-fail.md`.
+    const options = { ...ctx, ...(flags['ack-timeout'] ? { ackTimeoutMs: Number(flags['ack-timeout']) } : {}) };
     if (sub === 'status') return out(await api.leadState(options));
     if (sub === 'probes') return out(await api.pendingLeadProbes(options));
     // `ensureSupervision`, NOT startRepositorySupervision: `role assign|ensure lead` is the same
@@ -495,7 +508,8 @@ const commands = {
       force: flags.force === true,
       kill: flags.kill === true,
       limit: Number(flags.limit || 0),
-      ackTimeoutMs: Number(flags['ack-timeout'] || 5000),
+      // TM-161: same reason as `lead` above — let the library default apply unless asked.
+      ...(flags['ack-timeout'] ? { ackTimeoutMs: Number(flags['ack-timeout']) } : {}),
     });
     // A verb that leaves the repo with a standing holder starts supervision, exactly as
     // `lead ensure` and `lead assign` do — two surfaces onto the same operation must not differ on
