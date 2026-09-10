@@ -10,6 +10,10 @@ import { collectPresenceAgents, createPresenceProducer, publishPresence } from "
 const run=promisify(execFile);
 const python=args=>run("python3",args,{env:{...process.env,PYTHONDONTWRITEBYTECODE:"1"}});
 const fixtures=join(dirname(fileURLToPath(import.meta.url)),"../../topology/fixtures/presence-v1");
+// TM-137: the producer emits v2 now, so its OUTPUT validates against the v2 validator. The v1
+// validator stays in use above for the frozen 7-snapshot corpus — that call is the control proving
+// the frozen fixtures are untouched by the bump, and moving it would delete the control.
+const fixturesV2 = fixtures.replace("presence-v1", "presence-v2");
 const put=async(path,value)=>{await mkdir(dirname(path),{recursive:true});await writeFile(path,JSON.stringify(value));};
 async function setup(t) {
  const root=await mkdtemp(join(tmpdir(),"ao-presence-"));t.after(()=>rm(root,{recursive:true,force:true}));
@@ -45,7 +49,7 @@ test("producer emits standing, run, nested and pending metadata using exact bind
  const child=snapshot.agents.find(a=>a.agentId==="nest0001");assert.equal(child.memberships[0].rootRunId,"root");assert.equal(child.memberships[0].depth,1);
  assert.equal(snapshot.agents.filter(a=>a.enrollment==="pending").length,1);
  const output=await readFile(producer.path,"utf8");assert.ok(!output.includes("DO NOT EMIT"));assert.ok(!output.includes("SECRET COMMAND"));
- await python([join(fixtures,"validate_presence.py"),producer.path]);
+ await python([join(fixturesV2,"validate_presence_v2.py"),producer.path]);
 });
 test("same agent in separate runs retains separate bindings, depth five resolves, orphan resemblance never affiliates",async t=>{
  const ctx=await setup(t);ctx.listPanesFn=async()=>[pane(1),pane(2),pane(3)];await agent(ctx,"same0001","worker");
@@ -141,7 +145,7 @@ test("real isolated tmux pane observation publishes only its exact standing inca
  await agent(ctx,"lead0001","lead",observed);
  const producer=await createPresenceProducer({...ctx,listPanesFn:listServerPanes});
  const snapshot=await producer.publish();assert.equal(snapshot.agents.length,1);assert.equal(snapshot.agents[0].session.serverKey,server);
- await python([join(fixtures,"validate_presence.py"),producer.path]);
+ await python([join(fixturesV2,"validate_presence_v2.py"),producer.path]);
  await run("tmux",["-S",server,"kill-session","-t","arbitrary"]);
  assert.deepEqual((await producer.publish()).agents,[]);
 });
@@ -150,7 +154,7 @@ test("spawn metadata is explicit, validated, and preserves library standing inde
  const ctx=await setup(t);const observed=pane(1,{sessionName:"work0001-abcdef1"});ctx.listPanesFn=async()=>[observed];
  await agent(ctx,"work0001","worker");await workflow(ctx,"spawn-run",[{id:"work0001",role:"orchestrator",binding:observed,spawn:"abcdef1"}]);
  const producer=await createPresenceProducer(ctx),snapshot=await producer.publish();assert.equal(snapshot.agents[0].session.kind,"spawn");assert.equal(snapshot.agents[0].repoRole,"member");
- await python([join(fixtures,"validate_presence.py"),producer.path]);
+ await python([join(fixturesV2,"validate_presence_v2.py"),producer.path]);
 });
 test("multiple library leads refuse publication and preserve prior metadata",async t=>{
  const ctx=await setup(t),producer=await createPresenceProducer(ctx);await producer.publish();const original=await readFile(producer.path,"utf8");
@@ -159,7 +163,7 @@ test("multiple library leads refuse publication and preserve prior metadata",asy
 });
 test("concurrent snapshot readers only observe complete JSON documents",async t=>{
  const ctx=await setup(t),producer=await createPresenceProducer(ctx);await producer.publish();let publishing=true,reads=0;
- const reader=(async()=>{while(publishing){const snapshot=JSON.parse(await readFile(producer.path,"utf8"));assert.equal(snapshot.schemaVersion,1);assert.ok(Array.isArray(snapshot.agents));reads++;}})();
+ const reader=(async()=>{while(publishing){const snapshot=JSON.parse(await readFile(producer.path,"utf8"));assert.equal(snapshot.schemaVersion,2);assert.ok(Array.isArray(snapshot.agents));reads++;}})();
  try {for(let i=0;i<10;i++)await producer.publish();} finally {publishing=false;await reader;}
  assert.ok(reads>0);assert.equal(JSON.parse(await readFile(producer.path,"utf8")).revision,"10");
 });
