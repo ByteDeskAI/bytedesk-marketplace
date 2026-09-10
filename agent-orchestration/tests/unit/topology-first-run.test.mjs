@@ -119,3 +119,29 @@ test("an untrusted ancestor is still untrusted — inheritance is not an escape 
   assert.equal(report.trust.trusted, false);
   assert.ok(report.problems.find((problem) => problem.code === "CLAUDE_FOLDER_UNTRUSTED"), "the nearest ancestor with an entry is the answer, whatever it says");
 });
+
+test("TM-150: no deny rule names a tool the CLI does not know, and the flags that ENFORCE read-only stay", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const { dirname, join } = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const root = join(dirname(fileURLToPath(import.meta.url)), "../..");
+
+  // MultiEdit is gone from the CLI. A deny rule naming it produces
+  // "Permission deny rule 'MultiEdit' matches no known tool" and denies nothing.
+  const provider = JSON.parse(await readFile(join(root, "providers/claude.json"), "utf8"));
+  const denied = provider.coordinator_args.join(" ");
+  assert.equal(/\bMultiEdit\b/.test(denied), false, "the provider config must not deny a tool the CLI does not know");
+  assert.match(denied, /Write/, "and must still deny the ones it does");
+
+  const reviewer = await readFile(join(root, "topology/lib/reviewer.mjs"), "utf8");
+  const argv = reviewer.match(/const restricted = \{[^\n]*\n?/)?.[0] ?? "";
+  assert.ok(argv, "precondition: the reviewer argv is where this test thinks it is");
+  assert.equal(/"[^"]*\bMultiEdit\b[^"]*"/.test(argv), false, "nor may the reviewer isolation argv");
+
+  // The half that actually enforces read-only. TM-150 measured that the deny list alone does NOT:
+  // an agent holding it wrote a file via Bash. These two flags remove the shell, and dropping them
+  // while trusting the list would break isolation silently.
+  for (const flag of ["--restricted", "--safe-mode"]) {
+    assert.ok(argv.includes(flag), `${flag} is what makes the reviewer read-only; it must not be dropped`);
+  }
+});

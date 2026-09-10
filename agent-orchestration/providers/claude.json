@@ -16,7 +16,7 @@
   ],
   "coordinator_args": [
     "--disallowed-tools",
-    "Write,Edit,NotebookEdit,MultiEdit"
+    "Write,Edit,NotebookEdit"
   ],
   "add_dir_args": [
     "--add-dir",

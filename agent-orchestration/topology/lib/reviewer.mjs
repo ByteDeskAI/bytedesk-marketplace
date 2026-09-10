@@ -143,7 +143,25 @@ async function defaultOpen({ agent, consumer, home, pluginRoot, provider, model,
 export function buildReviewerArgv(adapter, agent, vars, { consumer, model = null, inboxRoot = null }) {
   invariant(!(agent.args?.length) && !(agent.mcp?.length) && !Object.keys(agent.env || {}).length && !agent.command, "TOPOLOGY_REVIEWER_READ_ONLY", "Reviewer custom args, environment, command and MCP are not allowed to override the read-only policy.");
   invariant(adapter.id === "claude", "TOPOLOGY_REVIEWER_READ_ONLY", "This adapter has no verified reviewer isolation covering ambient MCP. Configure a supported restricted reviewer; no provider substitution was made.");
-  const restricted = { ...adapter, args: ["--restricted", "--safe-mode", "--strict-mcp-config", "--disallowed-tools", "Write,Edit,NotebookEdit,MultiEdit,Agent,Task", "--permission-prompts", "none"], coordinator_args: [], auto_approve_args: [] };
+  /**
+   * TM-150. WHAT ENFORCES READ-ONLY HERE IS `--restricted` AND `--safe-mode`, NOT THIS LIST.
+   *
+   * Measured, because the list looks like the enforcement and is not: an agent given
+   * `--disallowed-tools Write,Edit` refused to Write and then CREATED THE FILE WITH BASH. The deny
+   * list removes named tools; it does not remove the shell. `--restricted`/`--safe-mode` remove
+   * Bash entirely, and that is why a reviewer under this argv answers "no file-writing tool is
+   * available to me (no Write/Edit/Bash…)".
+   *
+   * So do not "simplify" this by dropping those two flags and trusting the deny list plus
+   * TOPOLOGY_REVIEWER_READ_ONLY. Isolation would fail SILENTLY — every test still green, the
+   * invariant still passing — which is precisely what the "never a silent downgrade" note above
+   * fears, arriving through the door that note is not watching.
+   *
+   * `MultiEdit` was removed from the list: the CLI reports "Permission deny rule 'MultiEdit'
+   * matches no known tool", and a rule that matches nothing is noise in the one place a reader
+   * most needs to trust what they see.
+   */
+  const restricted = { ...adapter, args: ["--restricted", "--safe-mode", "--strict-mcp-config", "--disallowed-tools", "Write,Edit,NotebookEdit,Agent,Task", "--permission-prompts", "none"], coordinator_args: [], auto_approve_args: [] };
   return buildArgv(restricted, { ...agent, args: [], auto_approve: false, coordinates_only: false, model, add_dirs: [consumer, inboxRoot].filter(Boolean) }, vars);
 }
 
