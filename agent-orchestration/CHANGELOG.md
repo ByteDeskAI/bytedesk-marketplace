@@ -224,6 +224,25 @@
   hold instead.
 
 ### Fixed
+- **The late-ack fix was unreachable from its two real callers** (TM-161, EP-018). TM-161 made the
+  probe outlive its wait — and on a live pane the lead still read `unresponsive` three asks in a row,
+  because neither caller ever used the default it raised.
+  - `cli.mjs` passed `Number(flags['ack-timeout'] || 5000)` on **every** `lead` call, so
+    `DEFAULT_ACK_TIMEOUT_MS` — raised to 30s and made env-configurable precisely because a probe has
+    to fit a model turn — was never consulted, and the documented `AO_LEAD_ACK_TIMEOUT_MS` did
+    nothing. The probe's `expires_at` was five seconds away, so a busy lead's next-boundary ack was
+    refused as STALE rather than accepted as LATE. Measured: the probe file appeared and vanished
+    within ~5s against a nominal 150s window. The flag is now passed only when given.
+  - `startup.mjs` passed a hardcoded `1000`. That path is a fast readiness SCREEN on a SessionStart
+    hook for every Claude session on the machine, so it cannot wait for a model turn — but a
+    one-second probe is worse than none: nobody can answer inside it, it burns a ring, and its expiry
+    then defeats the late-ack path from a caller that never intended to wait. `ackTimeoutMs: 0` now
+    means **cached proof only, mint nothing**; a screen asks, it does not interrogate, and "not
+    proven" is an honest answer for it to give.
+  - **Verified live, which is the only place this was ever visible:** three consecutive
+    `unresponsive` before, `responsive` on the first ask after, and a delivered message reporting
+    `submitted` with the reply in the outbox. The unit suite passed throughout both states, because
+    it exercises the library directly and never goes through either caller's argument construction.
 - **A late acknowledgement is no longer thrown away** (TM-161, EP-018). `defaultResponsive` deleted
   the probe when its wait gave up, so an agent that was mid-turn when the ring landed — the NORMAL
   case for a working agent, and the one the file-only design existed to serve — read the probe at its

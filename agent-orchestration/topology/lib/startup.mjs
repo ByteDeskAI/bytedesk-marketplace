@@ -227,7 +227,11 @@ async function defaultReadiness({consumer,env,home,repoId}) {
   const registration=await readLeadRegistration({consumer,env,home});
   if(!registration) return {state:'offer',repo_id:repoId,command:'ao-topology lead ensure --consumer '+shellQuote(consumer),message:'Create a dedicated lead (recommended) or use lead assign with an existing session; no enrollment has been assumed.'};
   const {reviewerAvailability}=await import('./reviewer.mjs');
-  const lead=await leadState({consumer,env,home,ackTimeoutMs:1000});
+  // TM-161: 0 means "answer from proof already on disk". This runs on a SessionStart hook for every
+  // Claude session on the machine, so it cannot wait for a model turn — and a 1000ms probe, which is
+  // what it used to pass, is worse than none: nobody can answer inside it, and its expiry then makes
+  // a busy lead's next-boundary ack read as STALE rather than LATE.
+  const lead=await leadState({consumer,env,home,ackTimeoutMs:0});
   const reviewer=await reviewerAvailability({consumer,env,home});
   return {state:lead.status==='responsive' && reviewer.available?'ready':'blocked',lead:lead.status,reviewer:reviewer.available?'ready':'unavailable',message:'Governed work requires responsive lead and independent reviewer; existing work is preserved.'};
 }

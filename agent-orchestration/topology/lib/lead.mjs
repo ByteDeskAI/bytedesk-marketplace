@@ -132,6 +132,18 @@ async function defaultResponsive(record, ackTimeoutMs, { registryDir, log = () =
   // correctly and promptly. It is the normal case for a working agent, and it used to be discarded.
   const late = await lateAck(dir, record);
   if (late) { await rememberAck(dir, record); log(`lead acknowledged probe ${late} after the previous wait returned`); return true; }
+  // TM-161. `ackTimeoutMs <= 0` means READ ONLY: answer from proof already on disk, mint nothing.
+  //
+  // A fast readiness SCREEN — `startupCheck`, which runs on a SessionStart hook for every Claude
+  // session on this machine — cannot afford to wait for a model turn, and must not pretend to. It
+  // used to pass 1000ms, and a one-second probe is worse than no probe: no agent can answer inside
+  // it, so it burns a ring, and then its own `sweepExpired` deletes it one second later. Worse
+  // still for THIS fix, the ack a busy lead runs at its next boundary is refused as EXPIRED rather
+  // than accepted as LATE — the exact case the late-ack path exists to serve, defeated by a caller
+  // that never intended to wait.
+  //
+  // So a screen asks; it does not interrogate. Not proven is an honest answer for it to give.
+  if (!(ackTimeoutMs > 0)) { log("readiness screen: cached proof only, no probe minted"); return false; }
   const nonce = randomUUID();
   const probePath = join(dir, `${nonce}.json`);
   const ackPath = join(dir, `${nonce}.ack.json`);
