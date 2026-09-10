@@ -7,14 +7,14 @@ board: "bytedeskai/bytedesk-marketplace"
 title: "task-management: gates run from a git archive tree always fail the MCP handshake test"
 acceptance: [{"text":"Running the task-management unit suite from a git archive tree does not report a failure that a checkout does not","done":true,"at":"2026-09-10T06:30:34.983Z"},{"text":"The handshake assertion still fails in a real checkout whose handshake genuinely answers 'dev'","done":true,"at":"2026-09-10T06:30:35.120Z"},{"text":"Whichever route is taken, the reason is stated where the next reader running gates in isolation will see it","done":true,"at":"2026-09-10T06:30:35.253Z"}]
 evidence: [".bytedesk/task-management/evidence/TM-149-TM149.md"]
-commits: ["5326ea9"]
+commits: ["5326ea9","71b60e3"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "2ee26155-9e57-4cf8-8bc4-a8379f88e5a4"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-10T06:30:52.647Z"
+updated: "2026-09-10T06:30:55.067Z"
 type: "bug"
 labels: ["plugin:task-management"]
 evidenceSources: {".bytedesk/task-management/evidence/TM-149-TM149.md":{"source":"/tmp/claude-1000/-home-ryan-Documents-GitHub-ByteDeskAI-bytedesk-marketplace/2ee26155-9e57-4cf8-8bc4-a8379f88e5a4/scratchpad/TM149.md","sha256":"4d1b74e60a444175917c7c0b42d33d368cddd2b7a7e66cda462bde7489c97e51","bytes":2229,"at":"2026-09-10T06:30:52.461Z"}}

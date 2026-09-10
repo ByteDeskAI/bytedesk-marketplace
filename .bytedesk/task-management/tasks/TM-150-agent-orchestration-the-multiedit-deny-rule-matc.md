@@ -7,14 +7,14 @@ board: "bytedeskai/bytedesk-marketplace"
 title: "agent-orchestration: the MultiEdit deny rule matches no known tool, in the provider config and in reviewer isolation"
 acceptance: [{"text":"No deny rule names a tool the CLI does not know, in either the provider config or reviewer isolation","done":true,"at":"2026-09-10T06:27:41.174Z"},{"text":"It is established and recorded whether an unmatched deny name voids the remaining rules, and if it does, the reviewer isolation is re-verified","done":true,"at":"2026-09-10T01:35:36.685Z"},{"text":"Reviewer isolation still denies every write tool the CLI actually exposes today","done":true,"at":"2026-09-10T06:27:41.374Z"},{"text":"reviewer.mjs states, next to the deny list, that --restricted/--safe-mode are what enforce read-only and that the deny list alone is not sufficient","done":true,"at":"2026-09-10T06:27:41.518Z"}]
 evidence: [".bytedesk/task-management/evidence/TM-150-TM150.md"]
-commits: ["26927d6"]
+commits: ["26927d6","71b60e3"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "2ee26155-9e57-4cf8-8bc4-a8379f88e5a4"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-10T06:27:59.151Z"
+updated: "2026-09-10T06:30:55.105Z"
 type: "bug"
 labels: ["plugin:agent-orchestration"]
 priority: "medium"
