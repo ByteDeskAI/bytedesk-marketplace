@@ -15,6 +15,18 @@ python3 check.py     # the one command; runs the frozen validator in both direct
 | `h02-header-sparse.json` | **pass** the frozen validator | The omission cases, which are where a careless producer coerces: a lead with nothing computed, a **tombstone** (`activity.observed: false`), a rationed capture reported as `unknown` rather than `idle`, a `task` **omitted** because the assignee did not match `^[A-Z]+-[0-9]+$`, and the unknown-role mapping (`runRole: "worker"` + `roleName: "image-gen"`). |
 | `n01-repo-role-designer.json` | **FAIL** the frozen validator | The mechanical evidence that opening a closed vocabulary is `schemaVersion: 2` and not additive. It is `h01` with one value changed — `repoRole: "designer"` — and the frozen validator rejects it by exact membership. |
 
+**Every `activity` block carries `observedAt`** — gateway defect D1, and the condition its
+countersignature attached to this key. `since` is when a state was ENTERED; `observedAt` is when it
+was last CONFIRMED, taken from the census document's own top-level `at`. The two exist separately
+because presence and the census run on deliberately different clocks, so a snapshot that is fresh by
+every rule this contract enforces can carry an activity reading up to 45 s old.
+
+In `h01` the live readings are confirmed **seven seconds before** `generatedAt`, not at it. That gap
+is the fixture's whole point: a fixture where the two timestamps matched would assert the coupling
+D1 says does not exist, and would teach a consumer to trust a reading it cannot date. The frozen
+validator has no knowledge of `activity` and cannot check any of this — `tests/unit/topology-presence-header.test.mjs`
+is the gate that does.
+
 `h02` also carries `activity.state` values of `unknown`, `dead` and `working`, and `h01` carries
 `idle`, `needs-input`, `working`, `quota-blocked` and `attention`. Between them the **seven** census
 states in `topology/lib/census.mjs:34` all appear — including `attention` and `unknown`, which the
