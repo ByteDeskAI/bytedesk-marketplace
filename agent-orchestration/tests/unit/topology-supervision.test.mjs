@@ -9,10 +9,27 @@ import {refreshPrompt} from '../../topology/lib/prompt-lifecycle.mjs';
 import {superviseRepository,nextRung,SLEEP_LADDER_MS} from '../../topology/lib/supervision.mjs';
 import {censusPath,withStaleness} from '../../topology/lib/census.mjs';
 import {canonicalRepoId,repoKey} from '../../topology/lib/repoid.mjs';
+import {mkdirSync} from 'node:fs';
+
+/** Env for a test that may reach tmux, isolated the three ways .claude/rules/tmux-test-isolation.md
+ * requires. Every test in this file built its own env literal, and not one of them blanked TMUX —
+ * so a `supervise` daemon spawned here inherited the operator's server and watched it. An observed
+ * run wrote a watcher record for serverKey /tmp/tmux-1000/default and pending enrollments for three
+ * unrelated repositories. All read-only, and that is luck rather than design.
+ *
+ * One function rather than five literals, because the previous arrangement is exactly how four of
+ * them stayed wrong while the fifth looked fine: a guard present in one caller and absent in its
+ * siblings. TMUX_TMPDIR is created eagerly — tmux refuses a directory that does not exist, and a
+ * refusal here would read as "no server", which is the answer we want for the wrong reason. */
+const isolatedEnv = (root, home, extra = {}) => {
+  const tmux = join(root, 'tmux');
+  mkdirSync(tmux, { recursive: true });
+  return { ...process.env, TMUX: '', TMUX_TMPDIR: tmux, AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state'), XDG_CONFIG_HOME: join(home, '.config'), ...extra };
+};
 
 test('supervision refreshes a live workflow instance and publishes exact membership without applying an unacknowledged change',async t=>{
  const root=await mkdtemp(join(tmpdir(),'ao-supervision-'));t.after(()=>rm(root,{recursive:true,force:true}));
- const repo=join(root,'repo'),home=join(root,'home'),env={...process.env,AGENT_ORCHESTRATION_STATE_HOME:join(root,'state'),XDG_CONFIG_HOME:join(home,'.config')};
+ const repo=join(root,'repo'),home=join(root,'home'),env=isolatedEnv(root,home);
  await run('git',['init',repo]);
  const server=`ao-supervise-${process.pid}-${Date.now()}`;t.after(()=>run('tmux',['-L',server,'kill-server'],{allowFailure:true}));
  await run('tmux',['-L',server,'new-session','-d','-s','workflow','-c',repo,'sleep','60']);
@@ -51,7 +68,7 @@ async function quietRepo(t, label) {
   const root = await mkdtemp(join(tmpdir(), `ao-supervise-${label}-`));
   t.after(() => rm(root, { recursive: true, force: true }));
   const repo = join(root, 'repo'), home = join(root, 'home');
-  const env = { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state'), XDG_CONFIG_HOME: join(home, '.config') };
+  const env = isolatedEnv(root, home);
   await run('git', ['init', repo]);
   return { root, repo, home, env, options: { consumer: repo, home, env, tmuxServer: `ao-absent-${process.pid}-${Date.now()}` } };
 }
@@ -200,7 +217,7 @@ test('a supervisor started with an absolute --consumer survives losing its worki
   const root = await mkdtemp(join(tmpdir(), 'ao-supervise-cwd-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const repo = join(root, 'repo'), home = join(root, 'home'), cwd = join(root, 'ephemeral');
-  const env = { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state'), XDG_CONFIG_HOME: join(home, '.config') };
+  const env = isolatedEnv(root, home);
   await run('git', ['init', repo]);
   await mkdir(cwd, { recursive: true });
 
@@ -210,7 +227,12 @@ test('a supervisor started with an absolute --consumer survives losing its worki
   // process.cwd() is uncached, which is what made absolutize's eager default throw ENOENT/uv_cwd.
   const cli = fileURLToPath(new URL('../../topology/cli.mjs', import.meta.url));
   const log = [];
-  const child = spawn(process.execPath, [cli, 'supervise', '--consumer', repo], { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
+  // `--json` because the daemon stopped streaming every tick to stdout at 1de163b ("quiet the
+  // supervise daemon in the console"). That change is right — a monitor should not print a JSON
+  // blob every 2s — but it deleted this test's only signal and the suite merged red: green at
+  // 1de163b^, red at 1de163b, verified by running the file at both. The contract that commit
+  // documents is "a reader wanting per-tick detail passes --json", so this reader asks for it.
+  const child = spawn(process.execPath, [cli, 'supervise', '--json', '--consumer', repo], { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
   t.after(() => reap(child.pid));
   child.stdout.on('data', d => log.push(String(d)));
   child.stderr.on('data', d => log.push(String(d)));
@@ -234,7 +256,7 @@ test('a supervisor that died during startup is not reported as a healthy one', a
   const root = await mkdtemp(join(tmpdir(), 'ao-supervise-states-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const repo = join(root, 'repo'), home = join(root, 'home');
-  const env = { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state'), XDG_CONFIG_HOME: join(home, '.config') };
+  const env = isolatedEnv(root, home);
   await run('git', ['init', repo]);
   const key = repoKey((await canonicalRepoId(repo)).id);
   const recordPath = join(root, 'state', 'supervision', `${key}.process.json`);
@@ -260,7 +282,7 @@ test('a supervisor retires itself when the repository it supervises is removed',
   const root = await mkdtemp(join(tmpdir(), 'ao-supervise-retire-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const repo = join(root, 'repo'), home = join(root, 'home');
-  const env = { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state'), XDG_CONFIG_HOME: join(home, '.config') };
+  const env = isolatedEnv(root, home);
   await run('git', ['init', repo]);
   let ticks = 0;
   // Once the crash is fixed, "the repo went away" must not become an immortal daemon spinning on a
