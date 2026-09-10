@@ -1,7 +1,7 @@
 ---
 id: "TM-154"
 kind: "task"
-status: "open"
+status: "in_progress"
 created: "2026-09-10T02:17:09.202Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "task-management: git-link reads only the command string, so a commit authored with -F or a heredoc attaches nothing"
@@ -11,10 +11,10 @@ commits: ["TM-146","ffa3355"]
 blockedBy: []
 blocks: []
 actor: "main"
-session: "2ee26155-9e57-4cf8-8bc4-a8379f88e5a4"
+session: "e01dd923-50ea-45d8-9911-b9d5faed94bd"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-10T02:17:43.950Z"
+updated: "2026-09-10T03:14:20.589Z"
 type: "bug"
 labels: ["plugin:task-management"]
 priority: "high"
