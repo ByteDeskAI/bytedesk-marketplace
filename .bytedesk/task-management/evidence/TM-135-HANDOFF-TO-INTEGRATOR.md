@@ -1,6 +1,7 @@
 # TM-135 — exact revision for the integrator
 
-**Merge this:** branch `tm/TM-135-idle-dispatch-quota-failover`, head **`091f85e`**.
+**Merge this:** branch `tm/TM-135-idle-dispatch-quota-failover`, head **`9068de2`** (see the
+correction at the end of this file — the head moved after finding 1 was fixed rather than filed).
 
 That head is `8631f2b` (all the code) plus `091f85e` (evidence only — the correction to my own
 earlier review). The two commits before it on this branch, `ef33efc` and `74fdb5f`, are evidence
@@ -71,15 +72,16 @@ under any value of `failover.consent`.
 
 ## Findings — one to decide, two to note
 
-**1. `failover.consent: "never"` does not do what its own config text says.** `config.defaults.json`'s
+**1. FIXED on this branch, was: `failover.consent: "never"` does not do what its own config text says.** `config.defaults.json`'s
 `_why` states never "refuses every takeover, whatever anyone types on the command line." It does not:
 `failoverAgent` consults consent only when an `incidentId` is supplied (`launch.mjs`, the
 `if (incidentId)` branch), so a bare `ao-topology failover --run … --agent …` with no `--incident`
 proceeds under `never`. The code's intent is deliberate and defensible — the CLI comment says an
 operator at a keyboard is already the human turn — but the config text asserts the opposite and an
-operator reading it would be wrong. **One line either way; the integrator picks.** My recommendation
-is to fix the text, not the gate: gating the manual path would mean an operator with a genuinely
-dead provider must edit config before recovering.
+operator reading it would be wrong. I fixed the text rather than the gate, because gating the manual
+path would mean an operator with a genuinely dead provider must edit config before recovering. The
+`_why` string now states the gate's real scope and says why the manual path is outside it.
+`config.defaults.json` still parses and `topology-quota.test.mjs` is 20/20 after the edit.
 
 **2. Residual false positive, bounded.** `confirmQuota`'s defence 2 confirms on "no progress". An
 agent that prints a quota signature and then **ends its turn** is alive, is not animating, and the
