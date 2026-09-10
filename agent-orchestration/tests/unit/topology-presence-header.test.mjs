@@ -234,3 +234,32 @@ test("TM-137 draft: the producer has NOT started emitting schemaVersion 2", asyn
   assert.match(source, /schemaVersion:1/, "the producer must still emit v1 until v2 is countersigned");
   assert.equal(/schemaVersion:\s*2/.test(source), false, "no v2 emission before the negotiated bump");
 });
+
+// ── TM-137: the v2 validator must not pass by validating nothing ─────────────
+// It shipped with `for arg in argv:` and no fallback, so the no-argument run iterated NOTHING and
+// printed "ok — 0 snapshot(s)". That reads as a pass and proves nothing: the v2 fixtures had never
+// been checked by the v2 validator at all. This is `.claude/rules/verification-that-can-fail.md`
+// §1 — a clean result that would look identical if the thing being checked were absent — sitting
+// inside the artifact whose whole job is to prove v2 is safe.
+test("the v2 validator checks its own fixtures by default, and says how many", async () => {
+  const dir = new URL("../../topology/fixtures/presence-v2/", import.meta.url);
+  const fixtures = (await readdir(dir)).filter((name) => name.endsWith(".json"));
+  assert.ok(fixtures.length >= 3, "the v2 fixture set must not be empty, or this test proves nothing either");
+
+  const { stdout } = await run("python3", [fileURLToPath(new URL("validate_presence_v2.py", dir))]);
+  const count = Number(/ok — (\d+) snapshot/.exec(stdout)?.[1] ?? -1);
+  assert.equal(count, fixtures.length, `the validator reported ${count} snapshots for ${fixtures.length} fixtures`);
+  assert.notEqual(count, 0, "zero snapshots is not a pass");
+});
+
+test("a v2-aware validator still accepts every v1 fixture unchanged", async () => {
+  // AC2's testable half. The other half — that the bump lands on both sides in one negotiated step
+  // — cannot be shown from this repository and is not claimed here.
+  const v1 = new URL("../../topology/fixtures/presence-v1/", import.meta.url);
+  const names = (await readdir(v1)).filter((name) => name.endsWith(".json"));
+  const { stdout } = await run("python3", [
+    fileURLToPath(new URL("../../topology/fixtures/presence-v2/validate_presence_v2.py", import.meta.url)),
+    ...names.map((name) => fileURLToPath(new URL(name, v1))),
+  ]);
+  assert.match(stdout, new RegExp(`ok — ${names.length} snapshot`), "a v2 consumer that cannot read v1 is not backward compatible");
+});

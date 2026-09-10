@@ -44,7 +44,12 @@ def main(argv):
     mod.RUN_ROLES = V2_RUN_ROLES
 
     fails, snaps = [], []
-    for arg in argv:
+    # Default to this directory's own fixtures, exactly as the frozen v1 validator does. Without
+    # this the no-argument run iterated NOTHING and printed "ok — 0 snapshot(s)", which reads as a
+    # pass and proves nothing: the v2 fixtures had never been checked by the v2 validator at all.
+    # `.claude/rules/verification-that-can-fail.md` §1 — a clean result that would look identical
+    # if the thing being checked were absent.
+    for arg in argv or sorted(HERE.glob("*.json")):
         path = pathlib.Path(arg)
         try:
             document = mod.json.loads(path.read_text())
