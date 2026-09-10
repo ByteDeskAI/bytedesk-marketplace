@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "session": "ao-eff264fa",
+  "agent_id": "eff264fa",
+  "role": "observer",
+  "cwd": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/agent-orchestration/agents/eff264fa",
+  "provider": "codex",
+  "launcher": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/agent-orchestration/agents/eff264fa/session.sh",
+  "command": "bash /home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/agent-orchestration/agents/eff264fa/session.sh",
+  "restore_contract": "Recreate this session by running `command` with cwd `cwd`. It is idempotent and is the only supported entry point; starting the session any other way makes a gateway tab restore rebuild it wrong.",
+  "created_at": "2026-09-10T02:52:18.333Z",
+  "binding": {
+    "serverKey": "/tmp/tmux-1000/default",
+    "serverPid": 3805399,
+    "sessionId": "$182",
+    "sessionCreated": 1789008738,
+    "paneId": "%490",
+    "panePid": 721019,
+    "sessionName": "ao-eff264fa",
+    "command": "codex",
+    "cwd": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/agent-orchestration/agents/eff264fa",
+    "alive": true,
+    "title": "⠼ bytedesk-marketplace"
+  }
+}
