@@ -216,3 +216,21 @@ test("TM-138: an agent with no slot, census, assignment or mail carries none of 
   }
   assert.deepEqual(snapshot.slotQueues, [], "no slot records means an empty list, not a missing key");
 });
+
+test("TM-137 draft: the frozen v1 validator rejects every v2 fixture, and both accept unchanged v1", async () => {
+  // The v2 addendum is a DRAFT awaiting countersignature and the producer still emits v1. This runs
+  // anyway, because the claim it checks — that opening a vocabulary is a genuine version change —
+  // is what the countersignature is being asked to accept, and it should not rot while it waits.
+  const check = await python([join(topology, "fixtures/presence-v2/check.py")]);
+  assert.match(check.stdout, /frozen v1 rejects 2 v2 fixture\(s\)/);
+  assert.match(check.stdout, /both accept 1 unchanged v1 snapshot/);
+});
+
+test("TM-137 draft: the producer has NOT started emitting schemaVersion 2", async () => {
+  // The bump must land on both sides in one negotiated step. A v1 consumer rejects a v2 snapshot
+  // outright, so emitting early breaks the live gateway. This is the guard against doing it by
+  // accident while the addendum sits in the tree looking finished.
+  const source = await readFile(join(topology, "lib/presence.mjs"), "utf8");
+  assert.match(source, /schemaVersion:1/, "the producer must still emit v1 until v2 is countersigned");
+  assert.equal(/schemaVersion:\s*2/.test(source), false, "no v2 emission before the negotiated bump");
+});
