@@ -22,6 +22,7 @@ const run = promisify(execFile);
 const python = (args, options = {}) => run("python3", args, { env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" }, ...options });
 const topology = join(dirname(fileURLToPath(import.meta.url)), "../../topology");
 const frozen = join(topology, "fixtures/presence-v1");
+const v2 = join(topology, "fixtures/presence-v2");
 const header = join(topology, "fixtures/presence-v1-header");
 const put = async (path, value) => { await mkdir(dirname(path), { recursive: true }); await writeFile(path, JSON.stringify(value)); };
 
@@ -71,12 +72,18 @@ test("a run agent whose library role is outside the frozen vocabulary appears, m
 
   const drawn = snapshot.agents.find((a) => a.agentId === "draw0001");
   assert.ok(drawn, "the image-gen run agent must have an entry, not merely a corrected label");
-  assert.equal(drawn.runRole, "worker", "mapped to the nearest legal token");
-  assert.equal(drawn.roleName, "image-gen", "the truth rides in the additive key");
-  assert.equal(drawn.repoRole, "member", "repoRole stays inside its frozen vocabulary");
+  // v2 opened the vocabulary, so image-gen is no longer mapped away — it is emitted as itself.
+  // This assertion USED to read `worker`, and changing it is the visible half of the bump.
+  assert.equal(drawn.runRole, "image-gen", "v2 makes image-gen a legal runRole, so it is not mapped");
+  assert.equal(drawn.roleName, "image-gen", "the truth still rides in the additive key");
+  assert.equal(drawn.repoRole, "image-gen", "and v2 opens repoRole to the standing library roles too");
 
+  // THE GUARANTEE THIS TEST EXISTS FOR NOW RIDES ON `lead`. v2 opened the vocabulary for image-gen,
+  // but opening a vocabulary is not the same as removing the fallback: a role outside BOTH v1 and v2
+  // must still appear, mapped, rather than vanish from the snapshot. `lead` is that role — a repo
+  // lead appears in its own run as `orchestrator`, so a run spec never legitimately carries it.
   const lead = snapshot.agents.find((a) => a.agentId === "lead0001");
-  assert.equal(lead.runRole, "worker", "'lead' is not a runRole either, and is mapped the same way");
+  assert.equal(lead.runRole, "worker", "'lead' is outside v2's vocabulary too, and is still mapped");
   assert.equal(lead.roleName, "lead");
   assert.equal(lead.repoRole, "lead", "the library lead is still the repository lead");
 
@@ -84,9 +91,14 @@ test("a run agent whose library role is outside the frozen vocabulary appears, m
   assert.equal(worker.runRole, "worker", "a legal role is passed through untouched");
   assert.equal(worker.roleName, "worker");
 
-  // The whole point: the extended snapshot is still a valid v1 snapshot.
-  await python([join(frozen, "validate_presence.py"), join(env.AGENT_ORCHESTRATION_STATE_HOME, "presence",
-    `${snapshot.repositoryKey}.json`)]);
+  // The whole point, restated for v2: the producer's real output validates against the contract it
+  // now declares. The FROZEN v1 validator must REFUSE it — that refusal is what makes this a version
+  // bump rather than an additive change, and asserting it here means the bump cannot be quietly
+  // undone by someone editing the frozen sets instead of the v2 ones.
+  const produced = join(env.AGENT_ORCHESTRATION_STATE_HOME, "presence", `${snapshot.repositoryKey}.json`);
+  await python([join(v2, "validate_presence_v2.py"), produced]);
+  await assert.rejects(python([join(frozen, "validate_presence.py"), produced]),
+    "the frozen v1 validator must refuse a v2 snapshot; if it accepts, the vocabulary was never closed");
 });
 
 // ── D1: an activity reading must say when it was CONFIRMED ───────────────────
@@ -188,8 +200,13 @@ test("TM-138: the producer emits the additive header keys, and the FROZEN valida
   // validator, unmodified, over the producer's REAL output rather than over a hand-written fixture.
   const file = join(root, "produced.json");
   await writeFile(file, JSON.stringify(snapshot, null, 2));
-  const verdict = await python([join(frozen, "validate_presence.py"), file]);
-  assert.match(verdict.stdout, /conform to Presence v1/, "the extended snapshot must still be valid v1");
+  const verdict = await python([join(v2, "validate_presence_v2.py"), file]);
+  assert.match(verdict.stdout, /conform to Presence v2/, "the extended snapshot must be valid v2");
+  // The v2 validator delegates to the frozen v1 file and overrides only the role sets, so this also
+  // exercises every v1 rule against the producer's REAL output rather than a hand-written fixture —
+  // which is what this test was for before the bump and still is.
+  await assert.rejects(python([join(frozen, "validate_presence.py"), file]),
+    "and the frozen v1 validator must refuse it, or nothing here needed a version bump");
 });
 
 test("TM-138: an agent with no slot, census, assignment or mail carries none of those keys", async (t) => {
@@ -226,13 +243,29 @@ test("TM-137 draft: the frozen v1 validator rejects every v2 fixture, and both a
   assert.match(check.stdout, /both accept 1 unchanged v1 snapshot/);
 });
 
-test("TM-137 draft: the producer has NOT started emitting schemaVersion 2", async () => {
-  // The bump must land on both sides in one negotiated step. A v1 consumer rejects a v2 snapshot
-  // outright, so emitting early breaks the live gateway. This is the guard against doing it by
-  // accident while the addendum sits in the tree looking finished.
+test("TM-137: the producer emits schemaVersion 2, and the v1 vocabularies are still frozen", async () => {
+  // This test used to assert the OPPOSITE — "the producer has NOT started emitting schemaVersion 2"
+  // — and it was correct for as long as it held: a v1 consumer rejects a v2 snapshot outright, so
+  // emitting before the consumer accepted would have broken the live gateway. It was retired only
+  // when the gateway's acceptance was COMMITTED (bd8cefc0 on develop: presenceSchemaVersionMin 1,
+  // Max 2), not when it was countersigned in prose. Verified by reading their committed parser, not
+  // from a message saying so.
+  //
+  // What replaces it is not "nothing". The bump is one negotiated step, and the half that can still
+  // go wrong is opening a vocabulary too far — so this now guards the frozen v1 sets instead.
   const source = await readFile(join(topology, "lib/presence.mjs"), "utf8");
-  assert.match(source, /schemaVersion:1/, "the producer must still emit v1 until v2 is countersigned");
-  assert.equal(/schemaVersion:\s*2/.test(source), false, "no v2 emission before the negotiated bump");
+  assert.match(source, /schemaVersion:2/, "the producer emits v2 now that the consumer accepts it");
+
+  // The v2 roles live in their OWN set, mirroring the gateway's separate presenceRepoRolesV2 table.
+  // Merged into the v1 literals they would be indistinguishable from values v1 always allowed, and
+  // a v1 snapshot naming them would become retroactively legal — which is precisely the contract
+  // both sides refused. Version-scoped, or it is not a version bump.
+  assert.match(source, /REPO_ROLES_V2 = new Set\(\["designer", "image-gen"\]\)/,
+    "v2 repoRoles stay in their own set so the frozen v1 vocabulary cannot drift by a one-line edit");
+  assert.match(source, /const ROLES = new Set\(\[[^\]]*"image-gen"\]\)/,
+    "image-gen is a legal runRole in v2 rather than being mapped away");
+  assert.match(source, /roleName/,
+    "roleName stays: it still carries roles outside BOTH vocabularies, and dropping it would re-open the hole where an unknown role has no snapshot entry at all");
 });
 
 // ── TM-137: the v2 validator must not pass by validating nothing ─────────────

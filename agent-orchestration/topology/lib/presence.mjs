@@ -21,9 +21,16 @@ export const PRESENCE_BINDING_FIELDS = ["serverKey", "serverPid", "sessionId", "
 // used to be `continue`d past, so `add()` never ran and the agent had NO ENTRY IN THE SNAPSHOT AT
 // ALL. Dropping an agent is strictly worse than mislabelling one. Unknown roles now map to the
 // nearest legal token and the truth rides in the additive `roleName` (PRESENCE-HEADER-ADDENDUM.md
-// §3.4/§7), which a v1 consumer ignores. Opening this set is schemaVersion 2, and stays out.
-const ROLES = new Set(["orchestrator", "worker", "designer", "judge", "reviewer", "researcher", "implementer"]);
+// §3.4/§7), which a v1 consumer ignores. Opening this set WAS schemaVersion 2 — and v2 is now
+// countersigned by the gateway coordinator and committed on their side (bd8cefc0), so `image-gen`
+// is legal here rather than mapped away. `roleName` stays: it still carries roles outside BOTH
+// vocabularies, and dropping it would re-open the hole where an unknown role has no snapshot entry.
+const ROLES = new Set(["orchestrator", "worker", "designer", "judge", "reviewer", "researcher", "implementer", "image-gen"]);
 const NEAREST_RUN_ROLE = "worker";
+// v2 only. Kept as its own set rather than merged into the lead/reviewer/member literals, mirroring
+// the gateway's separate presenceRepoRolesV2 table, so the frozen v1 vocabulary cannot drift by an
+// edit to one line.
+const REPO_ROLES_V2 = new Set(["designer", "image-gen"]);
 const LIFE = new Set(["starting", "ready", "busy", "unresponsive", "dead"]);
 const COUNTER = /^[0-9]+$/;
 const idValid = value => typeof value === "string" && /^[a-z0-9]{8}$/.test(value);
@@ -255,7 +262,11 @@ export async function collectPresenceAgents({consumer, repositoryRoot, identity,
       if(member && entry.primaryRunId === null) {entry.primaryRunId=member.runId;entry.runRole=runRole;if(roleName) entry.roleName=roleName;}
       return;
     }
-    const repoRole=def?.role === "lead" ? "lead" : def?.role === "reviewer" ? "reviewer" : "member";
+    // v2 opens repoRole to the standing library roles the gateway now renders. Anything still
+    // outside both sets falls to `member` and rides in `roleName` — the v1 behaviour, unchanged,
+    // because opening a vocabulary is not the same as removing the fallback that protects it.
+    const repoRole=def?.role === "lead" ? "lead" : def?.role === "reviewer" ? "reviewer"
+      : REPO_ROLES_V2.has(def?.role) ? def.role : "member";
     const lifecycle=pane.alive === false ? "dead" : LIFE.has(record.lifecycle) ? record.lifecycle : record.ready === true ? "ready" : "starting";
     // Additive and optional: emitted only when a role token was actually read, never as a
     // placeholder. `repoRole`/`runRole` stay inside their frozen vocabularies; this carries what
@@ -352,7 +363,7 @@ export async function createPresenceProducer({consumer,env=process.env,home=home
       invariant(COUNTER.test(marker) && BigInt(marker)>=BigInt(generation),"TOPOLOGY_PRESENCE_GENERATION","Generation marker is missing, corrupt or rolled back.");
       invariant(COUNTER.test(active.revision),"TOPOLOGY_PRESENCE_GENERATION","Revision counter is corrupt.");
       const revision=active.revision;
-      const snapshot={schemaVersion:1,repositoryKey,repositoryRoot,generation,revision,generatedAt:new Date().toISOString(),staleAfterMs,clockSkewToleranceMs,agents,slotQueues:presenceSlotQueues(identity)};
+      const snapshot={schemaVersion:2,repositoryKey,repositoryRoot,generation,revision,generatedAt:new Date().toISOString(),staleAfterMs,clockSkewToleranceMs,agents,slotQueues:presenceSlotQueues(identity)};
       // Persist the next revision before publication. A crash may leave a harmless gap, never reuse.
       await durableReplace(ownerPath,JSON.stringify({...active,revision:(BigInt(revision)+1n).toString()})+"\n");
       await durableReplace(path,JSON.stringify(snapshot,null,2)+"\n");
