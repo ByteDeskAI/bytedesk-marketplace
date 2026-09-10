@@ -161,6 +161,41 @@ uncommitted paths before the numbers, and it separates *consistently failing* fr
 and failed others*, exiting non-zero for instability specifically — so a caller that checks only
 "did it pass" cannot read one lucky green run as health.
 
+## 9. A count is not a direction, and four checks proved it in one day
+
+The other rules are about checks that cannot fail. This one is about checks that *can* fail
+and are blind along the axis you care about — harder to spot, because they do sometimes go red.
+
+Four in a single day, each clean while unable to answer the question actually being asked:
+
+| the check | what it answered | what was asked |
+|---|---|---|
+| `git diff --numstat`, flag a file removing more than it adds | is content being lost? | is my merged fix being reverted? |
+| `validator … \| tail -3; echo $?` | did `tail` succeed? | did the validator refuse? |
+| `grep -c '\\uXXXX'` through two layers of shell quoting | does this literal appear? | did the file get re-escaped? |
+| a board sweep matching `TM-<id>` against a commit message | does the message name this task? | does this ref belong to this task? |
+
+The first is the sharpest. A guard written *that morning* to catch a staged revert passed a
+staged revert, because the revert was a representation swap — the escape `\u276f` for the glyph `❯` — at **+8/−8**.
+Counting says balanced; the file was a complete undo of the fix it had just merged. The
+guard's author caught it anyway, by reading a line and recognising which way the glyph went.
+
+The shape: **an aggregate cannot see a direction.** Line counts, violation totals, pass/fail
+tallies and exit codes all compress the thing you need to look at into a number that is equal
+on both sides of the case you fear. A same-size swap, a message that names the right task for
+the wrong reason, a refusal that exits 0 through a pipe — each is invisible to the aggregate
+and obvious in the raw line.
+
+**Read one line you recognise, in the direction that matters, before trusting a count.** Not
+a better predicate — the fix for all four was the same and it was not cleverness: print the
+thing and look at it. The one that nearly shipped was found by printing which tmux
+subcommands ran; the escaping was found by printing the pattern; the staged revert was found
+by reading the diff instead of its numstat.
+
+A corollary worth its own sentence, because it cost most of a day here: **a check written to
+catch a specific failure is not exempt from that failure.** The counting guard, the isolation
+rule, and this file have each been violated by the person who had just written them.
+
 ## What to do with a green run
 
 State what you **verified** and what you only **read**. They are different words. A gate reported as
