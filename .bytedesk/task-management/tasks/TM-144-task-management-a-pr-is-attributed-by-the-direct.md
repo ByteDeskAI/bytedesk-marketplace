@@ -7,14 +7,14 @@ board: "bytedeskai/bytedesk-marketplace"
 title: "task-management: a PR is attributed by the directory tm resolved, not the repo it landed in"
 acceptance: [{"text":"A PR opened against another repo is refused even when the cwd says this board","done":true,"at":"2026-09-10T01:13:26.067Z"},{"text":"A gh pr create that printed no URL attaches nothing, not the literal \"pr\"","done":true,"at":"2026-09-10T01:13:26.174Z"},{"text":"A PR in this board's own repo still links, and the git_link_skipped event records the ref it refused","done":true,"at":"2026-09-10T01:13:26.308Z"}]
 evidence: [".bytedesk/task-management/evidence/TM-144-PR-ATTRIBUTION-VERIFICATION.md"]
-commits: ["8beb169","114f4ad"]
+commits: ["8beb169","114f4ad","a05c993","eac8ae7"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "2ee26155-9e57-4cf8-8bc4-a8379f88e5a4"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-10T01:14:13.593Z"
+updated: "2026-09-10T01:21:31.997Z"
 labels: ["plugin:task-management"]
 type: "bug"
 evidenceSources: {".bytedesk/task-management/evidence/TM-144-PR-ATTRIBUTION-VERIFICATION.md":{"source":"/tmp/claude-1000/-home-ryan-Documents-GitHub-ByteDeskAI-bytedesk-marketplace/2ee26155-9e57-4cf8-8bc4-a8379f88e5a4/scratchpad/PR-ATTRIBUTION-VERIFICATION.md","sha256":"976315787f2137e17e61282d963794bcbed68d237b4bb7151ad8a21d97f726e0","bytes":1884,"at":"2026-09-10T01:13:44.525Z"}}

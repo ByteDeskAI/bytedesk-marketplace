@@ -7,14 +7,14 @@ board: "bytedeskai/bytedesk-marketplace"
 title: "agent-orchestration: a ready Claude composer showing a placeholder hint reads as not-ready, in both claude.json ready patterns"
 acceptance: [{"text":"A ready pane showing Claude's placeholder hint is detected as ready, in both ready.pattern and ready.tmux_pattern","done":false},{"text":"A pane that is genuinely mid-answer is still not detected as ready","done":false},{"text":"The measurement is redone against a live pane in both states, not reasoned about","done":false},{"text":"All four claude.json fields are decided deliberately and per-field — ready.tmux_pattern, ready.pattern, composer.empty_tmux_pattern, composer.empty_pattern — with the composer TM-111 negative preserved and the choice argued, not inherited by find-and-replace","done":false}]
 evidence: []
-commits: []
+commits: ["1069713"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "2ee26155-9e57-4cf8-8bc4-a8379f88e5a4"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-10T01:38:20.908Z"
+updated: "2026-09-10T01:38:21.069Z"
 type: "bug"
 labels: ["plugin:agent-orchestration"]
 priority: "high"

@@ -7,14 +7,14 @@ board: "bytedeskai/bytedesk-marketplace"
 title: "task-management: gates run from a git archive tree always fail the MCP handshake test"
 acceptance: [{"text":"Running the task-management unit suite from a git archive tree does not report a failure that a checkout does not","done":false},{"text":"The handshake assertion still fails in a real checkout whose handshake genuinely answers 'dev'","done":false},{"text":"Whichever route is taken, the reason is stated where the next reader running gates in isolation will see it","done":false}]
 evidence: []
-commits: ["df1af22"]
+commits: ["df1af22","4756b5c"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "2ee26155-9e57-4cf8-8bc4-a8379f88e5a4"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-10T01:27:05.675Z"
+updated: "2026-09-10T01:27:19.325Z"
 type: "bug"
 labels: ["plugin:task-management"]
 ---

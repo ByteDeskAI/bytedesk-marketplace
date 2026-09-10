@@ -7,14 +7,14 @@ board: "bytedeskai/bytedesk-marketplace"
 title: "task-management: tm start on another session's task silently reassigns ownership"
 acceptance: [{"text":"tm start on a task owned by a different live session does not silently overwrite actor/session/branch/worktree","done":false},{"text":"An explicit override remains possible for a genuinely abandoned task","done":false},{"text":"A test covers the reclaim case","done":false}]
 evidence: []
-commits: []
+commits: ["c87d2f9","a471883"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "2ee26155-9e57-4cf8-8bc4-a8379f88e5a4"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-10T01:22:38.224Z"
+updated: "2026-09-10T01:31:25.662Z"
 type: "bug"
 labels: ["plugin:task-management"]
 priority: "high"

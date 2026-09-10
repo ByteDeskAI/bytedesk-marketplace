@@ -102,3 +102,5 @@
 {"ts":"2026-09-10T01:14:31.581Z","kind":"hook_session_start","session":"79cb72e5-69e9-4e0e-b62e-9d582af8ac7c"}
 {"ts":"2026-09-10T01:14:50.572Z","kind":"hook_session_start","session":"ce42cf8c-486a-473c-b467-58628661332c"}
 {"ts":"2026-09-10T01:15:23.351Z","kind":"hook_session_start","session":"ec620d55-9a45-4c47-8f87-36fd82eeea5b"}
+{"ts":"2026-09-10T01:44:00.545Z","kind":"hook_pre_compact","session":"e01dd923-50ea-45d8-9911-b9d5faed94bd"}
+{"ts":"2026-09-10T01:45:27.461Z","kind":"hook_session_start","session":"e01dd923-50ea-45d8-9911-b9d5faed94bd"}
