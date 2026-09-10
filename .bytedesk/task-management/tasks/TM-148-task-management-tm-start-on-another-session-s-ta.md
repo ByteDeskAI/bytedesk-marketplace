@@ -7,14 +7,14 @@ board: "bytedeskai/bytedesk-marketplace"
 title: "task-management: tm start on another session's task silently reassigns ownership"
 acceptance: [{"text":"tm start on a task owned by a different live session does not silently overwrite actor/session/branch/worktree","done":true,"at":"2026-09-10T06:18:52.430Z"},{"text":"An explicit override remains possible for a genuinely abandoned task","done":true,"at":"2026-09-10T06:25:53.440Z"},{"text":"A test covers the reclaim case","done":true,"at":"2026-09-10T06:25:53.585Z"},{"text":"tm start on a task whose record names a different branch or worktree does not silently re-home it; the prior location is preserved or the re-homing is explicit","done":true,"at":"2026-09-10T06:25:53.714Z"},{"text":"A test covers the parked-then-reclaimed case specifically, since that is the path with no claim to interlock on","done":true,"at":"2026-09-10T06:25:53.858Z"}]
 evidence: [".bytedesk/task-management/evidence/TM-148-TM148.md"]
-commits: ["f34b041"]
+commits: ["f34b041","a92c1f5"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "2ee26155-9e57-4cf8-8bc4-a8379f88e5a4"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-10T06:25:54.012Z"
+updated: "2026-09-10T06:26:05.669Z"
 type: "bug"
 labels: ["plugin:task-management"]
 priority: "high"
