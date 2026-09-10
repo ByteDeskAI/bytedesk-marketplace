@@ -24,6 +24,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { mkdir, open, readdir } from 'node:fs/promises';
+import { setTimeout as delay } from 'node:timers/promises';
 import { createPresenceProducer, collectPresenceAgents } from './presence.mjs';
 import { takeCensus } from './census.mjs';
 import { loadAdapters, providerDirs } from './providers.mjs';
@@ -72,8 +73,24 @@ export async function superviseRepository(options, { signal, once = false, inter
    const producer=await createPresenceProducer(options);
    const controller = new AbortController();
    signal?.addEventListener('abort', () => controller.abort(), {once:true});
-   let latest, heartbeatError;
-   const heartbeat = once ? null : producer.watch({signal:controller.signal,onPublish:snapshot=>{latest=snapshot;}}).catch(error=>{heartbeatError=error;controller.abort();});
+   let latest, heartbeatError, degradedBeats=0;
+   // TM-141. L1 publishes by ENUMERATING TMUX, so a failed listing rejects `watch` and ends the
+   // heartbeat; that rejection used to end the supervisor with it, and the monitor's restart is
+   // what made a flaky tmux read as a crash loop in `doctor`. Not publishing is still the right
+   // answer to a failed listing — presence must not state liveness it could not observe, and the
+   // document ageing out IS the contract's staleness signal — but it is a ONE-BEAT answer, so the
+   // beat resumes on the next interval instead of taking the process down. Every other rejection
+   // is a real failure and still fatal.
+   const heartbeat = once ? null : (async () => {
+     while (!controller.signal.aborted) {
+       try { return await producer.watch({signal:controller.signal,onPublish:snapshot=>{latest=snapshot;}}); }
+       catch (error) {
+         if (error?.code !== 'TOPOLOGY_TMUX_OBSERVATION_FAILED') { heartbeatError=error; controller.abort(); return; }
+         degradedBeats++;
+         await delay(producer.publishIntervalMs,undefined,{signal:controller.signal}).catch(()=>{});
+       }
+     }
+   })();
    // Adapters are files on disk; loading them per tick would put a readdir straight back into the
    // hot path L2's rate limit just took out. The census wants them only for attention patterns.
    const adapters=await loadAdapters(options.providerDirs ?? providerDirs(options)).catch(()=>null);
@@ -92,10 +109,15 @@ export async function superviseRepository(options, { signal, once = false, inter
    // The expensive body. Returns the report it wrote plus whether anything actually moved.
    const reconcile=async()=>{
      // The census reuses the listing this call already takes; wrapping listPanesFn is what makes
-     // that free. Deliberately NO catch here: swallowing TOPOLOGY_TMUX_OBSERVATION_FAILED so the
-     // census could still report was considered and rejected, because it would change reconcile()'s
-     // failure semantics as a side effect of adding an observer. A stale census already degrades to
-     // `unknown` with nothing dispatchable, which is the honest answer to "tmux did not respond".
+     // that free. Deliberately NO catch here, and TM-141 did not add one: swallowing
+     // TOPOLOGY_TMUX_OBSERVATION_FAILED so the census could still report was considered and
+     // rejected, because it would change reconcile()'s failure semantics as a side effect of
+     // adding an observer. A stale census already degrades to `unknown` with nothing dispatchable,
+     // which is the honest answer to "tmux did not respond". This listing belongs to PRESENCE:
+     // its failure abandons the whole reconcile — no prompt refreshed, no mail resumed, no tick
+     // record written — where the census's own listing below is absorbed and still yields a
+     // document. What TM-141 changed is only how far the abandonment travels: the caller skips
+     // the tick rather than ending the supervisor.
      const seen=[];
      const listPanesFn=async args=>{const rows=await listServerPanes(args);seen.push(...rows);return rows;};
      const observed=await collectPresenceAgents({...options,listPanesFn});
@@ -160,15 +182,20 @@ export async function superviseRepository(options, { signal, once = false, inter
        let activity=false;
        // `once` always reconciles: a single-shot supervise is asking for the expensive answer.
        //
-       // KNOWN, and not a census concern: a throw out of reconcile() propagates through this loop,
-       // out of withLock, and ENDS superviseRepository — so a tmux enumeration failure restarts the
-       // supervisor (the monitor brings it back, incrementing `restarts`) rather than skipping one
-       // tick. The end state is the same as skipping — the census document ages out and reads
-       // `unknown` — but by a louder route than the wording elsewhere suggests. Softening it means
-       // deciding which failures are transient, which is a change with its own test, not a comment.
+       // TM-141: exactly ONE failure is transient — tmux could not be enumerated — and it skips
+       // this tick instead of ending superviseRepository. `restarts` is what `doctor` reads to
+       // identify a crash loop, so a tmux hiccup must never increment it; a supervisor that is up
+       // and not reconciling shows as SUPERVISOR_STALLED (the tick record is deliberately NOT
+       // rewritten on a degraded tick, so `tick_age_ms` keeps growing) which is the honest answer.
+       // Every other throw is still fatal. `once` still throws: a one-shot has no next tick to
+       // degrade into, so the failure is its answer.
        if(once || Date.now()-lastReconcileAt>=floorMs) {
          lastReconcileAt=Date.now();
-         ({report,activity}=await reconcile());
+         try { ({report,activity}=await reconcile()); }
+         catch(error) {
+           if(once || error?.code!=='TOPOLOGY_TMUX_OBSERVATION_FAILED') throw error;
+           report={...report,at:new Date().toISOString(),reconciled:false,degraded:'tmux-observation-failed'};
+         }
        } else {
          // A cheap tick costs a timestamp. It exists so the observation work that belongs at this
          // cadence has somewhere to live without dragging L2's git-and-filesystem body with it.
@@ -178,10 +205,10 @@ export async function superviseRepository(options, { signal, once = false, inter
        // cheap tick we take our own — one tmux call, against exactly the servers the roster's own
        // bindings name, which is the same set presence queried.
        //
-       // THIS listing is caught where reconcile()'s is not, and the asymmetry is deliberate: that
-       // one belongs to presence and its failure is presence's to define, while this one exists
-       // only for the census, so the census may absorb its own failure and report `unknown` rather
-       // than take the whole supervisor down with it.
+       // THIS listing is caught where reconcile()'s is not, and the asymmetry is deliberate and
+       // survives TM-141: that one belongs to presence and its failure is presence's to define, so
+       // it abandons the reconcile whole, while this one exists only for the census, so the census
+       // absorbs its own failure and still reports — every agent `unknown`, nothing dispatchable.
        if(censusPanes===undefined) {
          const servers=[...new Set(censusRoster.map(a=>a.session?.serverKey).filter(Boolean))];
          try { censusPanes=(await Promise.all((servers.length?servers:[options.tmuxServer]).map(server=>listServerPanes({tmuxServer:server,env})))).flat(); }
@@ -224,6 +251,9 @@ export async function superviseRepository(options, { signal, once = false, inter
        rung=nextRung(rung,activity||census.activity);
        const sleepMs=intervalMs ?? SLEEP_LADDER_MS[rung];
        report={...report,sleep_ms:sleepMs};
+       // Cumulative, and only when it has happened: a heartbeat that could not observe tmux is
+       // invisible otherwise — the supervisor stays up and the presence document simply ages out.
+       if(degradedBeats) report={...report,presence_beats_degraded:degradedBeats};
        await onTick(report);
        if(once || signal?.aborted) return report;
        await sleepFn(sleepMs);
