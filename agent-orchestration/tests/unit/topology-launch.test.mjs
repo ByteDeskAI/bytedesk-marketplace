@@ -32,10 +32,10 @@ test("coordinates-only observer sessions do not require governed-work readiness"
   assert.equal(roleSessionNeedsGovernance({ role: "worker", coordinatesOnly: true }), false);
 });
 
-test("an own-state observer receives no repository grant and may write only its private cwd", () => {
+test("an own-state observer may receive only its host-state grant, never the repository", () => {
   const adapter = { command: "codex", args: [], model_args: [], system_prompt_args: [], auto_approve_args: [],
     coordinator_args: ["--sandbox", "read-only"], add_dir_args: ["--add-dir", "{{dir}}"] };
-  assert.deepEqual(buildArgv(adapter, { args: [], coordinates_only: true, own_state_only: true, add_dirs: [] }, {}), ["codex"]);
+  assert.deepEqual(buildArgv(adapter, { args: [], coordinates_only: true, own_state_only: true, add_dirs: ["/state"] }, {}), ["codex", "--add-dir", "/state"]);
 });
 import * as tmux from "../../topology/lib/tmux.mjs";
 import { MIN_PANE_ROWS, windowSizeFor } from "../../topology/lib/tmux.mjs";

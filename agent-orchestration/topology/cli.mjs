@@ -20,6 +20,7 @@ import { agentDirs, agentsRoot, createAgent, findLead, listAgents, requireAgent 
 import { displayName, parseSessionName } from "./lib/identity.mjs";
 import { childrenFile } from "./lib/lineage.mjs";
 import { issueDelegation, listDelegations, routeMessage } from "./lib/routing.mjs";
+import { stateRoot } from "./lib/repoid.mjs";
 
 const PLUGIN_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const CLI_BIN = process.env.AO_TOPOLOGY_BIN || join(PLUGIN_ROOT, "bin", "ao-topology");
@@ -872,7 +873,7 @@ const commands = {
     // The session's cwd is the agent's own directory — that is what gives it memory of its own under
     // every shipped CLI. The repo is therefore granted explicitly, exactly as `launch` does it, and
     // a coordinator is granted nothing beyond its own directory.
-    const addDirs = agent.coordinates_only === true ? [] : [ctx.consumer];
+    const addDirs = agent.role === 'observer' ? [stateRoot(process.env, ctx.home)] : agent.coordinates_only === true ? [] : [ctx.consumer];
     const vars = {
       session,
       agent_id: agent.id,
