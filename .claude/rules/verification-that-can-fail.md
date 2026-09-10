@@ -105,6 +105,62 @@ passed in both states, because it exercised the library directly and never went 
 caller's argument construction — which is rule 1 wearing different clothes: testing the piece you
 wrote instead of the behaviour the criterion names.
 
+## 7. When two explanations predict the same bit, stop asserting on the bit
+
+The first rule used to break a tie between two of my own theories, both wrong, in the same hour.
+
+A test put a fake `tmux` on `PATH` that wrote a marker file, and asserted the marker never appeared.
+It failed. Theory A: the delivery state machine now legitimately reads the pane, so the invariant is
+stale. Theory B: a delivery change made `send` reach tmux by mistake. **Both theories predict the
+same failing assertion**, so the assertion could not distinguish them — and a fix was already
+written for theory A: permit reads, forbid only `send-keys`, with a confident comment explaining why
+the old invariant predated the feature. It passed 3 of 3. It would have merged green and deleted the
+guard that was working.
+
+What broke the tie was replacing the boolean with a value — record *which* subcommands ran:
+
+| instrument | possible answers | could it distinguish A from B? |
+|---|---|---|
+| `assert.rejects(readFile(marker), {code:'ENOENT'})` | called / not called | no — both theories say "called" |
+| shim appends `$1`, test prints the list | any set of subcommands, including none | yes |
+
+It returned **`nothing`**, which was in neither theory. The failure did not exist in the tree being
+explained; see rule 8. Note that the losing instrument was not weak — it is the right assertion for
+the suite. It was simply the wrong instrument for *choosing between two stories*, because its output
+was already determined by both.
+
+**Before writing the explanation, ask what result would tell you the explanation is wrong.** If a
+pass/fail bit is the same under every theory you are entertaining, go get the underlying value:
+which command, which argument, which count, which path. A theory that no available measurement can
+refute is not yet a finding — and being able to write it up convincingly is not evidence, because
+the writing gets easier as the theory gets further from the facts.
+
+## 8. The tree you measured is part of the result
+
+A shared checkout is mutable state owned by nobody. Work in flight there belongs to the session
+editing it, and it is invisible to a test run that does not look:
+
+| what was believed | what was true |
+|---|---|
+| "this test is deterministically red on `main`, 3/3 in isolation" | the checkout held 48 uncommitted files of another session's feature; the test is 10/10 green on that same commit in a clean worktree, and 5/5 red with those files copied in |
+| a 5-run flakiness distribution (1, 4, 2, 3, 1 failures) | measured in the same contaminated tree; void |
+
+"In isolation" had meant *one test file instead of the suite*. It had not meant *this commit instead
+of somebody's unfinished feature* — and that is the isolation the conclusion depended on. Rule 2
+again: name what your isolation actually removed, because the word covers several different things
+and the useful one is easy to skip.
+
+So flakiness has a fourth cause, alongside load, ordering and timing assumptions: **tree
+contamination** — a failure that is another agent's half-finished work. It is the one that most
+looks like a defect in your own code, because it is a real failure, reproducible while it lasts, in
+a file you did not change.
+
+**Record the commit AND the dirty state beside every measurement, and refuse to call a dirty tree a
+measurement of a commit.** `npm run test:stability` in `agent-orchestration` does both: it prints the
+uncommitted paths before the numbers, and it separates *consistently failing* from *passed some runs
+and failed others*, exiting non-zero for instability specifically — so a caller that checks only
+"did it pass" cannot read one lucky green run as health.
+
 ## What to do with a green run
 
 State what you **verified** and what you only **read**. They are different words. A gate reported as

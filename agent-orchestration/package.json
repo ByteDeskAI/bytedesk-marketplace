@@ -55,7 +55,8 @@
     "test:topology": "node --test tests/unit/topology-*.test.mjs",
     "test:topology:tmux": "node --test tests/contract/topology-tmux.test.mjs",
     "design-system:sync": "design-client sync",
-    "design-system:check": "design-client sync --check"
+    "design-system:check": "design-client sync --check",
+    "test:stability": "node tests/stability.mjs"
   },
   "engines": {
     "node": ">=22.13.0"
