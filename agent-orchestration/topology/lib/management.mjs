@@ -1,13 +1,16 @@
 // Task-store-backed management. The task store owns claims, WIP and worktree provisioning;
 // orchestration owns communication and the review/check/landing evidence it contributes.
 import { homedir } from 'node:os';
+import { createHash } from 'node:crypto';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
-import { readFile, realpath } from 'node:fs/promises';
+import { readFile, readdir, realpath } from 'node:fs/promises';
 import { listServerPanes } from './tmux.mjs';
+import { readCensus } from './census.mjs';
 import { loadConfig } from './config.mjs';
 import { withLock } from './lockfile.mjs';
 import { canonicalRepoId, repoKey, stateRoot } from './repoid.mjs';
 import { reviewEligibility, reviewerAvailability, requestReview } from './reviewer.mjs';
+import { readStandingMessage, sendStandingMessage } from './standing-mailbox.mjs';
 import { invariant, nowIso, readJson, run, writeJson } from './util.mjs';
 
 const taskId = value => { invariant(/^TM-[0-9]+$/.test(value), 'TOPOLOGY_MANAGEMENT_TASK', 'Expected a task-store TM id.'); return value; };
@@ -311,4 +314,159 @@ export async function cleanupTask(options) {
 export async function managementStatus(options) {
   const ctx = await context(options);
   return { task: await ctx.store.show(options.task), management: await loadRecord(ctx.path), claim: await ctx.store.claim(options.task) };
+}
+
+// ── Idle dispatch: handing a ready task to an agent that is ALREADY running ───
+//
+// A standing agent outlives any one task. `tm dispatch --backend idle` therefore does not launch
+// anything: it claims the task, provisions the worktree through tm exactly as every other backend
+// does, and then asks HERE for an idle agent to be bound to it.
+//
+// THE CENSUS IS A HINT; THIS RECORD IS THE AUTHORITY. The idle read and the assignment write happen
+// inside ONE critical section, because they are one decision. Check idle in the scheduler and write
+// the binding here and two ticks both see the same agent idle, both provision a worktree, and one
+// pane silently interleaves two tasks.
+//
+// The lock is REPO-WIDE (`assignment.lock`), not the per-task `<task>.json.lock` every other verb in
+// this file takes. Two different tasks racing for the same agent are the whole hazard, and two
+// per-task locks are never contended with each other, so a per-task lock would leave exactly the
+// double assignment this section exists to prevent. Same reasoning as `integration.lock`.
+//
+// ponytail: one lock for every assignment in a repository. Per-agent locks if assignment throughput
+// ever matters — it is one write per dispatched task, so it does not.
+
+const ASSIGNMENT_OUTCOMES = { DONE: 'done', BLOCKED: 'blocked', FAILED: 'failed' };
+const assignmentLock = ctx => join(ctx.root, 'assignment.lock');
+const assignmentMessageId = (ctx, task, agentId) =>
+  createHash('sha256').update(`idle-dispatch:${ctx.identity.id}:${task}:${agentId}`).digest('hex').slice(0, 32);
+
+/** Every unreleased assignment in this repository. Read under the assignment lock, never cached. */
+async function heldAssignments(ctx) {
+  const rows = [];
+  for (const name of (await readdir(ctx.root).catch(() => [])).filter(n => /^TM-[0-9]+\.json$/.test(n))) {
+    const record = await readJson(join(ctx.root, name)).catch(() => null);
+    if (record?.assignee && !record.assignee.released_at) rows.push({ task: record.task, ...record.assignee });
+  }
+  return rows;
+}
+
+/**
+ * What the assigned agent is told. It is a POINTER, never the handoff itself: the handoff is a file
+ * in the task worktree that `tm` already rendered, and a standing agent's cwd is its own agent
+ * directory by design, so the absolute path is the only thing that travels.
+ *
+ * TM_SESSION_ID is the DISPATCHING session, not a fresh synthetic id (CAP-0002). The claim on this
+ * task is held by that session; `tm` run under any other id is a stranger to its own claim, so
+ * `tm start` would refuse, `heartbeatClaim` would return null, and `ownedTask` below would reject
+ * every later `manage` call from the agent. One owned claim, one session id, no new null-session
+ * claims from this path.
+ */
+export function assignmentBody({ task, worktree, promptFile, session, agentId }) {
+  return [
+    `TASK ASSIGNMENT: ${task}`,
+    '',
+    `You are already running, so nothing was launched for this. The work is prepared:`,
+    `  worktree     ${worktree}`,
+    `  handoff      ${promptFile}`,
+    '',
+    `1. cd ${worktree}`,
+    `2. export TM_SESSION_ID=${session}   # the claim on ${task} is held by this session id; tm refuses under any other`,
+    `3. Read ${promptFile} and do exactly what it says. Close the task through the gates (\`tm done ${task}\`).`,
+    '',
+    `When you are finished, REPLY TO THIS MESSAGE. The reply is the completion signal — your session`,
+    `is not expected to exit, and nothing is watching it for death. Start the reply with one word:`,
+    `  DONE     you closed ${task} through the gates`,
+    `  BLOCKED  you could not proceed; say why on the following lines`,
+    `  FAILED   you tried and it did not work; say why on the following lines`,
+    `Anything else is recorded as FAILED. "DONE" is a claim about the store and the store gets the`,
+    `last word: if ${task} is not actually done, the result is downgraded to failed with the status`,
+    `named. Then you are free again — you are ${agentId}, not this task.`,
+  ].join('\n');
+}
+
+/** A reply body → the outcome recorded against the task. Unknown first word is an honest failure. */
+export function parseAssignmentReply(body) {
+  const text = String(body ?? '').trim();
+  const first = text.split(/\s+/, 1)[0]?.toUpperCase() ?? '';
+  return { outcome: ASSIGNMENT_OUTCOMES[first] ?? 'failed', summary: text };
+}
+
+/**
+ * Bind one idle agent to one owned task, and deliver the pointer.
+ *
+ * Refuses, in order: a task this session does not own or that tm has not provisioned; a task that
+ * already carries a live assignment; a stale census (a stale document is not old news, it is NO
+ * news — the agent it calls idle has had a minute to start working); an agent that already holds an
+ * unreleased assignment anywhere in this repository; an undeliverable pointer.
+ */
+export async function assignTaskToAgent(options) {
+  const ctx = await context(options);
+  const { task, owner, agent = null } = options;
+  invariant(nonempty(owner), 'TOPOLOGY_MANAGEMENT_ASSIGN', 'Assignment requires the dispatching session id (TM_SESSION_ID); an unowned claim cannot be handed to anyone.');
+  return withLock(assignmentLock(ctx), async () => {
+    const doc = await ownedTask(ctx, task, owner);
+    const prior = await loadRecord(ctx.path);
+    invariant(!prior?.assignee || prior.assignee.released_at,
+      'TOPOLOGY_MANAGEMENT_ASSIGNED', `${task} is already assigned to ${prior?.assignee?.agent_id}; release it before reassigning.`);
+    const census = await (options.census ?? readCensus)({ ...options, identity: ctx.identity });
+    invariant(census && !census.stale, 'TOPOLOGY_MANAGEMENT_CENSUS',
+      'No fresh liveness census for this repository; start the repository supervisor. Nothing is dispatchable from a stale or missing census.');
+    const held = new Set((await heldAssignments(ctx)).map(row => row.agent_id));
+    const free = (census.agents ?? []).filter(row => row.dispatchable && !held.has(row.agentId));
+    const pick = agent ? free.find(row => row.agentId === agent) : free[0];
+    invariant(pick, 'TOPOLOGY_MANAGEMENT_NO_IDLE_AGENT', agent
+      ? `${agent} is not an idle, unassigned agent in this repository right now.`
+      : `No idle unassigned agent in this repository. Observed: ${(census.agents ?? []).map(row => `${row.agentId}=${row.state}`).join(', ') || 'none'}.`);
+    const promptFile = options.promptFile ? (isAbsolute(options.promptFile) ? options.promptFile : join(doc.worktree, options.promptFile)) : join(doc.worktree, '.tm-dispatch-prompt.md');
+    const messageId = assignmentMessageId(ctx, task, pick.agentId);
+    // A derived id, so a retried assignment delivers nothing twice — same discipline as slot grants.
+    const mail = await (options.deliver ?? sendStandingMessage)({
+      id: messageId, consumer: ctx.store.root, fromProject: ctx.store.root, from: options.from ?? 'tm-dispatch',
+      to: pick.agentId, task, subject: `task assignment ${task}`, assignment: true,
+      body: assignmentBody({ task, worktree: doc.worktree, promptFile, session: owner, agentId: pick.agentId }),
+      provenance: { source: 'tm dispatch --backend idle' },
+    }, { env: ctx.env, home: ctx.home });
+    invariant(mail?.status === 'delivered', 'TOPOLOGY_MANAGEMENT_ASSIGN_UNDELIVERED',
+      `The assignment pointer for ${task} could not be delivered to ${pick.agentId}: ${mail?.reason ?? 'unknown'}.`);
+    const assignee = { agent_id: pick.agentId, session_name: pick.sessionName ?? null, binding: pick.binding ?? null,
+      message_id: messageId, owner, worktree: doc.worktree, prompt_file: promptFile, assigned_at: nowIso(), released_at: null };
+    const record = await recordEvent(ctx, task, prior, 'assigned', { assignee });
+    record.assignee = assignee;
+    await writeJson(ctx.path, record);
+    return { assigned: true, task, agent_id: pick.agentId, message_id: messageId, worktree: doc.worktree, prompt_file: promptFile };
+  });
+}
+
+/**
+ * The completion signal, which is the REPLY and not session death — the standing session outlives
+ * the task, which is the entire point of dispatching to it. `{ pending: true }` while the assignment
+ * is live and unanswered; a read, never a wait.
+ */
+export async function assignmentResult(options) {
+  const ctx = await context({ ...options, store: options.store ?? { root: null } });
+  const record = await loadRecord(ctx.path);
+  const assignee = record?.assignee ?? null;
+  if (!assignee) return { assigned: false, reason: `${options.task} has no idle-dispatch assignment.` };
+  if (assignee.released_at) return { assigned: false, released_at: assignee.released_at, agent_id: assignee.agent_id };
+  const mail = await (options.readMessage ?? readStandingMessage)({ id: assignee.message_id, env: ctx.env, home: ctx.home });
+  if (!mail?.reply) return { assigned: true, pending: true, agent_id: assignee.agent_id, message_id: assignee.message_id };
+  return { assigned: true, pending: false, agent_id: assignee.agent_id, message_id: assignee.message_id,
+    replied_at: mail.reply.created_at, ...parseAssignmentReply(mail.reply.body) };
+}
+
+/**
+ * Free the agent. Idempotent, and it keeps the record: an assignment that happened is history, and
+ * `heldAssignments` reads `released_at` rather than the absence of a row.
+ */
+export async function releaseAssignment(options) {
+  const ctx = await context({ ...options, store: options.store ?? { root: null } });
+  return withLock(assignmentLock(ctx), async () => {
+    const record = await loadRecord(ctx.path);
+    if (!record?.assignee) return { released: false, reason: `${options.task} has no idle-dispatch assignment.` };
+    if (record.assignee.released_at) return { released: false, already: true, agent_id: record.assignee.agent_id, released_at: record.assignee.released_at };
+    const assignee = { ...record.assignee, released_at: nowIso(), release_reason: options.reason ?? null };
+    await writeJson(ctx.path, { ...record, assignee, updated_at: assignee.released_at,
+      events: [...(record.events || []), { event: 'assignment-released', at: assignee.released_at, agent_id: assignee.agent_id, reason: assignee.release_reason }] });
+    return { released: true, agent_id: assignee.agent_id, task: options.task };
+  });
 }

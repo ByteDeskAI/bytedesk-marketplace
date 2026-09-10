@@ -98,6 +98,7 @@ Standing repository services
   presence publish|watch [--server <socket> --dir <presence-directory>]
   mailbox send|forward|inbox|outbox|resume [--agent <id> --from-project <dir> --to <id> --id <stable-id>]
   manage status|admit|report|eligible|integrate|cleanup --task <TM-id> [--file <protocol.json>]
+  manage assign|assignment|release --task <TM-id> [--agent <id>] [--prompt-file <path>]
 
 Common: --consumer defaults to the current directory; --json prints machine-readable output.
 `;
@@ -416,10 +417,13 @@ const commands = {
   async manage({ flags, positional }) {
     const ctx = context(flags), api = await import('./lib/management.mjs');
     const supplied = flags.file ? await readJson(absolutize(flags.file)) : {};
-    const options = { ...supplied, ...ctx, task: flags.task || supplied.task, owner: process.env.TM_SESSION_ID || process.env.AO_AGENT_ID };
-    const methods = { status:'managementStatus', bind:'bindTaskWorker', admit:'admitTask', report:'workerReport', eligible:'integrationEligibility', integrate:'integrateTask', cleanup:'cleanupTask' };
+    const options = { ...supplied, ...ctx, task: flags.task || supplied.task, owner: process.env.TM_SESSION_ID || process.env.AO_AGENT_ID,
+      // TM-135 idle dispatch. `agent` PINS a candidate; omitted, arbitration picks one under its own lock.
+      agent: flags.agent || supplied.agent || null, promptFile: flags['prompt-file'] || supplied.promptFile || null, reason: flags.reason || supplied.reason || null };
+    const methods = { status:'managementStatus', bind:'bindTaskWorker', admit:'admitTask', report:'workerReport', eligible:'integrationEligibility', integrate:'integrateTask', cleanup:'cleanupTask',
+      assign:'assignTaskToAgent', assignment:'assignmentResult', release:'releaseAssignment' };
     const method = methods[positional[0] || 'status'];
-    invariant(method, 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use manage status|admit|report|eligible|integrate|cleanup.');
+    invariant(method, 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use manage status|admit|report|eligible|integrate|cleanup|assign|assignment|release.');
     return out(await api[method](options));
   },
   async 'startup-check'({ flags }) {
