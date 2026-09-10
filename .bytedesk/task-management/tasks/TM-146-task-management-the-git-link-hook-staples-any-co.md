@@ -7,14 +7,14 @@ board: "bytedeskai/bytedesk-marketplace"
 title: "task-management: the git-link hook staples any commit made while a task holds the claim onto that task"
 acceptance: [{"text":"A commit whose message and branch name no task is not attached to the merely-claimed task","done":false},{"text":"A commit naming a task, or on a tm/<ID>- branch, still attaches as it does today","done":false},{"text":"A test covers the claim-only case, asserting nothing is attached","done":false}]
 evidence: []
-commits: ["TM-144","a05c993","eac8ae7","df1af22","9c765c3","f57062a"]
+commits: ["TM-144","a05c993","eac8ae7","df1af22","9c765c3","f57062a","2772d30"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "e01dd923-50ea-45d8-9911-b9d5faed94bd"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-10T02:06:21.810Z"
+updated: "2026-09-10T02:06:37.117Z"
 type: "bug"
 labels: ["plugin:task-management"]
 ---
