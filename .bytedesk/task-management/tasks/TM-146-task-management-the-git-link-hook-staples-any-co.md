@@ -7,14 +7,14 @@ board: "bytedeskai/bytedesk-marketplace"
 title: "task-management: the git-link hook staples any commit made while a task holds the claim onto that task"
 acceptance: [{"text":"A commit whose message and branch name no task is not attached to the merely-claimed task","done":true,"at":"2026-09-10T02:12:16.302Z"},{"text":"A commit naming a task, or on a tm/<ID>- branch, still attaches as it does today","done":true,"at":"2026-09-10T02:12:16.417Z"},{"text":"A test covers the claim-only case, asserting nothing is attached","done":true,"at":"2026-09-10T02:12:16.536Z"}]
 evidence: [".bytedesk/task-management/evidence/TM-146-TM-146-HANDOFF-TO-INTEGRATOR.md"]
-commits: ["TM-144","a05c993","eac8ae7","df1af22","9c765c3","f57062a","2772d30","01f7bd4"]
+commits: ["2545066","8e387d3"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "e01dd923-50ea-45d8-9911-b9d5faed94bd"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-10T02:17:28.053Z"
+updated: "2026-09-10T02:17:43.932Z"
 type: "bug"
 labels: ["plugin:task-management"]
 evidenceSources: {".bytedesk/task-management/evidence/TM-146-TM-146-HANDOFF-TO-INTEGRATOR.md":{"source":"/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-146-gitlink/.bytedesk/task-management/evidence/TM-146-HANDOFF-TO-INTEGRATOR.md","sha256":"980f68337db698e298dc92afad263fa4c3056ee05fef2d9a035af145e3c5e37e","bytes":4374,"at":"2026-09-10T02:12:16.649Z"}}
