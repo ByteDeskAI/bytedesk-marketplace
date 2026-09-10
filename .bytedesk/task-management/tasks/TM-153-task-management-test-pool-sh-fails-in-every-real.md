@@ -1,7 +1,7 @@
 ---
 id: "TM-153"
 kind: "task"
-status: "open"
+status: "in_progress"
 created: "2026-09-10T02:10:53.601Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "task-management: test-pool.sh fails in every real checkout and passes only in a detached copy"
@@ -15,7 +15,7 @@ actor: "main"
 session: "e01dd923-50ea-45d8-9911-b9d5faed94bd"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-10T03:22:08.866Z"
+updated: "2026-09-10T03:30:45.245Z"
 ---
 
 `tests/test-pool.sh` reports 17 passed / 2 failed in the canonical checkout AND in linked worktrees, and 19 passed / 0 failed in a tar or `git archive` extract of the same tree. Measured four ways: canonical checkout FAIL 2, .bytedesk/worktrees/TM-143-refusal (no TM-146 changes) FAIL 2, git archive of main PASS 19, tar of the TM-146 working tree PASS 19. So it is neither a revision difference nor TM-146's: it is the same shape as TM-152, a test whose result depends on where it runs.
