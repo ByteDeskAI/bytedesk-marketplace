@@ -58,10 +58,11 @@ node $PLUG/bin/ao-topology reviewer ensure --json
 # Both must read `responsive`. Each costs one model turn, and the proof is cached, so ask for them
 # one at a time and expect the first call to take a while.
 #
-# If a role reads unresponsive because it was MID-TURN when the probe rang, ask again rather than
-# starting over: the probe outlives the wait to its own expires_at, so the ack that agent runs at
-# its next boundary is accepted on the following check without minting a new nonce (TM-161). An
-# EXPIRED probe is still refused — a late ack counts, a stale one does not.
+# NOT YET TRUE, DO NOT RELY ON IT (TM-161 is open). The intent is that a role reading unresponsive
+# because it was MID-TURN can simply be asked again: the probe outlives the wait to its own
+# expires_at, so the next-boundary ack is accepted without minting a new nonce, while an EXPIRED
+# probe stays refused. Measured on a live pane after the fix merged, three asks in a row still read
+# unresponsive. Expect to need a lead that is idle at the instant of the ring until TM-161 closes.
 node $PLUG/bin/ao-topology role status lead --json
 node $PLUG/bin/ao-topology role status reviewer --json
 
