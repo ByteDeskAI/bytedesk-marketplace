@@ -78,6 +78,15 @@ export const CATALOG = {
       priority: "low",
       tags: "octopus",
     },
+    // TM-146. Distinct from `git_link_skipped`, which means "wrong repo". This one means the ref
+    // belonged here and no task could be named for it, and it is `min` because it is the ordinary
+    // case: most commits in a repository are not a task's evidence.
+    git_link_unattributed: {
+      group: "writes",
+      label: "A commit or PR named no task, so nothing was attached",
+      priority: "min",
+      tags: "octopus",
+    },
     plan_captured: { group: "writes", label: "An approved plan becomes an epic", priority: "default", tags: "clipboard" },
     goal_imported: { group: "writes", label: "A goal doc becomes a task, its success criteria the gate", priority: "default", tags: "dart" },
     // High priority: a program that failed to land is the operator's problem now, not a footnote.

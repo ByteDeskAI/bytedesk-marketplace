@@ -88,6 +88,35 @@ has "$(tm show TM-001 --json)" '"commits"' "a commit on a tm/ branch links to it
 [[ "$(tm show TM-001 --json | jq '.commits | length')" -ge 1 ]] && ok "the sha is attached" || no "the sha is attached"
 [[ "$(tm show TM-002 --json | jq '.commits | length')" == 0 ]] && ok "unrelated tasks stay untouched" || no "unrelated tasks stay untouched"
 
+# ── a claim is not evidence about a ref (TM-146) ──────────────────────────────
+# The commit-side path used to fall back to whatever task held the claim when the message named no
+# task. So a commit that touched something else entirely was recorded against it: TM-140 and TM-141
+# each collected TM-142's merge and a rules commit, while the commit carrying their own fix was
+# absent. A claim says who is working; a ref says what changed.
+#
+# The branch-name case above is the sibling that already behaved correctly, so it is not repeated
+# here — this block is the claim-only case and the explicit-mention control.
+git -C "$TM_ROOT" add -A >/dev/null 2>&1 && git -C "$TM_ROOT" commit -qm "store churn" >/dev/null 2>&1
+git -C "$TM_ROOT" checkout -q -b chore/no-task-here
+tm start TM-002 >/dev/null 2>&1
+BEFORE_1="$(tm show TM-001 --json | jq '.commits | length')"
+BEFORE_2="$(tm show TM-002 --json | jq '.commits | length')"
+echo z >> "$TM_ROOT/a.txt" && git -C "$TM_ROOT" add . && git -C "$TM_ROOT" commit -qm "tidy up the fixtures"
+CLAUDE_PROJECT_DIR="$TM_ROOT" hook post-bash '{"tool_name":"Bash","tool_input":{"command":"git commit -m \"tidy up the fixtures\""}}' >/dev/null
+[[ "$(tm show TM-002 --json | jq '.commits | length')" == "$BEFORE_2" ]] \
+  && ok "a commit naming no task, on a branch naming no task, attaches nothing to the CLAIMED task" \
+  || no "a commit naming no task, on a branch naming no task, attaches nothing to the CLAIMED task"
+[[ "$(tm show TM-001 --json | jq '.commits | length')" == "$BEFORE_1" ]] \
+  && ok "and nothing to any other task either" \
+  || no "and nothing to any other task either"
+has "$(cat "$TM_ROOT/.bytedesk/task-management/events.jsonl")" "git_link_unattributed" "the unattributed commit is on the record, not silent"
+
+# The explicit signal must still work from this same branch, or the fix would be a regression.
+CLAUDE_PROJECT_DIR="$TM_ROOT" hook post-bash '{"tool_name":"Bash","tool_input":{"command":"git commit -m \"fix the parser for TM-002\""}}' >/dev/null
+[[ "$(tm show TM-002 --json | jq '.commits | length')" -gt "$BEFORE_2" ]] \
+  && ok "a commit that NAMES its task still attaches, claim or no claim" \
+  || no "a commit that NAMES its task still attaches, claim or no claim"
+
 # ── a ref never crosses repos (TM-036) ───────────────────────────────────────
 # The store resolves from CLAUDE_PROJECT_DIR while the shell sits wherever it sits. When those are
 # two different repos, `gh pr create` used to staple one project's pull request onto the other
