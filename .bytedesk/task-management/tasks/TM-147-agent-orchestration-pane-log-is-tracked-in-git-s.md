@@ -7,14 +7,14 @@ board: "bytedeskai/bytedesk-marketplace"
 title: "agent-orchestration: pane.log is tracked in git, so every agent action permanently dirties the shared checkout"
 acceptance: [{"text":"pane.log files are gitignored and no longer tracked","done":false},{"text":"The logs still exist on disk and are still written","done":false},{"text":"git status in the shared checkout is clean when no agent has pending work","done":false}]
 evidence: []
-commits: ["c87d2f9","2772d30","01f7bd4","ffa3355","c6eb20c"]
+commits: ["c87d2f9","2772d30","01f7bd4","ffa3355","c6eb20c","4a646cc"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "2ee26155-9e57-4cf8-8bc4-a8379f88e5a4"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-10T02:31:42.528Z"
+updated: "2026-09-10T03:10:27.024Z"
 type: "bug"
 labels: ["plugin:agent-orchestration"]
 ---
