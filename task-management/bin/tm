@@ -62,7 +62,7 @@ import { FORMATS, exportStore } from "../lib/export.mjs";
 import { MAX_TOUCHES, observe, record } from "../lib/touches.mjs";
 import { importGoalDoc, importManifest } from "../lib/goal-import.mjs";
 import { batches } from "../lib/parallel.mjs";
-import { attachEvidence, evidenceSyncReport } from "../lib/evidence.mjs";
+import { attachEvidence, evidenceSyncReport, detachEvidence } from "../lib/evidence.mjs";
 import { capturePlan as saveCapturedPlan } from "../lib/plans.mjs";
 import { detectHostCaps, renderCaps } from "../lib/hostcaps.mjs";
 import { heartbeatAgent, listAgents, reapDeadWorkers, renderAgents } from "../lib/agents.mjs";
@@ -706,8 +706,27 @@ const VERBS = {
       const rows = entities.flatMap((e) => evidenceSyncReport(e, P).map((s) => ({ id: e.id, ...s })));
       return emit(rows, () => renderEvidenceCheck(rows));
     }
-    if (!id) die("usage: tm evidence <id> <path|->   |   tm evidence [<id>] --check");
-    read(id, P) || die(`not found: ${id}`);
+    if (!id) die("usage: tm evidence <id> <path|->   |   tm evidence [<id>] --check   |   tm evidence <id> --detach <ref>");
+    const doc = read(id, P) || die(`not found: ${id}`);
+    // TM-166. `detachEvidence` has always existed in lib/evidence.mjs and was never reachable from
+    // the CLI, so a wrong attach could only be undone by hand-editing the record — which is exactly
+    // what I had to do after re-attaching TM-131 recreated a doubled file. A surface that can create
+    // a state and not undo it pushes people into editing the store directly, which bypasses the
+    // validation and the event log that make the store trustworthy.
+    //
+    // The REF is detached; the FILE stays. Deleting is a separate and destructive act, and since
+    // TM-166 a file may legitimately be referenced by more than one task — an artifact covering two
+    // of them is referenced by both, not copied twice.
+    if (args.includes("--detach")) {
+      const wanted = args[args.indexOf("--detach") + 1];
+      if (!wanted || wanted.startsWith("--")) die("usage: tm evidence <id> --detach <ref>");
+      const refs = doc.evidence || [];
+      const match = refs.filter((r) => r === wanted || r.endsWith(`/${wanted}`));
+      if (match.length === 0) die(`${id} has no evidence matching ${wanted}\n  it has: ${refs.join("\n          ") || "(none)"}`);
+      if (match.length > 1) die(`${wanted} matches ${match.length} refs on ${id}; name one exactly:\n  ${match.join("\n  ")}`);
+      const left = detachEvidence(id, match[0], P);
+      return out(`${id} detached ${match[0]}\n  the file is left on disk; ${left.length} evidence ref(s) remain`);
+    }
     const source = path && path !== "-" ? { path } : { text: readFileSync(0, "utf8") };
     const { ref, provenance } = attachEvidence(id, source, P);
     out(`${id} evidence: ${ref}${provenance?.source ? `\n  from ${provenance.source} (sha256 ${provenance.sha256.slice(0, 12)})` : ""}`);

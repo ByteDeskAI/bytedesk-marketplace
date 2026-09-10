@@ -3,6 +3,24 @@
 ## Unreleased
 
 ### Fixed
+- **`tm evidence` no longer duplicates a shared or re-attached artifact** (TM-166). TM-145 stopped
+  the same-id double prefix; three related holes remained, and together they are how this store grew
+  its doubled files.
+  - **A source already inside `evidence/` is referenced, not copied.** Re-attaching to refresh a
+    drifted hash — the remedy `doctor` itself suggests — used to write a second file under a new
+    name. There is nothing to copy when the source IS the destination, and `copyFileSync` onto
+    itself would truncate the file it is reading.
+  - **The leading id-run is read, not just the first id.** `TM-130-131-INTEGRATION.md` names both
+    130 and 131, so attaching it to either stores it once. TM-145's strictness is kept: `TM-1` still
+    cannot claim `TM-14-NOTES.md`, and a task the run does not name is still prefixed, because an
+    artifact filing itself under the wrong task is worse than a doubled name.
+  - **A ref is recorded once.** Re-attaching appended a second identical entry; TM-130's array
+    carried the same path twice for exactly that reason.
+  - **`tm evidence <id> --detach <ref>` exists.** `detachEvidence` had always been in the library
+    and was never reachable from the CLI, so undoing a wrong attach meant hand-editing the store —
+    which bypasses the validation and event log that make it trustworthy. The **ref** is detached and
+    the **file** is left: deleting is separate and destructive, and since this change a file may be
+    referenced by more than one task.
 - **A heredoc commit message no longer floods the command string** (TM-159). TM-154 made the commit
   message readable and then took the UNION of message and command string, which left the looser
   source in charge — and given how these commits are written, that source holds the entire body: the

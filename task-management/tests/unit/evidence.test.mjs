@@ -59,6 +59,58 @@ describe("dest + ref", () => {
     assert.equal(of(t.id, "REPORT.md"), join(p.evidence, `${t.id}-REPORT.md`), "the ordinary case is untouched");
   });
 
+  // TM-166. TM-145 covered the SAME-id case. An artifact that covers SEVERAL tasks starts with a
+  // different task's id, so attaching it to the second one prefixed it again — which is how this
+  // store grew TM-141-TM-140-141-… and TM-131-TM-130-131-…, and how I recreated one of them while
+  // clearing a drift warning.
+  it("does not prefix when the leading id-run already names this task", () => {
+    const p = store();
+    const of = (id, filename) => evidenceDest(id, { path: join(p.root, filename) }, p).dest;
+    assert.equal(of("TM-131", "TM-130-131-INTEGRATION.md"), join(p.evidence, "TM-130-131-INTEGRATION.md"),
+      "the run names 131, so this artifact is already named for this task");
+    assert.equal(of("TM-130", "TM-130-131-INTEGRATION.md"), join(p.evidence, "TM-130-131-INTEGRATION.md"),
+      "and it is named for 130 too — one file, referenced by both");
+    assert.equal(of("TM-9", "TM-130-131-INTEGRATION.md"), join(p.evidence, "TM-9-TM-130-131-INTEGRATION.md"),
+      "a task the run does NOT name is still prefixed, or an artifact would file itself under the wrong task");
+  });
+
+  it("references a source already inside the evidence directory instead of copying it", () => {
+    // A re-attach (the remedy `doctor` itself suggests for a drifted hash) and a shared-artifact
+    // attach both name a file that is already here. Copying produced a second file under a new name.
+    const p = store();
+    const t = task(p);
+    const inside = join(p.evidence, "TM-500-501-SHARED.md");
+    writeFileSync(inside, "shared\n");
+    const { dest, ref } = evidenceDest(t.id, { path: inside }, p);
+    assert.equal(dest, inside, "there is nothing to copy — the file is already the destination");
+    assert.equal(ref, `.bytedesk/task-management/evidence/TM-500-501-SHARED.md`);
+  });
+
+  it("records a ref once, however many times the same artifact is attached", () => {
+    // TM-130's array carried the same path twice, because re-attaching appended a second entry.
+    const p = store();
+    const t = task(p);
+    const src = join(p.root, "PROOF.md");
+    writeFileSync(src, "proof\n");
+    attachEvidence(t.id, { path: src }, p);
+    const stored = join(p.evidence, `${t.id}-PROOF.md`);
+    attachEvidence(t.id, { path: stored }, p);
+    attachEvidence(t.id, { path: stored }, p);
+    const doc = read(t.id, p);
+    assert.deepEqual(doc.evidence, [`.bytedesk/task-management/evidence/${t.id}-PROOF.md`]);
+  });
+
+  it("detaches a ref and leaves the file, because a file may be shared", () => {
+    const p = store();
+    const t = task(p);
+    const src = join(p.root, "PROOF.md");
+    writeFileSync(src, "proof\n");
+    const { ref } = attachEvidence(t.id, { path: src }, p);
+    const left = detachEvidence(t.id, ref, p);
+    assert.deepEqual(left, []);
+    assert.ok(existsSync(join(p.evidence, `${t.id}-PROOF.md`)), "detaching a ref must never delete the artifact");
+  });
+
   it("requires the separator, so a short id cannot swallow a longer one's prefix", () => {
     // Without the separator `TM-1` matches the start of `TM-14-NOTES.md`, and the file lands under
     // the wrong task with a name that looks deliberate.

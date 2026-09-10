@@ -123,8 +123,30 @@ export function evidenceDest(id, source = {}, p) {
   //
   // Matched case-insensitively and only at the START, with the separator required. `TM-1` must not
   // swallow the prefix of `TM-14-NOTES.md`, so the id has to be followed by `-` or `_` or `.`.
-  const prefixed = new RegExp(`^${id}[-_.]`, "i").test(leaf);
-  const dest = join(p.evidence, prefixed ? leaf : `${id}-${leaf}`);
+  // TM-166, part one: A SOURCE ALREADY INSIDE THE EVIDENCE DIRECTORY IS REFERENCED, NEVER RECOPIED.
+  // Re-attaching to clear a drift warning, or attaching a shared artifact to the second task it
+  // covers, both name a file that is already here. Copying it produced a second file under a new
+  // name — which is how this store grew `TM-141-TM-140-141-…` and `TM-131-TM-130-131-…`, and how I
+  // recreated one of them while clearing a drift warning an hour ago. There is nothing to copy.
+  const origin = source.path && source.path !== "-" ? resolve(source.path) : null;
+  if (origin && origin.startsWith(resolve(p.evidence) + sep)) {
+    return { dest: origin, ref: refFor(origin, p) };
+  }
+  // TM-145 + TM-166 part two: the prefix is skipped when the leading id-run ALREADY NAMES THIS TASK.
+  //
+  // TM-145 covered the same-id case (`TM-144-REPORT.md` for TM-144) with a strict
+  // `^<id><separator>` test, so that `TM-1` could not swallow `TM-14-NOTES.md`. That strictness is
+  // right and is kept. What it missed is the artifact that covers SEVERAL tasks:
+  // `TM-130-131-INTEGRATION-VERIFICATION.md` starts with TM-130, so attaching it to TM-131 prefixed
+  // it again.
+  //
+  // So read the whole leading run of ids — `TM-130-131-` yields 130 and 131 — and skip the prefix
+  // when this task is one of them. `TM-14-NOTES.md` yields only 14, so TM-1 is still prefixed and
+  // still cannot claim it.
+  const run = /^TM-(\d+(?:-\d+)*)[-_.]/i.exec(leaf);
+  const named = run ? run[1].split("-") : [];
+  const mine = String(id).replace(/^TM-/i, "");
+  const dest = join(p.evidence, named.includes(mine) ? leaf : `${id}-${leaf}`);
   return { dest, ref: refFor(dest, p) };
 }
 
@@ -138,7 +160,10 @@ export function attachEvidence(id, source, p) {
   let origin = null;
   if (source.path && source.path !== "-") {
     origin = resolve(source.path);
-    copyFileSync(origin, dest);
+    // TM-166: when the source IS the destination — a re-attach, or a shared artifact attached to
+    // the second task it covers — there is nothing to copy, and copyFileSync onto itself would
+    // truncate the file it is reading. Referencing it is the whole point.
+    if (origin !== dest) copyFileSync(origin, dest);
   } else if (source.buffer != null) {
     writeFileSync(dest, source.buffer);
   } else if (source.content != null) {
@@ -152,7 +177,11 @@ export function attachEvidence(id, source, p) {
    */
   const record = { source: origin, sha256: hashFile(dest), bytes: sizeOf(dest), at: new Date().toISOString() };
   mutate(id, (doc) => ({
-    evidence: [...(doc.evidence || []), ref],
+    // TM-166: a ref appears ONCE. Re-attaching the same artifact — to refresh a drifted hash, which
+    // is the documented remedy `doctor` itself suggests — used to append a second identical entry.
+    // TM-130's array carried the same path twice for exactly this reason. The provenance map is
+    // keyed by ref and already overwrites, so only the list needed saying.
+    evidence: [...new Set([...(doc.evidence || []), ref])],
     [PROVENANCE]: { ...(doc[PROVENANCE] || {}), [ref]: record },
   }), p);
   return { dest, ref, provenance: record };
