@@ -117,6 +117,38 @@ CLAUDE_PROJECT_DIR="$TM_ROOT" hook post-bash '{"tool_name":"Bash","tool_input":{
   && ok "a commit that NAMES its task still attaches, claim or no claim" \
   || no "a commit that NAMES its task still attaches, claim or no claim"
 
+# ── the message is not the command string (TM-154) ────────────────────────────
+# linkGit read only the Bash command, so `git commit -F <file>` and heredocs attached NOTHING
+# however clearly the message named its task. The merge commit for TM-146 itself was unattributed
+# for exactly this reason. -F is the case that matters: it is what anyone writing a real message uses.
+BEFORE_1="$(tm show TM-001 --json | jq '.commits | length')"
+printf 'TM-001: a subject that names its task\n\nBody text that names nothing.\n' > "$TM_ROOT/msg.txt"
+echo m1 >> "$TM_ROOT/a.txt" && git -C "$TM_ROOT" add . && git -C "$TM_ROOT" commit -q -F "$TM_ROOT/msg.txt"
+CLAUDE_PROJECT_DIR="$TM_ROOT" hook post-bash '{"tool_name":"Bash","tool_input":{"command":"git commit -F msg.txt"}}' >/dev/null
+[[ "$(tm show TM-001 --json | jq '.commits | length')" -gt "$BEFORE_1" ]] \
+  && ok "a -F commit whose SUBJECT names the task attaches" \
+  || no "a -F commit whose SUBJECT names the task attaches"
+
+# A trailer is the other explicit form, and the one this repo actually writes.
+BEFORE_2="$(tm show TM-002 --json | jq '.commits | length')"
+printf 'chore: tidy the fixtures\n\nSome prose.\n\nRefs: TM-002\n' > "$TM_ROOT/msg2.txt"
+echo m2 >> "$TM_ROOT/a.txt" && git -C "$TM_ROOT" add . && git -C "$TM_ROOT" commit -q -F "$TM_ROOT/msg2.txt"
+CLAUDE_PROJECT_DIR="$TM_ROOT" hook post-bash '{"tool_name":"Bash","tool_input":{"command":"git commit -F msg2.txt"}}' >/dev/null
+[[ "$(tm show TM-002 --json | jq '.commits | length')" -gt "$BEFORE_2" ]] \
+  && ok "a Refs: trailer attaches" \
+  || no "a Refs: trailer attaches"
+
+# The body is NOT read, or TM-146's over-attachment returns by another route: bodies in this repo
+# routinely reason about other tasks in prose, and a mention is not a statement about what changed.
+BEFORE_1="$(tm show TM-001 --json | jq '.commits | length')"
+printf 'chore: something unrelated\n\nThis is the same shape as TM-001 defence 2, discussed at length.\n' > "$TM_ROOT/msg3.txt"
+echo m3 >> "$TM_ROOT/a.txt" && git -C "$TM_ROOT" add . && git -C "$TM_ROOT" commit -q -F "$TM_ROOT/msg3.txt"
+CLAUDE_PROJECT_DIR="$TM_ROOT" hook post-bash '{"tool_name":"Bash","tool_input":{"command":"git commit -F msg3.txt"}}' >/dev/null
+[[ "$(tm show TM-001 --json | jq '.commits | length')" == "$BEFORE_1" ]] \
+  && ok "a task merely DISCUSSED in the body attaches nothing" \
+  || no "a task merely DISCUSSED in the body attaches nothing"
+has "$(cat "$TM_ROOT/.bytedesk/task-management/events.jsonl")" "git_link_unattributed" "and it is recorded as unattributed, not silent"
+
 # ── a ref never crosses repos (TM-036) ───────────────────────────────────────
 # The store resolves from CLAUDE_PROJECT_DIR while the shell sits wherever it sits. When those are
 # two different repos, `gh pr create` used to staple one project's pull request onto the other

@@ -3,6 +3,19 @@
 ## Unreleased
 
 ### Fixed
+- **A commit written with `-F` or a heredoc now attaches** (TM-154). `linkGit` selected its target
+  from the Bash COMMAND STRING and never read the message, so `git commit -F <file>` — what anyone
+  writing a real message uses — attached nothing however clearly the subject named its task. The
+  merge commit for TM-146 itself was unattributed for this reason, and so was most of an integrator
+  session's output. It now reads `git log -1 --format=%B` after the fact; the hook already asks git
+  for the ref at that point, so the commit exists.
+  - **TM-146's rule is intact.** A message naming a task is an EXPLICIT statement about what
+    changed, which is what TM-146 required; a claim is not. This is a second explicit signal, not a
+    restored guess.
+  - **Only the subject and an explicit trailer are read**, never the whole body. Bodies here
+    routinely discuss other tasks in prose — "the same shape as TM-135's defence 2" — and attaching
+    a ref to every id someone reasoned about would recreate TM-146's over-attachment by another
+    route. `Refs:`, `Closes:`, `Fixes:` and `Task:` count; a mention in the prose does not.
 - **A claim no longer attaches a ref to a task** (TM-146). `linkGit`'s commit path fell back to
   whatever task held the claim when the message named no task, so any commit made while a task was
   in progress was recorded against it regardless of what it touched. TM-140 and TM-141 each

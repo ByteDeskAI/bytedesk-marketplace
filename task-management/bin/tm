@@ -2097,12 +2097,46 @@ function commandCheckout(cmd) {
 }
 
 /** git commit / gh pr create → attach the ref to the task it mentions or the active claim. */
+/**
+ * The task ids a commit MESSAGE names, read after the fact from the commit that just landed.
+ *
+ * `git log -1 --format=%B` is safe to run here: the PostToolUse hook fires after `git commit`
+ * returns, and `linkGit` already asks git for the ref at this point, so the commit exists.
+ *
+ * Deliberately narrow — the subject line, plus any explicit trailer. See the comment in `linkGit`
+ * for why the body is not read.
+ */
+function idsFromCommitMessage() {
+  const body = git(["log", "-1", "--format=%B"]);
+  if (!body) return [];
+  const lines = String(body).split(/\r?\n/);
+  const subject = lines[0] || "";
+  const trailers = lines.filter((line) => /^\s*(refs?|closes|fixes|task)\s*:/i.test(line));
+  return [subject, ...trailers].flatMap((line) => line.match(/\bTM-\d+\b/g) || []);
+}
+
 function linkGit(input) {
   if (!config(P).gitLink) return;
   const cmd = String(input.tool_input?.command || "");
   if (!/\bgit\s+commit\b|\bgh\s+pr\s+create\b/.test(cmd)) return;
 
-  const mentioned = cmd.match(/\bTM-\d+\b/g) || [];
+  const isPRCommand = /gh\s+pr\s+create/.test(cmd);
+  // TM-154. THE COMMAND STRING IS NOT THE MESSAGE. `git commit -F <file>` and a heredoc put the
+  // message somewhere this hook cannot see, so a commit whose subject names its task attached
+  // NOTHING — including the merge commit for TM-146 itself, whose subject reads "Merge TM-146: a
+  // claim no longer attaches a ref to a task". Every commit an integrator writes with -F was
+  // unattributed, which is most of them, because a good message is too long to type inline.
+  //
+  // TM-146's rule is intact and this is why: a message naming a task is an EXPLICIT statement about
+  // what changed, which is exactly what TM-146 required. A claim is not. This adds a second explicit
+  // signal; it does not restore the guess.
+  //
+  // Only the SUBJECT and an explicit trailer are read — never the whole body. Bodies in this repo
+  // routinely discuss other tasks in prose ("the same shape as TM-135's defence 2"), and attaching a
+  // ref to every id someone reasoned about would recreate TM-146's over-attachment by a different
+  // route. The subject says what this commit IS; `Refs:`/`Closes:`/`Fixes:`/`Task:` say what it is
+  // deliberately filed against.
+  const mentioned = [...(cmd.match(/\bTM-\d+\b/g) || []), ...(isPRCommand ? [] : idsFromCommitMessage())];
   // Branch first: `tm/TM-014-…` is unambiguous and needs no discipline in the message.
   const fromBranch = (git(["rev-parse", "--abbrev-ref", "HEAD"]).match(/\bTM-\d+\b/) || [])[0];
 
@@ -2124,7 +2158,7 @@ function linkGit(input) {
    * A cross-repo reference is a real thing worth recording, but it is a link that names the other
    * repo, not a commit on a task that never touched it.
    */
-  const isPR = /gh\s+pr\s+create/.test(cmd);
+  const isPR = isPRCommand;
   const url = isPR ? (String(input.tool_response?.stdout || "").match(/https:\/\/\S+/) || [""])[0] : "";
   // A `gh pr create` that printed no URL says nothing about which repo it hit, so there is nothing
   // safe to attribute. The old `|| "pr"` fallback wrote the literal string as a ref: it deduped
