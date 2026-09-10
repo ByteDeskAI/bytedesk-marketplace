@@ -1,7 +1,7 @@
 ---
 id: "TM-160"
 kind: "task"
-status: "blocked"
+status: "open"
 created: "2026-09-10T03:59:08.399Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "agent-orchestration: the styled composer check reaches the ring gate but not the landing verdict, so a delivered message reports stuck-in-composer"
@@ -15,8 +15,8 @@ actor: "main"
 session: "e01dd923-50ea-45d8-9911-b9d5faed94bd"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-10T04:10:15.282Z"
-blockedReason: "Fixed on the same branch as TM-161: tm/TM-161-late-ack, commit faae463. The landing verdict now takes the same styled look the ring gate takes — one extra capture, only when the plain check said 'not empty'. AC4 ('driven on a live pane') stays unticked: the failure was observed live, and the fix should be too, which needs the merge first. Three instances now of a fix reaching one of two callers — TM-146, TM-156 and this — which is worth a rule rather than a third task."
+updated: "2026-09-10T04:14:27.792Z"
+comments: [{"author":"main","ts":"2026-09-10T04:14:27.787Z","text":"MERGED at 8be9365 as part of the same branch, and NOT closed. Its live-pane criteria stay unticked for the same reason as its sibling: the fix is in, no live run has happened since, and a unit test is not a live verification.\n\nThe defect: the styled composer check reached the RING GATE but not the LANDING VERDICT, so a message that had actually been delivered reported stuck-in-composer while the reply sat in the outbox. Both paths now ask the same question.\n\nThat is the THIRD instance this epic of a fix reaching one of two callers — after the stray-flag guard that epic new carried and edit never received. Two instances were incidents; three is a class, and it now has a rule rather than another task: .claude/rules/verification-that-can-fail.md, merged at b53f5a4.\n\nGates on the merged tree: topology 361/361, unit 538 tests / 534 pass / 4 skipped, build:check 0."}]
 ---
 
 Found by running the demo against MERGED main — an integration check the earlier runs could not perform, because they ran from worktrees.
