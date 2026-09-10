@@ -332,6 +332,26 @@ printf '## Notes\nfrom a pipe\n' | tm edit "$EDITID" --body - >/dev/null
 assert_contains "$(tm show "$EDITID")" "from a pipe" "--body - reads the body from stdin"
 tm edit "$EDITID" 2>/dev/null && no "edit with nothing to change is refused" || ok "edit with nothing to change is refused"
 
+# TM-156. The title is positional, so `--title "X"` used to land the LITERAL string `--title` in the
+# field and throw X away — while reporting "title updated (was …)", which names the OLD title and
+# reads exactly like success. Two agents in one session believed it. TM-155 sat on the board reading
+# `--title` until someone repaired the frontmatter by hand.
+tm edit "$EDITID" --title "a title passed by flag" >/dev/null
+assert_contains "$(tm show "$EDITID")" "a title passed by flag" "--title <value> retitles"
+[[ "$(tm show "$EDITID" --json | jq -r .title)" != "--title" ]] \
+  && ok "the flag NAME is never written into the title" \
+  || no "the flag NAME is never written into the title"
+assert_contains "$(tm edit "$EDITID" "back to positional")" 'was "a title passed by flag"' "the positional form still works"
+
+# The half that matters more than the flag: a malformed invocation must fail LOUDLY rather than
+# writing something plausible into a field nobody re-reads.
+BEFORE_TITLE="$(tm show "$EDITID" --json | jq -r .title)"
+tm edit "$EDITID" --titel "a typo" 2>/dev/null && no "an unknown option is refused" || ok "an unknown option is refused"
+tm edit "$EDITID" --title 2>/dev/null && no "--title with no value is refused" || ok "--title with no value is refused"
+[[ "$(tm show "$EDITID" --json | jq -r .title)" == "$BEFORE_TITLE" ]] \
+  && ok "and a refused edit changes nothing" \
+  || no "and a refused edit changes nothing" "title became $(tm show "$EDITID" --json | jq -r .title)"
+
 tm epic new "A destination epic" >/dev/null
 DEST="$(tm find "A destination epic" --json | jq -r '.[0].id')"
 assert_contains "$(tm move "$EDITID" "$DEST")" "moved" "move refiles under another epic"

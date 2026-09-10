@@ -146,6 +146,7 @@ function renderEvidenceCheck(rows) {
   return lines.join("\n");
 }
 
+const USAGE_EDIT = 'usage: tm edit <id> "<new title>" [--body <text|->]   (or --title "<new title>")';
 const USAGE_TASK_NEW = 'usage: tm task new "<title>" [--body <text|->] [--ac "<criterion>"]...';
 
 /** The checkout we're standing in — which is NOT the store root when we're in a worktree. */
@@ -993,13 +994,35 @@ const VERBS = {
    */
   edit(id, ...rest) {
     requireInit();
-    const bodyAt = rest.indexOf("--body");
-    const title = bodyAt === -1 ? rest[0] : rest.slice(0, bodyAt)[0];
+    // TM-156. The title is POSITIONAL, so `tm edit <id> --title "X"` — which is what anyone who has
+    // met a CLI before will type — put the literal string `--title` in rest[0] and set the title to
+    // it, discarding X. It even reported success: "title updated (was …)" names the OLD title, and
+    // both agents who hit this read that as confirmation. TM-155 sat on the board reading `--title`
+    // until an integrator repaired the frontmatter by hand.
+    //
+    // So `--title <value>` is now accepted alongside the positional form, and — this is the half
+    // that matters — an unrecognised `--flag` DIES instead of being written into a field. That is
+    // the same guard `epic new` already carries, added for the same reason after EP-017 was created
+    // with `--body` baked into its name.
+    const takeFlag = (name) => {
+      const at = rest.indexOf(name);
+      if (at === -1) return undefined;
+      const given = rest[at + 1];
+      if (given === undefined || given.startsWith("--")) die(`${name} needs a value\n${USAGE_EDIT}`);
+      rest.splice(at, 2);
+      return given;
+    };
+    const flagTitle = takeFlag("--title");
     let body;
+    const bodyAt = rest.indexOf("--body");
     if (bodyAt !== -1) {
       const given = rest[bodyAt + 1];
       body = given === undefined || given === "-" ? readFileSync(0, "utf8") : given;
+      rest.splice(bodyAt, given === undefined ? 1 : 2);
     }
+    const stray = rest.find((word) => word.startsWith("--"));
+    if (stray) die(`unknown option ${stray}\n${USAGE_EDIT}`);
+    const title = flagTitle ?? rest[0];
     if (title === undefined && body === undefined) die('nothing to change — pass a title, or --body [text|-]');
     const res = editTask(id, { title, body }, P);
     emit(res, () =>
