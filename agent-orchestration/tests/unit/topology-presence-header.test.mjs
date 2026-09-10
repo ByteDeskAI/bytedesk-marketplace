@@ -131,3 +131,88 @@ test("a live reading is confirmed strictly before the snapshot was generated", a
   assert.ok(live.some((agent) => agent.activity.observedAt < full.generatedAt),
     "at least one live reading must show the census lag the field exists to express");
 });
+
+test("TM-138: the producer emits the additive header keys, and the FROZEN validator still accepts the result", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "ao-presence-keys-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const consumer = join(root, "repo");
+  await mkdir(consumer);
+  const stateHome = join(root, "state");
+  const env = { AGENT_ORCHESTRATION_STATE_HOME: stateHome };
+  const home = join(root, "home");
+  const pane = { serverKey: "/tmp/test.sock", serverPid: 100, sessionId: "$1", sessionCreated: 200,
+    paneId: "%1", panePid: 301, sessionName: "display-1", command: "claude", alive: true };
+  const panes = [pane];
+
+  await put(join(consumer, ".bytedesk/agent-orchestration/agents/work0001/agent.json"),
+    { id: "work0001", full_name: "Person work0001", title: "Engineer", role: "worker" });
+  await put(join(consumer, ".bytedesk/agent-orchestration/runs/root/run.json"), {
+    run_id: "root", name: "root", run_dir: join(consumer, ".bytedesk/agent-orchestration/runs/root"),
+    consumer, parent: null, depth: 0, agents: [{ id: "work0001", role: "worker", binding: pane }],
+  });
+
+  // Publish once to learn the repository key rather than guessing how the id is hashed.
+  const first = await publishPresence({ consumer, env, home, listPanesFn: async () => panes });
+  const key = first.repositoryKey;
+  assert.ok(key, "precondition: the snapshot names its repository key");
+
+  // Now write the state each additive key is read FROM. Slot and management records are read
+  // directly by the producer, which is the point: it must not call the mutating readers.
+  await put(join(stateHome, "slots", key, "integration.json"), {
+    version: 1, name: "integration", repo_id: "x", next_ticket: "2",
+    holder: { agent_id: "work0001", granted_at: "2026-09-09T21:06:41.000Z" },
+    queue: [{ agent_id: "other001" }], history: [],
+  });
+  await put(join(stateHome, "census", `${key}.json`), {
+    at: new Date().toISOString(), staleAfterMs: 45000,
+    agents: [{ agent_id: "work0001", state: "working", since: "2026-09-09T21:12:55.100Z", observed: true }],
+  });
+  await put(join(stateHome, "management", key, "TM-999.json"), {
+    task: "TM-999", assignee: { agent_id: "work0001", released_at: null },
+  });
+
+  const snapshot = await publishPresence({ consumer, env, home, listPanesFn: async () => panes });
+  const agent = snapshot.agents.find((a) => a.agentId === "work0001");
+  assert.ok(agent, "precondition: the agent is in the snapshot at all");
+
+  assert.equal(agent.activity?.state, "working", "activity comes from the census");
+  assert.ok(agent.activity?.observedAt, "activity says WHEN it was confirmed (gateway defect D1)");
+  assert.notEqual(agent.activity.observedAt, agent.activity.since, "observedAt is not a copy of since");
+  assert.equal(agent.task, "TM-999", "task comes from the management assignee");
+  assert.deepEqual(agent.slots?.held, ["integration"], "a held slot is reported");
+  assert.deepEqual(snapshot.slotQueues, [
+    { name: "integration", holder: "work0001", heldSince: "2026-09-09T21:06:41.000Z", waiting: ["other001"] },
+  ], "slotQueues is a TOP-LEVEL key, not an agent one");
+
+  // The whole point of the addendum: none of this is visible to a v1 consumer. Run the FROZEN
+  // validator, unmodified, over the producer's REAL output rather than over a hand-written fixture.
+  const file = join(root, "produced.json");
+  await writeFile(file, JSON.stringify(snapshot, null, 2));
+  const verdict = await python([join(frozen, "validate_presence.py"), file]);
+  assert.match(verdict.stdout, /conform to Presence v1/, "the extended snapshot must still be valid v1");
+});
+
+test("TM-138: an agent with no slot, census, assignment or mail carries none of those keys", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "ao-presence-sparse-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const consumer = join(root, "repo");
+  await mkdir(consumer);
+  const env = { AGENT_ORCHESTRATION_STATE_HOME: join(root, "state") };
+  const home = join(root, "home");
+  const pane = { serverKey: "/tmp/test.sock", serverPid: 100, sessionId: "$9", sessionCreated: 200,
+    paneId: "%9", panePid: 309, sessionName: "display-9", command: "claude", alive: true };
+  await put(join(consumer, ".bytedesk/agent-orchestration/agents/lone0001/agent.json"),
+    { id: "lone0001", full_name: "Lone", title: "Engineer", role: "worker" });
+  await put(join(consumer, ".bytedesk/agent-orchestration/runs/root/run.json"), {
+    run_id: "root", name: "root", run_dir: join(consumer, ".bytedesk/agent-orchestration/runs/root"),
+    consumer, parent: null, depth: 0, agents: [{ id: "lone0001", role: "worker", binding: pane }],
+  });
+  const snapshot = await publishPresence({ consumer, env, home, listPanesFn: async () => [pane] });
+  const agent = snapshot.agents.find((a) => a.agentId === "lone0001");
+  // Absent, never a placeholder. A null `task` or an empty `slots` would invite a consumer to
+  // conclude something was measured and found empty, which is not what happened.
+  for (const key of ["activity", "mailboxDepth", "task", "slots"]) {
+    assert.equal(key in agent, false, `${key} must be ABSENT when the producer does not know it`);
+  }
+  assert.deepEqual(snapshot.slotQueues, [], "no slot records means an empty list, not a missing key");
+});

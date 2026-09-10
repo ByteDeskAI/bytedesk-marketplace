@@ -9,6 +9,9 @@ import { canonicalRepoId, repoKey, stateRoot } from "./repoid.mjs";
 import { globalConfigPath } from "./config.mjs";
 import { withLock } from "./lockfile.mjs";
 import { listServerPanes } from "./tmux.mjs";
+import { slotsDir } from "./slots.mjs";
+import { censusPath, withStaleness } from "./census.mjs";
+import { queueDepth } from "./mailbox.mjs";
 import { invariant, run } from "./util.mjs";
 
 export const PRESENCE_BINDING_FIELDS = ["serverKey", "serverPid", "sessionId", "sessionCreated", "paneId", "panePid"];
@@ -107,6 +110,103 @@ async function membership(record, repoId) {
 }
 
 /** Complete fresh metadata projection. Injectable enumeration is for isolated tests only. */
+/**
+ * TM-138. The additive header keys, gathered READ-ONLY.
+ *
+ * `slotStatus()` is the obvious source for slots and it is the wrong one: it takes a lock per slot
+ * and COMMITS a reconciled record. Calling it from here would turn a publisher that this file's
+ * first line calls "read-only metadata, never authority" into something that mutates every slot
+ * record on every heartbeat — roughly every ten seconds, forever. So the records are read directly.
+ * A publisher must never be a writer of the state it publishes.
+ *
+ * Every one of these is optional and absent-on-failure. A key is emitted only when the producer
+ * actually knows the answer, never as a placeholder, which is what keeps a sparse snapshot honest
+ * and is the same rule `roleName` already follows.
+ */
+async function readSlots(identity, env, home) {
+  const dir = slotsDir(identity, env, home);
+  const names = (await readdir(dir).catch(() => [])).filter(n => n.endsWith(".json")).map(n => n.slice(0, -5)).sort();
+  const queues = [];
+  const byAgent = new Map();
+  const note = (agentId, key, value) => {
+    if (!agentId) return;
+    const seat = byAgent.get(agentId) ?? { held: [], waiting: [] };
+    seat[key].push(value);
+    byAgent.set(agentId, seat);
+  };
+  for (const name of names) {
+    const record = await json(join(dir, `${name}.json`));
+    if (!record) continue;
+    const holder = record.holder?.agent_id ?? null;
+    const waiting = (record.queue ?? []).map(entry => entry?.agent_id).filter(Boolean);
+    queues.push({ name, holder, heldSince: record.holder?.granted_at ?? null, waiting });
+    if (holder) note(holder, "held", name);
+    // `position` is 1-based and is the queue's own order, not a re-derivation of it.
+    waiting.forEach((agentId, index) => note(agentId, "waiting", { name, position: index + 1 }));
+  }
+  return { queues, byAgent };
+}
+
+/**
+ * `observedAt` answers gateway defect D1: when the verdict was last CONFIRMED, as distinct from
+ * `since`, when the state was ENTERED. It is the census document's own `at`, so it costs no new
+ * observation. A STALE census contributes nothing rather than a stale-but-plausible reading —
+ * `withStaleness` already rewrites those agents to `unknown`, and publishing "unknown" as though it
+ * were observed is exactly the confidently-wrong verdict the addendum forbids.
+ */
+async function readActivity(identity, env, home) {
+  const document = await json(censusPath({ env, home, key: repoKey(identity.id) }));
+  const fresh = withStaleness(document);
+  const byAgent = new Map();
+  if (!fresh || fresh.stale) return byAgent;
+  for (const agent of fresh.agents ?? []) {
+    if (!agent?.agent_id || typeof agent.state !== "string") continue;
+    byAgent.set(agent.agent_id, {
+      state: agent.state,
+      ...(typeof agent.since === "string" ? { since: agent.since } : {}),
+      ...(typeof fresh.at === "string" ? { observedAt: fresh.at } : {}),
+      observed: agent.observed !== false,
+    });
+  }
+  return byAgent;
+}
+
+async function readMailboxDepths(runDirs) {
+  const byAgent = new Map();
+  for (const runDir of runDirs ?? []) {
+    const rows = await queueDepth(runDir, null).catch(() => null);
+    for (const row of rows ?? []) {
+      if (!row?.agent) continue;
+      const prior = byAgent.get(row.agent) ?? { depth: 0, oldestAgeMs: 0 };
+      byAgent.set(row.agent, {
+        depth: prior.depth + (Number(row.depth) || 0),
+        oldestAgeMs: Math.max(prior.oldestAgeMs, Number(row.oldest_age_ms ?? row.oldestAgeMs) || 0),
+      });
+    }
+  }
+  return byAgent;
+}
+
+/**
+ * `task` — the task an agent currently holds, from the management record's own assignee. Read
+ * directly from the assignment records for the same reason the slots are: `managementStatus()`
+ * builds a context and a task-store binding, and a publisher must not do either on a heartbeat.
+ *
+ * An assignment with a `released_at` is over, so it contributes nothing. An agent with no live
+ * assignment has no `task` key rather than a null one.
+ */
+async function readAssignedTasks(identity, env, home) {
+  const root = join(stateRoot(env, home), "management", repoKey(identity.id));
+  const byAgent = new Map();
+  for (const name of (await readdir(root).catch(() => [])).filter(n => /^TM-[0-9]+\.json$/.test(n))) {
+    const record = await json(join(root, name));
+    const assignee = record?.assignee;
+    if (!assignee || assignee.released_at || !assignee.agent_id || typeof record.task !== "string") continue;
+    byAgent.set(assignee.agent_id, record.task);
+  }
+  return byAgent;
+}
+
 export async function collectPresenceAgents({consumer, repositoryRoot, identity, env=process.env, home=homedir(), tmuxServer, listPanesFn=listServerPanes, runDirs=[]}={}) {
   identity ??= await canonicalRepoId(consumer);
   repositoryRoot ??= await rootCheckout(consumer, identity);
@@ -178,8 +278,38 @@ export async function collectPresenceAgents({consumer, repositoryRoot, identity,
     const binding=bindingOf(record); if(validBinding(binding) && agents.has(bindingKey(binding))) continue;
     add(record,{agentId:record.agent_id,kind:"external",enrollment:"pending"});
   }
-  return [...agents.values()].sort((a,b)=>bindingKey(a.session).localeCompare(bindingKey(b.session)));
+  const [slots, activity, depths, tasks] = await Promise.all([
+    readSlots(identity, env, home),
+    readActivity(identity, env, home),
+    readMailboxDepths(runDirs),
+    readAssignedTasks(identity, env, home),
+  ]);
+  const ordered = [...agents.values()].sort((a,b)=>bindingKey(a.session).localeCompare(bindingKey(b.session)));
+  for (const entry of ordered) {
+    const seat = slots.byAgent.get(entry.agentId);
+    // `slots` is emitted whenever the agent appears in any slot record, held or waiting. An agent in
+    // none is absent from the key rather than carrying two empty arrays, because "not in a queue"
+    // and "queues exist and this agent is in none" are the same fact to a consumer and the shorter
+    // one does not invite a reader to infer a queue that is not there.
+    if (seat) entry.slots = { held: seat.held, waiting: seat.waiting };
+    const seen = activity.get(entry.agentId);
+    if (seen) entry.activity = seen;
+    const depth = depths.get(entry.agentId);
+    if (depth) entry.mailboxDepth = depth;
+    const task = tasks.get(entry.agentId);
+    if (task) entry.task = task;
+  }
+  PRESENCE_SLOT_QUEUES.set(identity.id, slots.queues);
+  return ordered;
 }
+
+/**
+ * The top-level `slotQueues` belongs to the SNAPSHOT, not to any agent, and `collectPresenceAgents`
+ * returns an array. Rather than change that signature — every caller and test depends on it — the
+ * collector records the queues it just read and the publisher picks them up for the same identity.
+ */
+const PRESENCE_SLOT_QUEUES = new Map();
+export function presenceSlotQueues(identity) { return PRESENCE_SLOT_QUEUES.get(identity?.id) ?? []; }
 
 /** Allocate one incarnation. The global generation allocator never resets; per-repo fencing
  * allows independent repository publishers without letting an old publisher overwrite its successor. */
@@ -222,7 +352,7 @@ export async function createPresenceProducer({consumer,env=process.env,home=home
       invariant(COUNTER.test(marker) && BigInt(marker)>=BigInt(generation),"TOPOLOGY_PRESENCE_GENERATION","Generation marker is missing, corrupt or rolled back.");
       invariant(COUNTER.test(active.revision),"TOPOLOGY_PRESENCE_GENERATION","Revision counter is corrupt.");
       const revision=active.revision;
-      const snapshot={schemaVersion:1,repositoryKey,repositoryRoot,generation,revision,generatedAt:new Date().toISOString(),staleAfterMs,clockSkewToleranceMs,agents};
+      const snapshot={schemaVersion:1,repositoryKey,repositoryRoot,generation,revision,generatedAt:new Date().toISOString(),staleAfterMs,clockSkewToleranceMs,agents,slotQueues:presenceSlotQueues(identity)};
       // Persist the next revision before publication. A crash may leave a harmless gap, never reuse.
       await durableReplace(ownerPath,JSON.stringify({...active,revision:(BigInt(revision)+1n).toString()})+"\n");
       await durableReplace(path,JSON.stringify(snapshot,null,2)+"\n");
