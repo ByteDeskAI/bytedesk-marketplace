@@ -332,7 +332,13 @@ test("managed shell ignores ambient default-command and an unsignalled timeout i
     `;
     await execFile(process.execPath, ['--input-type=module', '-e', source], { env, timeout: 15000 });
   } finally {
-    await execFile('tmux', ['kill-server'], { env }).catch(() => {});
+    // Scoped by SOCKET, not only by env. This teardown used to be a bare `kill-server` in a
+    // sibling test, and an inherited $TMUX made it target the OPERATOR'S server: it destroyed 37
+    // live agent sessions on 2026-09-09. Env isolation is correct here and is kept, but it is one
+    // careless edit away from doing that again, so the socket is named explicitly as well.
+    const socket = await execFile('tmux', ['display-message', '-p', '#{socket_path}'], { env })
+      .then(r => r.stdout.trim()).catch(() => '');
+    if (socket) await execFile('tmux', ['-S', socket, 'kill-server'], { env }).catch(() => {});
     await rm(dir, { recursive: true, force: true });
   }
 });
