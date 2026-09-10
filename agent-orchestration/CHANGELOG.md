@@ -209,6 +209,21 @@
 
 ### Changed
 
+- **The supervise daemon stops narrating itself to every console hosting the monitor.** It ticks
+  every 2–15s forever and streamed each report to stdout as a multi-line JSON blob, so a monitor
+  host printed one every couple of seconds. The daemon is now quiet unless `--json` is passed;
+  `supervise --once` still answers in full, because a one-shot invocation is a human asking a
+  question. Two reports still speak unconditionally, because nothing else records them:
+  `stopped: consumer-gone` (the deliberate retirement from TM-139) and `presence_beats_degraded`
+  (a heartbeat that could not observe tmux, otherwise invisible while presence quietly ages out).
+  Per-tick detail was already redundant: every publish writes `generatedAt`, `revision` and
+  `staleAfterMs` into the presence document, `readCensus` re-derives staleness from it at read
+  time, and `presence watch` delivers a callback per publish for anything wanting a push.
+- **The `ao-supervise` monitor description is one line instead of a paragraph.** It was 738
+  characters and the host echoes it as the headline of every event, so the description itself was
+  most of the noise. Trimmed to the three facts that matter operationally — read-only, launches
+  nothing, a second supervisor for the same repository exits. The reasoning it carried is still in
+  the code comments at `topology/cli.mjs` and `topology/lib/supervision.mjs`.
 - **An out-of-quota Kimi is now an actionable *attention*, not a bare failure — this changes launch
   behaviour, not only the census.** `attention_patterns` entries gain an optional `state`
   (`attention` by default, or `quota-blocked`), and `providers/kimi.json` declares one anchored on

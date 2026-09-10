@@ -288,7 +288,14 @@ const commands = {
     };
     if (flags.once) return owned(() => superviseRepository({ ...ctx, tmuxServer: flags.server }, { once: true, onTick: out }));
     const { watchServer } = await import('./lib/startup.mjs');
-    return Promise.all([owned(() => superviseRepository({ ...ctx, tmuxServer: flags.server }, { onTick: out })), watchServer({ ...ctx, tmuxServer: flags.server || 'default' })]);
+    // A one-shot `supervise --once` above is a human asking a question, so it always answers. The
+    // DAEMON is not: it ticks every 2-15s forever, and streaming each report to stdout puts a
+    // multi-line JSON blob in every console hosting this monitor. The presence document is already
+    // the durable record of a heartbeat — a reader wanting per-tick detail passes --json.
+    // Exceptions still speak: retirement and a degraded heartbeat are invisible in any other place.
+    const notable = report => report?.stopped || report?.presence_beats_degraded || report?.error;
+    const onTick = flags.json ? out : report => { if (notable(report)) out(report); };
+    return Promise.all([owned(() => superviseRepository({ ...ctx, tmuxServer: flags.server }, { onTick })), watchServer({ ...ctx, tmuxServer: flags.server || 'default' })]);
   },
 
   async census({ flags }) {
