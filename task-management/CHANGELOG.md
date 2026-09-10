@@ -3,6 +3,21 @@
 ## Unreleased
 
 ### Fixed
+- **`tm edit <id> --title "X"` set the title to the literal string `--title`** (TM-156). The title
+  is positional, so the flag landed in `rest[0]` and the value was discarded — while the command
+  reported `title updated (was "<old title>")`, which names the OLD title and reads exactly like
+  success. Two agents in one session believed it; TM-155 sat on the board reading `--title` until
+  its frontmatter was repaired by hand, and the same call on TM-152 left a title its own evidence
+  had disproved.
+  - `--title <value>` is accepted alongside the positional form, and `--title` with no value is
+    refused rather than consuming the next flag.
+  - **An unrecognised `--flag` now fails loudly instead of being written into a field.** That is the
+    guard `epic new` already carried — added, its comment says, after EP-017 was created with
+    `--body` baked into its name. Same defect, one verb over, and the fix had never propagated. A
+    guard present in one verb and absent in its sibling is worse than none: the CLI behaves
+    inconsistently and the inconsistent half looks like it worked.
+  - Recorded because it was believed and passed on: `tm block` does NOT corrupt titles. It writes
+    `status` and `blockedReason` only. The corruption always came from `edit`.
 - **A commit written with `-F` or a heredoc now attaches** (TM-154). `linkGit` selected its target
   from the Bash COMMAND STRING and never read the message, so `git commit -F <file>` — what anyone
   writing a real message uses — attached nothing however clearly the subject named its task. The
