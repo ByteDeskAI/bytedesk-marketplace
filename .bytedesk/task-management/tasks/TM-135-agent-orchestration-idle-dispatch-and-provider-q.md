@@ -1,21 +1,23 @@
 ---
 id: "TM-135"
 kind: "task"
-status: "open"
+status: "parked"
 created: "2026-09-09T21:32:31.188Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "agent-orchestration: idle dispatch and provider-quota failover"
 epic: "EP-018"
 acceptance: [{"text":"Idle dispatch is a new backend (task-management/lib/dispatch/idle.mjs) plus a pool preference, NOT a second scheduler. Zero edits to dispatch/index.mjs: a backend is called after the claim and after provisioning, so every ordering invariant holds for free and a refusal rolls back through the existing path that never releases a pre-existing claim.","done":false},{"text":"Arbitration reuses the record that already owns who owns this task: management.mjs gains assignTaskToAgent and releaseAssignment, the management record grows an assignee, and the IDLE CHECK HAPPENS INSIDE THE SAME CRITICAL SECTION AS THE WRITE. The census is a hint; the assignment record under withLock is the authority. Check idle in the pool and assign in the backend and you ship double assignment.","done":false},{"text":"The worktree is still provisioned through tm — management.mjs ownedTask requires one and a standing agent's cwd is its own agent directory by design. One worktree per task, unchanged.","done":false},{"text":"collectIdle's completion signal is the standing-mailbox reply, NOT session death — the standing session outlives the task, which is the whole point. It routes through the unmodified recordResult so the downgrade rule and park-never-strand rule apply byte-identically, and a terminal result releases the assignment.","done":false},{"text":"CAP-0002 gets better by one deliberate line: the handoff carries a real TM_SESSION_ID and spawn asserts the session is non-null, so this path always writes an owned claim and adds zero new null-session claims. Write CAP-0002's body up — it is an empty stub whose root cause exists only in TM-127 comments.","done":false},{"text":"The quota signature stays in failure_patterns, where 'usage limit' already is and where it survives withoutPaths. attention_patterns is the wrong home and the ordering proves it: attention is checked FIRST because it means a human must press a key here, and quota exhaustion is not answerable at the keyboard.","done":false},{"text":"Detection is a supervise-tick tmux server-side subscription via tmuxFailureTrigger, so the server pushes and we capture only when the trigger fires — the productized form of 82 ad-hoc capture-pane probes, costing nothing on quiet panes. Detection writes an incident and RESTARTS NOTHING.","done":false},{"text":"failover.consent is ask (default), auto or never. ask rings the lead with the approval command and is the ONE unavoidable human turn in the whole design; auto applies AND ANNOUNCES, because the operator's rule forbids silent substitution and an operator who sets auto consented in advance in config. failoverAgent asserts the incident is open and names this agent and this provider.","done":false},{"text":"False-positive defences are all three and all required, because an agent working on THIS feature will put the signature on its own screen: the match must still be present on a second capture at least 2s later, the pane must be dead or the agent must fail a nonce probe, and ask is the default so a false positive costs one message not one provider.","done":false},{"text":"Three things survive a failover and are documented separately: the work does (same pane, same worktree — but re-bootstrap must tell the new provider to orient); the conversation does NOT (a different CLI has a different memory, which is why unanswered messages are re-delivered); the claim does via startHeartbeat, with the named ceiling that claimTtlMinutes defaults to 240 minutes against a five-hour quota window.","done":false}]
 evidence: []
-commits: []
+commits: ["8beb169"]
 blockedBy: ["TM-127","TM-131","TM-132"]
 blocks: []
 actor: "main"
 session: "e01dd923-50ea-45d8-9911-b9d5faed94bd"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-09T23:11:40.944Z"
+updated: "2026-09-10T01:13:53.177Z"
+comments: [{"author":"main","ts":"2026-09-09T23:40:04.160Z","text":"In progress with a live teammate, spawned this session as part of the EP-018 close-out wave. Nothing committed to its branch yet; work is in flight in its own worktree. Deliberately not merged or closed early: every worker this session returned at least one finding that changed the outcome, and two of those were bugs that a green diff and a passing test both agreed with — an unreachable retry rung whose stub reported an empty composer forever, and a brief instruction that would have granted the same cutover slot to two agents. The lead session owns the merge, the gates and the closure."}]
+parkedReason: "session ended (e01dd923-50ea-45d8-9911-b9d5faed94bd)"
 ---
 
 Two halves of the same tick. Idle dispatch hands a ready task to an already-live idle enrolled agent instead of launching a new one; quota failover detects a provider usage-limit mid-run, which today nobody looks for after startup. Both implementers died on 'Error: [provider.auth_error] 403 You have reached your 5-hour usage limit' and were recovered only by a human authorising a manual Codex takeover. Design detail is in the approved plan under .bytedesk/task-management/plans/.
