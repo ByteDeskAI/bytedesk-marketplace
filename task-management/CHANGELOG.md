@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Fixed
+- **A pull request is attributed to the repo it landed in, not the directory `tm` resolved** (TM-144).
+  `linkGit` checked `boardId(CHECKOUT)` — the store's own project dir — against the board, so a
+  `gh pr create` that retargeted another repo without moving the process (`--repo`, `git -C`, a
+  `cd` earlier in the line) still read as "same board" and the link went through. The guard now
+  reads the repo out of the pull-request URL, which cannot lie about where the PR landed, and
+  falls back to the command's own `git -C` / `cd` target for commits. This is how
+  bytedesk-remote-gateway's TM-063 collected bytedesk-passport's PR #17: both stores number tasks
+  `TM-nnn`, the PR body named passport's TM-063, and the gateway had a TM-063 of its own that had
+  been closed days earlier under a different epic. The `git_link_skipped` event now records the
+  `ref` it refused.
+- **A `gh pr create` that printed no URL attaches nothing.** The ref fell back to the literal
+  string `"pr"`, which deduped against itself and pinned no commit. Stores that ran the old hook
+  still hold these; they are safe to delete by hand.
+
 ### Added
 - **The goal planner (EP-013).** A conversational surface at `/planner` where an operator states a
   goal in prose and an agent proposes board operations, which land only when the operator approves
