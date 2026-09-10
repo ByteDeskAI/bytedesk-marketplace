@@ -1,7 +1,9 @@
 # TM-135 — exact revision for the integrator
 
-**Merge this:** branch `tm/TM-135-idle-dispatch-quota-failover`, head **`9068de2`** (see the
-correction at the end of this file — the head moved after finding 1 was fixed rather than filed).
+**Merge this:** the head of branch `tm/TM-135-idle-dispatch-quota-failover`. It is named by branch
+rather than by SHA on purpose: the tip is this evidence file itself, so any SHA written in here is
+stale the moment it is committed. The last code commit is `0a0228f` (the config-text fix in finding
+1); everything after it is evidence.
 
 That head is `8631f2b` (all the code) plus `091f85e` (evidence only — the correction to my own
 earlier review). The two commits before it on this branch, `ef33efc` and `74fdb5f`, are evidence
