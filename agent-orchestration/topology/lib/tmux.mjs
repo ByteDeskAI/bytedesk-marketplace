@@ -175,8 +175,13 @@ export async function sendKeys(pane, keys) {
   await tmux(["send-keys", "-t", pane, ...keys]);
 }
 
-export async function capture(pane, lines = 60) {
-  const result = await tmux(["capture-pane", "-p", "-t", pane, "-S", `-${lines}`], { allowFailure: true });
+export async function capture(pane, lines = 60, { escapes = false } = {}) {
+  // `-e` keeps the SGR sequences. TM-151: that is the ONLY way to tell Claude's dim suggestion text
+  // from a human's typed draft — both are plain letters after the prompt glyph, and only one of
+  // them means the composer is occupied. Off by default: every existing caller wants the plain
+  // text, and escape sequences in a screen-scrape are a trap for a pattern that does not expect them.
+  const args = ["capture-pane", "-p", ...(escapes ? ["-e"] : []), "-t", pane, "-S", `-${lines}`];
+  const result = await tmux(args, { allowFailure: true });
   return result.code === 0 ? result.stdout : "";
 }
 

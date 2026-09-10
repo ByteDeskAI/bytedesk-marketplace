@@ -49,6 +49,8 @@ export const RING_WINDOW_MS = Number(process.env.AO_RING_WINDOW_MS ?? 60_000);
 export const ENGAGE_MS = Number(process.env.AO_ENGAGE_MS ?? 60_000);
 export const MAX_CLIENTS = Number(process.env.AO_BELL_MAX_CLIENTS ?? 8);
 export const BELL_POLL_MS = Number(process.env.AO_BELL_POLL_MS ?? 1000);
+/** How often the styled second look may be taken while waiting for a pane to become safe. */
+export const STYLED_MIN_INTERVAL_MS = Number(process.env.AO_STYLED_MIN_INTERVAL_MS ?? 5000);
 
 /**
  * The six-tuple that says a pane is still the SAME pane. `failoverAgent` already refuses to act
@@ -315,6 +317,127 @@ export async function checkResubmitSafe({ pane, adapter, format, binding, tmux =
 }
 
 /**
+ * TM-157. WAKE A STANDING AGENT FOR A READINESS PROBE, and only when the pane says that is safe.
+ *
+ * The probe was file-only: write a nonce under `probes/` and wait for the agent to notice it "at a
+ * safe boundary". That is exactly right for an agent mid-turn — and it never fires for an IDLE one,
+ * which has no next boundary. It is sitting at an empty composer with nothing to do, so it never
+ * polls again, so a healthy reviewer reads `unresponsive` forever and the governed launch gate
+ * refuses on it. Both `lead.mjs` and `reviewer.mjs` carried doc comments claiming the probe "rings
+ * the pane"; neither did.
+ *
+ * This rings it, under the same rules as any other bell: one look, and the pane must be alive, the
+ * six-tuple unchanged, the composer empty, and no attention or failure screen. Anything else and it
+ * types NOTHING and says why — the file-only path is still there and still correct for a busy
+ * agent, so a refusal here costs a probe rather than a draft.
+ *
+ * It deliberately does NOT go through `ringMessage`: that is run-scoped bookkeeping (ring state,
+ * pane.log offsets, journal entries under a run dir) and a probe has no run. What it borrows is the
+ * decision — `decideBell` — which is the part that must not diverge.
+ */
+export async function wakeForProbe({ pane, adapter, format, binding, text, tmux = defaultTmux, submitKeys = null, log = () => {} }) {
+  if (!pane) return { rang: false, reason: "the record names no pane" };
+  const verdict = await checkBellSafe({ pane, adapter, format, binding, tmux });
+  if (!verdict.safe) {
+    log(`probe wake skipped: ${verdict.reason}`);
+    return { rang: false, reason: verdict.reason, attention: verdict.attention === true };
+  }
+  await tmux.sendText(pane, text, submitKeys ?? adapter?.submit_keys ?? ["Enter"]);
+  log("probe wake rung");
+  return { rang: true };
+}
+
+/**
+ * TM-151/TM-157. IS THE COMPOSER EMPTY, when the plain text says it is not?
+ *
+ * Claude renders two completely different things as letters after the prompt glyph, and a plain
+ * capture cannot tell them apart:
+ *
+ *   a SUGGESTION it generated itself — ghost text, which vanishes the moment anyone types;
+ *   a DRAFT somebody left in the box — which must never be typed over.
+ *
+ * Measured on a live pane, both from the same session:
+ *
+ *   \033[38;5;231m Read /…/prompt.md and begin your standing role…    bright: a real draft
+ *   \033[2m        run tm init \033[0m                                DIM (SGR 2): a suggestion
+ *
+ * So the discriminator is the STYLE, and `capture-pane -e` is what keeps it. A composer whose
+ * post-glyph content is entirely dim is EMPTY; one bright character means occupied.
+ *
+ * This never widens what counts as safe on its own: it is only consulted when the cheap
+ * server-side test has already said "not empty", and it can only ever turn that into "empty" by
+ * PROVING every visible character is ghost text. Anything it cannot parse stays not-empty.
+ */
+const SGR = /\x1b\[([0-9;]*)m/g;
+const PROMPT_GLYPH = /[>❯]/;
+
+export function composerEmptyStyled(styledLine) {
+  if (typeof styledLine !== "string" || !styledLine) return false;
+  let dim = false;
+  let sawGlyph = false;
+  let realAfterGlyph = "";
+  let index = 0;
+  SGR.lastIndex = 0;
+  for (let match = SGR.exec(styledLine); ; match = SGR.exec(styledLine)) {
+    const upto = match ? match.index : styledLine.length;
+    for (const ch of styledLine.slice(index, upto)) {
+      if (!sawGlyph) {
+        // Everything before the glyph is the box drawing and the prompt itself.
+        if (PROMPT_GLYPH.test(ch)) sawGlyph = true;
+        continue;
+      }
+      if (!dim) realAfterGlyph += ch;
+    }
+    if (!match) break;
+    // A reset or an explicit "normal intensity" ends ghost text; `2` starts it. Colour changes do
+    // not clear it in ANSI, and Claude closes its ghost spans with 0, so both are handled.
+    for (const raw of (match[1] === "" ? ["0"] : match[1].split(";"))) {
+      if (raw === "2") dim = true;
+      else if (raw === "0" || raw === "22") dim = false;
+    }
+    index = SGR.lastIndex;
+  }
+  // U+00A0 is what Claude pads an empty box with, so it is whitespace for this purpose.
+  return sawGlyph && realAfterGlyph.replace(/[\s ]+/g, "") === "";
+}
+
+/** The composer line out of a styled capture: the last line carrying a prompt glyph. */
+export function composerLineOf(styledScreen) {
+  const lines = String(styledScreen ?? "").split(/\r?\n/);
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    if (PROMPT_GLYPH.test(lines[i].replace(SGR, ""))) return lines[i];
+  }
+  return null;
+}
+
+/**
+ * One look, with the bell's rules: alive, still bound, composer empty, no attention or failure
+ * screen. `checkResubmitSafe`'s sibling — same shape, different decision, kept side by side so the
+ * two cannot quietly drift.
+ */
+export async function checkBellSafe({ pane, adapter, format, binding, tmux = defaultTmux, styled = true }) {
+  const value = await lookAtPane(pane, format, tmux);
+  // A look we could not take is not permission.
+  if (value === null) return { safe: false, reason: "the pane could not be read, so typing is unproven" };
+  const verdict = await confirmFailure(adapter, pane, tmux, decideBell(value, { bindingOk: await stillBound(pane, binding, tmux) }));
+  return styled ? styledRescue(verdict, { pane, tmux }) : verdict;
+}
+
+/**
+ * The styled second look, applied to a verdict. ONE extra capture, and only for the one reason a
+ * style can settle: every other refusal — dead, unbound, attention, failure — is about something a
+ * colour cannot change, and this returns those untouched.
+ */
+export async function styledRescue(verdict, { pane, tmux = defaultTmux }) {
+  if (verdict.safe || verdict.reason !== "the composer is not empty") return verdict;
+  const line = composerLineOf(await tmux.capture(pane, 4, { escapes: true }).catch(() => ""));
+  if (line && composerEmptyStyled(line)) {
+    return { safe: true, reason: "composer holds only dim suggestion text, which is an empty box", styled: true };
+  }
+  return verdict;
+}
+
+/**
  * Wait until the pane is safe to ring, or the window closes. Push when we have a control client,
  * bounded poll when we do not.
  *
@@ -325,7 +448,17 @@ export async function checkResubmitSafe({ pane, adapter, format, binding, tmux =
 export async function whenSafe({ pane, adapter, client, subName, format, binding, timeoutMs = RING_WINDOW_MS, tmux = defaultTmux, pollMs = BELL_POLL_MS }) {
   const started = Date.now();
   const bindingOk = () => stillBound(pane, binding, tmux);
-  const confirm = (verdict) => confirmFailure(adapter, pane, tmux, verdict);
+  // TM-151/TM-157: a composer carrying only Claude's own dim suggestion is an EMPTY composer, and
+  // the plain text cannot say so. The styled look costs a capture, so it is throttled — a wait that
+  // polls every second must not take a styled capture every second as well.
+  let lastStyledAt = 0;
+  const confirm = async (verdict) => {
+    const settled = await confirmFailure(adapter, pane, tmux, verdict);
+    if (settled.safe || settled.reason !== "the composer is not empty") return settled;
+    if (Date.now() - lastStyledAt < STYLED_MIN_INTERVAL_MS) return settled;
+    lastStyledAt = Date.now();
+    return styledRescue(settled, { pane, tmux });
+  };
 
   const settleWith = (verdict) => ({ ...verdict, waited_ms: Date.now() - started });
 

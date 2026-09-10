@@ -39,7 +39,8 @@ import { dirname, join } from "node:path";
 import { agentDirs, createAgent, findLead, requireAgent } from "./agents.mjs";
 import { findTemplate, loadConfig } from "./config.mjs";
 import { displayName } from "./identity.mjs";
-import { openRoleSession, roleSessionName } from "./launch.mjs";
+import { composerFormat, wakeForProbe } from "./delivery.mjs";
+import { openRoleSession, roleSessionName, tmuxFailureTrigger } from "./launch.mjs";
 import { withLock } from "./lockfile.mjs";
 import { composePrompt } from "./prompts.mjs";
 import { refreshPrompt } from "./prompt-lifecycle.mjs";
@@ -49,8 +50,12 @@ import * as tmux from "./tmux.mjs";
 import { exists, fail, invariant, nowIso, readJson, sleep, writeJson, writeText } from "./util.mjs";
 
 const RECORD_VERSION = 1;
-const DEFAULT_ACK_TIMEOUT_MS = 5000;
-const ACK_POLL_MS = 100;
+// TM-157. 5s was the window when nothing woke the lead and the answer could only come from a poll
+// it was already about to make. Now the probe RINGS, so the window has to cover a model turn: read
+// the line, decide, run one command. 30s is a starting point, not a measurement — override it with
+// AO_LEAD_ACK_TIMEOUT_MS if a slower provider needs longer.
+const DEFAULT_ACK_TIMEOUT_MS = Number(process.env.AO_LEAD_ACK_TIMEOUT_MS ?? 30_000);
+const ACK_POLL_MS = Number(process.env.AO_LEAD_ACK_POLL_MS ?? 500);
 // A nonce becomes a filename, so it is validated before it is ever joined to a path.
 const NONCE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9-]{0,99}$/;
 
@@ -109,11 +114,28 @@ async function defaultPane(record) {
  */
 async function defaultResponsive(record, ackTimeoutMs, { registryDir, log = () => {} }) {
   if (!record?.pane) return false;
-  const nonce = randomUUID();
   const dir = join(registryDir, "probes");
+  // TM-157. A PROOF THAT COST A MODEL TURN IS WORTH KEEPING. Every call used to mint a new nonce
+  // and demand a fresh answer, so `role status` twice in a minute cost two turns, and a governed
+  // launch — which needs the lead AND the reviewer responsive in the SAME call — needed both to
+  // answer inside one window. They rarely align, which is why the demo could get each role
+  // responsive on its own and never both at once.
+  //
+  // An ack that landed a minute ago is still evidence that this incarnation answers. It is bound to
+  // the six-tuple, so a respawned pane invalidates it, and `alive` is checked separately on every
+  // call — this caches "it answered", never "it is up".
+  const cached = await recentAck(dir, record);
+  if (cached) { log(`lead answered ${cached.age_ms}ms ago; proof reused`); return true; }
+  const nonce = randomUUID();
   const probePath = join(dir, `${nonce}.json`);
   const ackPath = join(dir, `${nonce}.ack.json`);
   await writeJson(probePath, { nonce, repo_id: record.repo_id, agent_id: record.agent_id, expires_at: Date.now() + ackTimeoutMs, created_at: nowIso() });
+  // TM-157. The line above used to be the whole mechanism, under a comment claiming this function
+  // "rings the pane with a pointer naming the ack command". It did not — and a pollable file is no
+  // mechanism at all for an IDLE lead, which has no next safe boundary at which to poll. So ring
+  // it, under the bell's rules, and keep the file as the fallback for a lead that is mid-turn:
+  // a busy, moved, dead or modal pane gets nothing typed into it and answers when it next looks.
+  await wakeLead(record, nonce, { log }).catch(() => {});
   // Pollable files never interrupt a composer or active tool input. The enrolled agent reads
   // pending probes at its safe boundary; inability to acknowledge remains unresponsive.
   const deadline = Date.now() + ackTimeoutMs;
@@ -129,8 +151,48 @@ async function defaultResponsive(record, ackTimeoutMs, { registryDir, log = () =
   // Probes are transient state; a stale one would make a later `lead ack` answer a dead question.
   await rm(probePath, { force: true });
   if (acked) await rm(ackPath, { force: true });
+  if (acked) await rememberAck(dir, record);
   log(acked ? `lead acknowledged probe ${nonce}` : `lead probe ${nonce} timed out after ${ackTimeoutMs}ms`);
   return acked;
+}
+
+/** How long an acknowledgement stands as proof. Not liveness — `alive` answers that every time. */
+const RESPONSIVE_TTL_MS = Number(process.env.AO_RESPONSIVE_TTL_MS ?? 600_000);
+
+const ackMemoPath = (dir, record) => join(dir, `${record.agent_id}.answered.json`);
+
+async function recentAck(dir, record) {
+  const memo = await readJson(ackMemoPath(dir, record)).catch(() => null);
+  if (!memo?.at) return null;
+  const age = Date.now() - Number(memo.at);
+  if (!(age >= 0 && age < RESPONSIVE_TTL_MS)) return null;
+  // The proof belongs to an INCARNATION, not to an agent id. A pane that has been respawned since
+  // is a different process wearing the same name, and it has proven nothing.
+  const same = JSON.stringify(memo.binding ?? null) === JSON.stringify(record.binding ?? null);
+  return same ? { age_ms: age } : null;
+}
+
+async function rememberAck(dir, record) {
+  await writeJson(ackMemoPath(dir, record), { at: Date.now(), agent_id: record.agent_id, binding: record.binding ?? null }).catch(() => {});
+}
+
+/**
+ * Ring the lead with the command that answers the probe. Unlike the reviewer — whose READY signal
+ * is a printed line because it has no shell — the lead has one, so the ring names the exact verb.
+ */
+async function wakeLead(record, nonce, { log = () => {} } = {}) {
+  if (!record?.pane) return { rang: false, reason: "the record names no pane" };
+  const adapters = await loadAdapters(providerDirs({ consumer: record.consumer, home: homedir(), env: process.env })).catch(() => null);
+  const adapter = adapters ? adapterFor({ cli: record.provider, model: null, args: [], skills: [] }, adapters) : null;
+  if (!adapter) return { rang: false, reason: `no adapter for provider ${record.provider}` };
+  return wakeForProbe({
+    pane: record.pane,
+    adapter,
+    format: composerFormat(adapter, tmuxFailureTrigger(adapter)),
+    binding: record.binding,
+    text: `AO_PROBE ${nonce} — prove you are listening by running: ao-topology lead ack ${nonce} --consumer ${record.consumer}`,
+    log,
+  });
 }
 
 function resolveProbes(probes, { registryDir, log }) {
