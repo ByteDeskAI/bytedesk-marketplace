@@ -973,12 +973,16 @@ export function roleSessionPath(agentsDir, agentId) {
  * session's cwd (which is what gives the agent its own memory) and where its record and launcher
  * live, so nothing about the session depends on a run directory that will be torn down.
  */
-export async function openRoleSession({ agentsDir, agentId, adapter, argv, env = {}, prefix = "ao", role = "worker", log = () => {} }) {
+export function roleSessionNeedsGovernance({ role, coordinatesOnly = false }) {
+  return !coordinatesOnly && !['lead', 'reviewer'].includes(role);
+}
+
+export async function openRoleSession({ agentsDir, agentId, adapter, argv, env = {}, prefix = "ao", role = "worker", coordinatesOnly = false, log = () => {} }) {
   const session = roleSessionName(agentId, { prefix });
   const dir = join(agentsDir, String(agentId));
   const recordPath = roleSessionPath(agentsDir, agentId);
 
-  if (env.AO_CONSUMER && !['lead','reviewer'].includes(role)) {
+  if (env.AO_CONSUMER && roleSessionNeedsGovernance({ role, coordinatesOnly })) {
     const { leadState } = await import('./lead.mjs');
     const { reviewerAvailability } = await import('./reviewer.mjs');
     const options = { consumer: env.AO_CONSUMER, pluginRoot: dirname(dirname(dirname(fileURLToPath(import.meta.url)))), env: { ...process.env, ...env } };

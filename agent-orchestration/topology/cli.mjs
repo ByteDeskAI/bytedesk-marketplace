@@ -891,6 +891,7 @@ const commands = {
       argv,
       env: { AO_AGENT_ID: agent.id, AO_AGENT_ROLE: agent.role, AO_SESSION: session, AO_CONSUMER: ctx.consumer, ...agent.env },
       role: agent.role,
+      coordinatesOnly: agent.coordinates_only === true,
       log: flags.json ? () => {} : (line) => console.error(`  ${line}`),
     });
     out({

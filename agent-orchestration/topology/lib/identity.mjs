@@ -36,6 +36,7 @@ const TITLES = {
   reviewer: "Staff Reviewer",
   researcher: "Research Engineer",
   implementer: "Implementation Engineer",
+  observer: "Orchestration Observer",
 };
 
 export function titleForRole(role) {

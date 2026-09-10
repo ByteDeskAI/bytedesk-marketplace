@@ -17,6 +17,7 @@ import {
   openRoleSession,
   readDeaths,
   roleSessionName,
+  roleSessionNeedsGovernance,
   roleSessionPath,
   screenSince,
   subscriptionFormat,
@@ -24,6 +25,12 @@ import {
   tokenDigest,
   uniqueSessionName,
 } from "../../topology/lib/launch.mjs";
+
+test("coordinates-only observer sessions do not require governed-work readiness", () => {
+  assert.equal(roleSessionNeedsGovernance({ role: "observer", coordinatesOnly: true }), false);
+  assert.equal(roleSessionNeedsGovernance({ role: "observer", coordinatesOnly: false }), true);
+  assert.equal(roleSessionNeedsGovernance({ role: "worker", coordinatesOnly: true }), false);
+});
 import * as tmux from "../../topology/lib/tmux.mjs";
 import { MIN_PANE_ROWS, windowSizeFor } from "../../topology/lib/tmux.mjs";
 import { execFile } from "node:child_process";
