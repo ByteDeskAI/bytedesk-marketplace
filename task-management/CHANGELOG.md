@@ -3,6 +3,20 @@
 ## Unreleased
 
 ### Fixed
+- **A heredoc commit message no longer floods the command string** (TM-159). TM-154 made the commit
+  message readable and then took the UNION of message and command string, which left the looser
+  source in charge — and given how these commits are written, that source holds the entire body: the
+  message is a heredoc in the SAME Bash invocation, so every task discussed in prose sits in the
+  command. The merge commit for TM-154 itself attached to nine tasks, and the next one to three.
+  - **For a `git commit`, the command string is now not read at all.** Nothing is lost:
+    `git commit -m "TM-nnn: …"` puts the id in the message too, so `git log -1` still sees it, and a
+    `-F` or heredoc message was never in the command anyway. What goes is the only route by which a
+    task merely *mentioned* in a body could attach.
+  - `gh pr create` still reads its command, because it has no committed message to read instead.
+  - One pre-existing assertion had to be corrected with it, and it is worth knowing why: TM-146's
+    "a commit that NAMES its task still attaches" drove the hook with `-m "…TM-002"` **without ever
+    making a commit with that message**. It passed only because the id was read from the command
+    string — the same looseness that let a heredoc attach nine tasks, sitting in the test suite.
 - **`tm evidence` no longer doubles the task id** (TM-145). The prefix was prepended
   unconditionally, so `TM-144-REPORT.md` — the natural name to hand it, and the name every evidence
   file in the store already uses — was stored as `TM-144-TM-144-REPORT.md`. It is skipped when the
