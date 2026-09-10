@@ -77,7 +77,11 @@ test("adapters: unknown cli falls back to generic with the id as command; argv o
   assert.equal(aider.command, "aider");
   const claude = adapterFor({ cli: "claude", model: "opus", auto_approve: true, args: [], skills: [] }, adapters);
   const argv = buildArgv(claude, { cli: "claude", model: "opus", auto_approve: true, args: ["--verbose"], skills: [] }, { system_prompt: "SP", bootstrap_file: "/b" });
-  assert.deepEqual(argv, ["claude", "--verbose", "--model", "opus", "--append-system-prompt", "SP", "--dangerously-skip-permissions"]);
+  // `--strict-mcp-config` is the provider's own arg and comes first, ahead of the agent's. It is in
+  // this expectation deliberately rather than relaxed away: the point of the assertion is that argv
+  // ORDER is pinned — provider args, then agent args, then model, prompt, auto-approve — and a
+  // provider arg appearing anywhere else would be the bug this test exists to catch.
+  assert.deepEqual(argv, ["claude", "--strict-mcp-config", "--verbose", "--model", "opus", "--append-system-prompt", "SP", "--dangerously-skip-permissions"]);
 });
 
 test("queue depth counts what each agent still owes, and a run with no lead reports no lead queue", async () => {
