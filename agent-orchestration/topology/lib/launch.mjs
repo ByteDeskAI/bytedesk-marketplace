@@ -1078,12 +1078,9 @@ export async function openRoleSession({ agentsDir, agentId, adapter, argv, env =
       }
       record.binding = (await tmux.listServerPanes()).find(p => p.paneId === observed.paneId);
       await writeJson(recordPath, record);
-      await tmux.setRoleDisplay(observed.paneId, display, { session });
       return {session,pane:observed.paneId,binding:record.binding,created:false,reattached:false,restarted:true,record};
     }
     log(`reattaching to ${session}`);
-    // Ownership is proven above, so a session opened before TM-168 gets its title bar here too.
-    if (panes[0]?.id) await tmux.setRoleDisplay(panes[0].id, display, { session });
     return { session, pane: panes[0]?.id ?? null, binding: record.binding, created: false, reattached: true, record };
   }
 
@@ -1112,7 +1109,9 @@ export async function openRoleSession({ agentsDir, agentId, adapter, argv, env =
   record.binding=(await tmux.listServerPanes()).find(p=>p.paneId===pane && p.sessionName===session);
   await writeJson(recordPath,record);
   await tmux.setPaneOption(pane, "remain-on-exit", "on");
-  // The session title options came with newSession; the pane supplies what they render.
+  // The session title options came with newSession; the pane supplies what they render. Both are
+  // tmux options on a pane and session that outlive `respawn-pane -k` (measured), so the restart
+  // and reattach paths above need nothing further.
   await tmux.setRoleDisplay(pane, display);
   await tmux.pipePane(pane, `cat >> ${shellQuote(join(dir, "pane.log"))}`);
   const shell = await tmux.clearAndWaitForShell(pane, `ao-role-${randomUUID().slice(0, 8)}`);

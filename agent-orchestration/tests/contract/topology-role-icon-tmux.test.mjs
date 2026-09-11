@@ -4,7 +4,7 @@
 // .claude/rules/tmux-test-isolation.md: TMUX '', a per-test TMUX_TMPDIR, a socket-scoped kill.
 import assert from "node:assert/strict";
 import { execFile as execFileCallback, spawn } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
@@ -44,22 +44,19 @@ async function stopSupervisors(consumer) {
 }
 
 /** Kill only this test's server, by socket, after proving the socket is under this test's TMUX_TMPDIR. */
-async function killIsolatedServer(env) {
-  const socket = await execFile("tmux", ["list-panes", "-a", "-F", "#{socket_path}"], { env: { ...process.env, ...env } })
-    .then((result) => result.stdout.split("\n")[0].trim()).catch(() => "");
-  if (!socket) return;
+async function killIsolatedServer(env, socket) {
   assert.ok(env.TMUX === "" && socket.startsWith(`${env.TMUX_TMPDIR}/`), `refusing to kill a tmux server outside this test's TMUX_TMPDIR: ${socket}`);
   await execFile("tmux", ["-S", socket, "kill-server"], { env: { ...process.env, ...env } }).catch(() => {});
 }
 
 /** Attach a real client in a pty for a moment and return everything tmux wrote to that terminal. */
-async function attachedTerminalBytes(env, session, pane, file) {
+async function attachedTerminalBytes(env, socket, session, pane, file) {
   const tm = { env: { ...process.env, ...env } };
-  await execFile("tmux", ["select-pane", "-t", pane], tm);
-  const child = spawn("script", ["-q", "-c", `tmux attach -t ${session}`, file], { env: { ...process.env, ...env, TERM: "xterm-256color", SHELL: "/bin/sh" }, stdio: "ignore" });
+  await execFile("tmux", ["-S", socket, "select-pane", "-t", pane], tm);
+  const child = spawn("script", ["-q", "-c", `tmux -S ${socket} attach -t ${session}`, file], { env: { ...process.env, ...env, TERM: "xterm-256color", SHELL: "/bin/sh" }, stdio: "ignore" });
   const exited = new Promise((resolve) => child.once("exit", resolve));
   await sleep(1500);
-  await execFile("tmux", ["detach-client", "-s", session], tm).catch(() => {});
+  await execFile("tmux", ["-S", socket, "detach-client", "-s", session], tm).catch(() => {});
   await Promise.race([exited, sleep(3000)]);
   child.kill("SIGKILL");
   return readFile(file, "utf8").catch(() => "");
@@ -72,13 +69,18 @@ test("role icons reach managed panes and title bars; ids, names and pane titles 
     TMUX: "", AO_TMUX_COMMAND: "tmux", TMUX_TMPDIR: consumer, HOME: consumer, XDG_CONFIG_HOME: join(consumer, "config"),
     AO_CONSUMER: consumer, AGENT_ORCHESTRATION_STATE_HOME: join(consumer, "state"), AO_RING_WINDOW_MS: "20000", AO_BELL_POLL_MS: "500",
   };
+  // Every tmux call here names this test's own server (TM-167 makes an unscoped listing an error).
+  const socket = join(consumer, `tmux-${process.getuid()}`, "default");
   // One hook: reap the supervisor, then the server, then the directory they write into.
   t.after(async () => {
     await stopSupervisors(consumer);
-    await killIsolatedServer(env);
+    await killIsolatedServer(env, socket);
     await rm(consumer, { recursive: true, force: true });
   });
-  const tm = async (...args) => (await execFile("tmux", args, { env: { ...process.env, ...env } })).stdout.replace(/\n$/, "");
+  const tm = async (...args) => (await execFile("tmux", ["-S", socket, ...args], { env: { ...process.env, ...env } })).stdout.replace(/\n$/, "");
+  // Enrolled, so TM-167's gate lets launch and session open start a supervisor; ignored before that merge.
+  await mkdir(join(consumer, ".bytedesk", "agent-orchestration"), { recursive: true });
+  await writeJson(join(consumer, ".bytedesk", "agent-orchestration", "config.json"), { enabled: true });
 
   const lead = JSON.parse(await ao(["agent", "new", "--role", "lead", "--cli", "fake-agent", "--name", "Ada Vale", "--consumer", consumer], env));
   const evil = JSON.parse(await ao(["agent", "new", "--role", HOSTILE_ROLE, "--cli", "fake-agent", "--name", HOSTILE_NAME, "--consumer", consumer], env));
@@ -106,6 +108,7 @@ test("role icons reach managed panes and title bars; ids, names and pane titles 
   assert.deepEqual(Object.fromEntries(launched.agents.map((agent) => [agent.id, agent.roleIcon])), icon, JSON.stringify(launched, null, 2));
   assert.deepEqual(launched.participants.map((p) => [p.id, p.roleIcon, p.roleLabel]), [["team", NESTED_TEAM_ICON, "Nested team"]]);
   const run = JSON.parse(await readFile(join(launched.runDir, "run.json"), "utf8"));
+  assert.equal(run.agents[0].binding?.serverKey, socket, "the run was recorded on a different tmux server than the one this test reads");
   assert.deepEqual(run.agents.map((agent) => [agent.id, agent.roleIcon, agent.roleLabel]), [
     ["conductor", ROLE_ICON_MAP.orchestrator, "Orchestrator"],
     ["worker-a", ROLE_ICON_MAP.worker, "Worker"],
@@ -146,9 +149,9 @@ test("role icons reach managed panes and title bars; ids, names and pane titles 
 
   // What an attached xterm actually receives: one OSC 0 title, and nothing the hostile name smuggled in.
   if (scriptAvailable) {
-    const conductorBytes = await attachedTerminalBytes(env, launched.session, paneOf("conductor"), join(consumer, "attach-conductor.bin"));
+    const conductorBytes = await attachedTerminalBytes(env, socket, launched.session, paneOf("conductor"), join(consumer, "attach-conductor.bin"));
     assert.ok(conductorBytes.includes(`${ESC}]0;${ROLE_ICON_MAP.orchestrator} conductor · Orchestrator${BEL}`), JSON.stringify(conductorBytes.slice(0, 400)));
-    const evilBytes = await attachedTerminalBytes(env, launched.session, evilPane, join(consumer, "attach-evil.bin"));
+    const evilBytes = await attachedTerminalBytes(env, socket, launched.session, evilPane, join(consumer, "attach-evil.bin"));
     assert.ok(evilBytes.includes(`${ESC}]0;${UNKNOWN_ROLE_ICON} ${evilName} · Agent${BEL}`), JSON.stringify(evilBytes.slice(0, 400)));
     assert.ok(!evilBytes.includes(`${ESC}]0;owned`) && !evilBytes.includes(`${ESC}]2;pwn`), "a hostile name reached the terminal as an escape sequence");
   } else {

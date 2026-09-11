@@ -210,9 +210,9 @@ export function sessionTitleArgs(session) {
   return [";", "set-option", "-t", session, "set-titles", "on", ";", "set-option", "-t", session, "set-titles-string", ROLE_TITLE_FORMAT];
 }
 
-/** Pane display options, plus the session title options when `session` is given (a pre-existing session). */
-export async function setRoleDisplay(pane, display, { session = null } = {}) {
-  const [, ...args] = [...roleDisplayArgs(pane, display), ...(session ? sessionTitleArgs(session) : [])];
+/** The pane display options in one invocation. Setting options is not a listing: no server lookup. */
+export async function setRoleDisplay(pane, display) {
+  const [, ...args] = roleDisplayArgs(pane, display);
   await tmux(args, { allowFailure: true });
 }
 
