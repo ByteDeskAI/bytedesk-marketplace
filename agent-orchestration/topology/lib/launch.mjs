@@ -13,12 +13,12 @@ import { appendJournal, agentDir, loadRun, pendingReplies, saveRun } from "./mai
 import { composerEmptyStyled } from "./delivery.mjs";
 import { childEnv, childrenFile, lineageFromEnv, lineageRefusal } from "./lineage.mjs";
 import { adapterFor, attentionOnScreen, buildArgv, commandExists, failureOnScreen, grantsDirs, memoryLocation } from "./providers.mjs";
-import { mintSpawn, sessionName } from "./identity.mjs";
+import { displayName, mintSpawn, roleVisual, sessionName } from "./identity.mjs";
 import { sameIncarnation } from "./incarnation.mjs";
 import { promotePromptForIncarnation } from "./prompt-lifecycle.mjs";
 import { loadRole, resolveSkill } from "./resolve.mjs";
 import * as tmux from "./tmux.mjs";
-import { ensureRunsIgnored, exists, fail, invariant, nowIso, readJson, render, shellQuote, sleep, writeJson, writeText } from "./util.mjs";
+import { ensureRunsIgnored, exists, fail, invariant, nowIso, readJson, render, shellQuote, sleep, terminalText, writeJson, writeText } from "./util.mjs";
 
 const POINTER_TEMPLATE = "[ao] Message {{id}} from {{from}} ({{stage}}): read {{inbox}} then write your complete reply to {{outbox}}";
 
@@ -234,7 +234,9 @@ export function launcherScript({ agent, candidate, argv, env }) {
     if (!/^[A-Z_][A-Z0-9_]*$/i.test(key)) fail("TOPOLOGY_ENV_INVALID", `Agent ${agent.id}: env name "${key}" is not a valid variable name.`);
     lines.push(`export ${key}=${shellQuote(value)}`);
   }
-  lines.push(`printf '\\033]2;%s\\007' ${shellQuote(`${agent.id} · ${agent.role} · ${candidateLabel(candidate)}`)}`);
+  // The printf argument is written to the terminal raw, so a role typed at `agent new --role` with an
+  // ESC or BEL in it would inject a sequence. Ordinary text passes through unchanged (TM-168).
+  lines.push(`printf '\\033]2;%s\\007' ${shellQuote(terminalText(`${agent.id} · ${agent.role} · ${candidateLabel(candidate)}`))}`);
   lines.push(`exec ${argv.map(shellQuote).join(" ")}`);
   return `${lines.join("\n")}\n`;
 }
@@ -254,6 +256,16 @@ export function launcherScript({ agent, candidate, argv, env }) {
  * and hand back "", and the agent would never look ready. A marker can only match where it was
  * printed.
  */
+/**
+ * TM-168. The icon and role label for one run agent: the declared run role, or a nested team for a
+ * workflow participant. Computed from `role` every time, including for a run.json written before
+ * this existed — and never taken from a stored `roleIcon`, because every agent in the run can write
+ * run.json. Display-only.
+ */
+export function runAgentVisual(agent) {
+  return roleVisual({ runRole: agent?.role ?? null, nestedTeam: Boolean(agent?.workflow) });
+}
+
 export function screenSince(screen, baseline) {
   const text = String(screen ?? "");
   // A blank anchor carries no position. Refusing to use one is what stops the silent truncation
@@ -724,6 +736,7 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
       agents: prepared.map((item) => ({
         id: item.agent.id,
         role: item.agent.role,
+        ...runAgentVisual(item.agent),
         cwd: item.agent.cwd,
         candidates: item.candidates.map((candidate) => ({ label: candidate.label, adapter: candidate.adapter.id, command: candidate.argv, add_dirs: candidate.add_dirs, memory: candidate.memory })),
         skills: item.skills,
@@ -781,6 +794,7 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
       id: item.agent.id,
       agent_id: item.agent._agent || item.agent.id,
       role: item.agent.role,
+      ...runAgentVisual(item.agent),
       cwd: item.agent.cwd,
       pane: null,
       bootstrap: item.bootstrapFile,
@@ -837,6 +851,7 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
       tmux.preparePane(panes.get(item.agent.id), {
         title: `${item.agent.id} · ${item.agent.role}`,
         log: `cat >> ${shellQuote(join(item.dir, "pane.log"))}`,
+        display: { agent: displayName(item.agent), role: item.agent.role, ...runAgentVisual(item.agent) },
       }),
     ),
   );
@@ -907,7 +922,7 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
     } else {
       warnings.push(`agent ${item.agent.id}: every provider in its chain failed — ${outcome.attempts.map((attempt) => `${attempt.label}: ${attempt.outcome}`).join("; ")}`);
     }
-    results.push({ id: item.agent.id, role: item.agent.role, pane, provider: outcome.label, adapter: outcome.adapter?.id ?? null, ready: outcome.ready, attempts: outcome.attempts });
+    results.push({ id: item.agent.id, role: item.agent.role, ...runAgentVisual(item.agent), pane, provider: outcome.label, adapter: outcome.adapter?.id ?? null, ready: outcome.ready, attempts: outcome.attempts });
   }
   await saveRun(spec.run_dir, run);
   if (spec.layout !== "windows") await tmux.selectPane(panes.get(first.agent.id));
@@ -948,7 +963,7 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
   run.state = results.every((result) => result.provider) && run.agents.every((agent) => !agent.workflow || agent.workflow.run_dir) ? "running" : "degraded";
   await saveRun(spec.run_dir, run);
   await appendJournal(spec.run_dir, { type: "run.launched", state: run.state, warnings });
-  return { runDir: spec.run_dir, session: spec.session, state: run.state, agents: results, participants: run.agents.filter((agent) => agent.workflow).map((agent) => ({ id: agent.id, ...agent.workflow })), warnings, attach: tmux.attachCommand(spec.session) };
+  return { runDir: spec.run_dir, session: spec.session, state: run.state, agents: results, participants: run.agents.filter((agent) => agent.workflow).map((agent) => ({ id: agent.id, ...runAgentVisual(agent), ...agent.workflow })), warnings, attach: tmux.attachCommand(spec.session) };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1021,6 +1036,10 @@ export async function openRoleSession({ agentsDir, agentId, adapter, argv, env =
   const session = roleSessionName(agentId, { prefix });
   const dir = join(agentsDir, String(agentId));
   const recordPath = roleSessionPath(agentsDir, agentId);
+  // TM-168 title bar. Read-only: the stored definition supplies the readable name, and agent.json is
+  // never written back. An agent with no definition on disk is shown by its id.
+  const stored = await readJson(join(dir, "agent.json")).catch(() => null);
+  const display = { agent: stored ? displayName(stored) : agentId, role, ...roleVisual({ role }) };
 
   if (env.AO_CONSUMER && roleSessionNeedsGovernance({ role, coordinatesOnly })) {
     const { leadState } = await import('./lead.mjs');
@@ -1059,9 +1078,12 @@ export async function openRoleSession({ agentsDir, agentId, adapter, argv, env =
       }
       record.binding = (await tmux.listServerPanes()).find(p => p.paneId === observed.paneId);
       await writeJson(recordPath, record);
+      await tmux.setRoleDisplay(observed.paneId, display, { session });
       return {session,pane:observed.paneId,binding:record.binding,created:false,reattached:false,restarted:true,record};
     }
     log(`reattaching to ${session}`);
+    // Ownership is proven above, so a session opened before TM-168 gets its title bar here too.
+    if (panes[0]?.id) await tmux.setRoleDisplay(panes[0].id, display, { session });
     return { session, pane: panes[0]?.id ?? null, binding: record.binding, created: false, reattached: true, record };
   }
 
@@ -1090,6 +1112,8 @@ export async function openRoleSession({ agentsDir, agentId, adapter, argv, env =
   record.binding=(await tmux.listServerPanes()).find(p=>p.paneId===pane && p.sessionName===session);
   await writeJson(recordPath,record);
   await tmux.setPaneOption(pane, "remain-on-exit", "on");
+  // The session title options came with newSession; the pane supplies what they render.
+  await tmux.setRoleDisplay(pane, display);
   await tmux.pipePane(pane, `cat >> ${shellQuote(join(dir, "pane.log"))}`);
   const shell = await tmux.clearAndWaitForShell(pane, `ao-role-${randomUUID().slice(0, 8)}`);
   invariant(shell.ok, 'TOPOLOGY_SESSION_START', 'Session shell did not become ready.');
