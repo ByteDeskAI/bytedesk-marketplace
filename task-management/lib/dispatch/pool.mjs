@@ -165,9 +165,9 @@ export function readPoolState(p = paths()) {
 
 /**
  * Written through a rename so a crash mid-write cannot tear the pause away. The temp
- * name matches the store's existing `.tm-tmp-*` ignore rule.
- * ponytail: read-modify-write without a lock; a `tm pool resume` racing a failure in
- * the same millisecond can lose the resume. Take withLock here if that is ever seen.
+ * name matches the store's existing `.tm-tmp-*` ignore rule. Every read-modify-write of
+ * this file runs under withLock, so a `tm pool resume` cannot be lost to a failure the
+ * running loop records at the same moment.
  */
 function writePoolState(next, p) {
   const tmp = join(p.base, `.tm-tmp-pool-state-${process.pid}`);
@@ -178,9 +178,11 @@ function writePoolState(next, p) {
 
 /** `tm pool resume`: clear the pause and the count. Returns the state it cleared. */
 export function resumePool(p = paths()) {
-  const prior = readPoolState(p);
-  writePoolState({ ...CLEAR, changedAt: now() }, p);
-  return prior;
+  return withLock(p, () => {
+    const prior = readPoolState(p);
+    writePoolState({ ...CLEAR, changedAt: now() }, p);
+    return prior;
+  });
 }
 
 /**
@@ -188,20 +190,24 @@ export function resumePool(p = paths()) {
  * Returns the state after. A pool already paused stays paused and stops counting.
  */
 function recordFailure(reason, cfg, p) {
-  const s = readPoolState(p);
-  if (s.pausedReason) return s;
-  const text = String(reason || "unknown failure");
-  const brief = text.split("\n")[0].slice(0, 300);
-  const at = now();
-  const failures = s.failures + 1;
-  const next = { ...s, failures, changedAt: at };
-  const quota = QUOTA_RE.test(text);
-  if (quota || failures >= Number(cfg.dispatch?.maxFailures ?? 3)) {
-    next.pausedReason = quota ? `quota-shaped failure: ${brief}` : `${failures} consecutive failures (last: ${brief})`;
-    next.pausedAt = at;
-    logEvent("pool_paused", { reason: next.pausedReason, failures }, p);
-  }
-  return writePoolState(next, p);
+  const paused = withLock(p, () => {
+    const s = readPoolState(p);
+    if (s.pausedReason) return { state: s, logged: null };
+    const text = String(reason || "unknown failure");
+    const brief = text.split("\n")[0].slice(0, 300);
+    const at = now();
+    const failures = s.failures + 1;
+    const next = { ...s, failures, changedAt: at };
+    const quota = QUOTA_RE.test(text);
+    if (quota || failures >= Number(cfg.dispatch?.maxFailures ?? 3)) {
+      next.pausedReason = quota ? `quota-shaped failure: ${brief}` : `${failures} consecutive failures (last: ${brief})`;
+      next.pausedAt = at;
+    }
+    return { state: writePoolState(next, p), logged: next.pausedReason ? { reason: next.pausedReason, failures } : null };
+  });
+  // Logged outside the lock: logEvent fans out to notifiers, which must not run while the store is held.
+  if (paused.logged) logEvent("pool_paused", paused.logged, p);
+  return paused.state;
 }
 
 /**
@@ -216,7 +222,13 @@ function resetOnClose(p) {
   if (!s.failures || s.pausedReason || !s.changedAt) return;
   const since = new Date(s.changedAt).getTime();
   const closed = list("task", { status: "done" }, p).some((t) => t.dispatched && t.closed && new Date(t.closed).getTime() > since);
-  if (closed) writePoolState({ ...s, failures: 0, changedAt: now() }, p);
+  if (!closed) return;
+  // The scan stays outside the lock; the write resets only the streak that was scanned. A
+  // failure or resume recorded meanwhile moved changedAt, and that newer state wins.
+  withLock(p, () => {
+    const current = readPoolState(p);
+    if (current.changedAt === s.changedAt && !current.pausedReason) writePoolState({ ...current, failures: 0, changedAt: now() }, p);
+  });
 }
 
 // ── the tick ─────────────────────────────────────────────────────────────────

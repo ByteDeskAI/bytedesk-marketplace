@@ -204,6 +204,26 @@ describe("TM-175 B7 — a failed dispatch removes the worktree it created", () =
     assert.ok(existsSync(wt));
   });
 
+  it("keeps a claim that predates the dispatch while removing the worktree it created", async () => {
+    // Reachable without --steal: `tm start` claims for session s1, then s1 runs `tm dispatch`.
+    const { claimTask } = await import("../../lib/claims.mjs");
+    const p = repoStore();
+    const id = ready(p, "started by hand");
+    const wt = worktreePath(id, read(id, p).title, p);
+    assert.equal(claimTask(id, { session: "s1", actor: "@human", p }).ok, true, "control: s1 holds the claim");
+    update(id, { status: "in_progress" }, p);
+
+    const res = await dispatch(id, { backend: fakeBackend(() => ({ ok: false, reason: "harness crashed" })), session: "s1", p });
+
+    assert.equal(res.ok, false);
+    assert.match(res.reason, /harness crashed/);
+    assert.equal(existsSync(wt), false, "the worktree this dispatch created is gone");
+    assert.equal(read(id, p).worktree ?? null, null);
+    assert.equal(read(id, p).branch ?? null, null);
+    assert.equal(state(p).claims[id]?.session, "s1", "the claim that existed before the dispatch is still held by s1");
+    assert.equal(read(id, p).status, "in_progress", "and the status it had is restored");
+  });
+
   it("never removes a checkout it did not create (guard)", async () => {
     const p = repoStore();
     const id = ready(p, "occupied");

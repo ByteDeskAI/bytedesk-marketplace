@@ -29,7 +29,7 @@
  */
 import { claimTask, claimant, heartbeatClaim, releaseClaim } from "../claims.mjs";
 import { listAgents, registerAgent } from "../agents.mjs";
-import { provision, unprovision } from "../worktree.mjs";
+import { provision, removeWorktree } from "../worktree.mjs";
 import { handoff } from "../render.mjs";
 import { RESOLVED, config, logEvent, mutate, now, read, update } from "../store.mjs";
 import { paths } from "../paths.mjs";
@@ -151,8 +151,15 @@ export async function dispatch(id, { backend = null, session = null, actor = nul
      * because the only uncommitted content is what the failed spawn may have written.
      */
     if (prov?.ok) {
+      /**
+       * Not unprovision(): it releases the claim unconditionally, which would drop a claim
+       * that predates this call (`tm start` then `tm dispatch` from the same session). Remove
+       * the checkout and clear its fields; the claim stays with the priorClaim rule below.
+       */
       try {
-        unprovision(task, { force: true, p });
+        removeWorktree(task, { force: true, p });
+        update(id, { worktree: undefined, branch: undefined }, p);
+        logEvent("worktree_rm", { id }, p);
       } catch {
         /* a stuck worktree must not stop the claim and status rollback below */
       }
