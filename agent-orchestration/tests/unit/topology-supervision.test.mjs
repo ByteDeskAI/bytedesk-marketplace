@@ -143,21 +143,29 @@ test('the supervisor records where it went and how often it has been restarted',
   const { options, env, home, repo } = await quietRepo(t, 'restart');
   const { startRepositorySupervision, supervisionStatus } = await import('../../topology/lib/supervision.mjs');
   const first = await startRepositorySupervision(options);
-  t.after(() => { try { process.kill(first.pid, 'SIGKILL'); } catch {} });
-  assert.equal(first.restarts, 0);
-  assert.match(first.log, /\.log$/);
-  assert.match(first.source_entrypoint, /topology\/cli\.mjs$/);
-  assert.match(first.source_fingerprint, /^[0-9a-f]{64}$/);
-  // An already-running supervisor is never spawned twice.
-  const again = await startRepositorySupervision(options);
-  assert.equal(again.pid, first.pid);
-  assert.equal(again.state, 'running');
-  const status = await supervisionStatus({ consumer: repo, env, home });
-  assert.equal(status.pid, first.pid);
-  assert.equal(status.state, 'running');
-  assert.equal(status.record_owns_lock, true);
-  assert.equal(status.source_entrypoint, first.source_entrypoint);
-  assert.equal(status.source_fingerprint, first.source_fingerprint);
+  let again;
+  // Reap in `finally`, NOT t.after: quietRepo registered rm(root) first and hooks run in order, so a
+  // hook here ran after the daemon's state dir was already being removed under it. Measured 3 in 32
+  // runs as `hookFailed: ENOTEMPTY ... state/presence`, with every assertion passing in ~130ms.
+  try {
+    assert.equal(first.restarts, 0);
+    assert.match(first.log, /\.log$/);
+    assert.match(first.source_entrypoint, /topology\/cli\.mjs$/);
+    assert.match(first.source_fingerprint, /^[0-9a-f]{64}$/);
+    // An already-running supervisor is never spawned twice.
+    again = await startRepositorySupervision(options);
+    assert.equal(again.pid, first.pid);
+    assert.equal(again.state, 'running');
+    const status = await supervisionStatus({ consumer: repo, env, home });
+    assert.equal(status.pid, first.pid);
+    assert.equal(status.state, 'running');
+    assert.equal(status.record_owns_lock, true);
+    assert.equal(status.source_entrypoint, first.source_entrypoint);
+    assert.equal(status.source_fingerprint, first.source_fingerprint);
+  } finally {
+    await reap(first.pid);
+    if (again?.pid && again.pid !== first.pid) await reap(again.pid);
+  }
 });
 
 test('supervision startup uses a bounded configurable ownership handshake', () => {
@@ -230,7 +238,10 @@ test('a supervisor started with an absolute --consumer survives losing its worki
   const { spawn } = await import('node:child_process');
   const { fileURLToPath } = await import('node:url');
   const root = await mkdtemp(join(tmpdir(), 'ao-supervise-cwd-'));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  let child;
+  // ONE hook, reap before rm: hooks run in registration order, and removing the state dir under a
+  // live daemon is the `hookFailed: ENOTEMPTY` measured in the restart test above.
+  t.after(async () => { if (child?.pid) await reap(child.pid); await rm(root, { recursive: true, force: true }); });
   const repo = join(root, 'repo'), home = join(root, 'home'), cwd = join(root, 'ephemeral');
   const env = isolatedEnv(root, home);
   await run('git', ['init', repo]);
@@ -247,8 +258,7 @@ test('a supervisor started with an absolute --consumer survives losing its worki
   // blob every 2s — but it deleted this test's only signal and the suite merged red: green at
   // 1de163b^, red at 1de163b, verified by running the file at both. The contract that commit
   // documents is "a reader wanting per-tick detail passes --json", so this reader asks for it.
-  const child = spawn(process.execPath, [cli, 'supervise', '--json', '--consumer', repo], { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
-  t.after(() => reap(child.pid));
+  child = spawn(process.execPath, [cli, 'supervise', '--json', '--consumer', repo], { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
   child.stdout.on('data', d => log.push(String(d)));
   child.stderr.on('data', d => log.push(String(d)));
   await new Promise((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject); });
