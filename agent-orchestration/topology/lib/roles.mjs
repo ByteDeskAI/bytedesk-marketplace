@@ -113,12 +113,21 @@ async function retag(agent, role) {
   return { ...agent, role };
 }
 
-/** Which of these agents has a live role-session right now: `listServerPanes` plus the library. */
+/**
+ * Which of these agents has a live role-session right now: `listServerPanes` plus the library.
+ * TM-167: asks about each agent's own named session, never enumerates the whole implicit server.
+ */
 async function aliveSessions(agents, { env = process.env, listPanesFn = tmux.listServerPanes } = {}) {
-  if (agents.length === 0) return new Set();
-  const panes = await listPanesFn({ env });
-  const live = new Set(panes.filter((pane) => pane.alive !== false).map((pane) => pane.sessionName));
-  return new Set(agents.filter((agent) => live.has(roleSessionName(agent.id))).map((agent) => agent.id));
+  const live = new Set();
+  for (const agent of agents) {
+    const session = roleSessionName(agent.id);
+    // A session is not a server. When the agent's own session record names its server, ask THAT server;
+    // with no record the server is implicit ($TMUX or the default socket), which this advisory status accepts.
+    const tmuxServer = agent._dir ? (await readJson(join(agent._dir, "session.json")).catch(() => null))?.binding?.serverKey : undefined;
+    const panes = await listPanesFn({ session, env, ...(tmuxServer ? { tmuxServer } : {}) });
+    if (panes.some((pane) => pane.alive !== false && pane.sessionName === session)) live.add(agent.id);
+  }
+  return live;
 }
 
 /**

@@ -491,7 +491,7 @@ export async function assignLead({ consumer, agentRef, session: existingSession 
     const pane = await p.pane(candidate);
     const otherLead = await findLead(agentDirs({ pluginRoot, consumer, home }));
     invariant(!otherLead || otherLead.id === agent.id, "TOPOLOGY_MULTIPLE_LEADS", "Another library lead exists; reconcile it before promotion.");
-    const binding = probes?.binding ? await probes.binding(candidate) : (await tmux.listServerPanes({ env })).find(p => p.paneId === pane && p.sessionName === session) || null;
+    const binding = probes?.binding ? await probes.binding(candidate) : (await tmux.listServerPanes({ session, env })).find(p => p.paneId === pane && p.sessionName === session) || null;
     invariant(probes || binding, "TOPOLOGY_LEAD_BINDING_REQUIRED", "Assignment needs exact observed session binding.");
     candidate.pane = pane;
     invariant(await p.responsive(candidate, ackTimeoutMs), "TOPOLOGY_LEAD_HANDSHAKE_REQUIRED", "Assignment requires an acknowledged nonce handshake; the existing session was preserved.");

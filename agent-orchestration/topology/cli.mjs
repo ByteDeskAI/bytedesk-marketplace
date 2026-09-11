@@ -263,20 +263,31 @@ function nameFrom(flags) {
  * and both routes converge on the same per-repo supervision lock. Idempotent — a live pid
  * short-circuits in microseconds — and deliberately NEVER fatal: a repo with no supervisor
  * publishes stale presence, which is a degraded repo, not a failed command.
+ *
+ * TM-167: every such site goes through ONE path, `activateRepository`, which starts a supervisor only
+ * for an ENROLLED repository. An unenrolled repository gets `{ started: false, reason: "not-enrolled" }`
+ * and no process. The fields added here are additive to what `startRepositorySupervision` returns.
  */
-async function ensureSupervision(ctx) {
-  try {
-    const { startRepositorySupervision } = await import('./lib/supervision.mjs');
-    return await startRepositorySupervision(ctx);
-  } catch (error) {
-    return { started: false, error: error.message };
-  }
+async function activate(ctx, reason) {
+  const { activateRepository } = await import('./lib/repo-enrollment.mjs');
+  const { enrollment, supervision } = await activateRepository({ ...ctx, reason });
+  return { ...supervision, enrolled: enrollment.enrolled, enrollment_source: enrollment.source, activation: reason };
 }
 
 const commands = {
   async supervise({ flags }) {
     const { superviseRepository } = await import('./lib/supervision.mjs');
     const ctx = context(flags);
+    // TM-167: `supervise` runs in EVERY repository, enrolled or not, and stays read-only — presence,
+    // census, slots, quota, prompt refresh for standing agents that already exist. It starts nothing, so
+    // enrollment does not gate it. Measured before this rule was set: of the 11 repositories running a
+    // supervisor on the operator's machine, only 3 resolved as enrolled, and exiting in the other 8 would
+    // have stopped their Presence heartbeat and shown each of them stale in the gateway. What enrollment
+    // DOES gate is anything that starts or recovers an agent (lead recovery in the reconcile tick checks
+    // resolveEnrollment) and an ordinary verb's self-start (`activate`, above), which spawns a supervisor
+    // only for an enrolled repository. The watcher below is scoped to this repository's panes either way.
+    const { canonicalRepoId } = await import('./lib/repoid.mjs');
+    const repoId = (await canonicalRepoId(ctx.consumer)).id;
     // Linked worktrees share one canonical repository id, so a machine with N worktrees of this
     // repo open starts N supervisors and N-1 of them MUST lose. Losing is the correct outcome and
     // therefore not an error: exit 0 saying who owns it, so a monitor host does not read the loss
@@ -297,7 +308,7 @@ const commands = {
     // Exceptions still speak: retirement and a degraded heartbeat are invisible in any other place.
     const notable = report => report?.stopped || report?.presence_beats_degraded || report?.error;
     const onTick = flags.json ? out : report => { if (notable(report)) out(report); };
-    return Promise.all([owned(() => superviseRepository({ ...ctx, tmuxServer: flags.server }, { onTick })), watchServer({ ...ctx, tmuxServer: flags.server || 'default' })]);
+    return Promise.all([owned(() => superviseRepository({ ...ctx, tmuxServer: flags.server }, { onTick })), watchServer({ ...ctx, tmuxServer: flags.server || 'default', repoId })]);
   },
 
   async census({ flags }) {
@@ -311,10 +322,10 @@ const commands = {
     const identity = await canonicalRepoId(ctx.consumer);
     // `census` is a repo-scoped verb, so it self-starts the supervisor like every other one:
     // asking what the agents are doing is exactly the moment you want the tick back after a
-    // reboot. `ensureSupervision` is idempotent — a live pid short-circuits in microseconds — and
+    // reboot. `activate` is idempotent — a live pid short-circuits in microseconds — and
     // never fatal, which is the right trade here: a census with no supervisor is a one-shot
     // answer, not a failed command.
-    const supervision = await ensureSupervision(ctx);
+    const supervision = await activate(ctx, 'census');
     const memo = new Map();
     const observe = async (previous) => {
       // Prefer the supervisor's document: ONE answer to "is this agent alive" per repo. Only when
@@ -416,8 +427,8 @@ const commands = {
     if (sub === 'request') return out(await api.requestEnrollment(options));
     invariant(typeof flags.nonce === 'string' && flags.nonce, 'TOPOLOGY_ENROLLMENT_ACK', 'Pass the challenge --nonce from the assigned session.');
     const result = await api.acknowledgeEnrollment({ ...options, nonce: flags.nonce });
-    const { startRepositorySupervision } = await import('./lib/supervision.mjs');
-    return out({ ...result, supervision: await startRepositorySupervision(ctx) });
+    // TM-167: non-fatal and enrollment-gated like every other activation site.
+    return out({ ...result, supervision: await activate(ctx, 'enrollment-ack') });
   },
   async reviewer({ flags, positional }) {
     const ctx = context(flags), api = await import('./lib/reviewer.mjs');
@@ -482,18 +493,18 @@ const commands = {
     const options = { ...ctx, ...(flags['ack-timeout'] ? { ackTimeoutMs: Number(flags['ack-timeout']) } : {}) };
     if (sub === 'status') return out(await api.leadState(options));
     if (sub === 'probes') return out(await api.pendingLeadProbes(options));
-    // `ensureSupervision`, NOT startRepositorySupervision: `role assign|ensure lead` is the same
+    // `activate`, NOT startRepositorySupervision: `role assign|ensure lead` is the same
     // operation through the other surface and degrades, so these must too. Two surfaces onto one
     // operation must not disagree about whether a repo that cannot start a supervisor is a
     // degraded repo or a failed command. tests/unit/topology-supervision-consistency.test.mjs
-    // drives both and compares.
+    // drives both and compares — which is also why both pass the same activation reason.
     if (sub === 'ensure') {
       const result = await api.ensureLead(options);
-      return out({ ...result, supervision: await ensureSupervision(ctx) });
+      return out({ ...result, supervision: await activate(ctx, 'role-holder') });
     }
     if (sub === 'assign') {
       const result = await api.assignLead({ ...options, agentRef: positional[1], session: flags.session });
-      return out({ ...result, supervision: await ensureSupervision(ctx) });
+      return out({ ...result, supervision: await activate(ctx, 'role-holder') });
     }
     if (sub === 'detach') return out(await api.detachLead({ ...options, kill: flags.kill === true }));
     if (sub === 'ack') return out(await api.leadNonceAck({ ...options, nonce: positional[1] }));
@@ -524,7 +535,7 @@ const commands = {
     // `lead ensure` and `lead assign` do — two surfaces onto the same operation must not differ on
     // whether presence gets published afterwards. Read-only verbs and `detach` do not.
     return out(['assign', 'ensure', 'reassign'].includes(verb)
-      ? { ...result, supervision: await ensureSupervision(ctx) }
+      ? { ...result, supervision: await activate(ctx, 'role-holder') }
       : result);
   },
   async prompt({ flags, positional }) {
@@ -552,7 +563,10 @@ const commands = {
       const { loadConfig } = await import('./lib/config.mjs');
       return out(await composePrompt({ ...ctx, agent, dir: agent._dir, loaded: await loadConfig(ctx), templateName: agent.template }));
     }
-    const panes = await tmux.listServerPanes(recordedBinding?.serverKey ? { tmuxServer: recordedBinding.serverKey } : {}).catch(() => []);
+    // TM-167: the recorded server, else the caller's own ($TMUX — the pane being proven lives there).
+    // With neither there is no server to look at, so no binding is proven and ack fails closed.
+    const promptServer = recordedBinding?.serverKey ?? tmux.callerServer(process.env);
+    const panes = promptServer ? await tmux.listServerPanes({ tmuxServer: promptServer }).catch(() => []) : [];
     const currentBinding = panes.find(p => p.paneId === process.env.TMUX_PANE && (!recordedBinding || sameIncarnation(p, recordedBinding))) ?? null;
     const expectedSession = promptSession || roleSessionName(agent.id);
     if (positional[0] === 'ack') return out(await api.acknowledgePrompt({ agent, revision: flags.revision, nonce: flags.nonce, binding: currentBinding, consumer: ctx.consumer, session: expectedSession }));
@@ -781,7 +795,7 @@ const commands = {
       log: (line) => process.stderr.write(`${line}\n`),
     });
     result.template = path;
-    if (!flags["dry-run"]) result.supervision = await ensureSupervision(ctx);
+    if (!flags["dry-run"]) result.supervision = await activate(ctx, 'launch');
     if (flags.json || flags["dry-run"]) return out(result);
     out(`Launched ${materialized.name} · run ${runId}`);
     out(`  run dir: ${result.runDir}`);
@@ -933,7 +947,7 @@ const commands = {
       ok: true,
       agent: displayName(agent),
       id: agent.id,
-      supervision: await ensureSupervision(ctx),
+      supervision: await activate(ctx, 'session-open'),
       session: result.session,
       pane: result.pane,
       created: result.created,
@@ -1067,7 +1081,7 @@ const commands = {
       ok: true,
       id: message.id,
       // The receiving repo is the run's, never the caller's cwd — same reasoning as routingConsumer.
-      supervision: await ensureSupervision({ ...ctx, consumer: routingConsumer || ctx.consumer }),
+      supervision: await activate({ ...ctx, consumer: routingConsumer || ctx.consumer }, 'send'),
       deliveries: message.deliveries,
       holds: message.holds,
       delivered,

@@ -529,16 +529,46 @@ export async function clearAndWaitForShell(pane, channel, timeoutMs = 15_000, { 
   return { ok: true, baseline: marker, promptLines: after.split("\n").filter((line) => line.trim().length > 0).length };
 }
 
-/** Enumerate exact pane incarnations on the selected server, independent of session names. */
-export async function listServerPanes({ tmuxServer, env = process.env } = {}) {
+/** The socket of the server the CALLER's own pane lives on, read from `$TMUX`; null outside tmux. */
+export function callerServer(env = process.env) {
+  return /^(.*),[0-9]+,[^,]+$/.exec(env?.TMUX ?? "")?.[1] || null;
+}
+
+/** The socket path of the server one pane lives on. A targeted query of that pane, not an enumeration. */
+export async function serverOf(pane, { env } = {}) {
+  if (!pane) return null;
+  const result = await tmux(["display-message", "-p", "-t", pane, "#{socket_path}"], { env, allowFailure: true });
+  return (result.code === 0 && result.stdout.split("\n")[0].trim()) || null;
+}
+
+/**
+ * Enumerate exact pane incarnations on the selected server — or, with `session`, in that one session.
+ *
+ * TM-167: a bare `list-panes -a` enumerates whichever server tmux resolves implicitly, which from an
+ * operator's shell is the server hosting every unrelated agent on the machine. So an enumeration
+ * must NAME its server (a binding's serverKey, a socket asked of a pane, an explicit --server), and a
+ * caller that knows only a session name asks about that session. Neither is a refusal, not a guess.
+ *
+ * A session is NOT a server: `session` alone still lets tmux resolve the server implicitly ($TMUX or
+ * the default socket), so a same-named session on another server can answer. A caller that has a
+ * recorded binding passes its `serverKey` as `tmuxServer` together with `session`; a caller with only
+ * a name must say at its call site that the server is implicit.
+ */
+export async function listServerPanes({ tmuxServer, session, env = process.env } = {}) {
+  if (!tmuxServer && !session) {
+    fail("TOPOLOGY_TMUX_SERVER_REQUIRED", "Refusing to enumerate panes on an unnamed tmux server: pass the recorded server (a binding's serverKey) or the session to look at.");
+  }
   // `pane_title` is here for the liveness census (TM-131): codex, kimi and grok animate a braille
   // spinner in the pane title, so one extra column on the listing the supervisor already takes
   // answers "is this agent working" for every pane on the server without a single extra tmux call.
   // Appended LAST so every existing positional destructure keeps its index.
   const fields = ["socket_path", "pid", "session_id", "session_created", "pane_id", "pane_pid", "session_name", "pane_current_command", "pane_current_path", "pane_dead", "pane_title"];
-  const result = await tmux(["-u", "list-panes", "-a", "-F", fields.map((key) => `#{${key}}`).join("\t")], { tmuxServer, env, allowFailure: true });
+  const scope = session ? ["-s", "-t", `=${session}`] : ["-a"];
+  const result = await tmux(["-u", "list-panes", ...scope, "-F", fields.map((key) => `#{${key}}`).join("\t")], { tmuxServer, env, allowFailure: true });
   if (result.code !== 0) {
     if (/no server running|error connecting.*No such file|failed to connect.*No such file/.test(result.stderr)) return [];
+    // Measured on tmux 3.4: `list-panes -s -t =<missing>` says "can't find window: <name>", not "session".
+    if (session && /can't find (session|window)/.test(result.stderr)) return [];
     fail("TOPOLOGY_TMUX_OBSERVATION_FAILED", "Cannot enumerate tmux panes; liveness is unknown.");
   }
   return result.stdout.split("\n").filter(Boolean).map((line) => {
