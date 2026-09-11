@@ -50,7 +50,9 @@ tm init >/dev/null
 tm epic new "Pool" >/dev/null
 T1="$(tm task new "Poolable work" --body "context" --ac "it dispatches" | cut -d' ' -f1)"
 tm label "$T1" ready-for-agent >/dev/null
-tm task new "Not for agents" --body "context" --ac "it stays put" >/dev/null
+# --human, because a complete task is now labelled ready-for-agent by the store (TM-176). A person's
+# ready-for-human label is sticky, which is exactly the "not for agents" this fixture means.
+tm task new "Not for agents" --body "context" --ac "it stays put" --human >/dev/null
 
 # ── help registration ────────────────────────────────────────────────────────
 has "$(tm help)" "pool [once|start|stop|status]" "help lists the pool verb"

@@ -143,7 +143,8 @@ describe("csv", () => {
     assert.equal(cell("Priority"), "high");
     assert.equal(cell("Assignee"), "ryan");
     assert.equal(cell("Story Points"), "3");
-    assert.equal(cell("Labels"), "ui urgent");
+    // ready-for-agent is the store's auto-triage label (TM-176); it exports like any other label.
+    assert.equal(cell("Labels"), "ui urgent ready-for-agent");
     assert.equal(cell("Epic Link"), ids.epic);
   });
 
