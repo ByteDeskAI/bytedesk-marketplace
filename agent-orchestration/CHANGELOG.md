@@ -2,7 +2,38 @@
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-09-11
+
 ### Added
+
+- **`ao-topology observer start` attaches only after proof (TM-164, EP-019).** New
+  `topology/lib/observer-session.mjs` prepares the managed observer session, restarting it once
+  if its prompt is stale. It then waits until that observer acknowledges its current prompt from
+  the pane its tmux binding names (see the limit under TM-163). `--ack-timeout` controls the wait, with `AO_OBSERVER_ACK_TIMEOUT_MS` as
+  the environment fallback and 30 s as the default. Only then does `startObserver` re-check the
+  conductor's incarnation and commit attachment `version: 2`, carrying `observation_allowed: true`,
+  `observer_binding` and `prompt_revision`. `observer open` is now an alias for the same flow.
+  Version 1 attachments can still be inspected, but cannot `watch` or `report` until started again.
+- **Prompt acknowledgement is bound to one exact process (TM-163, EP-019).** New
+  `topology/lib/incarnation.mjs` identifies a process by six tmux fields: `serverKey`,
+  `serverPid`, `sessionId`, `sessionCreated`, `paneId` and `panePid`.
+  - `prompt ack` must match the agent, session, canonical repository, nonce, revision and
+    incarnation. A refusal now names the failed check in `details.reason`.
+  - **Limit:** the caller's incarnation is resolved from its `TMUX_PANE`. This stops a stale or
+    replaced process from acknowledging by mistake. It does not stop another process of the same
+    user that sets `TMUX_PANE` deliberately; TM-172 tracks stronger proof.
+  - A replacement process invalidates earlier prompt-current proof, even when the revision is
+    unchanged.
+  - `ao-topology session --restart` performs a controlled restart. It promotes the pending prompt
+    and requires acknowledgement from the new process.
+- **A real-tmux contract test for the observer gate (TM-164, EP-019).**
+  - `tests/contract/topology-tmux.test.mjs` now proves on an isolated tmux server that
+    `observer start` commits no attachment before the observer's own pane acknowledges its prompt.
+    The committed attachment is version 2, bound to that live pane, and carries the prompt
+    revision composed now.
+  - The launch tests in the same file now stop the supervisor that `launch` starts. They kill
+    their tmux server by socket, and only after checking that the socket is inside the test's
+    `TMUX_TMPDIR`.
 
 - **Provider quota failover, mid-run (TM-135, EP-018).** `topology/lib/quota.mjs`, called from the
   supervise tick, closes a gap that cost two agents a working day: `failureOnScreen` was consulted
@@ -209,6 +240,19 @@
 
 ### Changed
 
+- **The lifetime-lock owner is the authoritative repository supervisor (TM-162, EP-019).**
+  - Only the process that holds the supervision lock writes `<key>.process.json`. The record holds
+    the pid, process identity, lock token, canonical consumer, source entrypoint and fingerprint,
+    and restart count.
+  - A supervisor that lost the lock can no longer overwrite or retire the winner's record.
+  - `startRepositorySupervision` normalises the consumer to its repository root and waits for the
+    spawned child to take the lock. The wait is bounded: `AO_SUPERVISION_START_TIMEOUT_MS`,
+    10 s by default.
+  - **`supervisionStatus` reports new states.** It reports `running`, `ownership-record-mismatch`
+    or `running-without-lock` in place of `running-or-ownership-unknown`. Any consumer matching on
+    the old state name must be updated.
+  - `doctor` raises `SUPERVISOR_OWNERSHIP_MISMATCH` and `SUPERVISOR_UNFENCED`.
+
 - **The supervise daemon stops narrating itself to every console hosting the monitor.** It ticks
   every 2–15s forever and streamed each report to stdout as a multi-line JSON blob, so a monitor
   host printed one every couple of seconds. The daemon is now quiet unless `--json` is passed;
@@ -239,6 +283,20 @@
   hold instead.
 
 ### Fixed
+
+- **Two topology unit tests raced a supervisor daemon (EP-019).**
+  - **The `send` guard.** TM-162 makes `send` wait for its self-started `ao-topology supervise`
+    child to take the lock, and that child lists tmux panes at once, so the old "tmux never ran"
+    check lost the race.
+    - It now runs the child with `TMUX=''` and its own `TMUX_TMPDIR`.
+    - It stops the child before deleting the run directory.
+    - From recorded calls, it asserts that only the supervisor runs tmux and that nothing sends
+      keys, pastes or loads a buffer.
+    - Before this change the test inherited the caller's `TMUX` and could reach the operator's
+      tmux server once its fake `tmux` was deleted.
+  - **The supervision tests.** They now stop their daemon before removing its state directory.
+    Removing it first caused an intermittent `ENOTEMPTY` teardown failure (3 in 32 runs). The
+    same cleanup order remains in other topology tests; TM-171 tracks it.
 - **Session hosts and worker runs no longer get killed by their own memory cap.** Both scopes
   launched with `MemoryMax=8G`; hitting it OOM-killed a process and `OOMPolicy=stop` then ended the
   whole scope. They now launch with `MemoryHigh=12G` (reclaim and throttle, never kill) and
