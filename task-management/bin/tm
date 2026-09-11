@@ -339,7 +339,12 @@ const VERBS = {
       // An explicit --body wins over the template's starter body; the gate below checks
       // what will actually be created, so a template's own body/criteria satisfy it too.
       if (body !== undefined) applied.body = body;
-      if (human) applied.fields.labels = [...(applied.fields.labels || []).filter((l) => !TRIAGE_LABELS.includes(l)), "ready-for-human"];
+      if (human) {
+        Object.assign(applied.fields, {
+          labels: [...(applied.fields.labels || []).filter((l) => !TRIAGE_LABELS.includes(l)), "ready-for-human"],
+          triagedBy: "human",
+        });
+      }
       const gate = gateTaskCreate(P, { body: applied.body, acceptance: applied.fields.acceptance });
       if (!gate.allow) die(gate.reason, 2);
       const dup = enforcementOff(P) ? null : findDuplicate(title, P);
@@ -1567,8 +1572,14 @@ const VERBS = {
     const all = args.includes("--all");
     const dry = args.includes("--dry-run");
     const triageOf = (t) => (t.labels || []).filter((l) => TRIAGE_LABELS.includes(l)).join(",");
+    let skipped = 0;
     for (const t of list("task", {}, P)) {
       if (RESOLVED.has(t.status) || (!all && !OPEN.has(t.status))) continue;
+      // A person's decision — stamped human, or a legacy unstamped triage label — is never a candidate.
+      if (t.triagedBy === "human" || (triageOf(t) && t.triagedBy !== "auto")) {
+        skipped += 1;
+        continue;
+      }
       const sync = triageSync(t, P);
       if (!Object.keys(sync).length) continue;
       const next = { ...t, ...sync };
@@ -1576,6 +1587,8 @@ const VERBS = {
       out(`${t.id}: ${triageOf(t) || "(none)"} → ${triageOf(next)}${missing}`);
       if (!dry) update(t.id, {}, P);
     }
+    // On stderr, so stdout stays exactly the list of changes.
+    if (skipped) process.stderr.write(`tm triage: skipped ${skipped} task${skipped === 1 ? "" : "s"} triaged by a person\n`);
   },
 
   help() {

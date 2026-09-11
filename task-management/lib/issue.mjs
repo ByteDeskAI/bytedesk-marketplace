@@ -101,7 +101,7 @@ export function labels(id, { add = [], remove = [], force = false } = {}, p = pa
   // Read-append-write, so it goes through mutate: two concurrent label adds that each
   // read the same list would otherwise keep only the second one's label.
   // A person choosing or clearing a triage label takes that decision from the store's auto-triage:
-  // dropping the `triagedBy: auto` stamp is what makes the label sticky (store.mjs `triageSync`).
+  // the `triagedBy: human` stamp is what makes it sticky, "no triage label" included (store.mjs `triageSync`).
   // Adding a triage label is a decision even when it matches the current one: a person confirming the
   // store's pick makes it theirs. A removal decides something only if it changes the triage set, so
   // `-wontfix` on a task that never had it leaves the auto label auto.
@@ -119,14 +119,12 @@ export function labels(id, { add = [], remove = [], force = false } = {}, p = pa
         next.add(l);
       }
       const kept = [...next];
-      const decided = addsTriage || triageOf(kept) !== triageOf(before);
-      const unstamp = decided && (t.triagedBy !== undefined || t.triageMissing !== undefined);
-      return { labels: kept.length ? kept : undefined, ...(unstamp ? { triagedBy: undefined, triageMissing: undefined } : {}) };
+      const decided = kind === "task" && (addsTriage || triageOf(kept) !== triageOf(before));
+      return { labels: kept.length ? kept : undefined, ...(decided ? { triagedBy: "human", triageMissing: undefined } : {}) };
     },
     p,
   );
-  // What was written, not what was asked for: removing the last triage label hands the task back to
-  // auto-triage, and that same write may label it again.
+  // What was written, not what was asked for.
   const labelList = written.labels || [];
   logEvent("labels", { id, labels: labelList }, p);
   return labelList;

@@ -10,6 +10,10 @@
  * Status and dependencies are deliberately NOT part of it: the label means "specified", and the
  * pool separately checks "startable now".
  *
+ * Who owns the triage label is recorded in `triagedBy`: "auto" is the store's, "human" is a
+ * person's decision (including the decision to have NO triage label), and a triage label with no
+ * stamp at all is a person's too — that is how labels written before this shipped are kept.
+ *
  * Every veto test first proves the sync is live on that task. A veto test that only checks "the
  * person's label is still there" passes on a store with no sync at all, which is how the first
  * draft of this file passed four of them before any implementation existed.
@@ -182,7 +186,7 @@ describe("label sync inside the store write", () => {
 });
 
 describe("the human veto", () => {
-  it("a triage label set by a person survives edits of other fields, and clears the auto stamp", () => {
+  it("a triage label set by a person survives edits of other fields, stamped human", () => {
     const { p, task } = board();
     const t = task({ acceptance: [] }, "");
     assert.equal(read(t.id, p).triagedBy, "auto");
@@ -190,14 +194,45 @@ describe("the human veto", () => {
     issue.labels(t.id, { add: ["ready-for-agent"] }, p);
     let now = read(t.id, p);
     assert.deepEqual(now.labels, ["ready-for-agent"]);
-    assert.equal(now.triagedBy, undefined, "setting a triage label hands the decision to the person");
+    assert.equal(now.triagedBy, "human", "setting a triage label hands the decision to the person");
     assert.equal(now.triageMissing, undefined);
 
     editTask(t.id, { title: "renamed", body: "" }, p);
     update(t.id, { priority: "high" }, p);
     now = read(t.id, p);
     assert.deepEqual(now.labels, ["ready-for-agent"], "an incomplete task a person marked ready stays marked");
-    assert.equal(now.triagedBy, undefined);
+    assert.equal(now.triagedBy, "human");
+  });
+
+  it("a person clearing the only triage label sticks: no label comes back, and the stamp says human", () => {
+    // The most natural way to stop an agent picking a task up. It must not be undone by the write that made it.
+    const { p, task } = board();
+    const t = task();
+    assert.deepEqual(read(t.id, p).labels, ["ready-for-agent"], "precondition: the sync labelled it");
+    assert.equal(read(t.id, p).triagedBy, "auto");
+
+    issue.labels(t.id, { remove: ["ready-for-agent"] }, p);
+    editTask(t.id, { title: "renamed after clearing" }, p);
+
+    const now = read(t.id, p);
+    assert.equal(now.labels, undefined, "no triage label, and no other label either");
+    assert.equal(now.triagedBy, "human");
+    assert.equal(now.triageMissing, undefined);
+  });
+
+  it("a person's ready-for-human survives the task becoming complete", () => {
+    const { p, task } = board();
+    const t = task({ acceptance: [] }, "");
+    assert.deepEqual(read(t.id, p).labels, ["needs-triage"], "precondition: the sync labelled it");
+
+    issue.labels(t.id, { add: ["ready-for-human"] }, p);
+    update(t.id, { acceptance: [{ text: "now specified", done: false }] }, p);
+    editTask(t.id, { body: "and now a body" }, p);
+
+    const now = read(t.id, p);
+    assert.deepEqual(agentReadiness({ ...now, labels: [] }, config(p)).ready, true, "control: without the label it would be ready");
+    assert.deepEqual(now.labels, ["ready-for-human"]);
+    assert.equal(now.triagedBy, "human");
   });
 
   it("a direct update that changes the triage label is a person's choice too, whichever surface sent it", () => {
@@ -213,7 +248,7 @@ describe("the human veto", () => {
 
     const now = read(t.id, p);
     assert.deepEqual(now.labels, ["ready-for-agent"]);
-    assert.equal(now.triagedBy, undefined);
+    assert.equal(now.triagedBy, "human");
     assert.equal(now.triageMissing, undefined);
   });
 
@@ -230,7 +265,7 @@ describe("the human veto", () => {
     assert.deepEqual(read(sibling.id, p).labels, ["ready-for-agent"], "control: the same write does triage an unlabelled task");
     const now = read(handLabelled.id, p);
     assert.deepEqual(now.labels, ["needs-info"]);
-    assert.equal(now.triagedBy, undefined);
+    assert.equal(now.triagedBy, undefined, "the legacy rule: an unstamped triage label is a person's");
   });
 
   it("removing a triage label the task does not carry leaves the auto label auto", () => {
@@ -257,7 +292,7 @@ describe("the human veto", () => {
     assert.deepEqual(JSON.parse(res.result.content[0].text).labels, ["ready-for-human"]);
     update(t.id, { title: "edited after" }, p);
     assert.deepEqual(read(t.id, p).labels, ["ready-for-human"]);
-    assert.equal(read(t.id, p).triagedBy, undefined);
+    assert.equal(read(t.id, p).triagedBy, "human");
   });
 
   it("holds through the HTTP labels action and PATCH edit", () => {
@@ -269,7 +304,7 @@ describe("the human veto", () => {
     const now = read(t.id, p);
     assert.equal(now.title, "edited over http");
     assert.deepEqual(now.labels, ["wontfix"]);
-    assert.equal(now.triagedBy, undefined);
+    assert.equal(now.triagedBy, "human");
   });
 });
 
@@ -305,7 +340,7 @@ describe("the CLI", () => {
     const t = read(id, p);
     assert.equal(t.title, "needs a person", "the flag is not baked into the title");
     assert.deepEqual(t.labels, ["ready-for-human"]);
-    assert.equal(t.triagedBy, undefined, "sticky: the store will not re-triage it");
+    assert.equal(t.triagedBy, "human", "sticky: the store will not re-triage it");
   });
 
   it("tm triage --dry-run lists what would change and writes nothing; --all applies it", () => {
@@ -313,7 +348,8 @@ describe("the CLI", () => {
     writeConfig({ dispatch: { autoReady: "off" } }, p);
     const ready = task();
     const sparse = task({ acceptance: [] });
-    const human = task({ labels: ["needs-info"] });
+    const legacy = task({ labels: ["needs-info"] });
+    const cleared = task({ triagedBy: "human" });
     writeConfig({ dispatch: { autoReady: "label" } }, p);
 
     const before = snapshot(p.base);
@@ -324,7 +360,10 @@ describe("the CLI", () => {
       `${ready.id}: (none) → ready-for-agent`,
       `${sparse.id}: (none) → needs-triage (missing: acceptance criteria)`,
     ]);
-    assert.equal(lines.some((l) => l.startsWith(human.id)), false, "a person's label is not a candidate");
+    for (const skipped of [legacy, cleared]) {
+      assert.equal(lines.some((l) => l.startsWith(skipped.id)), false, `${skipped.id}: a person's decision is not a candidate`);
+    }
+    assert.match(dry.stderr, /skipped 2 tasks triaged by a person/);
     const afterDry = snapshot(p.base);
     assert.deepEqual([...afterDry.keys()], [...before.keys()], "no file added or removed");
     for (const [file, bytes] of before) assert.ok(bytes.equals(afterDry.get(file)), `${file} is byte-identical`);
@@ -332,9 +371,11 @@ describe("the CLI", () => {
     const applied = tm(p, "triage", "--all");
     assert.equal(applied.status, 0, applied.stderr);
     assert.deepEqual(applied.stdout.trim().split("\n"), lines);
+    assert.match(applied.stderr, /skipped 2 tasks triaged by a person/, "--all skips them too");
     assert.deepEqual(read(ready.id, p).labels, ["ready-for-agent"]);
     assert.deepEqual(read(sparse.id, p).labels, ["needs-triage"]);
-    assert.deepEqual(read(human.id, p).labels, ["needs-info"]);
+    assert.deepEqual(read(legacy.id, p).labels, ["needs-info"]);
+    assert.equal(read(cleared.id, p).labels, undefined);
 
     const again = tm(p, "triage");
     assert.equal(again.status, 0, again.stderr);

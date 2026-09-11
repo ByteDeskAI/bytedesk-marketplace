@@ -875,9 +875,10 @@ export const autoTriageOn = (cfg) => (cfg.dispatch?.autoReady ?? "label") === "l
  *
  * `doc` is the document as it will be written. `ready-for-agent` when `agentReadiness` passes, else
  * `needs-triage` plus `triageMissing` naming the gaps; both stamped `triagedBy: "auto"`, which is
- * what marks the label as the store's to change. A triage label WITHOUT that stamp was set by a
- * person — `tm label`, MCP `tm_label`, the board, `tm task new --human`, a create that passed one —
- * and is never overridden. `labels()` in issue.mjs clears the stamp for exactly that reason.
+ * what marks the label as the store's to change. `triagedBy: "human"` is a person's decision —
+ * `tm label`, MCP `tm_label`, the board, `tm task new --human`, a direct update that swaps the label —
+ * and it covers deciding on NO triage label, so clearing one sticks. A triage label with no stamp at
+ * all is a person's too: that is how labels written before this shipped are kept.
  *
  * It lives here rather than in a verb because create/update is the funnel every surface reaches;
  * a sync in one verb would be the guard-in-one-sibling shape. Returning only what changes keeps an
@@ -886,6 +887,8 @@ export const autoTriageOn = (cfg) => (cfg.dispatch?.autoReady ?? "label") === "l
  */
 export function triageSync(doc, p = paths()) {
   if (kindOf(doc.id) !== "task" || RESOLVED.has(doc.status)) return {};
+  // A person decided: a label, a different label, or no triage label at all. Not the store's to undo.
+  if (doc.triagedBy === "human") return {};
   const cfg = config(p);
   if (!autoTriageOn(cfg)) return {};
   const labels = doc.labels || [];
@@ -933,18 +936,17 @@ export function update(id, patch, p = paths()) {
     const effective = reopening ? { ...patch, closed: undefined } : patch;
     /**
      * The human veto, decided here in the funnel rather than only in `labels()`. A patch that changes
-     * which triage label a task carries, and does not itself say who triaged it, came from a person —
-     * whichever surface sent it — so the auto stamp goes and the label becomes sticky. Without this a
-     * plain `update(id, { labels: ["ready-for-agent"] })` was relabelled needs-triage in the same write.
+     * which triage label a task carries — including to none — and does not itself say who triaged it,
+     * came from a person, whichever surface sent it: stamp it human so triageSync leaves it alone.
+     * Without this a plain `update(id, { labels: ["ready-for-agent"] })` was relabelled in the same write.
      */
     const triageOf = (labels) => (labels || []).filter((l) => TRIAGE_LABELS.includes(l)).join(",");
     const chosen =
       kindOf(id) === "task" &&
       "labels" in effective &&
       !("triagedBy" in effective) &&
-      triageOf(effective.labels) !== triageOf(doc.labels) &&
-      (doc.triagedBy !== undefined || doc.triageMissing !== undefined);
-    const decided = chosen ? { ...effective, triagedBy: undefined, triageMissing: undefined } : effective;
+      triageOf(effective.labels) !== triageOf(doc.labels);
+    const decided = chosen ? { ...effective, triagedBy: "human", triageMissing: undefined } : effective;
     // The triage label rides in this same write (see triageSync): never a second write or event.
     const written = { ...decided, ...triageSync({ ...doc, ...decided }, p) };
 
