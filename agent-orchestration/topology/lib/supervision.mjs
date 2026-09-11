@@ -30,17 +30,18 @@
 // a bug and is not one: presence staleness is a contract a consumer enforces, reconcile staleness
 // is a hint nobody is owed. Do not "fix" it by driving L1 off this loop's sleep.
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
-import { mkdir, open, readdir } from 'node:fs/promises';
+import { mkdir, open, readFile, readdir } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createPresenceProducer, collectPresenceAgents } from './presence.mjs';
 import { takeCensus } from './census.mjs';
 import { loadAdapters, providerDirs } from './providers.mjs';
-import { canonicalRepoId, repoKey, stateRoot } from './repoid.mjs';
+import { canonicalRepoId, repositoryConsumer, repoKey, stateRoot } from './repoid.mjs';
 import { listServerPanes } from './tmux.mjs';
-import { withLock } from './lockfile.mjs';
+import { lockOwner, processIdentity, withLock } from './lockfile.mjs';
 import { listAgents, agentDirs } from './agents.mjs';
 import { refreshPrompt } from './prompt-lifecycle.mjs';
 import { resumeStandingMessages } from './standing-mailbox.mjs';
@@ -52,6 +53,14 @@ import { exists, sleep, writeJson, readJson, run } from './util.mjs';
 export const SLEEP_LADDER_MS = [2000, 5000, 15000];
 /** Floor between two runs of the expensive reconcile body. AO_RECONCILE_MIN_MS overrides. */
 export const DEFAULT_RECONCILE_MIN_MS = 10_000;
+export const DEFAULT_START_TIMEOUT_MS = 10_000;
+
+async function sourceIdentity() {
+  const implementation=fileURLToPath(import.meta.url);
+  const source_entrypoint=fileURLToPath(new URL('../cli.mjs',import.meta.url));
+  const [entrypointBytes,implementationBytes]=await Promise.all([readFile(source_entrypoint),readFile(implementation)]);
+  return {source_entrypoint,source_fingerprint:createHash('sha256').update(entrypointBytes).update(implementationBytes).digest('hex')};
+}
 
 /**
  * Quiet ticks walk one rung down the ladder; ANY activity snaps straight back to the busy rung.
@@ -73,14 +82,24 @@ function reconcileFloor(env, override) {
 }
 
 export async function superviseRepository(options, { signal, once = false, intervalMs, reconcileMinMs, onTick = () => {}, sleepFn = sleep } = {}) {
- const { consumer, env=process.env, home=homedir() }=options;
+ const { env=process.env, home=homedir() }=options;
+ const consumer=await repositoryConsumer(options.consumer);
+ options={...options,consumer};
  const identity=await canonicalRepoId(consumer), root=join(stateRoot(env,home),'supervision');
  const key=repoKey(identity.id);
  const floorMs=reconcileFloor(env,reconcileMinMs);
  // A losing supervisor should give the lock back to the winner immediately rather than idling in
  // the poll loop: on a machine with eight linked worktrees open, seven lose this race every time a
  // session starts, and their only correct move is to exit.
- return withLock(join(root,`${key}.lock`),async()=>{
+ return withLock(join(root,`${key}.lock`),async ownership=>{
+   const recordPath=join(root,`${key}.process.json`);
+   if(!once) {
+     const prior=await readJson(recordPath).catch(()=>null);
+     const restarts=prior ? (prior.restarts ?? 0)+1 : 0;
+     await writeJson(recordPath,{pid:process.pid,process_identity:ownership.process_identity,lock_token:ownership.token,
+       repo_id:identity.id,consumer,started_at:new Date().toISOString(),restarts,
+       log:prior?.log ?? join(root,`${key}.log`),state:'starting',...await sourceIdentity()});
+   }
    const producer=await createPresenceProducer(options);
    const controller = new AbortController();
    signal?.addEventListener('abort', () => controller.abort(), {once:true});
@@ -146,8 +165,12 @@ export async function superviseRepository(options, { signal, once = false, inter
      const agents=await listAgents(agentDirs(options));
      const prompts=[];
      for(const agent of agents){
-       if(!observed.some(p=>p.agentId===agent.id && p.lifecycle!=="dead" && p.enrollment==="enrolled" && p.primaryRunId===null)) continue;
-       prompts.push({agent:agent.id,state:await refreshPrompt({...options,agent,live:true})});
+       const standing=observed.find(p=>p.agentId===agent.id && p.lifecycle!=="dead" && p.enrollment==="enrolled" && p.primaryRunId===null);
+       if(!standing) continue;
+       // Prompt currency is proof about one exact process, not merely an agent id. Passing no
+       // binding here would conservatively invalidate every applied prompt on every reconcile.
+       prompts.push({agent:agent.id,state:await refreshPrompt({...options,agent,live:true,
+         session:standing.session?.sessionName??null,binding:standing.session??null})});
      }
      const listing=await run('git',['-C',consumer,'worktree','list','--porcelain'],{allowFailure:true});
      const roots=new Set([consumer,...listing.stdout.split('\n').filter(line=>line.startsWith('worktree ')).map(line=>line.slice(9))]);
@@ -164,7 +187,9 @@ export async function superviseRepository(options, { signal, once = false, inter
            if(!entry.binding || !panes.some(p=>p.alive && ['serverKey','serverPid','sessionId','sessionCreated','paneId','panePid'].every(k=>p[k]===entry.binding[k]))) continue;
            const dir=join(runDir,'agents',entry.id), definition=await readJson(join(dir,'prompt-agent.json')).catch(()=>null);
            if(!definition) continue;
-           prompts.push({agent:entry.id,run:runRecord.run_id,state:await refreshPrompt({...options,consumer:runRecord.consumer || checkout,agent:{...definition,_dir:dir},live:true})});
+           prompts.push({agent:entry.id,run:runRecord.run_id,state:await refreshPrompt({...options,
+             consumer:runRecord.consumer || checkout,agent:{...definition,_dir:dir},live:true,
+             session:runRecord.session??null,binding:entry.binding??null})});
          }
        }
      }
@@ -180,7 +205,7 @@ export async function superviseRepository(options, { signal, once = false, inter
        prompts:prompts.map(p=>({agent:p.agent,status:p.state.status,errors:p.state.errors})),
        mail:resumed.map(m=>({id:m.envelope.id,status:m.status,reason:m.reason}))};
      await writeJson(join(root,`${key}.json`),report);
-     await promoteRecord(join(root,`${key}.process.json`));
+     if(!once) await promoteRecord(join(root,`${key}.process.json`));
      return {report,activity};
    };
    try {
@@ -195,7 +220,7 @@ export async function superviseRepository(options, { signal, once = false, inter
        // think to look for. Before TM-139 this case "solved itself" by crashing on uv_cwd; now that
        // it no longer crashes, it has to retire deliberately, and say so in its record.
        if(!(await exists(consumer))) {
-         await retireRecord(join(root,`${key}.process.json`));
+         if(!once) await retireRecord(join(root,`${key}.process.json`));
          report={...report,at:new Date().toISOString(),reconciled:false,stopped:'consumer-gone'};
          await onTick(report);
          return report;
@@ -334,19 +359,24 @@ function pidAlive(pid) {
  * out pid reuse — `tick_age_ms` is the signal that actually proves a supervisor is doing its job.
  */
 export async function supervisionStatus({consumer,env=process.env,home=homedir()}={}) {
-  const identity=await canonicalRepoId(consumer), key=repoKey(identity.id);
-  const root=join(stateRoot(env,home),'supervision');
+   const identity=await canonicalRepoId(consumer), key=repoKey(identity.id);
+   const root=join(stateRoot(env,home),'supervision');
+   const owner=await lockOwner(join(root,`${key}.lock`));
   const recordPath=join(root,`${key}.process.json`);
   const record=await readJson(recordPath).catch(()=>null);
   const tick=await readJson(join(root,`${key}.json`)).catch(()=>null);
   const at=tick?.at ? Date.parse(tick.at) : NaN;
-  const alive=record ? pidAlive(record.pid) : false;
+   const alive=record ? pidAlive(record.pid) : false;
+   const ownerIdentity=owner?.pid ? await processIdentity(owner.pid) : null;
+   const ownerAlive=Boolean(owner && pidAlive(owner.pid) && ownerIdentity && ownerIdentity===owner.process_identity);
+   const recordOwns=Boolean(record && ownerAlive && record.pid===owner.pid && record.process_identity===owner.process_identity && record.lock_token===owner.token);
   // The consumer can outlive nothing: `tm` removes a task-owned worktree after a verified merge,
   // and a record naming a directory that is gone can never be reclaimed by a restart. It is debris,
   // and saying so is what stops it making the next diagnosis harder.
   const consumerExists=record?.consumer ? await exists(record.consumer) : true;
-  const state = !record ? 'never-started'
-    : alive ? 'running-or-ownership-unknown'
+   const state = ownerAlive ? (recordOwns ? 'running' : 'ownership-record-mismatch')
+    : !record ? 'never-started'
+    : alive ? 'running-without-lock'
     // A supervisor that noticed its repository was gone and stopped did the right thing; only an
     // UNEXPLAINED record for a vanished consumer is debris worth flagging.
     : record.state === 'consumer-gone' ? 'retired-consumer-gone'
@@ -358,9 +388,12 @@ export async function supervisionStatus({consumer,env=process.env,home=homedir()
   return {
     repo_id:identity.id, key, state,
     pid:record?.pid ?? null, pid_alive:alive,
+    owner:owner ? {...owner,alive:ownerAlive,current_process_identity:ownerIdentity} : null,
+    record_owns_lock:recordOwns,
     consumer:record?.consumer ?? null, consumer_exists:consumerExists,
     record_state:record?.state ?? null, record_path:recordPath,
     started_at:record?.started_at ?? null, first_tick_at:record?.first_tick_at ?? null, stopped_at:record?.stopped_at ?? null,
+    source_entrypoint:record?.source_entrypoint ?? null, source_fingerprint:record?.source_fingerprint ?? null,
     restarts:record?.restarts ?? 0,
     log:record?.log ?? join(root,`${key}.log`),
     last_tick_at:tick?.at ?? null, tick_age_ms:Number.isFinite(at) ? Date.now()-at : null,
@@ -370,12 +403,16 @@ export async function supervisionStatus({consumer,env=process.env,home=homedir()
 
 /** Start only a local reconciliation process, never a model/provider. Existing ownership is retained. */
 export async function startRepositorySupervision(options) {
- const {consumer,env=process.env,home=homedir()}=options;
+ const {env=process.env,home=homedir()}=options;
+ const consumer=await repositoryConsumer(options.consumer);
+ const startTimeoutRaw=options.startTimeoutMs ?? env.AO_SUPERVISION_START_TIMEOUT_MS;
+ const startTimeoutMs=Number.isFinite(Number(startTimeoutRaw)) && Number(startTimeoutRaw)>0 ? Number(startTimeoutRaw) : DEFAULT_START_TIMEOUT_MS;
  const identity=await canonicalRepoId(consumer), key=repoKey(identity.id);
  const root=join(stateRoot(env,home),'supervision'), recordPath=join(root,`${key}.process.json`), logPath=join(root,`${key}.log`);
  return withLock(join(root,`${key}.start.lock`),async()=>{
+   const owner=await lockOwner(join(root,`${key}.lock`));
+   if(owner?.pid && await processIdentity(owner.pid)===owner.process_identity) return {...owner,consumer,repo_id:identity.id,state:'running'};
    const prior=await readJson(recordPath).catch(error=>{if(error.code==='ENOENT')return null;throw error;});
-   if(prior?.pid){try{process.kill(prior.pid,0);return {...prior,state:'running-or-ownership-unknown'};}catch(error){if(error.code!=='ESRCH')throw error;}}
    const cli=fileURLToPath(new URL('../cli.mjs',import.meta.url));
    // stdio:'ignore' loses the one thing you need when a supervisor dies: why. Both streams append
    // to a per-repo log, and `restarts` counts how often we have found the previous one dead — a
@@ -387,8 +424,23 @@ export async function startRepositorySupervision(options) {
      const child=spawn(process.execPath,[cli,'supervise','--consumer',consumer,...(options.tmuxServer?['--server',options.tmuxServer]:[])],{cwd:consumer,env:{...process.env,...env},detached:true,stdio:['ignore',log.fd,log.fd]});
      await new Promise((resolve,reject)=>{child.once('spawn',resolve);child.once('error',reject);});
      await log.write(`\n=== ao supervise start ${new Date().toISOString()} pid=${child.pid} restarts=${restarts} repo=${identity.id} ===\n`);
-     const record={pid:child.pid,repo_id:identity.id,consumer,started_at:new Date().toISOString(),restarts,log:logPath,state:'starting'};
-     await writeJson(recordPath,record);child.unref();return record;
+     const record={pid:child.pid,repo_id:identity.id,consumer,started_at:new Date().toISOString(),restarts,log:logPath,state:'spawned-awaiting-lock'};
+     child.unref();
+     // Do not release the start gate until the child has either acquired the lifetime lock or lost
+     // it to an existing winner. This closes the small spawn/acquire gap without letting this
+     // launcher publish the authoritative process record on the child's behalf.
+     const deadline=Date.now()+startTimeoutMs;
+     while(Date.now()<=deadline) {
+       const winner=await lockOwner(join(root,`${key}.lock`));
+       if(winner?.pid && await processIdentity(winner.pid)===winner.process_identity) {
+         const published=await readJson(recordPath).catch(()=>null);
+         if(published?.pid===winner.pid) return published;
+         if(winner.pid!==child.pid) return {...winner,consumer,repo_id:identity.id,state:'running'};
+       }
+       if(!pidAlive(child.pid)) break;
+       await sleep(Math.min(25,Math.max(1,deadline-Date.now())));
+     }
+     return record;
    } finally { await log.close(); }
  });
 }

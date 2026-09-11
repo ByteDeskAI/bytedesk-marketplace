@@ -5,7 +5,7 @@ import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fail, nowIso, sleep } from "./util.mjs";
 
-async function processIdentity(pid) {
+export async function processIdentity(pid) {
   try {
     const raw = await readFile(`/proc/${pid}/stat`, "utf8");
     const start = raw.slice(raw.lastIndexOf(")") + 2).split(" ")[19];
@@ -13,7 +13,7 @@ async function processIdentity(pid) {
     return `${boot}:${start}`;
   } catch { return null; }
 }
-async function ownerAt(path) {
+export async function lockOwner(path) {
   try { return JSON.parse(await readFile(join(path, "owner.json"), "utf8")); }
   catch { return null; }
 }
@@ -33,7 +33,7 @@ async function removeOwned(path, token) {
   catch (error) { if (["EEXIST", "ENOENT"].includes(error.code)) return false; throw error; }
   let moved = false;
   try {
-    if ((await ownerAt(path))?.token !== token) return false;
+    if ((await lockOwner(path))?.token !== token) return false;
     const retired = `${path}.retired-${randomUUID()}`;
     await rename(path, retired);
     moved = true;
@@ -62,7 +62,7 @@ export async function withLock(lockPath, fn, { timeoutMs = 30_000, pollMs = 50, 
         process_identity: await processIdentity(process.pid), created_at: nowIso() }), "utf8");
       break;
     }
-    const owner = await ownerAt(lockPath);
+    const owner = await lockOwner(lockPath);
     if (await dead(owner)) {
       await hooks.beforeReclaim?.(owner);
       await removeOwned(lockPath, owner.token);
@@ -72,7 +72,8 @@ export async function withLock(lockPath, fn, { timeoutMs = 30_000, pollMs = 50, 
     }
     await sleep(Math.max(1, Math.min(deadline - Date.now(), pollMs * (0.75 + Math.random() * 0.5))));
   }
-  try { return await fn(); }
+  const ownership = await lockOwner(lockPath);
+  try { return await fn(ownership); }
   finally { await removeOwned(lockPath, token); }
 }
 

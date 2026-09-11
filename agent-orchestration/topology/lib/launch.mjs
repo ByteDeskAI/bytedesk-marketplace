@@ -14,6 +14,8 @@ import { composerEmptyStyled } from "./delivery.mjs";
 import { childEnv, childrenFile, lineageFromEnv, lineageRefusal } from "./lineage.mjs";
 import { adapterFor, attentionOnScreen, buildArgv, commandExists, failureOnScreen, grantsDirs, memoryLocation } from "./providers.mjs";
 import { mintSpawn, sessionName } from "./identity.mjs";
+import { sameIncarnation } from "./incarnation.mjs";
+import { promotePromptForIncarnation } from "./prompt-lifecycle.mjs";
 import { loadRole, resolveSkill } from "./resolve.mjs";
 import * as tmux from "./tmux.mjs";
 import { ensureRunsIgnored, exists, fail, invariant, nowIso, readJson, render, shellQuote, sleep, writeJson, writeText } from "./util.mjs";
@@ -1015,7 +1017,7 @@ export function roleSessionNeedsGovernance({ role, coordinatesOnly = false }) {
   return !coordinatesOnly && !['lead', 'reviewer'].includes(role);
 }
 
-export async function openRoleSession({ agentsDir, agentId, adapter, argv, env = {}, prefix = "ao", role = "worker", coordinatesOnly = false, log = () => {} }) {
+export async function openRoleSession({ agentsDir, agentId, adapter, argv, env = {}, prefix = "ao", role = "worker", coordinatesOnly = false, controlledRestart = false, log = () => {} }) {
   const session = roleSessionName(agentId, { prefix });
   const dir = join(agentsDir, String(agentId));
   const recordPath = roleSessionPath(agentsDir, agentId);
@@ -1035,11 +1037,11 @@ export async function openRoleSession({ agentsDir, agentId, adapter, argv, env =
     const panes = await tmux.listPanes(session);
     invariant(record?.agent_id === agentId, 'TOPOLOGY_SESSION_OWNERSHIP', 'A same-named session has no matching owned record; refusing adoption or restart.');
     const currentBinding=(await tmux.listServerPanes()).find(p=>p.paneId===record.binding?.paneId);
-    invariant(record.binding && currentBinding && ['serverKey','serverPid','sessionId','sessionCreated','paneId','panePid'].every(k=>currentBinding[k]===record.binding[k]), 'TOPOLOGY_SESSION_OWNERSHIP', 'Recorded session incarnation is absent or replaced; refusing reattachment.');
-    if (!panes.some(p => p.alive)) {
+    invariant(record.binding && currentBinding && sameIncarnation(currentBinding, record.binding), 'TOPOLOGY_SESSION_OWNERSHIP', 'Recorded session incarnation is absent or replaced; refusing reattachment.');
+    if (!panes.some(p => p.alive) || controlledRestart) {
       invariant(record.binding, 'TOPOLOGY_SESSION_OWNERSHIP', 'Dead session has no recorded incarnation; preserve it for recovery.');
       const observed = (await tmux.listServerPanes()).find(p => p.paneId === record.binding.paneId);
-      invariant(observed && ['serverKey','serverPid','sessionId','sessionCreated','paneId','panePid'].every(k => observed[k] === record.binding[k]), 'TOPOLOGY_SESSION_OWNERSHIP', 'Session incarnation changed; refusing restart.');
+      invariant(observed && sameIncarnation(observed, record.binding), 'TOPOLOGY_SESSION_OWNERSHIP', 'Session incarnation changed; refusing restart.');
       await tmux.respawnPane(observed.paneId);
       record.binding=(await tmux.listServerPanes()).find(p=>p.paneId===observed.paneId);
       await writeJson(recordPath,record);
@@ -1050,6 +1052,9 @@ export async function openRoleSession({ agentsDir, agentId, adapter, argv, env =
       if (env.AO_CONSUMER) {
         const readiness = await waitReady(observed.paneId, adapter, adapter.ready?.timeout_ms || 30000, { baseline: shell.baseline });
         invariant(readiness.ready, 'TOPOLOGY_SESSION_START', 'Provider is not accepting its startup instructions.');
+        const startedBinding = (await tmux.listServerPanes()).find(p => p.paneId === observed.paneId);
+        invariant(startedBinding && sameIncarnation(startedBinding, record.binding), 'TOPOLOGY_SESSION_OWNERSHIP', 'Restarted process incarnation changed before prompt delivery.');
+        await promotePromptForIncarnation({ agent: { id: agentId, _dir: dir }, binding: startedBinding, consumer: env.AO_CONSUMER, session });
         await deliverPointer(observed.paneId, adapter, `Read ${join(dir,'prompt.md')} and begin your standing role. Poll your protocol inbox at safe boundaries.`);
       }
       record.binding = (await tmux.listServerPanes()).find(p => p.paneId === observed.paneId);
@@ -1092,6 +1097,9 @@ export async function openRoleSession({ agentsDir, agentId, adapter, argv, env =
   if (env.AO_CONSUMER) {
     const readiness = await waitReady(pane, adapter, adapter.ready?.timeout_ms || 30000, { baseline: shell.baseline });
     invariant(readiness.ready, 'TOPOLOGY_SESSION_START', 'Provider is not accepting startup instructions; session preserved.');
+    const startedBinding = (await tmux.listServerPanes()).find(p => p.paneId === pane && p.sessionName === session) || null;
+    invariant(startedBinding && sameIncarnation(startedBinding, record.binding), 'TOPOLOGY_SESSION_OWNERSHIP', 'Started process incarnation changed before prompt delivery.');
+    await promotePromptForIncarnation({ agent: { id: agentId, _dir: dir }, binding: startedBinding, consumer: env.AO_CONSUMER, session });
     const delivery = await deliverPointer(pane, adapter, `Read ${join(dir,'prompt.md')} and begin your standing role. Poll your protocol inbox at safe boundaries.`);
     invariant(delivery.delivered, 'TOPOLOGY_SESSION_START', 'Standing bootstrap was not delivered.');
   }

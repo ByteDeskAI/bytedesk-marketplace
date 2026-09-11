@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { canonicalRepoId, repoKey, stateRoot } from "../../topology/lib/repoid.mjs";
+import { canonicalRepoId, repositoryConsumer, repoKey, stateRoot } from "../../topology/lib/repoid.mjs";
 import { run } from "../../topology/lib/util.mjs";
 
 const scratch = () => mkdtemp(join(tmpdir(), "ao-repoid-"));
@@ -23,11 +23,14 @@ test("linked worktrees share one canonical identity; a plain directory is its ow
   const main = join(root, "main");
   await gitInit(main);
   await run("git", ["-C", main, "worktree", "add", "-q", join(root, "linked"), "-b", "linked-branch"]);
+  await mkdir(join(root, "linked", "subdirectory"));
 
   const a = await canonicalRepoId(main);
   const b = await canonicalRepoId(join(root, "linked"));
   assert.equal(a.kind, "git-common-dir");
   assert.equal(a.id, b.id, "a worktree and its main checkout are ONE repository");
+  assert.equal(await repositoryConsumer(join(root, "linked", "subdirectory")), main,
+    "repository-scoped services normalize linked and nested consumers to the main checkout");
 
   const plain = join(root, "plain");
   await mkdir(plain);

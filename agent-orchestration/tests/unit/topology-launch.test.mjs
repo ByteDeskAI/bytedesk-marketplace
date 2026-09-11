@@ -39,6 +39,8 @@ test("an own-state observer may receive only its host-state grant, never the rep
   assert.deepEqual(buildArgv(adapter, { args: [], coordinates_only: true, own_state_only: true, add_dirs: ["/state"] }, {}), ["codex", "--add-dir", "/state"]);
 });
 import * as tmux from "../../topology/lib/tmux.mjs";
+import { acknowledgePrompt, refreshPrompt } from "../../topology/lib/prompt-lifecycle.mjs";
+import { sameIncarnation } from "../../topology/lib/incarnation.mjs";
 import { MIN_PANE_ROWS, windowSizeFor } from "../../topology/lib/tmux.mjs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -596,6 +598,30 @@ test("reattaching to a live role-session returns the same session rather than a 
   assert.ok(record.command.includes(record.launcher));
   assert.ok(!record.command.includes("/runs/"), "the restore command must not point into a run directory");
   assert.ok(record.restore_contract.length > 40, "the contract is stated in the record, for whoever reads it");
+});
+
+test("healthy reattach preserves a queued prompt, while retained-dead restart promotes it onto the new incarnation", { skip: haveTmux ? false : "no tmux" }, async t => {
+  const root=await mkdtemp(join(tmpdir(),'ao-role-prompt-')),agentId='prompt01',consumer=join(root,'repo'),dir=join(root,agentId),session=roleSessionName(agentId);
+  t.after(async()=>{await tmux.killSession(session).catch(()=>{});await rm(root,{recursive:true,force:true});});
+  const bindingless={id:agentId,role:'observer',full_name:'Prompt Observer',_dir:dir,instructions:'first'};
+  const adapter={id:'fake',ready:{delay_ms:50},submit_keys:['Enter']};
+  const env={AO_AGENT_ID:agentId,AO_AGENT_ROLE:'observer',AO_SESSION:session,AO_CONSUMER:consumer};
+  await refreshPrompt({agent:bindingless,consumer,session,home:root,env:{XDG_CONFIG_HOME:join(root,'config')}});
+  const open=()=>openRoleSession({agentsDir:root,agentId,adapter,argv:['sh','-c','echo READY; cat'],env,role:'observer',coordinatesOnly:true});
+  const first=await open();
+  let state=JSON.parse(await readFile(join(dir,'prompt-state.json'),'utf8'));
+  assert.equal(state.status,'awaiting-ack');assert.equal(sameIncarnation(state.desired_binding,first.binding),true);
+  await acknowledgePrompt({agent:bindingless,consumer,session,revision:state.desired_revision,nonce:state.nonce,binding:first.binding,env});
+  bindingless.instructions='second';
+  state=await refreshPrompt({agent:bindingless,consumer,session,home:root,env:{XDG_CONFIG_HOME:join(root,'config')},live:true,binding:first.binding});
+  assert.equal(state.status,'queued');
+  const healthy=await open();assert.equal(healthy.reattached,true);
+  assert.equal(JSON.parse(await readFile(join(dir,'prompt-state.json'),'utf8')).status,'queued');
+  await tmux.sendKeys(first.pane,['C-c']);
+  for(let i=0;i<50&&(await tmux.paneState(first.pane)).alive;i++) await new Promise(r=>setTimeout(r,20));
+  const restarted=await open();assert.equal(restarted.restarted,true);assert.notEqual(restarted.binding.panePid,first.binding.panePid);
+  state=JSON.parse(await readFile(join(dir,'prompt-state.json'),'utf8'));
+  assert.equal(state.status,'awaiting-ack');assert.equal(sameIncarnation(state.desired_binding,restarted.binding),true);assert.match(await readFile(join(dir,'prompt.md'),'utf8'),/second/);
 });
 
 // -------------------------------------------------------------------------------------------

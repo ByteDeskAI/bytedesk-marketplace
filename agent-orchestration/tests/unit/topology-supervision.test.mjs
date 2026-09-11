@@ -6,7 +6,7 @@ import {tmpdir} from 'node:os';
 import {run,writeJson,readJson,sleep as sleepMs} from '../../topology/lib/util.mjs';
 import {listServerPanes} from '../../topology/lib/tmux.mjs';
 import {refreshPrompt} from '../../topology/lib/prompt-lifecycle.mjs';
-import {superviseRepository,nextRung,SLEEP_LADDER_MS} from '../../topology/lib/supervision.mjs';
+import {superviseRepository,nextRung,SLEEP_LADDER_MS,DEFAULT_START_TIMEOUT_MS} from '../../topology/lib/supervision.mjs';
 import {censusPath,withStaleness} from '../../topology/lib/census.mjs';
 import {canonicalRepoId,repoKey} from '../../topology/lib/repoid.mjs';
 import {mkdirSync} from 'node:fs';
@@ -74,18 +74,24 @@ async function quietRepo(t, label) {
 }
 
 test('a second supervisor for the same repository exits on the lock instead of double-publishing', async t => {
-  const { options } = await quietRepo(t, 'lock');
+  const { options, root } = await quietRepo(t, 'lock');
   let firstIsInside, releaseFirst;
   const inside = new Promise(resolve => { firstIsInside = resolve; });
   const held = new Promise(resolve => { releaseFirst = resolve; });
   // The first supervisor parks inside the lock; the second must not get in behind it.
   const first = superviseRepository(options, { once: true, onTick: async () => { firstIsInside(); await held; } });
   await inside;
+  const identity = await canonicalRepoId(options.consumer), key = repoKey(identity.id);
+  const processPath = join(root, 'state', 'supervision', `${key}.process.json`);
+  assert.equal(await readJson(processPath).catch(error => error.code === 'ENOENT' ? null : Promise.reject(error)), null,
+    'a one-shot diagnostic must never publish daemon ownership');
   await assert.rejects(
     superviseRepository(options, { once: true }),
     error => error.code === 'TOPOLOGY_LOCK_TIMEOUT',
     'the loser must fail closed on the lock, never proceed to publish a second snapshot',
   );
+  assert.equal(await readJson(processPath).catch(error => error.code === 'ENOENT' ? null : Promise.reject(error)), null,
+    'neither the one-shot winner nor loser may create a daemon process record');
   releaseFirst();
   const report = await first;
   assert.equal(report.reconciled, true);
@@ -140,13 +146,22 @@ test('the supervisor records where it went and how often it has been restarted',
   t.after(() => { try { process.kill(first.pid, 'SIGKILL'); } catch {} });
   assert.equal(first.restarts, 0);
   assert.match(first.log, /\.log$/);
+  assert.match(first.source_entrypoint, /topology\/cli\.mjs$/);
+  assert.match(first.source_fingerprint, /^[0-9a-f]{64}$/);
   // An already-running supervisor is never spawned twice.
   const again = await startRepositorySupervision(options);
   assert.equal(again.pid, first.pid);
-  assert.equal(again.state, 'running-or-ownership-unknown');
+  assert.equal(again.state, 'running');
   const status = await supervisionStatus({ consumer: repo, env, home });
   assert.equal(status.pid, first.pid);
-  assert.equal(status.state, 'running-or-ownership-unknown');
+  assert.equal(status.state, 'running');
+  assert.equal(status.record_owns_lock, true);
+  assert.equal(status.source_entrypoint, first.source_entrypoint);
+  assert.equal(status.source_fingerprint, first.source_fingerprint);
+});
+
+test('supervision startup uses a bounded configurable ownership handshake', () => {
+  assert.equal(DEFAULT_START_TIMEOUT_MS, 10_000);
 });
 
 test('the census rides every tick, including the cheap ones, and is told its cadence', async t => {
@@ -275,6 +290,23 @@ test('a supervisor that died during startup is not reported as a healthy one', a
   assert.equal(orphan.state, 'orphaned');
   assert.equal(orphan.consumer_exists, false);
   assert.match(orphan.record_path, /\.process\.json$/);
+});
+
+test('status reports the live lock owner when process.json names a loser', async t => {
+  const { processIdentity } = await import('../../topology/lib/lockfile.mjs');
+  const { supervisionStatus } = await import('../../topology/lib/supervision.mjs');
+  const { root, repo, home, env } = await quietRepo(t, 'owner-truth');
+  const identity = await canonicalRepoId(repo), key = repoKey(identity.id);
+  const dir = join(root, 'state', 'supervision'), lock = join(dir, `${key}.lock`);
+  await mkdir(lock, { recursive: true });
+  const owner = { token: 'winner-token', pid: process.pid, process_identity: await processIdentity(process.pid), created_at: new Date().toISOString() };
+  await writeJson(join(lock, 'owner.json'), owner);
+  await writeJson(join(dir, `${key}.process.json`), { pid: 2147480000, process_identity: 'old', lock_token: 'loser-token', repo_id: identity.id, consumer: repo, state: 'starting' });
+  const status = await supervisionStatus({ consumer: repo, env, home });
+  assert.equal(status.state, 'ownership-record-mismatch');
+  assert.equal(status.owner.pid, process.pid);
+  assert.equal(status.owner.alive, true);
+  assert.equal(status.record_owns_lock, false);
 });
 
 test('a supervisor retires itself when the repository it supervises is removed', async t => {
