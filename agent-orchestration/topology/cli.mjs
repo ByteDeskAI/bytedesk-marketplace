@@ -20,6 +20,7 @@ import { agentDirs, agentsRoot, createAgent, findLead, listAgents, requireAgent 
 import { displayName, parseSessionName } from "./lib/identity.mjs";
 import { childrenFile } from "./lib/lineage.mjs";
 import { issueDelegation, listDelegations, routeMessage } from "./lib/routing.mjs";
+import { sameIncarnation } from "./lib/incarnation.mjs";
 import { stateRoot } from "./lib/repoid.mjs";
 
 const PLUGIN_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -33,8 +34,9 @@ Discover
   providers [--json]                           list provider adapters
   doctor [--json] [--consumer <dir>]           check tmux, CLIs, and search paths
   runs [--consumer <dir>]                      list runs under <consumer>/.bytedesk/agent-orchestration/runs
-  observer targets|open|status|inspect|watch|report|close
+  observer targets|start|open|status|inspect|watch|report|close
            [--observer <id> --target <id> | --run <run_dir>]
+           [--ack-timeout 30s]                     prompt proof deadline; env AO_OBSERVER_ACK_TIMEOUT_MS
 
 Compose
   inputs (--workflow <name> | --spec <file>)   show a workflow's inputs, options, and defaults
@@ -527,7 +529,7 @@ const commands = {
   },
   async prompt({ flags, positional }) {
     const ctx = context(flags);
-    let agent, promptSession;
+    let agent, promptSession, recordedBinding = null;
     if (flags.run) {
       const runDir = await runDirFrom(flags), run = await loadRun(runDir);
       const entry = run.agents.find(a => a.id === positional[1]);
@@ -536,19 +538,27 @@ const commands = {
       const dir = join(runDir, 'agents', entry.id);
       const definition = await readJson(join(dir, 'prompt-agent.json'));
       agent = { ...entry, ...definition, id: entry.id, _dir: dir };
+      recordedBinding = entry.binding ?? null;
       ctx.consumer = run.consumer;
       promptSession = run.session;
-    } else agent = await requireAgent(positional[1], ctx.agentDirs);
+    } else {
+      agent = await requireAgent(positional[1], ctx.agentDirs);
+      const record = await readJson(join(agent._dir, 'session.json')).catch(() => null);
+      recordedBinding = record?.binding ?? null;
+    }
     const api = await import('./lib/prompt-lifecycle.mjs');
     if (positional[0] === 'preview') {
       const { composePrompt } = await import('./lib/prompts.mjs');
       const { loadConfig } = await import('./lib/config.mjs');
       return out(await composePrompt({ ...ctx, agent, dir: agent._dir, loaded: await loadConfig(ctx), templateName: agent.template }));
     }
-    if (positional[0] === 'ack') return out(await api.acknowledgePrompt({ agent, revision: flags.revision, nonce: flags.nonce }));
+    const panes = await tmux.listServerPanes(recordedBinding?.serverKey ? { tmuxServer: recordedBinding.serverKey } : {}).catch(() => []);
+    const currentBinding = panes.find(p => p.paneId === process.env.TMUX_PANE && (!recordedBinding || sameIncarnation(p, recordedBinding))) ?? null;
+    const expectedSession = promptSession || roleSessionName(agent.id);
+    if (positional[0] === 'ack') return out(await api.acknowledgePrompt({ agent, revision: flags.revision, nonce: flags.nonce, binding: currentBinding, consumer: ctx.consumer, session: expectedSession }));
     if (positional[0] === 'watch') return api.watchPrompts({ ...ctx, agent }, { onChange: out });
     invariant(positional[0] === 'refresh', 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use prompt preview|refresh|ack|watch.');
-    return out(await api.refreshPrompt({ ...ctx, agent, live: await tmux.hasSession(promptSession || roleSessionName(agent.id)), safeBoundary: flags['safe-boundary'] === true }));
+    return out(await api.refreshPrompt({ ...ctx, agent, session: expectedSession, live: await tmux.hasSession(expectedSession), safeBoundary: flags['safe-boundary'] === true, binding: recordedBinding }));
   },
   async help() {
     out(USAGE);
@@ -630,7 +640,8 @@ const commands = {
     const observerId = flags.observer && flags.observer !== true ? String(flags.observer) : process.env.AO_AGENT_ID || 'observer';
     const options = { ...ctx, observerId };
     if (sub === 'targets') return out({ ok: true, targets: await api.discoverObserverTargets(ctx) });
-    if (sub === 'open') {
+    if (sub === 'open' || sub === 'start') {
+      const { observerAckTimeout } = await import('./lib/observer-session.mjs');
       if ((!flags.run || flags.run === true) && (!flags.target || flags.target === true)) {
         const targets = await api.discoverObserverTargets(ctx);
         if (process.stdin.isTTY && targets.length === 1) flags.target = targets[0].id;
@@ -638,7 +649,8 @@ const commands = {
       }
       return out({ ok: true, ...await api.openObserver({ ...options,
         runDir: flags.run && flags.run !== true ? absolutize(String(flags.run)) : null,
-        target: flags.target && flags.target !== true ? String(flags.target) : null }) });
+        target: flags.target && flags.target !== true ? String(flags.target) : null,
+        timeoutMs: observerAckTimeout({ ackTimeout: flags['ack-timeout'], legacyTimeout: flags.timeout, env: process.env }) }) });
     }
     if (sub === 'status') return out({ ok: true, ...await api.observerStatus(options) });
     if (sub === 'inspect') return out({ ok: true, ...await api.inspectObservedRun(options) });
@@ -656,7 +668,7 @@ const commands = {
       }) });
     }
     if (sub === 'close') return out({ ok: true, ...await api.closeObserver(options) });
-    fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use observer targets|open|status|inspect|watch|report|close.');
+    fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use observer targets|start|open|status|inspect|watch|report|close.');
   },
 
   async inputs({ flags }) {
@@ -903,7 +915,7 @@ const commands = {
       system_prompt: `You are ${displayName(agent)} (id "${agent.id}", role: ${agent.role}), the standing ${agent.role} for ${ctx.consumer}. Read ${join(agent._dir, "prompt.md")} and follow it.`,
     };
     const { refreshPrompt } = await import('./lib/prompt-lifecycle.mjs');
-    const prompt = await refreshPrompt({ ...ctx, agent, live: await tmux.hasSession(session) });
+    const prompt = await refreshPrompt({ ...ctx, agent, session, live: await tmux.hasSession(session) });
     invariant(prompt.status !== 'invalid-config', 'TOPOLOGY_PROMPT_INVALID', 'Prompt invalid; existing session preserved.');
     const argv = buildArgv(adapter, { ...agent, add_dirs: addDirs }, vars);
     const result = await openRoleSession({
@@ -914,6 +926,7 @@ const commands = {
       env: { AO_AGENT_ID: agent.id, AO_AGENT_ROLE: agent.role, AO_SESSION: session, AO_CONSUMER: ctx.consumer, ...agent.env },
       role: agent.role,
       coordinatesOnly: agent.coordinates_only === true,
+      controlledRestart: flags.restart === true,
       log: flags.json ? () => {} : (line) => console.error(`  ${line}`),
     });
     out({

@@ -10,7 +10,7 @@
 import { createHash } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { homedir } from "node:os";
-import { isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { invariant, run } from "./util.mjs";
 
 /**
@@ -33,6 +33,19 @@ export async function canonicalRepoId(consumer) {
   }
   const real = await realpath(abs).catch(() => abs);
   return { id: real, kind: "path", git_common_dir: null };
+}
+
+/**
+ * Stable repository-scoped consumer. Linked worktrees and paths below them all supervise through
+ * the main checkout which owns the shared git common directory. Run records keep their original
+ * consumer; this normalization is only for repository-scoped services.
+ */
+export async function repositoryConsumer(consumer) {
+  const identity = await canonicalRepoId(consumer);
+  if (identity.kind === "git-common-dir" && basename(identity.git_common_dir) === ".git") {
+    return await realpath(dirname(identity.git_common_dir)).catch(() => dirname(identity.git_common_dir));
+  }
+  return await realpath(resolve(consumer)).catch(() => resolve(consumer));
 }
 
 /**

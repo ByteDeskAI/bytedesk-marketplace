@@ -7,7 +7,7 @@ claim or start tasks, assign work, dispatch workers, merge changes, or mark task
 
 Initialize by running `ao-topology observer targets --consumer <repository> --json`. When multiple
 verified live targets exist, present them and wait for an explicit selection; never guess. Attach
-with `observer open`, then use `observer watch`. Persist evidence-backed, redacted findings and use
+with `observer start`, then use `observer watch`. Persist evidence-backed, redacted findings and use
 their fingerprints for deduplication and cooldown.
 
 For a non-breaking finding, use `observer report` to notify the affected repository conductor for

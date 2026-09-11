@@ -139,16 +139,48 @@ test('workflow forwarding reads persisted source/task/ancestry, revalidates chil
 test('CLI send persists notification without injecting a live terminal composer',async t=>{
  const {mkdir}=await import('node:fs/promises');const {execFile}=await import('node:child_process');const {promisify}=await import('node:util');
  const {fileURLToPath}=await import('node:url');const exec=promisify(execFile);
- const runDir=await fakeRun();t.after(()=>rm(runDir,{recursive:true,force:true}));
+ const runDir=await fakeRun();
+ // `send` self-starts a repository supervisor (TM-127), and that detached child outlives `send`.
+ // Measured on this branch: every tmux call the shim saw came from `cli.mjs supervise`, none from
+ // `send` — the child's first tick lists panes, and TM-162 made `send` wait for the child to take
+ // its lock, so the old "the shim never ran" assertion stopped winning that race. The child must
+ // be reaped BEFORE runDir goes: once the shim is deleted its PATH falls through to the real tmux,
+ // and its watcher asks for `-L default`. TMUX:'' and TMUX_TMPDIR keep even that off the
+ // operator's server (.claude/rules/tmux-test-isolation.md); this test never starts or kills a server.
+ let supervisorPid=null;
+ const reapSupervisor=async()=>{
+   const pid=supervisorPid;supervisorPid=null;if(!pid) return;
+   try{process.kill(-pid,'SIGKILL');}catch{try{process.kill(pid,'SIGKILL');}catch{}}
+   for(let i=0;i<100;i++){try{process.kill(pid,0);}catch{break;}await new Promise(r=>setTimeout(r,50));}
+ };
+ t.after(async()=>{ await reapSupervisor(); await rm(runDir,{recursive:true,force:true}); });
  const run=JSON.parse(await readFile(join(runDir,'run.json'),'utf8'));run.agents[1].pane='%999';await writeJson(join(runDir,'run.json'),run);
- const bin=join(runDir,'bin'),marker=join(runDir,'unsafe-tmux-call');await mkdir(bin);
- await writeFile(join(bin,'tmux'),'#!/bin/sh\nprintf unsafe > "$AO_TEST_MARKER"\nexit 0\n',{mode:0o755});
+ const bin=join(runDir,'bin'),calls=join(runDir,'tmux-calls.log'),tmuxTmp=join(runDir,'tmux');await mkdir(bin);await mkdir(tmuxTmp);
+ // One line per call: the caller's pid, the caller's command line, and the arguments. A value, not
+ // a bit — "was tmux called" cannot tell a send-path regression from the supervisor's own reads.
+ await writeFile(join(bin,'tmux'),'#!/bin/sh\nprintf \'%s\\037%s\\037%s\\n\' "$PPID" "$(ps -o args= -p $PPID)" "$*" >> "$AO_TEST_TMUX_LOG"\nexit 0\n',{mode:0o755});
+ const env={...process.env,TMUX:'',TMUX_TMPDIR:tmuxTmp,PATH:`${bin}:${process.env.PATH}`,AO_TEST_TMUX_LOG:calls,AO_TMUX_COMMAND:undefined,
+   // Pin the state home, or `send` spawns a real daemon into ~/.local/state (how TM-139's orphans appeared).
+   AGENT_ORCHESTRATION_STATE_HOME:join(runDir,'state')};
+ const readCalls=async()=>(await readFile(calls,'utf8').catch(()=>'')).split('\n').filter(Boolean).map(line=>{const [ppid,caller,args]=line.split('\x1f');return {ppid:Number(ppid),caller,args:args.split(/\s+/)};});
+ // Coverage first: prove the shim intercepts `tmux` in this env, so an empty log below means "not called".
+ await exec('tmux',['-V'],{env});
+ assert.equal((await readCalls()).filter(c=>c.ppid===process.pid).length,1,'the tmux shim must be reachable on PATH, or the assertions below cannot fail');
  const cli=fileURLToPath(new URL('../../topology/cli.mjs',import.meta.url));
- // `send` self-starts a repository supervisor (TM-127), so this test MUST pin the state home or it
- // spawns a real background daemon into the developer's own ~/.local/state and leaves a record
- // behind when t.after removes runDir. That is exactly how TM-139's five orphaned records appeared.
- const result=await exec(process.execPath,[cli,'send','--run',runDir,'--from-project',runDir,'--from','conductor','--to','a','--body','Wait in the inbox.','--json'],{env:{...process.env,PATH:`${bin}:${process.env.PATH}`,AO_TEST_MARKER:marker,AGENT_ORCHESTRATION_STATE_HOME:join(runDir,'state')}});
- const output=JSON.parse(result.stdout);assert.equal(output.delivered[0].rang,false);assert.equal(output.delivered[0].notification,'durable-pending');
- await assert.rejects(readFile(marker),{code:'ENOENT'});
+ const output=JSON.parse((await exec(process.execPath,[cli,'send','--run',runDir,'--from-project',runDir,'--from','conductor','--to','a','--body','Wait in the inbox.','--json'],{env})).stdout);
+ supervisorPid=Number.isInteger(output.supervision?.pid)?output.supervision.pid:null;
+ assert.equal(output.delivered[0].rang,false);assert.equal(output.delivered[0].notification,'durable-pending');
+ // Let the supervisor reach tmux (bounded), then stop it and judge its whole lifetime, so the
+ // allowlist below is tested against real calls rather than passing over an empty log.
+ const SUPERVISOR=/cli\.mjs supervise\b/;
+ for(let i=0;supervisorPid&&i<200&&!(await readCalls()).some(c=>SUPERVISOR.test(c.caller));i++) await new Promise(r=>setTimeout(r,50));
+ await reapSupervisor();
+ const seen=(await readCalls()).filter(c=>c.ppid!==process.pid), log=seen.map(c=>`ppid=${c.ppid} caller=${c.caller} args=${c.args.join(' ')}`).join('\n')||'(none)';
+ // An allowlist, not "ppid is not send": a tmux call send made through a shell or helper child
+ // would carry that intermediary's ppid and slip past a send-pid filter.
+ assert.deepEqual(seen.filter(c=>!SUPERVISOR.test(c.caller)),[],`only the spawned supervisor may run tmux — never send, nor anything send starts; calls:\n${log}`);
+ // tmux command names and their aliases that put input into a pane.
+ const writes=new Set(['send-keys','send','send-prefix','paste-buffer','pasteb','load-buffer','loadb','set-buffer','setb']);
+ assert.deepEqual(seen.filter(c=>c.args.some(a=>writes.has(a))),[],`nothing may send keys, paste, or load a buffer; calls:\n${log}`);
  assert.match(await readFile(output.deliveries[0].inbox,'utf8'),/Wait in the inbox/);
 });

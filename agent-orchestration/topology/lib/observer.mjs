@@ -1,5 +1,5 @@
 // Read-only orchestration observer. It records its own attachment and findings under the
-// host-local AO state root; it never mutates an observed run, task store, or tmux session.
+// host-local AO state root; it never mutates an observed run, task store, or observed tmux session.
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -9,6 +9,9 @@ import { undeliveredReport } from './delivery.mjs';
 import { findLead } from './agents.mjs';
 import { readCensus } from './census.mjs';
 import { canonicalRepoId, repoKey, stateRoot } from './repoid.mjs';
+import { sameIncarnation } from './incarnation.mjs';
+import { deliverObserverActivation, prepareObserverSession } from './observer-session.mjs';
+import { readPromptState } from './prompts.mjs';
 import * as defaultTmux from './tmux.mjs';
 import { exists, invariant, nowIso } from './util.mjs';
 
@@ -65,16 +68,21 @@ export async function discoverObserverTargets({ consumer, agentDirs = [], tmux =
     const run = await loadRun(runDir).catch(() => null);
     if (!run?.session || TERMINAL_RUN_STATES.has(run.state)) continue;
     const conductor = run.agents?.find(agent => agent.role === 'orchestrator' && !agent.workflow);
-    if (!conductor?.id || !(await tmux.hasSession(run.session))) continue;
+    const conductorBinding = conductor?.binding;
+    const panes = conductorBinding ? await tmux.listServerPanes({ tmuxServer: conductorBinding.serverKey }).catch(() => []) : [];
+    if (!conductor?.id || !(await tmux.hasSession(run.session)) ||
+        panes.filter(pane => pane.alive !== false && sameIncarnation(pane, conductorBinding)).length !== 1) continue;
     targets.push({ id: `run:${run.run_id}`, kind: 'run', repository: identity.id, repo_key: repoKey(identity.id), run_id: run.run_id, run_dir: runDir,
-      name: run.name, state: run.state, session: run.session, conductor: conductor.id, conductor_binding: conductor.binding ?? null });
+      name: run.name, state: run.state, session: run.session, conductor: conductor.id, conductor_binding: conductorBinding });
   }
   const lead = await findLead(agentDirs).catch(() => null);
   if (lead?.id) {
     const census = await readCensus({ consumer, env, home, identity }).catch(() => null);
     const row = census?.agents?.find(agent => agent.agentId === lead.id || agent.sessionName === `ao-${lead.id}`);
     const session = row?.sessionName || `ao-${lead.id}`;
-    if (!census?.stale && await tmux.hasSession(session)) targets.push({
+    if (!census?.stale && row?.binding && await tmux.hasSession(session) &&
+        (await tmux.listServerPanes({ tmuxServer: row.binding.serverKey }).catch(() => []))
+          .filter(pane => pane.alive !== false && sameIncarnation(pane, row.binding)).length === 1) targets.push({
       id: `repository:${repoKey(identity.id)}`, kind: 'repository', repository: identity.id,
       repo_key: repoKey(identity.id), run_id: null, run_dir: null, name: 'Standing repository orchestration',
       state: 'running', session, conductor: lead.id, conductor_binding: row?.binding ?? null,
@@ -83,31 +91,74 @@ export async function discoverObserverTargets({ consumer, agentDirs = [], tmux =
   return targets;
 }
 
-export async function openObserver({ consumer, runDir, target, agentDirs = [], observerId, env = process.env, home = homedir(), tmux = defaultTmux } = {}) {
+async function selectedTarget({ consumer, runDir, target, agentDirs = [], observerId, env = process.env, home = homedir(), tmux = defaultTmux } = {}) {
   const available = await discoverObserverTargets({ consumer, agentDirs, tmux, env, home });
   invariant(runDir || target, 'TOPOLOGY_OBSERVER_SELECTION', 'Select one live orchestration with --target <id> or --run <run_dir>.');
   const wanted = runDir ? resolve(runDir) : String(target);
   const matches = available.filter(item => runDir ? item.run_dir && resolve(item.run_dir) === wanted : item.id === wanted);
   invariant(matches.length === 1, 'TOPOLOGY_OBSERVER_SELECTION', 'The selected run is absent, terminal, ambiguous, or has no verified live conductor.', { candidates: available });
+  return matches[0];
+}
+
+async function targetStillExact(selected, tmux) {
+  const panes = await tmux.listServerPanes({ tmuxServer: selected.conductor_binding?.serverKey }).catch(() => []);
+  return panes.filter(pane => pane.alive !== false && pane.sessionName === selected.session && sameIncarnation(pane, selected.conductor_binding)).length === 1;
+}
+
+export async function startObserver(options = {}) {
+  const { consumer, observerId, env = process.env, home = homedir(), tmux = defaultTmux } = options;
   const paths = observerPaths({ env, home, observerId });
+  const selected = await selectedTarget(options);
   const prior = await json(paths.attachment);
-  const selected = matches[0];
   if (prior) {
     invariant(prior.repository === selected.repository && prior.id === selected.id && prior.conductor === selected.conductor,
       'TOPOLOGY_OBSERVER_ALREADY_ATTACHED', 'Observer is already attached to a different orchestration; close it first.');
-    return { status: 'attached', idempotent: true, attachment: prior };
+    if (prior.version === 2 && prior.observation_allowed === true) {
+      const status = await observerStatus(options);
+      if (status.observer_verified && status.target_alive) return { status: 'attached', idempotent: true, attachment: prior, activation: null };
+    }
   }
-  const attachment = { version: 1, observer_id: paths.id, ...selected, attached_at: nowIso(), privileges: 'read-only', coordinates_only: true };
+  const activation = await (options.prepareSession ?? prepareObserverSession)({ ...options, observerId: paths.id });
+  invariant(await targetStillExact(selected, tmux), 'TOPOLOGY_OBSERVER_TARGET_BINDING', 'The selected conductor incarnation changed during observer startup; no attachment was created.');
+  const attachment = { version: 2, observer_id: paths.id, ...selected, observer_session: activation.session,
+    observer_binding: activation.binding, prompt_revision: activation.prompt_revision,
+    observer_agent_dir: activation.agent?._dir ?? null,
+    prompt_acknowledged_at: activation.prompt_acknowledged_at, observation_allowed: true,
+    attached_at: nowIso(), privileges: 'read-only', coordinates_only: true };
   await atomicJson(paths.attachment, attachment);
-  return { status: 'attached', idempotent: false, attachment };
+  const activate = options.activate ?? deliverObserverActivation;
+  const activationDelivery = await activate(activation,
+    `Observer activation is verified. Monitor ${selected.id} with ao-topology observer watch --consumer ${resolve(consumer)} --observer ${paths.id}.`)
+    .catch(error => ({ delivered: false, reason: error.code ?? error.message }));
+  const { adapter: _adapter, agent: _agent, ...publicActivation } = activation;
+  return { status: 'attached', idempotent: false, attachment, activation: publicActivation, activation_delivery: activationDelivery };
 }
+
+// Kept as the established spelling, but it is now the same proof-gated transaction as `start`.
+export const openObserver = startObserver;
 
 export async function observerStatus(options = {}) {
   const paths = observerPaths(options);
   const attachment = await json(paths.attachment);
   if (!attachment) return { status: 'detached', observer_id: paths.id };
-  const alive = await (options.tmux ?? defaultTmux).hasSession(attachment.session);
-  return { status: alive ? 'attached' : 'target-gone', observer_id: paths.id, attachment };
+  if (attachment.version !== 2 || attachment.observation_allowed !== true) return {
+    status: 'legacy-attachment', observer_id: paths.id, observation_allowed: false, attachment,
+  };
+  const tmux = options.tmux ?? defaultTmux;
+  const [targetAlive, observerAlive, prompt] = await Promise.all([
+    targetStillExact(attachment, tmux),
+    (async () => {
+      const panes = await tmux.listServerPanes({ tmuxServer: attachment.observer_binding?.serverKey }).catch(() => []);
+      return panes.filter(pane => pane.alive !== false && pane.sessionName === attachment.observer_session && sameIncarnation(pane, attachment.observer_binding)).length === 1;
+    })(),
+    attachment.observer_agent_dir ? (options.readPromptState ?? readPromptState)(attachment.observer_agent_dir) : null,
+  ]);
+  const promptCurrent = prompt?.status === 'current' && prompt.applied_revision === attachment.prompt_revision &&
+    prompt.desired_revision === attachment.prompt_revision && sameIncarnation(prompt.applied_binding, attachment.observer_binding);
+  const observerVerified = observerAlive && promptCurrent;
+  const status = !observerAlive ? 'observer-gone' : !promptCurrent ? 'prompt-stale' : targetAlive ? 'attached' : 'target-gone';
+  return { status, observer_id: paths.id, observer_verified: observerVerified, target_alive: targetAlive,
+    prompt_current: promptCurrent, observation_allowed: observerVerified, attachment };
 }
 
 export async function closeObserver(options = {}) {
@@ -120,6 +171,8 @@ export async function closeObserver(options = {}) {
 export async function inspectObservedRun(options = {}) {
   const status = await observerStatus(options);
   invariant(status.attachment, 'TOPOLOGY_OBSERVER_DETACHED', 'Observer is not attached.');
+  invariant(status.attachment.version === 2 && status.observer_verified === true,
+    'TOPOLOGY_OBSERVER_UNVERIFIED', 'Observer attachment is legacy or its exact process proof is no longer valid; start it again before observing.');
   if (status.attachment.kind === 'repository') {
     const census = await readCensus({ ...options, consumer: options.consumer }).catch(() => null);
     const findings = [];
@@ -146,10 +199,13 @@ export async function inspectObservedRun(options = {}) {
   return { attachment: status.attachment, observed_at: nowIso(), findings: findings.map(item => ({ ...item, severity: classifyFinding(item) })) };
 }
 
-export async function recordFinding(finding, { observerId, env = process.env, home = homedir(), now = Date.now(), cooldownMs = 300000 } = {}) {
+export async function recordFinding(finding, options = {}) {
+  const { observerId, env = process.env, home = homedir(), now = Date.now(), cooldownMs = 300000 } = options;
   const paths = observerPaths({ observerId, env, home });
-  const attachment = await json(paths.attachment);
+  const status = await observerStatus(options);
+  const attachment = status.attachment;
   invariant(attachment, 'TOPOLOGY_OBSERVER_DETACHED', 'Observer is not attached.');
+  invariant(status.observer_verified === true, 'TOPOLOGY_OBSERVER_UNVERIFIED', 'Observer process or prompt proof is no longer current; start the observer again.');
   const clean = redactEvidence(finding);
   const severity = classifyFinding(clean);
   const fingerprint = findingFingerprint({ repository: attachment.repository, run_id: attachment.run_id, type: clean.signal || clean.type, component: clean.component });
@@ -199,14 +255,16 @@ export function escalationPlan(record, { affectedLead, marketplaceLead, marketpl
  * conductors retain all authority to verify, create tasks, or dispatch workers. */
 export async function reportFinding(fingerprint, {
   observerId, env = process.env, home = homedir(), affectedConsumer, affectedLead,
-  marketplaceConsumer, marketplaceLead, send,
+  marketplaceConsumer, marketplaceLead, send, ...runtime
 } = {}) {
   invariant(affectedConsumer && affectedLead && marketplaceConsumer && marketplaceLead,
     'TOPOLOGY_OBSERVER_AUTHORITY', 'Reporting needs explicit affected and Marketplace repositories and leads.');
   invariant(typeof send === 'function', 'TOPOLOGY_OBSERVER_SENDER', 'Reporting needs a durable standing-mail sender.');
   const paths = observerPaths({ observerId, env, home });
-  const attachment = await json(paths.attachment);
+  const status = await observerStatus({ observerId, env, home, ...runtime });
+  const attachment = status.attachment;
   invariant(attachment, 'TOPOLOGY_OBSERVER_DETACHED', 'Observer is not attached.');
+  invariant(status.observer_verified === true, 'TOPOLOGY_OBSERVER_UNVERIFIED', 'Observer process or prompt proof is no longer current; start the observer again.');
   const record = await loadFinding(fingerprint, { observerId, env, home });
   const plan = escalationPlan(record, { affectedLead, marketplaceLead, marketplaceRepository: marketplaceConsumer });
   const common = {

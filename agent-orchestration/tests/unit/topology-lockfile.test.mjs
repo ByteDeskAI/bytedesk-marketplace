@@ -4,10 +4,22 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { lockHeld, withLock } from "../../topology/lib/lockfile.mjs";
+import { lockHeld, lockOwner, processIdentity, withLock } from "../../topology/lib/lockfile.mjs";
 import { TopologyError } from "../../topology/lib/util.mjs";
 
 const scratch = () => mkdtemp(join(tmpdir(), "ao-lock-"));
+
+test("the admitted holder receives the exact durable owner identity", async (t) => {
+  const root = await scratch();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const lock = join(root, "identity.lock");
+  await withLock(lock, async (ownership) => {
+    assert.deepEqual(ownership, await lockOwner(lock));
+    assert.equal(ownership.pid, process.pid);
+    assert.equal(ownership.process_identity, await processIdentity(process.pid));
+    assert.ok(ownership.token);
+  });
+});
 
 test("concurrent holders serialize: exactly one critical section runs at a time", async (t) => {
   const root = await scratch();

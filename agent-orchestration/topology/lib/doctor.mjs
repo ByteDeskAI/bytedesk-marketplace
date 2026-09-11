@@ -156,7 +156,11 @@ export async function doctor({ adapters, workflowDirs, skillDirs, roleDirs, prov
       const { supervisionStatus } = await import("./supervision.mjs");
       supervision = await supervisionStatus({ consumer, env, home });
       const stallMs = Math.max(60_000, supervision.reconcile_min_ms * 4);
-      if (supervision.state === "died-before-first-tick") {
+      if (supervision.state === "ownership-record-mismatch") {
+        problems.push({ code: "SUPERVISOR_OWNERSHIP_MISMATCH", message: `The live repository supervisor is pid ${supervision.owner?.pid}, but process.json names pid ${supervision.pid}; the lock owner is authoritative. Recorded source: ${supervision.source_entrypoint ?? 'unknown'}.`, fix: { note: `Do not kill or delete the live lock. Inspect ${supervision.record_path} and the lock owner before recovery.` } });
+      } else if (supervision.state === "running-without-lock") {
+        problems.push({ code: "SUPERVISOR_UNFENCED", message: `Process record pid ${supervision.pid} is alive but does not own the repository supervision lock.`, fix: { note: "Treat the lock owner as authoritative; stop only after verifying its exact process identity." } });
+      } else if (supervision.state === "died-before-first-tick") {
         // Distinct from "down" on purpose: this one never worked, so the remedy is to read the
         // startup crash rather than to wonder what killed a healthy daemon hours later.
         problems.push({ code: "SUPERVISOR_NEVER_TICKED", message: `The repository supervisor (pid ${supervision.pid}) died during startup and never completed a tick, so presence for this repo was never published.`, fix: { note: `The reason is at the end of ${supervision.log}` } });

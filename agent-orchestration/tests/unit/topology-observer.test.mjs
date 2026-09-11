@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { run, writeJson } from '../../topology/lib/util.mjs';
 import { canonicalRepoId, repoKey } from '../../topology/lib/repoid.mjs';
@@ -10,6 +10,7 @@ import {
   findingFingerprint, observerStatus, openObserver, recordFinding, redactEvidence,
   reportFinding, watchObservedRun,
 } from '../../topology/lib/observer.mjs';
+import { observerAckTimeout, prepareObserverSession, waitForObserverPrompt } from '../../topology/lib/observer-session.mjs';
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'ao-observer-'));
@@ -18,11 +19,21 @@ async function fixture(t) {
   const home = join(root, 'home'), env = { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state') };
   await run('git', ['init', repo]);
   await mkdir(runDir, { recursive: true });
+  const conductorBinding = { serverKey: '/tmp/tmux', serverPid: 10, sessionId: '$1', sessionCreated: 20, paneId: '%1', panePid: 30 };
+  const observerBinding = { serverKey: '/tmp/tmux', serverPid: 10, sessionId: '$2', sessionCreated: 21, paneId: '%9', panePid: 31 };
   await writeJson(join(runDir, 'run.json'), { run_id: 'live', name: 'demo', state: 'running', session: 'demo-session', run_dir: runDir, consumer: repo,
-    agents: [{ id: 'conductor', role: 'orchestrator', binding: { paneId: '%1' } }, { id: 'worker', role: 'worker' }] });
-  const tmux = { hasSession: async name => name === 'demo-session' };
-  return { root, repo, runDir, home, env, tmux };
+    agents: [{ id: 'conductor', role: 'orchestrator', binding: conductorBinding }, { id: 'worker', role: 'worker' }] });
+  const panes = [{ ...conductorBinding, sessionName: 'demo-session', alive: true }, { ...observerBinding, sessionName: 'ao-watcher', alive: true }];
+  const tmux = { hasSession: async name => ['demo-session', 'ao-watcher'].includes(name), listServerPanes: async () => panes };
+  const observerAgentDir = join(root, 'observer-agent');
+  const prepareSession = async () => ({ agent: { id: 'watcher', _dir: observerAgentDir }, session: 'ao-watcher', pane: '%9', binding: observerBinding, prompt_revision: 'revision-1', prompt_acknowledged_at: new Date().toISOString(), reattached: true });
+  const readPromptState = async () => ({ status: 'current', desired_revision: 'revision-1', applied_revision: 'revision-1', applied_binding: observerBinding });
+  const activate = async () => ({ delivered: true });
+  return { root, repo, runDir, home, env, tmux, panes, conductorBinding, observerBinding, prepareSession, activate, readPromptState, observerAgentDir };
 }
+
+const optionsFor = f => ({ consumer: f.repo, runDir: f.runDir, observerId: 'watcher', home: f.home, env: f.env,
+  tmux: f.tmux, prepareSession: f.prepareSession, activate: f.activate, readPromptState: f.readPromptState });
 
 test('discovery exposes only live non-terminal runs with a conductor', async t => {
   const f = await fixture(t);
@@ -44,21 +55,25 @@ test('discovery exposes a verified standing repository orchestration', async t =
   await mkdir(join(f.env.AGENT_ORCHESTRATION_STATE_HOME, 'census'), { recursive: true });
   await writeJson(join(f.env.AGENT_ORCHESTRATION_STATE_HOME, 'census', `${key}.json`), {
     schemaVersion: 1, repositoryKey: key, repoId: identity.id, at: new Date().toISOString(), staleAfterMs: 45000,
-    agents: [{ agentId: 'lead-1', sessionName: 'ao-lead-1', binding: { paneId: '%2' } }],
+    agents: [{ agentId: 'lead-1', sessionName: 'ao-lead-1', binding: { ...f.conductorBinding, sessionId: '$3', paneId: '%2', panePid: 32 } }],
   });
+  const leadPane = { ...f.conductorBinding, sessionId: '$3', paneId: '%2', panePid: 32, sessionName: 'ao-lead-1', alive: true };
   const targets = await discoverObserverTargets({ consumer: f.repo, agentDirs: [agents], env: f.env, home: f.home,
-    tmux: { hasSession: async name => name === 'demo-session' || name === 'ao-lead-1' } });
+    tmux: { hasSession: async name => name === 'demo-session' || name === 'ao-lead-1', listServerPanes: async () => [...f.panes, leadPane] } });
   const target = targets.find(item => item.kind === 'repository');
   assert.equal(target.id, `repository:${key}`);
   assert.equal(target.conductor, 'lead-1');
+  const standingBinding = { ...f.observerBinding, sessionId: '$4', paneId: '%8', panePid: 33 };
   const opened = await openObserver({ consumer: f.repo, target: target.id, agentDirs: [agents], observerId: 'standing-watcher',
-    env: f.env, home: f.home, tmux: { hasSession: async () => true } });
+    env: f.env, home: f.home, tmux: { hasSession: async () => true, listServerPanes: async () => [...f.panes, leadPane, { ...standingBinding, sessionName: 'ao-standing-watcher', alive: true }] },
+    prepareSession: async () => ({ agent: { id: 'standing-watcher', _dir: f.observerAgentDir }, session: 'ao-standing-watcher', pane: '%8', binding: standingBinding, prompt_revision: 'r', reattached: true }),
+    readPromptState: async () => ({ status: 'current', desired_revision: 'r', applied_revision: 'r', applied_binding: standingBinding }), activate: f.activate });
   assert.equal(opened.attachment.kind, 'repository');
   assert.equal(opened.attachment.run_dir, null);
 });
 
 test('attachment requires explicit exact selection and is idempotent', async t => {
-  const f = await fixture(t), options = { consumer: f.repo, runDir: f.runDir, observerId: 'watcher', home: f.home, env: f.env, tmux: f.tmux };
+  const f = await fixture(t), options = optionsFor(f);
   await assert.rejects(openObserver({ ...options, runDir: null }), error => error.code === 'TOPOLOGY_OBSERVER_SELECTION');
   const first = await openObserver(options);
   assert.equal(first.attachment.privileges, 'read-only');
@@ -70,8 +85,119 @@ test('attachment requires explicit exact selection and is idempotent', async t =
   assert.equal((await closeObserver(options)).removed, false);
 });
 
+test('start commits no attachment before exact prompt acknowledgement', async t => {
+  const f = await fixture(t), options = optionsFor(f);
+  await assert.rejects(openObserver({ ...options, prepareSession: async () => {
+    const error = new Error('no ack'); error.code = 'TOPOLOGY_PROMPT_ACK_TIMEOUT'; throw error;
+  }}), { code: 'TOPOLOGY_PROMPT_ACK_TIMEOUT' });
+  assert.equal((await observerStatus(options)).status, 'detached');
+});
+
+test('target binding drift fails closed before attachment commit', async t => {
+  const f = await fixture(t), options = optionsFor(f);
+  let calls = 0;
+  const tmux = { ...f.tmux, listServerPanes: async () => ++calls === 1 ? f.panes : f.panes.map(pane =>
+    pane.paneId === f.conductorBinding.paneId ? { ...pane, panePid: pane.panePid + 1 } : pane) };
+  await assert.rejects(openObserver({ ...options, tmux }), { code: 'TOPOLOGY_OBSERVER_TARGET_BINDING' });
+  assert.equal((await observerStatus(options)).status, 'detached');
+});
+
+test('managed observer reattaches only when current and otherwise requests one controlled restart', async t => {
+  const f = await fixture(t), agentDir = join(f.root, 'agents', 'watcher');
+  await mkdir(agentDir, { recursive: true });
+  await writeJson(join(agentDir, 'session.json'), { agent_id: 'watcher', binding: f.observerBinding });
+  const agent = { id: 'watcher', role: 'observer', coordinates_only: true, _dir: agentDir, env: {} };
+  const runCase = async status => {
+    const opens = [];
+    const lifecycle = {
+      requireAgent: async () => agent, refreshPrompt: async () => ({ status, applied_binding: f.observerBinding }),
+      loadAdapters: async () => new Map(), adapterFor: () => ({ id: 'fake' }), buildArgv: () => ['fake'],
+      openRoleSession: async input => { opens.push(input); return { pane: '%9', binding: f.observerBinding,
+        reattached: !input.controlledRestart, restarted: input.controlledRestart, record: { binding: f.observerBinding } }; },
+      readPromptState: async () => ({ status: 'current', desired_revision: 'r', applied_revision: 'r',
+        desired_session: 'ao-watcher', applied_binding: f.observerBinding }),
+    };
+    const result = await prepareObserverSession({ consumer: f.repo, observerId: 'watcher', agentDirs: [dirname(agentDir)],
+      home: f.home, env: f.env, tmux: f.tmux, lifecycle, timeoutMs: 10 });
+    return { result, opens };
+  };
+  const current = await runCase('current');
+  assert.equal(current.opens[0].controlledRestart, false);
+  assert.equal(current.result.reattached, true);
+  const stale = await runCase('restart-required');
+  assert.equal(stale.opens.length, 1);
+  assert.equal(stale.opens[0].controlledRestart, true);
+  assert.equal(stale.result.restarted, true);
+});
+
+test('prompt wait rejects wrong binding and legacy attachments cannot observe or report', async t => {
+  const f = await fixture(t), agent = { _dir: join(f.root, 'observer-agent') };
+  let clock = 0;
+  await assert.rejects(waitForObserverPrompt({ agent, session: 'ao-watcher', binding: f.observerBinding, timeoutMs: 2,
+    now: () => clock, sleepFn: async () => { clock += 2; }, readState: async () => ({ status: 'current',
+      desired_revision: 'r', applied_revision: 'r', desired_session: 'ao-watcher', applied_binding: { ...f.observerBinding, panePid: 999 } }) }),
+    { code: 'TOPOLOGY_PROMPT_ACK_TIMEOUT' });
+  const attachment = join(f.env.AGENT_ORCHESTRATION_STATE_HOME, 'observers', 'legacy', 'attachment.json');
+  await mkdir(dirname(attachment), { recursive: true });
+  await writeJson(attachment, { version: 1, observer_id: 'legacy', session: 'demo-session', run_dir: f.runDir });
+  const legacy = { ...optionsFor(f), observerId: 'legacy' };
+  assert.equal((await observerStatus(legacy)).status, 'legacy-attachment');
+  await assert.rejects(watchObservedRun(legacy, { once: true }), { code: 'TOPOLOGY_OBSERVER_UNVERIFIED' });
+  await assert.rejects(reportFinding('a'.repeat(64), { ...legacy, affectedConsumer: f.repo, affectedLead: 'a',
+    marketplaceConsumer: f.repo, marketplaceLead: 'm', send: async () => ({}) }), { code: 'TOPOLOGY_OBSERVER_UNVERIFIED' });
+});
+
+test('verified observer can record and report the target-gone anomaly', async t => {
+  const f = await fixture(t), options = optionsFor(f);
+  await openObserver(options);
+  f.panes.splice(f.panes.findIndex(pane => pane.paneId === f.conductorBinding.paneId), 1);
+  const status = await observerStatus(options);
+  assert.equal(status.status, 'target-gone');
+  assert.equal(status.observer_verified, true);
+  assert.equal(status.observation_allowed, true);
+  const tick = await watchObservedRun(options, { once: true, intervalMs: 1000 });
+  assert.equal(tick.recorded[0].record.signal, 'run-session-gone');
+  const sent = [];
+  await reportFinding(tick.recorded[0].record.fingerprint, { ...options, affectedConsumer: f.repo, affectedLead: 'a',
+    marketplaceConsumer: f.repo, marketplaceLead: 'm', send: async envelope => { sent.push(envelope); return { status: 'delivered' }; } });
+  assert.equal(sent.length, 2);
+});
+
+test('post-attach prompt staleness refuses direct persistence and reporting', async t => {
+  const f = await fixture(t), options = optionsFor(f);
+  await openObserver(options);
+  const stale = { ...options, readPromptState: async () => ({ status: 'queued', desired_revision: 'revision-2',
+    applied_revision: 'revision-1', applied_binding: f.observerBinding }) };
+  assert.equal((await observerStatus(stale)).status, 'prompt-stale');
+  await assert.rejects(recordFinding({ signal: 'enhancement' }, stale), { code: 'TOPOLOGY_OBSERVER_UNVERIFIED' });
+  await assert.rejects(reportFinding('a'.repeat(64), { ...stale, affectedConsumer: f.repo, affectedLead: 'a',
+    marketplaceConsumer: f.repo, marketplaceLead: 'm', send: async () => ({}) }), { code: 'TOPOLOGY_OBSERVER_UNVERIFIED' });
+});
+
+test('same-target legacy or degraded attachment upgrades transactionally and different target refuses', async t => {
+  const f = await fixture(t), options = optionsFor(f), attachmentPath = join(f.env.AGENT_ORCHESTRATION_STATE_HOME, 'observers', 'watcher', 'attachment.json');
+  const target = (await discoverObserverTargets(options))[0];
+  await mkdir(dirname(attachmentPath), { recursive: true });
+  await writeJson(attachmentPath, { version: 1, observer_id: 'watcher', ...target });
+  const upgraded = await openObserver(options);
+  assert.equal(upgraded.attachment.version, 2);
+  assert.equal(upgraded.idempotent, false);
+  await writeJson(attachmentPath, { ...upgraded.attachment, prompt_revision: 'old' });
+  const repaired = await openObserver(options);
+  assert.equal(repaired.attachment.prompt_revision, 'revision-1');
+  await writeJson(attachmentPath, { version: 1, observer_id: 'watcher', ...target, id: 'run:different' });
+  await assert.rejects(openObserver(options), { code: 'TOPOLOGY_OBSERVER_ALREADY_ATTACHED' });
+});
+
+test('observer acknowledgement timeout precedence is flag then env then legacy then default', () => {
+  assert.equal(observerAckTimeout({ ackTimeout: '7s', legacyTimeout: '9s', env: { AO_OBSERVER_ACK_TIMEOUT_MS: '8000' } }), 7000);
+  assert.equal(observerAckTimeout({ legacyTimeout: '9s', env: { AO_OBSERVER_ACK_TIMEOUT_MS: '8000' } }), 8000);
+  assert.equal(observerAckTimeout({ legacyTimeout: '9s', env: {} }), 9000);
+  assert.equal(observerAckTimeout({ env: {} }), 30000);
+});
+
 test('classification, redaction, fingerprint and delivery states are deterministic', async t => {
-  const f = await fixture(t), options = { consumer: f.repo, runDir: f.runDir, observerId: 'watcher', home: f.home, env: f.env, tmux: f.tmux };
+  const f = await fixture(t), options = optionsFor(f);
   await openObserver(options);
   assert.equal(classifyFinding({ signal: 'undelivered-message' }), 'breaking');
   assert.equal(classifyFinding({ signal: 'workflow-friction' }), 'improvement');
@@ -98,7 +224,7 @@ test('escalation preserves authority boundaries', () => {
 });
 
 test('watch persists findings and report sends non-assignment conductor requests', async t => {
-  const f = await fixture(t), options = { consumer: f.repo, runDir: f.runDir, observerId: 'watcher', home: f.home, env: f.env, tmux: f.tmux };
+  const f = await fixture(t), options = optionsFor(f);
   await openObserver(options);
   const tick = await watchObservedRun(options, { once: true, intervalMs: 1000 });
   assert.equal(tick.recorded.length, 0);

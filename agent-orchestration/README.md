@@ -16,7 +16,7 @@ its tmux session, or its task store.
 
 ```bash
 ao-topology observer targets --consumer /absolute/path/to/repository --json
-ao-topology observer open --consumer /absolute/path/to/repository \
+ao-topology observer start --consumer /absolute/path/to/repository \
   --run /absolute/path/to/repository/.bytedesk/agent-orchestration/runs/<run-id> \
   --observer orchestration-observer --json
 ao-topology observer watch --consumer /absolute/path/to/repository \
@@ -27,6 +27,10 @@ The observer reports non-breaking findings to the affected repository conductor 
 It reports breaking findings to both that conductor and the Marketplace conductor. These are durable,
 non-assignment messages: only the Marketplace conductor may create or update the fingerprinted task
 under the exact `Agent Orchestration Tasks` epic and dispatch a worker.
+
+`start` waits for the observer's current prompt to be acknowledged by its exact managed tmux
+process before it commits the attachment. The older `open` spelling aliases this same safe flow;
+legacy v1 attachments cannot watch or report and must be started again.
 
 Start the packaged agent from Claude Code as `orchestration-observer`, or install the supplied Codex
 template as `orchestration_observer`. The agent first lists live runs and asks for a selection when
