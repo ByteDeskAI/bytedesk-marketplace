@@ -237,8 +237,9 @@ the check at render time.
 The census document (`<stateRoot>/census/<repoKey>.json`, `topology/lib/census.mjs`) is not a
 cross-repository contract, but it carries the same pair so the CLI and presence agree:
 
-- each row, and each carried-forward tombstone, copies `roleIcon` and `roleLabel` from the presence
-  roster (checked as in §8);
+- each row, and each carried-forward tombstone, recomputes `roleIcon` and `roleLabel` from its own
+  `repoRole`, `runRole` and `roleName` (§8), and never copies a stored pair; rows carry `roleName` so
+  tombstones can recompute too;
 - `CENSUS_SCHEMA_VERSION` stays `1`; the keys are additive;
 - the first-column state glyph is unchanged. It is a **state** glyph, not a role icon.
 
