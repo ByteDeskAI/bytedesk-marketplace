@@ -238,7 +238,10 @@ test('a supervisor started with an absolute --consumer survives losing its worki
   const { spawn } = await import('node:child_process');
   const { fileURLToPath } = await import('node:url');
   const root = await mkdtemp(join(tmpdir(), 'ao-supervise-cwd-'));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  let child;
+  // ONE hook, reap before rm: hooks run in registration order, and removing the state dir under a
+  // live daemon is the `hookFailed: ENOTEMPTY` measured in the restart test above.
+  t.after(async () => { if (child?.pid) await reap(child.pid); await rm(root, { recursive: true, force: true }); });
   const repo = join(root, 'repo'), home = join(root, 'home'), cwd = join(root, 'ephemeral');
   const env = isolatedEnv(root, home);
   await run('git', ['init', repo]);
@@ -255,8 +258,7 @@ test('a supervisor started with an absolute --consumer survives losing its worki
   // blob every 2s — but it deleted this test's only signal and the suite merged red: green at
   // 1de163b^, red at 1de163b, verified by running the file at both. The contract that commit
   // documents is "a reader wanting per-tick detail passes --json", so this reader asks for it.
-  const child = spawn(process.execPath, [cli, 'supervise', '--json', '--consumer', repo], { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
-  t.after(() => reap(child.pid));
+  child = spawn(process.execPath, [cli, 'supervise', '--json', '--consumer', repo], { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
   child.stdout.on('data', d => log.push(String(d)));
   child.stderr.on('data', d => log.push(String(d)));
   await new Promise((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject); });

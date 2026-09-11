@@ -148,13 +148,12 @@ test('CLI send persists notification without injecting a live terminal composer'
  // and its watcher asks for `-L default`. TMUX:'' and TMUX_TMPDIR keep even that off the
  // operator's server (.claude/rules/tmux-test-isolation.md); this test never starts or kills a server.
  let supervisorPid=null;
- t.after(async()=>{
-   if(supervisorPid){
-     try{process.kill(-supervisorPid,'SIGKILL');}catch{try{process.kill(supervisorPid,'SIGKILL');}catch{}}
-     for(let i=0;i<100;i++){try{process.kill(supervisorPid,0);}catch{break;}await new Promise(r=>setTimeout(r,50));}
-   }
-   await rm(runDir,{recursive:true,force:true});
- });
+ const reapSupervisor=async()=>{
+   const pid=supervisorPid;supervisorPid=null;if(!pid) return;
+   try{process.kill(-pid,'SIGKILL');}catch{try{process.kill(pid,'SIGKILL');}catch{}}
+   for(let i=0;i<100;i++){try{process.kill(pid,0);}catch{break;}await new Promise(r=>setTimeout(r,50));}
+ };
+ t.after(async()=>{ await reapSupervisor(); await rm(runDir,{recursive:true,force:true}); });
  const run=JSON.parse(await readFile(join(runDir,'run.json'),'utf8'));run.agents[1].pane='%999';await writeJson(join(runDir,'run.json'),run);
  const bin=join(runDir,'bin'),calls=join(runDir,'tmux-calls.log'),tmuxTmp=join(runDir,'tmux');await mkdir(bin);await mkdir(tmuxTmp);
  // One line per call: the caller's pid, the caller's command line, and the arguments. A value, not
@@ -168,13 +167,18 @@ test('CLI send persists notification without injecting a live terminal composer'
  await exec('tmux',['-V'],{env});
  assert.equal((await readCalls()).filter(c=>c.ppid===process.pid).length,1,'the tmux shim must be reachable on PATH, or the assertions below cannot fail');
  const cli=fileURLToPath(new URL('../../topology/cli.mjs',import.meta.url));
- const sending=exec(process.execPath,[cli,'send','--run',runDir,'--from-project',runDir,'--from','conductor','--to','a','--body','Wait in the inbox.','--json'],{env});
- const sendPid=sending.child.pid;
- const output=JSON.parse((await sending).stdout);
+ const output=JSON.parse((await exec(process.execPath,[cli,'send','--run',runDir,'--from-project',runDir,'--from','conductor','--to','a','--body','Wait in the inbox.','--json'],{env})).stdout);
  supervisorPid=Number.isInteger(output.supervision?.pid)?output.supervision.pid:null;
  assert.equal(output.delivered[0].rang,false);assert.equal(output.delivered[0].notification,'durable-pending');
- const seen=await readCalls(), log=seen.map(c=>`ppid=${c.ppid} caller=${c.caller} args=${c.args.join(' ')}`).join('\n')||'(none)';
- assert.deepEqual(seen.filter(c=>c.ppid===sendPid),[],`the send process itself must never run tmux; calls:\n${log}`);
+ // Let the supervisor reach tmux (bounded), then stop it and judge its whole lifetime, so the
+ // allowlist below is tested against real calls rather than passing over an empty log.
+ const SUPERVISOR=/cli\.mjs supervise\b/;
+ for(let i=0;supervisorPid&&i<200&&!(await readCalls()).some(c=>SUPERVISOR.test(c.caller));i++) await new Promise(r=>setTimeout(r,50));
+ await reapSupervisor();
+ const seen=(await readCalls()).filter(c=>c.ppid!==process.pid), log=seen.map(c=>`ppid=${c.ppid} caller=${c.caller} args=${c.args.join(' ')}`).join('\n')||'(none)';
+ // An allowlist, not "ppid is not send": a tmux call send made through a shell or helper child
+ // would carry that intermediary's ppid and slip past a send-pid filter.
+ assert.deepEqual(seen.filter(c=>!SUPERVISOR.test(c.caller)),[],`only the spawned supervisor may run tmux — never send, nor anything send starts; calls:\n${log}`);
  // tmux command names and their aliases that put input into a pane.
  const writes=new Set(['send-keys','send','send-prefix','paste-buffer','pasteb','load-buffer','loadb','set-buffer','setb']);
  assert.deepEqual(seen.filter(c=>c.args.some(a=>writes.has(a))),[],`nothing may send keys, paste, or load a buffer; calls:\n${log}`);
