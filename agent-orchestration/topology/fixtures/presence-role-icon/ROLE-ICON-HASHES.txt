@@ -1,0 +1,58 @@
+# Presence role-icon extension — TM-168 artifact hashes
+# Generated 2026-09-11 by Marketplace Claude (TM-168), starting from commit 6bf4faa.
+#
+# Paths are relative to agent-orchestration/, so this file is directly checkable:
+#     sha256sum -c <(grep -v '^#' topology/fixtures/presence-role-icon/ROLE-ICON-HASHES.txt)
+# tests/unit/topology-presence-role-icon.test.mjs recomputes every line.
+
+# --- frozen under TM-128: must be unchanged (identical to TM-128-CONTRACT-HASHES.txt) ---
+3748e32d26f6f7b3764009a95a2227c44a1b7107504f1934bace1c4d7a6297f5  topology/PRESENCE-CONTRACT.md
+4fef13c80f8a9c4e27dcf9345d6edec0cf375a46ae44ba884f53aae93150baa7  topology/fixtures/presence-v1/README.md
+b6711de9321a23223a1eda82385c604e3e09c5d85972d4d5b4fd8c81ef01fd78  topology/fixtures/presence-v1/validate_presence.py
+b095ba737175ab080ae01381623ca2e9e9f1b2da2d0b885cbbf7f283d3bf6e79  topology/fixtures/presence-v1/test_validator.py
+253141cca84b699a59c29d127ecbd87c863217c195c422b6756a1748fbf6afaa  topology/fixtures/presence-v1/01-exact-match.json
+9b6ba0356e8c85039c32bd23c7ffbcaeee80b274896ef2ef0e275f54f2e51302  topology/fixtures/presence-v1/02-stale.json
+e8784ecfcf18cbc9c2111f7e353d8133401f3ca25f29393b72466c0ef1c7d9ea  topology/fixtures/presence-v1/03-nested-runs.json
+074d3e3b2be00f4503ba2d5f91639fa1c322665216658fdb343a71e31bdfff87  topology/fixtures/presence-v1/04-standing-session.json
+ddcda9b9578204196080c942096333df204ee28df0fab35a5b1b536bf2e52efb  topology/fixtures/presence-v1/05-empty-clears.json
+c3cb40a914fe7d661c485953b1146414dbb9cee562358edb559f836ed82b0e05  topology/fixtures/presence-v1/06-membership-removal.json
+60d27bfa2e66317a0af12d89b3f4e2ef939712be0930c419046173f75b7322f5  topology/fixtures/presence-v1/07-server-restart.json
+
+# --- header extension (TM-136), as it stands at 6bf4faa: must be unchanged ---
+
+# TM-136's own record (HEADER-EXTENSION-HASHES.txt, commit 387e4ec) predates the D1 amendment in
+
+# 830c983, which changed PRESENCE-HEADER-ADDENDUM.md (was 6f15b383…), README.md (was a46c814a…),
+
+# h01 (was f1fe9be0…), h02 (was 883b2ea9…) and n01 (was 3f2fe7a4…). The request and check.py are
+
+# unchanged since 387e4ec. The lines below are the files after D1, and this change touches none.
+e92a54f27596b853e6a88c520ae5ee23c990fc43b4c50bc6bba5940f315d88b3  topology/PRESENCE-HEADER-ADDENDUM.md
+86e37a6ff95e97fa846ac704fb66e2ea38cc6fbd098cd5cb31f10af27d12e98d  topology/HEADER-EXTENSION-COUNTERSIGNATURE-REQUEST.md
+671cea310abb0048a5c3c007034ad5ea5b7b105aef2430fee50d21fd6f232c87  topology/fixtures/presence-v1-header/README.md
+05c2129f091987a6c03a0e4faff3e319e54eab4b1aca4693efe499c1a6310c32  topology/fixtures/presence-v1-header/check.py
+3079dde4d9d3d670b62a62f238f3ad15733f387e4e8b48924f87d6f215285802  topology/fixtures/presence-v1-header/h01-header-full.json
+63ed2ddd1afc8d347f698cb91c11685f11bf4da12dff5b73e61d5fc8d1c4e74f  topology/fixtures/presence-v1-header/h02-header-sparse.json
+27143388ca3cb828d53534afccbda99d990da938538ea15fb749137c3c7a5272  topology/fixtures/presence-v1-header/n01-repo-role-designer.json
+
+# --- schemaVersion 2 (TM-137), as it stands at 6bf4faa: must be unchanged ---
+7cebfa8b208a8adb56335f9d11e00e903f89c132fd306c231ba1d43be55fe9c5  topology/PRESENCE-V2-ADDENDUM.md
+f21ac030f2317fe0431feeea3cc9fd14b29268111ef381ecee5dc5a672a5feac  topology/V2-COUNTERSIGNATURE-REQUEST.md
+abb3384e16b368e0f4a93dd6371c71388874fc5ddb68f0e6905a9be28f6fd36f  topology/fixtures/presence-v2/check.py
+bd49d5fabe4caf27a6077ab2581d99b9b09d2c0f1d05297830af9a8699a2a0fc  topology/fixtures/presence-v2/validate_presence_v2.py
+fd4d0ac11e1743cb4af02bb359371e08b2c7a8a3e55ff6df74737f3155e92297  topology/fixtures/presence-v2/v01-standing-designer.json
+e0c097d8b50fc4d420928c80c73731a9740cb5fe83bf665c63a00a11629f8870  topology/fixtures/presence-v2/v02-image-gen.json
+3079dde4d9d3d670b62a62f238f3ad15733f387e4e8b48924f87d6f215285802  topology/fixtures/presence-v2/v03-v1-unchanged.json
+
+# --- new under TM-168: additive, countersignature requested ---
+9f6e51ab7217928ac51d42a24574875eeb2a9ee0020eb606a888886e839bbcac  topology/PRESENCE-ROLE-ICON-ADDENDUM.md
+7ef859d9969929b4dcd917fddd2ed56f8df55985f9e10e053adddbdcbf2a6725  topology/ROLE-ICON-COUNTERSIGNATURE-REQUEST.md
+f8c86fe61a19690b37b10d22c08d98a2d177ac6f16d5654831a4c01a7e947055  topology/fixtures/presence-role-icon/README.md
+b05b04943bf5da0e08aae3dab3609ce7c91cce5e263adff5b9c9e8ab29075714  topology/fixtures/presence-role-icon/check.py
+cf40e82fd810a9639c678cfc844882bf1c10408da3064dbf05e69070944ecc1a  topology/fixtures/presence-role-icon/role-icon-map.json
+ee71b6e677a7f2efb89eeaf6acec4becce83f180017e8db15d8fd4fe633e84ba  topology/fixtures/presence-role-icon/h01-v1-role-icons.json
+f562f8e0a4764efb836dff2d3830e58ee1738b3b448f1622717c622775047add  topology/fixtures/presence-role-icon/h02-v2-fallbacks.json
+be40c10e259bd8e2cf2df4f4de40fea39486c398567476843d0d49556183e344  topology/fixtures/presence-role-icon/n01-icon-as-repo-role.json
+9511cd45a5cde9173e2bd3656c286dc0fa676116e9e2867410072129214af995  topology/fixtures/presence-role-icon/n02-lead-icon-on-worker.json
+e21d1586236d3f195893afad12bc4ee03d024d53bc6e3c7473ef20af63b0e931  topology/fixtures/presence-role-icon/n03-escape-in-icon.json
+45949c8c95269d6639ed757db13cc4da435bfc99b9e1f37576a399df56997e92  topology/fixtures/presence-role-icon/n04-icon-without-label.json
