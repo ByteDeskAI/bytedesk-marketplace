@@ -143,21 +143,29 @@ test('the supervisor records where it went and how often it has been restarted',
   const { options, env, home, repo } = await quietRepo(t, 'restart');
   const { startRepositorySupervision, supervisionStatus } = await import('../../topology/lib/supervision.mjs');
   const first = await startRepositorySupervision(options);
-  t.after(() => { try { process.kill(first.pid, 'SIGKILL'); } catch {} });
-  assert.equal(first.restarts, 0);
-  assert.match(first.log, /\.log$/);
-  assert.match(first.source_entrypoint, /topology\/cli\.mjs$/);
-  assert.match(first.source_fingerprint, /^[0-9a-f]{64}$/);
-  // An already-running supervisor is never spawned twice.
-  const again = await startRepositorySupervision(options);
-  assert.equal(again.pid, first.pid);
-  assert.equal(again.state, 'running');
-  const status = await supervisionStatus({ consumer: repo, env, home });
-  assert.equal(status.pid, first.pid);
-  assert.equal(status.state, 'running');
-  assert.equal(status.record_owns_lock, true);
-  assert.equal(status.source_entrypoint, first.source_entrypoint);
-  assert.equal(status.source_fingerprint, first.source_fingerprint);
+  let again;
+  // Reap in `finally`, NOT t.after: quietRepo registered rm(root) first and hooks run in order, so a
+  // hook here ran after the daemon's state dir was already being removed under it. Measured 3 in 32
+  // runs as `hookFailed: ENOTEMPTY ... state/presence`, with every assertion passing in ~130ms.
+  try {
+    assert.equal(first.restarts, 0);
+    assert.match(first.log, /\.log$/);
+    assert.match(first.source_entrypoint, /topology\/cli\.mjs$/);
+    assert.match(first.source_fingerprint, /^[0-9a-f]{64}$/);
+    // An already-running supervisor is never spawned twice.
+    again = await startRepositorySupervision(options);
+    assert.equal(again.pid, first.pid);
+    assert.equal(again.state, 'running');
+    const status = await supervisionStatus({ consumer: repo, env, home });
+    assert.equal(status.pid, first.pid);
+    assert.equal(status.state, 'running');
+    assert.equal(status.record_owns_lock, true);
+    assert.equal(status.source_entrypoint, first.source_entrypoint);
+    assert.equal(status.source_fingerprint, first.source_fingerprint);
+  } finally {
+    await reap(first.pid);
+    if (again?.pid && again.pid !== first.pid) await reap(again.pid);
+  }
 });
 
 test('supervision startup uses a bounded configurable ownership handshake', () => {
