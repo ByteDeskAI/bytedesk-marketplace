@@ -102,7 +102,9 @@ async function observeWorker(ctx, doc, owner) {
     const prefix = `${row.backend}:`;
     invariant(row.runId.startsWith(prefix), 'TOPOLOGY_MANAGEMENT_WORKER', 'Invalid task worker session handle.');
     const session = row.runId.slice(prefix.length);
-    // TM-167: the worker's named session, not the whole implicit server.
+    // TM-167: the worker's named session, not the whole implicit server. The registry row records no
+    // server, so the SERVER here is still implicit ($TMUX or the default socket); the realpath check on
+    // the pane's cwd below is what refuses a same-named session on some other server.
     const panes = (await listServerPanes({ session, env: ctx.env })).filter(p => p.sessionName === session && p.alive);
     invariant(panes.length === 1 && await realpath(panes[0].cwd) === await realpath(doc.worktree), 'TOPOLOGY_MANAGEMENT_WORKER', 'Worker must have one observed live pane in its task-owned worktree; unknown or multi-pane ownership needs explicit reconciliation.');
     return { ...base, kind: 'tmux', session_name: session, binding: Object.fromEntries(bindingKeys.map(key => [key, panes[0][key]])) };

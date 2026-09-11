@@ -107,6 +107,8 @@ async function launchDeliveryRun(t, label, extraEnv = {}) {
     ],
     workflow: [{ stage: "ping", from: "conductor", to: ["worker-a"] }],
   });
+  // TM-167: `launch` self-starts supervision only for enrolled repositories.
+  await writeJson(join(consumer, ".bytedesk", "agent-orchestration", "config.json"), { enabled: true });
   const launched = JSON.parse(await ao(["launch", "--spec", specPath, "--consumer", consumer, "--providers-dir", join(root, "tests", "fixtures"), "--run-id", `${label}-${process.pid}`, "--json"], env));
   t.after(async () => {
     await stopSupervisors(consumer);

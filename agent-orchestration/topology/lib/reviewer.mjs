@@ -527,10 +527,14 @@ export async function assignReviewer({ consumer, agentRef, session: existingSess
       `${displayName(agent)} has no live session (${name}). Assignment is a handshake with a RUNNING session — open one first; enrollment never spawns it for you.`,
       { agent_id: agent.id, session: name },
     );
+    // TM-167: the named session, not the whole implicit server — and, because a session is not a server,
+    // the server this agent's own session record names when the record is for this session. Without one
+    // the server is implicit ($TMUX or the default socket); the readiness handshake below still gates it.
+    const recorded = await readJson(join(agent._dir, "session.json")).catch(() => null);
+    const recordedServer = recorded?.session === name ? recorded.binding?.serverKey : undefined;
     const binding = probes?.binding
       ? await probes.binding(candidate)
-      // TM-167: the named session, not the whole implicit server.
-      : (await tmux.listServerPanes({ session: name, env })).find(pane => pane.sessionName === name && pane.alive !== false) || null;
+      : (await tmux.listServerPanes({ session: name, env, ...(recordedServer ? { tmuxServer: recordedServer } : {}) })).find(pane => pane.sessionName === name && pane.alive !== false) || null;
     invariant(probes || binding, "TOPOLOGY_REVIEWER_BINDING_REQUIRED", "Assignment needs exact observed session binding.");
     candidate.binding = binding;
     candidate.pane = binding?.paneId ?? null;

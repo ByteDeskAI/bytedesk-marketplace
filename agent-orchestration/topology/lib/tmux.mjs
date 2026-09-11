@@ -548,6 +548,11 @@ export async function serverOf(pane, { env } = {}) {
  * operator's shell is the server hosting every unrelated agent on the machine. So an enumeration
  * must NAME its server (a binding's serverKey, a socket asked of a pane, an explicit --server), and a
  * caller that knows only a session name asks about that session. Neither is a refusal, not a guess.
+ *
+ * A session is NOT a server: `session` alone still lets tmux resolve the server implicitly ($TMUX or
+ * the default socket), so a same-named session on another server can answer. A caller that has a
+ * recorded binding passes its `serverKey` as `tmuxServer` together with `session`; a caller with only
+ * a name must say at its call site that the server is implicit.
  */
 export async function listServerPanes({ tmuxServer, session, env = process.env } = {}) {
   if (!tmuxServer && !session) {

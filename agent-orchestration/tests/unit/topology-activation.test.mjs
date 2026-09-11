@@ -66,10 +66,15 @@ test('listServerPanes refuses an unnamed server and scopes every listing it does
   assert.deepEqual(await fake.calls(), [], 'a refused enumeration must not reach tmux at all');
   await listServerPanes({ env, tmuxServer: '/named/sock' });
   await listServerPanes({ env, session: 'ao-someone' });
+  await listServerPanes({ env, tmuxServer: '/named/sock', session: 'ao-someone' });
   const calls = await fake.calls();
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 3);
   assert.match(calls[0], /^-S \/named\/sock -u list-panes -a /);
+  // Session only, under TMUX: '' — the server is implicit (no -L/-S): the documented ceiling.
+  assert.equal(env.TMUX, '');
   assert.match(calls[1], /^-u list-panes -s -t =ao-someone /);
+  // Session plus a recorded server: both scopes travel together.
+  assert.match(calls[2], /^-S \/named\/sock -u list-panes -s -t =ao-someone /);
   assert.deepEqual(unscoped(calls), []);
 });
 
@@ -77,7 +82,7 @@ test('ordinary verbs never enumerate an unnamed tmux server', async (t) => {
   const { fake, ao } = await fixture(t);
   const created = await ao(['agent', 'new', '--role', 'worker', '--name', 'Scope Worker']);
   assert.equal(created.code, 0, created.stderr);
-  const agentId = JSON.parse(created.stdout).id;
+  const { id: agentId, dir: agentDir } = JSON.parse(created.stdout);
   const callerTmux = { TMUX: '/fake/caller.sock,4242,0', TMUX_PANE: '%9' };
   // [verb argv, extra env, what it must have listed: 'none' | a regex every listing must match]
   const cases = [
@@ -103,6 +108,16 @@ test('ordinary verbs never enumerate an unnamed tmux server', async (t) => {
       for (const line of listings(calls)) assert.match(line, expected);
     }
   }
+  // A session name alone leaves the server implicit (the role status case above). Once the agent's
+  // session record names its server, the per-session query must carry that server as well.
+  await writeJson(join(agentDir, 'session.json'), { agent_id: agentId, session: `ao-${agentId}`,
+    binding: { serverKey: '/fake/role.sock', serverPid: 1, sessionId: '$1', sessionCreated: 1, paneId: '%1', panePid: 2 } });
+  await fake.reset();
+  await ao(['role', 'status', 'worker']);
+  const bound = listings(await fake.calls());
+  seen.push({ verb: 'role status (recorded server)', listings: bound });
+  assert.ok(bound.length >= 1, 'role status with a recorded binding must still list its session');
+  for (const line of bound) assert.match(line, new RegExp(`^-S /fake/role\\.sock -u list-panes -s -t =ao-${agentId} `));
   // The coverage the assertions above rest on, printed so a vacuous pass is visible in the log.
   t.diagnostic(JSON.stringify(seen));
 });

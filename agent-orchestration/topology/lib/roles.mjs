@@ -121,7 +121,10 @@ async function aliveSessions(agents, { env = process.env, listPanesFn = tmux.lis
   const live = new Set();
   for (const agent of agents) {
     const session = roleSessionName(agent.id);
-    const panes = await listPanesFn({ session, env });
+    // A session is not a server. When the agent's own session record names its server, ask THAT server;
+    // with no record the server is implicit ($TMUX or the default socket), which this advisory status accepts.
+    const tmuxServer = agent._dir ? (await readJson(join(agent._dir, "session.json")).catch(() => null))?.binding?.serverKey : undefined;
+    const panes = await listPanesFn({ session, env, ...(tmuxServer ? { tmuxServer } : {}) });
     if (panes.some((pane) => pane.alive !== false && pane.sessionName === session)) live.add(agent.id);
   }
   return live;
