@@ -196,9 +196,9 @@ export const CATALOG = [
     key: "dispatch.enabled",
     group: "agents",
     type: "boolean",
-    default: false,
-    label: "Let the pool daemon pick up work",
-    help: "The tm-pool monitor exits immediately unless this is true. `tm pool once`/`start` work regardless.",
+    default: true,
+    label: "Let the pool pick up work",
+    help: "On unless false. Each session's tm-pool monitor runs the pool, or waits in standby while another session's holds this store and takes over when it exits. False stops a running pool within one poll, and `tm pool once` reports disabled.",
   },
   {
     key: "dispatch.autoReady",

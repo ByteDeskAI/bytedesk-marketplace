@@ -63,8 +63,10 @@ function fakeBackend(spawnImpl = null) {
   };
 }
 
+/** Complete enough to pass agentReadiness under the default config (TM-178 B3): body, criterion, epic. */
 function ready(p, title, extra = {}) {
-  const t = create("task", { title }, "", p);
+  const epic = create("epic", { title: `epic for ${title}` }, "", p).id;
+  const t = create("task", { title, epic, acceptance: [{ text: "it works", done: false }] }, "context\n", p);
   update(t.id, { labels: ["ready-for-agent"], ...extra }, p);
   return t.id;
 }
