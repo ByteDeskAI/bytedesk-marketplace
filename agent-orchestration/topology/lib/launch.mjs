@@ -257,13 +257,33 @@ export function launcherScript({ agent, candidate, argv, env }) {
  * printed.
  */
 /**
- * TM-168. The icon and role label for one run agent: the declared run role, or a nested team for a
- * workflow participant. Computed from `role` every time, including for a run.json written before
- * this existed — and never taken from a stored `roleIcon`, because every agent in the run can write
- * run.json. Display-only.
+ * TM-168. The icon and role label for one run agent: a nested team for a workflow participant, the
+ * lead when the agent IS the repository's registered lead (TM-185 — presence shows it as the lead
+ * even while it coordinates a run, and the two must agree), otherwise the declared run role.
+ * Computed every time, including for a run.json written before this existed — and never taken from
+ * a stored `roleIcon`, because every agent in the run can write run.json. Display-only.
  */
-export function runAgentVisual(agent) {
-  return roleVisual({ runRole: agent?.role ?? null, nestedTeam: Boolean(agent?.workflow) });
+export function runAgentVisual(agent, leadId = null) {
+  // A spec agent names its library entry in `_agent`; a run.json entry in `agent_id`.
+  const libraryId = agent?._agent ?? agent?.agent_id ?? agent?.id ?? null;
+  return roleVisual({ runRole: agent?.role ?? null, repoRole: leadId && libraryId === leadId ? "lead" : null, nestedTeam: Boolean(agent?.workflow) });
+}
+
+/** The display options `preparePane` sets on one run agent's pane. */
+export function runPaneDisplay(agent, leadId = null) {
+  return { agent: displayName(agent), role: agent.role, ...runAgentVisual(agent, leadId) };
+}
+
+/**
+ * TM-185. The agent id of this repository's registered lead, or null. Missing or unreadable means
+ * "no lead", never an error: an icon is not worth failing a launch or a status call over. Imported
+ * lazily because lead.mjs imports this module.
+ */
+export async function registeredLeadId({ consumer, env = process.env, home = homedir() } = {}) {
+  if (!consumer) return null;
+  const { readLeadRegistration } = await import("./lead.mjs");
+  const registration = await readLeadRegistration({ consumer, env, home }).catch(() => null);
+  return registration?.record?.agent_id ?? null;
 }
 
 export function screenSince(screen, baseline) {
@@ -727,6 +747,9 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
     prepared.push({ agent, skills, role, dir, bootstrapFile, candidates, token });
   }
 
+  // Once per launch (TM-185): which of these agents, if any, is the repository's registered lead.
+  const leadId = await registeredLeadId({ consumer: spec.consumer || spec.cwd });
+
   if (dryRun) {
     return {
       dryRun: true,
@@ -736,7 +759,7 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
       agents: prepared.map((item) => ({
         id: item.agent.id,
         role: item.agent.role,
-        ...runAgentVisual(item.agent),
+        ...runAgentVisual(item.agent, leadId),
         cwd: item.agent.cwd,
         candidates: item.candidates.map((candidate) => ({ label: candidate.label, adapter: candidate.adapter.id, command: candidate.argv, add_dirs: candidate.add_dirs, memory: candidate.memory })),
         skills: item.skills,
@@ -794,7 +817,7 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
       id: item.agent.id,
       agent_id: item.agent._agent || item.agent.id,
       role: item.agent.role,
-      ...runAgentVisual(item.agent),
+      ...runAgentVisual(item.agent, leadId),
       cwd: item.agent.cwd,
       pane: null,
       bootstrap: item.bootstrapFile,
@@ -851,7 +874,7 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
       tmux.preparePane(panes.get(item.agent.id), {
         title: `${item.agent.id} · ${item.agent.role}`,
         log: `cat >> ${shellQuote(join(item.dir, "pane.log"))}`,
-        display: { agent: displayName(item.agent), role: item.agent.role, ...runAgentVisual(item.agent) },
+        display: runPaneDisplay(item.agent, leadId),
       }),
     ),
   );
@@ -925,7 +948,7 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
     } else {
       warnings.push(`agent ${item.agent.id}: every provider in its chain failed — ${outcome.attempts.map((attempt) => `${attempt.label}: ${attempt.outcome}`).join("; ")}`);
     }
-    results.push({ id: item.agent.id, role: item.agent.role, ...runAgentVisual(item.agent), pane, provider: outcome.label, adapter: outcome.adapter?.id ?? null, ready: outcome.ready, attempts: outcome.attempts });
+    results.push({ id: item.agent.id, role: item.agent.role, ...runAgentVisual(item.agent, leadId), pane, provider: outcome.label, adapter: outcome.adapter?.id ?? null, ready: outcome.ready, attempts: outcome.attempts });
   }
   await saveRun(spec.run_dir, run);
   if (spec.layout !== "windows") await tmux.selectPane(panes.get(first.agent.id));
@@ -966,7 +989,7 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
   run.state = results.every((result) => result.provider) && run.agents.every((agent) => !agent.workflow || agent.workflow.run_dir) ? "running" : "degraded";
   await saveRun(spec.run_dir, run);
   await appendJournal(spec.run_dir, { type: "run.launched", state: run.state, warnings });
-  return { runDir: spec.run_dir, session: spec.session, state: run.state, agents: results, participants: run.agents.filter((agent) => agent.workflow).map((agent) => ({ id: agent.id, ...runAgentVisual(agent), ...agent.workflow })), warnings, attach: tmux.attachCommand(spec.session) };
+  return { runDir: spec.run_dir, session: spec.session, state: run.state, agents: results, participants: run.agents.filter((agent) => agent.workflow).map((agent) => ({ id: agent.id, ...runAgentVisual(agent, leadId), ...agent.workflow })), warnings, attach: tmux.attachCommand(spec.session) };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1081,12 +1104,9 @@ export async function openRoleSession({ agentsDir, agentId, adapter, argv, env =
       }
       record.binding = (await panesOn(observed.serverKey)).find(p => p.paneId === observed.paneId);
       await writeJson(recordPath, record);
-      await tmux.setRoleDisplay(observed.paneId, display, { session });
       return {session,pane:observed.paneId,binding:record.binding,created:false,reattached:false,restarted:true,record};
     }
     log(`reattaching to ${session}`);
-    // Ownership is proven above, so a session opened before TM-168 gets its title bar here too.
-    if (panes[0]?.id) await tmux.setRoleDisplay(panes[0].id, display, { session });
     return { session, pane: panes[0]?.id ?? null, binding: record.binding, created: false, reattached: true, record };
   }
 
@@ -1116,7 +1136,9 @@ export async function openRoleSession({ agentsDir, agentId, adapter, argv, env =
   record.binding=(await panesOn(sessionServer)).find(p=>p.paneId===pane && p.sessionName===session);
   await writeJson(recordPath,record);
   await tmux.setPaneOption(pane, "remain-on-exit", "on");
-  // The session title options came with newSession; the pane supplies what they render.
+  // The session title options came with newSession; the pane supplies what they render. Both are
+  // tmux options on a pane and session that outlive `respawn-pane -k` (measured), so the restart
+  // and reattach paths above need nothing further.
   await tmux.setRoleDisplay(pane, display);
   await tmux.pipePane(pane, `cat >> ${shellQuote(join(dir, "pane.log"))}`);
   const shell = await tmux.clearAndWaitForShell(pane, `ao-role-${randomUUID().slice(0, 8)}`);

@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 
 import { doctor as runDoctor, tmuxInstallPlan } from "./lib/doctor.mjs";
 import { closeAllClients, isUndelivered, ringMessage, undeliveredReport } from "./lib/delivery.mjs";
-import { deliverPointer, failoverAgent, launchRun, messagePointer, openRoleSession, roleSessionName, runAgentVisual, tmuxFailureTrigger, uniqueSessionName } from "./lib/launch.mjs";
+import { deliverPointer, failoverAgent, launchRun, messagePointer, openRoleSession, registeredLeadId, roleSessionName, runAgentVisual, tmuxFailureTrigger, uniqueSessionName } from "./lib/launch.mjs";
 import { agentDir, appendJournal, loadRun, pendingReplies, queueDepth, readJournal, recordReply, saveRun, sendMessage, waitForReplies } from "./lib/mailbox.mjs";
 import { adapterFor, adapterSummary, buildArgv, loadAdapters, providerDirs } from "./lib/providers.mjs";
 import { roleDirs, skillDirs } from "./lib/resolve.mjs";
@@ -171,6 +171,12 @@ async function runDirFrom(flags) {
   const runDir = absolutize(flags.run);
   invariant(await exists(join(runDir, "run.json")), "TOPOLOGY_RUN_NOT_FOUND", `No run.json under ${runDir}.`);
   return runDir;
+}
+
+/** TM-185: the icon for a library agent, with the repository's registered lead resolved once. */
+async function libraryVisuals(ctx) {
+  const leadId = await registeredLeadId({ consumer: ctx.consumer, home: ctx.home });
+  return (agent) => roleVisual({ role: agent.role, repoRole: agent.id === leadId ? "lead" : null });
 }
 
 /**
@@ -840,8 +846,9 @@ const commands = {
     }
     const roster = await listAgents(ctx.agentDirs);
     const lead = await findLead(ctx.agentDirs);
+    const visualOf = await libraryVisuals(ctx);
     if (flags.json) {
-      out({ ok: true, lead: lead ? lead.id : null, agents: roster.map((a) => ({ id: a.id, name: displayName(a), role: a.role, ...roleVisual({ role: a.role }), reports_to: a.reports_to })) });
+      out({ ok: true, lead: lead ? lead.id : null, agents: roster.map((a) => ({ id: a.id, name: displayName(a), role: a.role, ...visualOf(a), reports_to: a.reports_to })) });
       return;
     }
     // People see names and titles. The id is shown too because this is an operator surface, but the
@@ -850,7 +857,7 @@ const commands = {
     if (roster.length === 0) console.log("  (none yet — ao-topology agent new --role lead)");
     for (const a of roster) {
       const mark = a.role === "lead" ? "*" : " ";
-      console.log(`${mark} ${roleVisual({ role: a.role }).roleIcon} ${terminalText(displayName(a))}${a.reports_to ? `  reports to ${terminalText(a.reports_to)}` : ""}  [${a.id}]`);
+      console.log(`${mark} ${visualOf(a).roleIcon} ${terminalText(displayName(a))}${a.reports_to ? `  reports to ${terminalText(a.reports_to)}` : ""}  [${a.id}]`);
     }
   },
 
@@ -866,6 +873,7 @@ const commands = {
 
     if (sub === "list") {
       const roster = await listAgents(ctx.agentDirs);
+      const visualOf = await libraryVisuals(ctx);
       // Two kinds of session, and the difference is the point. A role-session is the agent's one
       // durable workspace, named `ao-<id>`, and opening it again reattaches. A spawn is one run of
       // that agent, named `<id>-<spawn>`, and there may be several at once. Stable agent, distinct
@@ -882,7 +890,7 @@ const commands = {
         id: agent.id,
         agent: displayName(agent),
         role: agent.role,
-        ...roleVisual({ role: agent.role }),
+        ...visualOf(agent),
         session: roleSessionName(agent.id),
         live: live.includes(roleSessionName(agent.id)),
         spawns: (spawnsFor.get(agent.id) ?? []).sort((a, b) => a.spawn.localeCompare(b.spawn)),
@@ -1232,6 +1240,7 @@ const commands = {
   async status({ flags }) {
     const runDir = await runDirFrom(flags);
     const run = await loadRun(runDir);
+    const leadId = await registeredLeadId({ consumer: run.consumer, home: homedir() });
     const alive = await tmux.hasSession(run.session);
     const panes = alive ? await tmux.listPanes(run.session) : [];
     const pending = await pendingReplies(runDir);
@@ -1247,7 +1256,7 @@ const commands = {
         id: agent.id,
         role: agent.role,
         // Recomputed from the role, never echoed from run.json (older files lack it; agents can write it).
-        ...runAgentVisual(agent),
+        ...runAgentVisual(agent, leadId),
         provider: agent.provider ?? null,
         chain: (agent.candidates ?? []).map((candidate) => candidate.label),
         adapter: agent.adapter,

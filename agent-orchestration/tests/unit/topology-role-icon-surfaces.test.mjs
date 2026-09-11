@@ -11,7 +11,9 @@ import test from "node:test";
 import { promisify } from "node:util";
 
 import { NESTED_TEAM_ICON, ROLE_ICON_MAP, UNKNOWN_ROLE_ICON } from "../../topology/lib/identity.mjs";
-import { launchRun, launcherScript, runAgentVisual } from "../../topology/lib/launch.mjs";
+import { launchRun, launcherScript, registeredLeadId, runAgentVisual, runPaneDisplay } from "../../topology/lib/launch.mjs";
+import { leadRegistryDir } from "../../topology/lib/lead.mjs";
+import { canonicalRepoId, repoKey } from "../../topology/lib/repoid.mjs";
 import { loadAdapters } from "../../topology/lib/providers.mjs";
 import { materializeSpec, validateSpec } from "../../topology/lib/spec.mjs";
 import { ROLE_TITLE_FORMAT, roleDisplayArgs, sessionTitleArgs, tmuxText } from "../../topology/lib/tmux.mjs";
@@ -246,4 +248,99 @@ test("no topology code reads a role icon, label or @ao_ option back to decide an
   const found = [];
   for (const file of files) for (const line of authorityReads(await readFile(file, "utf8"))) found.push(`${file}: ${line.trim()}`);
   assert.deepEqual(found, []);
+});
+
+/** Register `agentId` as the repository lead exactly where readLeadRegistration looks for it. */
+async function registerLead(consumer, agentId, env) {
+  const key = repoKey((await canonicalRepoId(consumer)).id);
+  await writeJson(join(leadRegistryDir(env), `${key}.json`), { agent_id: agentId, consumer });
+  return join(leadRegistryDir(env), `${key}.json`);
+}
+
+test("TM-185: a registered lead coordinating a run shows the lead icon at launch and on its pane; any other orchestrator keeps its own", async (t) => {
+  const consumer = await mkdtemp(join(tmpdir(), "ao-role-icon-lead-"));
+  // launchRun resolves the registration from process.env; keep it out of the operator's real state.
+  const saved = process.env.AGENT_ORCHESTRATION_STATE_HOME;
+  process.env.AGENT_ORCHESTRATION_STATE_HOME = join(consumer, "state");
+  t.after(async () => {
+    if (saved === undefined) delete process.env.AGENT_ORCHESTRATION_STATE_HOME;
+    else process.env.AGENT_ORCHESTRATION_STATE_HOME = saved;
+    await rm(consumer, { recursive: true, force: true });
+  });
+  const leadId = "ada00001";
+  await writeJson(join(consumer, ".bytedesk", "agent-orchestration", "agents", leadId, "agent.json"), {
+    id: leadId, role: "lead", first_name: "Ada", last_name: "Vale", full_name: "Ada Vale", title: "Engineering Lead",
+  });
+  const worker = { id: "worker-a", role: "worker", cli: "fake-agent", args: ["x"] };
+  const asLead = [{ id: "conductor", agent: leadId, role: "orchestrator", cli: "fake-agent", args: ["x"] }, worker];
+  const plain = [{ id: "conductor", role: "orchestrator", cli: "fake-agent", args: ["x"] }, worker];
+  const specOf = (agents) => materializeSpec(
+    validateSpec({ name: "led", agents, workflow: [{ stage: "ping", from: "conductor", to: ["worker-a"] }] }),
+    { runId: "r1", consumer, home: consumer, inputs: {} },
+  );
+  const adapters = await loadAdapters([fixtures]);
+  const dry = (agents) => launchRun({ spec: specOf(agents), adapters, skillSearchDirs: [], roleSearchDirs: [], cliBin: "ao", dryRun: true });
+
+  assert.equal(await registeredLeadId({ consumer }), null, "no registration yet");
+  const unregistered = await dry(asLead);
+  assert.equal(unregistered.agents[0].roleIcon, ROLE_ICON_MAP.orchestrator, "without a registration the declared role stands");
+
+  await registerLead(consumer, leadId, process.env);
+  const found = await registeredLeadId({ consumer });
+  assert.equal(found, leadId);
+  assert.deepEqual((await dry(asLead)).agents.map((a) => [a.id, a.role, a.roleIcon, a.roleLabel]), [
+    ["conductor", "orchestrator", ROLE_ICON_MAP.lead, "Lead"],
+    ["worker-a", "worker", ROLE_ICON_MAP.worker, "Worker"],
+  ]);
+  assert.deepEqual((await dry(plain)).agents.map((a) => [a.id, a.roleIcon]), [["conductor", ROLE_ICON_MAP.orchestrator], ["worker-a", ROLE_ICON_MAP.worker]]);
+
+  // The pane option values preparePane receives, with the lead resolved the way launchRun resolves it.
+  assert.deepEqual(runPaneDisplay(specOf(asLead).agents[0], found), { agent: "Ada Vale, Engineering Lead", role: "orchestrator", roleIcon: ROLE_ICON_MAP.lead, roleLabel: "Lead" });
+  assert.deepEqual(runPaneDisplay(specOf(plain).agents[0], found), { agent: "conductor", role: "orchestrator", roleIcon: ROLE_ICON_MAP.orchestrator, roleLabel: "Orchestrator" });
+  // The same for a run.json entry, which names its library agent in agent_id.
+  assert.equal(runAgentVisual({ id: "conductor", agent_id: leadId, role: "orchestrator" }, found).roleIcon, ROLE_ICON_MAP.lead);
+
+  // An unreadable registration, or no consumer at all, is "no lead" — never an error.
+  const broken = await mkdtemp(join(consumer, "broken-"));
+  const brokenPath = await registerLead(broken, leadId, process.env);
+  await writeFile(brokenPath, "{ not json");
+  assert.equal(await registeredLeadId({ consumer: broken }), null);
+  assert.equal(await registeredLeadId({}), null);
+});
+
+test("TM-185: status, session list, agent list and role list show the registered lead's icon whatever its declared role", async (t) => {
+  const { home, consumer, ao } = await consumerFixture(t);
+  const lead = JSON.parse(await ao("agent", "new", "--role", "worker", "--name", "Wes Warden"));
+  const other = JSON.parse(await ao("agent", "new", "--role", "worker", "--name", "Wren Other"));
+  const runDir = join(home, "led-run");
+  await writeJson(join(runDir, "run.json"), {
+    version: 1, name: "led", run_id: "led", session: "ao-led-gone", consumer, run_dir: runDir, state: "running", created: new Date().toISOString(), sequence: 0,
+    agents: [
+      { id: "conductor", agent_id: lead.id, role: "orchestrator", pane: null, candidates: [{ label: "fake-agent:x" }], provider: "fake-agent:x" },
+      { id: "backup", agent_id: "backup", role: "orchestrator", pane: null, candidates: [], provider: null },
+    ],
+  });
+  const icons = async () => {
+    const status = JSON.parse(await ao("status", "--run", runDir, "--json"));
+    const sessions = JSON.parse(await ao("session", "list", "--json")).sessions;
+    const agents = JSON.parse(await ao("agent", "list", "--json")).agents;
+    const workers = JSON.parse(await ao("role", "list")).roles.find((entry) => entry.role === "worker").holders;
+    const by = (rows, id) => rows.find((row) => row.id === id)?.roleIcon;
+    return {
+      conductor: by(status.agents, "conductor"), backup: by(status.agents, "backup"),
+      session: [by(sessions, lead.id), by(sessions, other.id)], agent: [by(agents, lead.id), by(agents, other.id)], role: [by(workers, lead.id), by(workers, other.id)],
+    };
+  };
+  const { orchestrator, worker, lead: crown } = ROLE_ICON_MAP;
+  assert.deepEqual(await icons(), { conductor: orchestrator, backup: orchestrator, session: [worker, worker], agent: [worker, worker], role: [worker, worker] }, "before registration");
+
+  await registerLead(consumer, lead.id, { AGENT_ORCHESTRATION_STATE_HOME: join(home, "state") });
+  assert.deepEqual(await icons(), { conductor: crown, backup: orchestrator, session: [crown, worker], agent: [crown, worker], role: [crown, worker] }, "after registration");
+
+  const statusLines = (await ao("status", "--run", runDir)).split("\n");
+  for (const prefix of [`  ○ ${crown} conductor (orchestrator) on fake-agent:x`, `  ○ ${orchestrator} backup (orchestrator) on NO PROVIDER`]) {
+    assert.ok(statusLines.some((line) => line.startsWith(prefix)), `no line starts ${JSON.stringify(prefix)}:\n${statusLines.join("\n")}`);
+  }
+  const sessionLines = (await ao("session", "list")).split("\n");
+  assert.ok(sessionLines.includes(`  ${crown} Wes Warden, Engineer  (no role-session)  [${lead.id}]`), sessionLines.join("\n"));
 });
