@@ -240,7 +240,8 @@ export async function collectPresenceAgents({consumer, repositoryRoot, identity,
   for(const record of [...standing,...pending,...[...runs.values()].flatMap(r=>r.agents??[])]) {
     const binding=bindingOf(record); if(validBinding(binding)) selectors.add(binding.serverKey);
   }
-  if(!selectors.size) selectors.add(tmuxServer);
+  // TM-167: no named server and no binding means nothing here can match a pane — every match below is
+  // by binding — so enumerating the implicit server could only observe other repositories' agents.
   const observations = (await Promise.all([...selectors].map(server=>listPanesFn({tmuxServer:server,env})))).flat();
   const panes = new Map();
   for(const pane of observations) {

@@ -19,7 +19,9 @@ async function setup(t) {
  const root=await mkdtemp(join(tmpdir(),"ao-presence-"));t.after(()=>rm(root,{recursive:true,force:true}));
  const consumer=join(root,"repo");await mkdir(consumer);
  const env={AGENT_ORCHESTRATION_STATE_HOME:join(root,"state")};const home=join(root,"home");
- return {root,consumer,env,home,listPanesFn:async()=>[]};
+ // TM-167: the injected listing stands in for ONE named server. With no server named and no recorded
+ // binding the collector no longer enumerates at all, so a fixture that names none would never call it.
+ return {root,consumer,env,home,tmuxServer:"/tmp/test.sock",listPanesFn:async()=>[]};
 }
 function pane(n,overrides={}) {return {serverKey:"/tmp/test.sock",serverPid:100,sessionId:`$${n}`,sessionCreated:200,paneId:`%${n}`,panePid:300+n,sessionName:`display-${n}`,command:"kimi",alive:true,...overrides};}
 async function agent(ctx,id,role,binding=null) {

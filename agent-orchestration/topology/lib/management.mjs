@@ -102,7 +102,8 @@ async function observeWorker(ctx, doc, owner) {
     const prefix = `${row.backend}:`;
     invariant(row.runId.startsWith(prefix), 'TOPOLOGY_MANAGEMENT_WORKER', 'Invalid task worker session handle.');
     const session = row.runId.slice(prefix.length);
-    const panes = (await listServerPanes({ env: ctx.env })).filter(p => p.sessionName === session && p.alive);
+    // TM-167: the worker's named session, not the whole implicit server.
+    const panes = (await listServerPanes({ session, env: ctx.env })).filter(p => p.sessionName === session && p.alive);
     invariant(panes.length === 1 && await realpath(panes[0].cwd) === await realpath(doc.worktree), 'TOPOLOGY_MANAGEMENT_WORKER', 'Worker must have one observed live pane in its task-owned worktree; unknown or multi-pane ownership needs explicit reconciliation.');
     return { ...base, kind: 'tmux', session_name: session, binding: Object.fromEntries(bindingKeys.map(key => [key, panes[0][key]])) };
   }
@@ -434,7 +435,8 @@ export async function assignTaskToAgent(options) {
     // inside the same critical section as the write, exactly as `observeWorker` proves a dispatched
     // worker's. Assigning to a pane that is already gone costs the task a whole collect cycle
     // before anyone notices, and the agent slot until someone releases it by hand.
-    const panes = await (options.listPanes ?? listServerPanes)({ env: ctx.env });
+    // TM-167: re-proved on the server the census binding names; no binding, nothing to prove.
+    const panes = pick.binding ? await (options.listPanes ?? listServerPanes)({ tmuxServer: pick.binding.serverKey, env: ctx.env }) : [];
     invariant(pick.binding && panes.some(pane => pane.alive && bindingKeys.every(key => pane[key] === pick.binding[key])),
       'TOPOLOGY_MANAGEMENT_AGENT_GONE', `${pick.agentId} read as idle in the census but its pane incarnation is no longer live; nothing was assigned.`);
     const promptFile = options.promptFile ? (isAbsolute(options.promptFile) ? options.promptFile : join(doc.worktree, options.promptFile)) : join(doc.worktree, '.tm-dispatch-prompt.md');

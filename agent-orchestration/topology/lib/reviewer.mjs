@@ -529,7 +529,8 @@ export async function assignReviewer({ consumer, agentRef, session: existingSess
     );
     const binding = probes?.binding
       ? await probes.binding(candidate)
-      : (await tmux.listServerPanes({ env })).find(pane => pane.sessionName === name && pane.alive !== false) || null;
+      // TM-167: the named session, not the whole implicit server.
+      : (await tmux.listServerPanes({ session: name, env })).find(pane => pane.sessionName === name && pane.alive !== false) || null;
     invariant(probes || binding, "TOPOLOGY_REVIEWER_BINDING_REQUIRED", "Assignment needs exact observed session binding.");
     candidate.binding = binding;
     candidate.pane = binding?.paneId ?? null;

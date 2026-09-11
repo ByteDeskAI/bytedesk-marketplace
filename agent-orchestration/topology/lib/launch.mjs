@@ -856,7 +856,10 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
   // `?? null`, not the bare lookup: a participant has no pane and `undefined` is dropped by
   // JSON.stringify, which would leave run.json with no `pane` key at all for that agent. Every
   // reader then has to distinguish "absent" from "null", and one of them will forget.
-  const observedBindings = await tmux.listServerPanes();
+  // TM-167: the run's server is asked of one of its own panes, then enumerated by name — never the
+  // implicit server, which from an operator's shell is everyone else's.
+  const runServer = await tmux.serverOf([...panes.values()].find(Boolean));
+  const observedBindings = await panesOn(runServer);
   for (const agent of run.agents) {
     agent.pane = panes.get(agent.id) ?? null;
     agent.binding = observedBindings.find(p => p.paneId === agent.pane && p.sessionName === run.session) || null;
@@ -891,7 +894,7 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
   );
   client.close();
 
-  const finalBindings = await tmux.listServerPanes();
+  const finalBindings = await panesOn(runServer);
   const results = [];
   for (const { item, outcome } of started) {
     const pane = panes.get(item.agent.id);
@@ -1036,14 +1039,14 @@ export async function openRoleSession({ agentsDir, agentId, adapter, argv, env =
     const record = (await exists(recordPath)) ? await readJson(recordPath) : null;
     const panes = await tmux.listPanes(session);
     invariant(record?.agent_id === agentId, 'TOPOLOGY_SESSION_OWNERSHIP', 'A same-named session has no matching owned record; refusing adoption or restart.');
-    const currentBinding=(await tmux.listServerPanes()).find(p=>p.paneId===record.binding?.paneId);
+    const currentBinding=(await panesOn(record.binding?.serverKey)).find(p=>p.paneId===record.binding?.paneId);
     invariant(record.binding && currentBinding && sameIncarnation(currentBinding, record.binding), 'TOPOLOGY_SESSION_OWNERSHIP', 'Recorded session incarnation is absent or replaced; refusing reattachment.');
     if (!panes.some(p => p.alive) || controlledRestart) {
       invariant(record.binding, 'TOPOLOGY_SESSION_OWNERSHIP', 'Dead session has no recorded incarnation; preserve it for recovery.');
-      const observed = (await tmux.listServerPanes()).find(p => p.paneId === record.binding.paneId);
+      const observed = (await panesOn(record.binding.serverKey)).find(p => p.paneId === record.binding.paneId);
       invariant(observed && sameIncarnation(observed, record.binding), 'TOPOLOGY_SESSION_OWNERSHIP', 'Session incarnation changed; refusing restart.');
       await tmux.respawnPane(observed.paneId);
-      record.binding=(await tmux.listServerPanes()).find(p=>p.paneId===observed.paneId);
+      record.binding=(await panesOn(observed.serverKey)).find(p=>p.paneId===observed.paneId);
       await writeJson(recordPath,record);
       const shell = await tmux.clearAndWaitForShell(observed.paneId, `ao-role-${randomUUID().slice(0,8)}`);
       invariant(shell.ok, 'TOPOLOGY_SESSION_START', 'Restarted shell did not become ready.');
@@ -1052,12 +1055,12 @@ export async function openRoleSession({ agentsDir, agentId, adapter, argv, env =
       if (env.AO_CONSUMER) {
         const readiness = await waitReady(observed.paneId, adapter, adapter.ready?.timeout_ms || 30000, { baseline: shell.baseline });
         invariant(readiness.ready, 'TOPOLOGY_SESSION_START', 'Provider is not accepting its startup instructions.');
-        const startedBinding = (await tmux.listServerPanes()).find(p => p.paneId === observed.paneId);
+        const startedBinding = (await panesOn(observed.serverKey)).find(p => p.paneId === observed.paneId);
         invariant(startedBinding && sameIncarnation(startedBinding, record.binding), 'TOPOLOGY_SESSION_OWNERSHIP', 'Restarted process incarnation changed before prompt delivery.');
         await promotePromptForIncarnation({ agent: { id: agentId, _dir: dir }, binding: startedBinding, consumer: env.AO_CONSUMER, session });
         await deliverPointer(observed.paneId, adapter, `Read ${join(dir,'prompt.md')} and begin your standing role. Poll your protocol inbox at safe boundaries.`);
       }
-      record.binding = (await tmux.listServerPanes()).find(p => p.paneId === observed.paneId);
+      record.binding = (await panesOn(observed.serverKey)).find(p => p.paneId === observed.paneId);
       await writeJson(recordPath, record);
       return {session,pane:observed.paneId,binding:record.binding,created:false,reattached:false,restarted:true,record};
     }
@@ -1087,7 +1090,8 @@ export async function openRoleSession({ agentsDir, agentId, adapter, argv, env =
   await writeJson(recordPath, record);
 
   const pane = await tmux.newSession(session, { cwd: dir, windowName: agentId });
-  record.binding=(await tmux.listServerPanes()).find(p=>p.paneId===pane && p.sessionName===session);
+  const sessionServer = await tmux.serverOf(pane);
+  record.binding=(await panesOn(sessionServer)).find(p=>p.paneId===pane && p.sessionName===session);
   await writeJson(recordPath,record);
   await tmux.setPaneOption(pane, "remain-on-exit", "on");
   await tmux.pipePane(pane, `cat >> ${shellQuote(join(dir, "pane.log"))}`);
@@ -1097,13 +1101,13 @@ export async function openRoleSession({ agentsDir, agentId, adapter, argv, env =
   if (env.AO_CONSUMER) {
     const readiness = await waitReady(pane, adapter, adapter.ready?.timeout_ms || 30000, { baseline: shell.baseline });
     invariant(readiness.ready, 'TOPOLOGY_SESSION_START', 'Provider is not accepting startup instructions; session preserved.');
-    const startedBinding = (await tmux.listServerPanes()).find(p => p.paneId === pane && p.sessionName === session) || null;
+    const startedBinding = (await panesOn(sessionServer)).find(p => p.paneId === pane && p.sessionName === session) || null;
     invariant(startedBinding && sameIncarnation(startedBinding, record.binding), 'TOPOLOGY_SESSION_OWNERSHIP', 'Started process incarnation changed before prompt delivery.');
     await promotePromptForIncarnation({ agent: { id: agentId, _dir: dir }, binding: startedBinding, consumer: env.AO_CONSUMER, session });
     const delivery = await deliverPointer(pane, adapter, `Read ${join(dir,'prompt.md')} and begin your standing role. Poll your protocol inbox at safe boundaries.`);
     invariant(delivery.delivered, 'TOPOLOGY_SESSION_START', 'Standing bootstrap was not delivered.');
   }
-  const binding = (await tmux.listServerPanes()).find(p => p.paneId === pane && p.sessionName === session) || null;
+  const binding = (await panesOn(sessionServer)).find(p => p.paneId === pane && p.sessionName === session) || null;
   record.binding = binding;
   await writeJson(recordPath, record);
   if (env.AO_CONSUMER) {
@@ -1112,6 +1116,11 @@ export async function openRoleSession({ agentsDir, agentId, adapter, argv, env =
   }
   log(`created ${session}`);
   return { session, pane, binding, created: true, reattached: false, record };
+}
+
+/** TM-167: panes on one NAMED server; no server known means nothing can be proven, so nothing is listed. */
+async function panesOn(server) {
+  return server ? tmux.listServerPanes({ tmuxServer: server }) : [];
 }
 
 /**
@@ -1185,7 +1194,7 @@ export async function failoverAgent({ runDir, agentId, adapters, toLabel, incide
   }
   invariant(startIndex < entry.candidates.length, "TOPOLOGY_CHAIN_EXHAUSTED", `${agentId} has no provider left after ${entry.provider ?? "none"}. Chain: ${entry.candidates.map((candidate) => candidate.label).join(" → ")}. Add candidates to the template or restart with --to <cli:model>.`);
   if (entry.binding) {
-    const observed = (await tmux.listServerPanes()).find(p => p.paneId === entry.pane);
+    const observed = (await panesOn(entry.binding.serverKey)).find(p => p.paneId === entry.pane);
     invariant(observed && ['serverKey','serverPid','sessionId','sessionCreated','paneId','panePid'].every(k => observed[k] === entry.binding[k]), 'TOPOLOGY_SESSION_OWNERSHIP', 'Run pane incarnation changed; refusing failover.');
   }
   const previous = entry.provider;
@@ -1196,7 +1205,7 @@ export async function failoverAgent({ runDir, agentId, adapters, toLabel, incide
   await appendJournal(runDir, { type: "agent.failover", agent: agentId, from: previous, to_index: startIndex,
     ...(quota ? { incident: quota.incident.incident_id, approved_by: quota.approval.approved_by, consent: quota.consent } : {}) });
   const started = await startAgentInPane({ pane: entry.pane, agentId, role: entry.role, candidates, startIndex, runDir, log, respawn: true });
-  entry.binding = (await tmux.listServerPanes()).find(p => p.paneId === entry.pane && p.sessionName === run.session) || null;
+  entry.binding = (await panesOn(entry.binding?.serverKey ?? await tmux.serverOf(entry.pane))).find(p => p.paneId === entry.pane && p.sessionName === run.session) || null;
   // TM-132: the respawn keeps the pane but takes a new panePid, so this agent's OLD six-tuple is
   // now provably absent — and a slot reconcile would read that as "the holder is gone" and hand its
   // cutover slot to the next in the queue. Re-stamp before anything can observe the gap. Best

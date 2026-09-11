@@ -257,7 +257,7 @@ export async function superviseRepository(options, { signal, once = false, inter
        // absorbs its own failure and still reports — every agent `unknown`, nothing dispatchable.
        if(censusPanes===undefined) {
          const servers=[...new Set(censusRoster.map(a=>a.session?.serverKey).filter(Boolean))];
-         try { censusPanes=(await Promise.all((servers.length?servers:[options.tmuxServer]).map(server=>listServerPanes({tmuxServer:server,env})))).flat(); }
+         try { censusPanes=(await Promise.all((servers.length?servers:[options.tmuxServer].filter(Boolean)).map(server=>listServerPanes({tmuxServer:server,env})))).flat(); }
          catch(error){ if(error?.code!=='TOPOLOGY_TMUX_OBSERVATION_FAILED') throw error; censusPanes=null; }
        }
        // The loop owns the cadence, so the loop TELLS the census: how often it is being called, and

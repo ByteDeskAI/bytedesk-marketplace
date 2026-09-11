@@ -113,12 +113,18 @@ async function retag(agent, role) {
   return { ...agent, role };
 }
 
-/** Which of these agents has a live role-session right now: `listServerPanes` plus the library. */
+/**
+ * Which of these agents has a live role-session right now: `listServerPanes` plus the library.
+ * TM-167: asks about each agent's own named session, never enumerates the whole implicit server.
+ */
 async function aliveSessions(agents, { env = process.env, listPanesFn = tmux.listServerPanes } = {}) {
-  if (agents.length === 0) return new Set();
-  const panes = await listPanesFn({ env });
-  const live = new Set(panes.filter((pane) => pane.alive !== false).map((pane) => pane.sessionName));
-  return new Set(agents.filter((agent) => live.has(roleSessionName(agent.id))).map((agent) => agent.id));
+  const live = new Set();
+  for (const agent of agents) {
+    const session = roleSessionName(agent.id);
+    const panes = await listPanesFn({ session, env });
+    if (panes.some((pane) => pane.alive !== false && pane.sessionName === session)) live.add(agent.id);
+  }
+  return live;
 }
 
 /**
