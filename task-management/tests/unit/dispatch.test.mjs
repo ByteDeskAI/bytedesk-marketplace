@@ -8,11 +8,12 @@
 import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { cleanup, tempRepo, tempStore } from "./helpers.mjs";
 import { ensureDirs, paths } from "../../lib/paths.mjs";
 import { claimTask } from "../../lib/claims.mjs";
-import { create, read, readEvents, seedGitContract, state } from "../../lib/store.mjs";
+import { create, read, readEvents, seedGitContract, state, writeConfig } from "../../lib/store.mjs";
 import { worktreePath, unprovision } from "../../lib/worktree.mjs";
 import { dispatch } from "../../lib/dispatch/index.mjs";
 import { DEFAULT_ORDER, resolveBackend } from "../../lib/dispatch/backend.mjs";
@@ -344,6 +345,53 @@ describe("tmux backend", () => {
     const err = tmux.spawn(req, { writeImpl: () => {}, spawnImpl: () => ({ error: new Error("spawn tmux ENOENT") }) });
     assert.equal(err.ok, false);
     assert.match(err.reason, /ENOENT/);
+  });
+
+  /** The plugin's hook wrapper, resolved from THIS file — the backend must find the same one from its own. */
+  const GUARD_HOOK = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "hooks", "tm-hook.sh");
+  const argvOf = (request) => {
+    const spawned = [];
+    tmux.spawn(request, {
+      writeImpl: () => {},
+      spawnImpl: (bin, args) => {
+        spawned.push(args);
+        return { status: 0 };
+      },
+    });
+    return spawned[0];
+  };
+
+  it("TM-177: marks the pane as a dispatch worker and carries the guard hook on the command line", () => {
+    const args = argvOf(req);
+    for (const [k, v] of [["TM_DISPATCH_WORKER", "1"], ["TM_DISPATCH_TASK", "TM-001"], ["TM_DISPATCH_BRANCH", "tm/TM-001-x"]]) {
+      const at = args.indexOf(`${k}=${v}`);
+      assert.ok(at > 0 && args[at - 1] === "-e", `env ${k}=${v} injected via tmux -e; argv was ${JSON.stringify(args)}`);
+    }
+    const at = args.indexOf("--settings");
+    assert.ok(at > args.indexOf("claude"), "--settings is a claude flag, after the command word");
+    assert.equal(args.at(-1), req.prompt, "the prompt stays the last positional");
+    const pre = JSON.parse(args[at + 1]).hooks.PreToolUse;
+    assert.equal(pre.length, 1);
+    assert.equal(pre[0].matcher, "Bash");
+    assert.equal(pre[0].hooks[0].command, `'${GUARD_HOOK}' pre-bash`, "absolute, quoted, resolved from the module's own location");
+    assert.ok(existsSync(GUARD_HOOK), "and it names a script that exists");
+  });
+
+  it("TM-177: a configured tmuxCommand keeps the worker env; --settings rides only on claude", () => {
+    const p = tempStore();
+    trash.push(p.root);
+    const withCommand = (tmuxCommand) => {
+      writeConfig({ dispatch: { tmuxCommand } }, p);
+      return argvOf({ ...req, p });
+    };
+
+    const codex = withCommand(["codex", "exec", "--full-auto"]);
+    assert.ok(codex.includes("TM_DISPATCH_WORKER=1") && codex.includes("TM_DISPATCH_TASK=TM-001"), JSON.stringify(codex));
+    assert.equal(codex.includes("--settings"), false, "codex has no --settings; appending it would break the worker");
+    assert.deepEqual(codex.slice(codex.indexOf("codex")), ["codex", "exec", "--full-auto", req.prompt]);
+
+    const byPath = withCommand(["/opt/bin/claude", "-p"]);
+    assert.ok(byPath.includes("--settings"), "claude named by path is still claude");
   });
 });
 
