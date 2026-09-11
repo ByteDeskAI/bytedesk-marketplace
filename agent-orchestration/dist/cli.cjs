@@ -28279,7 +28279,9 @@ var SystemdWorkerSupervisorStrategy = class extends WorkerSupervisorStrategy {
       "--property=KillMode=control-group",
       "--property=TimeoutStopSec=3s",
       "--property=RuntimeMaxSec=8h",
-      "--property=MemoryMax=8G",
+      // Soft limit only, as in sessionSupervisorArgs: a hard MemoryMax kills the whole run scope.
+      "--property=MemoryHigh=12G",
+      "--property=ManagedOOMPreference=avoid",
       "--property=TasksMax=512",
       "/usr/bin/prlimit",
       "--core=0",
@@ -29137,7 +29139,10 @@ function sessionSupervisorArgs({
     "--property=KillMode=control-group",
     "--property=TimeoutStopSec=3s",
     "--property=RuntimeMaxSec=24h",
-    "--property=MemoryMax=8G",
+    // Soft limit only: MemoryMax OOM-kills and OOMPolicy=stop then ends the whole scope.
+    // MemoryHigh reclaims and throttles; avoid steers systemd-oomd to other cgroups first.
+    "--property=MemoryHigh=12G",
+    "--property=ManagedOOMPreference=avoid",
     "--property=TasksMax=512",
     "/usr/bin/prlimit",
     "--core=0",

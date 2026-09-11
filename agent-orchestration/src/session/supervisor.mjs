@@ -58,7 +58,9 @@ export function sessionSupervisorArgs({
   return [
     "--user", "--scope", "--collect", "--quiet", `--unit=${unitBase}`,
     "--property=KillMode=control-group", "--property=TimeoutStopSec=3s", "--property=RuntimeMaxSec=24h",
-    "--property=MemoryMax=8G", "--property=TasksMax=512",
+    // Soft limit only: MemoryMax OOM-kills and OOMPolicy=stop then ends the whole scope.
+    // MemoryHigh reclaims and throttles; avoid steers systemd-oomd to other cgroups first.
+    "--property=MemoryHigh=12G", "--property=ManagedOOMPreference=avoid", "--property=TasksMax=512",
     "/usr/bin/prlimit", "--core=0", "--fsize=1073741824", "--",
     nodePath, cliPath, "session-host", "--state-root", stateRoot,
   ];

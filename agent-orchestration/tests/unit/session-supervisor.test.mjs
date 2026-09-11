@@ -59,6 +59,9 @@ test("session supervisor launch argv is systemd-run, prlimit, and cli session-ho
   assert.equal(args.includes("session-host"), true);
   assert.equal(args.includes("--state-root"), true);
   assert.equal(args.at(-1), stateRoot);
+  assert.equal(args.some((arg) => arg.startsWith("--property=MemoryMax=")), false, "a hard memory cap kills the session host");
+  assert.equal(args.includes("--property=MemoryHigh=12G"), true);
+  assert.equal(args.includes("--property=ManagedOOMPreference=avoid"), true);
   const prlimitAt = args.indexOf("/usr/bin/prlimit");
   assert.equal(args[prlimitAt + 3], "--");
   assert.equal(args[prlimitAt + 4], "/usr/bin/node");

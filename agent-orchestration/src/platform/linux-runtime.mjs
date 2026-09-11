@@ -96,7 +96,8 @@ export class SystemdWorkerSupervisorStrategy extends WorkerSupervisorStrategy {
     const args = [
       "--user", "--scope", "--collect", "--quiet", `--unit=${unitBase}`,
       "--property=KillMode=control-group", "--property=TimeoutStopSec=3s", "--property=RuntimeMaxSec=8h",
-      "--property=MemoryMax=8G", "--property=TasksMax=512",
+      // Soft limit only, as in sessionSupervisorArgs: a hard MemoryMax kills the whole run scope.
+      "--property=MemoryHigh=12G", "--property=ManagedOOMPreference=avoid", "--property=TasksMax=512",
       "/usr/bin/prlimit", "--core=0", "--fsize=1073741824", "--",
       process.execPath, workerEntrypoint, "worker", "--state-root", stateRoot, "--run-id", runId,
     ];

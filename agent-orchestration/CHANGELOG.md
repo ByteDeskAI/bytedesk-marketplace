@@ -239,6 +239,11 @@
   hold instead.
 
 ### Fixed
+- **Session hosts and worker runs no longer get killed by their own memory cap.** Both scopes
+  launched with `MemoryMax=8G`; hitting it OOM-killed a process and `OOMPolicy=stop` then ended the
+  whole scope. They now launch with `MemoryHigh=12G` (reclaim and throttle, never kill) and
+  `ManagedOOMPreference=avoid`, so systemd-oomd picks other cgroups first. `TasksMax`, `prlimit` and
+  the 30 s provider probe's `MemoryMax=2G` are unchanged.
 - **The late-ack fix was unreachable from its two real callers** (TM-161, EP-018). TM-161 made the
   probe outlive its wait — and on a live pane the lead still read `unresponsive` three asks in a row,
   because neither caller ever used the default it raised.
