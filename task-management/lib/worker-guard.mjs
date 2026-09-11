@@ -149,6 +149,14 @@ export const RULES = [
   { id: "git-filter", tools: ["git"], when: (a) => a[0] === "filter-branch" || a[0] === "filter-repo", reason: `rewriting repository history is repo-destructive, ${HUMAN}.` },
   { id: "git-rebase-protected", tools: ["git"], when: git("rebase", rebaseRewritesProtected), reason: `this rebase rewrites main/master, ${HUMAN}. Rebase your own branch instead, with it checked out: \`git rebase origin/main\`.` },
   { id: "git-update-ref-delete", tools: ["git"], when: git("update-ref", (a) => hasLong(a, "--delete") || hasShort(a, "d")), reason: `deleting a ref is repo-destructive, ${HUMAN}.` },
+  {
+    // The stash stack is shared by the main checkout and every worktree: drop, clear and pop can
+    // destroy another session's entry. push, list, show and apply leave the stack intact.
+    id: "git-stash-destroy",
+    tools: ["git"],
+    when: git("stash", (a) => ["drop", "clear", "pop"].includes(a[0])),
+    reason: "the stash stack is shared by the main checkout and every worktree, so dropping, clearing or popping an entry can destroy another session's work. Set work aside with a temporary WIP commit on your own branch instead (`git commit -m WIP`), and undo it later with `git reset --soft HEAD~1`.",
+  },
 
   // External: merges, releases, repository settings.
   { id: "gh-pr-merge", tools: ["gh"], when: gh(([a, b]) => a === "pr" && b === "merge"), reason: "merging is a human's call. Open or update your PR and stop there." },

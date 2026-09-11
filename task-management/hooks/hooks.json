@@ -30,8 +30,7 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/tm-hook.sh pre-bash",
-            "timeout": 10,
-            "statusMessage": "task-management: checking the dispatch worker guard..."
+            "timeout": 10
           }
         ]
       }

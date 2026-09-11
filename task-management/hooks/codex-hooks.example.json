@@ -21,17 +21,6 @@
             "statusMessage": "task-management: checking epic + WIP..."
           }
         ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": ".bytedesk/task-management/bin/tm-hook pre-bash",
-            "timeout": 10,
-            "statusMessage": "task-management: checking the dispatch worker guard..."
-          }
-        ]
       }
     ],
     "PostToolUse": [
