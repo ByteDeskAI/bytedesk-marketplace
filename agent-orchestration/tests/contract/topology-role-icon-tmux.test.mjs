@@ -1,6 +1,7 @@
 // TM-168 on a real tmux server: role display options on every managed pane, the session title bar
 // they render (including the bytes an attached terminal receives), what stays byte-identical, and
-// what a hostile role or name cannot do. Fake providers only. Isolation per
+// what a hostile role or name cannot do. TM-185: the repository's registered lead shows the lead
+// icon on its run pane while it coordinates the run. Fake providers only. Isolation per
 // .claude/rules/tmux-test-isolation.md: TMUX '', a per-test TMUX_TMPDIR, a socket-scoped kill.
 import assert from "node:assert/strict";
 import { execFile as execFileCallback, spawn } from "node:child_process";
@@ -10,6 +11,8 @@ import test from "node:test";
 import { promisify } from "node:util";
 
 import { NESTED_TEAM_ICON, ROLE_ICON_MAP, UNKNOWN_ROLE_ICON } from "../../topology/lib/identity.mjs";
+import { leadRegistryDir } from "../../topology/lib/lead.mjs";
+import { canonicalRepoId, repoKey } from "../../topology/lib/repoid.mjs";
 import { sleep, writeJson } from "../../topology/lib/util.mjs";
 
 const execFile = promisify(execFileCallback);
@@ -62,7 +65,7 @@ async function attachedTerminalBytes(env, socket, session, pane, file) {
   return readFile(file, "utf8").catch(() => "");
 }
 
-test("role icons reach managed panes and title bars; ids, names and pane titles stay unchanged; hostile text is inert", { skip: tmuxAvailable ? false : "tmux not installed" }, async (t) => {
+test("role icons reach managed panes and title bars; the registered lead wears its icon in a run; ids, names and pane titles stay unchanged; hostile text is inert", { skip: tmuxAvailable ? false : "tmux not installed" }, async (t) => {
   // Short on purpose: tmux's socket path must fit in ~104 bytes.
   const consumer = await mkdtemp("/tmp/ao-ri-");
   const env = {
@@ -90,13 +93,25 @@ test("role icons reach managed panes and title bars; ids, names and pane titles 
   const agentBytes = () => Promise.all([leadFile, join(evil.dir, "agent.json")].map((file) => readFile(file)));
   const before = await agentBytes();
 
-  // ---- a run: two ordinary agents, a library agent with a hostile role and name, and a nested team.
+  // ---- a durable role session, opened before any lead is registered so its startup check is unchanged.
+  const opened = JSON.parse(await ao(["session", "open", lead.id, "--consumer", consumer, "--providers-dir", fixtures, "--json"], env));
+  assert.deepEqual([opened.roleIcon, opened.roleLabel, opened.session], [ROLE_ICON_MAP.lead, "Lead", `ao-${lead.id}`]);
+  assert.equal(await tm("display", "-p", "-t", opened.pane, "#{@ao_role_icon}"), ROLE_ICON_MAP.lead);
+  assert.equal(await tm("show-options", "-v", "-t", opened.session, "set-titles"), "on");
+  const leadTitle = await tm("show-options", "-v", "-t", opened.session, "set-titles-string");
+  assert.equal(await tm("display", "-p", "-t", opened.pane, leadTitle), `${ROLE_ICON_MAP.lead} Ada Vale, Engineering Lead · Lead`);
+  assert.equal(await tm("display", "-p", "-t", opened.pane, "#{session_name}\t#{window_name}\t#{pane_title}"), `ao-${lead.id}\t${lead.id}\t${lead.id} · lead · fake-agent`);
+
+  // ---- register Ada as the repository lead, where readLeadRegistration looks for it.
+  await writeJson(join(leadRegistryDir(env), `${repoKey((await canonicalRepoId(consumer)).id)}.json`), { agent_id: lead.id, consumer });
+
+  // ---- a run: the lead as conductor, an ordinary worker, a library agent with a hostile role and name, and a nested team.
   const runId = `ri-${process.pid}`;
   const specPath = join(consumer, "spec.json");
   await writeJson(specPath, {
     version: 1, name: "icons", session: "ao-icons-{{run_id}}", layout: "grid",
     agents: [
-      { id: "conductor", role: "orchestrator", cli: "fake-agent", model: "c1", args: [fakeAgent] },
+      { id: "conductor", agent: lead.id, role: "orchestrator", cli: "fake-agent", model: "c1", args: [fakeAgent] },
       { id: "worker-a", role: "worker", cli: "fake-agent", model: "w1", args: [fakeAgent] },
       { id: "evil", agent: evil.id, cli: "fake-agent", model: "e1", args: [fakeAgent] },
       { id: "team", workflow: "no-such-team-tm168" },
@@ -104,29 +119,29 @@ test("role icons reach managed panes and title bars; ids, names and pane titles 
     workflow: [{ stage: "ping", from: "conductor", to: ["worker-a"] }],
   });
   const launched = JSON.parse(await ao(["launch", "--spec", specPath, "--consumer", consumer, "--providers-dir", fixtures, "--run-id", runId, "--json"], env));
-  const icon = { conductor: ROLE_ICON_MAP.orchestrator, "worker-a": ROLE_ICON_MAP.worker, evil: UNKNOWN_ROLE_ICON };
+  const icon = { conductor: ROLE_ICON_MAP.lead, "worker-a": ROLE_ICON_MAP.worker, evil: UNKNOWN_ROLE_ICON };
   assert.deepEqual(Object.fromEntries(launched.agents.map((agent) => [agent.id, agent.roleIcon])), icon, JSON.stringify(launched, null, 2));
   assert.deepEqual(launched.participants.map((p) => [p.id, p.roleIcon, p.roleLabel]), [["team", NESTED_TEAM_ICON, "Nested team"]]);
   const run = JSON.parse(await readFile(join(launched.runDir, "run.json"), "utf8"));
   assert.equal(run.agents[0].binding?.serverKey, socket, "the run was recorded on a different tmux server than the one this test reads");
-  assert.deepEqual(run.agents.map((agent) => [agent.id, agent.roleIcon, agent.roleLabel]), [
-    ["conductor", ROLE_ICON_MAP.orchestrator, "Orchestrator"],
-    ["worker-a", ROLE_ICON_MAP.worker, "Worker"],
-    ["evil", UNKNOWN_ROLE_ICON, "Agent"],
-    ["team", NESTED_TEAM_ICON, "Nested team"],
+  assert.deepEqual(run.agents.map((agent) => [agent.id, agent.role, agent.roleIcon, agent.roleLabel]), [
+    ["conductor", "orchestrator", ROLE_ICON_MAP.lead, "Lead"],
+    ["worker-a", "worker", ROLE_ICON_MAP.worker, "Worker"],
+    ["evil", HOSTILE_ROLE, UNKNOWN_ROLE_ICON, "Agent"],
+    ["team", "worker", NESTED_TEAM_ICON, "Nested team"],
   ]);
   const status = JSON.parse(await ao(["status", "--run", launched.runDir, "--json"], env));
   assert.deepEqual(status.agents.map((agent) => [agent.id, agent.roleIcon]), run.agents.map((agent) => [agent.id, agent.roleIcon]), "status and run.json disagree");
 
   const paneOf = (id) => launched.agents.find((agent) => agent.id === id).pane;
   for (const id of Object.keys(icon)) assert.equal(await tm("display", "-p", "-t", paneOf(id), "#{@ao_role_icon}"), icon[id], `${id} pane icon`);
-  assert.equal(await tm("display", "-p", "-t", paneOf("conductor"), "#{@ao_agent}|#{@ao_role}|#{@ao_role_label}"), "conductor|orchestrator|Orchestrator");
+  assert.equal(await tm("display", "-p", "-t", paneOf("conductor"), "#{@ao_agent}|#{@ao_role}|#{@ao_role_label}"), "Ada Vale, Engineering Lead|orchestrator|Lead");
 
   // The session title bar: session-scoped, rendered from the active pane.
   assert.equal(await tm("show-options", "-v", "-t", launched.session, "set-titles"), "on");
   assert.equal(await tm("show-options", "-gv", "set-titles"), "off", "set-titles must never be set globally");
   const titleFormat = await tm("show-options", "-v", "-t", launched.session, "set-titles-string");
-  assert.equal(await tm("display", "-p", "-t", paneOf("conductor"), titleFormat), `${ROLE_ICON_MAP.orchestrator} conductor · Orchestrator`);
+  assert.equal(await tm("display", "-p", "-t", paneOf("conductor"), titleFormat), `${ROLE_ICON_MAP.lead} Ada Vale, Engineering Lead · Lead`);
   assert.equal(await tm("display", "-p", "-t", paneOf("worker-a"), titleFormat), `${ROLE_ICON_MAP.worker} worker-a · Worker`);
 
   // Unchanged by TM-168: the session name from the spec, the grid's one window, and the provider-owned
@@ -150,7 +165,7 @@ test("role icons reach managed panes and title bars; ids, names and pane titles 
   // What an attached xterm actually receives: one OSC 0 title, and nothing the hostile name smuggled in.
   if (scriptAvailable) {
     const conductorBytes = await attachedTerminalBytes(env, socket, launched.session, paneOf("conductor"), join(consumer, "attach-conductor.bin"));
-    assert.ok(conductorBytes.includes(`${ESC}]0;${ROLE_ICON_MAP.orchestrator} conductor · Orchestrator${BEL}`), JSON.stringify(conductorBytes.slice(0, 400)));
+    assert.ok(conductorBytes.includes(`${ESC}]0;${ROLE_ICON_MAP.lead} Ada Vale, Engineering Lead · Lead${BEL}`), JSON.stringify(conductorBytes.slice(0, 400)));
     const evilBytes = await attachedTerminalBytes(env, socket, launched.session, evilPane, join(consumer, "attach-evil.bin"));
     assert.ok(evilBytes.includes(`${ESC}]0;${UNKNOWN_ROLE_ICON} ${evilName} · Agent${BEL}`), JSON.stringify(evilBytes.slice(0, 400)));
     assert.ok(!evilBytes.includes(`${ESC}]0;owned`) && !evilBytes.includes(`${ESC}]2;pwn`), "a hostile name reached the terminal as an escape sequence");
@@ -158,7 +173,7 @@ test("role icons reach managed panes and title bars; ids, names and pane titles 
     t.diagnostic("script(1) not found; the attached-terminal byte check was skipped");
   }
 
-  // ---- the human launch rows.
+  // ---- the human launch rows, and an orchestrator that is NOT the lead keeps its own icon on its pane.
   const humanSpec = join(consumer, "human.json");
   await writeJson(humanSpec, {
     version: 1, name: "icons-human", session: "ao-icons-human-{{run_id}}", layout: "grid",
@@ -169,17 +184,10 @@ test("role icons reach managed panes and title bars; ids, names and pane titles 
     workflow: [{ stage: "ping", from: "conductor", to: ["worker-a"] }],
   });
   const human = await ao(["launch", "--spec", humanSpec, "--consumer", consumer, "--providers-dir", fixtures, "--run-id", `${runId}-h`], env);
-  assert.match(human, new RegExp(`^  [✓?] ${ROLE_ICON_MAP.orchestrator} conductor \\(orchestrator\\) on fake-agent:c1 pane %\\d+$`, "m"), human);
+  const conductorRow = new RegExp(`^  [✓?] ${ROLE_ICON_MAP.orchestrator} conductor \\(orchestrator\\) on fake-agent:c1 pane (%\\d+)$`, "m").exec(human);
+  assert.ok(conductorRow, human);
   assert.match(human, new RegExp(`^  [✓?] ${ROLE_ICON_MAP.worker} worker-a \\(worker\\) on fake-agent:w1 pane %\\d+$`, "m"), human);
-
-  // ---- a durable role session.
-  const opened = JSON.parse(await ao(["session", "open", lead.id, "--consumer", consumer, "--providers-dir", fixtures, "--json"], env));
-  assert.deepEqual([opened.roleIcon, opened.roleLabel, opened.session], [ROLE_ICON_MAP.lead, "Lead", `ao-${lead.id}`]);
-  assert.equal(await tm("display", "-p", "-t", opened.pane, "#{@ao_role_icon}"), ROLE_ICON_MAP.lead);
-  assert.equal(await tm("show-options", "-v", "-t", opened.session, "set-titles"), "on");
-  const leadTitle = await tm("show-options", "-v", "-t", opened.session, "set-titles-string");
-  assert.equal(await tm("display", "-p", "-t", opened.pane, leadTitle), `${ROLE_ICON_MAP.lead} Ada Vale, Engineering Lead · Lead`);
-  assert.equal(await tm("display", "-p", "-t", opened.pane, "#{session_name}\t#{window_name}\t#{pane_title}"), `ao-${lead.id}\t${lead.id}\t${lead.id} · lead · fake-agent`);
+  assert.equal(await tm("display", "-p", "-t", conductorRow[1], "#{@ao_role_icon}"), ROLE_ICON_MAP.orchestrator, "a non-lead orchestrator's pane");
 
   assert.deepEqual(await agentBytes(), before, "agent.json was rewritten");
 });
