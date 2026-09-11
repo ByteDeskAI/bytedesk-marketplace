@@ -66,6 +66,7 @@ import { attachEvidence, evidenceSyncReport, detachEvidence } from "../lib/evide
 import { capturePlan as saveCapturedPlan } from "../lib/plans.mjs";
 import { detectHostCaps, renderCaps } from "../lib/hostcaps.mjs";
 import { heartbeatAgent, listAgents, reapDeadWorkers, renderAgents } from "../lib/agents.mjs";
+import { getPath, setPath } from "../lib/settings.mjs";
 import { dispatch as dispatchTask } from "../lib/dispatch/index.mjs";
 import { envRegistry } from "../lib/dispatch/backend.mjs";
 import { collect as collectResult } from "../lib/dispatch/collect.mjs";
@@ -1008,6 +1009,8 @@ const VERBS = {
   config(key, value) {
     requireInit();
     if (!key) return out(JSON.stringify(config(P), null, 2));
+    // A read never writes: `{ [key]: undefined }` through writeConfig would drop the key (TM-174).
+    if (value === undefined) return out(JSON.stringify(getPath(config(P), key) ?? null, null, 2));
     // Identity is derived, not declared. When git answers, writing this key would change the file
     // and change nothing else — `boardIdentity` reads git first — so the honest response is to
     // refuse rather than accept an edit that silently does not take.
@@ -1026,8 +1029,8 @@ const VERBS = {
         );
       }
     }
-    const parsed = value === undefined ? undefined : JSON.parse(value);
-    out(JSON.stringify(writeConfig({ [key]: parsed }, P), null, 2));
+    // A dotted key is a path: `dispatch.enabled` sets config.dispatch.enabled, siblings kept.
+    out(JSON.stringify(writeConfig(setPath(config(P), key, JSON.parse(value)), P), null, 2));
   },
 
   context() {

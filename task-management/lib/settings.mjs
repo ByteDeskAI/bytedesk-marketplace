@@ -315,11 +315,11 @@ const LEGACY_BOARD = {
 /** Board keys the PWA already writes that are not on the policy page. */
 const PASSTHROUGH = new Set(["board.categories", "board.watching", "board.views"]);
 
-function getPath(obj, key) {
+export function getPath(obj, key) {
   return key.split(".").reduce((acc, part) => (acc == null ? acc : acc[part]), obj);
 }
 
-function setPath(obj, key, value) {
+export function setPath(obj, key, value) {
   const parts = key.split(".");
   const next = { ...obj };
   let cur = next;
