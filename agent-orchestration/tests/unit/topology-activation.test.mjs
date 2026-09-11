@@ -7,12 +7,12 @@
 // silently stopped reaching tmux reads as a failure, not as a clean guard (verification rule 1).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { run, writeJson } from '../../topology/lib/util.mjs';
+import { run, sleep, writeJson } from '../../topology/lib/util.mjs';
 import { canonicalRepoId, repoKey } from '../../topology/lib/repoid.mjs';
 import { listServerPanes } from '../../topology/lib/tmux.mjs';
 import { pendingEnrollments, watchServer } from '../../topology/lib/startup.mjs';
@@ -122,19 +122,40 @@ test('ordinary verbs never enumerate an unnamed tmux server', async (t) => {
   t.diagnostic(JSON.stringify(seen));
 });
 
-test('supervise in an unenrolled repository says so in one line, exits 0, and writes nothing', async (t) => {
-  const { root, fake, ao } = await fixture(t);
-  const started = Date.now();
-  const result = await ao(['supervise']);
-  assert.equal(result.code, 0, result.stderr);
-  assert.ok(Date.now() - started < 30_000, 'an unenrolled supervise must return, not idle');
-  const lines = result.stdout.trim().split('\n');
-  assert.equal(lines.length, 1, `expected one line, got:\n${result.stdout}`);
-  const said = JSON.parse(lines[0]);
-  assert.deepEqual({ supervising: said.supervising, reason: said.reason, source: said.source }, { supervising: false, reason: 'repository-not-enrolled', source: 'none' });
-  assert.deepEqual(await fake.calls(), [], 'no watcher, no presence, no census: nothing may touch tmux');
-  const state = await readdir(join(root, 'state')).catch(() => []);
-  assert.deepEqual(state, [], `an unenrolled supervise must not reconcile, publish, label or journal; state holds ${state.join(', ')}`);
+/** SIGTERM, then SIGKILL, and wait until the pid is really gone — before its state dir is removed. */
+async function reap(pid) {
+  try { process.kill(pid, 'SIGTERM'); } catch { return; }
+  for (let i = 0; i < 60; i++) { try { process.kill(pid, 0); } catch { return; } await sleep(50); }
+  try { process.kill(pid, 'SIGKILL'); } catch {}
+}
+
+test('supervise in an unenrolled repository runs read-only: it publishes presence and never starts a lead or agent', async (t) => {
+  const { root, repo, env, fake } = await fixture(t);
+  const child = spawn(process.execPath, [CLI, 'supervise', '--consumer', repo], { cwd: repo, env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const log = [];
+  child.stdout.on('data', (d) => log.push(String(d)));
+  child.stderr.on('data', (d) => log.push(String(d)));
+  // Reap in `finally`, not t.after: the fixture registered rm(root) first, and hooks run in order.
+  try {
+    await new Promise((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject); });
+    const presence = join(root, 'state', 'presence');
+    let published = [];
+    for (let i = 0; i < 200 && !published.length; i++) {
+      await sleep(100);
+      published = (await readdir(presence, { recursive: true }).catch(() => [])).filter((name) => name.endsWith('.json'));
+    }
+    assert.ok(published.length >= 1, `an unenrolled repository's supervisor must still publish presence; it said:\n${log.join('')}`);
+    assert.equal(child.exitCode, null, `and keep running rather than exit; it said:\n${log.join('')}`);
+    const calls = await fake.calls();
+    const starts = calls.filter((line) => /(^| )(new-session|new-window|split-window|respawn-pane|send-keys|kill-session|kill-server)( |$)/.test(line));
+    assert.deepEqual(starts, [], 'a read-only supervisor may observe tmux but must never start, restart, type into or kill anything');
+    assert.deepEqual(unscoped(calls), []);
+    for (const dir of ['leads', 'reviewers', join('enrollments', 'enrolled')]) {
+      assert.deepEqual((await readdir(join(root, 'state', dir)).catch(() => [])).filter((name) => name.endsWith('.json')), [], `no ${dir} record may be created in an unenrolled repository`);
+    }
+  } finally {
+    await reap(child.pid);
+  }
 });
 
 test('supervise --once still reconciles an enrolled repository', async (t) => {

@@ -278,19 +278,16 @@ const commands = {
   async supervise({ flags }) {
     const { superviseRepository } = await import('./lib/supervision.mjs');
     const ctx = context(flags);
-    // TM-167: an unenrolled repository is not supervised — no reconcile, no presence, no labels, no
-    // watcher. The monitor runs `"when": "always"` in EVERY Claude session, so this is the common case.
-    // One line, then exit 0. Exit, not an idle wait, because a monitor that exits is not restarted:
-    // observed in a live session, where this monitor's `another-supervisor-owns-this-repository` exit
-    // ended its stream and nothing re-ran it (the plugins reference documents no restart either). A
-    // repository enrolled later is activated by its next session start or ordinary verb.
-    const { resolveEnrollment } = await import('./lib/repo-enrollment.mjs');
-    const enrollment = await resolveEnrollment({ consumer: ctx.consumer, home: ctx.home })
-      .catch((error) => ({ enrolled: false, source: 'none', root: null, repo_id: null, reason: error.message }));
-    if (!enrollment.enrolled) {
-      process.stdout.write(`${JSON.stringify({ ok: true, supervising: false, reason: 'repository-not-enrolled', source: enrollment.source, detail: enrollment.reason ?? null, consumer: enrollment.root ?? ctx.consumer })}\n`);
-      return;
-    }
+    // TM-167: `supervise` runs in EVERY repository, enrolled or not, and stays read-only — presence,
+    // census, slots, quota, prompt refresh for standing agents that already exist. It starts nothing, so
+    // enrollment does not gate it. Measured before this rule was set: of the 11 repositories running a
+    // supervisor on the operator's machine, only 3 resolved as enrolled, and exiting in the other 8 would
+    // have stopped their Presence heartbeat and shown each of them stale in the gateway. What enrollment
+    // DOES gate is anything that starts or recovers an agent (lead recovery in the reconcile tick checks
+    // resolveEnrollment) and an ordinary verb's self-start (`activate`, above), which spawns a supervisor
+    // only for an enrolled repository. The watcher below is scoped to this repository's panes either way.
+    const { canonicalRepoId } = await import('./lib/repoid.mjs');
+    const repoId = (await canonicalRepoId(ctx.consumer)).id;
     // Linked worktrees share one canonical repository id, so a machine with N worktrees of this
     // repo open starts N supervisors and N-1 of them MUST lose. Losing is the correct outcome and
     // therefore not an error: exit 0 saying who owns it, so a monitor host does not read the loss
@@ -311,7 +308,7 @@ const commands = {
     // Exceptions still speak: retirement and a degraded heartbeat are invisible in any other place.
     const notable = report => report?.stopped || report?.presence_beats_degraded || report?.error;
     const onTick = flags.json ? out : report => { if (notable(report)) out(report); };
-    return Promise.all([owned(() => superviseRepository({ ...ctx, tmuxServer: flags.server }, { onTick })), watchServer({ ...ctx, tmuxServer: flags.server || 'default', repoId: enrollment.repo_id })]);
+    return Promise.all([owned(() => superviseRepository({ ...ctx, tmuxServer: flags.server }, { onTick })), watchServer({ ...ctx, tmuxServer: flags.server || 'default', repoId })]);
   },
 
   async census({ flags }) {

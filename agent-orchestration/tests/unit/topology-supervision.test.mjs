@@ -141,8 +141,6 @@ test('any activity snaps the ladder back to its busy rung rather than stepping d
 
 test('the supervisor records where it went and how often it has been restarted', async t => {
   const { options, env, home, repo } = await quietRepo(t, 'restart');
-  // TM-167: the spawned `supervise` exits at once in an unenrolled repository, so enroll this one.
-  await writeJson(join(repo, '.bytedesk/agent-orchestration/config.json'), { enabled: true });
   const { startRepositorySupervision, supervisionStatus } = await import('../../topology/lib/supervision.mjs');
   const first = await startRepositorySupervision(options);
   let again;
@@ -247,8 +245,6 @@ test('a supervisor started with an absolute --consumer survives losing its worki
   const repo = join(root, 'repo'), home = join(root, 'home'), cwd = join(root, 'ephemeral');
   const env = isolatedEnv(root, home);
   await run('git', ['init', repo]);
-  // TM-167: `supervise` idles out of an unenrolled repository before it ticks, so enroll this one.
-  await writeJson(join(repo, '.bytedesk/agent-orchestration/config.json'), { enabled: true });
   await mkdir(cwd, { recursive: true });
 
   // The exact shape of the real failure: the daemon's WORKING DIRECTORY is a task-owned worktree

@@ -104,7 +104,9 @@ test('an enrolled repository is activated by an ordinary verb and by a real sess
   assert.deepEqual(await supervisorsFor(f.repo), [cold.activation.supervision.pid]);
 });
 
-test('an unenrolled repository gets no supervisor from a verb, a session start, or supervise itself', async (t) => {
+// `supervise` itself still runs read-only in an unenrolled repository (tests/unit/topology-activation.test.mjs);
+// what enrollment gates is a supervisor being SPAWNED by an ordinary verb or a session start.
+test('an unenrolled repository gets no supervisor from an ordinary verb or a session start', async (t) => {
   const f = await fixture(t, 'off', { enrolled: false });
   if (!f) return;
   const census = JSON.parse(await f.ao(['census', '--json']));
@@ -112,9 +114,6 @@ test('an unenrolled repository gets no supervisor from a verb, a session start, 
     { started: false, reason: 'not-enrolled', enrolled: false });
   const started = await f.sessionStart(f.repo);
   assert.deepEqual(started.activation.supervision, { started: false, reason: 'not-enrolled' });
-  const supervise = (await f.ao(['supervise'])).trim().split('\n');
-  assert.equal(supervise.length, 1);
-  assert.equal(JSON.parse(supervise[0]).reason, 'repository-not-enrolled');
   await sleep(500);
   assert.deepEqual(await supervisorsFor(f.repo), [], 'no supervise process may exist for an unenrolled repository');
   assert.deepEqual((await readdir(join(f.root, 'state')).catch(() => [])).filter((name) => name === 'supervision' || name === 'presence'), []);
