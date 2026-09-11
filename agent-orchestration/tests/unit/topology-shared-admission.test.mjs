@@ -30,7 +30,7 @@ test('shared send stable hold resumes to absent-roster lead once',async t=>{
  const a=await sendMessage(input),b=await sendMessage(input);assert.equal(a.id,b.id);assert.equal(a.holds[0].id,b.holds[0].id);
  const opts={env:f.env,...f.standingOptions};
  const out=await readStandingOutbox({consumer:f.source,agent:'source01',...opts});assert.equal(out.length,1);assert.equal(out[0].envelope.body,'request body');
- ready=true;await resumeStandingMessages({consumer:f.dest,...opts});
+ ready=true;await resumeStandingMessages({force:true,consumer:f.dest,...opts});
  const done=await sendMessage(input);assert.equal(done.deliveries[0].standing,true);assert.equal(done.deliveries[0].agent,'lead0001');
  assert.equal((await readStandingInbox({consumer:f.dest,agent:'lead0001',...opts})).length,1);
  await assert.rejects(sendMessage({...input,body:'changed'}),{code:'TOPOLOGY_MESSAGE_ID_CONFLICT'});
@@ -58,7 +58,7 @@ test('held barrier stays pending through resume until correct standing recipient
  const sent=await sendMessage({...f.input,fromProject:f.source,idempotencyKey:'barrier',standingOptions:{...f.standingOptions,readiness:async()=>({status:'unresponsive'})}});
  const waitArgs={runDir:f.runDir,agentIds:['worker01'],messageId:sent.id,timeoutMs:15,pollMs:5};
  const held=await waitForReplies(waitArgs);assert.equal(held.ok,false);assert.equal(held.pending[0].status,'held');
- await resumeStandingMessages({consumer:f.dest,env:f.env,...f.standingOptions});
+ await resumeStandingMessages({force:true,consumer:f.dest,env:f.env,...f.standingOptions});
  const unanswered=await waitForReplies(waitArgs);assert.equal(unanswered.ok,false);assert.equal(unanswered.pending[0].status,'delivered-unanswered');assert.equal(unanswered.pending[0].answered_by,'lead0001');
  const reply={consumer:f.dest,messageId:sent.holds[0].id,agentId:'lead0001',body:'Durable response',env:{...f.env,AO_AGENT_ID:'lead0001',AO_CONSUMER:f.dest}};
  await assert.rejects(recordStandingReply({...reply,env:{...reply.env,AO_AGENT_ID:'worker01'}}),{code:'TOPOLOGY_AGENT_UNAUTHORIZED'});

@@ -393,7 +393,8 @@ const commands = {
   async mailbox({ flags, positional }) {
     const ctx = context(flags), api = await import('./lib/standing-mailbox.mjs');
     const sub = positional[0] || 'inbox';
-    if (sub === 'resume') return out(await api.resumeStandingMessages(ctx));
+    // A human asking to resume means now: --force skips each message's backoff (never a permanent hold).
+    if (sub === 'resume') return out(await api.resumeStandingMessages({ ...ctx, force: flags.force === true }));
     if (sub === 'reply') return out(await api.recordStandingReply({ ...ctx, messageId: flags.message, agentId: flags.agent || process.env.AO_AGENT_ID, body: await bodyFrom(flags) }));
     if (sub === 'inbox' || sub === 'outbox') return out(await api[sub === 'inbox' ? 'readStandingInbox' : 'readStandingOutbox']({ ...ctx, agent: flags.agent || process.env.AO_AGENT_ID }));
     const input = { consumer: ctx.consumer, fromProject: flags['from-project'] || process.env.AO_CONSUMER,
@@ -480,7 +481,7 @@ const commands = {
     // that a change reached one of two callers, and it is now written down in
     // `.claude/rules/verification-that-can-fail.md`.
     const options = { ...ctx, ...(flags['ack-timeout'] ? { ackTimeoutMs: Number(flags['ack-timeout']) } : {}) };
-    if (sub === 'status') return out(await api.leadState(options));
+    if (sub === 'status') return out({ ...await api.leadState(options), recovery: await (await import('./lib/lead-recovery.mjs')).leadRecoveryStatus(ctx) });
     if (sub === 'probes') return out(await api.pendingLeadProbes(options));
     // `ensureSupervision`, NOT startRepositorySupervision: `role assign|ensure lead` is the same
     // operation through the other surface and degrades, so these must too. Two surfaces onto one
