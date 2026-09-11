@@ -2,6 +2,107 @@
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-09-11
+
+### Added
+
+- **One role-icon registry for every orchestration agent (TM-168, EP-019).**
+  - `topology/lib/identity.mjs` now exports `roleIcon` and `roleVisual`, a single display-only
+    mapping from a role to a Unicode icon and short readable text:
+
+    | Role | Icon |
+    |---|---|
+    | lead | 👑 |
+    | orchestrator | 🎼 |
+    | reviewer | 🔍 |
+    | observer | 👁️ |
+    | worker | 🔧 |
+    | implementer | 🛠️ |
+    | designer | 🎨 |
+    | image-gen | 🖼️ |
+    | researcher | 🔬 |
+    | judge | ⚖️ |
+    | nested team | 👥 |
+    | unknown or custom role | 🤖 |
+
+  - Which role counts: a nested team first, then a repository lead, then the run role, then the
+    library role.
+  - Icons are computed, never stored in `agent.json`, and never used to decide a role or authority.
+- **Presence and census show the role icon (TM-168).**
+  - Presence agent entries and census rows carry two additive fields, `roleIcon` and `roleLabel`.
+    They are computed after run membership is settled.
+  - An unknown or hostile role gets the fallback icon and label.
+  - `formatCensus` prints the icon and label beside the agent's name; the state glyph stays in
+    the first column.
+  - The fields are specified in `topology/PRESENCE-ROLE-ICON-ADDENDUM.md`, with generated fixtures
+    under `topology/fixtures/presence-role-icon/`. `schemaVersion` stays 2, and the frozen v1
+    contract and the signed header addendum are unchanged.
+  - The gateway request is `topology/ROLE-ICON-COUNTERSIGNATURE-REQUEST.md`.
+- **Role icons on terminal title bars, `run.json` and command output (TM-168).**
+  - **Terminal title bar.** Sessions agent orchestration creates now show the role icon, readable
+    name and role label. They are set through the pane options `@ao_role_icon`, `@ao_agent`,
+    `@ao_role` and `@ao_role_label`, and a session-scoped `set-titles-string`.
+  - **`run.json` and JSON output.** `run.json` entries, and JSON from `launch`, `status`, `agent`,
+    `session` and `role`, carry additive `roleIcon` and `roleLabel` fields.
+  - **Human output.** Rows show the icon before the name.
+  - **Unchanged:** pane titles, session names, window names and ids.
+- **Terminal title text is sanitised (TM-168).** Every value written into a tmux option or terminal
+  title has control characters stripped and is capped at 80 characters. `#` and a trailing `;` are
+  replaced, so they cannot inject tmux formats, split a batched command, or send escape sequences to
+  an attached terminal.
+- **Receiver-owned lead recovery (TM-167, EP-019).** In an enrolled repository, the repository
+  supervisor now looks after that repository's own lead:
+  - **What it does.** It creates a missing lead. It restarts a dead managed lead only after
+    re-checking, under the registration lock, that the recorded pane is really gone. It never touches
+    a lead that is alive but unresponsive, and never replaces a lead owned from outside; for that
+    case it raises an alert naming the `lead assign` command.
+  - **Retries.** Failed recovery is retried after 10 s, 30 s, 2 min, then every 10 min, and the
+    delay resets once the lead responds. `lead status` shows the recovery action, attempts, last
+    error and next retry time, and `doctor` reports `LEAD_DEAD_EXTERNAL` and `LEAD_RECOVERY_FAILING`.
+  - **The supervisor's promise changes.** It used to "launch nothing". It now launches exactly one
+    kind of agent: its own repository's lead, and only when the repository is enrolled.
+- **Held cross-repository mail recovers and is delivered exactly once (TM-167).**
+  - **Recovery.** A message held because a lead isn't ready asks that repository's own supervisor to
+    recover its lead, and starts the supervisor if needed. Checking readiness never rings a lead.
+  - **Visibility.** Each held message records `attempts`, `last_error` and `next_retry_at`.
+    `mailbox resume --force` retries a message before its retry time.
+  - **Clear hold reasons.** A side that isn't enrolled holds as `destination_not_enrolled` or
+    `source_not_enrolled`. Holds that can never succeed, such as `hop_limit` or `loop`, are marked
+    `permanent`.
+  - **Exactly once.** A resumed message is delivered once, even with concurrent resumers.
+
+### Changed
+
+- **One enrollment resolver, and supervisors start only for enrolled repositories (TM-167, EP-019).**
+  - `topology/lib/repo-enrollment.mjs` decides enrollment in this order:
+    1. The repo config's `enabled`. `enabled: false` wins over everything, and an unreadable or
+       non-boolean value counts as disabled.
+    2. Project plugin enablement (`agent-orchestration@<marketplace>`).
+    3. An existing lead registration.
+  - Every linked worktree answers from the main checkout.
+  - Every command that starts the repository supervisor, and session start, now goes through
+    `activateRepository`. It starts a supervisor only for an enrolled repository. `enrollment ack`
+    no longer fails the command when that start fails.
+  - The supervisor still runs read-only in every repository, and its watcher labels only its own
+    repository's panes.
+- **No ordinary command lists panes on an unnamed tmux server (TM-167).** `listServerPanes` refuses
+  with `TOPOLOGY_TMUX_SERVER_REQUIRED` unless it is given a server or a session. Callers pass their
+  binding's server, their own pane's server, or `--server`.
+
+### Fixed
+
+- **Census recomputes each row's role icon (TM-168).** It no longer copies a stored icon. Every row
+  and carried-forward tombstone derives `roleIcon` and `roleLabel` from its own `repoRole`, `runRole`
+  and `roleName`, with the same precedence as presence. Rows now carry `roleName` so tombstones can
+  do the same. A hand-edited census document can no longer put a different icon, or escape bytes,
+  on a terminal, and no topology code reads an icon back.
+- **A repository lead shows 👑 on its run pane too (TM-168, TM-185).** When the registered lead is
+  launched into a run as `orchestrator`, its run pane, its `run.json` entry, launch output and
+  `status` rows now show the lead icon. Presence already did. `agent list`, `session list` and `role list` show it as well; a non-lead orchestrator keeps 🎼.
+- **Two topology tests no longer race a supervisor daemon (EP-019).** The `send` guard and the
+  supervision tests now stop their daemon before removing its directories, and the guard asserts
+  from recorded tmux calls.
+
 ## [0.8.0] — 2026-09-11
 
 ### Added
