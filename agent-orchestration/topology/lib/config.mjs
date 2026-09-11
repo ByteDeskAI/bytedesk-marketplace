@@ -87,6 +87,9 @@ export function validateConfigShape(raw, label) {
     }
   }
   if (raw.management !== undefined && !isPlainObject(raw.management)) errors.push(`${label}: "management" must be an object`);
+  // TM-167: enrollment reads `enabled` from the repo layer (repo-enrollment.mjs), and a non-boolean
+  // there fails closed as `enabled: false`. Reporting it here too makes the refusal visible.
+  if (raw.enabled !== undefined && typeof raw.enabled !== "boolean") errors.push(`${label}: "enabled" must be true or false`);
   return errors;
 }
 

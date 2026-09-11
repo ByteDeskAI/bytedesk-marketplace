@@ -3,7 +3,7 @@
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { isAbsolute } from "node:path";
-import { fail, run, shellQuote } from "./util.mjs";
+import { fail, run, shellQuote, terminalText } from "./util.mjs";
 
 const TMUX = process.env.AO_TMUX_COMMAND || "tmux";
 // Launcher shells are infrastructure: user login rc files may consume input or replace the shell.
@@ -59,7 +59,7 @@ export async function hasSession(session) {
 export async function newSession(session, { cwd, windowName = "main", width = 220, height = 60 }) {
   await tmux(["new-session", "-d", "-s", session, "-n", windowName, "-c", cwd, "-x", String(width), "-y", String(height), ...LAUNCH_SHELL]);
   // Session-scoped (-t <session>), never -g: this server is shared with everyone else's sessions.
-  await tmux(["set-option", "-t", session, "window-size", "manual"], { allowFailure: true });
+  await tmux(["set-option", "-t", session, "window-size", "manual", ...sessionTitleArgs(session)], { allowFailure: true });
   await tmux(["resize-window", "-t", `${session}:${windowName}`, "-x", String(width), "-y", String(height)], { allowFailure: true });
   return paneId(`${session}:${windowName}`);
 }
@@ -162,13 +162,58 @@ export async function sendText(pane, text, submitKeys = ["Enter"]) {
   for (const key of submitKeys) await tmux(["send-keys", "-t", pane, key]);
 }
 
-/** Title, remain-on-exit and pipe-pane are one round trip rather than three. */
-export async function preparePane(pane, { title, log }) {
+/** Title, remain-on-exit, pipe-pane and the role display options are one round trip. */
+export async function preparePane(pane, { title, log, display = null }) {
   await tmux([
     "select-pane", "-t", pane, "-T", title,
     ";", "set-option", "-p", "-t", pane, "remain-on-exit", "on",
     ";", "pipe-pane", "-o", "-t", pane, log,
+    ...(display ? roleDisplayArgs(pane, display) : []),
   ], { allowFailure: true });
+}
+
+// -- Role display (TM-168) --------------------------------------------------------------------------
+// The terminal title bar shows who a pane is: icon, readable name, role label. It is built from
+// pane-scoped user options and a session-scoped `set-titles-string`, and deliberately NOT from
+// `pane_title` — provider CLIs overwrite that, census reads activity from it, and the gateway parses
+// the role out of it. Display-only: nothing may read these options back to decide a role or authority.
+// Measured on tmux 3.4 (TM-168):
+//
+//   * `#{@opt}` inserts an option value LITERALLY. `#{pane_id}` and `#[fg=red]` stored in a value
+//     came back verbatim; only `#{E:@opt}` re-expands.
+//   * tmux does NOT sanitise what `set-titles` sends. An ESC ] 2 ; … BEL stored in `@ao_agent`
+//     reached the attached terminal as a second OSC sequence. So every value is scrubbed here.
+//   * In a batched invocation an argv element ENDING in `;` is a command separator: `abc;` stored
+//     `abc` and split the command in two.
+
+/** Rendered from the ACTIVE pane. A pane without our options (a user's own split) keeps tmux's default title. */
+export const ROLE_TITLE_FORMAT = '#{?@ao_role_icon,#{@ao_role_icon} #{@ao_agent} · #{@ao_role_label},#S:#I:#W - "#T"}';
+
+/**
+ * A value safe to store in a tmux option: `terminalText`, capped, plus two substitutions. `#` becomes
+ * the look-alike `＃` — `#{@opt}` does not re-expand it, but a user's own status or border format may
+ * parse `#[...]` styles after expansion, and a look-alike is inert everywhere. A trailing `;` becomes
+ * `；` so the value cannot split a batched command.
+ */
+export function tmuxText(value, max = 80) {
+  return terminalText(value, max).replace(/#/g, "＃").replace(/;$/, "；");
+}
+
+/** `; set-option -p` for each role display option, ready to append to a batch. */
+export function roleDisplayArgs(pane, { agent, role, roleLabel, roleIcon }) {
+  const values = { "@ao_agent": agent, "@ao_role": role, "@ao_role_label": roleLabel, "@ao_role_icon": roleIcon };
+  return Object.entries(values).flatMap(([name, value]) => [";", "set-option", "-p", "-t", pane, name, tmuxText(value)]);
+}
+
+/** Session-scoped (never -g): only sessions this layer creates or owns get a title bar. */
+export function sessionTitleArgs(session) {
+  return [";", "set-option", "-t", session, "set-titles", "on", ";", "set-option", "-t", session, "set-titles-string", ROLE_TITLE_FORMAT];
+}
+
+/** The pane display options in one invocation. Setting options is not a listing: no server lookup. */
+export async function setRoleDisplay(pane, display) {
+  const [, ...args] = roleDisplayArgs(pane, display);
+  await tmux(args, { allowFailure: true });
 }
 
 export async function sendKeys(pane, keys) {
@@ -529,16 +574,46 @@ export async function clearAndWaitForShell(pane, channel, timeoutMs = 15_000, { 
   return { ok: true, baseline: marker, promptLines: after.split("\n").filter((line) => line.trim().length > 0).length };
 }
 
-/** Enumerate exact pane incarnations on the selected server, independent of session names. */
-export async function listServerPanes({ tmuxServer, env = process.env } = {}) {
+/** The socket of the server the CALLER's own pane lives on, read from `$TMUX`; null outside tmux. */
+export function callerServer(env = process.env) {
+  return /^(.*),[0-9]+,[^,]+$/.exec(env?.TMUX ?? "")?.[1] || null;
+}
+
+/** The socket path of the server one pane lives on. A targeted query of that pane, not an enumeration. */
+export async function serverOf(pane, { env } = {}) {
+  if (!pane) return null;
+  const result = await tmux(["display-message", "-p", "-t", pane, "#{socket_path}"], { env, allowFailure: true });
+  return (result.code === 0 && result.stdout.split("\n")[0].trim()) || null;
+}
+
+/**
+ * Enumerate exact pane incarnations on the selected server — or, with `session`, in that one session.
+ *
+ * TM-167: a bare `list-panes -a` enumerates whichever server tmux resolves implicitly, which from an
+ * operator's shell is the server hosting every unrelated agent on the machine. So an enumeration
+ * must NAME its server (a binding's serverKey, a socket asked of a pane, an explicit --server), and a
+ * caller that knows only a session name asks about that session. Neither is a refusal, not a guess.
+ *
+ * A session is NOT a server: `session` alone still lets tmux resolve the server implicitly ($TMUX or
+ * the default socket), so a same-named session on another server can answer. A caller that has a
+ * recorded binding passes its `serverKey` as `tmuxServer` together with `session`; a caller with only
+ * a name must say at its call site that the server is implicit.
+ */
+export async function listServerPanes({ tmuxServer, session, env = process.env } = {}) {
+  if (!tmuxServer && !session) {
+    fail("TOPOLOGY_TMUX_SERVER_REQUIRED", "Refusing to enumerate panes on an unnamed tmux server: pass the recorded server (a binding's serverKey) or the session to look at.");
+  }
   // `pane_title` is here for the liveness census (TM-131): codex, kimi and grok animate a braille
   // spinner in the pane title, so one extra column on the listing the supervisor already takes
   // answers "is this agent working" for every pane on the server without a single extra tmux call.
   // Appended LAST so every existing positional destructure keeps its index.
   const fields = ["socket_path", "pid", "session_id", "session_created", "pane_id", "pane_pid", "session_name", "pane_current_command", "pane_current_path", "pane_dead", "pane_title"];
-  const result = await tmux(["-u", "list-panes", "-a", "-F", fields.map((key) => `#{${key}}`).join("\t")], { tmuxServer, env, allowFailure: true });
+  const scope = session ? ["-s", "-t", `=${session}`] : ["-a"];
+  const result = await tmux(["-u", "list-panes", ...scope, "-F", fields.map((key) => `#{${key}}`).join("\t")], { tmuxServer, env, allowFailure: true });
   if (result.code !== 0) {
     if (/no server running|error connecting.*No such file|failed to connect.*No such file/.test(result.stderr)) return [];
+    // Measured on tmux 3.4: `list-panes -s -t =<missing>` says "can't find window: <name>", not "session".
+    if (session && /can't find (session|window)/.test(result.stderr)) return [];
     fail("TOPOLOGY_TMUX_OBSERVATION_FAILED", "Cannot enumerate tmux panes; liveness is unknown.");
   }
   return result.stdout.split("\n").filter(Boolean).map((line) => {

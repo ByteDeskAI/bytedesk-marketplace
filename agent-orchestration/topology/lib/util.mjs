@@ -196,6 +196,15 @@ export function shellQuote(value) {
   return `'${text.replace(/'/g, `'\\''`)}'`;
 }
 
+/**
+ * Text that cannot carry a terminal escape: C0 controls, DEL and C1 controls removed, then capped
+ * at `max` code points (never mid-surrogate). For anything user-controlled — an agent name, a role
+ * typed at `agent new --role` — that ends up in a terminal title or a printed row (TM-168).
+ */
+export function terminalText(value, max = Infinity) {
+  return Array.from(String(value ?? "").replace(/[\u0000-\u001f\u007f-\u009f]/g, "")).slice(0, max).join("");
+}
+
 export function nowIso() {
   return new Date().toISOString();
 }

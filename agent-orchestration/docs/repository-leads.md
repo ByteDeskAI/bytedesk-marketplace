@@ -23,8 +23,56 @@ processes in arbitrary tmux sessions and records pending enrollment using the ex
 pane incarnation. This observation happens after startup and does not claim arbitrary CLI work was
 blocked. Native-hook installation preserves foreign hooks and settings. Only adapters declaring an
 observed hook capability support installation. Managed role-session launch also invokes the check.
-The repository supervisor refreshes presence, checks prompt sources and resumes held mail. It does
-not create, replace or terminate agents. A live or unknown lock owner is never evicted by age.
+The repository supervisor refreshes presence, checks prompt sources and resumes held mail. A live
+or unknown lock owner is never evicted by age.
+
+### Enrollment and activation
+
+**Enrollment decides which repositories are given agents.** A repository is enrolled when one of
+these holds, checked in this order:
+
+1. Its repository config `.bytedesk/agent-orchestration/config.json` sets `"enabled": true`.
+2. Its project `.claude/settings.json` enables `agent-orchestration@<marketplace>`.
+3. It already has a lead registration.
+
+`"enabled": false` in the repository config disables a repository whatever else is true. An
+unreadable repository config, or a non-boolean `enabled`, also counts as disabled. Every linked
+worktree gets the answer from the main checkout.
+
+**Only enrolled repositories get a supervisor started for them.** Session start (the startup-check
+hook, or a managed launch) and ordinary verbs such as `launch`, `send`, `session open`, `census`,
+`lead` and `role` start the repository's single supervisor this way. Many concurrent starts from
+different worktrees converge on one supervisor.
+
+**The supervisor also runs read-only in unenrolled repositories.** There it keeps presence, census,
+slots and quota current, and its watcher labels only its own repository's panes. It never starts or
+recovers an agent for an unenrolled repository.
+
+**Ordinary verbs list tmux panes only on a named server**: a binding's server, their own pane's
+server, or `--server`. Otherwise they refuse with `TOPOLOGY_TMUX_SERVER_REQUIRED` rather than
+enumerate whichever server tmux would pick.
+
+### Lead recovery
+
+For an **enrolled** repository only, the repository's own supervisor keeps its lead, once per
+reconcile and before held mail is resumed:
+
+| Lead state | Ownership | What the supervisor does |
+|---|---|---|
+| responsive | any | Reuses it. Attempts and errors reset. |
+| alive, unresponsive | any | Nothing. It is never restarted, killed or duplicated. |
+| dead | managed (`lead ensure`) | Restarts it under the same identity, only after re-observing that the recorded pane incarnation is gone. |
+| dead | externally owned (`lead assign`) | Holds. Raises an alert naming the reassignment command, journalled once. Never replaced. |
+| missing | — | Creates it through the `lead ensure` create path. |
+
+A record with no exact pane binding, or a tmux listing that fails, is never read as dead: recovery
+fails with a visible error instead. An unenrolled repository is never given an agent.
+
+A recovery that fails or is held retries after 10 s, 30 s, 2 min, then every 10 min, and resets once
+the lead is proven responsive. A lead is actively probed (rung) only when held mail asked for proof
+or a lead was just launched, and at most once per retry window. `lead status` shows the recovery
+`action`, `attempts`, `last_error`, `next_retry_at` and any alert; `doctor` lists a dead externally
+owned lead (`LEAD_DEAD_EXTERNAL`) and a failing recovery (`LEAD_RECOVERY_FAILING`) as problems.
 
 ## Enrolling an existing session
 
@@ -83,6 +131,17 @@ last valid prompt with a visible error. Prompts grant no permissions.
 agent, destination, body, task and optional stable `--id`. Inbox/outbox views do not require a run.
 Cross-repository messages wait durably until both registered leads acknowledge readiness. Each
 resume rechecks routing and the task-backed delegation; revocation cannot leave a cached grant.
+Readiness is read from existing proof only; delivery never rings a lead. When a message is held
+because a lead is not proven ready, the envelope is already on disk; each non-ready side then gets
+a recovery request for its own supervisor, and that repository is activated so the supervisor
+exists. The supervisor that proves the lead responsive makes the waiting mail due at once. A held
+message records `attempts`, `last_error` and `next_retry_at` (10 s, 30 s, 2 min, then 10 min), and
+resume skips it until it is due; `mailbox resume --force` retries now. A side that is not ready and
+not enrolled holds as `destination_not_enrolled` or `source_not_enrolled`, on the same backoff
+(enrollment can change), and no recovery is requested for it: enrollment decides which repositories
+are given a lead, not whether a lead already proven responsive may receive mail. Holds no retry can change
+(`hop_limit`, `loop`, `coordinator_not_worker`, `source_identity_required`,
+`repository_identity_changed`) are marked `permanent` and are never retried by resume.
 Reusing an ID with different content is rejected. `mailbox forward --parent <id>` derives ancestry
 from the stored parent instead of allowing a caller to erase hops. `supervise` resumes holds.
 Pollable records never inject input into terminal composers.

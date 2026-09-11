@@ -1,7 +1,7 @@
 [
   {
     "name": "ao-supervise",
-    "description": "Read-only repository supervisor: republishes the Presence v1 heartbeat and reconciles derived state. Launches nothing, kills nothing. A second supervisor for the same repository exits.",
+    "description": "Repository supervisor: republishes the Presence v1 heartbeat, reconciles derived state and resumes held mail. For an enrolled repository only, it ensures a missing lead and restarts a confirmed-dead managed lead; it never kills, restarts or duplicates a live unresponsive lead and never replaces an externally owned one. A second supervisor for the same repository exits.",
     "command": "${CLAUDE_PLUGIN_ROOT}/bin/ao-topology supervise",
     "when": "always"
   }

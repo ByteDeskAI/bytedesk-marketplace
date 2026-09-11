@@ -239,8 +239,10 @@ export async function startupCheck({ consumer, source, agentId, session, pane, i
   invariant(consumer && typeof consumer === "string", "TOPOLOGY_STARTUP_CHECK", "startupCheck needs a consumer path to identify the repository.");
   invariant(source && typeof source === "string", "TOPOLOGY_STARTUP_CHECK", "startupCheck needs a source.");
   const identity = await canonicalRepoId(consumer);
-  if (!incarnation && env.TMUX && (pane || env.TMUX_PANE)) {
-    const observed = (await tmuxApi.listServerPanes({ env })).find(p => p.paneId === (pane ?? env.TMUX_PANE));
+  // TM-167: the caller's own server, named from $TMUX — never the implicit one.
+  const callerSocket = tmuxApi.callerServer(env);
+  if (!incarnation && callerSocket && (pane || env.TMUX_PANE)) {
+    const observed = (await tmuxApi.listServerPanes({ tmuxServer: callerSocket, env })).find(p => p.paneId === (pane ?? env.TMUX_PANE));
     if (observed) { incarnation = Object.fromEntries(SIX.map(k => [k, observed[k]])); session = observed.sessionName; pane = observed.paneId; }
   }
   const root = stateRoot(env, home ?? homedir());
@@ -263,20 +265,39 @@ export async function startupCheck({ consumer, source, agentId, session, pane, i
     });
     labelled = true;
   }
-  return { registered, labelled, readiness };
+  // TM-167: a session starting in an ENROLLED repository is a qualifying activation, so the hook and
+  // the managed-launch paths start the canonical supervisor. activateRepository is a no-op for an
+  // unenrolled one and never throws. The watcher does not activate: it runs inside a supervisor.
+  if (source === "watcher") return { registered, labelled, readiness };
+  const { activateRepository } = await import("./repo-enrollment.mjs");
+  const activation = await activateRepository({ consumer, env, home: home ?? homedir(), reason: "session-start" });
+  return { registered, labelled, readiness, activation };
 }
 export function afterSessionOpen(args = {}) { return startupCheck({ ...args, source: "managed-launch" }); }
 function alive(pid) { try { process.kill(pid, 0); return true; } catch (e) { return e.code !== "ESRCH"; } }
 /** Eventual direct-start detection, based on provider process and cwd, never display names. */
-export async function watchServer({ env = process.env, home, once = false, intervalMs = 5000, listPanesFn, listSessionsFn, tmuxServer = "default", ownerAliveFn = alive } = {}) {
+export async function watchServer({ env = process.env, home, once = false, intervalMs = 5000, listPanesFn, listSessionsFn, tmuxServer = "default", ownerAliveFn = alive, repoId = null } = {}) {
   invariant(Number.isFinite(intervalMs) && intervalMs > 0, "TOPOLOGY_STARTUP_WATCH", "watchServer intervalMs must be positive.");
+  // TM-167: a per-repository supervisor passes `repoId`, and then labels and journals ONLY panes whose
+  // canonical repository is that one. The listing is still server-wide — that is how the panes are
+  // found — but another repository's session is never written about. The lease is per (server, repo)
+  // so each enrolled repository's supervisor watches its own panes instead of one repo winning the
+  // server. `startup watch` passes no repoId and keeps the host-wide behaviour.
+  // ponytail: cwd -> repository is cached for the watcher's lifetime; a directory that becomes a git
+  // repository later is seen under its old identity until the supervisor restarts.
+  const repoOf = new Map();
+  const inRepo = async (cwd) => {
+    if (!repoId) return true;
+    if (!repoOf.has(cwd)) repoOf.set(cwd, (await canonicalRepoId(cwd).catch(() => null))?.id ?? null);
+    return repoOf.get(cwd) === repoId;
+  };
   const root = stateRoot(env, home ?? homedir());
   const list = listPanesFn ?? listSessionsFn ?? tmuxApi.listServerPanes;
   invariant(typeof list === "function", "TOPOLOGY_STARTUP_WATCH", "tmux pane enumeration is unavailable.");
   const initial = await list({ tmuxServer, env });
   const server = initial.find(p => p.serverKey && Number.isFinite(p.serverPid));
   if (!server) return { acquired: false, server: tmuxServer, labelled: [], reason: "no-observed-server" };
-  const leasePath = join(root, "watchers", `${digest([server.serverKey, server.serverPid])}.json`);
+  const leasePath = join(root, "watchers", `${digest(repoId ? [server.serverKey, server.serverPid, repoId] : [server.serverKey, server.serverPid])}.json`);
   await mkdir(dirname(leasePath), { recursive: true });
   const readLease = () => readFile(leasePath, "utf8").then(JSON.parse).catch(e => { if(e.code === "ENOENT") return null; throw e; });
   const taken = await withLock(`${leasePath}.lock`, async () => {
@@ -295,6 +316,7 @@ export async function watchServer({ env = process.env, home, once = false, inter
       if (observed.serverKey !== server.serverKey || observed.serverPid !== server.serverPid) return { acquired: true, fenced: true, server: tmuxServer, labelled };
       if (!observed || observed.alive === false || !["kimi", "codex", "claude", "grok"].includes(basename(observed.command ?? "")) || !observed.cwd) continue;
       if (!SIX.every(k => observed[k] !== undefined && observed[k] !== null)) continue;
+      if (!(await inRepo(observed.cwd))) continue;
       candidates.push(observed);
     }
     const owned = await withLock(`${leasePath}.lock`, async () => {

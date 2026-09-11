@@ -125,6 +125,19 @@ test("THE TRAP: a standing lead outside run.agents is delivered, not TOPOLOGY_UN
   assert.deepEqual(run.message_envelopes[message.id].to, ["@repo"], "the envelope records what was ADDRESSED, not what it expanded to");
 });
 
+test("TM-168: a role icon is display only — a lead icon on a worker's row does not make it a lead", async (t) => {
+  const f = await fixture(t);
+  const run = await loadRun(f.runDir);
+  const { roleVisual } = await import("../../topology/lib/identity.mjs");
+  const lead = roleVisual({ role: "lead" });
+  const impostor = { ...presenceRow("impostor", { runRole: "worker", kind: "run" }), ...lead };
+  const expand = (to) => expandAddresses({ run, to, from: "alice", consumer: f.consumer, collectPresence: presence([impostor]) });
+  await assert.rejects(expand(["@role:lead"]), { code: "TOPOLOGY_BROADCAST_EMPTY" },
+    "addressing reads repoRole and runRole; a lead icon and label must not put anyone in the lead audience");
+  assert.ok((await expand(["@role:worker"])).some((entry) => entry.id === "impostor"), "it is reached by the role it actually has");
+  await assert.rejects(expand([`@role:${lead.roleIcon}`]), { code: "TOPOLOGY_ADDRESS_UNKNOWN" }, "an icon is not an address");
+});
+
 test("an @ token from outside the repository is refused, while a plain id still reaches the lead", async (t) => {
   const f = await fixture(t);
   const outside = await mkdtemp(join(tmpdir(), "ao-outsider-"));

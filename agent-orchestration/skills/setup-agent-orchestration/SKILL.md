@@ -31,9 +31,14 @@ Recommended `~/.tmux.conf` lines for readable multi-agent sessions (offer, do no
 ```
 set -g mouse on
 set -g pane-border-status top
-set -g pane-border-format " #{pane_title} "
+set -g pane-border-format " #{?@ao_role_icon,#{@ao_role_icon} #{@ao_agent} · #{@ao_role_label},#{pane_title}} "
 set -g history-limit 50000
 ```
+
+The border line shows each managed pane's role icon, readable name and role label, and falls back
+to the pane title on panes agent orchestration did not create. Those `@ao_*` pane options are
+display-only; the terminal title bar of a session agent orchestration creates already shows the
+active pane's icon without any of these lines.
 
 ## 3. Agent CLIs
 
