@@ -1,12 +1,23 @@
 // Durable standing mail is independent of run rosters. One atomic envelope is
 // the source of truth for both inbox and outbox; retries never publish a second
 // copy or send terminal input. Readiness checks do not create or restart leads.
+//
+// TM-167. Readiness here is READ-ONLY (cached proof only): it never rings a pane,
+// and it runs under a message lock, so it must not wait for a model turn. When a
+// cross-repository message is held because a lead is not proven ready, the
+// message is already on disk; this module then asks each non-ready side's OWN
+// supervisor to recover its lead (a durable request plus activation) and never
+// launches anything itself. A held message carries attempts, last_error and
+// next_retry_at on the lead-recovery backoff; a hold no retry can change is
+// marked permanent and is not retried by resume.
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, open, readFile, readdir, rename, rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { leadState } from './lead.mjs';
+import { requestLeadRecovery, retryDelayMs } from './lead-recovery.mjs';
+import { activateRepository, resolveEnrollment } from './repo-enrollment.mjs';
 import { withLock } from './lockfile.mjs';
 import { canonicalRepoId, stateRoot } from './repoid.mjs';
 import { hopExceeded, isAssignmentStage, nextVia, routeMessage } from './routing.mjs';
@@ -42,9 +53,52 @@ async function atomicWrite(file, record) {
 function responsive(state) {
   return state?.status === 'responsive' && Boolean(state.record?.agent_id) && state.library_lead === state.record.agent_id;
 }
+function readinessOf(state) {
+  return responsive(state) ? 'responsive' : state?.status === 'responsive' ? 'library_lead_mismatch' : state?.status ?? 'unknown';
+}
+
+// Holds no retry can change. The envelope is immutable, so its declared source, its repository
+// identities and its ancestry stay what they are, and so does the routing verdict built from them.
+const PERMANENT_HOLDS = new Set(['source_identity_required', 'repository_identity_changed', 'hop_limit', 'loop', 'coordinator_not_worker']);
+
+function due(record, now, force) {
+  return record.status === 'held' && !record.permanent && (force || !record.next_retry_at || Date.parse(record.next_retry_at) <= now());
+}
 
 async function advance(record, opts) {
   if (record.status === 'delivered') return record;
+  const next = await attempt(record, opts);
+  if (next.status === 'delivered') return { ...next, permanent: false, last_error: null, next_retry_at: null };
+  const permanent = PERMANENT_HOLDS.has(next.reason);
+  return { ...next, permanent,
+    last_error: next.reason === 'admission_error' ? `admission_error: ${next.error_code}` : next.reason,
+    next_retry_at: permanent ? null : new Date((opts.now ?? Date.now)() + retryDelayMs(next.attempts)).toISOString() };
+}
+
+/** Ask each side whose lead is not proven ready to recover it, through its own supervisor. Runs after
+ * the message lock is released; a failure here leaves the durable hold exactly as it is. */
+async function scheduleRecovery(record, opts) {
+  const request = opts.requestRecovery ?? requestLeadRecovery;
+  const activate = opts.activate ?? activateRepository;
+  const sides = {};
+  for (const [side, consumer] of [['source', record.envelope.fromProject], ['destination', record.envelope.consumer]]) {
+    if (record.readiness?.[side] === 'responsive') continue;
+    try {
+      await request({ consumer, env: opts.env, home: opts.home, reason: 'leads_not_ready', messageId: record.envelope.id });
+      const activation = await activate({ consumer, env: opts.env, home: opts.home, reason: 'held-standing-mail' });
+      sides[side] = { requested: true, enrolled: activation?.enrollment?.enrolled ?? null, supervision: activation?.supervision ?? null };
+    } catch (error) {
+      sides[side] = { requested: false, error: error?.code ?? String(error?.message ?? error) };
+    }
+  }
+  return sides;
+}
+async function withRecovery(record, opts) {
+  if (record.status !== 'held' || record.reason !== 'leads_not_ready') return record;
+  return { ...record, recovery: await scheduleRecovery(record, opts) };
+}
+
+async function attempt(record, opts) {
   const { envelope: e } = record;
   const updated = { ...record, attempts: record.attempts + 1, updated_at: nowIso(), status: 'held', reason: null };
   if (!e.fromProject || !e.from) return { ...updated, reason: 'source_identity_required' };
@@ -58,10 +112,23 @@ async function advance(record, opts) {
     const sameRepo = source.id === destination.id;
     if (!sameRepo) {
       const [src, dst] = await Promise.all([
-        readiness({ ...opts, consumer: e.fromProject }),
-        readiness({ ...opts, consumer: e.consumer }),
+        // Cached proof only: this runs under the message lock, once per held message. Proving a lead
+        // (ringing it) is lead recovery's job, once per backoff window, with no lock held.
+        readiness({ ...opts, consumer: e.fromProject, ackTimeoutMs: 0 }),
+        readiness({ ...opts, consumer: e.consumer, ackTimeoutMs: 0 }),
       ]);
-      if (!responsive(src) || !responsive(dst)) return { ...updated, reason: 'leads_not_ready', readiness: { source: src?.status ?? 'unknown', destination: dst?.status ?? 'unknown' } };
+      if (!responsive(src) || !responsive(dst)) {
+        const detail = { source: readinessOf(src), destination: readinessOf(dst) };
+        // TM-167: only an enrolled repository is ever given a lead, so a side that is not ready and
+        // not enrolled can never become ready through recovery. The hold names enrollment and
+        // schedules nothing. Enrollment decides who is given a lead, not whether a lead already
+        // proven responsive may receive mail. A resolver that cannot answer reads as not enrolled.
+        const enrollment = opts.enrollment ?? resolveEnrollment;
+        const enrolled = async (consumer) => (await (async () => enrollment({ consumer, env: opts.env, home: opts.home }))().catch(() => null))?.enrolled === true;
+        if (!responsive(dst) && !(await enrolled(e.consumer))) return { ...updated, reason: 'destination_not_enrolled', readiness: detail };
+        if (!responsive(src) && !(await enrolled(e.fromProject))) return { ...updated, reason: 'source_not_enrolled', readiness: detail };
+        return { ...updated, reason: 'leads_not_ready', readiness: detail };
+      }
     }
     // This is intentionally rerun, including delegationAllows/verifyAgainstStore,
     // for EACH resume. A held record contains no cached grant.
@@ -107,7 +174,7 @@ export async function sendStandingMessage(input, options = {}) {
   }));
   const p = paths(id, opts);
   await mkdir(join(p.root, 'messages'), { recursive: true, mode: 0o700 });
-  return withLock(p.lock, async () => {
+  const settled = await withLock(p.lock, async () => {
     let record = await read(p.file);
     if (record) invariant(isDeepStrictEqual(record.envelope, envelope), 'TOPOLOGY_MESSAGE_ID_CONFLICT', 'Message ID already names different content or provenance.');
     else {
@@ -119,6 +186,8 @@ export async function sendStandingMessage(input, options = {}) {
     await atomicWrite(p.file, record);
     return record;
   });
+  // The envelope is durable before anything is asked of any lead.
+  return withRecovery(settled, opts);
 }
 
 async function records(opts) {
@@ -136,22 +205,45 @@ async function records(opts) {
 
 /** Safe-boundary watcher calls this without a run. Delivered records are final;
  * each held request rechecks both leads and the live receiving task store. */
-export async function resumeStandingMessages({ consumer, ...options }) {
+export async function resumeStandingMessages({ consumer, force = false, ...options }) {
   const identity = await canonicalRepoId(consumer);
+  const now = options.now ?? Date.now;
   const resumed = [];
   for (const old of await records(options)) {
-    if (old.envelope.destinationRepoId !== identity.id || old.status !== 'held') continue;
+    // TM-167: a held message is retried when it is due, not on every tick. `force` skips backoff
+    // for a human who asked; nothing retries a permanent hold.
+    if (old.envelope.destinationRepoId !== identity.id || !due(old, now, force)) continue;
     const p = paths(old.envelope.id, options);
-    resumed.push(await withLock(p.lock, async () => {
+    const settled = await withLock(p.lock, async () => {
       const current = await read(p.file);
       invariant(current, 'TOPOLOGY_STANDING_STATE_INVALID', 'Standing message disappeared during resume.');
       if (current.status === 'delivered') return current;
-      const next = await advance(current, options);
+      // Re-checked under the lock: a concurrent resumer may have just attempted and re-held it.
+      if (!due(current, now, force)) return null;
+      const next = await advance(current, { ...options, now });
       await atomicWrite(p.file, next);
       return next;
-    }));
+    });
+    if (settled) resumed.push(await withRecovery(settled, options));
   }
   return resumed;
+}
+
+/** A lead proven responsive makes the mail that asked for it due now, instead of at its backoff.
+ * Nothing is delivered here: the next resume re-runs full admission under the message lock. */
+export async function wakeStandingMessages({ ids = [], ...options }) {
+  const woken = [];
+  for (const id of new Set(ids)) {
+    const p = paths(id, options);
+    if (!(await read(p.file))) continue;
+    await withLock(p.lock, async () => {
+      const current = await read(p.file);
+      if (current?.status !== 'held' || current.permanent || !current.next_retry_at) return;
+      await atomicWrite(p.file, { ...current, next_retry_at: null });
+      woken.push(id);
+    });
+  }
+  return woken;
 }
 
 // These are host-local mailbox views, not an authorization boundary. API/CLI
