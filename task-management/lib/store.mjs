@@ -1012,6 +1012,10 @@ agents.json
 # The dispatcher pool's pid — a loop running on this machine, right now.
 pool.pid
 
+# The pool's brake: its failure count and a pause that must survive a restart. One
+# machine's loop, like pool.pid.
+pool.state.json
+
 # In-flight planning conversations, and the untrusted files attached to them. evidence/ is
 # the shared record and belongs in git; this is the opposite of that — one machine's unfinished
 # thinking, plus bytes that arrived from outside and were never reviewed by anyone.
@@ -1148,6 +1152,7 @@ export const NOT_FOR_GIT = [
   "state.json",
   "agents.json",
   "pool.pid",
+  "pool.state.json",
   "events.json",
   "events.jsonl",
   "events.*.jsonl",
@@ -1168,6 +1173,7 @@ export function isHostFile(name, rel = "") {
     name === "state.json" ||
     name === "agents.json" ||
     name === "pool.pid" ||
+    name === "pool.state.json" ||
     name === "events.json" ||
     name === "events.jsonl" ||
     name === "port.assigned" ||

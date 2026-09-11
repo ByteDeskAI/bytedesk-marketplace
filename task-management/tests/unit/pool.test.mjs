@@ -112,20 +112,21 @@ describe("poolTick — capacity", () => {
     assert.equal(state(p).claims[t3], undefined);
   });
 
-  it("counts only alive pool-spawned workers against poolWip", async () => {
+  it("counts in_progress dispatched tasks against poolWip, not registry entries (TM-175)", async () => {
     const p = repoStore(); // default poolWip 3
     ready(p, "one");
     ready(p, "two");
     ready(p, "three");
-    // A live dispatched worker (backend set) consumes a slot…
-    registerAgent({ name: "agent:TM-009-pool", backend: "tmux", runId: "tmux:r1", pid: process.pid, session: "s-w" }, p);
-    // …an interactive session (backend null) does not.
-    registerAgent({ name: "human:interactive", pid: process.pid, session: "s-h" }, p);
+    // A dispatched task still in progress consumes a slot…
+    const running = create("task", { title: "a worker is on this" }, "", p);
+    update(running.id, { status: "in_progress", dispatched: { backend: "tmux", run: "tmux:r1", session: "s-w", at: new Date().toISOString() } }, p);
+    // …a live registry entry with no in_progress task behind it does not: the board is the count.
+    registerAgent({ name: "agent:TM-009-pool", backend: "tmux", runId: "tmux:r0", pid: process.pid, session: "s-old" }, p);
     const fake = fakeBackend();
 
-    const res = await poolTick({ p, registry: { fake }, caps: {} });
+    const res = await poolTick({ p, registry: { fake }, caps: {}, impls: { tmux: () => ({ ok: true, pending: true }) } });
 
-    assert.equal(res.capacity, 2, "3 WIP minus the one alive pool worker");
+    assert.equal(res.capacity, 2, "3 WIP minus the one in_progress dispatched task");
     assert.equal(res.dispatched.length, 2);
     assert.equal(res.skipped.length, 1);
     assert.equal(res.skipped[0].reason, "at capacity");

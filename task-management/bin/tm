@@ -70,7 +70,7 @@ import { getPath, setPath } from "../lib/settings.mjs";
 import { dispatch as dispatchTask } from "../lib/dispatch/index.mjs";
 import { envRegistry } from "../lib/dispatch/backend.mjs";
 import { collect as collectResult } from "../lib/dispatch/collect.mjs";
-import { livePool, poolTick, poolable, runPool, stopPool } from "../lib/dispatch/pool.mjs";
+import { livePool, poolTick, poolWorkers, poolable, readPoolState, resumePool, runPool, stopPool } from "../lib/dispatch/pool.mjs";
 
 /** This file, as an argv element — `pool start` re-executes it detached. */
 const SELF = fileURLToPath(import.meta.url);
@@ -1388,25 +1388,34 @@ const VERBS = {
       const inst = stopPool(P);
       return out(inst ? `pool stopping (pid ${inst.pid})` : "(no pool running)");
     }
+    if (action === "resume") {
+      // Clears the brake (pool.state.json). A running loop picks it up on its next tick.
+      const prior = resumePool(P);
+      return out(prior.pausedReason ? `pool resumed — it was paused: ${prior.pausedReason}` : `pool was not paused — failure count reset (was ${prior.failures})`);
+    }
     if (action === "status") {
       const inst = livePool(P);
       const cfg = config(P);
+      const brake = readPoolState(P);
       const res = {
         running: Boolean(inst),
         pid: inst?.pid ?? null,
         started: inst?.started ?? null,
         enabled: cfg.dispatch?.enabled ?? null,
         poolWip: Number(cfg.dispatch?.poolWip ?? 3),
-        workers: listAgents(P).filter((a) => a.alive && a.backend != null).length,
+        workers: poolWorkers(P).length,
         poolable: poolable(P).length,
+        paused: Boolean(brake.pausedReason),
+        pausedReason: brake.pausedReason,
+        pausedAt: brake.pausedAt,
+        failures: brake.failures,
       };
-      return emit(res, () =>
-        inst
-          ? `pool running (pid ${inst.pid}, started ${inst.started || "?"}) — ${res.workers}/${res.poolWip} workers, ${res.poolable} ready`
-          : `(no pool running) — ${res.workers}/${res.poolWip} workers, ${res.poolable} ready`,
-      );
+      const line = inst
+        ? `pool running (pid ${inst.pid}, started ${inst.started || "?"}) — ${res.workers}/${res.poolWip} workers, ${res.poolable} ready`
+        : `(no pool running) — ${res.workers}/${res.poolWip} workers, ${res.poolable} ready`;
+      return emit(res, () => (res.paused ? `${line}\npaused: ${brake.pausedReason} (since ${brake.pausedAt}) — tm pool resume` : line));
     }
-    die(`unknown pool action: ${action} (once | start | stop | status [--dry-run])`);
+    die(`unknown pool action: ${action} (once | start | stop | status | resume [--dry-run])`);
   },
 
   /** Drop claims whose sessions or worktrees are gone. */
@@ -1582,7 +1591,7 @@ const VERBS = {
         "  dispatch <id> [--backend <name>] [--steal]   hand the task to a worker: claim, start, worktree, spawn",
         "  agent [list] | agent heartbeat <name> | agent reap   the dispatched-worker registry",
         "  collect <id>                  pull a dispatched worker's result into the store",
-        "  pool [once|start|stop|status] [--dry-run]   the ready-for-agent pickup loop (once is the default)",
+        "  pool [once|start|stop|status|resume] [--dry-run]   the ready-for-agent pickup loop (once is the default)",
         "  ntfy [on|off <kind>|enable|disable|test|topic <t>|board <url>]   push notifications",
         "  tm-dashboard [--browser|--no-browser]   live board; --browser opens it",
         "",
@@ -1658,6 +1667,7 @@ const renderEventLine = (row) => renderLog([row], P).split("\n").pop();
 function renderTick(res) {
   if (res.disabled) return `pool disabled: ${res.reason}`;
   const lines = [`pool tick — capacity ${res.capacity}`];
+  if (res.paused) lines.push(`  paused: ${res.paused.reason} (since ${res.paused.at}) — tm pool resume`);
   for (const c of res.collected) {
     lines.push(`  collected ${c.id}: ${c.pending ? `still running (${c.state || "pending"})` : c.ok ? c.outcome : `failed — ${c.reason}`}`);
   }
