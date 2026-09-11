@@ -10,8 +10,8 @@
  *
  * Two entry points, deliberately different policies:
  *
- *   VERBS   `tm pool once|start|stop|status` are explicit control — a human (or a
- *           script a human wrote) asked, so the tick runs. The kill-switches
+ *   VERBS   `tm pool once|start|stop|status|resume` are explicit control — a human
+ *           (or a script a human wrote) asked, so the tick runs. The kill-switches
  *           still apply: TM_ENFORCE=off or `dispatch.enabled: false` in config
  *           means the tick reports { disabled: true } and dispatches nothing.
  *
@@ -22,9 +22,11 @@
  *           verbs above work regardless — explicit beats config.
  *
  * Config (all under `dispatch`, set with `tm config dispatch '{...}'`):
- *   enabled       false is a kill-switch for the tick; the monitor also requires true
- *   poolWip       max pool-spawned workers at once (default 3)
- *   pollSeconds   seconds between ticks of `tm pool run` (default 30)
+ *   enabled            false is a kill-switch for the tick; the monitor also requires true
+ *   poolWip            max dispatched tasks in progress at once (default 3)
+ *   pollSeconds        seconds between ticks of `tm pool run` (default 30)
+ *   maxFailures        consecutive failures before the pool pauses (default 3)
+ *   maxRuntimeMinutes  a still-running worker older than this logs worker_overrun (default 120)
  *
  * Dispatch goes through ./index.mjs `dispatch()` only — claim, start, provision,
  * spawn all keep their one implementation, and a refused dispatch leaves the
@@ -36,14 +38,15 @@
  * as lib/singleton.mjs's dashboard.pid — the record carries the store path, so a
  * recycled pid from an unrelated process is never mistaken for a live pool, and
  * the file is in the store's gitignore contract (it is one machine's runtime
- * state, like agents.json).
+ * state, like agents.json). `pool.state.json` beside it is the brake: the failure
+ * count and the pause, which must outlive the process that set them.
  */
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { readFileSync, renameSync, unlinkSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { claimant } from "../claims.mjs";
 import { listAgents, retireAgent } from "../agents.mjs";
 import { batches } from "../parallel.mjs";
-import { config, list, nextTasks, read } from "../store.mjs";
+import { config, list, logEvent, nextTasks, now, read, withLock } from "../store.mjs";
 import { paths } from "../paths.mjs";
 import { dispatch } from "./index.mjs";
 import { collect } from "./collect.mjs";
@@ -55,6 +58,9 @@ export const READY_LABEL = "ready-for-agent";
 // ── pool.pid: one loop per store ─────────────────────────────────────────────
 
 const pidFile = (p) => join(p.base, "pool.pid");
+
+/** Stores whose pool.pid THIS process wrote and still holds (a same-pid record is otherwise a recycled pid). */
+const held = new Set();
 
 /** The recorded pool instance, or null when there is no readable one. */
 export function readPoolPid(p = paths()) {
@@ -87,14 +93,36 @@ export function livePool(p = paths()) {
   return alive(inst.pid) ? inst : null;
 }
 
+/**
+ * Take pool.pid for this process: `{ ok: true, record }`, or `{ ok: false, incumbent }`.
+ *
+ * Check-then-write let two loops that started together both see no pool and both
+ * run (TM-175 B8). The file is now created with `wx`, which fails if it exists, and
+ * the whole decision runs under the store lock, so a stale record (dead pid, another
+ * store's path) is replaced by exactly one claimant. A record carrying our own pid is
+ * an incumbent only when this process really holds it — otherwise it is a crashed
+ * predecessor whose pid the OS recycled to us.
+ */
 export function writePoolPid(p = paths()) {
-  const record = { pid: process.pid, store: p.base, started: new Date().toISOString() };
-  writeFileSync(pidFile(p), `${JSON.stringify(record)}\n`);
-  return record;
+  const record = { pid: process.pid, store: p.base, started: now() };
+  const body = `${JSON.stringify(record)}\n`;
+  return withLock(p, () => {
+    try {
+      writeFileSync(pidFile(p), body, { flag: "wx" });
+    } catch (err) {
+      if (err.code !== "EEXIST") throw err;
+      const incumbent = livePool(p);
+      if (incumbent && (incumbent.pid !== process.pid || held.has(p.base))) return { ok: false, incumbent };
+      writeFileSync(pidFile(p), body); // stale: replaced under the lock every claimant takes
+    }
+    held.add(p.base);
+    return { ok: true, record };
+  });
 }
 
 /** Remove the pid file. Safe when nothing is running. */
 export function releasePoolPid(p = paths()) {
+  held.delete(p.base);
   try {
     if (existsSync(pidFile(p))) unlinkSync(pidFile(p));
   } catch {
@@ -116,6 +144,81 @@ export function stopPool(p = paths()) {
   return inst;
 }
 
+// ── pool.state.json: the brake ───────────────────────────────────────────────
+
+const stateFile = (p) => join(p.base, "pool.state.json");
+
+/** A failure whose reason says the harness is out of budget: retrying cannot help, so one pauses. */
+export const QUOTA_RE = /usage limit|rate limit|quota|reached your .*limit|\b429\b/i;
+
+const CLEAR = { failures: 0, changedAt: null, pausedReason: null, pausedAt: null };
+
+/** The brake as it is on disk. A missing or torn file is an unbraked pool. */
+export function readPoolState(p = paths()) {
+  try {
+    const s = JSON.parse(readFileSync(stateFile(p), "utf8"));
+    return { ...CLEAR, ...s, failures: Number(s.failures) || 0 };
+  } catch {
+    return { ...CLEAR };
+  }
+}
+
+/**
+ * Written through a rename so a crash mid-write cannot tear the pause away. The temp
+ * name matches the store's existing `.tm-tmp-*` ignore rule.
+ * ponytail: read-modify-write without a lock; a `tm pool resume` racing a failure in
+ * the same millisecond can lose the resume. Take withLock here if that is ever seen.
+ */
+function writePoolState(next, p) {
+  const tmp = join(p.base, `.tm-tmp-pool-state-${process.pid}`);
+  writeFileSync(tmp, `${JSON.stringify(next)}\n`);
+  renameSync(tmp, stateFile(p));
+  return next;
+}
+
+/** `tm pool resume`: clear the pause and the count. Returns the state it cleared. */
+export function resumePool(p = paths()) {
+  const prior = readPoolState(p);
+  writePoolState({ ...CLEAR, changedAt: now() }, p);
+  return prior;
+}
+
+/**
+ * Count one failure; pause at dispatch.maxFailures, or at once for a quota-shaped one.
+ * Returns the state after. A pool already paused stays paused and stops counting.
+ */
+function recordFailure(reason, cfg, p) {
+  const s = readPoolState(p);
+  if (s.pausedReason) return s;
+  const text = String(reason || "unknown failure");
+  const brief = text.split("\n")[0].slice(0, 300);
+  const at = now();
+  const failures = s.failures + 1;
+  const next = { ...s, failures, changedAt: at };
+  const quota = QUOTA_RE.test(text);
+  if (quota || failures >= Number(cfg.dispatch?.maxFailures ?? 3)) {
+    next.pausedReason = quota ? `quota-shaped failure: ${brief}` : `${failures} consecutive failures (last: ${brief})`;
+    next.pausedAt = at;
+    logEvent("pool_paused", { reason: next.pausedReason, failures }, p);
+  }
+  return writePoolState(next, p);
+}
+
+/**
+ * The success that ends a streak: a dispatched task that closed after the count last
+ * changed. Read from the board — `tm done` stamps `closed` — rather than from collect,
+ * because the pool only collects in_progress tasks and a worker that closed through
+ * the gates is no longer one. A pause is not lifted here; only `tm pool resume` does.
+ * ponytail: scans every done task each tick; index by `closed` if boards reach thousands.
+ */
+function resetOnClose(p) {
+  const s = readPoolState(p);
+  if (!s.failures || s.pausedReason || !s.changedAt) return;
+  const since = new Date(s.changedAt).getTime();
+  const closed = list("task", { status: "done" }, p).some((t) => t.dispatched && t.closed && new Date(t.closed).getTime() > since);
+  if (closed) writePoolState({ ...s, failures: 0, changedAt: now() }, p);
+}
+
 // ── the tick ─────────────────────────────────────────────────────────────────
 
 /**
@@ -125,6 +228,18 @@ export function stopPool(p = paths()) {
  */
 export function poolable(p = paths()) {
   return nextTasks(p).filter((t) => (t.labels || []).includes(READY_LABEL) && !claimant(t.id, p));
+}
+
+/**
+ * The workers the pool is charged for: in_progress tasks with a dispatch record.
+ *
+ * Counted from the board, not the agent registry (TM-175 B4). tmux and topology
+ * spawns register `pid: null` and nothing renews their heartbeat, so after
+ * agentTtlMinutes a running worker read dead and the pool overfilled poolWip. The
+ * board is the truth the collector maintains: a worker that ended is parked or done.
+ */
+export function poolWorkers(p = paths()) {
+  return list("task", { status: "in_progress" }, p).filter((t) => t.dispatched);
 }
 
 /**
@@ -140,7 +255,7 @@ export function poolable(p = paths()) {
  *   impls      collector routing overrides, passed through to collect()
  *   env        where TM_ENFORCE is read (tests)
  *
- * Returns { collected, dispatched, skipped, capacity } — or
+ * Returns { collected, dispatched, skipped, capacity, paused? } — or
  * { disabled: true, reason, ...empty } when a kill-switch fired before any work.
  */
 export async function poolTick({ p = paths(), registry = null, caps = null, dryRun = false, impls = {}, env = process.env } = {}) {
@@ -157,40 +272,39 @@ export async function poolTick({ p = paths(), registry = null, caps = null, dryR
   const dispatched = [];
   const skipped = [];
 
+  resetOnClose(p);
+
   /**
    * Collection first: a worker that finished frees its capacity and parks its
-   * failures BEFORE the tick decides what to start — otherwise a parked task's
-   * dead worker still reads as an alive agent and the pool thinks it is full.
-   * A task whose worker is still running collects as { pending: true }: a read,
-   * not a wait.
+   * failures BEFORE the tick decides what to start. A task whose worker is still
+   * running collects as { pending: true }: a read, not a wait, and neither a
+   * failure nor a success for the brake. A paused pool still collects.
    */
   for (const t of list("task", { status: "in_progress" }, p)) {
     if (!t.dispatched) continue;
     try {
       const res = await collect(t.id, p, impls);
       collected.push({ id: t.id, ...res });
-      // A terminal result retires the worker's registry entry, so the capacity
-      // count below does not charge this tick for a worker that already ended.
       if (res.ok && !res.pending) {
+        // Registry hygiene only — capacity is read from the board below.
         const run = read(t.id, p)?.dispatched?.run;
         const agent = run ? listAgents(p).find((a) => a.runId && a.runId === run) : null;
         if (agent) retireAgent(agent.name, p);
+        if (res.outcome === "failed") recordFailure(`${t.id}: ${res.summary || "worker failed"}`, cfg, p);
       }
     } catch (err) {
       skipped.push({ id: t.id, reason: `collect failed: ${err.message}` });
     }
   }
 
-  // Pool-spawned workers only: a registered agent with a backend is a dispatch;
-  // backend null is an interactive session and does not consume pool WIP.
-  const aliveWorkers = listAgents(p).filter((a) => a.alive && a.backend != null);
-  const busy = aliveWorkers.length;
-  const capacity = Math.max(0, Number(cfg.dispatch?.poolWip ?? 3) - busy);
+  const running = list("task", { status: "in_progress" }, p);
+  const workers = running.filter((t) => t.dispatched);
+  const capacity = Math.max(0, Number(cfg.dispatch?.poolWip ?? 3) - workers.length);
 
   // Per-backend caps (config dispatch.backendCaps, e.g. { tmux: 2 }) sit on top of
-  // poolWip: a capped backend skips its candidates even when the pool has room.
+  // poolWip, charged by the backend each running task was dispatched to.
   const busyByBackend = {};
-  for (const a of aliveWorkers) busyByBackend[a.backend] = (busyByBackend[a.backend] || 0) + 1;
+  for (const t of workers) busyByBackend[t.dispatched.backend] = (busyByBackend[t.dispatched.backend] || 0) + 1;
   const pick = dryRun ? null : await resolveBackend({ caps, registry, p });
   const backendCap = pick?.name ? Number(cfg.dispatch?.backendCaps?.[pick.name]) : NaN;
 
@@ -198,12 +312,20 @@ export async function poolTick({ p = paths(), registry = null, caps = null, dryR
    * The collision-free set. batches() bins the startable queue by disjoint
    * touches; the first bin is the maximal greedy set that can all run at once,
    * so a ready task that landed in a later bin collides with something ahead of
-   * it and waits for the next tick.
+   * it and waits for the next tick. batches() only sees open work, so the paths
+   * running tasks hold are checked separately (TM-175 B6).
    */
   const collisionFree = new Set((batches({}, p)[0]?.tasks || []).map((t) => t.id));
+  const occupiedBy = new Map();
+  for (const t of running) for (const path of t.touches || []) if (!occupiedBy.has(path)) occupiedBy.set(path, t.id);
 
+  let brake = readPoolState(p);
   let room = capacity;
   for (const task of poolable(p)) {
+    if (brake.pausedReason) {
+      skipped.push({ id: task.id, reason: `pool paused: ${brake.pausedReason} — tm pool resume` });
+      continue;
+    }
     if (room <= 0) {
       skipped.push({ id: task.id, reason: "at capacity" });
       continue;
@@ -212,32 +334,43 @@ export async function poolTick({ p = paths(), registry = null, caps = null, dryR
       skipped.push({ id: task.id, reason: "touches collide with a task ahead of it" });
       continue;
     }
+    const taken = (task.touches || []).find((path) => occupiedBy.has(path));
+    if (taken) {
+      skipped.push({ id: task.id, reason: `touches overlap in_progress ${occupiedBy.get(taken)} (${taken})` });
+      continue;
+    }
     if (dryRun) {
       dispatched.push({ id: task.id, dryRun: true });
       room -= 1;
       continue;
     }
+    if (Number.isFinite(backendCap) && (busyByBackend[pick.name] || 0) >= backendCap) {
+      skipped.push({ id: task.id, reason: `backend ${pick.name} at cap (${backendCap})` });
+      continue;
+    }
+    let failure = null;
     try {
       // One session per dispatch, so a reaped worker parks its own task and not
       // every task the pool is running (reapDeadWorkers maps claims by session).
-      if (Number.isFinite(backendCap) && (busyByBackend[pick.name] || 0) >= backendCap) {
-        skipped.push({ id: task.id, reason: `backend ${pick.name} at cap (${backendCap})` });
-        continue;
-      }
       const res = await dispatch(task.id, { session: `pool-${task.id.toLowerCase()}`, actor: "pool", p, caps, registry, backend: pick?.name ?? null });
       if (res.ok) {
         dispatched.push({ id: task.id, backend: res.backend, run: res.run ?? null, worktree: res.worktree });
         busyByBackend[res.backend] = (busyByBackend[res.backend] || 0) + 1;
         room -= 1;
       } else {
-        skipped.push({ id: task.id, reason: res.reason });
+        failure = res.reason;
       }
     } catch (err) {
-      skipped.push({ id: task.id, reason: `dispatch failed: ${err.message}` });
+      failure = `dispatch failed: ${err.message}`;
+    }
+    if (failure !== null) {
+      skipped.push({ id: task.id, reason: failure });
+      brake = recordFailure(`${task.id}: ${failure}`, cfg, p);
     }
   }
 
-  return { collected, dispatched, skipped, capacity };
+  brake = readPoolState(p);
+  return { collected, dispatched, skipped, capacity, ...(brake.pausedReason ? { paused: { reason: brake.pausedReason, at: brake.pausedAt } } : {}) };
 }
 
 // ── the loop ─────────────────────────────────────────────────────────────────
@@ -249,52 +382,52 @@ export async function poolTick({ p = paths(), registry = null, caps = null, dryR
  * config sets dispatch.enabled === true this returns { disabled } immediately —
  * exit 0, no pid file, no tick. `tm pool start` (explicit) runs without `auto`.
  *
- * Refuses to start a second pool over a live pid file, writes pool.pid on
- * start, and removes it on SIGTERM/SIGINT — the sleep is interruptible so a
- * stop lands within a tick, not after a full poll interval.
+ * Refuses to start a second pool over a live pid file, takes pool.pid exclusively
+ * on start, and removes it on SIGTERM/SIGINT. A stop sets a flag checked after
+ * every tick as well as waking the sleep: a signal that lands mid-tick used to find
+ * no sleep to wake and was lost, and with a listener installed the default exit was
+ * gone too (TM-175 B5).
  */
 export async function runPool({ p = paths(), auto = false, intervalSeconds = null, registry = null, caps = null, onTick = null } = {}) {
   if (auto && config(p).dispatch?.enabled !== true) {
     return { disabled: true, reason: 'config dispatch.enabled is not true — the pool daemon is opt-in (tm config dispatch \'{"enabled":true}\')' };
   }
-  const incumbent = livePool(p);
-  if (incumbent && incumbent.pid !== process.pid) {
-    return { ok: false, reason: `pool already running (pid ${incumbent.pid}, started ${incumbent.started || "?"})` };
+  const claim = writePoolPid(p);
+  if (!claim.ok) {
+    const inc = claim.incumbent;
+    return { ok: false, reason: `pool already running (pid ${inc?.pid ?? "?"}, started ${inc?.started || "?"})` };
   }
-  writePoolPid(p);
 
   const seconds = intervalSeconds ?? Number(config(p).dispatch?.pollSeconds ?? 30);
+  let stopping = false;
   let wake = null;
   const stop = () => {
+    stopping = true;
     if (wake) wake();
   };
   process.on("SIGTERM", stop);
   process.on("SIGINT", stop);
-  let stopped = false;
   try {
     for (;;) {
       const tick = await poolTick({ p, registry, caps });
       if (onTick) onTick(tick);
       // The lock is never held here: the tick has fully returned before the
       // sleep starts, and withLock scopes itself to single writes regardless.
-      if (!(seconds > 0)) break;
-      const interrupted = await new Promise((resolve) => {
-        const timer = setTimeout(() => resolve(false), seconds * 1000);
+      if (stopping || !(seconds > 0)) break;
+      await new Promise((resolve) => {
+        const timer = setTimeout(resolve, seconds * 1000);
         wake = () => {
           clearTimeout(timer);
-          resolve(true);
+          resolve();
         };
       });
       wake = null;
-      if (interrupted) {
-        stopped = true;
-        break;
-      }
+      if (stopping) break;
     }
   } finally {
     process.removeListener("SIGTERM", stop);
     process.removeListener("SIGINT", stop);
     releasePoolPid(p);
   }
-  return { ok: true, stopped };
+  return { ok: true, stopped: stopping };
 }

@@ -29,7 +29,7 @@
  */
 import { claimTask, claimant, heartbeatClaim, releaseClaim } from "../claims.mjs";
 import { listAgents, registerAgent } from "../agents.mjs";
-import { provision } from "../worktree.mjs";
+import { provision, unprovision } from "../worktree.mjs";
 import { handoff } from "../render.mjs";
 import { RESOLVED, config, logEvent, mutate, now, read, update } from "../store.mjs";
 import { paths } from "../paths.mjs";
@@ -137,12 +137,26 @@ export async function dispatch(id, { backend = null, session = null, actor = nul
   if (!claim.ok) return { ok: false, reason: claim.reason, holder: claim.holder };
 
   const priorStatus = task.status;
+  let prov;
   const fail = (reason, extra = {}) => {
     /**
      * Roll back only what THIS call created. If a claim predates this dispatch
      * (reachable via --steal past a stale dispatched record), releasing it would
      * yank the rug from a live worker over a failure it had no part in.
+     *
+     * That includes the worktree (TM-175 B7): left on disk, every later `git worktree
+     * add` for this task fails on the occupied path, so the pool retried and failed it
+     * every tick. provision() never adopts an existing checkout — git refuses to add
+     * onto one and provision throws — so `prov.ok` means this call created it. force,
+     * because the only uncommitted content is what the failed spawn may have written.
      */
+    if (prov?.ok) {
+      try {
+        unprovision(task, { force: true, p });
+      } catch {
+        /* a stuck worktree must not stop the claim and status rollback below */
+      }
+    }
     if (!priorClaim) releaseClaim(id, p);
     if (read(id, p)?.status !== priorStatus) update(id, { status: priorStatus }, p);
     return { ok: false, reason, backend: picked.name, ...extra };
@@ -150,7 +164,6 @@ export async function dispatch(id, { backend = null, session = null, actor = nul
 
   update(id, { status: "in_progress", ...(session ? { session } : {}), ...(actor ? { actor } : {}) }, p);
 
-  let prov;
   try {
     prov = provision(task, { session, actor, steal, p });
   } catch (err) {
