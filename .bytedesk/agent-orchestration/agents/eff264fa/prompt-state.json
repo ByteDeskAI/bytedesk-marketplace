@@ -1,15 +1,20 @@
 {
-  "desired_revision": "e2e8e814a15b0ecc",
+  "desired_revision": "21a08c5403ef5849",
   "sources": [
     {
       "layer": "generated",
       "path": null,
-      "sha256": "2075a7e55931"
+      "sha256": "7e6c6a045843"
     },
     {
       "layer": "defaults common",
-      "path": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-130-delivery/agent-orchestration/prompts/common.md",
+      "path": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/agent-orchestration/prompts/common.md",
       "sha256": "7dec7e17d5be"
+    },
+    {
+      "layer": "defaults role:observer",
+      "path": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/agent-orchestration/roles/observer.md",
+      "sha256": "9482c3238e9f"
     }
   ],
   "errors": [],

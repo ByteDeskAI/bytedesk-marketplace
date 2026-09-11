@@ -1,7 +1,7 @@
 ---
 id: "EP-018"
 kind: "epic"
-status: "open"
+status: "done"
 created: "2026-09-09T06:48:33.388Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "Persistent repository leads, configurable agent templates, and the cross-repo presence contract"
@@ -9,8 +9,9 @@ actor: "main"
 session: "156f2109-ba88-4394-bb64-201f22732700"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-09T21:29:22.133Z"
+updated: "2026-09-10T23:29:05.027Z"
 plan: ".bytedesk/task-management/plans/2026-09-09-coordination-primitives-for-agent-orchestration-.md"
+closed: "2026-09-10T23:29:05.023Z"
 ---
 
 Marketplace side of the Ryan-approved rollout described in /tmp/ao-lead-rollout-20260909/PLAN.md

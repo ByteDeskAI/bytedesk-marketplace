@@ -104,3 +104,14 @@
 {"ts":"2026-09-10T01:15:23.351Z","kind":"hook_session_start","session":"ec620d55-9a45-4c47-8f87-36fd82eeea5b"}
 {"ts":"2026-09-10T01:44:00.545Z","kind":"hook_pre_compact","session":"e01dd923-50ea-45d8-9911-b9d5faed94bd"}
 {"ts":"2026-09-10T01:45:27.461Z","kind":"hook_session_start","session":"e01dd923-50ea-45d8-9911-b9d5faed94bd"}
+{"ts":"2026-09-10T21:13:19.392Z","kind":"hook_pre_compact","session":"e01dd923-50ea-45d8-9911-b9d5faed94bd"}
+{"ts":"2026-09-10T21:14:51.155Z","kind":"hook_session_start","session":"e01dd923-50ea-45d8-9911-b9d5faed94bd"}
+{"ts":"2026-09-10T22:19:18.646Z","kind":"hook_session_start","session":"da31332f-ad92-4394-8dbb-1b123a7d393a"}
+{"ts":"2026-09-11T01:28:11.003Z","kind":"hook_session_start","session":"84684bc5-9d54-4320-b7f2-b737ff1dd938"}
+{"ts":"2026-09-11T01:28:14.135Z","kind":"hook_session_start","session":"6351f358-8849-432d-a1a8-24631045274e"}
+{"ts":"2026-09-11T03:06:12.269Z","kind":"hook_session_start","session":"8e87dbc7-3321-4e05-8648-b64d7c6319bb"}
+{"ts":"2026-09-11T03:06:23.121Z","kind":"hook_session_start","session":"c3738e82-1fbf-4fc3-a6a3-06f965eac51c"}
+{"ts":"2026-09-11T18:07:38.523Z","kind":"concept_write","session":"8e87dbc7-3321-4e05-8648-b64d7c6319bb","id":"decisions/decision-2026-09-11","type":"Decision"}
+{"ts":"2026-09-11T18:07:38.592Z","kind":"hook_decision_captured","session":"8e87dbc7-3321-4e05-8648-b64d7c6319bb","title":"Decision 2026-09-11"}
+{"ts":"2026-09-11T18:16:31.953Z","kind":"hook_session_start","session":"19784bb4-164f-42d2-aa46-a90afc17b13b"}
+{"ts":"2026-09-11T18:16:57.678Z","kind":"hook_session_start","session":"7d1e0593-5035-4ad2-a7da-0a8bddd53ed0"}
