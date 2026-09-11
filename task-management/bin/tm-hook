@@ -22,6 +22,37 @@ try {
   /* empty stdin */
 }
 
+// TM-177: the dispatch worker guard — the one event that blocks by exit code rather than JSON.
+// hooks/tm-hook.sh already returned for non-workers without starting Node; this check covers hosts
+// that run this file directly (the Codex launcher). In a worker it fails SAFE: anything it cannot
+// read or run is refused, because the worker is running with every permission prompt skipped.
+if (event === "pre-bash") {
+  if (!process.env.TM_DISPATCH_WORKER) process.exit(0);
+  const refuse = (why) => {
+    process.stderr.write(`task-management dispatch guard (worker for ${process.env.TM_DISPATCH_TASK || "an unnamed task"}): ${why}\n`);
+    process.exit(2);
+  };
+  let payload = null;
+  try {
+    payload = JSON.parse(input.toString("utf8"));
+  } catch {
+    /* refused below */
+  }
+  const command = payload?.tool_input?.command;
+  if (typeof command !== "string") refuse("could not read a Bash command from the PreToolUse payload, so it cannot be checked; refusing rather than guessing.");
+  try {
+    const { guardCommand } = await import("../lib/worker-guard.mjs");
+    const cwd = typeof payload.cwd === "string" && payload.cwd ? payload.cwd : process.cwd();
+    const rev = spawnSync("git", ["-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"], { encoding: "utf8", windowsHide: true });
+    const head = rev.status === 0 ? rev.stdout.trim() : null;
+    const verdict = guardCommand(command, { branch: process.env.TM_DISPATCH_BRANCH || head, head });
+    if (!verdict.allow) refuse(verdict.reason);
+  } catch (err) {
+    refuse(`the guard itself failed (${err.message}); refusing rather than guessing.`);
+  }
+  process.exit(0);
+}
+
 const r = spawnSync(process.execPath, [join(PLUGIN_ROOT, "bin", "tm"), "hook", event], {
   input,
   encoding: "buffer",

@@ -38,7 +38,7 @@ import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { detectHostCaps } from "../hostcaps.mjs";
 import { config } from "../store.mjs";
-import { PROMPT_FILE } from "./tmux.mjs";
+import { PROMPT_FILE, guardSettings, workerBranch, workerEnv } from "./tmux.mjs";
 
 export const name = "topology";
 
@@ -128,16 +128,30 @@ export function agentRef(consumer, { p, list = null } = {}) {
  * system prompt; the handoff is appended to it as `instructions` rather than
  * replacing it, so the identity survives.
  */
-export function specFor(req, ref = null, { candidates = null } = {}) {
-  const agent = ref
+export function specFor(req, ref = null, { candidates = null, stored = null } = {}) {
+  const base = ref
     ? { id: "worker", agent: ref, role: "orchestrator", instructions: req.prompt }
     : { id: "worker", role: "orchestrator", candidates: candidates || "claude", instructions: req.prompt };
+  // TM-177: the pane exports ONLY the spec agent's env — ao-topology writes it into the launcher
+  // script — so the worker marker travels here, not just in ao-topology's own env. An inline field
+  // replaces the stored agent's wholesale, so the stored env and args are carried over, not dropped.
+  const agent = { ...base, env: { ...(stored?.env ?? {}), ...Object.fromEntries(workerEnv(req)) } };
+  // `args` reach every candidate in the chain, and only claude understands --settings.
+  const chain = cliChain(ref ? stored : base);
+  if (chain.length && chain.every((cli) => cli === "claude")) agent.args = [...(stored?.args ?? []), "--settings", guardSettings()];
   return {
     version: 1,
     name: String(req.task.id).toLowerCase(),
     description: `tm dispatch of ${req.task.id}${req.task.title ? `: ${req.task.title}` : ""}`,
     agents: [agent],
   };
+}
+
+/** The cli ids of an agent's fallback chain, from `candidates` (array or comma string) or `cli`. */
+function cliChain(entry) {
+  const raw = entry?.candidates ?? entry?.cli;
+  const list = Array.isArray(raw) ? raw : typeof raw === "string" ? raw.split(",") : [];
+  return list.map((c) => String(c?.cli ?? c).split(":")[0].trim()).filter(Boolean);
 }
 
 /** The exact ao-topology argv, as a pure value. The prompt is in the spec FILE, never here. */
@@ -207,15 +221,22 @@ export function spawn(
   const promptFile = join(req.worktree, PROMPT_FILE);
   writeImpl(promptFile, req.prompt);
 
-  const ref = agentRef(req.worktree, { p: req.p, list: rosterList });
+  const worker = { ...req, branch: workerBranch(req) };
+  const agents = rosterList ?? roster(req.worktree);
+  const ref = agentRef(req.worktree, { p: req.p, list: agents });
   const specFile = specFileFor(req, mkdtempImpl);
-  const spec = specFor(req, ref, { candidates: config(req.p).dispatch?.topologyCandidates ?? null });
+  const spec = specFor(worker, ref, {
+    candidates: config(req.p).dispatch?.topologyCandidates ?? null,
+    stored: agents.find((a) => a.id === ref) ?? null,
+  });
   writeImpl(specFile, `${JSON.stringify(spec, null, 2)}\n`);
 
   const args = argvFor(req, specFile);
   const res = spawnImpl(entry.path, args, {
     shell: false,
-    env: envFor(req, env),
+    // The marker is added here rather than in envFor, which idle.mjs shares for a `manage assign`
+    // process that is not a worker. On its own it rarely reaches the pane; the spec env above does.
+    env: { ...envFor(req, env), ...Object.fromEntries(workerEnv(worker)) },
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
     timeout: timeoutMs,
