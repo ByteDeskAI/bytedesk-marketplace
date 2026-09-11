@@ -35,7 +35,7 @@ import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { agentDirs, createAgent, listAgents, requireAgent } from "./agents.mjs";
-import { displayName, titleForRole } from "./identity.mjs";
+import { displayName, roleVisual, titleForRole } from "./identity.mjs";
 import { openRoleSession, roleSessionName, roleSessionPath } from "./launch.mjs";
 import { assignLead, detachLead, ensureLead, leadState, readLeadRegistration } from "./lead.mjs";
 import { leadQueueDepth } from "./mailbox.mjs";
@@ -206,7 +206,7 @@ export async function roleStatus({ role, consumer, home = homedir(), env = proce
   return {
     role, singleton: entry.singleton,
     holders: agents.map((agent) => ({
-      id: agent.id, name: displayName(agent), title: agent.title ?? titleForRole(role),
+      id: agent.id, name: displayName(agent), title: agent.title ?? titleForRole(role), ...roleVisual({ role: agent.role ?? role }),
       registered: true, alive: live.has(agent.id), responsive: null,
       responsive_reason: "this role has no readiness handshake; alive is all that is proven",
       session: roleSessionName(agent.id),
@@ -223,16 +223,17 @@ export async function roleList({ consumer, home = homedir(), env = process.env, 
     readLeadRegistration({ consumer, env, home }).catch(() => null),
     readReviewerRecord(consumer, env, home).catch(() => null),
   ]);
-  const named = (id) => {
+  const named = (id, slot) => {
     const agent = roster.find((a) => a.id === id);
-    return agent ? { id, name: displayName(agent), title: agent.title ?? titleForRole(agent.role) } : { id, name: null, title: null };
+    const visual = roleVisual({ role: agent?.role ?? slot, repoRole: slot });
+    return agent ? { id, name: displayName(agent), title: agent.title ?? titleForRole(agent.role), ...visual } : { id, name: null, title: null, ...visual };
   };
   const roles = Object.entries(ROLE_KINDS).map(([role, entry]) => {
-    if (role === "lead") return { role, singleton: true, why_singleton: entry.why, holders: lead?.record ? [named(lead.record.agent_id)] : [] };
-    if (role === "reviewer") return { role, singleton: true, why_singleton: entry.why, holders: reviewer ? [named(reviewer.agent_id)] : [] };
+    if (role === "lead") return { role, singleton: true, why_singleton: entry.why, holders: lead?.record ? [named(lead.record.agent_id, "lead")] : [] };
+    if (role === "reviewer") return { role, singleton: true, why_singleton: entry.why, holders: reviewer ? [named(reviewer.agent_id, "reviewer")] : [] };
     return {
       role, singleton: false, why_singleton: null,
-      holders: roster.filter((a) => a.role === role).map((a) => ({ id: a.id, name: displayName(a), title: a.title ?? titleForRole(role) })),
+      holders: roster.filter((a) => a.role === role).map((a) => ({ id: a.id, name: displayName(a), title: a.title ?? titleForRole(role), ...roleVisual({ role: a.role }) })),
     };
   });
   return { consumer, roles };

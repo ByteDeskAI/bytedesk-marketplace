@@ -9,15 +9,15 @@ import { fileURLToPath } from "node:url";
 
 import { doctor as runDoctor, tmuxInstallPlan } from "./lib/doctor.mjs";
 import { closeAllClients, isUndelivered, ringMessage, undeliveredReport } from "./lib/delivery.mjs";
-import { deliverPointer, failoverAgent, launchRun, messagePointer, openRoleSession, roleSessionName, tmuxFailureTrigger, uniqueSessionName } from "./lib/launch.mjs";
+import { deliverPointer, failoverAgent, launchRun, messagePointer, openRoleSession, roleSessionName, runAgentVisual, tmuxFailureTrigger, uniqueSessionName } from "./lib/launch.mjs";
 import { agentDir, appendJournal, loadRun, pendingReplies, queueDepth, readJournal, recordReply, saveRun, sendMessage, waitForReplies } from "./lib/mailbox.mjs";
 import { adapterFor, adapterSummary, buildArgv, loadAdapters, providerDirs } from "./lib/providers.mjs";
 import { roleDirs, skillDirs } from "./lib/resolve.mjs";
 import { agentAddress, DEFAULT_SESSION, listWorkflows, loadSpec, materializeSpec, resolveInputs, specSchemaSummary, workflowDirs, validateSpec } from "./lib/spec.mjs";
 import * as tmux from "./lib/tmux.mjs";
-import { TopologyError, absolutize, exists, fail, invariant, newRunId, parseArgs, parseDuration, readJson, writeJson, AO_HOME } from "./lib/util.mjs";
+import { TopologyError, absolutize, exists, fail, invariant, newRunId, parseArgs, parseDuration, readJson, terminalText, writeJson, AO_HOME } from "./lib/util.mjs";
 import { agentDirs, agentsRoot, createAgent, findLead, listAgents, requireAgent } from "./lib/agents.mjs";
-import { displayName, parseSessionName } from "./lib/identity.mjs";
+import { displayName, parseSessionName, roleVisual } from "./lib/identity.mjs";
 import { childrenFile } from "./lib/lineage.mjs";
 import { issueDelegation, listDelegations, routeMessage } from "./lib/routing.mjs";
 import { sameIncarnation } from "./lib/incarnation.mjs";
@@ -803,7 +803,7 @@ const commands = {
     out(`  session: ${result.session}`);
     for (const agent of result.agents) {
       const fallbacks = agent.attempts.slice(0, -1).map((attempt) => `${attempt.label}: ${attempt.outcome}`).join("; ");
-      out(`  ${agent.provider ? (agent.ready ? "✓" : "?") : "✗"} ${agent.id} (${agent.role}) on ${agent.provider ?? "NO PROVIDER"} pane ${agent.pane}${fallbacks ? ` — skipped ${fallbacks}` : ""}`);
+      out(`  ${agent.provider ? (agent.ready ? "✓" : "?") : "✗"} ${agent.roleIcon} ${agent.id} (${terminalText(agent.role)}) on ${agent.provider ?? "NO PROVIDER"} pane ${agent.pane}${fallbacks ? ` — skipped ${fallbacks}` : ""}`);
     }
     for (const warning of result.warnings) out(`  ! ${warning}`);
     out(`Attach: ${result.attach}`);
@@ -830,18 +830,18 @@ const commands = {
         skills: flags.skill ? list(flags.skill) : template.skills,
         mcp: flags.mcp ? list(flags.mcp) : template.mcp,
       }, ctx.agentDirs, ctx);
-      out({ ok: true, agent: displayName(agent), id: agent.id, role: agent.role, dir: agent._dir, reports_to: agent.reports_to });
+      out({ ok: true, agent: displayName(agent), id: agent.id, role: agent.role, ...roleVisual({ role: agent.role }), dir: agent._dir, reports_to: agent.reports_to });
       return;
     }
     if (sub === "show") {
       const agent = await requireAgent(String(positional[1] || ""), ctx.agentDirs);
-      out({ ok: true, agent: displayName(agent), ...agent });
+      out({ ok: true, agent: displayName(agent), ...agent, ...roleVisual({ role: agent.role }) });
       return;
     }
     const roster = await listAgents(ctx.agentDirs);
     const lead = await findLead(ctx.agentDirs);
     if (flags.json) {
-      out({ ok: true, lead: lead ? lead.id : null, agents: roster.map((a) => ({ id: a.id, name: displayName(a), role: a.role, reports_to: a.reports_to })) });
+      out({ ok: true, lead: lead ? lead.id : null, agents: roster.map((a) => ({ id: a.id, name: displayName(a), role: a.role, ...roleVisual({ role: a.role }), reports_to: a.reports_to })) });
       return;
     }
     // People see names and titles. The id is shown too because this is an operator surface, but the
@@ -850,7 +850,7 @@ const commands = {
     if (roster.length === 0) console.log("  (none yet — ao-topology agent new --role lead)");
     for (const a of roster) {
       const mark = a.role === "lead" ? "*" : " ";
-      console.log(`${mark} ${displayName(a)}${a.reports_to ? `  reports to ${a.reports_to}` : ""}  [${a.id}]`);
+      console.log(`${mark} ${roleVisual({ role: a.role }).roleIcon} ${terminalText(displayName(a))}${a.reports_to ? `  reports to ${terminalText(a.reports_to)}` : ""}  [${a.id}]`);
     }
   },
 
@@ -882,6 +882,7 @@ const commands = {
         id: agent.id,
         agent: displayName(agent),
         role: agent.role,
+        ...roleVisual({ role: agent.role }),
         session: roleSessionName(agent.id),
         live: live.includes(roleSessionName(agent.id)),
         spawns: (spawnsFor.get(agent.id) ?? []).sort((a, b) => a.spawn.localeCompare(b.spawn)),
@@ -889,15 +890,15 @@ const commands = {
       // A spawn whose agent is not in this repo's roster still belongs to someone; saying so beats
       // pretending it is not there, because it is holding a tmux session either way.
       const orphans = [...spawnsFor].filter(([id]) => !roster.some((agent) => agent.id === id))
-        .flatMap(([id, spawns]) => spawns.map((entry) => ({ ...entry, agent_id: id })));
+        .flatMap(([id, spawns]) => spawns.map((entry) => ({ ...entry, agent_id: id, ...roleVisual({}) })));
       if (flags.json) return out({ ok: true, sessions: rows, unknown_agent_spawns: orphans });
       console.log(`# Sessions — ${ctx.consumer}`);
       if (rows.length === 0) console.log("  (no agents yet — ao-topology agent new --role lead)");
       for (const row of rows) {
-        console.log(`${row.live ? "*" : " "} ${row.agent}  ${row.live ? row.session : "(no role-session)"}  [${row.id}]`);
+        console.log(`${row.live ? "*" : " "} ${row.roleIcon} ${terminalText(row.agent)}  ${row.live ? row.session : "(no role-session)"}  [${row.id}]`);
         for (const entry of row.spawns) console.log(`    spawn ${entry.spawn}  ${entry.session}`);
       }
-      for (const entry of orphans) console.log(`  ? ${entry.session}  (spawn of ${entry.agent_id}, not in this roster)`);
+      for (const entry of orphans) console.log(`  ? ${entry.roleIcon} ${terminalText(entry.session)}  (spawn of ${terminalText(entry.agent_id)}, not in this roster)`);
       return;
     }
 
@@ -948,6 +949,7 @@ const commands = {
       ok: true,
       agent: displayName(agent),
       id: agent.id,
+      ...roleVisual({ role: agent.role }),
       supervision: await activate(ctx, 'session-open'),
       session: result.session,
       pane: result.pane,
@@ -1244,6 +1246,8 @@ const commands = {
       const entry = {
         id: agent.id,
         role: agent.role,
+        // Recomputed from the role, never echoed from run.json (older files lack it; agents can write it).
+        ...runAgentVisual(agent),
         provider: agent.provider ?? null,
         chain: (agent.candidates ?? []).map((candidate) => candidate.label),
         adapter: agent.adapter,
@@ -1299,11 +1303,11 @@ const commands = {
       const queued = agent.pending.length ? ` — queue ${agent.queue.depth}${agent.queue.oldest_age_ms != null ? `, oldest ${Math.round(agent.queue.oldest_age_ms / 1000)}s` : ""}: ${agent.pending.join(", ")}` : "";
       if (agent.workflow) {
         const child = agent.workflow.child;
-        out(`  ${agent.alive ? "●" : "○"} ${agent.id} (${agent.role}) is a TEAM running \`${agent.workflow.name}\` — ${child.agents} agents, state ${child.state}, session ${agent.workflow.session} ${child.session_alive ? "(alive)" : "(gone)"}${queued}`);
+        out(`  ${agent.alive ? "●" : "○"} ${agent.roleIcon} ${agent.id} (${terminalText(agent.role)}) is a TEAM running \`${agent.workflow.name}\` — ${child.agents} agents, state ${child.state}, session ${agent.workflow.session} ${child.session_alive ? "(alive)" : "(gone)"}${queued}`);
         out(`      conductor ${agent.workflow.conductor} · ${child.pending} awaiting reply there · status --run ${agent.workflow.run_dir}`);
         continue;
       }
-      out(`  ${agent.alive ? "●" : "○"} ${agent.id} (${agent.role}) on ${agent.provider ?? "NO PROVIDER"} [chain: ${agent.chain.join(" → ")}] pane ${agent.pane}${agent.command ? ` running ${agent.command}` : ""}${queued}`);
+      out(`  ${agent.alive ? "●" : "○"} ${agent.roleIcon} ${agent.id} (${terminalText(agent.role)}) on ${agent.provider ?? "NO PROVIDER"} [chain: ${agent.chain.join(" → ")}] pane ${agent.pane}${agent.command ? ` running ${agent.command}` : ""}${queued}`);
     }
     out("Recent journal:");
     for (const event of journal) out(`  ${event.ts ?? ""}  ${event.type}${event.id ? ` ${event.id}` : ""}${event.agent ? ` ${event.agent}` : ""}${event.from ? ` from ${event.from}` : ""}${event.to ? ` to ${[].concat(event.to).join(",")}` : ""}`);

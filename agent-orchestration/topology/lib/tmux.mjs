@@ -3,7 +3,7 @@
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { isAbsolute } from "node:path";
-import { fail, run, shellQuote } from "./util.mjs";
+import { fail, run, shellQuote, terminalText } from "./util.mjs";
 
 const TMUX = process.env.AO_TMUX_COMMAND || "tmux";
 // Launcher shells are infrastructure: user login rc files may consume input or replace the shell.
@@ -59,7 +59,7 @@ export async function hasSession(session) {
 export async function newSession(session, { cwd, windowName = "main", width = 220, height = 60 }) {
   await tmux(["new-session", "-d", "-s", session, "-n", windowName, "-c", cwd, "-x", String(width), "-y", String(height), ...LAUNCH_SHELL]);
   // Session-scoped (-t <session>), never -g: this server is shared with everyone else's sessions.
-  await tmux(["set-option", "-t", session, "window-size", "manual"], { allowFailure: true });
+  await tmux(["set-option", "-t", session, "window-size", "manual", ...sessionTitleArgs(session)], { allowFailure: true });
   await tmux(["resize-window", "-t", `${session}:${windowName}`, "-x", String(width), "-y", String(height)], { allowFailure: true });
   return paneId(`${session}:${windowName}`);
 }
@@ -162,13 +162,58 @@ export async function sendText(pane, text, submitKeys = ["Enter"]) {
   for (const key of submitKeys) await tmux(["send-keys", "-t", pane, key]);
 }
 
-/** Title, remain-on-exit and pipe-pane are one round trip rather than three. */
-export async function preparePane(pane, { title, log }) {
+/** Title, remain-on-exit, pipe-pane and the role display options are one round trip. */
+export async function preparePane(pane, { title, log, display = null }) {
   await tmux([
     "select-pane", "-t", pane, "-T", title,
     ";", "set-option", "-p", "-t", pane, "remain-on-exit", "on",
     ";", "pipe-pane", "-o", "-t", pane, log,
+    ...(display ? roleDisplayArgs(pane, display) : []),
   ], { allowFailure: true });
+}
+
+// -- Role display (TM-168) --------------------------------------------------------------------------
+// The terminal title bar shows who a pane is: icon, readable name, role label. It is built from
+// pane-scoped user options and a session-scoped `set-titles-string`, and deliberately NOT from
+// `pane_title` — provider CLIs overwrite that, census reads activity from it, and the gateway parses
+// the role out of it. Display-only: nothing may read these options back to decide a role or authority.
+// Measured on tmux 3.4 (TM-168):
+//
+//   * `#{@opt}` inserts an option value LITERALLY. `#{pane_id}` and `#[fg=red]` stored in a value
+//     came back verbatim; only `#{E:@opt}` re-expands.
+//   * tmux does NOT sanitise what `set-titles` sends. An ESC ] 2 ; … BEL stored in `@ao_agent`
+//     reached the attached terminal as a second OSC sequence. So every value is scrubbed here.
+//   * In a batched invocation an argv element ENDING in `;` is a command separator: `abc;` stored
+//     `abc` and split the command in two.
+
+/** Rendered from the ACTIVE pane. A pane without our options (a user's own split) keeps tmux's default title. */
+export const ROLE_TITLE_FORMAT = '#{?@ao_role_icon,#{@ao_role_icon} #{@ao_agent} · #{@ao_role_label},#S:#I:#W - "#T"}';
+
+/**
+ * A value safe to store in a tmux option: `terminalText`, capped, plus two substitutions. `#` becomes
+ * the look-alike `＃` — `#{@opt}` does not re-expand it, but a user's own status or border format may
+ * parse `#[...]` styles after expansion, and a look-alike is inert everywhere. A trailing `;` becomes
+ * `；` so the value cannot split a batched command.
+ */
+export function tmuxText(value, max = 80) {
+  return terminalText(value, max).replace(/#/g, "＃").replace(/;$/, "；");
+}
+
+/** `; set-option -p` for each role display option, ready to append to a batch. */
+export function roleDisplayArgs(pane, { agent, role, roleLabel, roleIcon }) {
+  const values = { "@ao_agent": agent, "@ao_role": role, "@ao_role_label": roleLabel, "@ao_role_icon": roleIcon };
+  return Object.entries(values).flatMap(([name, value]) => [";", "set-option", "-p", "-t", pane, name, tmuxText(value)]);
+}
+
+/** Session-scoped (never -g): only sessions this layer creates or owns get a title bar. */
+export function sessionTitleArgs(session) {
+  return [";", "set-option", "-t", session, "set-titles", "on", ";", "set-option", "-t", session, "set-titles-string", ROLE_TITLE_FORMAT];
+}
+
+/** Pane display options, plus the session title options when `session` is given (a pre-existing session). */
+export async function setRoleDisplay(pane, display, { session = null } = {}) {
+  const [, ...args] = [...roleDisplayArgs(pane, display), ...(session ? sessionTitleArgs(session) : [])];
+  await tmux(args, { allowFailure: true });
 }
 
 export async function sendKeys(pane, keys) {
