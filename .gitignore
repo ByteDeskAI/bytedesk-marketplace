@@ -70,3 +70,11 @@ project-management/.pm/
 # The logs stay on disk and keep being written. They stop being repository content.
 .bytedesk/agent-orchestration/agents/*/pane.log
 .bytedesk/agent-orchestration/runs/*/agents/*/pane.log
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/
+**/graft/.cache/
+**/graft/.graph/
+
+# machine-local Claude Code settings
+.claude/settings.local.json
