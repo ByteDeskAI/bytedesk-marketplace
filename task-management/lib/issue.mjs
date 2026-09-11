@@ -10,24 +10,16 @@
  * stay authoritative no matter whether the CLI, the dashboard or MCP called it.
  */
 import { actor, actorLabel } from "./actor.mjs";
+import { DECISION_KIND, DECISION_MAP, TRIAGE_LABELS } from "./completeness.mjs";
 import { PRIORITIES, RANK_STEP, config, kindOf, list, logEvent, mutate, now, read, update } from "./store.mjs";
 import { paths } from "./paths.mjs";
 
-/** Decision-map roles. Generic names — not Matt Pocock's `wayfinder:*` strings. */
-export const DECISION_MAP = "decision:map";
-export const DECISION_KIND = [
-  "decision:interview",
-  "decision:research",
-  "decision:prototype",
-  "decision:unblock",
-];
-export const TRIAGE_LABELS = [
-  "needs-triage",
-  "needs-info",
-  "ready-for-agent",
-  "ready-for-human",
-  "wontfix",
-];
+/**
+ * Decision-map roles and triage roles. Generic names — not Matt Pocock's `wayfinder:*` strings.
+ * Defined in completeness.mjs, because the store's write path reads them to keep the triage label
+ * in sync and store.mjs cannot import this module; re-exported here, where the label verb lives.
+ */
+export { DECISION_KIND, DECISION_MAP, TRIAGE_LABELS };
 export const LABEL_CATALOG = [DECISION_MAP, ...DECISION_KIND, ...TRIAGE_LABELS];
 
 const EXCLUSIVE = [TRIAGE_LABELS, DECISION_KIND];
@@ -108,22 +100,32 @@ export function labels(id, { add = [], remove = [], force = false } = {}, p = pa
 
   // Read-append-write, so it goes through mutate: two concurrent label adds that each
   // read the same list would otherwise keep only the second one's label.
-  let labelList = [];
-  mutate(
+  // A person choosing or clearing a triage label takes that decision from the store's auto-triage:
+  // the `triagedBy: human` stamp is what makes it sticky, "no triage label" included (store.mjs `triageSync`).
+  // Adding a triage label is a decision even when it matches the current one: a person confirming the
+  // store's pick makes it theirs. A removal decides something only if it changes the triage set, so
+  // `-wontfix` on a task that never had it leaves the auto label auto.
+  const addsTriage = toAdd.some((l) => TRIAGE_LABELS.includes(l));
+  const triageOf = (ls) => ls.filter((l) => TRIAGE_LABELS.includes(l)).join(",");
+  const written = mutate(
     id,
     (t) => {
-      const next = new Set(t.labels || []);
+      const before = t.labels || [];
+      const next = new Set(before);
       for (const l of toRemove) next.delete(l);
       for (const l of toAdd) {
         const group = exclusiveGroup(l);
         if (group) for (const other of group) if (other !== l) next.delete(other);
         next.add(l);
       }
-      labelList = [...next];
-      return { labels: labelList.length ? labelList : undefined };
+      const kept = [...next];
+      const decided = kind === "task" && (addsTriage || triageOf(kept) !== triageOf(before));
+      return { labels: kept.length ? kept : undefined, ...(decided ? { triagedBy: "human", triageMissing: undefined } : {}) };
     },
     p,
   );
+  // What was written, not what was asked for.
+  const labelList = written.labels || [];
   logEvent("labels", { id, labels: labelList }, p);
   return labelList;
 }

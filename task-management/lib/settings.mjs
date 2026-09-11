@@ -201,6 +201,18 @@ export const CATALOG = [
     help: "The tm-pool monitor exits immediately unless this is true. `tm pool once`/`start` work regardless.",
   },
   {
+    key: "dispatch.autoReady",
+    group: "agents",
+    type: "enum",
+    default: "label",
+    options: [
+      { value: "label", label: "Label — keep ready-for-agent / needs-triage in sync on every write" },
+      { value: "off", label: "Off — triage labels are set by hand only" },
+    ],
+    label: "Auto-triage tasks",
+    help: "A task that passes the readiness check is labelled ready-for-agent; one that does not gets needs-triage and a triageMissing list. A triage label a person sets is never overridden. `tm triage` re-runs it over existing tasks.",
+  },
+  {
     key: "dispatch.poolWip",
     group: "agents",
     type: "integer",

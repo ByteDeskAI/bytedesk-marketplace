@@ -4,12 +4,10 @@
  * Shared by the done gate, MCP, and the dashboard so a card, a drawer and `tm done`
  * cannot disagree about whether an answer exists.
  */
-export const DECISION_KIND = [
-  "decision:interview",
-  "decision:research",
-  "decision:prototype",
-  "decision:unblock",
-];
+// One copy of the four roles, shared with issue.mjs and the store's triage sync.
+import { DECISION_KIND } from "./completeness.mjs";
+
+export { DECISION_KIND };
 
 export const MAP_HEADINGS = [
   "Destination",

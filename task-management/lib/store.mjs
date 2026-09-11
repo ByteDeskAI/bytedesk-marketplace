@@ -12,6 +12,7 @@ import { appendFileSync, closeSync, statSync, existsSync, mkdirSync, openSync, r
 import { basename, dirname, join } from "node:path";
 import { KINDS, boardId, gitBoardId, gitUser, ensureDirs, paths } from "./paths.mjs";
 import { actor, actorLabel, sessionId } from "./actor.mjs";
+import { TRIAGE_LABELS, agentReadiness } from "./completeness.mjs";
 import { notifyEvent } from "./notify-hook.mjs";
 
 const DEFAULT_CONFIG = {
@@ -858,10 +859,50 @@ export function create(kind, fields, body = "", p = paths()) {
     const id = fields.id || nextId(kind, p);
     // The board is stamped at creation and never rewritten: it is where this entity was born, and
     // it is what lets a later write notice it is being filed into somebody else's store.
-    return write({ id, kind, status: "open", created: now(), board: storeBoard(p), ...fields, body }, p);
+    const draft = { id, kind, status: "open", created: now(), board: storeBoard(p), ...fields, body };
+    return write({ ...draft, ...triageSync(draft, p) }, p);
   });
   logEvent("create", { id: doc.id, kind, title: doc.title }, p);
   return doc;
+}
+
+/** Unset means "label"; "off", or any value this code does not know, leaves triage labels to people. */
+export const autoTriageOn = (cfg) => (cfg.dispatch?.autoReady ?? "label") === "label";
+
+/**
+ * The triage fields a task write should carry, merged into that same write (TM-176). Returns only
+ * the fields whose value changes, or `{}`.
+ *
+ * `doc` is the document as it will be written. `ready-for-agent` when `agentReadiness` passes, else
+ * `needs-triage` plus `triageMissing` naming the gaps; both stamped `triagedBy: "auto"`, which is
+ * what marks the label as the store's to change. `triagedBy: "human"` is a person's decision —
+ * `tm label`, MCP `tm_label`, the board, `tm task new --human`, a direct update that swaps the label —
+ * and it covers deciding on NO triage label, so clearing one sticks. A triage label with no stamp at
+ * all is a person's too: that is how labels written before this shipped are kept.
+ *
+ * It lives here rather than in a verb because create/update is the funnel every surface reaches;
+ * a sync in one verb would be the guard-in-one-sibling shape. Returning only what changes keeps an
+ * unrelated edit unrelated: no label in its event, nothing written that was not already written.
+ * Exported so `tm triage` can preview exactly what the write would do.
+ */
+export function triageSync(doc, p = paths()) {
+  if (kindOf(doc.id) !== "task" || RESOLVED.has(doc.status)) return {};
+  // A person decided: a label, a different label, or no triage label at all. Not the store's to undo.
+  if (doc.triagedBy === "human") return {};
+  const cfg = config(p);
+  if (!autoTriageOn(cfg)) return {};
+  const labels = doc.labels || [];
+  const triage = labels.filter((l) => TRIAGE_LABELS.includes(l));
+  if (triage.length && doc.triagedBy !== "auto") return {};
+
+  const { ready, missing } = agentReadiness(doc, cfg);
+  const want = ready ? "ready-for-agent" : "needs-triage";
+  const out = {};
+  if (triage.length !== 1 || triage[0] !== want) out.labels = [...labels.filter((l) => !TRIAGE_LABELS.includes(l)), want];
+  if (doc.triagedBy !== "auto") out.triagedBy = "auto";
+  const wantMissing = ready ? undefined : missing;
+  if (JSON.stringify(doc.triageMissing) !== JSON.stringify(wantMissing)) out.triageMissing = wantMissing;
+  return out;
 }
 
 /**
@@ -893,9 +934,24 @@ export function update(id, patch, p = paths()) {
      */
     const reopening = kindOf(id) === "task" && RESOLVED.has(doc.status) && patch.status && !RESOLVED.has(patch.status);
     const effective = reopening ? { ...patch, closed: undefined } : patch;
+    /**
+     * The human veto, decided here in the funnel rather than only in `labels()`. A patch that changes
+     * which triage label a task carries — including to none — and does not itself say who triaged it,
+     * came from a person, whichever surface sent it: stamp it human so triageSync leaves it alone.
+     * Without this a plain `update(id, { labels: ["ready-for-agent"] })` was relabelled in the same write.
+     */
+    const triageOf = (labels) => (labels || []).filter((l) => TRIAGE_LABELS.includes(l)).join(",");
+    const chosen =
+      kindOf(id) === "task" &&
+      "labels" in effective &&
+      !("triagedBy" in effective) &&
+      triageOf(effective.labels) !== triageOf(doc.labels);
+    const decided = chosen ? { ...effective, triagedBy: "human", triageMissing: undefined } : effective;
+    // The triage label rides in this same write (see triageSync): never a second write or event.
+    const written = { ...decided, ...triageSync({ ...doc, ...decided }, p) };
 
-    const next = write({ ...doc, ...effective }, p);
-    logEvent("update", { id, patch: Object.keys(effective).join(","), status: next.status }, p);
+    const next = write({ ...doc, ...written }, p);
+    logEvent("update", { id, patch: Object.keys(written).join(","), status: next.status }, p);
     if (reopening && doc.epic) reopenEpic(doc.epic, p);
     return next;
   });

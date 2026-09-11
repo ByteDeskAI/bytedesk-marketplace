@@ -57,10 +57,11 @@ describe("labels", () => {
   it("adds, dedupes and removes", () => {
     const p = store();
     const t = task(p);
+    // needs-triage is the store's auto-triage (TM-176): this fixture task has no body, criteria or epic.
     labels(t.id, { add: ["backend", "urgent", "backend"] }, p);
-    assert.deepEqual(read(t.id, p).labels, ["backend", "urgent"]);
+    assert.deepEqual(read(t.id, p).labels, ["needs-triage", "backend", "urgent"]);
     labels(t.id, { remove: ["urgent"] }, p);
-    assert.deepEqual(read(t.id, p).labels, ["backend"]);
+    assert.deepEqual(read(t.id, p).labels, ["needs-triage", "backend"]);
   });
 
   it("exclusive triage roles replace each other", () => {
@@ -76,7 +77,7 @@ describe("labels", () => {
     const t = task(p);
     labels(t.id, { add: ["decision:interview"] }, p);
     labels(t.id, { add: ["decision:research"] }, p);
-    assert.deepEqual(read(t.id, p).labels, ["decision:research"]);
+    assert.deepEqual(read(t.id, p).labels, ["needs-triage", "decision:research"], "needs-triage is the auto-triage label (TM-176)");
   });
 
   it("refuses unknown decision:* unless force", () => {
@@ -84,7 +85,7 @@ describe("labels", () => {
     const t = task(p);
     assert.throws(() => labels(t.id, { add: ["decision:grilling"] }, p), /unknown decision label/);
     labels(t.id, { add: ["decision:grilling"], force: true }, p);
-    assert.deepEqual(read(t.id, p).labels, ["decision:grilling"]);
+    assert.deepEqual(read(t.id, p).labels, ["needs-triage", "decision:grilling"], "needs-triage is the auto-triage label (TM-176)");
   });
 
   it("decision:map is epic-only", () => {
@@ -236,7 +237,10 @@ describe("backwards compatibility", () => {
     const p = store();
     const t = task(p, "plain old task");
     const before = read(t.id, p);
-    assert.equal(before.labels, undefined);
+    // The one deliberate exception (TM-176): the store's auto-triage labels every new task, and this
+    // one has no body, criteria or epic. Every Jira-shaped field this module owns stays unset.
+    assert.deepEqual(before.labels, ["needs-triage"]);
+    assert.equal(before.triagedBy, "auto");
     assert.equal(before.assignee, undefined);
     assert.deepEqual(backlog(p).map((x) => x.id), [t.id], "unranked tasks still appear on the backlog");
   });

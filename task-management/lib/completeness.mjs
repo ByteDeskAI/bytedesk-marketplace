@@ -70,3 +70,53 @@ export function missingFields(task, required, p = null) {
   }
   return out;
 }
+
+/**
+ * Decision-role and triage vocabularies.
+ *
+ * Defined here rather than in issue.mjs because the store's own write keeps the triage label in
+ * sync, and store.mjs must never import issue.mjs — issue.mjs is built on the store. This module
+ * has no imports, so both can depend on it. issue.mjs and decision.mjs re-export these same
+ * arrays, so every existing import keeps working and there is still exactly one copy.
+ */
+export const DECISION_MAP = "decision:map";
+export const DECISION_KIND = ["decision:interview", "decision:research", "decision:prototype", "decision:unblock"];
+export const TRIAGE_LABELS = ["needs-triage", "needs-info", "ready-for-agent", "ready-for-human", "wontfix"];
+
+/**
+ * Labels that hand the next move to a person. `decision:research` is absent on purpose: it is the
+ * AFK role (decision.mjs `attentionOf`), the one decision an agent can answer on its own.
+ */
+const NOT_FOR_AGENTS = [
+  "ready-for-human",
+  "needs-info",
+  "wontfix",
+  "human-gate",
+  "decision:interview",
+  "decision:prototype",
+  "decision:unblock",
+  DECISION_MAP,
+];
+
+/** `missingFields` names config keys; a card names the thing a person has to fill in. */
+const SPOKEN = { acceptance: "acceptance criteria" };
+
+/**
+ * Is this task specified well enough to hand to an agent? → `{ ready, missing }`.
+ *
+ * The one implementation. The store's write path labels tasks with it; anything else asking the
+ * question should call this rather than re-derive it. `cfg` is `config(p)`: `requireOnStart` is
+ * the start gate's field list, so a task the label calls ready is one `tm start` will accept.
+ *
+ * Status and dependencies are deliberately not consulted. The label means "specified"; whether
+ * the task is startable right now is the pool's separate check, and folding it in here would flip
+ * the label every time a blocker opened or closed.
+ */
+export function agentReadiness(task, cfg = {}) {
+  const t = task || {};
+  const labels = t.labels || [];
+  const missing = missingFields(t, cfg.requireOnStart).map(({ field }) => SPOKEN[field] ?? field);
+  if (cfg.requireEpic && !t.epic) missing.push("epic");
+  for (const label of NOT_FOR_AGENTS) if (labels.includes(label)) missing.push(`label ${label}`);
+  return { ready: missing.length === 0, missing };
+}
