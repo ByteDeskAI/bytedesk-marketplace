@@ -130,7 +130,7 @@ test("roleIcon follows the first-join roleName overwrite rather than the library
   assert.deepEqual(pick(joined), roleVisual({ role: "judge" }), "the icon moved with roleName, so the two never disagree");
 });
 
-test("census rows and tombstones carry the icon presence computed, and only a registry pair", async (t) => {
+test("census rows and tombstones carry the icon presence computed, recomputed from their roles", async (t) => {
   const ctx = await repository(t);
   const panes = [pane(1), pane(2)];
   await library(ctx, "lead0001", "lead", panes[0]);
@@ -156,7 +156,8 @@ test("census rows and tombstones carry the icon presence computed, and only a re
   assert.equal(tombstone?.carriedForward, true, "precondition: a tombstone");
   assert.deepEqual(pick(tombstone), pick(workRow));
 
-  // A roster row, or a prior document, that is not a registry pair never reaches a row.
+  // A stored icon is never trusted: each row recomputes it from its roles, so a tampered roster row or
+  // prior document shows what its roles give, and a row with no roles shows the fallback.
   const lead = roleVisual({ role: "lead" });
   const tampered = await census({
     agents: [{ ...leadRow, roleIcon: `${ESC}]0;x${BEL}`, roleLabel: "Lead" }, { ...workRow, roleIcon: lead.roleIcon, roleLabel: "Worker" }],
@@ -164,7 +165,8 @@ test("census rows and tombstones carry the icon presence computed, and only a re
     previous: { agents: [{ agentId: "gone0001", state: "idle", roleIcon: `${lead.roleIcon}${ESC}[2J`, roleLabel: "Lead" }] },
   });
   assert.equal(tampered.agents.length, 3, "precondition: two rows and one tombstone");
-  for (const row of tampered.agents) assert.deepEqual(pick(row), FALLBACK, `${row.agentId}: an unregistered pair falls back`);
+  const byId = Object.fromEntries(tampered.agents.map((row) => [row.agentId, pick(row)]));
+  assert.deepEqual(byId, { lead0001: pick(leadRow), work0001: pick(workRow), gone0001: FALLBACK }, "tampered icons are replaced by the pair each row's roles give");
 });
 
 test("formatCensus puts the role icon beside the name with its label, and keeps the state glyph first", () => {
@@ -172,13 +174,13 @@ test("formatCensus puts the role icon beside the name with its label, and keeps 
   const row = (over) => ({ agentId: "k3n8vq2a", displayName: "Priya Raman", state: "idle", durationMs: 5000,
     reason: "no spinner and nothing waiting on a human", dispatchable: true, ...over });
   const text = formatCensus({ captures: 1, tickMs: 3, agents: [
-    row({ ...lead }),
-    row({ agentId: "s2v7ho3j", displayName: "Kenji Watanabe", state: "working", roleIcon: `${ESC}]0;owned${BEL}`, roleLabel: "Lead" }),
+    row({ repoRole: "lead", roleName: "lead" }),
+    row({ agentId: "s2v7ho3j", displayName: "Kenji Watanabe", state: "working", runRole: "worker", roleIcon: `${ESC}]0;owned${BEL}`, roleLabel: "Lead" }),
     row({ agentId: "f9k1ps5u", displayName: "Unenrolled agent" }),
   ] });
   const [leadLine, hostileLine, unknownLine] = text.split("\n");
   assert.match(leadLine, new RegExp(`^○ ${lead.roleIcon} Priya Raman +Lead +idle +5s  no spinner`));
-  assert.match(hostileLine, new RegExp(`^• ${FALLBACK.roleIcon} Kenji Watanabe +Agent +working `), "a tampered icon prints the fallback");
+  assert.match(hostileLine, new RegExp(`^• ${roleVisual({ role: "worker" }).roleIcon} Kenji Watanabe +Worker +working `), "a tampered stored icon is ignored; the row prints what its role gives");
   assert.match(unknownLine, new RegExp(`^○ ${FALLBACK.roleIcon} f9k1ps5u +Agent +idle `), "a row with no icon at all prints the fallback");
   assert.equal(CONTROL.test(text.replaceAll("\n", "")), false, "no escape byte reaches the terminal");
 });

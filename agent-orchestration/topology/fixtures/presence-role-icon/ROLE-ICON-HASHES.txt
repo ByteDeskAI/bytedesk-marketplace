@@ -45,7 +45,7 @@ e0c097d8b50fc4d420928c80c73731a9740cb5fe83bf665c63a00a11629f8870  topology/fixtu
 3079dde4d9d3d670b62a62f238f3ad15733f387e4e8b48924f87d6f215285802  topology/fixtures/presence-v2/v03-v1-unchanged.json
 
 # --- new under TM-168: additive, countersignature requested ---
-9f6e51ab7217928ac51d42a24574875eeb2a9ee0020eb606a888886e839bbcac  topology/PRESENCE-ROLE-ICON-ADDENDUM.md
+6af2a6b53a39c9bd8b92989cdf3465debe8c43e84e3963c3b8d92970f1f88eb7  topology/PRESENCE-ROLE-ICON-ADDENDUM.md
 7ef859d9969929b4dcd917fddd2ed56f8df55985f9e10e053adddbdcbf2a6725  topology/ROLE-ICON-COUNTERSIGNATURE-REQUEST.md
 f8c86fe61a19690b37b10d22c08d98a2d177ac6f16d5654831a4c01a7e947055  topology/fixtures/presence-role-icon/README.md
 b05b04943bf5da0e08aae3dab3609ce7c91cce5e263adff5b9c9e8ab29075714  topology/fixtures/presence-role-icon/check.py

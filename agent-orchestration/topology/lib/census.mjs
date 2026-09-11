@@ -23,7 +23,7 @@
 // mechanism always forgets to give you.
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { ROLE_ICON_MAP, roleVisual } from "./identity.mjs";
+import { roleVisual } from "./identity.mjs";
 import { readDeaths } from "./launch.mjs";
 import { PRESENCE_BINDING_FIELDS } from "./presence.mjs";
 import { attentionOnScreen } from "./providers.mjs";
@@ -118,17 +118,13 @@ export function censusPath({ env = process.env, home = homedir(), key }) {
 
 const bindingKey = (binding) => JSON.stringify(PRESENCE_BINDING_FIELDS.map((field) => binding?.[field]));
 /**
- * TM-168. The roster's role icon and label, copied only as a registry PAIR. A row is printed to a
- * terminal by formatCensus and read back from disk as the next tick's prior, so anything that is not
- * exactly what `roleVisual` produces — a stale or hand-edited document, a hostile role, escape bytes —
- * shows the unknown fallback instead. Icons and labels map one-to-one, so one lookup checks both.
- * Display only: nothing reads these back to decide a role, a route or an authority.
+ * TM-168. A row's role icon and label, recomputed from the row's own role fields every time and never
+ * copied from the roster or a prior document. A stale or hand-edited census file, a hostile role or
+ * escape bytes therefore cannot reach formatCensus's terminal output, and nothing here reads an icon
+ * back to decide anything. The derivation matches presence: a repository lead, then the run role, then
+ * the library role carried as roleName. Display only.
  */
-const ROLE_VISUALS = new Map([...Object.keys(ROLE_ICON_MAP).map((role) => roleVisual({ role })), roleVisual({ nestedTeam: true }), roleVisual()]
-  .map((visual) => [visual.roleIcon, visual.roleLabel]));
-const visualOf = (agent) => (ROLE_VISUALS.has(agent?.roleIcon) && ROLE_VISUALS.get(agent.roleIcon) === agent.roleLabel
-  ? { roleIcon: agent.roleIcon, roleLabel: agent.roleLabel }
-  : roleVisual());
+const visualOf = (agent) => roleVisual({ repoRole: agent?.repoRole ?? null, runRole: agent?.runRole ?? null, role: agent?.roleName ?? null });
 const quotaOnly = (adapter) => ({ ...adapter, attention_patterns: (adapter.attention_patterns ?? []).filter((entry) => entry.state === "quota-blocked") });
 
 /**
@@ -263,7 +259,7 @@ export async function takeCensus(options = {}, input = {}) {
     // `carriedForward` marks a TOMBSTONE: this agent was not in today's observation at all, it is
     // here only so its disappearance can be reported. A consumer must never mistake one for a
     // current reading, so the flag rides all the way out to --json.
-    roster.push({ agentId: prior.agentId, displayName: prior.displayName, title: prior.title, repoRole: prior.repoRole, runRole: prior.runRole, ...visualOf(prior), session: prior.binding, primaryRunId: prior.runId ?? null, carriedForward: true });
+    roster.push({ agentId: prior.agentId, displayName: prior.displayName, title: prior.title, repoRole: prior.repoRole, runRole: prior.runRole, roleName: prior.roleName ?? null, ...visualOf(prior), session: prior.binding, primaryRunId: prior.runId ?? null, carriedForward: true });
   }
 
   // Decide who needs a capture: title-conclusive panes cost nothing at all.
@@ -320,6 +316,7 @@ export async function takeCensus(options = {}, input = {}) {
       title: item.agent.title ?? null,
       repoRole: item.agent.repoRole ?? null,
       runRole: item.agent.runRole ?? null,
+      roleName: item.agent.roleName ?? null,
       ...visualOf(item.agent),
       runId: item.agent.primaryRunId ?? null,
       state: verdict.state,

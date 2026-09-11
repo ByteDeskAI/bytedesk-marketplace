@@ -157,10 +157,11 @@ this table from the registry and fails if the text below differs.
   can carry control characters or terminal escape sequences, whatever an agent definition or run
   spec contains. A unit test gives both a library role and a declared run role an OSC title-setting
   escape sequence and asserts the fallback, with no control character in either key.
-- **Census.** The census copies the pair from the presence roster and from its own previous document
-  only when it is an exact registry pair; otherwise it records the fallback. `formatCensus` prints
-  the same checked pair. So a hand-edited or stale census document cannot put escape bytes on a
-  terminal through these keys.
+- **Census.** The census never copies a pair from the presence roster or from its own previous
+  document. It recomputes `roleIcon` and `roleLabel` for every row, carried-forward tombstones
+  included, from that row's `repoRole`, `runRole` and `roleName`, with the same precedence as the
+  producer. `formatCensus` prints that recomputed pair. So a hand-edited or stale census document
+  cannot put escape bytes on a terminal through these keys, and no code reads an icon back.
 - **Consumer.** Check the received pair against §4 before rendering (§5). The gateway's parser
   accepts a snapshot whose `roleIcon` contains escape bytes (§10.3), so parsing is not validation.
 - **Out of scope here, stated so it is not assumed.** `roleName` (header addendum §3.4) is not
