@@ -7,7 +7,7 @@
   },
   {
     "name": "tm-pool",
-    "description": "Agent-first pickup loop for .bytedesk/task-management: each tick collects finished dispatched workers, then dispatches ready-for-agent tasks up to dispatch.poolWip (default 3), preferring touches-disjoint sets. Opt-in: the --auto loop exits 0 immediately unless the store sets dispatch.enabled=true (`tm config dispatch '{\"enabled\":true}'`). Explicit control is `tm pool once|start|stop|status`, which works regardless.",
+    "description": "Agent-first pickup loop for .bytedesk/task-management, on by default: each tick collects finished dispatched workers, then dispatches ready-for-agent tasks that pass the readiness check, up to dispatch.poolWip (default 3), preferring touches-disjoint sets. One pool per store: this session runs it, or waits in standby while another session's pool holds pool.pid and takes over when that one exits. Config is re-read every poll, so `tm config dispatch.enabled false` stops it within one poll. Prints state changes only. Explicit control is `tm pool once|start|stop|status|resume`.",
     "command": "${CLAUDE_PLUGIN_ROOT}/bin/tm pool run --auto",
     "when": "always"
   }

@@ -74,7 +74,7 @@ import { getPath, setPath } from "../lib/settings.mjs";
 import { dispatch as dispatchTask } from "../lib/dispatch/index.mjs";
 import { envRegistry } from "../lib/dispatch/backend.mjs";
 import { collect as collectResult } from "../lib/dispatch/collect.mjs";
-import { livePool, poolTick, poolWorkers, poolable, readPoolState, resumePool, runPool, stopPool } from "../lib/dispatch/pool.mjs";
+import { livePool, poolEnabled, poolLine, poolTick, poolWorkers, poolable, readPoolState, resumePool, runPool, stopPool } from "../lib/dispatch/pool.mjs";
 
 /** This file, as an argv element — `pool start` re-executes it detached. */
 const SELF = fileURLToPath(import.meta.url);
@@ -1366,10 +1366,11 @@ const VERBS = {
    * `once` (the default action) is one tick in-process; `start` backgrounds the
    * loop as a detached child, the same idiom as tm-notify; `run` is that
    * child's entrypoint — internal, hidden from help like `hook`; `stop` and
-   * `status` work off pool.pid. The tm-pool monitor autostarts `pool run
-   * --auto`, which is opt-in on config dispatch.enabled — these verbs are not:
-   * explicit control always works, the kill-switches (TM_ENFORCE=off,
-   * dispatch.enabled false) still apply to the tick itself.
+   * `status` work off pool.pid. The tm-pool monitor starts `pool run --auto` in
+   * every session: it runs the pool, or waits in standby behind another
+   * session's and takes over when that one exits. `dispatch.enabled: false`
+   * (poolEnabled) is the kill switch for all of it — a loop exits within one
+   * poll, `once` reports disabled, `start` refuses. TM_ENFORCE=off disables the tick.
    */
   async pool(action, ...rest) {
     requireInit();
@@ -1382,6 +1383,7 @@ const VERBS = {
       return emit(res, () => renderTick(res));
     }
     if (action === "start") {
+      if (!poolEnabled(config(P))) die("pool is off (dispatch.enabled false) — tm config dispatch.enabled true");
       const incumbent = livePool(P);
       if (incumbent) die(`pool already running (pid ${incumbent.pid}, started ${incumbent.started || "?"})`, 2);
       const child = spawn(process.execPath, [SELF, "pool", "run"], { detached: true, stdio: "ignore" });
@@ -1394,10 +1396,11 @@ const VERBS = {
         auto: rest.includes("--auto"),
         registry: await envRegistry(),
         onTick: JSON_OUT ? (t) => out(JSON.stringify(t)) : null,
+        // The monitor stream: one line per state change, never one per tick. --json keeps the tick stream.
+        onState: JSON_OUT ? null : out,
       });
-      if (res.disabled) return out(res.reason); // exit 0 — the monitor's opt-in off-ramp
       if (!res.ok) die(res.reason, 2);
-      return;
+      return; // exit 0: stopped by a signal or by dispatch.enabled false, already said by onState
     }
     if (action === "stop") {
       const inst = stopPool(P);
@@ -1416,7 +1419,7 @@ const VERBS = {
         running: Boolean(inst),
         pid: inst?.pid ?? null,
         started: inst?.started ?? null,
-        enabled: cfg.dispatch?.enabled ?? null,
+        enabled: poolEnabled(cfg),
         poolWip: Number(cfg.dispatch?.poolWip ?? 3),
         workers: poolWorkers(P).length,
         poolable: poolable(P).length,
@@ -1425,9 +1428,8 @@ const VERBS = {
         pausedAt: brake.pausedAt,
         failures: brake.failures,
       };
-      const line = inst
-        ? `pool running (pid ${inst.pid}, started ${inst.started || "?"}) — ${res.workers}/${res.poolWip} workers, ${res.poolable} ready`
-        : `(no pool running) — ${res.workers}/${res.poolWip} workers, ${res.poolable} ready`;
+      const head = inst ? `pool running (pid ${inst.pid}, started ${inst.started || "?"})` : res.enabled ? "(no pool running)" : "pool off (dispatch.enabled false)";
+      const line = `${head} — ${res.workers}/${res.poolWip} workers, ${res.poolable} ready`;
       return emit(res, () => (res.paused ? `${line}\npaused: ${brake.pausedReason} (since ${brake.pausedAt}) — tm pool resume` : line));
     }
     die(`unknown pool action: ${action} (once | start | stop | status | resume [--dry-run])`);
@@ -1943,7 +1945,14 @@ function hook(event) {
         note = `${note ? `${note}\n` : ""}task-management: found a pre-v0.2 store at ${stranded}. Stores are now shared across worktrees — move it with \`.bytedesk/task-management/bin/tm migrate\`.`;
       }
       if (rotateEvents(P)) logEvent("events_rotated", {}, P);
-      const ctx = sessionContext(P);
+      // One line of pool state (TM-178): the pool is on by default, so every session says so and names the switch.
+      let poolState = "";
+      try {
+        poolState = poolLine(P);
+      } catch {
+        /* the pool line never breaks a session */
+      }
+      const ctx = [sessionContext(P), poolState].filter(Boolean).join("\n");
       if (ctx || note) {
         out(
           JSON.stringify({

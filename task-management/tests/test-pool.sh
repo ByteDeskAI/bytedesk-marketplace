@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # TM-065 — the `tm pool` verb contract: help registration, `once --json` against a
-# temp store (via the fake dispatch registry), the --auto opt-in off-ramp, and the
+# temp store (via the fake dispatch registry), the dispatch.enabled false off-ramp, and the
 # start/status/stop/second-start-refusal lifecycle around pool.pid.
 #
 # A real git repo, because `once` really dispatches and dispatch provisions a
@@ -91,10 +91,16 @@ has "$RESUMED" "\"id\": \"$T2\"" "after resume the ready task dispatches"
 OFF="$(TM_ENFORCE=off tm pool once --json)"
 [[ "$(echo "$OFF" | jget disabled)" == "true" ]] && ok "TM_ENFORCE=off disables the tick" || no "TM_ENFORCE=off disables the tick" "$OFF"
 
-# ── the monitor's off-ramp: --auto exits 0 unless dispatch.enabled ───────────
-AUTO_OUT="$(tm pool run --auto 2>&1)" && ok "pool run --auto exits 0 when not enabled" || no "pool run --auto exits 0 when not enabled"
-has "$AUTO_OUT" "opt-in" "the off-ramp says why"
-[[ ! -e "$STORE/pool.pid" ]] && ok "a refused autostart leaves no pid file" || no "a refused autostart leaves no pid file"
+# ── the kill switch: on is the default (TM-178), an explicit false turns it off ─
+[[ "$(tm pool status --json | jget enabled)" == "true" ]] && ok "status reports the pool on by default" || no "status reports the pool on by default" "$(tm pool status --json)"
+tm config dispatch.enabled false >/dev/null
+AUTO_OUT="$(tm pool run --auto 2>&1)" && ok "pool run --auto exits 0 when dispatch.enabled is false" || no "pool run --auto exits 0 when dispatch.enabled is false"
+has "$AUTO_OUT" "dispatch.enabled is false" "the off-ramp says why"
+[[ ! -e "$STORE/pool.pid" ]] && ok "a disabled autostart leaves no pid file" || no "a disabled autostart leaves no pid file"
+tm pool start >/dev/null 2>"$TM_ROOT/off.err"
+[[ "$?" == "1" ]] && ok "pool start refuses while dispatch.enabled is false" || no "pool start refuses while dispatch.enabled is false"
+has "$(cat "$TM_ROOT/off.err")" "dispatch.enabled true" "the refusal names the switch"
+tm config dispatch.enabled true >/dev/null
 
 # ── status before a pool exists ──────────────────────────────────────────────
 [[ "$(tm pool status --json | jget running)" == "false" ]] && ok "status reports no pool" || no "status reports no pool"

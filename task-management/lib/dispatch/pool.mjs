@@ -6,23 +6,27 @@
  * every tick it collects the results of workers that finished (collect.mjs is the
  * single write path for that), then dispatches the queue's ready tasks up to
  * `dispatch.poolWip` (default 3), preferring the touches-disjoint set so two
- * workers never start on colliding paths in the same tick.
+ * workers never start on colliding paths in the same tick. A labelled task must
+ * still pass completeness.mjs `agentReadiness` — the same check the store's label
+ * sync uses — or the tick skips it with the missing fields named (TM-178 B3).
  *
- * Two entry points, deliberately different policies:
+ * On by default (TM-178). `poolEnabled(cfg)` is the one test of the switch: the
+ * pool is on unless config sets `dispatch.enabled: false`.
  *
- *   VERBS   `tm pool once|start|stop|status|resume` are explicit control — a human
- *           (or a script a human wrote) asked, so the tick runs. The kill-switches
- *           still apply: TM_ENFORCE=off or `dispatch.enabled: false` in config
+ *   VERBS   `tm pool once|start|stop|status|resume` are explicit control. The
+ *           kill-switches still apply: TM_ENFORCE=off or `dispatch.enabled: false`
  *           means the tick reports { disabled: true } and dispatches nothing.
  *
- *   MONITOR the `tm-pool` monitor autostarts `tm pool run --auto` with the
- *           plugin. An autostarted daemon nobody asked for must not start
- *           dispatching work, so --auto is opt-in: unless the store's config
- *           sets `dispatch.enabled: true` the loop exits 0 immediately. The
- *           verbs above work regardless — explicit beats config.
+ *   MONITOR the `tm-pool` monitor starts `tm pool run --auto` in every session.
+ *           One process per store runs the pool: the first claims pool.pid, and
+ *           every other session's --auto waits in standby, re-checking each poll,
+ *           and takes over when that pid dies — so the pool outlives the session
+ *           that started it. Every loop re-reads config each poll: `enabled: false`
+ *           stops a running pool and ends a standby within one poll, and at launch
+ *           exits 0 at once with no pid file. The stream prints state changes only.
  *
- * Config (all under `dispatch`, set with `tm config dispatch '{...}'`):
- *   enabled            false is a kill-switch for the tick; the monitor also requires true
+ * Config (all under `dispatch`, set with `tm config dispatch.<key> <value>`):
+ *   enabled            default true; false is the kill switch for the tick, the loop and the standby
  *   poolWip            max dispatched tasks in progress at once (default 3)
  *   pollSeconds        seconds between ticks of `tm pool run` (default 30)
  *   maxFailures        consecutive failures before the pool pauses (default 3)
@@ -47,6 +51,7 @@ import { claimant } from "../claims.mjs";
 import { listAgents, retireAgent } from "../agents.mjs";
 import { batches } from "../parallel.mjs";
 import { config, list, logEvent, nextTasks, now, read, withLock } from "../store.mjs";
+import { agentReadiness } from "../completeness.mjs";
 import { paths } from "../paths.mjs";
 import { dispatch } from "./index.mjs";
 import { collect } from "./collect.mjs";
@@ -54,6 +59,9 @@ import { resolveBackend } from "./backend.mjs";
 
 /** The label that says "a worker can take this without a conversation". */
 export const READY_LABEL = "ready-for-agent";
+
+/** The one test of the on switch, for the loop, the tick and `tm pool status`: on unless explicitly false. */
+export const poolEnabled = (cfg) => cfg?.dispatch?.enabled !== false;
 
 // ── pool.pid: one loop per store ─────────────────────────────────────────────
 
@@ -276,7 +284,7 @@ export async function poolTick({ p = paths(), registry = null, caps = null, dryR
     return { disabled: true, reason: "TM_ENFORCE=off", ...empty };
   }
   const cfg = config(p);
-  if (cfg.dispatch?.enabled === false) {
+  if (!poolEnabled(cfg)) {
     return { disabled: true, reason: "config dispatch.enabled is false", ...empty };
   }
 
@@ -334,6 +342,13 @@ export async function poolTick({ p = paths(), registry = null, caps = null, dryR
   let brake = readPoolState(p);
   let room = capacity;
   for (const task of poolable(p)) {
+    // The label can be a person's hand-set call, so the pool still asks the one readiness check (B3).
+    // A skip, not a failure: nothing was attempted, so the brake does not count it.
+    const { ready, missing } = agentReadiness(task, cfg);
+    if (!ready) {
+      skipped.push({ id: task.id, reason: `not ready: ${missing.join(", ")}` });
+      continue;
+    }
     if (brake.pausedReason) {
       skipped.push({ id: task.id, reason: `pool paused: ${brake.pausedReason} — tm pool resume` });
       continue;
@@ -388,31 +403,34 @@ export async function poolTick({ p = paths(), registry = null, caps = null, dryR
 // ── the loop ─────────────────────────────────────────────────────────────────
 
 /**
- * The daemon: tick, sleep `dispatch.pollSeconds` (default 30), repeat.
+ * The daemon: tick, sleep `dispatch.pollSeconds` (default 30), repeat — re-reading config at the
+ * top of every poll, so the on switch is live (TM-178).
  *
- * `auto` is the monitor entry point: an autostarted pool is opt-in, so unless
- * config sets dispatch.enabled === true this returns { disabled } immediately —
- * exit 0, no pid file, no tick. `tm pool start` (explicit) runs without `auto`.
+ *   disabled  poolEnabled false ends the loop at the top of any poll. At launch that is a return
+ *             with no pid file and no tick; mid-run the pool stops dispatching and releases
+ *             pool.pid; a standby just leaves. Returns { ok, stopped, disabled: true, reason }.
+ *   running   pool.pid is taken through writePoolPid (exclusive; a stale record is replaced
+ *             under the lock) and removed on the way out.
+ *   standby   `auto` only. While a live pool holds pool.pid the monitor's loop waits instead of
+ *             refusing: each poll it re-checks livePool — a read, so a standby writes nothing,
+ *             not even the lock — and claims pool.pid once the holder is gone. Without `auto`
+ *             (`tm pool start`) a live incumbent is still a refusal: { ok: false, reason }.
  *
- * Refuses to start a second pool over a live pid file, takes pool.pid exclusively
- * on start, and removes it on SIGTERM/SIGINT. A stop sets a flag checked after
- * every tick as well as waking the sleep: a signal that lands mid-tick used to find
- * no sleep to wake and was lost, and with a listener installed the default exit was
- * gone too (TM-175 B5).
+ * `onState(line)` hears one short line per state change (running, standby, took over, paused,
+ * resumed, stopped) and nothing per tick; `onTick` still hears every tick (`--json`).
+ *
+ * A stop sets a flag checked after every tick as well as waking the sleep: a signal that lands
+ * mid-tick used to find no sleep to wake and was lost, and with a listener installed the default
+ * exit was gone too (TM-175 B5).
  */
-export async function runPool({ p = paths(), auto = false, intervalSeconds = null, registry = null, caps = null, onTick = null } = {}) {
-  if (auto && config(p).dispatch?.enabled !== true) {
-    return { disabled: true, reason: 'config dispatch.enabled is not true — the pool daemon is opt-in (tm config dispatch \'{"enabled":true}\')' };
-  }
-  const claim = writePoolPid(p);
-  if (!claim.ok) {
-    const inc = claim.incumbent;
-    return { ok: false, reason: `pool already running (pid ${inc?.pid ?? "?"}, started ${inc?.started || "?"})` };
-  }
-
-  const seconds = intervalSeconds ?? Number(config(p).dispatch?.pollSeconds ?? 30);
+export async function runPool({ p = paths(), auto = false, intervalSeconds = null, registry = null, caps = null, onTick = null, onState = null } = {}) {
+  let mode = null; // "standby" | "running"
+  let holder = null; // the pid a standby waits on
+  let paused = false;
+  let disabled = false;
   let stopping = false;
   let wake = null;
+  const say = (line) => onState?.(line);
   const stop = () => {
     stopping = true;
     if (wake) wake();
@@ -421,10 +439,39 @@ export async function runPool({ p = paths(), auto = false, intervalSeconds = nul
   process.on("SIGINT", stop);
   try {
     for (;;) {
-      const tick = await poolTick({ p, registry, caps });
-      if (onTick) onTick(tick);
+      const cfg = config(p);
+      if (!poolEnabled(cfg)) {
+        disabled = true;
+        say("pool: stopped — dispatch.enabled is false");
+        break;
+      }
+      if (mode !== "running") {
+        const incumbent = auto ? livePool(p) : null;
+        // Our own pid in the record is a recycled pid from a crashed predecessor: writePoolPid replaces it.
+        const claim = incumbent && incumbent.pid !== process.pid ? { ok: false, incumbent } : writePoolPid(p);
+        if (claim.ok) {
+          say(mode === "standby" ? `pool: took over from pid ${holder}` : `pool: running (pid ${process.pid})`);
+          mode = "running";
+        } else if (!auto) {
+          const inc = claim.incumbent;
+          return { ok: false, reason: `pool already running (pid ${inc?.pid ?? "?"}, started ${inc?.started || "?"})` };
+        } else if (claim.incumbent.pid !== holder) {
+          holder = claim.incumbent.pid;
+          mode = "standby";
+          say(`pool: standby — pid ${holder} holds this store`);
+        }
+      }
+      if (mode === "running") {
+        const tick = await poolTick({ p, registry, caps });
+        if (onTick) onTick(tick);
+        if (!tick.disabled && Boolean(tick.paused) !== paused) {
+          paused = Boolean(tick.paused);
+          say(paused ? `pool: paused — ${tick.paused.reason}` : "pool: resumed");
+        }
+      }
       // The lock is never held here: the tick has fully returned before the
       // sleep starts, and withLock scopes itself to single writes regardless.
+      const seconds = intervalSeconds ?? Number(cfg.dispatch?.pollSeconds ?? 30);
       if (stopping || !(seconds > 0)) break;
       await new Promise((resolve) => {
         const timer = setTimeout(resolve, seconds * 1000);
@@ -439,7 +486,15 @@ export async function runPool({ p = paths(), auto = false, intervalSeconds = nul
   } finally {
     process.removeListener("SIGTERM", stop);
     process.removeListener("SIGINT", stop);
-    releasePoolPid(p);
+    if (mode === "running") releasePoolPid(p); // a standby never held it, and must not delete the holder's
   }
-  return { ok: true, stopped: stopping };
+  return { ok: true, stopped: stopping, ...(disabled ? { disabled: true, reason: "dispatch.enabled is false" } : {}) };
+}
+
+/** The one line a session starts with: is the pool on, who runs it, how much work, and the switch. */
+export function poolLine(p = paths()) {
+  if (!poolEnabled(config(p))) return "pool: off (dispatch.enabled false) — tm config dispatch.enabled true";
+  const inst = livePool(p);
+  const state = inst ? `running (pid ${inst.pid})` : "starting with this session";
+  return `pool: on — ${state} · ${poolable(p).length} ready · ${poolWorkers(p).length} working · tm config dispatch.enabled false to stop`;
 }
