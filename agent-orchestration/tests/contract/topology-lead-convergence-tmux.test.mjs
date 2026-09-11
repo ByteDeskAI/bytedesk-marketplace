@@ -163,7 +163,8 @@ test('concurrent session starts across linked worktrees converge on one supervis
   const supervisors = await supervisorsUnder(base);
   assert.equal(supervisors.length, 1, `exactly one supervisor across ${starts.length} concurrent starts: ${supervisors.join(', ')}`);
   assert.deepEqual(await sessionsOn(env, socket), [lead.session], 'exactly one session on the server, and it is the lead');
-  assert.deepEqual((await readdir(leadRegistryDir(env))).filter((name) => /\.json$/.test(name)), [`${key}.json`], 'one lead registration, keyed by the shared identity');
+  // Registrations are `<repoKey>.json`; the same directory also holds `<repoKey>.recovery.json` state.
+  assert.deepEqual((await readdir(leadRegistryDir(env))).filter((name) => /^[0-9a-f]+\.json$/.test(name)), [`${key}.json`], 'one lead registration, keyed by the shared identity');
 
   // Later reconciles and later session starts change nothing.
   await Promise.all(worktrees.map((consumer) => execFile(process.execPath, [cli, 'startup-check', '--source', 'hook', '--consumer', consumer], { env, timeout: 120_000 }).catch(() => {})));
