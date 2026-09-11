@@ -242,6 +242,26 @@ export const CATALOG = [
     help: "A dispatched worker's claim is renewed on this cadence while the worker is alive. 0 disables.",
   },
   {
+    key: "dispatch.maxFailures",
+    group: "agents",
+    type: "integer",
+    default: 3,
+    min: 1,
+    max: 100,
+    label: "Pause the pool after this many failures in a row",
+    help: "Dispatch failures and failed workers both count; a dispatched task closing resets the count. One quota or rate-limit failure pauses at once. `tm pool resume` clears the pause.",
+  },
+  {
+    key: "dispatch.maxRuntimeMinutes",
+    group: "agents",
+    type: "integer",
+    default: 120,
+    min: 0,
+    max: 10080,
+    label: "Log a worker overrun after (minutes)",
+    help: "A dispatched worker still running past this logs worker_overrun once. It is not parked. 0 disables.",
+  },
+  {
     key: "agentTtlMinutes",
     group: "agents",
     type: "integer",
@@ -327,11 +347,11 @@ const LEGACY_BOARD = {
 /** Board keys the PWA already writes that are not on the policy page. */
 const PASSTHROUGH = new Set(["board.categories", "board.watching", "board.views"]);
 
-function getPath(obj, key) {
+export function getPath(obj, key) {
   return key.split(".").reduce((acc, part) => (acc == null ? acc : acc[part]), obj);
 }
 
-function setPath(obj, key, value) {
+export function setPath(obj, key, value) {
   const parts = key.split(".");
   const next = { ...obj };
   let cur = next;

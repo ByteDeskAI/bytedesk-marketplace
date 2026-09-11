@@ -330,6 +330,36 @@ describe("topology backend", () => {
     assert.equal("TM_ACTOR" in bare.spawned[0][2].env, false);
   });
 
+  it("TM-177: marks the worker in the launcher's env AND in the spec env the pane actually exports", () => {
+    const { spawned, written } = launch();
+    const env = spawned[0][2].env;
+    const spec = JSON.parse(written.find(([file]) => file.endsWith("spec.json"))[1]);
+    const want = { TM_DISPATCH_WORKER: "1", TM_DISPATCH_TASK: "TM-001", TM_DISPATCH_BRANCH: "tm/TM-001-fix-the-thing" };
+    for (const [k, v] of Object.entries(want)) {
+      assert.equal(env[k], v, `ao-topology's own env carries ${k}`);
+      // ao-topology's launcher script exports the spec agent's env and nothing else, and a tmux
+      // server that is already running does not hand a new pane the launching process's env.
+      assert.equal(spec.agents[0].env?.[k], v, `the spec agent's env carries ${k} — the only env the pane exports`);
+    }
+    const args = spec.agents[0].args ?? [];
+    const at = args.indexOf("--settings");
+    assert.ok(at >= 0, `the inline claude chain carries the guard: ${JSON.stringify(args)}`);
+    assert.equal(JSON.parse(args[at + 1]).hooks.PreToolUse[0].matcher, "Bash");
+  });
+
+  it("TM-177: a stored agent keeps its env and args; a chain that is not all claude gets no --settings", () => {
+    const agentOf = (rosterList) => JSON.parse(launch(req(), { rosterList }).written.find(([f]) => f.endsWith("spec.json"))[1]).agents[0];
+
+    const claude = agentOf([{ id: "ag-worker", role: "implementer", cli: "claude", env: { FOO: "bar" }, args: ["--verbose"] }]);
+    assert.equal(claude.env.FOO, "bar", "an inline env replaces the stored one wholesale in ao-topology, so tm merges");
+    assert.equal(claude.env.TM_DISPATCH_WORKER, "1");
+    assert.deepEqual(claude.args.slice(0, 2), ["--verbose", "--settings"], "stored args first, the guard appended");
+
+    const mixed = agentOf([{ id: "ag-worker", role: "implementer", candidates: ["codex:gpt-5", "claude:fable"], args: ["--x"] }]);
+    assert.equal("args" in mixed, false, "codex would refuse --settings; the stored args stand untouched");
+    assert.equal(mixed.env.TM_DISPATCH_WORKER, "1", "the env still marks the worker");
+  });
+
   it("bounds the launch: an explicit timeout and a capped buffer", () => {
     const { spawned } = launch();
     assert.equal(spawned[0][2].timeout, topology.LAUNCH_TIMEOUT_MS);

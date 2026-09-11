@@ -29,7 +29,7 @@ import { toolFailureReason } from "./backend.mjs";
 import { releaseClaim } from "../claims.mjs";
 import { addComment } from "../issue.mjs";
 import { detectHostCaps } from "../hostcaps.mjs";
-import { logEvent, read, update } from "../store.mjs";
+import { config, logEvent, mutate, now, read, update } from "../store.mjs";
 import { paths } from "../paths.mjs";
 import { rpcSession } from "./mcp-client.mjs";
 
@@ -86,7 +86,8 @@ export function recordResult(id, result = {}, p = paths()) {
 
     if (note) addComment(id, note, { author: `worker:${task.dispatched.backend}`, p });
     logEvent("task_result", { id, run: run ?? task.dispatched.run, outcome: final }, p);
-    return { ok: true, id, outcome: final, downgraded: final !== outcome, parked };
+    // summary rides along so the pool's brake can see a quota-shaped failure (TM-175).
+    return { ok: true, id, outcome: final, downgraded: final !== outcome, parked, summary: note };
   } catch (err) {
     return { ok: false, reason: `recordResult failed for ${id}: ${err.message}` };
   }
@@ -325,8 +326,31 @@ export async function collect(id, p = paths(), impls = {}) {
     const routes = { topology: collectTopology, orchestration: collectOrchestration, tmux: collectTmux, idle: collectIdle, ...impls };
     const route = routes[backend];
     if (!route) return { ok: false, reason: `no collector for backend "${backend}"` };
-    return route(id, { p });
+    const res = await route(id, { p });
+    if (res?.ok && res.pending) noteOverrun(task, p);
+    return res;
   } catch (err) {
     return { ok: false, reason: `collect failed for ${id}: ${err.message}` };
+  }
+}
+
+/**
+ * A worker still running past dispatch.maxRuntimeMinutes (default 120; 0 disables) is
+ * logged once as `worker_overrun` (TM-175). Visibility, never a park: a long task is
+ * not a failed one. "Once" is stamped on the dispatch record, so a re-dispatch, which
+ * writes a fresh record, starts a fresh clock. Never throws: it must not turn a pending
+ * result into a failed collection.
+ */
+function noteOverrun(task, p) {
+  try {
+    const d = task.dispatched;
+    const limit = Number(config(p).dispatch?.maxRuntimeMinutes ?? 120);
+    if (!(limit > 0) || !d?.at || d.overrunAt) return;
+    const minutes = (Date.now() - new Date(d.at).getTime()) / 60_000;
+    if (!(minutes > limit)) return;
+    mutate(task.id, (doc) => ({ dispatched: { ...doc.dispatched, overrunAt: now() } }), p);
+    logEvent("worker_overrun", { id: task.id, backend: d.backend, run: d.run ?? null, minutes: Math.round(minutes), limit }, p);
+  } catch {
+    /* visibility only */
   }
 }
