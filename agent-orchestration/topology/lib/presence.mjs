@@ -12,6 +12,7 @@ import { listServerPanes } from "./tmux.mjs";
 import { slotsDir } from "./slots.mjs";
 import { censusPath, withStaleness } from "./census.mjs";
 import { queueDepth } from "./mailbox.mjs";
+import { roleVisual } from "./identity.mjs";
 import { invariant, run } from "./util.mjs";
 
 export const PRESENCE_BINDING_FIELDS = ["serverKey", "serverPid", "sessionId", "sessionCreated", "paneId", "panePid"];
@@ -297,6 +298,14 @@ export async function collectPresenceAgents({consumer, repositoryRoot, identity,
   ]);
   const ordered = [...agents.values()].sort((a,b)=>bindingKey(a.session).localeCompare(bindingKey(b.session)));
   for (const entry of ordered) {
+    // TM-168. Display only, and computed HERE rather than in add(): a standing agent that later joins
+    // a run has its roleName moved to the run role by the first-join overwrite above, and an icon
+    // taken at add() time would keep the library role. Never read back for routing or authority.
+    Object.assign(entry, roleVisual({
+      repoRole: entry.repoRole,
+      runRole: entry.primaryRunId ? entry.roleName ?? null : null,
+      role: library.get(entry.agentId)?.role ?? null,
+    }));
     const seat = slots.byAgent.get(entry.agentId);
     // `slots` is emitted whenever the agent appears in any slot record, held or waiting. An agent in
     // none is absent from the key rather than carrying two empty arrays, because "not in a queue"
