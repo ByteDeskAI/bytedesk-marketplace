@@ -2,13 +2,14 @@
 // message through the mailbox, wait for the replies, and stop the session. Skips without tmux.
 import assert from "node:assert/strict";
 import { execFile as execFileCallback } from "node:child_process";
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { access, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 
-import { writeJson } from "../../topology/lib/util.mjs";
+import { sleep, writeJson } from "../../topology/lib/util.mjs";
 
 const execFile = promisify(execFileCallback);
 const root = process.cwd();
@@ -28,6 +29,37 @@ async function aoAllowingFailure(args, env = {}) {
   return execFile(process.execPath, [cli, ...args], { env: { ...process.env, ...env }, encoding: "utf8", timeout: 120_000 })
     .then((result) => ({ code: 0, stdout: result.stdout, stderr: result.stderr }))
     .catch((error) => ({ code: error.code ?? 1, stdout: error.stdout ?? "", stderr: error.stderr ?? "" }));
+}
+
+/**
+ * Every `cli.mjs supervise` this consumer caused. `launch` self-starts one (ensureSupervision) and
+ * it only retires on a later tick after the consumer directory is removed, so without an explicit
+ * stop it outlives the test — measured: the `stuck` case's supervisor was still running 3s after the
+ * suite exited, and a leak check taken then cannot tell that from a real leak. Matched on the
+ * consumer path, which mkdtemp made unique to this test.
+ */
+async function supervisorsFor(consumer) {
+  const { stdout } = await execFile("pgrep", ["-f", `supervise --consumer ${consumer}( |$)`]).catch((error) => ({ stdout: error.stdout ?? "" }));
+  return stdout.split("\n").filter(Boolean).map(Number);
+}
+
+async function stopSupervisors(consumer) {
+  for (const pid of await supervisorsFor(consumer)) { try { process.kill(pid, "SIGTERM"); } catch {} }
+  for (let i = 0; i < 50 && (await supervisorsFor(consumer)).length; i += 1) await sleep(100);
+  for (const pid of await supervisorsFor(consumer)) { try { process.kill(pid, "SIGKILL"); } catch {} }
+}
+
+/**
+ * Kill the test's own tmux server, scoped by SOCKET (.claude/rules/tmux-test-isolation.md rule 3),
+ * and only after checking that socket lives under this test's TMUX_TMPDIR — the one mistake this
+ * teardown must never make is resolving to the operator's server and killing it.
+ */
+async function killIsolatedServer(env) {
+  const socket = await execFile("tmux", ["list-panes", "-a", "-F", "#{socket_path}"], { env: { ...process.env, ...env } })
+    .then((result) => result.stdout.split("\n")[0].trim()).catch(() => "");
+  if (!socket) return;
+  assert.ok(env.TMUX === "" && socket.startsWith(`${env.TMUX_TMPDIR}/`), `refusing to kill a tmux server outside this test's TMUX_TMPDIR: ${socket}`);
+  await execFile("tmux", ["-S", socket, "kill-server"], { env: { ...process.env, ...env } }).catch(() => {});
 }
 
 /**
@@ -77,11 +109,12 @@ async function launchDeliveryRun(t, label, extraEnv = {}) {
   });
   const launched = JSON.parse(await ao(["launch", "--spec", specPath, "--consumer", consumer, "--providers-dir", join(root, "tests", "fixtures"), "--run-id", `${label}-${process.pid}`, "--json"], env));
   t.after(async () => {
-    await execFile("tmux", ["kill-session", "-t", launched.session], { env: { ...process.env, ...env } }).catch(() => {});
+    await stopSupervisors(consumer);
+    await killIsolatedServer(env);
     await rm(consumer, { recursive: true, force: true });
   });
   const worker = launched.agents.find((agent) => agent.id === "worker-a");
-  return { runDir: launched.runDir, session: launched.session, env, consumer, worker };
+  return { runDir: launched.runDir, runId: `${label}-${process.pid}`, session: launched.session, env, consumer, worker };
 }
 
 async function assertBindings(runDir, env) {
@@ -219,7 +252,8 @@ test("launch → send → wait → status → stop with fake agents in tmux", { 
     assert.equal(after.state, "stopped");
     passed = true;
   } finally {
-    if (session) await execFile("tmux", ["kill-session", "-t", session], { env: { ...process.env, ...env } }).catch(() => {});
+    await stopSupervisors(consumer);
+    if (session) await killIsolatedServer(env);
     // Kept on failure, deliberately. This case has failed intermittently for days and every
     // investigation started from an assertion message with no pane logs behind it, because the
     // finally had already deleted the run — including `agents/<id>/pane.log`, which is the only
@@ -341,4 +375,126 @@ test("managed shell ignores ambient default-command and an unsignalled timeout i
     if (socket) await execFile('tmux', ['-S', socket, 'kill-server'], { env }).catch(() => {});
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+// TM-164 AC4. The unit suite proves the gate with a fake tmux; this proves it on a real server: a
+// managed observer pane, a real prompt acknowledgement typed from inside it, and the attachment
+// that must not exist until that acknowledgement lands.
+test("observer start commits a v2 attachment only after its own pane acknowledges the current prompt", { skip: tmuxAvailable ? false : "tmux not installed" }, async (t) => {
+  const { env, consumer, runId } = await launchDeliveryRun(t, "observer");
+  const state = env.AGENT_ORCHESTRATION_STATE_HOME;
+  const present = (path) => access(path).then(() => true, () => false);
+  const six = (b) => ["serverKey", "serverPid", "sessionId", "sessionCreated", "paneId", "panePid"].map((key) => String(b?.[key]));
+
+  // `launch` self-started a supervisor. It must live on the isolated server: one that inherited the
+  // operator's $TMUX would reconcile, and label, the operator's panes.
+  const supervisors = await supervisorsFor(consumer);
+  assert.ok(supervisors.length >= 1, "launch self-starts a supervisor; none was found, so its isolation went unchecked");
+  if (process.platform === "linux") {
+    for (const pid of supervisors) {
+      const environ = (await readFile(`/proc/${pid}/environ`, "utf8")).split("\0");
+      assert.ok(environ.includes("TMUX=") && environ.includes(`TMUX_TMPDIR=${consumer}`), `supervisor ${pid} does not carry the isolated tmux env`);
+    }
+  }
+
+  // The fake provider. It draws a prompt and, when the standing bootstrap pointer arrives, marks that
+  // it is withholding, waits for the test to release it, then acknowledges from inside its own pane
+  // exactly as the generated prompt instructs a real observer to.
+  const fixture = join(consumer, "observer-fixture");
+  await mkdir(fixture, { recursive: true });
+  const withheld = join(fixture, "withheld"), release = join(fixture, "release"), provider = join(fixture, "fake-observer.sh");
+  const stateField = (key) => `$('${process.execPath}' -p 'require(process.cwd() + "/prompt-state.json").${key}')`;
+  await writeFile(provider, `${[
+    "#!/bin/sh",
+    "printf 'fake-observer ready\\n> '",
+    "while IFS= read -r line; do",
+    '  case "$line" in',
+    '    Read*"begin your standing role"*)',
+    `      : > '${withheld}'`,
+    `      while [ ! -e '${release}' ]; do sleep 0.1; done`,
+    `      '${process.execPath}' '${cli}' prompt ack "$AO_AGENT_ID" --consumer "$AO_CONSUMER" --revision "${stateField("desired_revision")}" --nonce "${stateField("nonce")}" --json > ack.json 2>&1`,
+    "      printf 'acked\\n> ' ;;",
+    "    *) printf '> ' ;;",
+    "  esac",
+    "done",
+  ].join("\n")}\n`, { mode: 0o755 });
+  await writeJson(join(fixture, "fake-observer.json"), {
+    id: "fake-observer", display: "Fake observer (tests)", command: "sh", args: [provider],
+    model_args: [], system_prompt_args: [], auto_approve_args: [],
+    ready: { pattern: "^>", tmux_pattern: "^>", delay_ms: 200, timeout_ms: 30000 },
+    submit_keys: ["Enter"], detect: null, notes: "Test-only observer provider written by tests/contract/topology-tmux.test.mjs.",
+  });
+
+  const created = JSON.parse(await ao(["agent", "new", "--role", "observer", "--cli", "fake-observer", "--name", "Olive Watcher", "--consumer", consumer], env));
+  const observerId = created.id, agentDir = created.dir;
+  const attachmentPath = join(state, "observers", observerId, "attachment.json");
+
+  let startResult = null;
+  const starting = aoAllowingFailure(["observer", "start", "--consumer", consumer, "--target", `run:${runId}`, "--observer", observerId,
+    "--providers-dir", fixture, "--ack-timeout", "30s", "--json"], env).then((result) => (startResult = result));
+  const until = async (check, what) => {
+    for (const deadline = Date.now() + 60_000; Date.now() < deadline && !startResult; await sleep(100)) if (await check()) return;
+    assert.fail(`${what}; observer start ${startResult ? `already exited: ${JSON.stringify(startResult)}` : "is still running"}`);
+  };
+
+  // 1. No attachment while the acknowledgement is withheld.
+  await until(() => present(withheld), "the observer pane never received its standing bootstrap pointer");
+  // The managed-launch startup journal line is openRoleSession's LAST step. Absence asserted before it
+  // would pass with no gate at all, because the session is still opening; after it, the prompt
+  // acknowledgement is the only thing left between observer start and an attachment.
+  const sessionOpened = async () => {
+    for (const name of await readdir(join(state, "startup")).catch(() => [])) {
+      if ((await readFile(join(state, "startup", name), "utf8")).includes(`"agentId":"${observerId}"`)) return true;
+    }
+    return false;
+  };
+  await until(sessionOpened, "the observer session never finished opening");
+  for (let i = 0; i < 20; i += 1) {
+    assert.equal(await present(attachmentPath), false, "an attachment was committed before the observer acknowledged its prompt");
+    await sleep(100);
+  }
+  const staged = JSON.parse(await readFile(join(agentDir, "prompt-state.json"), "utf8"));
+  assert.equal(staged.status, "awaiting-ack", JSON.stringify(staged));
+  assert.equal(startResult, null, "observer start must still be waiting for the acknowledgement");
+
+  // The right agent, session, repository, nonce and revision — from a process that is not the pane.
+  const forged = await aoAllowingFailure(["prompt", "ack", observerId, "--consumer", consumer, "--revision", staged.desired_revision, "--nonce", staged.nonce, "--json"],
+    { ...env, AO_AGENT_ID: observerId, AO_SESSION: staged.desired_session, AO_CONSUMER: consumer, TMUX_PANE: "" });
+  assert.equal(forged.code, 1, `${forged.stdout}${forged.stderr}`);
+  assert.equal(JSON.parse(forged.stdout).details?.reason, "incarnation-mismatch", forged.stdout);
+  assert.equal(await present(attachmentPath), false, "a refused acknowledgement must not attach the observer");
+
+  // 2. Release: the pane acknowledges from its own process, and observer start commits.
+  await writeFile(release, "");
+  const started = await starting;
+  const ack = await readFile(join(agentDir, "ack.json"), "utf8").catch((error) => error.message);
+  assert.equal(started.code, 0, `observer start failed after the pane was released.\nstdout: ${started.stdout}\nstderr: ${started.stderr}\nack.json: ${ack}`);
+  const result = JSON.parse(started.stdout);
+  const { attachment } = result;
+  assert.deepEqual(JSON.parse(await readFile(attachmentPath, "utf8")), attachment, "the committed file is the attachment start reported");
+  assert.equal(attachment.version, 2);
+  assert.equal(attachment.observation_allowed, true);
+  assert.ok(attachment.prompt_acknowledged_at, JSON.stringify(attachment));
+  const binding = attachment.observer_binding;
+  assert.ok(binding.serverKey.startsWith(`${consumer}/`), `observer bound to a tmux server outside this test's TMUX_TMPDIR: ${binding.serverKey}`);
+  const panes = (await execFile("tmux", ["-S", binding.serverKey, "list-panes", "-a", "-F",
+    "#{socket_path}|#{pid}|#{session_id}|#{session_created}|#{pane_id}|#{pane_pid}|#{session_name}|#{pane_dead}"], { env: { ...process.env, ...env } }))
+    .stdout.trim().split("\n").map((line) => line.split("|"));
+  const bound = panes.filter((pane) => pane.slice(0, 6).join("|") === six(binding).join("|"));
+  assert.equal(bound.length, 1, `observer_binding matches no live pane:\n${JSON.stringify(binding)}\n${panes.map((pane) => pane.join("|")).join("\n")}`);
+  assert.deepEqual(bound[0].slice(6), [attachment.observer_session, "0"], "the bound pane must be the live observer session");
+  assert.equal(result.activation_delivery?.delivered, true, JSON.stringify(result.activation_delivery));
+  const status = JSON.parse(await ao(["observer", "status", "--consumer", consumer, "--observer", observerId], env));
+  assert.deepEqual([status.status, status.observation_allowed, status.prompt_current], ["attached", true, true], JSON.stringify(status));
+
+  // 3. No stale prompt source: the attached revision is the prompt composed now, is the file the pane
+  // was told to read, and is what that exact pane acknowledged.
+  const composed = JSON.parse(await ao(["prompt", "preview", observerId, "--consumer", consumer], env));
+  assert.equal(composed.ok, true, JSON.stringify(composed.errors));
+  assert.equal(attachment.prompt_revision, composed.revision);
+  const promptFile = await readFile(join(agentDir, "prompt.md"), "utf8");
+  assert.equal(createHash("sha256").update(promptFile, "utf8").digest("hex").slice(0, 16), attachment.prompt_revision, "prompt.md is not the revision the observer attached with");
+  const applied = JSON.parse(await readFile(join(agentDir, "prompt-state.json"), "utf8"));
+  assert.deepEqual([applied.status, applied.desired_revision, applied.applied_revision], ["current", attachment.prompt_revision, attachment.prompt_revision], JSON.stringify(applied));
+  assert.deepEqual(six(applied.applied_binding), six(binding), "the acknowledgement must come from the bound pane");
 });
