@@ -110,7 +110,10 @@ because a lead is not proven ready, the envelope is already on disk; each non-re
 a recovery request for its own supervisor, and that repository is activated so the supervisor
 exists. The supervisor that proves the lead responsive makes the waiting mail due at once. A held
 message records `attempts`, `last_error` and `next_retry_at` (10 s, 30 s, 2 min, then 10 min), and
-resume skips it until it is due; `mailbox resume --force` retries now. Holds no retry can change
+resume skips it until it is due; `mailbox resume --force` retries now. A side that is not ready and
+not enrolled holds as `destination_not_enrolled` or `source_not_enrolled`, on the same backoff
+(enrollment can change), and no recovery is requested for it: enrollment decides which repositories
+are given a lead, not whether a lead already proven responsive may receive mail. Holds no retry can change
 (`hop_limit`, `loop`, `coordinator_not_worker`, `source_identity_required`,
 `repository_identity_changed`) are marked `permanent` and are never retried by resume.
 Reusing an ID with different content is rejected. `mailbox forward --parent <id>` derives ancestry

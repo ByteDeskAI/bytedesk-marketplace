@@ -236,3 +236,34 @@ test('ensureLead probes a live lead with the registration lock released', async 
   assert.equal((await ensureLead({ ...w.opts, probes })).action, 'reused');
   assert.equal(heldDuringProbe, false, 'a probe that can wait a model turn must not hold the lock other ensures queue on');
 });
+
+test('a supervisor tick is quiet for an unenrolled repository and reports recovery for an enrolled one', async t => {
+  const { mkdir, readdir } = await import('node:fs/promises');
+  const { superviseRepository } = await import('../../topology/lib/supervision.mjs');
+  const root = await mkdtemp(join(tmpdir(), 'ao-recovery-tick-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const repos = { unenrolled: join(root, 'unenrolled'), enrolled: join(root, 'enrolled') };
+  const home = join(root, 'home'), tmuxDir = join(root, 'tmux');
+  await mkdir(tmuxDir, { recursive: true });
+  // tmux isolation: no inherited server, a per-test TMUX_TMPDIR, and every listing names a server.
+  const env = { ...process.env, TMUX: '', TMUX_TMPDIR: tmuxDir, AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state'), XDG_CONFIG_HOME: join(home, '.config') };
+  for (const key of ['AO_LEAD_ID', 'AO_AGENT_ID', 'AO_CONSUMER']) delete env[key];
+  for (const repo of Object.values(repos)) await run('git', ['init', '-q', repo]);
+  // Enrolled through an existing lead registration. Its recorded incarnation names a socket that does
+  // not exist, and its library agent is gone, so recovery observes it dead and fails before anything
+  // could open.
+  const identity = await canonicalRepoId(repos.enrolled);
+  const registry = leadRegistryDir(env, home), registration = `${repoKey(identity.id)}.json`;
+  await writeJson(join(registry, registration), { version: 1, repo_id: identity.id, agent_id: 'gone0001', mode: 'dedicated', managed: true, externally_owned: false,
+    session: 'ao-gone0001', pane: '%9', binding: { ...BINDING, serverKey: join(tmuxDir, 'no-such-socket') }, consumer: repos.enrolled });
+  const tick = (consumer) => superviseRepository({ consumer, home, env, pluginRoot, tmuxServer: `ao-absent-${process.pid}` }, { once: true });
+
+  const quiet = await tick(repos.unenrolled);
+  assert.equal(Object.hasOwn(quiet, 'lead_recovery'), false, 'an unenrolled repository adds no report key');
+  assert.deepEqual(await readdir(registry), [registration], 'and writes no recovery state, lock or journal');
+
+  const loud = await tick(repos.enrolled);
+  assert.equal(loud.lead_recovery?.action, 'failed', JSON.stringify(loud.lead_recovery));
+  assert.match(loud.lead_recovery.last_error, /^TOPOLOGY_LEAD_AGENT_MISSING/);
+  assert.equal(loud.lead_recovery.attempts, 1);
+});

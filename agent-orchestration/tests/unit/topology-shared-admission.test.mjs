@@ -14,7 +14,9 @@ async function fixture(t, legacy=false) {
  await writeJson(join(runDir,'run.json'),{consumer:legacy?undefined:dest,run_id:'r',sequence:0,agents:[{id:'worker01',role:'worker'}]});
  for(const [id,role] of [['lead0001','lead'],['worker01','worker']])await writeJson(join(agentsRoot(dest),id,'agent.json'),{id,role});
  const env={AGENT_ORCHESTRATION_STATE_HOME:join(root,'state')};
- const standingOptions={home:join(root,'home'),readiness:async()=>({status:'responsive',record:{agent_id:'lead0001'},library_lead:'lead0001'})};
+ const standingOptions={home:join(root,'home'),readiness:async()=>({status:'responsive',record:{agent_id:'lead0001'},library_lead:'lead0001'}),
+  // TM-167: cross-repository standing mail requires both repositories to be enrolled.
+  enrollment:async()=>({enrolled:true,source:'test'})};
  const input={runDir,from:'source01',to:['worker01'],body:'request body',stage:'ask',env,standingOptions};
  return {dest,source,runDir,env,standingOptions,input};
 }

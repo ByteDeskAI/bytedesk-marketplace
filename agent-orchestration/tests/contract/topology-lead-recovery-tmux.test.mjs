@@ -51,10 +51,27 @@ async function supervisorsFor(consumer) {
   return stdout.split('\n').filter(Boolean).map(Number);
 }
 
-async function stopSupervisors(consumer) {
-  for (const pid of await supervisorsFor(consumer)) { try { process.kill(pid, 'SIGTERM'); } catch {} }
-  for (let i = 0; i < 50 && (await supervisorsFor(consumer)).length; i += 1) await sleep(100);
-  for (const pid of await supervisorsFor(consumer)) { try { process.kill(pid, 'SIGKILL'); } catch {} }
+/** Every supervisor whose consumer is `dir` or anything under it. */
+async function supervisorsUnder(dir) {
+  const { stdout } = await execFile('pgrep', ['-f', `supervise --consumer ${dir}(/| |$)`]).catch((error) => ({ stdout: error.stdout ?? '' }));
+  return stdout.split('\n').filter(Boolean).map(Number);
+}
+
+/**
+ * Stop every supervisor under `dir` and return the pids that survived. Several rounds, because one
+ * pass reaps only what was running when it listed: a supervisor another repository's activation was
+ * starting at that moment would otherwise outlive the test and tick against a deleted directory.
+ */
+async function stopSupervisors(dir) {
+  for (let round = 0; round < 3; round += 1) {
+    const pids = await supervisorsUnder(dir);
+    if (!pids.length) break;
+    for (const pid of pids) { try { process.kill(pid, 'SIGTERM'); } catch {} }
+    for (let i = 0; i < 50 && (await supervisorsUnder(dir)).length; i += 1) await sleep(100);
+    for (const pid of await supervisorsUnder(dir)) { try { process.kill(pid, 'SIGKILL'); } catch {} }
+    await sleep(200);
+  }
+  return supervisorsUnder(dir);
 }
 
 function ownSocket(env, socket) {
@@ -73,7 +90,7 @@ async function panes(env, socket) {
   return stdout.split('\n').filter(Boolean).map((line) => Object.fromEntries(line.split('|').map((value, i) => [TUPLE[i], value])));
 }
 
-async function world(t) {
+async function world(t, { enrolled = ['source', 'destination'] } = {}) {
   const base = await mkdtemp(join(os.tmpdir(), 'ao-lead-recovery-'));
   const tmuxDir = join(base, 'tmux');
   await mkdir(tmuxDir, { recursive: true });
@@ -85,8 +102,11 @@ async function world(t) {
   const repos = {};
   // One hook, in order: reap the supervisors, kill our own server, then remove the directory.
   t.after(async () => {
-    for (const repo of Object.values(repos)) await stopSupervisors(repo);
+    const survivors = await stopSupervisors(base);
     await killIsolatedServer(env);
+    // A supervisor that outlives its test ticks forever against a deleted directory, so a leak fails
+    // the test, and the directory is kept for inspection instead of being removed from under it.
+    assert.deepEqual(survivors, [], `supervisors outlived teardown; ${base} kept for inspection`);
     await rm(base, { recursive: true, force: true });
   });
   for (const name of ['source', 'destination']) {
@@ -94,17 +114,20 @@ async function world(t) {
     await execFile('git', ['init', '-q', repo]);
     await execFile('git', ['-C', repo, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-q', '--allow-empty', '-m', 'init']);
     repos[name] = repo;
+    if (!enrolled.includes(name)) continue;
     const home = join(repo, '.bytedesk', 'agent-orchestration');
     await mkdir(join(home, 'providers'), { recursive: true });
     await copyFile(join(fixtures, 'fake-agent.json'), join(home, 'providers', 'fake-agent.json'));
     // A template must name a prompt; relative paths resolve beside this config file.
     await writeFile(join(home, 'fake-lead.md'), 'You are a test lead. Answer nonce probes with ao-topology lead ack.\n');
-    await writeJson(join(home, 'config.json'), { lead: { template: 'fake-lead' },
+    // Enrolled explicitly, not merely by the lead registration `lead ensure` writes below, so the
+    // fixture means the same thing under every enrollment source.
+    await writeJson(join(home, 'config.json'), { enabled: true, lead: { template: 'fake-lead' },
       templates: { 'fake-lead': { role: 'lead', cli: 'fake-agent', model: 'fake', prompt: './fake-lead.md', args: [join(fixtures, 'fake-agent.mjs')] } } });
   }
   const leads = {};
-  for (const [name, repo] of Object.entries(repos)) {
-    const ensured = await ao(['lead', 'ensure', '--consumer', repo], env);
+  for (const name of enrolled) {
+    const ensured = await ao(['lead', 'ensure', '--consumer', repos[name]], env);
     assert.equal(ensured.action, 'created', JSON.stringify(ensured));
     assert.ok(ensured.record.binding, 'a launched lead records its exact pane incarnation');
     leads[name] = ensured.record;
@@ -112,6 +135,22 @@ async function world(t) {
   const recordPath = async (repo) => join(leadRegistryDir(env), `${repoKey((await canonicalRepoId(repo)).id)}.json`);
   return { env, repos, leads, recordPath };
 }
+
+test('held mail to an unenrolled destination never starts a lead or a supervisor there', { skip: !hasTmux, timeout: 240_000 }, async (t) => {
+  const { env, repos, leads, recordPath } = await world(t, { enrolled: ['source'] });
+  const sent = await ao(['mailbox', 'send', '--consumer', repos.destination, '--from-project', repos.source,
+    '--from', leads.source.agent_id, '--to', 'anyone', '--id', 'tm167-unenrolled', '--body', 'PING an unenrolled repository'], env);
+  assert.deepEqual([sent.status, sent.reason, sent.recovery], ['held', 'destination_not_enrolled', undefined]);
+  // Several reconciles of the enrolled source's supervisor, which must not reach across either.
+  await sleep(6_000);
+  await assert.rejects(readJson(await recordPath(repos.destination)), { code: 'ENOENT' }, 'no lead registration for the unenrolled destination');
+  assert.deepEqual(await supervisorsFor(repos.destination), [], 'no supervisor was started for it');
+  const recovery = await leadRecoveryStatus({ consumer: repos.destination, env });
+  assert.deepEqual([recovery.action, recovery.pending_requests], [null, 0], 'no recovery state and no recovery request');
+  const { stdout } = await execFile('tmux', ['-S', ownSocket(env, leads.source.binding.serverKey), 'list-sessions', '-F', '#{session_name}'], { env });
+  assert.deepEqual(stdout.split('\n').filter(Boolean), [leads.source.session], 'the only session on the server is the enrolled source lead');
+  assert.equal((await readStandingMessage({ id: 'tm167-unenrolled', env })).reason, 'destination_not_enrolled');
+});
 
 /** Answer lead nonce probes through the real `lead ack` verb, as each lead would from its own shell. */
 function answerProbes(env, repoByAgent, signal) {

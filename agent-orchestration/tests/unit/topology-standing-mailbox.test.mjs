@@ -26,7 +26,10 @@ async function fixture(t) {
  const opts={env,home,now:()=>clock.t,
   readiness:async()=>({status:'responsive',record:{agent_id:'lead0001'},library_lead:'lead0001'}),
   requestRecovery:async request=>{calls.requests.push({...request,messageLocked:await lockHeld(lockOf(request.messageId))});},
-  activate:async activation=>{calls.activations.push(activation);return {enrollment:{enrolled:true},supervision:{started:false,reason:'test'}};}};
+  activate:async activation=>{calls.activations.push(activation);return {enrollment:{enrolled:true},supervision:{started:false,reason:'test'}};},
+  // Both fixture repositories count as enrolled unless a test says otherwise; the production
+  // resolver would call them unenrolled, which the enrollment test below relies on.
+  enrollment:async()=>({enrolled:true,source:'test'})};
  for(const [id,role] of [['lead0001','lead'],['work0001','worker']]) {
   await writeJson(join(agentsRoot(consumer),id,'agent.json'),{id,role,full_name:id});
  }
@@ -34,6 +37,29 @@ async function fixture(t) {
  return {root,source,consumer,home,opts,message,clock,calls};
 }
 const READY={status:'responsive',record:{agent_id:'lead0001'},library_lead:'lead0001'};
+
+test('held mail across an unenrolled repository names enrollment and never schedules a lead start',async t=>{
+ const {root,consumer,opts,message,calls}=await fixture(t);
+ const readiness=async()=>({status:'none'});
+ for(const [id,unenrolled,reason] of [['to-unenrolled',consumer,'destination_not_enrolled'],['from-unenrolled',message.fromProject,'source_not_enrolled']]) {
+  const held=await sendStandingMessage({...message,id},{...opts,readiness,enrollment:async({consumer:repo})=>({enrolled:repo!==unenrolled})});
+  assert.deepEqual([held.status,held.reason,held.last_error,held.permanent],['held',reason,reason,false],'backed off like any retryable hold: enrollment can change');
+  assert.equal(held.recovery,undefined,'no recovery is scheduled');
+ }
+ const unknown=await sendStandingMessage({...message,id:'resolver-failed'},{...opts,readiness,enrollment:async()=>{throw Object.assign(new Error('settings unreadable'),{code:'EACCES'});}});
+ assert.equal(unknown.reason,'destination_not_enrolled','an enrollment that cannot be read is not enrollment');
+ assert.deepEqual([calls.requests.length,calls.activations.length],[0,0],'no recovery request and no activation for an unenrolled side');
+ // Enrollment decides who is given a lead, not whether a lead already proven responsive receives mail.
+ const proven=await sendStandingMessage({...message,id:'proven-leads'},{...opts,enrollment:async()=>({enrolled:false})});
+ assert.equal(proven.status,'delivered');
+ // The production resolver, requester and activator. These fixture directories are not enrolled.
+ const {enrollment:_resolver,requestRecovery:_requester,activate:_activator,...production}=opts;
+ const real=await sendStandingMessage({...message,id:'production-path'},{...production,readiness});
+ assert.equal(real.reason,'destination_not_enrolled');
+ const {readdir}=await import('node:fs/promises');
+ const state=await readdir(join(root,'state')).catch(()=>[]);
+ assert.ok(!state.includes('leads') && !state.includes('supervision'),`an unenrolled repository gets no recovery request and no supervisor; state holds: ${state}`);
+});
 
 test('durable hold automatically resumes to standing lead, preserves immutable content and ancestry',async t=>{
  const {consumer,opts,message,clock}=await fixture(t);

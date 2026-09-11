@@ -17,7 +17,7 @@ import { dirname, join, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { leadState } from './lead.mjs';
 import { requestLeadRecovery, retryDelayMs } from './lead-recovery.mjs';
-import { activateRepository } from './repo-enrollment.mjs';
+import { activateRepository, resolveEnrollment } from './repo-enrollment.mjs';
 import { withLock } from './lockfile.mjs';
 import { canonicalRepoId, stateRoot } from './repoid.mjs';
 import { hopExceeded, isAssignmentStage, nextVia, routeMessage } from './routing.mjs';
@@ -117,7 +117,18 @@ async function attempt(record, opts) {
         readiness({ ...opts, consumer: e.fromProject, ackTimeoutMs: 0 }),
         readiness({ ...opts, consumer: e.consumer, ackTimeoutMs: 0 }),
       ]);
-      if (!responsive(src) || !responsive(dst)) return { ...updated, reason: 'leads_not_ready', readiness: { source: readinessOf(src), destination: readinessOf(dst) } };
+      if (!responsive(src) || !responsive(dst)) {
+        const detail = { source: readinessOf(src), destination: readinessOf(dst) };
+        // TM-167: only an enrolled repository is ever given a lead, so a side that is not ready and
+        // not enrolled can never become ready through recovery. The hold names enrollment and
+        // schedules nothing. Enrollment decides who is given a lead, not whether a lead already
+        // proven responsive may receive mail. A resolver that cannot answer reads as not enrolled.
+        const enrollment = opts.enrollment ?? resolveEnrollment;
+        const enrolled = async (consumer) => (await (async () => enrollment({ consumer, env: opts.env, home: opts.home }))().catch(() => null))?.enrolled === true;
+        if (!responsive(dst) && !(await enrolled(e.consumer))) return { ...updated, reason: 'destination_not_enrolled', readiness: detail };
+        if (!responsive(src) && !(await enrolled(e.fromProject))) return { ...updated, reason: 'source_not_enrolled', readiness: detail };
+        return { ...updated, reason: 'leads_not_ready', readiness: detail };
+      }
     }
     // This is intentionally rerun, including delegationAllows/verifyAgainstStore,
     // for EACH resume. A held record contains no cached grant.
