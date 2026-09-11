@@ -126,3 +126,60 @@ export function parseSessionName(name) {
 export function agentDirName(agent) {
   return agent?.id ? String(agent.id) : slug(agent?.full_name || "agent");
 }
+
+// -- Role visuals (TM-168) --------------------------------------------------------------------------
+// One canonical, display-only mapping from an effective role to a Unicode icon and short accessible
+// text. Icons are computed, never stored in agent.json, and never read back to decide a role or any
+// authority: addressing and authority keep using repoRole, runRole and role.
+
+const ROLE_ICONS = Object.freeze({
+  lead: "👑",
+  orchestrator: "🎼",
+  reviewer: "🔍",
+  observer: "👁️",
+  worker: "🔧",
+  implementer: "🛠️",
+  designer: "🎨",
+  "image-gen": "🖼️",
+  researcher: "🔬",
+  judge: "⚖️",
+});
+
+const ROLE_LABELS = Object.freeze({
+  lead: "Lead",
+  orchestrator: "Orchestrator",
+  reviewer: "Reviewer",
+  observer: "Observer",
+  worker: "Worker",
+  implementer: "Implementer",
+  designer: "Designer",
+  "image-gen": "Image generation",
+  researcher: "Researcher",
+  judge: "Judge",
+});
+
+export const NESTED_TEAM_ICON = "👥";
+export const UNKNOWN_ROLE_ICON = "🤖";
+
+/** The built-in mapping, frozen, for documentation and contract fixtures. */
+export const ROLE_ICON_MAP = ROLE_ICONS;
+
+/** Icon for a role name; any unknown or custom role gets the fallback. */
+export function roleIcon(role) {
+  return typeof role === "string" && Object.hasOwn(ROLE_ICONS, role) ? ROLE_ICONS[role] : UNKNOWN_ROLE_ICON;
+}
+
+/**
+ * The icon and accessible text for one agent on one surface.
+ * A nested workflow participant is a team. A repository lead shows as the lead even while it
+ * coordinates a run, so its terminal and every GUI view agree. Otherwise the run's declared role
+ * wins over the library role.
+ */
+export function roleVisual({ role = null, runRole = null, repoRole = null, nestedTeam = false } = {}) {
+  if (nestedTeam) return { roleIcon: NESTED_TEAM_ICON, roleLabel: "Nested team" };
+  const effective = repoRole === "lead" ? "lead" : (runRole ?? role);
+  if (typeof effective === "string" && Object.hasOwn(ROLE_ICONS, effective)) {
+    return { roleIcon: ROLE_ICONS[effective], roleLabel: ROLE_LABELS[effective] };
+  }
+  return { roleIcon: UNKNOWN_ROLE_ICON, roleLabel: "Agent" };
+}

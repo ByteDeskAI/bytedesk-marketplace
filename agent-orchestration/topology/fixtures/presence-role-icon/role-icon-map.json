@@ -1,0 +1,64 @@
+{
+  "roles": {
+    "lead": {
+      "roleIcon": "👑",
+      "roleLabel": "Lead",
+      "codepoints": "U+1F451"
+    },
+    "orchestrator": {
+      "roleIcon": "🎼",
+      "roleLabel": "Orchestrator",
+      "codepoints": "U+1F3BC"
+    },
+    "reviewer": {
+      "roleIcon": "🔍",
+      "roleLabel": "Reviewer",
+      "codepoints": "U+1F50D"
+    },
+    "observer": {
+      "roleIcon": "👁️",
+      "roleLabel": "Observer",
+      "codepoints": "U+1F441 U+FE0F"
+    },
+    "worker": {
+      "roleIcon": "🔧",
+      "roleLabel": "Worker",
+      "codepoints": "U+1F527"
+    },
+    "implementer": {
+      "roleIcon": "🛠️",
+      "roleLabel": "Implementer",
+      "codepoints": "U+1F6E0 U+FE0F"
+    },
+    "designer": {
+      "roleIcon": "🎨",
+      "roleLabel": "Designer",
+      "codepoints": "U+1F3A8"
+    },
+    "image-gen": {
+      "roleIcon": "🖼️",
+      "roleLabel": "Image generation",
+      "codepoints": "U+1F5BC U+FE0F"
+    },
+    "researcher": {
+      "roleIcon": "🔬",
+      "roleLabel": "Researcher",
+      "codepoints": "U+1F52C"
+    },
+    "judge": {
+      "roleIcon": "⚖️",
+      "roleLabel": "Judge",
+      "codepoints": "U+2696 U+FE0F"
+    }
+  },
+  "nestedTeam": {
+    "roleIcon": "👥",
+    "roleLabel": "Nested team",
+    "codepoints": "U+1F465"
+  },
+  "unknown": {
+    "roleIcon": "🤖",
+    "roleLabel": "Agent",
+    "codepoints": "U+1F916"
+  }
+}

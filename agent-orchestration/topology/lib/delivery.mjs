@@ -287,7 +287,8 @@ async function lookAtPane(pane, format, tmux) {
 /** Is this still the same pane incarnation? A `%N` tmux has reused is a stranger's live session. */
 async function stillBound(pane, binding, tmux) {
   if (!binding) return true;
-  const observed = (await tmux.listServerPanes().catch(() => [])).find((item) => item.paneId === pane);
+  // TM-167: the binding names its server; a binding without one proves nothing and fails closed.
+  const observed = (await tmux.listServerPanes({ tmuxServer: binding.serverKey }).catch(() => [])).find((item) => item.paneId === pane);
   return bindingMatches(observed, binding);
 }
 

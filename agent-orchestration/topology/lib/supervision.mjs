@@ -1,4 +1,7 @@
-// One repository service reconciles derived state; it never launches or kills agents.
+// One repository service reconciles derived state. It launches exactly one kind of agent — this
+// repository's own lead — and only for an ENROLLED repository: it ensures a missing lead and
+// restarts a confirmed-dead managed one (lead-recovery.mjs, TM-167). It never kills an agent, never
+// restarts or duplicates a live unresponsive lead, and never replaces an externally owned lead.
 //
 // THREE CADENCES LIVE HERE AND THEY ARE NOT THE SAME NUMBER.
 //
@@ -21,7 +24,8 @@
 //      pushes a failure-trigger hit, so a pane nobody is failing on costs zero tmux calls.
 //
 // THE QUOTA WATCH DOES NOT BREAK THE "RECONCILES DERIVED STATE ONLY" RULE ABOVE, and it is worth
-// saying why, because it is the one observer here that could. It writes an incident and announces
+// saying why, because it is the one observer here that could. (Lead recovery is not an observer: it
+// is the deliberate, enrolled-only exception named at the top, and it never touches a live pane.) It writes an incident and announces
 // it. It restarts nothing, kills nothing and sends no keys: applying a failover is a separate,
 // deliberate `ao-topology failover` invocation that spends `failover.consent`. Detection asks;
 // taking a pane over is somebody's decision, never a tick's.
@@ -45,6 +49,7 @@ import { lockOwner, processIdentity, withLock } from './lockfile.mjs';
 import { listAgents, agentDirs } from './agents.mjs';
 import { refreshPrompt } from './prompt-lifecycle.mjs';
 import { resumeStandingMessages } from './standing-mailbox.mjs';
+import { recoverLead } from './lead-recovery.mjs';
 import { notifyGrants, reconcileSlots } from './slots.mjs';
 import { createQuotaWatch, quotaTick } from './quota.mjs';
 import { exists, sleep, writeJson, readJson, run } from './util.mjs';
@@ -196,14 +201,22 @@ export async function superviseRepository(options, { signal, once = false, inter
      censusRunDirs=runDirs; censusRunDirByAgent=runDirByAgent;
      if(heartbeatError) throw heartbeatError;
      const snapshot=latest || await producer.publish();
+     // TM-167: the receiver-owned lead. Before held mail is resumed, this repository's own supervisor
+     // ensures a missing lead or restarts a confirmed-dead managed one, so the mail it was holding can
+     // land in this same reconcile. Absorbed the way slots and quota absorb theirs: a lead that cannot
+     // be recovered is reported with its backoff, never a reason to stop supervising.
+     const recovery=await recoverLead(options).catch(error=>({action:'failed',attempts:null,last_error:error?.code ?? String(error),next_retry_at:null}));
      const resumed=await resumeStandingMessages(options);
+     const launched=['created','restarted'].includes(recovery.action);
      // Activity means something MOVED, not merely that agents exist: a prompt that is already
      // `current` is a steady state and must not pin the ladder to its busy rung forever.
-     const activity=prompts.some(p=>p.state?.status && p.state.status!=='current') || resumed.length>0;
+     const activity=prompts.some(p=>p.state?.status && p.state.status!=='current') || resumed.length>0 || launched;
      const report={pid:process.pid,at:new Date().toISOString(),repo_id:identity.id,generation:snapshot.generation,revision:snapshot.revision,
        reconciled:true,reconcile_min_ms:floorMs,activity,
        prompts:prompts.map(p=>({agent:p.agent,status:p.state.status,errors:p.state.errors})),
-       mail:resumed.map(m=>({id:m.envelope.id,status:m.status,reason:m.reason}))};
+       mail:resumed.map(m=>({id:m.envelope.id,status:m.status,reason:m.reason})),
+       // Only when there is something to say, like slots and quota: a healthy lead adds no key.
+       ...(launched || recovery.alert || recovery.woken || recovery.attempts!==0 ? {lead_recovery:recovery} : {})};
      await writeJson(join(root,`${key}.json`),report);
      if(!once) await promoteRecord(join(root,`${key}.process.json`));
      return {report,activity};
@@ -257,7 +270,7 @@ export async function superviseRepository(options, { signal, once = false, inter
        // absorbs its own failure and still reports — every agent `unknown`, nothing dispatchable.
        if(censusPanes===undefined) {
          const servers=[...new Set(censusRoster.map(a=>a.session?.serverKey).filter(Boolean))];
-         try { censusPanes=(await Promise.all((servers.length?servers:[options.tmuxServer]).map(server=>listServerPanes({tmuxServer:server,env})))).flat(); }
+         try { censusPanes=(await Promise.all((servers.length?servers:[options.tmuxServer].filter(Boolean)).map(server=>listServerPanes({tmuxServer:server,env})))).flat(); }
          catch(error){ if(error?.code!=='TOPOLOGY_TMUX_OBSERVATION_FAILED') throw error; censusPanes=null; }
        }
        // The loop owns the cadence, so the loop TELLS the census: how often it is being called, and

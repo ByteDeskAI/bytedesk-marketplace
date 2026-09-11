@@ -121,7 +121,7 @@ test('workflow forwarding reads persisted source/task/ancestry, revalidates chil
  await writeJson(join(childConsumer,'.bytedesk/agent-orchestration/agents/lead0001/agent.json'),{id:'lead0001',role:'lead'});
  const env={AGENT_ORCHESTRATION_STATE_HOME:join(root,'state'),AO_CONSUMER:childConsumer};
  const sent=await sendMessage({runDir:parent,fromProject:consumer,from:'author01',to:['team0001'],stage:'ask',body:'Original body',task:'TM-42',via:['ancestor'],provenance:{root:'origin'},idempotencyKey:'parent-id',env});
- const blocked=await forwardMessageToWorkflow({runDir:parent,messageId:sent.id,recipient:'team0001',env,standingOptions:{readiness:async()=>({status:'unresponsive'})}});
+ const blocked=await forwardMessageToWorkflow({runDir:parent,messageId:sent.id,recipient:'team0001',env,standingOptions:{readiness:async()=>({status:'unresponsive'}),enrollment:async()=>({enrolled:true})}});
  assert.equal(blocked.deliveries.length,0);assert.equal(blocked.holds[0].reason,'leads_not_ready');
  const [held]=await readStandingOutbox({consumer,agent:'author01',env});
  assert.equal(held.envelope.fromProject,consumer,'forwarder env cannot replace original source');

@@ -9,15 +9,15 @@ import { fileURLToPath } from "node:url";
 
 import { doctor as runDoctor, tmuxInstallPlan } from "./lib/doctor.mjs";
 import { closeAllClients, isUndelivered, ringMessage, undeliveredReport } from "./lib/delivery.mjs";
-import { deliverPointer, failoverAgent, launchRun, messagePointer, openRoleSession, roleSessionName, tmuxFailureTrigger, uniqueSessionName } from "./lib/launch.mjs";
+import { deliverPointer, failoverAgent, launchRun, messagePointer, openRoleSession, registeredLeadId, roleSessionName, runAgentVisual, tmuxFailureTrigger, uniqueSessionName } from "./lib/launch.mjs";
 import { agentDir, appendJournal, loadRun, pendingReplies, queueDepth, readJournal, recordReply, saveRun, sendMessage, waitForReplies } from "./lib/mailbox.mjs";
 import { adapterFor, adapterSummary, buildArgv, loadAdapters, providerDirs } from "./lib/providers.mjs";
 import { roleDirs, skillDirs } from "./lib/resolve.mjs";
 import { agentAddress, DEFAULT_SESSION, listWorkflows, loadSpec, materializeSpec, resolveInputs, specSchemaSummary, workflowDirs, validateSpec } from "./lib/spec.mjs";
 import * as tmux from "./lib/tmux.mjs";
-import { TopologyError, absolutize, exists, fail, invariant, newRunId, parseArgs, parseDuration, readJson, writeJson, AO_HOME } from "./lib/util.mjs";
+import { TopologyError, absolutize, exists, fail, invariant, newRunId, parseArgs, parseDuration, readJson, terminalText, writeJson, AO_HOME } from "./lib/util.mjs";
 import { agentDirs, agentsRoot, createAgent, findLead, listAgents, requireAgent } from "./lib/agents.mjs";
-import { displayName, parseSessionName } from "./lib/identity.mjs";
+import { displayName, parseSessionName, roleVisual } from "./lib/identity.mjs";
 import { childrenFile } from "./lib/lineage.mjs";
 import { issueDelegation, listDelegations, routeMessage } from "./lib/routing.mjs";
 import { sameIncarnation } from "./lib/incarnation.mjs";
@@ -173,6 +173,12 @@ async function runDirFrom(flags) {
   return runDir;
 }
 
+/** TM-185: the icon for a library agent, with the repository's registered lead resolved once. */
+async function libraryVisuals(ctx) {
+  const leadId = await registeredLeadId({ consumer: ctx.consumer, home: ctx.home });
+  return (agent) => roleVisual({ role: agent.role, repoRole: agent.id === leadId ? "lead" : null });
+}
+
 /**
  * Refuse a pane operation on a workflow participant, and say where to look instead.
  *
@@ -263,20 +269,31 @@ function nameFrom(flags) {
  * and both routes converge on the same per-repo supervision lock. Idempotent — a live pid
  * short-circuits in microseconds — and deliberately NEVER fatal: a repo with no supervisor
  * publishes stale presence, which is a degraded repo, not a failed command.
+ *
+ * TM-167: every such site goes through ONE path, `activateRepository`, which starts a supervisor only
+ * for an ENROLLED repository. An unenrolled repository gets `{ started: false, reason: "not-enrolled" }`
+ * and no process. The fields added here are additive to what `startRepositorySupervision` returns.
  */
-async function ensureSupervision(ctx) {
-  try {
-    const { startRepositorySupervision } = await import('./lib/supervision.mjs');
-    return await startRepositorySupervision(ctx);
-  } catch (error) {
-    return { started: false, error: error.message };
-  }
+async function activate(ctx, reason) {
+  const { activateRepository } = await import('./lib/repo-enrollment.mjs');
+  const { enrollment, supervision } = await activateRepository({ ...ctx, reason });
+  return { ...supervision, enrolled: enrollment.enrolled, enrollment_source: enrollment.source, activation: reason };
 }
 
 const commands = {
   async supervise({ flags }) {
     const { superviseRepository } = await import('./lib/supervision.mjs');
     const ctx = context(flags);
+    // TM-167: `supervise` runs in EVERY repository, enrolled or not, and stays read-only — presence,
+    // census, slots, quota, prompt refresh for standing agents that already exist. It starts nothing, so
+    // enrollment does not gate it. Measured before this rule was set: of the 11 repositories running a
+    // supervisor on the operator's machine, only 3 resolved as enrolled, and exiting in the other 8 would
+    // have stopped their Presence heartbeat and shown each of them stale in the gateway. What enrollment
+    // DOES gate is anything that starts or recovers an agent (lead recovery in the reconcile tick checks
+    // resolveEnrollment) and an ordinary verb's self-start (`activate`, above), which spawns a supervisor
+    // only for an enrolled repository. The watcher below is scoped to this repository's panes either way.
+    const { canonicalRepoId } = await import('./lib/repoid.mjs');
+    const repoId = (await canonicalRepoId(ctx.consumer)).id;
     // Linked worktrees share one canonical repository id, so a machine with N worktrees of this
     // repo open starts N supervisors and N-1 of them MUST lose. Losing is the correct outcome and
     // therefore not an error: exit 0 saying who owns it, so a monitor host does not read the loss
@@ -297,7 +314,7 @@ const commands = {
     // Exceptions still speak: retirement and a degraded heartbeat are invisible in any other place.
     const notable = report => report?.stopped || report?.presence_beats_degraded || report?.error;
     const onTick = flags.json ? out : report => { if (notable(report)) out(report); };
-    return Promise.all([owned(() => superviseRepository({ ...ctx, tmuxServer: flags.server }, { onTick })), watchServer({ ...ctx, tmuxServer: flags.server || 'default' })]);
+    return Promise.all([owned(() => superviseRepository({ ...ctx, tmuxServer: flags.server }, { onTick })), watchServer({ ...ctx, tmuxServer: flags.server || 'default', repoId })]);
   },
 
   async census({ flags }) {
@@ -311,10 +328,10 @@ const commands = {
     const identity = await canonicalRepoId(ctx.consumer);
     // `census` is a repo-scoped verb, so it self-starts the supervisor like every other one:
     // asking what the agents are doing is exactly the moment you want the tick back after a
-    // reboot. `ensureSupervision` is idempotent — a live pid short-circuits in microseconds — and
+    // reboot. `activate` is idempotent — a live pid short-circuits in microseconds — and
     // never fatal, which is the right trade here: a census with no supervisor is a one-shot
     // answer, not a failed command.
-    const supervision = await ensureSupervision(ctx);
+    const supervision = await activate(ctx, 'census');
     const memo = new Map();
     const observe = async (previous) => {
       // Prefer the supervisor's document: ONE answer to "is this agent alive" per repo. Only when
@@ -393,7 +410,8 @@ const commands = {
   async mailbox({ flags, positional }) {
     const ctx = context(flags), api = await import('./lib/standing-mailbox.mjs');
     const sub = positional[0] || 'inbox';
-    if (sub === 'resume') return out(await api.resumeStandingMessages(ctx));
+    // A human asking to resume means now: --force skips each message's backoff (never a permanent hold).
+    if (sub === 'resume') return out(await api.resumeStandingMessages({ ...ctx, force: flags.force === true }));
     if (sub === 'reply') return out(await api.recordStandingReply({ ...ctx, messageId: flags.message, agentId: flags.agent || process.env.AO_AGENT_ID, body: await bodyFrom(flags) }));
     if (sub === 'inbox' || sub === 'outbox') return out(await api[sub === 'inbox' ? 'readStandingInbox' : 'readStandingOutbox']({ ...ctx, agent: flags.agent || process.env.AO_AGENT_ID }));
     const input = { consumer: ctx.consumer, fromProject: flags['from-project'] || process.env.AO_CONSUMER,
@@ -416,8 +434,8 @@ const commands = {
     if (sub === 'request') return out(await api.requestEnrollment(options));
     invariant(typeof flags.nonce === 'string' && flags.nonce, 'TOPOLOGY_ENROLLMENT_ACK', 'Pass the challenge --nonce from the assigned session.');
     const result = await api.acknowledgeEnrollment({ ...options, nonce: flags.nonce });
-    const { startRepositorySupervision } = await import('./lib/supervision.mjs');
-    return out({ ...result, supervision: await startRepositorySupervision(ctx) });
+    // TM-167: non-fatal and enrollment-gated like every other activation site.
+    return out({ ...result, supervision: await activate(ctx, 'enrollment-ack') });
   },
   async reviewer({ flags, positional }) {
     const ctx = context(flags), api = await import('./lib/reviewer.mjs');
@@ -480,20 +498,20 @@ const commands = {
     // that a change reached one of two callers, and it is now written down in
     // `.claude/rules/verification-that-can-fail.md`.
     const options = { ...ctx, ...(flags['ack-timeout'] ? { ackTimeoutMs: Number(flags['ack-timeout']) } : {}) };
-    if (sub === 'status') return out(await api.leadState(options));
+    if (sub === 'status') return out({ ...await api.leadState(options), recovery: await (await import('./lib/lead-recovery.mjs')).leadRecoveryStatus(ctx) });
     if (sub === 'probes') return out(await api.pendingLeadProbes(options));
-    // `ensureSupervision`, NOT startRepositorySupervision: `role assign|ensure lead` is the same
+    // `activate`, NOT startRepositorySupervision: `role assign|ensure lead` is the same
     // operation through the other surface and degrades, so these must too. Two surfaces onto one
     // operation must not disagree about whether a repo that cannot start a supervisor is a
     // degraded repo or a failed command. tests/unit/topology-supervision-consistency.test.mjs
-    // drives both and compares.
+    // drives both and compares — which is also why both pass the same activation reason.
     if (sub === 'ensure') {
       const result = await api.ensureLead(options);
-      return out({ ...result, supervision: await ensureSupervision(ctx) });
+      return out({ ...result, supervision: await activate(ctx, 'role-holder') });
     }
     if (sub === 'assign') {
       const result = await api.assignLead({ ...options, agentRef: positional[1], session: flags.session });
-      return out({ ...result, supervision: await ensureSupervision(ctx) });
+      return out({ ...result, supervision: await activate(ctx, 'role-holder') });
     }
     if (sub === 'detach') return out(await api.detachLead({ ...options, kill: flags.kill === true }));
     if (sub === 'ack') return out(await api.leadNonceAck({ ...options, nonce: positional[1] }));
@@ -524,7 +542,7 @@ const commands = {
     // `lead ensure` and `lead assign` do — two surfaces onto the same operation must not differ on
     // whether presence gets published afterwards. Read-only verbs and `detach` do not.
     return out(['assign', 'ensure', 'reassign'].includes(verb)
-      ? { ...result, supervision: await ensureSupervision(ctx) }
+      ? { ...result, supervision: await activate(ctx, 'role-holder') }
       : result);
   },
   async prompt({ flags, positional }) {
@@ -552,7 +570,10 @@ const commands = {
       const { loadConfig } = await import('./lib/config.mjs');
       return out(await composePrompt({ ...ctx, agent, dir: agent._dir, loaded: await loadConfig(ctx), templateName: agent.template }));
     }
-    const panes = await tmux.listServerPanes(recordedBinding?.serverKey ? { tmuxServer: recordedBinding.serverKey } : {}).catch(() => []);
+    // TM-167: the recorded server, else the caller's own ($TMUX — the pane being proven lives there).
+    // With neither there is no server to look at, so no binding is proven and ack fails closed.
+    const promptServer = recordedBinding?.serverKey ?? tmux.callerServer(process.env);
+    const panes = promptServer ? await tmux.listServerPanes({ tmuxServer: promptServer }).catch(() => []) : [];
     const currentBinding = panes.find(p => p.paneId === process.env.TMUX_PANE && (!recordedBinding || sameIncarnation(p, recordedBinding))) ?? null;
     const expectedSession = promptSession || roleSessionName(agent.id);
     if (positional[0] === 'ack') return out(await api.acknowledgePrompt({ agent, revision: flags.revision, nonce: flags.nonce, binding: currentBinding, consumer: ctx.consumer, session: expectedSession }));
@@ -781,14 +802,14 @@ const commands = {
       log: (line) => process.stderr.write(`${line}\n`),
     });
     result.template = path;
-    if (!flags["dry-run"]) result.supervision = await ensureSupervision(ctx);
+    if (!flags["dry-run"]) result.supervision = await activate(ctx, 'launch');
     if (flags.json || flags["dry-run"]) return out(result);
     out(`Launched ${materialized.name} · run ${runId}`);
     out(`  run dir: ${result.runDir}`);
     out(`  session: ${result.session}`);
     for (const agent of result.agents) {
       const fallbacks = agent.attempts.slice(0, -1).map((attempt) => `${attempt.label}: ${attempt.outcome}`).join("; ");
-      out(`  ${agent.provider ? (agent.ready ? "✓" : "?") : "✗"} ${agent.id} (${agent.role}) on ${agent.provider ?? "NO PROVIDER"} pane ${agent.pane}${fallbacks ? ` — skipped ${fallbacks}` : ""}`);
+      out(`  ${agent.provider ? (agent.ready ? "✓" : "?") : "✗"} ${agent.roleIcon} ${agent.id} (${terminalText(agent.role)}) on ${agent.provider ?? "NO PROVIDER"} pane ${agent.pane}${fallbacks ? ` — skipped ${fallbacks}` : ""}`);
     }
     for (const warning of result.warnings) out(`  ! ${warning}`);
     out(`Attach: ${result.attach}`);
@@ -815,18 +836,19 @@ const commands = {
         skills: flags.skill ? list(flags.skill) : template.skills,
         mcp: flags.mcp ? list(flags.mcp) : template.mcp,
       }, ctx.agentDirs, ctx);
-      out({ ok: true, agent: displayName(agent), id: agent.id, role: agent.role, dir: agent._dir, reports_to: agent.reports_to });
+      out({ ok: true, agent: displayName(agent), id: agent.id, role: agent.role, ...roleVisual({ role: agent.role }), dir: agent._dir, reports_to: agent.reports_to });
       return;
     }
     if (sub === "show") {
       const agent = await requireAgent(String(positional[1] || ""), ctx.agentDirs);
-      out({ ok: true, agent: displayName(agent), ...agent });
+      out({ ok: true, agent: displayName(agent), ...agent, ...roleVisual({ role: agent.role }) });
       return;
     }
     const roster = await listAgents(ctx.agentDirs);
     const lead = await findLead(ctx.agentDirs);
+    const visualOf = await libraryVisuals(ctx);
     if (flags.json) {
-      out({ ok: true, lead: lead ? lead.id : null, agents: roster.map((a) => ({ id: a.id, name: displayName(a), role: a.role, reports_to: a.reports_to })) });
+      out({ ok: true, lead: lead ? lead.id : null, agents: roster.map((a) => ({ id: a.id, name: displayName(a), role: a.role, ...visualOf(a), reports_to: a.reports_to })) });
       return;
     }
     // People see names and titles. The id is shown too because this is an operator surface, but the
@@ -835,7 +857,7 @@ const commands = {
     if (roster.length === 0) console.log("  (none yet — ao-topology agent new --role lead)");
     for (const a of roster) {
       const mark = a.role === "lead" ? "*" : " ";
-      console.log(`${mark} ${displayName(a)}${a.reports_to ? `  reports to ${a.reports_to}` : ""}  [${a.id}]`);
+      console.log(`${mark} ${visualOf(a).roleIcon} ${terminalText(displayName(a))}${a.reports_to ? `  reports to ${terminalText(a.reports_to)}` : ""}  [${a.id}]`);
     }
   },
 
@@ -851,6 +873,7 @@ const commands = {
 
     if (sub === "list") {
       const roster = await listAgents(ctx.agentDirs);
+      const visualOf = await libraryVisuals(ctx);
       // Two kinds of session, and the difference is the point. A role-session is the agent's one
       // durable workspace, named `ao-<id>`, and opening it again reattaches. A spawn is one run of
       // that agent, named `<id>-<spawn>`, and there may be several at once. Stable agent, distinct
@@ -867,6 +890,7 @@ const commands = {
         id: agent.id,
         agent: displayName(agent),
         role: agent.role,
+        ...visualOf(agent),
         session: roleSessionName(agent.id),
         live: live.includes(roleSessionName(agent.id)),
         spawns: (spawnsFor.get(agent.id) ?? []).sort((a, b) => a.spawn.localeCompare(b.spawn)),
@@ -874,15 +898,15 @@ const commands = {
       // A spawn whose agent is not in this repo's roster still belongs to someone; saying so beats
       // pretending it is not there, because it is holding a tmux session either way.
       const orphans = [...spawnsFor].filter(([id]) => !roster.some((agent) => agent.id === id))
-        .flatMap(([id, spawns]) => spawns.map((entry) => ({ ...entry, agent_id: id })));
+        .flatMap(([id, spawns]) => spawns.map((entry) => ({ ...entry, agent_id: id, ...roleVisual({}) })));
       if (flags.json) return out({ ok: true, sessions: rows, unknown_agent_spawns: orphans });
       console.log(`# Sessions — ${ctx.consumer}`);
       if (rows.length === 0) console.log("  (no agents yet — ao-topology agent new --role lead)");
       for (const row of rows) {
-        console.log(`${row.live ? "*" : " "} ${row.agent}  ${row.live ? row.session : "(no role-session)"}  [${row.id}]`);
+        console.log(`${row.live ? "*" : " "} ${row.roleIcon} ${terminalText(row.agent)}  ${row.live ? row.session : "(no role-session)"}  [${row.id}]`);
         for (const entry of row.spawns) console.log(`    spawn ${entry.spawn}  ${entry.session}`);
       }
-      for (const entry of orphans) console.log(`  ? ${entry.session}  (spawn of ${entry.agent_id}, not in this roster)`);
+      for (const entry of orphans) console.log(`  ? ${entry.roleIcon} ${terminalText(entry.session)}  (spawn of ${terminalText(entry.agent_id)}, not in this roster)`);
       return;
     }
 
@@ -933,7 +957,8 @@ const commands = {
       ok: true,
       agent: displayName(agent),
       id: agent.id,
-      supervision: await ensureSupervision(ctx),
+      ...roleVisual({ role: agent.role }),
+      supervision: await activate(ctx, 'session-open'),
       session: result.session,
       pane: result.pane,
       created: result.created,
@@ -1067,7 +1092,7 @@ const commands = {
       ok: true,
       id: message.id,
       // The receiving repo is the run's, never the caller's cwd — same reasoning as routingConsumer.
-      supervision: await ensureSupervision({ ...ctx, consumer: routingConsumer || ctx.consumer }),
+      supervision: await activate({ ...ctx, consumer: routingConsumer || ctx.consumer }, 'send'),
       deliveries: message.deliveries,
       holds: message.holds,
       delivered,
@@ -1215,6 +1240,7 @@ const commands = {
   async status({ flags }) {
     const runDir = await runDirFrom(flags);
     const run = await loadRun(runDir);
+    const leadId = await registeredLeadId({ consumer: run.consumer, home: homedir() });
     const alive = await tmux.hasSession(run.session);
     const panes = alive ? await tmux.listPanes(run.session) : [];
     const pending = await pendingReplies(runDir);
@@ -1229,6 +1255,8 @@ const commands = {
       const entry = {
         id: agent.id,
         role: agent.role,
+        // Recomputed from the role, never echoed from run.json (older files lack it; agents can write it).
+        ...runAgentVisual(agent, leadId),
         provider: agent.provider ?? null,
         chain: (agent.candidates ?? []).map((candidate) => candidate.label),
         adapter: agent.adapter,
@@ -1284,11 +1312,11 @@ const commands = {
       const queued = agent.pending.length ? ` — queue ${agent.queue.depth}${agent.queue.oldest_age_ms != null ? `, oldest ${Math.round(agent.queue.oldest_age_ms / 1000)}s` : ""}: ${agent.pending.join(", ")}` : "";
       if (agent.workflow) {
         const child = agent.workflow.child;
-        out(`  ${agent.alive ? "●" : "○"} ${agent.id} (${agent.role}) is a TEAM running \`${agent.workflow.name}\` — ${child.agents} agents, state ${child.state}, session ${agent.workflow.session} ${child.session_alive ? "(alive)" : "(gone)"}${queued}`);
+        out(`  ${agent.alive ? "●" : "○"} ${agent.roleIcon} ${agent.id} (${terminalText(agent.role)}) is a TEAM running \`${agent.workflow.name}\` — ${child.agents} agents, state ${child.state}, session ${agent.workflow.session} ${child.session_alive ? "(alive)" : "(gone)"}${queued}`);
         out(`      conductor ${agent.workflow.conductor} · ${child.pending} awaiting reply there · status --run ${agent.workflow.run_dir}`);
         continue;
       }
-      out(`  ${agent.alive ? "●" : "○"} ${agent.id} (${agent.role}) on ${agent.provider ?? "NO PROVIDER"} [chain: ${agent.chain.join(" → ")}] pane ${agent.pane}${agent.command ? ` running ${agent.command}` : ""}${queued}`);
+      out(`  ${agent.alive ? "●" : "○"} ${agent.roleIcon} ${agent.id} (${terminalText(agent.role)}) on ${agent.provider ?? "NO PROVIDER"} [chain: ${agent.chain.join(" → ")}] pane ${agent.pane}${agent.command ? ` running ${agent.command}` : ""}${queued}`);
     }
     out("Recent journal:");
     for (const event of journal) out(`  ${event.ts ?? ""}  ${event.type}${event.id ? ` ${event.id}` : ""}${event.agent ? ` ${event.agent}` : ""}${event.from ? ` from ${event.from}` : ""}${event.to ? ` to ${[].concat(event.to).join(",")}` : ""}`);

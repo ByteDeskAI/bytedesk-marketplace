@@ -160,7 +160,8 @@ test('role list names an image-gen holder with its title from TITLES', async t =
   const listed = await roleList(f);
   const row = listed.roles.find(r => r.role === 'image-gen');
   assert.equal(row.singleton, false);
-  assert.deepEqual(row.holders, [{ id: artist.id, name: `Lior Twelve, ${titleForRole('image-gen')}`, title: 'Image Generation Engineer' }]);
+  // roleIcon and roleLabel are TM-168's additive display fields: computed, never stored.
+  assert.deepEqual(row.holders, [{ id: artist.id, name: `Lior Twelve, ${titleForRole('image-gen')}`, title: 'Image Generation Engineer', roleIcon: '🖼️', roleLabel: 'Image generation' }]);
   assert.deepEqual(listed.roles.map(r => r.role), ['lead', 'reviewer', 'worker', 'designer', 'image-gen']);
   assert.deepEqual(listed.roles.filter(r => r.singleton).map(r => r.role), ['lead', 'reviewer']);
 });

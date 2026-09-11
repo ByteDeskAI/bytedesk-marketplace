@@ -175,6 +175,23 @@ export async function doctor({ adapters, workflowDirs, skillDirs, roleDirs, prov
       supervision = { state: "unknown", error: error.message };
     }
   }
+  // TM-167: what the supervisor last did about this repository's lead. A dead externally owned lead
+  // needs a human, so it is a problem with the command that reassigns it; a failing recovery shows
+  // its action, last error, attempts and next retry. A healthy or never-attempted lead says nothing.
+  let leadRecovery = null;
+  if (consumer) {
+    try {
+      const { leadRecoveryStatus } = await import("./lead-recovery.mjs");
+      leadRecovery = await leadRecoveryStatus({ consumer, env, home });
+      if (leadRecovery.alert) {
+        problems.push({ code: "LEAD_DEAD_EXTERNAL", message: leadRecovery.alert.message, fix: { command: leadRecovery.alert.command, note: `Or hand the repository to a managed lead: ${leadRecovery.alert.alternatives?.[0] ?? "ao-topology lead detach, then lead ensure"}` } });
+      } else if (leadRecovery.last_error) {
+        problems.push({ code: "LEAD_RECOVERY_FAILING", message: `Lead recovery (${leadRecovery.action}) has failed ${leadRecovery.attempts} time(s): ${leadRecovery.last_error}`, fix: { note: `Next automatic retry at ${leadRecovery.next_retry_at ?? "the next reconcile"}; state in ${leadRecovery.state_path}` } });
+      }
+    } catch (error) {
+      leadRecovery = { error: error.message };
+    }
+  }
   // TM-155: the first-run trust gate, and the socket-path limit. Both are conditions an operator
   // meets as a stalled pane or a raw tmux error, and both are knowable before anything is launched.
   const trust = await claudeTrust(consumer, home);
@@ -187,5 +204,5 @@ export async function doctor({ adapters, workflowDirs, skillDirs, roleDirs, prov
   }
   const socket = socketPathProblem(env);
   if (socket) problems.push(socket);
-  return { ok: problems.length === 0, os: osInfo, tmux: tmux ?? null, node, providers, dirs, supervision, trust, problems };
+  return { ok: problems.length === 0, os: osInfo, tmux: tmux ?? null, node, providers, dirs, supervision, lead_recovery: leadRecovery, trust, problems };
 }

@@ -392,7 +392,7 @@ async function openLeadSession({ agent, consumer, pluginRoot, home, env, log, op
  * externally owned: reported, never recreated), "created" (no record: library lead found or minted
  * from config, session opened, record written).
  */
-export async function ensureLead({ consumer, home = homedir(), pluginRoot = null, env = process.env, log = () => {}, ackTimeoutMs = DEFAULT_ACK_TIMEOUT_MS, probes = null }) {
+export async function ensureLead({ consumer, home = homedir(), pluginRoot = null, env = process.env, log = () => {}, ackTimeoutMs = DEFAULT_ACK_TIMEOUT_MS, probes = null, restartRequiresBinding = false }) {
   invariant(consumer && typeof consumer === "string", "TOPOLOGY_LEAD_CONSUMER_REQUIRED", "ensureLead needs the consumer repository path.");
   const identity = await canonicalRepoId(consumer);
   if (env?.AO_LEAD_ID && env?.AO_CONSUMER && (await canonicalRepoId(env.AO_CONSUMER)).id === identity.id) return { action: "self", lead_id: env.AO_LEAD_ID };
@@ -402,21 +402,24 @@ export async function ensureLead({ consumer, home = homedir(), pluginRoot = null
   const { recordPath, lockPath } = registryPaths(registryDir, key);
   const p = resolveProbes(probes, { registryDir, log });
 
-  return withLock(lockPath, async () => {
+  const decided = await withLock(lockPath, async () => {
     if (await exists(recordPath)) {
       const record = await readJson(recordPath);
-      if (await p.alive(record)) {
-        if (await p.responsive(record, ackTimeoutMs)) return { action: "reused", record };
-        // Alive but unanswered. The agent may be mid-task; doing nothing is the correct action,
-        // and doing anything else — killing, respawning, opening a second session — is how one
-        // repo ends up with two leads.
-        return { action: "kept-unresponsive", record };
-      }
+      // TM-167. A live lead leaves the lock BEFORE it is probed. The probe can wait a model turn
+      // (30s by default) and withLock's own timeout is also 30s, so probing in here made every
+      // concurrent ensure behind it time out. Nothing below the probe mutates the registry — reused
+      // and kept-unresponsive both leave it as found — so the lock has nothing left to protect.
+      if (await p.alive(record)) return { probe: record };
       if (!record.managed || record.externally_owned) {
         // Someone else's session died. Recreating it would spawn a process we have no right to
         // create under an identity a human owns; report and stop.
         return { action: "dead-external", record };
       }
+      // TM-167. An unattended restart needs proof that the RECORDED incarnation is gone. A record
+      // with no six-tuple binding was judged dead by a session-name lookup on the default server,
+      // which cannot tell "gone" from "on another server"; restarting on that would duplicate it.
+      invariant(!restartRequiresBinding || record.binding, "TOPOLOGY_LEAD_OWNERSHIP_UNKNOWN",
+        `The lead record names no exact pane incarnation, so its absence cannot be proven; refusing an unattended restart. Restart it deliberately with: ao-topology lead ensure --consumer ${consumer}`);
       const dirs = agentDirs({ pluginRoot, consumer, home });
       const agent = await requireAgent(record.agent_id, agentDirs({ pluginRoot, consumer: record.consumer || consumer, home })).catch(() => {
         fail(
@@ -459,6 +462,13 @@ export async function ensureLead({ consumer, home = homedir(), pluginRoot = null
     await writeJson(recordPath, record);
     return { action: "created", agent_created: agentCreated, record, session: opened.session, pane: opened.pane };
   });
+  if (!decided.probe) return decided;
+  const record = decided.probe;
+  if (await p.responsive(record, ackTimeoutMs)) return { action: "reused", record };
+  // Alive but unanswered. The agent may be mid-task; doing nothing is the correct action, and doing
+  // anything else — killing, respawning, opening a second session — is how one repo ends up with two
+  // leads.
+  return { action: "kept-unresponsive", record };
 }
 
 /**
@@ -491,7 +501,7 @@ export async function assignLead({ consumer, agentRef, session: existingSession 
     const pane = await p.pane(candidate);
     const otherLead = await findLead(agentDirs({ pluginRoot, consumer, home }));
     invariant(!otherLead || otherLead.id === agent.id, "TOPOLOGY_MULTIPLE_LEADS", "Another library lead exists; reconcile it before promotion.");
-    const binding = probes?.binding ? await probes.binding(candidate) : (await tmux.listServerPanes({ env })).find(p => p.paneId === pane && p.sessionName === session) || null;
+    const binding = probes?.binding ? await probes.binding(candidate) : (await tmux.listServerPanes({ session, env })).find(p => p.paneId === pane && p.sessionName === session) || null;
     invariant(probes || binding, "TOPOLOGY_LEAD_BINDING_REQUIRED", "Assignment needs exact observed session binding.");
     candidate.pane = pane;
     invariant(await p.responsive(candidate, ackTimeoutMs), "TOPOLOGY_LEAD_HANDSHAKE_REQUIRED", "Assignment requires an acknowledged nonce handshake; the existing session was preserved.");

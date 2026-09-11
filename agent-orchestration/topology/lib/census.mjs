@@ -23,6 +23,7 @@
 // mechanism always forgets to give you.
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { roleVisual } from "./identity.mjs";
 import { readDeaths } from "./launch.mjs";
 import { PRESENCE_BINDING_FIELDS } from "./presence.mjs";
 import { attentionOnScreen } from "./providers.mjs";
@@ -116,6 +117,14 @@ export function censusPath({ env = process.env, home = homedir(), key }) {
 }
 
 const bindingKey = (binding) => JSON.stringify(PRESENCE_BINDING_FIELDS.map((field) => binding?.[field]));
+/**
+ * TM-168. A row's role icon and label, recomputed from the row's own role fields every time and never
+ * copied from the roster or a prior document. A stale or hand-edited census file, a hostile role or
+ * escape bytes therefore cannot reach formatCensus's terminal output, and nothing here reads an icon
+ * back to decide anything. The derivation matches presence: a repository lead, then the run role, then
+ * the library role carried as roleName. Display only.
+ */
+const visualOf = (agent) => roleVisual({ repoRole: agent?.repoRole ?? null, runRole: agent?.runRole ?? null, role: agent?.roleName ?? null });
 const quotaOnly = (adapter) => ({ ...adapter, attention_patterns: (adapter.attention_patterns ?? []).filter((entry) => entry.state === "quota-blocked") });
 
 /**
@@ -250,7 +259,7 @@ export async function takeCensus(options = {}, input = {}) {
     // `carriedForward` marks a TOMBSTONE: this agent was not in today's observation at all, it is
     // here only so its disappearance can be reported. A consumer must never mistake one for a
     // current reading, so the flag rides all the way out to --json.
-    roster.push({ agentId: prior.agentId, displayName: prior.displayName, title: prior.title, repoRole: prior.repoRole, runRole: prior.runRole, session: prior.binding, primaryRunId: prior.runId ?? null, carriedForward: true });
+    roster.push({ agentId: prior.agentId, displayName: prior.displayName, title: prior.title, repoRole: prior.repoRole, runRole: prior.runRole, roleName: prior.roleName ?? null, ...visualOf(prior), session: prior.binding, primaryRunId: prior.runId ?? null, carriedForward: true });
   }
 
   // Decide who needs a capture: title-conclusive panes cost nothing at all.
@@ -307,6 +316,8 @@ export async function takeCensus(options = {}, input = {}) {
       title: item.agent.title ?? null,
       repoRole: item.agent.repoRole ?? null,
       runRole: item.agent.runRole ?? null,
+      roleName: item.agent.roleName ?? null,
+      ...visualOf(item.agent),
       runId: item.agent.primaryRunId ?? null,
       state: verdict.state,
       reason: verdict.reason,
@@ -406,7 +417,10 @@ export function formatCensus(document) {
   for (const agent of document.agents ?? []) {
     const name = agent.displayName && agent.displayName !== "Unenrolled agent" ? agent.displayName : agent.agentId;
     const flags = [agent.edge ? "edge" : null, agent.undeliveredMessages?.length ? `${agent.undeliveredMessages.length} undelivered` : null].filter(Boolean);
-    lines.push(`${GLYPH[agent.state] ?? "?"} ${String(name).padEnd(24)} ${agent.state.padEnd(14)} ${duration(agent.durationMs).padStart(7)}  ${agent.reason}${flags.length ? ` [${flags.join(", ")}]` : ""}`);
+    // The first column is the STATE glyph; the role icon sits beside the name, with its label as the
+    // readable text, so neither is ever the only way a reader learns the role.
+    const { roleIcon, roleLabel } = visualOf(agent);
+    lines.push(`${GLYPH[agent.state] ?? "?"} ${roleIcon} ${String(name).padEnd(24)} ${roleLabel.padEnd(16)} ${agent.state.padEnd(14)} ${duration(agent.durationMs).padStart(7)}  ${agent.reason}${flags.length ? ` [${flags.join(", ")}]` : ""}`);
   }
   if ((document.agents ?? []).length === 0) lines.push("(no agents observed in this repository)");
   lines.push(`- ${document.captures} capture(s), tick ${document.tickMs}ms, ${(document.agents ?? []).filter((a) => a.dispatchable).length} dispatchable`);
