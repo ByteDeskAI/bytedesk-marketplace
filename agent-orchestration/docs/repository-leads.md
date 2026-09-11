@@ -26,6 +26,32 @@ observed hook capability support installation. Managed role-session launch also 
 The repository supervisor refreshes presence, checks prompt sources and resumes held mail. A live
 or unknown lock owner is never evicted by age.
 
+### Enrollment and activation
+
+**Enrollment decides which repositories are given agents.** A repository is enrolled when one of
+these holds, checked in this order:
+
+1. Its repository config `.bytedesk/agent-orchestration/config.json` sets `"enabled": true`.
+2. Its project `.claude/settings.json` enables `agent-orchestration@<marketplace>`.
+3. It already has a lead registration.
+
+`"enabled": false` in the repository config disables a repository whatever else is true. An
+unreadable repository config, or a non-boolean `enabled`, also counts as disabled. Every linked
+worktree gets the answer from the main checkout.
+
+**Only enrolled repositories get a supervisor started for them.** Session start (the startup-check
+hook, or a managed launch) and ordinary verbs such as `launch`, `send`, `session open`, `census`,
+`lead` and `role` start the repository's single supervisor this way. Many concurrent starts from
+different worktrees converge on one supervisor.
+
+**The supervisor also runs read-only in unenrolled repositories.** There it keeps presence, census,
+slots and quota current, and its watcher labels only its own repository's panes. It never starts or
+recovers an agent for an unenrolled repository.
+
+**Ordinary verbs list tmux panes only on a named server**: a binding's server, their own pane's
+server, or `--server`. Otherwise they refuse with `TOPOLOGY_TMUX_SERVER_REQUIRED` rather than
+enumerate whichever server tmux would pick.
+
 ### Lead recovery
 
 For an **enrolled** repository only, the repository's own supervisor keeps its lead, once per
