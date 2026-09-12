@@ -4,8 +4,7 @@
       "source": {
         "source": "directory",
         "path": "../bytedesk-marketplace"
-      },
-      "autoUpdate": true
+      }
     }
   },
   "enabledPlugins": {
