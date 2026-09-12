@@ -283,14 +283,14 @@ describe("pool.pid — one loop per store", () => {
     assert.equal(readPoolPid(p).store, "/somewhere/else", "the record itself is still readable");
   });
 
-  it("--auto with dispatch.enabled false: no loop, no pid file (on is the default, TM-178)", async () => {
+  it("dispatch.enabled false: no loop, no pid file (on is the default, TM-178)", async () => {
     const p = store({ dispatch: { enabled: false } });
 
-    const res = await runPool({ p, auto: true, intervalSeconds: 0 });
+    const res = await runPool({ p, intervalSeconds: 0 });
 
     assert.equal(res.disabled, true);
     assert.match(res.reason, /dispatch\.enabled is false/);
-    assert.equal(readPoolPid(p), null, "a disabled autostart leaves no pid behind");
+    assert.equal(readPoolPid(p), null, "a disabled loop leaves no pid behind");
   });
 
   it("pool.pid is in the store's git contract, like agents.json", async () => {

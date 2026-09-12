@@ -3,8 +3,8 @@
  * it, and takes only tasks that pass the shared readiness check.
  *
  * Same fixtures as pool.test.mjs: a real git repo because dispatch provisions a worktree, a fake
- * backend, caps: {} and the dispatch order pinned to ["fake"]. The standby test runs two real
- * `tm pool run --auto` processes against a temp store with TM_DISPATCH_REGISTRY naming the fake
+ * backend, caps: {} and the dispatch order pinned to ["fake"]. The one-pool-per-store test runs
+ * two real `tm pool run` processes against a temp store with TM_DISPATCH_REGISTRY naming the fake
  * registry, so nothing real launches; every child is SIGKILLed in t.after, pass or fail.
  *
  * The pool module is imported as a namespace so an export this task adds (poolEnabled) fails only
@@ -81,9 +81,9 @@ function childEnv(p) {
   return env;
 }
 
-/** `tm pool run --auto` as a real process, stdout captured, SIGKILLed when the test ends. */
+/** `tm pool run` as a real process, stdout captured, SIGKILLed when the test ends. */
 function startPool(p, t) {
-  const child = spawn(process.execPath, [TM, "pool", "run", "--auto"], { cwd: p.root, env: childEnv(p), stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn(process.execPath, [TM, "pool", "run"], { cwd: p.root, env: childEnv(p), stdio: ["ignore", "pipe", "pipe"] });
   let stdout = "";
   let stderr = "";
   child.stdout.on("data", (d) => (stdout += d));
@@ -142,7 +142,7 @@ describe("TM-178 B3 — the pool takes only tasks that pass agentReadiness", () 
 });
 
 describe("TM-178 — the loop follows dispatch.enabled live", () => {
-  it("unset: --auto dispatches; set false mid-run: no further dispatch, exit within one poll, pool.pid released", async () => {
+  it("unset: the loop dispatches; set false mid-run: no further dispatch, exit within one poll, pool.pid released", async () => {
     const p = repoStore();
     const first = complete(p, "first");
     const fake = fakeBackend();
@@ -153,7 +153,6 @@ describe("TM-178 — the loop follows dispatch.enabled live", () => {
 
     const run = pool.runPool({
       p,
-      auto: true,
       intervalSeconds: POLL,
       registry: { fake },
       caps: {},
@@ -179,14 +178,14 @@ describe("TM-178 — the loop follows dispatch.enabled live", () => {
     assert.deepEqual(states, [`pool: running (pid ${process.pid})`, "pool: stopped — dispatch.enabled is false"]);
   });
 
-  it("explicit false at launch: --auto returns at once, no tick, no pid file", async () => {
+  it("explicit false at launch: the loop returns at once, no tick, no pid file", async () => {
     const p = repoStore({ dispatch: { enabled: false } });
     complete(p, "ready but the pool is off");
     const fake = fakeBackend();
     const ticks = [];
     const t0 = Date.now();
 
-    const res = await pool.runPool({ p, auto: true, intervalSeconds: 30, registry: { fake }, caps: {}, onTick: (t) => ticks.push(t) });
+    const res = await pool.runPool({ p, intervalSeconds: 30, registry: { fake }, caps: {}, onTick: (t) => ticks.push(t) });
 
     assert.equal(res.disabled, true);
     assert.ok(Date.now() - t0 < 2000, "no sleep");
@@ -196,41 +195,29 @@ describe("TM-178 — the loop follows dispatch.enabled live", () => {
   });
 });
 
-describe("TM-178 — standby and takeover across real processes", () => {
-  it("a second run --auto waits, takes over within one poll of a SIGKILL, and both streams print only state changes", async (t) => {
+describe("TM-178 — `tm pool run` is one foreground pool per store", () => {
+  it("a second run refuses with exit 2 while a live pool holds pool.pid, and prints its state line", async (t) => {
     const POLL = 0.4;
     const p = repoStore({ dispatch: { pollSeconds: POLL } });
-    const task = complete(p, "the first pool dispatches this");
+    const task = complete(p, "the pool dispatches this");
 
     const a = startPool(p, t);
-    assert.ok(await until(() => pool.readPoolPid(p)?.pid === a.child.pid), `control: the first process holds pool.pid (${a.dump()})`);
-    assert.ok(await until(() => read(task, p).status === "in_progress"), `run --auto dispatched with the flag unset (${a.dump()})`);
+    assert.ok(await until(() => pool.readPoolPid(p)?.pid === a.child.pid), `control: the pool holds pool.pid (${a.dump()})`);
+    assert.ok(await until(() => read(task, p).status === "in_progress"), `it dispatched with the flag unset (${a.dump()})`);
 
     const b = startPool(p, t);
-    assert.ok(await until(() => b.lines().length > 0), `the second process reported (${b.dump()})`);
-    await sleep(POLL * 1000 * 4); // several polls for both processes
+    const refused = await Promise.race([b.exited, sleep(5000).then(() => null)]);
 
-    assert.equal(b.child.exitCode, null, `the second process waits instead of exiting (${b.dump()})`);
-    assert.equal(pool.readPoolPid(p)?.pid, a.child.pid, "standby never wrote pool.pid");
+    assert.deepEqual(refused, { code: 2, signal: null }, `a second run is refused, not queued (${b.dump()})`);
+    assert.equal(pool.readPoolPid(p)?.pid, a.child.pid, "the incumbent's pid file is left alone");
+    await sleep(POLL * 1000 * 3);
     assert.deepEqual(a.lines(), [`pool: running (pid ${a.child.pid})`], "one line across several ticks");
-    assert.deepEqual(b.lines(), [`pool: standby — pid ${a.child.pid} holds this store`], "one line across several polls");
 
-    a.child.kill("SIGKILL");
-    await a.exited;
-    const killedAt = Date.now();
-    assert.equal(pool.readPoolPid(p)?.pid, a.child.pid, "control: SIGKILL left the dead pool's record behind");
-
-    assert.ok(await until(() => pool.readPoolPid(p)?.pid === b.child.pid, 5000, 10), `the standby took over (${b.dump()})`);
-    const elapsed = Date.now() - killedAt;
-    assert.ok(elapsed < POLL * 1000 + 1000, `within one poll (${elapsed} ms)`);
-    assert.ok(await until(() => b.lines().length >= 2), b.dump());
-    assert.deepEqual(b.lines(), [`pool: standby — pid ${a.child.pid} holds this store`, `pool: took over from pid ${a.child.pid}`]);
-
-    // The kill switch, through the real CLI: false stops the pool that took over, within one poll.
+    // The kill switch: false stops the running pool within one poll, and it releases pool.pid.
     writeConfig({ dispatch: { enabled: false } }, p);
-    const exit = await Promise.race([b.exited, sleep(POLL * 1000 + 3000).then(() => null)]);
-    assert.deepEqual(exit, { code: 0, signal: null }, b.dump());
-    assert.equal(b.lines().at(-1), "pool: stopped — dispatch.enabled is false");
+    const exit = await Promise.race([a.exited, sleep(POLL * 1000 + 3000).then(() => null)]);
+    assert.deepEqual(exit, { code: 0, signal: null }, a.dump());
+    assert.equal(a.lines().at(-1), "pool: stopped — dispatch.enabled is false");
     assert.equal(existsSync(join(p.base, "pool.pid")), false, "the exiting pool released pool.pid");
   });
 });

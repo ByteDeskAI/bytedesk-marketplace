@@ -1036,6 +1036,7 @@ export function reindex(p = paths()) {
  *   state.json      session claims and one-shot overrides — whose laptop, not what work.
  *   agents.json     the agent registry — whose workers, on whose laptop.
  *   pool.pid        the dispatcher loop's pid — one machine's running pool.
+ *   pool.log        that pool's own stream, truncated at every start.
  *   events.jsonl    this host's audit log. Session ids and one machine's write stream.
  *   events.json     leftover misspelling / older name of that log.
  *   events.*.jsonl  the rotated generation of that log.
@@ -1071,6 +1072,9 @@ pool.pid
 # The pool's brake: its failure count and a pause that must survive a restart. One
 # machine's loop, like pool.pid.
 pool.state.json
+
+# The detached pool's own stream, truncated at every start. One machine's log.
+pool.log
 
 # In-flight planning conversations, and the untrusted files attached to them. evidence/ is
 # the shared record and belongs in git; this is the opposite of that — one machine's unfinished
@@ -1209,6 +1213,7 @@ export const NOT_FOR_GIT = [
   "agents.json",
   "pool.pid",
   "pool.state.json",
+  "pool.log",
   "events.json",
   "events.jsonl",
   "events.*.jsonl",
