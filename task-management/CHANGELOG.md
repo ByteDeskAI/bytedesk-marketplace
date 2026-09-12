@@ -638,6 +638,84 @@
   taxonomy was salvaged first under TM-095. A `dispatch.backends` config that still names
   `fleet` degrades to "module not present" and falls through, as it does for any unknown name.
 
+## [EP-021] — 2026-09-11
+
+Agent-first hardening. Readiness stops being something a person types, the pool stops being
+something a person turns on, dispatched workers get a guard and a finish line, and the finish
+line is a pull request a human merges. No `version` field was added anywhere: `task-management`
+is Claude-side versionless, so every commit reaches consumers by resolved SHA
+(`.claude/rules/version-enforcement.md`).
+
+### Added
+- **Computed readiness, and a human veto that outranks it** (TM-176). `agentReadiness(task, cfg)`
+  in `lib/completeness.mjs` is the single check: the `requireOnStart` fields are present, there is
+  an epic when `requireEpic` is set, and none of `ready-for-human`, `needs-info`, `wontfix`,
+  `human-gate`, `decision:interview`, `decision:prototype`, `decision:unblock` or `decision:map`
+  is on the task. The store keeps `ready-for-agent` — or `needs-triage` plus a `triageMissing`
+  list — in sync inside every task write, stamped `triagedBy: auto`.
+  - **A person's decision is stamped `triagedBy: human` and never overridden**, whether they set
+    `ready-for-human` or simply cleared the triage label. No later write and no `tm triage` run
+    can put that task back in the agents' queue.
+  - `tm task new --human` files a task with the veto already set; `tm triage [--all] [--dry-run]`
+    backfills existing tasks and skips every task a person decided. `dispatch.autoReady:
+    "label" | "off"` controls the syncing.
+- **A brake on the pool** (TM-175). After `dispatch.maxFailures` consecutive failures (default 3
+  — dispatch failures and failed workers both count), or one usage/quota-limit failure, the pool
+  pauses: the pause is kept in `pool.state.json` so it outlives the process, logs `pool_paused`,
+  and shows in `tm pool status`. Only a dispatched task reaching done resets the count, and only
+  `tm pool resume` clears the pause. A worker past `dispatch.maxRuntimeMinutes` (default 120)
+  logs `worker_overrun` once — visibility, not a park.
+  - Capacity is counted from dispatched in-progress tasks (`dispatch.poolWip`, default 3); a stop
+    sent mid-tick works; running tasks' `touches` count as occupied; a failed dispatch cleans its
+    worktree and keeps an earlier claim; one pool per store, claimed with `pool.pid` and `wx`.
+- **A worker guard** (TM-177). Dispatched workers still run `claude -p
+  --dangerously-skip-permissions`, so they are marked `TM_DISPATCH_WORKER` / `_TASK` / `_BRANCH`
+  and a PreToolUse `pre-bash` hook, injected with the same `--settings`, blocks: force pushes and
+  pushes to anything but the worker's own branch; branch, tag and ref deletion, `reset --hard`,
+  history rewrites, rebasing main; `stash drop|clear|pop`; `gh pr merge`, releases, secrets,
+  variables and `gh api` writes; deploy and secret tools, package publishing, chat webhooks and
+  mail. It **allows** pushing the worker's own branch and `gh pr create`. The rules are one table
+  in `lib/worker-guard.mjs`. It is a guard against accidents, not against an adversary.
+- **A dispatched worker finishes with a pushed branch and a pull request** (TM-180). The handoff's
+  "When you finish" section now states the order: tick the criteria, commit, `git push -u origin
+  <the task's tm/ branch>` (named literally when the task records one), `gh pr create --title
+  "<TM-id>: <title>"`, attach evidence, `tm done`. If the push or the PR fails — no remote, no
+  `gh`, no auth — the worker runs `tm block <id> "<the error>"` instead of closing. **It never
+  merges.**
+- **`collect` records the pull request** (TM-180). On the done path only, `recordResult` asks
+  `gh pr list --head <branch> --json url --jq '.[0].url'` with a 5s timeout and appends the url to
+  the task's `commits` — the array `tm link <id> <ref>` already writes and the handoff already
+  renders as "Commits / PRs", rather than a field invented for it. A missing `gh`, an
+  unauthenticated one, a branch with no PR or any error records nothing and never fails the
+  collect; the lookup is unit-tested through an injected exec and never runs real `gh`.
+- **ADR-0012 — "Agent-first automation: auto-label readiness, pool on by default, guarded
+  workers, PR finish line"** records the decision behind this wave: agents execute, humans decide,
+  and the boundary is enforced by a computed label, a veto a machine cannot clear, and a guard
+  that ends a worker's run at a PR.
+- <!-- TM-180: PLACEHOLDER, not shipped in this commit. TM-179 (a pool card on the dashboard —
+     running, paused with its reason, workers against the cap, ready count — and readiness with
+     `triageMissing` surfaced in `tm why`) is not in this tree: `dashboard/src` has no pool
+     surface and `tm why` does not read triageMissing. Write this entry against that code when it
+     lands, rather than announcing a feature nobody can open. -->
+
+### Changed
+- **The pool is on by default** (TM-178). `dispatch.enabled` defaults to `true`; a repo turns the
+  pool off with `dispatch.enabled: false`, and the config is re-read every poll, so that setting
+  stops a running pool without a restart. Every candidate is re-checked against `agentReadiness`,
+  so a stale or hand-set label cannot push unready work at a worker.
+  <!-- TM-180: the pool's PROCESS MODEL (how the loop is started, how it detaches from a session,
+       and `dispatch.idleExitMinutes`) is being redesigned on the TM-178 branch and is
+       deliberately not described here yet. Write this line against the merged code. -->
+- **`tm config <key>` reads a value and writes nothing** (TM-174), and dotted keys
+  (`tm config dispatch.poolWip`) resolve.
+- **The docs describe the automation that exists** (TM-180). `README.md`, `AGENTS.md`,
+  `docs/agent-first.md`, `docs/use-cases.md`, the `pool`, `dispatch`, `implement`, `tickets` and
+  `groom` skills, and the repo's own `.claude/rules/project-management.md` no longer say the
+  triage label is applied by hand or that the pool is opt-in. They now cover computed readiness
+  and the veto, the pool being on by default, the brake and `tm pool resume`, the worker guard,
+  the PR finish line, and the settings `enabled`, `autoReady`, `poolWip`, `pollSeconds`,
+  `maxFailures` and `maxRuntimeMinutes`.
+
 ## [0.14.0] — 2026-08-18
 
 Store-folder dashboard integration (BDM-64–74). Internal plugin.json stays unpinned.

@@ -356,13 +356,24 @@ export function handoff(id, p = paths()) {
    * ending. The collector (lib/dispatch/collect.mjs) records whatever comes back.
    */
   if ((t.labels || []).includes("ready-for-agent")) {
+    /**
+     * The branch, stated literally whenever it is known: `TM_DISPATCH_BRANCH` is what the
+     * worker guard measures a push against (lib/worker-guard.mjs), and the task's own
+     * `branch` is what provisioning recorded. "Your branch" is not a command anybody can
+     * paste, so the placeholder reads as one when neither is set.
+     */
+    const branch = String(process.env.TM_DISPATCH_BRANCH || t.branch || "").trim() || "<your tm/ branch>";
     out.push(
       "## When you finish",
       `- Tick each criterion only once verified: .bytedesk/task-management/bin/tm accept ${t.id} <n>`,
+      "- Commit your work.",
+      `- Push your own branch: git push -u origin ${branch}`,
+      `- Open a PR: gh pr create --title "${t.id}: ${t.title}" --body "<what changed, and how you verified it>"`,
       `- Attach proof, not claims: .bytedesk/task-management/bin/tm evidence ${t.id} <path> (test output)`,
       `- Then close: .bytedesk/task-management/bin/tm done ${t.id}`,
-      `- Blocked instead? .bytedesk/task-management/bin/tm block ${t.id} "reason" — name what you need`,
-      "- Never leave the task in_progress: close it or block it.",
+      `- If the push or the PR fails (no remote, no gh, auth), .bytedesk/task-management/bin/tm block ${t.id} "<the error>" instead of closing.`,
+      `- Blocked for any other reason? .bytedesk/task-management/bin/tm block ${t.id} "reason" — name what you need`,
+      "- Never merge your own PR — a human does that. Never leave the task in_progress: close it or block it.",
       "",
     );
   }

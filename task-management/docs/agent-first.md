@@ -4,6 +4,20 @@ Humans decide. Agents execute. A task labelled `ready-for-agent` is already spec
 dispatch, the pool, collect, and the event stream are how a worker takes it, finishes
 it, and reports back.
 
+**The label is computed.** The store re-derives `ready-for-agent` / `needs-triage` inside
+every task write (`dispatch.autoReady: "label"`, the default): ready means the
+`requireOnStart` fields are present, an epic exists if `requireEpic` is set, and none of
+`ready-for-human`, `needs-info`, `wontfix`, `human-gate` or `decision:interview` /
+`decision:prototype` / `decision:unblock` / `decision:map` is on the task. An unready task
+carries `needs-triage` and a `triageMissing` list. Nobody applies these by hand.
+
+**A person's decision is final.** Setting `ready-for-human`, or clearing the triage label,
+stamps `triagedBy: human`, and no later write and no `tm triage` run will override it.
+`tm task new --human` files a task with the veto already set.
+
+**A worker's run ends at a pull request**, never a merge: commit, push its own branch,
+`gh pr create`, attach evidence, close. A human merges.
+
 The three surfaces call the same `lib/` functions and return the same refusal wording.
 If a verb is missing from one column, that is a real gap — shell out to the CLI rather
 than inventing a flag.
@@ -17,11 +31,12 @@ README recipes live in [Running the loop](#running-the-loop-per-harness).
 |---|---|---|---|
 | Probe the host | `.bytedesk/task-management/bin/tm caps [--json]` | — (shell out; or `GET /api/caps`) | `GET /api/caps` |
 | Hand one task to a worker | `tm dispatch <id> [--backend <name>] [--steal]` | `tm_dispatch` `{id, backend?, steal?}` | `POST /api/task/:id/dispatch` `{backend?, steal?}` |
-| Pickup loop | `tm pool once\|start\|stop\|status [--dry-run]` | — (CLI / `tm-pool` monitor) | — |
+| Pickup loop (on by default) | `tm pool once\|start\|stop\|status\|resume [--dry-run]` | — (CLI / `tm-pool` monitor) | — |
 | Pull a worker's result | `tm collect <id>` | `tm_collect` `{id}` | `POST /api/task/:id/collect` |
 | Who is running | `tm agent [list] \| heartbeat <name> \| reap` | `tm_agents` `{action, name?}` | `GET /api/agents` |
 | Raw event stream | `tm events [n] [--follow] [--since <iso>] [--json]` | — (CLI; dashboard has the stream) | `GET /api/events`, `GET /events` (SSE) |
-| Label the go-ahead | `tm label <id> ready-for-agent` | `tm_label` `{id, add:["ready-for-agent"]}` | `POST /api/task/:id/labels` `{add:["ready-for-agent"]}` |
+| Keep a task for a human (the veto) | `tm label <id> ready-for-human` | `tm_label` `{id, add:["ready-for-human"]}` | `POST /api/task/:id/labels` `{add:["ready-for-human"]}` |
+| Re-run auto-triage over the board | `tm triage [--all] [--dry-run]` | — (shell out) | — |
 
 `--json` on any CLI read verb (`caps`, `board`, `next`, `events`, …) is structured output.
 MCP already returns JSON. HTTP is JSON except raw-byte routes (`/api/export`, evidence files).
@@ -145,9 +160,21 @@ registers `agent:<id>-<session-prefix>` in `agents.json`, and starts a heartbeat
 Worker env: `TM_SESSION_ID` and `TM_ACTOR` are the **dispatching** session; `TM_ROOT` is
 the repo. Do not override them — they are how the work attributes.
 
-The handoff for a `ready-for-agent` task ends with the completion contract: tick each
-criterion (`tm accept`), attach proof (`tm evidence`), then `tm done` or `tm block` with
-a reason. Never leave the task `in_progress`.
+The handoff for a `ready-for-agent` task ends with the completion contract, in order: tick
+each criterion (`tm accept`), **commit**, **`git push -u origin <the task's tm/ branch>`**,
+**`gh pr create --title "<TM-id>: <title>" --body "<what changed, and how it was verified>"`**,
+attach proof (`tm evidence`), then `tm done`. If the push or the PR fails — no remote, no
+`gh`, no auth — `tm block <id> "<the error>"` instead of closing. Never leave the task
+`in_progress`, and **never merge**: the PR is where the worker's run ends.
+
+**The worker guard** enforces that. A dispatched worker runs with permissions skipped, so it
+is marked `TM_DISPATCH_WORKER` / `_TASK` / `_BRANCH` and a PreToolUse `pre-bash` hook,
+injected with the same `--settings`, blocks: force pushes and pushes to any branch but the
+worker's own; branch, tag and ref deletion, `reset --hard`, history rewrites, rebasing main;
+`stash drop|clear|pop`; `gh pr merge`, releases, secrets, variables, `gh api` writes; deploy
+and secret tools, package publishing, chat webhooks and mail. It **allows** pushing the
+worker's own branch and `gh pr create`. One table, `lib/worker-guard.mjs`; it stops
+accidents, not an adversary.
 
 ## Pool
 
@@ -164,14 +191,26 @@ result frees its slot. Per-backend ceilings: `dispatch.backendCaps`, e.g. `{"tmu
 .bytedesk/task-management/bin/tm pool stop
 ```
 
-**Kill-switches.** `TM_ENFORCE=off` or `dispatch.enabled: false` makes a tick report
-`{ disabled: true }` and dispatch nothing. The **monitor** (`tm-pool`,
-`tm pool run --auto`) additionally **exits 0 immediately** unless
-`dispatch.enabled: true` — an autostarted daemon nobody asked for must not start
-work. The explicit verbs above work regardless of that config flag; they still
-honour the kill-switches on the tick itself.
+**On by default.** The pool runs unless a repo sets `dispatch.enabled: false`. Config is
+re-read every poll, so that setting stops a running pool without a restart.
+`TM_ENFORCE=off` also makes a tick report `{ disabled: true }` and dispatch nothing.
 
-The pool never touches unlabelled work. The label is the human's go-ahead.
+**The label is not enough.** A label can be stale or hand-set, so every candidate is
+re-checked against `agentReadiness` — the same function the store's label sync uses — and a
+task that fails it is skipped with the missing fields named. Work a person vetoed with
+`ready-for-human` is never dispatched.
+
+**The brake.** After `dispatch.maxFailures` consecutive failures (default 3 — dispatch
+failures and failed workers both count), or one usage/quota-limit failure, the pool pauses.
+The pause is kept in `pool.state.json` so it outlives the process, logs `pool_paused`, and
+shows in `tm pool status`. Only a dispatched task reaching done resets the count;
+`tm pool resume` clears the pause. A worker past `dispatch.maxRuntimeMinutes` (default 120)
+logs `worker_overrun` once — visibility, not a park.
+
+<!-- TM-180/TM-178: the pool's PROCESS MODEL — how the loop is started, how it detaches from
+     a session, and when it exits on idle (`dispatch.idleExitMinutes`) — is being redesigned
+     on the TM-178 branch. Document it here against the merged code once that lands. Do not
+     describe a model that cannot be run. -->
 
 No MCP / HTTP verb — drive it from the CLI or the plugin monitor.
 
@@ -261,9 +300,12 @@ for the catalogued keys (`lib/settings.mjs`). Arrays/objects (`dispatch.backends
 | `dispatch.topologyAgent` | first non-lead in the roster | which stored agent a topology dispatch borrows its identity from |
 | `dispatch.topologyCandidates` | `"claude"` | provider chain for a topology dispatch when the repo has no agent library |
 | `dispatch.heartbeatSeconds` | `60` | claim re-stamp while the worker is alive; `0` disables |
-| `dispatch.enabled` | `false` | the `tm-pool` **monitor** requires `true`; explicit `tm pool` verbs work regardless |
+| `dispatch.enabled` | `true` | the pool runs unless this is `false`; re-read every poll, so it also stops a running pool |
+| `dispatch.autoReady` | `"label"` | keep `ready-for-agent` / `needs-triage` in sync on every write; `"off"` leaves triage to hand |
 | `dispatch.poolWip` | `3` | cap on pool-spawned workers (independent of interactive `wipLimit`) |
 | `dispatch.pollSeconds` | `30` | seconds between `tm pool run` ticks |
+| `dispatch.maxFailures` | `3` | consecutive failures before the pool pauses; one quota failure pauses at once; `tm pool resume` clears it |
+| `dispatch.maxRuntimeMinutes` | `120` | a worker still running past this logs `worker_overrun` once; `0` disables |
 | `dispatch.backendCaps` | `{}` | per-backend ceilings on top of `poolWip`, e.g. `{"tmux":2}` |
 | `agentTtlMinutes` | `30` | silent agent → dead; reaper parks its tasks; `0` disables |
 | `webhooks` | `[]` | `[{url, kinds?}]` |
@@ -274,15 +316,18 @@ for the catalogued keys (`lib/settings.mjs`). Arrays/objects (`dispatch.backends
 Same recipe everywhere. The store, CLI, and MCP server are harness-agnostic; hooks
 and session identity are not. See README "Running under Codex CLI, Grok, and Kimi".
 
-1. Human (or `/task-management:tickets`) files the work with acceptance criteria.
-2. Label it: `tm label TM-014 ready-for-agent` / `tm_label` / `POST …/labels`.
-3. Probe: `tm caps --json` (or `GET /api/caps`).
-4. Either:
+1. Human (or `/task-management:tickets`) files the work with a body and acceptance criteria.
+   The store labels it `ready-for-agent` on that write; nothing to apply by hand. Keep it for
+   a person with `tm task new --human`, or `tm label TM-014 ready-for-human` afterwards.
+2. Probe: `tm caps --json` (or `GET /api/caps`).
+3. Either:
    - one shot: `tm dispatch TM-014` / `tm_dispatch` / `POST …/dispatch`
-   - loop: `tm config dispatch.enabled true` then `tm pool start` (or let the monitor run)
-5. Worker ticks AC, attaches evidence, `tm done` or `tm block`.
-6. Parent: `tm collect TM-014` / `tm_collect` / `POST …/collect`. `tm agent reap` for stragglers.
-7. Watch: `tm events --follow --json`, or the dashboard SSE.
+   - loop: nothing to turn on — the pool runs unless `dispatch.enabled` is `false`
+     (`tm pool status` says whether it is running, and whether the brake is on)
+4. Worker ticks AC, commits, pushes its branch, opens a PR, attaches evidence, then
+   `tm done` — or `tm block` with the error if the push or PR failed.
+5. Parent: `tm collect TM-014` / `tm_collect` / `POST …/collect`. `tm agent reap` for stragglers.
+6. Watch: `tm events --follow --json`, or the dashboard SSE.
 
 ### Claude Code
 

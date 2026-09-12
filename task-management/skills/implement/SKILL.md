@@ -13,7 +13,11 @@ For **implementation** tickets only (`ready-for-agent`, no `decision:*`).
 2. Agree seams. Red → green one slice at a time. AC is the spec; a failing-then-passing test is `tm_evidence`.
 3. Tick each criterion only when verified (`tm_ac_accept`).
 4. Optional: two-axis review (standards vs this ticket/`epic.plan`); attach as evidence.
-5. `tm_task_update` done. Never leave `in_progress` at session end.
+5. Commit, `git push -u origin <the task's tm/ branch>`, then
+   `gh pr create --title "<TM-id>: <title>" --body "<what changed, and how you verified it>"`.
+   **Never merge it yourself.** If the push or the PR fails (no remote, no `gh`, auth),
+   `tm block <id> "<the error>"` instead of closing.
+6. `tm_task_update` done. Never leave `in_progress` at session end.
 
 Do not implement `decision:*` tickets — those are `/interview`, `/research`, `/prototype`.
 
