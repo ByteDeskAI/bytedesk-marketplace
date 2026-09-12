@@ -38,6 +38,7 @@
 import { basename } from "node:path";
 import { enforcementOff, gateDone, gateStart, gateTaskCreate, setOverride } from "./enforce.mjs";
 import { graphData, mermaid, renderWhy, why } from "./graph.mjs";
+import { poolStatus } from "./dispatch/pool.mjs";
 import { COLUMNS, LABEL, collapseLog, handoff, renderHistory, standup } from "./render.mjs";
 import { cycleTime, summary as timeSummary, taskTimeline, throughput, timeInStatus } from "./time.mjs";
 import { FIELD_NAMES, describeQuery, matchesQuery, parseQuery } from "./query.mjs";
@@ -1179,6 +1180,9 @@ function readRoute(method, url, query, p) {
       return sessionsRoute(p);
     case "/api/agents":
       return ok({ agents: listAgents(p) });
+    // The same object `tm pool status --json` prints — one shape, one implementation (TM-179).
+    case "/api/pool":
+      return ok(poolStatus(p));
     case "/api/skills":
       return ok(listSkills());
     default: {

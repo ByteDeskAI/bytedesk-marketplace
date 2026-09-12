@@ -119,7 +119,9 @@ done
 wait
 
 AC=$(tm show "$TARGET" --json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log((JSON.parse(s).acceptance||[]).length))')
-LABELS=$(tm show "$TARGET" --json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log((JSON.parse(s).labels||[]).length))')
+# Only the four labels this block adds. The store's auto-triage (TM-176) puts its own triage label on
+# the task inside these same writes, so counting every label would read 5 and say nothing about the race.
+LABELS=$(tm show "$TARGET" --json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log((JSON.parse(s).labels||[]).filter((l)=>l.startsWith("label-")).length))')
 eq "$AC" "4" "concurrent acceptance criteria are all kept"
 eq "$LABELS" "4" "concurrent labels are all kept"
 

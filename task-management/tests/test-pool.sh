@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # TM-065 — the `tm pool` verb contract: help registration, `once --json` against a
-# temp store (via the fake dispatch registry), the --auto opt-in off-ramp, and the
+# temp store (via the fake dispatch registry), the dispatch.enabled false off-ramp, and the
 # start/status/stop/second-start-refusal lifecycle around pool.pid.
 #
 # A real git repo, because `once` really dispatches and dispatch provisions a
@@ -50,10 +50,12 @@ tm init >/dev/null
 tm epic new "Pool" >/dev/null
 T1="$(tm task new "Poolable work" --body "context" --ac "it dispatches" | cut -d' ' -f1)"
 tm label "$T1" ready-for-agent >/dev/null
-tm task new "Not for agents" --body "context" --ac "it stays put" >/dev/null
+# --human, because a complete task is now labelled ready-for-agent by the store (TM-176). A person's
+# ready-for-human label is sticky, which is exactly the "not for agents" this fixture means.
+tm task new "Not for agents" --body "context" --ac "it stays put" --human >/dev/null
 
 # ── help registration ────────────────────────────────────────────────────────
-has "$(tm help)" "pool [once|start|stop|status]" "help lists the pool verb"
+has "$(tm help)" "pool [once|ensure|start|stop|status|resume]" "help lists the pool verb"
 hasnt_run="$(tm help)"
 case "$hasnt_run" in *"pool run"*) no "help hides the internal run action" "found 'pool run'" ;; *) ok "help hides the internal run action" ;; esac
 
@@ -69,14 +71,46 @@ AGAIN="$(tm pool once --json)"
 [[ "$(echo "$AGAIN" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{console.log(JSON.parse(s).dispatched.length)})')" == "0" ]] \
   && ok "a claimed task is not re-dispatched" || no "a claimed task is not re-dispatched" "$AGAIN"
 
+# ── brakes (TM-175): a paused pool dispatches nothing until `tm pool resume` ──
+# The pause lives in pool.state.json, so a new process (every `tm` call here) sees it.
+T2="$(tm task new "Poolable after resume" --body "context" --ac "it waits for resume" | cut -d' ' -f1)"
+tm label "$T2" ready-for-agent >/dev/null
+printf '{"failures":3,"pausedReason":"3 consecutive failures (last: boom)","pausedAt":"2026-01-01T00:00:00.000Z"}\n' > "$STORE/pool.state.json"
+count_dispatched() { node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{console.log(JSON.parse(s).dispatched.length)})'; }
+PAUSED="$(tm pool once --json)"
+[[ "$(echo "$PAUSED" | count_dispatched)" == "0" ]] && ok "a paused pool dispatches nothing" || no "a paused pool dispatches nothing" "$PAUSED"
+[[ "$(tm pool status --json | jget paused)" == "true" ]] && ok "status --json reports paused" || no "status --json reports paused" "$(tm pool status --json)"
+has "$(tm pool status)" "paused: 3 consecutive failures (last: boom)" "status names the pause reason"
+RESUME_OUT="$(tm pool resume)" && ok "pool resume succeeds" || no "pool resume succeeds" "$RESUME_OUT"
+[[ "$(tm pool status --json | jget paused)" == "false" ]] && ok "resume clears the pause" || no "resume clears the pause" "$(tm pool status --json)"
+[[ "$(tm pool status --json | jget failures)" == "0" ]] && ok "resume resets the failure count" || no "resume resets the failure count" "$(tm pool status --json)"
+RESUMED="$(tm pool once --json)"
+has "$RESUMED" "\"id\": \"$T2\"" "after resume the ready task dispatches"
+
 # ── kill-switch: TM_ENFORCE=off disables the tick ────────────────────────────
 OFF="$(TM_ENFORCE=off tm pool once --json)"
 [[ "$(echo "$OFF" | jget disabled)" == "true" ]] && ok "TM_ENFORCE=off disables the tick" || no "TM_ENFORCE=off disables the tick" "$OFF"
 
-# ── the monitor's off-ramp: --auto exits 0 unless dispatch.enabled ───────────
-AUTO_OUT="$(tm pool run --auto 2>&1)" && ok "pool run --auto exits 0 when not enabled" || no "pool run --auto exits 0 when not enabled"
-has "$AUTO_OUT" "opt-in" "the off-ramp says why"
-[[ ! -e "$STORE/pool.pid" ]] && ok "a refused autostart leaves no pid file" || no "a refused autostart leaves no pid file"
+# ── the kill switch: on is the default (TM-178), an explicit false turns it off ─
+[[ "$(tm pool status --json | jget enabled)" == "true" ]] && ok "status reports the pool on by default" || no "status reports the pool on by default" "$(tm pool status --json)"
+tm config dispatch.enabled false >/dev/null
+ENSURE_OFF="$(tm pool ensure 2>&1)" && ok "pool ensure exits 0 when dispatch.enabled is false" || no "pool ensure exits 0 when dispatch.enabled is false"
+has "$ENSURE_OFF" "pool: off (dispatch.enabled false)" "the off-ramp says why"
+# `run --auto` is the same off-ramp: an older cached monitors.json still asks rather than becomes.
+AUTO_OUT="$(tm pool run --auto 2>&1)" && ok "pool run --auto exits 0 when dispatch.enabled is false" || no "pool run --auto exits 0 when dispatch.enabled is false"
+has "$AUTO_OUT" "pool: off (dispatch.enabled false)" "run --auto is the ensure alias"
+[[ ! -e "$STORE/pool.pid" ]] && ok "ensure while off leaves no pid file" || no "ensure while off leaves no pid file"
+tm pool start >/dev/null 2>"$TM_ROOT/off.err"
+[[ "$?" == "1" ]] && ok "pool start refuses while dispatch.enabled is false" || no "pool start refuses while dispatch.enabled is false"
+has "$(cat "$TM_ROOT/off.err")" "dispatch.enabled true" "the refusal names the switch"
+
+# ── the config trigger: turning it on starts the pool now, not next session (TM-178) ─
+tm config dispatch.enabled true >/dev/null
+wait_file "$STORE/pool.pid" && ok "tm config dispatch.enabled true starts a pool at once" || no "tm config dispatch.enabled true starts a pool at once"
+has "$(tm pool ensure)" "pool: running" "a second ensure reports the running pool instead of starting one"
+# The lifecycle checks below own pool.pid themselves, so hand it back before them.
+tm pool stop >/dev/null
+wait_gone "$STORE/pool.pid" && ok "pool stop releases the ensured pool" || no "pool stop releases the ensured pool"
 
 # ── status before a pool exists ──────────────────────────────────────────────
 [[ "$(tm pool status --json | jget running)" == "false" ]] && ok "status reports no pool" || no "status reports no pool"

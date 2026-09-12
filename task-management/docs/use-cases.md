@@ -497,17 +497,20 @@ PATH)` is a successful probe.
 
 ## 14. Dispatch a ready-for-agent task (four backends)
 
-**Scenario** — The human already decided (label `ready-for-agent`). This session must not
-implement the card. The agent hands it to a worker: claim, start (WIP applies), worktree,
-handoff, spawn. Backends, richest first: **topology → tmux → orchestration → manual**.
+**Scenario** — The card is `ready-for-agent`, which the store worked out for itself: it has a
+body, criteria and an epic, and no `ready-for-human` or `decision:*` label holding it back.
+This session must not implement it. The agent hands it to a worker: claim, start (WIP
+applies), worktree, handoff, spawn. Backends, richest first: **topology → tmux →
+orchestration → manual**.
 
-**When to use** — A labelled, unblocked card. "Run this on an agent." Pin a backend when
-the fallback would land in a harness nobody is watching.
+**When to use** — A ready, unblocked card. "Run this on an agent." Pin a backend when
+the fallback would land in a harness nobody is watching. Never dispatch a card a person kept
+back with `ready-for-human` — that label is a veto the store will not overrule.
 
 **Usage**
 
 ```
-.bytedesk/task-management/bin/tm label TM-014 ready-for-agent
+.bytedesk/task-management/bin/tm show TM-014          # ready-for-agent, or needs-triage and why
 .bytedesk/task-management/bin/tm caps --json
 .bytedesk/task-management/bin/tm dispatch TM-014
 .bytedesk/task-management/bin/tm dispatch TM-014 --backend orchestration
@@ -542,45 +545,54 @@ this call created rolls the card back to open.
 **Expected outcome** — Task `in_progress`, `dispatched: { backend, run, session, at }`,
 worktree on disk, agent registered as `agent:TM-014-<session-prefix>`. `manual` still
 `ok: true` with the commands in `detail`. A second dispatch without `--steal` names the
-holder and the backend.
+holder and the backend. The worker's handoff ends with the finish line — commit,
+`git push -u origin <the task's tm/ branch>`, `gh pr create --title "TM-014: <title>"`,
+evidence, `tm done`, or `tm block` with the error if the push or PR fails — and a PreToolUse
+guard blocks everything past it: force pushes, other branches, deletions, history rewrites,
+`gh pr merge`, releases, secrets, deploys. **The worker stops at the PR; a human merges.**
 
 ---
 
 ## 15. Drain labelled work with the pool
 
-**Scenario** — Several `ready-for-agent` cards are waiting. A human opted in. The agent
-starts the pickup loop instead of dispatching one-by-one. Unlabelled work is never touched.
+**Scenario** — Ready cards are waiting and the pool is already running, because it is on by
+default. The agent checks on it, clears its brake, or turns it off — rather than starting it.
+Work that fails the readiness check, or that a person vetoed, is never picked up.
 
-**When to use** — "Start the worker pool." Many labelled cards. After `tm config
-dispatch.enabled true` so the `tm-pool` monitor will actually run.
+**When to use** — "Is the pool running?" "The pool is paused." "Stop the pool in this repo."
+Also when many ready cards should drain without one-shot dispatch.
 
 **Usage**
 
 ```
-.bytedesk/task-management/bin/tm config dispatch.enabled true
+.bytedesk/task-management/bin/tm pool status
 .bytedesk/task-management/bin/tm pool once --dry-run
 .bytedesk/task-management/bin/tm pool once
+.bytedesk/task-management/bin/tm pool resume
 .bytedesk/task-management/bin/tm pool start
-.bytedesk/task-management/bin/tm pool status
 .bytedesk/task-management/bin/tm pool stop
+.bytedesk/task-management/bin/tm config dispatch.enabled false
 ```
 
-No MCP or HTTP verb. The plugin monitor `tm-pool` runs `tm pool run --auto` and **exits 0
-immediately** unless `dispatch.enabled` is true. Explicit `once|start` work regardless of
-that flag; a tick still no-ops under `TM_ENFORCE=off` or `dispatch.enabled: false`. Each
-tick collects finished workers first, then dispatches up to `dispatch.poolWip` (default 3)
-preferring disjoint `touches`. `dispatch.pollSeconds` default 30.
-`dispatch.backendCaps` e.g. `{"tmux":2}`.
+No MCP or HTTP verb. The plugin monitor `tm-pool` runs `tm pool run --auto`. Config is
+re-read every poll, so `dispatch.enabled false` stops a running pool within one poll; a tick
+also no-ops under `TM_ENFORCE=off`. Each tick collects finished workers first, then
+dispatches up to `dispatch.poolWip` (default 3) preferring disjoint `touches`, re-checking
+each candidate against `agentReadiness` so a stale or hand-set label cannot push unready work
+at a worker. `dispatch.pollSeconds` default 30. `dispatch.backendCaps` e.g. `{"tmux":2}`.
+After `dispatch.maxFailures` failures in a row (default 3), or one quota/rate-limit failure,
+the pool pauses itself until `tm pool resume`.
 
 **Natural language prompts**
 
 - "Dry-run the pool — what would it pick?"
-- "Enable the pool and start it."
-- "Stop the worker pool."
+- "Why is the pool paused?"
+- "Turn the pool off in this repo."
 
 **Expected outcome** — `--dry-run` names candidates without claiming. `once` dispatches up
-to the cap. `start` writes `pool.pid`. `status` shows the live pid or none. Unlabelled
-cards stay `open`.
+to the cap. `status` shows the live pid or none, how many workers against the cap, how many
+cards are ready, and the pause with its reason. `resume` clears the pause and resets the
+failure count. Unready and vetoed cards stay `open`.
 
 ---
 

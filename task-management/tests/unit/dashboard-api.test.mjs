@@ -237,7 +237,8 @@ describe("field edits", () => {
 
     const after = read(t.id, p);
     assert.equal(after.assignee, "@mcp");
-    assert.deepEqual(after.labels, ["ui", "urgent"]);
+    // ready-for-agent is the store's auto-triage (TM-176): this task is complete, so it was labelled at create.
+    assert.deepEqual(after.labels, ["ready-for-agent", "ui", "urgent"]);
     assert.equal(after.priority, "high");
     assert.equal(after.estimate, 3);
     assert.equal(after.comments.length, 1);
@@ -447,7 +448,8 @@ describe("creation", () => {
     const created = read(res.body.id, p);
     assert.equal(created.type, undefined, "a typeless template must not grow a type on create");
     assert.equal(created.description, undefined);
-    assert.deepEqual(created.labels, ["legacy"]);
+    // The template's label is kept; ready-for-agent is the store's auto-triage (TM-176) appended beside it.
+    assert.deepEqual(created.labels, ["legacy", "ready-for-agent"]);
   });
 });
 
@@ -505,7 +507,7 @@ describe("bulk edit", () => {
     const res = handleWrite("POST", "/api/bulk", { ids: [a.id, b.id], op: "labels", args: { add: ["sprint-4"] } }, { p });
     assert.equal(res.status, 200);
     assert.equal(res.body.ok.length, 2);
-    assert.deepEqual(read(b.id, p).labels, ["sprint-4"]);
+    assert.deepEqual(read(b.id, p).labels, ["ready-for-agent", "sprint-4"], "the auto-triage label (TM-176) stays beside the bulk add");
   });
 
   it("keeps going when one item fails, and says which", () => {

@@ -38,14 +38,34 @@ those for full lifecycle (start/done/block/AC); native tools are mirrored into t
 - A task labelled `ready-for-agent` is decided work, safe to hand off. `.bytedesk/task-management/bin/tm dispatch <id>`
   claims it, starts it, provisions its worktree and launches a worker; `.bytedesk/task-management/bin/tm collect <id>`
   records how that worker ended.
+- **The label is computed, and a person's call overrides it.** The store re-derives
+  `ready-for-agent` / `needs-triage` on every write: ready means the `requireOnStart` fields are
+  present (plus an epic when `requireEpic` is set) and none of `ready-for-human`, `needs-info`,
+  `wontfix`, `human-gate` or a `decision:*` label is on the task. Nobody has to apply it by hand.
+  **The veto is yours** — set `ready-for-human`, or clear the triage label, and the store leaves it
+  alone from then on; `.bytedesk/task-management/bin/tm task new --human` files a task with the veto already set, and
+  `.bytedesk/task-management/bin/tm triage [--all] [--dry-run]` backfills existing tasks without touching a person's
+  decision. `dispatch.autoReady: off` turns the syncing off entirely.
 - **A dispatched agent owns its claimed task's lifecycle.** It ticks the criteria it verified
-  (`.bytedesk/task-management/bin/tm accept`), attaches proof (`.bytedesk/task-management/bin/tm evidence`), then closes
-  (`.bytedesk/task-management/bin/tm done`) or blocks with a reason. It never leaves the task `in_progress` — a collector
-  or the reaper will park it as a failure, and that lands on the record.
+  (`.bytedesk/task-management/bin/tm accept`), commits, pushes its own branch, opens a PR, attaches proof
+  (`.bytedesk/task-management/bin/tm evidence`), then closes (`.bytedesk/task-management/bin/tm done`) or blocks with a
+  reason. It never leaves the task `in_progress` — a collector or the reaper will park it as a
+  failure, and that lands on the record.
+- **The run ends at a PR; a human merges.** `git push -u origin <the task's tm/ branch>` then
+  `gh pr create --title "<TM-id>: <title>"`. If the push or the PR fails — no remote, no `gh`, no
+  auth — block with that error instead of closing. `tm collect` looks the PR up for the branch and
+  records its url on the task.
+- **A guard enforces that, and it is a guard against accidents.** Dispatched workers run with
+  permissions skipped, so a PreToolUse hook blocks force pushes, pushes to anything but the
+  worker's own branch, branch/tag/ref deletion, `reset --hard`, history rewrites, rebasing main,
+  `stash drop|clear|pop`, `gh pr merge`, releases, secrets, `gh api` writes, deploys, package
+  publishing and outbound messages. It allows exactly what the contract needs: pushing the
+  worker's own branch, and `gh pr create`.
 - A worker's identity is its environment: `TM_SESSION_ID` and `TM_ACTOR` name the session that
-  dispatched it. Do not override them — they are how the work attributes.
-- **The pool only picks up `ready-for-agent`-labelled tasks.** The label is the human's
-  go-ahead; the loop never dispatches unlabelled work.
+  dispatched it, and `TM_DISPATCH_WORKER` / `_TASK` / `_BRANCH` are what the guard reads. Do not
+  override them.
+- **The pool only picks up tasks that pass the readiness check.** It re-checks `agentReadiness`
+  itself, so a stale or hand-set label cannot push unready work at a worker.
 - **Humans keep the decision gates.** Interview, prototype, tickets and enhance-propose
   outcomes are judgement calls; dispatch and the pool execute what those gates already settled.
 

@@ -41,6 +41,10 @@ import {
   boardIdentity,
   storeBoard,
   writeState,
+  triageSync,
+  autoTriageOn,
+  OPEN,
+  RESOLVED,
 } from "../lib/store.mjs";
 import { enforcementOff, gateDone, gateStart, gateStop, gateTaskCreate, setOverride } from "../lib/enforce.mjs";
 import { board, briefFor, handoff, renderHistory, renderLog, sessionContext, sprintReport, standup, taskLine } from "../lib/render.mjs";
@@ -54,7 +58,7 @@ import { accept as acceptCap, capLine, drop as dropCap, propose, ranked, score a
 import { mirrorNative, preCreateGate } from "../lib/harness/index.mjs";
 import { claimTask, claimant, releaseClaim, staleClaims, sweepClaims } from "../lib/claims.mjs";
 import { actor, actorLabel, sessionId, stamp as stampAt } from "../lib/actor.mjs";
-import { addComment, addLink, assign, backlog, dependencies, estimate, labelCatalog, labels, prioritise, rank, setType, subtasks, typeOf } from "../lib/issue.mjs";
+import { TRIAGE_LABELS, addComment, addLink, assign, backlog, dependencies, estimate, labelCatalog, labels, prioritise, rank, setType, subtasks, typeOf } from "../lib/issue.mjs";
 import { CATALOG, messageFor, ntfyConfig, send, shouldPublish } from "../lib/ntfy.mjs";
 import { graphData, mermaid, renderWhy, why } from "../lib/graph.mjs";
 import { diagnose, ignoreRule, render as renderDoctor, repairAll } from "../lib/doctor.mjs";
@@ -66,10 +70,11 @@ import { attachEvidence, evidenceSyncReport, detachEvidence } from "../lib/evide
 import { capturePlan as saveCapturedPlan } from "../lib/plans.mjs";
 import { detectHostCaps, renderCaps } from "../lib/hostcaps.mjs";
 import { heartbeatAgent, listAgents, reapDeadWorkers, renderAgents } from "../lib/agents.mjs";
+import { getPath, setPath } from "../lib/settings.mjs";
 import { dispatch as dispatchTask } from "../lib/dispatch/index.mjs";
 import { envRegistry } from "../lib/dispatch/backend.mjs";
 import { collect as collectResult } from "../lib/dispatch/collect.mjs";
-import { livePool, poolTick, poolable, runPool, stopPool } from "../lib/dispatch/pool.mjs";
+import { ensurePool, livePool, poolEnabled, poolLine, poolLogFile, poolStatus, poolTick, poolWorkers, poolable, readPoolState, resumePool, runPool, stopPool } from "../lib/dispatch/pool.mjs";
 
 /** This file, as an argv element — `pool start` re-executes it detached. */
 const SELF = fileURLToPath(import.meta.url);
@@ -103,6 +108,21 @@ process.stdout.on("error", (err) => {
 });
 
 const out = (s) => process.stdout.write(`${s}\n`);
+
+/**
+ * Ask for this repo's pool, silently, from a path whose own job is something else (TM-178).
+ *
+ * Every trigger — the tm-pool monitor, the user-prompt hook, a `tm config dispatch.*` write —
+ * is a caller that must finish regardless. ensurePool is already a no-op when a pool is live or
+ * the pool is off; this only adds "and a broken spawn is not your problem either".
+ */
+const tryEnsurePool = () => {
+  try {
+    ensurePool(P);
+  } catch {
+    /* a repo without a pool still has a working CLI */
+  }
+};
 /** Read verbs print human text by default and structured JSON with --json. */
 const emit = (data, human) => out(JSON_OUT ? JSON.stringify(data, null, 2) : human());
 const die = (s, code = 1) => {
@@ -147,7 +167,7 @@ function renderEvidenceCheck(rows) {
 }
 
 const USAGE_EDIT = 'usage: tm edit <id> "<new title>" [--body <text|->]   (or --title "<new title>")';
-const USAGE_TASK_NEW = 'usage: tm task new "<title>" [--body <text|->] [--ac "<criterion>"]...';
+const USAGE_TASK_NEW = 'usage: tm task new "<title>" [--body <text|->] [--ac "<criterion>"]... [--human]';
 
 /** The checkout we're standing in — which is NOT the store root when we're in a worktree. */
 const CHECKOUT = P.root ? currentCheckout() : process.cwd();
@@ -316,6 +336,11 @@ const VERBS = {
         acs.push(rest[ai + 1]);
         rest.splice(ai, 2);
       }
+      // --human files the task for a person. Set at create by the person typing it, so the store
+      // stamps no `triagedBy: auto` and its auto-triage leaves the label alone from then on.
+      const hi = rest.indexOf("--human");
+      const human = hi !== -1;
+      if (human) rest.splice(hi, 1);
       // Any flag left in `rest` is one this verb does not take, and `rest.join(" ")` would bake it
       // into the title. `tm epic new` and `tm edit` already guard this; `task new` did not, which is
       // the same guard-in-one-sibling shape those two were fixed for. Observed: a `--epic EP-018`
@@ -330,6 +355,12 @@ const VERBS = {
       // An explicit --body wins over the template's starter body; the gate below checks
       // what will actually be created, so a template's own body/criteria satisfy it too.
       if (body !== undefined) applied.body = body;
+      if (human) {
+        Object.assign(applied.fields, {
+          labels: [...(applied.fields.labels || []).filter((l) => !TRIAGE_LABELS.includes(l)), "ready-for-human"],
+          triagedBy: "human",
+        });
+      }
       const gate = gateTaskCreate(P, { body: applied.body, acceptance: applied.fields.acceptance });
       if (!gate.allow) die(gate.reason, 2);
       const dup = enforcementOff(P) ? null : findDuplicate(title, P);
@@ -1008,6 +1039,8 @@ const VERBS = {
   config(key, value) {
     requireInit();
     if (!key) return out(JSON.stringify(config(P), null, 2));
+    // A read never writes: `{ [key]: undefined }` through writeConfig would drop the key (TM-174).
+    if (value === undefined) return out(JSON.stringify(getPath(config(P), key) ?? null, null, 2));
     // Identity is derived, not declared. When git answers, writing this key would change the file
     // and change nothing else — `boardIdentity` reads git first — so the honest response is to
     // refuse rather than accept an edit that silently does not take.
@@ -1026,8 +1059,12 @@ const VERBS = {
         );
       }
     }
-    const parsed = value === undefined ? undefined : JSON.parse(value);
-    out(JSON.stringify(writeConfig({ [key]: parsed }, P), null, 2));
+    // A dotted key is a path: `dispatch.enabled` sets config.dispatch.enabled, siblings kept.
+    out(JSON.stringify(writeConfig(setPath(config(P), key, JSON.parse(value)), P), null, 2));
+    // Turning the pool on is the moment it should start, not the next session (TM-178). Ensuring
+    // after every dispatch.* write is one call and no branch: it is a no-op while a pool is live
+    // and a no-op while the pool is off. It can never fail the write that already landed.
+    if (key === "dispatch" || key.startsWith("dispatch.")) tryEnsurePool();
   },
 
   context() {
@@ -1345,13 +1382,16 @@ const VERBS = {
   /**
    * The dispatcher loop: agent-first pickup of ready-for-agent tasks.
    *
-   * `once` (the default action) is one tick in-process; `start` backgrounds the
-   * loop as a detached child, the same idiom as tm-notify; `run` is that
-   * child's entrypoint — internal, hidden from help like `hook`; `stop` and
-   * `status` work off pool.pid. The tm-pool monitor autostarts `pool run
-   * --auto`, which is opt-in on config dispatch.enabled — these verbs are not:
-   * explicit control always works, the kill-switches (TM_ENFORCE=off,
-   * dispatch.enabled false) still apply to the tick itself.
+   * `once` (the default action) is one tick in-process. `ensure` is what every trigger calls —
+   * the tm-pool monitor, the user-prompt hook, `tm config dispatch.*` and the dashboard's
+   * settings save: it starts ONE detached pool per repo if none is live and returns, so a second
+   * session costs nothing and closing the session that asked changes nothing. `start` is the
+   * same spawn with a person's exit codes. `run` is the pool itself — internal, hidden from help
+   * like `hook` — a foreground loop that claims pool.pid or exits 2; `run --auto` is an alias of
+   * `ensure`, so a cached monitors.json from before this change still asks rather than becomes.
+   * `stop` and `status` work off pool.pid. `dispatch.enabled: false` (poolEnabled) is the kill
+   * switch for all of it — a running loop exits within one poll, `once` reports disabled,
+   * `ensure` spawns nothing, `start` refuses. TM_ENFORCE=off disables the tick.
    */
   async pool(action, ...rest) {
     requireInit();
@@ -1363,47 +1403,55 @@ const VERBS = {
       const res = await poolTick({ p: P, registry: await envRegistry(), dryRun: rest.includes("--dry-run") });
       return emit(res, () => renderTick(res));
     }
+    // What every trigger calls. One line, always exit 0: a trigger that fails its caller is worse
+    // than a repo with no pool, and each of them (a monitor, a hook, a config write) has its own
+    // job to finish.
+    if (action === "ensure") {
+      const res = ensurePool(P);
+      if (res.action === "off") return out("pool: off (dispatch.enabled false)");
+      return out(`pool: ${res.action} (pid ${res.pid})`);
+    }
     if (action === "start") {
-      const incumbent = livePool(P);
-      if (incumbent) die(`pool already running (pid ${incumbent.pid}, started ${incumbent.started || "?"})`, 2);
-      const child = spawn(process.execPath, [SELF, "pool", "run"], { detached: true, stdio: "ignore" });
-      child.unref();
-      return out(`pool started (pid ${child.pid}) — .bytedesk/task-management/bin/tm pool status`);
+      if (!poolEnabled(config(P))) die("pool is off (dispatch.enabled false) — tm config dispatch.enabled true");
+      const res = ensurePool(P);
+      if (res.action === "running") {
+        const incumbent = livePool(P);
+        die(`pool already running (pid ${incumbent?.pid ?? res.pid}, started ${incumbent?.started || "?"})`, 2);
+      }
+      return out(`pool started (pid ${res.pid}) — .bytedesk/task-management/bin/tm pool status`);
     }
     if (action === "run") {
+      // An older cached monitors.json still runs `pool run --auto` in every session. That must
+      // ASK for the pool, not become one — one detached loop per repo is the whole point.
+      if (rest.includes("--auto")) return VERBS.pool("ensure");
       const res = await runPool({
         p: P,
-        auto: rest.includes("--auto"),
         registry: await envRegistry(),
         onTick: JSON_OUT ? (t) => out(JSON.stringify(t)) : null,
+        // The monitor stream: one line per state change, never one per tick. --json keeps the tick stream.
+        onState: JSON_OUT ? null : out,
       });
-      if (res.disabled) return out(res.reason); // exit 0 — the monitor's opt-in off-ramp
       if (!res.ok) die(res.reason, 2);
-      return;
+      return; // exit 0: stopped by a signal or by dispatch.enabled false, already said by onState
     }
     if (action === "stop") {
       const inst = stopPool(P);
       return out(inst ? `pool stopping (pid ${inst.pid})` : "(no pool running)");
     }
-    if (action === "status") {
-      const inst = livePool(P);
-      const cfg = config(P);
-      const res = {
-        running: Boolean(inst),
-        pid: inst?.pid ?? null,
-        started: inst?.started ?? null,
-        enabled: cfg.dispatch?.enabled ?? null,
-        poolWip: Number(cfg.dispatch?.poolWip ?? 3),
-        workers: listAgents(P).filter((a) => a.alive && a.backend != null).length,
-        poolable: poolable(P).length,
-      };
-      return emit(res, () =>
-        inst
-          ? `pool running (pid ${inst.pid}, started ${inst.started || "?"}) — ${res.workers}/${res.poolWip} workers, ${res.poolable} ready`
-          : `(no pool running) — ${res.workers}/${res.poolWip} workers, ${res.poolable} ready`,
-      );
+    if (action === "resume") {
+      // Clears the brake (pool.state.json). A running loop picks it up on its next tick.
+      const prior = resumePool(P);
+      return out(prior.pausedReason ? `pool resumed — it was paused: ${prior.pausedReason}` : `pool was not paused — failure count reset (was ${prior.failures})`);
     }
-    die(`unknown pool action: ${action} (once | start | stop | status [--dry-run])`);
+    if (action === "status") {
+      // One shape, shared with GET /api/pool (lib/dispatch/pool.mjs poolStatus) so the terminal and
+      // the board cannot disagree about what "paused" or "ready" means.
+      const res = poolStatus(P);
+      const head = res.running ? `pool running (pid ${res.pid}, started ${res.started || "?"})` : res.enabled ? "(no pool running)" : "pool off (dispatch.enabled false)";
+      const line = `${head} — ${res.workers}/${res.poolWip} workers, ${res.poolable} ready`;
+      return emit(res, () => (res.paused ? `${line}\npaused: ${res.pausedReason} (since ${res.pausedAt}) — tm pool resume` : line));
+    }
+    die(`unknown pool action: ${action} (once | ensure | start | stop | status | resume [--dry-run])`);
   },
 
   /** Drop claims whose sessions or worktrees are gone. */
@@ -1539,6 +1587,43 @@ const VERBS = {
     return hook(event);
   },
 
+  /**
+   * Re-run the store's auto-triage over existing tasks (TM-176).
+   *
+   * The sync already rides every task write; this reaches tasks nothing has written since. It
+   * previews with the same `triageSync` the write uses and applies through `update`, so the store,
+   * human veto included, has the last word. Default: tasks in an open column (open, in progress,
+   * blocked). --all: every unresolved task, the backlog too — a label a person set is still left
+   * alone, because the store's write leaves it alone. --dry-run lists and writes nothing.
+   */
+  triage(...args) {
+    requireInit();
+    const stray = args.find((a) => a !== "--all" && a !== "--dry-run");
+    if (stray) die(`unknown option ${stray}\nusage: tm triage [--all] [--dry-run]`);
+    // Refuse rather than print nothing: silence would read as "every task is already triaged".
+    if (!autoTriageOn(config(P))) die("dispatch.autoReady is off: auto-triage is disabled, so there is nothing for tm triage to re-run.", 2);
+    const all = args.includes("--all");
+    const dry = args.includes("--dry-run");
+    const triageOf = (t) => (t.labels || []).filter((l) => TRIAGE_LABELS.includes(l)).join(",");
+    let skipped = 0;
+    for (const t of list("task", {}, P)) {
+      if (RESOLVED.has(t.status) || (!all && !OPEN.has(t.status))) continue;
+      // A person's decision — stamped human, or a legacy unstamped triage label — is never a candidate.
+      if (t.triagedBy === "human" || (triageOf(t) && t.triagedBy !== "auto")) {
+        skipped += 1;
+        continue;
+      }
+      const sync = triageSync(t, P);
+      if (!Object.keys(sync).length) continue;
+      const next = { ...t, ...sync };
+      const missing = next.triageMissing?.length ? ` (missing: ${next.triageMissing.join(", ")})` : "";
+      out(`${t.id}: ${triageOf(t) || "(none)"} → ${triageOf(next)}${missing}`);
+      if (!dry) update(t.id, {}, P);
+    }
+    // On stderr, so stdout stays exactly the list of changes.
+    if (skipped) process.stderr.write(`tm triage: skipped ${skipped} task${skipped === 1 ? "" : "s"} triaged by a person\n`);
+  },
+
   help() {
     out(
       [
@@ -1546,7 +1631,8 @@ const VERBS = {
         "",
         "  init                          create the store here",
         '  epic new "<title>" [--body <text|->] | use <id> | done <id> | (list)',
-        '  task new "<title>" [--body <text|->] [--ac "<criterion>"]... | (list)',
+        '  task new "<title>" [--body <text|->] [--ac "<criterion>"]... [--human] | (list)',
+        "  triage [--all] [--dry-run]    re-run auto-triage: ready-for-agent or needs-triage; a person's triage label stays",
         '  adr new "<title>"',
         '  cap new "<title>" [--area --impact --effort --confidence --source]   the enhancement backlog',
         "  cap list [--status open] | accept <CAP-id> | ship <CAP-id> [--evidence <ref>] | drop <CAP-id>",
@@ -1579,7 +1665,7 @@ const VERBS = {
         "  dispatch <id> [--backend <name>] [--steal]   hand the task to a worker: claim, start, worktree, spawn",
         "  agent [list] | agent heartbeat <name> | agent reap   the dispatched-worker registry",
         "  collect <id>                  pull a dispatched worker's result into the store",
-        "  pool [once|start|stop|status] [--dry-run]   the ready-for-agent pickup loop (once is the default)",
+        "  pool [once|ensure|start|stop|status|resume] [--dry-run]   the ready-for-agent pickup loop (once is the default)",
         "  ntfy [on|off <kind>|enable|disable|test|topic <t>|board <url>]   push notifications",
         "  tm-dashboard [--browser|--no-browser]   live board; --browser opens it",
         "",
@@ -1655,6 +1741,7 @@ const renderEventLine = (row) => renderLog([row], P).split("\n").pop();
 function renderTick(res) {
   if (res.disabled) return `pool disabled: ${res.reason}`;
   const lines = [`pool tick — capacity ${res.capacity}`];
+  if (res.paused) lines.push(`  paused: ${res.paused.reason} (since ${res.paused.at}) — tm pool resume`);
   for (const c of res.collected) {
     lines.push(`  collected ${c.id}: ${c.pending ? `still running (${c.state || "pending"})` : c.ok ? c.outcome : `failed — ${c.reason}`}`);
   }
@@ -1877,7 +1964,14 @@ function hook(event) {
         note = `${note ? `${note}\n` : ""}task-management: found a pre-v0.2 store at ${stranded}. Stores are now shared across worktrees — move it with \`.bytedesk/task-management/bin/tm migrate\`.`;
       }
       if (rotateEvents(P)) logEvent("events_rotated", {}, P);
-      const ctx = sessionContext(P);
+      // One line of pool state (TM-178): the pool is on by default, so every session says so and names the switch.
+      let poolState = "";
+      try {
+        poolState = poolLine(P);
+      } catch {
+        /* the pool line never breaks a session */
+      }
+      const ctx = [sessionContext(P), poolState].filter(Boolean).join("\n");
       if (ctx || note) {
         out(
           JSON.stringify({
@@ -1923,6 +2017,11 @@ function hook(event) {
     // Don't let the model open a duplicate for work that is already on the board.
     case "user-prompt": {
       const prompt = String(input.prompt || input.user_prompt || "");
+
+      // Somebody is working in this repo, so it should have a pool (TM-178). A livePool read first
+      // so the overwhelming majority of prompts cost one stat and no spawn, and silent throughout:
+      // this hook's stdout is a envelope Claude Code parses, and a stray line would corrupt it.
+      if (P.base && !livePool(P)) tryEnsurePool();
 
       /**
        * `/goal <condition>` arrives here, and that is the whole reason this can work.

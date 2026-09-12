@@ -71,7 +71,22 @@ Priority is a field, not a label: `tm priority <id> <level>`.
 `tm dispatch <id>` hands a task to a worker (claim, start, worktree, spawn); `tm collect <id>` pulls
 the result back. **The store gets the last word** — a worker reporting done on a task the store does
 not show as done is downgraded to failed with the real status named. `tm agent list` is the worker
-registry; `tm pool` is the opt-in pickup loop, off unless `dispatch.enabled` is true.
+registry; `tm pool` is the pickup loop, **on by default** — set `dispatch.enabled: false` to turn it
+off in a repo. After `dispatch.maxFailures` failures in a row (default 3), or one usage-limit
+failure, the pool pauses itself until `tm pool resume`.
+
+**Readiness is computed, not typed.** The store keeps `ready-for-agent` / `needs-triage` in sync on
+every write: a task is ready when it has the `requireOnStart` fields (and an epic, if `requireEpic`),
+and carries none of `ready-for-human`, `needs-info`, `wontfix`, `human-gate` or a `decision:*` label.
+**A person's call is final** — set `ready-for-human`, or clear the triage label, and the store never
+overrides it; `tm task new --human` files a task with that veto already on. `tm triage` backfills
+existing tasks and skips the ones a person decided.
+
+**A dispatched worker finishes at a PR, not a merge.** It commits, pushes its own branch, opens a PR
+with the TM key in the title, attaches evidence and closes — or blocks with the error if the push or
+PR fails. A PreToolUse guard blocks the rest: force pushes, pushes to any other branch, branch/tag
+deletion, `reset --hard`, history rewrites, `gh pr merge`, releases, secrets and deploys. **Humans
+merge.**
 
 ## Board
 

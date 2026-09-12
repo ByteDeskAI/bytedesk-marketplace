@@ -14,7 +14,10 @@ released and the status put back.
 ## When to use
 
 The task is labelled `ready-for-agent`, unblocked, and this session should not
-implement it. For a loop over many cards, [[pool]]. To do it yourself, [[implement]].
+implement it. The store applies that label itself once the task has a body,
+criteria and an epic — you rarely set it by hand, and a card a person kept back
+with `ready-for-human` is not yours to dispatch. For a loop over many cards,
+[[pool]] (which is already running by default). To do it yourself, [[implement]].
 
 ## Usage
 
@@ -44,7 +47,14 @@ session holds the claim (needs `--steal`); WIP (`gateStart`).
 
 ## After it starts
 
-The worker ticks AC, attaches evidence, `tm done` or `tm block`. This session
-runs [[collect]], reaps with [[agent]], and watches [[events]]. Probe first with [[caps]].
+The worker ticks AC, **commits, pushes its own branch and opens a PR**
+(`gh pr create --title "<TM-id>: <title>"`), attaches evidence, then `tm done` —
+or `tm block` with the error if the push or the PR failed. **It never merges**; a
+human does that. A PreToolUse guard enforces it: the worker's own branch and
+`gh pr create` are allowed, while force pushes, other branches, deletions,
+history rewrites, `gh pr merge`, releases, secrets and deploys are refused.
+
+This session runs [[collect]] — which records the PR url on the task when `gh`
+finds one — reaps with [[agent]], and watches [[events]]. Probe first with [[caps]].
 
 Full table: `docs/agent-first.md`.

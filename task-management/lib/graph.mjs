@@ -12,6 +12,7 @@
  * GitHub renders Mermaid there.
  */
 import { RESOLVED, config, list, state } from "./store.mjs";
+import { agentReadiness } from "./completeness.mjs";
 import { claimant } from "./claims.mjs";
 import { paths } from "./paths.mjs";
 import { sessionId } from "./actor.mjs";
@@ -149,6 +150,17 @@ export function why(id, p = paths()) {
     if (!epic) reasons.push({ kind: "orphan", blocking: false, text: `epic ${task.epic} does not exist` });
   }
 
+  /**
+   * "Would an agent take this?" is a different question from "can I start it?", and it is the one
+   * people get wrong: a labelled task the pool never picks up looks like a broken pool. The pool
+   * re-checks `agentReadiness` on every candidate, so `why` reports the same verdict (TM-179).
+   *
+   * It is deliberately NOT a reason: `reasons` means "what is holding this up", and a person can
+   * start any of these regardless. Two tests and the read suite assert that a startable task has no
+   * reasons at all — that contract is right, and readiness gets its own field instead.
+   */
+  const readiness = RESOLVED.has(task.status) ? null : readinessVerdict(task, cfg);
+
   // The roots are what you can actually pick up: unresolved blockers that are not
   // themselves waiting on anything unresolved. A missing blocker is excluded — it is
   // a broken reference, and offering "start here: TM-777" sends you after a ghost.
@@ -164,6 +176,7 @@ export function why(id, p = paths()) {
     title: task.title,
     status: task.status,
     startable: !reasons.some((r) => r.blocking),
+    readiness,
     reasons,
     chain,
     roots,
@@ -171,13 +184,36 @@ export function why(id, p = paths()) {
   };
 }
 
+/** The pool's verdict on one task, in words: ready, not ready and why, or a person's call. */
+function readinessVerdict(task, cfg) {
+  const { ready, missing } = agentReadiness(task, cfg);
+  const human = task.triagedBy === "human";
+  return {
+    ready,
+    missing,
+    human,
+    text: human
+      ? `triaged by a person — the store will not change this label${ready ? "" : `; an agent would need: ${missing.join(", ")}`}`
+      : ready
+        ? "ready for an agent — the pool can pick this up"
+        : `not ready for an agent: ${missing.join(", ")} — the pool skips it`,
+  };
+}
+
 const MARK = { open: "○", in_progress: "◐", blocked: "⊘", parked: "⏸", done: "●", missing: "✕" };
 
 export function renderWhy(w) {
   const out = [`${w.id}  ${w.title}`, `status: ${w.status}   startable: ${w.startable ? "yes" : "no"}`, ""];
-  if (!w.reasons.length) return [...out, "nothing is holding this up — `.bytedesk/task-management/bin/tm start " + w.id + "`"].join("\n");
+  // The agent verdict prints alongside the blockers, marked `→` so it reads as a different kind of
+  // statement: it never stops a person starting the task (TM-179).
+  const agent = w.readiness ? [`→ ${w.readiness.text}`] : [];
+
+  if (!w.reasons.length) {
+    return [...out, "nothing is holding this up — `.bytedesk/task-management/bin/tm start " + w.id + "`", ...agent].join("\n");
+  }
 
   for (const r of w.reasons) out.push(`${r.blocking ? "✗" : "·"} ${r.text}`);
+  out.push(...agent);
 
   if (w.chain.length) {
     out.push("", "chain:");

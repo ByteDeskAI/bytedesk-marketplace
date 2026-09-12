@@ -189,7 +189,8 @@ test("tm_label catalog, exclusive roles, and create-time labels", () => {
     { title: "Decide the store", body: "pick the store shape", acceptance: ["the store is named"], labels: ["decision:interview"] },
     p,
   );
-  assert.deepEqual(created.labels, ["decision:interview"]);
+  // needs-triage is the store's auto-triage (TM-176): decision:interview hands the next move to a person.
+  assert.deepEqual(created.labels, ["decision:interview", "needs-triage"]);
 
   call("tm_label", { id: created.id, add: ["ready-for-agent"] }, p);
   const after = call("tm_label", { id: created.id, add: ["needs-triage"] }, p);
