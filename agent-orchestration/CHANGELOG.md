@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **A review verdict longer than the reviewer's pane can now be collected.** `collectReview` read
+  the reviewer's `AO_REVIEW <nonce> {...}` line straight out of `tmux capture-pane` and called
+  `JSON.parse` on it. A reviewer pane is a TUI: it hard-wraps at its own width *before* tmux sees
+  the text, so any response longer than the pane arrives as several physical lines and the parser
+  saw only the first fragment. The readiness handshake (`AO_REVIEWER_READY <nonce>`, about 60
+  characters) fitted and worked, which is why this stayed hidden until a real review was attempted —
+  every substantive verdict failed with "Review response must be JSON". Observed on a 102-column
+  pane with four approvals that could not be recorded. The response is now rejoined before parsing:
+  continuation lines carry the block's indent, so exactly that much is dropped, and the trailing
+  space run at a wrap boundary is collapsed to one space — a break mid-token joins tight, a break
+  on a space keeps its separator. Without that collapse, rejoining silently glued words together
+  ("a TeamCity build" + "cancelled" became "buildcancelled") and corrupted finding text while still
+  parsing. `capture-pane` now also passes `-N`, since the boundary space is otherwise stripped as
+  trailing whitespace and is unrecoverable, and the scrollback window grew from 80 to 200 lines
+  because one wrapped verdict can occupy dozens. JSON is self-delimiting, so parsing is the
+  terminator. The reviewer's isolation is unchanged: it still writes no files, has no shell, and
+  answers only through its own verified pane.
+
 ### Added
 
 - **Cleanup joins the controls a capability holder can drive (gateway TM-305, EP-023).**

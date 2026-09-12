@@ -172,7 +172,11 @@ async function bindingAlive(record) {
 }
 async function reviewerOutput(record) {
   if (!await bindingAlive(record)) return "";
-  const result = await run("tmux", ["-S", record.binding.serverKey, "capture-pane", "-p", "-t", record.binding.paneId, "-S", "-80"], { allowFailure: true });
+  // -N preserves trailing spaces. A TUI pane hard-wraps at its width BEFORE tmux sees
+  // the text, so a long response arrives as several physical lines; without -N the space
+  // that fell on a wrap boundary is stripped and rejoining glues two words together
+  // ("a TeamCity build" + "cancelled" -> "buildcancelled"). See reassembleResponse.
+  const result = await run("tmux", ["-S", record.binding.serverKey, "capture-pane", "-p", "-N", "-t", record.binding.paneId, "-S", "-200"], { allowFailure: true });
   return result.code === 0 ? result.stdout : "";
 }
 
@@ -751,6 +755,31 @@ export async function requestReview({ consumer, task, revision, authorAgentIds, 
   });
 }
 
+/**
+ * A verdict is JSON on one logical line, but the reviewer's pane is a TUI that hard-wraps
+ * at its width before tmux can see it — so anything longer than the pane arrives split
+ * across physical lines. This read the first fragment and called it malformed, which meant
+ * the readiness handshake (short) worked while every real review (long) was rejected.
+ *
+ * Rejoin instead. Continuation lines carry the block's indent, so drop exactly that much.
+ * At a wrap boundary the previous line ends in the TUI's padding, and if the break fell on
+ * a space that space is inside the padding — collapse the run to one space, so a boundary
+ * mid-token joins tight and a boundary at a space keeps its separator. Parsing is the
+ * terminator: JSON is self-delimiting, so stop at the first buffer that parses.
+ */
+const MAX_RESPONSE_LINES = 200;
+function reassembleResponse(raw, index, prefix) {
+  const head = raw[index];
+  const indent = head.length - head.trimStart().length;
+  let buffer = head.trim().slice(prefix.length);
+  for (let line = index + 1; ; line += 1) {
+    try { return JSON.parse(buffer); } catch { /* not yet complete */ }
+    if (line >= raw.length || line - index > MAX_RESPONSE_LINES) return null;
+    const next = raw[line];
+    buffer = buffer.replace(/ +$/, " ") + (next.slice(0, indent).trim() === "" ? next.slice(indent) : next.trimStart());
+  }
+}
+
 /** Host collects a restricted reviewer's explicit response from its verified pane. The reviewer
  * writes no files and receives no execution tool just to deliver a verdict.
  */
@@ -764,10 +793,11 @@ export async function collectReview({ consumer, task, revision, env = process.en
   invariant(request.reviewer_id === record.agent_id && request.repo_id === record.repo_id && request.revision === revision, 'TOPOLOGY_REVIEWER_IDENTITY', 'Request belongs to a different reviewer or revision.');
   invariant(createHash('sha256').update(await readFile(request.patch_path)).digest('hex') === request.patch_sha256, 'TOPOLOGY_REVIEWER_RESPONSE', 'Review patch changed after the request.');
   const prefix = `AO_REVIEW ${request.nonce} `;
-  const lines = String(await output(record)).split(/\r?\n/).map(s => s.trim()).filter(line => line.startsWith(prefix));
-  invariant(lines.length === 1, 'TOPOLOGY_REVIEWER_RESPONSE', 'Expected exactly one nonce-bound review response from the designated pane.');
-  let response;
-  try { response = JSON.parse(lines[0].slice(prefix.length)); } catch { fail('TOPOLOGY_REVIEWER_RESPONSE', 'Review response must be JSON.'); }
+  const raw = String(await output(record)).split(/\r?\n/);
+  const starts = raw.map((line, index) => ({ line, index })).filter(({ line }) => line.trim().startsWith(prefix));
+  invariant(starts.length === 1, 'TOPOLOGY_REVIEWER_RESPONSE', 'Expected exactly one nonce-bound review response from the designated pane.');
+  const response = reassembleResponse(raw, starts[0].index, prefix)
+    ?? fail('TOPOLOGY_REVIEWER_RESPONSE', 'Review response must be JSON.');
   const review = await recordReview({ consumer, task, revision, baseRevision: request.base_revision, patchHash: request.patch_sha256, verdict: response.verdict, findings: response.findings, reviewerId: record.agent_id, authorAgentIds: request.author_agent_ids, env: { ...env, AO_AGENT_ID: record.agent_id }, home, pluginRoot });
   await writeJson(path, { ...request, collected_at: nowIso(), verdict: review.verdict });
   return review;
