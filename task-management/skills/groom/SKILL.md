@@ -25,7 +25,12 @@ destructive-ish and the user should see the list first.
    Add them: `.bytedesk/task-management/bin/tm ac <id> "<verifiable criterion>"`. One or two, verifiable, not aspirational.
 5. **Orphans** — tasks with no epic (created before an epic was active, or via override).
    Assign them by editing the task file's `epic:` field, or park them.
-6. **Rank** — end with `.bytedesk/task-management/bin/tm next` and state the single best next task and why.
+6. **Triage** — `.bytedesk/task-management/bin/tm triage --dry-run` shows which cards the store would re-label
+   `ready-for-agent` or `needs-triage`, and why (`triageMissing` names the gaps). Fixing a
+   body, criteria or epic in step 4 is usually what moves a card back into the agents' queue.
+   Run it for real with `.bytedesk/task-management/bin/tm triage`. It never touches a card a person decided —
+   `ready-for-human`, or a triage label someone set or cleared by hand. Leave those alone too.
+7. **Rank** — end with `.bytedesk/task-management/bin/tm next` and state the single best next task and why.
 
 ## Notes
 

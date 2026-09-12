@@ -379,6 +379,51 @@ describe("the handoff's completion contract", () => {
     assert.match(out, /Never leave the task in_progress/);
   });
 
+  /**
+   * TM-180. The worker's run ends at a PUSHED BRANCH AND A PR, never at a merge — the
+   * guard (lib/worker-guard.mjs) blocks `gh pr merge` anyway, and a worker that reads
+   * nothing else still reads this. The branch is stated literally when the task records
+   * one, because "your branch" is not a command anybody can paste.
+   */
+  it("tells the worker to commit, push its own branch, and open a PR titled with the TM key", () => {
+    const p = store();
+    const t = create(
+      "task",
+      { title: "agent work", labels: ["ready-for-agent"], acceptance: [{ text: "tests pass", done: false }] },
+      "",
+      p,
+    );
+    mutate(t.id, () => ({ branch: `tm/${t.id}-agent-work` }), p);
+    const out = handoff(t.id, p);
+
+    assert.match(out, /Commit your work/i, "committing is step one");
+    assert.match(out, new RegExp(`git push -u origin tm/${t.id}-agent-work`), "the literal branch, not a placeholder");
+    assert.match(out, new RegExp(`gh pr create --title "${t.id}: agent work"`), "the TM key in the PR title");
+    assert.match(out, /--body/, "the PR body says what changed and how it was verified");
+    assert.match(out, /[Nn]ever merge/, "merging is a human's call");
+
+    // Order matters: push and PR come before the close, or the close reports work nobody can see.
+    const at = (re) => out.search(re);
+    assert.ok(at(/Commit your work/i) < at(/git push -u origin/), "commit before push");
+    assert.ok(at(/git push -u origin/) < at(/gh pr create/), "push before the PR");
+    assert.ok(at(/gh pr create/) < at(new RegExp(`tm done ${t.id}`)), "the PR before the close");
+  });
+
+  it("says to block, not close, when the push or the PR fails", () => {
+    const p = store();
+    const t = create("task", { title: "agent work", labels: ["ready-for-agent"] }, "", p);
+    const out = handoff(t.id, p);
+    assert.match(out, /push or .*PR .*fail|fails?\b[^\n]*\b(push|PR)/i, "the failure case is named");
+    assert.match(out, new RegExp(`tm block ${t.id} "`), "block with the error, instead of done");
+  });
+
+  it("names a generic tm/ branch when the task records none, rather than a broken command", () => {
+    const p = store();
+    const t = create("task", { title: "agent work", labels: ["ready-for-agent"] }, "", p);
+    const out = handoff(t.id, p);
+    assert.match(out, /git push -u origin <your tm\/ branch>/, "a placeholder that reads as one");
+  });
+
   it("says nothing about it for a task a human is picking up", () => {
     const p = store();
     const t = create("task", { title: "human work", labels: ["needs-triage"] }, "", p);
@@ -386,5 +431,80 @@ describe("the handoff's completion contract", () => {
 
     const unlabeled = create("task", { title: "plain work" }, "", p);
     assert.equal(handoff(unlabeled.id, p).includes("## When you finish"), false);
+  });
+});
+
+/**
+ * TM-180. A worker now finishes at a PR, so the board should carry the link — recorded
+ * where every other ref already lives (the `commits` array `tm link <id> <ref>` writes and
+ * the handoff renders as "Commits / PRs"), not in a field invented for it.
+ *
+ * `gh` is never really run here: the exec is injected. The rule the tests exist to hold is
+ * that a missing `gh`, no PR, or a failing call records nothing and still collects cleanly —
+ * a link is a nicety, and losing a worker's result over it would be the wrong trade.
+ */
+describe("the done path records the pull request (TM-180)", () => {
+  const done = (p, branch) => {
+    const id = dispatched(p, { status: "done", branch, acceptance: [{ text: "ok", done: true }] });
+    return id;
+  };
+
+  it("records the PR url on the task when gh finds one", () => {
+    const p = store();
+    const id = done(p, "tm/TM-001-work");
+    const exec = spawnReturning({ status: 0, stdout: "https://github.com/o/r/pull/7\n", stderr: "" });
+
+    const res = recordResult(id, { outcome: "done", summary: "shipped" }, p, { exec });
+
+    assert.equal(res.ok, true);
+    assert.equal(res.outcome, "done");
+    assert.deepEqual(read(id, p).commits, ["https://github.com/o/r/pull/7"]);
+    const [bin, argv] = exec.calls[0];
+    assert.equal(bin, "gh");
+    assert.deepEqual(argv, ["pr", "list", "--head", "tm/TM-001-work", "--json", "url", "--jq", ".[0].url"]);
+  });
+
+  it("records it once, however many times the task is collected", () => {
+    const p = store();
+    const id = done(p, "tm/TM-001-work");
+    const exec = spawnReturning({ status: 0, stdout: "https://github.com/o/r/pull/7\n", stderr: "" });
+    recordResult(id, { outcome: "done", summary: "shipped" }, p, { exec });
+    recordResult(id, { outcome: "done", summary: "shipped again" }, p, { exec });
+    assert.deepEqual(read(id, p).commits, ["https://github.com/o/r/pull/7"]);
+  });
+
+  it("still collects when gh is not installed", () => {
+    const p = store();
+    const id = done(p, "tm/TM-001-work");
+    const exec = spawnReturning({ error: new Error("spawn gh ENOENT") });
+
+    const res = recordResult(id, { outcome: "done", summary: "shipped" }, p, { exec });
+
+    assert.equal(res.ok, true, "a missing gh is not a failed collection");
+    assert.equal(res.outcome, "done");
+    assert.deepEqual(read(id, p).commits ?? [], []);
+  });
+
+  it("records nothing when there is no PR for the branch, or gh errors", () => {
+    for (const answer of [{ status: 0, stdout: "\n" }, { status: 1, stdout: "", stderr: "no auth" }]) {
+      const p = store();
+      const id = done(p, "tm/TM-001-work");
+      const res = recordResult(id, { outcome: "done", summary: "shipped" }, p, { exec: spawnReturning(answer) });
+      assert.equal(res.ok, true);
+      assert.deepEqual(read(id, p).commits ?? [], []);
+    }
+  });
+
+  it("does not ask gh at all for a task with no branch, or an outcome that is not done", () => {
+    const p = store();
+    const noBranch = done(p, undefined);
+    const execA = spawnReturning({ status: 0, stdout: "https://github.com/o/r/pull/7\n" });
+    recordResult(noBranch, { outcome: "done", summary: "shipped" }, p, { exec: execA });
+    assert.equal(execA.calls.length, 0, "no branch, nothing to look up");
+
+    const failed = dispatched(p, { status: "in_progress", branch: "tm/TM-002-work" });
+    const execB = spawnReturning({ status: 0, stdout: "https://github.com/o/r/pull/9\n" });
+    recordResult(failed, { outcome: "failed", summary: "died" }, p, { exec: execB });
+    assert.equal(execB.calls.length, 0, "a failure has no PR to record");
   });
 });

@@ -144,6 +144,20 @@ and the enhance loop's propose/accept gates, because those are judgement calls. 
 execute**: a task carrying the `ready-for-agent` label is work that has already been decided
 and is safe to hand off.
 
+**That label is computed, not typed.** The store re-derives it inside every task write
+(`dispatch.autoReady: "label"`, the default; `"off"` disables the syncing). A task is ready
+when it has the `requireOnStart` fields, has an epic if `requireEpic` is set, and carries
+none of `ready-for-human`, `needs-info`, `wontfix`, `human-gate` or a `decision:*` label.
+Anything short of that gets `needs-triage` plus a `triageMissing` list naming the gaps.
+Both are stamped `triagedBy: auto`, which is what makes the next rule possible.
+
+**The human veto outranks the computation, permanently.** Label a task `ready-for-human`,
+or simply clear its triage label, and the store stamps `triagedBy: human` and never touches
+it again — no later write, and no `tm triage` run, can put a task back in the agents' queue
+after a person took it out. `.bytedesk/task-management/bin/tm task new "<title>" --human` files a task with the veto
+already set; `.bytedesk/task-management/bin/tm triage [--all] [--dry-run]` backfills the labels across existing
+tasks and skips every task a person decided.
+
 **`.bytedesk/task-management/bin/tm caps` says what this host can run.** Before dispatch picks a launcher it probes the host: the
 agent-orchestration MCP server (env override, sibling plugin in a marketplace checkout, then
 the Claude plugin cache), that same plugin's `ao-topology` launcher, tmux, the harness CLIs, and the
@@ -183,12 +197,38 @@ the worktree's git dir at creation, so tm's own artifacts can never make the che
 (`<task>-<session>`), so a retried dispatch collapses onto the same run instead of
 double-spawning a worker.
 
-**`.bytedesk/task-management/bin/tm pool` is dispatch on a loop.** `pool once|start|stop|status` (`--dry-run` shows what it
-would pick): the pool scans for open, unblocked, unclaimed `ready-for-agent` tasks and
-dispatches them up to `dispatch.poolWip` (default 3), every `dispatch.pollSeconds` (default
-30). It is opt-in — `dispatch.enabled` defaults to `false`, and the `tm-pool` monitor only
-runs when you turn it on. The pool never touches unlabelled work: the label is the human's
-go-ahead, and a loop that guessed at what to run would be deciding, which is the human's job.
+**`.bytedesk/task-management/bin/tm pool` is dispatch on a loop, and it is on by default.**
+`pool once|start|stop|status|resume` (`--dry-run` shows what it would pick): the pool scans for
+open, unblocked, unclaimed `ready-for-agent` tasks and dispatches them up to `dispatch.poolWip`
+(default 3), every `dispatch.pollSeconds` (default 30), preferring a touches-disjoint set so two
+workers never start on colliding paths. Each tick **collects finished workers first**, so a
+terminal result frees its slot. **`dispatch.enabled: false` is how a repo turns the pool off**;
+the config is re-read every poll, so that setting stops a running pool without a restart.
+
+The pool never dispatches work a person has taken out of the queue: the label alone is not
+enough, because a label can be stale or hand-set, so every candidate is re-checked against the
+same `agentReadiness` function the store's label sync uses, and a task that fails it is skipped
+with the missing fields named.
+
+**The pool brakes itself rather than burning a quota.** After `dispatch.maxFailures`
+consecutive failures (default 3) — dispatch failures and failed workers both count — or after a
+single usage- or rate-limit failure, the pool pauses. The pause lives in `pool.state.json` so it
+outlives the process that set it, logs `pool_paused`, and shows in `tm pool status`. Only a
+dispatched task reaching done resets the count, and only `.bytedesk/task-management/bin/tm pool resume` clears the
+pause. A worker still running past `dispatch.maxRuntimeMinutes` (default 120) logs
+`worker_overrun` once — visibility, not a park; a long task is not a failed one.
+
+**One pool per repository, detached from every session.** `.bytedesk/task-management/bin/tm pool
+ensure` starts a pool if none is live and exits; when one is already live it says so and starts
+nothing. The pool it starts is detached, so it outlives the session that asked for it, and a second
+session costs nothing. Four things ask: the `tm-pool` monitor at session start, the user-prompt
+hook, a `tm config dispatch.*` write, and saving the dashboard's settings — so turning the pool back
+on takes effect at once rather than at the next session. The pool's own output goes to `pool.log`
+in the store, since nothing is attached to its terminal.
+
+**It stops when there is nothing to do.** With no dispatched worker running and nothing it could
+pick up for `dispatch.idleExitMinutes` (default 60; `0` never), the pool exits and the next `ensure`
+starts a fresh one. A repo you are not working in therefore costs no process at all.
 
 **`.bytedesk/task-management/bin/tm collect <id>` is how the result comes back.** Dispatch records `dispatched:
 {backend, run}` on the task; each backend's collector reads its own completion signal — an
@@ -199,6 +239,9 @@ task that is not done downgrades to failed with the status named, and a failed o
 outcome on a task still in_progress **parks it with the worker's summary as the reason and
 releases the claim** — an exited worker never leaves the board claiming work nobody is doing.
 Everything lands as a comment plus one `task_result` event, so `.bytedesk/task-management/bin/tm log <id>` tells the story.
+A collected task that is genuinely done also gets its **pull request** recorded: collect asks
+`gh pr list --head <the task's branch>` and appends the url to the task's commits/PRs. A missing
+`gh`, an unauthenticated one or a branch with no PR records nothing and never fails the collect.
 
 **Claims are held by liveness, not wall clock.** A heartbeat loop re-stamps a dispatched
 claim every `dispatch.heartbeatSeconds` (default 60; 0 disables) and stops itself the moment
@@ -231,8 +274,22 @@ are set to the dispatching session (and `TM_ROOT` to the repo) — the same vari
 claim, gate and event read — so anything the worker does through tm attributes to the session
 that sent it. The handoff brief for a `ready-for-agent` task ends with the completion
 contract spelled out, because the worker may never read anything else: tick each criterion
-once verified (`.bytedesk/task-management/bin/tm accept`), attach proof not claims (`.bytedesk/task-management/bin/tm evidence`), then close (`.bytedesk/task-management/bin/tm
-done`) or block with a reason — never walk away leaving the task in_progress.
+once verified (`.bytedesk/task-management/bin/tm accept`), **commit, push its own branch
+(`git push -u origin <the task's tm/ branch>`) and open a pull request
+(`gh pr create --title "<TM-id>: <title>" --body "<what changed, and how it was verified>"`)**,
+attach proof not claims (`.bytedesk/task-management/bin/tm evidence`), then close (`.bytedesk/task-management/bin/tm
+done`) — or, if the push or the PR fails for want of a remote, `gh`, or auth, block with that
+error instead. **A worker never merges**; the PR is where its run ends and a human takes over.
+
+**A guard makes that contract hard to break by accident.** A dispatched worker runs
+`--dangerously-skip-permissions`, so it is marked (`TM_DISPATCH_WORKER`, `_TASK`, `_BRANCH`) and
+a PreToolUse hook, injected with the same `--settings`, refuses: force pushes and pushes to any
+branch but the worker's own; branch, tag and ref deletion, `reset --hard`, history rewrites and
+rebasing main; `stash drop|clear|pop`; `gh pr merge`, releases, secrets, variables and `gh api`
+writes; deploy and secret tools, package publishing, chat webhooks and mail. It **allows**
+exactly what the finish line needs — pushing the worker's own branch, and `gh pr create`. Every
+refusal names why and what to do instead. It is a guard against accidents, not against an
+adversary: the rules live in one table in `lib/worker-guard.mjs`.
 
 The flags, refusals, backend order, config keys, MCP/HTTP twins, and per-harness recipes
 are in [`docs/agent-first.md`](docs/agent-first.md). Skills chain as
@@ -240,9 +297,11 @@ are in [`docs/agent-first.md`](docs/agent-first.md). Skills chain as
 
 ### Recipe per harness
 
-Label `ready-for-agent` → probe `tm caps` → `tm dispatch <id>` (or `tm pool start` once
-`dispatch.enabled` is true) → worker `tm done` → `tm collect <id>`. Same loop on every
-harness; only MCP registration and hooks differ.
+File the task with a body and criteria (the store labels it `ready-for-agent` itself) → probe
+`tm caps` → `tm dispatch <id>`, or let the pool pick it up, since the pool runs unless
+`dispatch.enabled` is false → worker pushes a branch, opens a PR and runs `tm done` →
+`tm collect <id>` records the PR. Same loop on every harness; only MCP registration and hooks
+differ.
 
 | Harness | MCP | Then |
 |---|---|---|
@@ -296,7 +355,8 @@ a fresh repo from zero: [docs/install.md](docs/install.md).
 .bytedesk/task-management/bin/tm doctor [--fix]                    what is inconsistent, and repair the unambiguous half
 .bytedesk/task-management/bin/tm caps                              what this host can dispatch work to (add --json)
 .bytedesk/task-management/bin/tm dispatch <id> [--backend <name>] [--steal]   claim, start, worktree, spawn a worker
-.bytedesk/task-management/bin/tm pool once|start|stop|status [--dry-run]      dispatch ready-for-agent work on a loop
+.bytedesk/task-management/bin/tm pool once|start|stop|status|resume [--dry-run]   the pickup loop (on unless dispatch.enabled false); resume clears the brake
+.bytedesk/task-management/bin/tm triage [--all] [--dry-run]        re-run auto-triage; a person's decision is left alone
 .bytedesk/task-management/bin/tm collect <id>                      pull a dispatched worker's result into the store
 .bytedesk/task-management/bin/tm agent [list] | agent heartbeat <name> | agent reap   the worker registry
 .bytedesk/task-management/bin/tm events [n] [--follow] [--since <iso>] [--json]       the raw event stream
@@ -1144,7 +1204,10 @@ against is [`docs/dashboard-contract.md`](docs/dashboard-contract.md).
 | `dispatch.topologyAgent` | first non-lead | which stored agent a topology dispatch borrows its identity from |
 | `dispatch.topologyCandidates` | `"claude"` | provider chain for a topology dispatch in a repo with no agent library |
 | `dispatch.heartbeatSeconds` | `60` | how often a dispatched claim is re-stamped (`0` disables) |
-| `dispatch.enabled` / `dispatch.poolWip` / `dispatch.pollSeconds` | `false` / `3` / `30` | the worker pool: opt-in switch, WIP cap, poll interval |
+| `dispatch.enabled` / `dispatch.poolWip` / `dispatch.pollSeconds` | `true` / `3` / `30` | the worker pool: on by default (`false` turns it off for the repo), WIP cap, poll interval |
+| `dispatch.autoReady` | `"label"` | keep `ready-for-agent` / `needs-triage` in sync on every write; `"off"` leaves triage labels to hand |
+| `dispatch.maxFailures` | `3` | consecutive failures before the pool pauses itself (`.bytedesk/task-management/bin/tm pool resume` clears it); one quota failure pauses at once |
+| `dispatch.maxRuntimeMinutes` | `120` | log `worker_overrun` once past this; it is visibility, not a park (`0` disables) |
 | `dispatch.preferIdle` | `false` | put the `idle` backend at the front of the order: hand a ready task to an agent that is ALREADY running before paying to start one. A preference, not a mode — `idle` refuses when nothing is free and the walk falls through to the next backend |
 | `dispatch.backendCaps` | `{}` | per-backend concurrency ceilings on top of poolWip, e.g. `{"tmux": 2}` |
 

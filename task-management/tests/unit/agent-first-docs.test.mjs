@@ -57,6 +57,73 @@ describe("agent-first documentation (TM-074)", () => {
     assert.match(doc, /GET \/api\/agents/);
   });
 
+  /**
+   * TM-180. The docs described a world that no longer exists: a label somebody types, and a
+   * pool somebody opts into. These assertions are the ones that FAIL if that wording comes
+   * back — a positive check for each new truth, and one negative sweep for the old ones.
+   */
+  it("the agent-first docs describe computed readiness and the human veto", () => {
+    for (const rel of ["README.md", "AGENTS.md", "docs/agent-first.md"]) {
+      const body = read(rel);
+      assert.match(body, /ready-for-human/, `${rel} never names the veto label`);
+      assert.match(body, /triage/i, `${rel} never mentions triage`);
+    }
+    const doc = read("docs/agent-first.md");
+    assert.match(doc, /dispatch\.autoReady/);
+    assert.match(doc, /tm triage/);
+    assert.match(doc, /--human/, "the create-time veto flag");
+    assert.match(read("README.md"), /triagedBy: human|triagedBy` ?: ?`human|stamps `triagedBy: human`/);
+  });
+
+  it("the agent-first docs describe the pool as on by default, with a brake", () => {
+    const doc = read("docs/agent-first.md");
+    assert.match(doc, /on by default/i);
+    assert.match(doc, /dispatch\.maxFailures/);
+    assert.match(doc, /tm pool resume/);
+    assert.match(doc, /dispatch\.maxRuntimeMinutes/);
+    assert.match(read("README.md"), /on by default/i);
+    // The switch is now an OFF switch. `enabled: false` is the sentence that has to be there.
+    assert.match(doc, /dispatch\.enabled: false|dispatch\.enabled` is `false`/);
+  });
+
+  it("the agent-first docs describe the worker guard and the PR finish line", () => {
+    const doc = read("docs/agent-first.md");
+    assert.match(doc, /gh pr create/);
+    assert.match(doc, /git push -u origin/);
+    assert.match(doc, /TM_DISPATCH_WORKER/);
+    assert.match(doc, /gh pr merge/, "the guard's headline refusal");
+    assert.match(doc, /never merge/i);
+    for (const rel of ["README.md", "AGENTS.md", "docs/use-cases.md", "skills/dispatch/SKILL.md", "skills/implement/SKILL.md"]) {
+      assert.match(read(rel), /gh pr create/, `${rel} never states the PR finish line`);
+    }
+  });
+
+  /**
+   * The negative sweep. Every phrase here was true before EP-021 and is now wrong; a doc that
+   * says any of them is describing automation nobody can run. This is the check that fails
+   * when someone reinstates the old story, which the positive assertions above cannot see.
+   */
+  it("no doc still calls the pool opt-in, or the triage label hand-applied", () => {
+    const stale = /opt-in|opt in|human's go-ahead|dispatch\.enabled true|applied by hand/i;
+    for (const rel of [
+      "README.md",
+      "AGENTS.md",
+      "docs/agent-first.md",
+      "docs/use-cases.md",
+      "skills/pool/SKILL.md",
+      "skills/dispatch/SKILL.md",
+      "skills/tickets/SKILL.md",
+      "skills/implement/SKILL.md",
+      "skills/groom/SKILL.md",
+    ]) {
+      const hit = read(rel).split("\n").find((l) => stale.test(l));
+      assert.equal(hit, undefined, `${rel} still says: ${hit}`);
+    }
+    const pool = listSkills().find((s) => s.name === "pool");
+    assert.doesNotMatch(pool.description, /opt-in|opt in/i, "the pool skill's description still says opt-in");
+    assert.match(pool.description, /on by default/i);
+  });
+
   it("skills cross-link dispatch → pool → collect → events", () => {
     const chain = {
       dispatch: "pool",

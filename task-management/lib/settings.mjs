@@ -9,6 +9,7 @@
 import { config, writeConfig, logEvent } from "./store.mjs";
 import { paths } from "./paths.mjs";
 import { ntfyConfig } from "./ntfy.mjs";
+import { ensurePool } from "./dispatch/pool.mjs";
 
 export const GROUPS = [
   { id: "dashboard", label: "Dashboard", help: "How the live board behaves on this project." },
@@ -196,9 +197,19 @@ export const CATALOG = [
     key: "dispatch.enabled",
     group: "agents",
     type: "boolean",
-    default: false,
-    label: "Let the pool daemon pick up work",
-    help: "The tm-pool monitor exits immediately unless this is true. `tm pool once`/`start` work regardless.",
+    default: true,
+    label: "Let the pool pick up work",
+    help: "On unless false. One detached pool per repository, started by whichever session asks first and outliving all of them — a second session costs nothing. False stops the running pool within one poll and `tm pool once` reports disabled; true starts one again at once.",
+  },
+  {
+    key: "dispatch.idleExitMinutes",
+    group: "agents",
+    type: "integer",
+    default: 60,
+    min: 0,
+    max: 1440,
+    label: "Exit an idle pool after (minutes)",
+    help: "The pool exits when it has had no worker and nothing it could pick up for this long, rather than idling as a process per repository forever. The next prompt, session or dispatch.* change starts a fresh one; a pause survives in pool.state.json. 0 never exits.",
   },
   {
     key: "dispatch.autoReady",
@@ -468,6 +479,16 @@ export function applySettings(patch, p = paths()) {
   for (const [key, value] of Object.entries(known)) next = setPath(next, key, value);
   writeConfig(next, p);
   logEvent("settings", { keys: Object.keys(known).join(",") }, p);
+  // Saving `dispatch.enabled: true` on the settings page should start the pool now, not next
+  // session (TM-178). ensurePool is a no-op when one is live or the pool is off, and a failed
+  // spawn must not fail a save that already landed.
+  if (Object.keys(known).some((k) => k === "dispatch" || k.startsWith("dispatch."))) {
+    try {
+      ensurePool(p);
+    } catch {
+      /* the settings write is the caller's job; the pool is a side effect */
+    }
+  }
   return { ok: true, values: known, ignored: ignored.length ? ignored : undefined, settings: settingsSnapshot(p) };
 }
 

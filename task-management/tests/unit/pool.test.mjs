@@ -66,9 +66,13 @@ function fakeBackend(spawnImpl = null) {
   };
 }
 
-/** A task the pool may pick up: open, unblocked, labelled ready-for-agent. */
+/**
+ * A task the pool may pick up: open, unblocked, labelled ready-for-agent, and complete enough to
+ * pass agentReadiness under the default config — a body, a criterion, an epic (TM-178 B3).
+ */
 function ready(p, title, extra = {}) {
-  const t = create("task", { title }, "", p);
+  const epic = create("epic", { title: `epic for ${title}` }, "", p).id;
+  const t = create("task", { title, epic, acceptance: [{ text: "it works", done: false }] }, "context\n", p);
   update(t.id, { labels: ["ready-for-agent"], ...extra }, p);
   return t.id;
 }
@@ -279,14 +283,14 @@ describe("pool.pid — one loop per store", () => {
     assert.equal(readPoolPid(p).store, "/somewhere/else", "the record itself is still readable");
   });
 
-  it("--auto is opt-in: no dispatch.enabled, no loop, no pid file", async () => {
-    const p = store();
+  it("dispatch.enabled false: no loop, no pid file (on is the default, TM-178)", async () => {
+    const p = store({ dispatch: { enabled: false } });
 
-    const res = await runPool({ p, auto: true, intervalSeconds: 0 });
+    const res = await runPool({ p, intervalSeconds: 0 });
 
     assert.equal(res.disabled, true);
-    assert.match(res.reason, /opt-in/);
-    assert.equal(readPoolPid(p), null, "a refused autostart leaves no pid behind");
+    assert.match(res.reason, /dispatch\.enabled is false/);
+    assert.equal(readPoolPid(p), null, "a disabled loop leaves no pid behind");
   });
 
   it("pool.pid is in the store's git contract, like agents.json", async () => {

@@ -74,7 +74,7 @@ import { getPath, setPath } from "../lib/settings.mjs";
 import { dispatch as dispatchTask } from "../lib/dispatch/index.mjs";
 import { envRegistry } from "../lib/dispatch/backend.mjs";
 import { collect as collectResult } from "../lib/dispatch/collect.mjs";
-import { livePool, poolTick, poolWorkers, poolable, readPoolState, resumePool, runPool, stopPool } from "../lib/dispatch/pool.mjs";
+import { ensurePool, livePool, poolEnabled, poolLine, poolLogFile, poolTick, poolWorkers, poolable, readPoolState, resumePool, runPool, stopPool } from "../lib/dispatch/pool.mjs";
 
 /** This file, as an argv element — `pool start` re-executes it detached. */
 const SELF = fileURLToPath(import.meta.url);
@@ -108,6 +108,21 @@ process.stdout.on("error", (err) => {
 });
 
 const out = (s) => process.stdout.write(`${s}\n`);
+
+/**
+ * Ask for this repo's pool, silently, from a path whose own job is something else (TM-178).
+ *
+ * Every trigger — the tm-pool monitor, the user-prompt hook, a `tm config dispatch.*` write —
+ * is a caller that must finish regardless. ensurePool is already a no-op when a pool is live or
+ * the pool is off; this only adds "and a broken spawn is not your problem either".
+ */
+const tryEnsurePool = () => {
+  try {
+    ensurePool(P);
+  } catch {
+    /* a repo without a pool still has a working CLI */
+  }
+};
 /** Read verbs print human text by default and structured JSON with --json. */
 const emit = (data, human) => out(JSON_OUT ? JSON.stringify(data, null, 2) : human());
 const die = (s, code = 1) => {
@@ -1046,6 +1061,10 @@ const VERBS = {
     }
     // A dotted key is a path: `dispatch.enabled` sets config.dispatch.enabled, siblings kept.
     out(JSON.stringify(writeConfig(setPath(config(P), key, JSON.parse(value)), P), null, 2));
+    // Turning the pool on is the moment it should start, not the next session (TM-178). Ensuring
+    // after every dispatch.* write is one call and no branch: it is a no-op while a pool is live
+    // and a no-op while the pool is off. It can never fail the write that already landed.
+    if (key === "dispatch" || key.startsWith("dispatch.")) tryEnsurePool();
   },
 
   context() {
@@ -1363,13 +1382,16 @@ const VERBS = {
   /**
    * The dispatcher loop: agent-first pickup of ready-for-agent tasks.
    *
-   * `once` (the default action) is one tick in-process; `start` backgrounds the
-   * loop as a detached child, the same idiom as tm-notify; `run` is that
-   * child's entrypoint — internal, hidden from help like `hook`; `stop` and
-   * `status` work off pool.pid. The tm-pool monitor autostarts `pool run
-   * --auto`, which is opt-in on config dispatch.enabled — these verbs are not:
-   * explicit control always works, the kill-switches (TM_ENFORCE=off,
-   * dispatch.enabled false) still apply to the tick itself.
+   * `once` (the default action) is one tick in-process. `ensure` is what every trigger calls —
+   * the tm-pool monitor, the user-prompt hook, `tm config dispatch.*` and the dashboard's
+   * settings save: it starts ONE detached pool per repo if none is live and returns, so a second
+   * session costs nothing and closing the session that asked changes nothing. `start` is the
+   * same spawn with a person's exit codes. `run` is the pool itself — internal, hidden from help
+   * like `hook` — a foreground loop that claims pool.pid or exits 2; `run --auto` is an alias of
+   * `ensure`, so a cached monitors.json from before this change still asks rather than becomes.
+   * `stop` and `status` work off pool.pid. `dispatch.enabled: false` (poolEnabled) is the kill
+   * switch for all of it — a running loop exits within one poll, `once` reports disabled,
+   * `ensure` spawns nothing, `start` refuses. TM_ENFORCE=off disables the tick.
    */
   async pool(action, ...rest) {
     requireInit();
@@ -1381,23 +1403,36 @@ const VERBS = {
       const res = await poolTick({ p: P, registry: await envRegistry(), dryRun: rest.includes("--dry-run") });
       return emit(res, () => renderTick(res));
     }
+    // What every trigger calls. One line, always exit 0: a trigger that fails its caller is worse
+    // than a repo with no pool, and each of them (a monitor, a hook, a config write) has its own
+    // job to finish.
+    if (action === "ensure") {
+      const res = ensurePool(P);
+      if (res.action === "off") return out("pool: off (dispatch.enabled false)");
+      return out(`pool: ${res.action} (pid ${res.pid})`);
+    }
     if (action === "start") {
-      const incumbent = livePool(P);
-      if (incumbent) die(`pool already running (pid ${incumbent.pid}, started ${incumbent.started || "?"})`, 2);
-      const child = spawn(process.execPath, [SELF, "pool", "run"], { detached: true, stdio: "ignore" });
-      child.unref();
-      return out(`pool started (pid ${child.pid}) — .bytedesk/task-management/bin/tm pool status`);
+      if (!poolEnabled(config(P))) die("pool is off (dispatch.enabled false) — tm config dispatch.enabled true");
+      const res = ensurePool(P);
+      if (res.action === "running") {
+        const incumbent = livePool(P);
+        die(`pool already running (pid ${incumbent?.pid ?? res.pid}, started ${incumbent?.started || "?"})`, 2);
+      }
+      return out(`pool started (pid ${res.pid}) — .bytedesk/task-management/bin/tm pool status`);
     }
     if (action === "run") {
+      // An older cached monitors.json still runs `pool run --auto` in every session. That must
+      // ASK for the pool, not become one — one detached loop per repo is the whole point.
+      if (rest.includes("--auto")) return VERBS.pool("ensure");
       const res = await runPool({
         p: P,
-        auto: rest.includes("--auto"),
         registry: await envRegistry(),
         onTick: JSON_OUT ? (t) => out(JSON.stringify(t)) : null,
+        // The monitor stream: one line per state change, never one per tick. --json keeps the tick stream.
+        onState: JSON_OUT ? null : out,
       });
-      if (res.disabled) return out(res.reason); // exit 0 — the monitor's opt-in off-ramp
       if (!res.ok) die(res.reason, 2);
-      return;
+      return; // exit 0: stopped by a signal or by dispatch.enabled false, already said by onState
     }
     if (action === "stop") {
       const inst = stopPool(P);
@@ -1416,8 +1451,10 @@ const VERBS = {
         running: Boolean(inst),
         pid: inst?.pid ?? null,
         started: inst?.started ?? null,
-        enabled: cfg.dispatch?.enabled ?? null,
+        enabled: poolEnabled(cfg),
         poolWip: Number(cfg.dispatch?.poolWip ?? 3),
+        idleExitMinutes: Number(cfg.dispatch?.idleExitMinutes ?? 60),
+        log: poolLogFile(P),
         workers: poolWorkers(P).length,
         poolable: poolable(P).length,
         paused: Boolean(brake.pausedReason),
@@ -1425,12 +1462,11 @@ const VERBS = {
         pausedAt: brake.pausedAt,
         failures: brake.failures,
       };
-      const line = inst
-        ? `pool running (pid ${inst.pid}, started ${inst.started || "?"}) — ${res.workers}/${res.poolWip} workers, ${res.poolable} ready`
-        : `(no pool running) — ${res.workers}/${res.poolWip} workers, ${res.poolable} ready`;
+      const head = inst ? `pool running (pid ${inst.pid}, started ${inst.started || "?"})` : res.enabled ? "(no pool running)" : "pool off (dispatch.enabled false)";
+      const line = `${head} — ${res.workers}/${res.poolWip} workers, ${res.poolable} ready`;
       return emit(res, () => (res.paused ? `${line}\npaused: ${brake.pausedReason} (since ${brake.pausedAt}) — tm pool resume` : line));
     }
-    die(`unknown pool action: ${action} (once | start | stop | status | resume [--dry-run])`);
+    die(`unknown pool action: ${action} (once | ensure | start | stop | status | resume [--dry-run])`);
   },
 
   /** Drop claims whose sessions or worktrees are gone. */
@@ -1644,7 +1680,7 @@ const VERBS = {
         "  dispatch <id> [--backend <name>] [--steal]   hand the task to a worker: claim, start, worktree, spawn",
         "  agent [list] | agent heartbeat <name> | agent reap   the dispatched-worker registry",
         "  collect <id>                  pull a dispatched worker's result into the store",
-        "  pool [once|start|stop|status|resume] [--dry-run]   the ready-for-agent pickup loop (once is the default)",
+        "  pool [once|ensure|start|stop|status|resume] [--dry-run]   the ready-for-agent pickup loop (once is the default)",
         "  ntfy [on|off <kind>|enable|disable|test|topic <t>|board <url>]   push notifications",
         "  tm-dashboard [--browser|--no-browser]   live board; --browser opens it",
         "",
@@ -1943,7 +1979,14 @@ function hook(event) {
         note = `${note ? `${note}\n` : ""}task-management: found a pre-v0.2 store at ${stranded}. Stores are now shared across worktrees — move it with \`.bytedesk/task-management/bin/tm migrate\`.`;
       }
       if (rotateEvents(P)) logEvent("events_rotated", {}, P);
-      const ctx = sessionContext(P);
+      // One line of pool state (TM-178): the pool is on by default, so every session says so and names the switch.
+      let poolState = "";
+      try {
+        poolState = poolLine(P);
+      } catch {
+        /* the pool line never breaks a session */
+      }
+      const ctx = [sessionContext(P), poolState].filter(Boolean).join("\n");
       if (ctx || note) {
         out(
           JSON.stringify({
@@ -1989,6 +2032,11 @@ function hook(event) {
     // Don't let the model open a duplicate for work that is already on the board.
     case "user-prompt": {
       const prompt = String(input.prompt || input.user_prompt || "");
+
+      // Somebody is working in this repo, so it should have a pool (TM-178). A livePool read first
+      // so the overwhelming majority of prompts cost one stat and no spawn, and silent throughout:
+      // this hook's stdout is a envelope Claude Code parses, and a stray line would corrupt it.
+      if (P.base && !livePool(P)) tryEnsurePool();
 
       /**
        * `/goal <condition>` arrives here, and that is the whole reason this can work.

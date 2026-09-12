@@ -36,10 +36,47 @@ import { rpcSession } from "./mcp-client.mjs";
 /** A collection is a quick query, not the 120s launch handshake. */
 export const COLLECT_TIMEOUT_MS = 30_000;
 
+/** Asking `gh` for a PR url is a nicety on the way past; it never holds up a collection. */
+export const PR_LOOKUP_TIMEOUT_MS = 5_000;
+
 const OUTCOMES = new Set(["done", "blocked", "failed"]);
 
 /** Orchestration's TERMINAL_STATES (agent-orchestration/src/state/store.mjs). */
 const ORCH_TERMINAL = new Set(["succeeded", "failed", "cancelled", "timed_out", "rejected", "recovery_required"]);
+
+/**
+ * The PR a finished worker left behind, recorded on the task (TM-180).
+ *
+ * The handoff now ends the worker's run at a pushed branch and an open PR, so the board
+ * should carry the link. It goes in `commits` — the array `tm link <id> <ref>` already
+ * writes, `tm show` already prints and the handoff already renders as "Commits / PRs" —
+ * rather than a field invented for it.
+ *
+ * Never throws, never fails a collection, never waits long: a missing `gh`, an
+ * unauthenticated one, a branch with no PR and a slow network all record nothing and move
+ * on. The link is a convenience; losing a worker's result to fetch one would be the wrong
+ * trade. `exec` is the seam the tests drive — real `gh` is never run in a unit test.
+ */
+function recordPullRequest(task, p, exec) {
+  try {
+    const branch = String(task.branch || "").trim();
+    if (!branch) return null;
+    const res = exec("gh", ["pr", "list", "--head", branch, "--json", "url", "--jq", ".[0].url"], {
+      shell: false,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: PR_LOOKUP_TIMEOUT_MS,
+    });
+    if (res?.error || res?.status !== 0) return null;
+    const url = String(res.stdout || "").trim();
+    if (!/^https:\/\/\S+$/.test(url)) return null;
+    if ((task.commits || []).includes(url)) return url;
+    mutate(task.id, (doc) => ({ commits: [...new Set([...(doc.commits || []), url])] }), p);
+    return url;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Record one worker's result against the store. This is the only write path the
@@ -53,7 +90,7 @@ const ORCH_TERMINAL = new Set(["succeeded", "failed", "cancelled", "timed_out", 
  *
  * Returns { ok, id?, outcome?, downgraded?, parked?, reason? }. Never throws.
  */
-export function recordResult(id, result = {}, p = paths()) {
+export function recordResult(id, result = {}, p = paths(), { exec = spawnSync } = {}) {
   try {
     const { run = null, outcome, summary = "" } = result ?? {};
     const task = read(id, p);
@@ -84,10 +121,14 @@ export function recordResult(id, result = {}, p = paths()) {
       parked = true;
     }
 
+    // A genuine done ends at a PR (TM-180). Asked for only on the done path, and only ever
+    // additive: `pr` is absent when there is nothing to record, never a reason to fail.
+    const pr = final === "done" ? recordPullRequest(task, p, exec) : null;
+
     if (note) addComment(id, note, { author: `worker:${task.dispatched.backend}`, p });
     logEvent("task_result", { id, run: run ?? task.dispatched.run, outcome: final }, p);
     // summary rides along so the pool's brake can see a quota-shaped failure (TM-175).
-    return { ok: true, id, outcome: final, downgraded: final !== outcome, parked, summary: note };
+    return { ok: true, id, outcome: final, downgraded: final !== outcome, parked, summary: note, ...(pr ? { pr } : {}) };
   } catch (err) {
     return { ok: false, reason: `recordResult failed for ${id}: ${err.message}` };
   }

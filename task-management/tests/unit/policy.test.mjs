@@ -32,8 +32,10 @@ function fakeBackend() {
   return { name: "fake", available: () => true, spawn: (req) => ({ ok: true, run: `fake:${req.task.id}` }) };
 }
 
+/** Complete enough to pass agentReadiness under the default config, which also asks for an epic (TM-178 B3). */
 function ready(p, title) {
-  const t = create("task", { title, acceptance: [{ text: "done means", done: false }] }, "context\n", p);
+  const epic = create("epic", { title: `epic for ${title}` }, "", p).id;
+  const t = create("task", { title, epic, acceptance: [{ text: "done means", done: false }] }, "context\n", p);
   update(t.id, { labels: ["ready-for-agent"] }, p);
   return t.id;
 }
