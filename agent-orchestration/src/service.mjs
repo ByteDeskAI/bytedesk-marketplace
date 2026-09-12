@@ -327,7 +327,15 @@ export class OrchestrationService {
       cancel: (runId) => this.applyCancel(runId),
       followUp: (runId, message) => this.sessionFollowUp(runId, message),
       decide: (runId, body) => this.sessionDecide(runId, body),
+      cleanup: (runId) => this.sessionCleanup(runId),
     };
+  }
+
+  // The capability is minted for one run and exchanged once, so it already proves the caller may
+  // act on that run. The consumerCwd ownership check belongs to the MCP path, where the caller
+  // names the run itself; asking for it here would mean trusting the caller's claim instead.
+  async sessionCleanup(runId) {
+    return this.store.withLock(`cleanup:${runId}`, () => cleanupRun({ store: this.store, runId }));
   }
 
   async openRunSession(runId, { openBrowser = true, requireDurableHost = false } = {}) {

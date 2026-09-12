@@ -7,6 +7,10 @@ import { RunStore } from "../state/store.mjs";
 import { AgentOrchestrationError, serializeError } from "../errors.mjs";
 import { readJson, sha256 } from "../util.mjs";
 
+// The controls a capability holder may drive. Exported so a caller — and a test — can see the
+// set without parsing the route, since a control missing here is invisible until someone POSTs it.
+export const SESSION_CONTROL_ACTIONS = ["cancel", "follow-up", "decision", "cleanup"];
+
 const TYPES = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -137,7 +141,7 @@ export function createSessionHandler({ stateRoot, uiRoot, hostNonce, port, store
       return;
     }
 
-    const apiControl = path.match(/^\/api\/runs\/(run_[0-9a-f-]{36})\/(cancel|follow-up|decision)$/i);
+    const apiControl = path.match(new RegExp(`^/api/runs/(run_[0-9a-f-]{36})/(${SESSION_CONTROL_ACTIONS.join("|")})$`, "i"));
     if (req.method === "POST" && apiControl) {
       const runId = apiControl[1];
       const action = apiControl[2].toLowerCase();
@@ -162,6 +166,13 @@ export function createSessionHandler({ stateRoot, uiRoot, hostNonce, port, store
         if (action === "follow-up") {
           const result = await controls.followUp(runId, body.message ?? body.text);
           send(res, result?.queued ? 202 : 200, result);
+          return;
+        }
+        if (action === "cleanup") {
+          // A terminal run's worktree is the one thing a reader cannot remove from the page
+          // otherwise; without this the only cleanup path was the MCP tool, which a gateway
+          // driving the capability does not hold.
+          send(res, 200, await controls.cleanup(runId));
           return;
         }
         send(res, 200, await controls.decide(runId, body));

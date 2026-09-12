@@ -45258,6 +45258,7 @@ data: ${JSON.stringify(serializeError(error51))}
 }
 
 // src/session/http.mjs
+var SESSION_CONTROL_ACTIONS = ["cancel", "follow-up", "decision", "cleanup"];
 var TYPES = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -45374,7 +45375,7 @@ function createSessionHandler({ stateRoot: stateRoot2, uiRoot, hostNonce, port, 
       await attachRunEventStream({ store, runId, after, req, res });
       return;
     }
-    const apiControl = path3.match(/^\/api\/runs\/(run_[0-9a-f-]{36})\/(cancel|follow-up|decision)$/i);
+    const apiControl = path3.match(new RegExp(`^/api/runs/(run_[0-9a-f-]{36})/(${SESSION_CONTROL_ACTIONS.join("|")})$`, "i"));
     if (req.method === "POST" && apiControl) {
       const runId = apiControl[1];
       const action = apiControl[2].toLowerCase();
@@ -45399,6 +45400,10 @@ function createSessionHandler({ stateRoot: stateRoot2, uiRoot, hostNonce, port, 
         if (action === "follow-up") {
           const result2 = await controls.followUp(runId, body.message ?? body.text);
           send(res, result2?.queued ? 202 : 200, result2);
+          return;
+        }
+        if (action === "cleanup") {
+          send(res, 200, await controls.cleanup(runId));
           return;
         }
         send(res, 200, await controls.decide(runId, body));
@@ -45994,8 +45999,15 @@ var OrchestrationService = class {
     return {
       cancel: (runId) => this.applyCancel(runId),
       followUp: (runId, message) => this.sessionFollowUp(runId, message),
-      decide: (runId, body) => this.sessionDecide(runId, body)
+      decide: (runId, body) => this.sessionDecide(runId, body),
+      cleanup: (runId) => this.sessionCleanup(runId)
     };
+  }
+  // The capability is minted for one run and exchanged once, so it already proves the caller may
+  // act on that run. The consumerCwd ownership check belongs to the MCP path, where the caller
+  // names the run itself; asking for it here would mean trusting the caller's claim instead.
+  async sessionCleanup(runId) {
+    return this.store.withLock(`cleanup:${runId}`, () => cleanupRun({ store: this.store, runId }));
   }
   async openRunSession(runId, { openBrowser = true, requireDurableHost = false } = {}) {
     await this.store.get(runId);

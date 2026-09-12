@@ -142,8 +142,8 @@
       ]
     },
     "src/service.mjs": {
-      "sha256": "ffdc7fe7b4ea8f0bca09daafa994ff9418910ada4d82f4e41b0434ce20eb68f8",
-      "lineCount": 706,
+      "sha256": "c05d44a9495901c3fb36020c5af8d0bc6180bedc9bfcd90ae89136e9c46d5e60",
+      "lineCount": 714,
       "anchors": [
         "async cancel(",
         "async decision(",
