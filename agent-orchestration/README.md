@@ -49,7 +49,8 @@ there is more than one; it does not infer the target from the current terminal.
   `AGENT_ORCHESTRATION_SESSION_SUPERVISOR=0` forces in-process. The host exchanges a one-use capability
   for a cookie, serves `dist/session-ui/`, and streams the hash-chained journal over SSE. The page can
   cancel, queue a follow-up, and settle an architecture decision for that run. Plan:
-  `docs/plans/2026-08-22-orchestration-session.md`.
+  `docs/plans/2026-08-22-orchestration-session.md`. A trusted local caller can ask for the same URL
+  without a browser — see **Control seam for a trusted local caller**.
 - A validated, lineage-aware roadmap and a shared skill for refining tasks, unlocks, trajectories,
   gaps, and goals without turning strategy into execution authority.
 - Shared skills for Claude Code, Codex, Grok Build, and Kimi Code; a Claude/Grok orchestration agent;
@@ -166,6 +167,46 @@ call, `via: "session"` with `by_attested: true` for the loopback session UI, whi
 exchanged once — a path a headless agent has no way to reach. Set
 `AGENT_ORCHESTRATION_REQUIRE_ATTESTED_APPROVAL=1` to accept only that path for architecture
 decisions; the tool call is then refused with `AO_APPROVAL_REQUIRES_ATTESTED_CHANNEL`.
+
+## Control seam for a trusted local caller
+
+A program running on this host — the ByteDesk gateway, acting for an operator it has already
+authenticated — can drive a run through the same loopback session a person would use. Nothing about
+the session widens: it stays on 127.0.0.1, the capability is 32 bytes, it expires in ten minutes, and
+it is exchanged once.
+
+```bash
+agent-orchestration session-open --run-id run_… --no-browser --json
+```
+
+Prints the capability URL as JSON (`--json`) or on its own line. `--no-browser` skips `xdg-open`,
+which on a remote host would open a window nobody is sitting in front of. The caller exchanges the
+URL for the session cookie and then POSTs to `/api/runs/{runId}/{cancel,follow-up,decision}` as usual.
+
+Two refusals rather than a URL that disappoints later:
+
+| Code | When |
+|---|---|
+| `AO_RUN_NOT_FOUND` / `AO_INVALID_RUN_ID` | before anything is minted, so no live token exists for a run that does not |
+| `AO_SESSION_HOST_NOT_DURABLE` | no session host outlives the command, so its URL would stop answering the moment the command exits. Start one with `agent-orchestration session-host`. |
+
+**Who took the decision.** `POST /api/runs/{runId}/decision` accepts an `actor` label alongside
+`approved` and `rationale`, recorded as the approval's `by` (capped at 120 characters, defaulting to
+`operator`). A gateway passes the signed-in operator, so the record names a person rather than the
+word "operator" for every approval it forwards. The label itself is still a name — `by_attested`
+describes the channel, which is what this process can actually verify.
+
+**Where a run came from.** Every run records two things about its own origin, both read from the
+launching process's environment rather than accepted as input:
+
+| Field | Meaning |
+|---|---|
+| `parentRunId` | the run whose worker spawned this one, from `AGENT_ORCHESTRATION_CURRENT_WORKER_RUN_ID` |
+| `launcher` | `kind` (`gateway-tab`, `tmux` or `agent`), the gateway tab id and session, the tmux pane and server, and the conductor: `ao-topology` agent id, role, session and topology run |
+
+`launcher` is `null` when nothing identifies a launcher, so "started from somewhere we cannot name"
+never reads as a binding we failed to record. A reader can then open the exact terminal a run was
+started from instead of guessing from working directories.
 
 Every mutating or consumer-grounded call requires `consumerCwd`: the explicit absolute path of the
 repository or worktree the external agent may observe or change. The server never infers it from its

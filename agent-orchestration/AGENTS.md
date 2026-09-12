@@ -60,6 +60,17 @@ MCP process. Native Windows and `AGENT_ORCHESTRATION_SESSION_SUPERVISOR=0` liste
 `dispose` must not stop a joined supervisor. The session-host CLI is a store-backed control plane with
 `autoRecover: false`.
 
+`agent-orchestration session-open --run-id <id> --no-browser --json` hands the same capability URL to
+a trusted local caller without opening a browser. It refuses a run that does not exist before minting
+anything, and refuses (`AO_SESSION_HOST_NOT_DURABLE`) when the only host is the in-process one that
+would die with the command. A decision posted through that session may carry an `actor` label, which
+is recorded as the approval's `by`; `by_attested` still describes the channel, never the name.
+
+A run records its own origin from the launching process's environment — `parentRunId` from
+`AGENT_ORCHESTRATION_CURRENT_WORKER_RUN_ID`, and `launcher` from the gateway tab, the tmux pane and
+the `ao-topology` agent, role, session and run. Never take either from tool input: the caller is the
+thing being recorded. `launcher` is null when nothing identifies one.
+
 Every mutating or consumer-grounded tool requires `consumerCwd`, supplied as an explicit absolute
 repository or worktree path. Never infer it from `process.cwd()`, the plugin cache, the MCP host, a
 prior request, or a provider session. Reject missing, relative, nonexistent, or disallowed paths.
