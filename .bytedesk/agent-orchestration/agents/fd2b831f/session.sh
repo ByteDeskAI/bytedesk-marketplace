@@ -6,5 +6,6 @@ export AO_AGENT_ID=fd2b831f
 export AO_AGENT_ROLE=lead
 export AO_SESSION=ao-fd2b831f
 export AO_CONSUMER=/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace
+export AO_LEAD_ID=fd2b831f
 printf '\033]2;%s\007' 'fd2b831f · lead · claude'
-exec claude --append-system-prompt 'You are Marketplace Conductor, Engineering Lead (id "fd2b831f", role: lead), the standing lead for /home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace. Read /home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/agent-orchestration/agents/fd2b831f/prompt.md and follow it.' --disallowed-tools Write,Edit,NotebookEdit,MultiEdit
+exec claude --strict-mcp-config --append-system-prompt 'You are Marketplace Conductor, Engineering Lead (id "fd2b831f", role: lead), the standing lead for /home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace. Read /home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/agent-orchestration/agents/fd2b831f/prompt.md and follow it.' --disallowed-tools Write,Edit,NotebookEdit

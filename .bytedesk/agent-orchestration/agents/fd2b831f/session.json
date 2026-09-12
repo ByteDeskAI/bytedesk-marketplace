@@ -8,5 +8,18 @@
   "launcher": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/agent-orchestration/agents/fd2b831f/session.sh",
   "command": "bash /home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/agent-orchestration/agents/fd2b831f/session.sh",
   "restore_contract": "Recreate this session by running `command` with cwd `cwd`. It is idempotent and is the only supported entry point; starting the session any other way makes a gateway tab restore rebuild it wrong.",
-  "created_at": "2026-09-10T01:15:18.352Z"
+  "created_at": "2026-09-11T21:38:15.888Z",
+  "binding": {
+    "serverKey": "/tmp/tmux-1000/default",
+    "serverPid": 2760865,
+    "sessionId": "$263",
+    "sessionCreated": 1789162695,
+    "paneId": "%513",
+    "panePid": 4084543,
+    "sessionName": "ao-fd2b831f",
+    "command": "claude",
+    "cwd": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/agent-orchestration/agents/fd2b831f",
+    "alive": true,
+    "title": "✳ Agent orchestration prompt review"
+  }
 }

@@ -24,6 +24,9 @@ okf_version: "0.2"
 * [Decision 2026-09-09](/decisions/decision-2026-09-09-2.md) - Agent-captured decision
 * [Decision 2026-09-09](/decisions/decision-2026-09-09-3.md) - Agent-captured decision
 * [Decision 2026-09-09](/decisions/decision-2026-09-09.md) - Agent-captured decision
+* [Decision 2026-09-11](/decisions/decision-2026-09-11-2.md) - Agent-captured decision
+* [Decision 2026-09-11](/decisions/decision-2026-09-11-3.md) - Agent-captured decision
+* [Decision 2026-09-11](/decisions/decision-2026-09-11-4.md) - Agent-captured decision
 * [Decision 2026-09-11](/decisions/decision-2026-09-11.md) - Agent-captured decision
 * [The tmux topology layer is the authoritative orchestration layer](/decisions/topology-is-the-authoritative-orchestration-layer.md) - agent-orchestration ships two unrelated runtimes; topology wins for dispatched work and the agent hierarchy, the MCP broker is kept as an opt-in sandboxed backend, and tm owns the worktree
 * [Use OKF for durable knowledge](/decisions/use-okf-for-durable-knowledge.md) - Adopt Open Knowledge Format v0.2 as on-disk contract for agent knowledge

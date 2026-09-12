@@ -1,6 +1,9 @@
 # Knowledge Update Log
 
 ## 2026-09-11
+* **Creation**: Established [Decision 2026-09-11](/decisions/decision-2026-09-11-4.md).
+* **Creation**: Established [Decision 2026-09-11](/decisions/decision-2026-09-11-3.md).
+* **Creation**: Established [Decision 2026-09-11](/decisions/decision-2026-09-11-2.md).
 * **Creation**: Established [Decision 2026-09-11](/decisions/decision-2026-09-11.md).
 
 ## 2026-09-09

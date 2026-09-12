@@ -7,14 +7,14 @@ board: "bytedeskai/bytedesk-marketplace"
 title: "task-management: tm evidence double-prefixes an epic's own id (EP-020-EP-020-LANDING.md)"
 acceptance: [{"text":"tm evidence <EP-nnn> with a filename already starting with that EP-nnn stores it without a second prefix","done":false},{"text":"The prefix check covers every id kind the store issues (TM, EP, ADR, CAP), with a test per kind","done":false}]
 evidence: []
-commits: []
+commits: ["cd1b1ac"]
 blockedBy: []
 blocks: []
 actor: "main"
 session: "8e87dbc7-3321-4e05-8648-b64d7c6319bb"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-11T18:57:04.211Z"
+updated: "2026-09-11T19:49:39.471Z"
 labels: ["plugin:task-management"]
 ---
 

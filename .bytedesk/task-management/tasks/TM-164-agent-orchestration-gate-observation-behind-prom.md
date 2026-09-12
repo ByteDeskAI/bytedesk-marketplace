@@ -8,14 +8,14 @@ title: "agent-orchestration: gate observation behind prompt and identity readine
 epic: "EP-019"
 acceptance: [{"text":"observer start cannot commit attachment or permit watch/report before exact prompt acknowledgement and binding verification.","done":true,"at":"2026-09-11T18:50:32.526Z"},{"text":"Stale managed observer prompts trigger exactly one controlled restart; current prompts reattach without restart.","done":true,"at":"2026-09-11T18:50:32.654Z"},{"text":"Legacy attachments remain inspectable but cannot watch or report until upgraded.","done":true,"at":"2026-09-11T18:50:32.785Z"},{"text":"A real-tmux acceptance test proves attachment v2, observation activation, and no stale prompt source.","done":true,"at":"2026-09-11T18:50:32.922Z"}]
 evidence: [".bytedesk/task-management/evidence/TM-164-W1-SUPERVISION-GUARD.md",".bytedesk/task-management/evidence/TM-164-W2-OBSERVER-TMUX.md",".bytedesk/task-management/evidence/TM-164-VERIFICATION.md"]
-commits: ["119006c"]
+commits: ["119006c","457a496"]
 blockedBy: ["TM-162","TM-163"]
-blocks: ["TM-167","TM-168"]
+blocks: []
 actor: "main"
 session: "8e87dbc7-3321-4e05-8648-b64d7c6319bb"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-11T18:53:55.698Z"
+updated: "2026-09-12T06:49:12.034Z"
 labels: ["ready-for-agent"]
 type: "bug"
 touches: ["agent-orchestration/tests/unit/topology-observer.test.mjs","agent-orchestration/topology/cli.mjs","agent-orchestration/topology/lib/observer-session.mjs","agent-orchestration/topology/lib/observer.mjs"]

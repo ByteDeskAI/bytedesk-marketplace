@@ -60,13 +60,13 @@
     "me": "Ryan",
     "watching": []
   },
-  "activeEpic": "EP-019",
+  "activeEpic": "EP-021",
   "boardId": "bytedeskai/bytedesk-marketplace",
   "owner": "Ryan Helms <ryan@helms.ai>",
   "ntfy": {},
   "plugin": {},
   "labels": {},
   "dispatch": {
-    "enabled": true
+    "enabled": false
   }
 }

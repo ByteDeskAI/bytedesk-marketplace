@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-11T18:07:38.570Z",
+  "generatedAt": "2026-09-11T21:35:26.823Z",
   "concepts": [
     {
       "id": "architecture/gateway-tab-ids-are-server-minted",
@@ -147,6 +147,48 @@
       "path": "/decisions/decision-2026-09-09.md",
       "type": "Decision",
       "title": "Decision 2026-09-09",
+      "description": "Agent-captured decision",
+      "tags": [
+        "decision",
+        "captured"
+      ],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    },
+    {
+      "id": "decisions/decision-2026-09-11-2",
+      "path": "/decisions/decision-2026-09-11-2.md",
+      "type": "Decision",
+      "title": "Decision 2026-09-11",
+      "description": "Agent-captured decision",
+      "tags": [
+        "decision",
+        "captured"
+      ],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    },
+    {
+      "id": "decisions/decision-2026-09-11-3",
+      "path": "/decisions/decision-2026-09-11-3.md",
+      "type": "Decision",
+      "title": "Decision 2026-09-11",
+      "description": "Agent-captured decision",
+      "tags": [
+        "decision",
+        "captured"
+      ],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    },
+    {
+      "id": "decisions/decision-2026-09-11-4",
+      "path": "/decisions/decision-2026-09-11-4.md",
+      "type": "Decision",
+      "title": "Decision 2026-09-11",
       "description": "Agent-captured decision",
       "tags": [
         "decision",

@@ -115,3 +115,19 @@
 {"ts":"2026-09-11T18:07:38.592Z","kind":"hook_decision_captured","session":"8e87dbc7-3321-4e05-8648-b64d7c6319bb","title":"Decision 2026-09-11"}
 {"ts":"2026-09-11T18:16:31.953Z","kind":"hook_session_start","session":"19784bb4-164f-42d2-aa46-a90afc17b13b"}
 {"ts":"2026-09-11T18:16:57.678Z","kind":"hook_session_start","session":"7d1e0593-5035-4ad2-a7da-0a8bddd53ed0"}
+{"ts":"2026-09-11T19:32:50.246Z","kind":"concept_write","session":"c3738e82-1fbf-4fc3-a6a3-06f965eac51c","id":"decisions/decision-2026-09-11-2","type":"Decision"}
+{"ts":"2026-09-11T19:32:50.299Z","kind":"hook_decision_captured","session":"c3738e82-1fbf-4fc3-a6a3-06f965eac51c","title":"Decision 2026-09-11"}
+{"ts":"2026-09-11T19:45:06.845Z","kind":"hook_session_start","session":"f6db15f1-7479-4198-9ca0-8a459353745a"}
+{"ts":"2026-09-11T19:46:03.752Z","kind":"hook_session_start","session":"9425272a-6c60-43bb-a211-e2f5074c4cad"}
+{"ts":"2026-09-11T19:50:44.454Z","kind":"hook_session_start","session":"d3130263-14eb-496b-b3bc-85830e67ad5e"}
+{"ts":"2026-09-11T19:51:32.840Z","kind":"hook_session_start","session":"526948fe-b2d8-46d2-94c2-15e1de47cd70"}
+{"ts":"2026-09-11T21:31:52.839Z","kind":"concept_write","session":"8e87dbc7-3321-4e05-8648-b64d7c6319bb","id":"decisions/decision-2026-09-11-3","type":"Decision"}
+{"ts":"2026-09-11T21:31:52.892Z","kind":"hook_decision_captured","session":"8e87dbc7-3321-4e05-8648-b64d7c6319bb","title":"Decision 2026-09-11"}
+{"ts":"2026-09-11T21:35:26.794Z","kind":"concept_write","session":"c3738e82-1fbf-4fc3-a6a3-06f965eac51c","id":"decisions/decision-2026-09-11-4","type":"Decision"}
+{"ts":"2026-09-11T21:35:26.836Z","kind":"hook_decision_captured","session":"c3738e82-1fbf-4fc3-a6a3-06f965eac51c","title":"Decision 2026-09-11"}
+{"ts":"2026-09-11T21:38:18.433Z","kind":"hook_session_start","session":"83631657-6f99-4269-9c51-643b8f81a54b"}
+{"ts":"2026-09-11T21:57:30.603Z","kind":"hook_session_start","session":"63e06143-90df-451d-8379-e2d86d98432f"}
+{"ts":"2026-09-11T21:58:13.507Z","kind":"hook_session_start","session":"4edd857f-2a9e-4f38-81c0-ff2f25f09279"}
+{"ts":"2026-09-11T21:58:35.231Z","kind":"hook_session_start","session":"f562ad09-a3ea-44d7-a361-fbfa6cdb64c4"}
+{"ts":"2026-09-12T06:49:12.256Z","kind":"hook_pre_compact","session":"8e87dbc7-3321-4e05-8648-b64d7c6319bb"}
+{"ts":"2026-09-12T06:51:06.778Z","kind":"hook_session_start","session":"8e87dbc7-3321-4e05-8648-b64d7c6319bb"}
