@@ -6,9 +6,10 @@ import { createExecutionPlan, PROTOCOL_VERSION } from "./protocols/index.mjs";
 import { PROVIDER_ADAPTERS, PROVIDER_CATALOG, MODEL_CATALOG, getProviderDescriptor } from "./providers/index.mjs";
 import { PLUGIN_ROOT, stateRoot as resolveStateRoot, validateStateRoot } from "./config.mjs";
 import { AgentOrchestrationError, invariant } from "./errors.mjs";
-import { isPathWithin, processGroupExists, runFile, safeCwd } from "./util.mjs";
+import { isPathWithin, oneLineLabel, processGroupExists, runFile, safeCwd } from "./util.mjs";
 import { resolveConsumerRepository } from "./workspace/repository.mjs";
 import { RunStore, TERMINAL_STATES } from "./state/store.mjs";
+import { launcherBinding, parentRunIdFromEnv } from "./launcher.mjs";
 import { cleanupRun, executeRun } from "./runtime/engine.mjs";
 import { checkBundledBridges } from "./runtime/acpx-driver.mjs";
 import { createPlatformRuntime } from "./platform/factory.mjs";
@@ -268,6 +269,10 @@ export class OrchestrationService {
         consumer: prepared.consumer,
         plan: prepared.plan,
         idempotencyKey: input.idempotencyKey ?? null,
+        // Both read from this process's environment rather than from `input`: the caller is the
+        // agent being recorded, so its own claim about its parent or its terminal is worth nothing.
+        parentRunId: parentRunIdFromEnv(),
+        launcher: launcherBinding(),
       });
       const launchedRun = run.state === "queued"
         ? (await this.launchWorker(run.runId)) ?? await this.store.get(run.runId)
@@ -282,6 +287,9 @@ export class OrchestrationService {
       port: live.port,
       hostNonce: live.hostNonce,
       bind: live.bind,
+      // Owned by another process, so it outlives this one. The in-process fallback below does not,
+      // and a short-lived caller has to be able to tell the difference before handing out a URL.
+      external: true,
       close: async () => {},
     };
     return this.sessionHost;
@@ -303,11 +311,14 @@ export class OrchestrationService {
         // systemd-run unavailable or the unit lost the race; listen in-process.
       }
     }
-    this.sessionHost = await startSessionHost({
-      stateRoot: this.stateRoot,
-      uiRoot: this.sessionUiRoot,
-      controls: this.sessionControls(),
-    });
+    this.sessionHost = {
+      ...await startSessionHost({
+        stateRoot: this.stateRoot,
+        uiRoot: this.sessionUiRoot,
+        controls: this.sessionControls(),
+      }),
+      external: false,
+    };
     return this.sessionHost;
   }
 
@@ -319,8 +330,16 @@ export class OrchestrationService {
     };
   }
 
-  async openRunSession(runId) {
+  async openRunSession(runId, { openBrowser = true, requireDurableHost = false } = {}) {
+    // Refuse before minting: a capability for a run that does not exist is a live token nobody can
+    // ever exchange, and the caller deserves AO_RUN_NOT_FOUND rather than a URL that 404s later.
+    await this.store.get(runId);
     const host = await this.ensureSessionHost();
+    // An in-process host is unref'd: it dies with this process. That is right for a long-lived MCP
+    // server and wrong for a one-shot command, whose caller would receive a URL that stops
+    // answering the moment the command exits.
+    invariant(!requireDurableHost || host.external === true, "AO_SESSION_HOST_NOT_DURABLE",
+      "No session host outlives this command, so the capability URL would die with it. Start one with `agent-orchestration session-host` and retry.");
     const cap = mintCapability();
     await writeSessionMeta(this.stateRoot, runId, {
       tokenHash: cap.tokenHash,
@@ -329,8 +348,8 @@ export class OrchestrationService {
       hostNonce: host.hostNonce,
     });
     const url = capabilityUrl(host.port, cap.token);
-    const opened = await openSessionBrowser(url);
-    return { url, port: host.port, expiresAt: cap.expiresAt, opened, bind: host.bind };
+    const opened = openBrowser ? await openSessionBrowser(url) : false;
+    return { url, port: host.port, expiresAt: cap.expiresAt, opened, bind: host.bind, hostExternal: host.external === true };
   }
 
   async sessionForRun(runId) {
@@ -465,7 +484,11 @@ export class OrchestrationService {
       consumerCwd: run.consumer.checkoutRoot ?? run.consumer.requestedCwd,
       approved: Boolean(body.approved),
       rationale: typeof body.rationale === "string" ? body.rationale.slice(0, 500) : "",
-      approvedBy: "operator",
+      // The label of whoever held the capability token: "operator" when the session UI is driven by
+      // hand, the signed-in gateway operator when the gateway drives it on their behalf. The label
+      // is not attested — nothing here can verify a name — but the channel it arrived on is, which
+      // is the difference `by_attested` records.
+      approvedBy: oneLineLabel(body.actor, 120) ?? "operator",
     // Second argument, deliberately: `via` is the one thing about an approval that is not the
     // caller's to state. The MCP tool handler forwards exactly one argument — the validated input —
     // so this channel cannot be claimed from outside the process, while an input field named `via`

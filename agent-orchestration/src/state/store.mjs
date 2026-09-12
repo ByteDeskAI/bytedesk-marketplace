@@ -182,7 +182,7 @@ export class RunStore {
     });
   }
 
-  async createUnlocked({ input, consumer, plan, idempotencyKey = null, parentRunId = null }) {
+  async createUnlocked({ input, consumer, plan, idempotencyKey = null, parentRunId = null, launcher = null }) {
     const runId = newId("run");
     await mkdir(this.runDir(runId), { recursive: false, mode: 0o700 });
     const now = new Date().toISOString();
@@ -196,6 +196,7 @@ export class RunStore {
       cancelRequestedAt: null,
       idempotencyKey,
       parentRunId,
+      launcher,
       input,
       consumer,
       plan,
