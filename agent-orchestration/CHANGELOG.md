@@ -19,7 +19,18 @@
   parsing. `capture-pane` now also passes `-N`, since the boundary space is otherwise stripped as
   trailing whitespace and is unrecoverable, and the scrollback window grew from 80 to 200 lines
   because one wrapped verdict can occupy dozens. JSON is self-delimiting, so parsing is the
-  terminator. The reviewer's isolation is unchanged: it still writes no files, has no shell, and
+  terminator, and a response that never parses is rejected rather than repaired. Two limits are
+  deliberate. `collect` reads the WHOLE retained scrollback rather than a fixed window, because a
+  window sized for one verdict loses earlier ones as soon as a few accumulate (with eight responses
+  in scrollback, a 200-line window held two); readiness keeps the cheap recent window, since it
+  looks for a short line just emitted. And the rejoin concatenates with NO separator, which loses a
+  space that fell exactly on a wrap boundary so prose can read "a TeamCity buildcancelled". That is
+  the lesser evil: collapsing the padding to one space instead INVENTS a space, and a wrap landing
+  mid-key turns `{"severity"` into `{"s everity"` — still valid JSON, with a silently wrong key.
+  Corrupting prose is visible; corrupting structure is not. The durable fix is to stop sending bare
+  JSON through a text pane at all: a verdict quoting shell code with double quotes emits invalid
+  JSON no rejoin can rescue, which is exactly how two of eight real responses failed.
+  The reviewer's isolation is unchanged: it still writes no files, has no shell, and
   answers only through its own verified pane.
 
 ### Added

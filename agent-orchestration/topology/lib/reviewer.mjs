@@ -170,13 +170,13 @@ async function bindingAlive(record) {
   const panes = await tmux.listServerPanes({ tmuxServer: record.binding.serverKey });
   return panes.some(p => p.alive && ["serverKey", "serverPid", "sessionId", "sessionCreated", "paneId", "panePid"].every(key => p[key] === record.binding[key]));
 }
-async function reviewerOutput(record) {
+async function reviewerOutput(record, scrollback = "-200") {
   if (!await bindingAlive(record)) return "";
   // -N preserves trailing spaces. A TUI pane hard-wraps at its width BEFORE tmux sees
   // the text, so a long response arrives as several physical lines; without -N the space
   // that fell on a wrap boundary is stripped and rejoining glues two words together
   // ("a TeamCity build" + "cancelled" -> "buildcancelled"). See reassembleResponse.
-  const result = await run("tmux", ["-S", record.binding.serverKey, "capture-pane", "-p", "-N", "-t", record.binding.paneId, "-S", "-200"], { allowFailure: true });
+  const result = await run("tmux", ["-S", record.binding.serverKey, "capture-pane", "-p", "-N", "-t", record.binding.paneId, "-S", scrollback], { allowFailure: true });
   return result.code === 0 ? result.stdout : "";
 }
 
@@ -761,11 +761,18 @@ export async function requestReview({ consumer, task, revision, authorAgentIds, 
  * across physical lines. This read the first fragment and called it malformed, which meant
  * the readiness handshake (short) worked while every real review (long) was rejected.
  *
- * Rejoin instead. Continuation lines carry the block's indent, so drop exactly that much.
- * At a wrap boundary the previous line ends in the TUI's padding, and if the break fell on
- * a space that space is inside the padding — collapse the run to one space, so a boundary
- * mid-token joins tight and a boundary at a space keeps its separator. Parsing is the
- * terminator: JSON is self-delimiting, so stop at the first buffer that parses.
+ * Rejoin instead. Continuation lines carry the block's indent, so drop exactly that much,
+ * then drop the TUI's trailing padding and concatenate with NO separator.
+ *
+ * A wrap boundary that fell on a space is indistinguishable from padding once tmux has
+ * rendered it, so that space is lost and prose reads "a TeamCity buildcancelled". That is
+ * the lesser evil and the choice is deliberate: collapsing the padding to one space instead
+ * INVENTS a space, and a wrap landing mid-key turns {"severity" into {"s everity" — still
+ * valid JSON, with a silently wrong key. Corrupting prose is visible; corrupting structure
+ * is not. The durable fix is to stop sending bare JSON through a text pane at all.
+ *
+ * Parsing is the terminator: JSON is self-delimiting, so stop at the first buffer that
+ * parses. A response that never parses is malformed and is rejected, not repaired.
  */
 const MAX_RESPONSE_LINES = 200;
 function reassembleResponse(raw, index, prefix) {
@@ -776,7 +783,7 @@ function reassembleResponse(raw, index, prefix) {
     try { return JSON.parse(buffer); } catch { /* not yet complete */ }
     if (line >= raw.length || line - index > MAX_RESPONSE_LINES) return null;
     const next = raw[line];
-    buffer = buffer.replace(/ +$/, " ") + (next.slice(0, indent).trim() === "" ? next.slice(indent) : next.trimStart());
+    buffer += (next.slice(0, indent).trim() === "" ? next.slice(indent) : next).replace(/\s+$/, "");
   }
 }
 
@@ -793,7 +800,13 @@ export async function collectReview({ consumer, task, revision, env = process.en
   invariant(request.reviewer_id === record.agent_id && request.repo_id === record.repo_id && request.revision === revision, 'TOPOLOGY_REVIEWER_IDENTITY', 'Request belongs to a different reviewer or revision.');
   invariant(createHash('sha256').update(await readFile(request.patch_path)).digest('hex') === request.patch_sha256, 'TOPOLOGY_REVIEWER_RESPONSE', 'Review patch changed after the request.');
   const prefix = `AO_REVIEW ${request.nonce} `;
-  const raw = String(await output(record)).split(/\r?\n/);
+  // The WHOLE retained history, not a recent window. Each verdict occupies dozens of
+  // wrapped lines, so a fixed window sized for one response loses earlier ones as soon as
+  // a few accumulate: with eight responses in scrollback, a 200-line window held two.
+  // The nonce filter runs immediately, so the extra text costs a scan and nothing else,
+  // and the real bound becomes tmux's own history-limit, which an operator can tune.
+  // Readiness keeps the cheap default window - it looks for a short line just emitted.
+  const raw = String(await output(record, "-")).split(/\r?\n/);
   const starts = raw.map((line, index) => ({ line, index })).filter(({ line }) => line.trim().startsWith(prefix));
   invariant(starts.length === 1, 'TOPOLOGY_REVIEWER_RESPONSE', 'Expected exactly one nonce-bound review response from the designated pane.');
   const response = reassembleResponse(raw, starts[0].index, prefix)
