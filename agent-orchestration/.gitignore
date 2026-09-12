@@ -6,3 +6,6 @@ native/windows/obj/
 
 # Include the plugin-local generated brand assets despite the root PNG ignore.
 !.context/design-system/**/*.png
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/
