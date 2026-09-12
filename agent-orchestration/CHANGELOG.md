@@ -4,6 +4,16 @@
 
 ### Added
 
+- **Cleanup joins the controls a capability holder can drive (gateway TM-305, EP-023).**
+  `POST /api/runs/{runId}/cleanup` on the session host removes a terminal run's worktree, the same
+  work `orchestration_cleanup` does over MCP. Until now the seam carried cancel, follow-up and
+  decision only, so a gateway driving a capability could stop a run but never reclaim what it left
+  behind, and its cleanup button had to be offered and then refused. The capability is already
+  minted for one run and exchanged once, so it proves the caller may act on that run; the
+  consumer-path ownership check stays on the MCP route, where the caller names the run itself.
+  The action list is now exported as `SESSION_CONTROL_ACTIONS`, so the route and the control map
+  cannot drift apart unnoticed.
+
 - **A control seam a gateway can drive (gateway TM-304, EP-023).**
   - `agent-orchestration session-open --run-id <id> [--no-browser] [--json]` returns the run's
     loopback capability URL. `--no-browser` skips `xdg-open`, which on a remote host opens a window

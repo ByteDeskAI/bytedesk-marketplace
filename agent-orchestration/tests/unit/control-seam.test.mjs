@@ -18,6 +18,7 @@ import { OrchestrationService } from "../../src/service.mjs";
 import { createExecutionPlan } from "../../src/protocols/index.mjs";
 import { launcherBinding, parentRunIdFromEnv } from "../../src/launcher.mjs";
 import { git } from "../../src/util.mjs";
+import { SESSION_CONTROL_ACTIONS } from "../../src/session/http.mjs";
 
 const execFile = promisify(execFileCallback);
 const CLI = join(dirname(dirname(dirname(fileURLToPath(import.meta.url)))), "src", "cli.mjs");
@@ -266,5 +267,23 @@ test("the session-open verb answers on stdout, as JSON or as the bare URL", asyn
     const missing = await execFile(process.execPath, [CLI, "session-open", "--json", "--state-root", fx.stateRoot], { env })
       .then(() => null, (error) => error);
     assert.match(missing.stderr, /--run-id is required/);
+  } finally { await fx.cleanup(); }
+});
+
+test("cleanup is one of the controls a capability holder can drive", async () => {
+  // Without this, a gateway driving the seam could cancel a run but never remove the worktree it
+  // left behind: cleanup existed only on the MCP tool, which that gateway does not hold. A button
+  // offered for an action the seam refuses is worse than no button, so the route and the control
+  // map have to agree, and this test is what keeps them agreeing.
+  assert.ok(SESSION_CONTROL_ACTIONS.includes("cleanup"), "the session route must accept cleanup");
+  const fx = await fixture();
+  try {
+    const controls = fx.service.sessionControls();
+    for (const action of ["cancel", "followUp", "decide", "cleanup"]) {
+      assert.equal(typeof controls[action], "function", `${action} must be drivable through the session`);
+    }
+    // The control is per-run and takes no consumer path: the capability already proved the run.
+    assert.equal(controls.cleanup.length, 1);
+    await assert.rejects(() => controls.cleanup(A_RUN_ID), (error) => error.code === "AO_RUN_NOT_FOUND");
   } finally { await fx.cleanup(); }
 });
