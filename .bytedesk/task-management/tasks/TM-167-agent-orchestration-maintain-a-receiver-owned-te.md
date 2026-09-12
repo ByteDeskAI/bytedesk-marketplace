@@ -8,14 +8,14 @@ title: "agent-orchestration: maintain a receiver-owned team lead for every enrol
 epic: "EP-019"
 acceptance: [{"text":"Enrollment has one provider-neutral resolver: repo enabled:true or project plugin enablement enrolls, explicit enabled:false wins, and existing managed-lead registrations remain compatible.","done":true,"at":"2026-09-11T21:36:05.512Z"},{"text":"Session startup and other qualifying repository activation start the canonical per-repository supervisor and converge concurrent linked-worktree activations on one managed lead.","done":true,"at":"2026-09-11T21:36:05.682Z"},{"text":"Cross-repository mail is durably persisted before recovery; missing or confirmed-dead managed source or destination leads schedule receiver-owned supervision, and the same envelope is delivered exactly once after recovery.","done":true,"at":"2026-09-11T21:36:05.841Z"},{"text":"A responsive lead is reused; a live unresponsive lead is not restarted or duplicated; a dead externally owned lead is held with an actionable reassignment alert and is never replaced automatically.","done":true,"at":"2026-09-11T21:36:05.985Z"},{"text":"Recovery failures expose action, last error, attempt count, and next retry time using 10s, 30s, 2m, and 10m-capped backoff, resetting after responsiveness returns.","done":true,"at":"2026-09-11T21:36:06.166Z"},{"text":"Ordinary unrelated commands do not run inline supervision or enumerate unscoped tmux servers; all process ownership, lock, repository, and incarnation checks fail closed.","done":true,"at":"2026-09-11T21:36:06.365Z"},{"text":"Unit and real-tmux tests cover enrollment precedence, disabled repos, N-way first contact, linked worktrees, durable hold/resume deduplication, provider failure, dead external ownership, and live unresponsive preservation; docs and installed-plugin validation pass.","done":true,"at":"2026-09-11T21:36:06.527Z"}]
 evidence: [".bytedesk/task-management/evidence/TM-167-W3-ACTIVATION.md",".bytedesk/task-management/evidence/TM-167-W4-RECOVERY.md",".bytedesk/task-management/evidence/TM-167-168-INTEGRATION.md"]
-commits: ["a080ba8"]
-blockedBy: ["TM-164"]
+commits: ["a080ba8","c22a3b4"]
+blockedBy: []
 blocks: []
 actor: "main"
 session: "8e87dbc7-3321-4e05-8648-b64d7c6319bb"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-11T21:42:47.382Z"
+updated: "2026-09-12T06:48:49.915Z"
 labels: ["ready-for-agent","plugin:agent-orchestration"]
 type: "story"
 touches: ["agent-orchestration/tests","agent-orchestration/topology/cli.mjs","agent-orchestration/topology/lib/config.mjs","agent-orchestration/topology/lib/lead.mjs","agent-orchestration/topology/lib/standing-mailbox.mjs","agent-orchestration/topology/lib/startup.mjs","agent-orchestration/topology/lib/supervision.mjs"]

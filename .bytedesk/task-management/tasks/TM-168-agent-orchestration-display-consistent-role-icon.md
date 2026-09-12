@@ -8,14 +8,14 @@ title: "agent-orchestration: display consistent role icons on every orchestratio
 epic: "EP-019"
 acceptance: [{"text":"One pure role-visual registry returns the approved Unicode mapping for every built-in role, nested teams, and an unknown or custom-role fallback; agent definitions gain no icon field.","done":true,"at":"2026-09-11T21:36:06.760Z"},{"text":"Stored agents, inline workflow agents, durable role sessions, run agents, nested workflow participants, and unknown enrolled sessions all receive a computed roleIcon without rewriting existing agent.json files.","done":true,"at":"2026-09-11T21:36:06.931Z"},{"text":"Managed terminal title bars display the role icon with readable agent and role text while stable agent ids, session names, routing addresses, and provider-owned activity title data remain unchanged.","done":true,"at":"2026-09-11T21:36:07.173Z"},{"text":"CLI, run, census, and presence projections carry the same roleIcon; Presence v1 remains frozen and the new field is documented and tested as an additive extension.","done":true,"at":"2026-09-11T21:36:07.396Z"},{"text":"A linked task is sent to the owning GUI repository lead with the field contract and exact mapping, and browser acceptance proves the identical icon in both terminal title bars and GUI agent views before end-to-end completion is claimed.","done":false},{"text":"Icons are display-only, accompanied by accessible role text, never parsed for role or authority, and contain no user-controlled terminal escape data.","done":true,"at":"2026-09-11T21:36:07.589Z"},{"text":"Unit, real-tmux, presence-fixture, build, roadmap, installed-plugin, and user-facing browser tests pass.","done":false}]
 evidence: [".bytedesk/task-management/evidence/TM-168-W5-SURFACES.md",".bytedesk/task-management/evidence/TM-168-TM-185-LEAD-RUN-ICON.md",".bytedesk/task-management/evidence/TM-167-168-INTEGRATION.md"]
-commits: ["a080ba8","c22a3b4","7b5a96c","1edc3c8","fda63dd"]
-blockedBy: ["TM-164"]
+commits: ["a080ba8","c22a3b4","7b5a96c","1edc3c8","fda63dd","bba8fdd"]
+blockedBy: []
 blocks: []
 actor: "main"
 session: "8e87dbc7-3321-4e05-8648-b64d7c6319bb"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-12T06:47:25.244Z"
+updated: "2026-09-12T06:48:50.084Z"
 labels: ["ready-for-agent","plugin:agent-orchestration"]
 type: "story"
 touches: [".claude/worktrees/agent-a4f55b50b8c70bbad/task-management/tests/unit/pool-always-on.test.mjs",".claude/worktrees/agent-a4f55b50b8c70bbad/task-management/tests/unit/pool-ensure.test.mjs","agent-orchestration/session-ui","agent-orchestration/tests","agent-orchestration/topology/PRESENCE-HEADER-ADDENDUM.md","agent-orchestration/topology/cli.mjs","agent-orchestration/topology/lib/census.mjs","agent-orchestration/topology/lib/identity.mjs","agent-orchestration/topology/lib/launch.mjs","agent-orchestration/topology/lib/presence.mjs"]
