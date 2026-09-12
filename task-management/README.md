@@ -218,10 +218,17 @@ dispatched task reaching done resets the count, and only `.bytedesk/task-managem
 pause. A worker still running past `dispatch.maxRuntimeMinutes` (default 120) logs
 `worker_overrun` once — visibility, not a park; a long task is not a failed one.
 
-<!-- TM-180/TM-178: the pool's PROCESS MODEL (how the loop is started, how it detaches from a
-     session, and when it exits on idle) is being redesigned on the TM-178 branch and is
-     deliberately not described here yet. Write it, with `dispatch.idleExitMinutes`, against the
-     merged code once that lands — do not document a model nobody can run. -->
+**One pool per repository, detached from every session.** `.bytedesk/task-management/bin/tm pool
+ensure` starts a pool if none is live and exits; when one is already live it says so and starts
+nothing. The pool it starts is detached, so it outlives the session that asked for it, and a second
+session costs nothing. Four things ask: the `tm-pool` monitor at session start, the user-prompt
+hook, a `tm config dispatch.*` write, and saving the dashboard's settings — so turning the pool back
+on takes effect at once rather than at the next session. The pool's own output goes to `pool.log`
+in the store, since nothing is attached to its terminal.
+
+**It stops when there is nothing to do.** With no dispatched worker running and nothing it could
+pick up for `dispatch.idleExitMinutes` (default 60; `0` never), the pool exits and the next `ensure`
+starts a fresh one. A repo you are not working in therefore costs no process at all.
 
 **`.bytedesk/task-management/bin/tm collect <id>` is how the result comes back.** Dispatch records `dispatched:
 {backend, run}` on the task; each backend's collector reads its own completion signal — an

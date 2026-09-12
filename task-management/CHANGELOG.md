@@ -688,6 +688,21 @@ is Claude-side versionless, so every commit reaches consumers by resolved SHA
   renders as "Commits / PRs", rather than a field invented for it. A missing `gh`, an
   unauthenticated one, a branch with no PR or any error records nothing and never fails the
   collect; the lookup is unit-tested through an injected exec and never runs real `gh`.
+- **The pool is on by default, and runs as one detached pool per repository** (TM-178).
+  `poolEnabled(cfg)` is the single on/off test — on unless `dispatch.enabled === false` — used by
+  the loop, the tick and `tm pool status`, so the daemon and the verbs can no longer disagree.
+  - **`tm pool ensure`** starts a pool when none is live and exits; it is a no-op when one is live
+    or the pool is off. The pool it starts is detached and outlives the session that asked, so a
+    second session costs nothing. `tm pool run --auto` is now an alias of `ensure`, so a cached
+    `monitors.json` still asks rather than becomes the pool.
+  - **Four callers ask:** the `tm-pool` monitor at session start, the user-prompt hook, a
+    `tm config dispatch.*` write and the dashboard settings save — so re-enabling takes effect at
+    once rather than at the next session.
+  - **It exits when idle:** no dispatched worker and nothing to pick up for
+    `dispatch.idleExitMinutes` (default 60; `0` never). Its state lines go to `pool.log`, since
+    nothing is attached to its terminal.
+  - **The label alone never dispatches:** every candidate is re-checked against `agentReadiness`,
+    and one that fails is skipped with the missing fields named, without counting against the brake.
 - **ADR-0012 — "Agent-first automation: auto-label readiness, pool on by default, guarded
   workers, PR finish line"** records the decision behind this wave: agents execute, humans decide,
   and the boundary is enforced by a computed label, a veto a machine cannot clear, and a guard

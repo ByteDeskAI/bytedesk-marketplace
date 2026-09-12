@@ -186,6 +186,7 @@ result frees its slot. Per-backend ceilings: `dispatch.backendCaps`, e.g. `{"tmu
 ```
 .bytedesk/task-management/bin/tm pool once              # one tick
 .bytedesk/task-management/bin/tm pool once --dry-run    # show what it would pick
+.bytedesk/task-management/bin/tm pool ensure            # start one if none is live, then exit
 .bytedesk/task-management/bin/tm pool start             # daemon; pid in pool.pid
 .bytedesk/task-management/bin/tm pool status
 .bytedesk/task-management/bin/tm pool stop
@@ -207,10 +208,20 @@ shows in `tm pool status`. Only a dispatched task reaching done resets the count
 `tm pool resume` clears the pause. A worker past `dispatch.maxRuntimeMinutes` (default 120)
 logs `worker_overrun` once — visibility, not a park.
 
-<!-- TM-180/TM-178: the pool's PROCESS MODEL — how the loop is started, how it detaches from
-     a session, and when it exits on idle (`dispatch.idleExitMinutes`) — is being redesigned
-     on the TM-178 branch. Document it here against the merged code once that lands. Do not
-     describe a model that cannot be run. -->
+**The process model: one detached pool per repository.**
+
+| Verb | What it does |
+|---|---|
+| `tm pool ensure` | Start a pool if none is live, then exit. A no-op when one is live (`pool: running (pid N)`) or the pool is off (`pool: off (dispatch.enabled false)`). |
+| `tm pool run` | The loop itself, in the foreground. `run --auto` is an alias of `ensure`, so a cached `monitors.json` from before this change still asks rather than becomes the pool. |
+| `tm pool start` / `stop` | Explicit control, unchanged. |
+
+The pool `ensure` starts is detached: it outlives the session that asked, so a second session adds
+no process. Callers of `ensure` are the `tm-pool` monitor at session start, the user-prompt hook,
+a `tm config dispatch.*` write and the dashboard's settings save — which is how re-enabling takes
+effect immediately. Its state lines go to `pool.log` in the store, and it exits after
+`dispatch.idleExitMinutes` (default 60; `0` never) with no dispatched worker and nothing to pick
+up. The next `ensure` starts a fresh one.
 
 No MCP / HTTP verb — drive it from the CLI or the plugin monitor.
 

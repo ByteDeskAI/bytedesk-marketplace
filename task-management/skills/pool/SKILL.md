@@ -1,8 +1,8 @@
 ---
 name: pool
-description: The pickup loop that dispatches ready-for-agent tasks, on by default — tm pool once|start|stop|status|resume, the tm-pool monitor, dispatch.enabled / poolWip / pollSeconds / maxFailures. Use when the user says "start the worker pool", "stop the pool", "pick up ready-for-agent work", "run the dispatch loop", "the pool is paused", "/pool", or many ready cards should drain without one-shot dispatch.
+description: The pickup loop that dispatches ready-for-agent tasks, on by default, as one detached pool per repository — tm pool once|ensure|start|stop|status|resume, the tm-pool monitor, dispatch.enabled / poolWip / pollSeconds / maxFailures / idleExitMinutes. Use when the user says "start the worker pool", "stop the pool", "pick up ready-for-agent work", "run the dispatch loop", "the pool is paused", "is the pool running", "/pool", or many ready cards should drain without one-shot dispatch.
 user-invokable: true
-argument-hint: "[once|start|stop|status|resume] [--dry-run]"
+argument-hint: "[once|ensure|start|stop|status|resume] [--dry-run]"
 ---
 
 # Pool
@@ -24,14 +24,19 @@ skill to check on it, stop it, or clear its brake. For a single card, [[dispatch
 .bytedesk/task-management/bin/tm pool once --dry-run             # what would it pick
 .bytedesk/task-management/bin/tm pool once
 .bytedesk/task-management/bin/tm pool resume                     # clear the brake
+.bytedesk/task-management/bin/tm pool ensure                     # start one if none is live, then exit
 .bytedesk/task-management/bin/tm pool start
 .bytedesk/task-management/bin/tm pool stop
 .bytedesk/task-management/bin/tm config dispatch.enabled false   # turn it off for this repo
 ```
 
-No MCP or HTTP verb. The plugin monitor `tm-pool` runs `tm pool run --auto`.
-Config is re-read every poll, so `dispatch.enabled false` stops a running pool
-within one poll; `TM_ENFORCE=off` also no-ops a tick.
+No MCP or HTTP verb. The plugin monitor `tm-pool` runs `tm pool ensure` at
+session start, and so do the user-prompt hook, a `tm config dispatch.*` write and
+the dashboard settings save — one **detached** pool per repository, outliving the
+session that asked, so extra sessions cost nothing. Config is re-read every poll,
+so `dispatch.enabled false` stops a running pool within one poll;
+`TM_ENFORCE=off` also no-ops a tick. The pool's state lines go to `pool.log` in
+the store.
 
 **A label is not a go-ahead by itself.** Every candidate is re-checked against
 `agentReadiness`, so a task missing its body, criteria or epic — or vetoed by a
@@ -41,13 +46,15 @@ person with `ready-for-human` — is skipped with the reason named.
 (default 3), or one quota/rate-limit failure. Only a dispatched task reaching
 done resets the count, and only `tm pool resume` clears the pause.
 
+**It exits when idle** — no dispatched worker and nothing to pick up for
+`dispatch.idleExitMinutes` (default 60; `0` never). That is not a fault: the next
+`ensure` starts a fresh one, so a repo nobody is working in costs no process.
+
 Config: `dispatch.enabled` (true), `dispatch.poolWip` (3),
 `dispatch.pollSeconds` (30), `dispatch.maxFailures` (3),
-`dispatch.maxRuntimeMinutes` (120), `dispatch.backendCaps` (e.g. `{"tmux":2}`),
-`dispatch.backends`. Probe hosts with [[caps]] first.
-
-<!-- TM-180/TM-178: the pool's process model (how it is started, how it detaches,
-     idle exit) is being redesigned; document it here once that branch merges. -->
+`dispatch.maxRuntimeMinutes` (120), `dispatch.idleExitMinutes` (60),
+`dispatch.backendCaps` (e.g. `{"tmux":2}`), `dispatch.backends`. Probe hosts with
+[[caps]] first.
 
 ## After it runs
 
