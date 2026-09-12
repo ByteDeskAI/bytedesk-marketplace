@@ -707,11 +707,22 @@ is Claude-side versionless, so every commit reaches consumers by resolved SHA
   workers, PR finish line"** records the decision behind this wave: agents execute, humans decide,
   and the boundary is enforced by a computed label, a veto a machine cannot clear, and a guard
   that ends a worker's run at a PR.
-- <!-- TM-180: PLACEHOLDER, not shipped in this commit. TM-179 (a pool card on the dashboard —
-     running, paused with its reason, workers against the cap, ready count — and readiness with
-     `triageMissing` surfaced in `tm why`) is not in this tree: `dashboard/src` has no pool
-     surface and `tm why` does not read triageMissing. Write this entry against that code when it
-     lands, rather than announcing a feature nobody can open. -->
+- **The pool and readiness are visible without reading the code** (TM-179).
+  - **`tm why <id>` answers the agent question too.** Every unresolved task gets a `→` line from the
+    same `agentReadiness` the pool runs: ready, not ready with the missing fields named, or triaged
+    by a person. It is reported beside the blockers, never as one — `reasons` keeps its meaning
+    ("what is holding this up") and a startable task still has none. In `--json` it is the new
+    `readiness` field: `{ ready, missing, human, text }`.
+  - **`GET /api/pool`** returns exactly what `tm pool status --json` prints, from one shared
+    `poolStatus` in `lib/dispatch/pool.mjs` — running, pid, enabled, poolWip, pollSeconds,
+    idleExitMinutes, log path, workers, ready count, and the brake's paused state and failure count.
+    Read-only: it starts no pool. The CLI verb now calls the same function, so the terminal and the
+    board cannot disagree about what "paused" or "ready" means.
+  - **Not shipped here:** the dashboard's own pool card. `dashboard/` builds from a private npm
+    registry and has no installed dependencies in this tree, so the React surface is tracked
+    separately rather than half-written. `pool_paused` and `worker_overrun` are already in the ntfy
+    catalog; there is no `task_auto_triaged` event — an auto label change appears in that task's
+    `update` event, in its patched-field list.
 
 ### Changed
 - **The pool is on by default** (TM-178). `dispatch.enabled` defaults to `true`; a repo turns the

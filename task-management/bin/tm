@@ -74,7 +74,7 @@ import { getPath, setPath } from "../lib/settings.mjs";
 import { dispatch as dispatchTask } from "../lib/dispatch/index.mjs";
 import { envRegistry } from "../lib/dispatch/backend.mjs";
 import { collect as collectResult } from "../lib/dispatch/collect.mjs";
-import { ensurePool, livePool, poolEnabled, poolLine, poolLogFile, poolTick, poolWorkers, poolable, readPoolState, resumePool, runPool, stopPool } from "../lib/dispatch/pool.mjs";
+import { ensurePool, livePool, poolEnabled, poolLine, poolLogFile, poolStatus, poolTick, poolWorkers, poolable, readPoolState, resumePool, runPool, stopPool } from "../lib/dispatch/pool.mjs";
 
 /** This file, as an argv element — `pool start` re-executes it detached. */
 const SELF = fileURLToPath(import.meta.url);
@@ -1444,27 +1444,12 @@ const VERBS = {
       return out(prior.pausedReason ? `pool resumed — it was paused: ${prior.pausedReason}` : `pool was not paused — failure count reset (was ${prior.failures})`);
     }
     if (action === "status") {
-      const inst = livePool(P);
-      const cfg = config(P);
-      const brake = readPoolState(P);
-      const res = {
-        running: Boolean(inst),
-        pid: inst?.pid ?? null,
-        started: inst?.started ?? null,
-        enabled: poolEnabled(cfg),
-        poolWip: Number(cfg.dispatch?.poolWip ?? 3),
-        idleExitMinutes: Number(cfg.dispatch?.idleExitMinutes ?? 60),
-        log: poolLogFile(P),
-        workers: poolWorkers(P).length,
-        poolable: poolable(P).length,
-        paused: Boolean(brake.pausedReason),
-        pausedReason: brake.pausedReason,
-        pausedAt: brake.pausedAt,
-        failures: brake.failures,
-      };
-      const head = inst ? `pool running (pid ${inst.pid}, started ${inst.started || "?"})` : res.enabled ? "(no pool running)" : "pool off (dispatch.enabled false)";
+      // One shape, shared with GET /api/pool (lib/dispatch/pool.mjs poolStatus) so the terminal and
+      // the board cannot disagree about what "paused" or "ready" means.
+      const res = poolStatus(P);
+      const head = res.running ? `pool running (pid ${res.pid}, started ${res.started || "?"})` : res.enabled ? "(no pool running)" : "pool off (dispatch.enabled false)";
       const line = `${head} — ${res.workers}/${res.poolWip} workers, ${res.poolable} ready`;
-      return emit(res, () => (res.paused ? `${line}\npaused: ${brake.pausedReason} (since ${brake.pausedAt}) — tm pool resume` : line));
+      return emit(res, () => (res.paused ? `${line}\npaused: ${res.pausedReason} (since ${res.pausedAt}) — tm pool resume` : line));
     }
     die(`unknown pool action: ${action} (once | ensure | start | stop | status | resume [--dry-run])`);
   },
