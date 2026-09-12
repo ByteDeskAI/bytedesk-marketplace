@@ -559,6 +559,35 @@ export async function runPool({ p = paths(), intervalSeconds = null, registry = 
   return { ok: true, stopped: stopping, ...(disabled ? { disabled: true, reason: "dispatch.enabled is false" } : {}) };
 }
 
+/**
+ * What the pool is doing, as data (TM-179).
+ *
+ * One shape for every surface — the `tm pool status` verb and the dashboard's `GET /api/pool` both
+ * return exactly this, so a field can never mean one thing in the terminal and another on the
+ * board. Read-only: it starts nothing and writes nothing.
+ */
+export function poolStatus(p = paths()) {
+  const inst = livePool(p);
+  const cfg = config(p);
+  const brake = readPoolState(p);
+  return {
+    running: Boolean(inst),
+    pid: inst?.pid ?? null,
+    started: inst?.started ?? null,
+    enabled: poolEnabled(cfg),
+    poolWip: Number(cfg.dispatch?.poolWip ?? 3),
+    pollSeconds: Number(cfg.dispatch?.pollSeconds ?? 30),
+    idleExitMinutes: Number(cfg.dispatch?.idleExitMinutes ?? 60),
+    log: poolLogFile(p),
+    workers: poolWorkers(p).length,
+    poolable: poolable(p).length,
+    paused: Boolean(brake.pausedReason),
+    pausedReason: brake.pausedReason,
+    pausedAt: brake.pausedAt,
+    failures: brake.failures,
+  };
+}
+
 /** The one line a session starts with: is the pool on, who runs it, how much work, and the switch. */
 export function poolLine(p = paths()) {
   if (!poolEnabled(config(p))) return "pool: off (dispatch.enabled false) — tm config dispatch.enabled true";

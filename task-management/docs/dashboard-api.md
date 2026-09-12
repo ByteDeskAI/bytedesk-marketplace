@@ -158,6 +158,7 @@ Legend: **R** read · **W** write · **G** gated write (409 possible).
 | `GET /api/sessions` R | — | `{ harness:"claude"\|"codex"\|"grok"\|"kimi"\|null, sessions:[{ session, actor, tasks:[ids], worktree, branch, ts, live }] }` grouped from claims; `live = !expired(claim)` | 200 | `harness/sessions.currentHarness`, `claims.expired` |
 | `GET /api/caps` R | — | the `detectHostCaps()` report: `{ backends:{topology,orchestration,tmux,manual}, clis, sandbox }` — what this host can dispatch work to (`tm caps` as JSON) | 200 | `hostcaps.detectHostCaps` |
 | `GET /api/agents` R | — | `{ agents:[{ name, harness, backend, runId, pid, session, registeredAt, heartbeatAt, status, alive }] }` — the dispatched-worker registry, liveness derived | 200 | `agents.listAgents` |
+| `GET /api/pool` R | — | `{ running, pid, started, enabled, poolWip, pollSeconds, idleExitMinutes, log, workers, poolable, paused, pausedReason, pausedAt, failures }` — exactly what `tm pool status --json` prints, from the same `dispatch/pool.mjs poolStatus`. Read-only: it starts no pool | 200 | `dispatch/pool.poolStatus` |
 | `GET /api/parallel` R | `epic` | `{ batches:[{ tasks:[ids], touches:[paths] }] }` | 200 | new `lib/parallel.mjs batches` (lifted from `bin/tm:1139-1157`) |
 | `GET /api/stale` R | — | `{ minutes, tasks:[ids] }` | 200 | `store.staleTasks` (`lib/store.mjs:1311`), `config.staleMinutes` |
 

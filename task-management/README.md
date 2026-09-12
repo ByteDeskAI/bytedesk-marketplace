@@ -383,6 +383,14 @@ chain:
 start here: TM-003
 ```
 
+**It also answers the other question — would an agent take this?** Every unresolved task gets a
+`→` line carrying the pool's own verdict, from the same `agentReadiness` check the pool runs on each
+candidate: `→ ready for an agent`, `→ not ready for an agent: acceptance criteria, epic`, or
+`→ triaged by a person` when someone set or cleared the triage label themselves. It is reported
+beside the blockers, never as one: a task you can start by hand stays startable whatever the pool
+thinks. In `--json` it is the `readiness` field (`{ ready, missing, human, text }`), and `reasons`
+keeps its old meaning — what is holding this up.
+
 It answers for every reason a start would be refused, not just dependencies: a claim another
 session holds, a hand-written `.bytedesk/task-management/bin/tm block` reason, the WIP limit, a dependency cycle, or a
 `blockedBy` pointing at a task that doesn't exist. `parked` is reported but **not** counted as
