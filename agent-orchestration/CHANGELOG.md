@@ -2,6 +2,33 @@
 
 ## [Unreleased]
 
+### Added
+
+- **A control seam a gateway can drive (gateway TM-304, EP-023).**
+  - `agent-orchestration session-open --run-id <id> [--no-browser] [--json]` returns the run's
+    loopback capability URL. `--no-browser` skips `xdg-open`, which on a remote host opens a window
+    nobody is in front of; `--json` prints the whole session record instead of the bare URL.
+    Nothing about the session widens: 127.0.0.1, a 32-byte capability, ten minutes, one exchange.
+  - The verb refuses before minting rather than after: `AO_RUN_NOT_FOUND` / `AO_INVALID_RUN_ID` for a
+    run that does not exist, and a new `AO_SESSION_HOST_NOT_DURABLE` when the only session host is the
+    in-process one, whose URL would stop answering the moment the command exits. Start a durable host
+    with `agent-orchestration session-host`.
+  - `POST /api/runs/{runId}/decision` accepts an `actor` label, recorded as the approval's `by`
+    (trimmed to one line, capped at 120 characters, defaulting to `operator`). A gateway forwarding
+    an operator's approval can now name that operator. `by_attested` still describes the channel,
+    which is the only part this process can verify.
+- **Every run records where it came from (gateway TM-304, EP-023).**
+  - The snapshot gains `launcher`: `kind` (`gateway-tab`, `tmux` or `agent`), the gateway tab id and
+    session, the tmux pane and server socket, and the conductor — `ao-topology` agent id, role,
+    session and topology run. It is `null` when nothing identifies a launcher, so "started from
+    somewhere we cannot name" never reads as a binding we failed to record.
+  - `parentRunId` is now filled in for a run spawned from inside a worker, from
+    `AGENT_ORCHESTRATION_CURRENT_WORKER_RUN_ID`, so the run tree reflects the real delegation.
+  - Both are read from the launching process's environment, never from tool input: `spawn` arrives
+    from the very agent being recorded, so an input field would be that agent's claim about itself.
+  - A reader can open the exact terminal a run was launched from instead of matching working
+    directories and calling the result a "likely launcher".
+
 ## [0.9.0] — 2026-09-11
 
 ### Added

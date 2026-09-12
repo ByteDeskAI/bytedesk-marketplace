@@ -8,6 +8,8 @@ import { invariant } from "./errors.mjs";
 
 const execFile = promisify(execFileCallback);
 
+const CONTROL_CHARACTERS = /[\x00-\x1f\x7f]/g;
+
 /** process.cwd() throws when the directory has been deleted under a long-lived process. */
 export function safeCwd() {
   try { return process.cwd(); } catch { return null; }
@@ -48,6 +50,19 @@ export async function assertDirectory(path, fieldName = "path") {
 
 export async function canonicalPath(path) {
   return realpath(path);
+}
+
+/**
+ * A bounded, single-line label, or null when there is nothing to record.
+ *
+ * Used for the few free-text identities a run carries — who approved it, which tab launched it.
+ * Each arrives from outside and is read back by another program's UI, so it is trimmed of control
+ * characters and capped here rather than at every call site.
+ */
+export function oneLineLabel(value, max = 200) {
+  if (typeof value !== "string") return null;
+  const text = value.replace(CONTROL_CHARACTERS, "").trim();
+  return text ? text.slice(0, max) : null;
 }
 
 export function sha256(value) {

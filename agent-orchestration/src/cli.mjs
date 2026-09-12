@@ -14,6 +14,8 @@ async function main() {
       "state-root": { type: "string" },
       "run-id": { type: "string" },
       "consumer-cwd": { type: "string" },
+      "no-browser": { type: "boolean" },
+      json: { type: "boolean" },
     },
     allowPositionals: true,
   });
@@ -44,11 +46,20 @@ async function main() {
     process.stdout.write(`${JSON.stringify(await service.doctor(), null, 2)}\n`);
     return;
   }
+  if (command === "session-open") {
+    if (!values["run-id"]) throw new Error("--run-id is required");
+    // The control seam: a caller that already holds the host's trust (the gateway, acting for a
+    // signed-in operator) needs the capability URL itself, not a browser window on this machine.
+    // Everything the URL grants is unchanged — loopback only, one exchange, ten minutes.
+    const session = await service.openRunSession(values["run-id"], { openBrowser: !values["no-browser"], requireDurableHost: true });
+    process.stdout.write(values.json ? `${JSON.stringify(session, null, 2)}\n` : `${session.url}\n`);
+    return;
+  }
   if (command === "status") {
     process.stdout.write(`${JSON.stringify(await service.getRun({ runId: values["run-id"], consumerCwd: values["consumer-cwd"] }), null, 2)}\n`);
     return;
   }
-  throw new Error("Usage: agent-orchestration <worker|doctor|status> [options]");
+  throw new Error("Usage: agent-orchestration <worker|doctor|status|session-open|session-host> [options]");
 }
 
 main().catch((error) => {

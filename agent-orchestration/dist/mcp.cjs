@@ -31986,6 +31986,7 @@ var import_node_path2 = require("node:path");
 var import_promises2 = require("node:timers/promises");
 var import_node_util = require("node:util");
 var execFile = (0, import_node_util.promisify)(import_node_child_process.execFile);
+var CONTROL_CHARACTERS = /[\x00-\x1f\x7f]/g;
 function safeCwd() {
   try {
     return process.cwd();
@@ -32023,6 +32024,11 @@ async function assertDirectory(path3, fieldName = "path") {
 }
 async function canonicalPath(path3) {
   return (0, import_promises.realpath)(path3);
+}
+function oneLineLabel(value, max = 200) {
+  if (typeof value !== "string") return null;
+  const text = value.replace(CONTROL_CHARACTERS, "").trim();
+  return text ? text.slice(0, max) : null;
 }
 function sha256(value) {
   return (0, import_node_crypto3.createHash)("sha256").update(value).digest("hex");
@@ -32438,7 +32444,7 @@ var RunStore = class {
       return existing ?? this.createUnlocked(params);
     });
   }
-  async createUnlocked({ input, consumer, plan, idempotencyKey = null, parentRunId = null }) {
+  async createUnlocked({ input, consumer, plan, idempotencyKey = null, parentRunId = null, launcher = null }) {
     const runId = newId("run");
     await (0, import_promises4.mkdir)(this.runDir(runId), { recursive: false, mode: 448 });
     const now = (/* @__PURE__ */ new Date()).toISOString();
@@ -32452,6 +32458,7 @@ var RunStore = class {
       cancelRequestedAt: null,
       idempotencyKey,
       parentRunId,
+      launcher,
       input,
       consumer,
       plan,
@@ -32627,6 +32634,37 @@ var RunStore = class {
     return event;
   }
 };
+
+// src/launcher.mjs
+var RUN_ID2 = /^run_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+var MAX_PATH = 1024;
+function parentRunIdFromEnv(env = process.env) {
+  const id = oneLineLabel(env.AGENT_ORCHESTRATION_CURRENT_WORKER_RUN_ID);
+  return id && RUN_ID2.test(id) ? id : null;
+}
+function launcherBinding(env = process.env) {
+  const binding = {
+    kind: "unknown",
+    // The gateway sets both on the tmux session backing one of its tabs; the tab id is what makes a
+    // jump exact rather than a search.
+    tabId: oneLineLabel(env.BYTEDESK_EMOTE_GATEWAY_TAB_ID),
+    tabSession: oneLineLabel(env.BYTEDESK_EMOTE_GATEWAY_TAB_SESSION),
+    tmuxPane: oneLineLabel(env.TMUX_PANE),
+    // "/tmp/tmux-1000/default,2760865,363" — the socket, then the server pid and session id. Two
+    // panes with the same id on different servers are different panes.
+    tmuxServer: oneLineLabel(String(env.TMUX ?? "").split(",")[0]),
+    // The conductor: which standing agent asked for this run, in which role and session.
+    agentId: oneLineLabel(env.AO_AGENT_ID),
+    agentRole: oneLineLabel(env.AO_AGENT_ROLE),
+    agentSession: oneLineLabel(env.AO_SESSION),
+    // The topology run that agent belongs to. `ao-topology` hands every agent the run it should name
+    // as the parent of anything it launches, so this is the delegation link, not a guess.
+    topologyRunId: oneLineLabel(env.AO_PARENT_RUN_ID),
+    topologyRunDir: oneLineLabel(env.AO_PARENT_RUN_DIR, MAX_PATH)
+  };
+  binding.kind = binding.tabId ? "gateway-tab" : binding.tmuxPane ? "tmux" : binding.agentId ? "agent" : "unknown";
+  return binding.kind === "unknown" ? null : binding;
+}
 
 // src/runtime/engine.mjs
 var import_node_path12 = require("node:path");
@@ -45227,7 +45265,7 @@ var TYPES = {
   ".svg": "image/svg+xml",
   ".json": "application/json; charset=utf-8"
 };
-var RUN_ID2 = /^run_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+var RUN_ID3 = /^run_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function send(res, status, body, headers = {}) {
   const isJson = typeof body === "object" && body !== null && !Buffer.isBuffer(body);
   const payload = isJson ? JSON.stringify(body) : body;
@@ -45393,7 +45431,7 @@ async function exchangeCapability(stateRoot2, token, res) {
   const dir = (0, import_node_path18.join)(stateRoot2, "runs");
   const names = await (0, import_promises15.readdir)(dir).catch((error51) => error51?.code === "ENOENT" ? [] : Promise.reject(error51));
   let matched = null;
-  for (const runId of names.filter((name) => RUN_ID2.test(name))) {
+  for (const runId of names.filter((name) => RUN_ID3.test(name))) {
     const meta3 = await readSessionMeta(stateRoot2, runId);
     if (meta3?.tokenHash && hashesEqual(meta3.tokenHash, tokenHash)) {
       matched = { runId, meta: meta3 };
@@ -45903,7 +45941,11 @@ var OrchestrationService = class {
         },
         consumer: prepared.consumer,
         plan: prepared.plan,
-        idempotencyKey: input.idempotencyKey ?? null
+        idempotencyKey: input.idempotencyKey ?? null,
+        // Both read from this process's environment rather than from `input`: the caller is the
+        // agent being recorded, so its own claim about its parent or its terminal is worth nothing.
+        parentRunId: parentRunIdFromEnv(),
+        launcher: launcherBinding()
       });
       const launchedRun = run.state === "queued" ? await this.launchWorker(run.runId) ?? await this.store.get(run.runId) : run;
       const session = await this.openRunSession(launchedRun.runId);
@@ -45915,6 +45957,9 @@ var OrchestrationService = class {
       port: live.port,
       hostNonce: live.hostNonce,
       bind: live.bind,
+      // Owned by another process, so it outlives this one. The in-process fallback below does not,
+      // and a short-lived caller has to be able to tell the difference before handing out a URL.
+      external: true,
       close: async () => {
       }
     };
@@ -45935,11 +45980,14 @@ var OrchestrationService = class {
       } catch {
       }
     }
-    this.sessionHost = await startSessionHost({
-      stateRoot: this.stateRoot,
-      uiRoot: this.sessionUiRoot,
-      controls: this.sessionControls()
-    });
+    this.sessionHost = {
+      ...await startSessionHost({
+        stateRoot: this.stateRoot,
+        uiRoot: this.sessionUiRoot,
+        controls: this.sessionControls()
+      }),
+      external: false
+    };
     return this.sessionHost;
   }
   sessionControls() {
@@ -45949,8 +45997,14 @@ var OrchestrationService = class {
       decide: (runId, body) => this.sessionDecide(runId, body)
     };
   }
-  async openRunSession(runId) {
+  async openRunSession(runId, { openBrowser = true, requireDurableHost = false } = {}) {
+    await this.store.get(runId);
     const host = await this.ensureSessionHost();
+    invariant(
+      !requireDurableHost || host.external === true,
+      "AO_SESSION_HOST_NOT_DURABLE",
+      "No session host outlives this command, so the capability URL would die with it. Start one with `agent-orchestration session-host` and retry."
+    );
     const cap = mintCapability();
     await writeSessionMeta(this.stateRoot, runId, {
       tokenHash: cap.tokenHash,
@@ -45959,8 +46013,8 @@ var OrchestrationService = class {
       hostNonce: host.hostNonce
     });
     const url2 = capabilityUrl(host.port, cap.token);
-    const opened = await openSessionBrowser(url2);
-    return { url: url2, port: host.port, expiresAt: cap.expiresAt, opened, bind: host.bind };
+    const opened = openBrowser ? await openSessionBrowser(url2) : false;
+    return { url: url2, port: host.port, expiresAt: cap.expiresAt, opened, bind: host.bind, hostExternal: host.external === true };
   }
   async sessionForRun(runId) {
     const host = await this.ensureSessionHost();
@@ -46080,7 +46134,11 @@ var OrchestrationService = class {
       consumerCwd: run.consumer.checkoutRoot ?? run.consumer.requestedCwd,
       approved: Boolean(body.approved),
       rationale: typeof body.rationale === "string" ? body.rationale.slice(0, 500) : "",
-      approvedBy: "operator"
+      // The label of whoever held the capability token: "operator" when the session UI is driven by
+      // hand, the signed-in gateway operator when the gateway drives it on their behalf. The label
+      // is not attested — nothing here can verify a name — but the channel it arrived on is, which
+      // is the difference `by_attested` records.
+      approvedBy: oneLineLabel(body.actor, 120) ?? "operator"
       // Second argument, deliberately: `via` is the one thing about an approval that is not the
       // caller's to state. The MCP tool handler forwards exactly one argument — the validated input —
       // so this channel cannot be claimed from outside the process, while an input field named `via`

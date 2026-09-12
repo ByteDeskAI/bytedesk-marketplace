@@ -3,10 +3,10 @@
   "hashAlgorithm": "sha256",
   "files": {
     "src/cli.mjs": {
-      "sha256": "b9a9a60530c3ea43d262ef46b64e3af2f09ce41efa3171bde7a3bfd3628d6450",
-      "lineCount": 58,
+      "sha256": "33dd7a30ea32e404af861473ae377c15e6fc588c5d9321e9e4974d7d0ba373d8",
+      "lineCount": 69,
       "anchors": [
-        "Usage: agent-orchestration <worker|doctor|status> [options]"
+        "Usage: agent-orchestration <worker|doctor|status|session-open|session-host> [options]"
       ]
     },
     "src/errors.mjs": {
@@ -142,8 +142,8 @@
       ]
     },
     "src/service.mjs": {
-      "sha256": "321040d209f8d75a2d86ba32c4e0fa1aaa2aba3dd28ea17c358baaa89ef26bac",
-      "lineCount": 683,
+      "sha256": "ffdc7fe7b4ea8f0bca09daafa994ff9418910ada4d82f4e41b0434ce20eb68f8",
+      "lineCount": 706,
       "anchors": [
         "async cancel(",
         "async decision(",
@@ -162,8 +162,8 @@
       ]
     },
     "src/state/store.mjs": {
-      "sha256": "fc7e3ddb17bd6bc57b4f0dfd3e1dc80b2d07869ef71f46c904e4f348e3d91ee1",
-      "lineCount": 379,
+      "sha256": "05e49d4ca17b6883305d315113f901f9b68e2dc3b1bf3312400a37a3cb8a4658",
+      "lineCount": 380,
       "anchors": [
         "async appendEventUnlocked(",
         "async createUnlocked(",
