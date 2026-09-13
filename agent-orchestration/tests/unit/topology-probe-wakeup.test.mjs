@@ -282,3 +282,57 @@ test("a readiness SCREEN answers from disk and mints nothing", async () => {
   const lead = await readFile(new URL("../../topology/lib/lead.mjs", import.meta.url), "utf8");
   assert.match(lead, /if \(!\(ackTimeoutMs > 0\)\)/, "and the library has to honour it, or the caller's intent is decorative");
 });
+
+// ── TM-187: the probe expired at the same instant the wait gave up ───────────
+// TM-161 raised the timeout and taught `lateAck` to accept an answer that arrived after the wait
+// returned. Both were correct, and on a live pane the late path still never fired — because the
+// probe's `expires_at` and the waiter's `deadline` are the SAME expression (`Date.now() + ackTimeoutMs`),
+// computed microseconds apart. So at the moment the wait gives up, the probe is already expired, and
+// the `sweepExpired` on the very next line deletes it. "The probe now OUTLIVES this wait" described
+// an intent the arithmetic denied; the late-ack window was zero-width.
+//
+// Observed live, 2026-09-11: `lead ack <nonce>` returned {"ok":true} against a live probe, and one
+// second later both files were gone with `<agent>.answered.json` untouched — a correct, prompt
+// answer destroyed without being counted. Measured here by running the real minting path, not by
+// reading the source: what is asserted is WHICH files survive the wait, not merely that it failed.
+test("a probe outlives its own wait, so a lead can still answer at its next turn boundary", async () => {
+  const lead = await import("../../topology/lib/lead.mjs");
+  assert.equal(typeof lead.responsiveForTest, "function", "the real minting path has to be reachable, or this test proves nothing");
+  const home = await probeDir();
+  const dir = path(home, "probes");
+  const record = { repo_id: "repo-1", agent_id: "lead0187", session: "ao-lead0187", pane: "%0", binding: { paneId: "%0" } };
+
+  const before = Date.now();
+  assert.equal(await lead.responsiveForTest(record, 300, { registryDir: home }), false, "nobody acked inside the wait");
+  const waited = Date.now() - before;
+  assert.ok(waited >= 300, `the wait must actually elapse; it returned after ${waited}ms`);
+
+  // The value, not the bit: WHICH files are left, and what expiry the survivor carries.
+  const left = (await list(dir)).filter(n => n.endsWith(".json") && !n.endsWith(".answered.json"));
+  assert.equal(left.length, 1, `the probe must survive the wait for a late ack to be possible; found ${JSON.stringify(left)}`);
+  const probe = JSON.parse(await readFile(path(dir, left[0]), "utf8"));
+  assert.ok(Number(probe.expires_at) > Date.now(), "and it must still be inside its own expiry, or `leadNonceAck` refuses the answer");
+
+  // The lead answers at its next boundary, exactly as `leadNonceAck` writes it.
+  const nonce = left[0].slice(0, -".json".length);
+  await write(path(dir, `${nonce}.ack.json`), JSON.stringify({ nonce, repo_id: record.repo_id, agent_id: record.agent_id }));
+  assert.equal(await lead.lateAckForTest(dir, record), nonce, "and that answer is counted, not discarded");
+});
+
+test("an ack whose probe is already gone is discarded LOUDLY, never in silence", async () => {
+  // Rule 5 of .claude/rules/verification-that-can-fail.md: the refusal is the informative output.
+  // Discarding is the right call — with the probe gone, timeliness cannot be proven — but a silent
+  // discard is indistinguishable from a lead that never answered at all, which is the reading that
+  // sent a responsive lead to the board as `unresponsive`.
+  const { lateAckForTest } = await import("../../topology/lib/lead.mjs");
+  const home = await probeDir();
+  const dir = path(home, "probes");
+  const record = { repo_id: "repo-1", agent_id: "lead0187" };
+  const nonce = "abcdabcd-1111-2222-3333-444444444444";
+  await write(path(dir, `${nonce}.ack.json`), JSON.stringify({ nonce, repo_id: record.repo_id, agent_id: record.agent_id }));
+
+  const said = [];
+  assert.equal(await lateAckForTest(dir, record, (line) => said.push(line)), null, "an orphan ack is not proof");
+  assert.deepEqual((await list(dir)).filter(n => n.startsWith(nonce)), [], "and it is cleaned up rather than left to be replayed");
+  assert.ok(said.some(line => line.includes(nonce)), `the discard must name the nonce it dropped; said ${JSON.stringify(said)}`);
+});

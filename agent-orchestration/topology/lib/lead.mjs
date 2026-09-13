@@ -39,7 +39,7 @@ import { dirname, join } from "node:path";
 import { agentDirs, createAgent, findLead, requireAgent } from "./agents.mjs";
 import { findTemplate, loadConfig } from "./config.mjs";
 import { displayName } from "./identity.mjs";
-import { composerFormat, wakeForProbe } from "./delivery.mjs";
+import { composerFormat, LATE_ACK_GRACE_MS, wakeForProbe } from "./delivery.mjs";
 import { openRoleSession, roleSessionName, tmuxFailureTrigger } from "./launch.mjs";
 import { withLock } from "./lockfile.mjs";
 import { composePrompt, promptErrorDetail } from "./prompts.mjs";
@@ -130,7 +130,7 @@ async function defaultResponsive(record, ackTimeoutMs, { registryDir, log = () =
   // new nonce, look for an ack against a probe still inside its own expiry — that is a lead which
   // was MID-TURN when the last ring landed, read it at its next boundary, and ran the command
   // correctly and promptly. It is the normal case for a working agent, and it used to be discarded.
-  const late = await lateAck(dir, record);
+  const late = await lateAck(dir, record, log);
   if (late) { await rememberAck(dir, record); log(`lead acknowledged probe ${late} after the previous wait returned`); return true; }
   // TM-161. `ackTimeoutMs <= 0` means READ ONLY: answer from proof already on disk, mint nothing.
   //
@@ -147,7 +147,9 @@ async function defaultResponsive(record, ackTimeoutMs, { registryDir, log = () =
   const nonce = randomUUID();
   const probePath = join(dir, `${nonce}.json`);
   const ackPath = join(dir, `${nonce}.ack.json`);
-  await writeJson(probePath, { nonce, repo_id: record.repo_id, agent_id: record.agent_id, expires_at: Date.now() + ackTimeoutMs, created_at: nowIso() });
+  // TM-187: the probe outlives the wait by LATE_ACK_GRACE_MS. These two numbers were the same, which
+  // is what made the line below ("the probe now OUTLIVES this wait") a claim the code denied.
+  await writeJson(probePath, { nonce, repo_id: record.repo_id, agent_id: record.agent_id, expires_at: Date.now() + ackTimeoutMs + LATE_ACK_GRACE_MS, waited_until: Date.now() + ackTimeoutMs, created_at: nowIso() });
   // TM-157. The line above used to be the whole mechanism, under a comment claiming this function
   // "rings the pane with a pointer naming the ack command". It did not — and a pollable file is no
   // mechanism at all for an IDLE lead, which has no next safe boundary at which to poll. So ring
@@ -172,8 +174,7 @@ async function defaultResponsive(record, ackTimeoutMs, { registryDir, log = () =
   // refused. `expires_at` is still the line, and `leadNonceAck` still enforces it, so accepting a
   // LATE ack never becomes accepting a STALE one. Expired probes are swept on the next pass.
   if (acked) { await rm(probePath, { force: true }); await rm(ackPath, { force: true }); await rememberAck(dir, record); }
-  else await sweepExpired(dir);
-  if (acked) await rememberAck(dir, record);
+  else await sweepExpired(dir, log);
   log(acked ? `lead acknowledged probe ${nonce}` : `lead probe ${nonce} timed out after ${ackTimeoutMs}ms`);
   return acked;
 }
@@ -182,9 +183,12 @@ async function defaultResponsive(record, ackTimeoutMs, { registryDir, log = () =
  * An ack sitting against a probe that has not expired, left by a lead that answered after the
  * previous wait gave up. Returns the nonce it found, or null.
  */
-export async function lateAckForTest(dir, record) { return lateAck(dir, record); }
+export async function lateAckForTest(dir, record, log = () => {}) { return lateAck(dir, record, log); }
 
-async function lateAck(dir, record) {
+/** The real probe-minting path, so a test can assert which files survive the wait. */
+export async function responsiveForTest(record, ackTimeoutMs, opts) { return defaultResponsive(record, ackTimeoutMs, opts); }
+
+async function lateAck(dir, record, log = () => {}) {
   for (const name of await readdir(dir).catch(() => [])) {
     if (!name.endsWith(".ack.json")) continue;
     const nonce = name.slice(0, -".ack.json".length);
@@ -197,17 +201,25 @@ async function lateAck(dir, record) {
       await Promise.all([rm(join(dir, `${nonce}.json`), { force: true }), rm(join(dir, name), { force: true })]);
       return nonce;
     }
+    // TM-187. Discarding is right — with the probe expired or swept, timeliness cannot be proven —
+    // but a SILENT discard is indistinguishable from a lead that never answered, and that is the
+    // reading that put a responsive lead on the board as `unresponsive`. Say which, and say why.
+    log(`discarded ack for probe ${nonce}: ${probe ? "the probe had expired" : "the probe was already swept"} — not proof of a timely answer`);
     await Promise.all([rm(join(dir, `${nonce}.json`), { force: true }), rm(join(dir, name), { force: true })]);
   }
   return null;
 }
 
 /** Remove probes nobody can answer any more. Cheap, and it keeps the directory from growing. */
-async function sweepExpired(dir) {
+async function sweepExpired(dir, log = () => {}) {
   for (const name of await readdir(dir).catch(() => [])) {
     if (!name.endsWith(".json") || name.endsWith(".ack.json")) continue;
     const probe = await readJson(join(dir, name)).catch(() => null);
-    if (!probe || Number(probe.expires_at) < Date.now()) await rm(join(dir, name), { force: true });
+    if (probe && Number(probe.expires_at) >= Date.now()) continue;
+    // TM-187: an ack can only be read against its probe, so the two are swept together. Leaving the
+    // ack behind is what produced an orphan that the next pass then dropped without counting.
+    if (probe) log(`swept probe ${probe.nonce ?? name}: nobody can answer it any more`);
+    await Promise.all([rm(join(dir, name), { force: true }), rm(join(dir, `${name.slice(0, -".json".length)}.ack.json`), { force: true })]);
   }
 }
 

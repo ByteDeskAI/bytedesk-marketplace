@@ -135,3 +135,36 @@ test('reviewer prompt inputs are inside its explicit repo-scoped read-only grant
   const siblingRoot = await reviewerInboxRoot(sibling, f.env, f.home);
   assert.notEqual(siblingRoot, inboxRoot); assert.ok(!grants.some(path => siblingRoot.startsWith(path + '/')));
 });
+
+// ── TM-187: the reviewer's half of the zero-width late-ack window ────────────
+// The lead and the reviewer each computed the probe's `expires_at` and their own wait deadline from
+// one number. For the reviewer the loop ran `while (Date.now() <= probe.expires_at)`, so the
+// `expired` test in its `finally` was true BY CONSTRUCTION on every timeout and deleted the probe —
+// while the comment above it said "Only a probe that was ANSWERED, or one nobody can answer any
+// more, is removed here". A reviewer that was mid-review when the ring landed answered at its next
+// boundary into a file that no longer existed. Rule 3 of verification-that-can-fail.md: a guard
+// present in one verb and absent in its sibling is worse than no guard.
+//
+// The measurement is WHICH files survive the wait, and whether the ack the reviewer then runs is
+// accepted — not merely that the probe returned false.
+test('a reviewer probe outlives its own wait, so a mid-review reviewer can still answer', async t => {
+  const f = await fixture(t);
+  const { record } = await ensureReviewer({ ...f, probes: { alive: async () => false, open: async () => ({ session: 'review', pane: '%1' }) } });
+  const { readdir } = await import('node:fs/promises');
+
+  // Nobody answers inside the wait: this is the busy reviewer, not an absent one.
+  let minted = null;
+  const began = Date.now();
+  const ready = await reviewerProbeReady({ ...f, record, timeoutMs: 300, output: async () => '', wake: async () => {}, onProbe: async p => { minted = p; } });
+  assert.equal(ready, false, 'no ack arrived inside the wait');
+  assert.ok(Date.now() - began >= 300, 'and the wait actually elapsed');
+
+  const dir = join(await (await import('../../topology/lib/reviewer.mjs')).reviewerInboxRoot(f.consumer, f.env, f.home), 'probes');
+  const left = (await readdir(dir)).filter(n => n.startsWith(minted.nonce));
+  assert.deepEqual(left, [`${minted.nonce}.json`], `the probe must survive the wait; found ${JSON.stringify(left)}`);
+
+  // The reviewer answers at its next boundary, through the real ack verb with its own expiry check.
+  await reviewerNonceAck({ ...f, nonce: minted.nonce, env: { ...f.env, AO_AGENT_ID: record.agent_id } });
+  assert.equal(await reviewerProbeReady({ ...f, record, timeoutMs: 0, output: async () => '', wake: async () => {} }), true,
+    'and the late answer counts on the next check');
+});
