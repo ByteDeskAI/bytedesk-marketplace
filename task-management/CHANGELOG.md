@@ -784,9 +784,6 @@ is Claude-side versionless, so every commit reaches consumers by resolved SHA
   pool off with `dispatch.enabled: false`, and the config is re-read every poll, so that setting
   stops a running pool without a restart. Every candidate is re-checked against `agentReadiness`,
   so a stale or hand-set label cannot push unready work at a worker.
-  <!-- TM-180: the pool's PROCESS MODEL (how the loop is started, how it detaches from a session,
-       and `dispatch.idleExitMinutes`) is being redesigned on the TM-178 branch and is
-       deliberately not described here yet. Write this line against the merged code. -->
 - **`tm config <key>` reads a value and writes nothing** (TM-174), and dotted keys
   (`tm config dispatch.poolWip`) resolve.
 - **The docs describe the automation that exists** (TM-180). `README.md`, `AGENTS.md`,
