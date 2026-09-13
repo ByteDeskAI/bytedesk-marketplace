@@ -68,8 +68,33 @@ even builds an isolated env and never passes it — so their servers land in the
 `/tmp/tmux-1000` with `$TMUX` inherited. Guards 1 and 2 of `.claude/rules/tmux-test-isolation.md`
 are absent; only the unique `-L <name>` on every call is holding.
 
-## AC3 — `tests/stability.mjs --runs 10`: NOT YET VERIFIED
+## AC3 — `tests/stability.mjs --runs 10`: PASS, and the verdict alone did not earn it
 
-Running at the time of writing (`commit=0b63a79 dirty=0`, started 16:26:35, run 1 of 10: 0 fail).
-This is the only criterion outstanding. Note TM-181: the harness reports an empty run as stable, so
-the run count in its output has to be read, not just its verdict.
+```
+commit=0b63a79 dirty=0   tree clean at 0b63a79
+10 runs · fail counts 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+stable: every run agreed, and every run passed.        exit=0
+```
+
+**That output is not by itself evidence, and TM-181 is exactly why.** Control: the same harness run
+against `tests/unit/zzz-no-such-file-*.test.mjs` prints
+
+```
+1 runs · fail counts 0
+stable: every run agreed, and every run passed.        exit=0
+```
+
+— byte-identical in form, exit 0, having executed nothing. A pass/fail bit cannot separate "ten
+clean runs" from "ten empty runs", so the bit was replaced with a value (rule 7): elapsed time.
+
+| run | wall time | per run |
+|---|---|---|
+| empty pattern, 1 run | **0 s** | 0 s |
+| one real file, 1 run | **3 s** | 3 s |
+| the AC3 run, 10 runs | **652 s** (16:26:35 → 16:37:27) | **65.2 s** |
+| a directly measured full topology suite | 67.7 s | — |
+
+65.2 s per run against 67.7 s measured independently, versus 0 s for an empty pattern. The ten runs
+executed the suite.
+
+Logged on TM-181 as a second, exactly reproduced instance.
