@@ -32503,12 +32503,25 @@ var RunStore = class {
     }
     return snapshot;
   }
+  /**
+   * Every run the store still holds state for.
+   *
+   * A directory carrying neither a snapshot nor a journal holds no run: it is what a half-finished
+   * sweep or an interrupted create leaves behind. Asking `get` for it is a legitimate
+   * AO_RUN_NOT_FOUND — the caller named a run that does not exist — but here it is one stray
+   * directory out of hundreds, and failing the listing failed every unrelated spawn with it.
+   * Corruption is a different answer and still propagates: a run whose journal exists and does not
+   * verify is state we cannot read, not state we do not have.
+   */
   async list() {
     const { readdir: readdir4 } = await import("node:fs/promises");
     await this.initialize();
     const ids = (await readdir4((0, import_node_path7.join)(this.root, "runs"))).filter((id) => RUN_ID.test(id));
-    const snapshots = await Promise.all(ids.map((id) => this.get(id)));
-    return snapshots.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const snapshots = await Promise.all(ids.map((id) => this.get(id).catch((error51) => {
+      if (error51?.code === "AO_RUN_NOT_FOUND") return null;
+      throw error51;
+    })));
+    return snapshots.filter(Boolean).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
   async findByIdempotencyKey(key, repositoryKey = void 0) {
     return (await this.list()).find((run) => run.idempotencyKey === key && (!repositoryKey || run.consumer.repositoryKey === repositoryKey)) ?? null;
@@ -45734,6 +45747,11 @@ function normalizeIntentInput(input) {
     permissionProfile: input.permissionProfile
   };
 }
+function modelIsAdvertised(modelId, advertisedModelIds) {
+  if (!modelId) return true;
+  if (!Array.isArray(advertisedModelIds) || advertisedModelIds.length === 0) return true;
+  return advertisedModelIds.some((advertised) => typeof advertised === "string" && (advertised === modelId || advertised.split("[")[0] === modelId));
+}
 async function externalProviderPaths(pluginRoot, discovered, executableRoots = []) {
   const paths = [];
   const canonicalPluginRoot = await (0, import_promises18.realpath)(pluginRoot).catch(() => (0, import_node_path21.resolve)(pluginRoot));
@@ -46331,11 +46349,18 @@ var OrchestrationService = class {
       const probe = probes.find((entry) => entry.id === provider2.providerId);
       return [provider2.providerId, !check2?.ok || probe?.ready === false ? "unavailable" : probe?.ready === true ? "available" : "unknown"];
     }));
+    const advertised = Object.fromEntries(probes.map((probe) => [probe.id, probe.sessionProbe?.advertisedModelIds ?? []]));
+    const endpoints = Object.fromEntries(MODEL_CATALOG.map((model) => {
+      const state = providerState[model.providerId] ?? "unknown";
+      const drifted = state === "available" && !modelIsAdvertised(model.modelId, advertised[model.providerId]);
+      return [model.endpointId, drifted ? "unavailable" : state];
+    }));
     return {
       providers: providerState,
-      endpoints: Object.fromEntries(MODEL_CATALOG.map((model) => [model.endpointId, providerState[model.providerId] ?? "unknown"])),
+      endpoints,
+      advertisedModelIds: advertised,
       providerExecutables: Object.fromEntries(probes.filter((probe) => probe.ready && probe.selectedExecutable).map((probe) => [probe.id, probe.selectedExecutable])),
-      confidence: "transport-probe; model acceptance is revalidated during ACP session creation"
+      confidence: "transport-probe plus advertised model reconciliation; effort acceptance is revalidated during ACP session creation"
     };
   }
   async providerAvailabilitySnapshot(consumerCwd2) {

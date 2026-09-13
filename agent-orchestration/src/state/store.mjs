@@ -246,12 +246,25 @@ export class RunStore {
     return snapshot;
   }
 
+  /**
+   * Every run the store still holds state for.
+   *
+   * A directory carrying neither a snapshot nor a journal holds no run: it is what a half-finished
+   * sweep or an interrupted create leaves behind. Asking `get` for it is a legitimate
+   * AO_RUN_NOT_FOUND — the caller named a run that does not exist — but here it is one stray
+   * directory out of hundreds, and failing the listing failed every unrelated spawn with it.
+   * Corruption is a different answer and still propagates: a run whose journal exists and does not
+   * verify is state we cannot read, not state we do not have.
+   */
   async list() {
     const { readdir } = await import("node:fs/promises");
     await this.initialize();
     const ids = (await readdir(join(this.root, "runs"))).filter((id) => RUN_ID.test(id));
-    const snapshots = await Promise.all(ids.map((id) => this.get(id)));
-    return snapshots.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const snapshots = await Promise.all(ids.map((id) => this.get(id).catch((error) => {
+      if (error?.code === "AO_RUN_NOT_FOUND") return null;
+      throw error;
+    })));
+    return snapshots.filter(Boolean).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
   async findByIdempotencyKey(key, repositoryKey = undefined) {

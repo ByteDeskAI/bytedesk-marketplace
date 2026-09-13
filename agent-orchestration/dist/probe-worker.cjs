@@ -25934,7 +25934,12 @@ async function probeProviderSession({ pluginRoot: pluginRoot2, stateRoot: stateR
   let handle;
   try {
     handle = await runtime.ensureSession({ sessionKey: newId(`probe-${providerId2}`), agent: adapter.agentTarget, mode: "oneshot", cwd: probeWorkspace, sessionOptions });
-    return { ok: true, message: "Authenticated ACP session initialization passed." };
+    const status = await runtime.getStatus({ handle }).catch(() => null);
+    return {
+      ok: true,
+      message: "Authenticated ACP session initialization passed.",
+      advertisedModelIds: status?.models?.availableModelIds ?? []
+    };
   } finally {
     if (handle) {
       try {

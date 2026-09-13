@@ -39,6 +39,29 @@
   - A reader can open the exact terminal a run was launched from instead of matching working
     directories and calling the result a "likely launcher".
 
+### Fixed
+
+- **One half-swept run directory no longer stops every spawn (TM-193, EP-021).**
+  `RunStore.list()` asked `get()` for every directory under `<stateRoot>/runs` and failed the whole
+  listing when one of them held no run — the session file and sweep marker an interrupted sweep
+  leaves behind, with no snapshot and no journal. Because `spawn` lists runs to enforce its
+  concurrency limits, one orphan out of 117 directories failed every unrelated spawn with
+  `AO_RUN_NOT_FOUND` naming a run the caller had never heard of. A directory with no state is now
+  skipped by the listing and still an honest `AO_RUN_NOT_FOUND` when a caller names it directly; a
+  directory whose journal exists and does not verify still fails the listing closed, because state
+  we cannot read is a different answer from state we do not have.
+
+- **A model the live ACP agent no longer advertises is refused during routing (TM-193, EP-021).**
+  The readiness probe now reports the models the agent advertised (`getStatus().models`), and
+  `doctor` marks a catalog endpoint whose model family is absent from that list `unavailable`, so
+  the router rejects it with `MODEL_UNAVAILABLE` and takes the next candidate in the alias. Before
+  this, a catalog that had drifted from the agent build — `claude-opus-5` against an agent
+  advertising `default, opus[1m], sonnet, haiku` — produced a route that looked eligible and died
+  at its first turn with `ACP_MODEL_UNSUPPORTED`. Matching is by family, so an advertised
+  `gpt-5.6-sol[high]` still satisfies the `gpt-5.6-sol` endpoint, and an agent that advertises no
+  list at all changes nothing: acceptance stays where it was, at session creation.
+  `availability.advertisedModelIds` carries the per-provider list so the drift is visible in
+  `doctor` output rather than only in a failed run.
 ## [0.9.1] — 2026-09-13
 
 ### Fixed

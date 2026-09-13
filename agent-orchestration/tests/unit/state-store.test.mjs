@@ -166,3 +166,21 @@ test("an abandoned breaker can be reclaimed before breaking a stale lock", async
     await assert.rejects(() => access(lockPath));
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("a half-swept run directory is ignored by list instead of failing every caller", async () => {
+  const root = await mkdtemp(join(os.tmpdir(), "ao-state-test-"));
+  try {
+    const store = await new RunStore(root).initialize();
+    const run = await store.create({ ...input(), idempotencyKey: null });
+    // What an interrupted sweep leaves behind: a session file and a sweep marker, no run state.
+    const orphan = join(root, "runs", "run_484f8ec2-7f76-4b61-ac8e-fe91f27b422d");
+    await mkdir(orphan);
+    await writeFile(join(orphan, "session.json"), "{}\n");
+    await writeFile(join(orphan, ".sweep"), "");
+    const listed = await store.list();
+    assert.deepEqual(listed.map((entry) => entry.runId), [run.runId]);
+    assert.equal(await store.findByIdempotencyKey("same-request", "repo"), null);
+    // The orphan is invisible to the listing, and still an honest miss when named directly.
+    await assert.rejects(() => store.get("run_484f8ec2-7f76-4b61-ac8e-fe91f27b422d"), { code: "AO_RUN_NOT_FOUND" });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
