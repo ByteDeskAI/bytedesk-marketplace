@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **A dispatch branches off a defined base, not off whatever the checkout is showing (TM-201).**
+  `createWorktree` defaulted to `HEAD`, so an unattended worker inherited wherever a human had last
+  parked the shared main checkout. On the pool's first live run that was another session's feature
+  branch: three workers were each cut 12 commits ahead of `main`, carrying unrelated work into their
+  PR diffs and testing a tree nobody had asked them to test. The base is now resolved, in order, from
+  an explicit `--base`, then `dispatch.base` in config, then the repo's default branch (the remote's
+  first — it is what a PR is diffed against), and `HEAD` only when none of those resolve.
+  - **The base is written down, not just used.** Provisioning records `{ref, sha, source}` on the
+    task; the `dispatched` record carries it too; `tm show`, `tm worktree new`, the MCP and dashboard
+    responses print it; and the handoff both states it in its header and puts it in the PR body it
+    tells the worker to open. A branch a reviewer cannot place is what made the original leak
+    invisible.
+  - Resuming an existing branch resolves no base and leaves the recorded one alone, rather than
+    restating the branch's own tip as its origin.
+
 ### Fixed
 - **`tm evidence` no longer duplicates a shared or re-attached artifact** (TM-166). TM-145 stopped
   the same-id double prefix; three related holes remained, and together they are how this store grew

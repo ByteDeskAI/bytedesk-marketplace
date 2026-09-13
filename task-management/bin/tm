@@ -1535,7 +1535,7 @@ const VERBS = {
         p: P,
       });
       if (!res.ok) die(res.reason, 2);
-      out(`${task.id} → ${res.path}\n   branch ${res.branch}${res.shared.length ? `\n   shared: ${res.shared.map((x) => x.path || x).join(", ")}` : ""}\n\ncd ${res.path}`);
+      out(`${task.id} → ${res.path}\n   branch ${res.branch}${res.base ? ` (from ${res.base.ref})` : ""}${res.shared.length ? `\n   shared: ${res.shared.map((x) => x.path || x).join(", ")}` : ""}\n\ncd ${res.path}`);
     } else if (sub === "rm") {
       const task = read(args[0], P) || die(`not found: ${args[0]}`);
       const res = unprovision(task, { force: flags.has("--force"), p: P });
@@ -1834,6 +1834,9 @@ function renderShow(doc) {
   if ((doc.labels || []).length) lines.push(`labels: ${doc.labels.join(", ")}`);
   if ((doc.links || []).length) lines.push(`links: ${doc.links.map((l) => `${l.type} ${l.id}`).join(", ")}`);
   if (doc.branch || doc.worktree) lines.push(`branch: ${doc.branch || "—"}   worktree: ${doc.worktree || "—"}`);
+  // What the branch was cut from. Unattended work is only reviewable against a base somebody
+  // can name, so the detail view says it rather than leaving it to be guessed from the diff.
+  if (doc.base?.ref) lines.push(`base: ${doc.base.ref}${doc.base.sha ? ` @ ${doc.base.sha.slice(0, 12)}` : ""}`);
   if ((doc.acceptance || []).length) {
     lines.push("", "acceptance:", ...doc.acceptance.map((a) => `  [${a.done ? "x" : " "}] ${a.text}`));
   }

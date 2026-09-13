@@ -261,21 +261,58 @@ function unpushed(worktree) {
   return count("HEAD", "--not", "--remotes");
 }
 
-export function createWorktree(task, { base = "HEAD", share = true, p = paths(), config = readConfig(p) } = {}) {
+/**
+ * Refs to cut a new task branch from, best first. The remote's default branch leads because
+ * it is what a PR will be diffed and merged against; the local ones are the answer for a repo
+ * with no remote (a test fixture, an offline clone) rather than a second-best guess.
+ */
+const BASE_CANDIDATES = ["origin/main", "origin/master", "main", "master"];
+
+/**
+ * The ref a new task branch starts from — a decision, not whatever the checkout happens to
+ * be showing.
+ *
+ * Defaulting to HEAD meant an unattended dispatch inherited wherever a human had last parked
+ * the shared main checkout. On the pool's first live run that was another session's feature
+ * branch, so three workers were each cut 12 commits ahead of main and carried unrelated work
+ * into their PR diffs (TM-201). Order: an explicit `--base`, else `dispatch.base` from config,
+ * else the repo's default branch, and HEAD only when none of those resolve.
+ *
+ * An explicit ref is taken at its word and NOT validated — if the caller names a ref git
+ * cannot resolve, `git worktree add` should say so rather than this silently substituting main.
+ */
+export function resolveBase(root, { config = {}, requested = null } = {}) {
+  const sha = (ref) => tryGit(root, "rev-parse", "--verify", "--quiet", `${ref}^{commit}`);
+  if (requested) return { ref: requested, sha: sha(requested), source: "requested" };
+  const configured = config.dispatch?.base;
+  if (configured) return { ref: configured, sha: sha(configured), source: "config" };
+  const remoteHead = tryGit(root, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD");
+  for (const ref of [remoteHead, ...BASE_CANDIDATES].filter(Boolean)) {
+    const at = sha(ref);
+    if (at) return { ref, sha: at, source: "default-branch" };
+  }
+  return { ref: "HEAD", sha: sha("HEAD"), source: "head" };
+}
+
+export function createWorktree(task, { base, share = true, p = paths(), config = readConfig(p) } = {}) {
   const path = worktreePath(task.id, task.title, p);
   const branch = branchName(task.id, task.title, config);
   mkdirSync(p.worktrees, { recursive: true });
   // Resuming a task reuses its branch; only a new one gets -b.
   const reuse = tryGit(p.root, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`);
+  // Reuse resolves no base: the branch was cut once, and whatever it was cut from is already
+  // recorded. Returning null says "nothing new to record" rather than restating the branch tip
+  // as its own origin.
+  const from = reuse ? null : resolveBase(p.root, { config, requested: base });
   try {
-    git(p.root, "worktree", "add", ...(reuse ? [path, branch] : ["-b", branch, path, base]));
+    git(p.root, "worktree", "add", ...(reuse ? [path, branch] : ["-b", branch, path, from.ref]));
   } catch (err) {
     throw new Error(`git worktree add failed: ${String(err.stderr || err.message).trim()}`);
   }
   ignoreTmArtifacts(path, p.root);
   const shared = share ? applyShares(path, { p, config }) : [];
-  if (read(task.id, p)) update(task.id, { worktree: path, branch }, p);
-  return { path, branch, shared };
+  if (read(task.id, p)) update(task.id, { worktree: path, branch, ...(from ? { base: from } : {}) }, p);
+  return { path, branch, shared, base: from };
 }
 
 /** Every git worktree of this project except the main checkout, joined to its task. */
@@ -342,8 +379,8 @@ export function provision(task, { base, share = true, steal = false, session = n
   const claim = claimTask(task.id, { session, actor, worktree: path, branch, steal, p });
   if (!claim.ok) return { ok: false, reason: claim.reason, holder: claim.holder };
   const res = createWorktree(task, { base, share, p });
-  update(task.id, { worktree: res.path, branch: res.branch }, p);
-  logEvent("worktree_new", { id: task.id, path: res.path, branch: res.branch, shared: res.shared.length }, p);
+  update(task.id, { worktree: res.path, branch: res.branch, ...(res.base ? { base: res.base } : {}) }, p);
+  logEvent("worktree_new", { id: task.id, path: res.path, branch: res.branch, base: res.base?.ref ?? null, shared: res.shared.length }, p);
   return { ok: true, ...res, stolenFrom: claim.stolenFrom };
 }
 

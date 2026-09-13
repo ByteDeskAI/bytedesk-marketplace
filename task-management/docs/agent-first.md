@@ -311,6 +311,7 @@ for the catalogued keys (`lib/settings.mjs`). Arrays/objects (`dispatch.backends
 | `dispatch.topologyAgent` | first non-lead in the roster | which stored agent a topology dispatch borrows its identity from |
 | `dispatch.topologyCandidates` | `"claude"` | provider chain for a topology dispatch when the repo has no agent library |
 | `dispatch.heartbeatSeconds` | `60` | claim re-stamp while the worker is alive; `0` disables |
+| `dispatch.base` | the repo's default branch | the ref every task branch is cut from. Never the checkout's current HEAD — a shared main checkout parked on somebody's feature branch would otherwise graft their commits onto every worker |
 | `dispatch.enabled` | `true` | the pool runs unless this is `false`; re-read every poll, so it also stops a running pool |
 | `dispatch.autoReady` | `"label"` | keep `ready-for-agent` / `needs-triage` in sync on every write; `"off"` leaves triage to hand |
 | `dispatch.poolWip` | `3` | cap on pool-spawned workers (independent of interactive `wipLimit`) |

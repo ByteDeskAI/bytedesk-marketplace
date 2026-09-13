@@ -751,7 +751,7 @@ function taskWorktree(task, payload, p) {
       p,
     });
     if (!res.ok) return fail(409, res.reason);
-    return ok({ id: task.id, worktree: res.path, branch: res.branch, shared: res.shared, stolenFrom: res.stolenFrom ?? null });
+    return ok({ id: task.id, worktree: res.path, branch: res.branch, base: res.base, shared: res.shared, stolenFrom: res.stolenFrom ?? null });
   }
   if (action === "remove") {
     const res = unprovision(task, { force: Boolean(payload.force), p });
