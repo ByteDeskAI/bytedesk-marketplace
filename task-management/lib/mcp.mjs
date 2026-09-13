@@ -860,7 +860,7 @@ export const TOOLS = [
       properties: {
         action: { type: "string", enum: ["new", "rm", "list"], description: "new provisions and claims; rm removes and releases; list reads." },
         id: str("Task id, for new and rm."),
-        base: str("For new: the ref to branch from (default: the current HEAD)."),
+        base: str("For new: the ref to branch from (default: config dispatch.base, else the repo's default branch — never the checkout's current HEAD)."),
         share: { type: "boolean", description: "For new: share node_modules/.env from the main checkout (default true)." },
         force: { type: "boolean", description: "For rm: remove even when the worktree is dirty." },
         steal: { type: "boolean", description: "For new: take the claim another live session holds. Recorded as claim_stolen." },
@@ -876,7 +876,7 @@ export const TOOLS = [
       if (action === "new") {
         const res = provision(task, { base, share: share !== false, steal: Boolean(steal), session: session(), actor: actorLabel(actor()), p });
         if (!res.ok) return fail(res.reason);
-        return ok({ id, worktree: res.path, branch: res.branch, shared: res.shared, stolenFrom: res.stolenFrom ?? null });
+        return ok({ id, worktree: res.path, branch: res.branch, base: res.base, shared: res.shared, stolenFrom: res.stolenFrom ?? null });
       }
       if (action === "rm") {
         const res = unprovision(task, { force: Boolean(force), p });

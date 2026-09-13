@@ -333,6 +333,7 @@ export function handoff(id, p = paths()) {
     `Status: ${t.status}${t.session ? ` (last touched by session ${t.session})` : ""}`,
     epic ? `Epic: ${epic.id} ${epic.title}` : "Epic: (none)",
     t.branch ? `Branch: ${t.branch}` : undefined,
+    t.base?.ref ? `Base: ${t.base.ref}${t.base.sha ? ` @ ${t.base.sha.slice(0, 12)}` : ""}` : undefined,
     t.worktree ? `Worktree: ${t.worktree}` : undefined,
     "",
     "## Context",
@@ -363,12 +364,18 @@ export function handoff(id, p = paths()) {
      * paste, so the placeholder reads as one when neither is set.
      */
     const branch = String(process.env.TM_DISPATCH_BRANCH || t.branch || "").trim() || "<your tm/ branch>";
+    /**
+     * The base goes in the PR body, not just this prompt. A reviewer reading the PR has to know
+     * what the diff is against — TM-201 shipped three PRs carrying another session's twelve
+     * commits, and nothing in any of them said so.
+     */
+    const builtOn = t.base?.ref ? ` Built on ${t.base.ref}${t.base.sha ? ` @ ${t.base.sha.slice(0, 12)}` : ""}.` : "";
     out.push(
       "## When you finish",
       `- Tick each criterion only once verified: .bytedesk/task-management/bin/tm accept ${t.id} <n>`,
       "- Commit your work.",
       `- Push your own branch: git push -u origin ${branch}`,
-      `- Open a PR: gh pr create --title "${t.id}: ${t.title}" --body "<what changed, and how you verified it>"`,
+      `- Open a PR: gh pr create --title "${t.id}: ${t.title}" --body "<what changed, and how you verified it>.${builtOn}"`,
       `- Attach proof, not claims: .bytedesk/task-management/bin/tm evidence ${t.id} <path> (test output)`,
       `- Then close: .bytedesk/task-management/bin/tm done ${t.id}`,
       `- If the push or the PR fails (no remote, no gh, auth), .bytedesk/task-management/bin/tm block ${t.id} "<the error>" instead of closing.`,

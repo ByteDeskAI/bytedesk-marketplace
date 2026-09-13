@@ -1212,6 +1212,7 @@ against is [`docs/dashboard-contract.md`](docs/dashboard-contract.md).
 | `dispatch.topologyAgent` | first non-lead | which stored agent a topology dispatch borrows its identity from |
 | `dispatch.topologyCandidates` | `"claude"` | provider chain for a topology dispatch in a repo with no agent library |
 | `dispatch.heartbeatSeconds` | `60` | how often a dispatched claim is re-stamped (`0` disables) |
+| `dispatch.base` | the repo's default branch | the ref every task branch is cut from. Never the checkout's current HEAD — a shared main checkout parked on somebody's feature branch would otherwise graft their commits onto every worker |
 | `dispatch.enabled` / `dispatch.poolWip` / `dispatch.pollSeconds` | `true` / `3` / `30` | the worker pool: on by default (`false` turns it off for the repo), WIP cap, poll interval |
 | `dispatch.autoReady` | `"label"` | keep `ready-for-agent` / `needs-triage` in sync on every write; `"off"` leaves triage labels to hand |
 | `dispatch.maxFailures` | `3` | consecutive failures before the pool pauses itself (`.bytedesk/task-management/bin/tm pool resume` clears it); one quota failure pauses at once |

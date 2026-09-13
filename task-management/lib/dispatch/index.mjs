@@ -182,7 +182,9 @@ export async function dispatch(id, { backend = null, session = null, actor = nul
   const res = await picked.backend.spawn({ task: read(id, p), worktree: prov.path, prompt, session, actor, p });
   if (!res?.ok) return fail(res?.reason || `${picked.name} did not start a worker`, { detail: res?.detail });
 
-  const dispatched = { backend: picked.name, run: res.run ?? null, session, at: now() };
+  // base: what the worker's branch was cut from, so collect and the PR can state it without
+  // re-deriving it from a branch that may have moved since.
+  const dispatched = { backend: picked.name, run: res.run ?? null, session, at: now(), base: prov.base ?? read(id, p)?.base ?? null };
   mutate(id, () => ({ dispatched }), p);
   logEvent("dispatched", { id, backend: picked.name, run: res.run ?? null, session }, p);
   /**
@@ -222,6 +224,7 @@ export async function dispatch(id, { backend = null, session = null, actor = nul
     run: res.run ?? null,
     worktree: prov.path,
     branch: prov.branch,
+    base: dispatched.base,
     detail: res.detail,
   };
 }
