@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **A topology-launched worker reaches its pane with `TM_ROOT`.** `dispatch/topology.mjs` set the
+  store only in `envFor()`, on the ao-topology launcher — and the launcher's environment does not
+  reach the pane. ao-topology's launcher script exports the spec agent's env and nothing else, and a
+  tmux server that is already running hands a new pane none of the launching process's environment.
+  The worker markers already rode the spec env for exactly that reason (TM-177); the store did not.
+  A worker that arrives without `TM_ROOT` resolves a store by walking up from cwd instead, which
+  lands on whatever store sits above it — the wrong repo's, when the worker steps outside its
+  worktree. The tmux backend has always passed it into the pane; this is the missing parity. A
+  `TM_ROOT` a roster agent happens to carry no longer wins over the dispatch's own.
+
 ### Fixed
 - **The dispatch worker guard releases when its task does.** `TM_DISPATCH_*` is pinned into a
   worker's environment at spawn and nothing ever cleared it, so the guard outlived the work: a

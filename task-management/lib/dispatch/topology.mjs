@@ -135,7 +135,21 @@ export function specFor(req, ref = null, { candidates = null, stored = null } = 
   // TM-177: the pane exports ONLY the spec agent's env — ao-topology writes it into the launcher
   // script — so the worker marker travels here, not just in ao-topology's own env. An inline field
   // replaces the stored agent's wholesale, so the stored env and args are carried over, not dropped.
-  const agent = { ...base, env: { ...(stored?.env ?? {}), ...Object.fromEntries(workerEnv(req)) } };
+  //
+  // TM_ROOT rides here for the same reason, and it is the same bug the marker had: envFor() puts it
+  // on the ao-topology LAUNCHER, and the pane does not inherit the launcher's environment. A worker
+  // that reaches its pane without TM_ROOT cannot resolve the store it was dispatched from — every
+  // `tm` verb it runs resolves by walking up from cwd instead, which lands on whatever store sits
+  // above it, and the guard cannot confirm which task it holds. The tmux backend has always passed
+  // it into the pane directly; this is the parity that was missing.
+  const agent = {
+    ...base,
+    env: {
+      ...(stored?.env ?? {}),
+      ...(req.p?.root ? { TM_ROOT: req.p.root } : {}),
+      ...Object.fromEntries(workerEnv(req)),
+    },
+  };
   // `args` reach every candidate in the chain, and only claude understands --settings.
   const chain = cliChain(ref ? stored : base);
   if (chain.length && chain.every((cli) => cli === "claude")) agent.args = [...(stored?.args ?? []), "--settings", guardSettings()];

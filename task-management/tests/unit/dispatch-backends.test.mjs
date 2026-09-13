@@ -347,6 +347,26 @@ describe("topology backend", () => {
     assert.equal(JSON.parse(args[at + 1]).hooks.PreToolUse[0].matcher, "Bash");
   });
 
+  it("TM_ROOT rides the spec env too, so the worker can resolve the store it came from", () => {
+    // Same mechanism as the marker above: the launcher's env does not reach the pane. TM_ROOT was
+    // set only by envFor(), on ao-topology itself, so a topology-launched worker arrived without
+    // the store it was dispatched from and resolved one by walking up from cwd instead.
+    const request = req();
+    const { spawned, written } = launch(request);
+    const spec = JSON.parse(written.find(([file]) => file.endsWith("spec.json"))[1]);
+    assert.equal(spawned[0][2].env.TM_ROOT, request.p.root, "ao-topology's own env carries the store");
+    assert.equal(spec.agents[0].env?.TM_ROOT, request.p.root, "and so does the only env the pane exports");
+  });
+
+  it("the dispatch's store wins over one a stored agent happens to carry", () => {
+    const request = req();
+    const agent = JSON.parse(
+      launch(request, { rosterList: [{ id: "ag-worker", role: "implementer", cli: "claude", env: { TM_ROOT: "/somewhere/else" } }] })
+        .written.find(([f]) => f.endsWith("spec.json"))[1],
+    ).agents[0];
+    assert.equal(agent.env.TM_ROOT, request.p.root, "the dispatch knows which store the task is in; the roster does not");
+  });
+
   it("TM-177: a stored agent keeps its env and args; a chain that is not all claude gets no --settings", () => {
     const agentOf = (rosterList) => JSON.parse(launch(req(), { rosterList }).written.find(([f]) => f.endsWith("spec.json"))[1]).agents[0];
 
