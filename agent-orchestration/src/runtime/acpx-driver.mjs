@@ -244,7 +244,16 @@ export async function probeProviderSession({ pluginRoot, stateRoot, cwd, provide
   let handle;
   try {
     handle = await runtime.ensureSession({ sessionKey: newId(`probe-${providerId}`), agent: adapter.agentTarget, mode: "oneshot", cwd: probeWorkspace, sessionOptions });
-    return { ok: true, message: "Authenticated ACP session initialization passed." };
+    // The models this agent build actually advertises. ACPX refuses a --model it never advertised,
+    // so a catalog endpoint the live agent has dropped must be ineligible for routing rather than
+    // a run that dies at its first turn. An empty or absent list means the agent advertised none:
+    // acceptance stays where it already was, at session creation.
+    const status = await runtime.getStatus({ handle }).catch(() => null);
+    return {
+      ok: true,
+      message: "Authenticated ACP session initialization passed.",
+      advertisedModelIds: status?.models?.availableModelIds ?? [],
+    };
   } finally {
     if (handle) {
       try {

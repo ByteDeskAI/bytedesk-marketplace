@@ -325,3 +325,49 @@ test("a server can require the channel an agent cannot reach", async () => {
     assert.equal((await fx.service.store.get(run.runId)).state, "succeeded");
   } finally { await fx.cleanup(); }
 });
+
+test("an orphaned run directory does not fail an unrelated spawn", async () => {
+  const fx = await fixture();
+  try {
+    fx.service.providerAvailabilitySnapshot = async () => allAvailable;
+    fx.service.launchWorker = async () => {};
+    // A directory a previous sweep half-removed: session metadata and a sweep marker, no run state.
+    const orphan = join(fx.service.stateRoot, "runs", "run_484f8ec2-7f76-4b61-ac8e-fe91f27b422d");
+    await mkdir(orphan, { recursive: true });
+    await writeFile(join(orphan, "session.json"), "{}\n");
+    await writeFile(join(orphan, ".sweep"), "");
+    const spawned = await fx.service.spawn({ consumerCwd: fx.consumerCwd, intent: "implementation", task: "Fixture", permissionProfile: "read", idempotencyKey: "orphan-neighbour" });
+    assert.equal(spawned.run.state, "queued");
+    assert.deepEqual((await fx.service.list({ consumerCwd: fx.consumerCwd })).map((run) => run.runId), [spawned.run.runId]);
+  } finally { await fx.cleanup(); }
+});
+
+test("a model the ACP agent no longer advertises is refused before execution, not during it", async () => {
+  const fx = await fixture();
+  try {
+    const checks = [{ id: "git", ok: true }, ...["claude", "codex", "grok-build", "kimi"].map((id) => ({ id, ok: true }))];
+    const probes = [
+      // The live Claude ACP agent advertises aliases, not the catalog's endpoint model ids.
+      { id: "claude", ready: true, selectedExecutable: "/usr/bin/claude", sessionProbe: { ok: true, advertisedModelIds: ["default", "opus[1m]", "sonnet", "haiku"] } },
+      { id: "codex", ready: true, selectedExecutable: "/usr/bin/codex", sessionProbe: { ok: true, advertisedModelIds: ["gpt-5.6-sol[high]", "gpt-5.6-sol[medium]"] } },
+      { id: "grok-build", ready: true, selectedExecutable: "/usr/bin/grok", sessionProbe: { ok: true, advertisedModelIds: [] } },
+      { id: "kimi", ready: true, selectedExecutable: "/usr/bin/kimi", sessionProbe: { ok: true, advertisedModelIds: [] } },
+    ];
+    const availability = fx.service.availabilityFromProbes(checks, probes);
+    assert.equal(availability.providers.claude, "available");
+    assert.equal(availability.endpoints["claude.opus-5"], "unavailable");
+    assert.equal(availability.endpoints["claude.fable-5-1"], "unavailable");
+    // Codex advertises the family with an effort suffix, and grok advertises no list at all.
+    assert.equal(availability.endpoints["openai.gpt-5.6-sol"], "available");
+    assert.equal(availability.endpoints["grok-build.default"], "available");
+
+    const { plan } = await fx.service.plan({ consumerCwd: fx.consumerCwd, intent: "design", task: "Design a thing", availability, requireAvailable: true });
+    const route = plan.stages[0].route;
+    assert.equal(route.status, "routed");
+    assert.equal(route.selected.providerId, "codex");
+    assert.deepEqual(
+      route.candidates.filter((candidate) => candidate.providerId === "claude").map((candidate) => candidate.rejectionCodes),
+      [["MODEL_UNAVAILABLE"], ["MODEL_UNAVAILABLE"], ["MODEL_UNAVAILABLE"]],
+    );
+  } finally { await fx.cleanup(); }
+});

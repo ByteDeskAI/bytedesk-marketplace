@@ -33,6 +33,21 @@ function normalizeIntentInput(input) {
   };
 }
 
+/**
+ * Whether a catalog model is one the live ACP agent said it can run.
+ *
+ * Advertised ids carry a variant suffix (`opus[1m]`, `gpt-5-codex[high]`) that encodes effort or
+ * context, and the catalog names the family, so the family is what is compared. An empty list is
+ * "the agent advertised nothing", not "the agent refuses everything": ACPX forwards a model in
+ * that case, so the endpoint stays as available as its provider.
+ */
+export function modelIsAdvertised(modelId, advertisedModelIds) {
+  if (!modelId) return true;
+  if (!Array.isArray(advertisedModelIds) || advertisedModelIds.length === 0) return true;
+  return advertisedModelIds.some((advertised) => typeof advertised === "string"
+    && (advertised === modelId || advertised.split("[")[0] === modelId));
+}
+
 export async function externalProviderPaths(pluginRoot, discovered, executableRoots = []) {
   const paths = [];
   const canonicalPluginRoot = await realpath(pluginRoot).catch(() => resolve(pluginRoot));
@@ -693,11 +708,18 @@ export class OrchestrationService {
       const probe = probes.find((entry) => entry.id === provider.providerId);
       return [provider.providerId, !check?.ok || probe?.ready === false ? "unavailable" : probe?.ready === true ? "available" : "unknown"];
     }));
+    const advertised = Object.fromEntries(probes.map((probe) => [probe.id, probe.sessionProbe?.advertisedModelIds ?? []]));
+    const endpoints = Object.fromEntries(MODEL_CATALOG.map((model) => {
+      const state = providerState[model.providerId] ?? "unknown";
+      const drifted = state === "available" && !modelIsAdvertised(model.modelId, advertised[model.providerId]);
+      return [model.endpointId, drifted ? "unavailable" : state];
+    }));
     return {
       providers: providerState,
-      endpoints: Object.fromEntries(MODEL_CATALOG.map((model) => [model.endpointId, providerState[model.providerId] ?? "unknown"])),
+      endpoints,
+      advertisedModelIds: advertised,
       providerExecutables: Object.fromEntries(probes.filter((probe) => probe.ready && probe.selectedExecutable).map((probe) => [probe.id, probe.selectedExecutable])),
-      confidence: "transport-probe; model acceptance is revalidated during ACP session creation",
+      confidence: "transport-probe plus advertised model reconciliation; effort acceptance is revalidated during ACP session creation",
     };
   }
 
