@@ -778,7 +778,9 @@ const MAX_RESPONSE_LINES = 200;
 function reassembleResponse(raw, index, prefix) {
   const head = raw[index];
   const indent = head.length - head.trimStart().length;
-  let buffer = head.trim().slice(prefix.length);
+  // Drop the prefix, then the space that separated it from the payload. When the wrap
+  // fell right after the nonce this is empty and the payload starts on the next line.
+  let buffer = head.trim().slice(prefix.length).replace(/^ +/, "");
   for (let line = index + 1; ; line += 1) {
     try { return JSON.parse(buffer); } catch { /* not yet complete */ }
     if (line >= raw.length || line - index > MAX_RESPONSE_LINES) return null;
@@ -799,7 +801,11 @@ export async function collectReview({ consumer, task, revision, env = process.en
   invariant(request.patch_sha256 === range.patch_sha256, "TOPOLOGY_REVIEWER_RANGE", "Review request no longer covers the admitted task range.");
   invariant(request.reviewer_id === record.agent_id && request.repo_id === record.repo_id && request.revision === revision, 'TOPOLOGY_REVIEWER_IDENTITY', 'Request belongs to a different reviewer or revision.');
   invariant(createHash('sha256').update(await readFile(request.patch_path)).digest('hex') === request.patch_sha256, 'TOPOLOGY_REVIEWER_RESPONSE', 'Review patch changed after the request.');
-  const prefix = `AO_REVIEW ${request.nonce} `;
+  // The prefix ends at the NONCE, not at a trailing space. On a pane narrow enough that
+  // the wrap lands right after the nonce the payload begins on the next line, and
+  // `line.trim()` strips the very space a `"... "` prefix demands — so nothing matched
+  // and a verdict that had been delivered read as absent.
+  const prefix = `AO_REVIEW ${request.nonce}`;
   // The WHOLE retained history, not a recent window. Each verdict occupies dozens of
   // wrapped lines, so a fixed window sized for one response loses earlier ones as soon as
   // a few accumulate: with eight responses in scrollback, a 200-line window held two.
@@ -808,9 +814,21 @@ export async function collectReview({ consumer, task, revision, env = process.en
   // Readiness keeps the cheap default window - it looks for a short line just emitted.
   const raw = String(await output(record, "-")).split(/\r?\n/);
   const starts = raw.map((line, index) => ({ line, index })).filter(({ line }) => line.trim().startsWith(prefix));
-  invariant(starts.length === 1, 'TOPOLOGY_REVIEWER_RESPONSE', 'Expected exactly one nonce-bound review response from the designated pane.');
-  const response = reassembleResponse(raw, starts[0].index, prefix)
-    ?? fail('TOPOLOGY_REVIEWER_RESPONSE', 'Review response must be JSON.');
+  invariant(starts.length > 0, 'TOPOLOGY_REVIEWER_RESPONSE', 'No nonce-bound review response on the designated pane.');
+  // A nonce appears many times on a pane: quoted back in a message, echoed by the host,
+  // and re-emitted if the reviewer answers again. Requiring exactly one is therefore wrong
+  // twice over. Worse, an EARLIER mention appears to parse: rejoining consumes forward
+  // until the buffer is valid JSON, so a bare mention silently borrows the next real
+  // payload. Observed on one nonce: eight occurrences, six resolving to a superseded
+  // verdict and two to the current one.
+  //
+  // Take the LAST parseable occurrence. It cannot have borrowed — there is no later
+  // payload to borrow from — and if the reviewer re-answered, the latest answer is the one
+  // that stands. Earlier occurrences are echoes or superseded verdicts, both of which a
+  // collector must not record.
+  const parsed = starts.map(({ index }) => reassembleResponse(raw, index, prefix)).filter(Boolean);
+  invariant(parsed.length > 0, 'TOPOLOGY_REVIEWER_RESPONSE', 'No parseable nonce-bound review response on the designated pane.');
+  const response = parsed[parsed.length - 1];
   const review = await recordReview({ consumer, task, revision, baseRevision: request.base_revision, patchHash: request.patch_sha256, verdict: response.verdict, findings: response.findings, reviewerId: record.agent_id, authorAgentIds: request.author_agent_ids, env: { ...env, AO_AGENT_ID: record.agent_id }, home, pluginRoot });
   await writeJson(path, { ...request, collected_at: nowIso(), verdict: review.verdict });
   return review;

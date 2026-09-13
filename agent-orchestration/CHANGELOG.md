@@ -33,6 +33,20 @@
   The reviewer's isolation is unchanged: it still writes no files, has no shell, and
   answers only through its own verified pane.
 
+- **A verdict is matched by the nonce alone, and the newest one wins.** Two further faults in the
+  same path, both found collecting real verdicts. The prefix was built as `AO_REVIEW <nonce> `
+  *with a trailing space*, then compared against `line.trim()` — which strips exactly that space.
+  On a pane narrow enough that the wrap lands right after the nonce, the payload begins on the
+  next line and nothing matched, so a verdict that had been delivered read as absent. And
+  `starts.length === 1` was wrong twice over: a nonce appears many times on a pane (quoted back
+  in a message, echoed by the host, re-emitted when the reviewer answers again), and an EARLIER
+  mention appears to parse because rejoining consumes forward until the buffer is valid JSON —
+  so a bare mention silently borrows the next real payload. Observed on one nonce: eight
+  occurrences, six resolving to a superseded verdict and two to the current one. The collector
+  now takes the LAST parseable occurrence, which cannot have borrowed (nothing later to borrow
+  from) and is the answer that stands if the reviewer re-answered. Without this, three approvals
+  sat undeliverable on a live pane.
+
 ### Added
 
 - **Cleanup joins the controls a capability holder can drive (gateway TM-305, EP-023).**
