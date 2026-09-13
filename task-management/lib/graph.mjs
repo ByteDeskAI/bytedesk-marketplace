@@ -184,8 +184,16 @@ export function why(id, p = paths()) {
   };
 }
 
-/** The pool's verdict on one task, in words: ready, not ready and why, or a person's call. */
-function readinessVerdict(task, cfg) {
+/**
+ * The pool's verdict on one task, in words: ready, not ready and why, or a person's call.
+ *
+ * Exported because the board payload puts the same verdict on every card (TM-188), and a card
+ * that re-derived it from the stored `ready-for-agent` label would disagree with the pool the
+ * moment config changed — the pool re-runs `agentReadiness` on every candidate and the label is
+ * only a record of the last write. `task` must be the WHOLE record: `body` is a `requireOnStart`
+ * field, so a body-stripped list row reports "not ready: body" for everything.
+ */
+export function readinessVerdict(task, cfg) {
   const { ready, missing } = agentReadiness(task, cfg);
   const human = task.triagedBy === "human";
   return {

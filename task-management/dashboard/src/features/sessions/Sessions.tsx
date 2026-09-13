@@ -14,6 +14,7 @@ import { setQuery, useLocation } from "../../lib/router";
 import { useBoard, useEvents, useMeta, useNow, useWrite } from "../../lib/store";
 import type { Claim, Worktree } from "../../lib/types";
 import { ago, CopyButton, fmtMs, IdLink, Loaded, ScreenHead, short, useAsync } from "../ops/shared";
+import { PoolCard } from "./PoolCard";
 import "../../styles/sessions.css";
 
 type ClaimRow = Claim & { id: string; live: boolean; stale: boolean };
@@ -68,6 +69,8 @@ export default function Sessions() {
     <div className="tm-screen tm-sessions">
       <ScreenHead title="Sessions" blurb={<>harness <span className="tm-id">{sessions.data?.harness ?? meta?.harness ?? "none detected"}</span> · claims expire after <span className="tm-id">{Math.round(ttl / 60_000)}m</span> without a live session</>}
         actions={<Button variant={claims.data?.stale.length ? "danger" : "default"} onClick={() => setSweep(true)} disabled={!claims.data?.stale.length}>Sweep expired claims{claims.data?.stale.length ? ` (${claims.data.stale.length})` : ""}</Button>} />
+
+      <PoolCard />
 
       <Loaded q={claims} rows={2}>
         {(c) => (

@@ -54,6 +54,22 @@ export interface Task {
   sprint?: string | null;
   /** Minted from a capability — join is `task.capability` → `CAP-*`, never the reverse epic field. */
   capability?: string;
+  /**
+   * Would the pool take this card, and if not what does it want? Derived by the server on every
+   * board read (TM-188) from the same check the pool runs, so it is never the stale label. Null on
+   * a resolved card, and absent on a detail fetch — only the board list carries it.
+   */
+  readiness?: Readiness | null;
+}
+
+/** The pool's verdict on one task. Same object on a board card and in `why` — one server helper. */
+export interface Readiness {
+  ready: boolean;
+  /** What an agent would need. Empty when ready. */
+  missing: string[];
+  /** A person set the triage label by hand; the store will not override it. */
+  human: boolean;
+  text: string;
 }
 
 export type Priority = "highest" | "high" | "medium" | "low" | "lowest";
@@ -320,6 +336,28 @@ export interface Why {
   roots: string[];
   cycles?: string[][];
   text: string;
+  /** Null once the task is resolved — a done card has no agent verdict to give. */
+  readiness?: Readiness | null;
+}
+
+/** `GET /api/pool` — the object `tm pool status` prints, field for field. */
+export interface Pool {
+  running: boolean;
+  pid: number | null;
+  started: string | null;
+  enabled: boolean;
+  poolWip: number;
+  pollSeconds: number;
+  idleExitMinutes: number;
+  log: string;
+  /** Workers alive right now. */
+  workers: number;
+  /** Tasks the pool could pick up. */
+  poolable: number;
+  paused: boolean;
+  pausedReason: string | null;
+  pausedAt: string | null;
+  failures: number;
 }
 
 /** `GET /api/graph` */

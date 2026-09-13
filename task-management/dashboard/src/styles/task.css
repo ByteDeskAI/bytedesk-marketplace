@@ -14,6 +14,8 @@
 
 .tm-why { display: flex; flex-direction: column; gap: var(--tm-s3); padding: var(--tm-s3); border-radius: var(--tm-radius); background: var(--tm-canvas); border: var(--tm-hairline) solid var(--tm-line-faint); }
 .tm-why__reason { color: var(--tm-ink-2); }
+/* The agent verdict, beside the workflow verbs: a chip and the sentence, wrapping on a phone. */
+.tm-why__agent { display: flex; align-items: center; flex-wrap: wrap; gap: var(--tm-s2); }
 .tm-why__chain { display: flex; flex-direction: column; gap: var(--tm-s2); border-left: var(--tm-hairline) solid var(--tm-line-strong); padding-left: var(--tm-s3); }
 .tm-why__chain li { display: flex; align-items: center; gap: var(--tm-s2); min-width: 0; flex-wrap: wrap; }
 

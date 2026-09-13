@@ -7,6 +7,9 @@ import type { Task } from "../../lib/types";
 import { fmtDuration } from "../../../metrics.mjs";
 import { PRIORITY_GLYPH, acCount, attentionOf, decisionRole, needsAnswer, stopReason, type Holder } from "./model";
 
+/** The two triage labels the store derives — the readiness chip is the live answer to both. */
+const TRIAGE_DERIVED = ["ready-for-agent", "needs-triage"];
+
 export interface TaskCardProps {
   task: Task;
   focused: boolean;
@@ -34,7 +37,13 @@ export const TaskCard = memo(function TaskCard({ task: t, focused, selected, liv
   const role = decisionRole(t.labels);
   const attention = attentionOf(role);
   const reason = stopReason(t);
-  const labels = (t.labels ?? []).filter((l) => !l.startsWith("decision:"));
+  /**
+   * The pool's live verdict (TM-188), which supersedes the two triage labels it is computed from —
+   * so those are dropped from the label row rather than shown twice. The other triage labels stay:
+   * `ready-for-human` and friends are a person's stated call, not a derived one.
+   */
+  const ready = t.readiness ?? null;
+  const labels = (t.labels ?? []).filter((l) => !l.startsWith("decision:") && !(ready && TRIAGE_DERIVED.includes(l)));
   const parts = [
     `${t.id} ${t.title}`,
     label(t.status),
@@ -42,6 +51,7 @@ export const TaskCard = memo(function TaskCard({ task: t, focused, selected, liv
     holder ? `held by ${holder.actor}` : t.status === "in_progress" ? "unclaimed" : "",
     blockers.length ? `blocked by ${blockers.join(", ")}` : "",
     stale ? "stale" : "",
+    ready ? ready.text : "",
     pending ? pending : "",
   ].filter(Boolean);
 
@@ -114,6 +124,13 @@ export const TaskCard = memo(function TaskCard({ task: t, focused, selected, liv
         {role && <Chip tone="info" dot={false}>{role.replace("decision:", "")}</Chip>}
         {attention && <Chip kind="count">{attention}</Chip>}
         {needsAnswer(t) && <Chip tone="warn" dot>needs answer</Chip>}
+        {ready && (
+          ready.ready
+            ? <Chip tone="ok" dot title={ready.text}>agent-ready</Chip>
+            : <Chip className="tm-task__ready" tone={ready.human ? "info" : "warn"} dot title={ready.text}>
+                <span className="tm-truncate">{ready.human ? "person's call" : "not ready"}: {ready.missing.join(", ")}</span>
+              </Chip>
+        )}
         {t.capability && <Chip kind="count" title="builds a capability">{t.capability}</Chip>}
         {labels.slice(0, 3).map((l) => (
           <Chip key={l} kind="label">{l}</Chip>
