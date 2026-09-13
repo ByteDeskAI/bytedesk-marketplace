@@ -39,6 +39,34 @@
   - A reader can open the exact terminal a run was launched from instead of matching working
     directories and calling the result a "likely launcher".
 
+## [0.9.1] — 2026-09-13
+
+### Fixed
+
+- **A probe now outlives the wait for it, so the late-ack path can actually fire (TM-187, EP-019).**
+  The lead and the reviewer each computed the probe's `expires_at` and their own wait deadline from
+  the same expression — `Date.now() + ackTimeoutMs` in `lead.mjs`, and a loop running
+  `while (Date.now() <= probe.expires_at)` in `reviewer.mjs`. The probe was therefore already expired
+  at the instant the wait gave up, and the next statement deleted it: `sweepExpired` in the lead, and
+  in the reviewer an `expired` test that was true by construction on every timeout. TM-161 taught
+  both halves to accept an answer that arrived after the wait returned, and neither could ever do so:
+  the window was zero-width. Observed live — `lead ack <nonce>` returned `{"ok":true}` against a probe
+  that vanished a second later with `<agent>.answered.json` untouched, so a lead that answered
+  correctly and promptly was recorded `unresponsive`. A single `LATE_ACK_GRACE_MS` in `delivery.mjs`
+  (env `AO_LEAD_ACK_GRACE_MS`, default 120s) is now the gap between how long the probe lives and how
+  long the host waits, shared by both halves so the value cannot be fixed in one and missed in its
+  sibling. `expires_at` remains the one line both ack verbs enforce, so accepting a LATE answer still
+  never becomes accepting a STALE one.
+- **An ack that cannot be counted is discarded out loud (TM-187).** `lateAck` names the nonce it
+  dropped and says whether the probe had expired or was already swept; a silent discard was
+  indistinguishable from a lead that never answered. `sweepExpired` now removes a probe's `.ack.json`
+  along with the probe, so no orphan is left for a later pass to drop, and it reports what it swept.
+
+### Changed
+
+- `lead.mjs` records `waited_until` beside `expires_at` on each probe, so the two numbers are legible
+  on disk rather than inferred; the duplicated `rememberAck` on the success path is removed.
+
 ## [0.9.0] — 2026-09-11
 
 ### Added

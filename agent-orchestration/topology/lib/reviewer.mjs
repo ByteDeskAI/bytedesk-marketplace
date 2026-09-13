@@ -35,7 +35,7 @@ import { dirname, join } from "node:path";
 import { agentDirs, createAgent, findLead, requireAgent, resolveAgentRef } from "./agents.mjs";
 import { findTemplate, loadConfig } from "./config.mjs";
 import { displayName } from "./identity.mjs";
-import { composerFormat, wakeForProbe } from "./delivery.mjs";
+import { composerFormat, LATE_ACK_GRACE_MS, wakeForProbe } from "./delivery.mjs";
 import { openRoleSession, roleSessionName, tmuxFailureTrigger } from "./launch.mjs";
 import { withLock } from "./lockfile.mjs";
 import { composePrompt, promptErrorDetail } from "./prompts.mjs";
@@ -218,7 +218,10 @@ export async function reviewerProbeReady({ consumer, record, env = process.env, 
   }
   const nonce = randomUUID();
   const path = join(dir, `${nonce}.json`), ackPath = join(dir, `${nonce}.ack.json`);
-  const probe = { nonce, repo_id: record.repo_id, agent_id: record.agent_id, session: record.session, expires_at: Date.now() + timeoutMs };
+  // TM-187: the probe outlives the wait by LATE_ACK_GRACE_MS. These were one number, which is what
+  // made the `finally` below delete every timed-out probe while claiming to keep the answerable ones.
+  const probe = { nonce, repo_id: record.repo_id, agent_id: record.agent_id, session: record.session, expires_at: Date.now() + timeoutMs + LATE_ACK_GRACE_MS };
+  let waitUntil = Date.now() + timeoutMs;
   await writeJson(path, probe);
   try {
     await onProbe?.(probe);
@@ -234,16 +237,17 @@ export async function reviewerProbeReady({ consumer, record, env = process.env, 
     const wakeCost = Date.now() - wokeAt;
     if (wakeCost > 0) {
       probe.expires_at += wakeCost;
+      waitUntil += wakeCost;
       await writeJson(path, probe).catch(() => {});
     }
-    while (Date.now() <= probe.expires_at) {
+    while (Date.now() <= waitUntil) {
       const screen = await output(record);
       if (readySignalOnScreen(screen, nonce)) { await rememberReviewerAck(dir, record); return true; }
       const ack = await readJson(ackPath).catch(() => null);
       if (ack?.nonce === nonce && ack.agent_id === record.agent_id && ack.repo_id === record.repo_id && ack.session === record.session) { await rememberReviewerAck(dir, record); return true; }
       // TM-157: the window is now seconds rather than one second, so the poll has to be a poll and
       // not a spin — at 25ms this would take ~800 captures of the same pane to answer one probe.
-      await sleep(Math.min(PROBE_POLL_MS, Math.max(1, probe.expires_at - Date.now())));
+      await sleep(Math.min(PROBE_POLL_MS, Math.max(1, waitUntil - Date.now())));
     }
     return false;
   } finally {

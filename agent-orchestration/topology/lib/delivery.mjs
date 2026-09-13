@@ -51,6 +51,14 @@ export const MAX_CLIENTS = Number(process.env.AO_BELL_MAX_CLIENTS ?? 8);
 export const BELL_POLL_MS = Number(process.env.AO_BELL_POLL_MS ?? 1000);
 /** How often the styled second look may be taken while waiting for a pane to become safe. */
 export const STYLED_MIN_INTERVAL_MS = Number(process.env.AO_STYLED_MIN_INTERVAL_MS ?? 5000);
+// TM-187. How much longer a probe LIVES than the host WAITS for it, for the lead and the reviewer
+// alike. TM-161 taught both halves to accept an answer that arrived after the wait returned, and
+// neither could ever fire: each computed the probe's `expires_at` and its own wait deadline from the
+// same expression, so the probe was expired at the instant the wait gave up and was deleted on the
+// way out. The late window was zero-width in both. This is that window — an agent reading its probe
+// at the next turn boundary answers into it — and `expires_at` remains the single line both ack
+// verbs enforce, so accepting a LATE answer still never becomes accepting a STALE one.
+export const LATE_ACK_GRACE_MS = Number(process.env.AO_LEAD_ACK_GRACE_MS ?? 120_000);
 
 /**
  * The six-tuple that says a pane is still the SAME pane. `failoverAgent` already refuses to act
