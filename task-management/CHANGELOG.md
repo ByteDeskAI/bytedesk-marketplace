@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### Added
+- **A dispatch guard for work that already landed somewhere else.** The store tracks who *claimed*
+  a task, never who *did* it, so a person or a session working outside the dispatch system can
+  finish the same work and push it while a dispatched worker is still going — invisible to claims,
+  touches and readiness alike, because none of them read the repository. `lib/dispatch/duplicate.mjs`
+  reads the one signal that was there the whole time: a commit message naming the task.
+  - **Before dispatch**, a task whose id appears in a commit that is not on its own branch is
+    refused, with the commits named, before anything is claimed — so a duplicate dispatch leaves
+    nothing behind. `--steal` overrides deliberately.
+  - **On every pool tick**, a running worker whose task has gained such a commit is reported as
+    `dispatch.duplicate` on the event log and in the tick result. It is never killed: the worker may
+    be minutes from a valid result or hold work the duplicate lacks, and a loop is the wrong thing
+    to decide that.
+  - Excludes merge commits and the task's own branch, so a task cannot report itself. Off with
+    `tm config dispatch.duplicateGuard false`.
+  - The incident behind it: TM-310 was dispatched at 21:49 and the same removal landed on develop as
+    f30b4bc9 at 22:19. It went unnoticed for a day, until the worker's merge conflicted on work that
+    was already shipped. Verified against that history — f30b4bc9 is not an ancestor of the worker's
+    pre-merge head, so the guard would have reported it on every tick from 22:19 onward.
+
 ### Fixed
 - **`tm evidence` no longer duplicates a shared or re-attached artifact** (TM-166). TM-145 stopped
   the same-id double prefix; three related holes remained, and together they are how this store grew
