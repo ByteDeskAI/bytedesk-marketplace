@@ -20,7 +20,9 @@
  *                  the board reads the same however the task was started.
  *   5. provision — claim first, then checkout (provision claims again with the
  *                  worktree and branch; same session, so it re-stamps, not steals).
- *   6. spawn     — the backend launches the worker.
+ *   6. spawn     — the backends launch the worker: the first usable one, then the
+ *                  next when a launch REFUSES, down to `manual`. Only an exhausted
+ *                  chain is a failed dispatch (TM-198).
  *
  * On ANY failure after a claim this call created, that claim is released and the
  * status put back — a dispatch that did not start a worker must leave the task
@@ -87,7 +89,9 @@ function startHeartbeat(id, session, agentName, p) {
  *   p         store paths
  *   caps/registry   injectable host capabilities / module registry (tests)
  *
- * Returns { ok, backend?, run?, worktree?, branch?, detail?, reason?, holder?, tried? }.
+ * Returns { ok, backend?, run?, worktree?, branch?, detail?, reason?, holder?, tried?, refused? }.
+ * `refused` lists the backends that were asked before this one and said no — present on a
+ * success that fell through, and on a failure it is every backend that refused.
  */
 export async function dispatch(id, { backend = null, session = null, actor = null, steal = false, p = paths(), caps = null, registry = null } = {}) {
   const task = read(id, p);
@@ -98,7 +102,7 @@ export async function dispatch(id, { backend = null, session = null, actor = nul
 
   const picked =
     backend && typeof backend === "object"
-      ? { name: backend.name || "custom", backend, tried: [] }
+      ? { name: backend.name || "custom", backend, tried: [], chain: [{ name: backend.name || "custom", backend }] }
       : await resolveBackend({ requested: backend, caps, registry, p });
   if (!picked.backend) {
     const why = picked.tried.map((t) => `${t.name}: ${t.reason}`).join("; ");
@@ -179,12 +183,46 @@ export async function dispatch(id, { backend = null, session = null, actor = nul
   if (!prov.ok) return fail(prov.reason, { holder: prov.holder });
 
   const prompt = handoff(id, p);
-  const res = await picked.backend.spawn({ task: read(id, p), worktree: prov.path, prompt, session, actor, p });
-  if (!res?.ok) return fail(res?.reason || `${picked.name} did not start a worker`, { detail: res?.detail });
+  /**
+   * Walk the usable backends until one actually launches (TM-198).
+   *
+   * `available()` is a statement about the HOST — "ao-topology and tmux are both on PATH" — and
+   * it was the only thing consulted. A backend that is installed and then refuses at launch
+   * ended the dispatch: the first live pool run refused every task on `TOPOLOGY_PATH_ESCAPES_REPO`
+   * and tripped the brake after three, with `tmux` right behind it in the order, installed, and
+   * never asked. `idle` had the same hole in the other direction — its own doc says "it refuses
+   * when nothing is free, the walk falls straight through to topology", and the walk did not exist.
+   *
+   * The worktree is provisioned once and reused across attempts: each backend writes its own
+   * PROMPT_FILE into it, and rolling it back between tries would cost a checkout per attempt.
+   *
+   * An explicitly requested backend has a chain of ONE, so `--backend topology` still fails as
+   * topology rather than quietly landing the work in a harness the caller did not ask for.
+   */
+  const req = { task: read(id, p), worktree: prov.path, prompt, session, actor, p };
+  const refused = [];
+  let chosen = null;
+  let res = null;
+  for (const candidate of picked.chain) {
+    res = await candidate.backend.spawn(req);
+    if (res?.ok) {
+      chosen = candidate;
+      break;
+    }
+    const why = res?.reason || `${candidate.name} did not start a worker`;
+    refused.push({ backend: candidate.name, reason: why });
+    logEvent("backend_refused", { id, backend: candidate.name, reason: why }, p);
+  }
+  if (!chosen) {
+    return fail(refused.map((r) => `${r.backend}: ${r.reason}`).join("; ") || `${picked.name} did not start a worker`, {
+      detail: res?.detail,
+      refused,
+    });
+  }
 
-  const dispatched = { backend: picked.name, run: res.run ?? null, session, at: now() };
+  const dispatched = { backend: chosen.name, run: res.run ?? null, session, at: now() };
   mutate(id, () => ({ dispatched }), p);
-  logEvent("dispatched", { id, backend: picked.name, run: res.run ?? null, session }, p);
+  logEvent("dispatched", { id, backend: chosen.name, run: res.run ?? null, session, ...(refused.length ? { refused } : {}) }, p);
   /**
    * Register the worker the spawn just started. Additive and failure-tolerant by
    * contract: the registry observes the dispatch, it must never be able to fail
@@ -195,7 +233,7 @@ export async function dispatch(id, { backend = null, session = null, actor = nul
     registerAgent(
       {
         name: agentName,
-        backend: picked.name,
+        backend: chosen.name,
         runId: res.run ?? null,
         pid: typeof res.pid === "number" ? res.pid : null,
         session,
@@ -218,10 +256,14 @@ export async function dispatch(id, { backend = null, session = null, actor = nul
   return {
     ok: true,
     id,
-    backend: picked.name,
+    backend: chosen.name,
     run: res.run ?? null,
     worktree: prov.path,
     branch: prov.branch,
     detail: res.detail,
+    // What the chosen backend was chosen OVER. A dispatch that fell through succeeded, so the
+    // brake must not count it — but a topology that refuses every time is still a thing to fix,
+    // and a silent fallback is how it stays unfixed.
+    ...(refused.length ? { refused } : {}),
   };
 }

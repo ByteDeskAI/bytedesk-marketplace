@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
@@ -328,6 +329,75 @@ test("a library agent runs in its own directory; an inline agent still follows t
     assert.equal(inline.cwd, consumer, "an inline agent is unaffected — the shipped templates rely on this");
   } finally {
     await rm(consumer, { recursive: true, force: true });
+  }
+});
+
+test("a consumer that is a linked worktree is contained against its REPOSITORY, not its own tree", async () => {
+  // TM-198, and the exact shape that failed. task-management's dispatch provisions ONE linked
+  // worktree per task and hands it over as `--consumer`; this layer keeps ONE agent library per
+  // repository, in the main checkout, because an agent created from any worktree is the same
+  // repo's agent. So a dispatch that borrows a stored identity resolves an agent directory that
+  // is inside the repo and outside the consumer — and containment, which only knew about the
+  // consumer, refused every one of them:
+  //
+  //   TOPOLOGY_PATH_ESCAPES_REPO: agents.worker.cwd resolves to
+  //   <main>/.bytedesk/agent-orchestration/agents/<id>, which is outside this repository (<worktree>)
+  //
+  // Run this test against the pre-fix spec.mjs and it fails on that code. The escape hatch it
+  // needed — `--allow-outside` — would have opened the whole machine to get at the next directory
+  // along, which is why the bound moved to the repository rather than the flag being reached for.
+  const root = await mkdtemp(join(os.tmpdir(), "ao-topology-worktree-"));
+  const main = join(root, "main");
+  const linked = join(root, "linked");
+  try {
+    await mkdir(main);
+    const git = (...args) => execFileSync("git", ["-C", main, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    git("init", "-q");
+    git("config", "user.email", "agent-orchestration@test.invalid");
+    git("config", "user.name", "Agent Orchestration Test");
+    await writeFile(join(main, "README.md"), "fixture\n");
+    git("add", "README.md");
+    git("commit", "-qm", "fixture");
+    git("worktree", "add", "-q", "--detach", "--", linked, "HEAD");
+
+    const worker = await createAgent(main, { role: "worker" });
+    assert.ok(worker._dir.startsWith(resolve(main)), "the library is the repository's, so it lives in the main checkout");
+
+    // The dispatch shape: the linked worktree is the consumer, the identity comes from the library.
+    const borrowed = materializeSpec(
+      validateSpec({ name: "dispatched", agents: [{ id: "worker", agent: worker.id, role: "orchestrator", instructions: "do it" }] }),
+      { runId: "r", consumer: linked, home: "/h", inputs: {} },
+    );
+    assert.equal(borrowed.agents[0].cwd, worker._dir, "the library agent keeps its own directory, and is no longer an escape");
+
+    // What task-management actually sends, because a dispatched worker belongs in the checkout the
+    // task was given: an explicit cwd wins over the library default and lands in the worktree.
+    const stated = materializeSpec(
+      validateSpec({ name: "dispatched", agents: [{ id: "worker", agent: worker.id, cwd: "{{consumer}}", role: "orchestrator", instructions: "do it" }] }),
+      { runId: "r", consumer: linked, home: "/h", inputs: {} },
+    );
+    assert.equal(stated.agents[0].cwd, linked, "an explicit {{consumer}} puts the worker in the dispatched worktree");
+
+    // The rule did not become "anywhere": a path outside the repository is still refused, from a
+    // consumer that is a worktree exactly as from one that is not.
+    for (const cwd of ["/", join(root, "not-this-repo")]) {
+      assert.throws(
+        () => materializeSpec(validateSpec({ name: "escape", agents: [{ id: "w", role: "orchestrator", cli: "claude", cwd }] }), { runId: "r", consumer: linked, home: "/h", inputs: {} }),
+        (error) => {
+          assert.equal(error.code, "TOPOLOGY_PATH_ESCAPES_REPO");
+          assert.ok(error.message.includes(resolve(main)), `the refusal must name the repository the bound is, not just the worktree:\n${error.message}`);
+          return true;
+        },
+        `${cwd} is outside the repository and must still be refused`,
+      );
+    }
+  } finally {
+    try {
+      execFileSync("git", ["-C", main, "worktree", "remove", "--force", linked], { stdio: "ignore" });
+    } catch {
+      /* the rm below is the real cleanup */
+    }
+    await rm(root, { recursive: true, force: true });
   }
 });
 

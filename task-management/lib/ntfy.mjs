@@ -32,6 +32,10 @@ export const CATALOG = {
     claim_stolen: { group: "recommended", label: "Another session took a claim", priority: "high", tags: "twisted_rightwards_arrows" },
     claims_swept: { group: "recommended", label: "A claim expired and work was abandoned", priority: "default", tags: "ghost" },
     dispatched: { group: "recommended", label: "A task was handed to a worker backend", priority: "default", tags: "rocket" },
+    // Not a failure — the dispatch that logged this went on to a backend that worked (TM-198).
+    // It is here because a backend that refuses EVERY launch is otherwise invisible: the pool
+    // succeeds, the board looks healthy, and the broken layer is never fixed.
+    backend_refused: { group: "recommended", label: "A dispatch backend refused at launch and the next one was tried", priority: "default", tags: "leftwards_arrow_with_hook" },
     task_result: { group: "recommended", label: "A dispatched worker's result was recorded", priority: "default", tags: "inbox_tray" },
     epic_auto_closed: { group: "recommended", label: "An epic closed itself — every task done", priority: "default", tags: "tada" },
     reopened: { group: "recommended", label: "A finished task was brought back", priority: "default", tags: "leftwards_arrow_with_hook" },

@@ -2,6 +2,86 @@
 
 ## Unreleased
 
+- **Topology dispatch launches into the worktree it provisioned, and a backend that refuses is no
+  longer the end of the dispatch (TM-198 / EP-021).** The first live pool run failed every task and
+  tripped the brake after three. `ao-topology` refused each spec with
+  `TOPOLOGY_PATH_ESCAPES_REPO: agents.worker.cwd resolves to <main>/.bytedesk/agent-orchestration/agents/<id>,
+  which is outside this repository (<the tm worktree>)`, and `tmux` — second in the default order,
+  installed, and working — was never asked. Three changes, because there were three faults:
+  - **The spec now STATES the worker's working directory** (`cwd: "{{consumer}}"`), rather than
+    relying on a default this module's own rule 1 described and did not get. The topology layer
+    gives a LIBRARY agent its own directory as its cwd, and that directory belongs to the repo's
+    main checkout — one roster per repository. So the default was never the consumer for a spec
+    that borrows an identity, which every dispatch does when the repo has a roster. **tm owns the
+    working directory of the workers it dispatches; agent-orchestration owns where its agent
+    library lives** — the two sides of the disagreement, now written down on both.
+  - **Dispatch walks the usable backends instead of asking one.** `available()` answers "can this
+    host run it", which is not "did the launch work". `dispatch()` now tries the next backend when
+    one refuses at launch and fails only when the chain is exhausted, naming every refusal. An
+    explicitly requested backend still gets a chain of one. This also makes `dispatch.preferIdle`
+    do what its own doc claimed: `idle` refuses when nothing is free and the walk falls through.
+  - **The pool stopped hardcoding past the walk.** `poolTick` resolved a backend for its
+    per-backend cap accounting and passed that name to `dispatch()` as `backend:` — an explicit
+    request, which pins the chain to one. The prediction is still used for the cap; only the
+    dispatch is no longer pinned. Without this, the fix above changed nothing where it was needed.
+  - `backend_refused` joins the notification catalog: a fall-through is a success, so a backend that
+    refuses every launch would otherwise be invisible on a board that looks healthy.
+
+- **A topology-launched worker reaches its pane with the dispatch identity.** `TM_SESSION_ID`,
+  `TM_ACTOR` and `TM_ROOT`. `dispatch/topology.mjs` set the
+  store only in `envFor()`, on the ao-topology launcher — and the launcher's environment does not
+  reach the pane. ao-topology's launcher script exports the spec agent's env and nothing else, and a
+  tmux server that is already running hands a new pane none of the launching process's environment.
+  The worker markers already rode the spec env for exactly that reason (TM-177); the store did not.
+  A worker that arrives without `TM_ROOT` resolves a store by walking up from cwd instead, which
+  lands on whatever store sits above it — the wrong repo's, when the worker steps outside its
+  worktree. The tmux backend has always passed all three into the pane; this is the missing parity,
+  and the three now have one definition (`workerIdentityEnv`) that both backends use, because
+  keeping two copies in step is what failed.
+  - **`TM_SESSION_ID` is the one that bit.** It is first in `SESSION_ENV`, so it outranks the pane's
+    own harness session id. Without it the worker did not match the claim the dispatch had taken out
+    *for* it, and stole it: the event log of a real topology dispatch reads `claim` by the
+    dispatcher, then `claim_stolen` by a raw harness id, then every later write under that id.
+  - **`TM_ACTOR` never arrived either**, so every topology worker's events were attributed to `main`.
+  - Values a roster agent happens to carry no longer win over the dispatch's own.
+
+### Fixed
+- **The dispatch worker guard releases when its task does.** `TM_DISPATCH_*` is pinned into a
+  worker's environment at spawn and nothing ever cleared it, so the guard outlived the work: a
+  session whose task was finished and merged kept being told it may push only its own branch — a
+  branch that post-merge cleanup had already deleted. Every push it could name was impossible, and
+  the session could do nothing. `pre-bash` now stands down when the pinned task reads `done` or
+  `deleted`.
+  - **It fails closed.** Only a task it could actually read, in the store the worker was dispatched
+    from, and that is resolved, releases it. An unreadable store, a missing task, a task still open,
+    or no pin keeps the guard on.
+  - **The store is identified, never inferred.** Task ids are unique only *within* a store, so a
+    worker pinned to TM-001 must not be released by an unrelated TM-001 that is done in another
+    repo — which is exactly what an early cut of this did, caught by the existing suite. One of two
+    things must identify the store: `TM_ROOT`, or a task whose recorded branch is the very branch
+    this worker was pinned to. Neither available means the worker stays guarded. Both cases are
+    tested, including a mismatched branch.
+
+### Added
+- **A dispatch guard for work that already landed somewhere else.** The store tracks who *claimed*
+  a task, never who *did* it, so a person or a session working outside the dispatch system can
+  finish the same work and push it while a dispatched worker is still going — invisible to claims,
+  touches and readiness alike, because none of them read the repository. `lib/dispatch/duplicate.mjs`
+  reads the one signal that was there the whole time: a commit message naming the task.
+  - **Before dispatch**, a task whose id appears in a commit that is not on its own branch is
+    refused, with the commits named, before anything is claimed — so a duplicate dispatch leaves
+    nothing behind. `--steal` overrides deliberately.
+  - **On every pool tick**, a running worker whose task has gained such a commit is reported as
+    `dispatch.duplicate` on the event log and in the tick result. It is never killed: the worker may
+    be minutes from a valid result or hold work the duplicate lacks, and a loop is the wrong thing
+    to decide that.
+  - Excludes merge commits and the task's own branch, so a task cannot report itself. Off with
+    `tm config dispatch.duplicateGuard false`.
+  - The incident behind it: TM-310 was dispatched at 21:49 and the same removal landed on develop as
+    f30b4bc9 at 22:19. It went unnoticed for a day, until the worker's merge conflicted on work that
+    was already shipped. Verified against that history — f30b4bc9 is not an ancestor of the worker's
+    pre-merge head, so the guard would have reported it on every tick from 22:19 onward.
+
 ### Fixed
 - **`tm evidence` no longer duplicates a shared or re-attached artifact** (TM-166). TM-145 stopped
   the same-id double prefix; three related holes remained, and together they are how this store grew

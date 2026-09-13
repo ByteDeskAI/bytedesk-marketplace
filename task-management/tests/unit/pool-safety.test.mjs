@@ -267,6 +267,45 @@ describe("TM-175 B8 — pool.pid is taken exclusively", () => {
   });
 });
 
+describe("TM-198 — a backend refusing at launch is not a pool failure", () => {
+  /**
+   * The reported symptom, end to end: the first live pool run refused every task and tripped the
+   * brake after three. `topology` is first in the default order, ao-topology was installed so
+   * `available()` said yes, and every launch then refused with TOPOLOGY_PATH_ESCAPES_REPO. `tmux`
+   * was second, installed, and never asked — because the tick RESOLVED a backend for its
+   * per-backend cap accounting and then passed that name to dispatch as `backend:`, which is an
+   * explicit request, which pins the chain to one. A default the caller hardcoded past.
+   */
+  const refusing = { name: "escapes", available: () => true, spawn: () => ({ ok: false, reason: "TOPOLOGY_PATH_ESCAPES_REPO: agents.worker.cwd resolves outside" }) };
+
+  it("the tick falls through to the next backend instead of counting three failures and pausing", async () => {
+    const p = repoStore({ dispatch: { poolWip: 3, maxFailures: 3, backends: ["escapes", "fake"] } });
+    const ids = [1, 2, 3].map((n) => ready(p, `task ${n}`));
+    const fake = fakeBackend();
+
+    const res = await pool.poolTick({ p, registry: { escapes: refusing, fake }, caps: {} });
+
+    assert.equal(fake.calls.length, 3, `all three reached the working backend (dispatched ${fake.calls})`);
+    assert.equal(res.dispatched.length, 3);
+    assert.equal(res.paused ?? null, null, "nothing failed, so the brake never engaged");
+    assert.equal(pool.readPoolState(p).failures, 0, "and it counted no failures either");
+    for (const id of ids) assert.equal(read(id, p).dispatched.backend, "fake", "the board records what actually launched");
+    assert.ok(res.dispatched.every((d) => d.refused?.[0]?.backend === "escapes"), "the tick still reports what it fell through");
+  });
+
+  it("still pauses when EVERY backend refuses — falling through is not swallowing", async () => {
+    const p = repoStore({ dispatch: { poolWip: 3, maxFailures: 3, backends: ["escapes", "alsoRefuses"] } });
+    for (const n of [1, 2, 3, 4]) ready(p, `task ${n}`);
+    const alsoRefuses = { name: "alsoRefuses", available: () => true, spawn: () => ({ ok: false, reason: "no tmux server" }) };
+
+    const res = await pool.poolTick({ p, registry: { escapes: refusing, alsoRefuses }, caps: {} });
+
+    assert.ok(res.paused, "an exhausted chain is still a failure, and three of them still brake");
+    assert.match(pool.readPoolState(p).pausedReason, /3 consecutive failures/);
+    assert.match(res.skipped.map((s) => s.reason).join(" "), /TOPOLOGY_PATH_ESCAPES_REPO/, "and the reason names the first refusal, not just the last");
+  });
+});
+
 describe("TM-175 brakes — the pool pauses instead of burning the queue", () => {
   it("workers that die at once pause the pool after maxFailures (default 3), before the queue is parked", async () => {
     const p = repoStore({ dispatch: { poolWip: 1 } });

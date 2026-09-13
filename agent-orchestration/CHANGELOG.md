@@ -39,6 +39,22 @@
   - A reader can open the exact terminal a run was launched from instead of matching working
     directories and calling the result a "likely launcher".
 
+### Fixed
+
+- **A spec is contained against its REPOSITORY, not against the consumer directory (TM-198).** This
+  layer keeps one agent library per repository, in the main checkout, and resolves it through
+  `libraryConsumer`; `containPath` contained against whatever path the caller passed as
+  `--consumer`. Hand it a linked worktree — which is exactly what task-management's dispatch does,
+  one worktree per task — and a library agent's own directory was inside the repo and outside the
+  consumer, so every such launch was refused:
+  `TOPOLOGY_PATH_ESCAPES_REPO: agents.<id>.cwd resolves to <main>/.bytedesk/agent-orchestration/agents/<id>,
+  which is outside this repository (<worktree>)`. The escape hatch it left — `--allow-outside` —
+  opens the whole machine to reach the next directory along. `util.mjs` now exports one synchronous
+  `repositoryRoot`, used by both the library lookup and containment, so the two stop disagreeing
+  about which checkout is "the repository"; `repoid.mjs` answers the same question asynchronously
+  for the services that can await it. A path outside the repository is refused exactly as before,
+  and the refusal now names the repository as well as the consumer when they differ.
+
 ## [0.9.1] — 2026-09-13
 
 ### Fixed

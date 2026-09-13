@@ -3,8 +3,8 @@
 // composing a spec can fix it from the error text alone.
 import { mkdirSync, readFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
-import { basename, join } from "node:path";
-import { absolutize, exists, fail, invariant, readJson, renderDeep, slug, consumerResourceDirs, isInside } from "./util.mjs";
+import { basename, join, resolve } from "node:path";
+import { absolutize, exists, fail, invariant, readJson, renderDeep, slug, consumerResourceDirs, isInside, isInsideRepository, repositoryRoot } from "./util.mjs";
 import { agentDirs, agentsRoot, listAgentsSync, matchAgent } from "./agents.mjs";
 
 export const SPEC_VERSION = 1;
@@ -509,13 +509,23 @@ export function expandForEach(agents, vars, context = {}) {
  * `cwd: "../../other-repo"` all used to resolve and launch there; a spec is frequently committed to
  * a repo, so an unconstrained path is a way for a checkout to run an agent anywhere on the machine.
  * `allowOutside` exists for the deliberate case and has to be asked for explicitly.
+ *
+ * The bound is the REPOSITORY, not the consumer directory (TM-198). A caller may hand us any
+ * checkout of a repo as the consumer — task-management's dispatch hands us the linked worktree it
+ * provisioned for one task — and this layer's own agent library lives in the main checkout, one
+ * roster per repository. Containing against the consumer alone refused a library agent's own
+ * directory: inside the repo, outside the consumer, and a launch nobody could make without
+ * `--allow-outside`. A sibling checkout is the same content under the same trust; anywhere else on
+ * the machine still is not.
  */
 export function containPath(candidate, consumer, field, context = {}) {
   if (context.allowOutside) return candidate;
+  const root = repositoryRoot(consumer) ?? consumer;
+  const bound = resolve(consumer) === root ? consumer : `${consumer}, whose repository is ${root}`;
   invariant(
-    isInside(consumer, candidate),
+    isInsideRepository(consumer, candidate),
     "TOPOLOGY_PATH_ESCAPES_REPO",
-    `${field} resolves to ${candidate}, which is outside this repository (${consumer}). A spec may not launch an agent outside the repo that invoked it. Pass --allow-outside if that is genuinely intended.`,
+    `${field} resolves to ${candidate}, which is outside this repository (${bound}). A spec may not launch an agent outside the repo that invoked it. Pass --allow-outside if that is genuinely intended.`,
   );
   return candidate;
 }
