@@ -2,15 +2,23 @@
 
 ## Unreleased
 
-- **A topology-launched worker reaches its pane with `TM_ROOT`.** `dispatch/topology.mjs` set the
+- **A topology-launched worker reaches its pane with the dispatch identity.** `TM_SESSION_ID`,
+  `TM_ACTOR` and `TM_ROOT`. `dispatch/topology.mjs` set the
   store only in `envFor()`, on the ao-topology launcher — and the launcher's environment does not
   reach the pane. ao-topology's launcher script exports the spec agent's env and nothing else, and a
   tmux server that is already running hands a new pane none of the launching process's environment.
   The worker markers already rode the spec env for exactly that reason (TM-177); the store did not.
   A worker that arrives without `TM_ROOT` resolves a store by walking up from cwd instead, which
   lands on whatever store sits above it — the wrong repo's, when the worker steps outside its
-  worktree. The tmux backend has always passed it into the pane; this is the missing parity. A
-  `TM_ROOT` a roster agent happens to carry no longer wins over the dispatch's own.
+  worktree. The tmux backend has always passed all three into the pane; this is the missing parity,
+  and the three now have one definition (`workerIdentityEnv`) that both backends use, because
+  keeping two copies in step is what failed.
+  - **`TM_SESSION_ID` is the one that bit.** It is first in `SESSION_ENV`, so it outranks the pane's
+    own harness session id. Without it the worker did not match the claim the dispatch had taken out
+    *for* it, and stole it: the event log of a real topology dispatch reads `claim` by the
+    dispatcher, then `claim_stolen` by a raw harness id, then every later write under that id.
+  - **`TM_ACTOR` never arrived either**, so every topology worker's events were attributed to `main`.
+  - Values a roster agent happens to carry no longer win over the dispatch's own.
 
 ### Fixed
 - **The dispatch worker guard releases when its task does.** `TM_DISPATCH_*` is pinned into a
