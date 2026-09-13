@@ -11,13 +11,12 @@ evidence: []
 commits: ["c22a3b4"]
 blockedBy: []
 blocks: []
-actor: "main"
-session: "8e87dbc7-3321-4e05-8648-b64d7c6319bb"
-branch: "main"
-worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-12T01:45:12.115Z"
+actor: "pool"
+session: "pool-tm-181"
+updated: "2026-09-13T20:38:33.388Z"
 labels: ["plugin:agent-orchestration","ready-for-agent"]
 triagedBy: "auto"
+comments: [{"author":"main","ts":"2026-09-13T20:38:33.383Z","text":"Reproduced exactly, 2026-09-13, during TM-171's AC3. Command: node tests/stability.mjs --runs 1 --pattern 'tests/unit/zzz-no-such-file-*.test.mjs'. Output: '1 runs - fail counts 0 / stable: every run agreed, and every run passed.', exit 0, elapsed 0s, having executed nothing. That is byte-identical in form to a genuine 10-run green result, so the harness's verdict cannot distinguish a clean suite from a pattern that matches no files, and any caller checking only the exit code reads an empty run as health.\n\nThe separating value is elapsed time: empty pattern 0s, one real test file 3s, the real 10-run AC3 pass 652s (65.2s per run, against 67.7s for a directly measured full topology suite). A fix should print what the run actually covered - the file count the pattern resolved to, or the total test count - and exit non-zero when it resolves to zero files."}]
 ---
 
 Found by W6 during TM-168 (2026-09-11). node tests/stability.mjs --runs 5 --pattern 'tests/unit/does-not-exist-*.test.mjs' prints '0 fail ... stable' and exits 0: the harness cannot tell a run that executed no tests from a run where every test passed, so a mistyped --pattern reads as a green stability measurement. This is rule 1 of .claude/rules/verification-that-can-fail.md in the tool built to enforce it (TM-165). W6 worked around it by repeating direct node --test runs and reading the # tests count.
