@@ -240,7 +240,7 @@ describe("backend resolution", () => {
 
   it("reports why each skipped backend lost", async () => {
     const registry = { tmux: { name: "tmux", available: () => false, spawn: () => ({ ok: true }) }, manual };
-    const picked = await resolveBackend({ registry, caps: {}, p: paths("/tmp/none") });
+    const picked = await resolveBackend({ registry, caps: {}, p: tempStore() });
 
     assert.equal(picked.name, "manual");
     const byName = Object.fromEntries(picked.tried.map((t) => [t.name, t.reason]));
@@ -274,7 +274,7 @@ describe("backend resolution", () => {
   it("fleet is gone — not in the order, and not loadable as a module", async () => {
     assert.equal(DEFAULT_ORDER.includes("fleet"), false, "the retired plugin must not be in the fallback walk");
     // A config that still names it must degrade to unavailable, never crash dispatch.
-    const picked = await resolveBackend({ requested: "fleet", caps: {}, p: paths("/tmp/none") });
+    const picked = await resolveBackend({ requested: "fleet", caps: {}, p: tempStore() });
     assert.equal(picked.backend, null);
     assert.deepEqual(picked.tried, [{ name: "fleet", reason: "module not present" }]);
   });

@@ -170,6 +170,14 @@ describe("orchestration binary resolution", () => {
 });
 
 describe("per-process cache", () => {
+  /**
+   * TM-204: the one deliberately HOST-DEPENDENT call in this suite. `detectHostCaps()` with no
+   * opts probes the real machine — that is the path under test, and it cannot be stubbed without
+   * testing something else. It is safe because nothing here asserts a capability VALUE: only that
+   * the no-args call returns the same object twice and that explicit opts bypass the memo. A
+   * developer with or without tmux gets the same verdict. Every other call in this file passes
+   * `env`, `probe` and `pluginRoot` and reads nothing of the host.
+   */
   it("memoizes the no-args call and only that call", () => {
     resetHostCapsCache();
     const a = detectHostCaps();

@@ -21,6 +21,27 @@
   - Values a roster agent happens to carry no longer win over the dispatch's own.
 
 ### Fixed
+- **The unit suite no longer reads the developer's own store** (TM-204). Five tests resolved a store
+  from the ambient project rather than one they owned, so their verdict moved with a config edit or
+  with the age of this repo's board — the failure mode `.claude/rules/verification-that-can-fail.md`
+  calls "the suite was reporting the machine".
+  - `dispatch-surfaces.test.mjs` called `resolveBackend()` with no `p`, so `backendOrder()` read the
+    project's `dispatch.backends`. The day that was set to `["tmux", "manual"]`, `topology` and
+    `fake` were both absent from the order, the registry's key order decided the walk, and "keeps an
+    overridden name in its configured place" went red at a commit that had passed in full. Both
+    TM-153 tests now pin the order in a store they own, and assert `backendOrder(p)` is that order
+    before relying on it.
+  - `worker-guard.test.mjs` had two sibling `envWith()` helpers and only the second stripped
+    `TM_ROOT`. The first let the hook resolve the developer's board, where this file's fixture id
+    `TM-001` is a real, finished task — so "the guard releases when the task does" released a guard
+    two other tests were asserting held. One helper now.
+  - `dispatch.test.mjs` and `dispatch-backends.test.mjs` passed shared `/tmp` paths (`/tmp/none`,
+    `/tmp/tm-resolve-backend-none`) that were deterministic only by being absent; both take an owned
+    temp store.
+  - `hostcaps.test.mjs`'s no-args `detectHostCaps()` is documented as the one deliberately
+    host-reading call in the suite: it asserts memoization, never a capability value.
+  - Verified by running the whole unit suite under three different ambient `dispatch.backends`
+    (set, unset, `["manual"]` only): 1506/1506 in each.
 - **The dispatch worker guard releases when its task does.** `TM_DISPATCH_*` is pinned into a
   worker's environment at spawn and nothing ever cleared it, so the guard outlived the work: a
   session whose task was finished and merged kept being told it may push only its own branch — a

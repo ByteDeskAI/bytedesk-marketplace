@@ -28,6 +28,22 @@ const AT_HOME = { branch: OWN, head: OWN };
 const trash = [];
 after(() => cleanup(...trash));
 
+/**
+ * The ambient env minus every marker the test runner happens to carry, plus `extra`.
+ *
+ * TM-204: this existed twice, and only the second copy dropped `TM_ROOT`. The first left the
+ * runner's own store in place, so the hook resolved the DEVELOPER's board: this file's fixture
+ * task is `TM-001`, TM-001 in this repo is `done`, and "the guard releases when the task does"
+ * released a guard the test was asserting held. Two tests went red on a machine whose store had
+ * simply got old enough to contain a finished TM-001 — no code change anywhere. One helper now,
+ * because a guard present in one sibling and absent in the other is worse than no guard.
+ */
+function envWith(extra = {}) {
+  const env = { ...process.env };
+  for (const k of ["TM_DISPATCH_WORKER", "TM_DISPATCH_TASK", "TM_DISPATCH_BRANCH", "TM_ROOT"]) delete env[k];
+  return { ...env, ...extra };
+}
+
 /** Blocked samples, keyed by the table row that must block them. */
 const BLOCKED = {
   "git-push-force": [
@@ -250,13 +266,6 @@ describe("tm-hook.sh pre-bash — the glue", () => {
   const payload = (command, cwd = tmpdir()) =>
     JSON.stringify({ session_id: "s", hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command }, cwd });
 
-  /** The ambient env minus any dispatch marker the test runner happens to carry, plus `extra`. */
-  function envWith(extra = {}) {
-    const env = { ...process.env };
-    for (const k of ["TM_DISPATCH_WORKER", "TM_DISPATCH_TASK", "TM_DISPATCH_BRANCH"]) delete env[k];
-    return { ...env, ...extra };
-  }
-
   /** A fake `node` first on PATH that records every start. */
   function fakeNode() {
     const dir = mkdtempSync(join(tmpdir(), "tm-guard-fakenode-"));
@@ -342,12 +351,6 @@ describe("tm-hook.sh pre-bash — the glue", () => {
 describe("tm-hook.sh pre-bash — the guard releases when the task does", () => {
   const payload = (command, cwd) =>
     JSON.stringify({ session_id: "s", hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command }, cwd });
-
-  function envWith(extra = {}) {
-    const env = { ...process.env };
-    for (const k of ["TM_DISPATCH_WORKER", "TM_DISPATCH_TASK", "TM_DISPATCH_BRANCH", "TM_ROOT"]) delete env[k];
-    return { ...env, ...extra };
-  }
 
   /** A worker pinned to a real task in a real store, on a branch that is not its own. */
   function worker(status) {

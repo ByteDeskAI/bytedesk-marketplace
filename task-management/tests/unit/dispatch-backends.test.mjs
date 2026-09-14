@@ -16,8 +16,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { cleanup } from "./helpers.mjs";
-import { paths } from "../../lib/paths.mjs";
+import { cleanup, tempStore } from "./helpers.mjs";
 import { resolveBackend } from "../../lib/dispatch/backend.mjs";
 import * as orchestration from "../../lib/dispatch/orchestration.mjs";
 import * as topology from "../../lib/dispatch/topology.mjs";
@@ -458,7 +457,9 @@ describe("resolveBackend with the real modules", () => {
   // No registry injection: loadBackend really imports ./topology.mjs and
   // ./orchestration.mjs, so these tests prove the modules exist, parse, and answer
   // available() from caps — the integration a stubbed registry cannot.
-  const p = paths("/tmp/tm-resolve-backend-none");
+  // TM-204: a store this test owns. A shared /tmp path is not owned — a store left there by
+  // anything else supplies `dispatch.backends` and silently rewrites the order under test.
+  const p = tempStore();
 
   it("topology wins when its launcher is present, even against orchestration", async () => {
     const picked = await resolveBackend({
