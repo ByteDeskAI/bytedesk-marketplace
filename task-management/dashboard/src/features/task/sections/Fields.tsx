@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Button } from "../../../components/ui/Button";
+import { Chip } from "../../../components/ui/Chip";
 import { Select, TextField } from "../../../components/ui/Field";
 import { write } from "../../../lib/api";
 import { useBoard, useMeta, useWrite } from "../../../lib/store";
@@ -22,6 +23,7 @@ export function Fields({ task }: { task: Task }) {
   const epics = board?.epics ?? [];
   const sprints = board?.sprints ?? [];
   const others = (board?.tasks ?? []).filter((t) => t.id !== task.id);
+  const ready = board?.tasks.find((t) => t.id === task.id)?.readiness ?? null;
   const opt = (v: string, label = v) => ({ value: v, label });
 
   const transition = (status: string, reason?: string) =>
@@ -45,6 +47,21 @@ export function Fields({ task }: { task: Task }) {
         {task.status !== "parked" && task.status !== "done" && task.status !== "deleted" && <Button size="sm" onClick={() => setStop({ status: "parked", reason: "" })}>Park…</Button>}
         {task.status !== "blocked" && task.status !== "done" && task.status !== "deleted" && <Button size="sm" onClick={() => setStop({ status: "blocked", reason: "" })}>Block…</Button>}
       </div>
+      {/*
+        Would the pool take this card, and if not what does it want (TM-188)? Beside the verbs,
+        because that is where the decision is made — and never as a blocker: it stops no person
+        from pressing Start. The verdict rides on the board row, computed server-side by the same
+        helper `tm why` reports, so there is no second fetch and no second opinion.
+      */}
+      {ready && (
+        <p className="tm-why__agent">
+          <Chip kind="plain" tone={ready.ready ? "ok" : ready.human ? "info" : "warn"} dot>
+            {ready.ready ? "agent-ready" : ready.human ? "person's call" : "not ready"}
+          </Chip>
+          {/* The sentence always names the missing items — `readinessVerdict` builds it from them. */}
+          <span className="tm-muted">{ready.text}</span>
+        </p>
+      )}
       {error && <p className="tm-reason" data-tone="bad" role="alert">{error}</p>}
       <div className="tm-fields">
         <label className="tm-fields__cell">

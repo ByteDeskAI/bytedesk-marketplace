@@ -6,7 +6,7 @@ import { queueWrite } from "../pwa/outbox.mjs";
 import { markSelfWrite } from "../pwa/usePwa";
 import type {
   Adr, Batch, Board, Capability, Claims, Doctor, Entity, Epic, EvidenceItem, FindHit, Graph, History,
-  Meta, NtfyInfo, PlanFile, PlanInboxItem, Session, SettingsSnapshot, Skill, Sprint, StoreEvent, Task,
+  Meta, NtfyInfo, PlanFile, PlanInboxItem, Pool, Session, SettingsSnapshot, Skill, Sprint, StoreEvent, Task,
   TaskTime, TemplateDetail, TemplateSummary, TimeSummary, Why, Worktree,
   AppliedProposal, PlannerAttachment, PlannerOperation, PlannerSession, PlannerStatus, PlannerSummary,
   Proposal, TurnKind, AguiEvent, PlannerAgent, PlannerRunState,
@@ -72,6 +72,8 @@ export const fetchOverride = () => json<{ override: { reason: string; ts: string
 export const fetchDoctor = () => json<Doctor>("/api/doctor");
 export const fetchSessions = () => json<{ harness: string | null; mine?: string | null; sessions: Session[] }>("/api/sessions");
 export const fetchSkills = () => json<Skill[]>("/api/skills");
+/** What the dispatch pool is doing — the same object `tm pool status` prints. */
+export const fetchPool = () => json<Pool>("/api/pool");
 /** A URL, not a fetch: the browser downloads it. */
 export const exportUrl = (params: { format: string; epic?: string; status?: string; open?: boolean; events?: boolean; download?: boolean }) =>
   `/api/export${q({ ...params, open: params.open ? 1 : undefined, events: params.events ? 1 : undefined, download: params.download ? 1 : undefined })}`;

@@ -37,7 +37,7 @@
  */
 import { basename } from "node:path";
 import { enforcementOff, gateDone, gateStart, gateTaskCreate, setOverride } from "./enforce.mjs";
-import { graphData, mermaid, renderWhy, why } from "./graph.mjs";
+import { graphData, mermaid, readinessVerdict, renderWhy, why } from "./graph.mjs";
 import { poolStatus } from "./dispatch/pool.mjs";
 import { COLUMNS, LABEL, collapseLog, handoff, renderHistory, standup } from "./render.mjs";
 import { cycleTime, summary as timeSummary, taskTimeline, throughput, timeInStatus } from "./time.mjs";
@@ -101,6 +101,7 @@ import {
   storeBoard,
   boardOwner,
   PRIORITIES,
+  RESOLVED,
 } from "./store.mjs";
 import { applyTemplate, listTemplates, readTemplate, writeTemplate } from "./templates.mjs";
 import { sprintCounts } from "./render.mjs";
@@ -1517,12 +1518,25 @@ export function boardPayload(p = paths()) {
    */
   const board = storeBoard(p);
   const mine = (e) => !board || !e.board || e.board === board;
+  const cfg = config(p);
   return {
     epics: list("epic", {}, p).filter(mine).map(({ body, file, ...e }) => e),
-    tasks: list("task", {}, p).filter(mine).map(({ body, file, ...t }) => ({
-      ...t,
-      hasAnswer: hasAnswer(body),
-    })),
+    /**
+     * `readiness` is derived per card, exactly as `why` derives it (TM-188), so the board can say
+     * "the pool skips this, and here is what it wants" without a round trip per card — and cannot
+     * drift from the verdict the pool actually applies.
+     *
+     * It is computed from `full`, not from the stripped row: `body` is a `requireOnStart` field, so
+     * passing the row would report `not ready: body` for every card on the board.
+     */
+    tasks: list("task", {}, p).filter(mine).map((full) => {
+      const { body, file, ...t } = full;
+      return {
+        ...t,
+        hasAnswer: hasAnswer(body),
+        readiness: RESOLVED.has(t.status) ? null : readinessVerdict(full, cfg),
+      };
+    }),
     // Empty `adrs/` is first-class: the list is `[]`, not omitted. Body stays on GET /api/adr/:id.
     adrs: list("adr", {}, p).filter(mine).map(({ body, file, ...a }) => a),
     // Empty `sprints/` is first-class: `[]`, not omitted. Report numbers come from

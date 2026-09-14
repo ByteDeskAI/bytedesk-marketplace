@@ -13,3 +13,6 @@
 .tm-sessions code { font-family: var(--tm-mono); font-size: var(--tm-text-mono-sm); }
 .tm-sessions .tm-row > .tm-select, .tm-sessions h2 .tm-select { width: auto; flex: 1 1 160px; min-width: 0; max-width: min(360px, 100%); }
 .tm-sessions .tm-row { max-width: 100%; }
+/* The pool card: the same plate as the WIP meter, one row of state and two lines of detail. */
+.tm-sessions__pool .tm-row { flex-wrap: wrap; gap: var(--tm-s3); }
+.tm-sessions__poolmeta { overflow-wrap: anywhere; }

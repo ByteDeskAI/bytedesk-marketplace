@@ -37,6 +37,11 @@ agentdb.rvf.lock
 !.bytedesk/designer/mockups/**/*.png
 !.context/design-system/**/*.png
 
+# Task evidence is the shared record — .bytedesk/task-management/.gitignore says so in its own
+# header — and an acceptance criterion that says "with a screenshot in the evidence" is not met by
+# a screenshot only the machine that took it can see (TM-188).
+!.bytedesk/task-management/evidence/**/*.png
+
 # design-patterns plugin — Python artifacts
 __pycache__/
 *.pyc

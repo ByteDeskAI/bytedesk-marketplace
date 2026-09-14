@@ -98,6 +98,8 @@
 }
 .tm-task__title:hover { color: var(--tm-accent); }
 .tm-task__chips { display: flex; flex-wrap: wrap; gap: var(--tm-s2); align-items: center; }
+/* The readiness chip carries a list that can outrun the card; it truncates, title holds the rest. */
+.tm-task__ready { max-width: 100%; min-width: 0; }
 .tm-task__epic { text-decoration: none; font-family: var(--tm-mono); font-size: var(--tm-text-mono-sm); color: var(--tm-ink-2); }
 .tm-task__epic:hover { text-decoration: none; border-color: var(--tm-line-strong); }
 .tm-task__reason { color: var(--tm-ink-2); font-size: var(--tm-text-sm); padding-left: var(--tm-s3); border-left: var(--bd-stroke-active) solid var(--tm-line); }

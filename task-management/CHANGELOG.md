@@ -2,6 +2,77 @@
 
 ## Unreleased
 
+- **A topology-launched worker reaches its pane with the dispatch identity.** `TM_SESSION_ID`,
+  `TM_ACTOR` and `TM_ROOT`. `dispatch/topology.mjs` set the
+  store only in `envFor()`, on the ao-topology launcher — and the launcher's environment does not
+  reach the pane. ao-topology's launcher script exports the spec agent's env and nothing else, and a
+  tmux server that is already running hands a new pane none of the launching process's environment.
+  The worker markers already rode the spec env for exactly that reason (TM-177); the store did not.
+  A worker that arrives without `TM_ROOT` resolves a store by walking up from cwd instead, which
+  lands on whatever store sits above it — the wrong repo's, when the worker steps outside its
+  worktree. The tmux backend has always passed all three into the pane; this is the missing parity,
+  and the three now have one definition (`workerIdentityEnv`) that both backends use, because
+  keeping two copies in step is what failed.
+  - **`TM_SESSION_ID` is the one that bit.** It is first in `SESSION_ENV`, so it outranks the pane's
+    own harness session id. Without it the worker did not match the claim the dispatch had taken out
+    *for* it, and stole it: the event log of a real topology dispatch reads `claim` by the
+    dispatcher, then `claim_stolen` by a raw harness id, then every later write under that id.
+  - **`TM_ACTOR` never arrived either**, so every topology worker's events were attributed to `main`.
+  - Values a roster agent happens to carry no longer win over the dispatch's own.
+
+### Fixed
+- **The dispatch worker guard releases when its task does.** `TM_DISPATCH_*` is pinned into a
+  worker's environment at spawn and nothing ever cleared it, so the guard outlived the work: a
+  session whose task was finished and merged kept being told it may push only its own branch — a
+  branch that post-merge cleanup had already deleted. Every push it could name was impossible, and
+  the session could do nothing. `pre-bash` now stands down when the pinned task reads `done` or
+  `deleted`.
+  - **It fails closed.** Only a task it could actually read, in the store the worker was dispatched
+    from, and that is resolved, releases it. An unreadable store, a missing task, a task still open,
+    or no pin keeps the guard on.
+  - **The store is identified, never inferred.** Task ids are unique only *within* a store, so a
+    worker pinned to TM-001 must not be released by an unrelated TM-001 that is done in another
+    repo — which is exactly what an early cut of this did, caught by the existing suite. One of two
+    things must identify the store: `TM_ROOT`, or a task whose recorded branch is the very branch
+    this worker was pinned to. Neither available means the worker stays guarded. Both cases are
+    tested, including a mismatched branch.
+
+### Added
+- **The pool and its verdicts reach the board (TM-188).** TM-179 shipped the CLI and HTTP halves of
+  this — `tm why`'s readiness field and `GET /api/pool` — and left the React surface behind, because
+  `dashboard/` had no install in the worktree. Both now have a screen.
+  - **A pool card on `/sessions`**: running with its pid, paused with its reason, or off; workers
+    against `poolWip`; the ready count; the poll interval, the idle-exit and the log path. It reads
+    `GET /api/pool`, which is the object `tm pool status` prints, so the board and the terminal
+    cannot describe the same pool differently. Its toggle writes `dispatch.enabled` through
+    `POST /api/settings` — the route that already validates the field and calls `ensurePool` — so on
+    starts a pool at once and off stops the running one within a poll.
+  - **Every card carries the pool's verdict on it.** `boardPayload` derives `readiness` per task
+    from `readinessVerdict`, the helper `tm why` already used, so the board shows the verdict the
+    pool applies rather than the `ready-for-agent` label, which is only a record of the last write
+    and drifts the moment config changes. Derived, not stored, and computed from the whole record:
+    `body` is a `requireOnStart` field, and the list payload strips it.
+  - **The task inspector says it beside Start, Park and Block**, where the decision is made — not in
+    "blocked by". A pool skipping a task stops no person from starting it.
+- **A dispatch guard for work that already landed somewhere else.** The store tracks who *claimed*
+  a task, never who *did* it, so a person or a session working outside the dispatch system can
+  finish the same work and push it while a dispatched worker is still going — invisible to claims,
+  touches and readiness alike, because none of them read the repository. `lib/dispatch/duplicate.mjs`
+  reads the one signal that was there the whole time: a commit message naming the task.
+  - **Before dispatch**, a task whose id appears in a commit that is not on its own branch is
+    refused, with the commits named, before anything is claimed — so a duplicate dispatch leaves
+    nothing behind. `--steal` overrides deliberately.
+  - **On every pool tick**, a running worker whose task has gained such a commit is reported as
+    `dispatch.duplicate` on the event log and in the tick result. It is never killed: the worker may
+    be minutes from a valid result or hold work the duplicate lacks, and a loop is the wrong thing
+    to decide that.
+  - Excludes merge commits and the task's own branch, so a task cannot report itself. Off with
+    `tm config dispatch.duplicateGuard false`.
+  - The incident behind it: TM-310 was dispatched at 21:49 and the same removal landed on develop as
+    f30b4bc9 at 22:19. It went unnoticed for a day, until the worker's merge conflicted on work that
+    was already shipped. Verified against that history — f30b4bc9 is not an ancestor of the worker's
+    pre-merge head, so the guard would have reported it on every tick from 22:19 onward.
+
 ### Fixed
 - **`tm evidence` no longer duplicates a shared or re-attached artifact** (TM-166). TM-145 stopped
   the same-id double prefix; three related holes remained, and together they are how this store grew

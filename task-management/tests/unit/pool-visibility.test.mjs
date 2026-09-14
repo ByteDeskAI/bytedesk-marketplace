@@ -11,7 +11,7 @@ import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { cleanup, tempStore } from "./helpers.mjs";
 import { renderWhy, why } from "../../lib/graph.mjs";
-import { handleWrite } from "../../lib/dashboard-api.mjs";
+import { boardPayload, handleWrite } from "../../lib/dashboard-api.mjs";
 import { poolStatus } from "../../lib/dispatch/pool.mjs";
 import { create, update, writeConfig } from "../../lib/store.mjs";
 
@@ -99,5 +99,47 @@ describe("GET /api/pool", () => {
     assert.equal(body.paused, false);
     assert.equal(typeof body.idleExitMinutes, "number");
     assert.match(body.log, /pool\.log$/);
+  });
+});
+
+/**
+ * TM-188 — the same verdict, per card, without a round trip per card.
+ *
+ * The trap this guards is specific: `boardPayload` strips `body` from every row, and `body` is a
+ * `requireOnStart` field. A readiness computed from the stripped row returns `not ready: body` for
+ * every task on the board — a perfectly-shaped answer that is wrong everywhere, and that a test
+ * asserting only "the field exists" would pass.
+ */
+describe("the board payload carries each card's readiness", () => {
+  const card = (p, id) => boardPayload(p).tasks.find((t) => t.id === id);
+
+  it("says ready for a complete task — the body it strips is still weighed", () => {
+    const p = store();
+    const t = complete(p);
+    assert.equal(card(p, t.id).readiness.ready, true);
+    assert.deepEqual(card(p, t.id).readiness.missing, []);
+  });
+
+  it("names the gaps, and agrees with tm why field for field", () => {
+    const p = store();
+    const t = create("task", { title: "no criteria" }, "context\n", p);
+    assert.deepEqual(card(p, t.id).readiness, why(t.id, p).readiness);
+    assert.deepEqual(card(p, t.id).readiness.missing, ["acceptance criteria"]);
+  });
+
+  it("reports a person's veto as a person's here too", () => {
+    const p = store();
+    const t = complete(p);
+    update(t.id, { labels: ["ready-for-human"], triagedBy: "human" }, p);
+    const r = card(p, t.id).readiness;
+    assert.equal(r.human, true);
+    assert.equal(r.ready, false);
+  });
+
+  it("says nothing once the card is resolved", () => {
+    const p = store();
+    const t = complete(p);
+    update(t.id, { status: "done" }, p);
+    assert.equal(card(p, t.id).readiness, null);
   });
 });
