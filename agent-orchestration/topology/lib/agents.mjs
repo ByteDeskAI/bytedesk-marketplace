@@ -5,22 +5,21 @@
 // The directory doubles as the agent's cwd at spawn time. That is deliberate — Claude Code keys its
 // memory by working directory, so a per-agent cwd gives each agent its own memory without inventing
 // a memory layer. The real work tree is reached with --add-dir and explained in the prompt.
-import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { refreshPrompt } from "./prompt-lifecycle.mjs";
-import { consumerResourceDirs, exists, fail, invariant, nowIso, writeJson } from "./util.mjs";
+import { consumerResourceDirs, exists, fail, invariant, nowIso, repositoryRoot, writeJson } from "./util.mjs";
 import { addressOf, agentDirName, displayName, mintId, mintName, titleForRole } from "./identity.mjs";
 
-function libraryConsumer(consumer) {
-  try {
-    const paths = execFileSync('git', ['-C', consumer, 'worktree', 'list', '--porcelain'], { encoding:'utf8', stdio:['ignore','pipe','ignore'] });
-    const first = paths.split('\n').find(line => line.startsWith('worktree '));
-    return first ? first.slice(9) : consumer;
-  } catch { return consumer; }
-}
+/**
+ * One roster per repository, not per checkout: an agent created while working in a linked worktree
+ * is the same repo's agent. `repositoryRoot` is the layer's single definition of that — this used
+ * to be a second, local `git worktree list` implementation, and containPath used neither, which is
+ * how a launch into a worktree came to refuse its own library agent's directory (TM-198).
+ */
+const libraryConsumer = (consumer) => repositoryRoot(consumer) ?? consumer;
 export const AGENTS_KIND = "agents";
 const DEFINITION = "agent.json";
 const PROMPT = "prompt.md";

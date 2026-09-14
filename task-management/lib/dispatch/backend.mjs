@@ -148,8 +148,13 @@ export async function envRegistry(env = process.env) {
  * `registry` and `caps` are injectable for tests: the real registry hits the
  * filesystem, the real caps probe the host.
  *
- * Returns `{ name, backend, tried }` where `tried` records why each skipped backend
- * lost — when dispatch refuses, "nothing available" without the why is useless.
+ * Returns `{ name, backend, tried, chain }`. `tried` records why each skipped backend
+ * lost — when dispatch refuses, "nothing available" without the why is useless. `chain` is
+ * EVERY usable backend in order, `backend` being the first: `available()` answers "can this
+ * host run it", which is not the same question as "did the launch work", and dispatch walks
+ * the rest when a launch refuses (TM-198). A `requested` backend makes a chain of one — the
+ * same reason the walk is skipped for it, that asking for one explicitly and silently getting
+ * another is how work lands in a harness nobody is watching.
  */
 export async function resolveBackend({ requested = null, caps = null, registry = null, p = paths() } = {}) {
   const capsNow = caps ?? (await loadCaps());
@@ -171,6 +176,7 @@ export async function resolveBackend({ requested = null, caps = null, registry =
   const extra = registry ? Object.keys(registry).filter((name) => !configured.includes(name)) : [];
   const names = requested ? [requested] : [...extra, ...configured];
   const tried = [];
+  const chain = [];
   for (const name of names) {
     const mod = registry && name in registry ? registry[name] : await loadBackend(name);
     if (!mod || typeof mod.spawn !== "function") {
@@ -182,7 +188,8 @@ export async function resolveBackend({ requested = null, caps = null, registry =
       tried.push({ name, reason: "unavailable on this host" });
       continue;
     }
-    return { name, backend: mod, tried };
+    chain.push({ name, backend: mod });
   }
-  return { name: null, backend: null, tried };
+  const first = chain[0] ?? { name: null, backend: null };
+  return { name: first.name, backend: first.backend, tried, chain };
 }

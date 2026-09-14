@@ -258,17 +258,27 @@ describe("topology backend", () => {
     assert.equal(args.includes(request.p.root), false, "the repo root is never the consumer");
   });
 
-  it("the spec is one agent with no cwd of its own, so the consumer's default stands", () => {
-    const { written } = launch();
-    const spec = JSON.parse(written.find(([file]) => file.endsWith("spec.json"))[1]);
+  it("the spec is one agent that STATES the consumer as its cwd", () => {
+    // TM-198. This assertion used to read `"cwd" in spec.agents[0] === false`, with the comment
+    // "the spec default is {{consumer}}, which is tm's worktree". The default is only the
+    // consumer for an INLINE agent: the topology layer gives a library agent its own directory
+    // as its cwd — under the repo's MAIN checkout, one roster per repository — so every dispatch
+    // that borrowed an identity resolved a cwd outside the worktree tm provisioned. It was first
+    // refused as TOPOLOGY_PATH_ESCAPES_REPO, and would otherwise have been a worker running in
+    // the wrong checkout. Stating it is the fix, and it must be stated on BOTH shapes, because a
+    // roster that is only a lead produces the inline one.
+    for (const rosterList of [[], [{ id: "ag-worker", role: "implementer", full_name: "Bo Worker" }]]) {
+      const { written } = launch(req(), { rosterList });
+      const spec = JSON.parse(written.find(([file]) => file.endsWith("spec.json"))[1]);
 
-    assert.equal(spec.version, 1);
-    assert.equal(spec.name, "tm-001");
-    assert.equal(spec.agents.length, 1, "a dispatch is one worker");
-    assert.equal(spec.agents[0].role, "orchestrator", "a solo worker conducts itself; the schema requires exactly one");
-    assert.equal("cwd" in spec.agents[0], false, "no cwd — the spec default is {{consumer}}, which is tm's worktree");
-    assert.equal("cwd" in spec, false);
-    assert.equal("run_dir" in spec, false, "the run dir defaults under the consumer too");
+      assert.equal(spec.version, 1);
+      assert.equal(spec.name, "tm-001");
+      assert.equal(spec.agents.length, 1, "a dispatch is one worker");
+      assert.equal(spec.agents[0].role, "orchestrator", "a solo worker conducts itself; the schema requires exactly one");
+      assert.equal(spec.agents[0].cwd, "{{consumer}}", "the worker works in the checkout tm passed as --consumer");
+      assert.equal("cwd" in spec, false, "the run-level default is untouched; the agent states its own");
+      assert.equal("run_dir" in spec, false, "the run dir defaults under the consumer too");
+    }
   });
 
   it("the prompt never becomes an argv element — it travels in the spec file and the worktree copy", () => {

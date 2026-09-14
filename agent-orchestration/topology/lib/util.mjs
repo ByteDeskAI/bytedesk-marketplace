@@ -1,10 +1,10 @@
 // Small shared helpers for the topology layer. Zero dependencies on purpose:
 // this code runs from an installed plugin cache with no node_modules.
-import { execFile as execFileCallback } from "node:child_process";
+import { execFile as execFileCallback, execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile, stat, open, rename, rm } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 
 const execFile = promisify(execFileCallback);
@@ -239,6 +239,52 @@ export function isInside(root, candidate) {
   if (!root || !candidate) return false;
   const rel = relative(resolve(root), resolve(candidate));
   return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+const repoRoots = new Map();
+
+/**
+ * The repository a checkout belongs to, named by its MAIN checkout's path — the one thing every
+ * linked worktree of a repo agrees on, because they share one git common directory.
+ *
+ * ONE definition of "which repository is this", used by everything in this layer that is
+ * synchronous: the agent library (agents.mjs) resolves against it, and containPath contains
+ * against it. Those two used to answer differently — the library against the main checkout, the
+ * containment against the consumer — so a launch whose consumer was a LINKED worktree resolved a
+ * library agent whose own directory it then refused as an escape (TM-198). repoid.mjs answers the
+ * same question with `git rev-parse --git-common-dir` for the services that can await it.
+ *
+ * A path that is not in a repository is its own root, so a non-git consumer behaves as before.
+ */
+export function repositoryRoot(consumer, { execImpl = execFileSync } = {}) {
+  if (!consumer) return null;
+  const abs = resolve(consumer);
+  if (repoRoots.has(abs)) return repoRoots.get(abs);
+  let root = abs;
+  try {
+    const reported = String(execImpl("git", ["-C", abs, "rev-parse", "--git-common-dir"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    })).trim().split("\n")[0];
+    // A bare repo, or a `--git-dir` pointed somewhere odd, has no checkout to name: keep the
+    // consumer rather than inventing a parent directory nobody asked to expose.
+    const common = reported ? (isAbsolute(reported) ? resolve(reported) : resolve(abs, reported)) : null;
+    if (common && basename(common) === ".git") root = dirname(common);
+  } catch {
+    /* not a git checkout: the consumer is its own repository */
+  }
+  repoRoots.set(abs, root);
+  return root;
+}
+
+/**
+ * Is `candidate` inside the REPOSITORY `consumer` belongs to — its own tree, or the main checkout
+ * every linked worktree shares? The containment rule exists to stop a committed spec launching an
+ * agent anywhere on the machine; a sibling checkout of the same repo is the same content and the
+ * same trust, and it is where this layer's own agent library lives.
+ */
+export function isInsideRepository(consumer, candidate) {
+  return isInside(consumer, candidate) || isInside(repositoryRoot(consumer), candidate);
 }
 
 /**

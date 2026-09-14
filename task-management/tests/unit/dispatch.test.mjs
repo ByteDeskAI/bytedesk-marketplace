@@ -167,6 +167,73 @@ describe("dispatch — refusals leave nothing behind", () => {
   });
 });
 
+// ── TM-198 ───────────────────────────────────────────────────────────────────
+describe("dispatch — a backend that refuses at launch is not the end of the dispatch", () => {
+  /**
+   * The first live pool run failed EVERY task and tripped the brake after three, with a working
+   * backend sitting next in the order and never asked. `available()` answers "can this host run
+   * it" — ao-topology and tmux are both installed — and that was the only question anyone asked.
+   * topology then refused each launch (TOPOLOGY_PATH_ESCAPES_REPO), and one refusal ended the
+   * dispatch.
+   *
+   * These use a registry rather than the real backends, and an explicit store `p`, so the result
+   * does not depend on what is installed on the machine running the suite.
+   */
+  const order = (p, names) => writeConfig({ dispatch: { backends: names } }, p);
+
+  it("walks to the next usable backend and does not report a failure", async () => {
+    const p = repoStore();
+    order(p, ["first", "second"]);
+    const t = create("task", { title: "fall through" }, "", p);
+    const first = fakeBackend("first", { ok: false, reason: "TOPOLOGY_PATH_ESCAPES_REPO: agents.worker.cwd resolves outside" });
+    const second = fakeBackend("second");
+
+    const res = await dispatch(t.id, { session: "s1", p, caps: {}, registry: { first, second } });
+
+    assert.equal(res.ok, true, "a refusal by the first backend is not a failed dispatch");
+    assert.equal(res.backend, "second", "the run is recorded against the backend that actually launched");
+    assert.equal(first.calls.length, 1, "the first backend was asked");
+    assert.equal(second.calls.length, 1, "and so was the next one");
+    assert.equal(second.calls[0].worktree, res.worktree, "both were offered the SAME worktree — one task, one checkout");
+
+    assert.deepEqual(res.refused, [{ backend: "first", reason: "TOPOLOGY_PATH_ESCAPES_REPO: agents.worker.cwd resolves outside" }],
+      "what it fell through is reported, or a backend that refuses every time stays invisible");
+    assert.equal(read(t.id, p).dispatched.backend, "second");
+    assert.ok(readEvents(p).some((e) => e.event === "backend_refused" && e.id === t.id && e.backend === "first"),
+      "the refusal is in the log even though the dispatch succeeded");
+  });
+
+  it("fails only when every usable backend has refused, and names each one", async () => {
+    const p = repoStore();
+    order(p, ["first", "second"]);
+    const t = create("task", { title: "nobody wants it" }, "", p);
+    const first = fakeBackend("first", { ok: false, reason: "escapes the repo" });
+    const second = fakeBackend("second", { ok: false, reason: "no tmux server" });
+
+    const res = await dispatch(t.id, { session: "s1", p, caps: {}, registry: { first, second } });
+
+    assert.equal(res.ok, false);
+    assert.match(res.reason, /first: escapes the repo/);
+    assert.match(res.reason, /second: no tmux server/, "the last word is not the only word");
+    assert.equal(state(p).claims[t.id], undefined, "an exhausted chain rolls back exactly like a single refusal did");
+    assert.equal(read(t.id, p).status, "open");
+    assert.equal(existsSync(worktreePath(t.id, t.title, p)), false, "and the worktree goes with it");
+  });
+
+  it("does NOT fall through when a backend was asked for by name", async () => {
+    const p = repoStore();
+    order(p, ["first", "second"]);
+    const t = create("task", { title: "pinned" }, "", p);
+    const first = fakeBackend("first", { ok: false, reason: "escapes the repo" });
+    const second = fakeBackend("second");
+
+    const res = await dispatch(t.id, { backend: "first", session: "s1", p, caps: {}, registry: { first, second } });
+
+    assert.equal(res.ok, false, "`--backend first` fails as first");
+    assert.equal(second.calls.length, 0, "asking for one explicitly and silently getting another is how work lands in a harness nobody is watching");
+  });
+});
+
 describe("dispatch — re-dispatch of a live worker", () => {
   it("refuses a same-session re-dispatch and leaves the live claim and status untouched", async () => {
     const p = repoStore();

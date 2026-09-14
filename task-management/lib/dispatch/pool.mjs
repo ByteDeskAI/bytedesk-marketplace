@@ -391,6 +391,11 @@ export async function poolTick({ p = paths(), registry = null, caps = null, dryR
   // poolWip, charged by the backend each running task was dispatched to.
   const busyByBackend = {};
   for (const t of workers) busyByBackend[t.dispatched.backend] = (busyByBackend[t.dispatched.backend] || 0) + 1;
+  // The PREDICTED backend, for the per-backend cap only. The tick must not pin it on the dispatch:
+  // a name passed as `backend` is an explicit request, and an explicit request gets a chain of one
+  // (TM-198). That is what made the first live pool run fail every task — topology refused at
+  // launch, `tmux` sat next in the order, installed and never asked, and three refusals tripped the
+  // brake. What each task actually ran on is charged below from `res.backend`, not from this.
   const pick = dryRun ? null : await resolveBackend({ caps, registry, p });
   const backendCap = pick?.name ? Number(cfg.dispatch?.backendCaps?.[pick.name]) : NaN;
 
@@ -445,9 +450,9 @@ export async function poolTick({ p = paths(), registry = null, caps = null, dryR
     try {
       // One session per dispatch, so a reaped worker parks its own task and not
       // every task the pool is running (reapDeadWorkers maps claims by session).
-      const res = await dispatch(task.id, { session: `pool-${task.id.toLowerCase()}`, actor: "pool", p, caps, registry, backend: pick?.name ?? null });
+      const res = await dispatch(task.id, { session: `pool-${task.id.toLowerCase()}`, actor: "pool", p, caps, registry });
       if (res.ok) {
-        dispatched.push({ id: task.id, backend: res.backend, run: res.run ?? null, worktree: res.worktree });
+        dispatched.push({ id: task.id, backend: res.backend, run: res.run ?? null, worktree: res.worktree, ...(res.refused?.length ? { refused: res.refused } : {}) });
         busyByBackend[res.backend] = (busyByBackend[res.backend] || 0) + 1;
         room -= 1;
       } else {

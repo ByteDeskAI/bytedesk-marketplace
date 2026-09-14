@@ -10,10 +10,11 @@
  *
  * Rules this module never breaks:
  *   1. **tm owns the checkout.** `--consumer <req.worktree>` — the checkout
- *      dispatch provisioned — and the spec leaves `cwd` at its default of
- *      `{{consumer}}`. The topology layer takes a working directory; it never
- *      derives one. That is the ADR's whole worktree-ownership rule: ONE
- *      worktree per task, no second checkout anywhere.
+ *      dispatch provisioned — AND an explicit `cwd: "{{consumer}}"` on the agent,
+ *      because a spec that borrows a library identity does not otherwise land
+ *      there (see CONSUMER_CWD). The topology layer takes a working directory
+ *      when one is stated; left unstated it derives one. That is the ADR's whole
+ *      worktree-ownership rule: ONE worktree per task, no second checkout anywhere.
  *   2. argv-only, `shell: false`. The prompt is a task's handoff — arbitrary
  *      markdown that can contain backticks, `$()` and quotes — and it travels
  *      exactly one way: as the `instructions` string inside the JSON spec FILE
@@ -118,8 +119,24 @@ export function agentRef(consumer, { p, list = null } = {}) {
 }
 
 /**
+ * The worker's working directory, stated rather than defaulted (TM-198).
+ *
+ * Rule 1 above says the spec "leaves `cwd` at its default of `{{consumer}}`" — and for a spec that
+ * borrows a stored identity that was never true. The topology layer gives a LIBRARY agent its own
+ * directory as its cwd (its Claude Code memory is keyed by working directory), and that directory
+ * lives in the repo's main checkout, one roster per repository. So the default resolved to the main
+ * checkout: first refused outright as an escape from the consumer, and once the layer stopped
+ * refusing it, a worker running in the wrong tree — the second checkout per task ADR-0001 exists to
+ * prevent. An explicit per-agent cwd wins over the library default, and `{{consumer}}` renders to
+ * the worktree dispatch provisioned, so this says in the spec what tm already decided by passing
+ * `--consumer`. tm owns the working directory of the workers it dispatches; the layer owns where
+ * its agent library lives.
+ */
+export const CONSUMER_CWD = "{{consumer}}";
+
+/**
  * The orchestration spec, as a pure value. Keeping it side-effect-free is what
- * lets a test prove the shape — one agent, no cwd of its own, the prompt as
+ * lets a test prove the shape — one agent, working in the consumer, the prompt as
  * DATA — without a launcher.
  *
  * The single agent's role is `orchestrator` because the spec schema requires
@@ -130,8 +147,8 @@ export function agentRef(consumer, { p, list = null } = {}) {
  */
 export function specFor(req, ref = null, { candidates = null, stored = null } = {}) {
   const base = ref
-    ? { id: "worker", agent: ref, role: "orchestrator", instructions: req.prompt }
-    : { id: "worker", role: "orchestrator", candidates: candidates || "claude", instructions: req.prompt };
+    ? { id: "worker", agent: ref, cwd: CONSUMER_CWD, role: "orchestrator", instructions: req.prompt }
+    : { id: "worker", role: "orchestrator", cwd: CONSUMER_CWD, candidates: candidates || "claude", instructions: req.prompt };
   // TM-177: the pane exports ONLY the spec agent's env — ao-topology writes it into the launcher
   // script — so the worker marker travels here, not just in ao-topology's own env. An inline field
   // replaces the stored agent's wholesale, so the stored env and args are carried over, not dropped.
