@@ -38,7 +38,7 @@ import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { detectHostCaps } from "../hostcaps.mjs";
 import { config } from "../store.mjs";
-import { PROMPT_FILE, guardSettings, workerBranch, workerEnv } from "./tmux.mjs";
+import { PROMPT_FILE, guardSettings, workerBranch, workerEnv, workerIdentityEnv } from "./tmux.mjs";
 
 export const name = "topology";
 
@@ -135,7 +135,26 @@ export function specFor(req, ref = null, { candidates = null, stored = null } = 
   // TM-177: the pane exports ONLY the spec agent's env — ao-topology writes it into the launcher
   // script — so the worker marker travels here, not just in ao-topology's own env. An inline field
   // replaces the stored agent's wholesale, so the stored env and args are carried over, not dropped.
-  const agent = { ...base, env: { ...(stored?.env ?? {}), ...Object.fromEntries(workerEnv(req)) } };
+  //
+  // The dispatch identity rides here for the same reason, and its absence was the same bug the
+  // marker had: envFor() puts it on the ao-topology LAUNCHER, and the pane inherits none of the
+  // launcher's environment. What that cost, before this:
+  //   TM_SESSION_ID  first in SESSION_ENV, so it outranks the pane's own harness id. Without it the
+  //                  worker did not match the claim the dispatch took out FOR it and stole it
+  //                  instead — `claim` under the dispatcher, then `claim_stolen` under a raw
+  //                  harness id, is what the event log of a topology dispatch actually shows.
+  //   TM_ACTOR       the most reliable actor signal, so without it every worker's events read `main`.
+  //   TM_ROOT        the store the task is in; without it `tm` walks up from cwd to whatever store
+  //                  sits above the worker, and the guard cannot confirm which task it holds.
+  // The tmux backend has always passed all three into the pane; this is the parity that was missing.
+  const agent = {
+    ...base,
+    env: {
+      ...(stored?.env ?? {}),
+      ...Object.fromEntries(workerIdentityEnv(req)),
+      ...Object.fromEntries(workerEnv(req)),
+    },
+  };
   // `args` reach every candidate in the chain, and only claude understands --settings.
   const chain = cliChain(ref ? stored : base);
   if (chain.length && chain.every((cli) => cli === "claude")) agent.args = [...(stored?.args ?? []), "--settings", guardSettings()];
@@ -162,13 +181,7 @@ export function argvFor(req, specFile) {
 /** The child's environment: the ambient one plus the tm identity of the dispatching session. */
 export function envFor(req, base = process.env) {
   const env = { ...base };
-  for (const [k, v] of [
-    ["TM_SESSION_ID", req.session],
-    ["TM_ACTOR", req.actor],
-    ["TM_ROOT", req.p?.root],
-  ]) {
-    if (v) env[k] = v;
-  }
+  for (const [k, v] of workerIdentityEnv(req)) env[k] = v;
   return env;
 }
 

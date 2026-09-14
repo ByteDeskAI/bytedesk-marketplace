@@ -69,6 +69,24 @@ export function workerEnv(req) {
 }
 
 /**
+ * Who the worker works for, and which store the work is in. Unset values are dropped.
+ *
+ * These are not markers, they are identity, and every backend needs the same three or its workers
+ * behave differently for no reason anyone chose. TM_SESSION_ID is FIRST in SESSION_ENV, so it
+ * outranks the pane's own harness session id: a worker that arrives without it does not match the
+ * claim the dispatch took out for it, and STEALS that claim instead of re-stamping it. TM_ACTOR is
+ * the most reliable actor signal (lib/actor.mjs), so without it every worker's events read `main`.
+ * TM_ROOT is the store the task is in; without it `tm` resolves one by walking up from cwd.
+ *
+ * Lives here, next to workerEnv, because the two always travel together and the one time they did
+ * not — topology carried the markers into the pane and left these on the launcher — is the bug this
+ * exists to stop repeating.
+ */
+export function workerIdentityEnv(req) {
+  return Object.entries({ TM_SESSION_ID: req.session, TM_ACTOR: req.actor, TM_ROOT: req.p?.root }).filter(([, v]) => v);
+}
+
+/**
  * Available when hostcaps say tmux is. Without caps (hostcaps not landed yet), probe
  * the binary directly — a wrong "no" here silently drops dispatch to manual, which
  * still works, so the probe is a convenience, never a gate that can brick dispatch.
@@ -88,14 +106,14 @@ export function available(caps = null) {
  * shell string without running tmux.
  */
 export function argvFor(req, tmuxCommand = null) {
-  const { task, worktree, prompt, session, actor, p } = req;
+  const { task, worktree, prompt } = req;
   const command = Array.isArray(tmuxCommand) && tmuxCommand.length ? tmuxCommand : DEFAULT_COMMAND;
   const args = ["new-session", "-d", "-s", sessionName(task.id), "-c", worktree];
   // Who the worker works for, in the environment — the same variables lib/actor.mjs
   // reads, so the worker's claims and events land under the dispatching session —
   // and the worker marker, which a configured tmuxCommand gets too.
-  for (const [k, v] of [["TM_SESSION_ID", session], ["TM_ACTOR", actor], ["TM_ROOT", p?.root], ...workerEnv(req)]) {
-    if (v) args.push("-e", `${k}=${v}`);
+  for (const [k, v] of [...workerIdentityEnv(req), ...workerEnv(req)]) {
+    args.push("-e", `${k}=${v}`);
   }
   // Only claude understands --settings; any other harness would refuse to start.
   const guard = basename(String(command[0])) === "claude" ? ["--settings", guardSettings()] : [];

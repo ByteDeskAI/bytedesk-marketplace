@@ -36,6 +36,7 @@
  *   pollSeconds        seconds between ticks of `tm pool run` (default 30)
  *   maxFailures        consecutive failures before the pool pauses (default 3)
  *   maxRuntimeMinutes  a still-running worker older than this logs worker_overrun (default 120)
+ *   duplicateGuard     default true; look for commits naming a running task that are not its own (see duplicate.mjs)
  *
  * Dispatch goes through ./index.mjs `dispatch()` only — claim, start, provision,
  * spawn all keep their one implementation, and a refused dispatch leaves the
@@ -64,6 +65,7 @@ import { paths } from "../paths.mjs";
 import { dispatch } from "./index.mjs";
 import { collect } from "./collect.mjs";
 import { resolveBackend } from "./backend.mjs";
+import { describeDuplicates, duplicateCommits, duplicateGuardEnabled } from "./duplicate.mjs";
 
 /** The label that says "a worker can take this without a conversation". */
 export const READY_LABEL = "ready-for-agent";
@@ -357,6 +359,7 @@ export async function poolTick({ p = paths(), registry = null, caps = null, dryR
   const collected = [];
   const dispatched = [];
   const skipped = [];
+  const duplicates = [];
 
   resetOnClose(p);
 
@@ -366,8 +369,31 @@ export async function poolTick({ p = paths(), registry = null, caps = null, dryR
    * running collects as { pending: true }: a read, not a wait, and neither a
    * failure nor a success for the brake. A paused pool still collects.
    */
+  const guardDuplicates = duplicateGuardEnabled(cfg);
   for (const t of list("task", { status: "in_progress" }, p)) {
     if (!t.dispatched) continue;
+    /**
+     * The dispatch gate catches a duplicate that already existed. This catches the
+     * one that lands WHILE the worker runs, which is the harder case and the one
+     * that actually happened (TM-310: dispatched 21:49, duplicated on develop at
+     * 22:19, noticed a day later when the merge conflicted).
+     *
+     * It reports and never kills. The worker may be minutes from a valid result,
+     * its branch may hold work the duplicate lacks, and a pool loop is the wrong
+     * thing to be deciding that — a person reads this and stops it, or does not.
+     */
+    if (guardDuplicates) {
+      try {
+        const dupes = duplicateCommits(t, p);
+        if (dupes.length) {
+          const detail = describeDuplicates(dupes);
+          duplicates.push({ id: t.id, commits: dupes, detail });
+          logEvent("dispatch.duplicate", { id: t.id, commits: dupes.map((c) => c.sha), detail }, p);
+        }
+      } catch {
+        /* a guard that cannot see must not fail the tick that feeds it */
+      }
+    }
     try {
       const res = await collect(t.id, p, impls);
       collected.push({ id: t.id, ...res });
@@ -463,7 +489,7 @@ export async function poolTick({ p = paths(), registry = null, caps = null, dryR
   }
 
   brake = readPoolState(p);
-  return { collected, dispatched, skipped, capacity, ...(brake.pausedReason ? { paused: { reason: brake.pausedReason, at: brake.pausedAt } } : {}) };
+  return { collected, dispatched, skipped, capacity, ...(duplicates.length ? { duplicates } : {}), ...(brake.pausedReason ? { paused: { reason: brake.pausedReason, at: brake.pausedAt } } : {}) };
 }
 
 // ── the loop ─────────────────────────────────────────────────────────────────

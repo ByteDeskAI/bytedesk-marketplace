@@ -16,8 +16,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { cleanup } from "./helpers.mjs";
-import { paths } from "../../lib/paths.mjs";
+import { cleanup, tempStore } from "./helpers.mjs";
 import { resolveBackend } from "../../lib/dispatch/backend.mjs";
 import * as orchestration from "../../lib/dispatch/orchestration.mjs";
 import * as topology from "../../lib/dispatch/topology.mjs";
@@ -347,6 +346,45 @@ describe("topology backend", () => {
     assert.equal(JSON.parse(args[at + 1]).hooks.PreToolUse[0].matcher, "Bash");
   });
 
+  it("the dispatch identity rides the spec env too, not just the launcher's", () => {
+    // Same mechanism as the marker above: the launcher's env does not reach the pane. All three were
+    // set only by envFor(), on ao-topology itself, so a topology worker arrived without the session
+    // that claimed for it (and stole the claim), without an actor (every event read `main`), and
+    // without the store it was dispatched from (tm resolved one by walking up from cwd).
+    const request = req();
+    const { spawned, written } = launch(request);
+    const spec = JSON.parse(written.find(([file]) => file.endsWith("spec.json"))[1]);
+    for (const [k, v] of [
+      ["TM_SESSION_ID", request.session],
+      ["TM_ACTOR", request.actor],
+      ["TM_ROOT", request.p.root],
+    ]) {
+      assert.ok(v, `precondition: the fixture supplies ${k}`);
+      assert.equal(spawned[0][2].env[k], v, `ao-topology's own env carries ${k}`);
+      assert.equal(spec.agents[0].env?.[k], v, `the spec agent's env carries ${k} — the only env the pane exports`);
+    }
+  });
+
+  it("the worker's session is the one that claimed for it, so it re-stamps rather than steals", () => {
+    // TM_SESSION_ID is first in SESSION_ENV, so it outranks the pane's own harness id. When it did
+    // not reach the pane the worker looked like a different session than the claim's holder, and
+    // the event log of a real dispatch shows `claim` by the dispatcher then `claim_stolen` by a raw
+    // harness id. The spec env is the only place that can prevent it.
+    const request = req();
+    const spec = JSON.parse(launch(request).written.find(([f]) => f.endsWith("spec.json"))[1]);
+    assert.equal(spec.agents[0].env.TM_SESSION_ID, request.session, "the pane claims as the dispatching session");
+  });
+
+  it("the dispatch's store wins over one a stored agent happens to carry", () => {
+    const request = req();
+    const agent = JSON.parse(
+      launch(request, { rosterList: [{ id: "ag-worker", role: "implementer", cli: "claude", env: { TM_ROOT: "/somewhere/else", TM_SESSION_ID: "not-the-dispatcher" } }] })
+        .written.find(([f]) => f.endsWith("spec.json"))[1],
+    ).agents[0];
+    assert.equal(agent.env.TM_ROOT, request.p.root, "the dispatch knows which store the task is in; the roster does not");
+    assert.equal(agent.env.TM_SESSION_ID, request.session, "and which session claimed it");
+  });
+
   it("TM-177: a stored agent keeps its env and args; a chain that is not all claude gets no --settings", () => {
     const agentOf = (rosterList) => JSON.parse(launch(req(), { rosterList }).written.find(([f]) => f.endsWith("spec.json"))[1]).agents[0];
 
@@ -419,7 +457,9 @@ describe("resolveBackend with the real modules", () => {
   // No registry injection: loadBackend really imports ./topology.mjs and
   // ./orchestration.mjs, so these tests prove the modules exist, parse, and answer
   // available() from caps — the integration a stubbed registry cannot.
-  const p = paths("/tmp/tm-resolve-backend-none");
+  // TM-204: a store this test owns. A shared /tmp path is not owned — a store left there by
+  // anything else supplies `dispatch.backends` and silently rewrites the order under test.
+  const p = tempStore();
 
   it("topology wins when its launcher is present, even against orchestration", async () => {
     const picked = await resolveBackend({

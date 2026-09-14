@@ -17,6 +17,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { cleanup, tempRepo } from "./helpers.mjs";
 import { RULES, guardCommand } from "../../lib/worker-guard.mjs";
+import { ensureDirs, paths } from "../../lib/paths.mjs";
+import { create, seedGitContract, update } from "../../lib/store.mjs";
 
 const PLUGIN_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const HOOK = join(PLUGIN_ROOT, "hooks", "tm-hook.sh");
@@ -25,6 +27,22 @@ const AT_HOME = { branch: OWN, head: OWN };
 
 const trash = [];
 after(() => cleanup(...trash));
+
+/**
+ * The ambient env minus every marker the test runner happens to carry, plus `extra`.
+ *
+ * TM-204: this existed twice, and only the second copy dropped `TM_ROOT`. The first left the
+ * runner's own store in place, so the hook resolved the DEVELOPER's board: this file's fixture
+ * task is `TM-001`, TM-001 in this repo is `done`, and "the guard releases when the task does"
+ * released a guard the test was asserting held. Two tests went red on a machine whose store had
+ * simply got old enough to contain a finished TM-001 — no code change anywhere. One helper now,
+ * because a guard present in one sibling and absent in the other is worse than no guard.
+ */
+function envWith(extra = {}) {
+  const env = { ...process.env };
+  for (const k of ["TM_DISPATCH_WORKER", "TM_DISPATCH_TASK", "TM_DISPATCH_BRANCH", "TM_ROOT"]) delete env[k];
+  return { ...env, ...extra };
+}
 
 /** Blocked samples, keyed by the table row that must block them. */
 const BLOCKED = {
@@ -248,13 +266,6 @@ describe("tm-hook.sh pre-bash — the glue", () => {
   const payload = (command, cwd = tmpdir()) =>
     JSON.stringify({ session_id: "s", hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command }, cwd });
 
-  /** The ambient env minus any dispatch marker the test runner happens to carry, plus `extra`. */
-  function envWith(extra = {}) {
-    const env = { ...process.env };
-    for (const k of ["TM_DISPATCH_WORKER", "TM_DISPATCH_TASK", "TM_DISPATCH_BRANCH"]) delete env[k];
-    return { ...env, ...extra };
-  }
-
   /** A fake `node` first on PATH that records every start. */
   function fakeNode() {
     const dir = mkdtempSync(join(tmpdir(), "tm-guard-fakenode-"));
@@ -334,5 +345,106 @@ describe("tm-hook.sh pre-bash — the glue", () => {
     const r = spawnSync("sh", [HOOK, "pre-bash"], { input: "not json", env: envWith({ TM_DISPATCH_WORKER: "1" }), encoding: "utf8" });
     assert.equal(r.status, 2);
     assert.match(r.stderr, /could not read/i);
+  });
+});
+
+describe("tm-hook.sh pre-bash — the guard releases when the task does", () => {
+  const payload = (command, cwd) =>
+    JSON.stringify({ session_id: "s", hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command }, cwd });
+
+  /** A worker pinned to a real task in a real store, on a branch that is not its own. */
+  function worker(status) {
+    const root = tempRepo();
+    trash.push(root);
+    const p = paths(root);
+    ensureDirs(p);
+    seedGitContract(p);
+    const task = create("task", { title: "the work" }, "body", p);
+    if (status) update(task.id, { status }, p);
+    const env = envWith({ TM_DISPATCH_WORKER: "1", TM_DISPATCH_TASK: task.id, TM_DISPATCH_BRANCH: "tm/gone-branch", TM_ROOT: root });
+    // A command the guard blocks outright, so a 0 can only mean the guard stood down.
+    const run = (command = "git push --force origin main") =>
+      spawnSync("sh", [HOOK, "pre-bash"], { input: payload(command, root), env, encoding: "utf8" });
+    return { task, root, run };
+  }
+
+  it("a done task releases it — the branch is gone and the session still works", () => {
+    const w = worker("done");
+    const r = w.run();
+    assert.equal(r.status, 0, `a finished worker is not still guarded (stderr: ${r.stderr})`);
+    assert.equal(r.stderr.trim(), "", "and it says nothing on the way out");
+  });
+
+  it("a deleted task releases it too", () => {
+    assert.equal(worker("deleted").run().status, 0);
+  });
+
+  it("an open task does NOT release it", () => {
+    const r = worker("in_progress").run();
+    assert.equal(r.status, 2, "work still in flight is still guarded");
+    assert.match(r.stderr, /force/i);
+  });
+
+  it("a task it cannot read does NOT release it — a guard that cannot see must not stand down", () => {
+    const root = tempRepo();
+    trash.push(root);
+    const env = envWith({ TM_DISPATCH_WORKER: "1", TM_DISPATCH_TASK: "TM-999", TM_ROOT: root, TM_DISPATCH_BRANCH: "tm/x" });
+    const r = spawnSync("sh", [HOOK, "pre-bash"], { input: payload("git push --force origin main", root), env, encoding: "utf8" });
+    assert.equal(r.status, 2, "a missing task is not a release");
+  });
+
+  it("without TM_ROOT, the task's recorded branch identifies it", () => {
+    // Not every launch path injects TM_ROOT — the one that raised this bug did not.
+    // The branch the task records is then the identity: a same-id task elsewhere
+    // does not carry this worker's branch name.
+    const root = tempRepo();
+    trash.push(root);
+    const p = paths(root);
+    ensureDirs(p);
+    seedGitContract(p);
+    const task = create("task", { title: "finished elsewhere" }, "body", p);
+    const branch = `tm/${task.id}-finished-elsewhere`;
+    update(task.id, { status: "done", branch }, p);
+
+    const env = envWith({ TM_DISPATCH_WORKER: "1", TM_DISPATCH_TASK: task.id, TM_DISPATCH_BRANCH: branch });
+    const r = spawnSync("sh", [HOOK, "pre-bash"], { input: payload("git push --force origin main", root), env, encoding: "utf8" });
+    assert.equal(r.status, 0, `a finished worker releases on its branch alone (stderr: ${r.stderr})`);
+
+    // A branch that is not the one the task recorded identifies nothing.
+    const wrong = envWith({ TM_DISPATCH_WORKER: "1", TM_DISPATCH_TASK: task.id, TM_DISPATCH_BRANCH: "tm/some-other-branch" });
+    const r2 = spawnSync("sh", [HOOK, "pre-bash"], { input: payload("git push --force origin main", root), env: wrong, encoding: "utf8" });
+    assert.equal(r2.status, 2, "a mismatched branch is not an identity");
+  });
+
+  it("a same-id task done in ANOTHER store does NOT release it", () => {
+    // Task ids are unique only within a store. Resolving the store from cwd rather
+    // than TM_ROOT let a finished TM-001 in an unrelated repo release a worker
+    // pinned to its own TM-001 — the guard must identify the store, not guess it.
+    const theirs = tempRepo();
+    const ours = tempRepo();
+    trash.push(theirs, ours);
+    const tp = paths(theirs);
+    ensureDirs(tp);
+    seedGitContract(tp);
+    const done = create("task", { title: "theirs, finished" }, "body", tp);
+    update(done.id, { status: "done" }, tp);
+
+    const op = paths(ours);
+    ensureDirs(op);
+    seedGitContract(op);
+    const mine = create("task", { title: "mine, open" }, "body", op);
+    assert.equal(mine.id, done.id, "precondition: the two stores minted the same id");
+
+    const env = envWith({ TM_DISPATCH_WORKER: "1", TM_DISPATCH_TASK: mine.id, TM_DISPATCH_BRANCH: "tm/x", TM_ROOT: ours });
+    const r = spawnSync("sh", [HOOK, "pre-bash"], { input: payload("git push --force origin main", ours), env, encoding: "utf8" });
+    assert.equal(r.status, 2, "the other store's finished task is not this worker's release");
+  });
+
+  it("no pin at all does NOT release it", () => {
+    const root = tempRepo();
+    trash.push(root);
+    const env = envWith({ TM_DISPATCH_WORKER: "1", TM_DISPATCH_BRANCH: "tm/x", TM_ROOT: root });
+    const r = spawnSync("sh", [HOOK, "pre-bash"], { input: payload("git push --force origin main", root), env, encoding: "utf8" });
+    assert.equal(r.status, 2, "an unnamed task is not a release");
   });
 });

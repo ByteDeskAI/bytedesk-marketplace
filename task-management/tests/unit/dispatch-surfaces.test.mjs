@@ -16,13 +16,14 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { cleanup, tempRepo } from "./helpers.mjs";
+import { cleanup, tempRepo, tempStore } from "./helpers.mjs";
 import { ensureDirs, paths } from "../../lib/paths.mjs";
 import { claimTask } from "../../lib/claims.mjs";
 import { gateStart } from "../../lib/enforce.mjs";
 import { create, read, seedGitContract, state, update, writeConfig } from "../../lib/store.mjs";
 import { handleRequest } from "../../lib/mcp.mjs";
 import { handleAsync, handleWrite } from "../../lib/dashboard-api.mjs";
+import { backendOrder } from "../../lib/dispatch/backend.mjs";
 
 // The WIP-gate test needs enforcement on, whatever the runner exports.
 delete process.env.TM_ENFORCE;
@@ -256,6 +257,24 @@ describe("GET /api/caps", () => {
 });
 
 // ── TM-153 ───────────────────────────────────────────────────────────────────
+/**
+ * TM-204. `resolveBackend` defaults `p` to `paths()` — the AMBIENT project store — so a test that
+ * omits it reads whatever `dispatch.backends` the developer happens to have configured, and the
+ * verdict changes with no code change. Both of these did: the day this repo's own store was set to
+ * `["tmux", "manual"]`, `topology` and `fake` were both absent from the order, the registry's own
+ * key order decided the walk, and the second test went red at a commit that had passed in full.
+ *
+ * So the order is pinned in a store the test owns, and asserted before it is relied on — a silently
+ * different order is then a named failure rather than a wrong answer about promotion.
+ */
+function orderedStore(backends) {
+  const p = tempStore();
+  writeConfig({ dispatch: { backends } }, p);
+  assert.deepEqual(backendOrder(p), backends, "the store under test supplies the order, not the host");
+  trash.push(p.root);
+  return p;
+}
+
 describe("a supplied registry participates in selection", () => {
   it("reaches a registry backend whose name is not in the configured order", async () => {
     // What TM_DISPATCH_REGISTRY was always for, and what it never did: the walk was over the
@@ -264,19 +283,22 @@ describe("a supplied registry participates in selection", () => {
     // real backend the host happened to have. That is why test-pool.sh was red in every real
     // checkout and green in every archive extract: it reported the machine, not the code.
     const { resolveBackend } = await import("../../lib/dispatch/backend.mjs");
+    const p = orderedStore(["topology", "tmux", "manual"]);
     const fake = { name: "fake", available: () => true, spawn: () => ({ ok: true, run: "fake:1" }) };
-    const picked = await resolveBackend({ registry: { fake }, caps: {} });
+    const picked = await resolveBackend({ registry: { fake }, caps: {}, p });
     assert.equal(picked.name, "fake", "a registry backend must be reachable, or the registry is decorative");
   });
 
   it("keeps an overridden name in its configured place rather than promoting it", async () => {
     const { resolveBackend } = await import("../../lib/dispatch/backend.mjs");
+    // `topology` is in the order and `fake` is not: that is the whole premise, so the store says so.
+    const p = orderedStore(["topology", "tmux", "manual"]);
     const spawn = () => ({ ok: true, run: "x:1" });
     const registry = {
       topology: { name: "topology", available: () => true, spawn },
       fake: { name: "fake", available: () => true, spawn },
     };
-    const picked = await resolveBackend({ registry, caps: {} });
+    const picked = await resolveBackend({ registry, caps: {}, p });
     assert.equal(picked.name, "fake", "names absent from the order go first; an override stays where it was");
   });
 });

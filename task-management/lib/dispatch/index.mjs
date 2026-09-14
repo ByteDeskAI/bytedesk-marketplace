@@ -9,6 +9,10 @@
  *
  * Ordering, and why:
  *   1. read      — a done or deleted task is a refusal, not a dispatch.
+ *   1b. duplicate gate — work that already landed outside the dispatch system is
+ *                  invisible to claims, touches and readiness, because none of
+ *                  them read the repository. Refuse before anything is claimed
+ *                  (skipped by --steal). See duplicate.mjs.
  *   2. re-dispatch gate — a task with a dispatch record AND a live claim already
  *                  has a worker in flight; re-dispatching would die in git and the
  *                  rollback would release that worker's claim. Refuse first
@@ -34,6 +38,7 @@ import { handoff } from "../render.mjs";
 import { RESOLVED, config, logEvent, mutate, now, read, update } from "../store.mjs";
 import { paths } from "../paths.mjs";
 import { resolveBackend } from "./backend.mjs";
+import { describeDuplicates, duplicateCommits, duplicateGuardEnabled } from "./duplicate.mjs";
 
 /**
  * One heartbeat, driven from outside — the pool loop and other supervisors call
@@ -94,6 +99,25 @@ export async function dispatch(id, { backend = null, session = null, actor = nul
   if (!task) return { ok: false, reason: `not found: ${id}` };
   if (RESOLVED.has(task.status)) {
     return { ok: false, reason: `${id} is ${task.status} — dispatch is for open work. Reopen it first if it genuinely needs doing.` };
+  }
+
+  /**
+   * Somebody may have already done this. The store tracks claims, not commits, so
+   * work that landed outside the dispatch system is invisible to every other gate
+   * here. Refuse before the claim, so a duplicate dispatch leaves nothing behind.
+   *
+   * `--steal` skips it for the same reason it skips the re-dispatch gate: an
+   * operator overriding on purpose has seen the commits the refusal named.
+   */
+  if (!steal && duplicateGuardEnabled(config(p))) {
+    const dupes = duplicateCommits(task, p);
+    if (dupes.length) {
+      return {
+        ok: false,
+        reason: `${id} looks already done: ${describeDuplicates(dupes)} — check whether this work landed outside the dispatch system before spending a worker on it. Dispatch anyway with --steal, or turn this off with \`tm config dispatch.duplicateGuard false\`.`,
+        duplicates: dupes,
+      };
+    }
   }
 
   const picked =

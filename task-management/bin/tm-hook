@@ -28,6 +28,49 @@ try {
 // read or run is refused, because the worker is running with every permission prompt skipped.
 if (event === "pre-bash") {
   if (!process.env.TM_DISPATCH_WORKER) process.exit(0);
+
+  /**
+   * The guard releases when the task does.
+   *
+   * TM_DISPATCH_* is pinned into the worker's environment at spawn and nothing
+   * ever clears it, so without this the guard outlives the work: a session whose
+   * task is finished and merged keeps being told it may push only its own branch
+   * — a branch that, after the usual post-merge cleanup, does not exist any more.
+   * Every push it could name is then impossible, and the session can do nothing.
+   *
+   * The task's own resolution is the release: `done` or `deleted` (store RESOLVED).
+   * Parked and blocked deliberately do not release — that work can resume.
+   *
+   * Fail closed, like the rest of the guard, and only release a task whose STORE
+   * we have identified. Task ids are unique only within a store, so a worker
+   * pinned to TM-001 must not be released by an unrelated TM-001 that is done in
+   * some other repo. Two things identify one, and one of them must hold:
+   *
+   *   TM_ROOT             the dispatcher naming the store outright.
+   *   the recorded branch  the task we read records the very branch this worker
+   *                       was pinned to. A same-id task in a different store does
+   *                       not carry this worker's branch name.
+   *
+   * Neither available means we cannot tell which task this is, and an unidentified
+   * worker stays guarded. So does an unreadable store, a missing task, or one that
+   * is still open: a guard that cannot see must not stand down.
+   */
+  const releaseGuard = async (cwd) => {
+    const pinned = process.env.TM_DISPATCH_TASK;
+    if (!pinned) return false;
+    const storeRoot = process.env.TM_ROOT;
+    const pinnedBranch = process.env.TM_DISPATCH_BRANCH;
+    if (!storeRoot && !pinnedBranch) return false;
+    try {
+      const [{ RESOLVED, read }, { paths }] = await Promise.all([import("../lib/store.mjs"), import("../lib/paths.mjs")]);
+      const task = read(pinned, paths(storeRoot || cwd));
+      if (!task || !RESOLVED.has(task.status)) return false;
+      return Boolean(storeRoot) || task.branch === pinnedBranch;
+    } catch {
+      return false; // a store we cannot read is not a release
+    }
+  };
+
   const refuse = (why) => {
     process.stderr.write(`task-management dispatch guard (worker for ${process.env.TM_DISPATCH_TASK || "an unnamed task"}): ${why}\n`);
     process.exit(2);
@@ -40,9 +83,11 @@ if (event === "pre-bash") {
   }
   const command = payload?.tool_input?.command;
   if (typeof command !== "string") refuse("could not read a Bash command from the PreToolUse payload, so it cannot be checked; refusing rather than guessing.");
+  const payloadCwd = typeof payload.cwd === "string" && payload.cwd ? payload.cwd : process.cwd();
+  if (await releaseGuard(payloadCwd)) process.exit(0);
   try {
     const { guardCommand } = await import("../lib/worker-guard.mjs");
-    const cwd = typeof payload.cwd === "string" && payload.cwd ? payload.cwd : process.cwd();
+    const cwd = payloadCwd;
     const rev = spawnSync("git", ["-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"], { encoding: "utf8", windowsHide: true });
     const head = rev.status === 0 ? rev.stdout.trim() : null;
     const verdict = guardCommand(command, { branch: process.env.TM_DISPATCH_BRANCH || head, head });

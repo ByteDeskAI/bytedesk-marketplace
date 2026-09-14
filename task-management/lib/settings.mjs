@@ -224,6 +224,14 @@ export const CATALOG = [
     help: "A task that passes the readiness check is labelled ready-for-agent; one that does not gets needs-triage and a triageMissing list. A triage label a person sets is never overridden. `tm triage` re-runs it over existing tasks.",
   },
   {
+    key: "dispatch.duplicateGuard",
+    group: "agents",
+    type: "boolean",
+    default: true,
+    label: "Refuse work that already landed",
+    help: "On unless false. Before dispatching, and on every pool tick for a worker already running, look for commits naming the task that are not on the task's own branch. The store tracks claims, not commits, so work finished outside the dispatch system is otherwise invisible: a dispatch is refused with the commits named, and a duplicate that lands mid-flight is logged as dispatch.duplicate rather than killing the worker. --steal dispatches anyway.",
+  },
+  {
     key: "dispatch.poolWip",
     group: "agents",
     type: "integer",
