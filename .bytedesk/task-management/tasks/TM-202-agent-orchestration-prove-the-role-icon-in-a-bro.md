@@ -8,7 +8,7 @@ title: "agent-orchestration: prove the role icon in a browser, once the gateway 
 epic: "EP-019"
 acceptance: [{"text":"Browser acceptance shows the same Unicode character in a managed terminal title bar and in the gateway GUI agent view for the same agent, captured in one screenshot showing both the character the gateway derived and the character agent-orchestration transmitted.","done":false},{"text":"The user-facing browser tests from the role-icon countersignature request pass against a gateway running the shipped orchestration-terminals provider.","done":false}]
 evidence: []
-commits: ["TM-168"]
+commits: ["TM-168","3418262"]
 blockedBy: []
 blocks: []
 actor: "main"
@@ -17,8 +17,8 @@ branch: "feat/dispatch-duplicate-guard"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
 labels: ["ready-for-agent","plugin:agent-orchestration"]
 triagedBy: "auto"
-updated: "2026-09-13T21:33:16.598Z"
-blockedReason: "Blocked by bytedesk-remote-gateway TM-317, in another repository, which has no date. Their tmux-manager plugin runs under a bwrap sandbox mounting no executable directory, so the gateway enumerates zero session tabs and there is no terminal badge to photograph. The fix their operator chose on 2026-09-12 is a host-resolved tmux service, not a sandbox bind (--tmpfs /tmp also hides the tmux socket, so a bound binary would start an empty server and report zero sessions successfully - a silent wrong answer). Partial contribution in flight: bytedesk-tmux-manager e9e01c9 on tm/TM-317-injectable-runner implements the plugin-side runner seam; the gateway-side operations wait on an SDK tag (TM-260) carrying cmd.tmux.v1.* and on subject-lease minting, which is ADR 0025's own unclosed gap. Neither is ours."
+updated: "2026-09-14T01:09:55.445Z"
+blockedReason: "Blocked on the gateway's TM-330, not TM-317 any more. TM-317 merged and cut over on 2026-09-13 (postflight PASS, live=7 durable=7) with our two branches in it: bytedesk-remote-gateway aa587986 (PR 142) and bytedesk-tmux-manager e9e01c9 (PR 1).\n\nIt does NOT unblock this task, by design rather than by shortfall. TM-317 shipped only the availability operation (cmd.tmux.v1.availability, hostClassPublicRead). Listing sessions, windows and panes names a person's terminals, so it is subject-scoped, and no production site mints a subject lease yet - declaring those operations would have merged clean and refused every real call. So the gateway's sessions view is still empty and there is still no terminal badge to photograph.\n\nThe gateway session removed TM-317's own AC2 ('the gateway enumerates tmux sessions again and the sessions view shows tabs') rather than ticking it, and moved it verbatim to their TM-330 AC3. That is the criterion this task now waits on, together with the lease-minting gap they filed separately against ADR 0025.\n\nResume when TM-330 lands and a terminal tab actually appears. The screenshot can then show both halves at once: the character the gateway derives and the character agent-orchestration transmits."
 ---
 
 The marketplace half of TM-168 shipped in agent-orchestration v0.9.0 and is countersigned. This task
