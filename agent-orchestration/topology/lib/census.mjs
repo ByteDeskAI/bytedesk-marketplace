@@ -121,10 +121,11 @@ const bindingKey = (binding) => JSON.stringify(PRESENCE_BINDING_FIELDS.map((fiel
  * TM-168. A row's role icon and label, recomputed from the row's own role fields every time and never
  * copied from the roster or a prior document. A stale or hand-edited census file, a hostile role or
  * escape bytes therefore cannot reach formatCensus's terminal output, and nothing here reads an icon
- * back to decide anything. The derivation matches presence: a repository lead, then the run role, then
- * the library role carried as roleName. Display only.
+ * back to decide anything. The derivation matches presence: a repository lead, otherwise the
+ * original display role carried as roleName. runRole is a normalized authority vocabulary and
+ * must not replace custom or newer display roles (or a missing role's fallback). Display only.
  */
-const visualOf = (agent) => roleVisual({ repoRole: agent?.repoRole ?? null, runRole: agent?.runRole ?? null, role: agent?.roleName ?? null });
+const visualOf = (agent) => roleVisual({ repoRole: agent?.repoRole ?? null, role: agent?.roleName ?? null });
 const quotaOnly = (adapter) => ({ ...adapter, attention_patterns: (adapter.attention_patterns ?? []).filter((entry) => entry.state === "quota-blocked") });
 
 /**

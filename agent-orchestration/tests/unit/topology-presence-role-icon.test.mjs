@@ -150,6 +150,20 @@ test("census rows and tombstones carry the icon presence computed, recomputed fr
     assert.deepEqual(pick(row), pick(roster.find((a) => a.agentId === row.agentId)), `${row.agentId}: census and presence carry the same pair`);
   }
 
+  // Frozen runRole is an authority vocabulary, not the original display role.
+  // Observer and custom roles both legitimately normalize to worker there.
+  for (const roleName of ["observer", "data-wrangler", undefined]) {
+    const expected = roleVisual({ role: roleName ?? null });
+    const input = { ...workRow, runRole: "worker", roleName, roleIcon: `${ESC}]0;owned${BEL}`, roleLabel: "Lead" };
+    const observed = await census({ agents: [input], panes: [panes[1]], previous: null });
+    assert.deepEqual(pick(observed.agents[0]), expected, `live row preserves ${roleName ?? "missing"} display role`);
+    const gone = await census({ agents: [], panes: [], previous: observed, now: 1_000_001 });
+    assert.equal(gone.agents[0]?.carriedForward, true);
+    assert.deepEqual(pick(gone.agents[0]), expected, `tombstone preserves ${roleName ?? "missing"} display role`);
+  }
+  const coordinating = await census({ agents: [{ ...leadRow, runRole: "orchestrator", roleName: "orchestrator" }], panes: [panes[0]], previous: null });
+  assert.deepEqual(pick(coordinating.agents[0]), roleVisual({ role: "lead" }));
+
   // The worker's pane leaves the listing: its row survives one tick as a tombstone, same icon.
   const second = await census({ agents: [leadRow], panes: [panes[0]], previous: first, now: 1_000_001 });
   const tombstone = second.agents.find((a) => a.agentId === "work0001");
@@ -174,14 +188,18 @@ test("formatCensus puts the role icon beside the name with its label, and keeps 
   const row = (over) => ({ agentId: "k3n8vq2a", displayName: "Priya Raman", state: "idle", durationMs: 5000,
     reason: "no spinner and nothing waiting on a human", dispatchable: true, ...over });
   const text = formatCensus({ captures: 1, tickMs: 3, agents: [
-    row({ repoRole: "lead", roleName: "lead" }),
-    row({ agentId: "s2v7ho3j", displayName: "Kenji Watanabe", state: "working", runRole: "worker", roleIcon: `${ESC}]0;owned${BEL}`, roleLabel: "Lead" }),
+    row({ repoRole: "lead", runRole: "orchestrator", roleName: "orchestrator" }),
+    row({ agentId: "s2v7ho3j", displayName: "Kenji Watanabe", state: "working", runRole: "worker", roleName: "worker", roleIcon: `${ESC}]0;owned${BEL}`, roleLabel: "Lead" }),
     row({ agentId: "f9k1ps5u", displayName: "Unenrolled agent" }),
+    ...["observer", "data-wrangler", undefined].map(roleName => row({ runRole: "worker", roleName, roleIcon: `${ESC}]0;owned${BEL}`, roleLabel: "Lead" })),
   ] });
   const [leadLine, hostileLine, unknownLine] = text.split("\n");
   assert.match(leadLine, new RegExp(`^○ ${lead.roleIcon} Priya Raman +Lead +idle +5s  no spinner`));
   assert.match(hostileLine, new RegExp(`^• ${roleVisual({ role: "worker" }).roleIcon} Kenji Watanabe +Worker +working `), "a tampered stored icon is ignored; the row prints what its role gives");
   assert.match(unknownLine, new RegExp(`^○ ${FALLBACK.roleIcon} f9k1ps5u +Agent +idle `), "a row with no icon at all prints the fallback");
+  const extra = text.split("\n").slice(3, 6);
+  assert.match(extra[0], /^○ 👁\uFE0F Priya Raman +Observer /, "observer retains its variation selector");
+  for (const line of extra.slice(1)) assert.match(line, /^○ 🤖 Priya Raman +Agent /, "custom or missing display role never inherits normalized worker");
   assert.equal(CONTROL.test(text.replaceAll("\n", "")), false, "no escape byte reaches the terminal");
 });
 
