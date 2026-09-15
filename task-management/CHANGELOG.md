@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Bind active claims to the exact Gateway terminal incarnation and expose validated active task IDs for stable terminal titles. Capture bindings on claim and holder heartbeat; omit expired and inactive tasks.
+
 - **A topology-launched worker reaches its pane with the dispatch identity.** `TM_SESSION_ID`,
   `TM_ACTOR` and `TM_ROOT`. `dispatch/topology.mjs` set the
   store only in `envFor()`, on the ao-topology launcher — and the launcher's environment does not

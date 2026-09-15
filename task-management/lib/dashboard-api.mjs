@@ -35,6 +35,7 @@
  * `handleAsync`, which otherwise delegates here, so `handleWrite` stays synchronous for its
  * 100-odd unit tests.
  */
+import { gatewayActiveTasks } from "./gateway-binding.mjs";
 import { basename } from "node:path";
 import { enforcementOff, gateDone, gateStart, gateTaskCreate, setOverride } from "./enforce.mjs";
 import { graphData, mermaid, renderWhy, why } from "./graph.mjs";
@@ -1176,6 +1177,8 @@ function readRoute(method, url, query, p) {
         text: renderDoctor(findings),
       });
     }
+    case "/api/gateway/active-tasks":
+      return ok(gatewayActiveTasks(state(p).claims, list("task", {}, p), claim => expired(claim, p)));
     case "/api/sessions":
       return sessionsRoute(p);
     case "/api/agents":
