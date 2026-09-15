@@ -7,6 +7,7 @@
  * lock a task out of the board forever. Taking a live claim is allowed but never
  * silent — you steal explicitly, and it lands in the event log.
  */
+import { captureGatewayBinding } from "./gateway-binding.mjs";
 import { existsSync } from "node:fs";
 import { config, logEvent, now, state, withLock, writeState } from "./store.mjs";
 import { paths } from "./paths.mjs";
@@ -32,6 +33,7 @@ export function claimant(id, p = paths()) {
  * else has it" is useless when you're deciding whether to interrupt a teammate.
  */
 export function claimTask(id, { session = null, actor = null, worktree, branch, steal = false, p = paths() } = {}) {
+  const gateway = captureGatewayBinding(session);
   return withLock(p, () => {
     const claims = { ...state(p).claims };
     const held = claims[id];
@@ -65,7 +67,7 @@ export function claimTask(id, { session = null, actor = null, worktree, branch, 
     }
 
     const stolenFrom = owned && held.session !== session ? held.session : null;
-    claims[id] = { session, actor, worktree, branch, pid: process.pid, ts: now() };
+    claims[id] = { session, actor, worktree, branch, pid: process.pid, ts: now(), ...(gateway ? { gateway } : {}) };
     writeState({ claims }, p);
     if (stolenFrom) logEvent("claim_stolen", { id, from: stolenFrom, to: session }, p);
     else logEvent("claim", { id, session }, p);
@@ -87,12 +89,13 @@ export function claimTask(id, { session = null, actor = null, worktree, branch, 
  * that makes people switch the log off.
  */
 export function heartbeatClaim(id, { session = null, p = paths() } = {}) {
+  const gateway = captureGatewayBinding(session);
   return withLock(p, () => {
     const claims = { ...state(p).claims };
     const held = claims[id];
     if (!held) return null;
     if (held.session != null && held.session !== session) return null;
-    claims[id] = { ...held, ts: now() };
+    claims[id] = { ...held, ts: now(), ...(held.session === session && gateway ? { gateway } : {}) };
     writeState({ claims }, p);
     return claims[id];
   });

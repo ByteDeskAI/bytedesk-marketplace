@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Bind active claims to the exact Gateway terminal incarnation and expose validated active task IDs for stable terminal titles (Gateway TM-335). Capture bindings on claim and holder heartbeat; omit expired and inactive tasks.
+
 ### Fixed
 - **`tm evidence` no longer duplicates a shared or re-attached artifact** (TM-166). TM-145 stopped
   the same-id double prefix; three related holes remained, and together they are how this store grew
