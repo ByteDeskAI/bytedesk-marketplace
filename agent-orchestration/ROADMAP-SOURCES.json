@@ -162,8 +162,8 @@
       ]
     },
     "src/state/store.mjs": {
-      "sha256": "05e49d4ca17b6883305d315113f901f9b68e2dc3b1bf3312400a37a3cb8a4658",
-      "lineCount": 380,
+      "sha256": "d4b70d8f7cf1f4e41204660832a493dd4d6d36ebb8d64894ddda2f8d7c2aba77",
+      "lineCount": 391,
       "anchors": [
         "async appendEventUnlocked(",
         "async createUnlocked(",

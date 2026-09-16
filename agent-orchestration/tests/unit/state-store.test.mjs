@@ -126,13 +126,28 @@ test("generic updates reject terminal evidence changes while clearWorkspace is n
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("list fails closed when a valid run directory contains a corrupt journal", async () => {
+test("list skips a run directory that has lost its durable record", async () => {
+  const root = await mkdtemp(join(os.tmpdir(), "ao-state-test-"));
+  try {
+    const store = await new RunStore(root).initialize();
+    const healthy = await store.create({ ...input(), idempotencyKey: null });
+    // Whatever removed snapshot.json and events.ndjson left the session meta behind; the run is
+    // unreadable, and every other run must still list.
+    const orphan = join(root, "runs", "run_484f8ec2-7f76-4b61-ac8e-fe91f27b422d");
+    await mkdir(orphan, { recursive: true, mode: 0o700 });
+    await writeFile(join(orphan, "session.json"), "{}\n", { mode: 0o600 });
+    assert.deepEqual((await store.list()).map((run) => run.runId), [healthy.runId]);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("list fails closed when a valid run directory contains a corrupt journal, beside a skipped orphan", async () => {
   const root = await mkdtemp(join(os.tmpdir(), "ao-state-test-"));
   try {
     const store = await new RunStore(root).initialize();
     const run = await store.create({ ...input(), idempotencyKey: null });
     await appendFile(store.eventsPath(run.runId), "{\"not\":\"a valid chained event\"}\n");
     await mkdir(join(root, "runs", "not-a-run"));
+    await mkdir(join(root, "runs", "run_484f8ec2-7f76-4b61-ac8e-fe91f27b422d"), { recursive: true, mode: 0o700 });
     await assert.rejects(() => store.list(), { code: "AO_EVENT_LOG_CORRUPT" });
   } finally { await rm(root, { recursive: true, force: true }); }
 });

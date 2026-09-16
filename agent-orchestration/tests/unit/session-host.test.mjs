@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,6 +29,19 @@ test("session host refuses non-loopback binds", () => {
   assert.throws(() => assertLoopbackBind("0.0.0.0"), { code: "AO_SESSION_BIND" });
   assert.throws(() => assertLoopbackBind("::"), { code: "AO_SESSION_BIND" });
   assert.doesNotThrow(() => assertLoopbackBind("127.0.0.1"));
+});
+
+test("session meta refuses a run id with no run record", async () => {
+  const root = await mkdtemp(join(os.tmpdir(), "ao-session-meta-"));
+  const stateRoot = join(root, "state");
+  const runId = "run_484f8ec2-7f76-4b61-ac8e-fe91f27b422d";
+  try {
+    const cap = mintCapability();
+    const record = { tokenHash: cap.tokenHash, expiresAt: cap.expiresAt, exchangedAt: null, hostNonce: "fixture" };
+    await assert.rejects(() => writeSessionMeta(stateRoot, runId, record), { code: "AO_RUN_NOT_FOUND" });
+    // The refusal has to come before the write, or it leaves the orphan it was meant to prevent.
+    await assert.rejects(() => access(join(stateRoot, "runs", runId)), { code: "ENOENT" });
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test("session host binds 127.0.0.1, walks a busy port, and exchanges a one-time capability", async () => {
