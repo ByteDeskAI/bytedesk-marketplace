@@ -1,6 +1,6 @@
 {
   "id": "web-apps",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "panels": [
     {
       "id": "web-apps",
@@ -35,7 +35,23 @@
       "ui.mount.v1"
     ]
   },
-  "permissions": {},
+  "permissions": {
+    "request": [
+      "cmd.web-apps.v1.list",
+      "cmd.web-apps.v1.create",
+      "cmd.web-apps.v1.creation-eligibility",
+      "cmd.web-apps.v1.conversation.send",
+      "cmd.web-apps.v1.conversation.approve",
+      "cmd.web-apps.v1.conversation.answer",
+      "cmd.web-apps.v1.run.stop",
+      "cmd.web-apps.v1.services.start",
+      "cmd.web-apps.v1.services.stop",
+      "cmd.web-apps.v1.services.logs",
+      "cmd.web-apps.v1.preview.resolve",
+      "cmd.web-apps.v1.preview.navigate",
+      "cmd.web-apps.v1.preview.open-external"
+    ]
+  },
   "projectViews": [
     {
       "id": "web-apps",
@@ -55,4 +71,3 @@
     }
   ]
 }
-

@@ -33,3 +33,15 @@ The version 1 marker contract is published with the plugin at
 are argument arrays executed directly. The schema admits only `${PORT}` and
 `${services.<id>.port}` placeholders and describes the optional HTTP readiness path,
 timeout, and interval used by Gateway's strict configuration parser.
+
+Use `env` for non-secret literal values. Use `envFrom` to name host environment
+variables that Gateway may copy into one service. A missing selected variable fails
+that service with an actionable error. Never store passwords or tokens as `env`
+values in the marker.
+
+Gateway serves authenticated previews through a host-owned proxy and strips its own
+cookies, bearer tokens, and admin headers before contacting the application. Set
+`BYTEDESK_PREVIEW_DOMAIN` to the wildcard domain configured in DNS and TLS when each
+preview needs its own origin; without it, Gateway uses its authenticated preview path.
+Password shares default to 24 hours, may be set up to 30 days, remain stopped when the
+application is stopped, and can be revoked from the Web Apps service bar.

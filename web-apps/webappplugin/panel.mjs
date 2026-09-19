@@ -14,6 +14,8 @@ const OPERATIONS = Object.freeze({
   previewExternal: 'cmd.web-apps.v1.preview.open-external',
 })
 
+const activeShares = new Map()
+
 function node(document, tag, className, text) {
   const value = document.createElement(tag)
   if (className) value.className = className
@@ -36,8 +38,23 @@ function contextFrom(host) {
   return {
     projectId: location.params?.projectId ?? '',
     checkoutId: location.params?.checkoutId ?? '',
-    directory: location.params?.directory ?? '',
+    contextToken: new URLSearchParams(location.search).get('context') ?? '',
   }
+}
+
+function targetFrom(app) {
+  return {
+    projectId: app.target?.projectId ?? '', checkoutId: app.target?.checkoutId ?? '',
+    appId: app.target?.appId ?? app.id ?? '', configRevision: app.target?.configRevision ?? '',
+    runId: app.run?.id ?? '',
+  }
+}
+
+function refreshHostView(host) {
+  const location = host.location()
+  const params = new URLSearchParams(location.search)
+  params.set('webAppsRefresh', String(Date.now()))
+  host.navigate(`${location.pathname}?${params}`)
 }
 
 function createGettingStarted(document) {
@@ -106,7 +123,10 @@ function createWizard(document, host, root, announce) {
     announce('Checking the selected directory…')
     try {
       const payload = Object.fromEntries(new FormData(form).entries())
-      payload.references = [...files.files].map(file => ({ name: file.name, size: file.size, type: file.type }))
+      payload.references = await Promise.all([...files.files].map(async file => ({
+        name: file.name, size: file.size, mediaType: file.type,
+        content: btoa(String.fromCharCode(...new Uint8Array(await file.arrayBuffer()))),
+      })))
       const context = contextFrom(host)
       await host.request(OPERATIONS.eligibility, context)
       const created = await host.request(OPERATIONS.create, { ...context, ...payload })
@@ -121,11 +141,12 @@ function createWizard(document, host, root, announce) {
 }
 
 function renderConversation(document, app, host, announce) {
+	const runActive = app.run?.state === 'running' || app.run?.state === 'stopping'
   const pane = node(document, 'section', 'wa-pane wa-chat')
   pane.dataset.pane = 'chat'
   const header = node(document, 'header', 'wa-pane__header')
   const heading = node(document, 'div', '')
-  heading.append(node(document, 'h2', '', 'Chat'), node(document, 'p', 'wa-muted', app.run?.active ? 'Agent working in this app and checkout' : 'Plan and build with an agent'))
+  heading.append(node(document, 'h2', '', 'Chat'), node(document, 'p', 'wa-muted', runActive ? 'Agent working in this app and checkout' : 'Plan and build with an agent'))
   const mode = node(document, 'div', 'wa-segment')
   mode.setAttribute('aria-label', 'Conversation mode')
   const plan = button(document, 'Plan', 'wa-segment__item is-active')
@@ -135,11 +156,11 @@ function renderConversation(document, app, host, announce) {
   pane.append(header)
   const stream = node(document, 'div', 'wa-stream')
   stream.setAttribute('aria-label', 'Conversation history')
-  const messages = app.messages?.length ? app.messages : [{ role: 'assistant', content: app.description || 'Describe what you want to build. I will prepare a plan for approval.' }]
+  const messages = app.conversation?.messages?.length ? app.conversation.messages : [{ role: 'assistant', markdown: app.description || 'Describe what you want to build. I will prepare a plan for approval.' }]
   for (const message of messages) {
     const article = node(document, 'article', `wa-message wa-message--${message.role === 'user' ? 'user' : 'agent'}`)
     article.append(node(document, 'span', 'wa-message__role', message.role === 'user' ? 'You' : 'Agent'))
-    article.append(node(document, 'p', '', message.content))
+    article.append(node(document, 'p', '', message.markdown ?? message.content ?? ''))
     if (message.kind === 'approval' && message.pending) {
       const actions = node(document, 'div', 'wa-card-actions')
       const decline = button(document, 'Decline')
@@ -147,7 +168,7 @@ function renderConversation(document, app, host, announce) {
       const decide = async approved => {
         decline.disabled = true
         approve.disabled = true
-        try { await host.request(OPERATIONS.approve, { appId: app.id, requestId: message.id, approved }); announce(approved ? 'Approved.' : 'Declined.') }
+        try { await host.request(OPERATIONS.approve, { ...targetFrom(app), requestId: message.id, approved }); announce(approved ? 'Approved.' : 'Declined.'); refreshHostView(host) }
         catch (error) { announce(operationError(error), true); decline.disabled = false; approve.disabled = false }
       }
       decline.addEventListener('click', () => void decide(false))
@@ -166,7 +187,7 @@ function renderConversation(document, app, host, announce) {
         event.preventDefault()
         if (!field.value.trim()) return
         submit.disabled = true
-        try { await host.request(OPERATIONS.answer, { appId: app.id, requestId: message.id, answer: field.value.trim() }); announce('Answer sent.') }
+        try { await host.request(OPERATIONS.answer, { ...targetFrom(app), requestId: message.id, answer: field.value.trim() }); announce('Answer sent.'); refreshHostView(host) }
         catch (error) { announce(operationError(error), true); submit.disabled = false }
       })
       article.append(answer)
@@ -175,14 +196,15 @@ function renderConversation(document, app, host, announce) {
   }
   if (app.run?.activity) {
     const activity = node(document, 'div', 'wa-activity')
-    activity.append(node(document, 'span', 'wa-status wa-status--active', 'Working'), node(document, 'span', '', app.run.activity))
+    const latest = app.run.activity.at(-1)
+    activity.append(node(document, 'span', 'wa-status wa-status--active', 'Working'), node(document, 'span', '', latest?.label ?? latest?.detail ?? 'Agent is working'))
     stream.append(activity)
   }
   pane.append(stream)
   const composer = node(document, 'form', 'wa-composer')
   const input = node(document, 'textarea', '')
   input.rows = 3
-  input.placeholder = app.run?.active ? 'Queue a message or steer the current run…' : 'Ask for a plan or the next change…'
+  input.placeholder = runActive ? 'Queue a message or steer the current run…' : 'Ask for a plan or the next change…'
   input.setAttribute('aria-label', 'Message')
   const controls = node(document, 'div', 'wa-composer__controls')
   const attach = button(document, 'Attach')
@@ -196,7 +218,7 @@ function renderConversation(document, app, host, announce) {
   for (const item of app.providers ?? [{ id: 'auto', label: 'Available provider' }]) {
     const option = node(document, 'option', '', item.label)
     option.value = item.id
-    option.selected = item.id === app.providerId
+    option.selected = item.id === app.run?.providerId
     provider.append(option)
   }
   const effort = node(document, 'select', 'wa-provider')
@@ -207,8 +229,8 @@ function renderConversation(document, app, host, announce) {
     effort.append(option)
   }
   const stop = button(document, 'Stop', 'wa-button wa-button--danger')
-  stop.hidden = !app.run?.active
-  const send = button(document, app.run?.active ? 'Queue message' : 'Send', 'wa-button wa-button--primary')
+  stop.hidden = !runActive
+  const send = button(document, runActive ? 'Queue message' : 'Send', 'wa-button wa-button--primary')
   send.type = 'submit'
   controls.append(attach, attachmentInput, provider, effort, stop, send)
   composer.append(input, controls)
@@ -219,20 +241,24 @@ function renderConversation(document, app, host, announce) {
     send.disabled = true
     try {
       await host.request(OPERATIONS.send, {
-        appId: app.id, content,
+        ...targetFrom(app), content,
         mode: plan.classList.contains('is-active') ? 'plan' : 'build',
         providerId: provider.value,
         effort: effort.value,
-        attachments: [...attachmentInput.files].map(file => ({ name: file.name, size: file.size, type: file.type })),
+        attachments: await Promise.all([...attachmentInput.files].map(async file => ({
+          name: file.name, size: file.size, mediaType: file.type,
+          content: btoa(String.fromCharCode(...new Uint8Array(await file.arrayBuffer()))),
+        }))),
       })
       input.value = ''
-      announce(app.run?.active ? 'Message queued.' : 'Message sent.')
+      announce(runActive ? 'Message queued.' : 'Message sent.')
+      refreshHostView(host)
     } catch (error) { announce(operationError(error), true) }
     finally { send.disabled = false }
   })
   stop.addEventListener('click', async () => {
     stop.disabled = true
-    try { await host.request(OPERATIONS.stopRun, { appId: app.id, runId: app.run?.id }); announce('Agent run stopped.') }
+    try { await host.request(OPERATIONS.stopRun, targetFrom(app)); announce('Agent run stopped.'); refreshHostView(host) }
     catch (error) { announce(operationError(error), true); stop.disabled = false }
   })
   plan.addEventListener('click', () => { plan.classList.add('is-active'); build.classList.remove('is-active') })
@@ -262,12 +288,12 @@ function renderPreview(document, app, host, announce) {
   const fullscreen = button(document, 'Fullscreen')
   const external = button(document, 'Open')
   tools.append(desktop, tablet, mobile, zoom, fullscreen, external)
-  tools.append(node(document, 'span', 'wa-inspection', app.preview?.inspectionSupported ? 'Agent inspection available' : 'Agent inspection unsupported'))
+  tools.append(node(document, 'span', 'wa-inspection', app.preview?.capabilities?.inspection ? 'Agent inspection available' : 'Agent inspection unsupported'))
   header.append(nav, tools)
   pane.append(header)
   const stage = node(document, 'div', 'wa-preview__stage')
   let frame = null
-  if (app.preview?.url && app.services?.some(service => service.status === 'running')) {
+  if (app.preview?.url && app.services?.some(service => service.ready)) {
     frame = node(document, 'iframe', 'wa-preview__frame')
     frame.title = `${app.name} preview`
     frame.src = app.preview.url
@@ -280,7 +306,7 @@ function renderPreview(document, app, host, announce) {
       const start = button(document, 'Start services', 'wa-button wa-button--primary')
       start.addEventListener('click', async () => {
         start.disabled = true
-        try { await host.request(OPERATIONS.startServices, { appId: app.id }); announce('Services are starting.') }
+        try { await host.request(OPERATIONS.startServices, targetFrom(app)); announce('Services are starting.'); refreshHostView(host) }
         catch (error) { announce(operationError(error), true); start.disabled = false }
       })
       state.append(start)
@@ -288,7 +314,7 @@ function renderPreview(document, app, host, announce) {
     stage.append(state)
   }
   const navigatePreview = async direction => {
-    try { await host.request(OPERATIONS.previewNavigate, { appId: app.id, direction }) }
+    try { await host.request(OPERATIONS.previewNavigate, { ...targetFrom(app), direction }) }
     catch (error) { announce(operationError(error), true) }
   }
   back.addEventListener('click', () => void navigatePreview('back'))
@@ -318,26 +344,56 @@ function renderPreview(document, app, host, announce) {
     catch (error) { announce(operationError(error), true) }
   })
   external.addEventListener('click', async () => {
-    try { await host.request(OPERATIONS.previewExternal, { appId: app.id }); announce('Opened preview in a new window.') }
+    try { const result = await host.request(OPERATIONS.previewExternal, targetFrom(app)); if (result?.preview?.url) window.open(result.preview.url, '_blank', 'noopener'); announce('Opened preview in a new window.') }
     catch (error) { announce(operationError(error), true) }
   })
   pane.append(stage)
   const serviceBar = node(document, 'footer', 'wa-services')
   const services = node(document, 'div', 'wa-services__list')
-  for (const service of app.services ?? []) services.append(node(document, 'span', 'wa-service', `${service.id} · ${service.status}${service.port ? ` · ${service.port}` : ''}`))
+  for (const service of app.services ?? []) services.append(node(document, 'span', 'wa-service', `${service.id} · ${service.state}${service.port ? ` · ${service.port}` : ''}`))
   if (!app.services?.length) services.append(node(document, 'span', 'wa-muted', 'No services configured'))
   const serviceActions = node(document, 'div', '')
   const logs = button(document, 'Logs')
+  const share = button(document, activeShares.has(targetFrom(app).appId) ? 'Revoke share' : 'Share preview')
   const stop = button(document, 'Stop services', 'wa-button wa-button--danger')
-  stop.disabled = !(app.services ?? []).some(service => service.status === 'running' || service.status === 'starting')
-  serviceActions.append(logs, stop)
+  stop.disabled = !(app.services ?? []).some(service => service.ready || service.state === 'starting')
+  serviceActions.append(logs, share, stop)
   logs.addEventListener('click', async () => {
-    try { await host.request(OPERATIONS.logs, { appId: app.id }); announce('Opened service logs.') }
+    try { const result = await host.request(OPERATIONS.logs, targetFrom(app)); announce(result?.entries?.map(entry => `${entry.serviceId} ${entry.stream}: ${entry.text}`).join('\n') || 'No service logs yet.') }
     catch (error) { announce(operationError(error), true) }
+  })
+  share.addEventListener('click', async () => {
+    const target = targetFrom(app)
+    const current = activeShares.get(target.appId)
+    try {
+      if (current) {
+        await fetch(`/api/web-apps/shares/${encodeURIComponent(current.token)}`, { method: 'DELETE', credentials: 'same-origin' })
+        activeShares.delete(target.appId)
+        share.textContent = 'Share preview'
+        announce('Share link revoked.')
+        return
+      }
+      const password = window.prompt('Password for reviewers')
+      if (!password) return
+      const requested = Number(window.prompt('Expiry in hours', '24') ?? '24')
+      const response = await fetch('/api/web-apps/shares', {
+        method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...target, password, expiryHours: Number.isFinite(requested) ? requested : 24 }),
+      })
+      if (!response.ok) throw new Error((await response.text()).trim() || 'Share link could not be created')
+      const created = await response.json()
+      const url = new URL(created.url, window.location.origin).toString()
+      const token = created.url.split('/').filter(Boolean).at(-1)
+      activeShares.set(target.appId, { token, url })
+      share.textContent = 'Revoke share'
+      await navigator.clipboard?.writeText(url).catch(() => {})
+      window.prompt('Share link (copied when clipboard access is available)', url)
+      announce(`Share link expires ${new Date(created.expiresAt).toLocaleString()}.`)
+    } catch (error) { announce(operationError(error), true) }
   })
   stop.addEventListener('click', async () => {
     stop.disabled = true
-    try { await host.request(OPERATIONS.stopServices, { appId: app.id }); announce('Services stopped.') }
+    try { await host.request(OPERATIONS.stopServices, targetFrom(app)); announce('Services stopped.'); refreshHostView(host) }
     catch (error) { announce(operationError(error), true); stop.disabled = false }
   })
   serviceBar.append(services, serviceActions)
@@ -355,13 +411,13 @@ function createWorkspace(document, host, root, announce, data) {
   const picker = node(document, 'select', '')
   for (const app of data.apps ?? []) {
     const option = node(document, 'option', '', app.name)
-    option.value = app.id
-    option.selected = app.id === data.selectedAppId
+    option.value = app.target?.appId ?? app.id
+    option.selected = option.value === data.selectedAppId
     picker.append(option)
   }
   pickerLabel.append(picker)
   const activity = node(document, 'div', 'wa-toolbar__activity')
-  const background = (data.apps ?? []).filter(app => app.run?.active || app.services?.some(service => service.status === 'running')).length
+  const background = (data.apps ?? []).filter(app => app.run?.state === 'running' || app.services?.some(service => service.ready)).length
   if (background) activity.append(node(document, 'span', 'wa-status wa-status--active', `${background} active`))
   toolbar.append(identity, pickerLabel, activity)
   shell.append(toolbar)
@@ -370,7 +426,7 @@ function createWorkspace(document, host, root, announce, data) {
     root.replaceChildren(shell)
     return
   }
-  const selected = data.apps.find(app => app.id === data.selectedAppId) ?? data.apps[0]
+  const selected = data.apps.find(app => (app.target?.appId ?? app.id) === data.selectedAppId) ?? data.apps[0]
   const mobileNav = node(document, 'nav', 'wa-mobile-nav')
   mobileNav.setAttribute('aria-label', 'Workspace pane')
   const chatTab = button(document, 'Chat', 'wa-mobile-nav__item is-active')
@@ -432,6 +488,7 @@ export function mount(element, host) {
   element.replaceChildren(root, status)
   let disposed = false
   let unsubscribe = () => {}
+  let poll = 0
   const render = async () => {
     const location = host.location()
     if (location.pathname.endsWith('/create') || location.params?.panel === 'create-web-app') {
@@ -452,6 +509,7 @@ export function mount(element, host) {
   const cleanup = () => {
     if (disposed) return
     disposed = true
+    clearInterval(poll)
     host.signal.removeEventListener('abort', cleanup)
     try { unsubscribe() } finally { style.remove(); element.replaceChildren() }
   }
@@ -459,6 +517,7 @@ export function mount(element, host) {
     unsubscribe = host.subscribe('host.location', () => void render())
     host.signal.addEventListener('abort', cleanup, { once: true })
     void render()
+    poll = setInterval(() => { if (!disposed && !host.signal.aborted && !host.location().pathname.endsWith('/create')) void render() }, 2000)
     if (host.signal.aborted) cleanup()
   } catch (error) {
     cleanup()

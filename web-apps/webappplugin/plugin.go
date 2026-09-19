@@ -14,7 +14,15 @@ import (
 	pluginsdk "github.com/ByteDeskAI/bytedesk-remote-gateway-plugin-sdk"
 )
 
-const Version = "0.1.0"
+const Version = "0.2.0"
+
+var requestPermissions = []string{
+	"cmd.web-apps.v1.list", "cmd.web-apps.v1.create", "cmd.web-apps.v1.creation-eligibility",
+	"cmd.web-apps.v1.conversation.send", "cmd.web-apps.v1.conversation.approve", "cmd.web-apps.v1.conversation.answer",
+	"cmd.web-apps.v1.run.stop", "cmd.web-apps.v1.services.start", "cmd.web-apps.v1.services.stop",
+	"cmd.web-apps.v1.services.logs", "cmd.web-apps.v1.preview.resolve", "cmd.web-apps.v1.preview.navigate",
+	"cmd.web-apps.v1.preview.open-external",
+}
 
 //go:embed panel.mjs
 var panelModule []byte
@@ -46,7 +54,7 @@ func (p *Plugin) Manifest() pluginsdk.Manifest {
 			Major:    pluginsdk.ProtocolMajor,
 			Required: []string{pluginsdk.FeatureScopedHost, pluginsdk.FeatureActivationCheck, pluginsdk.FeatureUIModuleMount},
 		},
-		Permissions: &pluginsdk.Permissions{},
+		Permissions: &pluginsdk.Permissions{Request: append([]string(nil), requestPermissions...)},
 	}
 }
 

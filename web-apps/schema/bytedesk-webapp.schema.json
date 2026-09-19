@@ -91,8 +91,13 @@
         },
         "env": {
           "type": "object",
-          "propertyNames": { "minLength": 1, "pattern": "\\S" },
+          "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
           "additionalProperties": { "$ref": "#/$defs/commandArgument" }
+        },
+        "envFrom": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "uniqueItems": true
         },
         "readiness": { "$ref": "#/$defs/readiness" }
       }
