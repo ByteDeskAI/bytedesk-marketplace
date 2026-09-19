@@ -15,9 +15,9 @@ actor: "main"
 session: "8e87dbc7-3321-4e05-8648-b64d7c6319bb"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-labels: ["ready-for-agent","plugin:agent-orchestration"]
-triagedBy: "auto"
-updated: "2026-09-12T03:14:15.818Z"
+labels: ["plugin:agent-orchestration","ready-for-human"]
+triagedBy: "human"
+updated: "2026-09-13T21:29:47.280Z"
 comments: [{"author":"main","ts":"2026-09-12T03:14:15.813Z","text":"Gateway input 2026-09-12: they would prefer to consume a published artifact rather than keep a copy. Today they pin their own two copies to each other with src/role_icon_map_sync_test.go (present in their working tree, not on develop); that catches their copies diverging from each other but not our registry changing underneath them. So the honest floor is a drift check on our side plus their sync test, and the real fix is publishing the map as one artifact they consume. Verified 2026-09-12: their copy and ours are both sha256 cf40e82fd810a9639c678cfc844882bf1c10408da3064dbf05e69070944ecc1a."}]
 ---
 

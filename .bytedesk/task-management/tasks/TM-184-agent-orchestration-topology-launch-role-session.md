@@ -15,9 +15,9 @@ actor: "main"
 session: "8e87dbc7-3321-4e05-8648-b64d7c6319bb"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-labels: ["ready-for-agent","plugin:agent-orchestration"]
-triagedBy: "auto"
-updated: "2026-09-13T20:28:02.609Z"
+labels: ["plugin:agent-orchestration","ready-for-human"]
+triagedBy: "human"
+updated: "2026-09-13T21:29:46.930Z"
 comments: [{"author":"main","ts":"2026-09-13T20:28:02.605Z","text":"Second and third instances, found during TM-171 (2026-09-13). tests/unit/topology-supervision.test.mjs:36,38 and tests/unit/topology-lead.test.mjs:36,41,46 call run('tmux', ...) with NO env at all. topology-supervision even builds an isolated env via isolatedEnv() (TMUX:'', TMUX_TMPDIR under the test root) and then never passes it to the tmux calls, so the server is created in the operator's default /tmp/tmux-1000 and $TMUX is inherited from the operator's shell. That is guards 1 and 2 of .claude/rules/tmux-test-isolation.md missing; only guard 3 (a unique -L <name> on every call, including kill-server) is holding, and the rule says plainly that guard 3 exists to survive exactly this.\n\nMeasured, not read: a live-server census around a full topology unit run showed two sockets left behind in /tmp/tmux-1000 named ao-lead-test-<pid>-<ts> and ao-supervise-<pid>-<ts>. Both were dead ('no server running'), so no server leaked and TM-171's AC2 is unaffected — but the socket files prove which directory these tests write into.\n\nNot fixed here: adding env to those calls changes what the child node processes in topology-lead inherit, which is a behaviour change this teardown-ordering task should not smuggle in."}]
 ---
 

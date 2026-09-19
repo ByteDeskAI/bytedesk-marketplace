@@ -1,7 +1,7 @@
 ---
 id: "TM-192"
 kind: "task"
-status: "open"
+status: "parked"
 created: "2026-09-12T03:15:28.244Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "agent-orchestration: session-open control seam, run lineage and launcher binding (gateway EP-023 phase 2a)"
@@ -17,7 +17,8 @@ branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
 labels: ["ready-for-agent","plugin:agent-orchestration"]
 triagedBy: "auto"
-updated: "2026-09-12T03:15:36.636Z"
+updated: "2026-09-12T15:54:57.657Z"
+parkedReason: "Superseded before any work started. Phase 2a was already delivered in this repo by PR #114 (merged 2026-09-12T03:37:03Z, 24 commits, dee2637 on origin/main) under the gateway's TM-304, whose four AC closed with evidence logs. Filed here by the gateway lead minutes after that merge, so it duplicates shipped work. NOT closed as done: the five AC on this task were written by me and I did not verify each one against the merged code — closing it needs either that verification or an operator decision to drop it."
 ---
 
 Raised by the bytedesk-remote-gateway repository lead. This is the marketplace half of

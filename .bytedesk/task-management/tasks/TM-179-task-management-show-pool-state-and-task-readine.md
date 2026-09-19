@@ -8,14 +8,14 @@ title: "task-management: show pool state and task readiness in the CLI and dashb
 epic: "EP-021"
 acceptance: [{"text":"tm why <id> prints the readiness verdict and each missing item","done":true,"at":"2026-09-12T02:08:03.381Z"},{"text":"GET /api/pool returns the same data as tm pool status --json, with a unit test","done":true,"at":"2026-09-12T02:08:03.560Z"},{"text":"tm pool status (and --json) reports enabled, running, pid, paused reason and failure count, workers against poolWip, the ready count, pollSeconds, idleExitMinutes and the log path — per-task skip reasons stay in tm why and the pool log, because a read-only status must not run a tick","done":true,"at":"2026-09-12T02:08:03.730Z"},{"text":"pool_paused and worker_overrun are in the ntfy catalog and reach events.jsonl; an automatic triage label change is visible in that task's update event rather than a second event, which TM-176 deliberately forbids","done":true,"at":"2026-09-12T02:08:03.872Z"}]
 evidence: [".bytedesk/task-management/evidence/TM-179-VERIFY.md"]
-commits: []
+commits: ["https://github.com/ByteDeskAI/bytedesk-marketplace/pull/118"]
 blockedBy: ["TM-178"]
 blocks: []
 actor: "main"
 session: "c3738e82-1fbf-4fc3-a6a3-06f965eac51c"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-12T02:08:04.362Z"
+updated: "2026-09-13T22:00:26.483Z"
 labels: ["ready-for-agent"]
 triagedBy: "auto"
 touches: [".claude/worktrees/tm-179/task-management/CHANGELOG.md",".claude/worktrees/tm-179/task-management/README.md",".claude/worktrees/tm-179/task-management/bin/tm",".claude/worktrees/tm-179/task-management/docs/dashboard-api.md",".claude/worktrees/tm-179/task-management/lib/dashboard-api.mjs",".claude/worktrees/tm-179/task-management/lib/dispatch/pool.mjs",".claude/worktrees/tm-179/task-management/lib/graph.mjs",".claude/worktrees/tm-179/task-management/tests/unit/pool-visibility.test.mjs"]

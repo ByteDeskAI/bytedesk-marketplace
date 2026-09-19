@@ -15,9 +15,9 @@ actor: "main"
 session: "8e87dbc7-3321-4e05-8648-b64d7c6319bb"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-labels: ["ready-for-agent","plugin:agent-orchestration"]
-triagedBy: "auto"
-updated: "2026-09-12T01:45:12.128Z"
+labels: ["plugin:agent-orchestration","ready-for-human"]
+triagedBy: "human"
+updated: "2026-09-13T21:29:47.087Z"
 ---
 
 Found by W4 during TM-167 (2026-09-11), by reading only. cli.mjs supervise returns Promise.all([owned(superviseRepository ...), watchServer(...)]). When superviseRepository retires because its consumer directory is gone (supervision.mjs consumer-gone path), the watchServer promise has no stop signal tied to it, so the process may stay alive watching the default server after the supervisor itself has stopped. The 5 long-lived ao-topology-run supervisors on this machine (days old, consumers under /tmp) may be this or plain test teardown leaks; not yet distinguished.

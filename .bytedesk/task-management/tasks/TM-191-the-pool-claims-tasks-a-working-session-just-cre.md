@@ -15,9 +15,9 @@ actor: "main"
 session: "9c583517-b11d-4a6e-bc61-2a8116384702"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-labels: ["ready-for-agent"]
-triagedBy: "auto"
-updated: "2026-09-12T03:10:04.445Z"
+labels: ["ready-for-human"]
+triagedBy: "human"
+updated: "2026-09-13T21:29:47.950Z"
 ---
 
 Reported from the gateway repo on 2026-09-12 after the pool rebuilt a task that a session was already implementing.

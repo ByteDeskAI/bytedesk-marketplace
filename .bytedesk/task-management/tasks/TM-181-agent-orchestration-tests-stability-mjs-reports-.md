@@ -13,9 +13,9 @@ blockedBy: []
 blocks: []
 actor: "pool"
 session: "pool-tm-181"
-updated: "2026-09-13T20:38:33.388Z"
-labels: ["plugin:agent-orchestration","ready-for-agent"]
-triagedBy: "auto"
+updated: "2026-09-13T21:29:46.636Z"
+labels: ["plugin:agent-orchestration","ready-for-human"]
+triagedBy: "human"
 comments: [{"author":"main","ts":"2026-09-13T20:38:33.383Z","text":"Reproduced exactly, 2026-09-13, during TM-171's AC3. Command: node tests/stability.mjs --runs 1 --pattern 'tests/unit/zzz-no-such-file-*.test.mjs'. Output: '1 runs - fail counts 0 / stable: every run agreed, and every run passed.', exit 0, elapsed 0s, having executed nothing. That is byte-identical in form to a genuine 10-run green result, so the harness's verdict cannot distinguish a clean suite from a pattern that matches no files, and any caller checking only the exit code reads an empty run as health.\n\nThe separating value is elapsed time: empty pattern 0s, one real test file 3s, the real 10-run AC3 pass 652s (65.2s per run, against 67.7s for a directly measured full topology suite). A fix should print what the run actually covered - the file count the pattern resolved to, or the total test count - and exit non-zero when it resolves to zero files."}]
 ---
 

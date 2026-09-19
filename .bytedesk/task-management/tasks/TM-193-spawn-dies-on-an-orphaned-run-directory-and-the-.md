@@ -1,23 +1,28 @@
 ---
 id: "TM-193"
 kind: "task"
-status: "open"
+status: "done"
 created: "2026-09-12T07:20:37.966Z"
 board: "bytedeskai/bytedesk-marketplace"
 title: "Spawn dies on an orphaned run directory, and the router picks a model the ACP agent does not advertise"
 epic: "EP-021"
-acceptance: [{"text":"A run directory without a snapshot is ignored or reconciled, and never fails an unrelated spawn; covered by a test","done":false},{"text":"A model the ACP agent does not advertise is refused during routing or reconciled at doctor time, not at execution","done":false},{"text":"Both cases carry a test using a fixture state root","done":false}]
-evidence: []
-commits: []
+acceptance: [{"text":"A run directory without a snapshot is ignored or reconciled, and never fails an unrelated spawn; covered by a test","done":true,"at":"2026-09-13T21:42:03.801Z"},{"text":"A model the ACP agent does not advertise is refused during routing or reconciled at doctor time, not at execution","done":true,"at":"2026-09-13T21:42:03.967Z"},{"text":"Both cases carry a test using a fixture state root","done":true,"at":"2026-09-13T21:42:04.114Z"}]
+evidence: [".bytedesk/task-management/evidence/TM-193-VERIFY.md"]
+commits: ["082c7a7","https://github.com/ByteDeskAI/bytedesk-marketplace/pull/116","acb5dd4","https://github.com/ByteDeskAI/bytedesk-marketplace/pull/119"]
 blockedBy: []
 blocks: []
-actor: "main"
-session: "9c583517-b11d-4a6e-bc61-2a8116384702"
-branch: "main"
-worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
+actor: "pool"
+session: "pool-tm-193"
+branch: "tm/TM-193-spawn-dies-on-an-orphaned-run-directory-and-the-"
+worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-193-spawn-dies-on-an-orphaned-run-directory-and-the-"
 labels: ["ready-for-agent"]
 triagedBy: "auto"
-updated: "2026-09-12T07:20:37.973Z"
+updated: "2026-09-13T22:07:22.127Z"
+dispatched: {"backend":"tmux","run":"tmux:tm-TM-193","session":"pool-tm-193","at":"2026-09-13T21:30:18.256Z"}
+touches: ["agent-orchestration/src/runtime/acpx-driver.mjs","agent-orchestration/src/service.mjs","agent-orchestration/src/state/store.mjs"]
+evidenceSources: {".bytedesk/task-management/evidence/TM-193-VERIFY.md":{"source":"/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-193-spawn-dies-on-an-orphaned-run-directory-and-the-/.bytedesk/task-management/evidence/TM-193-VERIFY.md","sha256":"d8c4be30281a6f9ec61fd81a7cad29efb7eda1c67e7a17aa96aaa504e616950a","bytes":5038,"at":"2026-09-13T21:42:04.258Z"}}
+comments: [{"author":"@pool","ts":"2026-09-13T21:43:18.358Z","text":"PR https://github.com/ByteDeskAI/bytedesk-marketplace/pull/116 on branch tm/TM-193-spawn-dies-on-an-orphaned-run-directory-and-the-. Follow-up TM-203 filed for the Claude catalog drift the fix now makes visible."}]
+closed: "2026-09-13T21:43:18.517Z"
 ---
 
 Two defects hit while a gateway session verified run controls against real runs on 2026-09-12. Both are in agent-orchestration, not in the gateway.
