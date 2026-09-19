@@ -1,4 +1,5 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
+import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { atomicWriteJson, readJson, sha256 } from "../util.mjs";
 import { invariant } from "../errors.mjs";
@@ -24,7 +25,18 @@ export function hashesEqual(left, right) {
   return timingSafeEqual(Buffer.from(left), Buffer.from(right));
 }
 
+/** True when runs/<runId> still holds a durable record, the same evidence RunStore.get reads. */
+async function hasDurableRun(stateRoot, runId) {
+  for (const name of ["snapshot.json", "events.ndjson"]) {
+    if (await stat(join(stateRoot, "runs", runId, name)).then(() => true).catch(() => false)) return true;
+  }
+  return false;
+}
+
 export async function writeSessionMeta(stateRoot, runId, record) {
+  // The write creates runs/<runId>/ for whatever id it is handed, so an unknown run would leave a
+  // directory holding a session and no run — an orphan every later list() has to step around.
+  invariant(await hasDurableRun(stateRoot, runId), "AO_RUN_NOT_FOUND", `Run ${runId} does not exist.`);
   await atomicWriteJson(sessionMetaPath(stateRoot, runId), record);
 }
 

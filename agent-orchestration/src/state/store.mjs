@@ -250,7 +250,18 @@ export class RunStore {
     const { readdir } = await import("node:fs/promises");
     await this.initialize();
     const ids = (await readdir(join(this.root, "runs"))).filter((id) => RUN_ID.test(id));
-    const snapshots = await Promise.all(ids.map((id) => this.get(id)));
+    // A directory whose durable record was removed outside the plugin is not a run any more, and it
+    // must not take every caller of list() down with it. Skip exactly that, and let any other
+    // failure — divergence, a corrupt journal, I/O — still fail closed.
+    const settled = await Promise.allSettled(ids.map((id) => this.get(id)));
+    const snapshots = [];
+    for (const result of settled) {
+      if (result.status === "rejected") {
+        if (result.reason?.code === "AO_RUN_NOT_FOUND") continue;
+        throw result.reason;
+      }
+      snapshots.push(result.value);
+    }
     return snapshots.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 

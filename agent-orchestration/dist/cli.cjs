@@ -32,7 +32,7 @@ var import_node_util3 = require("node:util");
 var import_node_path22 = require("node:path");
 
 // src/service.mjs
-var import_promises18 = require("node:fs/promises");
+var import_promises19 = require("node:fs/promises");
 var import_node_os5 = require("node:os");
 var import_node_path21 = require("node:path");
 
@@ -1344,17 +1344,17 @@ var RunStore = class {
   }
   /** Run ids that still carry an active marker, plus any run predating the marker scheme. */
   async listRecoverable() {
-    const { readdir: readdir4, stat: stat3 } = await import("node:fs/promises");
+    const { readdir: readdir4, stat: stat4 } = await import("node:fs/promises");
     await this.initialize();
     const ids = (await readdir4((0, import_node_path7.join)(this.root, "runs"))).filter((id) => RUN_ID.test(id));
     const recoverable = [];
     for (const id of ids) {
-      const marked = await stat3(this.activeMarkerPath(id)).then(() => true).catch(() => false);
+      const marked = await stat4(this.activeMarkerPath(id)).then(() => true).catch(() => false);
       if (marked) {
         recoverable.push(id);
         continue;
       }
-      const migrated = await stat3((0, import_node_path7.join)(this.runDir(id), ".sweep")).then(() => true).catch(() => false);
+      const migrated = await stat4((0, import_node_path7.join)(this.runDir(id), ".sweep")).then(() => true).catch(() => false);
       if (!migrated) recoverable.push(id);
     }
     return recoverable;
@@ -1525,7 +1525,15 @@ var RunStore = class {
     const { readdir: readdir4 } = await import("node:fs/promises");
     await this.initialize();
     const ids = (await readdir4((0, import_node_path7.join)(this.root, "runs"))).filter((id) => RUN_ID.test(id));
-    const snapshots = await Promise.all(ids.map((id) => this.get(id)));
+    const settled = await Promise.allSettled(ids.map((id) => this.get(id)));
+    const snapshots = [];
+    for (const result of settled) {
+      if (result.status === "rejected") {
+        if (result.reason?.code === "AO_RUN_NOT_FOUND") continue;
+        throw result.reason;
+      }
+      snapshots.push(result.value);
+    }
     return snapshots.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
   async findByIdempotencyKey(key, repositoryKey = void 0) {
@@ -28639,6 +28647,7 @@ function createPlatformRuntime(context = {}) {
 
 // src/session/capability.mjs
 var import_node_crypto6 = require("node:crypto");
+var import_promises15 = require("node:fs/promises");
 var import_node_path17 = require("node:path");
 var SESSION_TTL_MS = 10 * 60 * 1e3;
 var COOKIE_NAME = "ao_session";
@@ -28657,7 +28666,14 @@ function hashesEqual(left, right) {
   if (typeof left !== "string" || typeof right !== "string" || left.length !== right.length) return false;
   return (0, import_node_crypto6.timingSafeEqual)(Buffer.from(left), Buffer.from(right));
 }
+async function hasDurableRun(stateRoot2, runId) {
+  for (const name of ["snapshot.json", "events.ndjson"]) {
+    if (await (0, import_promises15.stat)((0, import_node_path17.join)(stateRoot2, "runs", runId, name)).then(() => true).catch(() => false)) return true;
+  }
+  return false;
+}
 async function writeSessionMeta(stateRoot2, runId, record2) {
+  invariant(await hasDurableRun(stateRoot2, runId), "AO_RUN_NOT_FOUND", `Run ${runId} does not exist.`);
   await atomicWriteJson(sessionMetaPath(stateRoot2, runId), record2);
 }
 async function readSessionMeta(stateRoot2, runId) {
@@ -28695,7 +28711,7 @@ var import_node_child_process5 = require("node:child_process");
 
 // src/session/http.mjs
 var import_node_fs5 = require("node:fs");
-var import_promises15 = require("node:fs/promises");
+var import_promises16 = require("node:fs/promises");
 var import_node_path18 = require("node:path");
 
 // src/session/sse.mjs
@@ -28966,7 +28982,7 @@ function createSessionHandler({ stateRoot: stateRoot2, uiRoot, hostNonce, port, 
 async function exchangeCapability(stateRoot2, token, res) {
   const tokenHash = sha256(token);
   const dir = (0, import_node_path18.join)(stateRoot2, "runs");
-  const names = await (0, import_promises15.readdir)(dir).catch((error51) => error51?.code === "ENOENT" ? [] : Promise.reject(error51));
+  const names = await (0, import_promises16.readdir)(dir).catch((error51) => error51?.code === "ENOENT" ? [] : Promise.reject(error51));
   let matched = null;
   for (const runId of names.filter((name) => RUN_ID3.test(name))) {
     const meta3 = await readSessionMeta(stateRoot2, runId);
@@ -29004,7 +29020,7 @@ async function streamUi(res, file2) {
     send(res, 403, { code: "AO_SESSION_FORBIDDEN", message: "Forbidden." });
     return;
   }
-  const info = await (0, import_promises15.lstat)(file2).catch(() => null);
+  const info = await (0, import_promises16.lstat)(file2).catch(() => null);
   if (!info?.isFile()) {
     send(res, 404, { code: "AO_SESSION_NOT_FOUND", message: "Not found." });
     return;
@@ -29128,10 +29144,10 @@ async function openSessionBrowser(url2) {
 }
 
 // src/session/supervisor.mjs
-var import_promises16 = require("node:fs/promises");
+var import_promises17 = require("node:fs/promises");
 var import_node_fs6 = require("node:fs");
 var import_node_path20 = require("node:path");
-var import_promises17 = require("node:timers/promises");
+var import_promises18 = require("node:timers/promises");
 var SESSION_SUPERVISOR_UNIT_PATTERN = /^agent-orchestration-session-[a-f0-9]{12}\.scope$/;
 function sessionSupervisorUnitBase(stateRoot2) {
   invariant(typeof stateRoot2 === "string" && (0, import_node_path20.isAbsolute)(stateRoot2), "AO_UNSAFE_SUPERVISOR_UNIT", "Session supervisor state root must be an absolute path.");
@@ -29161,7 +29177,7 @@ async function shouldSuperviseSessionHost({
   if (!sessionSupervisorEnabled({ platform, env })) return false;
   if (typeof cliPath !== "string" || cliPath.length === 0) return false;
   try {
-    await (0, import_promises16.access)(cliPath, import_node_fs6.constants.F_OK);
+    await (0, import_promises17.access)(cliPath, import_node_fs6.constants.F_OK);
     return true;
   } catch {
     return false;
@@ -29203,7 +29219,7 @@ async function waitForSessionHostLease(stateRoot2, { timeoutMs = 5e3, intervalMs
   while (Date.now() < deadline) {
     const live = await probe(stateRoot2);
     if (live) return live;
-    await (0, import_promises17.setTimeout)(intervalMs);
+    await (0, import_promises18.setTimeout)(intervalMs);
   }
   return null;
 }
@@ -29246,8 +29262,8 @@ async function launchSessionSupervisor({
 }
 async function defaultOpenLog(stateRoot2) {
   const logDir = await ensurePrivateDir((0, import_node_path20.join)(stateRoot2, "logs"));
-  const stdout = await (0, import_promises16.open)((0, import_node_path20.join)(logDir, "session-host.out.log"), "a", 384);
-  const stderr = await (0, import_promises16.open)((0, import_node_path20.join)(logDir, "session-host.err.log"), "a", 384);
+  const stdout = await (0, import_promises17.open)((0, import_node_path20.join)(logDir, "session-host.out.log"), "a", 384);
+  const stderr = await (0, import_promises17.open)((0, import_node_path20.join)(logDir, "session-host.err.log"), "a", 384);
   return { stdout, stderr };
 }
 
@@ -29268,10 +29284,10 @@ function normalizeIntentInput(input) {
 }
 async function externalProviderPaths(pluginRoot, discovered, executableRoots = []) {
   const paths = [];
-  const canonicalPluginRoot = await (0, import_promises18.realpath)(pluginRoot).catch(() => (0, import_node_path21.resolve)(pluginRoot));
-  const canonicalRoots = await Promise.all(executableRoots.map((root) => (0, import_promises18.realpath)(root).catch(() => (0, import_node_path21.resolve)(root))));
+  const canonicalPluginRoot = await (0, import_promises19.realpath)(pluginRoot).catch(() => (0, import_node_path21.resolve)(pluginRoot));
+  const canonicalRoots = await Promise.all(executableRoots.map((root) => (0, import_promises19.realpath)(root).catch(() => (0, import_node_path21.resolve)(root))));
   for (const candidate of discovered) {
-    const resolvedCandidate = await (0, import_promises18.realpath)(candidate).catch(() => (0, import_node_path21.resolve)(candidate));
+    const resolvedCandidate = await (0, import_promises19.realpath)(candidate).catch(() => (0, import_node_path21.resolve)(candidate));
     if (isPathWithin(canonicalPluginRoot, resolvedCandidate)) continue;
     if (!canonicalRoots.some((root) => isPathWithin(root, resolvedCandidate))) continue;
     if (!paths.includes(resolvedCandidate)) paths.push(resolvedCandidate);
@@ -29791,8 +29807,8 @@ var OrchestrationService = class {
     for (const candidate of [preferred, process.env.PWD, safeCwd(), (0, import_node_os5.homedir)()]) {
       if (!candidate) continue;
       try {
-        const stats = await (0, import_promises18.stat)(candidate);
-        if (stats.isDirectory()) return await (0, import_promises18.realpath)(candidate).catch(() => candidate);
+        const stats = await (0, import_promises19.stat)(candidate);
+        if (stats.isDirectory()) return await (0, import_promises19.realpath)(candidate).catch(() => candidate);
       } catch {
       }
     }
