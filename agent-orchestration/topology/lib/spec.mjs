@@ -176,7 +176,9 @@ export function validateSpec(raw) {
     normalized.args = Array.isArray(normalized.args) ? normalized.args.map(String) : [];
     normalized.env = normalized.env && typeof normalized.env === "object" ? normalized.env : {};
     normalized.instructions = typeof normalized.instructions === "string" ? normalized.instructions : "";
-    normalized.auto_approve = normalized.auto_approve === true;
+    // Participants have no process permission mode. Keep the field absent so a
+    // composed/saved spec passes the same strict validation when loaded again.
+    if (!isParticipant) normalized.auto_approve = normalized.auto_approve === true;
     // A coordinator delegates and does not implement. It travels on the agent rather than being
     // inferred from the role, because a repo's lead appears in a run as an orchestrator — there is
     // no lead role pack, and a spec must have exactly one orchestrator. A spec written by hand can

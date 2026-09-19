@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Preserve nested workflow participants when saving and reloading composed specifications; process-only approval defaults no longer create an invalid participant field.
+- Derive census role icons from the original display role, matching presence for observers, custom roles and missing roles while preserving repository-lead authority.
+
 ### Added
 
 - **Cleanup joins the controls a capability holder can drive (gateway TM-305, EP-023).**
