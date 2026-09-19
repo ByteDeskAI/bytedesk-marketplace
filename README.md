@@ -6,6 +6,7 @@ ByteDesk's Claude and Codex plugin marketplace. Plugins for parallel orchestrati
 
 | Plugin | Description |
 |---|---|
+| **[web-apps](./web-apps)** | Gateway Projects workspace for creating, planning, building, previewing, and sharing web apps |
 | **[fleet](./fleet)** | Parallel multi-session orchestration, worktrees, dashboard |
 | **[design-patterns](./design-patterns)** | Pattern catalog, MCP advisor, ADR seeds |
 | **[structurizr](./structurizr)** | Enterprise C4 / Structurizr DSL (32 skills, MCP) |

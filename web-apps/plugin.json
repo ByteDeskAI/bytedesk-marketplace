@@ -1,0 +1,58 @@
+{
+  "id": "web-apps",
+  "version": "0.1.0",
+  "panels": [
+    {
+      "id": "web-apps",
+      "kind": "web-apps",
+      "url": "/p/web-apps/ui",
+      "module": "/p/web-apps/assets/panel.mjs"
+    },
+    {
+      "id": "create-web-app",
+      "kind": "create-web-app",
+      "url": "/p/web-apps/create",
+      "module": "/p/web-apps/assets/panel.mjs"
+    }
+  ],
+  "scopes": [
+    "plugin:web-apps"
+  ],
+  "routes": [
+    "/p/web-apps/"
+  ],
+  "spawn": true,
+  "binary": "web-apps",
+  "socket": "plugin.sock",
+  "targets": [
+    "gateway"
+  ],
+  "protocol": {
+    "major": 1,
+    "required": [
+      "host.scoped.v1",
+      "activation.check.v1",
+      "ui.mount.v1"
+    ]
+  },
+  "permissions": {},
+  "projectViews": [
+    {
+      "id": "web-apps",
+      "label": "Web Apps",
+      "icon": "globe",
+      "order": 30,
+      "panelId": "web-apps"
+    }
+  ],
+  "directoryContextActions": [
+    {
+      "id": "create-web-app",
+      "label": "Create Web App",
+      "icon": "globe",
+      "order": 40,
+      "wizardPanelId": "create-web-app"
+    }
+  ]
+}
+

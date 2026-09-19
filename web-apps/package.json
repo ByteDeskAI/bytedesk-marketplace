@@ -1,0 +1,11 @@
+{
+  "name": "@bytedesk/web-apps-plugin-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/package.test.mjs tests/ui-lifecycle.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.58.2"
+  }
+}

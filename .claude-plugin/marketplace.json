@@ -9,6 +9,11 @@
   },
   "plugins": [
     {
+      "name": "web-apps",
+      "description": "Gateway Projects workspace for creating, planning, building, running, previewing, and sharing web applications.",
+      "source": "./web-apps"
+    },
+    {
       "name": "fleet",
       "description": "Parallel multi-session Claude orchestration. Spawn agents on tickets, run them in parallel git worktrees, watch a dashboard, get push notifications when reviews land or merges happen. Hierarchical authorization (ADR-0001) lets parent agents delegate to children safely.",
       "source": "./fleet"
