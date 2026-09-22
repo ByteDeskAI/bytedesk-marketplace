@@ -14,6 +14,7 @@ import { deliverObserverActivation, prepareObserverSession } from './observer-se
 import { readPromptState } from './prompts.mjs';
 import * as defaultTmux from './tmux.mjs';
 import { exists, invariant, nowIso } from './util.mjs';
+import { durableTopologyRoot, registeredWorktrees } from './discovery.mjs';
 
 const OBSERVER_ID = /^[A-Za-z0-9_-]{1,96}$/;
 const TERMINAL_RUN_STATES = new Set(['complete', 'completed', 'failed', 'stopped', 'cancelled']);
@@ -60,17 +61,19 @@ export function classifyFinding(input = {}) {
 export async function discoverObserverTargets({ consumer, agentDirs = [], tmux = defaultTmux, env = process.env, home = homedir() } = {}) {
   invariant(consumer, 'TOPOLOGY_OBSERVER_CONSUMER', 'Observer discovery needs a consumer repository.');
   const identity = await canonicalRepoId(consumer);
-  const runsRoot = join(resolve(consumer), '.bytedesk', 'agent-orchestration', 'runs');
+  const runRoots = [durableTopologyRoot({ key: repoKey(identity.id) }, { stateHome: stateRoot(env, home) }),
+    ...(await registeredWorktrees(consumer)).map(root => join(root, '.bytedesk', 'agent-orchestration', 'runs'))];
   const targets = [];
-  for (const entry of (await readdir(runsRoot).catch(() => [])).sort()) {
+  for (const runsRoot of runRoots) for (const entry of (await readdir(runsRoot).catch(() => [])).sort()) {
     const runDir = join(runsRoot, entry);
     if (!(await exists(join(runDir, 'run.json')))) continue;
     const run = await loadRun(runDir).catch(() => null);
-    if (!run?.session || TERMINAL_RUN_STATES.has(run.state)) continue;
+    if (!run?.session || TERMINAL_RUN_STATES.has(run.state) || targets.some(target => target.run_id === run.run_id)) continue;
+    if ((run.repository?.id || (await canonicalRepoId(run.consumer)).id) !== identity.id) continue;
     const conductor = run.agents?.find(agent => agent.role === 'orchestrator' && !agent.workflow);
     const conductorBinding = conductor?.binding;
     const panes = conductorBinding ? await tmux.listServerPanes({ tmuxServer: conductorBinding.serverKey }).catch(() => []) : [];
-    if (!conductor?.id || !(await tmux.hasSession(run.session)) ||
+    if (!conductor?.id ||
         panes.filter(pane => pane.alive !== false && sameIncarnation(pane, conductorBinding)).length !== 1) continue;
     targets.push({ id: `run:${run.run_id}`, kind: 'run', repository: identity.id, repo_key: repoKey(identity.id), run_id: run.run_id, run_dir: runDir,
       name: run.name, state: run.state, session: run.session, conductor: conductor.id, conductor_binding: conductorBinding });

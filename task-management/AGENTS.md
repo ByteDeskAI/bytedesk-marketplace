@@ -46,7 +46,14 @@ those for full lifecycle (start/done/block/AC); native tools are mirrored into t
   alone from then on; `.bytedesk/task-management/bin/tm task new --human` files a task with the veto already set, and
   `.bytedesk/task-management/bin/tm triage [--all] [--dry-run]` backfills existing tasks without touching a person's
   decision. `dispatch.autoReady: off` turns the syncing off entirely.
-- **A dispatched agent owns its claimed task's lifecycle.** It ticks the criteria it verified
+- **A governed worker finishes at ready-for-review.** Tasks with `governance` retain their workflow
+  and repository lead identity. Tick verified criteria, attach evidence, commit and push the
+  task branch, open its PR, then submit the handoff's finish JSON with
+  `ao-topology manage report --consumer <repository> --task <id> --file <finish-report.json>`.
+  The producer records the exact finish, calls `tm review-ready`, and queues independent review.
+  Keep the claim and report any `review_blocked` reason to the lead. Only review of that revision and a separate
+  attributed integration decision allow `done`; worker exit and PR creation cannot close it.
+- **An ungoverned dispatched agent owns its claimed task's lifecycle.** It ticks the criteria it verified
   (`.bytedesk/task-management/bin/tm accept`), commits, pushes its own branch, opens a PR, attaches proof
   (`.bytedesk/task-management/bin/tm evidence`), then closes (`.bytedesk/task-management/bin/tm done`) or blocks with a
   reason. It never leaves the task `in_progress` — a collector or the reaper will park it as a
@@ -66,6 +73,12 @@ those for full lifecycle (start/done/block/AC); native tools are mirrored into t
   override them.
 - **The pool only picks up tasks that pass the readiness check.** It re-checks `agentReadiness`
   itself, so a stale or hand-set label cannot push unready work at a worker.
+- With `dispatch.governed: true`, the persistent lead must admit the task before dispatch. A
+  missing admission or task-local ownership conflict holds only that task. Automatic provider
+  fallback is Claude then Codex; a candidate without an enforced ownership guard stays held.
+- Reuse a task's validated recorded checkout. New checkouts use `dispatch.integrationBranch`.
+  Preserve failed launches and workflow evidence; worktree cleanup must pass the producer's
+  `ao-topology console preserve` verification. Never force past an evidence-preservation failure.
 - **Humans keep the decision gates.** Interview, prototype, tickets and enhance-propose
   outcomes are judgement calls; dispatch and the pool execute what those gates already settled.
 

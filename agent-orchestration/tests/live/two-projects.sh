@@ -16,6 +16,7 @@ set -uo pipefail
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PLUGIN=$(cd "$HERE/../.." && pwd)
 AO="$PLUGIN/bin/ao-topology"
+source "$HERE/isolated-tmux.sh"
 
 # A root passed on the command line belongs to the caller and is never removed. One we made
 # ourselves is scratch, and a harness that leaves a directory behind on every run is a harness
@@ -33,7 +34,7 @@ P2="$ROOT/project-2"
 cleanup() {
   # Kill the session first: removing the run directory out from under a live pane leaves the pane
   # alive with nowhere to write.
-  [ -n "${SESSION:-}" ] && tmux kill-session -t "$SESSION" 2>/dev/null
+  cleanup_test_tmux
   [ -n "$OWN_ROOT" ] && rm -rf "$OWN_ROOT"
   return 0
 }
@@ -433,7 +434,7 @@ time_launch() {
       } catch { process.stdout.write("0"); }
     });')
   sess=$(printf '%s' "$out" | json .session)
-  [ -n "$sess" ] && tmux kill-session -t "$sess" 2>/dev/null
+  [ -n "$sess" ] && tmux -S "$AO_TEST_SOCKET" kill-session -t "$sess" 2>/dev/null
   return 0
 }
 
@@ -606,7 +607,7 @@ case "$RESTORE" in
   *) ok "the restore command survives its run" ;;
 esac
 # Prove it by using it: kill the session and rebuild from the record alone, as the gateway would.
-tmux kill-session -t "$SESS" 2>/dev/null
+tmux -S "$AO_TEST_SOCKET" kill-session -t "$SESS" 2>/dev/null
 tmux new-session -d -s "$SESS" -c "$(json .cwd < "$REC")" "$RESTORE" 2>/dev/null
 sleep 2
 tmux has-session -t "=$SESS" 2>/dev/null \
@@ -627,7 +628,7 @@ if [ -n "$RUN_DIR" ]; then
 fi
 if [ -n "$SESSION" ] && tmux has-session -t "$SESSION" 2>/dev/null; then
   bad "stop tears the session down" "session $SESSION still alive"
-  tmux kill-session -t "$SESSION" 2>/dev/null || true
+  tmux -S "$AO_TEST_SOCKET" kill-session -t "$SESSION" 2>/dev/null || true
 else
   ok "stop tears the session down"
 fi

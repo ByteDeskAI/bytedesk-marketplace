@@ -181,7 +181,7 @@ describe("dispatch — re-dispatch of a live worker", () => {
     assert.equal(second.ok, false);
     assert.match(second.reason, /already dispatched/, "names what the task already is");
     assert.match(second.reason, /tm collect/, "and the way forward");
-    assert.match(second.reason, /--steal/, "and the deliberate override");
+    assert.match(second.reason, /confirm the existing worker has ended/, "preserve uncertain live ownership");
 
     assert.equal(fake.calls.length, 1, "no second spawn — no duplicate worker");
     assert.equal(state(p).claims[t.id].session, "s1", "the live worker's claim survives the refused call");
@@ -207,7 +207,7 @@ describe("dispatch — re-dispatch of a live worker", () => {
     assert.equal(state(p).claims[t.id].session, "s2");
   });
 
-  it("--steal bypasses the gate and takes the claim, even though provisioning then refuses the occupied path", async () => {
+  it("--steal cannot start a second writer in a live task checkout", async () => {
     const p = repoStore();
     const t = create("task", { title: "hostile takeover" }, "", p);
     const fake = fakeBackend("fake");
@@ -217,9 +217,10 @@ describe("dispatch — re-dispatch of a live worker", () => {
 
     const stolen = await dispatch(t.id, { backend: fake, session: "s2", steal: true, p });
 
-    assert.ok(!/already dispatched/.test(stolen.reason ?? ""), "the gate does not fire under --steal");
-    assert.equal(stolen.ok, false, "but git refuses to re-add the occupied worktree path");
-    assert.equal(state(p).claims[t.id].session, "s2", "the steal itself happened — the claim moved");
+    assert.match(stolen.reason, /already dispatched/);
+    assert.equal(stolen.ok, false);
+    assert.equal(state(p).claims[t.id].session, "s1", "live worker ownership is preserved");
+    assert.equal(fake.calls.length, 1);
     assert.equal(read(t.id, p).status, "in_progress", "a pre-existing claim is never rolled back to open");
   });
 });

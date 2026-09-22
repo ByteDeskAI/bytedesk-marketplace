@@ -26,10 +26,11 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { paths } from "./paths.mjs";
 import { config as readConfig, list, logEvent, read, release, slug, update } from "./store.mjs";
-import { claimTask } from "./claims.mjs";
+import { claimTask, claimant } from "./claims.mjs";
+import { detectHostCaps } from "./hostcaps.mjs";
 
 const DEFAULT_SHARE = [
   { path: "node_modules", mode: "symlink" },
@@ -261,9 +262,44 @@ function unpushed(worktree) {
   return count("HEAD", "--not", "--remotes");
 }
 
-export function createWorktree(task, { base = "HEAD", share = true, p = paths(), config = readConfig(p) } = {}) {
-  const path = worktreePath(task.id, task.title, p);
-  const branch = branchName(task.id, task.title, config);
+/** Resolve recorded placement before claiming or creating anything. Unknown ownership holds. */
+export function taskPlacement(task, { p = paths(), config = readConfig(p) } = {}) {
+  // `tm start` historically stamped its current main checkout before a task had
+  // an isolated placement. That stamp is context, never permission to use main.
+  const mainStamp = task.worktree && real(task.worktree) === real(p.root);
+  const path = (!mainStamp && task.worktree) || worktreePath(task.id, task.title, p);
+  const branch = (!mainStamp && task.branch) || branchName(task.id, task.title, config);
+  if (!isAbsolute(path) || real(path) === real(p.root)) throw new Error("task worktree must be an absolute isolated checkout");
+  if (!branch || tryGit(p.root, "check-ref-format", "--branch", branch) === null) throw new Error("recorded task branch is invalid");
+  const conflict = list("task", {}, p).find((other) => other.id !== task.id &&
+    ((other.worktree && real(other.worktree) === real(path)) || other.branch === branch) &&
+    (other.status === "in_progress" || claimant(other.id, p)));
+  if (conflict) throw new Error(`task placement has another writer: ${conflict.id}`);
+  const registrations = (tryGit(p.root, "worktree", "list", "--porcelain") || "").split("\n\n");
+  const registered = registrations.find((entry) => real(/^worktree (.+)$/m.exec(entry)?.[1] || "/__absent__") === real(path));
+  if (present(path)) {
+    const common = tryGit(path, "rev-parse", "--path-format=absolute", "--git-common-dir");
+    const expected = tryGit(p.root, "rev-parse", "--path-format=absolute", "--git-common-dir");
+    if (!registered || !common || !expected || real(common) !== real(expected) || real(tryGit(path, "rev-parse", "--show-toplevel") || "/__absent__") !== real(path)) {
+      throw new Error("recorded worktree is not a registered checkout of this repository");
+    }
+    if (tryGit(path, "symbolic-ref", "--short", "HEAD") !== branch) throw new Error("recorded worktree branch does not match its current branch");
+    return { path, branch, reused: true };
+  }
+  if (registered) throw new Error("recorded worktree is missing but remains registered; reconcile it before dispatch");
+  const branchElsewhere = registrations.find((entry) => entry.split("\n").includes(`branch refs/heads/${branch}`));
+  if (branchElsewhere) throw new Error(`task branch already belongs to another checkout: ${/^worktree (.+)$/m.exec(branchElsewhere)?.[1]}`);
+  return { path, branch, reused: false };
+}
+
+export function createWorktree(task, { base, share = true, p = paths(), config = readConfig(p) } = {}) {
+  const { path, branch, reused } = taskPlacement(task, { p, config });
+  if (reused) {
+    ignoreTmArtifacts(path, p.root);
+    return { path, branch, shared: [], reused: true };
+  }
+  base ??= config.dispatch?.integrationBranch ?? config.integrationBranch ?? "HEAD";
+  if (!tryGit(p.root, "rev-parse", "--verify", `${base}^{commit}`)) throw new Error(`configured integration branch does not resolve: ${base}`);
   mkdirSync(p.worktrees, { recursive: true });
   // Resuming a task reuses its branch; only a new one gets -b.
   const reuse = tryGit(p.root, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`);
@@ -275,7 +311,7 @@ export function createWorktree(task, { base = "HEAD", share = true, p = paths(),
   ignoreTmArtifacts(path, p.root);
   const shared = share ? applyShares(path, { p, config }) : [];
   if (read(task.id, p)) update(task.id, { worktree: path, branch }, p);
-  return { path, branch, shared };
+  return { path, branch, shared, reused: false };
 }
 
 /** Every git worktree of this project except the main checkout, joined to its task. */
@@ -306,9 +342,27 @@ export function listWorktrees(p = paths()) {
  * Remove a task's worktree. Shares come out first — they are untracked files, and git
  * refuses to remove a worktree while they exist. A refusal puts them straight back.
  */
-export function removeWorktree(task, { force = false, p = paths() } = {}) {
-  const path = worktreePath(task.id, task.title, p);
+export function preserveWorkflowEvidence(task, worktree, { p = paths(), caps = null, exec = execFileSync } = {}) {
+  const legacy = [join(worktree, ".orchestration", "runs"), join(worktree, ".bytedesk", "agent-orchestration", "runs")].some(existsSync);
+  if (!legacy && task.dispatched?.backend !== "topology" && task.dispatchFailure?.backend !== "topology") return { ok: true, records: [] };
+  const entry = (caps || detectHostCaps()).backends?.topology;
+  if (!entry?.available || !entry.path) throw new Error("workflow evidence must be preserved before cleanup; ao-topology is unavailable");
+  const result = JSON.parse(exec(entry.path, ["console", "preserve", "--consumer", p.root, "--worktree", worktree, "--json"], {
+    encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 30_000,
+  }));
+  if (result.ok !== true || result.rejected?.length || result.records?.some((record) => !record.preserved || !record.verified)) {
+    throw new Error("workflow evidence preservation is incomplete; retain the worktree and resolve producer diagnostics");
+  }
+  return result;
+}
+
+export function removeWorktree(task, { force = false, p = paths(), preserve = preserveWorkflowEvidence } = {}) {
+  const candidate = task.worktree && real(task.worktree) !== real(p.root) ? task.worktree : worktreePath(task.id, task.title, p);
+  const path = candidate;
   if (!existsSync(path)) return { removed: false, path, reason: `no worktree at ${path}` };
+  taskPlacement(task, { p });
+  const preservation = preserve(task, path, { p });
+  if (preservation?.ok !== true) return { removed: false, path, reason: "workflow evidence preservation was not verified" };
 
   const shares = takeShares(path);
   const ahead = unpushed(path);
@@ -337,13 +391,12 @@ export function removeWorktree(task, { force = false, p = paths() } = {}) {
  * `{ ok: false, reason }` with nothing created.
  */
 export function provision(task, { base, share = true, steal = false, session = null, actor = null, p = paths() } = {}) {
-  const path = worktreePath(task.id, task.title, p);
-  const branch = branchName(task.id, task.title, readConfig(p));
+  const { path, branch } = taskPlacement(task, { p });
   const claim = claimTask(task.id, { session, actor, worktree: path, branch, steal, p });
   if (!claim.ok) return { ok: false, reason: claim.reason, holder: claim.holder };
   const res = createWorktree(task, { base, share, p });
   update(task.id, { worktree: res.path, branch: res.branch }, p);
-  logEvent("worktree_new", { id: task.id, path: res.path, branch: res.branch, shared: res.shared.length }, p);
+  logEvent(res.reused ? "worktree_reused" : "worktree_new", { id: task.id, path: res.path, branch: res.branch, shared: res.shared.length }, p);
   return { ok: true, ...res, stolenFrom: claim.stolenFrom };
 }
 

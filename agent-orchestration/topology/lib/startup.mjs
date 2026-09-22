@@ -276,7 +276,7 @@ export async function startupCheck({ consumer, source, agentId, session, pane, i
 export function afterSessionOpen(args = {}) { return startupCheck({ ...args, source: "managed-launch" }); }
 function alive(pid) { try { process.kill(pid, 0); return true; } catch (e) { return e.code !== "ESRCH"; } }
 /** Eventual direct-start detection, based on provider process and cwd, never display names. */
-export async function watchServer({ env = process.env, home, once = false, intervalMs = 5000, listPanesFn, listSessionsFn, tmuxServer = "default", ownerAliveFn = alive, repoId = null } = {}) {
+export async function watchServer({ env = process.env, home, once = false, intervalMs = 5000, listPanesFn, listSessionsFn, tmuxServer = "default", ownerAliveFn = alive, repoId = null, signal } = {}) {
   invariant(Number.isFinite(intervalMs) && intervalMs > 0, "TOPOLOGY_STARTUP_WATCH", "watchServer intervalMs must be positive.");
   // TM-167: a per-repository supervisor passes `repoId`, and then labels and journals ONLY panes whose
   // canonical repository is that one. The listing is still server-wide — that is how the panes are
@@ -308,7 +308,9 @@ export async function watchServer({ env = process.env, home, once = false, inter
   });
   if (!taken) return { acquired: false, server: tmuxServer, labelled: [] };
   const labelled = [];
+  try {
   do {
+    if (signal?.aborted) break;
     const panes = await list({ tmuxServer, env });
     const candidates = [];
     for (const observed of panes) {
@@ -328,9 +330,18 @@ export async function watchServer({ env = process.env, home, once = false, inter
       taken.heartbeat_at = nowIso(); await atomicJson(leasePath, taken); return true;
     });
     if (!owned) return { acquired: true, fenced: true, server: tmuxServer, labelled };
-    if (!once) await sleep(intervalMs);
-  } while (!once);
+    if (!once) {
+      const { setTimeout: delay } = await import('node:timers/promises');
+      await delay(intervalMs,undefined,{signal}).catch(error=>{if(error.name!=='AbortError')throw error;});
+    }
+  } while (!once && !signal?.aborted);
   return { acquired: true, server: tmuxServer, labelled };
+  } finally {
+    // Release only our exact lease. A successor's watcher is never ours to reap.
+    if (!once) await withLock(`${leasePath}.lock`, async () => {
+      if ((await readLease())?.owner === taken.owner) await rm(leasePath, {force:true});
+    });
+  }
 }
 
 /** Every pending-enrollment label, oldest detection first. */

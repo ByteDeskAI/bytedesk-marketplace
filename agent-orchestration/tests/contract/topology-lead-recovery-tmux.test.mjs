@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { leadRecoveryStatus } from '../../topology/lib/lead-recovery.mjs';
 import { leadRegistryDir } from '../../topology/lib/lead.mjs';
+import { lockOwner, processIdentity } from '../../topology/lib/lockfile.mjs';
 import { readStandingMessage } from '../../topology/lib/standing-mailbox.mjs';
 import { canonicalRepoId, repoKey } from '../../topology/lib/repoid.mjs';
 import { readJson, sleep, writeJson } from '../../topology/lib/util.mjs';
@@ -49,6 +50,65 @@ async function waitFor(what, probe, timeoutMs) {
 async function supervisorsFor(consumer) {
   const { stdout } = await execFile('pgrep', ['-f', `supervise --consumer ${consumer}( |$)`]).catch((error) => ({ stdout: error.stdout ?? '' }));
   return stdout.split('\n').filter(Boolean).map(Number);
+}
+
+async function supervisorProcess(pid) {
+  const runtimeIdentity = await processIdentity(pid);
+  // Keep Linux's recorded /proc identity when available. BSD/macOS have no /proc,
+  // so an untruncated ps snapshot binds the PID's start time, command and state.
+  const { stdout } = await execFile('ps', ['-ww', '-p', String(pid), '-o', 'lstart=', '-o', 'stat=', '-o', 'command='],
+    { env: { ...process.env, LC_ALL: 'C' } });
+  const match = stdout.trim().match(/^(\S+\s+\S+\s+\d+\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s+(\S+)\s+(.+)$/);
+  assert.ok(match, 'the supervisor PID, start time, state and command must be observable');
+  return { identity: runtimeIdentity ?? `ps:${pid}:${match[1]}`, runtimeIdentity, state: match[2][0], command: match[3] };
+}
+
+/** Isolate the sender-only assertion from the recipient's legitimate concurrent recovery. */
+async function pauseOwnedSupervisor(consumer, env) {
+  const key = repoKey((await canonicalRepoId(consumer)).id);
+  const dir = join(env.AGENT_ORCHESTRATION_STATE_HOME, 'supervision');
+  const recordPath = join(dir, `${key}.process.json`), lockPath = join(dir, `${key}.lock`);
+  const record = await waitFor('the destination supervisor to own its first heartbeat', async () => {
+    const [current, owner, tick] = await Promise.all([
+      readJson(recordPath).catch(() => null), lockOwner(lockPath), readJson(join(dir, `${key}.json`)).catch(() => null),
+    ]);
+    const ok = current && owner && current.pid === owner.pid && current.lock_token === owner.token &&
+      current.process_identity === owner.process_identity && current.first_tick_at && tick?.pid === current.pid &&
+      Date.parse(tick.at) >= Date.parse(current.started_at);
+    return { ok, value: current };
+  }, 30_000);
+  assert.equal(record.consumer, consumer);
+  const pid = record.pid, initial = await supervisorProcess(pid);
+  const owned = async () => {
+    const [current, owner] = await Promise.all([supervisorProcess(pid), lockOwner(lockPath)]);
+    assert.equal(current.identity, initial.identity, 'only the fixture-owned supervisor incarnation may be signalled');
+    assert.equal(current.runtimeIdentity, record.process_identity, 'the recorded runtime identity must still match');
+    assert.ok(owner?.pid === pid && owner.token === record.lock_token && owner.process_identity === record.process_identity,
+      'the same supervisor must retain the fixture repository lock');
+    assert.equal(current.command, `${process.execPath} ${cli} supervise --consumer ${consumer}`,
+      'the supervisor process must still name this exact fixture repository');
+    return current;
+  };
+  let paused = false;
+  const resume = async () => {
+    if (!paused) return;
+    await owned();
+    process.kill(pid, 'SIGCONT');
+    paused = false;
+  };
+  const assertPaused = async () => {
+    return (await owned()).state === 'T';
+  };
+  try {
+    await owned();
+    process.kill(pid, 'SIGSTOP');
+    paused = true;
+    await waitFor('the exact destination supervisor to stop', async () => ({ ok: await assertPaused(), value: { pid } }), 10_000);
+    return { resume, assertPaused };
+  } catch (error) {
+    await resume();
+    throw error;
+  }
 }
 
 /** Every supervisor whose consumer is `dir` or anything under it. */
@@ -174,6 +234,9 @@ test('a dead managed lead is restarted by its own supervisor, then held cross-re
   const { env, repos, leads, recordPath } = await world(t);
   const dead = leads.destination;
   const socket = ownSocket(env, dead.binding.serverKey);
+  // Sending schedules receiver-owned recovery. Without this boundary the receiver may
+  // correctly restart between `send` returning and the unchanged-binding assertion.
+  const recipient = await pauseOwnedSupervisor(repos.destination, env);
   const stop = new AbortController();
   const acking = answerProbes(env, { [leads.source.agent_id]: repos.source, [dead.agent_id]: repos.destination }, stop.signal);
   try {
@@ -186,7 +249,9 @@ test('a dead managed lead is restarted by its own supervisor, then held cross-re
     assert.equal(sent.reason, 'leads_not_ready');
     assert.equal(sent.readiness.destination, 'registered', 'held because the destination lead is dead');
     assert.equal(sent.recovery.destination.requested, true);
+    assert.equal(await recipient.assertPaused(), true, 'the recipient cannot recover during the sender-only assertion');
     assert.deepEqual((await readJson(await recordPath(repos.destination))).binding, dead.binding, 'the sending process recovers nothing itself');
+    await recipient.resume();
 
     const delivered = await waitFor('the held message to be delivered', async () => {
       const message = await readStandingMessage({ id: 'tm167-dead-managed', env });
@@ -213,8 +278,11 @@ test('a dead managed lead is restarted by its own supervisor, then held cross-re
     assert.equal((await inbox()).length, 1, 'still one delivery after further reconciles');
     assert.deepEqual(await readStandingMessage({ id: 'tm167-dead-managed', env }), settled);
   } finally {
-    stop.abort();
-    await acking;
+    try { await recipient.resume(); }
+    finally {
+      stop.abort();
+      await acking;
+    }
   }
 });
 

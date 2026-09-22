@@ -43,7 +43,7 @@ async function main() {
     return;
   }
   if (command === "doctor") {
-    process.stdout.write(`${JSON.stringify(await service.doctor(), null, 2)}\n`);
+    process.stdout.write(`${JSON.stringify(await service.doctor({ consumerCwd: values["consumer-cwd"] }), null, 2)}\n`);
     return;
   }
   if (command === "session-open") {

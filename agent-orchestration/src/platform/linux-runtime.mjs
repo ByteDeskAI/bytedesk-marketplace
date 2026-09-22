@@ -16,7 +16,7 @@ export class BubblewrapSandboxStrategy extends ProviderSandboxStrategy {
       networkHelper,
       ...(process.env.AGENT_ORCHESTRATION_HOST_PLATFORM === "win32"
         ? [Object.freeze({ id: "unshare", command: "unshare" })]
-        : []),
+        : [Object.freeze({ id: "python3", command: "/usr/bin/python3" }), Object.freeze({ id: "nsenter", command: "/usr/bin/nsenter" })]),
     ]);
   }
 

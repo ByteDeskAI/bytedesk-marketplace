@@ -280,7 +280,7 @@ test("an agent whose cwd is not the repo is warned about when its CLI cannot be 
   assert.ok(!result.warnings.some((w) => w.startsWith("agent hand:") && w.includes("no add_dir_args")));
 
   const granted = result.agents.find((a) => a.id === "hand").candidates[0];
-  assert.deepEqual(granted.add_dirs, [consumer], "the repo root is what gets granted");
+  assert.deepEqual(granted.add_dirs, [consumer, join(result.runDir, "agents", "hand"), join(result.runDir, "artifacts")], "grant the workload plus exact member and shared artifact directories");
   assert.ok(granted.command.includes("--add-dir"), granted.command.join(" "));
   assert.ok(granted.command.includes(consumer));
 });
@@ -367,7 +367,7 @@ test("a coordinator is launched without the work-tree grant, so it cannot write 
   // The same agent directory, without coordinates_only, still gets the repo — so the difference is
   // the flag and not the cwd.
   const hand = result.agents.find((a) => a.id === "hand").candidates[0];
-  assert.deepEqual(hand.add_dirs, [consumer]);
+  assert.deepEqual(hand.add_dirs, [consumer, join(result.runDir, "agents", "hand"), join(result.runDir, "artifacts")]);
   assert.ok(hand.command.includes("--add-dir"));
   assert.ok(!hand.command.join(" ").includes("--disallowed-tools"), "only a coordinator is restricted");
 });

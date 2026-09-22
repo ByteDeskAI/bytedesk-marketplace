@@ -7,6 +7,26 @@ import { createPlatformRuntime } from "../../src/platform/factory.mjs";
 import { DirectHostAdapter, WindowsWslHostAdapter, createHostAdapter } from "../../src/platform/host-adapters.mjs";
 import { WslPathAdapter } from "../../src/platform/path-mapper.mjs";
 import { WindowsExecutableResolver } from "../../src/platform/executable-resolvers.mjs";
+import { BubblewrapSandboxStrategy } from "../../src/platform/linux-runtime.mjs";
+
+test("Linux doctor fails closed when namespace owner attachment dependencies are missing", async () => {
+  const original = process.env.AGENT_ORCHESTRATION_HOST_PLATFORM;
+  delete process.env.AGENT_ORCHESTRATION_HOST_PLATFORM;
+  try {
+    const sandbox = new BubblewrapSandboxStrategy();
+    const checks = [{ id: "bwrap", ok: true }, { id: "slirp4netns", ok: true }];
+    assert.deepEqual(await sandbox.probe({ checks }), { ok: false, kind: "bubblewrap-slirp4netns", missing: ["python3", "nsenter"] });
+    assert.deepEqual(sandbox.requiredExecutables.slice(-2), [
+      { id: "python3", command: "/usr/bin/python3" }, { id: "nsenter", command: "/usr/bin/nsenter" },
+    ]);
+    assert.equal((await sandbox.probe({ checks: [...checks, { id: "python3", ok: true }, { id: "nsenter", ok: true }] })).ok, true);
+    process.env.AGENT_ORCHESTRATION_HOST_PLATFORM = "win32";
+    assert.deepEqual(sandbox.requiredExecutables.map(({ id }) => id), ["bwrap", "pasta", "unshare"]);
+  } finally {
+    if (original === undefined) delete process.env.AGENT_ORCHESTRATION_HOST_PLATFORM;
+    else process.env.AGENT_ORCHESTRATION_HOST_PLATFORM = original;
+  }
+});
 
 test("Abstract Factory selects the native Linux strategy family", () => {
   const runtime = createPlatformRuntime({ platform: "linux", backend: "linux-native", pluginRoot: "/plugin", stateRoot: "/state" });

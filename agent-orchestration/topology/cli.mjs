@@ -4,24 +4,25 @@
 // `reply`; the conductor calls `send`, `wait`, `capture`, and `status`.
 import { readFile, readdir } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { doctor as runDoctor, tmuxInstallPlan } from "./lib/doctor.mjs";
 import { closeAllClients, isUndelivered, ringMessage, undeliveredReport } from "./lib/delivery.mjs";
-import { deliverPointer, failoverAgent, launchRun, messagePointer, openRoleSession, registeredLeadId, roleSessionName, runAgentVisual, tmuxFailureTrigger, uniqueSessionName } from "./lib/launch.mjs";
+import { deliverPointer, failoverAgent, launchRun, materializeWorkflowSpec, messagePointer, openRoleSession, registeredLeadId, retryWorkflowSpec, roleSessionName, runAgentVisual, tmuxFailureTrigger, uniqueSessionName } from "./lib/launch.mjs";
 import { agentDir, appendJournal, loadRun, pendingReplies, queueDepth, readJournal, recordReply, saveRun, sendMessage, waitForReplies } from "./lib/mailbox.mjs";
 import { adapterFor, adapterSummary, buildArgv, loadAdapters, providerDirs } from "./lib/providers.mjs";
 import { roleDirs, skillDirs } from "./lib/resolve.mjs";
-import { agentAddress, DEFAULT_SESSION, listWorkflows, loadSpec, materializeSpec, resolveInputs, specSchemaSummary, workflowDirs, validateSpec } from "./lib/spec.mjs";
+import { agentAddress, DEFAULT_SESSION, listWorkflows, loadSpec, resolveInputs, specSchemaSummary, workflowDirs, validateSpec } from "./lib/spec.mjs";
 import * as tmux from "./lib/tmux.mjs";
 import { TopologyError, absolutize, exists, fail, invariant, newRunId, parseArgs, parseDuration, readJson, terminalText, writeJson, AO_HOME } from "./lib/util.mjs";
 import { agentDirs, agentsRoot, createAgent, findLead, listAgents, requireAgent } from "./lib/agents.mjs";
 import { displayName, parseSessionName, roleVisual } from "./lib/identity.mjs";
-import { childrenFile } from "./lib/lineage.mjs";
 import { issueDelegation, listDelegations, routeMessage } from "./lib/routing.mjs";
 import { sameIncarnation } from "./lib/incarnation.mjs";
 import { stateRoot } from "./lib/repoid.mjs";
+import { preserveWorktreeWorkflows, reconcileWorkflows } from './lib/discovery.mjs';
+import { assertNativeRepository, assertRunOwnership, controlWorkflow, stopNativeRun, workflowDetail } from './lib/workflow-control.mjs';
 
 const PLUGIN_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const CLI_BIN = process.env.AO_TOPOLOGY_BIN || join(PLUGIN_ROOT, "bin", "ao-topology");
@@ -33,7 +34,9 @@ Discover
   schema                                       print the spec schema summary
   providers [--json]                           list provider adapters
   doctor [--json] [--consumer <dir>]           check tmux, CLIs, and search paths
-  runs [--consumer <dir>]                      list runs under <consumer>/.bytedesk/agent-orchestration/runs
+  runs [--consumer <dir>]                      list durable explicit workflows across linked worktrees
+  console list|show|workflows|control|preserve --consumer <dir> --json
+         [--workflow-id <runtime:id>] [--request-file <json>] [--worktree <dir>]
   observer targets|start|open|status|inspect|watch|report|close
            [--observer <id> --target <id> | --run <run_dir>]
            [--ack-timeout 30s]                     prompt proof deadline; env AO_OBSERVER_ACK_TIMEOUT_MS
@@ -170,6 +173,10 @@ async function runDirFrom(flags) {
   invariant(flags.run && flags.run !== true, "TOPOLOGY_RUN_REQUIRED", "Pass --run <run_dir>.");
   const runDir = absolutize(flags.run);
   invariant(await exists(join(runDir, "run.json")), "TOPOLOGY_RUN_NOT_FOUND", `No run.json under ${runDir}.`);
+  if (typeof flags.consumer === 'string') {
+    invariant(isAbsolute(flags.consumer), 'TOPOLOGY_REPO_REQUIRED', 'Consumer must be an absolute repository path.');
+    await assertNativeRepository({ consumer: flags.consumer, runDir });
+  }
   return runDir;
 }
 
@@ -209,48 +216,13 @@ function refuseIfParticipant(agent, verb) {
 async function childSummary(runDir) {
   try {
     const run = await loadRun(runDir);
-    const alive = await tmux.hasSession(run.session);
+    const ownership = await assertRunOwnership(run, { requireAlive: false });
+    const alive = !ownership.gone;
     const pending = await pendingReplies(runDir).catch(() => []);
     return { state: run.state, session_alive: alive, agents: run.agents?.length ?? 0, pending: pending.length };
   } catch {
     return { state: "unreadable", session_alive: false, agents: 0, pending: 0 };
   }
-}
-
-/**
- * Stop every run beneath this one, depth-first.
- *
- * Depth-first because stopping top-down orphans every level below the one that fails: kill the
- * parent's session first and a grandchild is still running with nothing left that names it. From the
- * bottom up, a failure leaves a smaller mess, and one that `children.json` can still describe.
- *
- * Every step is best effort. A child whose directory has been deleted, or whose session a human
- * already killed, is not a reason to abandon the rest of the tree — the point of cascading is that
- * one unreachable node does not strand its siblings.
- */
-async function stopChildren(runDir, stopped, seen = new Set()) {
-  if (seen.has(runDir)) return stopped;
-  seen.add(runDir);
-  const children = await readJson(childrenFile(runDir)).catch(() => null);
-  if (!Array.isArray(children)) return stopped;
-  for (const child of children) {
-    if (!child?.run_dir) continue;
-    await stopChildren(child.run_dir, stopped, seen);
-    try {
-      const run = await loadRun(child.run_dir);
-      if (run.state !== "stopped") {
-        run.state = "stopped";
-        await saveRun(child.run_dir, run);
-        await appendJournal(child.run_dir, { type: "run.stopped", by: "parent cascade" });
-      }
-      if (await tmux.hasSession(run.session)) await tmux.killSession(run.session);
-      await appendJournal(runDir, { type: "run.child_exited", child_run_id: run.run_id, child_run_dir: child.run_dir, reason: "stopped with its parent" });
-      stopped.push({ run_id: run.run_id, run_dir: child.run_dir, session: run.session });
-    } catch {
-      /* a child we cannot read is one we cannot stop; the siblings still get their turn */
-    }
-  }
-  return stopped;
 }
 
 /**
@@ -301,7 +273,7 @@ const commands = {
     const owned = async (task) => {
       try { return await task(); }
       catch (error) {
-        if (error?.code !== 'TOPOLOGY_LOCK_TIMEOUT') throw error;
+        if (error?.code !== 'TOPOLOGY_SUPERVISION_OWNED') throw error;
         return out({ ok: true, supervising: false, reason: 'another-supervisor-owns-this-repository', consumer: ctx.consumer });
       }
     };
@@ -314,7 +286,21 @@ const commands = {
     // Exceptions still speak: retirement and a degraded heartbeat are invisible in any other place.
     const notable = report => report?.stopped || report?.presence_beats_degraded || report?.error;
     const onTick = flags.json ? out : report => { if (notable(report)) out(report); };
-    return Promise.all([owned(() => superviseRepository({ ...ctx, tmuxServer: flags.server }, { onTick })), watchServer({ ...ctx, tmuxServer: flags.server || 'default', repoId })]);
+    const controller = new AbortController();
+    let watcher = Promise.resolve(), watcherError;
+    // Start the watcher only after winning repository ownership. Both loops
+    // share a lifetime; a failed or losing supervisor cannot leave one behind.
+    const onOwned = () => {
+      watcher = watchServer({ ...ctx, tmuxServer: flags.server || 'default', repoId, signal: controller.signal })
+        .catch(error => { watcherError = error; controller.abort(); });
+    };
+    try {
+      return await owned(() => superviseRepository({ ...ctx, tmuxServer: flags.server }, { onTick, onOwned, signal: controller.signal }));
+    } finally {
+      controller.abort();
+      await watcher;
+      if (watcherError) throw watcherError;
+    }
   },
 
   async census({ flags }) {
@@ -640,18 +626,86 @@ const commands = {
 
   async runs({ flags }) {
     const ctx = context(flags);
-    const root = join(ctx.consumer, AO_HOME, "runs");
-    const entries = (await readdir(root).catch(() => [])).sort();
-    const runs = [];
-    for (const entry of entries) {
-      const runFile = join(root, entry, "run.json");
-      if (!(await exists(runFile))) continue;
-      const run = await readJson(runFile);
-      runs.push({ run_id: run.run_id, name: run.name, session: run.session, state: run.state, created: run.created, run_dir: run.run_dir, alive: await tmux.hasSession(run.session) });
-    }
+    const index = await reconcileWorkflows({ consumer: ctx.consumer });
+    const runs = index.workflows.map(item => ({ ...item, run_id: item.nativeRunId, name: item.workflowName, run_dir: dirname(item.recordPath) }));
     if (flags.json) return out(runs);
-    if (runs.length === 0) return out(`No runs under ${root}.`);
-    for (const run of runs) out(`${run.alive ? "●" : "○"} ${run.run_id}  ${run.name}  ${run.state}  session=${run.session}\n    ${run.run_dir}`);
+    if (runs.length === 0) out(`No explicit workflows for ${ctx.consumer}.`);
+    for (const run of runs) out(`${run.runtime} ${run.run_id}  ${run.name}  ${run.state}\n    ${run.run_dir}`);
+    for (const rejected of index.rejected) out(`! ${rejected.code}: ${rejected.path}: ${rejected.message}`);
+  },
+
+  async console({ flags, positional }) {
+    invariant(typeof flags.consumer === 'string' && isAbsolute(flags.consumer), 'TOPOLOGY_REPO_REQUIRED', 'Console operations require --consumer <absolute repository path>.');
+    const ctx = context(flags), sub = positional[0] || 'list';
+    if (sub === 'list') return out(await reconcileWorkflows({ consumer: ctx.consumer }));
+    if (sub === 'preserve') {
+      invariant(typeof flags.worktree === 'string', 'TOPOLOGY_WORKTREE_REQUIRED', 'Pass the worktree whose evidence must be preserved.');
+      const result = await preserveWorktreeWorkflows({ consumer: ctx.consumer, worktree: absolutize(flags.worktree) });
+      if (!result.ok) process.exitCode = 1;
+      return out(result);
+    }
+    if (sub === 'show') return out(await workflowDetail({ consumer: ctx.consumer, workflowId: flags['workflow-id'], pluginRoot: PLUGIN_ROOT }));
+    if (sub === 'workflows') {
+      const workflows = [];
+      for (const item of await listWorkflows(ctx.workflowDirs)) {
+        if (item.error || workflows.some(workflow => workflow.name === item.name)) continue;
+        const spec = await readJson(item.path);
+        workflows.push({ name: item.name, description: item.description || '', inputs: spec.inputs || {}, path: item.path });
+      }
+      return out({ schemaVersion: 1, workflows });
+    }
+    invariant(sub === 'control' && typeof flags['request-file'] === 'string', 'TOPOLOGY_CONTROL_REQUEST', 'Pass console control --request-file <JSON>.');
+    const request = await readJson(absolutize(flags['request-file']));
+    const adapters = await loadAdapters(ctx.providerDirs);
+    const result = await controlWorkflow({ consumer: ctx.consumer, request,
+      launch: async ({ workflowName, inputs, runId, retry, actor, stateHome }) => {
+        let spec;
+        if (retry) {
+          spec = await retryWorkflowSpec(retry, { runId, stateHome, actor });
+        } else {
+          const saved = (await listWorkflows(ctx.workflowDirs)).find(item => !item.error && item.name === workflowName);
+          invariant(saved, 'TOPOLOGY_WORKFLOW_NOT_FOUND', 'Select a saved workflow from console workflows.');
+          const loaded = await loadSpec({ specPath: saved.path, dirs: ctx.workflowDirs });
+          spec = await materializeWorkflowSpec(loaded.spec, { runId, consumer: ctx.consumer, home: ctx.home, inputs: resolveInputs(loaded.spec, inputs) }, { stateHome });
+        }
+        spec.initiator = actor;
+        const start = async (materialized, lineage, replyToken = null, retrySource = null) => launchRun({ spec: materialized, adapters,
+          skillSearchDirs: ctx.skillDirs, roleSearchDirs: ctx.roleDirs, cliBin: CLI_BIN, stateHome, lineage, replyToken,
+          launchChild: async ({ workflow, inputs: childInputs, lineage: childLineage, replyToken: childToken }) => {
+            if (retrySource) {
+              const previous = retrySource.agents.find(agent => agent.id === childLineage.agent_id)?.workflow;
+              invariant(previous?.run_dir, 'TOPOLOGY_RETRY_UNAVAILABLE', 'The original child attempt has no retained recipe location. Preserve it and launch a reviewed saved workflow.');
+              const admitted = await assertNativeRepository({ consumer: ctx.consumer, runDir: previous.run_dir, stateHome });
+              invariant(admitted.run.parent?.run_id === retrySource.run_id && admitted.run.parent?.agent_id === childLineage.agent_id,
+                'TOPOLOGY_CHILD_OWNERSHIP', 'The original child does not acknowledge its exact retry owner.');
+              const childSpec = await retryWorkflowSpec(admitted.run, { runId: newRunId(), stateHome, actor });
+              const result = await start(childSpec, childLineage, childToken, admitted.run);
+              return { ...result, conductor: childSpec.agents.find(agent => agent.role === 'orchestrator')?.id || null };
+            }
+            const saved = (await listWorkflows(ctx.workflowDirs)).find(item => !item.error && item.name === workflow);
+            invariant(saved, 'TOPOLOGY_WORKFLOW_NOT_FOUND', 'Child workflow must be saved in the project workflow catalog.');
+            const child = await loadSpec({ specPath: saved.path, dirs: ctx.workflowDirs });
+            const childSpec = await materializeWorkflowSpec(child.spec, { runId: newRunId(), consumer: materialized.consumer, home: ctx.home,
+              inputs: resolveInputs(child.spec, childInputs) }, { stateHome });
+            const result = await start(childSpec, childLineage, childToken);
+            return { ...result, conductor: childSpec.agents.find(agent => agent.role === 'orchestrator')?.id || null };
+          }, log: line => process.stderr.write(`${line}\n`) });
+        return start(spec, retry?.parent || null, null, retry);
+      },
+      failover: ({ target, agentId, to, actor }) => failoverAgent({ runDir: target.runDir, agentId, toLabel: to, adapters,
+        approvedBy: actor.id, pluginRoot: PLUGIN_ROOT, home: ctx.home }),
+      deliver: async ({ target, agentId, message, stage }) => {
+        const agent = target.run.agents.find(item => item.id === agentId), adapter = adapters.get(agent.adapter);
+        invariant(adapter, 'TOPOLOGY_PROVIDER_UNAVAILABLE', 'The recorded provider adapter is not installed.');
+        const delivery = message.deliveries.find(item => item.agent === agentId && !item.standing);
+        invariant(delivery, 'TOPOLOGY_CONTROL_DELIVERY', 'Message has no admitted native delivery for this member.');
+        return tmux.withServer(agent.binding.serverKey, () => ringMessage({ runDir: target.runDir, agentId, agent, adapter,
+          pointer: messagePointer({ id: message.id, from: 'human', stage, inbox: delivery.inbox, outbox: delivery.outbox }),
+          messageId: message.id, session: target.run.session, deliverPointer, tmuxFailureTrigger }));
+      },
+    });
+    if (!result.ok) process.exitCode = 1;
+    return out(result);
   },
 
   async observer({ flags, positional }) {
@@ -742,7 +796,7 @@ const commands = {
     const launchChild = async ({ workflow, inputs: childInputs, lineage: childLineage, replyToken }) => {
       const child = await loadSpec({ workflow, dirs: ctx.workflowDirs });
       const childRunId = newRunId();
-      const materializedChild = materializeSpec(child.spec, {
+      const materializedChild = await materializeWorkflowSpec(child.spec, {
         runId: childRunId,
         consumer: ctx.consumer,
         home: ctx.home,
@@ -779,7 +833,7 @@ const commands = {
     const address = spec.session === DEFAULT_SESSION
       ? agentAddress(spec, { consumer: ctx.consumer, home: ctx.home, agentDirs: ctx.agentDirs })
       : null;
-    const materialized = materializeSpec(spec, {
+    const materialized = await materializeWorkflowSpec(spec, {
       runId,
       consumer: ctx.consumer,
       home: ctx.home,
@@ -1168,7 +1222,8 @@ const commands = {
     invariant(agent, "TOPOLOGY_UNKNOWN_AGENT", `Unknown agent "${flags.agent}". Agents: ${run.agents.map((item) => item.id).join(", ")}.`);
     refuseIfParticipant(agent, "capture");
     const lines = Number(flags.lines) > 0 ? Number(flags.lines) : 60;
-    out(await tmux.capture(agent.pane, lines));
+    await assertRunOwnership(run);
+    out(await tmux.withServer(agent.binding.serverKey, () => tmux.capture(agent.pane, lines)));
   },
 
   async nudge({ flags }) {
@@ -1178,7 +1233,8 @@ const commands = {
     invariant(agent, "TOPOLOGY_UNKNOWN_AGENT", `Unknown agent "${flags.agent}".`);
     refuseIfParticipant(agent, "nudge — send it a message instead");
     invariant(typeof flags.text === "string" && flags.text.trim(), "TOPOLOGY_TEXT_REQUIRED", "Pass --text <text>.");
-    await tmux.sendText(agent.pane, flags.text, agent.submit_keys ?? ["Enter"]);
+    await assertRunOwnership(run);
+    await tmux.withServer(agent.binding.serverKey, () => tmux.sendText(agent.pane, flags.text, agent.submit_keys ?? ["Enter"]));
     await appendJournal(runDir, { type: "agent.nudged", agent: agent.id, text: flags.text });
     out({ ok: true, agent: agent.id, pane: agent.pane });
   },
@@ -1241,8 +1297,9 @@ const commands = {
     const runDir = await runDirFrom(flags);
     const run = await loadRun(runDir);
     const leadId = await registeredLeadId({ consumer: run.consumer, home: homedir() });
-    const alive = await tmux.hasSession(run.session);
-    const panes = alive ? await tmux.listPanes(run.session) : [];
+    const ownership = await assertRunOwnership(run, { requireAlive: false }).catch(error => ({ gone: true, panes: [], error: { code: error.code, message: error.message } }));
+    const alive = ownership.error ? null : !ownership.gone;
+    const panes = ownership.panes.map(pane => ({ ...pane, id: pane.paneId }));
     const pending = await pendingReplies(runDir);
     // Inbox depth per agent. The lead is a bottleneck by design — every unvouched cross-repo
     // contact lands on it — and congestion there raises no error, it just makes everyone slower.
@@ -1291,7 +1348,7 @@ const commands = {
     // not land, and a message that WAS submitted and then produced nothing — the latter is TM-122
     // (an agent that acknowledged its bootstrap and stopped) caught mechanically, for a stat().
     const undelivered = await undeliveredReport(runDir);
-    const report = { run_id: run.run_id, name: run.name, session: run.session, session_alive: alive, state: run.state, run_dir: runDir, inputs: run.inputs, agents, pending_count: pending.length, queues, stalled, undelivered, recent: journal };
+    const report = { run_id: run.run_id, name: run.name, session: run.session, session_alive: alive, observation_error: ownership.error || null, state: run.state, run_dir: runDir, inputs: run.inputs, agents, pending_count: pending.length, queues, stalled, undelivered, recent: journal };
     if (flags.json) return out(report);
     out(`${run.name} · run ${run.run_id} · state ${run.state} · session ${run.session} ${alive ? "(alive)" : "(gone)"}`);
     // A malformed roster is worth saying out loud here: routing redirects against the agent
@@ -1328,25 +1385,10 @@ const commands = {
   },
 
   async stop({ flags }) {
-    let session = flags.session && flags.session !== true ? String(flags.session) : null;
-    let runDir = null;
-    // Children first, and depth-first, so a grandchild is not left holding a session after its
-    // parent's is gone. Stopping the tree from the top down would orphan every level below the one
-    // that failed; from the bottom up, a failure leaves a smaller mess and a findable one.
-    const stoppedChildren = [];
-    if (flags.run && flags.run !== true) {
-      runDir = await runDirFrom(flags);
-      if (flags["no-cascade"] !== true) await stopChildren(runDir, stoppedChildren);
-      const run = await loadRun(runDir);
-      session = run.session;
-      run.state = "stopped";
-      await saveRun(runDir, run);
-      await appendJournal(runDir, { type: "run.stopped", children_stopped: stoppedChildren.length });
-    }
-    invariant(session, "TOPOLOGY_SESSION_REQUIRED", "Pass --run <run_dir> or --session <name>.");
-    const existed = await tmux.hasSession(session);
-    if (existed) await tmux.killSession(session);
-    out({ ok: true, session, killed: existed, run_dir: runDir, files_kept: true, children_stopped: stoppedChildren });
+    invariant(flags.run && flags.run !== true, 'TOPOLOGY_RUN_REQUIRED', 'Stopping by session name is unsafe. Pass the native --run directory with recorded member incarnations.');
+    const result = await stopNativeRun({ runDir: await runDirFrom(flags), cascade: flags['no-cascade'] !== true });
+    if (!result.ok) process.exitCode = 1;
+    out(result);
   },
 };
 

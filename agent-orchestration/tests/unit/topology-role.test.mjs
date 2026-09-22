@@ -28,13 +28,15 @@ async function fixture(t) {
   return { consumer, pluginRoot, home, env };
 }
 
+const binding = { serverKey: '/isolated/role-test', serverPid: 10, sessionId: '$1', sessionCreated: 1, paneId: '%1', panePid: 20 };
+
 const mint = (f, role, name) => createAgent(f.consumer, { role, full_name: name }, null, { home: f.home, pluginRoot: f.pluginRoot, env: f.env });
 
 test('the singleton rule binds lead and reviewer and nothing else', async t => {
   const f = await fixture(t);
   const kills = [];
   const a = await mint(f, 'worker', 'Ada One'), b = await mint(f, 'worker', 'Bell Two');
-  const probes = { alive: async () => true, responsive: async () => true, pane: async () => '%1', open: async () => ({ session: 'ao-x', pane: '%1' }), kill: async r => kills.push(r) };
+  const probes = { binding: async () => ({...binding}), alive: async () => true, responsive: async () => true, pane: async () => '%1', open: async () => ({ session: 'ao-x', pane: '%1' }), kill: async r => kills.push(r) };
   const o = { ...f, probes };
 
   const first = await roleAssign({ ...o, role: 'lead', agentRef: a.id });
@@ -58,7 +60,7 @@ test('the singleton rule binds lead and reviewer and nothing else', async t => {
 
 test('reviewer assignment refuses the lead and refuses an author', async t => {
   const f = await fixture(t);
-  const probes = { alive: async () => true, responsive: async () => true, open: async () => ({ session: 'ao-r', pane: '%1' }) };
+  const probes = { binding: async () => ({...binding}), alive: async () => true, responsive: async () => true, open: async () => ({ session: 'ao-r', pane: '%1' }) };
   const lead = await mint(f, 'lead', 'Emil Five'), author = await mint(f, 'worker', 'Fern Six');
   await assert.rejects(roleAssign({ ...f, probes, role: 'reviewer', agentRef: lead.id }), { code: 'TOPOLOGY_REVIEWER_CONFLICT' });
   await assert.rejects(roleAssign({ ...f, probes, role: 'reviewer', agentRef: author.id, notAgentIds: [author.id] }), { code: 'TOPOLOGY_REVIEWER_CONFLICT' });
@@ -70,7 +72,7 @@ test('reviewer assignment refuses the lead and refuses an author', async t => {
 test('role status keeps registered, alive and responsive as three separate fields', async t => {
   const f = await fixture(t);
   let alive = true, responsive = true;
-  const probes = { alive: async () => alive, responsive: async () => responsive, pane: async () => '%1', open: async () => ({ session: 'ao-l', pane: '%1' }), kill: () => assert.fail('must not kill') };
+  const probes = { binding: async () => ({...binding}), alive: async () => alive, responsive: async () => responsive, pane: async () => '%1', open: async () => ({ session: 'ao-l', pane: '%1' }), kill: () => assert.fail('must not kill') };
   const o = { ...f, probes, role: 'lead' };
 
   const none = await roleStatus(o);
@@ -97,6 +99,7 @@ test('reassign hands the role over without killing, duplicating, or changing pri
   const outgoing = await mint(f, 'worker', 'Hana Eight'), incoming = await mint(f, 'worker', 'Ilya Nine');
   let responsiveFor = new Set([outgoing.id, incoming.id]);
   const probes = {
+    binding: async () => ({...binding}),
     alive: async () => true,
     responsive: async record => responsiveFor.has(record.agent_id),
     pane: async () => '%1',
@@ -141,7 +144,7 @@ test('reassign hands the role over without killing, duplicating, or changing pri
 
 test('history logs one entry per transition, in order, and reads back', async t => {
   const f = await fixture(t);
-  const probes = { alive: async () => true, responsive: async () => true, pane: async () => '%1', open: async () => ({ session: 'ao-l', pane: '%1' }), kill: () => assert.fail('must not kill') };
+  const probes = { binding: async () => ({...binding}), alive: async () => true, responsive: async () => true, pane: async () => '%1', open: async () => ({ session: 'ao-l', pane: '%1' }), kill: () => assert.fail('must not kill') };
   const o = { ...f, probes, role: 'lead' };
   const a = await mint(f, 'worker', 'Juno Ten'), b = await mint(f, 'worker', 'Kiran Eleven');
   await roleAssign({ ...o, agentRef: a.id });

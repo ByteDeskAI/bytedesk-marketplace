@@ -1,8 +1,6 @@
 name: agent-orchestration
 
 on:
-  schedule:
-    - cron: "0 8 * * *"
   push:
     paths:
       - "agent-orchestration/**"
@@ -10,7 +8,10 @@ on:
       - ".github/workflows/agent-orchestration.yml"
       - ".github/quarantines/tm111.json"
       - ".github/scripts/tm111-quarantine.mjs"
+      - ".github/scripts/ao-sandbox-prerequisites.sh"
+      - ".github/scripts/ao-sandbox-network-smoke.mjs"
       - ".github/tests/tm111-quarantine.test.mjs"
+      - ".github/tests/agent-orchestration-workflow.test.mjs"
       - ".github/tests/fixtures/tm111-runner-failure.json"
   pull_request:
     paths:
@@ -19,13 +20,15 @@ on:
       - ".github/workflows/agent-orchestration.yml"
       - ".github/quarantines/tm111.json"
       - ".github/scripts/tm111-quarantine.mjs"
+      - ".github/scripts/ao-sandbox-prerequisites.sh"
+      - ".github/scripts/ao-sandbox-network-smoke.mjs"
       - ".github/tests/tm111-quarantine.test.mjs"
+      - ".github/tests/agent-orchestration-workflow.test.mjs"
       - ".github/tests/fixtures/tm111-runner-failure.json"
 
 jobs:
   unit-build-contracts:
-    if: github.event_name != 'schedule'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -34,7 +37,7 @@ jobs:
           cache: npm
           cache-dependency-path: agent-orchestration/package-lock.json
       - name: Install sandbox prerequisites
-        run: sudo apt-get update && sudo apt-get install --yes bubblewrap slirp4netns
+        run: bash .github/scripts/ao-sandbox-prerequisites.sh
       - name: Install build dependencies
         run: npm ci --prefix agent-orchestration --ignore-scripts
       - name: Verify plugin-local design system (offline)
@@ -45,9 +48,9 @@ jobs:
         run: npm run build --prefix agent-orchestration
       - name: Tracked bundle drift
         run: git diff --exit-code -- agent-orchestration/dist
-      - name: Quarantine refusal and expiry tests
-        run: node --test .github/tests/tm111-quarantine.test.mjs
-      - name: Bundle and other installed-cache contracts (TM-111 runs separately)
+      - name: CI contract gates and historical quarantine tests
+        run: node --test .github/tests/agent-orchestration-workflow.test.mjs .github/tests/tm111-quarantine.test.mjs
+      - name: Bundle and other installed-cache contracts (clean install runs separately)
         working-directory: agent-orchestration
         run: |
           npm run build:check
@@ -56,17 +59,27 @@ jobs:
             if [[ "$file" != tests/contract/clean-install.test.mjs ]]; then contracts+=("$file"); fi
           done
           test "${#contracts[@]}" -gt 0
-          node --test "${contracts[@]}"
+          export TMUX=''
+          export TMUX_TMPDIR
+          TMUX_TMPDIR=$(mktemp -d "$RUNNER_TEMP/ao-contract-tmux-XXXXXX")
+          trap 'rm -rf -- "$TMUX_TMPDIR"' EXIT
+          node --test --test-concurrency=1 "${contracts[@]}"
       - name: Manifest contracts
         run: |
           node -e 'const fs=require("fs"); const c=JSON.parse(fs.readFileSync("agent-orchestration/.codex-plugin/plugin.json")); if("version" in c) process.exit(1)'
           node -e 'const fs=require("fs"); const c=JSON.parse(fs.readFileSync("agent-orchestration/.claude-plugin/plugin.json")); if("version" in c) process.exit(1)'
+      - name: Publish sandbox prerequisite diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AO-runtime-sandbox-prerequisites
+          path: ${{ runner.temp }}/ao-sandbox-prerequisites/
+          if-no-files-found: error
+          retention-days: 14
 
-  installed-cache-quarantine:
-    name: "QUARANTINED TM-111 — Ryan Helms — expires 2026-09-13 UTC"
-    if: github.event_name != 'schedule'
-    needs: unit-build-contracts
-    runs-on: ubuntu-latest
+  installed-cache-contract:
+    name: "Strict installed-cache contract (TM-111)"
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -75,44 +88,71 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: agent-orchestration/package-lock.json
-      - name: Install existing sandbox prerequisites
-        run: sudo apt-get update && sudo apt-get install --yes bubblewrap slirp4netns
+      - name: Install sandbox prerequisites
+        run: bash .github/scripts/ao-sandbox-prerequisites.sh
       - run: npm ci --prefix agent-orchestration --ignore-scripts
-      - name: Attempt exact contract; tolerate only recorded runner initialization refusal
-        run: node .github/scripts/tm111-quarantine.mjs
+      - name: Execute the exact installed-cache contract and record coverage
+        working-directory: agent-orchestration
+        shell: bash
+        run: |
+          export AO_INSTALLED_CACHE_RESULT_DIR="$GITHUB_WORKSPACE/installed-cache-ci-result"
+          mkdir -p "$AO_INSTALLED_CACHE_RESULT_DIR"
+          printf '%s\n' '{"schemaVersion":1,"status":"incomplete","coverage":false}' > "$AO_INSTALLED_CACHE_RESULT_DIR/result.json"
+          set +e
+          timeout --signal=TERM --kill-after=10s 120s node --test --test-reporter=tap tests/contract/clean-install.test.mjs \
+            > "$AO_INSTALLED_CACHE_RESULT_DIR/contract.tap" 2> "$AO_INSTALLED_CACHE_RESULT_DIR/stderr.log"
+          contract_status=$?
+          set -e
+          cat "$AO_INSTALLED_CACHE_RESULT_DIR/contract.tap"
+          cat "$AO_INSTALLED_CACHE_RESULT_DIR/stderr.log" >&2
+          CONTRACT_EXIT_CODE="$contract_status" node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          const dir = process.env.AO_INSTALLED_CACHE_RESULT_DIR;
+          const tap = readFileSync(join(dir, 'contract.tap'), 'utf8');
+          const test = 'tracked install bundle starts from plugin cwd but resolves only explicit consumerCwd';
+          const exitCode = Number(process.env.CONTRACT_EXIT_CODE);
+          const expected = { tests: 1, pass: 1, fail: 0, skipped: 0, cancelled: 0, todo: 0 };
+          const counts = Object.fromEntries(Object.keys(expected).map(key => [key, [...tap.matchAll(new RegExp(`^# ${key} ([0-9]+)$`, 'gm'))].map(match => Number(match[1]))]));
+          const cases = [...tap.matchAll(/^ok [0-9]+ - (.+)$/gm)].map(match => match[1]);
+          const coverage = exitCode === 0 && Object.entries(expected).every(([key, value]) => counts[key].length === 1 && counts[key][0] === value)
+            && cases.length === 1 && cases[0] === test && !/^not ok /m.test(tap);
+          const result = { schemaVersion: 1, file: 'agent-orchestration/tests/contract/clean-install.test.mjs', test,
+            status: coverage ? 'passed' : 'failed', coverage, exitCode, counts, sourceHead: process.env.GITHUB_SHA || null };
+          writeFileSync(join(dir, 'result.json'), JSON.stringify(result, null, 2) + '\n');
+          const summary = `Installed-cache contract ${result.status.toUpperCase()}; coverage=${coverage}; exit=${exitCode}. Exactly one executed test and zero skips are required. Raw TAP and stderr are attached.\n`;
+          console.log(summary.trim());
+          if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
+          if (!coverage) process.exitCode = 1;
+          NODE
       - name: Publish explicit coverage result and raw contract output
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: TM-111-quarantine-coverage
-          path: tm111-ci-result/
+          name: TM-111-installed-cache-coverage
+          path: installed-cache-ci-result/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Publish sandbox prerequisite diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AO-installed-cache-sandbox-prerequisites
+          path: ${{ runner.temp }}/ao-sandbox-prerequisites/
           if-no-files-found: error
           retention-days: 14
 
-  quarantine-expiry:
-    name: "TM-111 quarantine expiry — owner Ryan Helms"
-    if: github.event_name == 'schedule'
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-      - name: Fail expired quarantine even without a source change
-        run: node .github/scripts/tm111-quarantine.mjs --check-expiry
-
   test-build-install:
-    if: always() && github.event_name != 'schedule'
-    needs: [unit-build-contracts, installed-cache-quarantine]
+    if: always()
+    needs: [unit-build-contracts, installed-cache-contract]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - name: Require both strict gates and the explicitly reported quarantine result
+      - name: Require runtime and strict installed-cache coverage
         env:
           STRICT_RESULT: ${{ needs.unit-build-contracts.result }}
-          QUARANTINE_RESULT: ${{ needs.installed-cache-quarantine.result }}
+          INSTALLED_CACHE_RESULT: ${{ needs.installed-cache-contract.result }}
         run: |
           test "$STRICT_RESULT" = success
-          test "$QUARANTINE_RESULT" = success
-          echo 'Gate complete; inspect TM-111 quarantine coverage result before claiming installed-cache acceptance.' >> "$GITHUB_STEP_SUMMARY"
+          test "$INSTALLED_CACHE_RESULT" = success
+          echo 'Runtime contracts and the strict installed-cache contract passed. Exact installed-cache coverage and raw output are attached.' >> "$GITHUB_STEP_SUMMARY"

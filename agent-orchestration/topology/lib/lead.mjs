@@ -39,6 +39,7 @@ import { dirname, join } from "node:path";
 import { agentDirs, createAgent, findLead, requireAgent } from "./agents.mjs";
 import { findTemplate, loadConfig } from "./config.mjs";
 import { displayName } from "./identity.mjs";
+import { incarnationOf, sameIncarnation } from "./incarnation.mjs";
 import { composerFormat, LATE_ACK_GRACE_MS, wakeForProbe } from "./delivery.mjs";
 import { openRoleSession, roleSessionName, tmuxFailureTrigger } from "./launch.mjs";
 import { withLock } from "./lockfile.mjs";
@@ -112,8 +113,10 @@ async function defaultPane(record) {
  * pointer naming the ack command, and wait for the ack file. A send failure or a timeout both mean
  * "unresponsive" — they never mean "dead", so nothing here kills anything.
  */
-async function defaultResponsive(record, ackTimeoutMs, { registryDir, log = () => {} }) {
-  if (!record?.pane) return false;
+async function defaultResponsive(record, ackTimeoutMs, { registryDir, log = () => {}, alive = defaultAlive, wake = wakeLead, assignment = false, readOnly = false }) {
+  const binding = incarnationOf(record?.binding);
+  const current = async () => sameIncarnation(binding, record?.binding) && await alive(record) && sameIncarnation(binding, record?.binding);
+  if (!record?.pane || !binding || !await current()) return false;
   const dir = join(registryDir, "probes");
   // TM-157. A PROOF THAT COST A MODEL TURN IS WORTH KEEPING. Every call used to mint a new nonce
   // and demand a fresh answer, so `role status` twice in a minute cost two turns, and a governed
@@ -125,13 +128,13 @@ async function defaultResponsive(record, ackTimeoutMs, { registryDir, log = () =
   // the six-tuple, so a respawned pane invalidates it, and `alive` is checked separately on every
   // call — this caches "it answered", never "it is up".
   const cached = await recentAck(dir, record);
-  if (cached) { log(`lead answered ${cached.age_ms}ms ago; proof reused`); return true; }
+  if (cached && await current()) { log(`lead answered ${cached.age_ms}ms ago; proof reused`); return true; }
   // TM-161. AN ANSWER THAT ARRIVED AFTER WE STOPPED WAITING IS STILL AN ANSWER. Before minting a
   // new nonce, look for an ack against a probe still inside its own expiry — that is a lead which
   // was MID-TURN when the last ring landed, read it at its next boundary, and ran the command
   // correctly and promptly. It is the normal case for a working agent, and it used to be discarded.
-  const late = await lateAck(dir, record, log);
-  if (late) { await rememberAck(dir, record); log(`lead acknowledged probe ${late} after the previous wait returned`); return true; }
+  const late = await lateAck(dir, record, log, { readOnly });
+  if (late && await current()) { if (!readOnly) await rememberAck(dir, record); log(`lead acknowledged probe ${late} after the previous wait returned`); return true; }
   // TM-161. `ackTimeoutMs <= 0` means READ ONLY: answer from proof already on disk, mint nothing.
   //
   // A fast readiness SCREEN — `startupCheck`, which runs on a SessionStart hook for every Claude
@@ -143,27 +146,28 @@ async function defaultResponsive(record, ackTimeoutMs, { registryDir, log = () =
   // that never intended to wait.
   //
   // So a screen asks; it does not interrogate. Not proven is an honest answer for it to give.
-  if (!(ackTimeoutMs > 0)) { log("readiness screen: cached proof only, no probe minted"); return false; }
+  if (readOnly || !(ackTimeoutMs > 0)) { log("readiness screen: cached proof only, no probe minted"); return false; }
   const nonce = randomUUID();
   const probePath = join(dir, `${nonce}.json`);
   const ackPath = join(dir, `${nonce}.ack.json`);
   // TM-187: the probe outlives the wait by LATE_ACK_GRACE_MS. These two numbers were the same, which
   // is what made the line below ("the probe now OUTLIVES this wait") a claim the code denied.
-  await writeJson(probePath, { nonce, repo_id: record.repo_id, agent_id: record.agent_id, expires_at: Date.now() + ackTimeoutMs + LATE_ACK_GRACE_MS, waited_until: Date.now() + ackTimeoutMs, created_at: nowIso() });
+  await writeJson(probePath, { nonce, repo_id: record.repo_id, agent_id: record.agent_id, session: record.session, binding, purpose: assignment ? "assignment" : "readiness", expires_at: Date.now() + ackTimeoutMs + LATE_ACK_GRACE_MS, waited_until: Date.now() + ackTimeoutMs, created_at: nowIso() });
   // TM-157. The line above used to be the whole mechanism, under a comment claiming this function
   // "rings the pane with a pointer naming the ack command". It did not — and a pollable file is no
   // mechanism at all for an IDLE lead, which has no next safe boundary at which to poll. So ring
   // it, under the bell's rules, and keep the file as the fallback for a lead that is mid-turn:
   // a busy, moved, dead or modal pane gets nothing typed into it and answers when it next looks.
-  await wakeLead(record, nonce, { log }).catch(() => {});
+  await wake?.(record, nonce, { log }).catch(() => {});
   // Pollable files never interrupt a composer or active tool input. The enrolled agent reads
   // pending probes at its safe boundary; inability to acknowledge remains unresponsive.
   const deadline = Date.now() + ackTimeoutMs;
   let acked = false;
   while (Date.now() <= deadline) {
+    if (!await current()) break;
     if (await exists(ackPath)) {
       const ack = await readJson(ackPath).catch(() => null);
-      acked = ack?.nonce === nonce && ack?.repo_id === record.repo_id && ack?.agent_id === record.agent_id;
+      acked = ack?.nonce === nonce && ack?.repo_id === record.repo_id && ack?.agent_id === record.agent_id && ack?.session === record.session && sameIncarnation(ack.binding, binding) && await current();
       break;
     }
     await sleep(ACK_POLL_MS);
@@ -173,7 +177,11 @@ async function defaultResponsive(record, ackTimeoutMs, { registryDir, log = () =
   // the file was already gone, and TOPOLOGY_LEAD_PROBE_UNKNOWN came back — a correct, prompt answer
   // refused. `expires_at` is still the line, and `leadNonceAck` still enforces it, so accepting a
   // LATE ack never becomes accepting a STALE one. Expired probes are swept on the next pass.
-  if (acked) { await rm(probePath, { force: true }); await rm(ackPath, { force: true }); await rememberAck(dir, record); }
+  if (acked) {
+    await rm(probePath, { force: true }); await rm(ackPath, { force: true });
+    acked = await current();
+    if (acked) await rememberAck(dir, record);
+  }
   else await sweepExpired(dir, log);
   log(acked ? `lead acknowledged probe ${nonce}` : `lead probe ${nonce} timed out after ${ackTimeoutMs}ms`);
   return acked;
@@ -188,7 +196,7 @@ export async function lateAckForTest(dir, record, log = () => {}) { return lateA
 /** The real probe-minting path, so a test can assert which files survive the wait. */
 export async function responsiveForTest(record, ackTimeoutMs, opts) { return defaultResponsive(record, ackTimeoutMs, opts); }
 
-async function lateAck(dir, record, log = () => {}) {
+async function lateAck(dir, record, log = () => {}, { readOnly = false } = {}) {
   for (const name of await readdir(dir).catch(() => [])) {
     if (!name.endsWith(".ack.json")) continue;
     const nonce = name.slice(0, -".ack.json".length);
@@ -197,15 +205,16 @@ async function lateAck(dir, record, log = () => {}) {
     const mine = ack?.agent_id === record.agent_id && ack?.repo_id === record.repo_id && ack?.nonce === nonce;
     if (!mine) continue;
     // The probe's own expiry is the line, exactly as `leadNonceAck` enforces it at write time.
-    if (probe && Number(probe.expires_at) >= Date.now()) {
-      await Promise.all([rm(join(dir, `${nonce}.json`), { force: true }), rm(join(dir, name), { force: true })]);
+    const bound = probe?.nonce === nonce && probe.repo_id === record.repo_id && probe.agent_id === record.agent_id && probe.session === record.session && ack.session === record.session && sameIncarnation(probe.binding, record.binding) && sameIncarnation(ack.binding, record.binding);
+    if (bound && Number(probe.expires_at) >= Date.now()) {
+      if (!readOnly) await Promise.all([rm(join(dir, `${nonce}.json`), { force: true }), rm(join(dir, name), { force: true })]);
       return nonce;
     }
     // TM-187. Discarding is right — with the probe expired or swept, timeliness cannot be proven —
     // but a SILENT discard is indistinguishable from a lead that never answered, and that is the
     // reading that put a responsive lead on the board as `unresponsive`. Say which, and say why.
-    log(`discarded ack for probe ${nonce}: ${probe ? "the probe had expired" : "the probe was already swept"} — not proof of a timely answer`);
-    await Promise.all([rm(join(dir, `${nonce}.json`), { force: true }), rm(join(dir, name), { force: true })]);
+    log(`${readOnly ? "ignored" : "discarded"} ack for probe ${nonce}: ${!probe ? "the probe was already swept" : !bound ? "the probe or acknowledgement names another or unrecorded incarnation" : "the probe had expired"} — not proof of a timely answer`);
+    if (!readOnly) await Promise.all([rm(join(dir, `${nonce}.json`), { force: true }), rm(join(dir, name), { force: true })]);
   }
   return null;
 }
@@ -235,12 +244,12 @@ async function recentAck(dir, record) {
   if (!(age >= 0 && age < RESPONSIVE_TTL_MS)) return null;
   // The proof belongs to an INCARNATION, not to an agent id. A pane that has been respawned since
   // is a different process wearing the same name, and it has proven nothing.
-  const same = JSON.stringify(memo.binding ?? null) === JSON.stringify(record.binding ?? null);
+  const same = memo.agent_id === record.agent_id && memo.repo_id === record.repo_id && memo.session === record.session && sameIncarnation(memo.binding, record.binding);
   return same ? { age_ms: age } : null;
 }
 
 async function rememberAck(dir, record) {
-  await writeJson(ackMemoPath(dir, record), { at: Date.now(), agent_id: record.agent_id, binding: record.binding ?? null }).catch(() => {});
+  await writeJson(ackMemoPath(dir, record), { at: Date.now(), agent_id: record.agent_id, repo_id: record.repo_id, session: record.session, binding: incarnationOf(record.binding) }).catch(() => {});
 }
 
 /**
@@ -263,9 +272,10 @@ async function wakeLead(record, nonce, { log = () => {} } = {}) {
 }
 
 function resolveProbes(probes, { registryDir, log }) {
+  const alive = probes?.alive ?? defaultAlive;
   return {
-    alive: probes?.alive ?? defaultAlive,
-    responsive: probes?.responsive ?? ((record, ackTimeoutMs) => defaultResponsive(record, ackTimeoutMs, { registryDir, log })),
+    alive,
+    responsive: probes?.responsive ?? ((record, ackTimeoutMs, options = {}) => defaultResponsive(record, ackTimeoutMs, { registryDir, log, alive, assignment: options.assignment === true, readOnly: options.readOnly === true })),
     open: probes?.open ?? ((args) => openRoleSession(args)),
     pane: probes?.pane ?? defaultPane,
     kill: probes?.kill ?? (async (record) => {
@@ -289,7 +299,7 @@ function resolveProbes(probes, { registryDir, log }) {
  * store problem that ensureLead must fail loudly on — not a fifth state callers would have to
  * guess at.
  */
-export async function leadState({ consumer, home = homedir(), env = process.env, pluginRoot = null, ackTimeoutMs = DEFAULT_ACK_TIMEOUT_MS, probes = null, log = () => {} }) {
+export async function leadState({ consumer, home = homedir(), env = process.env, pluginRoot = null, ackTimeoutMs = DEFAULT_ACK_TIMEOUT_MS, probes = null, log = () => {}, readOnly = false }) {
   const identity = await canonicalRepoId(consumer);
   const registration = await readLeadRegistration({ consumer, env, home });
   const libraryLead = await findLead(agentDirs({ pluginRoot, consumer, home }));
@@ -300,7 +310,7 @@ export async function leadState({ consumer, home = homedir(), env = process.env,
   if (!(await p.alive(record))) {
     status = "registered";
   } else {
-    status = (await p.responsive(record, ackTimeoutMs)) ? "responsive" : "unresponsive";
+    status = (await p.responsive(record, ackTimeoutMs, { readOnly })) ? "responsive" : "unresponsive";
   }
   return { identity, record, status, library_lead: libraryLead?.id ?? null };
 }
@@ -377,13 +387,12 @@ async function openLeadSession({ agent, consumer, pluginRoot, home, env, log, op
     adapter,
     argv,
     env: {
+      ...agent.env,
       AO_AGENT_ID: agent.id,
       AO_AGENT_ROLE: agent.role,
       AO_SESSION: session,
       AO_CONSUMER: consumer,
       AO_LEAD_ID: agent.id,
-      ...agent.env,
-      AO_AGENT_ID: agent.id, AO_LEAD_ID: agent.id, AO_CONSUMER: consumer,
     },
     role: agent.role,
     log,
@@ -503,20 +512,28 @@ export async function assignLead({ consumer, agentRef, session: existingSession 
     const session = existingSession || roleSessionName(agent.id);
     const previous = (await exists(recordPath)) ? await readJson(recordPath) : null;
     invariant(!previous || previous.agent_id === agent.id, "TOPOLOGY_LEAD_ALREADY_ASSIGNED", "Detach the existing lead before assigning a different identity.");
-    const candidate = { session, pane: null, agent_id: agent.id, repo_id: identity.id };
+    const candidate = { session, pane: null, agent_id: agent.id, repo_id: identity.id, consumer, provider: agent.cli ?? null };
+    const recorded = await readJson(join(agent._dir, "session.json")).catch(() => null);
+    const recordedServer = recorded?.session === session ? recorded.binding?.serverKey : undefined;
+    let binding;
+    if (probes?.binding) binding = incarnationOf(await probes.binding(candidate));
+    else {
+      const panes = (await tmux.listServerPanes({ session, env, ...(recordedServer ? { tmuxServer: recordedServer } : {}) })).filter(pane => pane.sessionName === session && pane.alive !== false);
+      invariant(panes.length <= 1, "TOPOLOGY_LEAD_PANE_AMBIGUOUS", "Session has multiple live panes; enrollment needs an unambiguous agent session.");
+      binding = incarnationOf(panes[0]);
+    }
+    invariant(binding, "TOPOLOGY_LEAD_BINDING_REQUIRED", "Assignment needs exact observed session binding.");
+    candidate.binding = { ...binding };
+    const pane = candidate.pane = binding.paneId;
     invariant(
       await p.alive(candidate),
       "TOPOLOGY_LEAD_NOT_ALIVE",
       `${displayName(agent)} has no live session (${session}). Assignment is a handshake with a RUNNING session — open one first; enrollment never spawns it for you.`,
       { agent_id: agent.id, session },
     );
-    const pane = await p.pane(candidate);
     const otherLead = await findLead(agentDirs({ pluginRoot, consumer, home }));
     invariant(!otherLead || otherLead.id === agent.id, "TOPOLOGY_MULTIPLE_LEADS", "Another library lead exists; reconcile it before promotion.");
-    const binding = probes?.binding ? await probes.binding(candidate) : (await tmux.listServerPanes({ session, env })).find(p => p.paneId === pane && p.sessionName === session) || null;
-    invariant(probes || binding, "TOPOLOGY_LEAD_BINDING_REQUIRED", "Assignment needs exact observed session binding.");
-    candidate.pane = pane;
-    invariant(await p.responsive(candidate, ackTimeoutMs), "TOPOLOGY_LEAD_HANDSHAKE_REQUIRED", "Assignment requires an acknowledged nonce handshake; the existing session was preserved.");
+    invariant(sameIncarnation(candidate.binding, binding) && await p.responsive(candidate, ackTimeoutMs, { assignment: true }) && sameIncarnation(candidate.binding, binding) && await p.alive(candidate) && sameIncarnation(candidate.binding, binding), "TOPOLOGY_LEAD_HANDSHAKE_REQUIRED", "Assignment requires an acknowledged nonce handshake at the unchanged live incarnation; the existing session was preserved.");
     const now = nowIso();
     const record = {
       version: RECORD_VERSION,
@@ -576,7 +593,7 @@ export async function detachLead({ consumer, env = process.env, home = homedir()
  * probe file must exist — acknowledging a probe nobody asked about is almost certainly a mistyped
  * nonce, and saying so beats silently writing a file nothing will ever read.
  */
-export async function leadNonceAck({ consumer, nonce, env = process.env, home = homedir() }) {
+export async function leadNonceAck({ consumer, nonce, env = process.env, home = homedir(), alive = defaultAlive }) {
   invariant(
     NONCE_PATTERN.test(String(nonce ?? "")),
     "TOPOLOGY_LEAD_PROBE_INVALID",
@@ -592,17 +609,24 @@ export async function leadNonceAck({ consumer, nonce, env = process.env, home = 
     { nonce },
   );
   const probe = await readJson(probePath);
-  invariant(probe.repo_id === identity.id && probe.agent_id === env.AO_AGENT_ID && probe.expires_at >= Date.now(), "TOPOLOGY_LEAD_PROBE_OWNER", "Probe must be acknowledged by its enrolled agent in the same repository before expiry.");
+  const registration = await readLeadRegistration({ consumer, env, home });
+  // assignLead proves its candidate before registering it. Only its host-authored
+  // assignment challenge may name an as-yet-unregistered, exactly observed target.
+  const record = probe.purpose === "assignment"
+    ? { repo_id: probe.repo_id, agent_id: probe.agent_id, session: probe.session, pane: probe.binding?.paneId, binding: incarnationOf(probe.binding) }
+    : registration?.record;
+  invariant(record && probe.nonce === nonce && probe.repo_id === identity.id && record.repo_id === identity.id && probe.agent_id === env.AO_AGENT_ID && record.agent_id === env.AO_AGENT_ID && probe.session === record.session && sameIncarnation(probe.binding, record.binding) && probe.expires_at >= Date.now() && await alive(record) && sameIncarnation(probe.binding, record.binding), "TOPOLOGY_LEAD_PROBE_OWNER", "Probe must be acknowledged by its designated agent at the current exact incarnation in the same repository before expiry.");
   const ackPath = join(dir, `${nonce}.ack.json`);
-  await writeJson(ackPath, { nonce, repo_id: identity.id, agent_id: env.AO_AGENT_ID, created_at: nowIso() });
+  await writeJson(ackPath, { nonce, repo_id: identity.id, agent_id: env.AO_AGENT_ID, session: record.session, binding: incarnationOf(record.binding), created_at: nowIso() });
   return { ok: true, ack_path: ackPath };
 }
 
 /** Only metadata for this repository's agent; no terminal input is sent by probes. */
 export async function pendingLeadProbes({ consumer, env = process.env, home = homedir() }) {
   const identity = await canonicalRepoId(consumer);
+  const registration = await readLeadRegistration({ consumer, env, home });
   const dir = join(leadRegistryDir(env, home), 'probes');
   const files = await readdir(dir).catch(() => []);
   const probes = await Promise.all(files.filter(name => name.endsWith('.json') && !name.endsWith('.ack.json')).map(name => readJson(join(dir,name)).catch(() => null)));
-  return probes.filter(p => p && p.repo_id === identity.id && p.agent_id === env.AO_AGENT_ID && p.expires_at >= Date.now());
+  return probes.filter(p => p && p.repo_id === identity.id && p.agent_id === env.AO_AGENT_ID && p.expires_at >= Date.now() && incarnationOf(p.binding) && (p.purpose === "assignment" || registration?.record?.agent_id === p.agent_id && registration.record.session === p.session && sameIncarnation(registration.record.binding, p.binding)));
 }

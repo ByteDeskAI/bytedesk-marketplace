@@ -3,7 +3,8 @@
 The topology layer is the second runtime in this plugin. The MCP broker (`dist/mcp.cjs`) runs
 provider turns headless inside a sandbox and returns structured results; the topology layer runs
 visible, interactive agent CLIs in tmux panes and lets one of them conduct the others. They share
-vocabulary (roles, stages, a JSONL journal) and nothing else: no sandbox, no ACP, no catalog lock.
+vocabulary and a versioned explicit-workflow discovery index. Their native snapshots, journals,
+permissions and execution remain separate: the topology layer does not inherit the ACP sandbox.
 
 Use the broker for untrusted, autonomous, writable work against product repositories. Use the
 topology layer when a human wants to watch and steer a team in real time — design tournaments,
@@ -26,7 +27,7 @@ boundary.
 ## A run on disk
 
 ```
-<consumer>/.bytedesk/agent-orchestration/runs/<run_id>/
+<stateRoot>/repositories/<canonical-repo-key>/topology/runs/<run_id>/
   run.json              materialized spec + pane ids + state + message sequence
   journal.jsonl         append-only events: run.created, agent.started, message.sent, message.replied, wait.*, agent.nudged, run.stopped
   artifacts/            shared deliverables; conductor/ holds briefs, decisions, GATE-*.md, REPORT.md
@@ -37,12 +38,35 @@ boundary.
     outbox/NNN-<stage>.reply.md
 ```
 
-The runs directory ignores itself: a `.gitignore` containing `*` is written into
-`.bytedesk/agent-orchestration/runs/` the first time a run is created there. That matters because
-`.bytedesk/` is a tree these repositories deliberately commit — task-management's store is tracked —
-so without it every mailbox file and launcher script would land in a diff, in a repository that
-adopted orchestration after its `.gitignore` was written. Promotion of anything into a canonical
-tree is a human step the conductor recommends in `REPORT.md`.
+`stateRoot` is `AGENT_ORCHESTRATION_STATE_HOME`, or
+`${XDG_STATE_HOME:-~/.local/state}/bytedesk/agent-orchestration`. The repository key is the first
+16 hex characters of SHA-256 of the canonical Git common-directory path. Linked worktrees share
+this durable control location. `run.json` separately records `consumer`, `workload_cwd`, and
+`write_authority`; provider directory grants keep those original limits. A requested spec
+`run_dir` is retained as migration metadata; the producer chooses durable storage at launch.
+The producer selects that location before rendering template variables. The native record keeps
+the original recipe, resolved roster definitions, inputs and instruction-file source. Retry
+renders these retained sources for its new run ID and path; literal task prose is not rewritten.
+Legacy attempts without that recipe hold retry with `TOPOLOGY_RETRY_UNAVAILABLE`. Their evidence
+remains available, and a reviewed saved workflow can start a separate attempt.
+The existing `run.json` and `journal.jsonl` formats remain authoritative. Admitted failed launches
+also retain a record, error code, and whether session creation was attempted.
+
+`ao-topology console list --consumer <repo> --json` reconciles the shared discovery index. It
+includes ACP runs and named topology workflows, including generated task workflows. Standing
+lead/reviewer services and standalone terminals do not contribute workflow rows or counts.
+Native run directories and legacy records in the main checkout and registered linked worktrees
+are discovered; corrupt or foreign records produce separate `rejected` diagnostics. Unchanged
+record contents are cached; changes to a journal also advance the index revision.
+
+Before Task Management removes an owned worktree, run
+`ao-topology console preserve --consumer <repo> --worktree <owned-worktree> --json` and require
+`ok: true`. Terminal legacy records are copied to durable storage with an exact original tree in
+`legacy-evidence/` and a SHA-256 file manifest in `preservation.json`. The active native record
+receives canonical metadata, so it remains discoverable after the source worktree is removed.
+The preservation step rejects active or uncertain runs, symlinks, changed copies, and conflicting
+history. It never deletes the worktree or evidence. Retention is the default; do not infer missing
+native history from transcripts.
 
 All five per-repo resource types — workflows, skills, roles, providers and agents — resolve from
 `<repo>/.bytedesk/agent-orchestration/<kind>/`, with `<repo>/.orchestration/<kind>/` read as a
@@ -175,10 +199,15 @@ The whole arrangement is exercised end to end against two real repositories by
 The agents' own permission prompts are this layer's safety boundary, so two things are guarded
 around them:
 
-- **A spec may not launch outside the repository that invoked it.** `cwd` and `run_dir` are
+- **A spec may not expand workload authority outside the repository that invoked it.** `cwd` and the requested `run_dir` are
   contained to the consumer; `/`, `~` and `../../other-repo` are refused. A spec is data, often
   committed data, so a path it supplies is untrusted input. `--allow-outside` is the deliberate
   exception.
+- **Stopping requires the native record.** Session names alone are insufficient. The producer
+  checks the server, session creation, pane and process identities; stops only exact owned panes;
+  and confirms their absence before recording `stopped`. A changed binding or partial child stop
+  returns a failure with retained evidence. Repository lead and reviewer role sessions are outside
+  the run and survive its stop.
 - **`auto_approve` removes the boundary entirely**, so it requires explicit consent:
   `--allow-auto-approve`. Without it a spec requesting it refuses to launch, on the dry-run path
   too, naming the agents affected.
@@ -195,6 +224,12 @@ limit, quota, login, unauthorized…) or whose pane exits is recorded as failed 
 tried in a respawned pane. The first that reaches its idle prompt (or survives its fixed delay)
 gets the bootstrap pointer. `run.json` records the chain and the active index; `status` shows
 `on <provider> [chain: …]`.
+
+Task Management's `worker_guard` binds task identity, branch and ownership hook to every
+candidate. Claude receives that hook regardless of the other providers in the chain. Codex and
+Grok topology candidates remain visibly held where no measured ownership hook exists; the
+producer never launches them without the guard or replaces the current member to test a guess.
+Governed launches also refuse a second live or uncertain writer in the same task worktree.
 
 Mid-run, `ao-topology failover --agent <id>` repeats that walk from the next candidate (or a
 named one with `--to`), re-sends the bootstrap, and re-rings every unanswered inbox message so
@@ -277,6 +312,17 @@ Two rules follow for anyone touching this layer. A ready pattern belongs in the 
 outright. And never set `window-size` globally: this tmux server is shared with every other session
 on the machine.
 
+### Approved automatic failover
+
+Automatic native failover requires both `failover.consent: "auto"` and an ordered
+`failover.approved_providers` list in the repository configuration. For Gateway, use
+`["claude", "codex"]` and Task Management's `dispatch.topologyCandidates: "claude,codex"`.
+The native candidate list must stay within that order. Omit model names to use each CLI's
+configured model. A successful takeover publishes `agent.failover_applied` with the actual
+provider. Task ownership guards remain a separate requirement: guarded Codex candidates hold
+until that provider has measured ownership protection. This setting does not change standing
+lead or reviewer providers.
+
 ## Operating systems
 
 tmux and the file mailbox are the only runtime requirements, so the layer runs wherever tmux
@@ -305,3 +351,83 @@ standing-mailbox and Presence v1 contracts. Supported coding-agent workflow adap
 or reviewer is unavailable. Native and hookless observation remains labeled pending enrollment.
 The standing-mailbox ledger is authoritative for held/external messages; run barriers track its
 pending/reply state. Do not infer satisfaction from the absence of a run inbox file.
+
+## Gateway discovery and control contract
+
+The private producer index is `<stateRoot>/workflow-index/v1/<repo-key>/index.json`:
+
+```json
+{
+  "schemaVersion": 1,
+  "revision": "14",
+  "repository": { "id": "/repo/.git", "key": "sha256-prefix", "root": "/repo" },
+  "updatedAt": "2026-09-22T12:00:00Z",
+  "workflows": [{
+    "workflowId": "topology:20260922-example",
+    "runtime": "topology",
+    "nativeRunId": "20260922-example",
+    "repositoryId": "/repo/.git",
+    "repositoryRoot": "/repo",
+    "workflowName": "tm-TM-123",
+    "taskId": "TM-123",
+    "lineage": { "parentWorkflowId": null, "retryOfWorkflowId": null, "rootWorkflowId": "topology:20260922-example" },
+    "recordPath": "/state/repositories/key/topology/runs/20260922-example/run.json",
+    "recordFormat": "topology.run.v1",
+    "workloadCwd": "/worktrees/TM-123",
+    "writeAuthority": { "worktree": "/worktrees/TM-123", "branch": "task/TM-123" },
+    "state": "running",
+    "createdAt": "2026-09-22T11:00:00Z",
+    "updatedAt": "2026-09-22T12:00:00Z",
+    "revision": "4"
+  }],
+  "rejected": []
+}
+```
+
+ACP rows use `runtime: "acp"`, `workflowId: "acp:<native run ID>"` and
+`recordFormat: "acp.snapshot.v1"`. Existing ACP URLs retain their native run ID. Revisions are
+decimal strings. The index is discovery metadata, never permission to control an arbitrary path.
+`nativeRevision`, `journalRevision` and `legacySourcePath` are additive diagnostic fields.
+
+The CLI provides `console list`, `console show --workflow-id <id>`, `console workflows`, and
+`console control --request-file <json>`. Each requires explicit `--consumer <absolute-path>`.
+`show` returns `{workflow, run, messages, events, independentReview, inspection}` with bounded message bodies and a safe native
+summary; it excludes launch scripts, environment and reply capabilities. `workflows` returns
+`{schemaVersion:1, workflows:[{name,description,inputs,path}]}`. Launch accepts a saved name from
+that list, then resolves inputs and normal producer admission on the server side.
+`independentReview` is a read-only producer validation of the task's exact reviewed revision,
+request nonce, reviewer incarnation, patch scope and independent authors. Missing or invalid
+evidence is shown as unavailable/waiting with no accepted verdict. It is separate from the run's
+`human_decisions` and does not itself authorize integration.
+`inspection` reports exact observed `sessionAlive`, `observedAt`, `error`, and member `alive`
+values. Unknown ownership uses null liveness and an error. It never rewrites recorded run state.
+
+A control request has this envelope:
+
+```json
+{"schemaVersion":1,"action":"stop","workflowId":"topology:20260922-example","actor":{"id":"authenticated-user","sessionId":"gateway-session"},"idempotencyKey":"unique-request","expectedRevision":"4","payload":{}}
+```
+
+| Action | Payload | Resulting boundary |
+|---|---|---|
+| `launch` | `workflowName`, `inputs` | Saved workflow only; actor session records its initiator. |
+| `message` | `to` member IDs, `body`, optional `stage` | Publication and observed delivery are separate results. |
+| `review` | `decision` (`approve` or `reject`), source `revision`, `note` | Human decision only; independent review and integration remain required. |
+| `failover` | `agentId`, optional `to` candidate | Exact current ownership and each candidate's permission guard apply. |
+| `stop` | `{}` | Confirmed exact termination, retained files, visible partial failures. |
+| `retry` | `{}` | Existing attempt must be stopped/terminal; a new native ID records `retry_of`. |
+
+`expectedRevision` binds the request to the discovery row. Review payload `revision` names the
+exact source commit or artifact revision reviewed; it is a different value. A human approval
+does not become an independent reviewer verdict or authorize integration. Retry preserves the
+saved workload and write authority. ACP controls continue through the ACP producer.
+Nested retries use their original child recipes, and missing child evidence holds instead of
+substituting the current saved template. Provider scratch directories move with the new attempt;
+the workload cwd and checkout authority remain the same.
+
+Mutations record actor and request ID in the journal. Duplicate identical requests return the
+saved result. Reusing a key for different content fails; a request interrupted before recording
+completion remains `TOPOLOGY_CONTROL_UNCERTAIN` until inspected. Success returns
+`{ok,action,workflowId,requestId,revision,result}`. JSON errors return `{ok:false,code,message,details}`
+and exit 1. Failure details from launch include `run_dir`, `run_id`, `state`, `retained` and
+`retry_safe`; session creation uncertainty always makes `retry_safe` false.

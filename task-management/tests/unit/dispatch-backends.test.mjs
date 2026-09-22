@@ -308,7 +308,7 @@ describe("topology backend", () => {
     const spec = JSON.parse(written.find(([file]) => file.endsWith("spec.json"))[1]);
 
     assert.equal("agent" in spec.agents[0], false);
-    assert.equal(spec.agents[0].candidates, "claude");
+    assert.equal(spec.agents[0].candidates, "claude,codex");
     assert.equal(res.detail.agent, null);
   });
 
@@ -341,10 +341,10 @@ describe("topology backend", () => {
       // server that is already running does not hand a new pane the launching process's env.
       assert.equal(spec.agents[0].env?.[k], v, `the spec agent's env carries ${k} — the only env the pane exports`);
     }
-    const args = spec.agents[0].args ?? [];
-    const at = args.indexOf("--settings");
-    assert.ok(at >= 0, `the inline claude chain carries the guard: ${JSON.stringify(args)}`);
-    assert.equal(JSON.parse(args[at + 1]).hooks.PreToolUse[0].matcher, "Bash");
+    assert.equal(spec.worker_guard.task_id, "TM-001");
+    assert.equal(spec.worker_guard.branch, want.TM_DISPATCH_BRANCH);
+    assert.match(spec.worker_guard.hook, /hooks\/tm-hook\.sh$/);
+    assert.equal(spec.agents[0].args?.includes("--settings") || false, false, "the producer applies each provider's guard independently");
   });
 
   it("the dispatch identity rides the spec env too, not just the launcher's", () => {
@@ -386,16 +386,16 @@ describe("topology backend", () => {
     assert.equal(agent.env.TM_SESSION_ID, request.session, "and which session claimed it");
   });
 
-  it("TM-177: a stored agent keeps its env and args; a chain that is not all claude gets no --settings", () => {
+  it("keeps stored env and args while the producer applies candidate-specific guards", () => {
     const agentOf = (rosterList) => JSON.parse(launch(req(), { rosterList }).written.find(([f]) => f.endsWith("spec.json"))[1]).agents[0];
 
     const claude = agentOf([{ id: "ag-worker", role: "implementer", cli: "claude", env: { FOO: "bar" }, args: ["--verbose"] }]);
     assert.equal(claude.env.FOO, "bar", "an inline env replaces the stored one wholesale in ao-topology, so tm merges");
     assert.equal(claude.env.TM_DISPATCH_WORKER, "1");
-    assert.deepEqual(claude.args.slice(0, 2), ["--verbose", "--settings"], "stored args first, the guard appended");
+    assert.deepEqual(claude.args, ["--verbose"]);
 
     const mixed = agentOf([{ id: "ag-worker", role: "implementer", candidates: ["codex:gpt-5", "claude:fable"], args: ["--x"] }]);
-    assert.equal("args" in mixed, false, "codex would refuse --settings; the stored args stand untouched");
+    assert.deepEqual(mixed.args, ["--x"], "stored arguments stay intact; provider guards are separate");
     assert.equal(mixed.env.TM_DISPATCH_WORKER, "1", "the env still marks the worker");
   });
 

@@ -183,12 +183,12 @@ const probeDir = async () => {
 test("a live probe left with an ack is accepted on the next check, without minting a new nonce", async () => {
   const { leadState } = await import("../../topology/lib/lead.mjs");
   const home = await probeDir();
-  const record = { repo_id: "repo-1", agent_id: "lead0001", session: "ao-lead0001", pane: "%0" };
+  const record = { repo_id: "repo-1", agent_id: "lead0001", session: "ao-lead0001", pane: BINDING.paneId, binding: { ...BINDING } };
   const dir = path(home, "probes");
   const nonce = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
   // A probe still inside its own expiry, and the ack the agent wrote after the previous wait ended.
   await write(path(dir, `${nonce}.json`), JSON.stringify({ nonce, ...record, expires_at: Date.now() + 60_000 }));
-  await write(path(dir, `${nonce}.ack.json`), JSON.stringify({ nonce, repo_id: record.repo_id, agent_id: record.agent_id }));
+  await write(path(dir, `${nonce}.ack.json`), JSON.stringify({ nonce, repo_id: record.repo_id, agent_id: record.agent_id, session: record.session, binding: record.binding }));
 
   const { lateAckForTest } = await import("../../topology/lib/lead.mjs");
   if (typeof lateAckForTest === "function") {
@@ -202,10 +202,10 @@ test("an EXPIRED probe's ack is refused — accepting late must not become accep
   if (typeof lateAckForTest !== "function") return;
   const home = await probeDir();
   const dir = path(home, "probes");
-  const record = { repo_id: "repo-1", agent_id: "lead0001", session: "ao-lead0001", pane: "%0" };
+  const record = { repo_id: "repo-1", agent_id: "lead0001", session: "ao-lead0001", pane: BINDING.paneId, binding: { ...BINDING } };
   const nonce = "11111111-2222-3333-4444-555555555555";
   await write(path(dir, `${nonce}.json`), JSON.stringify({ nonce, ...record, expires_at: Date.now() - 1 }));
-  await write(path(dir, `${nonce}.ack.json`), JSON.stringify({ nonce, repo_id: record.repo_id, agent_id: record.agent_id }));
+  await write(path(dir, `${nonce}.ack.json`), JSON.stringify({ nonce, repo_id: record.repo_id, agent_id: record.agent_id, session: record.session, binding: record.binding }));
 
   assert.equal(await lateAckForTest(dir, record), null, "expires_at is the line, and it still holds");
   assert.deepEqual((await list(dir)).filter(n => n.startsWith(nonce)), [], "the dead probe is swept rather than left to accumulate");
@@ -279,8 +279,17 @@ test("a readiness SCREEN answers from disk and mints nothing", async () => {
   assert.ok(!/ackTimeoutMs\s*:\s*1000/.test(source), "a screen must not mint a probe it cannot wait for");
   assert.match(source, /ackTimeoutMs\s*:\s*0/, "0 is the read-only contract");
 
-  const lead = await readFile(new URL("../../topology/lib/lead.mjs", import.meta.url), "utf8");
-  assert.match(lead, /if \(!\(ackTimeoutMs > 0\)\)/, "and the library has to honour it, or the caller's intent is decorative");
+  const lead = await import("../../topology/lib/lead.mjs");
+  const home = await probeDir();
+  const record = { repo_id: "repo-screen", agent_id: "lead-screen", session: "ao-lead-screen", pane: BINDING.paneId, binding: { ...BINDING } };
+  const ready = await lead.responsiveForTest(record, 0, {
+    registryDir: home,
+    alive: async () => true,
+    wake: async () => assert.fail("a readiness screen must not wake the lead"),
+  });
+  assert.equal(ready, false, "no cached proof means not ready");
+  const { readdir } = await import("node:fs/promises");
+  assert.deepEqual(await readdir(path(home, "probes")).catch(() => []), [], "a readiness screen must not mint a challenge");
 });
 
 // ── TM-187: the probe expired at the same instant the wait gave up ───────────
@@ -300,10 +309,10 @@ test("a probe outlives its own wait, so a lead can still answer at its next turn
   assert.equal(typeof lead.responsiveForTest, "function", "the real minting path has to be reachable, or this test proves nothing");
   const home = await probeDir();
   const dir = path(home, "probes");
-  const record = { repo_id: "repo-1", agent_id: "lead0187", session: "ao-lead0187", pane: "%0", binding: { paneId: "%0" } };
+  const record = { repo_id: "repo-1", agent_id: "lead0187", session: "ao-lead0187", pane: BINDING.paneId, binding: { ...BINDING } };
 
   const before = Date.now();
-  assert.equal(await lead.responsiveForTest(record, 300, { registryDir: home }), false, "nobody acked inside the wait");
+  assert.equal(await lead.responsiveForTest(record, 300, { registryDir: home, alive: async () => true, wake: async () => {} }), false, "nobody acked inside the wait");
   const waited = Date.now() - before;
   assert.ok(waited >= 300, `the wait must actually elapse; it returned after ${waited}ms`);
 
@@ -315,7 +324,7 @@ test("a probe outlives its own wait, so a lead can still answer at its next turn
 
   // The lead answers at its next boundary, exactly as `leadNonceAck` writes it.
   const nonce = left[0].slice(0, -".json".length);
-  await write(path(dir, `${nonce}.ack.json`), JSON.stringify({ nonce, repo_id: record.repo_id, agent_id: record.agent_id }));
+  await write(path(dir, `${nonce}.ack.json`), JSON.stringify({ nonce, repo_id: record.repo_id, agent_id: record.agent_id, session: record.session, binding: record.binding }));
   assert.equal(await lead.lateAckForTest(dir, record), nonce, "and that answer is counted, not discarded");
 });
 

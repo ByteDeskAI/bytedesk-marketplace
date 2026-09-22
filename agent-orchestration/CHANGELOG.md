@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.10.0] — 2026-09-22
+
+### Added
+
+- Publish a versioned index for explicit ACP and topology workflows, with durable native history across linked worktree cleanup.
+- Add producer-owned workflow controls with exact tmux incarnation checks, retained partial failures, idempotent requests, and retry lineage.
+- Report consumer admission, loaded build fingerprints, state roots, role readiness, supervisor heartbeat, and session-host health separately.
+
+### Fixed
+
+- Admit unrelated consumer marketplaces, including Gateway, while rejecting orchestration source, payloads, and aliases.
+- Pin the owning user namespace when attaching Linux sandbox networking, so Bubblewrap's later namespace change cannot race startup. Retain sandbox restrictions and reject a changed network identity.
+- Require a current first heartbeat before reporting a repository supervisor ready; distinguish lifetime contention from nested lock failures and stop only its own watcher.
+- Require current prompt and role acknowledgements before reporting a lead or reviewer ready. Diagnostics inspect existing proof without waking agents or changing their acknowledgement files.
+- Collect restricted reviewer acknowledgements and verdicts without shell access. Bind review requests and evidence to an exact revision, nonce, and reviewer incarnation.
+- Keep governed task completion behind independent review and an explicit integration receipt. Preserve worker scope and hold unsupported fallback candidates before takeover.
+
 ## [Unreleased]
 
 ### Fixed

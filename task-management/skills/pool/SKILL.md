@@ -42,9 +42,12 @@ the store.
 `agentReadiness`, so a task missing its body, criteria or epic — or vetoed by a
 person with `ready-for-human` — is skipped with the reason named.
 
-**If it is paused**, `status` says why: `dispatch.maxFailures` failures in a row
+**If it is paused**, `status` says why: `dispatch.maxFailures` provider or backend failures in a row
 (default 3), or one quota/rate-limit failure. Only a dispatched task reaching
 done resets the count, and only `tm pool resume` clears the pause.
+Task-local holds, dependency mentions and implementation failures do not pause other work.
+With `dispatch.governed: true`, the lead must first admit a task; the pool preserves that
+owner when dispatching it. A missing admission is a visible hold on that task.
 
 **It exits when idle** — no dispatched worker and nothing to pick up for
 `dispatch.idleExitMinutes` (default 60; `0` never). That is not a fault: the next

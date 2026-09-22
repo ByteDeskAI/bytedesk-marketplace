@@ -38,6 +38,7 @@
 import { gatewayActiveTasks } from "./gateway-binding.mjs";
 import { basename } from "node:path";
 import { enforcementOff, gateDone, gateStart, gateTaskCreate, setOverride } from "./enforce.mjs";
+import { readyForReview } from "./governance.mjs";
 import { graphData, mermaid, renderWhy, why } from "./graph.mjs";
 import { poolStatus } from "./dispatch/pool.mjs";
 import { COLUMNS, LABEL, collapseLog, handoff, renderHistory, standup } from "./render.mjs";
@@ -379,6 +380,8 @@ export function handleWrite(method, path, payload = {}, { p = paths() } = {}) {
 
   try {
     switch (action) {
+      case "review-ready":
+        return ok({ id, governance: readyForReview(id, { revision: payload.revision, p }).governance });
       case "transition":
         return transition(task, payload.status, p, payload.reason);
       case "edit":

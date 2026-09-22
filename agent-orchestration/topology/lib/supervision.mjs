@@ -44,12 +44,14 @@ import { createPresenceProducer, collectPresenceAgents } from './presence.mjs';
 import { takeCensus } from './census.mjs';
 import { loadAdapters, providerDirs } from './providers.mjs';
 import { canonicalRepoId, repositoryConsumer, repoKey, stateRoot } from './repoid.mjs';
+import { durableTopologyRoot } from './discovery.mjs';
 import { listServerPanes } from './tmux.mjs';
 import { lockOwner, processIdentity, withLock } from './lockfile.mjs';
 import { listAgents, agentDirs } from './agents.mjs';
-import { refreshPrompt } from './prompt-lifecycle.mjs';
+import { refreshPrompt, collectPromptAcknowledgement } from './prompt-lifecycle.mjs';
 import { resumeStandingMessages } from './standing-mailbox.mjs';
 import { recoverLead } from './lead-recovery.mjs';
+import { collectPendingReviews } from './reviewer.mjs';
 import { notifyGrants, reconcileSlots } from './slots.mjs';
 import { createQuotaWatch, quotaTick } from './quota.mjs';
 import { exists, sleep, writeJson, readJson, run } from './util.mjs';
@@ -86,17 +88,19 @@ function reconcileFloor(env, override) {
   return Number.isFinite(value) && value >= 0 ? value : DEFAULT_RECONCILE_MIN_MS;
 }
 
-export async function superviseRepository(options, { signal, once = false, intervalMs, reconcileMinMs, onTick = () => {}, sleepFn = sleep } = {}) {
+export async function superviseRepository(options, { signal, once = false, intervalMs, reconcileMinMs, onTick = () => {}, onOwned = () => {}, sleepFn = sleep } = {}) {
  const { env=process.env, home=homedir() }=options;
  const consumer=await repositoryConsumer(options.consumer);
  options={...options,consumer};
  const identity=await canonicalRepoId(consumer), root=join(stateRoot(env,home),'supervision');
  const key=repoKey(identity.id);
  const floorMs=reconcileFloor(env,reconcileMinMs);
+ let ownedToken=null;
  // A losing supervisor should give the lock back to the winner immediately rather than idling in
  // the poll loop: on a machine with eight linked worktrees open, seven lose this race every time a
  // session starts, and their only correct move is to exit.
  return withLock(join(root,`${key}.lock`),async ownership=>{
+   ownedToken=ownership.token;
    const recordPath=join(root,`${key}.process.json`);
    if(!once) {
      const prior=await readJson(recordPath).catch(()=>null);
@@ -105,6 +109,7 @@ export async function superviseRepository(options, { signal, once = false, inter
        repo_id:identity.id,consumer,started_at:new Date().toISOString(),restarts,
        log:prior?.log ?? join(root,`${key}.log`),state:'starting',...await sourceIdentity()});
    }
+   await onOwned();
    const producer=await createPresenceProducer(options);
    const controller = new AbortController();
    signal?.addEventListener('abort', () => controller.abort(), {once:true});
@@ -174,26 +179,33 @@ export async function superviseRepository(options, { signal, once = false, inter
        if(!standing) continue;
        // Prompt currency is proof about one exact process, not merely an agent id. Passing no
        // binding here would conservatively invalidate every applied prompt on every reconcile.
-       prompts.push({agent:agent.id,state:await refreshPrompt({...options,agent,live:true,
-         session:standing.session?.sessionName??null,binding:standing.session??null})});
+       const promptOptions={...options,agent,live:true,session:standing.session?.sessionName??null,binding:standing.session??null};
+       let promptState=await refreshPrompt(promptOptions);
+       if(agent.role==='reviewer' && promptState.status==='awaiting-ack') {
+         const ack=await collectPromptAcknowledgement(promptOptions).catch(error=>({collected:false,reason:error.code??error.message}));
+         if(ack.collected) promptState=ack.state;
+         else promptState={...promptState,acknowledgement:ack.reason};
+       }
+       prompts.push({agent:agent.id,state:promptState});
      }
      const listing=await run('git',['-C',consumer,'worktree','list','--porcelain'],{allowFailure:true});
      const roots=new Set([consumer,...listing.stdout.split('\n').filter(line=>line.startsWith('worktree ')).map(line=>line.slice(9))]);
      // Where deaths.tsv lives. Collected at L2's cadence because that is how often it can change.
      const runDirs=[], runDirByAgent=new Map();
-     for(const checkout of roots) {
-       const runsRoot=join(checkout,'.bytedesk/agent-orchestration/runs');
+     const runRoots=new Map([...roots].map(checkout=>[join(checkout,'.bytedesk/agent-orchestration/runs'),checkout]));
+     runRoots.set(durableTopologyRoot({id:identity.id,key},{stateHome:stateRoot(env,home)}),consumer);
+     for(const [runsRoot,checkout] of runRoots) {
        for(const name of await readdir(runsRoot).catch(()=>[])) {
          const runDir=join(runsRoot,name), runRecord=await readJson(join(runDir,'run.json')).catch(()=>null);
+         if(!runRecord || (runRecord.repository?.id ?? (await canonicalRepoId(runRecord.consumer || checkout)).id)!==identity.id) continue;
          runDirs.push(runDir);
-         if(!runRecord || (await canonicalRepoId(runRecord.consumer || checkout)).id!==identity.id) continue;
          for(const entry of runRecord.agents || []) {
            runDirByAgent.set(entry.id,runDir);
            if(!entry.binding || !panes.some(p=>p.alive && ['serverKey','serverPid','sessionId','sessionCreated','paneId','panePid'].every(k=>p[k]===entry.binding[k]))) continue;
            const dir=join(runDir,'agents',entry.id), definition=await readJson(join(dir,'prompt-agent.json')).catch(()=>null);
            if(!definition) continue;
            prompts.push({agent:entry.id,run:runRecord.run_id,state:await refreshPrompt({...options,
-             consumer:runRecord.consumer || checkout,agent:{...definition,_dir:dir},live:true,
+             consumer:await exists(runRecord.consumer || checkout)?runRecord.consumer || checkout:consumer,agent:{...definition,_dir:dir},live:true,
              session:runRecord.session??null,binding:entry.binding??null})});
          }
        }
@@ -217,6 +229,7 @@ export async function superviseRepository(options, { signal, once = false, inter
        mail:resumed.map(m=>({id:m.envelope.id,status:m.status,reason:m.reason})),
        // Only when there is something to say, like slots and quota: a healthy lead adds no key.
        ...(launched || recovery.alert || recovery.woken || recovery.attempts!==0 ? {lead_recovery:recovery} : {})};
+     report.reviews=await collectPendingReviews(options).catch(error=>[{state:'collection-failed',reason:error.code??error.message}]);
      await writeJson(join(root,`${key}.json`),report);
      if(!once) await promoteRecord(join(root,`${key}.process.json`));
      return {report,activity};
@@ -329,12 +342,23 @@ export async function superviseRepository(options, { signal, once = false, inter
        if(degradedBeats) report={...report,presence_beats_degraded:degradedBeats};
        await onTick(report);
        if(once || signal?.aborted) return report;
-       await sleepFn(sleepMs);
+       if(sleepFn===sleep) await delay(sleepMs,undefined,{signal:controller.signal}).catch(error=>{if(error.name!=='AbortError')throw error;});
+       else await sleepFn(sleepMs);
      } while(!signal?.aborted && !controller.signal.aborted);
      if(heartbeatError) throw heartbeatError;
      return report;
    } finally { controller.abort(); quotaWatch.close(); await heartbeat; }
- },{timeoutMs:100});
+ },{timeoutMs:100,timeoutCode:'TOPOLOGY_SUPERVISION_OWNED'}).catch(async error=>{
+   // A nested lock error is a real failure, not a competing supervisor. Only
+   // update this exact owner's record; a losing process never overwrites it.
+   if(!once && ownedToken) {
+     const path=join(root,`${key}.process.json`),record=await readJson(path).catch(()=>null);
+     if(record?.pid===process.pid && record.lock_token===ownedToken) {
+       await writeJson(path,{...record,state:record.first_tick_at?'failed':'startup-failed',stopped_at:new Date().toISOString(),failure:{code:error.code??'SUPERVISOR_FAILED',message:String(error.message).slice(0,2000)}});
+     }
+   }
+   throw error;
+ });
 }
 
 /**
@@ -387,7 +411,8 @@ export async function supervisionStatus({consumer,env=process.env,home=homedir()
   // and a record naming a directory that is gone can never be reclaimed by a restart. It is debris,
   // and saying so is what stops it making the next diagnosis harder.
   const consumerExists=record?.consumer ? await exists(record.consumer) : true;
-   const state = ownerAlive ? (recordOwns ? 'running' : 'ownership-record-mismatch')
+   const currentTick=Boolean(recordOwns && record.first_tick_at && tick?.pid===record.pid && Number.isFinite(at) && at>=Date.parse(record.started_at));
+   const state = ownerAlive ? (recordOwns ? (currentTick ? 'running' : 'starting') : 'ownership-record-mismatch')
     : !record ? 'never-started'
     : alive ? 'running-without-lock'
     // A supervisor that noticed its repository was gone and stopped did the right thing; only an
@@ -396,7 +421,7 @@ export async function supervisionStatus({consumer,env=process.env,home=homedir()
     : !consumerExists ? 'orphaned'
     // `starting` on a dead pid means it never reached its first tick — a startup crash, not a
     // long-running supervisor that later fell over. The log holds the reason.
-    : record.state === 'starting' ? 'died-before-first-tick'
+    : ['starting','startup-failed'].includes(record.state) ? 'died-before-first-tick'
     : 'down';
   return {
     repo_id:identity.id, key, state,
@@ -408,6 +433,8 @@ export async function supervisionStatus({consumer,env=process.env,home=homedir()
     started_at:record?.started_at ?? null, first_tick_at:record?.first_tick_at ?? null, stopped_at:record?.stopped_at ?? null,
     source_entrypoint:record?.source_entrypoint ?? null, source_fingerprint:record?.source_fingerprint ?? null,
     restarts:record?.restarts ?? 0,
+    ready:state==='running' && Number.isFinite(at) && Date.now()-at<=Math.max(30_000,3*(tick?.reconcile_min_ms??reconcileFloor(env))),
+    failure:record?.failure??null,
     log:record?.log ?? join(root,`${key}.log`),
     last_tick_at:tick?.at ?? null, tick_age_ms:Number.isFinite(at) ? Date.now()-at : null,
     reconcile_min_ms:tick?.reconcile_min_ms ?? reconcileFloor(env),
@@ -424,7 +451,10 @@ export async function startRepositorySupervision(options) {
  const root=join(stateRoot(env,home),'supervision'), recordPath=join(root,`${key}.process.json`), logPath=join(root,`${key}.log`);
  return withLock(join(root,`${key}.start.lock`),async()=>{
    const owner=await lockOwner(join(root,`${key}.lock`));
-   if(owner?.pid && await processIdentity(owner.pid)===owner.process_identity) return {...owner,consumer,repo_id:identity.id,state:'running'};
+   if(owner?.pid && await processIdentity(owner.pid)===owner.process_identity) {
+     const status=await supervisionStatus({consumer,env,home});
+     return {...await readJson(recordPath).catch(()=>owner),consumer,repo_id:identity.id,state:status.state,ready:status.ready};
+   }
    const prior=await readJson(recordPath).catch(error=>{if(error.code==='ENOENT')return null;throw error;});
    const cli=fileURLToPath(new URL('../cli.mjs',import.meta.url));
    // stdio:'ignore' loses the one thing you need when a supervisor dies: why. Both streams append
@@ -447,13 +477,18 @@ export async function startRepositorySupervision(options) {
        const winner=await lockOwner(join(root,`${key}.lock`));
        if(winner?.pid && await processIdentity(winner.pid)===winner.process_identity) {
          const published=await readJson(recordPath).catch(()=>null);
-         if(published?.pid===winner.pid) return published;
-         if(winner.pid!==child.pid) return {...winner,consumer,repo_id:identity.id,state:'running'};
+         const status=await supervisionStatus({consumer,env,home});
+         if(published?.pid===winner.pid && status.ready) return {...published,state:'running',first_tick_at:status.first_tick_at,ready:true};
        }
        if(!pidAlive(child.pid)) break;
        await sleep(Math.min(25,Math.max(1,deadline-Date.now())));
      }
-     return record;
+     const published=await readJson(recordPath).catch(()=>null);
+     if(published?.pid===child.pid) return {...published,ready:false};
+     const failure={...record,ready:false,state:pidAlive(child.pid)?'spawned-awaiting-lock':'died-before-first-tick'};
+     // Keep failed-launch evidence without overwriting a winner's process record.
+     await writeJson(join(root,`${key}.startup-${child.pid}.json`),failure);
+     return failure;
    } finally { await log.close(); }
  });
 }

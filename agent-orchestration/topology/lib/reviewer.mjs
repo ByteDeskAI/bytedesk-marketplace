@@ -29,7 +29,7 @@
 // merge gate in manage.mjs decides. An approving review is evidence, not a permission, and nothing
 // here merges, pushes, or deletes anything.
 import { createHash, randomUUID } from "node:crypto";
-import { readdir, readFile, rm, mkdir } from "node:fs/promises";
+import { readdir, readFile, rm, mkdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { agentDirs, createAgent, findLead, requireAgent, resolveAgentRef } from "./agents.mjs";
@@ -39,7 +39,8 @@ import { composerFormat, LATE_ACK_GRACE_MS, wakeForProbe } from "./delivery.mjs"
 import { openRoleSession, roleSessionName, tmuxFailureTrigger } from "./launch.mjs";
 import { withLock } from "./lockfile.mjs";
 import { composePrompt, promptErrorDetail } from "./prompts.mjs";
-import { refreshPrompt } from "./prompt-lifecycle.mjs";
+import { refreshPrompt, protocolOutputLine } from "./prompt-lifecycle.mjs";
+import { incarnationOf, sameIncarnation } from "./incarnation.mjs";
 import { adapterFor, buildArgv, loadAdapters, providerDirs } from "./providers.mjs";
 import { canonicalRepoId, repoKey, stateRoot } from "./repoid.mjs";
 import * as tmux from "./tmux.mjs";
@@ -172,8 +173,8 @@ async function bindingAlive(record) {
 }
 async function reviewerOutput(record) {
   if (!await bindingAlive(record)) return "";
-  const result = await run("tmux", ["-S", record.binding.serverKey, "capture-pane", "-p", "-t", record.binding.paneId, "-S", "-80"], { allowFailure: true });
-  return result.code === 0 ? result.stdout : "";
+  const result = await run("tmux", ["-S", record.binding.serverKey, "capture-pane", "-p", "-J", "-t", record.binding.paneId, "-S", "-160"], { allowFailure: true });
+  return result.code === 0 && await bindingAlive(record) ? result.stdout : "";
 }
 
 const defaultProbes = () => ({ alive: (_session, record) => bindingAlive(record), open: defaultOpen });
@@ -196,8 +197,8 @@ const defaultProbes = () => ({ alive: (_session, record) => bindingAlive(record)
 export const PROBE_TIMEOUT_MS = Number(process.env.AO_PROBE_TIMEOUT_MS ?? 20_000);
 export const PROBE_POLL_MS = Number(process.env.AO_PROBE_POLL_MS ?? 500);
 
-export async function reviewerProbeReady({ consumer, record, env = process.env, home = homedir(), timeoutMs = PROBE_TIMEOUT_MS, onProbe = null, output = reviewerOutput, wake = defaultWake, adapters = null }) {
-  if (!record?.agent_id) return false;
+export async function reviewerProbeReady({ consumer, record, env = process.env, home = homedir(), timeoutMs = PROBE_TIMEOUT_MS, onProbe = null, output = reviewerOutput, wake = defaultWake, adapters = null, alive = bindingAlive, readOnly = false }) {
+  if (!record?.agent_id || !incarnationOf(record.binding) || !await alive(record)) return false;
   const dir = join(await reviewerInboxRoot(consumer, env, home), "probes");
   // TM-157: an ack that cost a model turn is kept. See the same block in lead.mjs for why — a
   // governed launch needs BOTH roles responsive in one call, and two independent model turns do not
@@ -212,15 +213,16 @@ export async function reviewerProbeReady({ consumer, record, env = process.env, 
     const stale = name.slice(0, -".ack.json".length);
     const pending = await readJson(join(dir, `${stale}.json`)).catch(() => null);
     const ack = await readJson(join(dir, name)).catch(() => null);
-    const mine = ack?.agent_id === record.agent_id && ack?.repo_id === record.repo_id && ack?.session === record.session;
-    await Promise.all([rm(join(dir, `${stale}.json`), { force: true }), rm(join(dir, name), { force: true })]);
-    if (mine && pending && Number(pending.expires_at) >= Date.now()) { await rememberReviewerAck(dir, record); return true; }
+    const mine = ack?.nonce === stale && pending?.nonce === stale && ack.agent_id === record.agent_id && ack.repo_id === record.repo_id && ack.session === record.session && sameIncarnation(ack.binding, record.binding) && sameIncarnation(pending.binding, record.binding);
+    if (!readOnly) await Promise.all([rm(join(dir, `${stale}.json`), { force: true }), rm(join(dir, name), { force: true })]);
+    if (mine && Number(pending.expires_at) >= Date.now() && await alive(record)) { if (!readOnly) await rememberReviewerAck(dir, record); return true; }
   }
+  if (readOnly) return false;
   const nonce = randomUUID();
   const path = join(dir, `${nonce}.json`), ackPath = join(dir, `${nonce}.ack.json`);
   // TM-187: the probe outlives the wait by LATE_ACK_GRACE_MS. These were one number, which is what
   // made the `finally` below delete every timed-out probe while claiming to keep the answerable ones.
-  const probe = { nonce, repo_id: record.repo_id, agent_id: record.agent_id, session: record.session, expires_at: Date.now() + timeoutMs + LATE_ACK_GRACE_MS };
+  const probe = { nonce, repo_id: record.repo_id, agent_id: record.agent_id, session: record.session, binding: incarnationOf(record.binding), expires_at: Date.now() + timeoutMs + LATE_ACK_GRACE_MS };
   let waitUntil = Date.now() + timeoutMs;
   await writeJson(path, probe);
   try {
@@ -242,9 +244,9 @@ export async function reviewerProbeReady({ consumer, record, env = process.env, 
     }
     while (Date.now() <= waitUntil) {
       const screen = await output(record);
-      if (readySignalOnScreen(screen, nonce)) { await rememberReviewerAck(dir, record); return true; }
+      if (readySignalOnScreen(screen, nonce) && await alive(record)) { await rememberReviewerAck(dir, record); return true; }
       const ack = await readJson(ackPath).catch(() => null);
-      if (ack?.nonce === nonce && ack.agent_id === record.agent_id && ack.repo_id === record.repo_id && ack.session === record.session) { await rememberReviewerAck(dir, record); return true; }
+      if (ack?.nonce === nonce && ack.agent_id === record.agent_id && ack.repo_id === record.repo_id && ack.session === record.session && sameIncarnation(ack.binding, record.binding) && await alive(record)) { await rememberReviewerAck(dir, record); return true; }
       // TM-157: the window is now seconds rather than one second, so the poll has to be a poll and
       // not a spin — at 25ms this would take ~800 captures of the same pane to answer one probe.
       await sleep(Math.min(PROBE_POLL_MS, Math.max(1, waitUntil - Date.now())));
@@ -293,7 +295,7 @@ async function recentReviewerAck(dir, record) {
   if (!memo?.at) return null;
   const age = Date.now() - Number(memo.at);
   if (!(age >= 0 && age < RESPONSIVE_TTL_MS)) return null;
-  return JSON.stringify(memo.binding ?? null) === JSON.stringify(record.binding ?? null) ? { age_ms: age } : null;
+  return memo.agent_id === record.agent_id && sameIncarnation(memo.binding, record.binding) ? { age_ms: age } : null;
 }
 
 async function rememberReviewerAck(dir, record) {
@@ -319,13 +321,13 @@ async function defaultWake({ consumer, record, nonce, env, home, adapters = null
   });
 }
 
-export async function reviewerNonceAck({ consumer, nonce, env = process.env, home = homedir() }) {
+export async function reviewerNonceAck({ consumer, nonce, env = process.env, home = homedir(), alive = bindingAlive }) {
   invariant(/^[a-f0-9-]{36}$/.test(String(nonce)), "TOPOLOGY_REVIEWER_NONCE", "Invalid reviewer nonce.");
   const dir = join(await reviewerInboxRoot(consumer, env, home), "probes");
   const probe = await readJson(join(dir, `${nonce}.json`));
   const record = await readReviewerRecord(consumer, env, home);
   const identity = await canonicalRepoId(consumer);
-  invariant(record && probe.repo_id === identity.id && probe.agent_id === record.agent_id && env.AO_AGENT_ID === record.agent_id && probe.session === record.session && probe.expires_at >= Date.now(), "TOPOLOGY_REVIEWER_ACK_OWNER", "Only the designated reviewer can acknowledge its current unexpired challenge.");
+  invariant(record && probe.repo_id === identity.id && probe.agent_id === record.agent_id && env.AO_AGENT_ID === record.agent_id && probe.nonce === nonce && probe.session === record.session && sameIncarnation(probe.binding, record.binding) && probe.expires_at >= Date.now() && await alive(record), "TOPOLOGY_REVIEWER_ACK_OWNER", "Only the designated reviewer can acknowledge its current unexpired challenge.");
   await writeJson(join(dir, `${nonce}.ack.json`), { ...probe, acknowledged_at: nowIso() });
   return { ok: true, nonce };
 }
@@ -379,7 +381,7 @@ async function resolveReviewerConfig({ consumer, home, pluginRoot, env }) {
  */
 export async function ensureReviewer({ consumer, home = homedir(), pluginRoot = null, env = process.env, log = () => {}, notAgentIds = [], probes = null }) {
   invariant(consumer, "TOPOLOGY_REVIEWER_CONSUMER", "ensureReviewer needs a consumer path to identify the repository.");
-  const session = probes ?? defaultProbes();
+  const session = { ...defaultProbes(), ...probes };
   const { identity, recordPath, lockPath } = await reviewerPaths(consumer, env, home);
   const dirs = agentDirs({ pluginRoot, consumer, home });
 
@@ -398,6 +400,9 @@ export async function ensureReviewer({ consumer, home = homedir(), pluginRoot = 
       if (await session.alive(record.session, record)) {
         log(`reviewer ${record.agent_id} is live in ${record.session}`);
         return { record, agent, created: false, reattached: true, restarted: false };
+      }
+      if (record.managed === false || record.externally_owned === true) {
+        return { record, agent, created: false, reattached: false, restarted: false, status: "dead-external" };
       }
       // Dead managed reviewer: restart the SAME identity. A fresh agent would lose the review
       // history that makes this reviewer "the" reviewer rather than "a" reviewer.
@@ -472,8 +477,8 @@ export async function ensureReviewer({ consumer, home = homedir(), pluginRoot = 
  * deep in a diff is alive, unacknowledged, and perfectly healthy. Callers that need one boolean
  * derive it (see reviewerAvailability); callers reporting to a human must not.
  */
-export async function reviewerStanding({ consumer, env = process.env, home = homedir(), probes = null }) {
-  const session = probes ?? defaultProbes();
+export async function reviewerStanding({ consumer, env = process.env, home = homedir(), probes = null, readOnly = false }) {
+  const session = { ...defaultProbes(), ...probes };
   const record = await readReviewerRecord(consumer, env, home);
   if (!record) {
     return { registered: false, alive: false, responsive: false, record: null, reason: "no reviewer is registered for this repository — run ensureReviewer first" };
@@ -483,7 +488,7 @@ export async function reviewerStanding({ consumer, env = process.env, home = hom
   }
   const responsive = probes?.responsive
     ? await probes.responsive(record)
-    : await reviewerProbeReady({ consumer, record, env, home });
+    : await reviewerProbeReady({ consumer, record, env, home, readOnly });
   return { registered: true, alive: true, responsive, record, reason: responsive ? null : "reviewer is alive but has not acknowledged a readiness nonce" };
 }
 
@@ -493,8 +498,8 @@ export async function reviewerStanding({ consumer, env = process.env, home = hom
  * instead of pretending a review can happen. The three facts behind the one boolean are in
  * reviewerStanding; this is the merge gate's view, where only "yes or no, and why not" matters.
  */
-export async function reviewerAvailability({ consumer, env = process.env, home = homedir(), probes = null }) {
-  const standing = await reviewerStanding({ consumer, env, home, probes });
+export async function reviewerAvailability({ consumer, env = process.env, home = homedir(), probes = null, readOnly = false }) {
+  const standing = await reviewerStanding({ consumer, env, home, probes, readOnly });
   return { available: standing.registered && standing.alive && standing.responsive, record: standing.record, reason: standing.reason };
 }
 
@@ -510,7 +515,7 @@ export async function reviewerAvailability({ consumer, env = process.env, home =
  */
 export async function assignReviewer({ consumer, agentRef, session: existingSession = null, home = homedir(), pluginRoot = null, env = process.env, log = () => {}, notAgentIds = [], probes = null }) {
   invariant(agentRef, "TOPOLOGY_REVIEWER_AGENT_REQUIRED", "Name the agent whose live session becomes the reviewer: assignReviewer needs an agent reference.");
-  const session = probes ?? defaultProbes();
+  const session = { ...defaultProbes(), ...probes };
   const { identity, recordPath, lockPath } = await reviewerPaths(consumer, env, home);
   const dirs = agentDirs({ pluginRoot, consumer, home });
   await mkdir(dirname(recordPath), { recursive: true });
@@ -524,28 +529,27 @@ export async function assignReviewer({ consumer, agentRef, session: existingSess
     const provider = agent.cli ?? null;
     assertApprovedProvider(provider, await loadConfig({ consumer, home, pluginRoot, env }));
     const name = existingSession || roleSessionName(agent.id);
-    const candidate = { session: name, pane: null, agent_id: agent.id, repo_id: identity.id };
-    invariant(
-      await session.alive(name, candidate),
-      "TOPOLOGY_REVIEWER_NOT_ALIVE",
-      `${displayName(agent)} has no live session (${name}). Assignment is a handshake with a RUNNING session — open one first; enrollment never spawns it for you.`,
-      { agent_id: agent.id, session: name },
-    );
+    const candidate = { session: name, pane: null, agent_id: agent.id, repo_id: identity.id, consumer, provider };
     // TM-167: the named session, not the whole implicit server — and, because a session is not a server,
     // the server this agent's own session record names when the record is for this session. Without one
     // the server is implicit ($TMUX or the default socket); the readiness handshake below still gates it.
     const recorded = await readJson(join(agent._dir, "session.json")).catch(() => null);
     const recordedServer = recorded?.session === name ? recorded.binding?.serverKey : undefined;
-    const binding = probes?.binding
-      ? await probes.binding(candidate)
-      : (await tmux.listServerPanes({ session: name, env, ...(recordedServer ? { tmuxServer: recordedServer } : {}) })).find(pane => pane.sessionName === name && pane.alive !== false) || null;
-    invariant(probes || binding, "TOPOLOGY_REVIEWER_BINDING_REQUIRED", "Assignment needs exact observed session binding.");
-    candidate.binding = binding;
-    candidate.pane = binding?.paneId ?? null;
+    let binding;
+    if (probes?.binding) binding = incarnationOf(await probes.binding(candidate));
+    else {
+      const panes = (await tmux.listServerPanes({ session: name, env, ...(recordedServer ? { tmuxServer: recordedServer } : {}) })).filter(pane => pane.sessionName === name && pane.alive !== false);
+      invariant(panes.length <= 1, "TOPOLOGY_REVIEWER_PANE_AMBIGUOUS", "Session has multiple live panes; assignment needs an unambiguous agent session.");
+      binding = incarnationOf(panes[0]);
+    }
+    invariant(binding, "TOPOLOGY_REVIEWER_BINDING_REQUIRED", "Assignment needs exact observed session binding.");
+    candidate.binding = { ...binding };
+    candidate.pane = binding.paneId;
+    invariant(await session.alive(name, candidate), "TOPOLOGY_REVIEWER_NOT_ALIVE", "Assignment requires a live session at the exact observed incarnation; no session was changed.");
     const responsive = probes?.responsive
       ? await probes.responsive(candidate)
       : await reviewerProbeReady({ consumer, record: candidate, env, home });
-    invariant(responsive, "TOPOLOGY_REVIEWER_HANDSHAKE_REQUIRED", "Assignment requires an acknowledged readiness nonce; the existing session was preserved.");
+    invariant(responsive && sameIncarnation(candidate.binding, binding) && await session.alive(name, candidate) && sameIncarnation(candidate.binding, binding), "TOPOLOGY_REVIEWER_HANDSHAKE_REQUIRED", "Assignment requires an acknowledged readiness nonce; the existing session was preserved.");
     await writeJson(agent._file, { ...Object.fromEntries(Object.entries(agent).filter(([key]) => !key.startsWith("_"))), role: "reviewer" });
     const now = nowIso();
     const record = {
@@ -633,9 +637,10 @@ async function trustedReviewRange({ consumer, task, revision, baseRevision = nul
  * Record a review verdict. `revision` is REQUIRED — the verdict binds to exactly that commit,
  * tree, or diff identifier, and any later edit supersedes it.
  */
-export async function recordReview({ consumer, task, revision, verdict, findings = [], reviewerId = null, authorAgentIds = [], env = process.env, home = homedir(), pluginRoot = null, baseRevision = null, patchHash = null }) {
+export async function recordReview({ consumer, task, revision, verdict, findings = [], reviewerId = null, authorAgentIds = [], env = process.env, home = homedir(), pluginRoot = null, baseRevision = null, patchHash = null, requestNonce = null, expectedBinding = null }) {
   const registered = await readReviewerRecord(consumer, env, home);
   invariant(registered && registered.agent_id === reviewerId && env.AO_AGENT_ID === reviewerId, "TOPOLOGY_REVIEWER_IDENTITY", "Only the designated reviewer session can record its review.");
+  invariant(!expectedBinding || sameIncarnation(expectedBinding,registered.binding), 'TOPOLOGY_REVIEWER_IDENTITY', 'Reviewer incarnation changed before recording the verdict.');
   const lead = await findLead(agentDirs({ consumer: registered.consumer || consumer, home, pluginRoot }));
   assertIndependent(reviewerId, { lead, notAgentIds: authorAgentIds });
   invariant(Array.isArray(authorAgentIds) && authorAgentIds.length > 0, "TOPOLOGY_REVIEWER_AUTHORS", "Name the author identities for independent review.");
@@ -664,6 +669,8 @@ export async function recordReview({ consumer, task, revision, verdict, findings
     verdict,
     findings: Array.isArray(findings) ? findings : [String(findings)],
     reviewer_id: reviewerId,
+    binding: incarnationOf(registered.binding),
+    request_nonce: requestNonce,
     author_agent_ids: authorAgentIds,
     repo_id: registered.repo_id,
     verified_commit: revision,
@@ -722,6 +729,7 @@ export async function reviewEligibility({ consumer, task, revision, env = proces
     } catch (error) { reasons.push(error.message); }
     const lead = await findLead(agentDirs({ consumer: availability.record?.consumer || consumer, home, pluginRoot }));
     if (!availability.record || status.review.reviewer_id !== availability.record.agent_id) reasons.push("review was not recorded by the designated reviewer");
+    if (!sameIncarnation(status.review.binding,availability.record?.binding)) reasons.push("reviewer incarnation changed or is not recorded; obtain a new independent review");
     if (lead?.id === status.review.reviewer_id || authorAgentIds.includes(status.review.reviewer_id) || status.review.author_agent_ids?.includes(status.review.reviewer_id)) reasons.push("reviewer is not independent of the lead and authors");
     if (!Array.isArray(status.review.author_agent_ids) || status.review.author_agent_ids.length === 0 || authorAgentIds.some(id => !status.review.author_agent_ids.includes(id))) reasons.push("review does not cover the current author identities");
     if (status.review.repo_id !== availability.record?.repo_id) reasons.push("review repository identity differs");
@@ -730,11 +738,46 @@ export async function reviewEligibility({ consumer, task, revision, env = proces
   if (status.state === "missing") reasons.push(`no review of ${task} exists — a satisfied review of revision ${revision} is required`);
   else if (status.state === "stale") reasons.push(`the latest review covers revision ${status.review.revision}, not the current revision ${revision} — a re-review is required`);
   else if (status.state !== "satisfied") reasons.push(`review of revision ${revision} is "${status.state}", not satisfied`);
+  if (status.state === 'satisfied') {
+    const collected = await independentReviewStatus({ consumer, task, env, home, pluginRoot });
+    if (collected.status !== 'approved' || collected.sourceRevision !== revision) reasons.push(`independent review is not collected for this revision: ${collected.reason ?? collected.status}`);
+  }
   return { eligible: reasons.length === 0, reasons, availability, status };
 }
 
+/** Historical review projection. It validates evidence without waking or probing a provider. */
+export async function independentReviewStatus({ consumer, task, env = process.env, home = homedir(), pluginRoot = null }) {
+  const result={status:'not-requested',taskId:task??null,sourceRevision:null,reviewerId:null,verdict:null,requestedAt:null,collectedAt:null,reason:null};
+  if(!task) return result;
+  try {
+    const identity=await canonicalRepoId(consumer);
+    const admitted=await readJson(join(stateRoot(env,home),'management',repoKey(identity.id),`${segment(task,'TOPOLOGY_REVIEWER_TASK','task')}.json`)).catch(()=>null);
+    if(!admitted?.finish?.revision) return {...result,reason:'The task has no submitted source revision.'};
+    result.sourceRevision=admitted.finish.revision;
+    const key=`${segment(task,'TOPOLOGY_REVIEWER_TASK','task')}-${segment(result.sourceRevision,'TOPOLOGY_REVIEWER_REVISION_REQUIRED','revision')}`;
+    const request=await readJson(join(await reviewerInboxRoot(consumer,env,home),'requests',`${key}.json`)).catch(()=>null);
+    if(!request) return {...result,status:'awaiting-review',reason:'No independent review request is recorded for this revision.'};
+    Object.assign(result,{reviewerId:request.reviewer_id,requestedAt:request.created_at??null,collectedAt:request.collected_at??null});
+    if(!request.collected_at) return {...result,status:'awaiting-review',reason:request.collection?.reason??'The reviewer verdict has not been collected.'};
+    const reviewer=await readReviewerRecord(consumer,env,home);
+    const review=await readJson(join(await reviewsRoot(consumer,env,home),task,`${result.sourceRevision}.json`)).catch(()=>null);
+    invariant(review && request.repo_id===identity.id && review.repo_id===identity.id && review.revision===result.sourceRevision && review.verified_commit===result.sourceRevision && typeof request.nonce==='string' && request.nonce.length>0 && review.request_nonce===request.nonce && request.task===task && request.revision===result.sourceRevision,
+      'TOPOLOGY_REVIEWER_IDENTITY','Collected review does not match the request, repository and submitted revision.');
+    invariant(reviewer?.agent_id===review.reviewer_id && review.reviewer_id===request.reviewer_id && sameIncarnation(review.binding,request.binding) && sameIncarnation(review.binding,reviewer.binding),
+      'TOPOLOGY_REVIEWER_IDENTITY','Reviewer identity or incarnation changed; a new independent review is required.');
+    const range=await trustedReviewRange({consumer,task,revision:result.sourceRevision,env,home});
+    invariant(review.base_revision===range.base && review.patch_sha256===range.patch_sha256 && request.patch_sha256===range.patch_sha256 && request.base_revision===range.base,
+      'TOPOLOGY_REVIEWER_RANGE','The review does not cover the complete admitted source change.');
+    const lead=await findLead(agentDirs({consumer:reviewer.consumer||consumer,home,pluginRoot}));
+    invariant(Array.isArray(review.author_agent_ids) && review.author_agent_ids.includes(admitted.owner) && JSON.stringify(review.author_agent_ids)===JSON.stringify(request.author_agent_ids) && !review.author_agent_ids.includes(review.reviewer_id) && lead?.id!==review.reviewer_id,
+      'TOPOLOGY_REVIEWER_CONFLICT','The reviewer must be independent of every recorded author and the repository lead.');
+    result.verdict=review.verdict;
+    return {...result,status:review.verdict==='approve' && Array.isArray(review.findings) && review.findings.length===0?'approved':'blocked',reason:review.verdict==='approve'?'Independent review is recorded. Integration requires a separate authorized decision.':'The reviewer has not approved this revision.'};
+  } catch(error) { return {...result,status:'invalid',reason:error.message}; }
+}
+
 /** Queue an independent exact-revision review without requiring an idle input composer. */
-export async function requestReview({ consumer, task, revision, authorAgentIds, baseRevision = null, env = process.env, home = homedir() }) {
+export async function requestReview({ consumer, task, revision, authorAgentIds, baseRevision = null, env = process.env, home = homedir(), wake = wakeReviewRequest }) {
   const record = await readReviewerRecord(consumer, env, home);
   invariant(record, 'TOPOLOGY_REVIEWER_UNAVAILABLE', 'No designated reviewer; preserve the finished task until one is available.');
   invariant(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(String(revision)), 'TOPOLOGY_REVIEWER_REVISION_REQUIRED', 'Review request requires a full commit SHA.');
@@ -746,33 +789,111 @@ export async function requestReview({ consumer, task, revision, authorAgentIds, 
   return withLock(join(dir, `${key}.lock`), async () => {
     const path = join(dir, `${key}.json`);
     const prior = await readJson(path).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
-    if (prior && prior.base_revision === range.base && prior.patch_sha256 === range.patch_sha256 && prior.reviewer_id === record.agent_id && JSON.stringify(prior.author_agent_ids) === JSON.stringify(authorAgentIds)) return { ...prior, path };
+    invariant(incarnationOf(record.binding), 'TOPOLOGY_REVIEWER_BINDING_REQUIRED', 'Review requires the exact designated reviewer incarnation.');
+    if (prior && sameIncarnation(prior.binding,record.binding) && prior.base_revision === range.base && prior.patch_sha256 === range.patch_sha256 && prior.reviewer_id === record.agent_id && JSON.stringify(prior.author_agent_ids) === JSON.stringify(authorAgentIds)) return { ...prior, path };
     const patchPath = join(dir, `${key}.patch`);
     await writeText(patchPath, range.patch);
-    const request = { base_revision: range.base, patch_path: patchPath, patch_sha256: range.patch_sha256, nonce: randomUUID(), task, revision, repo_id: record.repo_id, reviewer_id: record.agent_id, author_agent_ids: authorAgentIds, created_at: nowIso() };
+    const request = { base_revision: range.base, patch_path: patchPath, patch_sha256: range.patch_sha256, nonce: randomUUID(), task, revision, repo_id: record.repo_id, reviewer_id: record.agent_id, binding:incarnationOf(record.binding), author_agent_ids: authorAgentIds, created_at: nowIso() };
     await writeJson(path, request);
-    return { ...request, path };
+    const delivery=await wake({consumer,record,request,path,env,home}).catch(error=>({rang:false,reason:error.code??error.message}));
+    const published={...request,delivery:{...delivery,at:nowIso()},state:'published'};
+    await writeJson(path,published);
+    return { ...published, path };
   });
+}
+
+async function wakeReviewRequest({consumer,record,request,path,env,home}) {
+  const loaded=await loadAdapters(providerDirs({consumer,home,env}));
+  const adapter=adapterFor({cli:record.provider,model:null,args:[],skills:[]},loaded);
+  return wakeForProbe({pane:record.pane??record.binding.paneId,adapter,format:composerFormat(adapter,tmuxFailureTrigger(adapter)),binding:record.binding,
+    text:`AO_REVIEW_REQUEST ${request.nonce}: Read ${path} and its complete patch. Review the requested revision and emit the nonce-bound AO_REVIEW verdict using read tools only.`});
 }
 
 /** Host collects a restricted reviewer's explicit response from its verified pane. The reviewer
  * writes no files and receives no execution tool just to deliver a verdict.
  */
 export async function collectReview({ consumer, task, revision, env = process.env, home = homedir(), pluginRoot = null, output = reviewerOutput }) {
+  const path = join(await reviewerInboxRoot(consumer, env, home), 'requests', `${segment(task, 'TOPOLOGY_REVIEWER_TASK', 'task')}-${segment(revision, 'TOPOLOGY_REVIEWER_REVISION_REQUIRED', 'revision')}.json`);
+  return withLock(path.replace(/\.json$/,'.lock'),async()=>{
   const record = await readReviewerRecord(consumer, env, home);
   invariant(record, 'TOPOLOGY_REVIEWER_UNAVAILABLE', 'No designated reviewer.');
-  const path = join(await reviewerInboxRoot(consumer, env, home), 'requests', `${segment(task, 'TOPOLOGY_REVIEWER_TASK', 'task')}-${segment(revision, 'TOPOLOGY_REVIEWER_REVISION_REQUIRED', 'revision')}.json`);
   const request = await readJson(path);
   const range = await trustedReviewRange({ consumer, task, revision, baseRevision: request.base_revision, env, home });
   invariant(request.patch_sha256 === range.patch_sha256, "TOPOLOGY_REVIEWER_RANGE", "Review request no longer covers the admitted task range.");
   invariant(request.reviewer_id === record.agent_id && request.repo_id === record.repo_id && request.revision === revision, 'TOPOLOGY_REVIEWER_IDENTITY', 'Request belongs to a different reviewer or revision.');
+  invariant(sameIncarnation(request.binding,record.binding), 'TOPOLOGY_REVIEWER_IDENTITY', 'Reviewer incarnation changed after the request; queue a new independent review.');
+  if(request.collected_at) {
+    const prior=await latestReview(consumer,task,env,home);
+    invariant(prior?.revision===revision && prior.request_nonce===request.nonce && sameIncarnation(prior.binding,record.binding), 'TOPOLOGY_REVIEWER_RESPONSE', 'Collected review evidence is missing or differs from this request.');
+    return prior;
+  }
   invariant(createHash('sha256').update(await readFile(request.patch_path)).digest('hex') === request.patch_sha256, 'TOPOLOGY_REVIEWER_RESPONSE', 'Review patch changed after the request.');
   const prefix = `AO_REVIEW ${request.nonce} `;
-  const lines = String(await output(record)).split(/\r?\n/).map(s => s.trim()).filter(line => line.startsWith(prefix));
+  const lines = String(await output(record)).split(/\r?\n/).map(protocolOutputLine).filter(line => line.startsWith(prefix));
   invariant(lines.length === 1, 'TOPOLOGY_REVIEWER_RESPONSE', 'Expected exactly one nonce-bound review response from the designated pane.');
   let response;
   try { response = JSON.parse(lines[0].slice(prefix.length)); } catch { fail('TOPOLOGY_REVIEWER_RESPONSE', 'Review response must be JSON.'); }
-  const review = await recordReview({ consumer, task, revision, baseRevision: request.base_revision, patchHash: request.patch_sha256, verdict: response.verdict, findings: response.findings, reviewerId: record.agent_id, authorAgentIds: request.author_agent_ids, env: { ...env, AO_AGENT_ID: record.agent_id }, home, pluginRoot });
-  await writeJson(path, { ...request, collected_at: nowIso(), verdict: review.verdict });
+  const current = await readReviewerRecord(consumer,env,home);
+  invariant(current?.agent_id===record.agent_id && sameIncarnation(current.binding,record.binding), 'TOPOLOGY_REVIEWER_IDENTITY', 'Reviewer changed while collecting output.');
+  const review = await recordReview({ consumer, task, revision, baseRevision: request.base_revision, patchHash: request.patch_sha256, requestNonce:request.nonce, expectedBinding:record.binding, verdict: response.verdict, findings: response.findings, reviewerId: record.agent_id, authorAgentIds: request.author_agent_ids, env: { ...env, AO_AGENT_ID: record.agent_id }, home, pluginRoot });
+  await writeJson(path, { ...request, collected_at: nowIso(), verdict: review.verdict,state:'collected' });
   return review;
+  });
+}
+
+/** A repository tick collects responses automatically; no provider turn or
+ * integration decision is inferred from a worker exit or a readiness signal. */
+const reviewQueueCache = new Map();
+
+export async function collectPendingReviews(options) {
+  const dir=join(await reviewerInboxRoot(options.consumer,options.env,options.home),'requests');
+  const results=[];
+  const names=(await readdir(dir).catch(()=>[])).filter(name=>name.endsWith('.json')).sort();
+  const cache=reviewQueueCache.get(dir)??{files:new Map(),cursor:''};
+  reviewQueueCache.set(dir,cache);
+  const currentNames=new Set(names);
+  for(const name of cache.files.keys()) if(!currentNames.has(name)) cache.files.delete(name);
+  const pending=[];
+  for(const name of names) {
+    const path=join(dir,name),info=await stat(path).catch(()=>null);
+    if(!info) continue;
+    const signature=`${info.mtimeMs}:${info.ctimeMs}:${info.size}`;
+    let entry=cache.files.get(name);
+    if(entry?.signature!==signature) {
+      entry={signature,request:await readJson(path).catch(()=>null)};
+      cache.files.set(name,entry);
+    }
+    if(entry.request && !entry.request.collected_at) pending.push({name,request:entry.request});
+  }
+  // Completed history never consumes the batch. Rotate among pending requests so
+  // even more than one batch of unanswered reviews cannot starve newer work.
+  const start=pending.findIndex(entry=>entry.name>cache.cursor);
+  const batch=[...pending.slice(start<0?0:start),...pending.slice(0,start<0?0:start)].slice(0,100);
+  for(const {name,request} of batch) {
+    const path=join(dir,name);
+    cache.cursor=name;
+    try {
+      const review=await collectReview({...options,task:request.task,revision:request.revision});
+      results.push({task:request.task,revision:request.revision,state:'collected',verdict:review.verdict});
+    } catch(error) {
+      const collection={at:nowIso(),code:error.code??'TOPOLOGY_REVIEW_COLLECTION_FAILED',reason:error.message};
+      await withLock(path.replace(/\.json$/,'.lock'),async()=>{
+      const current=await readJson(path).catch(()=>null);
+      if(!current || current.nonce!==request.nonce || current.collected_at) return;
+      Object.assign(request,current);
+      if(error.code==='TOPOLOGY_REVIEWER_RESPONSE' && !request.delivery?.rang && (request.delivery?.attempts??0)<5 && Date.now()-Date.parse(request.delivery?.at??0)>=10_000) {
+        const record=await readReviewerRecord(options.consumer,options.env,options.home);
+        if(record && sameIncarnation(record.binding,request.binding)) {
+          const delivery=await wakeReviewRequest({...options,record,request,path}).catch(error=>({rang:false,reason:error.code??error.message}));
+          request.delivery={...delivery,attempts:(request.delivery?.attempts??0)+1,at:nowIso()};
+        }
+      }
+      // Retain publication and collection failures separately. Never change a
+      // verdict or mark an unparsed response as an approval.
+      await writeJson(path,{...request,collection});
+      });
+      results.push({task:request.task,revision:request.revision,state:'awaiting-review',...collection});
+    }
+  }
+  return results;
 }

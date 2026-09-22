@@ -9,6 +9,10 @@ if (process.argv[2] === "models" || process.argv[2] === "--version") {
   process.exit(0);
 }
 
+// Test-only lifecycle breadcrumbs: never print prompts, responses, or env.
+const trace = (stage) => process.stderr.write(`[fake-provider] ${stage}\n`);
+trace("started");
+
 const sessions = new Map();
 const pendingClientRequests = new Map();
 let clientRequestSequence = 0;
@@ -31,6 +35,7 @@ const requestClient = (method, params) => new Promise((resolveRequest, rejectReq
 
 async function handle(message) {
   const { id, method, params = {} } = message;
+  if (["initialize", "authenticate", "session/new", "session/prompt", "session/cancel"].includes(method)) trace(method);
   if (id !== undefined && method === undefined && pendingClientRequests.has(String(id))) {
     const resolveRequest = pendingClientRequests.get(String(id));
     pendingClientRequests.delete(String(id));
@@ -121,6 +126,8 @@ async function handle(message) {
 }
 
 const lines = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+lines.once("close", () => trace("stdin-closed"));
+process.once("exit", () => trace("exited"));
 lines.on("line", (line) => {
   let message;
   try { message = JSON.parse(line); } catch { return; }

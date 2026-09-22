@@ -33,6 +33,9 @@ export const CATALOG = {
     claims_swept: { group: "recommended", label: "A claim expired and work was abandoned", priority: "default", tags: "ghost" },
     dispatched: { group: "recommended", label: "A task was handed to a worker backend", priority: "default", tags: "rocket" },
     task_result: { group: "recommended", label: "A dispatched worker's result was recorded", priority: "default", tags: "inbox_tray" },
+    "ready-for-review": { group: "recommended", label: "A governed task is ready for independent review", priority: "default", tags: "eyes" },
+    dispatch_retained: { group: "recommended", label: "A failed launch retained its task checkout and evidence", priority: "default", tags: "inbox_tray" },
+    dispatch_reconciled: { group: "recommended", label: "A task's native workflow reference was recovered", priority: "default", tags: "link" },
     epic_auto_closed: { group: "recommended", label: "An epic closed itself — every task done", priority: "default", tags: "tada" },
     reopened: { group: "recommended", label: "A finished task was brought back", priority: "default", tags: "leftwards_arrow_with_hook" },
     unblocked: { group: "recommended", label: "A blocker cleared and work became startable", priority: "default", tags: "arrow_forward" },
@@ -70,6 +73,8 @@ export const CATALOG = {
     claim: { group: "writes", label: "A task is claimed", priority: "low", tags: "lock" },
     release: { group: "writes", label: "A claim is released", priority: "min", tags: "unlock" },
     worktree_new: { group: "writes", label: "A worktree is created for a task", priority: "low", tags: "deciduous_tree" },
+    worktree_reused: { group: "writes", label: "A validated task worktree is reused", priority: "low", tags: "deciduous_tree" },
+    governed: { group: "writes", label: "A task is bound to its workflow and repository lead", priority: "low", tags: "link" },
     worktree_rm: { group: "writes", label: "A worktree is removed", priority: "min", tags: "wastebasket" },
     git_link: { group: "writes", label: "A commit or PR is attached to a task", priority: "low", tags: "octopus" },
     // Worth saying out loud rather than swallowing: the alternative — attaching it anyway — is

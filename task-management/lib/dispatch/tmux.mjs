@@ -60,7 +60,7 @@ export function guardSettings(hook = GUARD_HOOK) {
  * worker's env at spawn, so a worker that checks out main cannot make main its "own" branch.
  */
 export function workerBranch(req, cfg = config(req.p)) {
-  return req.branch ?? branchName(req.task.id, req.task.title, cfg);
+  return req.branch ?? req.task.branch ?? branchName(req.task.id, req.task.title, cfg);
 }
 
 /** The variables that mark a process as a dispatch worker — what the guard hook keys on. Unset values are dropped. */

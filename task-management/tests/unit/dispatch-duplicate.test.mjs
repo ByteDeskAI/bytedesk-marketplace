@@ -43,6 +43,29 @@ function fakeBackend() {
 }
 
 describe("duplicateCommits — what counts", () => {
+  it("ignores task-id prefixes, dependency mentions, and uncertain preparation", () => {
+    const p = repoStore();
+    const t = create("task", { title: "exact match only" }, "body", p);
+    commit(p.root, `${t.id}0: unrelated task`);
+    commit(p.root, `prep for ${t.id}`);
+    commit(p.root, `dependency for implementation (${t.id})`);
+    commit(p.root, `TM-999: depends on ${t.id}`);
+    assert.deepEqual(duplicateCommits(read(t.id, p), p), []);
+  });
+
+  it("requires integration-branch ancestry, not an unmerged branch mention", () => {
+    const p = repoStore();
+    const t = create("task", { title: "integration evidence" }, "body", p);
+    const target = git(p.root, "symbolic-ref", "--short", "HEAD");
+    writeConfig({ dispatch: { integrationBranch: target } }, p);
+    git(p.root, "checkout", "-qb", "unmerged");
+    commit(p.root, `${t.id}: implementation`);
+    assert.deepEqual(duplicateCommits(read(t.id, p), p), []);
+    git(p.root, "checkout", "-q", target);
+    git(p.root, "merge", "--ff-only", "unmerged");
+    assert.equal(duplicateCommits(read(t.id, p), p).length, 1);
+  });
+
   it("finds a commit naming the task", () => {
     const p = repoStore();
     const t = create("task", { title: "remove the thing" }, "body", p);
@@ -91,7 +114,7 @@ describe("dispatch — the duplicate gate", () => {
   it("refuses a task whose work already landed, and leaves the board alone", async () => {
     const p = repoStore();
     const t = create("task", { title: "already done" }, "body", p);
-    commit(p.root, `feat: someone else did ${t.id}`);
+    commit(p.root, `${t.id}: completed the implementation`);
 
     const res = await dispatch(t.id, { backend: fakeBackend(), session: "s1", p });
 
@@ -107,7 +130,7 @@ describe("dispatch — the duplicate gate", () => {
   it("--steal dispatches anyway", async () => {
     const p = repoStore();
     const t = create("task", { title: "override me" }, "body", p);
-    commit(p.root, `feat: someone else did ${t.id}`);
+    commit(p.root, `${t.id}: completed the implementation`);
 
     const res = await dispatch(t.id, { backend: fakeBackend(), session: "s2", steal: true, p });
     assert.equal(res.ok, true, "a deliberate override is not blocked");
@@ -117,7 +140,7 @@ describe("dispatch — the duplicate gate", () => {
     const p = repoStore();
     writeConfig({ dispatch: { duplicateGuard: false } }, p);
     const t = create("task", { title: "guard off" }, "body", p);
-    commit(p.root, `feat: someone else did ${t.id}`);
+    commit(p.root, `${t.id}: completed the implementation`);
 
     const res = await dispatch(t.id, { backend: fakeBackend(), session: "s3", p });
     assert.equal(res.ok, true);
@@ -142,7 +165,7 @@ describe("the pool tick — a duplicate that lands mid-flight", () => {
 
     // The duplicate lands while the worker works. Its own branch is excluded, so
     // this has to be somewhere else — the default branch the dispatch came from.
-    const dupe = commit(p.root, `refactor: landed ${t.id} on the base branch`);
+    const dupe = commit(p.root, `${t.id}: landed on the base branch`);
 
     const { poolTick } = await import("../../lib/dispatch/pool.mjs");
     const res = await poolTick({ p, dryRun: true });

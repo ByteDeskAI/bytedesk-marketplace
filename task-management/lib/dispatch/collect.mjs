@@ -3,21 +3,18 @@
  *
  * dispatch (./index.mjs) starts the worker and records `dispatched:{backend,run,...}`
  * on the task. What it cannot do is know how that worker ENDED — each backend has a
- * different completion signal: an orchestration run reaches a terminal state, a tmux
- * or topology session disappears. The collectors here normalize each of those into
+ * different completion signal: an ACP run reaches a terminal state, a raw tmux
+ * session disappears, or topology observes an exact native incarnation. The collectors normalize each into
  * one call to `recordResult`, which is the protocol's single write path.
  *
  * The protocol's invariants, all enforced in recordResult rather than in the
  * collectors:
  *
- *   1. The AC gate stays the real gate. A collector never closes a task — the worker
- *      closes it through `tm done` (the handoff's "When you finish" contract). A
- *      worker that REPORTS done for a task that is not done is a failure, not a
- *      close: the outcome downgrades to failed with the status named.
- *   2. Failure parks, never strands. A blocked/failed outcome on a task that is still
- *      in_progress parks it with the summary as the reason and releases the claim —
- *      an exited worker must never leave the board showing in-progress work nobody
- *      is doing.
+ *   1. A collector never closes a task. Governed workers submit a producer finish and
+ *      keep their claim for review; completion requires authorized integration. An
+ *      ungoverned worker reporting done before passing `tm done` is recorded as failed.
+ *   2. Failure parks an in_progress task and releases its claim unless the governed
+ *      revision was already submitted for review. That ownership and evidence persist.
  *   3. Everything is recorded: the summary lands as a comment and one `task_result`
  *      event ({ id, run, outcome }) lands in the log, so `tm log` tells the story.
  *   4. Fire-and-forget safe. Every function here is bounded and never throws — a
@@ -25,6 +22,7 @@
  *      failures come back as `{ ok: false, reason }`.
  */
 import { spawnSync } from "node:child_process";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { toolFailureReason } from "./backend.mjs";
 import { releaseClaim } from "../claims.mjs";
 import { addComment } from "../issue.mjs";
@@ -32,6 +30,8 @@ import { detectHostCaps } from "../hostcaps.mjs";
 import { config, logEvent, mutate, now, read, update } from "../store.mjs";
 import { paths } from "../paths.mjs";
 import { rpcSession } from "./mcp-client.mjs";
+import { failureScope } from "./failure.mjs";
+import { managementIdentity } from "../governance-check.mjs";
 
 /** A collection is a quick query, not the 120s launch handshake. */
 export const COLLECT_TIMEOUT_MS = 30_000;
@@ -39,7 +39,7 @@ export const COLLECT_TIMEOUT_MS = 30_000;
 /** Asking `gh` for a PR url is a nicety on the way past; it never holds up a collection. */
 export const PR_LOOKUP_TIMEOUT_MS = 5_000;
 
-const OUTCOMES = new Set(["done", "blocked", "failed"]);
+const OUTCOMES = new Set(["done", "ready-for-review", "blocked", "failed"]);
 
 /** Orchestration's TERMINAL_STATES (agent-orchestration/src/state/store.mjs). */
 const ORCH_TERMINAL = new Set(["succeeded", "failed", "cancelled", "timed_out", "rejected", "recovery_required"]);
@@ -99,9 +99,13 @@ export function recordResult(id, result = {}, p = paths(), { exec = spawnSync } 
       return { ok: false, reason: `${id} was never dispatched — there is no worker result to record` };
     }
     if (!OUTCOMES.has(outcome)) return { ok: false, reason: `unknown outcome: ${outcome}` };
+    if (run && run !== task.dispatched.run) return { ok: false, reason: "worker result belongs to an earlier or different dispatch", failureScope: "task" };
 
     let final = outcome;
     let note = String(summary || "").trim();
+    const reviewReady = task.governance?.state === "ready-for-review";
+    if (final === "done" && reviewReady) final = "ready-for-review";
+    if (final === "ready-for-review" && !reviewReady) return { ok: false, reason: "the task has not submitted its exact revision for independent review", failureScope: "task" };
 
     /**
      * "done" is a claim about the store, and the store gets the last word. The
@@ -115,7 +119,7 @@ export function recordResult(id, result = {}, p = paths(), { exec = spawnSync } 
     }
 
     let parked = false;
-    if ((final === "blocked" || final === "failed") && task.status === "in_progress") {
+    if ((final === "blocked" || final === "failed") && task.status === "in_progress" && !reviewReady) {
       update(id, { status: "parked", parkedReason: note || `worker ${final}` }, p);
       releaseClaim(id, p);
       parked = true;
@@ -123,12 +127,12 @@ export function recordResult(id, result = {}, p = paths(), { exec = spawnSync } 
 
     // A genuine done ends at a PR (TM-180). Asked for only on the done path, and only ever
     // additive: `pr` is absent when there is nothing to record, never a reason to fail.
-    const pr = final === "done" ? recordPullRequest(task, p, exec) : null;
+    const pr = ["done", "ready-for-review"].includes(final) ? recordPullRequest(task, p, exec) : null;
 
     if (note) addComment(id, note, { author: `worker:${task.dispatched.backend}`, p });
     logEvent("task_result", { id, run: run ?? task.dispatched.run, outcome: final }, p);
     // summary rides along so the pool's brake can see a quota-shaped failure (TM-175).
-    return { ok: true, id, outcome: final, downgraded: final !== outcome, parked, summary: note, ...(pr ? { pr } : {}) };
+    return { ok: true, id, outcome: final, downgraded: final !== outcome, parked, summary: note, failureScope: failureScope({ ...result, summary: note }), ...(pr ? { pr } : {}) };
   } catch (err) {
     return { ok: false, reason: `recordResult failed for ${id}: ${err.message}` };
   }
@@ -225,8 +229,7 @@ export async function collectOrchestration(id, { caps = null, p = paths(), spawn
 }
 
 /**
- * The session collector, shared by every backend whose worker lives in a tmux
- * session: the session IS the worker's liveness.
+ * The raw-tmux collector. Native topology uses the producer's exact observation below.
  *
  * `tmux has-session -t <session>` answers one question — is the pane still there.
  * Alive means the worker is still running: `{ ok:true, pending:true }`, nothing to
@@ -234,9 +237,7 @@ export async function collectOrchestration(id, { caps = null, p = paths(), spawn
  * verdict: done means it closed through the gates before exiting; still
  * in_progress means it walked away, which is a failure with the reason named.
  *
- * `tmux` names its session `tm-<id>`; `topology` names it after the run the
- * topology layer launched. Both put it in the handle after the backend prefix, so
- * one implementation reads both — the only difference is the prefix it strips.
+ * Raw tmux puts its session name after the backend prefix in the dispatched handle.
  */
 function collectSession(id, backend, { p = paths(), spawnImpl = spawnSync } = {}) {
   try {
@@ -252,6 +253,9 @@ function collectSession(id, backend, { p = paths(), spawnImpl = spawnSync } = {}
     if (res?.status === 0) return { ok: true, pending: true };
 
     const after = read(id, p) ?? task;
+    if (after.governance?.state === "ready-for-review") {
+      return recordResult(id, { run: handle, outcome: "ready-for-review", summary: `${backend} worker exited after submitting its revision; independent review and integration remain required` }, p);
+    }
     if (after.status === "done") {
       return recordResult(id, { run: handle, outcome: "done", summary: `${backend} worker exited; the task was closed through the gates` }, p);
     }
@@ -270,14 +274,70 @@ export function collectTmux(id, opts = {}) {
   return collectSession(id, "tmux", opts);
 }
 
-/**
- * The topology collector: `topology:<session>`, the tmux session ao-topology
- * launched the run into. The topology layer keeps a run journal and a mailbox
- * too, but the session is the same coarse liveness signal ADR-0001 named, and it
- * needs no second process to read.
- */
-export function collectTopology(id, opts = {}) {
-  return collectSession(id, "topology", opts);
+function reconcileTopologyReference(task, { p, ask, env }) {
+  const dispatched = task.dispatched;
+  const sourcePath = dispatched.legacyRecordPath || (isAbsolute(dispatched.runDir || "") ? join(dispatched.runDir, "run.json") : null);
+  if (!isAbsolute(sourcePath || "")) throw new Error(`${task.id} has no durable topology record reference; reconcile and import its native workflow before collection`);
+  const result = ask(["console", "list", "--consumer", p.root, "--json"]);
+  if (result?.error || result?.status !== 0) throw new Error(result?.error?.message || toolFailureReason("ao-topology console list", result));
+  const index = JSON.parse(String(result.stdout || "")), repoId = managementIdentity(task.id, p, env).repoId;
+  if (index.schemaVersion !== 1 || index.repository?.id !== repoId || !Array.isArray(index.workflows)) throw new Error("native workflow discovery did not verify this repository");
+  const samePath = (path, expected) => isAbsolute(path || "") && resolve(path) === resolve(expected);
+  // The producer validates and imports surviving records. Only the exact previously
+  // recorded path can reconnect a task; task names and transcript claims are not handles.
+  const matches = index.workflows.filter((entry) => entry.runtime === "topology" &&
+    (samePath(entry.recordPath, sourcePath) || samePath(entry.legacySourcePath, sourcePath)));
+  if (matches.length !== 1) throw new Error(`native workflow reference is ${matches.length ? "ambiguous" : "missing"} in producer discovery; preserve its task and worktree`);
+  const entry = matches[0];
+  if ((index.rejected || []).some((item) => samePath(item.path, sourcePath) || samePath(item.path, entry.recordPath))) throw new Error("producer rejected the recorded native workflow; preserve its task and worktree");
+  if (entry.repositoryId !== repoId || entry.taskId !== task.id || !entry.nativeRunId || entry.workflowId !== `topology:${entry.nativeRunId}` ||
+    !isAbsolute(entry.recordPath || "") || !isAbsolute(task.worktree || "") || !samePath(entry.workloadCwd, task.worktree) ||
+    (dispatched.nativeRunId && dispatched.nativeRunId !== entry.nativeRunId)) throw new Error("native workflow identity does not match the task, repository, or recorded workload checkout");
+  const next = {
+    ...dispatched, nativeRunId: entry.nativeRunId, workflowRunId: entry.workflowId, recordPath: entry.recordPath,
+    ...(entry.legacySourcePath ? { legacyRecordPath: entry.legacySourcePath } : {}),
+  };
+  if (JSON.stringify(next) === JSON.stringify(dispatched)) return dispatched;
+  mutate(task.id, (current) => {
+    if (JSON.stringify(current.dispatched) !== JSON.stringify(dispatched) || current.worktree !== task.worktree) throw new Error("task dispatch changed during native reference reconciliation; retry collection");
+    return { dispatched: next };
+  }, p);
+  logEvent("dispatch_reconciled", { id: task.id, nativeRunId: entry.nativeRunId, recordPath: entry.recordPath, sourcePath }, p);
+  return next;
+}
+
+/** Native collection requires the producer's exact incarnation observation. */
+export function collectTopology(id, { p = paths(), caps = null, spawnImpl = spawnSync, timeoutMs = COLLECT_TIMEOUT_MS, env = process.env } = {}) {
+  const task = read(id, p);
+  let dispatched = task?.dispatched;
+  const hold = (reason) => ({ ok: false, reason, failureScope: "task" });
+  if (!task) return hold(`not found: ${id}`);
+  if (!String(dispatched?.run || "").startsWith("topology:")) return hold(`${id} has no topology run`);
+  const unbound = !dispatched.nativeRunId || !isAbsolute(dispatched.recordPath || "");
+  if (unbound && !isAbsolute(dispatched.runDir || "") && !isAbsolute(dispatched.legacyRecordPath || "")) return hold(`${id} has no durable topology record reference; reconcile and import its native workflow before collection`);
+  const entry = (caps || detectHostCaps()).backends?.topology;
+  if (!entry?.available || !entry.path) return { ok: false, reason: "topology producer is unavailable for exact workflow observation", failureScope: "backend" };
+  try {
+    const ask = (args) => spawnImpl(entry.path, args, {
+      shell: false, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024,
+    });
+    if (unbound || (isAbsolute(dispatched.legacyRecordPath || "") && resolve(dispatched.recordPath) === resolve(dispatched.legacyRecordPath))) {
+      dispatched = reconcileTopologyReference(task, { p, ask, env });
+    }
+    const res = ask(["status", "--run", dirname(dispatched.recordPath), "--consumer", p.root, "--json"]);
+    if (res?.error || res?.status !== 0) return hold(res?.error?.message || toolFailureReason("ao-topology status", res));
+    const observed = JSON.parse(String(res.stdout || ""));
+    if (observed.run_id !== dispatched.nativeRunId || observed.observation_error !== null || typeof observed.session_alive !== "boolean") {
+      return hold(`topology workflow ownership is unproven: ${observed.observation_error?.message || "missing or mismatched exact incarnation"}`);
+    }
+    const allDead = Array.isArray(observed.agents) && observed.agents.length > 0 && observed.agents.every((agent) => agent.alive === false);
+    if (observed.session_alive && !allDead) return { ok: true, pending: true, state: observed.state };
+    const after = read(id, p) || task;
+    if (after.governance?.state === "ready-for-review") return recordResult(id, { run: dispatched.run, outcome: "ready-for-review", summary: "native worker ended after submitting its exact revision; independent review and integration remain required" }, p);
+    if (after.status === "done") return recordResult(id, { run: dispatched.run, outcome: "done", summary: "native worker ended; task completion was already verified" }, p);
+    if (after.status === "in_progress") return recordResult(id, { run: dispatched.run, outcome: "failed", summary: "native worker ended without completing its task protocol" }, p);
+    return { ok: true, pending: false, skipped: `task is ${after.status}; nothing to collect` };
+  } catch (error) { return hold(`native workflow observation failed: ${error.message}`); }
 }
 
 /**

@@ -8,9 +8,21 @@ import { exists, invariant, nowIso, readJson, sleep, writeJson, writeText } from
 import { MAX_HOPS, hopExceeded, isAssignmentStage, nextVia, sameProject } from "./routing.mjs";
 import { agentDirs, findLead } from "./agents.mjs";
 import { withLock } from "./lockfile.mjs";
+import { publishTopologyWorkflow } from './discovery.mjs';
 
 export const RUN_FILE = "run.json";
 export const JOURNAL_FILE = "journal.jsonl";
+
+async function publishDiscovery(runDir, run) {
+  if (!run?.repository || !run.state_home) return;
+  try {
+    await publishTopologyWorkflow({ run, recordPath: join(runDir, RUN_FILE), stateHome: run.state_home });
+    await rm(join(runDir, 'discovery-error.json'), { force: true });
+  } catch (error) {
+    // Discovery failure cannot undo a committed native operation or relabel a live launch.
+    await writeJson(join(runDir, 'discovery-error.json'), { code: error.code || 'TOPOLOGY_DISCOVERY_FAILED', message: error.message, at: nowIso() });
+  }
+}
 
 export function agentDir(runDir, agentId) {
   return join(runDir, "agents", agentId);
@@ -24,6 +36,7 @@ export async function loadRun(runDir) {
 
 export async function saveRun(runDir, run) {
   run.updated = nowIso();
+  run.revision = Number.isSafeInteger(run.revision) ? run.revision + 1 : 1;
   const file = join(runDir, RUN_FILE);
   const temp = `${file}.${randomUUID()}.tmp`;
   try {
@@ -36,6 +49,7 @@ export async function saveRun(runDir, run) {
       try { await directory.sync(); } finally { await directory.close(); }
     }
   } finally { await rm(temp, { force: true }); }
+  await publishDiscovery(runDir, run);
 }
 
 /**
@@ -57,6 +71,8 @@ export async function recordRedirect(runDir, { messageId, intended, deliveredTo,
 export async function appendJournal(runDir, event) {
   const record = { ts: nowIso(), ...event };
   await appendFile(join(runDir, JOURNAL_FILE), `${JSON.stringify(record)}\n`, "utf8");
+  const run = await readJson(join(runDir, RUN_FILE)).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
+  await publishDiscovery(runDir, run);
   return record;
 }
 

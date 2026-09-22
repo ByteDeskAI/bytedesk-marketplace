@@ -32,13 +32,16 @@
  * doing. A claim that PREDATES this call is never released here.
  */
 import { claimTask, claimant, heartbeatClaim, releaseClaim } from "../claims.mjs";
+import { join } from "node:path";
 import { listAgents, registerAgent } from "../agents.mjs";
-import { provision, removeWorktree } from "../worktree.mjs";
+import { provision } from "../worktree.mjs";
 import { handoff } from "../render.mjs";
 import { RESOLVED, config, logEvent, mutate, now, read, update } from "../store.mjs";
 import { paths } from "../paths.mjs";
 import { resolveBackend } from "./backend.mjs";
 import { describeDuplicates, duplicateCommits, duplicateGuardEnabled } from "./duplicate.mjs";
+import { failureScope } from "./failure.mjs";
+import { governedAdmission } from "../governance-check.mjs";
 
 /**
  * One heartbeat, driven from outside — the pool loop and other supervisors call
@@ -100,6 +103,11 @@ export async function dispatch(id, { backend = null, session = null, actor = nul
   if (RESOLVED.has(task.status)) {
     return { ok: false, reason: `${id} is ${task.status} — dispatch is for open work. Reopen it first if it genuinely needs doing.` };
   }
+  if (config(p).dispatch?.governed === true || task.governance) {
+    const gate = governedAdmission(task, p);
+    if (!gate.allow) return { ok: false, ...gate, failureScope: "task" };
+    session ||= gate.owner;
+  }
 
   /**
    * Somebody may have already done this. The store tracks claims, not commits, so
@@ -126,7 +134,7 @@ export async function dispatch(id, { backend = null, session = null, actor = nul
       : await resolveBackend({ requested: backend, caps, registry, p });
   if (!picked.backend) {
     const why = picked.tried.map((t) => `${t.name}: ${t.reason}`).join("; ");
-    return { ok: false, reason: `no dispatch backend available (${why})`, tried: picked.tried };
+    return { ok: false, reason: `no dispatch backend available (${why})`, tried: picked.tried, failureScope: "backend" };
   }
 
   /**
@@ -146,13 +154,13 @@ export async function dispatch(id, { backend = null, session = null, actor = nul
    * a live claim is exactly what claimTask's steal path is for.
    */
   const priorClaim = claimant(id, p);
-  if (!steal && task.dispatched && priorClaim) {
+  if (task.dispatched && priorClaim) {
     const as = task.dispatched.run ? ` as ${task.dispatched.run}` : "";
     const by = priorClaim.session ?? priorClaim.actor;
     const holder = by ? `, claimed by ${by}` : "";
     return {
       ok: false,
-      reason: `${id} is already dispatched to ${task.dispatched.backend}${as}${holder} — collect it first with \`tm collect ${id}\`, or steal it deliberately with --steal.`,
+      reason: `${id} is already dispatched to ${task.dispatched.backend}${as}${holder} — confirm the existing worker has ended and collect it first with \`tm collect ${id}\`.`,
       holder: by ?? null,
     };
   }
@@ -163,34 +171,15 @@ export async function dispatch(id, { backend = null, session = null, actor = nul
   const priorStatus = task.status;
   let prov;
   const fail = (reason, extra = {}) => {
-    /**
-     * Roll back only what THIS call created. If a claim predates this dispatch
-     * (reachable via --steal past a stale dispatched record), releasing it would
-     * yank the rug from a live worker over a failure it had no part in.
-     *
-     * That includes the worktree (TM-175 B7): left on disk, every later `git worktree
-     * add` for this task fails on the occupied path, so the pool retried and failed it
-     * every tick. provision() never adopts an existing checkout — git refuses to add
-     * onto one and provision throws — so `prov.ok` means this call created it. force,
-     * because the only uncommitted content is what the failed spawn may have written.
-     */
+    // A failed launch can already have written work or runtime evidence. Preserve its
+    // checkout and recorded placement; the next dispatch validates and reuses it.
     if (prov?.ok) {
-      /**
-       * Not unprovision(): it releases the claim unconditionally, which would drop a claim
-       * that predates this call (`tm start` then `tm dispatch` from the same session). Remove
-       * the checkout and clear its fields; the claim stays with the priorClaim rule below.
-       */
-      try {
-        removeWorktree(task, { force: true, p });
-        update(id, { worktree: undefined, branch: undefined }, p);
-        logEvent("worktree_rm", { id }, p);
-      } catch {
-        /* a stuck worktree must not stop the claim and status rollback below */
-      }
+      logEvent("dispatch_retained", { id, worktree: prov.path, reason }, p);
+      update(id, { dispatchFailure: { backend: picked.name, reason, at: now(), worktree: prov.path, ...(extra.detail || {}) } }, p);
     }
     if (!priorClaim) releaseClaim(id, p);
     if (read(id, p)?.status !== priorStatus) update(id, { status: priorStatus }, p);
-    return { ok: false, reason, backend: picked.name, ...extra };
+    return { ok: false, reason, backend: picked.name, failureScope: "task", ...extra };
   };
 
   update(id, { status: "in_progress", ...(session ? { session } : {}), ...(actor ? { actor } : {}) }, p);
@@ -203,11 +192,16 @@ export async function dispatch(id, { backend = null, session = null, actor = nul
   if (!prov.ok) return fail(prov.reason, { holder: prov.holder });
 
   const prompt = handoff(id, p);
-  const res = await picked.backend.spawn({ task: read(id, p), worktree: prov.path, prompt, session, actor, p });
-  if (!res?.ok) return fail(res?.reason || `${picked.name} did not start a worker`, { detail: res?.detail });
+  let res;
+  try {
+    res = await picked.backend.spawn({ task: read(id, p), worktree: prov.path, branch: prov.branch, prompt, session, actor, p });
+  } catch (err) {
+    return fail(`worker launch failed: ${err.message}`, { failureScope: failureScope({ reason: err.message }, "backend") });
+  }
+  if (!res?.ok) return fail(res?.reason || `${picked.name} did not start a worker`, { detail: res?.detail, failureScope: failureScope(res || {}, "backend") });
 
-  const dispatched = { backend: picked.name, run: res.run ?? null, session, at: now() };
-  mutate(id, () => ({ dispatched }), p);
+  const dispatched = { backend: picked.name, run: res.run ?? null, session, at: now(), ...(res.nativeRunId ? { nativeRunId: res.nativeRunId } : {}), ...(res.workflowRunId ? { workflowRunId: res.workflowRunId } : {}), ...(res.detail?.runDir ? { recordPath: join(res.detail.runDir, "run.json") } : {}) };
+  mutate(id, () => ({ dispatched, dispatchFailure: undefined }), p);
   logEvent("dispatched", { id, backend: picked.name, run: res.run ?? null, session }, p);
   /**
    * Register the worker the spawn just started. Additive and failure-tolerant by

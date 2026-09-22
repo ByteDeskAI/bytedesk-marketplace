@@ -3,10 +3,13 @@ import { cp, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
+import { sourceFingerprint } from './source-fingerprint.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const outdir = process.env.AO_BUILD_OUTDIR || join(root, "dist");
 const require = createRequire(import.meta.url);
+const fingerprint = await sourceFingerprint(root);
+const packageVersion = JSON.parse(await readFile(join(root,'package.json'),'utf8')).version;
 
 /**
  * TM-152, the half `preserveSymlinks` cannot reach. esbuild can be told not to realpath, but
@@ -50,7 +53,7 @@ const common = {
 const cjsApplication = {
   ...common,
   format: "cjs",
-  define: { "import.meta.url": "__aoImportMetaUrl" },
+  define: { "import.meta.url": "__aoImportMetaUrl", __AO_BUILD_FINGERPRINT__:JSON.stringify(fingerprint), __AO_BUILD_VERSION__:JSON.stringify(packageVersion) },
   banner: { js: "const __aoImportMetaUrl = require('node:url').pathToFileURL(__filename).href;" },
 };
 const isolateClaudeSettings = {

@@ -3,7 +3,7 @@ import test from 'node:test';
 import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { refreshPrompt, acknowledgePrompt, promotePromptForIncarnation } from '../../topology/lib/prompt-lifecycle.mjs';
+import { refreshPrompt, acknowledgePrompt, promotePromptForIncarnation, collectPromptAcknowledgement } from '../../topology/lib/prompt-lifecycle.mjs';
 
 test('last-valid prompt survives malformed config and live changes require restart and agent acknowledgment', async t => {
   const root = await mkdtemp(join(tmpdir(), 'ao-prompt-live-')); t.after(() => rm(root,{recursive:true,force:true}));
@@ -61,4 +61,24 @@ test('a controlled restart promotes pending text and mints an acknowledgement fo
   state=await refreshPrompt({...opts,live:true,safeBoundary:true});assert.equal(state.status,'restart-required');
   const promoted=await promotePromptForIncarnation({agent,binding:b,consumer,session});assert.equal(promoted.status,'awaiting-ack');assert.deepEqual(promoted.desired_binding,b);assert.match(await readFile(join(dir,'prompt.md'),'utf8'),/two/);
   await assert.rejects(acknowledgePrompt({agent,consumer,session,revision:promoted.desired_revision,nonce:promoted.nonce,binding:a,env:agentEnv}),e=>e.details.reason==='incarnation-mismatch');
+});
+
+test('restricted reviewer acknowledges through observed output without shell or write grants', async t=>{
+  const root=await mkdtemp(join(tmpdir(),'ao-reviewer-prompt-'));t.after(()=>rm(root,{recursive:true,force:true}));
+  const consumer=join(root,'repo'),dir=join(root,'reviewer');await mkdir(consumer);
+  const agent={id:'review01',role:'reviewer',full_name:'Reviewer',_dir:dir,instructions:'Review only.'};
+  const binding={serverKey:'/test/socket',serverPid:1,sessionId:'$1',sessionCreated:2,paneId:'%1',panePid:3};
+  const opts={agent,consumer,session:'reviewer',binding,home:root,env:{XDG_CONFIG_HOME:join(root,'config')}};
+  const state=await refreshPrompt(opts);
+  const prompt=await readFile(join(dir,'prompt.md'),'utf8');
+  assert.ok(!prompt.includes('ao-topology prompt ack'));
+  assert.match(prompt,/AO_PROMPT_ACK/);
+  const observe=async()=>[{...binding,alive:true}];
+  const wrong=await collectPromptAcknowledgement({...opts,observe,output:async()=>`AO_PROMPT_ACK forged ${state.desired_revision}`});
+  assert.equal(wrong.collected,false);
+  await assert.rejects(collectPromptAcknowledgement({...opts,observe:async()=>[{...binding,panePid:4,alive:true}],output:async()=>`AO_PROMPT_ACK ${state.nonce} ${state.desired_revision}`}),{code:'TOPOLOGY_PROMPT_ACK_INVALID'});
+  let observations=0;
+  await assert.rejects(collectPromptAcknowledgement({...opts,observe:async()=>[{...binding,panePid:++observations===1?3:4,alive:true}],output:async()=>`AO_PROMPT_ACK ${state.nonce} ${state.desired_revision}`}),{code:'TOPOLOGY_PROMPT_ACK_INVALID'});
+  const ack=await collectPromptAcknowledgement({...opts,observe,output:async()=>`● AO_PROMPT_ACK ${state.nonce} ${state.desired_revision}`});
+  assert.equal(ack.collected,true);assert.equal(ack.state.status,'current');assert.deepEqual(ack.state.applied_binding,binding);
 });

@@ -8,9 +8,9 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { writeJson, writeText } from '../../topology/lib/util.mjs';
 const exec=promisify(execFile);
-test('CLI workflow preview loads resolver definition and uses recorded repository',async t=>{
+test('CLI workflow preview loads resolver definition and rejects another repository',async t=>{
  const root=await mkdtemp(join(tmpdir(),'ao-cli-prompt-'));t.after(()=>rm(root,{recursive:true,force:true}));
- const consumer=join(root,'repo'),caller=join(root,'wrong-repo'),runDir=join(root,'run'),dir=join(runDir,'agents','work0001');
+ const consumer=join(root,'repo'),caller=join(root,'wrong-repo'),runDir=join(consumer,'.bytedesk','agent-orchestration','runs','r'),dir=join(runDir,'agents','work0001');
  await Promise.all([consumer,caller,dir].map(p=>mkdir(p,{recursive:true})));
  await writeJson(join(runDir,'run.json'),{run_id:'r',consumer,session:'workflow-session',agents:[{id:'work0001',role:'worker'}]});
  await writeJson(join(dir,'prompt-agent.json'),{id:'forged-id',_dir:caller,role:'worker',instructions:'Definition-only instruction',instructions_file:'custom.md',_prompt_vars:{task:'TM-42'}});
@@ -18,7 +18,9 @@ test('CLI workflow preview loads resolver definition and uses recorded repositor
  await writeText(join(consumer,'.bytedesk/agent-orchestration/common.md'),'Actual repository prompt');
  await writeJson(join(consumer,'.bytedesk/agent-orchestration/config.json'),{prompts:{common:'common.md'}});
  const cli=fileURLToPath(new URL('../../topology/cli.mjs',import.meta.url));
- const {stdout}=await exec(process.execPath,[cli,'prompt','preview','work0001','--run',runDir,'--consumer',caller],{env:{...process.env,XDG_CONFIG_HOME:join(root,'config')}});
+ const env={...process.env,XDG_CONFIG_HOME:join(root,'config'),AGENT_ORCHESTRATION_STATE_HOME:join(root,'state')};
+ await assert.rejects(()=>exec(process.execPath,[cli,'prompt','preview','work0001','--run',runDir,'--consumer',caller],{env}),error=>`${error.stdout}${error.stderr}`.includes('TOPOLOGY_DISCOVERY_REPOSITORY'));
+ const {stdout}=await exec(process.execPath,[cli,'prompt','preview','work0001','--run',runDir,'--consumer',consumer],{env});
  const result=JSON.parse(stdout);assert.equal(result.ok,true);assert.match(result.text,/Definition-only instruction/);assert.match(result.text,/Review TM-42 carefully/);assert.match(result.text,/Actual repository prompt/);assert.ok(!result.text.includes('forged-id'));
  assert.ok(result.sources.some(s=>s.path===join(dir,'custom.md')));
 });

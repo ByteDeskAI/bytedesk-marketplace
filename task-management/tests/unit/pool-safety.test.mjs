@@ -73,7 +73,7 @@ function ready(p, title, extra = {}) {
 
 /** Collector overrides: a worker still running, and a worker that died without closing. */
 const pending = { fake: () => ({ ok: true, pending: true }) };
-const dies = { fake: (id, { p: pp }) => recordResult(id, { outcome: "failed", summary: "worker exited without closing" }, pp) };
+const dies = { fake: (id, { p: pp }) => recordResult(id, { outcome: "failed", failureScope: "backend", summary: "provider session host exited" }, pp) };
 
 const events = (p, name) => readEvents(p).filter((e) => e.event === name);
 
@@ -196,8 +196,8 @@ describe("TM-175 B7 — a failed dispatch removes the worktree it created", () =
     const first = await dispatch(id, { backend: flaky, session: "s1", p });
     assert.equal(first.ok, false);
     assert.match(first.reason, /harness crashed/, "the spawn's own reason survives the cleanup");
-    assert.equal(existsSync(wt), false, "the worktree this dispatch created is gone");
-    assert.equal(read(id, p).worktree ?? null, null, "and the task no longer points at it");
+    assert.equal(existsSync(wt), true, "failed-launch work and evidence are retained");
+    assert.equal(read(id, p).worktree, wt, "the task retains the placement for a validated retry");
     assert.equal(read(id, p).status, "open");
     assert.equal(state(p).claims[id], undefined);
 
@@ -206,7 +206,7 @@ describe("TM-175 B7 — a failed dispatch removes the worktree it created", () =
     assert.ok(existsSync(wt));
   });
 
-  it("keeps a claim that predates the dispatch while removing the worktree it created", async () => {
+  it("keeps a claim that predates the dispatch and retains the failed launch checkout", async () => {
     // Reachable without --steal: `tm start` claims for session s1, then s1 runs `tm dispatch`.
     const { claimTask } = await import("../../lib/claims.mjs");
     const p = repoStore();
@@ -219,9 +219,9 @@ describe("TM-175 B7 — a failed dispatch removes the worktree it created", () =
 
     assert.equal(res.ok, false);
     assert.match(res.reason, /harness crashed/);
-    assert.equal(existsSync(wt), false, "the worktree this dispatch created is gone");
-    assert.equal(read(id, p).worktree ?? null, null);
-    assert.equal(read(id, p).branch ?? null, null);
+    assert.equal(existsSync(wt), true, "the failed launch checkout is retained");
+    assert.equal(read(id, p).worktree, wt);
+    assert.ok(read(id, p).branch);
     assert.equal(state(p).claims[id]?.session, "s1", "the claim that existed before the dispatch is still held by s1");
     assert.equal(read(id, p).status, "in_progress", "and the status it had is restored");
   });
@@ -268,6 +268,29 @@ describe("TM-175 B8 — pool.pid is taken exclusively", () => {
 });
 
 describe("TM-175 brakes — the pool pauses instead of burning the queue", () => {
+  it("task-local launch holds do not pause unrelated eligible work", async () => {
+    const p = repoStore({ dispatch: { maxFailures: 1 } });
+    const held = [ready(p, "hold one"), ready(p, "hold two"), ready(p, "hold three")];
+    const allowed = ready(p, "allowed");
+    const fake = fakeBackend((req) => held.includes(req.task.id) ? { ok: false, failureScope: "task", reason: "recorded worktree ownership needs reconciliation" } : { ok: true, run: `fake:${req.task.id}` });
+    const tick = await pool.poolTick({ p, registry: { fake }, caps: {} });
+    assert.equal(tick.paused, undefined);
+    assert.equal(pool.readPoolState(p).failures, 0);
+    assert.equal(tick.dispatched[0]?.id, allowed);
+  });
+
+  it("a task-specific worker failure does not consume provider failure budget", async () => {
+    const p = repoStore({ dispatch: { poolWip: 1, maxFailures: 1 } });
+    ready(p, "implementation failed");
+    const next = ready(p, "unrelated work");
+    const fake = fakeBackend();
+    await pool.poolTick({ p, registry: { fake }, caps: {} });
+    const tick = await pool.poolTick({ p, registry: { fake }, caps: {}, impls: { fake: (id, { p: pp }) => recordResult(id, { outcome: "failed", summary: "task assertion failed" }, pp) } });
+    assert.equal(tick.paused, undefined);
+    assert.equal(pool.readPoolState(p).failures, 0);
+    assert.equal(tick.dispatched[0]?.id, next);
+  });
+
   it("workers that die at once pause the pool after maxFailures (default 3), before the queue is parked", async () => {
     const p = repoStore({ dispatch: { poolWip: 1 } });
     const ids = [1, 2, 3, 4, 5, 6].map((n) => ready(p, `task ${n}`));

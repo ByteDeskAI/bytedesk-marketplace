@@ -2,6 +2,7 @@ import { appendFile, lstat, mkdir, open, readFile, truncate, unlink } from "node
 import { join } from "node:path";
 import { atomicWriteJson, ensurePrivateDir, newId, processStartIdentity, readJson, sha256 } from "../util.mjs";
 import { invariant } from "../errors.mjs";
+import { publishACPWorkflow } from "../../topology/lib/discovery.mjs";
 
 export const TERMINAL_STATES = new Set(["succeeded", "failed", "cancelled", "timed_out", "rejected", "recovery_required"]);
 const RUN_ID = /^run_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -46,6 +47,17 @@ export class RunStore {
 
   runDir(runId) { assertRunId(runId); return join(this.root, "runs", runId); }
   snapshotPath(runId) { return join(this.runDir(runId), "snapshot.json"); }
+  async writeSnapshot(snapshot) {
+    await atomicWriteJson(this.snapshotPath(snapshot.runId), snapshot);
+    // Discovery is derived. A failed index write must not undo a durable native
+    // transition; retain the failure for diagnostics and let reconciliation heal it.
+    try {
+      await publishACPWorkflow({snapshot,recordPath:this.snapshotPath(snapshot.runId),stateHome:this.root});
+      await unlink(join(this.runDir(snapshot.runId), 'discovery-error.json')).catch(()=>{});
+    } catch (error) {
+      await atomicWriteJson(join(this.runDir(snapshot.runId), 'discovery-error.json'), {at:new Date().toISOString(),code:error.code??'AO_DISCOVERY_WRITE_FAILED',message:String(error.message).slice(0,2000)}).catch(()=>{});
+    }
+  }
   eventsPath(runId) { return join(this.runDir(runId), "events.ndjson"); }
   /**
    * Marks a run as still worth recovering.
@@ -206,7 +218,7 @@ export class RunStore {
       error: null,
     };
     await this.appendEventUnlocked(snapshot, "run_created", { state: "queued" });
-    await atomicWriteJson(this.snapshotPath(runId), snapshot);
+    await this.writeSnapshot(snapshot);
     await this.markActive(runId);
     return snapshot;
   }
@@ -237,7 +249,7 @@ export class RunStore {
     }
     invariant(snapshot || journalSnapshot, "AO_RUN_NOT_FOUND", `Run ${runId} does not exist.`);
     if (journalSnapshot && (!snapshot || journalSnapshot.revision > snapshot.revision)) {
-      await atomicWriteJson(this.snapshotPath(runId), journalSnapshot);
+      await this.writeSnapshot(journalSnapshot);
       return journalSnapshot;
     }
     if (journalSnapshot) {
@@ -276,7 +288,7 @@ export class RunStore {
       invariant(expectedStates.includes(current.state), "AO_INVALID_STATE_TRANSITION", `Cannot transition ${runId} from ${current.state} to ${nextState}.`, { expectedStates });
       const next = { ...current, ...patch, state: nextState, revision: current.revision + 1, updatedAt: new Date().toISOString() };
       await this.appendEventUnlocked(next, eventType, { from: current.state, to: nextState, patch });
-      await atomicWriteJson(this.snapshotPath(runId), next);
+      await this.writeSnapshot(next);
       if (TERMINAL_STATES.has(nextState)) { await this.clearActive(runId); await this.markSwept(runId); }
       return next;
     });
@@ -290,7 +302,7 @@ export class RunStore {
       invariant(fields.every((field) => UPDATE_FIELDS.has(field)), "AO_IMMUTABLE_RUN_FIELD", "Run updates may only change whitelisted mutable fields.", { fields });
       const next = { ...current, ...patch, revision: current.revision + 1, updatedAt: new Date().toISOString() };
       await this.appendEventUnlocked(next, eventType, { patch });
-      await atomicWriteJson(this.snapshotPath(runId), next);
+      await this.writeSnapshot(next);
       return next;
     });
   }
@@ -307,7 +319,7 @@ export class RunStore {
       };
       const next = { ...current, ...patch, revision: current.revision + 1, updatedAt: now };
       await this.appendEventUnlocked(next, "workspace_removed", { patch });
-      await atomicWriteJson(this.snapshotPath(runId), next);
+      await this.writeSnapshot(next);
       return next;
     });
   }
@@ -319,7 +331,7 @@ export class RunStore {
       const now = new Date().toISOString();
       const next = { ...current, cancelRequestedAt: now, revision: current.revision + 1, updatedAt: now };
       await this.appendEventUnlocked(next, "cancel_requested", { at: now });
-      await atomicWriteJson(this.snapshotPath(runId), next);
+      await this.writeSnapshot(next);
       return next;
     });
   }
@@ -329,7 +341,7 @@ export class RunStore {
       const current = await this.get(runId);
       const next = { ...current, revision: current.revision + 1, updatedAt: new Date().toISOString() };
       await this.appendEventUnlocked(next, type, { ...payload, updatedAt: next.updatedAt });
-      await atomicWriteJson(this.snapshotPath(runId), next);
+      await this.writeSnapshot(next);
       return next;
     });
   }

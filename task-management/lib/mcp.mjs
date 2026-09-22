@@ -17,6 +17,7 @@ import { claimTask, claimant, releaseClaim } from "./claims.mjs";
 import { actor, actorLabel, sessionId, stamp } from "./actor.mjs";
 import { config, create, editTask, kindOf, list, logEvent, moveTask, nextTasks, now, read, readEvents, removeCriterion, setCriterion, staleTasks, state, update, writeState } from "./store.mjs";
 import { gateDone, gateStart, gateTaskCreate } from "./enforce.mjs";
+import { readyForReview } from "./governance.mjs";
 import { COLUMNS, board, collapseLog, handoff, renderHistory, sprintReport, standup, taskLine } from "./render.mjs";
 import { graphData, mermaid, renderWhy, why } from "./graph.mjs";
 import { MAX_CHARS, listResources, readResource } from "./resources.mjs";
@@ -387,12 +388,13 @@ export const TOOLS = [
   {
     name: "tm_task_update",
     description:
-      "Move a task through its lifecycle: start, done, park, block, unblock, delete (soft — the file stays, restore brings it back). Call start before you touch code and done the moment it is verified — never leave a task in_progress at the end of a session. done is gated on met acceptance criteria; start is gated on the WIP limit.",
+      "Move a task through its lifecycle: start, review-ready, done, park, block, unblock, delete or restore. Governed workers submit ao-topology manage report with their finish JSON; the producer records the exact revision, invokes review-ready and queues independent review. review-ready only reflects an accepted producer finish. Independent review and a separate integration decision are required before done; acceptance ticks and worker exit cannot bypass these gates. Start is gated on the WIP limit.",
     inputSchema: {
       type: "object",
       properties: {
         id: str("Task id, e.g. TM-001."),
-        action: { type: "string", enum: ["start", "done", "park", "block", "unblock", "delete", "restore"], description: "Lifecycle move." },
+        action: { type: "string", enum: ["start", "review-ready", "done", "park", "block", "unblock", "delete", "restore"], description: "Lifecycle move." },
+        revision: str("For review-ready: the current full task commit SHA already accepted in the producer finish report."),
         reason: str("Why, for park, block and delete. Recorded on the task."),
         steal: {
           type: "boolean",
@@ -402,7 +404,11 @@ export const TOOLS = [
       },
       required: ["id", "action"],
     },
-    run: ({ id, action, reason, steal }, p) => {
+    run: ({ id, action, reason, steal, revision }, p) => {
+      if (action === "review-ready") {
+        try { return ok({ id, governance: readyForReview(id, { revision, p }).governance }); }
+        catch (error) { return fail(error.message); }
+      }
       if (!read(id, p)) return fail(`not found: ${id}`);
       switch (action) {
         case "start": {

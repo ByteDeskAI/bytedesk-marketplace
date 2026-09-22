@@ -11,6 +11,7 @@ import { AgentOrchestrationError, invariant, serializeError } from "./errors.mjs
 import { atomicWriteJson, isPathWithin, removeTree } from "./util.mjs";
 import { getProviderAdapter } from "./providers/adapters.mjs";
 import { AUTH_BOOTSTRAP_PROMPT } from "./runtime/bootstrap.mjs";
+import { linuxNetworkCommand } from "./platform/linux-network.mjs";
 
 const BASE_ENV_KEYS = Object.freeze([
   "LANG", "LC_ALL", "LC_CTYPE", "TERM", "TZ",
@@ -245,6 +246,13 @@ async function sandboxPlan({ providerId, pluginRoot, workspacePath, commonGitDir
   if (permissionProfile === "write") invariant(gitMarker.isFile(), "AO_UNSAFE_GIT_LAYOUT", "A write workspace must be a linked worktree with a .git pointer file.");
   const wslHosted = process.env.AGENT_ORCHESTRATION_HOST_PLATFORM === "win32";
   await Promise.all([access("/usr/bin/bwrap"), access(wslHosted ? "/usr/bin/pasta" : "/usr/bin/slirp4netns")]);
+  if (!wslHosted) {
+    for (const executable of ["/usr/bin/python3", "/usr/bin/nsenter"]) {
+      await access(executable, constants.X_OK).catch(() => {
+        throw new AgentOrchestrationError("AO_SANDBOX_DEPENDENCY_MISSING", `Linux provider networking requires ${executable}; install python3 and util-linux before launching.`);
+      });
+    }
+  }
 
   const controlDir = await realpath(brokerControlDir);
   const controlInfo = await lstat(controlDir);
@@ -753,11 +761,8 @@ async function main() {
         once(network, "exit").then(([code, signal]) => { throw new Error(`pasta exited before readiness (exit=${code}, signal=${signal}).`); }),
       ]);
     } else {
-      network = spawn("/usr/bin/slirp4netns", [
-        "--configure", "--mtu=65520", "--disable-host-loopback",
-        "--enable-sandbox", "--ready-fd=3", "--exit-fd=4",
-        String(info["child-pid"]), "tap0",
-      ], {
+      const networkCommand = linuxNetworkCommand(info);
+      network = spawn(networkCommand.executable, networkCommand.args, {
         stdio: ["ignore", "ignore", "inherit", "pipe", "pipe"],
         env: { PATH: "/usr/bin:/bin", LANG: process.env.LANG ?? "C.UTF-8" },
         shell: false,

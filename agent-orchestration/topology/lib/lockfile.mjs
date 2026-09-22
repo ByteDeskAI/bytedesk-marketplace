@@ -47,7 +47,7 @@ async function removeOwned(path, token) {
 /** Run under exclusive ownership. hooks.afterMkdir is a deterministic test seam.
  * staleMs is accepted for compatibility, but age alone never permits reclamation.
  */
-export async function withLock(lockPath, fn, { timeoutMs = 30_000, pollMs = 50, hooks = {} } = {}) {
+export async function withLock(lockPath, fn, { timeoutMs = 30_000, pollMs = 50, hooks = {}, timeoutCode = "TOPOLOGY_LOCK_TIMEOUT" } = {}) {
   const deadline = Date.now() + timeoutMs;
   const token = randomUUID();
   await mkdir(dirname(lockPath), { recursive: true });
@@ -68,7 +68,7 @@ export async function withLock(lockPath, fn, { timeoutMs = 30_000, pollMs = 50, 
       await removeOwned(lockPath, owner.token);
     }
     if (Date.now() >= deadline) {
-      fail("TOPOLOGY_LOCK_TIMEOUT", `Timed out after ${timeoutMs}ms waiting for ${lockPath}; owner ${JSON.stringify(owner)}. Ownership is live or unknown. Inspect the owner process and lock before manual recovery.`);
+      fail(timeoutCode, `Timed out after ${timeoutMs}ms waiting for ${lockPath}; owner ${JSON.stringify(owner)}. Ownership is live or unknown. Inspect the owner process and lock before manual recovery.`);
     }
     await sleep(Math.max(1, Math.min(deadline - Date.now(), pollMs * (0.75 + Math.random() * 0.5))));
   }
